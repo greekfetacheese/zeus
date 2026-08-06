@@ -1,7 +1,7 @@
 //! UI that shows the transaction history
 
 use crate::core::{TransactionRich, WalletInfo, ZeusContext};
-use crate::gui::SHARED_GUI;
+use crate::gui::{SHARED_GUI, ui::show_with_fade};
 use crate::utils::{RT, truncate_address};
 use egui::{Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Ui, vec2};
 use elegance::{Badge, BadgeTone};
@@ -187,153 +187,205 @@ impl TxHistory {
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
-      if !self.open {
-         return;
-      }
-
-      self.rebuild_cache();
-
-      Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
-         ui.set_width(ui.available_width());
-         ui.set_height(ui.available_height());
-         ui.spacing_mut().item_spacing = vec2(10.0, 15.0);
-         ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.spacing_mut().item_spacing.x = 20.0;
+      show_with_fade(ui, "tx_history_ui_fade", self.open, |ui| {
+         Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.set_height(ui.available_height());
+            ui.spacing_mut().item_spacing = vec2(10.0, 15.0);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-            let combo_visuals = theme.combo_box_visuals();
-            let label_visuals = theme.label_visuals();
-            let expansion = Some(6.0);
+            self.rebuild_cache();
 
-            // Wallet Filter
-            let wallets = ctx.get_all_wallets_info();
-            let selected_wallet_name =
-               self.selected_wallet.clone().map_or("All Wallets".to_string(), |wallet| {
-                  wallet.name_with_id_short()
-               });
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.spacing_mut().item_spacing.x = 20.0;
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-            let text = RichText::new(selected_wallet_name).size(theme.text_sizes.normal);
-            let label = Label::new(text, None)
-               .visuals(label_visuals)
-               .fill_width(true)
-               .sense(Sense::click())
-               .expand(expansion);
+               let combo_visuals = theme.combo_box_visuals();
+               let label_visuals = theme.label_visuals();
+               let expansion = Some(6.0);
 
-            ComboBox::new("wallet_filter", label)
-               .visuals(combo_visuals)
-               .width(200.0)
-               .show_ui(ui, |ui| {
-                  ui.spacing_mut().item_spacing.y = 10.0;
+               // Wallet Filter
+               let wallets = ctx.get_all_wallets_info();
+               let selected_wallet_name =
+                  self.selected_wallet.clone().map_or("All Wallets".to_string(), |wallet| {
+                     wallet.name_with_id_short()
+                  });
 
-                  let text = RichText::new("All Wallets").size(theme.text_sizes.normal);
-                  let label = Label::new(text, None)
-                     .visuals(label_visuals)
-                     .fill_width(true)
-                     .sense(Sense::click())
-                     .expand(expansion);
+               let text = RichText::new(selected_wallet_name).size(theme.text_sizes.normal);
+               let label = Label::new(text, None)
+                  .visuals(label_visuals)
+                  .fill_width(true)
+                  .sense(Sense::click())
+                  .expand(expansion);
 
-                  if ui.add(label).clicked() {
-                     if self.selected_wallet.is_some() {
-                        self.selected_wallet = None;
-                        self.current_page = 0;
-                     }
-                  }
+               ComboBox::new("wallet_filter", label)
+                  .visuals(combo_visuals)
+                  .width(200.0)
+                  .show_ui(ui, |ui| {
+                     ui.spacing_mut().item_spacing.y = 10.0;
 
-                  for (_, wallet) in wallets {
-                     let text =
-                        RichText::new(&wallet.name_with_source()).size(theme.text_sizes.normal);
+                     let text = RichText::new("All Wallets").size(theme.text_sizes.normal);
                      let label = Label::new(text, None)
                         .visuals(label_visuals)
-                        .sense(Sense::click())
                         .fill_width(true)
+                        .sense(Sense::click())
                         .expand(expansion);
 
                      if ui.add(label).clicked() {
-                        if self.selected_wallet != Some(wallet.clone()) {
-                           self.selected_wallet = Some(wallet.clone());
+                        if self.selected_wallet.is_some() {
+                           self.selected_wallet = None;
                            self.current_page = 0;
                         }
                      }
-                  }
-               });
 
-            // --- Chain Filter ---
-            let selected_chain_name =
-               self.selected_chain.map_or("All Chains".to_string(), |chain| {
-                  chain.name().to_string()
-               });
+                     for (_, wallet) in wallets {
+                        let text =
+                           RichText::new(&wallet.name_with_source()).size(theme.text_sizes.normal);
+                        let label = Label::new(text, None)
+                           .visuals(label_visuals)
+                           .sense(Sense::click())
+                           .fill_width(true)
+                           .expand(expansion);
 
-            let text = RichText::new(selected_chain_name).size(theme.text_sizes.normal);
-            let label = Label::new(text, None)
-               .visuals(label_visuals)
-               .fill_width(true)
-               .sense(Sense::click())
-               .expand(expansion);
-
-            ComboBox::new("chain_filter", label)
-               .visuals(combo_visuals)
-               .width(200.0)
-               .show_ui(ui, |ui| {
-                  ui.spacing_mut().item_spacing.y = 10.0;
-
-                  let text = RichText::new("All Chains").size(theme.text_sizes.normal);
-                  let label = Label::new(text, None)
-                     .visuals(label_visuals)
-                     .fill_width(true)
-                     .sense(Sense::click())
-                     .expand(expansion);
-
-                  if ui.add(label).clicked() {
-                     if self.selected_chain.is_some() {
-                        self.selected_chain = None;
-                        self.current_page = 0;
+                        if ui.add(label).clicked() {
+                           if self.selected_wallet != Some(wallet.clone()) {
+                              self.selected_wallet = Some(wallet.clone());
+                              self.current_page = 0;
+                           }
+                        }
                      }
-                  }
+                  });
 
-                  for chain in ChainId::supported_chains() {
-                     if ctx.is_chain_disabled(chain.id()) {
-                        continue;
-                     }
+               // --- Chain Filter ---
+               let selected_chain_name =
+                  self.selected_chain.map_or("All Chains".to_string(), |chain| {
+                     chain.name().to_string()
+                  });
 
-                     let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
+               let text = RichText::new(selected_chain_name).size(theme.text_sizes.normal);
+               let label = Label::new(text, None)
+                  .visuals(label_visuals)
+                  .fill_width(true)
+                  .sense(Sense::click())
+                  .expand(expansion);
+
+               ComboBox::new("chain_filter", label)
+                  .visuals(combo_visuals)
+                  .width(200.0)
+                  .show_ui(ui, |ui| {
+                     ui.spacing_mut().item_spacing.y = 10.0;
+
+                     let text = RichText::new("All Chains").size(theme.text_sizes.normal);
                      let label = Label::new(text, None)
                         .visuals(label_visuals)
-                        .sense(Sense::click())
                         .fill_width(true)
+                        .sense(Sense::click())
                         .expand(expansion);
 
                      if ui.add(label).clicked() {
-                        if self.selected_chain != Some(chain) {
-                           self.selected_chain = Some(chain);
+                        if self.selected_chain.is_some() {
+                           self.selected_chain = None;
                            self.current_page = 0;
                         }
                      }
-                  }
-               });
-         });
 
-         ui.separator();
+                     for chain in ChainId::supported_chains() {
+                        if ctx.is_chain_disabled(chain.id()) {
+                           continue;
+                        }
 
-         if self.loading {
-            ui.vertical_centered(|ui| {
-               ui.label(
-                  RichText::new("Loading transactions…")
-                     .size(theme.text_sizes.large)
-                     .color(theme.colors.text),
-               );
+                        let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
+                        let label = Label::new(text, None)
+                           .visuals(label_visuals)
+                           .sense(Sense::click())
+                           .fill_width(true)
+                           .expand(expansion);
+
+                        if ui.add(label).clicked() {
+                           if self.selected_chain != Some(chain) {
+                              self.selected_chain = Some(chain);
+                              self.current_page = 0;
+                           }
+                        }
+                     }
+                  });
             });
-            return;
-         }
 
-         if self.cached_txs.is_empty() {
+            ui.separator();
+
+            if self.loading {
+               ui.vertical_centered(|ui| {
+                  ui.label(
+                     RichText::new("Loading transactions…")
+                        .size(theme.text_sizes.large)
+                        .color(theme.colors.text),
+                  );
+               });
+               return;
+            }
+
+            if self.cached_txs.is_empty() {
+               ui.horizontal(|ui| {
+                  ui.add_space(400.0);
+                  ui.spacing_mut().item_spacing.x = 5.0;
+
+                  ui.label(
+                     RichText::new("No transactions match your filters")
+                        .size(theme.text_sizes.large)
+                        .color(theme.colors.text),
+                  );
+
+                  let q_mark = RichText::new("?").size(theme.text_sizes.normal);
+                  let info_tip = Badge::new(q_mark, BadgeTone::Info);
+                  ui.add(info_tip).on_hover_text(ZEUS_TIP);
+               });
+               return;
+            }
+
+            let total_txs = self.cached_txs.len();
+            let total_pages = (total_txs as f64 / self.txs_per_page as f64).ceil() as usize;
+            // Ensure current page is valid
+            self.current_page = self.current_page.min(total_pages.saturating_sub(1));
+
+            let button_visuals = theme.button_visuals();
+
+            // Count centered above the list
             ui.horizontal(|ui| {
-               ui.add_space(400.0);
+               // Pagination centered and vertically aligned with the buttons
+               ui.horizontal(|ui| {
+                  ui.spacing_mut().item_spacing.x = 12.0;
+                  ui.spacing_mut().button_padding = vec2(4.0, 6.0);
+
+                  let prev_enabled = self.current_page > 0;
+                  let text = RichText::new("Previous").size(theme.text_sizes.small);
+                  let prev_button = Button::new(text).visuals(button_visuals);
+                  if ui.add_enabled(prev_enabled, prev_button).clicked() {
+                     self.current_page -= 1;
+                  }
+
+                  ui.label(
+                     RichText::new(format!(
+                        "Page {} of {}",
+                        self.current_page + 1,
+                        total_pages.max(1)
+                     ))
+                     .size(theme.text_sizes.small)
+                     .color(theme.colors.text),
+                  );
+
+                  let next_enabled = (self.current_page + 1) < total_pages;
+                  let text = RichText::new("Next").size(theme.text_sizes.small);
+                  let next_button = Button::new(text).visuals(button_visuals);
+                  if ui.add_enabled(next_enabled, next_button).clicked() {
+                     self.current_page += 1;
+                  }
+               });
+
+               ui.add_space(200.0);
                ui.spacing_mut().item_spacing.x = 5.0;
 
                ui.label(
-                  RichText::new("No transactions match your filters")
+                  RichText::new(format!("{} transactions found", total_txs))
                      .size(theme.text_sizes.large)
                      .color(theme.colors.text),
                );
@@ -342,174 +394,121 @@ impl TxHistory {
                let info_tip = Badge::new(q_mark, BadgeTone::Info);
                ui.add(info_tip).on_hover_text(ZEUS_TIP);
             });
-            return;
-         }
 
-         let total_txs = self.cached_txs.len();
-         let total_pages = (total_txs as f64 / self.txs_per_page as f64).ceil() as usize;
-         // Ensure current page is valid
-         self.current_page = self.current_page.min(total_pages.saturating_sub(1));
+            ui.add_space(10.0);
 
-         let button_visuals = theme.button_visuals();
+            ScrollArea::vertical()
+               .id_salt("tx_history_scroll_area")
+               .auto_shrink([false; 2])
+               .max_height(ui.available_height() * 0.85)
+               .show(ui, |ui| {
+                  ui.set_width(ui.available_width());
 
-         // Count centered above the list
-         ui.horizontal(|ui| {
-            // Pagination centered and vertically aligned with the buttons
-            ui.horizontal(|ui| {
-               ui.spacing_mut().item_spacing.x = 12.0;
-               ui.spacing_mut().button_padding = vec2(4.0, 6.0);
+                  let start = self.current_page * self.txs_per_page;
+                  let end = start.saturating_add(self.txs_per_page).min(total_txs);
+                  let txs_on_page = if start < end {
+                     &self.cached_txs[start..end]
+                  } else {
+                     &[]
+                  };
 
-               let prev_enabled = self.current_page > 0;
-               let text = RichText::new("Previous").size(theme.text_sizes.small);
-               let prev_button = Button::new(text).visuals(button_visuals);
-               if ui.add_enabled(prev_enabled, prev_button).clicked() {
-                  self.current_page -= 1;
-               }
+                  // Fixed content height for every column so icon-less rows
+                  // and the Details button share one baseline.
+                  let row_height = 40.0;
+                  let col_spacing = 20.0;
+                  let column_widths = [
+                     ui.available_width() * 0.22, // Wallet
+                     ui.available_width() * 0.28, // Action
+                     ui.available_width() * 0.22, // Age
+                     ui.available_width() * 0.16, // Details
+                  ];
 
-               ui.label(
-                  RichText::new(format!(
-                     "Page {} of {}",
-                     self.current_page + 1,
-                     total_pages.max(1)
-                  ))
-                  .size(theme.text_sizes.small)
-                  .color(theme.colors.text),
-               );
+                  let row_width: f32 = column_widths.iter().sum::<f32>()
+                     + col_spacing * (column_widths.len() as f32 - 1.0);
 
-               let next_enabled = (self.current_page + 1) < total_pages;
-               let text = RichText::new("Next").size(theme.text_sizes.small);
-               let next_button = Button::new(text).visuals(button_visuals);
-               if ui.add_enabled(next_enabled, next_button).clicked() {
-                  self.current_page += 1;
-               }
-            });
+                  // --- Header (same widths as body cells; not inside a frame) ---
+                  ui.horizontal(|ui| {
+                     ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0);
+                     ui.spacing_mut().item_spacing.x = col_spacing;
+                     for (i, header) in ["Wallet", "Action", "Age", ""].into_iter().enumerate() {
+                        Self::row_cell(ui, column_widths[i], 28.0, |ui| {
+                           if !header.is_empty() {
+                              ui.label(
+                                 RichText::new(header)
+                                    .strong()
+                                    .size(theme.text_sizes.large)
+                                    .color(theme.colors.text),
+                              );
+                           }
+                        });
+                     }
+                  });
 
-            ui.add_space(200.0);
-            ui.spacing_mut().item_spacing.x = 5.0;
+                  ui.add_space(8.0);
 
-            ui.label(
-               RichText::new(format!("{} transactions found", total_txs))
-                  .size(theme.text_sizes.large)
-                  .color(theme.colors.text),
-            );
+                  // --- Body: one frame2 card per tx ---
+                  let row_frame = theme.frame2.outer_margin(Margin::ZERO);
 
-            let q_mark = RichText::new("?").size(theme.text_sizes.normal);
-            let info_tip = Badge::new(q_mark, BadgeTone::Info);
-            ui.add(info_tip).on_hover_text(ZEUS_TIP);
-         });
+                  ui.vertical_centered(|ui| {
+                     ui.spacing_mut().item_spacing.y = 10.0;
 
-         ui.add_space(10.0);
+                     for tx in txs_on_page {
+                        ui.allocate_ui(vec2(row_width, row_height + 16.0), |ui| {
+                           row_frame.show(ui, |ui| {
+                              ui.set_width(row_width);
+                              ui.spacing_mut().item_spacing.x = col_spacing;
 
-         ScrollArea::vertical()
-            .id_salt("tx_history_scroll_area")
-            .auto_shrink([false; 2])
-            .max_height(ui.available_height() * 0.85)
-            .show(ui, |ui| {
-               ui.set_width(ui.available_width());
+                              ui.horizontal(|ui| {
+                                 // Wallet
+                                 Self::row_cell(ui, column_widths[0], row_height, |ui| {
+                                    let name = self.wallet_name_or_address(ctx, tx.sender());
+                                    ui.label(
+                                       RichText::new(name)
+                                          .size(theme.text_sizes.normal)
+                                          .color(theme.colors.text),
+                                    )
+                                    .on_hover_text(tx.sender().to_string());
+                                 });
 
-               let start = self.current_page * self.txs_per_page;
-               let end = start.saturating_add(self.txs_per_page).min(total_txs);
-               let txs_on_page = if start < end {
-                  &self.cached_txs[start..end]
-               } else {
-                  &[]
-               };
+                                 // Action
+                                 Self::row_cell(ui, column_widths[1], row_height, |ui| {
+                                    ui.label(
+                                       RichText::new(tx.main_event.name())
+                                          .size(theme.text_sizes.normal)
+                                          .color(theme.colors.text),
+                                    );
+                                 });
 
-               // Fixed content height for every column so icon-less rows
-               // and the Details button share one baseline.
-               let row_height = 40.0;
-               let col_spacing = 20.0;
-               let column_widths = [
-                  ui.available_width() * 0.22, // Wallet
-                  ui.available_width() * 0.28, // Action
-                  ui.available_width() * 0.22, // Age
-                  ui.available_width() * 0.16, // Details
-               ];
+                                 // Age
+                                 Self::row_cell(ui, column_widths[2], row_height, |ui| {
+                                    ui.label(
+                                       RichText::new(tx.timestamp.to_relative())
+                                          .size(theme.text_sizes.normal)
+                                          .color(theme.colors.text),
+                                    );
+                                 });
 
-               let row_width: f32 = column_widths.iter().sum::<f32>()
-                  + col_spacing * (column_widths.len() as f32 - 1.0);
-
-               // --- Header (same widths as body cells; not inside a frame) ---
-               ui.horizontal(|ui| {
-                  ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0);
-                  ui.spacing_mut().item_spacing.x = col_spacing;
-                  for (i, header) in ["Wallet", "Action", "Age", ""].into_iter().enumerate() {
-                     Self::row_cell(ui, column_widths[i], 28.0, |ui| {
-                        if !header.is_empty() {
-                           ui.label(
-                              RichText::new(header)
-                                 .strong()
-                                 .size(theme.text_sizes.large)
-                                 .color(theme.colors.text),
-                           );
-                        }
-                     });
-                  }
-               });
-
-               ui.add_space(8.0);
-
-               // --- Body: one frame2 card per tx ---
-               let row_frame = theme.frame2.outer_margin(Margin::ZERO);
-
-               ui.vertical_centered(|ui| {
-                  ui.spacing_mut().item_spacing.y = 10.0;
-
-                  for tx in txs_on_page {
-                     ui.allocate_ui(vec2(row_width, row_height + 16.0), |ui| {
-                        row_frame.show(ui, |ui| {
-                           ui.set_width(row_width);
-                           ui.spacing_mut().item_spacing.x = col_spacing;
-
-                           ui.horizontal(|ui| {
-                              // Wallet
-                              Self::row_cell(ui, column_widths[0], row_height, |ui| {
-                                 let name = self.wallet_name_or_address(ctx, tx.sender());
-                                 ui.label(
-                                    RichText::new(name)
-                                       .size(theme.text_sizes.normal)
-                                       .color(theme.colors.text),
-                                 )
-                                 .on_hover_text(tx.sender().to_string());
-                              });
-
-                              // Action
-                              Self::row_cell(ui, column_widths[1], row_height, |ui| {
-                                 ui.label(
-                                    RichText::new(tx.main_event.name())
-                                       .size(theme.text_sizes.normal)
-                                       .color(theme.colors.text),
-                                 );
-                              });
-
-                              // Age
-                              Self::row_cell(ui, column_widths[2], row_height, |ui| {
-                                 ui.label(
-                                    RichText::new(tx.timestamp.to_relative())
-                                       .size(theme.text_sizes.normal)
-                                       .color(theme.colors.text),
-                                 );
-                              });
-
-                              // Details
-                              Self::row_cell(ui, column_widths[3], row_height, |ui| {
-                                 let text = RichText::new("Details").size(theme.text_sizes.normal);
-                                 let details_button = Button::new(text).visuals(button_visuals);
-                                 if ui.add(details_button).clicked() {
-                                    let tx_clone = tx.clone();
-                                    RT.spawn_blocking(move || {
-                                       SHARED_GUI.write(|gui| {
-                                          gui.tx_window.open(Some(tx_clone));
+                                 // Details
+                                 Self::row_cell(ui, column_widths[3], row_height, |ui| {
+                                    let text =
+                                       RichText::new("Details").size(theme.text_sizes.normal);
+                                    let details_button = Button::new(text).visuals(button_visuals);
+                                    if ui.add(details_button).clicked() {
+                                       let tx_clone = tx.clone();
+                                       RT.spawn_blocking(move || {
+                                          SHARED_GUI.write(|gui| {
+                                             gui.tx_window.open(Some(tx_clone));
+                                          });
                                        });
-                                    });
-                                 }
+                                    }
+                                 });
                               });
                            });
                         });
-                     });
-                  }
+                     }
+                  });
                });
-            });
+         });
       });
    }
 }

@@ -1,6 +1,6 @@
 use eframe::egui::{
-   Align, Align2, Checkbox, CollapsingHeader, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl,
-   RichText, Ui, Window, vec2,
+   Align, Checkbox, CollapsingHeader, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl, RichText,
+   Ui, vec2,
 };
 
 use std::{
@@ -17,7 +17,7 @@ use crate::{
    utils::{TimeStamp, simulate::simulate_transaction},
 };
 use crate::{
-   gui::ui::NotificationType,
+   gui::ui::{NotificationType, common::show_with_fade},
    utils::{RT, estimate_tx_cost, simulate::railgun_common_accounts, state::get_base_fee},
 };
 
@@ -150,7 +150,7 @@ impl ShieldUi {
          recipient: String::new(),
          recipient_name: None,
          search_query: String::new(),
-         size: (500.0, 660.0),
+         size: (500.0, 620.0),
          price_syncing: false,
          syncing_balance: false,
          sending_tx: false,
@@ -210,26 +210,20 @@ impl ShieldUi {
 
    fn show_not_supported(&self, theme: &Theme, ui: &mut Ui) {
       let frame = theme.frame1;
-      Window::new("shield_ui")
-         .title_bar(false)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(frame)
-         .show(ui.ctx(), |ui| {
-            ui.vertical_centered(|ui| {
-               Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
-                  ui.set_width(self.size.0);
-                  ui.set_max_height(self.size.1);
-                  ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
-                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      ui.vertical_centered(|ui| {
+         frame.show(ui, |ui| {
+            Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
+               ui.set_width(self.size.0);
+               ui.set_max_height(self.size.1);
+               ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-                  let text = RichText::new("Railgun is not supported for the selected chain")
-                     .size(theme.text_sizes.very_large);
-                  ui.label(text);
-               });
+               let text = RichText::new("Railgun is not supported for the selected chain")
+                  .size(theme.text_sizes.very_large);
+               ui.label(text);
             });
          });
+      });
    }
 
    pub fn show(
@@ -242,26 +236,16 @@ impl ShieldUi {
       contacts_ui: &mut ContactsUi,
       ui: &mut Ui,
    ) {
-      if !self.open {
-         return;
-      }
+      show_with_fade(ui, "shield_ui_fade", self.open, |ui| {
+         if !ctx.railgun_is_supported(ctx.chain) {
+            self.show_not_supported(theme, ui);
+            return;
+         }
 
-      if !ctx.railgun_is_supported(ctx.chain) {
-         self.show_not_supported(theme, ui);
-         return;
-      }
+         let frame = theme.frame1;
 
-      let frame = theme.frame1;
-
-      Window::new("shield_ui")
-         .title_bar(false)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 100.0))
-         .frame(frame)
-         .show(ui.ctx(), |ui| {
-            ui.vertical_centered(|ui| {
-               Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
+         ui.vertical_centered(|ui| {
+            frame.show(ui, |ui| {
                   ui.set_width(self.size.0);
                   ui.set_max_height(self.size.1);
                   ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
@@ -463,7 +447,7 @@ impl ShieldUi {
                   self.action_button(ctx, theme, owner, recipient_str, ui);
                });
             });
-         });
+      });
    }
 
    fn unshield_options(&mut self, theme: &Theme, chain_id: u64, ui: &mut Ui) {

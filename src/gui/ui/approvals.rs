@@ -4,7 +4,7 @@ use crate::assets::icons::Icons;
 use crate::core::{
    PermitParams, TokenApproveParams, WalletInfo, ZeusContext, send_transaction, signature,
 };
-use crate::gui::SHARED_GUI;
+use crate::gui::{SHARED_GUI, ui::show_with_fade};
 use crate::utils::{RT, TimeStamp, truncate_address};
 use egui::{Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, Ui, vec2};
 use elegance::{Badge, BadgeTone};
@@ -356,347 +356,348 @@ impl ApprovalsUi {
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      if !self.open {
-         return;
-      }
-
-      self.rebuild_cache();
-
       let frame = Frame::new().inner_margin(10).outer_margin(Margin::symmetric(10, 0));
 
-      frame.show(ui, |ui| {
-         ui.set_width(self.size.0);
-         ui.set_height(self.size.1);
-         ui.spacing_mut().item_spacing = vec2(10.0, 12.0);
-         ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      show_with_fade(ui, "approvals_ui_fade", self.open, |ui| {
+         frame.show(ui, |ui| {
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
+            ui.spacing_mut().item_spacing = vec2(10.0, 12.0);
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.spacing_mut().item_spacing.x = 20.0;
+            self.rebuild_cache();
 
-            let combo_visuals = theme.combo_box_visuals();
-            let label_visuals = theme.label_visuals();
-            let expansion = Some(6.0);
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.spacing_mut().item_spacing.x = 20.0;
 
-            // Wallet filter
-            let wallets = ctx.get_all_wallets_info();
-            let selected_wallet_name =
-               self.selected_wallet.clone().map_or("All Wallets".to_string(), |wallet| {
-                  wallet.name_with_id_short()
-               });
+               let combo_visuals = theme.combo_box_visuals();
+               let label_visuals = theme.label_visuals();
+               let expansion = Some(6.0);
 
-            let text = RichText::new(selected_wallet_name).size(theme.text_sizes.normal);
-            let label = Label::new(text, None)
-               .visuals(label_visuals)
-               .fill_width(true)
-               .sense(Sense::click())
-               .expand(expansion);
+               // Wallet filter
+               let wallets = ctx.get_all_wallets_info();
+               let selected_wallet_name =
+                  self.selected_wallet.clone().map_or("All Wallets".to_string(), |wallet| {
+                     wallet.name_with_id_short()
+                  });
 
-            ComboBox::new("approvals_wallet_filter", label)
-               .visuals(combo_visuals)
-               .width(200.0)
-               .show_ui(ui, |ui| {
-                  ui.spacing_mut().item_spacing.y = 10.0;
+               let text = RichText::new(selected_wallet_name).size(theme.text_sizes.normal);
+               let label = Label::new(text, None)
+                  .visuals(label_visuals)
+                  .fill_width(true)
+                  .sense(Sense::click())
+                  .expand(expansion);
 
-                  let text = RichText::new("All Wallets").size(theme.text_sizes.normal);
-                  let label = Label::new(text, None)
-                     .visuals(label_visuals)
-                     .fill_width(true)
-                     .sense(Sense::click())
-                     .expand(expansion);
+               ComboBox::new("approvals_wallet_filter", label)
+                  .visuals(combo_visuals)
+                  .width(200.0)
+                  .show_ui(ui, |ui| {
+                     ui.spacing_mut().item_spacing.y = 10.0;
 
-                  if ui.add(label).clicked() {
-                     if self.selected_wallet.is_some() {
-                        self.selected_wallet = None;
-                     }
-                  }
-
-                  for (_, wallet) in wallets {
-                     let text =
-                        RichText::new(&wallet.name_with_source()).size(theme.text_sizes.normal);
+                     let text = RichText::new("All Wallets").size(theme.text_sizes.normal);
                      let label = Label::new(text, None)
                         .visuals(label_visuals)
-                        .sense(Sense::click())
                         .fill_width(true)
+                        .sense(Sense::click())
                         .expand(expansion);
 
                      if ui.add(label).clicked() {
-                        if self.selected_wallet.as_ref().map(|w| w.address) != Some(wallet.address)
-                        {
-                           self.selected_wallet = Some(wallet.clone());
+                        if self.selected_wallet.is_some() {
+                           self.selected_wallet = None;
                         }
                      }
-                  }
-               });
 
-            // Chain filter
-            let selected_chain_name =
-               self.selected_chain.map_or("All Chains".to_string(), |chain| {
-                  chain.name().to_string()
-               });
+                     for (_, wallet) in wallets {
+                        let text =
+                           RichText::new(&wallet.name_with_source()).size(theme.text_sizes.normal);
+                        let label = Label::new(text, None)
+                           .visuals(label_visuals)
+                           .sense(Sense::click())
+                           .fill_width(true)
+                           .expand(expansion);
 
-            let text = RichText::new(selected_chain_name).size(theme.text_sizes.normal);
-            let label = Label::new(text, None)
-               .visuals(label_visuals)
-               .fill_width(true)
-               .sense(Sense::click())
-               .expand(expansion);
-
-            ComboBox::new("approvals_chain_filter", label)
-               .visuals(combo_visuals)
-               .width(200.0)
-               .show_ui(ui, |ui| {
-                  ui.spacing_mut().item_spacing.y = 10.0;
-
-                  let text = RichText::new("All Chains").size(theme.text_sizes.normal);
-                  let label = Label::new(text, None)
-                     .visuals(label_visuals)
-                     .fill_width(true)
-                     .sense(Sense::click())
-                     .expand(expansion);
-
-                  if ui.add(label).clicked() {
-                     if self.selected_chain.is_some() {
-                        self.selected_chain = None;
+                        if ui.add(label).clicked() {
+                           if self.selected_wallet.as_ref().map(|w| w.address)
+                              != Some(wallet.address)
+                           {
+                              self.selected_wallet = Some(wallet.clone());
+                           }
+                        }
                      }
-                  }
+                  });
 
-                  for chain in ChainId::supported_chains() {
-                     if ctx.is_chain_disabled(chain.id()) {
-                        continue;
-                     }
+               // Chain filter
+               let selected_chain_name =
+                  self.selected_chain.map_or("All Chains".to_string(), |chain| {
+                     chain.name().to_string()
+                  });
 
-                     let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
+               let text = RichText::new(selected_chain_name).size(theme.text_sizes.normal);
+               let label = Label::new(text, None)
+                  .visuals(label_visuals)
+                  .fill_width(true)
+                  .sense(Sense::click())
+                  .expand(expansion);
+
+               ComboBox::new("approvals_chain_filter", label)
+                  .visuals(combo_visuals)
+                  .width(200.0)
+                  .show_ui(ui, |ui| {
+                     ui.spacing_mut().item_spacing.y = 10.0;
+
+                     let text = RichText::new("All Chains").size(theme.text_sizes.normal);
                      let label = Label::new(text, None)
                         .visuals(label_visuals)
-                        .sense(Sense::click())
                         .fill_width(true)
+                        .sense(Sense::click())
                         .expand(expansion);
 
                      if ui.add(label).clicked() {
-                        if self.selected_chain != Some(chain) {
-                           self.selected_chain = Some(chain);
+                        if self.selected_chain.is_some() {
+                           self.selected_chain = None;
                         }
                      }
-                  }
+
+                     for chain in ChainId::supported_chains() {
+                        if ctx.is_chain_disabled(chain.id()) {
+                           continue;
+                        }
+
+                        let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
+                        let label = Label::new(text, None)
+                           .visuals(label_visuals)
+                           .sense(Sense::click())
+                           .fill_width(true)
+                           .expand(expansion);
+
+                        if ui.add(label).clicked() {
+                           if self.selected_chain != Some(chain) {
+                              self.selected_chain = Some(chain);
+                           }
+                        }
+                     }
+                  });
+            });
+
+            ui.separator();
+
+            if self.loading {
+               ui.vertical_centered(|ui| {
+                  ui.add(Spinner::new().size(20.0).color(theme.colors.text));
                });
-         });
+               return;
+            }
 
-         ui.separator();
-
-         if self.loading {
-            ui.vertical_centered(|ui| {
-               ui.add(Spinner::new().size(20.0).color(theme.colors.text));
-            });
-            return;
-         }
-
-         if self.cached_rows.is_empty() {
-            ui.horizontal(|ui| {
-               ui.add_space(300.0);
-               ui.spacing_mut().item_spacing.x = 5.0;
-
-               ui.label(
-                  RichText::new("No active approvals match your filters")
-                     .size(theme.text_sizes.large)
-                     .color(theme.colors.text),
-               );
-
-               let q_mark = RichText::new("?").size(theme.text_sizes.normal);
-               let info_tip = Badge::new(q_mark, BadgeTone::Info);
-               ui.add(info_tip).on_hover_text(ZEUS_TIP);
-            });
-            return;
-         }
-
-         let size = vec2(200.0, 30.0);
-         ui.vertical_centered(|ui| {
-            ui.allocate_ui(size, |ui| {
+            if self.cached_rows.is_empty() {
                ui.horizontal(|ui| {
+                  ui.add_space(300.0);
                   ui.spacing_mut().item_spacing.x = 5.0;
+
                   ui.label(
-                     RichText::new(format!(
-                        "{} active approval(s)",
-                        self.cached_rows.len()
-                     ))
-                     .size(theme.text_sizes.large)
-                     .color(theme.colors.text),
+                     RichText::new("No active approvals match your filters")
+                        .size(theme.text_sizes.large)
+                        .color(theme.colors.text),
                   );
 
                   let q_mark = RichText::new("?").size(theme.text_sizes.normal);
                   let info_tip = Badge::new(q_mark, BadgeTone::Info);
                   ui.add(info_tip).on_hover_text(ZEUS_TIP);
                });
-            });
-         });
+               return;
+            }
 
-         ui.add_space(10.0);
+            let size = vec2(200.0, 30.0);
+            ui.vertical_centered(|ui| {
+               ui.allocate_ui(size, |ui| {
+                  ui.horizontal(|ui| {
+                     ui.spacing_mut().item_spacing.x = 5.0;
+                     ui.label(
+                        RichText::new(format!(
+                           "{} active approval(s)",
+                           self.cached_rows.len()
+                        ))
+                        .size(theme.text_sizes.large)
+                        .color(theme.colors.text),
+                     );
 
-         let button_visuals = theme.button_visuals();
-         let label_visuals = theme.label_visuals();
-         let tint = theme.image_tint_recommended;
-
-         ScrollArea::vertical()
-            .id_salt("approvals_scroll_area")
-            .auto_shrink([false; 2])
-            .max_height(ui.available_height() * 0.9)
-            .show(ui, |ui| {
-               ui.set_width(ui.available_width());
-
-               // Fixed content height for every column
-               let row_height = 48.0;
-               let col_spacing = 20.0;
-               let column_widths = [
-                  ui.available_width() * 0.18, // Asset
-                  ui.available_width() * 0.10, // Chain
-                  ui.available_width() * 0.14, // Wallet
-                  ui.available_width() * 0.18, // Spender
-                  ui.available_width() * 0.14, // Amount (+ expire)
-                  ui.available_width() * 0.10, // Type
-                  ui.available_width() * 0.12, // Revoke
-               ];
-               let row_width: f32 = column_widths.iter().sum::<f32>()
-                  + col_spacing * (column_widths.len() as f32 - 1.0);
-
-               // --- Header (same widths as body cells; not inside a frame) ---
-               ui.horizontal(|ui| {
-                  ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0);
-                  ui.spacing_mut().item_spacing.x = col_spacing;
-                  for (i, header) in ["Asset", "Chain", "Wallet", "Spender", "Amount", "Type", ""]
-                     .into_iter()
-                     .enumerate()
-                  {
-                     // Shorter header row — no need for full body height.
-                     Self::row_cell(ui, column_widths[i], 28.0, |ui| {
-                        if !header.is_empty() {
-                           ui.label(
-                              RichText::new(header)
-                                 .strong()
-                                 .size(theme.text_sizes.large)
-                                 .color(theme.colors.text),
-                           );
-                        }
-                     });
-                  }
+                     let q_mark = RichText::new("?").size(theme.text_sizes.normal);
+                     let info_tip = Badge::new(q_mark, BadgeTone::Info);
+                     ui.add(info_tip).on_hover_text(ZEUS_TIP);
+                  });
                });
+            });
 
-               ui.add_space(8.0);
+            ui.add_space(10.0);
 
-               // --- Body: one frame2 card per approval ---
-               // Do NOT put Frame inside a Grid cell — Frame becomes a single
-               // cell and every column collapses into the first one.
-               let rows = self.cached_rows.clone();
-               let row_frame = theme.frame2.outer_margin(0);
+            let button_visuals = theme.button_visuals();
+            let label_visuals = theme.label_visuals();
+            let tint = theme.image_tint_recommended;
 
-               ui.vertical_centered(|ui| {
-                  ui.spacing_mut().item_spacing.y = 10.0;
+            ScrollArea::vertical()
+               .id_salt("approvals_scroll_area")
+               .auto_shrink([false; 2])
+               .max_height(ui.available_height() * 0.9)
+               .show(ui, |ui| {
+                  ui.set_width(ui.available_width());
 
-                  for row in rows {
-                     ui.allocate_ui(vec2(row_width, row_height + 16.0), |ui| {
-                        row_frame.show(ui, |ui| {
-                           ui.set_width(row_width);
-                           ui.spacing_mut().item_spacing.x = col_spacing;
+                  // Fixed content height for every column
+                  let row_height = 48.0;
+                  let col_spacing = 20.0;
+                  let column_widths = [
+                     ui.available_width() * 0.18, // Asset
+                     ui.available_width() * 0.10, // Chain
+                     ui.available_width() * 0.14, // Wallet
+                     ui.available_width() * 0.18, // Spender
+                     ui.available_width() * 0.14, // Amount (+ expire)
+                     ui.available_width() * 0.10, // Type
+                     ui.available_width() * 0.12, // Revoke
+                  ];
+                  let row_width: f32 = column_widths.iter().sum::<f32>()
+                     + col_spacing * (column_widths.len() as f32 - 1.0);
 
-                           ui.horizontal(|ui| {
-                              // Asset
-                              Self::row_cell(ui, column_widths[0], row_height, |ui| {
-                                 let icon = icons.currency_icon_x32(&row.token, tint);
-                                 ui.add(icon);
-                                 let text = RichText::new(row.token.symbol())
-                                    .size(theme.text_sizes.normal)
-                                    .color(theme.colors.text);
-                                 let label = Label::new(text, None)
-                                    .wrap()
-                                    .visuals(label_visuals)
-                                    .interactive(false);
-                                 ui.scope(|ui| {
-                                    ui.set_max_width(column_widths[0] - 40.0);
-                                    ui.add(label).on_hover_text(row.token.name());
-                                 });
-                              });
-
-                              // Chain
-                              Self::row_cell(ui, column_widths[1], row_height, |ui| {
-                                 let chain: ChainId = row.chain.into();
-                                 ui.label(
-                                    RichText::new(chain.name())
-                                       .size(theme.text_sizes.normal)
-                                       .color(theme.colors.text),
-                                 );
-                              });
-
-                              // Wallet
-                              Self::row_cell(ui, column_widths[2], row_height, |ui| {
-                                 let name = self.wallet_name(ctx, row.owner);
-                                 ui.label(
-                                    RichText::new(name)
-                                       .size(theme.text_sizes.normal)
-                                       .color(theme.colors.text),
-                                 )
-                                 .on_hover_text(row.owner.to_string());
-                              });
-
-                              // Spender
-                              Self::row_cell(ui, column_widths[3], row_height, |ui| {
-                                 let name = self.spender_label(ctx, row.chain, row.spender);
-
-                                 let chain = ChainId::from(row.chain);
-                                 let explorer = chain.block_explorer();
-                                 let link =
-                                    format!("{}/address/{}", explorer, row.spender.to_string());
-                                 ui.hyperlink_to(
-                                    RichText::new(name)
-                                       .size(theme.text_sizes.normal)
-                                       .color(theme.colors.info),
-                                    link,
-                                 );
-                              });
-
-                              // Amount
-                              let expire = if row.kind.is_permit2() {
-                                 Some(format!(
-                                    "Expires {}",
-                                    row.kind.expiration().to_relative()
-                                 ))
-                              } else {
-                                 None
-                              };
-
-                              Self::amount_cell(
-                                 ui,
-                                 column_widths[4],
-                                 row_height,
-                                 &row.amount,
-                                 expire,
-                                 theme,
+                  // --- Header (same widths as body cells; not inside a frame) ---
+                  ui.horizontal(|ui| {
+                     ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0);
+                     ui.spacing_mut().item_spacing.x = col_spacing;
+                     for (i, header) in
+                        ["Asset", "Chain", "Wallet", "Spender", "Amount", "Type", ""]
+                           .into_iter()
+                           .enumerate()
+                     {
+                        // Shorter header row — no need for full body height.
+                        Self::row_cell(ui, column_widths[i], 28.0, |ui| {
+                           if !header.is_empty() {
+                              ui.label(
+                                 RichText::new(header)
+                                    .strong()
+                                    .size(theme.text_sizes.large)
+                                    .color(theme.colors.text),
                               );
+                           }
+                        });
+                     }
+                  });
 
-                              // Type
-                              Self::row_cell(ui, column_widths[5], row_height, |ui| {
-                                 let kind = match &row.kind {
-                                    ApprovalKind::Erc20(_) => "ERC-20",
-                                    ApprovalKind::Permit2(_) => "Permit2",
-                                 };
-                                 ui.label(
-                                    RichText::new(kind)
+                  ui.add_space(8.0);
+
+                  // --- Body: one frame2 card per approval ---
+                  // Do NOT put Frame inside a Grid cell — Frame becomes a single
+                  // cell and every column collapses into the first one.
+                  let rows = self.cached_rows.clone();
+                  let row_frame = theme.frame2.outer_margin(0);
+
+                  ui.vertical_centered(|ui| {
+                     ui.spacing_mut().item_spacing.y = 10.0;
+
+                     for row in rows {
+                        ui.allocate_ui(vec2(row_width, row_height + 16.0), |ui| {
+                           row_frame.show(ui, |ui| {
+                              ui.set_width(row_width);
+                              ui.spacing_mut().item_spacing.x = col_spacing;
+
+                              ui.horizontal(|ui| {
+                                 // Asset
+                                 Self::row_cell(ui, column_widths[0], row_height, |ui| {
+                                    let icon = icons.currency_icon_x32(&row.token, tint);
+                                    ui.add(icon);
+                                    let text = RichText::new(row.token.symbol())
                                        .size(theme.text_sizes.normal)
-                                       .color(theme.colors.text),
-                                 );
-                              });
+                                       .color(theme.colors.text);
+                                    let label = Label::new(text, None)
+                                       .wrap()
+                                       .visuals(label_visuals)
+                                       .interactive(false);
+                                    ui.scope(|ui| {
+                                       ui.set_max_width(column_widths[0] - 40.0);
+                                       ui.add(label).on_hover_text(row.token.name());
+                                    });
+                                 });
 
-                              // Revoke
-                              Self::row_cell(ui, column_widths[6], row_height, |ui| {
-                                 let text = RichText::new("Revoke").size(theme.text_sizes.normal);
-                                 let button = Button::new(text).visuals(button_visuals);
-                                 if ui.add(button).clicked() {
-                                    self.revoke(row);
-                                 }
+                                 // Chain
+                                 Self::row_cell(ui, column_widths[1], row_height, |ui| {
+                                    let chain: ChainId = row.chain.into();
+                                    ui.label(
+                                       RichText::new(chain.name())
+                                          .size(theme.text_sizes.normal)
+                                          .color(theme.colors.text),
+                                    );
+                                 });
+
+                                 // Wallet
+                                 Self::row_cell(ui, column_widths[2], row_height, |ui| {
+                                    let name = self.wallet_name(ctx, row.owner);
+                                    ui.label(
+                                       RichText::new(name)
+                                          .size(theme.text_sizes.normal)
+                                          .color(theme.colors.text),
+                                    )
+                                    .on_hover_text(row.owner.to_string());
+                                 });
+
+                                 // Spender
+                                 Self::row_cell(ui, column_widths[3], row_height, |ui| {
+                                    let name = self.spender_label(ctx, row.chain, row.spender);
+
+                                    let chain = ChainId::from(row.chain);
+                                    let explorer = chain.block_explorer();
+                                    let link =
+                                       format!("{}/address/{}", explorer, row.spender.to_string());
+                                    ui.hyperlink_to(
+                                       RichText::new(name)
+                                          .size(theme.text_sizes.normal)
+                                          .color(theme.colors.info),
+                                       link,
+                                    );
+                                 });
+
+                                 // Amount
+                                 let expire = if row.kind.is_permit2() {
+                                    Some(format!(
+                                       "Expires {}",
+                                       row.kind.expiration().to_relative()
+                                    ))
+                                 } else {
+                                    None
+                                 };
+
+                                 Self::amount_cell(
+                                    ui,
+                                    column_widths[4],
+                                    row_height,
+                                    &row.amount,
+                                    expire,
+                                    theme,
+                                 );
+
+                                 // Type
+                                 Self::row_cell(ui, column_widths[5], row_height, |ui| {
+                                    let kind = match &row.kind {
+                                       ApprovalKind::Erc20(_) => "ERC-20",
+                                       ApprovalKind::Permit2(_) => "Permit2",
+                                    };
+                                    ui.label(
+                                       RichText::new(kind)
+                                          .size(theme.text_sizes.normal)
+                                          .color(theme.colors.text),
+                                    );
+                                 });
+
+                                 // Revoke
+                                 Self::row_cell(ui, column_widths[6], row_height, |ui| {
+                                    let text =
+                                       RichText::new("Revoke").size(theme.text_sizes.normal);
+                                    let button = Button::new(text).visuals(button_visuals);
+                                    if ui.add(button).clicked() {
+                                       self.revoke(row);
+                                    }
+                                 });
                               });
                            });
                         });
-                     });
-                  }
+                     }
+                  });
                });
-            });
+         });
       });
    }
 

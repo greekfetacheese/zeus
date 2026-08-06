@@ -1,9 +1,7 @@
 //! UI that allows the user to send ETH or ERC20 tokens (public) or private
 //! Railgun (zk → zk) transfers when privacy mode is enabled.
 
-use eframe::egui::{
-   Align2, CursorIcon, FontId, Frame, Margin, OpenUrl, RichText, Ui, Window, vec2,
-};
+use eframe::egui::{CursorIcon, FontId, Frame, Margin, OpenUrl, RichText, Ui, vec2};
 
 use std::{
    collections::HashMap,
@@ -21,7 +19,8 @@ use crate::assets::icons::Icons;
 use crate::gui::{
    SHARED_GUI,
    ui::{
-      ContactsUi, RecipientSelectionWindow, TokenSelectionWindow, common::AmountField,
+      ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
+      common::{AmountField, show_with_fade},
       dapps::railgun::private_transfer,
    },
 };
@@ -121,25 +120,16 @@ impl SendCryptoUi {
       contacts_ui: &mut ContactsUi,
       ui: &mut Ui,
    ) {
-      if !self.open {
-         return;
-      }
+      show_with_fade(ui, "send_crypto_ui_fade", self.open, |ui| {
+         let privacy_mode = ctx.privacy_mode;
+         // Private transfer: both tokens and recipients are private (notes + 0zk).
+         let token_privacy_mode = privacy_mode;
+         let recipient_privacy_mode = privacy_mode;
 
-      let privacy_mode = ctx.privacy_mode;
-      // Private transfer: both tokens and recipients are private (notes + 0zk).
-      let token_privacy_mode = privacy_mode;
-      let recipient_privacy_mode = privacy_mode;
+         let frame = theme.frame1;
 
-      let frame = theme.frame1;
-
-      Window::new("send_crypto_ui")
-         .title_bar(false)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 30.0))
-         .frame(frame)
-         .show(ui.ctx(), |ui| {
-            ui.vertical_centered(|ui| {
+         ui.vertical_centered(|ui| {
+            frame.show(ui, |ui| {
                Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
                   ui.set_width(self.size.0);
                   ui.set_max_height(self.size.1);
@@ -325,6 +315,7 @@ impl SendCryptoUi {
                });
             });
          });
+      });
    }
 
    fn should_calculate_price(&self, currency: &Currency) -> bool {

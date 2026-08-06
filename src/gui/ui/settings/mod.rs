@@ -2,7 +2,8 @@
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
-use egui::{Align2, Frame, RichText, Ui, Window, vec2};
+use crate::gui::ui::show_with_fade;
+use egui::{Frame, RichText, Ui, vec2};
 use std::sync::Arc;
 use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::Button;
@@ -67,10 +68,6 @@ impl SettingsUi {
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
-      if !self.open {
-         return;
-      }
-
       self.main_ui(ctx, theme, ui);
       self.encryption.show(theme, ui);
       self.change_credentials_ui.show(theme, ui);
@@ -80,70 +77,63 @@ impl SettingsUi {
    }
 
    pub fn main_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
-      Window::new("settings_main_ui")
-         .title_bar(false)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::new())
-         .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+      show_with_fade(ui, "settings_ui_fade", self.open, |ui| {
+         let button_visuals = theme.button_visuals();
+         let frame = Frame::new().inner_margin(10);
 
-            let button_visuals = theme.button_visuals();
-            let frame = Frame::new().inner_margin(10);
+         frame.show(ui, |ui| {
+            ui.vertical_centered(|ui| {
+               ui.set_width(self.size.0);
+               ui.set_height(self.size.1);
+               ui.spacing_mut().item_spacing.y = 20.0;
 
-            frame.show(ui, |ui| {
-               ui.vertical_centered(|ui| {
-                  ui.spacing_mut().item_spacing.y = 20.0;
+               ui.label(RichText::new("Settings").size(theme.text_sizes.heading));
 
-                  ui.label(RichText::new("Settings").size(theme.text_sizes.heading));
+               let size = vec2(self.size.0 * 0.95, 50.0);
 
-                  let size = vec2(self.size.0 * 0.95, 50.0);
+               let text = RichText::new("Change your Credentials").size(theme.text_sizes.large);
+               let button = Button::new(text).min_size(size).visuals(button_visuals);
 
-                  let text = RichText::new("Change your Credentials").size(theme.text_sizes.large);
-                  let button = Button::new(text).min_size(size).visuals(button_visuals);
+               if ui.add(button).clicked() {
+                  self.change_credentials_ui.open();
+               }
 
-                  if ui.add(button).clicked() {
-                     self.change_credentials_ui.open();
-                  }
+               let text = RichText::new("Encryption Settings").size(theme.text_sizes.large);
+               let button = Button::new(text).visuals(button_visuals).min_size(size);
 
-                  let text = RichText::new("Encryption Settings").size(theme.text_sizes.large);
-                  let button = Button::new(text).visuals(button_visuals).min_size(size);
+               if ui.add(button).clicked() {
+                  self.encryption.open(ctx);
+               }
 
-                  if ui.add(button).clicked() {
-                     self.encryption.open(ctx);
-                  }
+               let text = RichText::new("Contacts").size(theme.text_sizes.large);
+               let button = Button::new(text).visuals(button_visuals).min_size(size);
 
-                  let text = RichText::new("Contacts").size(theme.text_sizes.large);
-                  let button = Button::new(text).visuals(button_visuals).min_size(size);
+               if ui.add(button).clicked() {
+                  self.contacts_ui.open();
+               }
 
-                  if ui.add(button).clicked() {
-                     self.contacts_ui.open();
-                  }
+               let text = RichText::new("Network Settings").size(theme.text_sizes.large);
+               let button = Button::new(text).visuals(button_visuals).min_size(size);
 
-                  let text = RichText::new("Network Settings").size(theme.text_sizes.large);
-                  let button = Button::new(text).visuals(button_visuals).min_size(size);
+               if ui.add(button).clicked() {
+                  self.network.open();
+               }
 
-                  if ui.add(button).clicked() {
-                     self.network.open();
-                  }
+               let text = RichText::new("General Settings").size(theme.text_sizes.large);
+               let button = Button::new(text).visuals(button_visuals).min_size(size);
 
-                  let text = RichText::new("General Settings").size(theme.text_sizes.large);
-                  let button = Button::new(text).visuals(button_visuals).min_size(size);
+               if ui.add(button).clicked() {
+                  self.general.open();
+               }
 
-                  if ui.add(button).clicked() {
-                     self.general.open();
-                  }
+               let text = RichText::new("Theme Settings").size(theme.text_sizes.large);
+               let button = Button::new(text).visuals(button_visuals).min_size(size);
 
-                  let text = RichText::new("Theme Settings").size(theme.text_sizes.large);
-                  let button = Button::new(text).visuals(button_visuals).min_size(size);
-
-                  if ui.add(button).clicked() {
-                     self.theme.open();
-                  }
-               });
+               if ui.add(button).clicked() {
+                  self.theme.open();
+               }
             });
          });
+      });
    }
 }

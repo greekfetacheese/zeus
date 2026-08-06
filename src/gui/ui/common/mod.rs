@@ -2,11 +2,13 @@
 
 pub mod amount_field;
 pub mod chain_select;
+pub mod fade;
 pub mod wallet_select;
 pub mod windows;
 
 pub use amount_field::AmountField;
 pub use chain_select::ChainSelect;
+pub use fade::{panel_fade, show_with_fade};
 pub use wallet_select::WalletSelect;
 pub use windows::{ConfirmWindow, LoadingWindow, MsgWindow, UpdateWindow};
 
