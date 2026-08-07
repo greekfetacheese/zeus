@@ -154,67 +154,68 @@ impl SecureInputField {
       ui.label(RichText::new(field_name).size(theme.text_sizes.large));
 
       let response = self.text.secure_mut(|text_str| {
+         let text_margin = Margin::same(10);
+         let row_height = (theme.text_sizes.normal + text_margin.sum().y).max(ui_size.y);
+         let row_size = vec2(ui_size.x, row_height);
+
          let text_edit = SecureTextEdit::singleline(text_str)
             .visuals(text_edit_visuals)
             .min_size(ui_size)
-            .margin(Margin::same(10))
+            .margin(text_margin)
             .password(hidden)
             .font(FontId::proportional(theme.text_sizes.normal));
 
-         let response = ui.allocate_ui(ui_size, |ui| {
-            let res = ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               let output = text_edit.show(ui);
+         let response = ui.allocate_ui_with_layout(row_size, Layout::left_to_right(Align::Center), |ui| {
+            let output = text_edit.show(ui);
 
-               let img_source = if hidden {
-                  match theme.dark_mode {
-                     true => INVISIBLE_WHITE,
-                     false => INVISIBLE_BLACK,
-                  }
-               } else {
-                  match theme.dark_mode {
-                     true => VISIBLE_WHITE,
-                     false => VISIBLE_BLACK,
-                  }
-               };
-
-               let img = if theme.image_tint_recommended {
-                  Image::new(img_source)
-                     .tint(TINT_1)
-                     .fit_to_exact_size(img_size)
-               } else {
-                  Image::new(img_source).fit_to_exact_size(img_size)
-               };
-
-               let button = Button::image(img).visuals(button_visuals);
-               if ui.add(button).clicked() {
-                  hidden = !hidden;
+            let img_source = if hidden {
+               match theme.dark_mode {
+                  true => INVISIBLE_WHITE,
+                  false => INVISIBLE_BLACK,
                }
+            } else {
+               match theme.dark_mode {
+                  true => VISIBLE_WHITE,
+                  false => VISIBLE_BLACK,
+               }
+            };
 
-               #[cfg(all(feature = "qr-scanner", target_os = "linux"))]
-               {
-                  if self.qr_enabled {
-                     let img_source = match theme.dark_mode {
-                        true => QR_CODE_WHITE,
-                        false => QR_CODE_BLACK,
-                     };
+            let img = if theme.image_tint_recommended {
+               Image::new(img_source)
+                  .tint(TINT_1)
+                  .fit_to_exact_size(img_size)
+            } else {
+               Image::new(img_source).fit_to_exact_size(img_size)
+            };
 
-                     let img = if theme.image_tint_recommended {
-                        Image::new(img_source)
-                           .tint(TINT_1)
-                           .fit_to_exact_size(img_size)
-                     } else {
-                        Image::new(img_source).fit_to_exact_size(img_size)
-                     };
+            let button = Button::image(img).visuals(button_visuals);
+            if ui.add(button).clicked() {
+               hidden = !hidden;
+            }
 
-                     let button = Button::image(img).visuals(button_visuals);
-                     if ui.add(button).clicked() {
-                        self.qr_scanner.open(ui.ctx().clone());
-                     }
+            #[cfg(all(feature = "qr-scanner", target_os = "linux"))]
+            {
+               if self.qr_enabled {
+                  let img_source = match theme.dark_mode {
+                     true => QR_CODE_WHITE,
+                     false => QR_CODE_BLACK,
+                  };
+
+                  let img = if theme.image_tint_recommended {
+                     Image::new(img_source)
+                        .tint(TINT_1)
+                        .fit_to_exact_size(img_size)
+                  } else {
+                     Image::new(img_source).fit_to_exact_size(img_size)
+                  };
+
+                  let button = Button::image(img).visuals(button_visuals);
+                  if ui.add(button).clicked() {
+                     self.qr_scanner.open(ui.ctx().clone());
                   }
                }
-               output
-            });
-            res
+            }
+            output
          });
          response
       });
@@ -233,6 +234,6 @@ impl SecureInputField {
 
       self.set_text_hidden(hidden);
 
-      Some(response.inner.inner)
+      Some(response.inner)
    }
 }
