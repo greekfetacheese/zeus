@@ -91,6 +91,8 @@ impl ConfirmWindow {
                ui.spacing_mut().item_spacing = vec2(25.0, 20.0);
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
+               ui.label(RichText::new(self.msg.clone()).size(theme.text_sizes.normal));
+
                if let Some(msg) = &self.msg2 {
                   ui.label(RichText::new(msg).size(theme.text_sizes.normal));
                }
@@ -230,9 +232,7 @@ impl UpdateWindow {
                            if info.download_url.is_none() || info.asset_name.is_none() {
                               SHARED_GUI.write(|gui| {
                                  gui.loading_window.reset();
-                                 gui.msg_window.open(
-                                    "Update info is missing".to_string(),
-                                 );
+                                 gui.msg_window.open("Update info is missing".to_string());
                               });
                               return;
                            }
@@ -260,9 +260,7 @@ impl UpdateWindow {
                               Err(e) => {
                                  SHARED_GUI.write(|gui| {
                                     gui.loading_window.reset();
-                                    gui.msg_window.open(
-                                       format!("Failed to update: {:?}", e),
-                                    );
+                                    gui.msg_window.open(format!("Failed to update: {:?}", e));
                                  });
                               }
                            }
