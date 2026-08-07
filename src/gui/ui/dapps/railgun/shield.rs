@@ -1,6 +1,6 @@
 use eframe::egui::{
-   Align, Checkbox, CollapsingHeader, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl, RichText,
-   Ui, vec2,
+   Align, Align2, Checkbox, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl, Order, RichText,
+   Ui, Window, vec2,
 };
 
 use std::{
@@ -137,6 +137,8 @@ pub struct ShieldUi {
    bundler_url: String,
    /// Set when user clicks Merge Notes; consumed by central panel.
    open_merge_notes: bool,
+   /// Broadcast options window
+   open_broadcast_options: bool,
 }
 
 impl ShieldUi {
@@ -159,6 +161,7 @@ impl ShieldUi {
          unwrap_to_eth: false,
          bundler_url: bundler_url.url,
          open_merge_notes: false,
+         open_broadcast_options: false,
       }
    }
 
@@ -196,6 +199,19 @@ impl ShieldUi {
 
    pub fn clear_search_query(&mut self) {
       self.search_query = String::new();
+   }
+
+   fn open_broadcast_options(&mut self, theme: &Theme) {
+      if !self.open_broadcast_options {
+         theme.overlay_manager.window_opened();
+      }
+
+      self.open_broadcast_options = true;
+   }
+
+   fn close_broadcast_options(&mut self, theme: &Theme) {
+      self.open_broadcast_options = false;
+      theme.overlay_manager.window_closed();
    }
 
    /// If the user clicked Merge Notes this frame, return the currency to merge.
@@ -241,6 +257,8 @@ impl ShieldUi {
             self.show_not_supported(theme, ui);
             return;
          }
+
+         self.broadcast_options(theme, ctx.chain.id(), ui);
 
          let frame = theme.frame1;
 
@@ -452,7 +470,6 @@ impl ShieldUi {
 
    fn unshield_options(&mut self, theme: &Theme, chain_id: u64, ui: &mut Ui) {
       let inner_frame = theme.frame2;
-      let text_edit_visuals = theme.text_edit_visuals();
       let default_url = default_bundler_url(chain_id);
       let bundler_overridden =
          !self.self_broadcast && self.bundler_url.trim() != default_url.as_str();
@@ -484,7 +501,8 @@ impl ShieldUi {
 
                ui.add_space(10.0);
 
-               let text = RichText::new("For empty wallets without funds for gas").size(theme.text_sizes.normal);
+               let text = RichText::new("For empty wallets without funds for gas")
+                  .size(theme.text_sizes.normal);
                let badge = Badge::new(text, BadgeTone::Info);
                let tip_text = RichText::new(UNWRAP_TO_ETH_TIP).size(theme.text_sizes.normal);
                ui.add(badge).on_hover_text(tip_text);
@@ -496,25 +514,49 @@ impl ShieldUi {
          if bundler_overridden {
             ui.add_space(4.0);
             ui.label(
-               RichText::new(
-                  "WARNING: Custom bundler URL is set.",
-               )
-               .size(theme.text_sizes.normal)
-               .color(theme.colors.warning),
+               RichText::new("WARNING: Custom bundler URL is set.")
+                  .size(theme.text_sizes.normal)
+                  .color(theme.colors.warning),
             );
          }
 
-         let ui_size = vec2(ui.available_width() * 0.9, 45.0);
+         let text = RichText::new("Broadcast options").size(theme.text_sizes.normal);
+         let button = Button::new(text).visuals(theme.button_visuals());
+         ui.horizontal(|ui| {
+            if ui.add(button).clicked() {
+               self.open_broadcast_options(theme);
+            }
+         });
+      });
+   }
 
-         CollapsingHeader::new(
-            RichText::new("Advanced broadcast options")
-               .size(theme.text_sizes.normal)
-               .color(theme.colors.text).strong(),
-         )
-         .default_open(false)
-         .id_salt("railgun_unshield_advanced_broadcast")
-         .show(ui, |ui| {
-            ui.add_enabled_ui(!self.self_broadcast, |ui| {
+   fn broadcast_options(&mut self, theme: &Theme, chain_id: u64, ui: &mut Ui) {
+      if !self.open_broadcast_options {
+         return;
+      }
+
+      let text_edit_visuals = theme.text_edit_visuals();
+      let frame = theme.frame2;
+
+      let title = RichText::new("Advanced broadcast options")
+         .size(theme.text_sizes.large)
+         .color(theme.colors.text);
+
+      Window::new(title)
+         .resizable(false)
+         .collapsible(false)
+         .order(Order::Foreground)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .frame(frame)
+         .show(ui.ctx(), |ui| {
+      ui.add_enabled_ui(!self.self_broadcast, |ui| {
+         ui.set_width(450.0);
+         ui.set_max_height(250.0);
+         ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+         ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+            let ui_size = vec2(ui.available_width() * 0.9, 45.0);
+
                ui.allocate_ui(ui_size, |ui| {
                   ui.horizontal_centered(|ui| {
                      ui.label(RichText::new("Bundler URL").size(theme.text_sizes.normal));
@@ -556,24 +598,33 @@ impl ShieldUi {
                   }
                });
 
+               let text = "Uses Railgun Privacy Paymaster.\nFee is paid from private WETH balance.\nPoint this at a self-hosted Alto for less reliance on public Pimlico.";
+
                ui.label(
                   RichText::new(
-                     "Uses Railgun Privacy Paymaster. Fee is paid from private WETH balance. Point this at a self-hosted Alto for less reliance on public Pimlico.",
+                     text
                   )
                   .size(theme.text_sizes.small)
-                  .color(theme.colors.info),
                );
+
+               let text = RichText::new("OK").size(theme.text_sizes.normal);
+               let button = Button::new(text).visuals(theme.button_visuals());
+
+               ui.vertical_centered(|ui| {
+               if ui.add(button).clicked() {
+                  self.close_broadcast_options(theme);
+               }
+            });
             });
 
-            if self.self_broadcast {
-               ui.label(
-                  RichText::new("Bundler options disabled while self-broadcast is enabled.")
-                     .size(theme.text_sizes.small)
-                     .color(theme.colors.warning),
-               );
-            }
-         });
-      });
+      if self.self_broadcast {
+         ui.label(
+            RichText::new("Bundler options disabled while self-broadcast is enabled.")
+               .size(theme.text_sizes.small)
+               .color(theme.colors.warning),
+         );
+      }
+   });
    }
 
    fn action_button(
