@@ -271,8 +271,9 @@ impl ViewingKey {
 
 impl NullifyingKey {
    pub fn new(viewing_key: ViewingKey) -> Self {
-      let hash = poseidon_hash(&[viewing_key.to_u256()]).unwrap();
-
+      let mut vk = viewing_key.to_u256();
+      let hash = poseidon_hash(std::slice::from_ref(&vk)).unwrap();
+      vk.zeroize();
       NullifyingKey::from_u256(hash)
    }
 

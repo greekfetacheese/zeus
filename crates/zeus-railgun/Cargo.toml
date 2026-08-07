@@ -30,7 +30,7 @@ hmac = "0.12.1"
 curve25519-dalek = "4"
 ed25519-dalek = "2.2.0"
 blake-hash = { version = "0.2.0", default-features = false }
-ruint = { version = "1", features = ["serde", "num-bigint", "ark-ff-06"] }
+ruint = { version = "1", features = ["serde", "num-bigint", "ark-ff-06", "zeroize"] }
 rand_chacha = "0.9"
 num-bigint = "0.4"
 num-traits = "0.2"

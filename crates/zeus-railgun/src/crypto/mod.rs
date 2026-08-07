@@ -4,7 +4,6 @@ use ark_ed_on_bn254::Fq;
 use ark_ff::{BigInteger, One, PrimeField, Zero};
 use hmac::{Hmac, Mac};
 use lazy_static::lazy_static;
-use num_bigint::BigUint;
 use secure_types::Zeroize;
 use sha2::Sha512;
 use std::str::FromStr;
@@ -24,6 +23,13 @@ pub mod serializable_np_index;
 pub struct BabyJubPoint {
    pub x: Fr,
    pub y: Fr,
+}
+
+impl Zeroize for BabyJubPoint {
+   fn zeroize(&mut self) {
+      self.x.zeroize();
+      self.y.zeroize();
+   }
 }
 
 const A: u64 = 168700;
@@ -77,35 +83,47 @@ pub fn babyjub_shared_secret(
    // Treat the viewing pub as point coords for mul (simplified from prior working version)
    let pub_x = Fq::from_be_bytes_mod_order(broadcaster_viewing_pub);
    let pub_y = Fq::from_be_bytes_mod_order(broadcaster_viewing_pub);
-   let pub_point = BabyJubPoint { x: pub_x, y: pub_y };
+   let mut pub_point = BabyJubPoint { x: pub_x, y: pub_y };
 
-   let priv_big = num_bigint::BigUint::from_bytes_be(&priv_clamped);
-   let shared_point = mul_point_escalar(pub_point, priv_big.clone());
+   // Prior path used BigUint::from_bytes_be, mul_point_escalar takes LE integer bytes.
+   let mut e_shared = priv_clamped;
+   e_shared.reverse();
+   let e_rpub = e_shared;
+   priv_clamped.zeroize();
+
+   let mut shared_point = mul_point_escalar(pub_point, e_shared);
 
    let mut shared = [0u8; 32];
-   let sx = shared_point.x.into_bigint().to_bytes_be();
+   let mut sx = shared_point.x.into_bigint().to_bytes_be();
    if sx.len() >= 32 {
       shared.copy_from_slice(&sx[sx.len() - 32..]);
    }
+   sx.zeroize();
+   shared_point.zeroize();
 
    // random pub for the ECDH pair
    let base = *BASE8;
-   let rpub_point = mul_point_escalar(base, priv_big);
+   let mut rpub_point = mul_point_escalar(base, e_rpub);
    let mut rpub = [0u8; 32];
-   let rx = rpub_point.x.into_bigint().to_bytes_be();
+   let mut rx = rpub_point.x.into_bigint().to_bytes_be();
    if rx.len() >= 32 {
       rpub.copy_from_slice(&rx[rx.len() - 32..]);
    }
+   rx.zeroize();
+   rpub_point.zeroize();
+   pub_point.zeroize();
 
    Ok((rpub, shared))
 }
 
-pub fn poseidon_hash(inputs: &[U256]) -> Result<U256, poseidon_rust::error::Error> {
-   let inputs: Vec<Fr> = inputs
+pub fn poseidon_hash(inputs_u256: &[U256]) -> Result<U256, poseidon_rust::error::Error> {
+   let mut inputs: Vec<Fr> = inputs_u256
       .iter()
       .map(|i| Fr::from_be_bytes_mod_order(&i.to_be_bytes::<32>()))
       .collect();
    let hash = poseidon_rust::poseidon_hash(&inputs)?;
+   inputs.zeroize();
+
    Ok(hash.into_bigint().into())
 }
 
@@ -122,7 +140,13 @@ pub fn add_point(a: BabyJubPoint, b: BabyJubPoint) -> BabyJubPoint {
    BabyJubPoint { x, y }
 }
 
-pub fn mul_point_escalar(base: BabyJubPoint, mut e: num_bigint::BigUint) -> BabyJubPoint {
+/// Scalar multiplication: `base * e`, where `e` is a little-endian unsigned integer.
+///
+/// Takes a fixed 32-byte LE buffer (not `num_bigint::BigUint`) so the scalar can be
+/// wiped: `BigUint` limbs are private and do not implement `Zeroize`. `e` is zeroized
+/// before return, ladder intermediates (`exp`) are wiped as well. Returned `res` is
+/// left for the caller to zeroize after extracting coordinates.
+pub fn mul_point_escalar(base: BabyJubPoint, mut e: [u8; 32]) -> BabyJubPoint {
    let mut res = BabyJubPoint {
       x: Fr::zero(),
       y: Fr::one(),
@@ -130,12 +154,20 @@ pub fn mul_point_escalar(base: BabyJubPoint, mut e: num_bigint::BigUint) -> Baby
 
    let mut exp = base;
 
-   while !e.is_zero() {
-      if (&e & BigUint::one()) == BigUint::one() {
-         res = add_point(res, exp);
+   // Full 256-bit double-and-add (LSB first). Avoids BigUint and keeps bit work
+   // on a stack buffer we can zeroize.
+   for byte_idx in 0..32 {
+      let mut byte = e[byte_idx];
+      for _bit in 0..8 {
+         if byte & 1 == 1 {
+            res = add_point(res, exp);
+         }
+         exp = add_point(exp, exp);
+         byte >>= 1;
       }
-      exp = add_point(exp, exp);
-      e >>= 1;
    }
+
+   e.zeroize();
+   exp.zeroize();
    res
 }

@@ -12,7 +12,6 @@ use ark_ed_on_bn254::Fr as BabyJubScalar;
 use ark_ff::{BigInteger, PrimeField};
 use blake_hash::{Blake512, Digest};
 use curve25519_dalek::{EdwardsPoint, Scalar, constants::ED25519_BASEPOINT_TABLE};
-use num_bigint::BigUint;
 use secure_types::Zeroize;
 use sha2::Digest as ShaDigest;
 
@@ -21,6 +20,20 @@ type SpendY = U256;
 
 type NullifyingKey = U256;
 type ViewPublicKey = [u8; 32];
+
+/// Logical right-shift of a 32-byte little-endian integer by 3 bits, in place.
+///
+/// Used instead of `num_bigint::BigUint` for secret scalars: `BigUint` keeps
+/// limbs in a private `Vec` and does not implement `Zeroize`, so heap copies
+/// cannot be wiped reliably.
+fn shr3_le_32(bytes: &mut [u8; 32]) {
+   let mut carry = 0u8;
+   for b in bytes.iter_mut().rev() {
+      let new_carry = *b & 0x07;
+      *b = (*b >> 3) | (carry << 5);
+      carry = new_carry;
+   }
+}
 
 pub fn derive_private_key(seed: &[u8], path: &str) -> Result<Key32, anyhow::Error> {
    let (mut current_key, mut current_chain_code) = hmac_sha512(CURVE_SEED, seed);
@@ -62,9 +75,11 @@ pub fn compute_public_spending_key(
    let spending_priv = spending_priv_res.map_err(|e| anyhow!("Derive spending key {}", e))?;
 
    let mut scalar_bytes = spending_priv.unlock(|priv_bytes| {
-      let hash = Blake512::digest(priv_bytes);
+      let mut hash = Blake512::digest(priv_bytes);
       let mut sb = [0u8; 32];
       sb.copy_from_slice(&hash[..32]);
+      hash.zeroize();
+
       // prune / clamp
       sb[0] &= 248;
       sb[31] &= 127;
@@ -72,24 +87,26 @@ pub fn compute_public_spending_key(
       sb
    });
 
-   // LE bigint
-   let scalar_big = BigUint::from_bytes_le(&scalar_bytes);
+   // LE >> 3 on the stack
+   shr3_le_32(&mut scalar_bytes);
+   let scalar = BabyJubScalar::from_le_bytes_mod_order(&scalar_bytes);
    scalar_bytes.zeroize();
-   let scalar_shifted: BigUint = scalar_big >> 3;
 
-   // Convert back to Fr
-   let scalar_bytes_shifted = scalar_shifted.to_bytes_le();
-   let mut padded = [0u8; 32];
-   padded[0..scalar_bytes_shifted.len()].copy_from_slice(&scalar_bytes_shifted);
-   let scalar = BabyJubScalar::from_le_bytes_mod_order(&padded);
+   // Reduced scalar → wipeable LE bytes (avoid BigUint, Fr/BigInt implement Zeroize)
+   let mut scalar_bi = scalar.into_bigint();
+   let mut scalar_le = scalar_bi.to_bytes_le();
+   scalar_bi.zeroize();
+   let mut e = [0u8; 32];
+   let n = scalar_le.len().min(32);
+   e[..n].copy_from_slice(&scalar_le[..n]);
+   scalar_le.zeroize();
 
-   padded.zeroize();
+   let mut point = mul_point_escalar(*BASE8, e);
 
-   let point = mul_point_escalar(*BASE8, scalar.into_bigint().into());
-   let affine = point;
-
-   let mut x_bytes = affine.x.into_bigint().to_bytes_le();
-   let mut y_bytes = affine.y.into_bigint().to_bytes_le();
+   let mut x_bytes = point.x.into_bigint().to_bytes_le();
+   let mut y_bytes = point.y.into_bigint().to_bytes_le();
+   // Public key coords are Copy on Fr wipe the local point after extracting bytes.
+   point.zeroize();
 
    let mut spend_x_bytes = [0u8; 32];
    let mut spend_y_bytes = [0u8; 32];
