@@ -549,13 +549,14 @@ impl ShieldUi {
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(frame)
          .show(ui.ctx(), |ui| {
-      ui.add_enabled_ui(!self.self_broadcast, |ui| {
-         ui.set_width(450.0);
-         ui.set_max_height(250.0);
-         ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
-         ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-            let ui_size = vec2(ui.available_width() * 0.9, 45.0);
+            ui.add_enabled_ui(!self.self_broadcast, |ui| {
+               ui.set_width(450.0);
+               ui.set_max_height(250.0);
+
+               let ui_size = vec2(ui.available_width() * 0.9, 45.0);
 
                ui.allocate_ui(ui_size, |ui| {
                   ui.horizontal_centered(|ui| {
@@ -600,31 +601,26 @@ impl ShieldUi {
 
                let text = "Uses Railgun Privacy Paymaster.\nFee is paid from private WETH balance.\nPoint this at a self-hosted Alto for less reliance on public Pimlico.";
 
+               ui.label(RichText::new(text).size(theme.text_sizes.small));
+            });
+
+            if self.self_broadcast {
                ui.label(
-                  RichText::new(
-                     text
-                  )
-                  .size(theme.text_sizes.small)
+                  RichText::new("Bundler options disabled while self-broadcast is enabled.")
+                     .size(theme.text_sizes.small)
+                     .color(theme.colors.warning),
                );
+            }
 
                let text = RichText::new("OK").size(theme.text_sizes.normal);
                let button = Button::new(text).visuals(theme.button_visuals());
 
                ui.vertical_centered(|ui| {
-               if ui.add(button).clicked() {
-                  self.close_broadcast_options(theme);
-               }
-            });
-            });
-
-      if self.self_broadcast {
-         ui.label(
-            RichText::new("Bundler options disabled while self-broadcast is enabled.")
-               .size(theme.text_sizes.small)
-               .color(theme.colors.warning),
-         );
-      }
-   });
+                  if ui.add(button).clicked() {
+                     self.close_broadcast_options(theme);
+                  }
+               });
+         });
    }
 
    fn action_button(
