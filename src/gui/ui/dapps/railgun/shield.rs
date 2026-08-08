@@ -547,6 +547,7 @@ impl ShieldUi {
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .title_frame(frame)
          .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.spacing_mut().item_spacing = vec2(0.0, 10.0);

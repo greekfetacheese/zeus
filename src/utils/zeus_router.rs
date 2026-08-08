@@ -262,7 +262,7 @@ pub async fn encode_swap(
             currencyOut: swap.currency_out.address(),
             amountIn: swap.amount_in.wei(),
             fee: swap.pool.fee().fee_u24(),
-            tickSpacing: swap.pool.fee().tick_spacing(),
+            tickSpacing: swap.pool.tick_spacing(),
             zeroForOne: swap.pool.zero_for_one(&swap.currency_in),
             hooks: Address::ZERO,
             hookData: Bytes::default(),

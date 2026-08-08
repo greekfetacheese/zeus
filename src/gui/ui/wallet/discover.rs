@@ -159,6 +159,7 @@ impl DiscoverChildWallets {
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .title_frame(window_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
@@ -576,6 +577,7 @@ impl DiscoverChildWallets {
          .collapsible(false)
          .order(Order::Tooltip)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .title_frame(window_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.spacing_mut().item_spacing = vec2(10.0, 20.0);

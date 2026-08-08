@@ -1,6 +1,6 @@
 use egui::{
    Align, Align2, Color32, CursorIcon, Event, EventFilter, FontId, FontSelection, Galley, Id,
-   ImeEvent, Key, KeyboardShortcut, Margin, Modifiers, NumExt, Response, Sense, Shape,
+   IMEPurpose, ImeEvent, Key, KeyboardShortcut, Margin, Modifiers, NumExt, Response, Sense, Shape,
    TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText, epaint, output,
    text::{self, LayoutJob},
    text_selection::{self, CCursorRange, text_cursor_state::byte_index_from_char_index},
@@ -635,6 +635,11 @@ impl<'a> SecureTextEdit<'a> {
                   ui.ctx().layer_transform_to_global(ui.layer_id()).unwrap_or_default();
                ui.ctx().output_mut(|o| {
                   o.ime = Some(output::IMEOutput {
+                     purpose: if self.password {
+                        IMEPurpose::Password
+                     } else {
+                        IMEPurpose::Normal
+                     },
                      rect: to_global * text_draw_rect,
                      cursor_rect: to_global * primary_cursor_rect_ui,
                      should_interrupt_composition: false,
@@ -954,6 +959,41 @@ fn secure_text_edit_events(
                   commit_text.zeroize();
 
                   Some(text::CCursorRange::one(c))
+               }
+               ImeEvent::DeleteSurrounding {
+                  before_chars,
+                  after_chars,
+               } => {
+                  let [min, max] = cursor_range.sorted_cursors();
+                  let mut new_range = cursor_range;
+                  let mut mutated = false;
+
+                  if after_chars > 0 {
+                     let end = (max.index.0 + after_chars).min(text.char_len());
+                     if end > max.index.0 {
+                        text.delete_text_char_range(max.index.0..end);
+                        mutated = true;
+                     }
+                  }
+                  if before_chars > 0 {
+                     let start = min.index.0.saturating_sub(before_chars);
+                     if start < min.index.0 {
+                        let deleted = min.index.0 - start;
+                        text.delete_text_char_range(start..min.index.0);
+                        new_range.primary.index =
+                           (new_range.primary.index.0.saturating_sub(deleted)).into();
+                        new_range.secondary.index =
+                           (new_range.secondary.index.0.saturating_sub(deleted)).into();
+                        mutated = true;
+                     }
+                  }
+
+                  if mutated {
+                     text_mutated_this_event = true;
+                     Some(new_range)
+                  } else {
+                     None
+                  }
                }
             }
          }

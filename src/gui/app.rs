@@ -46,7 +46,9 @@ impl ZeusApp {
 
       let theme = SHARED_GUI.read(|shared_gui| shared_gui.theme.clone());
       let ctx = SHARED_GUI.read(|shared_gui| shared_gui.ctx.clone());
-      egui_ctx.set_global_style(theme.style.clone());
+
+      let theme_clone = theme.clone();
+      theme_clone.install(&egui_ctx);
 
       tracing::info!(
          "ZeusApp loaded in {}ms",

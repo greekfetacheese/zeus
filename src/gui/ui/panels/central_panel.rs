@@ -138,6 +138,7 @@ impl FPSMetrics {
          .resizable(true)
          .collapsible(true)
          .movable(true)
+         .title_frame(Frame::window(ui.style()))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
             ui.set_width(170.0);

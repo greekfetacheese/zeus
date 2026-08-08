@@ -1,5 +1,5 @@
-use super::{AnyUniswapPool, UniswapPool};
-use crate::abi::zeus::ZeusStateViewV2::*;
+use super::{AnyUniswapPool, FeeAmount, UniswapPool};
+use crate::abi::zeus::ZeusStateViewV3::*;
 use crate::utils::batch;
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{Address, U256, aliases::I24};
@@ -181,7 +181,7 @@ impl V3PoolState {
       let mut ticks_map = HashMap::new();
       ticks_map.insert(tick, ticks_info);
 
-      let tick_spacing = pool.fee().tick_spacing_i32();
+      let tick_spacing = pool.tick_spacing_i32();
 
       Ok(Self {
          fee_growth_global_0_x128: data.feeGrowthGlobal0,
@@ -231,7 +231,7 @@ where
    }
 
    let address = pool.address();
-   let tick_spacing = pool.fee().tick_spacing();
+   let tick_spacing = pool.tick_spacing();
    let token0 = pool.currency0().address();
    let token1 = pool.currency1().address();
    let pool2 = V3Pool {
@@ -266,7 +266,7 @@ where
 
    let pool_data = V4Pool {
       pool: pool.id(),
-      tickSpacing: pool.fee().tick_spacing(),
+      tickSpacing: pool.tick_spacing(),
    };
 
    let state = batch::get_v4_pool_state(client.clone(), pool.chain_id(), vec![pool_data]).await?;
@@ -374,9 +374,18 @@ where
 
    for pool in &pools {
       if pool.dex_kind().is_v4() && pool.chain_id() == chain_id {
+         let Some(tick_spacing) = FeeAmount::i24_tick_spacing(pool.tick_spacing_i32()) else {
+            tracing::warn!(
+               target: "zeus_eth::amm::uniswap::state",
+               "Skipping V4 pool {} with invalid tick spacing 0 (chain {})",
+               pool.id(),
+               chain_id
+            );
+            continue;
+         };
          v4_pool_info.push(V4Pool {
             pool: pool.id(),
-            tickSpacing: pool.fee().tick_spacing(),
+            tickSpacing: tick_spacing,
          });
       }
    }
@@ -438,7 +447,7 @@ where
       if pool.dex_kind().is_v3() && pool.chain_id() == chain_id {
          for data in &v3_pool_data {
             if data.pool == pool.address() {
-               let state = V3PoolState::new(data.clone(), pool.fee().tick_spacing(), None)?;
+               let state = V3PoolState::new(data.clone(), pool.tick_spacing(), None)?;
                pool.set_state(State::v3(state));
                pool.v3_mut(|pool| {
                   pool.liquidity_amount0 = data.tokenABalance;

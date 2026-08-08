@@ -10,13 +10,12 @@ use crate::utils::{
    RT,
    self_update::{UpdateInfo, restart_app, update_zeus},
 };
-use eframe::egui::{Align2, RichText, Spinner, Ui, Vec2, Window, vec2};
+use eframe::egui::{Align2, RichText, Spinner, Ui, Vec2, vec2};
 use egui::{Align, Layout, Order};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use elegance::Modal;
 use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::Button;
+use zeus_widgets::{Button, Modal};
 
 /// A Window to prompt the user to confirm an action
 pub struct ConfirmWindow {
@@ -182,15 +181,12 @@ impl UpdateWindow {
          return;
       }
 
-      let window_frame = theme.frame1;
+      let mut open = self.open;
 
-      Window::new("Update Zeus")
-         .title_bar(false)
-         .resizable(false)
-         .order(Order::Foreground)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .collapsible(false)
-         .frame(window_frame)
+      Modal::new("update_zeus", &mut open)
+         .closable(false)
+         .backdrop_order(Order::Foreground)
+         .content_order(Order::Tooltip)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_max_height(self.size.1);
@@ -254,6 +250,7 @@ impl UpdateWindow {
                                  SHARED_GUI.write(|gui| {
                                     gui.loading_window.reset();
                                     gui.update_window.update_completed(finish_on);
+                                    gui.request_repaint();
                                  });
                                  tracing::info!("Update successful!");
                               }
@@ -261,6 +258,7 @@ impl UpdateWindow {
                                  SHARED_GUI.write(|gui| {
                                     gui.loading_window.reset();
                                     gui.msg_window.open(format!("Failed to update: {:?}", e));
+                                    gui.request_repaint();
                                  });
                               }
                            }

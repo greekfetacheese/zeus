@@ -51,6 +51,7 @@ impl ThemeSettings {
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .title_frame(window_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.vertical_centered(|ui| {
@@ -85,7 +86,10 @@ impl ThemeSettings {
 
                         if ui.add(label).clicked() {
                            let new_theme = Theme::new(kind);
-                           ui.ctx().set_global_style(new_theme.style.clone());
+                           let new_theme2 = new_theme.clone();
+
+                           new_theme2.install(ui.ctx());
+
                            RT.spawn_blocking(move || {
                               SHARED_GUI.write(|gui| {
                                  gui.theme = new_theme;

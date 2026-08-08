@@ -6,15 +6,15 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tokio::{sync::Semaphore, task::JoinHandle};
 use tracing::info;
-use zeus_eth::abi::zeus::ZeusStateViewV2::PoolsState;
+use zeus_eth::abi::zeus::ZeusStateViewV3::PoolsState;
 use zeus_eth::alloy_primitives::FixedBytes;
 use zeus_eth::amm::uniswap::UniswapV4Pool;
 
-use crate::embedded::POOL_DATA;
 use crate::core::{ZeusCtx, context::pool_data_dir, serde_hashmap};
+use crate::embedded::POOL_DATA;
 use crate::utils::RT;
 use zeus_eth::{
-   abi::zeus::ZeusStateViewV2::{V3Pool, V4Pool},
+   abi::zeus::ZeusStateViewV3::{V3Pool, V4Pool},
    alloy_primitives::{Address, B256},
    alloy_provider::Provider,
    amm::uniswap::{
@@ -501,7 +501,7 @@ impl PoolManagerHandle {
                bases_to_discover.push(base_token.clone());
 
                for fee in FEE_TIERS.iter() {
-                  let fee_amount = FeeAmount::CUSTOM(*fee);
+                  let fee_amount = FeeAmount::new(*fee);
                   let pool = UniswapV4Pool::new(
                      chain,
                      fee_amount,
@@ -1249,12 +1249,27 @@ async fn batch_update_state(
 
    for pool in &v4_pools {
       if pool.dex_kind().is_v4() && pool.chain_id() == chain {
+         let Some(tick_spacing) = FeeAmount::i24_tick_spacing(pool.tick_spacing_i32()) else {
+            tracing::warn!(
+               "Skipping V4 pool {} with invalid tick spacing 0 on chain {}",
+               pool.id(),
+               chain
+            );
+            continue;
+         };
          all_v4_pool_info.push(V4Pool {
             pool: pool.id(),
-            tickSpacing: pool.fee().tick_spacing(),
+            tickSpacing: tick_spacing,
          });
       }
    }
+
+   tracing::info!(
+      "Fetching pool state for {} V2 pools {} V3 pools {} V4 pools",
+      v2_pools.len(),
+      v3_pools.len(),
+      v4_pools.len()
+   );
 
    let zeus_client = ctx.get_zeus_client();
    let state_view = uniswap_v4_stateview(chain)?;
@@ -1346,8 +1361,12 @@ async fn batch_update_state(
 
    for pool in v3_pools.iter_mut() {
       for data in v3_pool_state {
+         // After StateViewV3 try/catch, failed pools are returned zeroed — skip them.
+         if data.pool.is_zero() {
+            continue;
+         }
          if data.pool == pool.address() {
-            let state = V3PoolState::new(data.clone(), pool.fee().tick_spacing(), None)?;
+            let state = V3PoolState::new(data.clone(), pool.tick_spacing(), None)?;
             pool.set_state(State::v3(state));
             pool.v3_mut(|pool| {
                pool.liquidity_amount0 = data.tokenABalance;
@@ -1359,6 +1378,9 @@ async fn batch_update_state(
 
    for pool in v4_pools.iter_mut() {
       for data in v4_pool_state {
+         if data.pool.is_zero() {
+            continue;
+         }
          if data.pool == pool.id() {
             let state = V3PoolState::for_v4(pool, data.clone())?;
             pool.set_state(State::v3(state));
@@ -1380,9 +1402,9 @@ async fn batch_update_state(
 
    tracing::info!(
       "Updated pool state for {} V2 Pools {} V3 Pools {} V4 Pools in {} ms. Chain {}",
-      v2_pools.len(),
-      v3_pools.len(),
-      v4_pools.len(),
+      v2_reserves.len(),
+      v3_pool_state.len(),
+      v4_pool_state.len(),
       time.elapsed().as_millis(),
       chain
    );

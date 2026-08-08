@@ -41,6 +41,15 @@ pub enum FeeAmount {
 }
 
 impl FeeAmount {
+   /// Map a raw fee tier to the canonical variant when known.
+   ///
+   /// Prefer this (or [`From::from`]) over bare `CUSTOM(fee)` so standard V3
+   /// tiers get the correct factory tick spacing (especially fee=100 → spacing 1,
+   /// not `100/50 = 2`).
+   pub fn new(fee: u32) -> Self {
+      Self::from(fee)
+   }
+
    pub fn fee(&self) -> u32 {
       match self {
          Self::LOWEST => 100,
@@ -60,39 +69,49 @@ impl FeeAmount {
       self.fee() as f32 / 10_000.0
    }
 
-   /// The default factory tick spacings by fee amount.
+   /// Default Uniswap V3 factory tick spacing for a fee tier.
+   ///
+   /// Known tiers use the factory table. Unknown fees use the common
+   /// `enableFeeAmount` heuristic `fee / 50`, clamped to at least 1.
+   ///
+   /// For V4 pools the on-chain spacing can differ from this heuristic — prefer
+   /// [`UniswapPool::tick_spacing`] / the pool's stored spacing when available.
    pub fn tick_spacing(&self) -> I24 {
-      match self {
-         Self::LOWEST => I24::ONE,
-         Self::LOW => I24::from_limbs([10]),
-         Self::MEDIUM => I24::from_limbs([60]),
-         Self::HIGH => I24::from_limbs([200]),
-         Self::CUSTOM(fee) => {
-            // Ensure tick_spacing is at least 1
-            let calculated_spacing = *fee as i32 / 50;
-            if calculated_spacing < 1 {
-               I24::ONE
-            } else {
-               I24::from_limbs([calculated_spacing as u64])
-            }
-         }
+      let spacing = self.tick_spacing_i32();
+      if spacing == 1 {
+         I24::ONE
+      } else {
+         I24::from_limbs([spacing as u64])
       }
    }
 
    pub fn tick_spacing_i32(&self) -> i32 {
-      match self {
-         Self::LOWEST => 1,
-         Self::LOW => 10,
-         Self::MEDIUM => 60,
-         Self::HIGH => 200,
-         Self::CUSTOM(fee) => {
-            let calculated_spacing = *fee as i32 / 50;
-            if calculated_spacing < 1 {
-               1
-            } else {
-               calculated_spacing
-            }
+      // Always go through the fee value so CUSTOM(100) etc. match named variants.
+      match self.fee() {
+         100 => 1,
+         500 => 10,
+         3000 => 60,
+         10000 => 200,
+         fee => {
+            let calculated = (fee as i32) / 50;
+            calculated.max(1)
          }
+      }
+   }
+
+   /// Build an `I24` tick spacing from an explicit on-chain value (e.g. V4 Initialize).
+   ///
+   /// Returns `None` when spacing is 0 (invalid — would panic on-chain with div-by-zero).
+   pub fn i24_tick_spacing(spacing: i32) -> Option<I24> {
+      if spacing == 0 {
+         None
+      } else if spacing == 1 {
+         Some(I24::ONE)
+      } else if spacing > 0 {
+         Some(I24::from_limbs([spacing as u64]))
+      } else {
+         // Negative spacing is invalid for Uniswap pools.
+         None
       }
    }
 }
@@ -322,6 +341,18 @@ pub trait UniswapPool {
 
    fn fee(&self) -> FeeAmount;
 
+   /// Tick spacing used for bitmap word math and V4 pool id / key.
+   ///
+   /// Default: derived from [`FeeAmount`]. V4 pools override this when the
+   /// on-chain spacing from `Initialize` is known.
+   fn tick_spacing(&self) -> I24 {
+      self.fee().tick_spacing()
+   }
+
+   fn tick_spacing_i32(&self) -> i32 {
+      self.fee().tick_spacing_i32()
+   }
+
    fn dex_kind(&self) -> DexKind;
 
    fn currency0(&self) -> &Currency;
@@ -473,6 +504,8 @@ impl AnyUniswapPool {
             currency1: pool.currency1().clone(),
             state: pool.state().clone(),
             hooks: pool.hooks(),
+            // Persist explicit spacing when the source pool carries it (V4).
+            tick_spacing: pool.tick_spacing_i32(),
             liquidity_amount0: amount0.wei(),
             liquidity_amount1: amount1.wei(),
          };
@@ -556,6 +589,22 @@ impl UniswapPool for AnyUniswapPool {
          AnyUniswapPool::V2(pool) => pool.fee(),
          AnyUniswapPool::V3(pool) => pool.fee(),
          AnyUniswapPool::V4(pool) => pool.fee(),
+      }
+   }
+
+   fn tick_spacing(&self) -> I24 {
+      match self {
+         AnyUniswapPool::V2(pool) => pool.tick_spacing(),
+         AnyUniswapPool::V3(pool) => pool.tick_spacing(),
+         AnyUniswapPool::V4(pool) => pool.tick_spacing(),
+      }
+   }
+
+   fn tick_spacing_i32(&self) -> i32 {
+      match self {
+         AnyUniswapPool::V2(pool) => pool.tick_spacing_i32(),
+         AnyUniswapPool::V3(pool) => pool.tick_spacing_i32(),
+         AnyUniswapPool::V4(pool) => pool.tick_spacing_i32(),
       }
    }
 

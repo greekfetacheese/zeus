@@ -1117,7 +1117,7 @@ impl ZeusCtx {
       let pool = if let Some(pool) = cached {
          return Ok(pool);
       } else {
-         let pool_fee = FeeAmount::CUSTOM(fee);
+         let pool_fee = FeeAmount::new(fee);
 
          let mut base_tokens = ERC20Token::base_tokens(chain);
 

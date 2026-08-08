@@ -1,9 +1,8 @@
 use egui::{
    Align, Align2, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, Ui, Window, vec2,
 };
-use elegance::Modal;
 use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::{Button, Label, SecureTextEdit};
+use zeus_widgets::{Button, Label, Modal, SecureTextEdit};
 
 use super::{address, chain, contract_interact, eth_received, events::*, tx_cost, value};
 use crate::assets::icons::Icons;
@@ -483,10 +482,10 @@ impl TxConfirmationWindow {
       let edit_height = 260.0;
 
       Modal::new("Calldata", open)
-         .heading(heading)
-         .max_width(modal_width)
          .backdrop_order(Order::Tooltip)
          .content_order(Order::Debug)
+         .heading(heading)
+         .max_width(modal_width)
          .show(ui.ctx(), |ui| {
             ui.set_width(ui.available_width());
 

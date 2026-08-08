@@ -300,6 +300,7 @@ struct V4PoolInfo {
    currency0: Address,
    currency1: Address,
    fee: u32,
+   tick_spacing: i32,
    hooks: Address,
 }
 
@@ -477,15 +478,18 @@ where
          currency0,
          currency1,
          fee,
+         tickSpacing,
          hooks,
          ..
       } = log.log_decode()?.inner.data;
 
       let fee: u32 = fee.to_string().parse()?;
+      let tick_spacing: i32 = tickSpacing.to_string().parse()?;
       let pool = V4PoolInfo {
          currency0,
          currency1,
          fee,
+         tick_spacing,
          hooks,
       };
       pools_info.push(pool.clone());
@@ -539,10 +543,11 @@ where
          ));
       };
 
-      let fee = FeeAmount::CUSTOM(pool.fee);
-      let p = UniswapV4Pool::new(
+      let fee = FeeAmount::new(pool.fee);
+      let p = UniswapV4Pool::new_with_spacing(
          chain,
          fee,
+         pool.tick_spacing,
          dex,
          currency0,
          currency1,

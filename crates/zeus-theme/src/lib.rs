@@ -15,7 +15,7 @@ use themes::*;
 pub use visuals::*;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ThemeKind {
    Dark,
 
@@ -70,6 +70,23 @@ pub struct Theme {
    pub frame1_visuals: FrameVisuals,
    pub frame2_visuals: FrameVisuals,
 }
+
+impl PartialEq for Theme {
+   fn eq(&self, other: &Self) -> bool {
+      self.dark_mode == other.dark_mode
+         && self.kind == other.kind
+         && self.style == other.style
+         && self.colors == other.colors
+         && self.text_sizes == other.text_sizes
+         && self.window_frame == other.window_frame
+         && self.frame1 == other.frame1
+         && self.frame2 == other.frame2
+         && self.frame1_visuals == other.frame1_visuals
+         && self.frame2_visuals == other.frame2_visuals
+   }
+}
+
+impl Eq for Theme {}
 
 impl Theme {
    /// Panics if the kind is [ThemeKind::Custom]
@@ -148,11 +165,37 @@ impl Theme {
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       }
    }
+
+   /// Install this theme into the given egui context
+   pub fn install(self, ctx: &Context) {
+      let unchanged =
+         ctx.data(|d| d.get_temp::<Theme>(Self::storage_id()).is_some_and(|t| t == self));
+
+      if unchanged {
+         return;
+      }
+
+      ctx.set_global_style(self.style.clone());
+      ctx.data_mut(|d| d.insert_temp(Self::storage_id(), self));
+   }
+
+   /// Read the current theme from the context
+   /// if it exists, otherwise return the default theme
+   pub fn current(ctx: &Context) -> Theme {
+      ctx.data(|d| {
+         d.get_temp::<Theme>(Self::storage_id())
+            .unwrap_or_else(|| Theme::new(ThemeKind::TokyoNight))
+      })
+   }
+
+   fn storage_id() -> Id {
+      Id::new("zeus::theme")
+   }
 }
 
 /// This is the color palette of the theme
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ThemeColors {
    pub button_visuals: ButtonVisuals,
 
@@ -213,7 +256,7 @@ pub struct ThemeColors {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, PartialEq)]
 pub struct TextSizes {
    pub very_small: f32,
    pub small: f32,
