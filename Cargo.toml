@@ -43,10 +43,10 @@ zeus-ui-components = { path = "crates/zeus-ui-components", features = [
 ] }
 
 # Alloy
-alloy-consensus = "=2.0.5"
-alloy-signer-local = { version = "=2.0.5", features = ["mnemonic"] }
-alloy-eips = "=2.0.5"
-alloy-sol-types = { version = "=1.6.0", features = ["json"] }
+alloy-consensus = "=2.3.0"
+alloy-signer-local = { version = "=2.3.0", features = ["mnemonic"] }
+alloy-eips = "=2.3.0"
+alloy-sol-types = { version = "=1.6.1", features = ["json"] }
 
 # Crypto
 rand = "=0.8"
