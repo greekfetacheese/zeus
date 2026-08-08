@@ -115,7 +115,7 @@ mod tests {
          currencyOut: currency_out.address(),
          amountIn: ten_eth.wei(),
          fee: eth_usdt.fee.fee_u24(),
-         tickSpacing: eth_usdt.fee.tick_spacing(),
+         tickSpacing: eth_usdt.tick_spacing(),
          zeroForOne: eth_usdt.zero_for_one(&currency_in),
          hooks: Address::ZERO,
          hookData: Bytes::default(),

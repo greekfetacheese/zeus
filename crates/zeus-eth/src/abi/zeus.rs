@@ -150,7 +150,7 @@ sol! {
 
 sol! {
     #[sol(rpc)]
-    contract ZeusStateViewV2 {
+    contract ZeusStateViewV3 {
 
         function getETHBalance(address[] memory owners) external view returns (ETHBalance[] memory) {}
         function getERC20Balance(address[] memory tokens, address owner) external view returns (ERC20Balance[] memory) {}

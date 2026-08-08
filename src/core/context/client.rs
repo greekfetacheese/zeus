@@ -3,7 +3,7 @@ use crate::utils::RT;
 use zeus_eth::{
    abi::{
       weth9,
-      zeus::ZeusStateViewV2::{V3Pool, V4Pool},
+      zeus::ZeusStateViewV3::{V3Pool, V4Pool},
    },
    alloy_primitives::Address,
    alloy_provider::Provider,
@@ -1383,7 +1383,7 @@ async fn v4_pool_state_check(
          }
          let p = V4Pool {
             pool: pool.id(),
-            tickSpacing: pool.fee().tick_spacing(),
+            tickSpacing: pool.tick_spacing(),
          };
          pools.push(p);
       }

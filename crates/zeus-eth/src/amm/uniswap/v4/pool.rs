@@ -36,6 +36,11 @@ pub struct UniswapV4Pool {
    #[serde(skip)]
    pub state: State,
    pub hooks: Address,
+   /// On-chain tick spacing from `Initialize` when known.
+   ///
+   /// `0` means "unknown" (legacy pool data) → fall back to [`FeeAmount::tick_spacing_i32`].
+   #[serde(default)]
+   pub tick_spacing: i32,
    pub liquidity_amount0: U256,
    pub liquidity_amount1: U256,
 }
@@ -66,6 +71,8 @@ impl Hash for UniswapV4Pool {
       self.currency0.hash(state);
       self.currency1.hash(state);
       self.fee.hash(state);
+      self.resolved_tick_spacing().hash(state);
+      self.hooks.hash(state);
       self.dex.hash(state);
    }
 }
@@ -80,10 +87,40 @@ impl UniswapV4Pool {
       state: State,
       hooks: Address,
    ) -> Self {
+      Self::new_with_spacing(
+         chain_id,
+         fee,
+         fee.tick_spacing_i32(),
+         dex,
+         currency_a,
+         currency_b,
+         state,
+         hooks,
+      )
+   }
+
+   /// Create a V4 pool with an explicit on-chain tick spacing (from `Initialize`).
+   pub fn new_with_spacing(
+      chain_id: u64,
+      fee: FeeAmount,
+      tick_spacing: i32,
+      dex: DexKind,
+      currency_a: Currency,
+      currency_b: Currency,
+      state: State,
+      hooks: Address,
+   ) -> Self {
       let (currency0, currency1) = if currency_a.address() < currency_b.address() {
          (currency_a, currency_b)
       } else {
          (currency_b, currency_a)
+      };
+
+      // Never store 0 — that would break pool id / StateView math.
+      let tick_spacing = if tick_spacing == 0 {
+         fee.tick_spacing_i32()
+      } else {
+         tick_spacing
       };
 
       Self {
@@ -94,6 +131,7 @@ impl UniswapV4Pool {
          currency1,
          state,
          hooks,
+         tick_spacing,
          liquidity_amount0: U256::ZERO,
          liquidity_amount1: U256::ZERO,
       }
@@ -116,6 +154,36 @@ impl UniswapV4Pool {
          State::none(),
          hooks,
       )
+   }
+
+   pub fn from_components_with_spacing(
+      chain_id: u64,
+      currency_a: Currency,
+      currency_b: Currency,
+      fee: FeeAmount,
+      tick_spacing: i32,
+      dex: DexKind,
+      hooks: Address,
+   ) -> Self {
+      Self::new_with_spacing(
+         chain_id,
+         fee,
+         tick_spacing,
+         dex,
+         currency_a,
+         currency_b,
+         State::none(),
+         hooks,
+      )
+   }
+
+   /// Resolved tick spacing (stored value, or fee heuristic if unset).
+   pub fn resolved_tick_spacing(&self) -> i32 {
+      if self.tick_spacing != 0 {
+         self.tick_spacing
+      } else {
+         self.fee.tick_spacing_i32()
+      }
    }
 
    pub fn calculate_price(&self, currency_in: &Currency) -> Result<f64, anyhow::Error> {
@@ -146,6 +214,15 @@ impl UniswapPool for UniswapV4Pool {
       self.fee
    }
 
+   fn tick_spacing(&self) -> alloy_primitives::aliases::I24 {
+      FeeAmount::i24_tick_spacing(self.resolved_tick_spacing())
+         .unwrap_or_else(|| self.fee.tick_spacing())
+   }
+
+   fn tick_spacing_i32(&self) -> i32 {
+      self.resolved_tick_spacing()
+   }
+
    fn id(&self) -> B256 {
       let (address0, address1) = if self.currency0().address() < self.currency1().address() {
          (self.currency0().address(), self.currency1().address())
@@ -158,7 +235,7 @@ impl UniswapPool for UniswapV4Pool {
             address0,
             address1,
             self.fee.fee_u24(),
-            self.fee.tick_spacing(),
+            self.tick_spacing(),
             self.hooks,
          )
             .abi_encode(),
@@ -176,7 +253,7 @@ impl UniswapPool for UniswapV4Pool {
          currency0: address0,
          currency1: address1,
          fee: self.fee.fee_u24(),
-         tickSpacing: self.fee.tick_spacing(),
+         tickSpacing: self.tick_spacing(),
          hooks: self.hooks,
       }
    }

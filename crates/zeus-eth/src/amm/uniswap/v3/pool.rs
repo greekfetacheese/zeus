@@ -93,7 +93,7 @@ impl UniswapV3Pool {
       Self {
          chain_id,
          address,
-         fee: FeeAmount::CUSTOM(fee),
+         fee: FeeAmount::new(fee),
          currency0,
          currency1,
          dex,
