@@ -70,6 +70,7 @@ impl DecodedEvents {
          .collapsible(false)
          .order(Order::Tooltip)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, -100.0))
+         .title_frame(window_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.vertical_centered(|ui| {

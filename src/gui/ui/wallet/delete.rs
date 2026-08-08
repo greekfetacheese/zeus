@@ -79,6 +79,7 @@ impl DeleteWalletUi {
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .title_frame(window_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));

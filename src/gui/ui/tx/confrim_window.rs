@@ -485,8 +485,6 @@ impl TxConfirmationWindow {
       Modal::new("Calldata", open)
          .heading(heading)
          .max_width(modal_width)
-         .backdrop_order(Order::Tooltip)
-         .content_order(Order::Debug)
          .show(ui.ctx(), |ui| {
             ui.set_width(ui.available_width());
 

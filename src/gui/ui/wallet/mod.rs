@@ -382,6 +382,7 @@ impl WalletUi {
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .title_frame(window_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(300.0);

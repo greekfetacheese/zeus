@@ -11,7 +11,7 @@ keywords = ["egui", "ui"]
 categories = ["gui"]
 
 [dependencies]
-egui = "0.35"
+egui = "0.36"
 image = "0.25"
 qrcodegen-no-heap = "1.8.1"
 
@@ -30,8 +30,8 @@ qr-scanner = ["dep:secure-types", "dep:xcap", "dep:enigo", "dep:rqrr"]
 all = ["secure-types", "qr-scanner"]
 
 [dev-dependencies]
-eframe = "0.35"
-egui_extras = { version = "0.35", features = ["image"] }
+eframe = "0.36"
+egui_extras = { version = "0.36", features = ["image"] }
 
 [[example]]
 name = "credentials_form"

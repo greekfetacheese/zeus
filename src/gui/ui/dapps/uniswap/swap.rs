@@ -120,6 +120,7 @@ impl SimulateWindow {
          .collapsible(true)
          .movable(true)
          .default_pos((1000.0, 70.0))
+         .title_frame(Frame::window(ui.style()))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
             ui.vertical(|ui| {

@@ -78,6 +78,7 @@ impl AddContact {
          .collapsible(false)
          .order(Order::Tooltip)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
+         .title_frame(window_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
@@ -249,6 +250,7 @@ impl DeleteContact {
          .collapsible(false)
          .order(Order::Tooltip)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
+         .title_frame(window_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
@@ -362,6 +364,7 @@ impl EditContact {
          .collapsible(false)
          .order(Order::Tooltip)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
+         .title_frame(window_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
@@ -560,6 +563,7 @@ impl ContactsUi {
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
+         .title_frame(window_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);

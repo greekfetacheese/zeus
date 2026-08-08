@@ -14,9 +14,8 @@ use eframe::egui::{Align2, RichText, Spinner, Ui, Vec2, Window, vec2};
 use egui::{Align, Layout, Order};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use elegance::Modal;
 use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::Button;
+use zeus_widgets::{Button, Modal};
 
 /// A Window to prompt the user to confirm an action
 pub struct ConfirmWindow {
