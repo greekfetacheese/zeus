@@ -12203,7 +12203,7 @@ dependencies = [
 
 [[package]]
 name = "zeus-eth"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "alloy-contract",
  "alloy-dyn-abi",
@@ -12232,7 +12232,7 @@ dependencies = [
 
 [[package]]
 name = "zeus-railgun"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -12290,7 +12290,7 @@ dependencies = [
 
 [[package]]
 name = "zeus-theme"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "eframe",
  "egui",
@@ -12303,7 +12303,7 @@ dependencies = [
 
 [[package]]
 name = "zeus-ui-components"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "eframe",
  "egui",
@@ -12320,7 +12320,7 @@ dependencies = [
 
 [[package]]
 name = "zeus-wallet"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "alloy-network",
  "alloy-primitives",
@@ -12339,7 +12339,7 @@ dependencies = [
 
 [[package]]
 name = "zeus-widgets"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "egui",
  "secure-types",

@@ -3,7 +3,7 @@ name = "zeus-eth"
 description = "Utilities to interact with Ethereum"
 readme = "readme.md"
 repository = "https://github.com/greekfetacheese/zeus/tree/master/crates/zeus-eth"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 
