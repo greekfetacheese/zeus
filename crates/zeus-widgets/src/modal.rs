@@ -4,13 +4,13 @@
 //! clicks (and closes the modal when clicked), and a centered [`Card`]-
 //! like window with an optional heading row and a close "×" button.
 //! Press `Esc` to dismiss.
-//! 
+//!
 //! Forked from https://github.com/stephenberry/egui-elegance
 
 use egui::{
    Align, Align2, Area, Color32, Context, CornerRadius, FontId, Frame, Id, Key, Layout, Margin,
-   Order, Pos2, Rect, Response, Sense, Shape, Stroke, Ui, Vec2, WidgetInfo, WidgetText, WidgetType,
-   accesskit,
+   Order, Pos2, Rect, Response, RichText, Sense, Shape, Stroke, Ui, Vec2, WidgetInfo, WidgetText,
+   WidgetType, accesskit, vec2,
 };
 
 use crate::Button;
@@ -333,7 +333,7 @@ impl<'a> Modal<'a> {
                                  // there's no user-driven way out, so
                                  // an affordance would only mislead.
                                  if closable {
-                                    let resp = close_button(ui);
+                                    let resp = close_button(ui, &theme);
                                     if resp.clicked() {
                                        should_close = true;
                                     }
@@ -478,10 +478,11 @@ struct ModalFocusState {
 ///
 /// The button is scoped under a stable id (`"elegance_modal_close"`) so
 /// focus requests targeting it survive layout changes.
-fn close_button(ui: &mut Ui) -> Response {
+fn close_button(ui: &mut Ui, theme: &Theme) -> Response {
    let inner = ui
       .push_id("modal_close", |ui| {
-         ui.add(Button::new("×").small())
+         let text = RichText::new("X").size(theme.text_sizes.normal);
+         ui.add(Button::new(text).min_size(vec2(20.0, 20.0)))
       })
       .inner;
    let enabled = inner.enabled();
