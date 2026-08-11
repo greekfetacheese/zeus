@@ -174,9 +174,10 @@ impl ImportWallet {
 
             let ctx_clone = ctx.clone();
             RT.spawn(async move {
-               match ctx_clone.register_all_railgun_signers(false).await {
-                  Ok(_) => {}
-                  Err(e) => tracing::error!("Error registering Railgun signers: {:?}", e),
+               for chain in SUPPORTED_CHAINS {
+                  if let Err(e) = ctx_clone.register_railgun_signers(chain, false).await {
+                     tracing::error!("Error registering Railgun signers: {:?}", e);
+                  }
                }
             });
 

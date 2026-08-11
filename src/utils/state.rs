@@ -12,7 +12,6 @@ use zeus_eth::{
    alloy_primitives::U256,
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
-   currency::{Currency, ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
    utils::{NumericValue, block::calculate_next_block_base_fee},
 };
@@ -72,6 +71,80 @@ pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
    );
 }
 
+/// Do a full state sync for the given chain
+pub async fn sync_state(ctx: ZeusCtx, chain: u64) {
+   if ctx.is_chain_disabled(chain) {
+      return;
+   }
+
+   if ctx.is_chain_syncing(chain) {
+      return;
+   }
+
+   ctx.set_chain_syncing(chain, true);
+
+   let time = Instant::now();
+
+   let z_client = ctx.get_zeus_client();
+   let available_rpcs = z_client.rpc_available(chain);
+
+   if !available_rpcs {
+      warn!(
+         "No RPCs available for chain {}, skipping state sync",
+         chain
+      );
+      return;
+   }
+
+   update_token_balances(ctx.clone(), chain, false).await;
+   update_token_prices(ctx.clone(), chain, false).await;
+
+   let wallets = ctx.get_all_wallets_info();
+   let addresses = wallets.iter().map(|w| w.address).collect::<Vec<_>>();
+
+   for addr in &addresses {
+      ctx.update_public_data(chain, *addr);
+   }
+
+   if let Err(e) = ctx.register_railgun_signers(chain, false).await {
+      error!("Error registering Railgun signers: {:?}", e);
+   }
+
+   if let Err(e) = ctx.sync_railgun(chain, false).await {
+      error!("Error syncing Railgun: {:?}", e);
+   }
+
+   for addr in addresses {
+      ctx.update_private_data(chain, addr).await;
+   }
+
+   if let Err(e) = update_priority_fee(ctx.clone(), chain).await {
+      warn!(
+         "Error updating priority fee for chain {}: {:?}",
+         chain, e
+      );
+   }
+
+   if let Err(e) = get_base_fee(ctx.clone(), chain).await {
+      warn!("Error updating base fee: {:?}", e);
+   }
+
+   check_delegated_status(ctx.clone(), chain).await;
+
+   ctx.save_price_manager();
+   ctx.save_pool_manager();
+
+   insert_missing_portfolios(ctx.clone(), chain);
+
+   ctx.set_chain_syncing(chain, false);
+
+   info!(
+      "Synced state for chain {} in {} ms",
+      chain,
+      time.elapsed().as_millis()
+   );
+}
+
 pub async fn on_startup(ctx: ZeusCtx) {
    ctx.write(|ctx| {
       ctx.on_startup_syncing = true;
@@ -79,48 +152,19 @@ pub async fn on_startup(ctx: ZeusCtx) {
 
    cleanup_orphaned_wallet_data(ctx.clone());
 
+   let mut tasks = Vec::new();
+
    for chain in SUPPORTED_CHAINS {
-      if ctx.is_chain_disabled(chain) {
-         continue;
-      }
+      let semaphore = Arc::new(Semaphore::new(2));
+      let ctx = ctx.clone();
 
-      let ctx2 = ctx.clone();
-      RT.spawn(async move {
-         match update_priority_fee(ctx2, chain).await {
-            Ok(_) => {}
-            Err(e) => debug!("Error updating priority fee: {:?}", e),
-         }
+      let task = RT.spawn(async move {
+         let _ = semaphore.acquire().await.unwrap();
+         sync_state(ctx, chain).await;
       });
+
+      tasks.push(task);
    }
-
-   let balance_manager = ctx.balance_manager();
-
-   let eth_balance_fut = balance_manager.update_eth_balance_across_wallets_and_chains(ctx.clone());
-   let token_balance_fut =
-      balance_manager.update_tokens_balance_across_wallets_and_chains(ctx.clone());
-
-   if ctx.pools_need_resync() {
-      resync_pools(ctx.clone()).await;
-   } else {
-      update_token_prices(ctx.clone()).await;
-   }
-
-   let ctx_clone = ctx.clone();
-   RT.spawn(async move {
-      match ctx_clone.register_all_railgun_signers(false).await {
-         Ok(_) => {}
-         Err(e) => error!("Error registering Railgun signers: {:?}", e),
-      }
-
-      for chain in SUPPORTED_CHAINS {
-         match ctx_clone.sync_railgun(chain, false).await {
-            Ok(_) => {}
-            Err(e) => error!("Error syncing Railgun: {:?}", e),
-         }
-      }
-
-      malloc_trim();
-   });
 
    // Prefetch all transact circuit artifacts (01x01 ..= 05x05) into the
    // on-disk cache so first prove / merge does not hit the network cold.
@@ -143,52 +187,15 @@ pub async fn on_startup(ctx: ZeusCtx) {
       }
    });
 
-   eth_balance_fut.await;
-   token_balance_fut.await;
-
-   // Calculate the portfolio value for all chains
-   let ctx_clone = ctx.clone();
-   RT.spawn_blocking(move || {
-      for chain in SUPPORTED_CHAINS {
-         if ctx_clone.is_chain_disabled(chain) {
-            continue;
-         }
-
-         let ctx_clone = ctx_clone.clone();
-         let portfolios = ctx_clone.read_wallet_state(|ws| ws.portfolio_db.get_all(chain));
-         for portfolio in &portfolios {
-            ctx_clone.update_public_data(chain, portfolio.owner());
-         }
-      }
-      ctx_clone.write(|ctx| {
-         ctx.on_startup_syncing = false;
-      });
-   });
-
-   // Update the base fee for all chains
-   for chain in SUPPORTED_CHAINS {
-      if ctx.is_chain_disabled(chain) {
-         continue;
-      }
-
-      let ctx = ctx.clone();
-      RT.spawn(async move {
-         match get_base_fee(ctx.clone(), chain).await {
-            Ok(_) => {}
-            Err(e) => error!("Error updating base fee: {:?}", e),
-         }
-      });
+   for task in tasks {
+      let _ = task.await;
    }
 
-   let ctx_clone = ctx.clone();
-   RT.spawn(async move {
-      check_delegated_status(ctx_clone).await;
+   ctx.write(|ctx| {
+      ctx.on_startup_syncing = false;
    });
 
-   let ctx_clone = ctx.clone();
-   RT.spawn_blocking(move || {
-      insert_missing_portfolios(ctx_clone);
-   });
+   malloc_trim();
 
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
@@ -314,125 +321,178 @@ pub fn cleanup_orphaned_wallet_data(ctx: ZeusCtx) {
    });
 }
 
-fn insert_missing_portfolios(ctx: ZeusCtx) {
+fn insert_missing_portfolios(ctx: ZeusCtx, chain: u64) {
+   if ctx.is_chain_disabled(chain) {
+      return;
+   }
+
    while !ctx.vault_unlocked() {
       std::thread::sleep(Duration::from_millis(100));
    }
 
    let wallets = ctx.get_all_wallets_info();
-   for chain in SUPPORTED_CHAINS {
-      if ctx.is_chain_disabled(chain) {
-         continue;
-      }
 
-      for wallet in &wallets {
-         let has_portfolio = ctx.has_portfolio(chain, wallet.address);
-         let balance = ctx.get_eth_balance(chain, wallet.address);
-         if !balance.is_zero() && !has_portfolio {
-            let portfolio = WalletPortfolio::new(wallet.address, chain);
-            ctx.write_wallet_state(|ws| {
-               ws.portfolio_db.insert_portfolio(chain, wallet.address, portfolio);
-            });
-         }
+   for wallet in &wallets {
+      let has_portfolio = ctx.has_portfolio(chain, wallet.address);
+      let balance = ctx.get_eth_balance(chain, wallet.address);
+      if !balance.is_zero() && !has_portfolio {
+         let portfolio = WalletPortfolio::new(wallet.address, chain);
+         ctx.write_wallet_state(|ws| {
+            ws.portfolio_db.insert_portfolio(chain, wallet.address, portfolio);
+         });
       }
    }
 
-   for chain in SUPPORTED_CHAINS {
-      if ctx.is_chain_disabled(chain) {
-         continue;
-      }
-
-      let portfolios = ctx.read_wallet_state(|ws| ws.portfolio_db.get_all(chain));
-      for portfolio in &portfolios {
-         ctx.update_public_data(chain, portfolio.owner());
-      }
+   let portfolios = ctx.read_wallet_state(|ws| ws.portfolio_db.get_all(chain));
+   for portfolio in &portfolios {
+      ctx.update_public_data(chain, portfolio.owner());
    }
 }
 
-/// Check the delegated status for all wallets across all chains
-async fn check_delegated_status(ctx: ZeusCtx) {
+/// Check the delegated status for all wallets for the given chain
+async fn check_delegated_status(ctx: ZeusCtx, chain: u64) {
    let accounts = ctx.get_all_wallets_info();
-   let mut tasks = Vec::new();
 
-   for chain in SUPPORTED_CHAINS {
-      if ctx.is_chain_disabled(chain) {
-         continue;
-      }
-
-      let ctx = ctx.clone();
-      let accounts = accounts.clone();
-
-      let task = RT.spawn(async move {
-         for account in &accounts {
-            if ctx.should_check_delegated_wallet_status(chain, account.address) {
-               match ctx.check_delegated_wallet_status(chain, account.address).await {
-                  Ok(_) => {
-                     #[cfg(feature = "debug")]
-                     debug!(
-                        "Checked delegated wallet status for {}",
-                        account.address
-                     )
-                  }
-                  Err(e) => error!("Error checking delegated wallet status: {:?}", e),
-               }
-            }
-         }
-      });
-      tasks.push(task);
+   if ctx.is_chain_disabled(chain) {
+      return;
    }
 
-   for task in tasks {
-      let _ = task.await;
+   let ctx = ctx.clone();
+   let accounts = accounts.clone();
+
+   for account in &accounts {
+      if ctx.should_check_delegated_wallet_status(chain, account.address) {
+         match ctx.check_delegated_wallet_status(chain, account.address).await {
+            Ok(_) => {
+               #[cfg(feature = "debug")]
+               debug!(
+                  "Checked delegated wallet status for {}",
+                  account.address
+               )
+            }
+            Err(e) => error!("Error checking delegated wallet status: {:?}", e),
+         }
+      }
    }
 }
 
-/// Update the token prices across all chains
-async fn update_token_prices(ctx: ZeusCtx) {
-   let mut tasks = Vec::new();
-   for chain in SUPPORTED_CHAINS {
-      if ctx.is_chain_disabled(chain) {
+// TODO: Improve the efficiency of the batch calls, right now is not worth doing
+// TODO: a full sync
+/// Update the token balances for all the wallet portfolios for the given chain
+///
+/// - Arguments:
+///    - ctx: The Zeus context
+///    - chain: The chain ID
+///    - update_for_all: If true, update the balances for all the ERC20 tokens known to Zeus
+pub async fn update_token_balances(ctx: ZeusCtx, chain: u64, update_for_all: bool) {
+   if ctx.is_chain_disabled(chain) {
+      return;
+   }
+
+   let balance_manager = ctx.balance_manager();
+   let wallets_info = ctx.get_all_wallets_info();
+   let wallets = wallets_info.iter().map(|w| w.address).collect::<Vec<_>>();
+
+   let portfolio_tokens = ctx.get_all_tokens_from_portfolios(chain);
+
+   let mut inserted = HashSet::new();
+   let mut tokens = Vec::new();
+
+   if update_for_all {
+      let currencies = ctx.get_currencies(chain);
+
+      for curr in &currencies {
+         let token = curr.to_erc20().into_owned();
+
+         if inserted.contains(&token.address) {
+            continue;
+         }
+
+         inserted.insert(token.address);
+         tokens.push(token);
+      }
+   }
+
+   for token in portfolio_tokens {
+      if inserted.contains(&token.address) {
          continue;
       }
 
-      let ctx = ctx.clone();
-      let task = RT.spawn(async move {
-         let price_manager = ctx.price_manager();
-         let pool_manager = ctx.pool_manager();
-
-         let portfolio_tokens = ctx.get_all_tokens_from_portfolios(chain);
-         let mut inserted = HashSet::new();
-         let mut tokens = Vec::new();
-
-         for token in portfolio_tokens {
-            if token.is_base() || inserted.contains(&token.address) {
-               continue;
-            }
-
-            inserted.insert(token.address);
-            tokens.push(token);
-         }
-
-         match price_manager.update_base_token_prices(ctx.clone(), chain).await {
-            Ok(_) => {}
-            Err(e) => error!(
-               "Error updating base token prices for chain {}: {:?}",
-               chain, e
-            ),
-         }
-
-         match price_manager.calculate_prices(ctx, chain, pool_manager, tokens).await {
-            Ok(_) => {}
-            Err(e) => error!(
-               "Error updating token prices for chain {}: {:?}",
-               chain, e
-            ),
-         }
-      });
-      tasks.push(task);
+      inserted.insert(token.address);
+      tokens.push(token);
    }
 
-   for task in tasks {
-      let _ = task.await;
+   if let Err(e) = balance_manager
+      .update_eth_balance(ctx.clone(), chain, wallets.clone(), false)
+      .await
+   {
+      error!("Error updating eth balance: {:?}", e);
+   }
+
+   for wallet in wallets {
+      if let Err(e) = balance_manager
+         .update_tokens_balance(ctx.clone(), chain, wallet, tokens.clone(), false)
+         .await
+      {
+         error!("Error updating tokens balance: {:?}", e);
+      }
+   }
+}
+
+/// Update the token prices from all the wallet portfolios for the given chain
+///
+/// - Arguments:
+///    - ctx: The Zeus context
+///    - chain: The chain ID
+///    - update_for_all: If true, update the prices for all the ERC20 tokens known to Zeus
+pub async fn update_token_prices(ctx: ZeusCtx, chain: u64, update_for_all: bool) {
+   if ctx.is_chain_disabled(chain) {
+      return;
+   }
+
+   let price_manager = ctx.price_manager();
+   let pool_manager = ctx.pool_manager();
+
+   let portfolio_tokens = ctx.get_all_tokens_from_portfolios(chain);
+   let mut inserted = HashSet::new();
+   let mut tokens = Vec::new();
+
+   if update_for_all {
+      let currencies = ctx.get_currencies(chain);
+
+      for curr in &currencies {
+         let token = curr.to_erc20().into_owned();
+
+         if token.is_base() || inserted.contains(&token.address) {
+            continue;
+         }
+
+         inserted.insert(token.address);
+         tokens.push(token);
+      }
+   }
+
+   for token in portfolio_tokens {
+      if token.is_base() || inserted.contains(&token.address) {
+         continue;
+      }
+
+      inserted.insert(token.address);
+      tokens.push(token);
+   }
+
+   if let Err(e) = price_manager.update_base_token_prices(ctx.clone(), chain).await {
+      error!(
+         "Error updating base token prices for chain {}: {:?}",
+         chain, e
+      );
+   }
+
+   if let Err(e) = price_manager.calculate_prices(ctx, chain, pool_manager, tokens).await {
+      error!(
+         "Error updating token prices for chain {}: {:?}",
+         chain, e
+      );
    }
 }
 
@@ -460,20 +520,22 @@ async fn state_update_interval(ctx: ZeusCtx) {
          let manager = ctx.balance_manager();
          manager.update_eth_balance_across_wallets_and_chains(ctx.clone()).await;
          manager.update_tokens_balance_across_wallets_and_chains(ctx.clone()).await;
-         update_token_prices(ctx.clone()).await;
 
          for chain in SUPPORTED_CHAINS {
             if ctx.is_chain_disabled(chain) {
                continue;
             }
 
+            update_token_prices(ctx.clone(), chain, false).await;
+
             let portfolios = ctx.read_wallet_state(|ws| ws.portfolio_db.get_all(chain));
             for portfolio in &portfolios {
                ctx.update_public_data(chain, portfolio.owner());
             }
+
+            check_delegated_status(ctx.clone(), chain).await;
          }
 
-         check_delegated_status(ctx.clone()).await;
          ctx.save_price_manager();
          wallet_state_passed = Instant::now();
       }
@@ -484,17 +546,15 @@ async fn state_update_interval(ctx: ZeusCtx) {
                continue;
             }
 
-            match update_priority_fee(ctx.clone(), chain).await {
-               Ok(_) => {}
-               Err(e) => warn!(
+            if let Err(e) = update_priority_fee(ctx.clone(), chain).await {
+               warn!(
                   "Error updating priority fee for chain {}: {:?}",
                   chain, e
-               ),
+               );
             }
 
-            match get_base_fee(ctx.clone(), chain).await {
-               Ok(_) => {}
-               Err(e) => error!("Error updating base fee: {:?}", e),
+            if let Err(e) = get_base_fee(ctx.clone(), chain).await {
+               error!("Error updating base fee: {:?}", e);
             }
          }
          fee_time_passed = Instant::now();
@@ -520,14 +580,12 @@ async fn state_update_interval(ctx: ZeusCtx) {
                      Err(e) => error!("Error syncing Railgun: {:?}", e),
                   }
                } else {
-                  match ctx_clone.register_all_railgun_signers(false).await {
-                     Ok(_) => {}
-                     Err(e) => error!("Error registering Railgun signers: {:?}", e),
+                  if let Err(e) = ctx_clone.register_railgun_signers(chain, false).await {
+                     error!("Error registering Railgun signers: {:?}", e);
                   }
 
-                  match ctx_clone.sync_railgun(chain, false).await {
-                     Ok(_) => {}
-                     Err(e) => error!("Error syncing Railgun: {:?}", e),
+                  if let Err(e) = ctx_clone.sync_railgun(chain, false).await {
+                     error!("Error syncing Railgun: {:?}", e);
                   }
                }
             }
@@ -546,6 +604,10 @@ async fn state_update_interval(ctx: ZeusCtx) {
 }
 
 pub async fn get_base_fee(ctx: ZeusCtx, chain: u64) -> Result<BaseFee, anyhow::Error> {
+   if ctx.is_chain_disabled(chain) {
+      return Ok(BaseFee::new(0, 0));
+   }
+
    let z_client = ctx.get_zeus_client();
    let chain = ChainId::new(chain)?;
 
@@ -590,6 +652,10 @@ pub async fn get_base_fee(ctx: ZeusCtx, chain: u64) -> Result<BaseFee, anyhow::E
 }
 
 pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow::Error> {
+   if ctx.is_chain_disabled(chain) {
+      return Ok(());
+   }
+
    let z_client = ctx.get_zeus_client();
    let chain = ChainId::new(chain)?;
    if chain.supports_type_2_tx() {
@@ -619,78 +685,6 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
       ctx.update_priority_fee(chain.id(), fee_value);
    }
    Ok(())
-}
-
-/// If needed re-sync pools for all tokens across all chains
-pub async fn resync_pools(ctx: ZeusCtx) {
-   ctx.write(|ctx| {
-      ctx.data_syncing = true;
-   });
-
-   info!("Resyncing pools");
-
-   for chain in SUPPORTED_CHAINS {
-      if ctx.is_chain_disabled(chain) {
-         continue;
-      }
-
-      let ctx = ctx.clone();
-      RT.spawn(async move {
-         let mut tokens = ctx.get_all_tokens_from_portfolios(chain);
-         let base_tokens = ERC20Token::base_tokens(chain);
-         tokens.extend(base_tokens);
-
-         let pool_manager = ctx.pool_manager();
-
-         match pool_manager.discover_pools_for_tokens(ctx.clone(), chain, tokens).await {
-            Ok(_) => {}
-            Err(e) => error!(
-               "Failed to sync pools for chain_id {} {}",
-               chain, e
-            ),
-         }
-
-         let portfolio_tokens = ctx.get_all_tokens_from_portfolios(chain);
-         let mut currencies = Vec::new();
-         let mut tokens = Vec::new();
-         let mut inserted = HashSet::new();
-
-         for token in &portfolio_tokens {
-            if token.is_base() || inserted.contains(&token.address) {
-               continue;
-            }
-
-            inserted.insert(token.address);
-            currencies.push(Currency::from(token.clone()));
-            tokens.push(token.clone());
-         }
-
-         match pool_manager.update_for_currencies(ctx.clone(), chain, currencies).await {
-            Ok(_) => {}
-            Err(e) => error!(
-               "Error updating price manager for chain {}: {:?}",
-               chain, e
-            ),
-         }
-      });
-   }
-
-   ctx.write(|ctx| {
-      ctx.data_syncing = false;
-   });
-
-   RT.spawn_blocking(move || {
-      for chain in SUPPORTED_CHAINS {
-         if ctx.is_chain_disabled(chain) {
-            continue;
-         }
-
-         let portfolios = ctx.read_wallet_state(|ws| ws.portfolio_db.get_all(chain));
-         for portfolio in &portfolios {
-            ctx.update_public_data(chain, portfolio.owner());
-         }
-      }
-   });
 }
 
 /// Prefetch pack circuits (`railgun/01x01` ..= `05x05`) into the Zeus

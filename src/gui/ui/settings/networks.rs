@@ -3,7 +3,7 @@
 use crate::assets::icons::Icons;
 use crate::core::{ZeusContext, ZeusCtx, client::Rpc};
 use crate::gui::{SHARED_GUI, ui::ChainSelect};
-use crate::utils::RT;
+use crate::utils::{RT, state};
 use eframe::egui::{
    Align, Align2, CornerRadius, CursorIcon, FontId, Layout, Margin, Order, RichText, ScrollArea,
    Slider, Spinner, Ui, Window, vec2,
@@ -291,7 +291,9 @@ impl NetworkSettings {
                            RT.spawn(async move {
                               let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                               let z_client = ctx.get_zeus_client();
-                              z_client.run_check_for(ctx, rpc).await;
+                              z_client.run_check_for(ctx.clone(), rpc).await;
+
+                              post_enable_rpc(ctx, chain).await
                            });
                         }
 
@@ -654,4 +656,22 @@ fn validate_rpc(chain: u64, url: String) {
          gui.settings.network.refreshing = false;
       });
    });
+}
+
+async fn post_enable_rpc(ctx: ZeusCtx, chain: u64) {
+   if ctx.is_chain_disabled(chain) {
+      return;
+   }
+
+   let z_client = ctx.get_zeus_client();
+
+   let rpcs = z_client.get_rpcs(chain);
+   let valid_rpcs = rpcs.iter().filter(|rpc| rpc.1.is_enabled() && rpc.1.is_working()).count();
+   let available_rpc = z_client.rpc_available(chain);
+
+   // If we only have 1 active RPC, that means maybe is the first time Zeus started so we need to do
+   // full state sync
+   if valid_rpcs == 1 && available_rpc {
+      state::sync_state(ctx.clone(), chain).await;
+   }
 }

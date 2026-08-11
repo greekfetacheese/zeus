@@ -76,6 +76,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       gui.notification.show(ctx, &gui.theme, icons, ui);
 
       let is_railgun_syncing = ctx.is_railgun_provider_syncing(chain.id());
+      let chain_syncing = ctx.state_sync.get(&chain.id()).cloned().unwrap_or(false);
 
       let status_msg = if ctx.data_syncing {
          Some(DATA_SYNCING_MSG)
@@ -83,7 +84,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          Some(RAILGUN_SYNCING_MSG)
       } else if ctx.dex_syncing {
          Some(DEX_SYNCING_MSG)
-      } else if ctx.on_startup_syncing {
+      } else if ctx.on_startup_syncing || chain_syncing {
          Some(ON_STARTUP_SYNC_MSG)
       } else if ctx.save_vault_in_progress {
          Some(VAULT_SAVE_IN_PROGRESS_MSG)

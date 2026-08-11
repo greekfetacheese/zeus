@@ -458,6 +458,10 @@ impl BalanceManagerHandle {
       balance: U256,
       token: &ERC20Token,
    ) {
+      if balance.is_zero() {
+         return;
+      }
+      
       let balance = NumericValue::currency_balance(balance, token.decimals);
       self.write(|manager| {
          manager.token_balances.insert((chain, owner, token.address), balance);
@@ -499,10 +503,9 @@ fn default_retry_delay() -> u64 {
 }
 
 fn default_batch_size() -> usize {
-   10
+   20
 }
 
-/// Balance cache persisted inside the encrypted vault.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct BalanceManager {
    /// Eth Balances (or any native currency for evm compatable chains)

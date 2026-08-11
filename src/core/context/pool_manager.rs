@@ -1207,6 +1207,9 @@ async fn batch_update_state(
       return Ok(Vec::new());
    }
 
+   #[cfg(feature = "dev")]
+   tracing::info!("Updating pool state for {} pools - batch size {}", pools.len(), batch_size);
+
    let mut v2_pools = Vec::new();
    let mut v3_pools = Vec::new();
    let mut v4_pools = Vec::new();
@@ -1264,6 +1267,7 @@ async fn batch_update_state(
       }
    }
 
+   #[cfg(feature = "dev")]
    tracing::info!(
       "Fetching pool state for {} V2 pools {} V3 pools {} V4 pools",
       v2_pools.len(),
@@ -1274,6 +1278,7 @@ async fn batch_update_state(
    let zeus_client = ctx.get_zeus_client();
    let state_view = uniswap_v4_stateview(chain)?;
 
+   #[cfg(feature = "dev")]
    let time = Instant::now();
 
    let batches = get_batches(
@@ -1400,6 +1405,7 @@ async fn batch_update_state(
       }
    }
 
+   #[cfg(feature = "dev")]
    tracing::info!(
       "Updated pool state for {} V2 Pools {} V3 Pools {} V4 Pools in {} ms. Chain {}",
       v2_reserves.len(),

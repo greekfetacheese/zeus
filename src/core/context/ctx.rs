@@ -214,8 +214,9 @@ impl ZeusCtx {
    ///
    /// This should be called at the startup and whenever a wallet is added.
    /// Also drops Railgun DB account state for wallets that no longer exist.
-   pub async fn register_all_railgun_signers(
+   pub async fn register_railgun_signers(
       &self,
+      chain: u64,
       ignore_resync: bool,
    ) -> Result<(), anyhow::Error> {
       let wallets = self.read_vault(|vault| vault.clone_all_wallets());
@@ -223,7 +224,7 @@ impl ZeusCtx {
       for wallet in wallets {
          if let Ok(seed) = wallet.seed() {
             let signer = RailgunSigner::from_seed(&seed, 0, 1)?;
-            self.register_railgun_signer(signer, ignore_resync).await?;
+            self.register_railgun_signer(signer, chain.into(), ignore_resync).await?;
          }
       }
 
@@ -236,16 +237,16 @@ impl ZeusCtx {
    pub async fn register_railgun_signer(
       &self,
       signer: RailgunSigner,
+      chain: ChainId,
       ignore_resync: bool,
    ) -> Result<(), anyhow::Error> {
-      for chain in ChainId::supported_chains() {
          if !self.railgun_is_supported(chain) {
-            continue;
+            return Ok(());
          }
 
          let mut provider = self.get_railgun_provider(chain.id(), ignore_resync).await?;
          provider.register(signer.clone()).await?;
-      }
+      
       Ok(())
    }
 
@@ -335,7 +336,7 @@ impl ZeusCtx {
          let db_file = railgun_db_file(chain)?;
          tokio::fs::remove_file(&db_file).await?;
 
-         self.register_all_railgun_signers(true).await?;
+         self.register_railgun_signers(chain, true).await?;
          self.sync_railgun(chain, true).await?;
 
          Ok(())
@@ -820,6 +821,16 @@ impl ZeusCtx {
 
    pub fn is_chain_disabled(&self, chain: u64) -> bool {
       self.read(|ctx| ctx.is_chain_disabled(chain))
+   }
+
+   pub fn is_chain_syncing(&self, chain: u64) -> bool {
+      self.read(|ctx| ctx.state_sync.get(&chain).cloned().unwrap_or(false))
+   }
+
+   pub fn set_chain_syncing(&self, chain: u64, syncing: bool) {
+      self.write(|ctx| {
+         ctx.state_sync.insert(chain, syncing);
+      });
    }
 
    pub fn save_currency_db(&self) {
@@ -1651,6 +1662,9 @@ pub struct ZeusContext {
    pub save_vault_in_progress: bool,
    pub save_wallet_state_in_progress: bool,
 
+   /// State sync flag per chain
+   pub state_sync: HashMap<u64, bool>,
+
    /// Cached base fees for each chain
    pub base_fee: HashMap<u64, BaseFee>,
 
@@ -1792,6 +1806,7 @@ impl ZeusContext {
          data_syncing: false,
          dex_syncing: false,
          on_startup_syncing: false,
+         state_sync: HashMap::with_capacity(SUPPORTED_CHAINS.len()),
          base_fee: HashMap::with_capacity(SUPPORTED_CHAINS.len()),
          latest_block: HashMap::with_capacity(SUPPORTED_CHAINS.len()),
          eth_calls: HashMap::with_capacity(20),

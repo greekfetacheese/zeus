@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -87,7 +87,19 @@ impl PriceManagerHandle {
       let last_updated = last_updated.unwrap();
       let timeout = Duration::from_secs(TOKEN_PRICE_UPDATE_INTERVAL);
       let time_passed = now.duration_since(last_updated);
-      time_passed > timeout
+      let expired = time_passed > timeout;
+
+      let mut missing_prices = false;
+
+      let base_tokens = ERC20Token::base_tokens(chain);
+      for token in &base_tokens {
+         if !self.read(|manager| manager.token_prices.contains_key(&(chain, token.address))) {
+            missing_prices = true;
+            break;
+         }
+      }
+
+      expired || missing_prices
    }
 
    pub async fn calculate_prices(
@@ -95,7 +107,7 @@ impl PriceManagerHandle {
       ctx: ZeusCtx,
       chain: u64,
       pool_manager: PoolManagerHandle,
-      tokens: Vec<ERC20Token>,
+      mut tokens: Vec<ERC20Token>,
    ) -> Result<(), anyhow::Error> {
       if self.should_update_base_token_prices(chain) {
          self.update_base_token_prices(ctx.clone(), chain).await?;
@@ -106,6 +118,9 @@ impl PriceManagerHandle {
             return Ok(());
          }
       }
+
+      // Remove base tokens from the list
+      tokens.retain(|t| !t.is_base());
 
       // Find any tokens that do not have a good pool
       let mut tokens_without_pool = Vec::new();
@@ -121,6 +136,14 @@ impl PriceManagerHandle {
          if pool_id.is_none() {
             tokens_without_pool.push(token.clone());
          }
+      }
+
+      #[cfg(feature = "dev")]
+      if tokens_without_pool.len() > 0 {
+         tracing::info!(
+            "Finding good pools try 1, Tokens without pools {}",
+            tokens_without_pool.len()
+         );
       }
 
       self
@@ -175,6 +198,14 @@ impl PriceManagerHandle {
          }
       }
 
+      #[cfg(feature = "dev")]
+      if tokens_need_new_pool.len() > 0 {
+         tracing::info!(
+            "Finding good pools try 2, Tokens need new pools {}",
+            tokens_need_new_pool.len()
+         );
+      }
+
       self
          .find_good_pool(
             ctx.clone(),
@@ -192,6 +223,14 @@ impl PriceManagerHandle {
          if pool_opt.is_none() {
             tokens_without_pool.push(token.clone());
          }
+      }
+
+      #[cfg(feature = "dev")]
+      if tokens_without_pool.len() > 0 {
+         tracing::info!(
+            "Finding good pools try 3, Tokens without pools {}",
+            tokens_without_pool.len()
+         );
       }
 
       match pool_manager
@@ -251,6 +290,8 @@ impl PriceManagerHandle {
    /// For example if we want to find the best pool for UNI and we have only 2 pools lets say WETH/UNI and DAI/UNI
    ///
    /// We will choose the pool with the highest liquidity in WETH or DAI in terms of USD value
+   ///
+   /// Pool state is collected across all tokens and updated in one batched RPC call.
    async fn find_good_pool(
       &self,
       ctx: ZeusCtx,
@@ -258,52 +299,78 @@ impl PriceManagerHandle {
       pool_manager: PoolManagerHandle,
       tokens: Vec<ERC20Token>,
    ) -> Result<(), anyhow::Error> {
+      if tokens.is_empty() {
+         return Ok(());
+      }
+
+      // Gather candidate pools per token and dedupe pools that need state
+      let mut pools_by_token: Vec<(ERC20Token, Vec<AnyUniswapPool>)> =
+         Vec::with_capacity(tokens.len());
+      let mut pools_to_update = Vec::new();
+      let mut seen_update = HashSet::new();
+
       for token in tokens {
          let currency = Currency::from(token.clone());
-         let pool_manager = pool_manager.clone();
          let mut pools = pool_manager.get_pools_that_have_currency(&currency);
 
          // Avoid irrelevant pools
          pools.retain(|p| p.currency0().is_base() || p.currency1().is_base());
 
-         // Update the state of any pools if needed
-         let mut pools_to_update = Vec::new();
-
          for pool in &pools {
             if pool.state().is_none() {
-               pools_to_update.push(pool.clone());
-            }
-         }
-
-         let updated_pools = if !pools_to_update.is_empty() {
-            pool_manager
-               ._update_state_for_pools(ctx.clone(), chain, pools_to_update)
-               .await?
-         } else {
-            Vec::new()
-         };
-
-         for pool in pools.iter_mut() {
-            for updated_pool in &updated_pools {
-               if pool == updated_pool {
-                  pool.set_state(updated_pool.state().clone());
+               let key = (pool.address(), pool.id());
+               if seen_update.insert(key) {
+                  pools_to_update.push(pool.clone());
                }
             }
          }
 
-         // Find the pool with the highest liquidity in base currency
+         pools_by_token.push((token, pools));
+      }
+
+      // Single batched state fetch for every missing pool
+      if !pools_to_update.is_empty() {
+         #[cfg(feature = "dev")]
+         tracing::info!(
+            "find_good_pool: updating state for {} pools across {} tokens",
+            pools_to_update.len(),
+            pools_by_token.len()
+         );
+
+         let _ = pool_manager
+            ._update_state_for_pools(ctx.clone(), chain, pools_to_update)
+            .await?;
+
+         // Refresh local candidates from the manager (state was written by add_pools)
+         for (_, pools) in pools_by_token.iter_mut() {
+            for pool in pools.iter_mut() {
+               let fresh = if pool.dex_kind().is_v4() {
+                  pool_manager.get_v4_pool_from_id(chain, pool.id())
+               } else {
+                  pool_manager.get_pool_from_address(chain, pool.address())
+               };
+
+               if let Some(fresh) = fresh {
+                  *pool = fresh;
+               }
+            }
+         }
+      }
+
+      // 3) Pick the best pool per token from refreshed state
+      for (token, pools) in pools_by_token {
          let mut good_pool = None;
          let mut highest_value = 0.0;
 
          for pool in &pools {
-            let token = pool.base_currency().to_erc20();
+            let base_token = pool.base_currency().to_erc20();
 
             // For stables hardcode the price to 1 USD to avoid any mispricing incase of price fluctuations
             // The token price afterwards is calculated based on the actual usd price of the stablecoin
-            let base_price = if token.is_stablecoin() {
+            let base_price = if base_token.is_stablecoin() {
                NumericValue::currency_price(1.0)
             } else {
-               self.get_token_price(&token).unwrap_or_default()
+               self.get_token_price(&base_token).unwrap_or_default()
             };
 
             let value = NumericValue::value(pool.base_balance().f64(), base_price.f64());
