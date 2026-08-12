@@ -12138,7 +12138,7 @@ dependencies = [
 
 [[package]]
 name = "zeus"
-version = "0.9.20"
+version = "0.9.30"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
