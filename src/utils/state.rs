@@ -131,9 +131,6 @@ pub async fn sync_state(ctx: ZeusCtx, chain: u64) {
 
    check_delegated_status(ctx.clone(), chain).await;
 
-   ctx.save_price_manager();
-   ctx.save_pool_manager();
-
    insert_missing_portfolios(ctx.clone(), chain);
 
    ctx.set_chain_syncing(chain, false);
@@ -194,6 +191,8 @@ pub async fn on_startup(ctx: ZeusCtx) {
    ctx.write(|ctx| {
       ctx.on_startup_syncing = false;
    });
+
+   ctx.save_price_manager();
 
    malloc_trim();
 
