@@ -65,7 +65,7 @@ impl ImportWallet {
 
       Window::new(RichText::new("Import Wallet").size(theme.text_sizes.heading))
          .open(&mut is_open)
-         .order(Order::Foreground)
+         .order(Order::Middle)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))

@@ -12,7 +12,7 @@ use egui::Frame;
 use std::sync::Arc;
 use zeus_eth::alloy_provider::Provider;
 use zeus_theme::{ButtonVisuals, OverlayManager, Theme};
-use zeus_widgets::{Button, SecureTextEdit};
+use zeus_widgets::{Button, Modal, SecureTextEdit};
 
 pub struct NetworkSettings {
    open: bool,
@@ -78,6 +78,7 @@ impl NetworkSettings {
    pub fn close_add_rpc(&mut self) {
       self.overlay.window_closed();
       self.add_rpc = false;
+      self.url_to_add.clear();
    }
 
    pub fn open_rpc_settings(&mut self) {
@@ -115,7 +116,7 @@ impl NetworkSettings {
       Window::new(RichText::new("Network Settings").size(theme.text_sizes.heading))
          .open(&mut open)
          .resizable(false)
-         .order(Order::Foreground)
+         .order(Order::Middle)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .title_frame(window_frame)
@@ -463,16 +464,11 @@ impl NetworkSettings {
       }
 
       let mut open = self.rpc_settings_open;
-      let window_frame = theme.frame1;
 
-      Window::new(RichText::new("Endpoint Settings").size(theme.text_sizes.large))
-         .open(&mut open)
-         .resizable(false)
-         .order(Order::Tooltip)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(window_frame)
-         .frame(window_frame)
+      Modal::new("Endpoint Settings", &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .closable(false)
          .show(ui.ctx(), |ui| {
             ui.set_width(300.0);
             ui.set_height(100.0);
@@ -508,6 +504,12 @@ impl NetworkSettings {
                      ctx.save_zeus_client();
                   });
                }
+
+               let text = RichText::new("Close").size(theme.text_sizes.normal);
+               let button = Button::new(text).visuals(theme.button_visuals());
+               if ui.add(button).clicked() {
+                  self.close_rpc_settings();
+               }
             });
          });
 
@@ -526,7 +528,7 @@ impl NetworkSettings {
 
       Window::new(RichText::new("Add Network").size(theme.text_sizes.large))
          .open(&mut open)
-         .order(Order::Tooltip)
+         .order(Order::Foreground)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
@@ -597,7 +599,6 @@ fn validate_rpc(chain: u64, url: String) {
       let client = match ctx.connect_to_rpc(&rpc).await {
          Ok(client) => client,
          Err(e) => {
-            tracing::error!("Error getting client using {} {}", rpc.url, e);
             SHARED_GUI.write(|gui| {
                gui.open_msg_window(format!(
                   "Failed to connect to RPC: {}",
@@ -612,7 +613,6 @@ fn validate_rpc(chain: u64, url: String) {
       let rpc_chain = match client.get_chain_id().await {
          Ok(chain) => chain,
          Err(e) => {
-            tracing::error!("Error getting chain using {} {}", rpc.url, e);
             SHARED_GUI.write(|gui| {
                gui.open_msg_window(format!(
                   "Failed to get chain ID: {}",
@@ -625,11 +625,6 @@ fn validate_rpc(chain: u64, url: String) {
       };
 
       if rpc_chain != chain {
-         tracing::error!(
-            "Chain mismatch, RPC {} is for chain {}",
-            rpc.url,
-            rpc_chain
-         );
          SHARED_GUI.write(|gui| {
             gui.open_msg_window(format!(
                "Chain Mismatch, RPC {} is for chain {}",
@@ -655,6 +650,8 @@ fn validate_rpc(chain: u64, url: String) {
          gui.settings.network.close_add_rpc();
          gui.settings.network.refreshing = false;
       });
+
+      post_enable_rpc(ctx, chain).await
    });
 }
 

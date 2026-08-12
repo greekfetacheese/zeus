@@ -80,6 +80,7 @@ impl ConfirmWindow {
       let mut open = self.open;
 
       Modal::new(title, &mut open)
+         .closable(false)
          .backdrop_order(Order::Tooltip)
          .content_order(Order::Debug)
          .show(ui.ctx(), |ui| {
@@ -372,6 +373,7 @@ impl LoadingWindow {
       Modal::new("Loading", &mut open)
          .backdrop_order(Order::Tooltip)
          .content_order(Order::Debug)
+         .closable(false)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);

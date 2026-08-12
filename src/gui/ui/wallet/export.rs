@@ -139,7 +139,7 @@ impl ExportKeyUi {
 
       Window::new("")
          .title_bar(false)
-         .order(Order::Foreground)
+         .order(Order::Middle)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
@@ -247,7 +247,7 @@ impl ExportKeyUi {
 
       Window::new(RichText::new("Verify Credentials").size(theme.text_sizes.heading))
          .open(&mut open)
-         .order(Order::Foreground)
+         .order(Order::Middle)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))

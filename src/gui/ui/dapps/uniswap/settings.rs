@@ -3,7 +3,7 @@ use egui::{Align, Layout, RichText, Slider, Ui, vec2};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::REFRESH;
 use crate::utils::RT;
-use zeus_theme::{OverlayManager, Theme};
+use zeus_theme::Theme;
 use zeus_widgets::{Button, SecureTextEdit};
 
 const MIN_SLIPPAGE: f64 = 0.1;
@@ -21,7 +21,6 @@ const DEADLINE_TIP: &str = "The transaction will revert if it is pending for mor
 #[derive(Clone)]
 pub struct UniswapSettingsUi {
    open: bool,
-   overlay: OverlayManager,
    pub swap_on_v2: bool,
    pub swap_on_v3: bool,
    pub swap_on_v4: bool,
@@ -41,10 +40,9 @@ pub struct UniswapSettingsUi {
 }
 
 impl UniswapSettingsUi {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
-         overlay,
          swap_on_v2: true,
          swap_on_v3: true,
          swap_on_v4: true,
@@ -61,14 +59,10 @@ impl UniswapSettingsUi {
    }
 
    pub fn open(&mut self) {
-      if !self.open {
-         self.overlay.window_opened();
-         self.open = true;
-      }
+      self.open = true;
    }
 
    pub fn close(&mut self) {
-      self.overlay.window_closed();
       self.open = false;
    }
 

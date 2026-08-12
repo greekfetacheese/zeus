@@ -26,7 +26,7 @@ use zeus_eth::{
    utils::{NumericValue, address_book},
 };
 use zeus_theme::{ButtonVisuals, OverlayManager, Theme};
-use zeus_widgets::{Button, SecureTextEdit};
+use zeus_widgets::{Button, Modal, SecureTextEdit};
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -189,7 +189,7 @@ impl AcrossBridge {
       Window::new("across_bridge_ui")
          .title_bar(false)
          .resizable(false)
-         .order(Order::Middle)
+         .order(Order::Background)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 100.0))
          .frame(frame)
@@ -628,15 +628,12 @@ impl AcrossBridge {
    }
 
    fn settings_window(&mut self, theme: &Theme, ui: &mut Ui) {
-      let frame = theme.frame1;
+      let mut open = self.settings_open;
 
-      Window::new("Across Settings")
-         .title_bar(false)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Foreground)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(frame)
+      Modal::new("Across Settings", &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .closable(false)
          .show(ui.ctx(), |ui| {
             ui.set_width(350.0);
             ui.set_height(150.0);

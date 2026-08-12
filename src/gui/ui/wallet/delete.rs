@@ -75,7 +75,7 @@ impl DeleteWalletUi {
       Window::new(RichText::new("Verify Credentials").size(theme.text_sizes.heading))
          .id(id)
          .open(&mut open)
-         .order(Order::Foreground)
+         .order(Order::Middle)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
@@ -179,7 +179,7 @@ impl DeleteWalletUi {
       Window::new("")
          .id(id)
          .title_bar(false)
-         .order(Order::Foreground)
+         .order(Order::Middle)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
@@ -191,7 +191,7 @@ impl DeleteWalletUi {
             let button_visuals = theme.button_visuals();
 
             ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 10.0;
+               ui.spacing_mut().item_spacing.y = 15.0;
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
                ui.label(RichText::new(wallet.name_with_source()).size(theme.text_sizes.large));
@@ -202,21 +202,13 @@ impl DeleteWalletUi {
                let value = ctx.get_total_value(wallet.address, include_testnets);
                ui.label(
                   RichText::new(format!("Value ${}", value.public.abbreviated()))
-                     .size(theme.text_sizes.normal),
+                     .size(theme.text_sizes.large).strong(),
                );
 
                let text = "Deleting this wallet will also delete all its transaction history and token approval data next time Zeus starts\n
                Are you sure you want to continue?";
                let text = RichText::new(text).size(theme.text_sizes.normal).color(theme.colors.warning);
                ui.label(text);
-               
-
-               let text = RichText::new("Yes").size(theme.text_sizes.normal);
-               let button = Button::new(text).visuals(button_visuals).min_size(vec2(100.0, 35.0));
-
-               if ui.add(button).clicked() {
-                  clicked = true;
-               }
 
                let text = RichText::new("Changed my mind").size(theme.text_sizes.normal);
                let button = Button::new(text).visuals(button_visuals).min_size(vec2(100.0, 35.0));
@@ -224,6 +216,15 @@ impl DeleteWalletUi {
                if ui.add(button).clicked() {
                   clicked = false;
                   self.reset();
+               }
+               
+               ui.add_space(5.0);
+
+               let text = RichText::new("Delete").size(theme.text_sizes.normal);
+               let button = Button::new(text).visuals(button_visuals).min_size(vec2(100.0, 35.0));
+
+               if ui.add(button).clicked() {
+                  clicked = true;
                }
             });
          });

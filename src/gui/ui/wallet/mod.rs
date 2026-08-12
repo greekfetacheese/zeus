@@ -186,6 +186,7 @@ impl WalletUi {
          .title_bar(false)
          .resizable(false)
          .collapsible(false)
+         .order(Order::Background)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 100.0))
          .frame(frame)
          .show(ui.ctx(), |ui| {

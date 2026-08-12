@@ -11,8 +11,8 @@ use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::ui::TokenSelectionWindow;
 use std::str::FromStr;
 use std::sync::Arc;
-use zeus_theme::{ButtonVisuals, OverlayManager, Theme};
-use zeus_widgets::{Button, Label};
+use zeus_theme::{ButtonVisuals, Theme};
+use zeus_widgets::{Button, Label, Modal};
 
 pub mod pool;
 pub mod settings;
@@ -83,11 +83,11 @@ pub struct UniswapUi {
 }
 
 impl UniswapUi {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
          size: (400.0, 500.0),
-         settings: UniswapSettingsUi::new(overlay),
+         settings: UniswapSettingsUi::new(),
          swap_ui: SwapUi::new(),
          pools_ui: PoolsUi::new(),
       }
@@ -240,13 +240,12 @@ impl UniswapUi {
          return;
       }
 
-      Window::new("Uniswap_Settings")
-         .title_bar(false)
-         .movable(false)
-         .order(Order::Foreground)
-         .resizable(false)
-         .frame(Frame::window(ui.style()))
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+      let mut open = self.settings.is_open();
+
+      Modal::new("Uniswap_Settings", &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .closable(false)
          .show(ui.ctx(), |ui| {
             ui.set_width(300.0);
             ui.set_height(400.0);

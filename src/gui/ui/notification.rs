@@ -4,7 +4,7 @@ use crate::assets::Icons;
 use crate::core::{DecodedEvent, TransactionRich, ZeusContext, tx::events::*};
 use crate::gui::{SHARED_GUI, ui::GREEN_CHECK};
 use crate::utils::{RT, truncate_address};
-use egui::{Align2, ProgressBar, RichText, Spinner, Ui, Window, vec2};
+use egui::{Align2, Order, ProgressBar, RichText, Spinner, Ui, Window, vec2};
 use zeus_theme::Theme;
 use zeus_widgets::{Button, Label, MultiLabel};
 
@@ -246,6 +246,7 @@ impl Notification {
          .title_bar(false)
          .resizable(false)
          .collapsible(false)
+         .order(Order::Background)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, -310.0))
          .frame(frame)
          .show(ui.ctx(), |ui| {

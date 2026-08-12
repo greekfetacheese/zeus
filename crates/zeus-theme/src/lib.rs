@@ -439,9 +439,9 @@ impl OverlayCounter {
          return 0;
       }
 
-      let mut a = 60;
+      let mut a = 80;
       for _ in 1..counter {
-         a += 20;
+         a += 40;
       }
 
       a
@@ -451,7 +451,7 @@ impl OverlayCounter {
       let counter = self.counter();
 
       if counter == 1 {
-         return Color32::from_black_alpha(60);
+         return Color32::from_black_alpha(80);
       }
 
       let alpha = self.calculate_alpha();
@@ -460,11 +460,11 @@ impl OverlayCounter {
 
    fn recommended_order(&self) -> Order {
       if self.counter() == 1 {
-         Order::Middle
+         Order::Background
       } else if self.counter() == 2 {
-         Order::Foreground
+         Order::Middle
       } else {
-         Order::Tooltip
+         Order::Foreground
       }
    }
 
@@ -476,11 +476,11 @@ impl OverlayCounter {
 
       let order = if recommend_order {
          if counter == 1 {
-            Order::Middle
+            Order::Background
          } else if counter == 2 {
-            Order::Foreground
+            Order::Middle
          } else {
-            Order::Tooltip
+            Order::Foreground
          }
       } else {
          self.order()

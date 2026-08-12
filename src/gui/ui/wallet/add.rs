@@ -6,12 +6,10 @@
 
 use crate::assets::Icons;
 use crate::core::ZeusContext;
-use crate::gui::SHARED_GUI;
-use crate::utils::RT;
-use eframe::egui::{Align2, FontId, Frame, Margin, Order, RichText, Ui, Window, vec2};
+use eframe::egui::{Align2, Order, RichText, Ui, Window, vec2};
 
 use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::{Button, SecureTextEdit};
+use zeus_widgets::Button;
 
 use std::sync::Arc;
 
@@ -79,7 +77,7 @@ impl AddWalletUi {
 
       Window::new(RichText::new("Add a new Wallet").size(theme.text_sizes.heading))
          .open(&mut open)
-         .order(Order::Foreground)
+         .order(Order::Middle)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
@@ -140,98 +138,5 @@ impl AddWalletUi {
       if !open {
          self.close();
       }
-   }
-
-   fn _generate_wallet_ui(&mut self, theme: &Theme, ui: &mut Ui) {
-      if !self.generate_wallet {
-         return;
-      }
-
-      let mut open = self.generate_wallet;
-      let mut clicked = false;
-      Window::new(RichText::new("Generate Wallet").size(theme.text_sizes.large))
-         .open(&mut open)
-         .order(Order::Foreground)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(Frame::window(ui.style()))
-         .frame(Frame::window(ui.style()))
-         .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
-
-            let button_visuals = theme.button_visuals();
-            let text_edit_visuals = theme.text_edit_visuals();
-
-            ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 20.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               let size = vec2(ui.available_width() * 0.5, 20.0);
-               ui.add_space(20.0);
-
-               // Wallet Name
-               ui.label(RichText::new("Wallet Name (Optional)").size(theme.text_sizes.normal));
-               ui.add(
-                  SecureTextEdit::singleline(&mut self.wallet_name)
-                     .visuals(text_edit_visuals)
-                     .font(FontId::proportional(theme.text_sizes.normal))
-                     .margin(Margin::same(10))
-                     .min_size(size),
-               );
-
-               // Generate Button
-               let text = RichText::new("Generate").size(theme.text_sizes.normal);
-               let button = Button::new(text).visuals(button_visuals);
-
-               if ui.add(button).clicked() {
-                  clicked = true;
-               }
-            });
-         });
-
-      if clicked {
-         let name = self.wallet_name.clone();
-
-         RT.spawn_blocking(move || {
-            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-            let mut new_vault = ctx.get_vault();
-
-            match new_vault.new_wallet_rng(name) {
-               Ok(_) => {}
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.open_msg_window(format!("Failed to generate wallet: {}", e.to_string()));
-                  });
-                  return;
-               }
-            }
-
-            SHARED_GUI.write(|gui| {
-               gui.loading_window.open("Encrypting vault...");
-            });
-
-            // Encrypt the vault
-            match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
-               Ok(_) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.loading_window.reset();
-                     gui.wallet_ui.add_wallet_ui.wallet_name.clear();
-                     gui.open_msg_window("Wallet generated successfully");
-                  });
-               }
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.loading_window.reset();
-                     gui.open_msg_window(format!("Failed to encrypt vault: {}", e.to_string()));
-                  });
-                  return;
-               }
-            };
-
-            ctx.set_vault(new_vault);
-         });
-      }
-      self.generate_wallet = open;
    }
 }

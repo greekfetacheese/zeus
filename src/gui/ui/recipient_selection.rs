@@ -241,7 +241,7 @@ impl RecipientSelectionWindow {
 
       let _window_res = Window::new(title)
          .open(&mut open)
-         .order(Order::Foreground)
+         .order(Order::Middle)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))

@@ -76,7 +76,7 @@ impl Header {
          chain_select,
          wallet_select,
          wallet_info: WalletInfo::default(),
-         qrcode_window: QRCodeWindow::new(overlay),
+         qrcode_window: QRCodeWindow::new(),
          delegate_window_open: false,
          delegate_to: String::new(),
          syncing: false,
@@ -546,7 +546,7 @@ impl Header {
          .movable(false)
          .resizable(false)
          .collapsible(false)
-         .order(Order::Foreground)
+         .order(Order::Middle)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
@@ -768,7 +768,6 @@ impl Header {
 
 pub struct QRCodeWindow {
    open: bool,
-   overlay: OverlayManager,
    wallet: Option<WalletInfo>,
    evm_address_qr: QrImage,
    zk_address_qr: QrImage,
@@ -776,10 +775,9 @@ pub struct QRCodeWindow {
 }
 
 impl QRCodeWindow {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
-         overlay,
          wallet: None,
          evm_address_qr: QrImage::empty_with_error("No QR code found".to_string()),
          zk_address_qr: QrImage::empty_with_error("No QR code found".to_string()),
@@ -813,22 +811,17 @@ impl QRCodeWindow {
          });
       });
 
-      if !self.open {
-         self.overlay.window_opened();
-      }
-
       self.open = true;
       self.wallet = Some(wallet_clone);
    }
 
    pub fn close(&mut self) {
-      self.overlay.window_closed();
       self.open = false;
    }
 
    pub fn reset(&mut self) {
       self.close();
-      *self = Self::new(self.overlay.clone());
+      *self = Self::new();
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {

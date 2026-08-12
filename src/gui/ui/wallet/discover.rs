@@ -157,7 +157,7 @@ impl DiscoverChildWallets {
          .open(&mut is_open)
          .resizable(false)
          .collapsible(false)
-         .order(Order::Foreground)
+         .order(Order::Middle)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .title_frame(window_frame)
          .frame(window_frame)
