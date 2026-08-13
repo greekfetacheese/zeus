@@ -357,15 +357,21 @@ pub async fn send_transaction(
    };
 
    let receipt = send_tx(new_client, tx_params).await?;
+   let tx_block = receipt.block_number.ok_or(anyhow!("No block number from tx receipt"))?;
 
    let logs: Vec<Log> = receipt.logs().to_vec();
    let logs = logs.iter().map(|l| l.clone().into_inner()).collect::<Vec<_>>();
 
    let timestamp = TimeStamp::now_as_secs();
 
+   let block_id = BlockId::number(tx_block);
    let balance_after = client
       .request(chain.id(), |client| async move {
-         client.get_balance(from).await.map_err(|e| anyhow!("{:?}", e))
+         client
+            .get_balance(from)
+            .block_id(block_id)
+            .await
+            .map_err(|e| anyhow!("{:?}", e))
       })
       .await?;
 
@@ -386,6 +392,14 @@ pub async fn send_transaction(
       authorization_list,
    )
    .await?;
+
+   // Zeus-originated swaps already have a SwapToken main-event override.
+   // Connector / inferred swaps do not — those keep the log heuristic.
+   if tx_analysis.main_event_opt().is_some_and(|e| e.is_swap()) {
+      if let Err(e) = new_tx_analysis.apply_onchain_swap_received(ctx.clone(), tx_block).await {
+         tracing::warn!("Failed to apply on-chain swap received: {:?}", e);
+      }
+   }
 
    let main_event = new_tx_analysis.infer_main_event(ctx.clone(), chain.id());
    let main_event_name = if main_event.is_known() {

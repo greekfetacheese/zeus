@@ -5,6 +5,7 @@ use zeus_eth::{
    abi::{erc20, protocols::across, uniswap, weth9},
    alloy_primitives::{Address, Bytes, Log, U256},
    alloy_provider::Provider,
+   alloy_rpc_types::BlockId,
    currency::{Currency, NativeCurrency},
    utils::{
       NumericValue,
@@ -15,8 +16,8 @@ use zeus_eth::{
    },
 };
 
-use super::events::*;
 use super::events::decode::{DecodeCtx, decode_transaction};
+use super::events::*;
 
 use std::str::FromStr;
 
@@ -51,6 +52,20 @@ pub struct TransactionAnalysis {
    // All decoded events
    pub decoded_events: Vec<DecodedEvent>,
    main_event: Option<DecodedEvent>,
+
+   /// Exact output-token received from on-chain balances (Zeus-originated swaps).
+   ///
+   /// `None` for wallet-connector / inferred swaps — those keep the log heuristic.
+   #[serde(default)]
+   onchain_swap_received: Option<OnchainSwapReceived>,
+}
+
+/// Output-token amount the sender actually received, from `balanceOf` at
+/// `tx_block - 1` vs latest. Survives buy/sell tax that logs cannot see.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct OnchainSwapReceived {
+   pub amount: NumericValue,
+   pub amount_usd: Option<NumericValue>,
 }
 
 impl TransactionAnalysis {
@@ -150,7 +165,8 @@ impl TransactionAnalysis {
    }
 
    pub fn erc20_transfers(&self) -> Vec<TransferParams> {
-      self.decoded_events
+      self
+         .decoded_events
          .iter()
          .filter_map(|e| e.as_transfer().filter(|p| p.is_erc20_transfer()).cloned())
          .collect()
@@ -161,7 +177,11 @@ impl TransactionAnalysis {
    }
 
    pub fn token_approvals(&self) -> Vec<TokenApproveParams> {
-      self.decoded_events.iter().filter_map(|e| e.as_token_approve().cloned()).collect()
+      self
+         .decoded_events
+         .iter()
+         .filter_map(|e| e.as_token_approve().cloned())
+         .collect()
    }
 
    pub fn eth_wraps_len(&self) -> usize {
@@ -221,7 +241,11 @@ impl TransactionAnalysis {
    }
 
    pub fn eoa_delegates(&self) -> Vec<EOADelegateParams> {
-      self.decoded_events.iter().filter_map(|e| e.as_eoa_delegate().cloned()).collect()
+      self
+         .decoded_events
+         .iter()
+         .filter_map(|e| e.as_eoa_delegate().cloned())
+         .collect()
    }
 
    pub fn permits_len(&self) -> usize {
@@ -267,6 +291,79 @@ impl TransactionAnalysis {
    /// Access the stored main-event override (used by ranking).
    pub(crate) fn main_event_opt(&self) -> Option<&DecodedEvent> {
       self.main_event.as_ref()
+   }
+
+   pub(crate) fn onchain_swap_received(&self) -> Option<&OnchainSwapReceived> {
+      self.onchain_swap_received.as_ref()
+   }
+
+   #[cfg(test)]
+   pub(crate) fn set_onchain_swap_received(
+      &mut self,
+      amount: NumericValue,
+      amount_usd: Option<NumericValue>,
+   ) {
+      self.onchain_swap_received = Some(OnchainSwapReceived { amount, amount_usd });
+   }
+
+   /// Fetch the sender's output-token balance at `tx_block - 1` and latest,
+   /// then store the delta as the exact swap received amount.
+   ///
+   /// Only used for Zeus-originated ERC-20 output swaps. No-op if there is
+   /// no swap or the output is native (ETH already tracked via balances).
+   pub async fn apply_onchain_swap_received(
+      &mut self,
+      ctx: ZeusCtx,
+      tx_block: u64,
+   ) -> Result<(), anyhow::Error> {
+      if tx_block == 0 {
+         return Ok(());
+      }
+
+      let swaps = self.swaps();
+      let Some(last) = swaps.last() else {
+         return Ok(());
+      };
+
+      let mut output = last.output_currency.clone();
+      if output.is_native_wrapped() && self.weth_unwraps_len() == 1 {
+         output = NativeCurrency::from(self.chain).into();
+      }
+      if !output.is_erc20() {
+         return Ok(());
+      }
+
+      let token = output.to_erc20().into_owned();
+      let owner = self.sender;
+      let chain = self.chain;
+      let before_block = BlockId::number(tx_block - 1);
+      let z_client = ctx.get_zeus_client();
+
+      let token_before = token.clone();
+      let before_fut = z_client.request(chain, move |client| {
+         let token = token_before.clone();
+         async move { token.balance_of(client, owner, Some(before_block)).await }
+      });
+      let token_after = token.clone();
+      let after_fut = z_client.request(chain, move |client| {
+         let token = token_after.clone();
+         async move { token.balance_of(client, owner, None).await }
+      });
+
+      let (balance_before, balance_after) = tokio::try_join!(before_fut, after_fut)?;
+
+      if balance_after <= balance_before {
+         return Ok(());
+      }
+
+      let amount = NumericValue::format_wei(balance_after - balance_before, output.decimals());
+      let amount_usd = ctx.get_currency_value_for_amount(amount.f64(), &output);
+      self.onchain_swap_received = Some(OnchainSwapReceived {
+         amount,
+         amount_usd: Some(amount_usd),
+      });
+
+      Ok(())
    }
 
    pub fn is_native_transfer(&self) -> bool {
@@ -339,6 +436,7 @@ impl TransactionAnalysis {
          known_events: 1,
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
+         onchain_swap_received: None,
       }
    }
 
@@ -359,6 +457,7 @@ impl TransactionAnalysis {
          known_events: 1,
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
+         onchain_swap_received: None,
       }
    }
 
@@ -379,6 +478,7 @@ impl TransactionAnalysis {
          known_events: 1,
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
+         onchain_swap_received: None,
       }
    }
 
@@ -399,6 +499,7 @@ impl TransactionAnalysis {
          known_events: 0,
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
+         onchain_swap_received: None,
       }
    }
 
@@ -420,6 +521,7 @@ impl TransactionAnalysis {
          known_events: 1,
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
+         onchain_swap_received: None,
       }
    }
 
@@ -440,6 +542,7 @@ impl TransactionAnalysis {
          known_events: 1,
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
+         onchain_swap_received: None,
       }
    }
 
@@ -461,6 +564,7 @@ impl TransactionAnalysis {
          known_events: 1,
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
+         onchain_swap_received: None,
       }
    }
 
@@ -481,6 +585,7 @@ impl TransactionAnalysis {
          known_events: 1,
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
+         onchain_swap_received: None,
       }
    }
 
@@ -501,6 +606,7 @@ impl TransactionAnalysis {
          known_events: 1,
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
+         onchain_swap_received: None,
       }
    }
 
@@ -521,6 +627,7 @@ impl TransactionAnalysis {
          known_events: 1,
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
+         onchain_swap_received: None,
       }
    }
 
@@ -541,6 +648,7 @@ impl TransactionAnalysis {
          known_events: 1,
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
+         onchain_swap_received: None,
       }
    }
 
@@ -561,6 +669,7 @@ impl TransactionAnalysis {
          known_events: 0,
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
+         onchain_swap_received: None,
       }
    }
 
@@ -584,6 +693,7 @@ impl TransactionAnalysis {
          known_events: 2,
          decoded_events: vec![erc20_transfer, unwrap_weth],
          main_event: None,
+         onchain_swap_received: None,
       }
    }
 }

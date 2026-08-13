@@ -90,7 +90,11 @@ impl TransactionAnalysis {
    }
 }
 
-fn compose_native_transfer(analysis: &TransactionAnalysis, ctx: ZeusCtx, chain: u64) -> DecodedEvent {
+fn compose_native_transfer(
+   analysis: &TransactionAnalysis,
+   ctx: ZeusCtx,
+   chain: u64,
+) -> DecodedEvent {
    let native: Currency = NativeCurrency::from(chain).into();
    let amount = NumericValue::format_wei(analysis.value, native.decimals());
    let amount_usd = ctx.get_currency_value_for_amount(amount.f64(), &native);
@@ -155,19 +159,8 @@ fn compose_multi_hop_swap(analysis: &TransactionAnalysis) -> Option<SwapParams> 
          }
          params.output_currency = output;
 
-         if swap.output_currency.is_erc20() {
-            for transfer in erc20_transfers.iter() {
-               if transfer.currency.address() == swap.output_currency.address() {
-                  // Preserve historical condition (including operator precedence).
-                  if !transfer.recipient == analysis.sender {
-                     continue;
-                  }
-                  params.received = transfer.amount.clone();
-                  params.received_usd = transfer.amount_usd.clone();
-                  params.recipient = Some(transfer.recipient);
-                  break;
-               }
-            }
+         if params.output_currency.is_erc20() {
+            enrich_swap_received_from_transfers(analysis, &mut params, &erc20_transfers);
          } else {
             params.received = swap.received.clone();
             params.received_usd = swap.received_usd.clone();
@@ -195,16 +188,191 @@ fn enrich_swap_received_from_transfers(
    params: &mut SwapParams,
    erc20_transfers: &[TransferParams],
 ) {
-   for transfer in erc20_transfers.iter() {
-      if transfer.currency.address() == params.output_currency.address() {
-         // Preserve historical condition (including operator precedence).
-         if !transfer.recipient == analysis.sender {
-            continue;
-         }
-         params.received = transfer.amount.clone();
-         params.received_usd = transfer.amount_usd.clone();
-         params.recipient = Some(transfer.recipient);
-         break;
+   if let Some(onchain) = analysis.onchain_swap_received() {
+      params.received = onchain.amount.clone();
+      params.received_usd = onchain.amount_usd.clone();
+      params.recipient = Some(analysis.sender);
+      return;
+   }
+
+   let output = params.output_currency.address();
+   // Last output-token transfer to the sender is the post-tax amount the user got.
+   // Earlier logs are typically buy-tax (pair → token) or router hops.
+   if let Some(transfer) = erc20_transfers.iter().rev().find(|transfer| {
+      transfer.currency.address() == output && transfer.recipient == analysis.sender
+   }) {
+      params.received = transfer.amount.clone();
+      params.received_usd = transfer.amount_usd.clone();
+      params.recipient = Some(transfer.recipient);
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use zeus_eth::{
+      alloy_primitives::{Address, U256, address},
+      alloy_signer_local::PrivateKeySigner,
+      currency::{Currency, ERC20Token},
+      utils::NumericValue,
+   };
+
+   fn tax_token() -> Currency {
+      let key = PrivateKeySigner::random();
+      Currency::from(ERC20Token::from_components(
+         1,
+         key.address(),
+         "TOKEN",
+         "TOKEN",
+         18,
+         U256::ZERO,
+      ))
+   }
+
+   fn weth() -> Currency {
+      Currency::from(ERC20Token::weth())
+   }
+
+   fn transfer(
+      currency: Currency,
+      amount: NumericValue,
+      sender: Address,
+      recipient: Address,
+   ) -> TransferParams {
+      TransferParams {
+         currency,
+         amount,
+         amount_usd: None,
+         real_amount_sent: None,
+         real_amount_sent_usd: None,
+         sender,
+         recipient,
       }
+   }
+
+   fn swap(
+      input: Currency,
+      output: Currency,
+      amount_in: NumericValue,
+      received: NumericValue,
+   ) -> SwapParams {
+      SwapParams {
+         dapp: Dapp::Uniswap,
+         input_currency: input,
+         output_currency: output,
+         amount_in,
+         amount_in_usd: None,
+         received,
+         received_usd: None,
+         min_received: None,
+         min_received_usd: None,
+         sender: Address::ZERO,
+         recipient: None,
+      }
+   }
+
+   fn analysis(sender: Address, events: Vec<DecodedEvent>) -> TransactionAnalysis {
+      let mut analysis = TransactionAnalysis::dummy_swap();
+      analysis.chain = 1;
+      analysis.sender = sender;
+      analysis.decoded_events = events;
+      analysis.remove_main_event();
+      analysis
+   }
+
+   /// ETH → taxed token. The first output-token transfer is the tax
+   /// (pair → token contract). The user actually received the later transfer.
+   #[test]
+   fn swap_received_uses_user_transfer_not_tax() {
+      let key = PrivateKeySigner::random();
+      let pair_key = PrivateKeySigner::random();
+
+      let user = key.address();
+
+      let router = address!("66a9893cC07D91D95644AEDD05D03f95e1dBA8Af");
+      let pair = pair_key.address();
+
+      let token = tax_token();
+      let weth = weth();
+
+      let tax = NumericValue::parse_to_wei("10", token.decimals());
+      let user_received = NumericValue::parse_to_wei("1000", token.decimals());
+      let pool_out = NumericValue::parse_to_wei("1010", token.decimals());
+      let amount_in = NumericValue::parse_to_wei("1", weth.decimals());
+
+      let events = vec![
+         DecodedEvent::Transfer(transfer(
+            weth.clone(),
+            amount_in.clone(),
+            router,
+            pair,
+         )),
+         DecodedEvent::Transfer(transfer(
+            token.clone(),
+            tax,
+            pair,
+            token.address(),
+         )),
+         DecodedEvent::Transfer(transfer(
+            token.clone(),
+            user_received.clone(),
+            pair,
+            router,
+         )),
+         DecodedEvent::Transfer(transfer(
+            token.clone(),
+            user_received.clone(),
+            router,
+            user,
+         )),
+         DecodedEvent::SwapToken(swap(weth, token, amount_in, pool_out)),
+      ];
+
+      let params = compose_single_swap(&analysis(user, events));
+      assert_eq!(params.received.wei(), user_received.wei());
+      assert_eq!(params.recipient, Some(user));
+   }
+
+   /// Zeus-originated path: on-chain balance delta wins over any transfer log.
+   #[test]
+   fn swap_received_prefers_onchain_balance_delta() {
+      let key = PrivateKeySigner::random();
+      let pair_key = PrivateKeySigner::random();
+
+      let user = key.address();
+      let router = address!("66a9893cC07D91D95644AEDD05D03f95e1dBA8Af");
+      let pair = pair_key.address();
+
+      let token = tax_token();
+      let weth = weth();
+
+      let tax = NumericValue::parse_to_wei("10", token.decimals());
+      let log_received = NumericValue::parse_to_wei("1000", token.decimals());
+      let onchain_received = NumericValue::parse_to_wei("950", token.decimals());
+      let pool_out = NumericValue::parse_to_wei("1010", token.decimals());
+      let amount_in = NumericValue::parse_to_wei("1", weth.decimals());
+
+      let events = vec![
+         DecodedEvent::Transfer(transfer(
+            token.clone(),
+            tax,
+            pair,
+            token.address(),
+         )),
+         DecodedEvent::Transfer(transfer(
+            token.clone(),
+            log_received,
+            router,
+            user,
+         )),
+         DecodedEvent::SwapToken(swap(weth, token, amount_in, pool_out)),
+      ];
+
+      let mut analysis = analysis(user, events);
+      analysis.set_onchain_swap_received(onchain_received.clone(), None);
+
+      let params = compose_single_swap(&analysis);
+      assert_eq!(params.received.wei(), onchain_received.wei());
+      assert_eq!(params.recipient, Some(user));
    }
 }
