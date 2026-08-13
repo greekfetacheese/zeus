@@ -240,13 +240,13 @@ impl ZeusCtx {
       chain: ChainId,
       ignore_resync: bool,
    ) -> Result<(), anyhow::Error> {
-         if !self.railgun_is_supported(chain) {
-            return Ok(());
-         }
+      if !self.railgun_is_supported(chain) {
+         return Ok(());
+      }
 
-         let mut provider = self.get_railgun_provider(chain.id(), ignore_resync).await?;
-         provider.register(signer.clone()).await?;
-      
+      let mut provider = self.get_railgun_provider(chain.id(), ignore_resync).await?;
+      provider.register(signer.clone()).await?;
+
       Ok(())
    }
 
@@ -1114,9 +1114,11 @@ impl ZeusCtx {
 
    /// Get the V4 pool for the given pool id
    ///
-   /// If the pool is not found in cache, it will be retrieved from the blockchain
+   /// If the pool is not found in cache, it does a best-effort search over known
+   /// tokens and common fee / tick-spacing combos.
    ///
-   /// It does a best effort search for the most common paired tokens
+   /// `fee` is typically the Swap-event fee (charged LP + protocol). That is **not**
+   /// the PoolKey fee — e.g. Base ETH/VIRTUAL is PoolKey.fee=500 but Swap.fee=625.
    pub async fn get_v4_pool(
       &self,
       chain: u64,
@@ -1125,65 +1127,67 @@ impl ZeusCtx {
    ) -> Result<AnyUniswapPool, anyhow::Error> {
       let cached = self.read(|ctx| ctx.pool_manager.get_v4_pool_from_id(chain, expected_id));
 
-      let pool = if let Some(pool) = cached {
+      if let Some(pool) = cached {
          return Ok(pool);
-      } else {
-         let pool_fee = FeeAmount::new(fee);
+      }
 
-         let mut base_tokens = ERC20Token::base_tokens(chain);
+      let mut fees = vec![100u32, 500, 3000, 10000, fee];
+      fees.sort_unstable();
+      fees.dedup();
 
-         // remove WETH since in V4 is not used
-         let weth = ERC20Token::wrapped_native_token(chain);
-         base_tokens.retain(|t| t.address != weth.address);
+      let spacings_for = |f: u32| -> Vec<i32> {
+         let mut spacings = vec![1, 10, 60, 200, FeeAmount::new(f).tick_spacing_i32()];
+         spacings.sort_unstable();
+         spacings.dedup();
+         spacings
+      };
 
-         let mut base_currencies: Vec<Currency> =
-            base_tokens.iter().map(|t| Currency::from(t.clone())).collect();
+      let mut base_tokens = ERC20Token::base_tokens(chain);
 
-         // Add ETH native
-         let currency = Currency::from(NativeCurrency::from(chain));
-         base_currencies.push(currency);
+      // remove WETH since in V4 is not used
+      let weth = ERC20Token::wrapped_native_token(chain);
+      base_tokens.retain(|t| t.address != weth.address);
 
-         let quote_currencies = self.get_currencies(chain);
+      let mut base_currencies: Vec<Currency> =
+         base_tokens.iter().map(|t| Currency::from(t.clone())).collect();
 
-         let mut found_pool: Option<AnyUniswapPool> = None;
-         let mut break_outer = false;
+      // Add ETH native
+      let currency = Currency::from(NativeCurrency::from(chain));
+      base_currencies.push(currency);
 
-         // Best effort pool finding from all known tokens
-         for quote_currency in quote_currencies.iter() {
-            for base_currency in &base_currencies {
-               let pool = UniswapV4Pool::new(
-                  chain,
-                  pool_fee,
-                  DexKind::UniswapV4,
-                  base_currency.clone(),
-                  quote_currency.clone(),
-                  State::none(),
-                  Address::ZERO,
-               );
+      let quote_currencies = self.get_currencies(chain);
 
-               if pool.id() == expected_id {
-                  let pool_manager = self.pool_manager();
-                  pool_manager.add_pool(pool.clone());
+      // Best effort pool finding from all known tokens
+      for quote_currency in quote_currencies.iter() {
+         for base_currency in &base_currencies {
+            if quote_currency.address() == base_currency.address() {
+               continue;
+            }
 
-                  found_pool = Some(pool.into());
-                  break_outer = true;
-                  break;
+            for &cand_fee in &fees {
+               for spacing in spacings_for(cand_fee) {
+                  let pool = UniswapV4Pool::new_with_spacing(
+                     chain,
+                     FeeAmount::new(cand_fee),
+                     spacing,
+                     DexKind::UniswapV4,
+                     base_currency.clone(),
+                     quote_currency.clone(),
+                     State::none(),
+                     Address::ZERO,
+                  );
+
+                  if pool.id() == expected_id {
+                     let pool_manager = self.pool_manager();
+                     pool_manager.add_pool(pool.clone());
+                     return Ok(pool.into());
+                  }
                }
             }
-
-            match break_outer {
-               true => break,
-               false => continue,
-            }
          }
+      }
 
-         found_pool
-      };
-
-      match pool {
-         Some(pool) => return Ok(pool),
-         None => return Err(anyhow!("V4 Pool not found")),
-      };
+      Err(anyhow!("V4 Pool not found"))
    }
 
    /// Get the ERC20 token for the given address
