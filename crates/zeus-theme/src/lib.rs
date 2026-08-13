@@ -19,6 +19,9 @@ pub use visuals::*;
 pub enum ThemeKind {
    Dark,
 
+   /// Inspired by the https://github.com/tokyo-night/tokyo-night-vscode-theme
+   /// 
+   /// With some slight palette adjustments
    TokyoNight,
 
    /// WIP
@@ -60,7 +63,7 @@ pub struct Theme {
    pub style: Style,
    pub colors: ThemeColors,
    pub text_sizes: TextSizes,
-   /// Used for [window::window_frame]
+   /// Used for [Frame] not native windows
    pub window_frame: Frame,
    /// Base container frame for major UI sections.
    pub frame1: Frame,
@@ -103,31 +106,56 @@ impl Theme {
       theme
    }
 
-   pub fn set_window_frame_colors(&mut self) {
-      match self.kind {
-         ThemeKind::Dark => self.window_frame = dark::window_frame(&self.colors),
-         ThemeKind::TokyoNight => self.window_frame = tokyo_night::window_frame(&self.colors),
-         // ThemeKind::Light => self.window_frame = light::window_frame(&self.colors),
-         ThemeKind::Custom => panic!("{}", PANIC_MSG),
+   /// Keep derived frame colors in sync with a palette change.
+   ///
+   /// Only updates a color if it still matches the previous palette slot
+   /// (e.g. `frame1.fill == old.widget_bg`). Custom colors and structural
+   /// frame properties (margins, rounding, shadow offsets) are left alone.
+   pub fn remap_derived_frames(&mut self, old: &ThemeColors) {
+      let new = self.colors;
+      if !frame_palette_changed(old, &new) {
+         return;
       }
-   }
 
-   pub fn set_frame1_colors(&mut self) {
-      match self.kind {
-         ThemeKind::Dark => self.frame1 = dark::frame1(&self.colors),
-         ThemeKind::TokyoNight => self.frame1 = tokyo_night::frame1(&self.colors),
-         // ThemeKind::Light => self.frame1 = light::frame1(&self.colors),
-         ThemeKind::Custom => panic!("{}", PANIC_MSG),
-      }
-   }
-
-   pub fn set_frame2_colors(&mut self) {
-      match self.kind {
-         ThemeKind::Dark => self.frame2 = dark::frame2(&self.colors),
-         ThemeKind::TokyoNight => self.frame2 = tokyo_night::frame2(&self.colors),
-         // ThemeKind::Light => self.frame2 = light::frame2(&self.colors),
-         ThemeKind::Custom => panic!("{}", PANIC_MSG),
-      }
+      remap_frame(
+         &mut self.window_frame,
+         old.title_bar,
+         new.title_bar,
+         old.border,
+         new.border,
+      );
+      remap_frame(
+         &mut self.frame1,
+         old.widget_bg,
+         new.widget_bg,
+         old.border,
+         new.border,
+      );
+      remap_frame(
+         &mut self.frame2,
+         old.bg,
+         new.bg,
+         old.border,
+         new.border,
+      );
+      remap_frame_visuals(
+         &mut self.frame1_visuals,
+         old.hover,
+         new.hover,
+         old.widget_bg,
+         new.widget_bg,
+         old.highlight,
+         new.highlight,
+      );
+      remap_frame_visuals(
+         &mut self.frame2_visuals,
+         old.hover,
+         new.hover,
+         old.bg,
+         new.bg,
+         old.highlight,
+         new.highlight,
+      );
    }
 
    pub fn button_visuals(&self) -> ButtonVisuals {
@@ -191,6 +219,56 @@ impl Theme {
    fn storage_id() -> Id {
       Id::new("zeus::theme")
    }
+}
+
+fn frame_palette_changed(old: &ThemeColors, new: &ThemeColors) -> bool {
+   old.title_bar != new.title_bar
+      || old.bg != new.bg
+      || old.widget_bg != new.widget_bg
+      || old.hover != new.hover
+      || old.highlight != new.highlight
+      || old.border != new.border
+}
+
+fn remap_if_eq(slot: &mut Color32, old: Color32, new: Color32) {
+   if *slot == old {
+      *slot = new;
+   }
+}
+
+fn remap_frame(
+   frame: &mut Frame,
+   old_fill: Color32,
+   new_fill: Color32,
+   old_border: Color32,
+   new_border: Color32,
+) {
+   remap_if_eq(&mut frame.fill, old_fill, new_fill);
+   remap_if_eq(&mut frame.stroke.color, old_border, new_border);
+   remap_if_eq(&mut frame.shadow.color, old_border, new_border);
+}
+
+fn remap_frame_visuals(
+   visuals: &mut FrameVisuals,
+   old_hover: Color32,
+   new_hover: Color32,
+   old_click: Color32,
+   new_click: Color32,
+   old_highlight: Color32,
+   new_highlight: Color32,
+) {
+   remap_if_eq(&mut visuals.bg_on_hover, old_hover, new_hover);
+   remap_if_eq(&mut visuals.bg_on_click, old_click, new_click);
+   remap_if_eq(
+      &mut visuals.border_on_hover.1,
+      old_highlight,
+      new_highlight,
+   );
+   remap_if_eq(
+      &mut visuals.border_on_click.1,
+      old_highlight,
+      new_highlight,
+   );
 }
 
 /// This is the color palette of the theme
@@ -497,5 +575,57 @@ impl OverlayCounter {
 
       let painter = ctx.layer_painter(layer_id);
       painter.rect_filled(rect, 0.0, tint);
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use egui::{Margin, Stroke};
+
+   #[test]
+   fn custom_frame_fill_survives_palette_remap() {
+      let mut theme = Theme::new(ThemeKind::Dark);
+      let old = theme.colors;
+      let custom = Color32::from_rgb(255, 0, 0);
+      theme.frame1.fill = custom;
+
+      theme.colors.widget_bg = Color32::from_rgb(1, 2, 3);
+      theme.remap_derived_frames(&old);
+
+      assert_eq!(theme.frame1.fill, custom);
+   }
+
+   #[test]
+   fn palette_change_updates_unmodified_frame_fill() {
+      let mut theme = Theme::new(ThemeKind::Dark);
+      let old = theme.colors;
+      assert_eq!(theme.frame1.fill, old.widget_bg);
+
+      let next = Color32::from_rgb(1, 2, 3);
+      theme.colors.widget_bg = next;
+      theme.remap_derived_frames(&old);
+
+      assert_eq!(theme.frame1.fill, next);
+   }
+
+   #[test]
+   fn palette_remap_preserves_frame_structure() {
+      let mut theme = Theme::new(ThemeKind::Dark);
+      let old = theme.colors;
+      theme.frame1.inner_margin = Margin::same(42);
+      theme.frame1.stroke = Stroke::new(3.0, old.border);
+
+      theme.colors.widget_bg = Color32::from_rgb(9, 9, 9);
+      theme.colors.border = Color32::from_rgb(8, 8, 8);
+      theme.remap_derived_frames(&old);
+
+      assert_eq!(theme.frame1.inner_margin, Margin::same(42));
+      assert_eq!(theme.frame1.stroke.width, 3.0);
+      assert_eq!(
+         theme.frame1.stroke.color,
+         Color32::from_rgb(8, 8, 8)
+      );
+      assert_eq!(theme.frame1.fill, Color32::from_rgb(9, 9, 9));
    }
 }

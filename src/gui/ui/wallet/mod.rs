@@ -3,8 +3,8 @@ use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::RT;
 use eframe::egui::{
-   Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Spinner, Ui, Vec2, Window,
-   vec2,
+   Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Spinner, Stroke, Ui, Vec2,
+   Window, vec2,
 };
 use elegance::{Menu, MenuItem};
 use std::{collections::HashMap, sync::Arc};
@@ -375,7 +375,8 @@ impl WalletUi {
       let mut open = self.rename_wallet;
 
       let title = RichText::new("Rename Wallet").size(theme.text_sizes.heading);
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(title)
          .open(&mut open)
@@ -383,7 +384,7 @@ impl WalletUi {
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(300.0);

@@ -3,7 +3,7 @@
 use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use eframe::egui::{Align2, Id, Order, RichText, Ui, Window, vec2};
+use eframe::egui::{Align2, Id, Order, RichText, Ui, Stroke, Window, vec2};
 use ncrypt_me::{Credentials, zeroize::Zeroize};
 use zeus_theme::{OverlayManager, Theme};
 use zeus_ui_components::CredentialsForm;
@@ -67,7 +67,8 @@ impl DeleteWalletUi {
       }
 
       let button_visuals = theme.button_visuals();
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
       let mut open = self.credentials_form.is_open();
       let mut clicked = false;
 
@@ -79,7 +80,7 @@ impl DeleteWalletUi {
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
@@ -174,7 +175,7 @@ impl DeleteWalletUi {
       let wallet = wallet.unwrap();
 
       let id = Id::new("delete_wallet_ui_delete_wallet");
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
 
       Window::new("")
          .id(id)

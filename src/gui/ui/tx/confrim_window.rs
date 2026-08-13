@@ -173,7 +173,7 @@ impl TxConfirmationWindow {
          return;
       }
 
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
 
       Window::new("Transaction Confirmation Window")
          .title_bar(false)

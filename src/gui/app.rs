@@ -17,7 +17,7 @@ use eframe::{
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use zeus_theme::{OverlayManager, window::*};
+use zeus_theme::OverlayManager;
 
 pub struct ZeusApp {
    pub style_has_been_set: bool,
@@ -225,60 +225,57 @@ impl eframe::App for ZeusApp {
                self.style_has_been_set = true;
             }
 
-            let window = WindowCtx::new("Zeus", 35.0, &gui.theme);
             let color = gui.theme.colors.bg;
             let panel_frame = Frame::new().fill(color);
             self.overlay.paint_overlay(ui.ctx(), true);
             gui.inject_elegance_theme(ui.ctx());
 
-            window_frame(ui, window, |ui| {
-               #[cfg(feature = "dev")]
-               zeus_theme::utils::apply_theme_changes(&mut gui.theme, ui);
+            #[cfg(feature = "dev")]
+            zeus_theme::utils::apply_theme_changes(&mut gui.theme, ui);
 
-               // Paint the Ui that belongs to the top panel
-               egui::Panel::top("top_panel")
-                  .min_size(150.0)
-                  .resizable(false)
-                  .show_separator_line(false)
-                  .frame(panel_frame)
-                  .show(ui, |ui| {
-                     if ctx.vault_unlocked {
-                        gui.show_top_panel(ctx, ui);
-                     }
-                  });
-
-               // Paint the Ui that belongs to the left panel
-               egui::Panel::left("left_panel")
-                  .min_size(150.0)
-                  .max_size(150.0)
-                  .resizable(false)
-                  .frame(panel_frame)
-                  .show_separator_line(false)
-                  .show(ui, |ui| {
-                     if ctx.vault_unlocked {
-                        ui.add_space(10.0);
-                        gui.show_left_panel(ctx, ui);
-                     }
-                  });
-
-               if gui.should_show_right_panel() {
-                  // Paint the Ui that belongs to the left panel
-                  egui::Panel::right("right_panel")
-                     .min_size(150.0)
-                     .resizable(false)
-                     .show_separator_line(false)
-                     .frame(panel_frame)
-                     .show(ui, |ui| {
-                        if ctx.vault_unlocked {
-                           gui.show_right_panel(ui);
-                        }
-                     });
-               }
-
-               // Paint the Ui that belongs to the central panel
-               egui::CentralPanel::default().frame(panel_frame).show(ui, |ui| {
-                  gui.show_central_panel(ctx, ui);
+            // Paint the Ui that belongs to the top panel
+            egui::Panel::top("top_panel")
+               .min_size(150.0)
+               .resizable(false)
+               .show_separator_line(false)
+               .frame(panel_frame)
+               .show(ui, |ui| {
+                  if ctx.vault_unlocked {
+                     gui.show_top_panel(ctx, ui);
+                  }
                });
+
+            // Paint the Ui that belongs to the left panel
+            egui::Panel::left("left_panel")
+               .min_size(150.0)
+               .max_size(150.0)
+               .resizable(false)
+               .frame(panel_frame)
+               .show_separator_line(false)
+               .show(ui, |ui| {
+                  if ctx.vault_unlocked {
+                     ui.add_space(10.0);
+                     gui.show_left_panel(ctx, ui);
+                  }
+               });
+
+            if gui.should_show_right_panel() {
+               // Paint the Ui that belongs to the left panel
+               egui::Panel::right("right_panel")
+                  .min_size(150.0)
+                  .resizable(false)
+                  .show_separator_line(false)
+                  .frame(panel_frame)
+                  .show(ui, |ui| {
+                     if ctx.vault_unlocked {
+                        gui.show_right_panel(ui);
+                     }
+                  });
+            }
+
+            // Paint the Ui that belongs to the central panel
+            egui::CentralPanel::default().frame(panel_frame).show(ui, |ui| {
+               gui.show_central_panel(ctx, ui);
             });
 
             #[cfg(feature = "dev")]

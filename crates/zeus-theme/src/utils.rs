@@ -25,12 +25,11 @@ pub fn change_theme(current_theme: &Theme, ui: &mut Ui) -> Option<Theme> {
    new_theme_opt
 }
 
-/// Apply any theme changes to the ui
+/// Apply live theme style to this ui.
+///
+/// Does not rebuild frames — that used to wipe Theme Editor edits every frame.
+/// Palette → still-bound frame colors is [`Theme::remap_derived_frames`].
 pub fn apply_theme_changes(theme: &mut Theme, ui: &mut Ui) {
-   theme.set_window_frame_colors();
-   theme.set_frame1_colors();
-   theme.set_frame2_colors();
-
    ui.style_mut().visuals = theme.style.visuals.clone();
 }
 

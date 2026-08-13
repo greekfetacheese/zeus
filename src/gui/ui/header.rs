@@ -15,7 +15,7 @@ use crate::gui::{
 };
 use crate::utils::{RT, truncate_address};
 use egui::{
-   Align, Align2, CornerRadius, CursorIcon, FontId, Frame, Label, Layout, Margin, OpenUrl, Order,
+   Align, Align2, CornerRadius, CursorIcon, FontId, Label, Layout, Margin, OpenUrl, Order,
    RichText, Spinner, Ui, Window, vec2,
 };
 use std::str::FromStr;
@@ -28,7 +28,7 @@ use zeus_eth::{
 
 use zeus_ui_components::QrImage;
 use zeus_wallet::Wallet;
-use zeus_widgets::{Button, SecureTextEdit};
+use zeus_widgets::{Button, Modal, SecureTextEdit};
 
 use elegance::{Badge, BadgeTone, Indicator, IndicatorState, Menu, MenuItem, TabBar};
 use zeus_theme::{ButtonVisuals, OverlayManager, Theme};
@@ -541,6 +541,8 @@ impl Header {
          return;
       }
 
+      let window_frame = theme.window_frame;
+
       Window::new("Delegation_settings")
          .title_bar(false)
          .movable(false)
@@ -548,7 +550,7 @@ impl Header {
          .collapsible(false)
          .order(Order::Middle)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(350.0);
             ui.set_height(200.0);
@@ -830,15 +832,11 @@ impl QRCodeWindow {
       }
 
       let privacy_mode = ctx.privacy_mode;
+      let mut open = self.open;
 
-      Window::new("QR Code Window")
-         .title_bar(false)
-         .movable(false)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Tooltip)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+      Modal::new("QR Code Window", &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);

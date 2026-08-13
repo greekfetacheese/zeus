@@ -81,10 +81,18 @@ fn text_sizes() -> TextSizes {
 }
 
 pub fn window_frame(colors: &ThemeColors) -> Frame {
+   let shadow = Shadow {
+      offset: (0, 0).into(),
+      blur: 3,
+      spread: 0,
+      color: colors.border,
+   };
    Frame {
-      fill: colors.title_bar,
-      inner_margin: Margin::ZERO,
-      outer_margin: Margin::ZERO,
+      corner_radius: CornerRadius::same(6),
+      inner_margin: Margin::same(10),
+      fill: colors.widget_bg,
+      stroke: Stroke::new(1.0, colors.border),
+      shadow: shadow,
       ..Default::default()
    }
 }

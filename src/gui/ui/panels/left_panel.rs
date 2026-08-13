@@ -282,7 +282,8 @@ impl ConnectedDappsUi {
       let mut open = self.open;
       let button_visuals = theme.button_visuals();
       let text_edit_visuals = theme.text_edit_visuals();
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       let title = RichText::new("Connected Dapps").size(theme.text_sizes.heading);
       Window::new(title)
@@ -291,7 +292,7 @@ impl ConnectedDappsUi {
          .resizable(false)
          .order(Order::Middle)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.spacing_mut().item_spacing.y = 20.0;

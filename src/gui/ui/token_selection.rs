@@ -1,7 +1,7 @@
 //! A Window that allows the user to select a token
 
 use eframe::egui::{
-   Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Sense, Spinner, Ui, Window,
+   Align, Align2, FontId, Layout, Margin, Order, Stroke, RichText, ScrollArea, Sense, Spinner, Ui, Window,
    emath::Vec2b, vec2,
 };
 
@@ -170,7 +170,8 @@ impl TokenSelectionWindow {
       }
 
       let mut close_window = false;
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(RichText::new(&self.title).size(theme.text_sizes.heading))
          .open(&mut open)
@@ -178,7 +179,7 @@ impl TokenSelectionWindow {
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .resizable(false)
          .collapsible(false)
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);

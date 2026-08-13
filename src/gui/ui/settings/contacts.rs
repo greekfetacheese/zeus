@@ -5,7 +5,8 @@ use crate::core::{ZeusContext, types::Contact};
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::RT;
 use egui::{
-   Align, Align2, FontId, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Ui, Window, vec2,
+   Align, Align2, FontId, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Stroke, Ui, Window,
+   vec2,
 };
 use elegance::{Menu, MenuItem};
 use std::str::FromStr;
@@ -70,7 +71,8 @@ impl AddContact {
          return;
       }
 
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(RichText::new("Add new contact").size(theme.text_sizes.heading))
          .open(&mut open)
@@ -78,7 +80,7 @@ impl AddContact {
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
@@ -242,7 +244,8 @@ impl DeleteContact {
       }
 
       let mut should_close = false;
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(RichText::new("Delete contact").size(theme.text_sizes.heading))
          .open(&mut open)
@@ -250,7 +253,7 @@ impl DeleteContact {
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
@@ -356,7 +359,8 @@ impl EditContact {
          return;
       }
 
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(RichText::new("Edit contact").size(theme.text_sizes.heading))
          .open(&mut open)
@@ -364,7 +368,7 @@ impl EditContact {
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
@@ -555,7 +559,8 @@ impl ContactsUi {
       }
 
       let mut open = self.open;
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(RichText::new("Contacts").size(theme.text_sizes.heading))
          .open(&mut open)
@@ -563,7 +568,7 @@ impl ContactsUi {
          .collapsible(false)
          .order(Order::Middle)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);

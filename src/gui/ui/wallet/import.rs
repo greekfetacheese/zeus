@@ -2,7 +2,7 @@
 
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use eframe::egui::{Align2, FontId, Margin, Order, RichText, Ui, Window, vec2};
+use eframe::egui::{Align2, FontId, Margin, Order, RichText, Stroke, Ui, Window, vec2};
 use zeus_eth::types::SUPPORTED_CHAINS;
 use zeus_theme::{OverlayManager, Theme};
 use zeus_ui_components::SecureInputField;
@@ -61,7 +61,8 @@ impl ImportWallet {
       let mut is_open = self.open;
       let mut clicked = false;
 
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(RichText::new("Import Wallet").size(theme.text_sizes.heading))
          .open(&mut is_open)
@@ -69,7 +70,7 @@ impl ImportWallet {
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
@@ -136,7 +137,10 @@ impl ImportWallet {
                   Ok(address) => address,
                   Err(e) => {
                      SHARED_GUI.write(|gui| {
-                        gui.open_msg_window(format!("Failed to import wallet: {}", e.to_string()));
+                        gui.open_msg_window(format!(
+                           "Failed to import wallet: {}",
+                           e.to_string()
+                        ));
                         gui.request_repaint();
                      });
                      return;
@@ -162,7 +166,10 @@ impl ImportWallet {
                Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
-                     gui.open_msg_window(format!("Failed to encrypt account: {}", e.to_string()));
+                     gui.open_msg_window(format!(
+                        "Failed to encrypt account: {}",
+                        e.to_string()
+                     ));
                      gui.request_repaint();
                   });
                   return;

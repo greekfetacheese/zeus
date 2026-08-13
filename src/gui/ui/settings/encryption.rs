@@ -4,7 +4,7 @@
 
 use crate::utils::RT;
 use crate::{core::ZeusContext, gui::SHARED_GUI};
-use egui::{Align2, Order, RichText, Ui, Window, vec2};
+use egui::{Align2, Order, RichText, Stroke, Ui, Window, vec2};
 use elegance::{Badge, BadgeTone, Slider};
 use ncrypt_me::Argon2;
 use zeus_theme::{OverlayManager, Theme};
@@ -77,7 +77,8 @@ impl EncryptionSettings {
 
       let mut open = self.open;
       let title = RichText::new("Encryption Settings").size(theme.text_sizes.heading);
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(title)
          .open(&mut open)
@@ -85,7 +86,7 @@ impl EncryptionSettings {
          .collapsible(false)
          .order(Order::Middle)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);

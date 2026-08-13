@@ -76,13 +76,15 @@ impl DevUi {
    ) {
       let mut open = self.ui_testing.is_open();
       let title = RichText::new("Ui Testing").size(theme.text_sizes.heading);
+      let window_frame = theme.window_frame;
+
       Window::new(title)
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
-         .order(Order::Foreground)
+         .order(Order::Middle)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             self.ui_testing.show(ctx, theme, icons, ui);
          });

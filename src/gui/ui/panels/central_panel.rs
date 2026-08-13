@@ -1,7 +1,7 @@
 use crate::core::ZeusContext;
 use crate::gui::GUI;
-use eframe::egui::{Frame, RichText, Ui, Window, vec2};
-use zeus_theme::OverlayManager;
+use eframe::egui::{Stroke, RichText, Ui, Window, vec2};
+use zeus_theme::{Theme, OverlayManager};
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let theme = &gui.theme;
@@ -87,7 +87,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    gui.dev.show(ctx, theme, icons, ui);
 
    #[cfg(feature = "dev")]
-   gui.fps_metrics.show(ui);
+   gui.fps_metrics.show(theme, ui);
 
    #[cfg(feature = "dev")]
    {
@@ -129,20 +129,23 @@ impl FPSMetrics {
       }
    }
 
-   pub fn show(&mut self, ui: &mut Ui) {
+   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
       let mut open = self.open;
 
       let title = RichText::new("FPS Metrics").size(18.0);
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
+
       Window::new(title)
          .open(&mut open)
          .resizable(true)
          .collapsible(true)
          .movable(true)
-         .title_frame(Frame::window(ui.style()))
-         .frame(Frame::window(ui.style()))
+         .title_frame(title_frame)
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
-            ui.set_width(170.0);
-            ui.set_height(130.0);
+            ui.set_max_width(170.0);
+            ui.set_max_height(130.0);
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing = vec2(0.0, 5.0);

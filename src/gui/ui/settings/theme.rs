@@ -3,7 +3,7 @@
 use crate::core::context::theme_kind_dir;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use egui::{Align2, Order, RichText, Sense, Ui, Window, vec2};
+use egui::{Align2, Order, RichText, Sense, Stroke, Ui, Window, vec2};
 use zeus_theme::{OverlayManager, Theme, ThemeKind};
 use zeus_widgets::{Button, ComboBox, Label};
 
@@ -44,14 +44,15 @@ impl ThemeSettings {
       }
 
       let title = RichText::new("Theme Settings").size(theme.text_sizes.large);
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(title)
          .resizable(false)
          .collapsible(false)
          .order(Order::Middle)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.vertical_centered(|ui| {

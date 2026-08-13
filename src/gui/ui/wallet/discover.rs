@@ -5,8 +5,8 @@ use crate::core::{DiscoveredWallets, WalletPortfolio, ZeusContext, ZeusCtx};
 use crate::gui::{SHARED_GUI, ui::REFRESH};
 use crate::utils::RT;
 use eframe::egui::{
-   Align, Align2, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner, Ui,
-   Vec2, Window, vec2,
+   Align, Align2, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner, Stroke,
+   Ui, Vec2, Window, vec2,
 };
 use zeus_bip32::BIP32_HARDEN;
 use zeus_eth::{
@@ -151,7 +151,8 @@ impl DiscoverChildWallets {
       let mut is_open = self.open;
 
       let title = RichText::new("Discover Wallets").size(theme.text_sizes.heading);
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(title)
          .open(&mut is_open)
@@ -159,7 +160,7 @@ impl DiscoverChildWallets {
          .collapsible(false)
          .order(Order::Middle)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
@@ -337,7 +338,7 @@ impl DiscoverChildWallets {
          RT.spawn_blocking(move || {
             let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
             ctx.write_wallet_state(|ws| ws.discovered_wallets = wallets);
-            
+
             if let Err(e) = ctx.save_wallet_state() {
                tracing::error!("Failed to save discovered wallets: {e}");
             }
@@ -568,7 +569,8 @@ impl DiscoverChildWallets {
       let mut open = self.add_wallet_window;
 
       let title = RichText::new("Add Wallet").size(theme.text_sizes.heading);
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(title)
          .id(Id::new("discover_wallets_add_wallet_window"))
@@ -577,7 +579,7 @@ impl DiscoverChildWallets {
          .collapsible(false)
          .order(Order::Tooltip)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.spacing_mut().item_spacing = vec2(10.0, 20.0);
@@ -619,7 +621,10 @@ impl DiscoverChildWallets {
                         Ok(address) => address,
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
-                              gui.open_msg_window(format!("Failed to add wallet: {}", e.to_string()));
+                              gui.open_msg_window(format!(
+                                 "Failed to add wallet: {}",
+                                 e.to_string()
+                              ));
                            });
                            return;
                         }
@@ -686,7 +691,10 @@ impl DiscoverChildWallets {
                                  .set_hd_wallet(hd_wallet);
 
                               gui.loading_window.reset();
-                              gui.open_msg_window(format!("Failed to encrypt vault: {}", e.to_string()));
+                              gui.open_msg_window(format!(
+                                 "Failed to encrypt vault: {}",
+                                 e.to_string()
+                              ));
                            });
                            return;
                         }

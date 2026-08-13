@@ -1,6 +1,6 @@
 use eframe::egui::{
    Align, Align2, Checkbox, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl, Order, RichText,
-   Ui, Window, vec2,
+   Stroke, Ui, Window, vec2,
 };
 
 use std::{
@@ -536,7 +536,8 @@ impl ShieldUi {
       }
 
       let text_edit_visuals = theme.text_edit_visuals();
-      let frame = theme.frame2;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       let title = RichText::new("Advanced broadcast options")
          .size(theme.text_sizes.large)
@@ -547,8 +548,8 @@ impl ShieldUi {
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(frame)
-         .frame(frame)
+         .title_frame(title_frame)
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);

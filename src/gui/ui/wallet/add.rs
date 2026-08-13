@@ -6,7 +6,7 @@
 
 use crate::assets::Icons;
 use crate::core::ZeusContext;
-use eframe::egui::{Align2, Order, RichText, Ui, Window, vec2};
+use eframe::egui::{Align2, Order, RichText, Stroke, Ui, Window, vec2};
 
 use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::Button;
@@ -73,7 +73,8 @@ impl AddWalletUi {
       let mut import_from_pk_clicked = false;
       let mut import_from_seed_clicked = false;
 
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(RichText::new("Add a new Wallet").size(theme.text_sizes.heading))
          .open(&mut open)
@@ -81,7 +82,7 @@ impl AddWalletUi {
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);

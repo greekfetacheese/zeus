@@ -81,7 +81,7 @@ impl SignMsgWindow {
          return;
       }
 
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
 
       Window::new("Sign Message")
          .title_bar(false)

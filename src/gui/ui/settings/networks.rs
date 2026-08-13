@@ -6,9 +6,8 @@ use crate::gui::{SHARED_GUI, ui::ChainSelect};
 use crate::utils::{RT, state};
 use eframe::egui::{
    Align, Align2, CornerRadius, CursorIcon, FontId, Layout, Margin, Order, RichText, ScrollArea,
-   Slider, Spinner, Ui, Window, vec2,
+   Slider, Spinner, Stroke, Ui, Window, vec2,
 };
-use egui::Frame;
 use std::sync::Arc;
 use zeus_eth::alloy_provider::Provider;
 use zeus_theme::{ButtonVisuals, OverlayManager, Theme};
@@ -111,7 +110,8 @@ impl NetworkSettings {
       self.rpc_settings(ctx, theme, ui);
 
       let mut open = self.open;
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(RichText::new("Network Settings").size(theme.text_sizes.heading))
          .open(&mut open)
@@ -119,7 +119,7 @@ impl NetworkSettings {
          .order(Order::Middle)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
@@ -425,14 +425,17 @@ impl NetworkSettings {
       let mut open = self.change_server_port;
       let was_open = open;
 
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
+
       Window::new(RichText::new("Server Port").size(theme.text_sizes.normal))
          .open(&mut open)
          .order(Order::Foreground)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(Frame::window(ui.style()))
-         .frame(Frame::window(ui.style()))
+         .title_frame(title_frame)
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(150.0);
             ui.set_height(100.0);
@@ -524,7 +527,8 @@ impl NetworkSettings {
       }
 
       let mut open = self.add_rpc;
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(RichText::new("Add Network").size(theme.text_sizes.large))
          .open(&mut open)
@@ -532,7 +536,7 @@ impl NetworkSettings {
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(300.0);

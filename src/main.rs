@@ -57,7 +57,7 @@ fn main() -> eframe::Result {
       renderer: eframe::Renderer::Wgpu,
       wgpu_options: wgpu_config,
       viewport: egui::ViewportBuilder::default()
-         .with_decorations(false)
+         .with_decorations(true)
          .with_inner_size([1280.0, 900.0])
          .with_min_inner_size([1280.0, 900.0])
          .with_transparent(true)
@@ -66,8 +66,16 @@ fn main() -> eframe::Result {
       ..Default::default()
    };
 
+   let current_version = self_update::cargo_crate_version!().to_string();
+
+   #[cfg(feature = "dev")]
+   let title = format!("Zeus {} (dev build)", current_version);
+
+   #[cfg(not(feature = "dev"))]
+   let title = format!("Zeus {}", current_version);
+
    eframe::run_native(
-      "Zeus",
+      title.as_str(),
       options,
       Box::new(|cc| {
          egui_extras::install_image_loaders(&cc.egui_ctx);

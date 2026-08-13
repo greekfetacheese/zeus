@@ -9,7 +9,7 @@ use crate::gui::SHARED_GUI;
 use crate::gui::ui::ContactsUi;
 use crate::utils::RT;
 use eframe::egui::{
-   Align2, FontId, Margin, Order, RichText, ScrollArea, Sense, Spinner, Ui, Window, vec2,
+   Align2, FontId, Margin, Order, RichText, ScrollArea, Sense, Spinner, Stroke, Ui, Window, vec2,
 };
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -237,7 +237,8 @@ impl RecipientSelectionWindow {
       }
 
       let title = RichText::new("Recipient").size(theme.text_sizes.heading);
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       let _window_res = Window::new(title)
          .open(&mut open)
@@ -245,7 +246,7 @@ impl RecipientSelectionWindow {
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);

@@ -186,7 +186,7 @@ impl ThemeEditor {
             ui.set_min_width(self.size.0);
             ui.set_min_height(self.size.1);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-            ui.style_mut().visuals = super::themes::dark::theme().style.visuals.clone();
+           // ui.style_mut().visuals = super::themes::dark::theme().style.visuals.clone();
 
             new_theme = utils::change_theme(theme, ui);
 
@@ -209,16 +209,21 @@ impl ThemeEditor {
          let colors = theme.colors.clone();
 
          CollapsingHeader::new("Theme Frames").show(ui, |ui| {
-            CollapsingHeader::new("Native Window Frame").show(ui, |ui| {
-               self.frame_settings(&mut theme.window_frame, &colors, ui);
+            CollapsingHeader::new("Window Frame").show(ui, |ui| {
+               self.frame_settings(
+                  "window_frame",
+                  &mut theme.window_frame,
+                  &colors,
+                  ui,
+               );
             });
 
             CollapsingHeader::new("Frame 1").show(ui, |ui| {
-               self.frame_settings(&mut theme.frame1, &colors, ui);
+               self.frame_settings("frame1", &mut theme.frame1, &colors, ui);
             });
 
             CollapsingHeader::new("Frame 2").show(ui, |ui| {
-               self.frame_settings(&mut theme.frame2, &colors, ui);
+               self.frame_settings("frame2", &mut theme.frame2, &colors, ui);
             });
          });
 
@@ -249,6 +254,8 @@ impl ThemeEditor {
          });
 
          CollapsingHeader::new("Theme Colors").show(ui, |ui| {
+            let old_colors = theme.colors;
+
             ui.label("BG");
             self.hsla_edit_button.show("bg", ui, &mut theme.colors.bg);
 
@@ -284,6 +291,8 @@ impl ThemeEditor {
 
             ui.label("Info");
             self.hsla_edit_button.show("info1", ui, &mut theme.colors.info);
+
+            theme.remap_derived_frames(&old_colors);
          });
 
          CollapsingHeader::new("Text Sizes").show(ui, |ui| {
@@ -395,6 +404,7 @@ impl ThemeEditor {
 
             ui.label("Window Stroke");
             self.edit_stroke(
+               "window_stroke",
                &colors,
                &mut theme.style.visuals.window_stroke,
                ui,
@@ -917,7 +927,7 @@ impl ThemeEditor {
       ui.add(Slider::new(&mut widget_visuals.expansion, 0.0..=100.0).text("Expansion"));
    }
 
-   fn frame_settings(&mut self, frame: &mut Frame, colors: &ThemeColors, ui: &mut Ui) {
+   fn frame_settings(&mut self, id: &str, frame: &mut Frame, colors: &ThemeColors, ui: &mut Ui) {
       CollapsingHeader::new("Inner & Outter Margin").show(ui, |ui| {
          ui.label("Inner Margin");
          edit_margin(&mut frame.inner_margin, ui);
@@ -933,10 +943,10 @@ impl ThemeEditor {
       edit_shadow(&mut frame.shadow, ui);
 
       ui.label("Fill Color");
-      self.hsla_edit_button.show("fill_color1", ui, &mut frame.fill);
+      self.hsla_edit_button.show(&format!("{id}_fill"), ui, &mut frame.fill);
 
       ui.label("Stroke Width & Color");
-      self.edit_stroke(colors, &mut frame.stroke, ui);
+      self.edit_stroke(id, colors, &mut frame.stroke, ui);
    }
 
    fn select_widget_state(&mut self, ui: &mut Ui) {
@@ -981,20 +991,25 @@ impl ThemeEditor {
       selected_color
    }
 
-   fn edit_stroke(&mut self, colors: &ThemeColors, stroke: &mut Stroke, ui: &mut Ui) {
+   fn edit_stroke(&mut self, id: &str, colors: &ThemeColors, stroke: &mut Stroke, ui: &mut Ui) {
       ui.add(Slider::new(&mut stroke.width, 0.0..=100.0).text("Stroke Width"));
 
       ui.label("Stroke Color");
 
       ui.horizontal(|ui| {
-         let color = self.color_select("1", stroke.color, &colors, ui);
+         let color = self.color_select(
+            &format!("{id}_stroke_pal"),
+            stroke.color,
+            colors,
+            ui,
+         );
          if let Some(color) = color {
             stroke.color = color.color32();
          }
 
          color_edit_button_srgba(ui, &mut stroke.color, Alpha::BlendOrAdditive);
 
-         self.hsla_edit_button.show("stroke1", ui, &mut stroke.color);
+         self.hsla_edit_button.show(&format!("{id}_stroke"), ui, &mut stroke.color);
       });
    }
 }

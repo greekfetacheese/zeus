@@ -1,6 +1,8 @@
 //! UI to show the decoded events for a transaction
 
-use egui::{Align, Align2, Frame, Layout, Order, RichText, ScrollArea, Ui, Vec2, Window, vec2};
+use egui::{
+   Align, Align2, Frame, Layout, Order, RichText, ScrollArea, Stroke, Ui, Vec2, Window, vec2,
+};
 use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::{Label, MultiLabel};
 
@@ -62,7 +64,8 @@ impl DecodedEvents {
       let title = RichText::new("Decoded Events").size(theme.text_sizes.heading);
       let mut open = self.open;
 
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(title)
          .open(&mut open)
@@ -70,7 +73,7 @@ impl DecodedEvents {
          .collapsible(false)
          .order(Order::Tooltip)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, -100.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.vertical_centered(|ui| {

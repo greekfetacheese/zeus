@@ -1,4 +1,4 @@
-use egui::{Align2, Frame, Margin, Order, RichText, Ui, Window, vec2};
+use egui::{Align2, Frame, Margin, Order, RichText, Stroke, Ui, Window, vec2};
 use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::Button;
 
@@ -54,14 +54,15 @@ impl TxWindow {
       }
 
       let title = RichText::new("Transaction Details").size(theme.text_sizes.heading);
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(title)
          .resizable(false)
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);

@@ -4,7 +4,7 @@ use crate::gui::ui::dapps::uniswap::ProtocolVersion;
 use crate::gui::ui::*;
 use crate::utils::universal_router_v2::SwapType;
 use crate::{assets::icons::Icons, gui::SHARED_GUI};
-use egui::{Align, Frame, Grid, Id, Layout, RichText, ScrollArea, Sense, Ui, Window, vec2};
+use egui::{Align, Grid, Id, Layout, RichText, ScrollArea, Sense, Stroke, Ui, Window, vec2};
 
 use anyhow::anyhow;
 use std::sync::Arc;
@@ -114,14 +114,17 @@ impl SimulateWindow {
       settings: &UniswapSettingsUi,
       ui: &mut Ui,
    ) {
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
+
       Window::new("Simulate")
          .id(Id::new("swap_ui_simulate_window"))
          .resizable(true)
          .collapsible(true)
          .movable(true)
          .default_pos((1000.0, 70.0))
-         .title_frame(Frame::window(ui.style()))
-         .frame(Frame::window(ui.style()))
+         .title_frame(title_frame)
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.vertical(|ui| {
                ui.set_width(self.size.0);

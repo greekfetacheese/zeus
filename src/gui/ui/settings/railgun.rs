@@ -8,7 +8,7 @@ use crate::{
    core::{ZeusContext, types::RailgunConfig},
    gui::ui::chain_select::ChainSelect,
 };
-use egui::{Align2, Order, RichText, Ui, Window, vec2};
+use egui::{Align2, Order, RichText, Ui, Stroke, Window, vec2};
 use elegance::{Badge, BadgeTone, Slider};
 use zeus_eth::types::SUPPORTED_CHAINS;
 use zeus_railgun::indexer::syncer::rpc::DEFAULT_BLOCK_RANGE;
@@ -86,7 +86,8 @@ impl RailgunSettings {
       let mut open = self.open;
 
       let title = RichText::new("Railgun Settings").size(theme.text_sizes.heading);
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(title)
          .open(&mut open)
@@ -94,7 +95,7 @@ impl RailgunSettings {
          .collapsible(false)
          .order(Order::Middle)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);

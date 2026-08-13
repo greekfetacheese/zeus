@@ -4,7 +4,7 @@
 
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use egui::{Align2, Order, RichText, Ui, Window, vec2};
+use egui::{Align2, Order, RichText, Stroke, Ui, Window, vec2};
 use ncrypt_me::{Credentials, zeroize::Zeroize};
 use zeus_theme::{OverlayManager, Theme};
 use zeus_ui_components::CredentialsForm;
@@ -66,7 +66,8 @@ impl ChangeCredentialsUi {
       }
 
       let mut open = self.open;
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(RichText::new("Verify Credentials").size(theme.text_sizes.heading))
          .open(&mut open)
@@ -74,7 +75,7 @@ impl ChangeCredentialsUi {
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
@@ -151,7 +152,8 @@ impl ChangeCredentialsUi {
 
       let mut open = self.open;
       let mut clicked = false;
-      let window_frame = theme.frame1;
+      let window_frame = theme.window_frame;
+      let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(RichText::new("New Credentials").size(theme.text_sizes.heading))
          .open(&mut open)
@@ -159,7 +161,7 @@ impl ChangeCredentialsUi {
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(window_frame)
+         .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
