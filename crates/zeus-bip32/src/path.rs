@@ -21,10 +21,20 @@ fn try_parse_index(s: &str) -> Result<u32, Bip32Error> {
       false
    };
 
-   index_str
+   // Reject indices that already set the harden bit. Otherwise:
+   // - raw `2147483648` silently selects hardened child 0 (`0'`)
+   // - `2147483648'` wraps in `harden_index` to unhardened `0`
+   let raw = index_str
       .parse::<u32>()
-      .map(|v| if harden { harden_index(v) } else { v })
-      .map_err(|_| Bip32Error::MalformattedDerivation(s.to_owned()))
+      .ok()
+      .filter(|v| *v < BIP32_HARDEN)
+      .ok_or_else(|| Bip32Error::MalformattedDerivation(s.to_owned()))?;
+
+   if harden {
+      harden_index(raw).ok_or_else(|| Bip32Error::MalformattedDerivation(s.to_owned()))
+   } else {
+      Ok(raw)
+   }
 }
 
 fn encode_index(idx: u32, harden: char) -> String {
@@ -35,9 +45,9 @@ fn encode_index(idx: u32, harden: char) -> String {
    s
 }
 
-/// Converts an raw index to hardened
-pub const fn harden_index(index: u32) -> u32 {
-   index + BIP32_HARDEN
+/// Converts a raw index to hardened.
+pub const fn harden_index(index: u32) -> Option<u32> {
+   index.checked_add(BIP32_HARDEN)
 }
 
 /// A Bip32 derivation path
@@ -60,7 +70,7 @@ impl<'de> serde::Deserialize<'de> for DerivationPath {
    where
       D: serde::Deserializer<'de>,
    {
-      let s: &str = serde::Deserialize::deserialize(deserializer)?;
+      let s = <String as serde::Deserialize>::deserialize(deserializer)?;
       s.parse::<DerivationPath>().map_err(|e| serde::de::Error::custom(e.to_string()))
    }
 }
@@ -195,11 +205,68 @@ impl FromStr for DerivationPath {
    type Err = Bip32Error;
 
    fn from_str(s: &str) -> Result<Self, Self::Err> {
-      s.split('/')
-         .filter(|v| v != &"m")
+      let rest = match s.strip_prefix('m') {
+         Some(after_m) => {
+            if after_m.is_empty() {
+               return Ok(Self(Vec::new()));
+            }
+            after_m
+               .strip_prefix('/')
+               .ok_or_else(|| Bip32Error::MalformattedDerivation(s.to_owned()))?
+         }
+         None => s,
+      };
+
+      if rest.is_empty() {
+         return Err(Bip32Error::MalformattedDerivation(s.to_owned()));
+      }
+
+      rest
+         .split('/')
          .map(try_parse_index)
          .collect::<Result<Vec<u32>, Bip32Error>>()
-         .map(|v| v.into())
+         .map(Into::into)
          .map_err(|_| Bip32Error::MalformattedDerivation(s.to_owned()))
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn parses_standard_and_h_suffix() {
+      let expected = vec![44 + BIP32_HARDEN, 60 + BIP32_HARDEN, BIP32_HARDEN, 0, 0];
+      let p: DerivationPath = "m/44'/60'/0'/0/0".parse().unwrap();
+      assert_eq!(p.iter().copied().collect::<Vec<_>>(), expected);
+      assert_eq!(p.derivation_string(), "m/44'/60'/0'/0/0");
+
+      let p: DerivationPath = "m/44h/60h/0h/0/0".parse().unwrap();
+      assert_eq!(p.iter().copied().collect::<Vec<_>>(), expected);
+   }
+
+   #[test]
+   fn parses_root() {
+      let p: DerivationPath = "m".parse().unwrap();
+      assert!(p.is_empty());
+   }
+
+   #[test]
+   fn rejects_bare_harden_bit_and_overflow() {
+      assert!("2147483648".parse::<DerivationPath>().is_err());
+      assert!("2147483648'".parse::<DerivationPath>().is_err());
+      assert!("m/2147483648".parse::<DerivationPath>().is_err());
+      assert!("m/2147483648'".parse::<DerivationPath>().is_err());
+   }
+
+   #[test]
+   fn rejects_m_in_the_middle() {
+      assert!("m/44'/m/0".parse::<DerivationPath>().is_err());
+   }
+
+   #[test]
+   fn harden_index_does_not_wrap() {
+      assert_eq!(harden_index(0), Some(BIP32_HARDEN));
+      assert_eq!(harden_index(BIP32_HARDEN), None);
    }
 }

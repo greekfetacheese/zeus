@@ -10,7 +10,7 @@ pub enum Bip32Error {
    #[error("elliptic curve error")]
    EllipticCurveError(/*#[from]*/ k256::elliptic_curve::Error),
 
-   /// Error bubbled up froom std::io
+   /// Error bubbled up from std::io
    #[error(transparent)]
    IoError(#[from] std::io::Error),
 
@@ -18,17 +18,21 @@ pub enum Bip32Error {
    #[error("Master key seed generation received <16 bytes")]
    SeedTooShort,
 
-   /// HMAC I_l was invalid during key generations.
-   #[error("HMAC left segment was 0 or greated than the curve order. How?")]
+   /// HMAC I_L was invalid during key generation.
+   #[error("HMAC left segment was 0 or greater than the curve order. How?")]
    InvalidKey,
 
-   /// pted to derive the hardened child of an xpub
+   /// Attempted to derive the hardened child of an xpub
    #[error("Attempted to derive the hardened child of an xpub")]
    HardenedDerivationFailed,
 
    /// Attempted to tweak an xpriv or xpub directly
    #[error("Attempted to tweak an xpriv or xpub directly")]
    BadTweak,
+
+   /// Child derivation would overflow the serialized depth byte
+   #[error("Derivation depth exceeds 255")]
+   DepthOverflow,
 
    /// Unrecognized version when deserializing xpriv
    #[error("Version bytes 0x{0:x?} don't match any network xpriv version bytes")]

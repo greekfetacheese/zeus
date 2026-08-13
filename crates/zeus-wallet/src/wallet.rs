@@ -290,6 +290,7 @@ impl SecureHDWallet {
       rand::rngs::OsRng.fill_bytes(&mut bytes);
 
       let (key, key_info) = root_from_seed(&bytes, None).unwrap();
+      bytes.zeroize();
       let signer = SecureKey::from(key);
 
       let master_wallet = Wallet {
@@ -437,6 +438,7 @@ impl SecureHDWallet {
 mod tests {
 
    use super::*;
+   use alloy_primitives::address;
    const TEST_M_COST: u32 = 16_000;
    const TEST_T_COST: u32 = 5;
    const TEST_P_COST: u32 = 4;
@@ -455,6 +457,8 @@ mod tests {
       )
       .unwrap();
 
+      let expected_master = address!("0xB2c65B7fC48d5f79776feA36c9874F6D578155E5");
+
       let mut hd_wallet = SecureHDWallet::new_from_seed(None, seed);
       eprintln!(
          "Master Wallet Address: {}",
@@ -462,6 +466,7 @@ mod tests {
       );
 
       assert!(hd_wallet.master_wallet.is_master());
+      assert_eq!(hd_wallet.master_wallet.address(), expected_master);
 
       for i in 0..10 {
          let name = format!("Child Wallet {}", i);
