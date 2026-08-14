@@ -15,8 +15,8 @@ use crate::gui::{
 };
 use crate::utils::{RT, truncate_address};
 use egui::{
-   Align, Align2, CornerRadius, CursorIcon, FontId, Label, Layout, Margin, OpenUrl, Order,
-   RichText, Spinner, Ui, Window, vec2,
+   Align, Align2, CornerRadius, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText,
+   Spinner, Ui, Window, vec2,
 };
 use std::str::FromStr;
 use std::sync::Arc;
@@ -52,7 +52,7 @@ pub struct Header {
    chain_select: ChainSelect,
    wallet_select: WalletSelect,
    wallet_info: WalletInfo,
-   qrcode_window: QRCodeWindow,
+   pub qrcode_window: QRCodeWindow,
    delegate_window_open: bool,
    delegate_to: String,
    syncing: bool,
@@ -868,13 +868,22 @@ impl QRCodeWindow {
                   let rich_text = RichText::new(text).size(theme.text_sizes.large);
                   ui.label(rich_text);
 
-                  let text = match privacy_mode {
+                  let address = match privacy_mode {
                      false => wallet.address.to_string(),
                      true => wallet.zk_address(),
                   };
 
-                  let label = Label::new(RichText::new(text).size(theme.text_sizes.normal)).wrap();
-                  ui.add(label);
+                  if !address.is_empty() {
+                     let address_text =
+                        RichText::new(address.clone()).size(theme.text_sizes.normal);
+                     let label = Button::selectable(false, address_text)
+                        .visuals(theme.button_visuals())
+                        .wrap();
+
+                     if ui.add(label).clicked() {
+                        ui.ctx().copy_text(address);
+                     }
+                  }
                }
 
                ui.add_space(10.0);

@@ -5,8 +5,8 @@ use crate::core::{ZeusContext, types::Contact};
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::RT;
 use egui::{
-   Align, Align2, FontId, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Stroke, Ui, Window,
-   vec2,
+   Align, Align2, FontId, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Spinner, Stroke,
+   Ui, Window, vec2,
 };
 use elegance::{Menu, MenuItem};
 use std::str::FromStr;
@@ -14,7 +14,8 @@ use std::sync::Arc;
 use zeus_eth::alloy_primitives::Address;
 use zeus_railgun::RailgunAddress;
 use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::{Button, Label, SecureTextEdit};
+use zeus_ui_components::QrImage;
+use zeus_widgets::{Button, Label, Modal, SecureTextEdit};
 
 pub struct AddContact {
    open: bool,
@@ -505,6 +506,161 @@ impl EditContact {
    }
 }
 
+struct QrWindow {
+   open: bool,
+   contact: Option<Contact>,
+   evm_address_qr: QrImage,
+   zk_address_qr: QrImage,
+   size: (f32, f32),
+}
+
+impl QrWindow {
+   fn new() -> Self {
+      Self {
+         open: false,
+         contact: None,
+         evm_address_qr: QrImage::empty_with_error("No QR code found".to_string()),
+         zk_address_qr: QrImage::empty_with_error("No QR code found".to_string()),
+         size: (400.0, 400.0),
+      }
+   }
+
+   fn open(&mut self, contact: Contact) {
+      let contact_clone = contact.clone();
+
+      RT.spawn_blocking(move || {
+         let data = contact.evm_address.clone();
+         let uri = format!("bytes://contact-{}.png", &contact.evm_address);
+         let evm_address_qr = QrImage::new(&data, uri);
+
+         let zk_address_qr = if !contact.zk_address.is_empty() {
+            let data = contact.zk_address.clone();
+            let uri = format!("bytes://contact-{}.png", &contact.zk_address);
+            QrImage::new(&data, uri)
+         } else {
+            QrImage::empty_with_error("No zkAddress available".to_string())
+         };
+
+         SHARED_GUI.write(|gui| {
+            gui.settings.contacts_ui.qr_window.evm_address_qr = evm_address_qr;
+            gui.settings.contacts_ui.qr_window.zk_address_qr = zk_address_qr;
+            gui.request_repaint();
+         });
+      });
+
+      self.open = true;
+      self.contact = Some(contact_clone);
+   }
+
+   fn close(&mut self) {
+      self.open = false;
+   }
+
+   fn reset(&mut self) {
+      self.close();
+      *self = Self::new();
+   }
+
+   fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
+      let privacy_mode = ctx.privacy_mode;
+      let mut open = self.open;
+
+      Modal::new("Contact QR Code", &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .show(ui.ctx(), |ui| {
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
+
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing = vec2(10.0, 8.0);
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+               if self.contact.is_none() {
+                  ui.label(
+                     RichText::new("No contact found, this is a bug").size(theme.text_sizes.normal),
+                  );
+                  ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+                  self.close_button(theme, ui);
+                  return;
+               }
+
+               if let Some(contact) = self.contact.as_ref() {
+                  ui.label(RichText::new(&contact.name).size(theme.text_sizes.large));
+
+                  let text = match privacy_mode {
+                     false => "Public Address (EVM)",
+                     true => "Private Address (zk)",
+                  };
+
+                  let rich_text = RichText::new(text).size(theme.text_sizes.large);
+                  ui.label(rich_text);
+
+                  let address = match privacy_mode {
+                     false => contact.evm_address.clone(),
+                     true => contact.zk_address.clone(),
+                  };
+
+                  if !address.is_empty() {
+                     let address_text =
+                        RichText::new(address.clone()).size(theme.text_sizes.normal);
+                     let label = Button::selectable(false, address_text)
+                        .visuals(theme.button_visuals())
+                        .wrap();
+
+                     if ui.add(label).clicked() {
+                        ui.ctx().copy_text(address);
+                     }
+                  }
+               }
+
+               ui.add_space(10.0);
+
+               if !privacy_mode {
+                  if let Some(error) = self.evm_address_qr.error() {
+                     ui.label(RichText::new(error.to_string()).size(theme.text_sizes.large));
+                  }
+               } else if let Some(error) = self.zk_address_qr.error() {
+                  ui.label(RichText::new(error.to_string()).size(theme.text_sizes.large));
+               }
+
+               if !privacy_mode {
+                  let image = self.evm_address_qr.image().fit_to_exact_size(vec2(250.0, 250.0));
+                  ui.add(image);
+               } else {
+                  let image = self.zk_address_qr.image().fit_to_exact_size(vec2(250.0, 250.0));
+                  ui.add(image);
+               }
+
+               ui.add_space(10.0);
+
+               self.close_button(theme, ui);
+            });
+         });
+
+      if !open {
+         self.evm_address_qr.clear(ui.ctx());
+         self.zk_address_qr.clear(ui.ctx());
+         self.reset();
+      }
+   }
+
+   fn close_button(&mut self, theme: &Theme, ui: &mut Ui) {
+      let text = RichText::new("Close").size(theme.text_sizes.normal);
+      let button = Button::new(text).visuals(theme.button_visuals());
+
+      if ui.add(button).clicked() {
+         self.evm_address_qr.clear(ui.ctx());
+         self.zk_address_qr.clear(ui.ctx());
+         self.reset();
+      }
+   }
+}
+
 pub struct ContactsUi {
    open: bool,
    overlay: OverlayManager,
@@ -513,6 +669,7 @@ pub struct ContactsUi {
    pub add_contact: AddContact,
    delete_contact: DeleteContact,
    edit_contact: EditContact,
+   qr_window: QrWindow,
    pub size: (f32, f32),
 }
 
@@ -526,6 +683,7 @@ impl ContactsUi {
          add_contact: AddContact::new(overlay.clone()),
          delete_contact: DeleteContact::new(overlay.clone()),
          edit_contact: EditContact::new(overlay),
+         qr_window: QrWindow::new(),
          size: (500.0, 550.0),
       }
    }
@@ -538,6 +696,9 @@ impl ContactsUi {
    }
 
    pub fn close(&mut self) {
+      if self.qr_window.open {
+         self.qr_window.reset();
+      }
       self.overlay.window_closed();
       self.open = false;
    }
@@ -551,6 +712,7 @@ impl ContactsUi {
       self.add_contact.show(theme, true, ui);
       self.delete_contact.show(ctx, theme, ui);
       self.edit_contact.show(ctx, theme, ui);
+      self.qr_window.show(ctx, theme, ui);
    }
 
    fn main_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, _icons: Arc<Icons>, ui: &mut Ui) {
@@ -660,6 +822,10 @@ impl ContactsUi {
                      self.edit_contact.open();
                      self.edit_contact.contact_to_edit = contact.clone();
                      self.edit_contact.old_contact = contact.clone();
+                  }
+
+                  if ui.add(MenuItem::new("Show QR Code").shortcut("⌘ Q")).clicked() {
+                     self.qr_window.open(contact.clone());
                   }
 
                   if ui.add(MenuItem::new("Delete").shortcut("⌘ D")).clicked() {

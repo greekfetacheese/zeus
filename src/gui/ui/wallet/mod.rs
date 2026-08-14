@@ -302,6 +302,16 @@ impl WalletUi {
                         self.open_rename_wallet(wallet_opt);
                      }
 
+                     if ui.add(MenuItem::new("Show QR Code").shortcut("⌘ Q")).clicked() {
+                        let wallet_clone = wallet.clone();
+                        RT.spawn_blocking(move || {
+                           SHARED_GUI.write(|gui| {
+                              gui.header.qrcode_window.open(wallet_clone);
+                              gui.request_repaint();
+                           });
+                        });
+                     }
+
                      if ui.add_enabled(enabled, MenuItem::new("Delete").shortcut("⌘ D")).clicked()
                      {
                         self.delete_wallet_ui.open(wallet.clone());
