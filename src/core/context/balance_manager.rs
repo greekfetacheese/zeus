@@ -254,8 +254,8 @@ impl BalanceManagerHandle {
                let native = NativeCurrency::from(chain);
                let old_balance = old_balances.get(&owner).unwrap();
                if eth_balance == old_balance.wei() {
-                  #[cfg(feature = "debug")]
-                  tracing::warn!(
+                  #[cfg(feature = "dev")]
+                  tracing::debug!(
                      "Balances for owner {} are the same New {} Old {}, retrying",
                      owner,
                      eth_balance,
@@ -344,7 +344,7 @@ impl BalanceManagerHandle {
                 let balances = match balances {
                     Ok(b) => b,
                     Err(_e) => {
-                        #[cfg(feature = "debug")]
+                        #[cfg(feature = "dev")]
                         tracing::error!(
                             "Failed to get erc20 balances for Owner: {owner:?} ChainId: {chain:?} Error: {_e:?}"
                         );
@@ -364,8 +364,8 @@ impl BalanceManagerHandle {
                      let token =  token_map.get(&balance.token).unwrap();
                      manager.insert_token_balance(chain, owner, balance.balance, token);
                }
-               #[cfg(feature = "debug")]
-               tracing::info!("Updated balances for {} tokens", balances.len());
+               #[cfg(feature = "dev")]
+               tracing::debug!("Updated balances for {} tokens", balances.len());
             } else {
                 // In case the picked RPC is not synced with the latest block,
                 // it will return the same balances, in that case we need to retry
@@ -374,7 +374,7 @@ impl BalanceManagerHandle {
                      let token = token_map.get(&balance.token).unwrap();
                         let old_balance = old_balances.get(&balance.token).unwrap();
                         if balance.balance == old_balance.wei() {
-                           #[cfg(feature = "debug")]
+                           #[cfg(feature = "dev")]
                            tracing::warn!("Balances for token {} are the same New {} Old {}, retrying", token.symbol, balance.balance, old_balance.wei());
                            should_break = false;
                            break;

@@ -363,7 +363,7 @@ async fn check_delegated_status(ctx: ZeusCtx, chain: u64) {
       if ctx.should_check_delegated_wallet_status(chain, account.address) {
          match ctx.check_delegated_wallet_status(chain, account.address).await {
             Ok(_) => {
-               #[cfg(feature = "debug")]
+               #[cfg(feature = "dev")]
                debug!(
                   "Checked delegated wallet status for {}",
                   account.address
@@ -636,10 +636,10 @@ pub async fn get_base_fee(ctx: ZeusCtx, chain: u64) -> Result<BaseFee, anyhow::E
 
    let fee: u64 = gas_price.try_into()?;
 
-   #[cfg(feature = "debug")]
+   #[cfg(feature = "dev")]
    let fee_gwei = NumericValue::format_to_gwei(U256::from(fee));
 
-   #[cfg(feature = "debug")]
+   #[cfg(feature = "dev")]
    debug!(
       "Base fee for chain {} is {}",
       chain.id(),
@@ -674,7 +674,7 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
          ));
       }
 
-      #[cfg(feature = "debug")]
+      #[cfg(feature = "dev")]
       debug!(
          "Priority fee for chain {} is {}",
          chain.id(),

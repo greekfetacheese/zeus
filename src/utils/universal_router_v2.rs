@@ -13,6 +13,9 @@ use zeus_eth::{
 };
 use zeus_wallet::SecureKey;
 
+#[cfg(feature = "dev")]
+use tracing::debug;
+
 // https://docs.uniswap.org/contracts/universal-router/technical-reference
 #[allow(non_camel_case_types)]
 #[derive(Clone, Debug, PartialEq)]
@@ -246,10 +249,10 @@ pub async fn encode_swap(
          router_weth_balance += swap.amount_out.wei();
       }
 
-      #[cfg(feature = "debug")]
+      #[cfg(feature = "dev")]
       {
-         tracing::info!("|=== Swap Step ===|");
-         tracing::info!(
+         debug!("|=== Swap Step ===|");
+         debug!(
             "Swap Step: {} {} -> {} {} {} ({}) {} {}",
             swap.amount_in.abbreviated(),
             swap.currency_in.symbol(),
@@ -359,8 +362,8 @@ pub async fn encode_swap(
          amountMin: amount_to_sweep,
       };
 
-      #[cfg(feature = "debug")]
-      tracing::info!("Sweep Params: {:?}", sweep_params);
+      #[cfg(feature = "dev")]
+      debug!("Sweep Params: {:?}", sweep_params);
 
       let data = sweep_params.abi_encode_params().into();
       commands.push(Commands::SWEEP as u8);
@@ -368,7 +371,8 @@ pub async fn encode_swap(
    }
 
    let command_bytes = Bytes::from(commands);
-   // eprintln!("Command Bytes: {:?}", command_bytes);
+   #[cfg(feature = "dev")]
+   debug!("Command Bytes: {:?}", command_bytes);
 
    let deadline = TimeStamp::now_as_secs().add(deadline_in_minutes * 60);
    let data = encode_execute_with_deadline(

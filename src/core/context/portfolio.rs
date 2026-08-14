@@ -279,7 +279,7 @@ async fn process_private_tokens(
    let wallet = ctx.get_wallet(owner);
 
    if wallet.is_none() {
-      #[cfg(feature = "debug")]
+      #[cfg(feature = "dev")]
       error!("Wallet not found for address {}", owner);
       return Ok(token_list);
    }
@@ -300,7 +300,7 @@ async fn process_private_tokens(
 
    let private_balances = provider.balance(railgun_address).await;
 
-   #[cfg(feature = "debug")]
+   #[cfg(feature = "dev")]
    debug!(
       "Found {} private balances",
       private_balances.len()

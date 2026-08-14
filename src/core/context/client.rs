@@ -1007,8 +1007,8 @@ impl ZeusClient {
 ///
 /// Others have a very low staticalll gas limit which cause the batch requests to fail
 pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), anyhow::Error> {
-   #[cfg(feature = "debug")]
-   tracing::info!("Testing {}", rpc.url);
+   #[cfg(feature = "dev")]
+   tracing::debug!("Testing {}", rpc.url);
 
    let retry = retry_layer(
       MAX_RETRIES,
@@ -1131,8 +1131,8 @@ pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), an
    let guard = result.lock().unwrap();
    let result = guard.clone();
 
-   #[cfg(feature = "debug")]
-   tracing::info!(
+   #[cfg(feature = "dev")]
+   tracing::debug!(
       "Tested {} in {}secs",
       rpc.url,
       latency.as_secs_f32()
@@ -1196,8 +1196,8 @@ async fn get_logs_check(
          }
          Err(e) => {
             block_range -= 5_000;
-            #[cfg(feature = "debug")]
-            tracing::warn!("eth_getLogs Check Error: {:?}", e);
+            #[cfg(feature = "dev")]
+            tracing::debug!("eth_getLogs Check Error: {:?}", e);
          }
       }
    }
@@ -1259,8 +1259,8 @@ async fn v2_pool_reserves_check(
          }
          Err(e) => {
             batch_size -= 5;
-            #[cfg(feature = "debug")]
-            tracing::warn!("V2 Reserves Check Error: {:?}", e);
+            #[cfg(feature = "dev")]
+            tracing::debug!("V2 Reserves Check Error: {:?}", e);
          }
       }
    }
@@ -1328,8 +1328,8 @@ async fn v3_pool_state_check(
          }
          Err(e) => {
             batch_size -= 5;
-            #[cfg(feature = "debug")]
-            tracing::warn!("V3 State Check Error: {:?}", e);
+            #[cfg(feature = "dev")]
+            tracing::debug!("V3 State Check Error: {:?}", e);
          }
       }
    }
@@ -1395,8 +1395,8 @@ async fn v4_pool_state_check(
          }
          Err(e) => {
             batch_size -= 5;
-            #[cfg(feature = "debug")]
-            tracing::warn!("V4 State Check Error: {:?}", e);
+            #[cfg(feature = "dev")]
+            tracing::debug!("V4 State Check Error: {:?}", e);
          }
       }
    }
@@ -1458,8 +1458,8 @@ async fn validate_v4_pools_check(
          }
          Err(e) => {
             batch_size -= 5;
-            #[cfg(feature = "debug")]
-            tracing::warn!("V4 Validate Pools Check Error: {:?}", e);
+            #[cfg(feature = "dev")]
+            tracing::debug!("V4 Validate Pools Check Error: {:?}", e);
          }
       }
    }

@@ -13,6 +13,8 @@ use zeus_eth::{
 
 #[cfg(feature = "dev")]
 use std::time::Instant;
+#[cfg(feature = "dev")]
+use tracing::debug;
 
 /// Minimum estimated gas for a swap
 const BASE_GAS: u64 = 140_000;
@@ -147,12 +149,12 @@ pub fn get_quote(
 
    let all_pools: Vec<Arc<AnyUniswapPool>> = all_pools.into_iter().map(Arc::new).collect();
 
-   #[cfg(feature = "debug")]
-   tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "All Pools Length: {}", all_pools.len());
+   #[cfg(feature = "dev")]
+   debug!(target: "zeus_eth::amm::uniswap::quoter", "All Pools Length: {}", all_pools.len());
 
-   #[cfg(feature = "debug")]
+   #[cfg(feature = "dev")]
    for pool in &all_pools {
-      tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "Pool {} / {} {} Fee: {}", pool.currency0().symbol(), pool.currency1().symbol(), pool.dex_kind().version_str(), pool.fee().fee_percent());
+      debug!(target: "zeus_eth::amm::uniswap::quoter", "Pool {} / {} {} Fee: {}", pool.currency0().symbol(), pool.currency1().symbol(), pool.dex_kind().version_str(), pool.fee().fee_percent());
    }
 
    let all_paths = find_all_paths(
@@ -163,12 +165,12 @@ pub fn get_quote(
       max_hops,
    );
 
-   #[cfg(feature = "debug")]
-   tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "All Paths Length: {}", all_paths.len());
+   #[cfg(feature = "dev")]
+   debug!(target: "zeus_eth::amm::uniswap::quoter", "All Paths Length: {}", all_paths.len());
 
    if all_paths.is_empty() {
-      #[cfg(feature = "debug")]
-      tracing::warn!(target: "zeus_eth::amm::uniswap::quoter", "No routes found for {} -> {}", currency_in.symbol(), currency_out.symbol());
+      #[cfg(feature = "dev")]
+      debug!(target: "zeus_eth::amm::uniswap::quoter", "No routes found for {} -> {}", currency_in.symbol(), currency_out.symbol());
       return Quote::default();
    }
 
@@ -182,8 +184,8 @@ pub fn get_quote(
       priority_fee,
    );
 
-   #[cfg(feature = "debug")]
-   tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "Evaluated Routes Length: {}", evaluated_routes.len());
+   #[cfg(feature = "dev")]
+   debug!(target: "zeus_eth::amm::uniswap::quoter", "Evaluated Routes Length: {}", evaluated_routes.len());
 
    // Select the best route
    evaluated_routes.sort_by(|a, b| {
@@ -195,13 +197,13 @@ pub fn get_quote(
    let quote = if let Some(best_route) = evaluated_routes.into_iter().next() {
       build_quote_from_route(best_route, currency_in, currency_out)
    } else {
-      #[cfg(feature = "debug")]
-      tracing::warn!(target: "zeus_eth::amm::uniswap::quoter", "No profitable routes found after evaluation.");
+      #[cfg(feature = "dev")]
+      debug!(target: "zeus_eth::amm::uniswap::quoter", "No profitable routes found after evaluation.");
       Quote::default()
    };
 
    #[cfg(feature = "dev")]
-   tracing::info!(
+   debug!(
       "Quote took {} μs for {} pools",
       now.elapsed().as_micros(),
       all_pools.len()
@@ -228,12 +230,12 @@ pub fn get_quote_with_split_routing(
 
    let all_pools: Vec<Arc<AnyUniswapPool>> = all_pools.into_iter().map(Arc::new).collect();
 
-   #[cfg(feature = "debug")]
-   tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "All Pools Length: {}", all_pools.len());
+   #[cfg(feature = "dev")]
+   debug!(target: "zeus_eth::amm::uniswap::quoter", "All Pools Length: {}", all_pools.len());
 
-   #[cfg(feature = "debug")]
+   #[cfg(feature = "dev")]
    for pool in &all_pools {
-      tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "Pool {} / {} {} Fee: {}", pool.currency0().symbol(), pool.currency1().symbol(), pool.dex_kind().version_str(), pool.fee().fee_percent());
+      debug!(target: "zeus_eth::amm::uniswap::quoter", "Pool {} / {} {} Fee: {}", pool.currency0().symbol(), pool.currency1().symbol(), pool.dex_kind().version_str(), pool.fee().fee_percent());
    }
 
    let all_paths = find_all_paths(
@@ -245,8 +247,8 @@ pub fn get_quote_with_split_routing(
    );
 
    if all_paths.is_empty() {
-      #[cfg(feature = "debug")]
-      tracing::warn!(target: "zeus_eth::amm::uniswap::quoter_split", "No routes found for {} -> {}", currency_in.symbol(), currency_out.symbol());
+      #[cfg(feature = "dev")]
+      debug!(target: "zeus_eth::amm::uniswap::quoter_split", "No routes found for {} -> {}", currency_in.symbol(), currency_out.symbol());
       return Quote::default();
    }
 
@@ -263,13 +265,13 @@ pub fn get_quote_with_split_routing(
       candidate_routes.drain(..).take(max_split_routes).collect();
 
    if top_routes.is_empty() {
-      #[cfg(feature = "debug")]
-      tracing::warn!(target: "zeus_eth::amm::uniswap::quoter_split", "No viable candidate routes found after ranking.");
+      #[cfg(feature = "dev")]
+      debug!(target: "zeus_eth::amm::uniswap::quoter_split", "No viable candidate routes found after ranking.");
       return Quote::default();
    }
 
-   #[cfg(feature = "debug")]
-   tracing::info!(target: "zeus_eth::amm::uniswap::quoter_split", "Found {} candidate routes for split routing.", top_routes.len());
+   #[cfg(feature = "dev")]
+   debug!(target: "zeus_eth::amm::uniswap::quoter_split", "Found {} candidate routes for split routing.", top_routes.len());
 
    // distribute the input across the best routes
    let total_amount_in_wei = amount_to_swap.wei();

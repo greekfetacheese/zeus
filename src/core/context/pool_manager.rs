@@ -33,6 +33,9 @@ use zeus_eth::{
 
 use anyhow::anyhow;
 
+#[cfg(feature = "dev")]
+use tracing::debug;
+
 // Timeout for pool discovery in seconds (10 minutes)
 const POOL_DISCOVERY_TIMEOUT: u64 = 600;
 
@@ -447,11 +450,11 @@ impl PoolManagerHandle {
       let mut tasks: Vec<JoinHandle<Result<ERC20Token, anyhow::Error>>> = Vec::new();
       let semaphore = Arc::new(Semaphore::new(self.concurrency()));
 
-      #[cfg(feature = "debug")]
+      #[cfg(feature = "dev")]
       {
          let symbols = tokens.iter().map(|t| t.symbol.clone()).collect::<Vec<_>>();
          let addresses = tokens.iter().map(|t| t.address.to_string()).collect::<Vec<_>>();
-         info!(
+         debug!(
             "Discovering pools for {} {} Chain {}",
             symbols.join(", "),
             addresses.join(", "),
@@ -485,8 +488,8 @@ impl PoolManagerHandle {
                let should_discover =
                   manager.should_discover_pools(chain, base_token.address, token.address);
 
-               #[cfg(feature = "debug")]
-               tracing::info!(
+               #[cfg(feature = "dev")]
+               debug!(
                   "Should discover {} for {} {}-{}",
                   should_discover,
                   chain,
@@ -724,8 +727,8 @@ impl PoolManagerHandle {
       let latest_block = client.get_block_number().await?;
 
       if !self.should_discover_v4_pools(chain.id(), dex) {
-         #[cfg(feature = "debug")]
-         info!(target: "zeus_eth::amm::pool_manager", "Skipping discovering V4 pools for chain {}", chain.id());
+         #[cfg(feature = "dev")]
+         debug!(target: "zeus_eth::amm::pool_manager", "Skipping discovering V4 pools for chain {}", chain.id());
          return Ok(());
       }
 
