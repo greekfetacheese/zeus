@@ -10,15 +10,15 @@ js = ["dep:tsify", "dep:wasm-bindgen"]
 [dependencies]
 
 # Alloy
-alloy-eips = "=2.3.0"
-alloy-serde = "=2.3.0"
-alloy-primitives = "=1.6.1"
-alloy-dyn-abi = "=1.6.1"
-alloy-provider = "=2.3.0"
-alloy-rpc-types = "=2.3.0"
-alloy-signer = "=2.3.0"
-alloy-signer-local = "=2.3.0"
-alloy-sol-types = { version = "=1.6.1", features = ["eip712-serde"] }
+alloy-eips = "2.3"
+alloy-serde = "2.3"
+alloy-primitives = "1.6"
+alloy-dyn-abi = "1.6"
+alloy-provider = "2.3"
+alloy-rpc-types = "2.3"
+alloy-signer = "2.3"
+alloy-signer-local = "2.3"
+alloy-sol-types = { version = "1.6", features = ["eip712-serde"] }
 
 # Misc
 gloo-timers = "0.3.0"

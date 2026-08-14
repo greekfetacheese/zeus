@@ -9469,6 +9469,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha3"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc9bad02c26382724b2d2692c6f179285e4b54eeecd7968f52a50059c3c11759"
+dependencies = [
+ "digest 0.11.3",
+ "keccak 0.2.0",
+ "sponge-cursor",
+]
+
+[[package]]
 name = "sha3-asm"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9741,6 +9752,12 @@ dependencies = [
  "base64ct",
  "der 0.8.1",
 ]
+
+[[package]]
+name = "sponge-cursor"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a0219bd7d979d58245a4f41f695e1ac9f8befdffadd7f61f1bae9e39abc6620"
 
 [[package]]
 name = "stable_deref_trait"
@@ -12537,8 +12554,8 @@ dependencies = [
  "ed25519-dalek",
  "futures",
  "hex",
- "hmac 0.12.1",
- "k256 0.13.4",
+ "hmac 0.13.0",
+ "k256 0.14.0",
  "lazy_static",
  "num-bigint",
  "num-traits",
@@ -12551,8 +12568,8 @@ dependencies = [
  "secure-types",
  "serde",
  "serde_json",
- "sha2 0.10.9",
- "sha3 0.10.8",
+ "sha2 0.11.0",
+ "sha3 0.12.0",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
@@ -12602,12 +12619,12 @@ dependencies = [
  "anyhow",
  "argon2-rs",
  "bip39",
- "k256 0.13.4",
+ "k256 0.14.0",
  "rand 0.8.6",
  "secure-types",
  "serde",
  "serde_json",
- "sha3 0.10.8",
+ "sha3 0.12.0",
  "zeus-bip32",
 ]
 
