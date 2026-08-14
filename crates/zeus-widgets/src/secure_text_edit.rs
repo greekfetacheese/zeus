@@ -1,7 +1,7 @@
 use egui::{
-   Align, Align2, Color32, CursorIcon, Event, EventFilter, FontId, FontSelection, Galley, Id,
-   IMEPurpose, ImeEvent, Key, KeyboardShortcut, Margin, Modifiers, NumExt, Response, Sense, Shape,
-   TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText, epaint, output,
+   Align, Align2, Color32, CursorIcon, Event, EventFilter, FontId, FontSelection, Galley,
+   IMEPurpose, Id, ImeEvent, Key, KeyboardShortcut, Margin, Modifiers, NumExt, Response, Sense,
+   Shape, TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText, epaint, output,
    text::{self, LayoutJob},
    text_selection::{self, CCursorRange, text_cursor_state::byte_index_from_char_index},
    vec2,
@@ -82,7 +82,14 @@ pub struct SecureTextEditState {
    pub cursor: text_selection::TextCursorState,
    pub singleline_offset: f32,
    pub last_interaction_time: f64,
+   /// True while a non-empty IME preedit is in the buffer.
+   ///
+   /// Not tied to the deprecated `ImeEvent::Enabled`. Empty Preedit/Commit
+   /// events (GNOME/ibus on Wayland) must be ignored when this is false,
+   /// or the cursor jumps to index 0 and text is typed in reverse.
    pub ime_enabled: bool,
+   /// Span of the current preedit, if any. Do not use this as the delete
+   /// target — always mutate the live cursor range, like egui 0.36.
    pub ime_cursor_range: CCursorRange,
 }
 
@@ -426,7 +433,7 @@ impl<'a> SecureTextEdit<'a> {
       };
 
       job.halign = self.align.0[0];
-      let galley: Arc<Galley> = ui.fonts_mut(|f| f.layout_job(job));
+      let mut galley: Arc<Galley> = ui.fonts_mut(|f| f.layout_job(job));
 
       // --- Size & Allocation ---
       let desired_inner_width = if self.clip_text && !self.multiline {
@@ -499,45 +506,48 @@ impl<'a> SecureTextEdit<'a> {
 
       // --- Event Handling ---
       let mut cursor_range_after_events = None;
-      // Initial galley before any events in this frame
-      let current_frame_galley = galley.clone();
+      let owns_ime_events = ui.memory(|mem| mem.owns_ime_events(id));
+      if !owns_ime_events {
+         state.ime_enabled = false;
+         if let Some(range) = state.cursor.char_range() {
+            state.cursor.set_char_range(Some(CCursorRange::one(range.primary)));
+         }
+      }
 
       if self.interactive && ui.memory(|mem| mem.has_focus(id)) {
          ui.memory_mut(|mem| mem.set_focus_lock_filter(id, self.event_filter));
 
          let default_cursor_range = if self.cursor_at_end {
-            CCursorRange::one(current_frame_galley.end())
+            CCursorRange::one(galley.end())
          } else {
             CCursorRange::default()
          };
 
-         let (text_changed_by_event, new_cursor_range, _updated_galley_from_events) =
-            secure_text_edit_events(
-               ui,
-               &mut state,
-               self.text,
-               &current_frame_galley,
-               id,
-               self.multiline,
-               self.password,
-               default_cursor_range,
-               self.char_limit,
-               self.event_filter,
-               self.return_key,
-               &font_id,
-               text_color,
-               wrap_width,
-               self.align.0[0],
-            );
+         let (text_changed_by_event, new_cursor_range, updated_galley) = secure_text_edit_events(
+            ui,
+            &mut state,
+            self.text,
+            &galley,
+            id,
+            self.multiline,
+            self.password,
+            default_cursor_range,
+            owns_ime_events,
+            self.char_limit,
+            self.event_filter,
+            self.return_key,
+            &font_id,
+            text_color,
+            wrap_width,
+            self.align.0[0],
+         );
 
          if text_changed_by_event {
             response.mark_changed();
+            galley = updated_galley;
          }
          cursor_range_after_events = Some(new_cursor_range);
-
-         if !text_changed_by_event {
-            state.cursor.set_char_range(Some(new_cursor_range));
-         }
+         state.cursor.set_char_range(Some(new_cursor_range));
       }
 
       // --- Galley Positioning & Single-line Offset ---
@@ -649,16 +659,6 @@ impl<'a> SecureTextEdit<'a> {
          }
       }
 
-      // IME focus state management
-      if state.ime_enabled && (response.gained_focus() || response.lost_focus()) {
-         state.ime_enabled = false;
-         if let Some(mut ccursor_range) = state.cursor.char_range() {
-            ccursor_range.secondary.index = ccursor_range.primary.index;
-            state.cursor.set_char_range(Some(ccursor_range));
-         }
-         ui.input_mut(|i| i.events.retain(|e| !matches!(e, Event::Ime(_))));
-      }
-
       state.clone().store(ui.ctx(), id);
 
       // !
@@ -710,6 +710,7 @@ fn secure_text_edit_events(
    multiline: bool,
    password: bool,
    default_cursor_range: CCursorRange,
+   owns_ime_events: bool,
    char_limit: usize,
    event_filter: EventFilter,
    return_key: Option<KeyboardShortcut>,
@@ -723,10 +724,7 @@ fn secure_text_edit_events(
    let mut cursor_range = state.cursor.range(&current_galley).unwrap_or(default_cursor_range);
    let mut text_changed_in_total = false;
 
-   let mut events_filtered = ui.input(|i| i.filtered_events(&event_filter));
-   if state.ime_enabled {
-      events_filtered.sort_by_key(|e| !matches!(e, Event::Ime(_)));
-   }
+   let events_filtered = ui.input(|i| i.filtered_events(&event_filter));
 
    for event in events_filtered {
       let current_char_len_before_event = text.char_len();
@@ -915,17 +913,31 @@ fn secure_text_edit_events(
                None
             }
          }
-         Event::Ime(ime_event) => {
+         Event::Ime(ime_event) if owns_ime_events => {
+            // GNOME 48+ / ibus on Wayland
+            // emits empty Preedit/Commit around Latin keystrokes; those must not
+            // rewrite the cursor using a stale composition range (that typed
+            // backwards). Operate on the live cursor_range, and ignore empty
+            // Preedit/Commit when no composition is active.
             match ime_event {
                #[allow(deprecated)]
-               ImeEvent::Enabled => {
-                  state.ime_enabled = true;
-                  state.ime_cursor_range = cursor_range;
+               ImeEvent::Enabled | ImeEvent::Disabled => None,
+               ImeEvent::Preedit {
+                  text: ref composition_text,
+                  ..
+               }
+               | ImeEvent::Commit(ref composition_text)
+                  if composition_text.is_empty() && !state.ime_enabled =>
+               {
                   None
                }
-               #[allow(deprecated)]
-               ImeEvent::Disabled => {
-                  state.ime_enabled = false;
+               ImeEvent::Preedit {
+                  text: ref composition_text,
+                  ..
+               }
+               | ImeEvent::Commit(ref composition_text)
+                  if composition_text == "\n" || composition_text == "\r" =>
+               {
                   None
                }
                #[cfg_attr(not(feature = "secure-types"), allow(unused_mut))]
@@ -933,26 +945,56 @@ fn secure_text_edit_events(
                   text: mut preedit_text,
                   active_range_chars: _,
                } => {
-                  let [min_ime, max_ime] = state.ime_cursor_range.sorted_cursors(); // Use IME's original range for delete
-                  text.delete_text_char_range(min_ime.index.0..max_ime.index.0);
-                  let mut c = min_ime; // Insert at start of IME original selection
-                  let inserted = text.insert_text_at_char_idx(c.index.0, &preedit_text);
-                  c.index += inserted;
-                  text_mutated_this_event = true;
+                  let [min, max] = cursor_range.sorted_cursors();
+                  text.delete_text_char_range(min.index.0..max.index.0);
+                  let mut c = min;
 
-                  #[cfg(feature = "secure-types")]
-                  preedit_text.zeroize();
+                  if preedit_text.is_empty() {
+                     state.ime_enabled = false;
+                     text_mutated_this_event = true;
+                     Some(text::CCursorRange::one(c))
+                  } else {
+                     let space_available = char_limit.saturating_sub(text.char_len());
+                     let mut final_text = if preedit_text.chars().count() > space_available {
+                        preedit_text.chars().take(space_available).collect::<String>()
+                     } else {
+                        preedit_text.clone()
+                     };
+                     let inserted = text.insert_text_at_char_idx(c.index.0, &final_text);
+                     c.index += inserted;
+                     state.ime_enabled = true;
+                     state.ime_cursor_range = text::CCursorRange::two(min, c);
+                     text_mutated_this_event = true;
 
-                  Some(text::CCursorRange::two(min_ime, c))
+                     #[cfg(feature = "secure-types")]
+                     {
+                        preedit_text.zeroize();
+                        final_text.zeroize();
+                     }
+
+                     Some(text::CCursorRange::two(min, c))
+                  }
                }
                #[cfg_attr(not(feature = "secure-types"), allow(unused_mut))]
                ImeEvent::Commit(mut commit_text) => {
-                  state.ime_enabled = false; // IME done
-                  let [min_commit, max_commit] = cursor_range.sorted_cursors();
-                  text.delete_text_char_range(min_commit.index.0..max_commit.index.0);
-                  let mut c = min_commit;
-                  let inserted = text.insert_text_at_char_idx(c.index.0, &commit_text);
-                  c.index += inserted;
+                  state.ime_enabled = false;
+                  let [min, max] = cursor_range.sorted_cursors();
+                  text.delete_text_char_range(min.index.0..max.index.0);
+                  let mut c = min;
+
+                  if !commit_text.is_empty() {
+                     let space_available = char_limit.saturating_sub(text.char_len());
+                     let mut final_text = if commit_text.chars().count() > space_available {
+                        commit_text.chars().take(space_available).collect::<String>()
+                     } else {
+                        commit_text.clone()
+                     };
+                     let inserted = text.insert_text_at_char_idx(c.index.0, &final_text);
+                     c.index += inserted;
+
+                     #[cfg(feature = "secure-types")]
+                     final_text.zeroize();
+                  }
                   text_mutated_this_event = true;
 
                   #[cfg(feature = "secure-types")]
@@ -1032,12 +1074,11 @@ fn secure_text_edit_events(
          current_galley = ui.fonts_mut(|f| f.layout_job(job));
       }
 
-      // Set the final state.cursor using the most up-to-date cursor_range
-      state.cursor.set_char_range(new_ccursor_range_opt);
       if let Some(new_range) = new_ccursor_range_opt {
          state.last_interaction_time = ui.input(|i| i.time);
          cursor_range = new_range;
       }
+      state.cursor.set_char_range(Some(cursor_range));
    }
 
    (
@@ -1045,4 +1086,127 @@ fn secure_text_edit_events(
       cursor_range,
       current_galley,
    )
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use egui::{Context, Event, Id, ImeEvent, RawInput};
+
+   fn run_pass(ctx: &Context, text: &mut String, id: Id, events: Vec<Event>) {
+      let output = ctx.run_ui(
+         RawInput {
+            events,
+            ..Default::default()
+         },
+         |ui| {
+            ui.ctx().memory_mut(|mem| mem.request_focus(id));
+            ui.add(SecureTextEdit::singleline(text).id(id));
+         },
+      );
+      output.drop_without_applying_deltas();
+   }
+
+   fn ime_preedit(text: &str) -> Event {
+      Event::Ime(ImeEvent::Preedit {
+         text: text.to_owned(),
+         active_range_chars: None,
+      })
+   }
+
+   fn ime_commit(text: &str) -> Event {
+      Event::Ime(ImeEvent::Commit(text.to_owned()))
+   }
+
+   /// GNOME 48+ / ibus on Wayland emits this sequence per Latin keystroke.
+   fn gnome_wayland_keystroke(ch: char) -> Vec<Event> {
+      let s = ch.to_string();
+      vec![ime_preedit(&s), ime_commit(&s), ime_preedit("")]
+   }
+
+   #[test]
+   fn gnome_wayland_ime_types_forwards_not_in_reverse() {
+      let ctx = Context::default();
+      let id = Id::new("secure_ime_gnome");
+      let mut text = String::new();
+
+      #[allow(deprecated)]
+      run_pass(
+         &ctx,
+         &mut text,
+         id,
+         vec![Event::Ime(ImeEvent::Enabled)],
+      );
+
+      for ch in ['h', 'e', 'l', 'l', 'o'] {
+         run_pass(&ctx, &mut text, id, gnome_wayland_keystroke(ch));
+      }
+
+      assert_eq!(
+         text, "hello",
+         "IME keystrokes must append, not insert at 0"
+      );
+   }
+
+   #[test]
+   fn plain_text_events_type_forwards() {
+      let ctx = Context::default();
+      let id = Id::new("secure_text_events");
+      let mut text = String::new();
+
+      for ch in ['h', 'e', 'l', 'l', 'o'] {
+         run_pass(
+            &ctx,
+            &mut text,
+            id,
+            vec![Event::Text(ch.to_string())],
+         );
+      }
+
+      assert_eq!(text, "hello");
+   }
+
+   #[test]
+   fn empty_ime_preedit_without_composition_does_not_reset_cursor() {
+      let ctx = Context::default();
+      let id = Id::new("secure_empty_preedit");
+      let mut text = String::new();
+
+      run_pass(
+         &ctx,
+         &mut text,
+         id,
+         vec![Event::Text("ab".to_owned())],
+      );
+      run_pass(&ctx, &mut text, id, vec![ime_preedit("")]);
+      run_pass(
+         &ctx,
+         &mut text,
+         id,
+         vec![Event::Text("c".to_owned())],
+      );
+
+      assert_eq!(
+         text, "abc",
+         "spurious empty Preedit must not move the cursor to the start"
+      );
+   }
+
+   #[test]
+   fn ime_composition_updates_replace_preedit_then_commit() {
+      let ctx = Context::default();
+      let id = Id::new("secure_ime_compose");
+      let mut text = String::new();
+
+      run_pass(&ctx, &mut text, id, vec![ime_preedit("n")]);
+      assert_eq!(text, "n");
+      run_pass(&ctx, &mut text, id, vec![ime_preedit("ni")]);
+      assert_eq!(text, "ni");
+      run_pass(&ctx, &mut text, id, vec![ime_preedit("に")]);
+      assert_eq!(text, "に");
+      run_pass(&ctx, &mut text, id, vec![ime_commit("に")]);
+      assert_eq!(text, "に");
+      run_pass(&ctx, &mut text, id, gnome_wayland_keystroke('!'));
+      assert_eq!(text, "に!");
+   }
 }
