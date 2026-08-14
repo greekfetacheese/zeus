@@ -28,6 +28,8 @@ use std::panic;
 fn main() -> eframe::Result {
    let _tracing_guard = setup_tracing();
 
+   cleanup_old_logs();
+
    panic::set_hook(Box::new(|panic_info| {
       let message = panic_info.payload().downcast_ref::<&str>().map_or("Unknown panic", |s| s);
       let location = panic_info.location().map_or("Unknown location".to_string(), |loc| {
@@ -116,10 +118,15 @@ fn wgpu_device_descriptor(adapter: &wgpu::Adapter) -> wgpu::DeviceDescriptor<'st
    }
 }
 
+/// Daily rotated logs (`output.log.YYYY-MM-DD`, `trace.log.YYYY-MM-DD`)
+/// older than this are deleted on startup.
+const LOG_RETENTION_DAYS: u64 = 7;
+const LOG_DIR: &str = "./logs";
+
 pub fn setup_tracing() -> (WorkerGuard, WorkerGuard) {
    // Setup for file appenders
-   let trace_appender = tracing_appender::rolling::daily("./logs", "trace.log");
-   let output_appender = tracing_appender::rolling::daily("./logs", "output.log");
+   let trace_appender = tracing_appender::rolling::daily(LOG_DIR, "trace.log");
+   let output_appender = tracing_appender::rolling::daily(LOG_DIR, "output.log");
 
    // Creating non-blocking writers
    let (trace_writer, trace_guard) = tracing_appender::non_blocking(trace_appender);
@@ -145,4 +152,44 @@ pub fn setup_tracing() -> (WorkerGuard, WorkerGuard) {
       .init();
 
    (trace_guard, output_guard)
+}
+
+fn cleanup_old_logs() {
+   let Ok(entries) = std::fs::read_dir(LOG_DIR) else {
+      return;
+   };
+
+   let today = chrono::Local::now().date_naive();
+   let Some(cutoff) = today.checked_sub_days(chrono::Days::new(LOG_RETENTION_DAYS)) else {
+      return;
+   };
+
+   for entry in entries.flatten() {
+      let path = entry.path();
+      if !path.is_file() {
+         continue;
+      }
+
+      let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+         continue;
+      };
+
+      let Some((prefix, date_str)) = name.rsplit_once('.') else {
+         continue;
+      };
+      if prefix != "output.log" && prefix != "trace.log" {
+         continue;
+      }
+
+      let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") else {
+         continue;
+      };
+
+      if date < cutoff {
+         match std::fs::remove_file(&path) {
+            Ok(()) => tracing::info!("Removed old log file: {name}"),
+            Err(e) => tracing::warn!("Failed to remove old log file {name}: {e}"),
+         }
+      }
+   }
 }
