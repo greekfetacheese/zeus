@@ -11,6 +11,7 @@ use crate::core::{
    WalletInfo,
    context::{DELEGATE_WALLET_CHECK_TIMEOUT, disabled_chains_dir, railgun_config_dir},
 };
+use crate::utils::write_private;
 
 use zeus_railgun::indexer::syncer::rpc::{
    DEFAULT_BLOCK_RANGE, DEFAULT_CONCURRENCY, SEPOLIA_BLOCK_RANGE,
@@ -54,7 +55,7 @@ impl RailgunConfig {
    pub fn save(&self) -> Result<(), anyhow::Error> {
       let dir = railgun_config_dir()?;
       let data = serde_json::to_string(self)?;
-      std::fs::write(dir, data)?;
+      write_private(&dir, data.as_bytes())?;
       Ok(())
    }
 }
@@ -221,7 +222,7 @@ impl DisabledChains {
    pub fn save_to_file(&self) -> Result<(), anyhow::Error> {
       let data = serde_json::to_string(self)?;
       let dir = disabled_chains_dir()?;
-      std::fs::write(dir, data)?;
+      write_private(&dir, data.as_bytes())?;
       Ok(())
    }
 

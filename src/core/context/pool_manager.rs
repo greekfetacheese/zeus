@@ -12,7 +12,7 @@ use zeus_eth::amm::uniswap::UniswapV4Pool;
 
 use crate::core::{ZeusCtx, context::pool_data_dir, serde_hashmap};
 use crate::embedded::POOL_DATA;
-use crate::utils::RT;
+use crate::utils::{RT, write_private};
 use zeus_eth::{
    abi::zeus::ZeusStateViewV3::{V3Pool, V4Pool},
    alloy_primitives::{Address, B256},
@@ -89,13 +89,6 @@ impl PoolManagerHandle {
       self.read(|manager| serde_json::to_string(manager))
    }
 
-   /// Serialize the [PoolManager] to a JSON file
-   pub fn save_to_dir(&self, dir: &std::path::PathBuf) -> Result<(), anyhow::Error> {
-      let data = self.read(|manager| serde_json::to_string(manager))?;
-      std::fs::write(dir, data)?;
-      Ok(())
-   }
-
    pub fn load_from_file() -> Result<Self, anyhow::Error> {
       let dir = pool_data_dir()?;
       let data = std::fs::read(dir)?;
@@ -106,7 +99,7 @@ impl PoolManagerHandle {
    pub fn save_to_file(&self) -> Result<(), anyhow::Error> {
       let data = self.to_string()?;
       let dir = pool_data_dir()?;
-      std::fs::write(dir, data)?;
+      write_private(&dir, data.as_bytes())?;
       Ok(())
    }
 
@@ -491,10 +484,7 @@ impl PoolManagerHandle {
                #[cfg(feature = "dev")]
                debug!(
                   "Should discover {} for {} {}-{}",
-                  should_discover,
-                  chain,
-                  base_token.symbol,
-                  token.symbol
+                  should_discover, chain, base_token.symbol, token.symbol
                );
 
                if !should_discover {
@@ -711,7 +701,7 @@ impl PoolManagerHandle {
       ctx: ZeusCtx,
       chain: ChainId,
       dex: DexKind,
-      dir: Option<PathBuf>,
+      _dir: Option<PathBuf>,
    ) -> Result<(), anyhow::Error> {
       let ignore_chains = self.read(|manager| manager.ignore_chains.clone());
       if ignore_chains.contains(&chain.id()) {
@@ -745,7 +735,6 @@ impl PoolManagerHandle {
       while from_block < latest_block {
          let chunk_blocks = chunk_size.go_forward(chain.id(), from_block)? - from_block;
          let temp_to = std::cmp::min(from_block + chunk_blocks, latest_block);
-         let dir = dir.clone();
 
          let config = SyncConfig::new(
             chain.id(),
@@ -757,7 +746,6 @@ impl PoolManagerHandle {
          );
 
          let synced = sync_pools(client.clone(), config, 50_000).await?;
-         let mut pool_len = 0;
 
          for res in synced {
             self.write(|manager| {
@@ -769,20 +757,8 @@ impl PoolManagerHandle {
             });
 
             for pool in res.pools {
-               pool_len += 1;
                self.add_pool(pool);
             }
-         }
-
-         if let Some(dir) = dir {
-            tracing::info!(
-               "Saved {} pools from block {} to block {} for ChainId {}",
-               pool_len,
-               from_block,
-               temp_to,
-               chain.id()
-            );
-            self.save_to_dir(&dir)?;
          }
 
          from_block = temp_to + 1;
@@ -1211,7 +1187,11 @@ async fn batch_update_state(
    }
 
    #[cfg(feature = "dev")]
-   tracing::info!("Updating pool state for {} pools - batch size {}", pools.len(), batch_size);
+   tracing::info!(
+      "Updating pool state for {} pools - batch size {}",
+      pools.len(),
+      batch_size
+   );
 
    let mut v2_pools = Vec::new();
    let mut v3_pools = Vec::new();

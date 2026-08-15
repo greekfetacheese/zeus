@@ -8,7 +8,7 @@ use crate::core::{
    context::{DEFAULT_POOL_MINIMUM_LIQUIDITY, data_dir},
    serde_hashmap,
 };
-use crate::utils::RT;
+use crate::utils::{RT, write_private};
 use zeus_eth::{
    alloy_primitives::{Address, B256},
    amm::uniswap::{AnyUniswapPool, UniswapPool},
@@ -49,7 +49,7 @@ impl PriceManagerHandle {
    pub fn save_to_file(&self) -> Result<(), anyhow::Error> {
       let data = serde_json::to_string(&self.read(|manager| manager.clone()))?;
       let dir = data_dir()?.join(PRICE_DATA_FILE);
-      std::fs::write(dir, data)?;
+      write_private(&dir, data.as_bytes())?;
       Ok(())
    }
 

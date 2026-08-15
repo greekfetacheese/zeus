@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use crate::embedded::TOKEN_DATA;
+use crate::utils::write_private;
 use crate::core::{context::data_dir, serde_hashmap};
 
 use zeus_eth::{
@@ -66,7 +67,7 @@ impl CurrencyDB {
    pub fn save(&self) -> Result<(), anyhow::Error> {
       let db = serde_json::to_string(&self)?;
       let dir = data_dir()?.join(FILE_NAME);
-      std::fs::write(dir, db)?;
+      write_private(&dir, db.as_bytes())?;
       Ok(())
    }
 

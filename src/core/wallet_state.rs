@@ -9,6 +9,7 @@ use crate::core::context::{
    data_dir,
 };
 use crate::core::types::Contact;
+use crate::utils::write_private;
 use anyhow::anyhow;
 use brotli::{BrotliCompress, BrotliDecompress, enc::BrotliEncoderParams};
 use chacha20poly1305::{
@@ -45,17 +46,16 @@ impl WalletStateKey {
    pub fn generate() -> Result<Self, anyhow::Error> {
       let mut bytes = [0u8; 32];
       rand::thread_rng().fill_bytes(&mut bytes);
-      let key = SecureArray::from_slice_mut(&mut bytes)
-         .map_err(|e| anyhow!("wallet state key: {e}"))?;
+      let key =
+         SecureArray::from_slice_mut(&mut bytes).map_err(|e| anyhow!("wallet state key: {e}"))?;
       Ok(Self(key))
    }
 
    /// Seal plaintext: `nonce (24) || ciphertext+tag`.
    pub fn seal(&self, plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
       self.0.unlock(|key_bytes| {
-         let mut key_arr: [u8; 32] = key_bytes
-            .try_into()
-            .map_err(|_| anyhow!("wallet state key length"))?;
+         let mut key_arr: [u8; 32] =
+            key_bytes.try_into().map_err(|_| anyhow!("wallet state key length"))?;
          let cipher = XChaCha20Poly1305::new_from_slice(&key_arr)
             .map_err(|e| anyhow!("wallet state cipher: {e}"))?;
          let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
@@ -87,9 +87,8 @@ impl WalletStateKey {
       let nonce = XNonce::from_slice(nonce_bytes);
 
       self.0.unlock(|key_bytes| {
-         let mut key_arr: [u8; 32] = key_bytes
-            .try_into()
-            .map_err(|_| anyhow!("wallet state key length"))?;
+         let mut key_arr: [u8; 32] =
+            key_bytes.try_into().map_err(|_| anyhow!("wallet state key length"))?;
          let cipher = XChaCha20Poly1305::new_from_slice(&key_arr)
             .map_err(|e| anyhow!("wallet state cipher: {e}"))?;
          let data = cipher
@@ -229,22 +228,14 @@ impl WalletState {
       payload.zeroize();
 
       let path = Self::dir()?;
-
-      if let Some(parent) = path.parent() {
-         std::fs::create_dir_all(parent)?;
-      }
-
-      let tmp = path.with_extension("data.tmp");
-      std::fs::write(&tmp, &sealed)?;
-      std::fs::rename(&tmp, &path)?;
+      write_private(&path, &sealed)?;
       Ok(())
    }
 
    /// Load from `wallet_state.data` using the vault-held key.
    pub fn load(key: &WalletStateKey) -> Result<Self, anyhow::Error> {
       let path = Self::dir()?;
-      let sealed = std::fs::read(&path)
-         .map_err(|e| anyhow!("read {}: {e}", path.display()))?;
+      let sealed = std::fs::read(&path).map_err(|e| anyhow!("read {}: {e}", path.display()))?;
       let mut plain = key.open(&sealed, WALLET_STATE_AAD)?;
       let mut json = match decode_payload(&plain) {
          Ok(j) => j,
@@ -325,7 +316,9 @@ fn decode_payload(data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
    match version {
       PAYLOAD_RAW_JSON => Ok(payload.to_vec()),
       PAYLOAD_BROTLI => brotli_decompress(payload),
-      other => Err(anyhow!("unknown wallet state payload version: {other}")),
+      other => Err(anyhow!(
+         "unknown wallet state payload version: {other}"
+      )),
    }
 }
 
@@ -365,6 +358,9 @@ mod tests {
       let json = serde_json::to_vec(&ws).unwrap();
       let loaded: WalletState = serde_json::from_slice(&json).unwrap();
       assert_eq!(loaded.read(|s| s.contacts.len()), 1);
-      assert_eq!(loaded.read(|s| s.contacts[0].name.clone()), "alice");
+      assert_eq!(
+         loaded.read(|s| s.contacts[0].name.clone()),
+         "alice"
+      );
    }
 }

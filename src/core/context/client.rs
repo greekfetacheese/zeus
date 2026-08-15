@@ -1,5 +1,5 @@
 use crate::core::{ZeusCtx, context::data_dir};
-use crate::utils::RT;
+use crate::utils::{RT, write_private};
 use zeus_eth::{
    abi::{
       weth9,
@@ -472,7 +472,7 @@ impl ZeusClient {
       let rpcs = self.read(|rpcs| rpcs.clone());
       let data = serde_json::to_vec(&rpcs)?;
       let dir = data_dir()?.join(PROVIDER_DATA_FILE);
-      std::fs::write(&dir, data)?;
+      write_private(&dir, &data)?;
       Ok(())
    }
 

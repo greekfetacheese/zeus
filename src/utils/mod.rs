@@ -1,3 +1,4 @@
+pub mod fs;
 pub mod misc;
 pub mod self_update;
 pub mod simulate;
@@ -5,6 +6,7 @@ pub mod state;
 pub mod swap_quoter;
 pub mod universal_router_v2;
 
+pub use fs::{restrict_file_to_owner, write_private};
 pub use misc::*;
 
 #[track_caller]

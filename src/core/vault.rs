@@ -4,6 +4,7 @@ use crate::core::context::{
    data_dir,
 };
 use crate::core::wallet_state::{WalletStateInner, WalletStateKey};
+use crate::utils::write_private;
 use anyhow::anyhow;
 use brotli::{BrotliCompress, BrotliDecompress, enc::BrotliEncoderParams};
 use ncrypt_me::{
@@ -554,7 +555,7 @@ impl Vault {
          Some(dir) => dir,
          None => Vault::dir()?,
       };
-      std::fs::write(dir, encrypted_data)?;
+      write_private(&dir, &encrypted_data)?;
       Ok(())
    }
 

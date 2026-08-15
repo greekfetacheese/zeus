@@ -18,7 +18,7 @@ use crate::{
 };
 use crate::{
    gui::ui::{NotificationType, common::show_with_fade},
-   utils::{RT, estimate_tx_cost, simulate::railgun_common_accounts, state::get_base_fee},
+   utils::{RT, write_private, estimate_tx_cost, simulate::railgun_common_accounts, state::get_base_fee},
 };
 
 use crate::assets::icons::Icons;
@@ -82,7 +82,7 @@ impl BundlerUrl {
       let dir = data_dir()?;
       let file = dir.join(BUNDLER_URL_FILE);
       let data = serde_json::to_string(&self)?;
-      std::fs::write(file, data)?;
+      write_private(&file, data.as_bytes())?;
 
       Ok(())
    }

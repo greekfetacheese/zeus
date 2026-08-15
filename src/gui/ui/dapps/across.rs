@@ -6,7 +6,7 @@ use crate::gui::{
    SHARED_GUI,
    ui::{ChainSelect, ContactsUi, RecipientSelectionWindow, common::AmountField},
 };
-use crate::utils::{RT, estimate_tx_cost};
+use crate::utils::{RT, write_private, estimate_tx_cost};
 use anyhow::anyhow;
 use egui::{
    Align, Align2, CornerRadius, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText,
@@ -77,7 +77,7 @@ fn load_settings() -> Result<Settings, anyhow::Error> {
 fn save_settings(settings: Settings) -> Result<(), anyhow::Error> {
    let data = serde_json::to_string(&settings)?;
    let dir = data_dir()?.join(SETTINGS_FILE);
-   std::fs::write(dir, data)?;
+   write_private(&dir, data.as_bytes())?;
    Ok(())
 }
 
