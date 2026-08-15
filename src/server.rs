@@ -1263,8 +1263,9 @@ async fn personal_sign(
    ))
 }
 
-fn switch_ethereum_chain(
+async fn switch_ethereum_chain(
    ctx: ZeusCtx,
+   origin: String,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
    let params_array = match payload.params {
@@ -1334,6 +1335,46 @@ fn switch_ethereum_chain(
       }
    };
 
+   if ctx.chain() == chain {
+      return Ok(JsonRpcResponse {
+         jsonrpc: "2.0".to_string(),
+         id: payload.id,
+         result: Some(Value::Null),
+         error: None,
+      });
+   }
+
+   SHARED_GUI.write(|gui| {
+      gui.confirm_window.open("Switch Network");
+      gui.confirm_window.set_msg2(format!(
+         "{} wants to switch to {}",
+         origin,
+         chain.name()
+      ));
+      gui.request_repaint();
+   });
+
+   let mut confirmed = None;
+   loop {
+      tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+      SHARED_GUI.read(|gui| {
+         confirmed = gui.confirm_window.get_confirm();
+      });
+      if confirmed.is_some() {
+         SHARED_GUI.write(|gui| {
+            gui.confirm_window.reset();
+         });
+         break;
+      }
+   }
+
+   if !confirmed.unwrap() {
+      return Ok(JsonRpcResponse::error(
+         USER_REJECTED_REQUEST,
+         payload.id,
+      ));
+   }
+
    ctx.write(|ctx| {
       ctx.chain = chain;
    });
@@ -1343,14 +1384,12 @@ fn switch_ethereum_chain(
       gui.request_repaint();
    });
 
-   let response = JsonRpcResponse {
+   Ok(JsonRpcResponse {
       jsonrpc: "2.0".to_string(),
       id: payload.id,
       result: Some(Value::Null),
       error: None,
-   };
-
-   Ok(response)
+   })
 }
 
 async fn eth_send_transaction(
@@ -1741,7 +1780,9 @@ async fn handle_request(
          eth_send_transaction(ctx, origin, payload).await
       }
 
-      m if m == RequestMethod::WalletSwitchEthereumChain => switch_ethereum_chain(ctx, payload),
+      m if m == RequestMethod::WalletSwitchEthereumChain => {
+         switch_ethereum_chain(ctx, origin, payload).await
+      }
 
       m if m == RequestMethod::EthGetTransactionReceipt => {
          eth_get_transaction_receipt(ctx, payload).await
