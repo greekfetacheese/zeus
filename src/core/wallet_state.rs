@@ -9,7 +9,7 @@ use crate::core::context::{
    data_dir,
 };
 use crate::core::types::Contact;
-use crate::utils::write_private;
+use crate::utils::write_private_atomic;
 use anyhow::anyhow;
 use brotli::{BrotliCompress, BrotliDecompress, enc::BrotliEncoderParams};
 use chacha20poly1305::{
@@ -228,7 +228,7 @@ impl WalletState {
       payload.zeroize();
 
       let path = Self::dir()?;
-      write_private(&path, &sealed)?;
+      write_private_atomic(&path, &sealed)?;
       Ok(())
    }
 

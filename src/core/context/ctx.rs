@@ -51,6 +51,10 @@ pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
       std::fs::create_dir_all(dir.clone())?;
    }
 
+   if let Err(e) = crate::utils::restrict_dir_to_owner(&dir) {
+      tracing::warn!("Failed to restrict data/ permissions: {e}");
+   }
+
    Ok(dir)
 }
 
@@ -58,6 +62,10 @@ pub fn railgun_dir() -> Result<PathBuf, anyhow::Error> {
    let dir = data_dir()?.join("railgun");
    if !dir.exists() {
       std::fs::create_dir_all(dir.clone())?;
+   }
+
+   if let Err(e) = crate::utils::restrict_dir_to_owner(&dir) {
+      tracing::warn!("Failed to restrict data/railgun/ permissions: {e}");
    }
 
    Ok(dir)
@@ -1725,8 +1733,29 @@ pub struct ZeusContext {
    pub railgun_config: RailgunConfig,
 }
 
+/// `write_private` only tightens mode on the next save. Existing `0644` files
+/// from older builds stay world-readable until then — fix them at startup.
+fn tighten_existing_secret_files() {
+   let paths = [
+      Vault::dir().ok(),
+      WalletState::dir().ok(),
+      data_dir().ok().map(|dir| dir.join(crate::connector::SESSION_FILE)),
+   ];
+
+   for path in paths.into_iter().flatten() {
+      if !path.exists() {
+         continue;
+      }
+      if let Err(e) = crate::utils::restrict_file_to_owner(&path) {
+         tracing::warn!("Failed to restrict {}: {e}", path.display());
+      }
+   }
+}
+
 impl ZeusContext {
    pub fn new() -> Self {
+      tighten_existing_secret_files();
+
       let client = match ZeusClient::load_from_file() {
          Ok(client) => client,
          Err(e) => {

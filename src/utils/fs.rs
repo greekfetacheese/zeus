@@ -3,7 +3,7 @@
 //! Use this for anything under `data/` that should not be world-readable:
 //! vault ciphertext, wallet state, RPC endpoints, pairing tokens, etc.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Write `contents` to `path`, readable/writable only by the current owner.
 ///
@@ -50,6 +50,73 @@ pub fn write_private(path: &Path, contents: &[u8]) -> Result<(), anyhow::Error> 
    }
 
    Ok(())
+}
+
+/// Same as [`write_private`], but replace `path` via a sibling `*.tmp` + rename.
+///
+/// A crash mid-write leaves the previous file intact (and at worst a leftover
+/// tmp). Used for `vault.data` / `wallet_state.data`.
+pub fn write_private_atomic(path: &Path, contents: &[u8]) -> Result<(), anyhow::Error> {
+   let tmp = tmp_path(path);
+   match write_private(&tmp, contents) {
+      Ok(()) => {}
+      Err(e) => {
+         let _ = std::fs::remove_file(&tmp);
+         return Err(e);
+      }
+   }
+
+   match replace_file(&tmp, path) {
+      Ok(()) => Ok(()),
+      Err(e) => {
+         let _ = std::fs::remove_file(&tmp);
+         Err(e)
+      }
+   }
+}
+
+fn tmp_path(path: &Path) -> PathBuf {
+   let mut tmp = path.as_os_str().to_os_string();
+   tmp.push(".tmp");
+   PathBuf::from(tmp)
+}
+
+fn replace_file(tmp: &Path, dest: &Path) -> Result<(), anyhow::Error> {
+   #[cfg(windows)]
+   {
+      // `rename` fails if `dest` already exists.
+      if dest.exists() {
+         std::fs::remove_file(dest)?;
+      }
+      std::fs::rename(tmp, dest)?;
+   }
+
+   #[cfg(not(windows))]
+   {
+      std::fs::rename(tmp, dest)?;
+   }
+
+   Ok(())
+}
+
+/// Restrict a directory to the current owner (Unix `0700`).
+///
+/// Other users can otherwise list `data/` even when the files inside are `0600`.
+pub fn restrict_dir_to_owner(path: &Path) -> Result<(), anyhow::Error> {
+   #[cfg(unix)]
+   {
+      use std::os::unix::fs::PermissionsExt;
+      let mut perms = std::fs::metadata(path)?.permissions();
+      perms.set_mode(0o700);
+      std::fs::set_permissions(path, perms)?;
+      Ok(())
+   }
+
+   #[cfg(not(unix))]
+   {
+      let _ = path;
+      Ok(())
+   }
 }
 
 /// Restrict `path` to the current owner (Unix `0600` / Windows protected owner DACL).
@@ -202,5 +269,56 @@ mod tests {
       let path = dir.path().join("nested").join("providers.json");
       write_private(&path, b"{}").unwrap();
       assert_eq!(fs::read(&path).unwrap(), b"{}");
+   }
+
+   #[test]
+   fn restrict_dir_to_owner_is_owner_only() {
+      let dir = tempfile::tempdir().unwrap();
+      let path = dir.path().join("data");
+      fs::create_dir(&path).unwrap();
+
+      #[cfg(unix)]
+      {
+         use std::os::unix::fs::PermissionsExt;
+         let mut perms = fs::metadata(&path).unwrap().permissions();
+         perms.set_mode(0o755);
+         fs::set_permissions(&path, perms).unwrap();
+      }
+
+      restrict_dir_to_owner(&path).unwrap();
+
+      #[cfg(unix)]
+      {
+         use std::os::unix::fs::PermissionsExt;
+         let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+         assert_eq!(mode, 0o700);
+      }
+   }
+
+   #[test]
+   fn write_private_atomic_replaces_without_leaving_tmp() {
+      let dir = tempfile::tempdir().unwrap();
+      let path = dir.path().join("vault.data");
+      fs::write(&path, b"old").unwrap();
+
+      write_private_atomic(&path, b"new").unwrap();
+      assert_eq!(fs::read(&path).unwrap(), b"new");
+      assert!(!dir.path().join("vault.data.tmp").exists());
+
+      #[cfg(unix)]
+      {
+         use std::os::unix::fs::PermissionsExt;
+         let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+         assert_eq!(mode, 0o600);
+      }
+   }
+
+   #[test]
+   fn write_private_atomic_creates_missing_file() {
+      let dir = tempfile::tempdir().unwrap();
+      let path = dir.path().join("wallet_state.data");
+      write_private_atomic(&path, b"sealed").unwrap();
+      assert_eq!(fs::read(&path).unwrap(), b"sealed");
+      assert!(!dir.path().join("wallet_state.data.tmp").exists());
    }
 }
