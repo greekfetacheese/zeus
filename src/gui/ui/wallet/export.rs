@@ -5,7 +5,6 @@ use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{Align2, Context, Order, RichText, Stroke, Ui, Window, vec2};
 use ncrypt_me::Credentials;
-use tracing::{error, info};
 use zeus_theme::{OverlayManager, Theme};
 use zeus_ui_components::{CredentialsForm, QrImage};
 use zeus_wallet::Wallet;
@@ -51,19 +50,6 @@ impl ExportKeyUi {
          if wallet.is_master() {
             self.show_warning = true;
          }
-
-         let key_hex = wallet.key_string();
-         let uri = format!(
-            "bytes://key-{}.png",
-            &wallet.address().to_string()
-         );
-
-         RT.spawn_blocking(move || {
-            let qr_image = key_hex.unlock_str(|key| QrImage::new(key, uri));
-            SHARED_GUI.write(|gui| {
-               gui.wallet_ui.export_key_ui.private_key_qr = qr_image;
-            });
-         });
       }
 
       if !self.open {
@@ -131,11 +117,7 @@ impl ExportKeyUi {
          let erased = self.private_key_qr.clear(ui.ctx());
          self.reset();
 
-         if erased {
-            info!("PK QR Image data zeroized");
-         } else {
-            error!("PK QR Image data zeroize failed");
-         }
+         debug_assert!(erased);
       }
    }
 
@@ -236,11 +218,7 @@ impl ExportKeyUi {
                   let erased = self.private_key_qr.clear(ui.ctx());
                   self.reset();
 
-                  if erased {
-                     info!("PK QR Image data zeroized");
-                  } else {
-                     error!("PK QR Image data zeroize failed");
-                  }
+                  debug_assert!(erased);
                }
             });
          });
@@ -298,17 +276,34 @@ impl ExportKeyUi {
 
          RT.spawn_blocking(move || {
             let ctx = SHARED_GUI.write(|gui| {
-               gui.loading_window.open("Decrypting vault...");
+               gui.loading_window.open("Checking credentials...");
                gui.request_repaint();
                gui.ctx.clone()
             });
 
             let creds_match = ctx.read_vault(|vault| vault.credentials_match(&credentials));
 
-            // Verify the credentials by just decrypting the vault
             match creds_match {
                true => {
+                  let key_data = SHARED_GUI.read(|gui| {
+                     gui.wallet_ui.export_key_ui.wallet_to_export.as_ref().map(|wallet| {
+                        (
+                           wallet.key_string(),
+                           format!(
+                              "bytes://key-{}.png",
+                              &wallet.address().to_string()
+                           ),
+                        )
+                     })
+                  });
+
+                  let qr_image = match key_data {
+                     Some((key_hex, uri)) => key_hex.unlock_str(|key| QrImage::new(key, uri)),
+                     None => QrImage::empty_with_error("No wallet found".to_string()),
+                  };
+
                   SHARED_GUI.write(|gui| {
+                     gui.wallet_ui.export_key_ui.private_key_qr = qr_image;
                      // Allow the user to export the key
                      gui.wallet_ui.export_key_ui.show_key = true;
                      // Mark the credentials as verified
