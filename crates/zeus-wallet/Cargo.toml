@@ -12,7 +12,7 @@ edition = "2024"
 [dependencies]
 zeus-bip32 = { path = "../zeus-bip32", version = "0.1.0" }
 
-alloy-signer-local = { version = "2.3", features = ["mnemonic"] }
+alloy-signer-local = { version = "2.3", features = ["mnemonic", "zeroize"] }
 alloy-network = "2.3"
 alloy-primitives = "1.6"
 

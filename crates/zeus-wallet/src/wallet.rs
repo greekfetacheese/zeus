@@ -190,8 +190,6 @@ impl Wallet {
 
    /// Create a new wallet from a mnemonic phrase
    pub fn new_from_mnemonic(name: String, phrase: SecureString) -> Result<Self, anyhow::Error> {
-      // return a custom error to not expose the phrase in case it just has a typo
-      // TODO: Erase the MnemonicBuilder
       let phrase_string = phrase.unlock_str(|phrase| phrase.to_string());
       let wallet = MnemonicBuilder::<English>::default()
          .phrase(phrase_string)
