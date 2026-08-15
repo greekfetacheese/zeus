@@ -1,9 +1,8 @@
 //! Merge Notes window consolidate fragmented private UTXOs via self-transfer.
 
-use eframe::egui::{RichText, ScrollArea, Spinner, Ui, vec2};
-use elegance::Modal;
+use eframe::egui::{Order, RichText, ScrollArea, Spinner, Ui, vec2};
 use zeus_theme::Theme;
-use zeus_widgets::Button;
+use zeus_widgets::{Button, Modal};
 
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -118,8 +117,12 @@ impl MergeNotesWindow {
 
       let mut open = self.open;
 
+      // ? It doesnt actually dismiss despite closable set to tue, maybe i should switch to a Window
+
       Modal::new("Merge Private Notes", &mut open)
-      .closable(false)
+      .backdrop_order(Order::Background)
+      .content_order(Order::Middle)
+      .closable(true)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_max_height(self.size.1);

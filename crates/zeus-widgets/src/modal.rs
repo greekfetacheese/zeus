@@ -26,7 +26,7 @@ type UiFn<'a> = Box<dyn FnOnce(&mut Ui) + 'a>;
 /// presses `Esc`, or clicks the "×" button, it's flipped to `false`.
 ///
 /// ```no_run
-/// # use elegance::Modal;
+/// # use zeus_widgets::Modal;
 /// # let ctx = egui::Context::default();
 /// # let mut open = true;
 /// Modal::new("stats", &mut open)
