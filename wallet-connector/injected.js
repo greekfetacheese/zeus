@@ -178,14 +178,12 @@ class ZeusProvider extends EventEmitter {
 
     async request({ method, params }) {
        // console.log(`Zeus: request received: Method=${method}, Params=`, params);
-        const origin = window.location.origin;
 
         try {
             const response = await backgroundFetch('/api', {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    origin: origin,
                     jsonrpc: "2.0",
                     id: "bg-" + Date.now(),
                     method: method,

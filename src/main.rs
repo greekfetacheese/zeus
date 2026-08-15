@@ -16,6 +16,7 @@ use tracing_subscriber::{
 };
 
 pub mod assets;
+pub mod connector;
 pub mod core;
 pub mod embedded;
 pub mod gui;
@@ -26,7 +27,23 @@ pub mod utils;
 use std::panic;
 
 fn main() -> eframe::Result {
+   let mut connector_error = None;
+
+   // Native messaging uses stdin/stdout. Must run before any tracing to stdout.
+   if connector::is_native_messaging_invocation() {
+      match connector::run_native_messaging_host() {
+         Ok(_) => {},
+         Err(e) => {
+            connector_error = Some(e);
+         }
+      }
+   }
+
    let _tracing_guard = setup_tracing();
+
+   if let Some(e) = connector_error {
+      tracing::error!("Connector error: {e}");
+   }
 
    cleanup_old_logs();
 

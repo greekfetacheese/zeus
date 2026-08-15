@@ -1,3 +1,7 @@
+use crate::connector::{
+   ConnectorSession, ORIGIN_HEADER, TOKEN_HEADER, connector_session_path, generate_pairing_token,
+   parse_dapp_origin, register_native_host, token_matches, write_connector_session,
+};
 use crate::core::{ZeusCtx, send_transaction, sign_message};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
@@ -6,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::convert::Infallible;
 use std::net::SocketAddr;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use warp::{Filter, Rejection, http::StatusCode};
 
 use std::str::FromStr;
@@ -157,7 +161,9 @@ pub struct StatusResponse {
 
 #[derive(Deserialize, Debug)]
 struct ApiRequestBody {
-   origin: String,
+   /// Ignored if present. Origin comes from `X-Zeus-Origin` (extension tab URL).
+   #[serde(default, rename = "origin")]
+   _origin: Option<String>,
    #[serde(flatten)]
    rpc_request: JsonRpcRequest,
 }
@@ -1752,16 +1758,12 @@ async fn handle_request(
    }
 }
 
-async fn handle_rejection(_err: Rejection) -> Result<impl warp::Reply, std::convert::Infallible> {
-   Ok(warp::reply::with_status(
-      "Internal Server Error",
-      StatusCode::INTERNAL_SERVER_ERROR,
-   ))
-}
-
 // Handler for POST /api (JSON-RPC)
-async fn api_handler(ctx: ZeusCtx, body: ApiRequestBody) -> Result<impl warp::Reply, Infallible> {
-   let origin = body.origin;
+async fn api_handler(
+   origin: String,
+   ctx: ZeusCtx,
+   body: ApiRequestBody,
+) -> Result<impl warp::Reply, Infallible> {
    let payload = body.rpc_request;
    let response_body = handle_request(ctx, origin, payload).await?;
 
@@ -1772,29 +1774,90 @@ fn with_ctx(ctx: ZeusCtx) -> impl Filter<Extract = (ZeusCtx,), Error = Infallibl
    warp::any().map(move || ctx.clone())
 }
 
+#[derive(Debug)]
+struct Unauthorized;
+
+impl warp::reject::Reject for Unauthorized {}
+
+fn with_pairing_token(expected: String) -> impl Filter<Extract = (), Error = Rejection> + Clone {
+   warp::header::optional::<String>(TOKEN_HEADER)
+      .and_then(move |provided: Option<String>| {
+         let expected = expected.clone();
+         async move {
+            match provided {
+               Some(provided) if token_matches(&expected, &provided) => Ok(()),
+               _ => Err(warp::reject::custom(Unauthorized)),
+            }
+         }
+      })
+      .untuple_one()
+}
+
+fn with_dapp_origin() -> impl Filter<Extract = (String,), Error = Rejection> + Clone {
+   warp::header::optional::<String>(ORIGIN_HEADER).and_then(|provided: Option<String>| async move {
+      match provided.as_deref().map(parse_dapp_origin) {
+         Some(Ok(origin)) => Ok(origin),
+         _ => Err(warp::reject::custom(Unauthorized)),
+      }
+   })
+}
+
+async fn handle_rejection(err: Rejection) -> Result<impl warp::Reply, std::convert::Infallible> {
+   if err.find::<Unauthorized>().is_some() {
+      return Ok(warp::reply::with_status(
+         "Unauthorized",
+         StatusCode::UNAUTHORIZED,
+      ));
+   }
+   Ok(warp::reply::with_status(
+      "Internal Server Error",
+      StatusCode::INTERNAL_SERVER_ERROR,
+   ))
+}
+
 pub async fn run_server(ctx: ZeusCtx) -> Result<(), Box<dyn std::error::Error>> {
-   let cors = warp::cors()
-      .allow_any_origin()
-      .allow_methods(vec!["GET", "POST", "OPTIONS"])
-      .allow_headers(vec!["Content-Type", "Accept"]);
+   let token = generate_pairing_token();
+   let port = ctx.server_port();
+   let session = ConnectorSession {
+      token: token.clone(),
+      port,
+   };
+   let session_path = connector_session_path()?;
+   write_connector_session(&session_path, &session)?;
+   info!(
+      "Wrote connector session to {}",
+      session_path.display()
+   );
+
+   match (std::env::current_exe(), std::env::current_dir()) {
+      (Ok(exe), Ok(cwd)) => {
+         if let Err(e) = register_native_host(&exe, &cwd) {
+            warn!("Failed to register connector native host: {e}");
+         }
+      }
+      (Err(e), _) => warn!("Cannot resolve Zeus binary for native host: {e}"),
+      (_, Err(e)) => warn!("Cannot resolve working directory for native host: {e}"),
+   }
 
    // Filter for GET /status
    let status_route = warp::path!("status")
       .and(warp::get())
+      .and(with_pairing_token(token.clone()))
       .and(with_ctx(ctx.clone()))
       .and_then(status_handler);
 
    // Filter for POST /api
    let api_route = warp::path!("api")
       .and(warp::post())
+      .and(with_pairing_token(token))
+      .and(with_dapp_origin())
       .and(with_ctx(ctx.clone()))
       .and(warp::body::json::<ApiRequestBody>())
       .and_then(api_handler);
 
-   // Combine Routes
+   // Combine Routes — no CORS: browser pages must not read this API.
    let routes = status_route
       .or(api_route)
-      .with(cors)
       .with(warp::trace::request())
       .recover(handle_rejection);
 
@@ -1818,4 +1881,28 @@ pub async fn run_server(ctx: ZeusCtx) -> Result<(), Box<dyn std::error::Error>> 
    info!("Zeus (warp) RPC server stopped");
 
    Ok(())
+}
+
+#[cfg(test)]
+mod connector_auth_tests {
+   use super::*;
+
+   #[test]
+   fn json_body_origin_is_ignored() {
+      let body: ApiRequestBody = serde_json::from_str(
+         r#"{
+            "origin": "https://app.uniswap.org",
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "eth_sendTransaction",
+            "params": []
+         }"#,
+      )
+      .unwrap();
+      assert_eq!(body.rpc_request.method, "eth_sendTransaction");
+      assert_eq!(
+         body._origin.as_deref(),
+         Some("https://app.uniswap.org")
+      );
+   }
 }

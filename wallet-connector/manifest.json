@@ -1,13 +1,15 @@
 {
     "manifest_version": 3,
     "name": "Zeus Wallet Connector",
-    "version": "1.0",
+    "version": "1.1",
     "description": "Connect web dapps to the Zeus Desktop Wallet.",
+    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAz3eBl4V1bx6tcFZivapoOWk6FYIJD47bNxV/ZoLgYd+9HFPY6vQtoeVbJrZGaFLBd2qb/c2RpFwSGVNP+4EHcADi+DLnu0CuV3IqyG4S0HPgC6PKXbHbTRlU4gG6gfw/lXHeBL5mUWvEvOmjLyurW6GgI9FLW5U3YWSvIZbA5XPFAHrRQvIWHqVSq2r3YfGeepWt+IZ3d9WLJrcwdsodNVkPz9pHR/6Cfs1khn69CK7X7wP+qcTcUzd3f96QcMusRN6QRzpUujKR7Xw6/+vbS2pli0STMHCN9OdFG4GizEB/eWBT+Ine5i3Rrf1xP0g5+g4YNA2HrxuIQ64i3ABqiQIDAQAB",
     "permissions": [
-        "tabs"
+        "tabs",
+        "nativeMessaging"
     ],
     "host_permissions": [
-        "http://127.0.0.1:65534/*"
+        "http://127.0.0.1/*"
     ],
     "background": {
         "service_worker": "background.js"

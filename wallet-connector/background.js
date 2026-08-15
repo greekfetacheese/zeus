@@ -1,24 +1,111 @@
-const SERVER_PORT = 65534;
-const SERVER_URL_STATUS = `http://127.0.0.1:${SERVER_PORT}/status`;
-const SERVER_URL_API = `http://127.0.0.1:${SERVER_PORT}/api`;
-const SERVER_URL_REQUEST_CONNECTION = `http://127.0.0.1:${SERVER_PORT}/request-connection`;
+const NATIVE_HOST = 'io.github.zeus_wallet';
+const DEFAULT_PORT = 65534;
 
-const CONNECTION_REQUEST_TIMEOUT_MS = 30000; // 30 seconds
-const POLLING_INTERVAL_MS = 1000; // Poll every 1 second
+const CONNECTION_REQUEST_TIMEOUT_MS = 30000;
+const POLLING_INTERVAL_MS = 1000;
 
-// --- State Variables ---
-let lastKnownAccounts = null; // Store as JSON string for easy comparison
+let cachedSession = null;
+
+let lastKnownAccounts = null;
 let lastKnownChainId = null;
-let isFirstPoll = true; // Flag for initial poll
+let isFirstPoll = true;
 let lastKnownConnectedOrigins = JSON.stringify([]);
 
+function serverUrls(port) {
+    const p = port || DEFAULT_PORT;
+    return {
+        status: `http://127.0.0.1:${p}/status`,
+        api: `http://127.0.0.1:${p}/api`,
+        requestConnection: `http://127.0.0.1:${p}/request-connection`,
+    };
+}
+
+function loadSession() {
+    return new Promise((resolve, reject) => {
+        chrome.runtime.sendNativeMessage(NATIVE_HOST, { cmd: 'session' }, (response) => {
+            if (chrome.runtime.lastError) {
+                cachedSession = null;
+                reject(new Error(chrome.runtime.lastError.message));
+                return;
+            }
+            if (!response || !response.token) {
+                cachedSession = null;
+                reject(new Error('Zeus connector session missing token'));
+                return;
+            }
+            cachedSession = {
+                token: response.token,
+                port: response.port || DEFAULT_PORT,
+            };
+            resolve(cachedSession);
+        });
+    });
+}
+
+async function getSession(force) {
+    if (!force && cachedSession) return cachedSession;
+    return loadSession();
+}
+
+function tabOrigin(sender) {
+    const raw = sender && (sender.tab && sender.tab.url ? sender.tab.url : sender.url);
+    if (!raw) return null;
+    try {
+        return new URL(raw).origin;
+    } catch {
+        return null;
+    }
+}
+
+function stripBodyOrigin(options) {
+    const next = Object.assign({}, options || {});
+    if (typeof next.body !== 'string') return next;
+    try {
+        const parsed = JSON.parse(next.body);
+        if (parsed && typeof parsed === 'object') {
+            delete parsed.origin;
+            next.body = JSON.stringify(parsed);
+        }
+    } catch {
+        // leave body as-is
+    }
+    return next;
+}
+
+async function authorizedFetch(url, options, origin) {
+    let session = await getSession(false);
+    const build = (sess) => {
+        const urls = serverUrls(sess.port);
+        let targetUrl;
+        if (url === '/status') targetUrl = urls.status;
+        else if (url === '/api') targetUrl = urls.api;
+        else if (url === '/request-connection') targetUrl = urls.requestConnection;
+        else throw new Error('Unknown connector path');
+
+        const headers = Object.assign({}, (options && options.headers) || {}, {
+            'X-Zeus-Token': sess.token,
+        });
+        if (origin) headers['X-Zeus-Origin'] = origin;
+
+        return { targetUrl, fetchOpts: Object.assign({}, stripBodyOrigin(options), { headers }) };
+    };
+
+    let { targetUrl, fetchOpts } = build(session);
+    let response = await fetch(targetUrl, fetchOpts);
+    if (response.status === 401) {
+        session = await getSession(true);
+        ({ targetUrl, fetchOpts } = build(session));
+        response = await fetch(targetUrl, fetchOpts);
+    }
+    return response;
+}
 
 async function pollServerStatus() {
     let retryCount = 0;
     const maxRetries = 3;
 
     try {
-        const response = await fetch(SERVER_URL_STATUS);
+        const response = await authorizedFetch('/status', { method: 'GET' });
         if (!response.ok) return;
         const currentState = await response.json();
 
@@ -32,7 +119,6 @@ async function pollServerStatus() {
         const accountsChanged = lastKnownAccounts !== accountsJson;
         const originsChanged = lastKnownConnectedOrigins !== originsJson;
 
-        // Update state
         lastKnownChainId = currentChainId;
         lastKnownAccounts = accountsJson;
         lastKnownConnectedOrigins = originsJson;
@@ -42,7 +128,6 @@ async function pollServerStatus() {
             return;
         }
 
-        // Notify only relevant tabs
         if (chainIdChanged || accountsChanged || originsChanged) {
             chrome.tabs.query({ url: ["http://*/*", "https://*/*"] }, (tabs) => {
                 tabs.forEach(tab => {
@@ -52,16 +137,13 @@ async function pollServerStatus() {
 
                     if (originsChanged) {
                         if (!isConnected && wasConnected) {
-                            // Disconnect: Send accountsChanged([])
                             chrome.tabs.sendMessage(tab.id, { type: 'accountsChanged', payload: [] });
                         } else if (isConnected && !wasConnected) {
-                            // New connection: Send accountsChanged(current)
                             chrome.tabs.sendMessage(tab.id, { type: 'accountsChanged', payload: currentAccounts });
                         }
                     }
 
                     if (isConnected && (chainIdChanged || accountsChanged)) {
-                        // Global changes only to connected tabs
                         if (chainIdChanged) chrome.tabs.sendMessage(tab.id, { type: 'chainChanged', payload: currentChainId });
                         if (accountsChanged) chrome.tabs.sendMessage(tab.id, { type: 'accountsChanged', payload: currentAccounts });
                     }
@@ -71,36 +153,30 @@ async function pollServerStatus() {
     } catch (error) {
         if (retryCount < maxRetries) {
             retryCount++;
-            // Retry poll after delay
             setTimeout(pollServerStatus, 500);
             return;
         }
 
         lastKnownAccounts = JSON.stringify([]);
         lastKnownChainId = null;
-        // Notify all tabs of disconnect
         chrome.tabs.query({ url: ["http://*/*", "https://*/*"] }, (tabs) => {
             tabs.forEach(tab => {
                 chrome.tabs.sendMessage(tab.id, { type: 'accountsChanged', payload: [] });
-                // Optionally send custom disconnect
             });
         });
         retryCount = 0;
 
         console.error("Background: Error during status poll:", error);
         if (!isFirstPoll && lastKnownAccounts !== JSON.stringify([])) {
-            // If we were previously connected and poll fails, assume disconnect
             console.warn("Background: Poll failed, assuming disconnection.");
-            lastKnownAccounts = JSON.stringify([]); // Empty accounts
-            lastKnownChainId = null; // Reset chain ID
-            // TODO: Notify tabs about potential disconnection? (accountsChanged with [])
+            lastKnownAccounts = JSON.stringify([]);
+            lastKnownChainId = null;
         }
-        isFirstPoll = true; // Reset first poll flag on error? Maybe not.
+        isFirstPoll = true;
     }
 }
 
 
-// --- Start Polling ---
 setInterval(pollServerStatus, POLLING_INTERVAL_MS);
 setTimeout(pollServerStatus, 500);
 
@@ -110,46 +186,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return false;
     }
 
-    // --- Handle Standard Fetch Requests ---
     if (message.type === 'fetch') {
-        // console.log(`Background: Received fetch request for ID ${message.id}. Payload URL: '${message.payload.url}'`); // Log with ID
         const { url, options } = message.payload;
-        let targetUrl;
+        const origin = tabOrigin(sender);
+        if (url === '/api' && !origin) {
+            sendResponse({ success: false, error: 'Missing tab origin' });
+            return false;
+        }
 
-        if (url === '/status') targetUrl = SERVER_URL_STATUS;
-        else if (url === '/api') targetUrl = SERVER_URL_API;
-        else { /* ... error handling ... */ return false; }
-
-        fetch(targetUrl, options)
-            .then(response => response.ok ? response.json() : response.text().then(text => { throw new Error(/*...*/) }))
+        authorizedFetch(url, options, url === '/api' ? origin : null)
+            .then(response => response.ok ? response.json() : response.text().then(text => { throw new Error(text || `Server returned status ${response.status}`) }))
             .then(jsonData => {
-                // console.log(`Background: Success fetch for ID ${message.id}. Sending data back.`); // Log success send
                 sendResponse({ success: true, data: jsonData });
             })
             .catch(error => {
-               // console.error(`Background: Error fetch for ID ${message.id}:`, error); // Log error send
                 sendResponse({ success: false, error: error.message || 'Failed to fetch' });
             });
 
         return true;
     }
 
-    // --- Handle Connection Confirmation Requests ---
     else if (message.type === 'connection') {
         console.log(`Background: Received connection request ID ${message.id}:`, message.payload);
-        const { origin } = message.payload;
-
-        if (!origin) { /* ... error handling ... */ return false; }
+        const origin = tabOrigin(sender);
+        if (!origin) {
+            sendResponse({ success: false, error: 'Missing tab origin' });
+            return false;
+        }
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), CONNECTION_REQUEST_TIMEOUT_MS);
 
-        fetch(SERVER_URL_REQUEST_CONNECTION, {
+        authorizedFetch('/request-connection', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ origin: origin }),
+            body: JSON.stringify({}),
             signal: controller.signal
-        })
+        }, origin)
             .then(async response => {
                 clearTimeout(timeoutId);
                 if (!response.ok) {
@@ -159,16 +232,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 return response.json();
             })
             .then(serverData => {
-                // ***** FIX: Use message.id for logging *****
                 console.log(`Background: Received connection response from server for ID ${message.id}:`, serverData);
                 if (serverData.status === 'approved') {
-                   // console.log(`Background: Sending success response for ID ${message.id}`);
                     sendResponse({
                         success: true,
                         data: { approved: true, accounts: serverData.accounts || [] }
                     });
                 } else {
-                   // console.log(`Background: Sending rejection response for ID ${message.id} (status: ${serverData.status})`);
                     sendResponse({ success: false, error: 'User rejected the connection request.' });
                 }
             })
