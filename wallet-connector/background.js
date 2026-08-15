@@ -3,13 +3,16 @@ const DEFAULT_PORT = 65534;
 
 const CONNECTION_REQUEST_TIMEOUT_MS = 30000;
 const POLLING_INTERVAL_MS = 1000;
+const SESSION_RETRY_MS = 5000;
 
 let cachedSession = null;
+let sessionLoadFailedAt = 0;
 
 let lastKnownAccounts = null;
 let lastKnownChainId = null;
 let isFirstPoll = true;
 let lastKnownConnectedOrigins = JSON.stringify([]);
+let pollInFlight = false;
 
 function serverUrls(port) {
     const p = port || DEFAULT_PORT;
@@ -44,7 +47,17 @@ function loadSession() {
 
 async function getSession(force) {
     if (!force && cachedSession) return cachedSession;
-    return loadSession();
+    if (!force && sessionLoadFailedAt && (Date.now() - sessionLoadFailedAt) < SESSION_RETRY_MS) {
+        throw new Error('Zeus connector session unavailable');
+    }
+    try {
+        const session = await loadSession();
+        sessionLoadFailedAt = 0;
+        return session;
+    } catch (e) {
+        sessionLoadFailedAt = Date.now();
+        throw e;
+    }
 }
 
 function tabOrigin(sender) {
@@ -101,9 +114,8 @@ async function authorizedFetch(url, options, origin) {
 }
 
 async function pollServerStatus() {
-    let retryCount = 0;
-    const maxRetries = 3;
-
+    if (pollInFlight) return;
+    pollInFlight = true;
     try {
         const response = await authorizedFetch('/status', { method: 'GET' });
         if (!response.ok) return;
@@ -151,12 +163,6 @@ async function pollServerStatus() {
             });
         }
     } catch (error) {
-        if (retryCount < maxRetries) {
-            retryCount++;
-            setTimeout(pollServerStatus, 500);
-            return;
-        }
-
         lastKnownAccounts = JSON.stringify([]);
         lastKnownChainId = null;
         chrome.tabs.query({ url: ["http://*/*", "https://*/*"] }, (tabs) => {
@@ -164,15 +170,11 @@ async function pollServerStatus() {
                 chrome.tabs.sendMessage(tab.id, { type: 'accountsChanged', payload: [] });
             });
         });
-        retryCount = 0;
 
         console.error("Background: Error during status poll:", error);
-        if (!isFirstPoll && lastKnownAccounts !== JSON.stringify([])) {
-            console.warn("Background: Poll failed, assuming disconnection.");
-            lastKnownAccounts = JSON.stringify([]);
-            lastKnownChainId = null;
-        }
         isFirstPoll = true;
+    } finally {
+        pollInFlight = false;
     }
 }
 

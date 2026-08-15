@@ -27,23 +27,18 @@ pub mod utils;
 use std::panic;
 
 fn main() -> eframe::Result {
-   let mut connector_error = None;
-
-   // Native messaging uses stdin/stdout. Must run before any tracing to stdout.
+   // Native messaging uses stdin/stdout. Must run before any tracing to stdout,
+   // and must NEVER fall through into the GUI, Brave/Chrome spawn this process
+   // on every sendNativeMessage and kill it when the handshake ends.
    if connector::is_native_messaging_invocation() {
-      match connector::run_native_messaging_host() {
-         Ok(_) => {},
-         Err(e) => {
-            connector_error = Some(e);
-         }
+      if let Err(e) = connector::run_native_messaging_host() {
+         eprintln!("zeus connector host: {e}");
+         std::process::exit(1);
       }
+      return Ok(());
    }
 
    let _tracing_guard = setup_tracing();
-
-   if let Some(e) = connector_error {
-      tracing::error!("Connector error: {e}");
-   }
 
    cleanup_old_logs();
 
