@@ -4,7 +4,7 @@ use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{Align2, Id, Order, RichText, Ui, Stroke, Window, vec2};
-use ncrypt_me::{Credentials, zeroize::Zeroize};
+use ncrypt_me::Credentials;
 use zeus_theme::{OverlayManager, Theme};
 use zeus_ui_components::CredentialsForm;
 use zeus_widgets::Button;
@@ -31,6 +31,10 @@ impl DeleteWalletUi {
          wallet_to_delete: None,
          size: (550.0, 350.0),
       }
+   }
+
+   pub fn erase(&mut self) {
+      self.credentials_form.erase();
    }
 
    pub fn is_open(&self) -> bool {
@@ -119,13 +123,11 @@ impl DeleteWalletUi {
                gui.ctx.clone()
             });
 
-            let mut vault = ctx.get_vault();
-            vault.set_credentials(credentials);
+            let creds_match = ctx.read_vault(|vault| vault.credentials_match(&credentials));
 
             // Verify the credentials by just decrypting the vault
-            match vault.decrypt(None) {
-               Ok(mut data) => {
-                  data.zeroize();
+            match creds_match {
+               true => {
                   SHARED_GUI.write(|gui| {
                      // Mark the credentials as verified
                      gui.wallet_ui.delete_wallet_ui.verified_credentials = true;
@@ -139,12 +141,9 @@ impl DeleteWalletUi {
                      gui.request_repaint();
                   });
                }
-               Err(e) => {
+               false => {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window(format!(
-                        "Failed to decrypt vault: {}",
-                        e.to_string()
-                     ));
+                     gui.open_msg_window("Credentials do not match");
                      gui.loading_window.reset();
                      gui.request_repaint();
                   });

@@ -35,6 +35,10 @@ impl ImportWallet {
       }
    }
 
+   pub fn erase(&mut self) {
+      self.input_field.erase();
+   }
+
    pub fn is_open(&self) -> bool {
       self.open
    }

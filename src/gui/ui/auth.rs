@@ -33,6 +33,10 @@ impl UnlockVault {
       }
    }
 
+   pub fn erase(&mut self) {
+      self.credentials_form.erase();
+   }
+
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       let vault_exists = ctx.vault_exists;
       let vault_unlocked = ctx.vault_unlocked;
@@ -288,6 +292,10 @@ impl RecoverHDWallet {
          size: (550.0, 350.0),
          size2: (350.0, 250.0),
       }
+   }
+
+   pub fn erase(&mut self) {
+      self.credentials_form.erase();
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {

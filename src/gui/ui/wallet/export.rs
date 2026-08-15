@@ -3,8 +3,8 @@
 use crate::core::ZeusContext;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use eframe::egui::{Align2, Order, RichText, Stroke, Ui, Window, vec2};
-use ncrypt_me::{Credentials, zeroize::Zeroize};
+use eframe::egui::{Align2, Context, Order, RichText, Stroke, Ui, Window, vec2};
+use ncrypt_me::Credentials;
 use tracing::{error, info};
 use zeus_theme::{OverlayManager, Theme};
 use zeus_ui_components::{CredentialsForm, QrImage};
@@ -83,6 +83,15 @@ impl ExportKeyUi {
    fn reset(&mut self) {
       self.close();
       *self = Self::new(self.overlay.clone());
+   }
+
+   pub fn erase(&mut self, ctx: &Context) {
+      self.credentials_form.erase();
+      self.private_key_qr.clear(ctx);
+
+      if let Some(ref mut wallet) = self.wallet_to_export {
+         wallet.erase();
+      }
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
@@ -294,13 +303,11 @@ impl ExportKeyUi {
                gui.ctx.clone()
             });
 
-            let mut vault = ctx.get_vault();
-            vault.set_credentials(credentials);
+            let creds_match = ctx.read_vault(|vault| vault.credentials_match(&credentials));
 
             // Verify the credentials by just decrypting the vault
-            match vault.decrypt(None) {
-               Ok(mut data) => {
-                  data.zeroize();
+            match creds_match {
+               true => {
                   SHARED_GUI.write(|gui| {
                      // Allow the user to export the key
                      gui.wallet_ui.export_key_ui.show_key = true;
@@ -314,9 +321,9 @@ impl ExportKeyUi {
                      gui.request_repaint();
                   });
                }
-               Err(e) => {
+               false => {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window(e.to_string());
+                     gui.open_msg_window("Credentials do not match");
                      gui.loading_window.reset();
                      gui.request_repaint();
                   });

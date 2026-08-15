@@ -15,7 +15,7 @@ pub use crate::gui::ui::{
    RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, TokenSelectionWindow,
    TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
    common::dots_button,
-   dapps::{across::AcrossBridge, railgun::ShieldUi, uniswap::UniswapUi},
+   dapps::{across::AcrossBridge, railgun::{ShieldUi, MergeNotesWindow}, uniswap::UniswapUi},
    dev::DevUi,
    panels::{central_panel::FPSMetrics, left_panel::ConnectedDappsUi},
    settings::RailgunSettings,
@@ -135,7 +135,7 @@ pub struct GUI {
    pub notification: Notification,
    pub update_window: UpdateWindow,
    pub dev: DevUi,
-   pub merge_notes_window: ui::dapps::railgun::MergeNotesWindow,
+   pub merge_notes_window: MergeNotesWindow,
 
    /// Last Zeus colour fingerprint we injected into `ctx.data`.
    /// `None` = never injected this session.
@@ -173,7 +173,7 @@ impl GUI {
       let fps_metrics = FPSMetrics::new(overlay_manager.clone());
       let uniswap = UniswapUi::new();
       let shield_ui = ShieldUi::new();
-      let merge_notes_window = ui::dapps::railgun::MergeNotesWindow::new();
+      let merge_notes_window = MergeNotesWindow::new();
       let unlock_vault_ui = UnlockVault::new();
       let recover_wallet_ui = RecoverHDWallet::new();
 

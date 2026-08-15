@@ -49,6 +49,10 @@ impl SettingsUi {
       }
    }
 
+   pub fn erase(&mut self) {
+      self.change_credentials_ui.erase();
+   }
+
    pub fn is_open(&self) -> bool {
       self.open
    }

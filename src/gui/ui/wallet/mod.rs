@@ -3,7 +3,7 @@ use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::RT;
 use eframe::egui::{
-   Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Spinner, Stroke, Ui, Vec2,
+   Align, Align2, FontId, Layout, Margin, Context, Order, RichText, ScrollArea, Spinner, Stroke, Ui, Vec2,
    Window, vec2,
 };
 use elegance::{Menu, MenuItem};
@@ -63,6 +63,12 @@ impl WalletUi {
          wallet_chains: HashMap::new(),
          size: (550.0, 600.0),
       }
+   }
+
+   pub fn erase(&mut self, ctx: &Context) {
+      self.export_key_ui.erase(ctx);
+      self.delete_wallet_ui.erase();
+      self.add_wallet_ui.erase();
    }
 
    pub fn is_open(&self) -> bool {

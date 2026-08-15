@@ -190,6 +190,16 @@ impl ZeusApp {
 
          SHARED_GUI.write(|gui| {
             gui.ctx.write_vault(|vault| vault.erase());
+            gui.ctx.write(|ctx| {
+               ctx.current_wallet.erase();
+            });
+
+            gui.header.erase();
+            gui.wallet_ui.erase(&egui_ctx);
+            gui.unlock_vault_ui.erase();
+            gui.recover_wallet_ui.erase();
+            gui.settings.erase();
+
             gui.loading_window.reset();
             gui.request_repaint();
          });

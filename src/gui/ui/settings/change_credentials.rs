@@ -5,7 +5,7 @@
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use egui::{Align2, Order, RichText, Stroke, Ui, Window, vec2};
-use ncrypt_me::{Credentials, zeroize::Zeroize};
+use ncrypt_me::Credentials;
 use zeus_theme::{OverlayManager, Theme};
 use zeus_ui_components::CredentialsForm;
 use zeus_widgets::Button;
@@ -32,6 +32,10 @@ impl ChangeCredentialsUi {
          verified_credentials: false,
          size: (550.0, 350.0),
       }
+   }
+
+   pub fn erase(&mut self) {
+      self.credentials_form.erase();
    }
 
    pub fn is_open(&self) -> bool {
@@ -104,18 +108,15 @@ impl ChangeCredentialsUi {
 
                   RT.spawn_blocking(move || {
                      let ctx = SHARED_GUI.write(|gui| {
-                        gui.loading_window.open("Decrypting vault...");
+                        gui.loading_window.open("Checking credentials...");
                         gui.request_repaint();
                         gui.ctx.clone()
                      });
 
-                     let mut vault = ctx.get_vault();
-                     vault.set_credentials(credentials);
+                     let creds_match = ctx.read_vault(|vault| vault.credentials_match(&credentials));
 
-                     // Verify the credentials by just decrypting the vault
-                     match vault.decrypt(None) {
-                        Ok(mut data) => {
-                           data.zeroize();
+                     match creds_match {
+                        true => {
                            SHARED_GUI.write(|gui| {
                               // Allow the user to change the credentials
                               gui.settings.change_credentials_ui.verified_credentials = true;
@@ -125,14 +126,15 @@ impl ChangeCredentialsUi {
                               gui.request_repaint();
                            });
                         }
-                        Err(e) => {
+                        false => {
                            SHARED_GUI.write(|gui| {
-                              gui.open_msg_window(e.to_string());
+                              gui.open_msg_window("Credentials do not match");
                               gui.loading_window.reset();
                               gui.request_repaint();
                            });
+                           return;
                         }
-                     };
+                     }
                   });
                }
             });

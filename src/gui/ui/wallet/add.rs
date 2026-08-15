@@ -41,6 +41,10 @@ impl AddWalletUi {
       }
    }
 
+   pub fn erase(&mut self) {
+      self.import_wallet.erase();
+   }
+
    pub fn is_open(&self) -> bool {
       self.open
    }

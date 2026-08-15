@@ -83,6 +83,19 @@ impl Wallet {
       }
    }
 
+   /// Erase the wallet key and all associated data
+   pub fn erase(&mut self) {
+      self.key.erase();
+
+      if let Some(ref mut xkey_info) = self.xkey_info {
+         xkey_info.chain_code.data.erase();
+      }
+
+      if let Some(ref mut seed_phrase) = self.seed_phrase {
+         seed_phrase.erase();
+      }
+   }
+
    /// Returns the private key + ChainCode as a 64-byte SecureArray
    pub fn full_key(&self) -> Result<SecureArray<u8, 64>, anyhow::Error> {
       if self.xkey_info.is_none() {
@@ -308,9 +321,9 @@ impl SecureHDWallet {
    }
 
    pub fn erase(&mut self) {
-      self.master_wallet.key.erase();
+      self.master_wallet.erase();
       for child in self.children.iter_mut() {
-         child.key.erase();
+         child.erase();
       }
    }
 

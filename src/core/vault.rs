@@ -211,7 +211,7 @@ impl Vault {
       self.hd_wallet.erase();
 
       for wallet in self.imported_wallets.iter_mut() {
-         wallet.key.erase();
+         wallet.erase();
       }
 
       if let Some(ref mut key) = self.railgun_db_key {
@@ -614,6 +614,26 @@ impl Vault {
       self.wallet_state_key = data.wallet_state_key;
 
       Ok(legacy)
+   }
+
+   // TODO: Impl Eq on the Credentials and secure-types
+   /// Returns true if the other credentials match the current ones
+   pub fn credentials_match(&self, other: &Credentials) -> bool {
+      let username_ok = self.credentials.username.unlock_str(|username| {
+         other.username.unlock_str(|other_username| username == other_username)
+      });
+
+      let password_ok = self.credentials.password.unlock_str(|password| {
+         other.password.unlock_str(|other_password| password == other_password)
+      });
+
+      let confirm_password_ok = self.credentials.confirm_password.unlock_str(|confirm_password| {
+         other
+            .confirm_password
+            .unlock_str(|other_confirm_password| confirm_password == other_confirm_password)
+      });
+
+      username_ok && password_ok && confirm_password_ok
    }
 
    /// Remove the wallet with the given address

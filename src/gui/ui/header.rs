@@ -84,6 +84,10 @@ impl Header {
       }
    }
 
+   pub fn erase(&mut self) {
+      self.wallet_select.wallet.erase();
+   }
+
    pub fn is_open(&self) -> bool {
       self.open
    }
