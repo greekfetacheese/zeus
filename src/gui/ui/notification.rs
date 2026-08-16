@@ -3,15 +3,12 @@
 use crate::assets::Icons;
 use crate::core::{DecodedEvent, TransactionRich, ZeusContext, tx::events::*};
 use crate::gui::{SHARED_GUI, ui::GREEN_CHECK};
-use crate::utils::{RT, truncate_address};
+use crate::utils::{RT, TimeStamp, truncate_address};
 use egui::{Align2, Order, ProgressBar, RichText, Spinner, Ui, Window, vec2};
 use zeus_theme::Theme;
 use zeus_widgets::{Button, Label, MultiLabel};
 
-use std::{
-   sync::Arc,
-   time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::Arc;
 
 use zeus_eth::{
    alloy_primitives::U256,
@@ -176,9 +173,9 @@ impl NotificationType {
 pub struct Notification {
    open: bool,
    with_progress_bar: bool,
-   // UNIX timestamp in seconds of when the notification must be started
+   // UNIX timestamp in milliseconds of when the notification must be started
    start_on: u64,
-   // UNIX timestamp in seconds of when the notification must be closed
+   // UNIX timestamp in milliseconds of when the notification must be closed
    finish_on: u64,
    title: String,
    notification: NotificationType,
@@ -309,9 +306,9 @@ impl Notification {
       let bar_width = self.size.0 / 2.0;
       let bar_color = theme.colors.text;
 
-      let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
-      let start = (self.start_on as u128) * 1000u128;
-      let finish = (self.finish_on as u128) * 1000u128;
+      let now = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
+      let start = self.start_on;
+      let finish = self.finish_on;
       let elapsed = now.saturating_sub(start);
       let total = finish.saturating_sub(start);
 

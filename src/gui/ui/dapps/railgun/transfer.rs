@@ -525,7 +525,7 @@ async fn exec_private_transfer(
    });
 
    let eth_received_usd = ctx.write(|ctx| new_tx_analysis.eth_received_usd(ctx));
-   let timestamp = TimeStamp::now_as_secs();
+   let timestamp = TimeStamp::now_as_secs()?;
 
    let tx_rich = TransactionRich {
       tx_type: receipt.transaction_type(),
@@ -559,8 +559,8 @@ async fn exec_private_transfer(
       return Err(anyhow!("Transaction Failed"));
    }
 
-   let now = timestamp.timestamp();
-   let finish = now + 6;
+   let now = TimeStamp::now_as_millis()?.timestamp();
+   let finish = now + 6000;
 
    SHARED_GUI.write(|gui| {
       gui.notification.open_with_progress_bar(

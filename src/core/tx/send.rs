@@ -4,7 +4,7 @@ use crate::core::{
 use crate::utils::state::get_base_fee;
 use alloy_eips::eip7702::{Authorization, SignedAuthorization};
 use anyhow::anyhow;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use zeus_eth::alloy_network::NetworkTransactionBuilder;
 
 use crate::gui::{SHARED_GUI, ui::NotificationType};
@@ -362,7 +362,7 @@ pub async fn send_transaction(
    let logs: Vec<Log> = receipt.logs().to_vec();
    let logs = logs.iter().map(|l| l.clone().into_inner()).collect::<Vec<_>>();
 
-   let timestamp = TimeStamp::now_as_secs();
+   let timestamp = TimeStamp::now_as_secs()?;
 
    let block_id = BlockId::number(tx_block);
    let balance_after = client
@@ -452,8 +452,8 @@ pub async fn send_transaction(
       return Err(anyhow!("Transaction Failed"));
    }
 
-   let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-   let finish = now + 6;
+   let now = TimeStamp::now_as_millis()?.timestamp();
+   let finish = now + 6000;
 
    SHARED_GUI.write(|gui| {
       gui.notification.open_with_progress_bar(

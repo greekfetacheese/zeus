@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::time::{SystemTime, UNIX_EPOCH};
 use zeus_eth::{
    types::ETH_SEPOLIA,
    alloy_primitives::{Address, Bytes},
@@ -11,7 +10,7 @@ use crate::core::{
    WalletInfo,
    context::{DELEGATE_WALLET_CHECK_TIMEOUT, disabled_chains_dir, railgun_config_dir},
 };
-use crate::utils::write_private;
+use crate::utils::{write_private, TimeStamp};
 
 use zeus_railgun::indexer::syncer::rpc::{
    DEFAULT_BLOCK_RANGE, DEFAULT_CONCURRENCY, SEPOLIA_BLOCK_RANGE,
@@ -343,7 +342,7 @@ impl DelegatedWallets {
    }
 
    pub fn should_check(&self, chain: u64, account: Address) -> bool {
-      let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+      let now = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
       let last_check = self.last_check.get(&(chain, account)).cloned();
       if last_check.is_none() {
          return true;

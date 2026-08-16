@@ -1,4 +1,5 @@
 use crate::core::ZeusCtx;
+use crate::utils::TimeStamp;
 
 use anyhow::anyhow;
 use serde_json::Value;
@@ -12,7 +13,6 @@ use zeus_eth::{
 };
 use zeus_wallet::SecureKey;
 
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub mod msg;
 pub mod sign;
@@ -66,7 +66,7 @@ impl Permit2Info {
 
       let contract_need_approval = allowance < amount;
 
-      let current_time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+      let current_time = TimeStamp::now_as_secs()?.timestamp();
 
       let expired = u64::try_from(data.expiration)? < current_time;
       let needs_new_signature = U256::from(data.amount) < amount || expired;

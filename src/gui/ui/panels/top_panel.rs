@@ -1,10 +1,9 @@
 use crate::core::ZeusContext;
 use crate::gui::{GUI, SHARED_GUI};
-use crate::utils::RT;
+use crate::utils::{RT, TimeStamp};
 use egui::{Align, Layout, Margin, RichText, Spinner, Ui, vec2};
 use zeus_widgets::{Button, Label};
 
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const DATA_SYNCING_MSG: &str = "Zeus is still syncing important data";
 const DEX_SYNCING_MSG: &str = "Zeus is still syncing DEX data";
@@ -13,13 +12,13 @@ const VAULT_SAVE_IN_PROGRESS_MSG: &str = "Saving vault in progress, do not close
 const WALLET_STATE_SAVE_IN_PROGRESS_MSG: &str = "Saving state in progress, do not close Zeus yet!";
 const RAILGUN_SYNCING_MSG: &str = "Railgun state sync in progress, do not close Zeus yet!";
 
-const AVAILABLE_RPCS_CHECK_THRESHOLD: u128 = 100;
-const RAILGUN_CHECK_THRESHOLD: u128 = 250;
+const AVAILABLE_RPCS_CHECK_THRESHOLD: u64 = 100;
+const RAILGUN_CHECK_THRESHOLD: u64 = 250;
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let chain = ctx.chain;
 
-   let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+   let now = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
 
    let has_available_rpcs =
       ctx.check_for_available_rpcs(now, chain.id(), AVAILABLE_RPCS_CHECK_THRESHOLD);

@@ -143,25 +143,34 @@ impl Default for TimeStamp {
 }
 
 impl TimeStamp {
-   pub fn now_as_secs() -> Self {
-      TimeStamp::Seconds(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs())
+   pub fn now_as_secs() -> Result<Self, anyhow::Error> {
+      let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+      Ok(TimeStamp::Seconds(now))
    }
 
-   pub fn now_as_millis() -> Self {
-      TimeStamp::Millis(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64)
+   pub fn now_as_millis() -> Result<Self, anyhow::Error> {
+      let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+      Ok(TimeStamp::Millis(now))
    }
 
-   pub fn add(self, seconds: u64) -> Self {
+   pub fn saturating_add_secs(self, seconds: u64) -> Self {
       match self {
-         TimeStamp::Seconds(s) => TimeStamp::Seconds(s + seconds),
-         TimeStamp::Millis(m) => TimeStamp::Millis(m + seconds * 1000),
+         TimeStamp::Seconds(s) => TimeStamp::Seconds(s.saturating_add(seconds)),
+         TimeStamp::Millis(m) => TimeStamp::Millis(m.saturating_add(seconds * 1000)),
       }
    }
 
-   pub fn sub(self, seconds: u64) -> Self {
+   pub fn saturating_sub_secs(self, seconds: u64) -> Self {
       match self {
-         TimeStamp::Seconds(s) => TimeStamp::Seconds(s - seconds),
-         TimeStamp::Millis(m) => TimeStamp::Millis(m - seconds * 1000),
+         TimeStamp::Seconds(s) => TimeStamp::Seconds(s.saturating_sub(seconds)),
+         TimeStamp::Millis(m) => TimeStamp::Millis(m.saturating_sub(seconds * 1000)),
+      }
+   }
+
+   pub fn saturating_sub_millis(self, millis: u64) -> Self {
+      match self {
+         TimeStamp::Seconds(s) => TimeStamp::Seconds(s.saturating_sub(millis / 1000)),
+         TimeStamp::Millis(m) => TimeStamp::Millis(m.saturating_sub(millis)),
       }
    }
 

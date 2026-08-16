@@ -229,7 +229,7 @@ impl ApprovalManager {
    }
 
    pub fn get_active_permits(&self, chain: u64, owner: Address) -> Vec<PermitParams> {
-      let now = TimeStamp::now_as_secs();
+      let now = TimeStamp::now_as_secs().unwrap_or_default();
       self
          .permits
          .iter()
@@ -263,7 +263,7 @@ impl ApprovalManager {
    }
 
    pub fn get_all_active_permits(&self) -> Vec<PermitParams> {
-      let now = TimeStamp::now_as_secs();
+      let now = TimeStamp::now_as_secs().unwrap_or_default();
       self
          .permits
          .values()

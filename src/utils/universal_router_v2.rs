@@ -374,7 +374,7 @@ pub async fn encode_swap(
    #[cfg(feature = "dev")]
    debug!("Command Bytes: {:?}", command_bytes);
 
-   let deadline = TimeStamp::now_as_secs().add(deadline_in_minutes * 60);
+   let deadline = TimeStamp::now_as_secs()?.saturating_add_secs(deadline_in_minutes * 60);
    let data = encode_execute_with_deadline(
       command_bytes,
       inputs,

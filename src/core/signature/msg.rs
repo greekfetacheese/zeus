@@ -205,7 +205,7 @@ impl Permit2Details {
          token: ERC20Token::weth_base(),
          amount: NumericValue::parse_to_wei("100000000", 18),
          amount_usd: Some(NumericValue::value(1.0, 1600.0)),
-         expiration: TimeStamp::now_as_secs().add(600),
+         expiration: TimeStamp::now_as_secs().unwrap().saturating_add_secs(600),
          permit2_contract: permit2,
          spender,
          msg_value: dummy_permit2_json(),

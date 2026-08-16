@@ -4,13 +4,12 @@ use zeus_widgets::Label;
 use crate::assets::Icons;
 use crate::core::{DecodedEvent, SignMsgType, TransactionAnalysis, ZeusContext};
 use crate::gui::{SHARED_GUI, ui::notification::NotificationType};
-use crate::utils::RT;
+use crate::utils::{RT, TimeStamp};
 use crate::utils::self_update::UpdateInfo;
 
 use zeus_eth::currency::ERC20Token;
 
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use zeus_theme::Theme;
 
 pub struct DevUi {
@@ -80,10 +79,9 @@ impl DevUi {
 
       Window::new(title)
          .open(&mut open)
-         .resizable(false)
-         .collapsible(false)
+         .movable(true)
+         .collapsible(true)
          .order(Order::Middle)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             self.ui_testing.show(ctx, theme, icons, ui);
@@ -203,12 +201,14 @@ impl UiTesting {
             let approval_notification = NotificationType::from_main_event(dummy_approval);
             let shield_notification = NotificationType::from_main_event(dummy_shield);
 
+            let now = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
+            let finish_on = now + 6000;
+
             if ui.add(button).clicked() {
                let title = swap_title.clone();
                let notification_clone = swap_notification.clone();
                RT.spawn_blocking(move || {
-                  let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-                  let finish_on = now + 5;
+                  
                   SHARED_GUI.write(|gui| {
                      gui.notification.open_with_progress_bar(
                         now,
@@ -241,8 +241,6 @@ impl UiTesting {
                let notification_clone = bridge_notification.clone();
                let title = bridge_title.clone();
                RT.spawn_blocking(move || {
-                  let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-                  let finish_on = now + 5;
                   SHARED_GUI.write(|gui| {
                      gui.notification.open_with_progress_bar(
                         now,
@@ -275,8 +273,6 @@ impl UiTesting {
             if ui.add(button).clicked() {
                let notification_clone = transfer_notification.clone();
                RT.spawn_blocking(move || {
-                  let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-                  let finish_on = now + 5;
                   SHARED_GUI.write(|gui| {
                      gui.notification.open_with_progress_bar(
                         now,
@@ -295,8 +291,6 @@ impl UiTesting {
             if ui.add(button).clicked() {
                let notification_clone = approval_notification.clone();
                RT.spawn_blocking(move || {
-                  let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-                  let finish_on = now + 5;
                   SHARED_GUI.write(|gui| {
                      gui.notification.open_with_progress_bar(
                         now,
@@ -315,8 +309,6 @@ impl UiTesting {
             if ui.add(button).clicked() {
                let notification_clone = shield_notification.clone();
                RT.spawn_blocking(move || {
-                  let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-                  let finish_on = now + 5;
                   SHARED_GUI.write(|gui| {
                      gui.notification.open_with_progress_bar(
                         now,

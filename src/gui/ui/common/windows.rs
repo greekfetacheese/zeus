@@ -7,12 +7,11 @@
 
 use crate::gui::SHARED_GUI;
 use crate::utils::{
-   RT,
+   RT, TimeStamp,
    self_update::{UpdateInfo, restart_app, update_zeus},
 };
 use eframe::egui::{Align2, RichText, Spinner, Ui, Vec2, vec2};
 use egui::{Align, Layout, Order};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::{Button, Modal};
@@ -245,8 +244,7 @@ impl UpdateWindow {
                            .await
                            {
                               Ok(_) => {
-                                 let now =
-                                    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+                                 let now = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
                                  let finish_on = now + 5;
                                  SHARED_GUI.write(|gui| {
                                     gui.loading_window.reset();
@@ -295,7 +293,7 @@ impl UpdateWindow {
       let text = RichText::new("Update completed!").size(theme.text_sizes.large);
       ui.label(text);
 
-      let current_unix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+      let current_unix = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
       let restart_in = if current_unix < self.restart_in {
          self.restart_in - current_unix
       } else {

@@ -1,5 +1,5 @@
 use crate::core::{ZeusCtx, context::data_dir};
-use crate::utils::{RT, write_private};
+use crate::utils::{RT, write_private, TimeStamp};
 use zeus_eth::{
    abi::{
       weth9,
@@ -23,7 +23,7 @@ use std::{
    time::Duration,
 };
 
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 use tokio::{sync::Semaphore, time::sleep};
 
 const PROVIDER_DATA_FILE: &str = "providers.json";
@@ -881,11 +881,11 @@ impl ZeusClient {
    }
 
    fn penalize(&self, chain: u64, rpc: &Rpc) {
-      let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+      let now = TimeStamp::now_as_millis().unwrap_or_default();
       self.write(|rpcs_map| {
          if let Some(rpcs) = rpcs_map.get_mut(&chain) {
             if let Some(rpc) = rpcs.get_mut(&*rpc.url) {
-               rpc.last_failure = Some(now_ms);
+               rpc.last_failure = Some(now.timestamp());
             }
          }
       });
@@ -900,7 +900,7 @@ impl ZeusClient {
       self.write(|rpcs_map| {
          let mut empty = HashMap::new();
          let rpcs = rpcs_map.get_mut(&chain).unwrap_or(&mut empty);
-         let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+         let now_ms = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
          let mut best_key = None;
          let mut best_score = u128::MAX;
 
@@ -1116,9 +1116,9 @@ pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), an
    }
 
    {
-      let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+      let now = TimeStamp::now_as_secs()?;
       let mut guard = result.lock().unwrap();
-      guard.last_check = Some(now);
+      guard.last_check = Some(now.timestamp());
    }
 
    // V3 state batch calls are the most expensive in terms of gas

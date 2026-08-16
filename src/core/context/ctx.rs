@@ -6,14 +6,14 @@ use super::{
 use crate::core::{TransactionRich, WalletState, WalletValue};
 use crate::core::{Vault, WalletInfo, client::Rpc, types::*};
 use crate::server::SERVER_PORT;
-use crate::utils::create_railgun_provider;
+use crate::utils::{TimeStamp, create_railgun_provider};
 use anyhow::anyhow;
 use ncrypt_me::Argon2;
 use std::{
    collections::HashMap,
    path::PathBuf,
    sync::{Arc, RwLock},
-   time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+   time::{Duration, Instant},
 };
 use zeus_theme::ThemeKind;
 use zeus_wallet::Wallet;
@@ -1458,7 +1458,7 @@ impl ZeusCtx {
       let chain = self.chain();
       let res = self.read(|ctx| ctx.estimate_gas.get(&(chain.id(), tx.clone())).cloned());
       let block_time = chain.block_time_millis();
-      let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+      let now = TimeStamp::now_as_millis()?.timestamp();
 
       if let Some(res) = res {
          // time check
@@ -1483,7 +1483,7 @@ impl ZeusCtx {
          })
          .await?;
 
-      let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+      let now = TimeStamp::now_as_millis()?.timestamp();
 
       self.write(|ctx| {
          ctx.estimate_gas.insert(
@@ -1509,7 +1509,7 @@ impl ZeusCtx {
    pub async fn get_eth_call(&self, tx: TransactionRequest) -> Result<EthCall, anyhow::Error> {
       let chain = self.chain();
       let block_time = chain.block_time_millis();
-      let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+      let now = TimeStamp::now_as_millis()?.timestamp();
       let eth_call = self.read(|ctx| ctx.eth_calls.get(&(chain.id(), tx.clone())).cloned());
 
       if let Some(eth_call) = eth_call {
@@ -1535,7 +1535,7 @@ impl ZeusCtx {
          })
          .await?;
 
-      let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+      let now = TimeStamp::now_as_millis()?.timestamp();
 
       let eth_call = EthCall {
          timestamp: now,
@@ -1560,7 +1560,7 @@ impl ZeusCtx {
    pub async fn get_latest_block(&self) -> Result<Block, anyhow::Error> {
       let chain = self.chain();
       let block_time = chain.block_time_millis();
-      let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+      let now = TimeStamp::now_as_millis()?.timestamp();
       let block = self.read(|ctx| ctx.latest_block.get(&chain.id()).cloned());
 
       if let Some(block) = block {
@@ -1710,7 +1710,7 @@ pub struct ZeusContext {
    pub sign_msg_window_open: bool,
 
    /// Last time checked for available RPCs
-   pub last_checked_for_available_rpcs: HashMap<u64, u128>,
+   pub last_checked_for_available_rpcs: HashMap<u64, u64>,
 
    /// Mapped available RPCs for each chain
    ///
@@ -1721,7 +1721,7 @@ pub struct ZeusContext {
 
    /// Last UNIX ms timestamp we checked if a railgun provider
    /// is syncing for the given chain
-   pub railgun_provider_sync_last_check: HashMap<u64, u128>,
+   pub railgun_provider_sync_last_check: HashMap<u64, u64>,
 
    /// Disabled Chains
    pub disabled_chains: DisabledChains,
@@ -2123,14 +2123,14 @@ impl ZeusContext {
    /// Check if we have any enabled and working RPCs for the given chain
    ///
    /// Returns true if we have at least one enabled and working RPC
-   pub fn check_for_available_rpcs(&mut self, now: u128, chain: u64, threshold: u128) -> bool {
+   pub fn check_for_available_rpcs(&mut self, now_millis: u64, chain: u64, threshold: u64) -> bool {
       let last_checked = self.last_checked_for_available_rpcs.get(&chain).cloned().unwrap_or(0);
 
-      let should_check = now.saturating_sub(last_checked) > threshold;
+      let should_check = now_millis.saturating_sub(last_checked) > threshold;
 
       if should_check {
          let ok = self.client.rpc_available(chain);
-         self.last_checked_for_available_rpcs.insert(chain, now);
+         self.last_checked_for_available_rpcs.insert(chain, now_millis);
          self.available_rpcs.insert(chain, ok);
 
          return ok;
@@ -2142,20 +2142,20 @@ impl ZeusContext {
    /// Returns true if we need to check if a Railgun provider is syncing
    pub fn should_check_railgun_provider_sync(
       &mut self,
-      now: u128,
+      now_millis: u64,
       chain: u64,
-      threshold: u128,
+      threshold: u64,
    ) -> bool {
       let last_check = self.railgun_provider_sync_last_check.get(&chain).cloned();
 
       if let Some(last_check) = last_check {
-         let elapsed = now.saturating_sub(last_check);
+         let elapsed = now_millis.saturating_sub(last_check);
          if elapsed < threshold {
             return false;
          }
       }
 
-      self.railgun_provider_sync_last_check.insert(chain, now);
+      self.railgun_provider_sync_last_check.insert(chain, now_millis);
 
       true
    }

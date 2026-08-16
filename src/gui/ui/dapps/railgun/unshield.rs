@@ -2,7 +2,7 @@
 
 use std::{
    str::FromStr,
-   time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+   time::{Duration, Instant},
 };
 use tokio::time::sleep;
 
@@ -518,7 +518,7 @@ async fn unshield_self_broadcast(
    });
 
    let eth_received_usd = ctx.write(|ctx| new_tx_analysis.eth_received_usd(ctx));
-   let timestamp = TimeStamp::now_as_secs();
+   let timestamp = TimeStamp::now_as_secs()?;
 
    let tx_rich = TransactionRich {
       tx_type: receipt.transaction_type(),
@@ -552,8 +552,8 @@ async fn unshield_self_broadcast(
       return Err(anyhow!("Transaction Failed"));
    }
 
-   let now = timestamp.timestamp();
-   let finish = now + 6;
+   let now = TimeStamp::now_as_millis()?.timestamp();
+   let finish = now + 6000;
 
    SHARED_GUI.write(|gui| {
       gui.notification.open_with_progress_bar(
@@ -1100,7 +1100,7 @@ async fn unshield_via_paymaster(
 
    let logs = receipt.logs.clone();
    let logs = logs.iter().map(|l| l.clone().into_inner()).collect::<Vec<_>>();
-   let timestamp = TimeStamp::now_as_secs();
+   let timestamp = TimeStamp::now_as_secs()?;
 
    let eth_balance_after = zeus_client
       .request(chain.id(), |client| async move {
@@ -1173,8 +1173,8 @@ async fn unshield_via_paymaster(
       ctx_clone.add_transaction(chain.id(), from, tx);
    });
 
-   let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-   let finish = now + 6;
+   let now = TimeStamp::now_as_millis()?.timestamp();
+   let finish = now + 6000;
 
    SHARED_GUI.write(|gui| {
       gui.notification.open_with_progress_bar(

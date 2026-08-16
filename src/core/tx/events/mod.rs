@@ -88,7 +88,7 @@ impl DecodedEvent {
       let wei = U256::MAX - U256::from(1);
       let amount = NumericValue::format_wei(wei, 18);
       let amount_usd = Some(NumericValue::value(amount.f64(), 1600.0));
-      let expiration = TimeStamp::now_as_secs().add(600);
+      let expiration = TimeStamp::now_as_secs().unwrap().saturating_add_secs(600);
 
       let params = PermitParams {
          event_name: "Permit".to_string(),

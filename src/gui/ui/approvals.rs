@@ -10,7 +10,7 @@ use egui::{Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, U
 use elegance::{Badge, BadgeTone};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use zeus_eth::{
    abi::permit::{allowance, encode_permit_single_call},
    alloy_primitives::{Address, U256},
@@ -810,7 +810,7 @@ async fn revoke_permit2_approval(
       })
       .await?;
 
-   let current_time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+   let current_time = TimeStamp::now_as_secs()?.timestamp();
    let amount = U256::ZERO;
    // Zero expiration is valid for a revoked / empty allowance.
    let expiration = U256::ZERO;

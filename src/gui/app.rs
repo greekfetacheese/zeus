@@ -7,6 +7,7 @@ use crate::gui::SHARED_GUI;
 use crate::server::run_server;
 use crate::utils::{
    RT,
+   TimeStamp,
    self_update::check_for_updates,
    state::{on_startup, test_and_measure_rpcs},
 };
@@ -16,7 +17,7 @@ use eframe::{
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use zeus_theme::OverlayManager;
 
 pub struct ZeusApp {
@@ -76,7 +77,7 @@ impl ZeusApp {
          test_and_measure_rpcs(ctx_clone).await;
       });
 
-      let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+      let now = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
       ctx.write(|ctx| {
          for chain in SUPPORTED_CHAINS {
             ctx.check_for_available_rpcs(now, chain, 0);
