@@ -6,7 +6,7 @@
  
  ---
 
- ### Zeus is also available on [radicle](https://app.radicle.xyz/nodes/seed.radicle.garden/rad:zNS8uWXgE8r87Zb8ito1wzg84gbc)
+ ### Zeus is also available on [radicle](https://radicle.network/nodes/rosa.radicle.network/rad%3AzNS8uWXgE8r87Zb8ito1wzg84gbc)
  ### RID: `rad:zNS8uWXgE8r87Zb8ito1wzg84gbc`
  
  
