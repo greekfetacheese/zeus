@@ -1,20 +1,22 @@
 //! A Window that allows the user to select a token
 
 use eframe::egui::{
-   Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Sense, Spinner, Stroke, Ui,
-   Window, emath::Vec2b, vec2,
+   Align, Align2, FontId, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Sense, Spinner,
+   Stroke, Ui, Window, emath::Vec2b, vec2,
 };
 
 use crate::assets::icons::Icons;
 use crate::core::{ZeusContext, ZeusCtx};
-use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
+use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::{RT, token_icon::spawn_fetch_token_icon, truncate_symbol_or_name};
+use elegance::{Menu, MenuItem};
 use std::{str::FromStr, sync::Arc};
 
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, ERC20Token},
+   types::ChainId,
    utils::NumericValue,
 };
 
@@ -244,20 +246,56 @@ impl TokenSelectionWindow {
                            .wrap()
                            .image_on_left();
 
+                        let mut more_clicked = false;
+                        let token_address = currency.erc20_opt().map(|token| token.address);
+
                         let res = frame_it(&mut frame, Some(frame_visuals), ui, |ui| {
                            ui.horizontal(|ui| {
                               ui.set_width(ui.available_width());
 
                               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                                 ui.set_width(ui.available_width() * 0.3);
+                                 ui.set_width(ui.available_width() * 0.4);
                                  ui.set_height(50.0);
                                  ui.add(label);
                               });
 
-                              ui.add_space(ui.available_width() * 0.7);
+                              ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                                 ui.set_width(ui.available_width() * 0.6);
 
-                              if !balance.is_zero() {
-                                 ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                                 if let Some(token_address) = token_address {
+                                    let more = dots_button(theme, ui);
+                                    if more.clicked() {
+                                       more_clicked = true;
+                                    }
+
+                                    let id = format!("{}_more_options", token_address);
+                                    Menu::new(id).show_below(&more, |ui| {
+                                       if ui
+                                          .add(MenuItem::new("Copy Address").shortcut("⌘ C"))
+                                          .clicked()
+                                       {
+                                          ui.ctx().copy_text(token_address.to_string());
+                                       }
+
+                                       if ui
+                                          .add(
+                                             MenuItem::new("See on Block Explorer").shortcut("⌘ S"),
+                                          )
+                                          .clicked()
+                                       {
+                                          let chain = ChainId::from(chain_id);
+                                          let explorer = chain.block_explorer();
+                                          let link =
+                                             format!("{}/token/{}", explorer, token_address);
+                                          let url = OpenUrl::new_tab(link);
+                                          ui.ctx().open_url(url);
+                                       }
+                                    });
+
+                                    ui.add_space(8.0);
+                                 }
+
+                                 if !balance.is_zero() {
                                     let value_text = format!("${:.12}", value.abbreviated());
 
                                     ui.vertical(|ui| {
@@ -270,12 +308,12 @@ impl TokenSelectionWindow {
                                              .size(theme.text_sizes.normal),
                                        );
                                     });
-                                 });
-                              }
+                                 }
+                              });
                            });
                         });
 
-                        if res.interact(Sense::click()).clicked() {
+                        if !more_clicked && res.interact(Sense::click()).clicked() {
                            self.selected_currency = Some((*currency).clone());
                            self.token_fetched = false;
                            close_window = true;
