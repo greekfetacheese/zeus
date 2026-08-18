@@ -5,16 +5,19 @@ use eframe::egui::{
    ColorImage, Context, Image, Sense, TextureHandle, epaint::textures::TextureOptions,
 };
 
-use crate::embedded::TOKEN_DATA;
 use crate::core::context::currencies::TokenData;
+use crate::embedded::TOKEN_DATA;
 use image::imageops::FilterType;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::RwLock;
 use zeus_eth::{alloy_primitives::Address, currency::Currency};
 use zeus_theme::utils::TINT_1;
 
 use bincode_next::{config::standard, decode_from_slice};
+
+mod disk;
+pub(crate) use disk::save_token_icon;
 
 /// Icons used in the GUI
 pub struct Icons {
@@ -45,7 +48,11 @@ pub struct TokenIcons {
    icons_x24: RwLock<HashMap<(Address, u64), TextureHandle>>,
    /// Raw compressed icon PNG bytes. Kept for lazy loading to avoid
    /// decompressing and uploading all textures at startup.
-   icon_data: HashMap<(Address, u64), (Vec<u8>, Vec<u8>)>,
+   icon_data: RwLock<HashMap<(Address, u64), (Vec<u8>, Vec<u8>)>>,
+   /// In-flight SmolDapp downloads so we don't spawn duplicates.
+   in_flight: RwLock<HashSet<(Address, u64)>>,
+   /// 404s this session — don't retry until restart.
+   failed: RwLock<HashSet<(Address, u64)>>,
    egui_ctx: Context,
    pub erc20_x32: TextureHandle,
    pub erc20_x24: TextureHandle,
@@ -73,7 +80,9 @@ impl Default for TokenIcons {
       Self {
          icons_x32: RwLock::new(HashMap::new()),
          icons_x24: RwLock::new(HashMap::new()),
-         icon_data: HashMap::new(),
+         icon_data: RwLock::new(HashMap::new()),
+         in_flight: RwLock::new(HashSet::new()),
+         failed: RwLock::new(HashSet::new()),
          egui_ctx: ctx,
          erc20_x32,
          bep20_x32,
@@ -99,6 +108,11 @@ impl TokenIcons {
          icon_bytes.insert(key, (icon.icon_data_x32, icon.icon_data_x24));
       }
 
+      // Downloaded icons from previous sessions. Baked-in icons win.
+      for (key, bytes) in disk::load_downloaded_icons() {
+         icon_bytes.entry(key).or_insert(bytes);
+      }
+
       let texture_options = TextureOptions::default();
 
       // ERC20 & BEP20 Placeholders - always loaded
@@ -117,7 +131,9 @@ impl TokenIcons {
       Ok(Self {
          icons_x32: RwLock::new(HashMap::new()),
          icons_x24: RwLock::new(HashMap::new()),
-         icon_data: icon_bytes,
+         icon_data: RwLock::new(icon_bytes),
+         in_flight: RwLock::new(HashSet::new()),
+         failed: RwLock::new(HashSet::new()),
          egui_ctx: ctx.clone(),
          erc20_x32,
          bep20_x32,
@@ -136,8 +152,13 @@ impl TokenIcons {
       }
 
       // Load from raw data (decompress + upload only when first used in UI)
-      if let Some((data_x32, _)) = self.icon_data.get(key) {
-         match load_image(data_x32) {
+      let data_x32 = {
+         let icon_data = self.icon_data.read().unwrap();
+         icon_data.get(key).map(|(x32, _)| x32.clone())
+      };
+
+      if let Some(data_x32) = data_x32 {
+         match load_image(&data_x32) {
             Ok(img) => {
                let name = format!("token32_{}", key.0);
                let handle = self.egui_ctx.load_texture(name, img, TextureOptions::default());
@@ -166,8 +187,13 @@ impl TokenIcons {
          }
       }
 
-      if let Some((_, data_x24)) = self.icon_data.get(key) {
-         match load_image(data_x24) {
+      let data_x24 = {
+         let icon_data = self.icon_data.read().unwrap();
+         icon_data.get(key).map(|(_, x24)| x24.clone())
+      };
+
+      if let Some(data_x24) = data_x24 {
+         match load_image(&data_x24) {
             Ok(img) => {
                let name = format!("token24_{}", key.0);
                let handle = self.egui_ctx.load_texture(name, img, TextureOptions::default());
@@ -185,6 +211,36 @@ impl TokenIcons {
          }
       }
       None
+   }
+
+   pub fn has_icon(&self, address: Address, chain_id: u64) -> bool {
+      self.icon_data.read().unwrap().contains_key(&(address, chain_id))
+   }
+
+   pub fn insert_icon(&self, address: Address, chain_id: u64, x32: Vec<u8>, x24: Vec<u8>) {
+      self.icon_data.write().unwrap().insert((address, chain_id), (x32, x24));
+   }
+
+   /// Mark a download as started. Returns false if we already have the icon,
+   /// a fetch is in flight, or SmolDapp 404'd this session.
+   pub fn try_begin_fetch(&self, address: Address, chain_id: u64) -> bool {
+      let key = (address, chain_id);
+      if self.has_icon(address, chain_id) {
+         return false;
+      }
+      if self.failed.read().unwrap().contains(&key) {
+         return false;
+      }
+      let mut in_flight = self.in_flight.write().unwrap();
+      in_flight.insert(key)
+   }
+
+   pub fn finish_fetch(&self, address: Address, chain_id: u64, not_found: bool) {
+      let key = (address, chain_id);
+      self.in_flight.write().unwrap().remove(&key);
+      if not_found {
+         self.failed.write().unwrap().insert(key);
+      }
    }
 }
 

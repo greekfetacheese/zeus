@@ -1,15 +1,15 @@
 //! A Window that allows the user to select a token
 
 use eframe::egui::{
-   Align, Align2, FontId, Layout, Margin, Order, Stroke, RichText, ScrollArea, Sense, Spinner, Ui, Window,
-   emath::Vec2b, vec2,
+   Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Sense, Spinner, Stroke, Ui,
+   Window, emath::Vec2b, vec2,
 };
 
 use crate::assets::icons::Icons;
 use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
-use crate::utils::{RT, truncate_symbol_or_name};
+use crate::utils::{RT, token_icon::spawn_fetch_token_icon, truncate_symbol_or_name};
 use std::{str::FromStr, sync::Arc};
 
 use zeus_eth::{
@@ -384,6 +384,9 @@ async fn get_erc20_token(
    owner: Address,
    token_address: Address,
 ) -> Result<ERC20Token, anyhow::Error> {
+   // Fire-and-forget do not await. The placeholder stays until this finishes.
+   spawn_fetch_token_icon(chain, token_address);
+
    let z_client = ctx.get_zeus_client();
 
    let token = z_client
@@ -415,9 +418,7 @@ async fn get_erc20_token(
    if !balance.is_zero() {
       let mut portfolio = ctx.get_portfolio(chain, owner);
       portfolio.add_token(token.clone());
-      ctx.write_wallet_state(|ws| {
-         ws.portfolio_db.insert_portfolio(chain, owner, portfolio)
-      });
+      ctx.write_wallet_state(|ws| ws.portfolio_db.insert_portfolio(chain, owner, portfolio));
    }
 
    // Sync the pools for the token
