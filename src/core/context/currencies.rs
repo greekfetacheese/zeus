@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
+use crate::core::{WalletStateKey, context::data_dir, serde_hashmap};
 use crate::embedded::TOKEN_DATA;
-use crate::utils::write_private;
-use crate::core::{context::data_dir, serde_hashmap};
+use crate::utils::write_private_atomic;
 
 use zeus_eth::{
    alloy_primitives::Address,
@@ -13,7 +13,10 @@ use zeus_eth::{
 
 use bincode_next::{Decode, Encode, config::standard, decode_from_slice};
 
-const FILE_NAME: &str = "tokens.json";
+const FILE_NAME: &str = "tokens.data";
+
+/// Bound ciphertext to this logical slot (AAD).
+const CURRENCY_DB_AAD: &[u8] = b"zeus-currency-db-v1";
 
 #[derive(Clone, Encode, Decode)]
 pub struct TokenData {
@@ -48,10 +51,10 @@ impl CurrencyDB {
          tokens: HashMap::new(),
       }
    }
-   pub fn load_from_file() -> Result<Self, anyhow::Error> {
-      let dir = data_dir()?.join(FILE_NAME);
-      let data = std::fs::read(dir)?;
-      let mut db: CurrencyDB = serde_json::from_slice(&data)?;
+   pub fn load_from_file(key: &WalletStateKey) -> Result<Self, anyhow::Error> {
+      let dir = Self::dir()?;
+      let sealed = std::fs::read(&dir)?;
+      let mut db: CurrencyDB = key.open_json(&sealed, CURRENCY_DB_AAD)?;
 
       match db.load_default_tokens() {
          Ok(_) => {}
@@ -64,11 +67,19 @@ impl CurrencyDB {
       Ok(db)
    }
 
-   pub fn save(&self) -> Result<(), anyhow::Error> {
-      let db = serde_json::to_string(&self)?;
-      let dir = data_dir()?.join(FILE_NAME);
-      write_private(&dir, db.as_bytes())?;
+   pub fn save(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      let sealed = key.seal_json(self, CURRENCY_DB_AAD)?;
+      let dir = Self::dir()?;
+      write_private_atomic(&dir, &sealed)?;
       Ok(())
+   }
+
+   pub fn dir() -> Result<std::path::PathBuf, anyhow::Error> {
+      Ok(data_dir()?.join(FILE_NAME))
+   }
+
+   pub fn exists() -> Result<bool, anyhow::Error> {
+      Ok(Self::dir()?.exists())
    }
 
    pub fn get_currencies(&self, chain_id: u64) -> Vec<Currency> {
@@ -193,8 +204,12 @@ mod tests {
    use super::*;
 
    #[test]
-   fn test_save() {
-      let currency_db = CurrencyDB::default();
-      currency_db.save().unwrap();
+   fn test_seal_open_roundtrip() {
+      let key = WalletStateKey::generate().unwrap();
+      let db = CurrencyDB::default();
+      let sealed = key.seal_json(&db, CURRENCY_DB_AAD).unwrap();
+      let loaded: CurrencyDB = key.open_json(&sealed, CURRENCY_DB_AAD).unwrap();
+      assert!(!loaded.tokens.is_empty());
+      assert!(key.open_json::<CurrencyDB>(&sealed, b"wrong-aad").is_err());
    }
 }

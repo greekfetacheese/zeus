@@ -11,14 +11,17 @@ use std::{
 
 use crate::{
    core::{
-      DecodedEvent, ShieldParams, TransactionAnalysis, TransactionRich, TxParams, ZeusContext,
-      ZeusCtx, data_dir, send_transaction, send_tx,
+      DecodedEvent, ShieldParams, TransactionAnalysis, TransactionRich, TxParams, WalletStateKey,
+      ZeusContext, ZeusCtx, bundler_url_dir, send_transaction, send_tx,
    },
    utils::{TimeStamp, simulate::simulate_transaction},
 };
 use crate::{
    gui::ui::{NotificationType, common::show_with_fade},
-   utils::{RT, write_private, estimate_tx_cost, simulate::railgun_common_accounts, state::get_base_fee},
+   utils::{
+      RT, estimate_tx_cost, simulate::railgun_common_accounts, state::get_base_fee,
+      write_private_atomic,
+   },
 };
 
 use crate::assets::icons::Icons;
@@ -54,7 +57,8 @@ use super::unshield::{default_bundler_url, unshield};
 
 const POOL_UPDATE_TIMEOUT: u64 = 60;
 
-const BUNDLER_URL_FILE: &str = "bundler_url.json";
+/// Bound ciphertext to this logical slot (AAD).
+const BUNDLER_URL_AAD: &[u8] = b"zeus-bundler-url-v1";
 
 const SELF_BROADCAST_TIP: &str = "Submits the unshield from your public wallet. Breaks anonymity only use if private broadcast is unavailable.";
 const UNWRAP_TO_ETH_TIP: &str =
@@ -78,22 +82,23 @@ impl BundlerUrl {
       Self { url }
    }
 
-   pub fn save(&self) -> Result<(), anyhow::Error> {
-      let dir = data_dir()?;
-      let file = dir.join(BUNDLER_URL_FILE);
-      let data = serde_json::to_string(&self)?;
-      write_private(&file, data.as_bytes())?;
-
+   pub fn save(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      let sealed = key.seal_json(self, BUNDLER_URL_AAD)?;
+      write_private_atomic(&Self::dir()?, &sealed)?;
       Ok(())
    }
 
-   pub fn load() -> Result<Self, anyhow::Error> {
-      let dir = data_dir()?;
-      let file = dir.join(BUNDLER_URL_FILE);
-      let data = std::fs::read_to_string(file)?;
-      let url = serde_json::from_str(&data)?;
+   pub fn load(key: &WalletStateKey) -> Result<Self, anyhow::Error> {
+      let sealed = std::fs::read(Self::dir()?)?;
+      key.open_json(&sealed, BUNDLER_URL_AAD)
+   }
 
-      Ok(url)
+   pub fn dir() -> Result<std::path::PathBuf, anyhow::Error> {
+      bundler_url_dir()
+   }
+
+   pub fn exists() -> Result<bool, anyhow::Error> {
+      Ok(Self::dir()?.exists())
    }
 }
 
@@ -143,7 +148,6 @@ pub struct ShieldUi {
 
 impl ShieldUi {
    pub fn new() -> Self {
-      let bundler_url = BundlerUrl::load().unwrap_or_default();
       Self {
          open: false,
          mode: RailgunMode::Shield,
@@ -159,7 +163,7 @@ impl ShieldUi {
          last_price_update: HashMap::new(),
          self_broadcast: false,
          unwrap_to_eth: false,
-         bundler_url: bundler_url.url,
+         bundler_url: BundlerUrl::default().url,
          open_merge_notes: false,
          open_broadcast_options: false,
       }
@@ -176,8 +180,14 @@ impl ShieldUi {
 
    pub fn close(&mut self) {
       let currency = self.currency.clone();
+      let bundler_url = self.bundler_url.clone();
       *self = Self::new();
       self.currency = currency;
+      self.bundler_url = bundler_url;
+   }
+
+   pub fn set_bundler_url(&mut self, url: String) {
+      self.bundler_url = url;
    }
 
    pub fn set_mode(&mut self, mode: RailgunMode) {
@@ -582,8 +592,7 @@ impl ShieldUi {
                      if res.changed() {
                         let bundler_url = self.bundler_url.clone();
                         RT.spawn_blocking(move || {
-                           let url = BundlerUrl::new(bundler_url);
-                           url.save().unwrap();
+                           persist_bundler_url(BundlerUrl::new(bundler_url));
                         });
                      }
                   });
@@ -596,7 +605,7 @@ impl ShieldUi {
                      self.bundler_url = default_bundler_url(chain_id);
                      let url = BundlerUrl::new(self.bundler_url.clone());
                      RT.spawn_blocking(move || {
-                        url.save().unwrap();
+                        persist_bundler_url(url);
                      });
                   }
                });
@@ -1383,4 +1392,33 @@ async fn shield(
    });
 
    Ok(())
+}
+
+fn persist_bundler_url(url: BundlerUrl) {
+   let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+   let key = match ctx.read_vault(|vault| vault.wallet_state_key()) {
+      Ok(k) => k,
+      Err(e) => {
+         error!("Error saving Bundler URL: {:?}", e);
+         return;
+      }
+   };
+   if let Err(e) = url.save(&key) {
+      error!("Error saving Bundler URL: {:?}", e);
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn test_bundler_url_seal_open_roundtrip() {
+      let key = WalletStateKey::generate().unwrap();
+      let url = BundlerUrl::new("https://example.invalid/rpc".into());
+      let sealed = key.seal_json(&url, BUNDLER_URL_AAD).unwrap();
+      let loaded: BundlerUrl = key.open_json(&sealed, BUNDLER_URL_AAD).unwrap();
+      assert_eq!(loaded.url, url.url);
+      assert!(key.open_json::<BundlerUrl>(&sealed, b"wrong-aad").is_err());
+   }
 }

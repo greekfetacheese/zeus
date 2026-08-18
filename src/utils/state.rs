@@ -93,6 +93,7 @@ pub async fn sync_state(ctx: ZeusCtx, chain: u64) {
          "No RPCs available for chain {}, skipping state sync",
          chain
       );
+      ctx.set_chain_syncing(chain, false);
       return;
    }
 

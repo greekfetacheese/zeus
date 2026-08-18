@@ -4,6 +4,7 @@
 
 use crate::core::{M_COST, Vault, ZeusContext};
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::utils::RT;
 use eframe::egui::{Align2, FontId, Margin, RichText, Ui, Window, vec2};
 use ncrypt_me::{Argon2, Credentials, zeroize::Zeroize};
@@ -182,6 +183,24 @@ impl UnlockVault {
                ctx.set_vault(vault);
                ctx.set_wallet_state(wallet_state);
                ctx.build_wallet_info_cache();
+               ctx.load_currency_db();
+               ctx.load_pool_manager();
+               ctx.load_zeus_client();
+
+               let bundler_url = match BundlerUrl::exists() {
+                  Ok(true) => match BundlerUrl::load(&key) {
+                     Ok(url) => Some(url.url),
+                     Err(e) => {
+                        tracing::error!("Error loading Bundler URL: {:?}", e);
+                        None
+                     }
+                  },
+                  Ok(false) => None,
+                  Err(e) => {
+                     tracing::error!("Error checking Bundler URL: {:?}", e);
+                     None
+                  }
+               };
 
                // Persist key
                if key_generated || migrated {
@@ -196,6 +215,9 @@ impl UnlockVault {
                   gui.settings.encryption.set_argon2(info.argon2.clone());
                   gui.header.open();
                   gui.header.set_current_wallet(master_wallet.clone());
+                  if let Some(url) = bundler_url {
+                     gui.shield_ui.set_bundler_url(url);
+                  }
                });
 
                ctx.write(|ctx| {

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 use tokio::{sync::Semaphore, task::JoinHandle};
@@ -10,9 +10,9 @@ use zeus_eth::abi::zeus::ZeusStateViewV3::PoolsState;
 use zeus_eth::alloy_primitives::FixedBytes;
 use zeus_eth::amm::uniswap::UniswapV4Pool;
 
-use crate::core::{ZeusCtx, context::pool_data_dir, serde_hashmap};
+use crate::core::{WalletStateKey, ZeusCtx, context::pool_data_dir, serde_hashmap};
 use crate::embedded::POOL_DATA;
-use crate::utils::{RT, write_private};
+use crate::utils::{RT, TimeStamp, write_private_atomic};
 use zeus_eth::{
    abi::zeus::ZeusStateViewV3::{V3Pool, V4Pool},
    alloy_primitives::{Address, B256},
@@ -35,6 +35,9 @@ use anyhow::anyhow;
 
 #[cfg(feature = "dev")]
 use tracing::debug;
+
+/// Bound ciphertext to this logical slot (AAD).
+const POOL_DATA_AAD: &[u8] = b"zeus-pool-data-v1";
 
 // Timeout for pool discovery in seconds (10 minutes)
 const POOL_DISCOVERY_TIMEOUT: u64 = 600;
@@ -89,18 +92,24 @@ impl PoolManagerHandle {
       self.read(|manager| serde_json::to_string(manager))
    }
 
-   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+   pub fn load_from_file(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
       let dir = pool_data_dir()?;
-      let data = std::fs::read(dir)?;
-      let manager = serde_json::from_slice(&data)?;
-      Ok(Self(Arc::new(RwLock::new(manager))))
+      let sealed = std::fs::read(dir)?;
+      let manager: PoolManager = key.open_json(&sealed, POOL_DATA_AAD)?;
+      self.write(|m| *m = manager);
+      Ok(())
    }
 
-   pub fn save_to_file(&self) -> Result<(), anyhow::Error> {
-      let data = self.to_string()?;
+   pub fn save_to_file(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      let (manager, key) = self.read(|manager| (manager.clone(), key.clone()));
+      let sealed = key.seal_json(&manager, POOL_DATA_AAD)?;
       let dir = pool_data_dir()?;
-      write_private(&dir, data.as_bytes())?;
+      write_private_atomic(&dir, &sealed)?;
       Ok(())
+   }
+
+   pub fn exists() -> Result<bool, anyhow::Error> {
+      Ok(pool_data_dir()?.exists())
    }
 
    pub fn reset_default_settings(&self) {
@@ -387,11 +396,11 @@ impl PoolManagerHandle {
       self.write(|manager| manager.add_v4_pool_last_discover(chain, dex))
    }
 
-   fn get_last_discover(&self, chain: u64, token_a: Address, token_b: Address) -> Option<Instant> {
+   fn get_last_discover(&self, chain: u64, token_a: Address, token_b: Address) -> Option<u64> {
       self.read(|manager| manager.get_last_discover_time(chain, token_a, token_b))
    }
 
-   fn get_v4_pool_last_discover(&self, chain: u64, dex: DexKind) -> Option<Instant> {
+   fn get_v4_pool_last_discover(&self, chain: u64, dex: DexKind) -> Option<u64> {
       self.read(|manager| manager.get_v4_pool_last_discover_time(chain, dex))
    }
 
@@ -404,29 +413,29 @@ impl PoolManagerHandle {
    }
 
    fn should_discover_pools(&self, chain: u64, token_a: Address, token_b: Address) -> bool {
-      let now = Instant::now();
       let last_discover = self.get_last_discover(chain, token_a, token_b);
       if last_discover.is_none() {
          return true;
       }
 
       let last_discover = last_discover.unwrap();
-      let timeout = Duration::from_secs(POOL_DISCOVERY_TIMEOUT);
-      let time_passed = now.duration_since(last_discover);
-      time_passed > timeout
+      let now = TimeStamp::now_as_secs().unwrap_or_default();
+      let passed = now.timestamp().saturating_sub(last_discover);
+
+      passed > POOL_DISCOVERY_TIMEOUT
    }
 
    fn should_discover_v4_pools(&self, chain: u64, dex: DexKind) -> bool {
-      let now = Instant::now();
       let last_discover = self.get_v4_pool_last_discover(chain, dex);
       if last_discover.is_none() {
          return true;
       }
 
       let last_discover = last_discover.unwrap();
-      let timeout = Duration::from_secs(POOL_DISCOVERY_TIMEOUT);
-      let time_passed = now.duration_since(last_discover);
-      time_passed > timeout
+      let now = TimeStamp::now_as_secs().unwrap_or_default();
+      let passed = now.timestamp().saturating_sub(last_discover);
+
+      passed > POOL_DISCOVERY_TIMEOUT
    }
 
    /// Discover all the possible V2/V3/V4 pools for the given tokens
@@ -480,6 +489,11 @@ impl PoolManagerHandle {
 
                let should_discover =
                   manager.should_discover_pools(chain, base_token.address, token.address);
+
+               info!(
+                  "Should discover {} for {} {}-{}",
+                  should_discover, chain, base_token.symbol, token.symbol
+               );
 
                #[cfg(feature = "dev")]
                debug!(
@@ -770,10 +784,11 @@ impl PoolManagerHandle {
    }
 }
 
-/// Key: (chain_id, tokenA, tokenB)
-type LastDiscovery = HashMap<(u64, Address, Address), Instant>;
+/// Key: (chain_id, tokenA, tokenB) -> Value: UNIX timestamp in secs
+type LastDiscovery = HashMap<(u64, Address, Address), u64>;
 
-type V4PoolLastDiscovery = HashMap<(u64, DexKind), Instant>;
+/// Key: (chain_id, dex_kind) -> Value: UNIX timestamp in secs
+type V4PoolLastDiscovery = HashMap<(u64, DexKind), u64>;
 
 /// Key: (chain_id, dex_kind, fee, tokenA, tokenB) -> Value: Pool
 type Pools = HashMap<(u64, DexKind, u32, Currency, Currency), AnyUniswapPool>;
@@ -815,11 +830,11 @@ pub struct PoolManager {
    pub pools: Pools,
 
    /// Last time we requested to discover new pools for a token pair
-   #[serde(skip)]
+   #[serde(default, with = "serde_hashmap")]
    pub last_discover: LastDiscovery,
 
    /// V4 Pools are discovered by using the `eth_get_logs` method so they get a different map
-   #[serde(skip)]
+   #[serde(default, with = "serde_hashmap")]
    pub v4_pool_last_discover: V4PoolLastDiscovery,
 
    #[serde(with = "serde_hashmap")]
@@ -846,7 +861,24 @@ pub struct PoolManager {
 
 impl Default for PoolManager {
    fn default() -> Self {
-      let manager: PoolManager = serde_json::from_str(POOL_DATA).unwrap();
+      let manager: PoolManager = match serde_json::from_str(POOL_DATA) {
+         Ok(manager) => manager,
+         Err(e) => {
+            tracing::error!("Failed to parse pool data: {e}");
+            PoolManager {
+               pools: HashMap::new(),
+               last_discover: HashMap::new(),
+               v4_pool_last_discover: HashMap::new(),
+               checkpoints: HashMap::new(),
+               concurrency: default_concurrency(),
+               batch_size_for_updating_pool_state: default_batch_size_for_updating_pool_state(),
+               batch_size_for_discovering_pools: default_batch_size_for_discovering_pools(),
+               discover_v4_pools: default_discover_v4_pools(),
+               ignore_chains: default_ignore_chains(),
+            }
+         }
+      };
+
       Self {
          pools: manager.pools,
          last_discover: HashMap::new(),
@@ -864,12 +896,14 @@ impl Default for PoolManager {
 impl PoolManager {
    fn add_last_discover(&mut self, chain: u64, token_a: Address, token_b: Address) {
       let key = (chain, token_a, token_b);
-      self.last_discover.insert(key, Instant::now());
+      let now = TimeStamp::now_as_secs().unwrap_or_default();
+      self.last_discover.insert(key, now.timestamp());
    }
 
    fn add_v4_pool_last_discover(&mut self, chain: u64, dex: DexKind) {
       let key = (chain, dex);
-      self.v4_pool_last_discover.insert(key, Instant::now());
+      let now = TimeStamp::now_as_secs().unwrap_or_default();
+      self.v4_pool_last_discover.insert(key, now.timestamp());
    }
 
    fn add_checkpoint(&mut self, chain: u64, dex: DexKind, checkpoint: Checkpoint) {
@@ -887,18 +921,13 @@ impl PoolManager {
       self.checkpoints.get(&key).cloned()
    }
 
-   fn get_last_discover_time(
-      &self,
-      chain: u64,
-      token_a: Address,
-      token_b: Address,
-   ) -> Option<Instant> {
+   fn get_last_discover_time(&self, chain: u64, token_a: Address, token_b: Address) -> Option<u64> {
       let time1 = self.last_discover.get(&(chain, token_a, token_b)).cloned();
       let time2 = self.last_discover.get(&(chain, token_b, token_a)).cloned();
       time1.or(time2)
    }
 
-   fn get_v4_pool_last_discover_time(&self, chain: u64, dex: DexKind) -> Option<Instant> {
+   fn get_v4_pool_last_discover_time(&self, chain: u64, dex: DexKind) -> Option<u64> {
       self.v4_pool_last_discover.get(&(chain, dex)).cloned()
    }
 
@@ -1503,5 +1532,18 @@ mod tests {
       let json = handle.to_string().unwrap();
 
       let _desered_manager: PoolManager = serde_json::from_str(&json).unwrap();
+   }
+
+   #[test]
+   fn test_seal_open_roundtrip() {
+      let key = WalletStateKey::generate().unwrap();
+      let pool = UniswapV2Pool::weth_uni();
+      let handle = PoolManagerHandle::new(PoolManager::default());
+      handle.add_pool(pool);
+
+      let sealed = handle.read(|manager| key.seal_json(manager, POOL_DATA_AAD)).unwrap();
+      let loaded: PoolManager = key.open_json(&sealed, POOL_DATA_AAD).unwrap();
+      assert!(!loaded.pools.is_empty());
+      assert!(key.open_json::<PoolManager>(&sealed, b"wrong-aad").is_err());
    }
 }

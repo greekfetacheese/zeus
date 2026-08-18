@@ -149,6 +149,7 @@ impl ZeusApp {
                      tracing::error!("Failed to save wallet state: {:?}", e);
                   }
 
+                  ctx.save_zeus_client();
                   ctx.save_pool_manager();
                   ctx.save_currency_db();
                   ctx.save_price_manager();

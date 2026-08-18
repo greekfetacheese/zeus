@@ -18,7 +18,7 @@ use chacha20poly1305::{
 };
 use rand::RngCore;
 use secure_types::{SecureArray, Zeroize};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -102,6 +102,57 @@ impl WalletStateKey {
 
    pub fn erase(&mut self) {
       self.0.erase();
+   }
+
+   /// Serialize `value` as brotli-compressed JSON and seal it.
+   pub fn seal_json<T: Serialize>(&self, value: &T, aad: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+      let mut json =
+         serde_json::to_vec(value).map_err(|e| anyhow!("serialize sealed json: {e}"))?;
+      let mut payload = match encode_payload(&json) {
+         Ok(p) => p,
+         Err(e) => {
+            json.zeroize();
+            return Err(e);
+         }
+      };
+      json.zeroize();
+
+      let sealed = match self.seal(&payload, aad) {
+         Ok(s) => s,
+         Err(e) => {
+            payload.zeroize();
+            return Err(e);
+         }
+      };
+      payload.zeroize();
+      Ok(sealed)
+   }
+
+   /// Open a blob produced by [`Self::seal_json`].
+   pub fn open_json<T: DeserializeOwned>(
+      &self,
+      sealed: &[u8],
+      aad: &[u8],
+   ) -> Result<T, anyhow::Error> {
+      let mut plain = self.open(sealed, aad)?;
+      let mut json = match decode_payload(&plain) {
+         Ok(j) => j,
+         Err(e) => {
+            plain.zeroize();
+            return Err(e);
+         }
+      };
+      plain.zeroize();
+
+      let value = match serde_json::from_slice(&json) {
+         Ok(v) => v,
+         Err(e) => {
+            json.zeroize();
+            return Err(anyhow!("parse sealed json: {e}"));
+         }
+      };
+      json.zeroize();
+      Ok(value)
    }
 }
 
@@ -208,25 +259,7 @@ impl WalletState {
 
    /// Encrypt and write `wallet_state.data` (atomic replace).
    pub fn encrypt_and_save(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
-      let mut json = self.read(|ws| serde_json::to_vec(ws))?;
-      let mut payload = match encode_payload(&json) {
-         Ok(p) => p,
-         Err(e) => {
-            json.zeroize();
-            return Err(e);
-         }
-      };
-      json.zeroize();
-
-      let sealed = match key.seal(&payload, WALLET_STATE_AAD) {
-         Ok(s) => s,
-         Err(e) => {
-            payload.zeroize();
-            return Err(e);
-         }
-      };
-      payload.zeroize();
-
+      let sealed = self.read(|ws| key.seal_json(ws, WALLET_STATE_AAD))?;
       let path = Self::dir()?;
       write_private_atomic(&path, &sealed)?;
       Ok(())
@@ -236,24 +269,7 @@ impl WalletState {
    pub fn load(key: &WalletStateKey) -> Result<Self, anyhow::Error> {
       let path = Self::dir()?;
       let sealed = std::fs::read(&path).map_err(|e| anyhow!("read {}: {e}", path.display()))?;
-      let mut plain = key.open(&sealed, WALLET_STATE_AAD)?;
-      let mut json = match decode_payload(&plain) {
-         Ok(j) => j,
-         Err(e) => {
-            plain.zeroize();
-            return Err(e);
-         }
-      };
-      plain.zeroize();
-
-      let inner: WalletStateInner = match serde_json::from_slice(&json) {
-         Ok(inner) => inner,
-         Err(e) => {
-            json.zeroize();
-            return Err(anyhow!("parse wallet state: {e}"));
-         }
-      };
-      json.zeroize();
+      let inner: WalletStateInner = key.open_json(&sealed, WALLET_STATE_AAD)?;
       Ok(Self::new(inner))
    }
 
@@ -333,6 +349,16 @@ mod tests {
       let sealed = key.seal(pt, WALLET_STATE_AAD).unwrap();
       assert_ne!(&sealed[NONCE_LEN..], pt);
       assert_eq!(key.open(&sealed, WALLET_STATE_AAD).unwrap(), pt);
+   }
+
+   #[test]
+   fn seal_json_rejects_wrong_aad() {
+      let key = WalletStateKey::generate().unwrap();
+      let inner = WalletStateInner::default();
+      let sealed = key.seal_json(&inner, WALLET_STATE_AAD).unwrap();
+      let loaded: WalletStateInner = key.open_json(&sealed, WALLET_STATE_AAD).unwrap();
+      assert!(loaded.contacts.is_empty());
+      assert!(key.open_json::<WalletStateInner>(&sealed, b"wrong-aad").is_err());
    }
 
    #[test]

@@ -1,5 +1,5 @@
-use crate::core::{ZeusCtx, context::data_dir};
-use crate::utils::{RT, write_private, TimeStamp};
+use crate::core::{WalletStateKey, ZeusCtx, context::data_dir};
+use crate::utils::{RT, TimeStamp, write_private_atomic};
 use zeus_eth::{
    abi::{
       weth9,
@@ -26,7 +26,10 @@ use std::{
 use std::time::Instant;
 use tokio::{sync::Semaphore, time::sleep};
 
-const PROVIDER_DATA_FILE: &str = "providers.json";
+const PROVIDER_DATA_FILE: &str = "providers.data";
+
+/// Bound ciphertext to this logical slot (AAD).
+const PROVIDER_AAD: &[u8] = b"zeus-providers-v1";
 
 pub const CLIENT_SELECTION_TIMEOUT: u64 = 1;
 
@@ -258,12 +261,9 @@ impl Rpc {
    }
 
    pub fn should_run_check(&self) -> bool {
-      let now = std::time::SystemTime::now()
-         .duration_since(std::time::UNIX_EPOCH)
-         .unwrap()
-         .as_secs();
+      let now = TimeStamp::now_as_secs().unwrap_or_default();
       if let Some(last_check) = self.check.last_check {
-         let passed = now - last_check;
+         let passed = now.timestamp().saturating_sub(last_check);
          passed > THREE_DAYS
       } else {
          true
@@ -459,21 +459,26 @@ impl ZeusClient {
       writer(&mut self.rpcs.write().unwrap())
    }
 
-   pub fn load_from_file() -> Result<Self, anyhow::Error> {
-      let dir = data_dir()?.join(PROVIDER_DATA_FILE);
-      let data = std::fs::read(&dir)?;
-      let rpcs: HashMap<u64, RpcMapByUrl> = serde_json::from_slice(&data)?;
-      Ok(Self {
-         rpcs: Arc::new(RwLock::new(rpcs)),
-      })
+   pub fn load_from_file(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      let dir = Self::dir()?;
+      let sealed = std::fs::read(&dir)?;
+      let rpcs: HashMap<u64, RpcMapByUrl> = key.open_json(&sealed, PROVIDER_AAD)?;
+      self.write(|map| *map = rpcs);
+      Ok(())
    }
 
-   pub fn save_to_file(&self) -> Result<(), anyhow::Error> {
-      let rpcs = self.read(|rpcs| rpcs.clone());
-      let data = serde_json::to_vec(&rpcs)?;
-      let dir = data_dir()?.join(PROVIDER_DATA_FILE);
-      write_private(&dir, &data)?;
+   pub fn save_to_file(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      let sealed = self.read(|rpcs| key.seal_json(rpcs, PROVIDER_AAD))?;
+      write_private_atomic(&Self::dir()?, &sealed)?;
       Ok(())
+   }
+
+   pub fn dir() -> Result<std::path::PathBuf, anyhow::Error> {
+      Ok(data_dir()?.join(PROVIDER_DATA_FILE))
+   }
+
+   pub fn exists() -> Result<bool, anyhow::Error> {
+      Ok(Self::dir()?.exists())
    }
 
    pub fn get_rpcs(&self, chain: u64) -> RpcMapByUrl {
@@ -1517,5 +1522,15 @@ mod tests {
 
       let elapsed = time.elapsed();
       println!("Time: {}secs", elapsed.as_secs_f32());
+   }
+
+   #[test]
+   fn test_seal_open_roundtrip() {
+      let key = WalletStateKey::generate().unwrap();
+      let client = ZeusClient::default();
+      let sealed = client.read(|rpcs| key.seal_json(rpcs, PROVIDER_AAD)).unwrap();
+      let loaded: HashMap<u64, RpcMapByUrl> = key.open_json(&sealed, PROVIDER_AAD).unwrap();
+      assert!(!loaded.is_empty());
+      assert!(key.open_json::<HashMap<u64, RpcMapByUrl>>(&sealed, b"wrong-aad").is_err());
    }
 }

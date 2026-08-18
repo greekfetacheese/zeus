@@ -34,7 +34,8 @@ use zeus_railgun::{RailgunAddress, RailgunProvider, RailgunSigner, SnapshotLoade
 
 const SERVER_PORT_FILE: &str = "server_port.json";
 const THEME_FILE: &str = "theme.json";
-const POOL_DATA_FILE: &str = "pool_data.json";
+const POOL_DATA_FILE: &str = "pool_data.data";
+const BUNDLER_URL_FILE: &str = "bundler_url.data";
 const DISABLED_CHAINS_FILE: &str = "disabled_chains.json";
 pub const RAILGUN_CONFIG_FILE: &str = "railgun_config.json";
 
@@ -118,6 +119,11 @@ pub fn pool_data_dir() -> Result<PathBuf, anyhow::Error> {
    Ok(dir)
 }
 
+/// Sealed bundler URL file
+pub fn bundler_url_dir() -> Result<PathBuf, anyhow::Error> {
+   Ok(data_dir()?.join(BUNDLER_URL_FILE))
+}
+
 /// Thread-safe handle to the [ZeusContext]
 #[derive(Clone)]
 pub struct ZeusCtx(Arc<RwLock<ZeusContext>>);
@@ -190,7 +196,7 @@ impl ZeusCtx {
       });
    }
 
-   /// If pool_data.json has been deleted, we need to re-sync the pools
+   /// If pool_data.data has been deleted, we need to re-sync the pools
    pub fn pools_need_resync(&self) -> bool {
       match pool_data_dir() {
          Ok(dir) => !dir.exists(),
@@ -842,26 +848,131 @@ impl ZeusCtx {
    }
 
    pub fn save_currency_db(&self) {
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error saving CurrencyDB: {:?}", e);
+            return;
+         }
+      };
       let db = self.read(|ctx| ctx.currency_db.clone());
-      match db.save() {
+      match db.save(&key) {
          Ok(_) => tracing::trace!("CurrencyDB saved"),
          Err(e) => tracing::error!("Error saving CurrencyDB: {:?}", e),
       }
    }
 
+   /// Load sealed `tokens.data` into the live context (no-op if the file is missing).
+   pub fn load_currency_db(&self) {
+      match CurrencyDB::exists() {
+         Ok(true) => {}
+         Ok(false) => {
+            tracing::warn!("Token data file missing, skipping load");
+            return;
+         },
+         Err(e) => {
+            tracing::error!("Error checking CurrencyDB: {:?}", e);
+            return;
+         }
+      }
+
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error loading CurrencyDB: {:?}", e);
+            return;
+         }
+      };
+
+      match CurrencyDB::load_from_file(&key) {
+         Ok(db) => self.write(|ctx| ctx.currency_db = db),
+         Err(e) => tracing::error!("Error loading CurrencyDB: {:?}", e),
+      }
+   }
+
    pub fn save_zeus_client(&self) {
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error saving ZeusClient: {:?}", e);
+            return;
+         }
+      };
       let client = self.get_zeus_client();
-      match client.save_to_file() {
+      match client.save_to_file(&key) {
          Ok(_) => tracing::trace!("ZeusClient saved"),
          Err(e) => tracing::error!("Error saving ZeusClient: {:?}", e),
       }
    }
 
+   /// Load sealed `providers.data` into the live client (no-op if the file is missing).
+   pub fn load_zeus_client(&self) {
+      match ZeusClient::exists() {
+         Ok(true) => {}
+         Ok(false) => {
+            tracing::warn!("ZeusClient file missing, skipping load");
+            return;
+         },
+         Err(e) => {
+            tracing::error!("Error checking ZeusClient: {:?}", e);
+            return;
+         }
+      }
+
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error loading ZeusClient: {:?}", e);
+            return;
+         }
+      };
+
+      let client = self.get_zeus_client();
+      if let Err(e) = client.load_from_file(&key) {
+         tracing::error!("Error loading ZeusClient: {:?}", e);
+      }
+   }
+
    pub fn save_pool_manager(&self) {
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error saving Pool Manager: {:?}", e);
+            return;
+         }
+      };
       let manager = self.pool_manager();
-      match manager.save_to_file() {
+      match manager.save_to_file(&key) {
          Ok(_) => {}
          Err(e) => tracing::error!("Error saving Pool Manager: {:?}", e),
+      }
+   }
+
+   /// Load sealed `pool_data.data` into the live handle (no-op if the file is missing).
+   pub fn load_pool_manager(&self) {
+      match PoolManagerHandle::exists() {
+         Ok(true) => {}
+         Ok(false) => {
+            tracing::warn!("Pool Manager file missing, skipping load");
+            return;
+         },
+         Err(e) => {
+            tracing::error!("Error checking Pool Manager: {:?}", e);
+            return;
+         }
+      }
+
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error loading Pool Manager: {:?}", e);
+            return;
+         }
+      };
+
+      let manager = self.pool_manager();
+      if let Err(e) = manager.load_from_file(&key) {
+         tracing::error!("Error loading Pool Manager: {:?}", e);
       }
    }
 
@@ -1739,6 +1850,10 @@ fn tighten_existing_secret_files() {
    let paths = [
       Vault::dir().ok(),
       WalletState::dir().ok(),
+      CurrencyDB::dir().ok(),
+      pool_data_dir().ok(),
+      ZeusClient::dir().ok(),
+      bundler_url_dir().ok(),
       data_dir().ok().map(|dir| dir.join(crate::connector::SESSION_FILE)),
    ];
 
@@ -1756,34 +1871,13 @@ impl ZeusContext {
    pub fn new() -> Self {
       tighten_existing_secret_files();
 
-      let client = match ZeusClient::load_from_file() {
-         Ok(client) => client,
-         Err(e) => {
-            tracing::error!("Error loading client: {:?}", e);
-            ZeusClient::default()
-         }
-      };
+      let client = ZeusClient::default();
 
-      let currency_db = match CurrencyDB::load_from_file() {
-         Ok(db) => db,
-         Err(e) => {
-            tracing::error!("Failed to load currencies, {:?}", e);
-            CurrencyDB::default()
-         }
-      };
+      let currency_db = CurrencyDB::default();
 
       let vault_exists = Vault::exists().is_ok_and(|p| p);
 
-      let pool_manager = match PoolManagerHandle::load_from_file() {
-         Ok(manager) => manager,
-         Err(e) => {
-            tracing::error!(
-               "Failed to load pool manager, falling back to default: {:?}",
-               e
-            );
-            PoolManagerHandle::default()
-         }
-      };
+      let pool_manager = PoolManagerHandle::default();
 
       let price_manager = match PriceManagerHandle::load_from_file() {
          Ok(manager) => manager,
