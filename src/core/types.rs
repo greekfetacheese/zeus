@@ -436,6 +436,13 @@ impl RailgunStatus {
       self.railgun_sync_error.get(&chain).cloned()
    }
 
+   pub fn is_error_invalid_root(&self, chain: u64) -> bool {
+      if let Some(error) = self.sync_error(chain) {
+         return error.contains("Invalid root");
+      }
+      false
+   }
+
    pub fn set_synced(&mut self, chain: u64, synced: bool) {
       self.railgun_synced.insert(chain, synced);
    }

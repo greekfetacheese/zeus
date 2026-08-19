@@ -574,7 +574,7 @@ impl ZeusClient {
          }
 
          let rpcs = self.get_rpcs(chain);
-         let sempahore = Arc::new(Semaphore::new(5));
+         let sempahore = Arc::new(Semaphore::new(2));
 
          for (_url, rpc) in rpcs {
             if !rpc.is_enabled() {
@@ -637,7 +637,7 @@ impl ZeusClient {
          }
 
          let rpcs = self.get_rpcs(chain);
-         let semaphore = Arc::new(Semaphore::new(5));
+         let semaphore = Arc::new(Semaphore::new(2));
 
          for (_url, rpc) in rpcs {
             if !rpc.is_enabled() {

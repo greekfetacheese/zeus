@@ -490,11 +490,6 @@ impl PoolManagerHandle {
                let should_discover =
                   manager.should_discover_pools(chain, base_token.address, token.address);
 
-               info!(
-                  "Should discover {} for {} {}-{}",
-                  should_discover, chain, base_token.symbol, token.symbol
-               );
-
                #[cfg(feature = "dev")]
                debug!(
                   "Should discover {} for {} {}-{}",

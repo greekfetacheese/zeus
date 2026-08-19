@@ -541,7 +541,7 @@ fn unshield_event_ui(
       if let (Some(bf_fee), Some(bf_fee_usd), Some(token)) = (
          params.broadcaster_fee.as_ref(),
          params.broadcaster_fee_usd.as_ref(),
-         params.erc20.as_ref(),
+         params.fee_token.as_ref(),
       ) {
          ui.horizontal(|ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {

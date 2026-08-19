@@ -101,6 +101,7 @@ pub async fn unshield(
          "Current wallet cannot derive a Railgun address (imported wallets without seedphrease are not supported)"
       ));
    }
+
    let seed = wallet.seed()?;
    let railgun_signer = RailgunSigner::from_seed(&seed, 0, chain.id())?;
 
@@ -109,7 +110,9 @@ pub async fn unshield(
       gui.request_repaint();
    });
 
-   ctx.sync_railgun(chain.id(), false).await?;
+   if let Err(e) = ctx.sync_railgun(chain.id(), false).await {
+      error!("Error syncing Railgun: {:?}", e);
+   }
 
    let token = currency.to_erc20().into_owned();
    let asset = AssetId::Erc20(token.address);
@@ -981,22 +984,26 @@ async fn unshield_via_paymaster(
    // the recipient receives. It is a separate private transfer to the paymaster's 0zk,
    // funded from the user's private notes alongside the unshield spend.
    if let Some(pm_data) = signed.user_op.paymaster_data.as_ref() {
-      match decode_fee_from_paymaster_data(pm_data.as_ref()) {
-         Ok((fee_asset, fee_wei)) => {
-            let fee_token = ctx.get_token(chain.id(), fee_asset).await.unwrap_or_else(|_| {
-               let mut t = ERC20Token::wrapped_native_token(chain.id());
-               t.address = fee_asset;
-               t
-            });
-            let fee_amt = NumericValue::format_wei(U256::from(fee_wei), fee_token.decimals);
-            let fee_usd = ctx.get_token_value_for_amount(fee_amt.f64(), &fee_token);
-            unshield_params.broadcaster_fee = Some(fee_amt);
-            unshield_params.broadcaster_fee_usd = Some(fee_usd);
-         }
+      let (fee_asset, fee_wei) = match decode_fee_from_paymaster_data(pm_data.as_ref()) {
+         Ok((fee_asset, fee_wei)) => (fee_asset, fee_wei),
          Err(e) => {
-            error!("Failed to decode paymaster fee from paymaster_data: {e}");
+            return Err(anyhow!("Failed to decode paymaster data: {e}"));
          }
+      };
+
+      if fee_asset != fee_token.address {
+         return Err(anyhow!(
+            "Fee token mismatch: paymaster fee asset {} != fee token {}",
+            fee_asset,
+            fee_token.address
+         ));
       }
+
+      let fee_amt = NumericValue::format_wei(U256::from(fee_wei), fee_token.decimals);
+      let fee_usd = ctx.get_token_value_for_amount(fee_amt.f64(), &fee_token);
+      unshield_params.fee_token = Some(fee_token);
+      unshield_params.broadcaster_fee = Some(fee_amt);
+      unshield_params.broadcaster_fee_usd = Some(fee_usd);
    }
 
    let eth_balance_before = eth_balance_before_fut.await?;
@@ -1026,6 +1033,14 @@ async fn unshield_via_paymaster(
 
    let main_event = DecodedEvent::Unshield(unshield_params.clone());
    tx_analysis.set_main_event(main_event);
+
+   // Replace the decoded unshield with the main so it can also show
+   // the broadcaster fee
+   for event in &mut tx_analysis.decoded_events {
+      if let DecodedEvent::Unshield(params) = event {
+         *params = unshield_params.clone();
+      }
+   }
 
    // This tx is sponsored so the priority fee doesnt matter here
    let priority_fee = NumericValue::default();
@@ -1101,10 +1116,21 @@ async fn unshield_via_paymaster(
    let logs = receipt.logs.clone();
    let logs = logs.iter().map(|l| l.clone().into_inner()).collect::<Vec<_>>();
    let timestamp = TimeStamp::now_as_secs()?;
+   let block = receipt.receipt.block_number.unwrap_or(0);
+
+   let block_id = if block > 0 {
+      BlockId::number(block)
+   } else {
+      BlockId::latest()
+   };
 
    let eth_balance_after = zeus_client
       .request(chain.id(), |client| async move {
-         client.get_balance(from).await.map_err(|e| anyhow!("{:?}", e))
+         client
+            .get_balance(from)
+            .block_id(block_id)
+            .await
+            .map_err(|e| anyhow!("{:?}", e))
       })
       .await?;
 

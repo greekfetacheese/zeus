@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
 use anyhow::anyhow;
-use tracing::error;
+use tracing::{error, info};
 
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -80,7 +80,30 @@ pub async fn private_transfer(
       gui.request_repaint();
    });
 
-   ctx.sync_railgun(chain.id(), false).await?;
+   if let Err(e) = ctx.sync_railgun(chain.id(), false).await {
+      let is_invalid_root = ctx.read(|ctx| ctx.railgun_status.is_error_invalid_root(chain.id()));
+      if is_invalid_root {
+         let ctx = ctx.clone();
+         RT.spawn(async move {
+            sleep(Duration::from_secs(1)).await;
+            match ctx.resync_railgun(chain.id()).await {
+               Ok(_) => {
+                  info!(
+                     "Railgun resynced to valid root for chain {}",
+                     chain.id()
+                  );
+               }
+               Err(e) => error!("Error syncing Railgun: {:?}", e),
+            }
+         });
+
+         return Err(anyhow!(
+            "Railgun state is corrupted (Invalid root), resync has started"
+         ));
+      }
+
+      return Err(anyhow!("Error syncing Railgun: {:?}", e));
+   }
 
    let token = currency.to_erc20().into_owned();
    let asset = AssetId::Erc20(token.address);
@@ -160,7 +183,30 @@ pub async fn private_merge_notes(
       gui.request_repaint();
    });
 
-   ctx.sync_railgun(chain.id(), false).await?;
+   if let Err(e) = ctx.sync_railgun(chain.id(), false).await {
+      let is_invalid_root = ctx.read(|ctx| ctx.railgun_status.is_error_invalid_root(chain.id()));
+      if is_invalid_root {
+         let ctx = ctx.clone();
+         RT.spawn(async move {
+            sleep(Duration::from_secs(1)).await;
+            match ctx.resync_railgun(chain.id()).await {
+               Ok(_) => {
+                  info!(
+                     "Railgun resynced to valid root for chain {}",
+                     chain.id()
+                  );
+               }
+               Err(e) => error!("Error syncing Railgun: {:?}", e),
+            }
+         });
+
+         return Err(anyhow!(
+            "Railgun state is corrupted (Invalid root), resync has started"
+         ));
+      }
+
+      return Err(anyhow!("Error syncing Railgun: {:?}", e));
+   }
 
    let token = currency.to_erc20().into_owned();
    let asset = AssetId::Erc20(token.address);

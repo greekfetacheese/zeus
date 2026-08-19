@@ -979,6 +979,16 @@ async fn shield(
       ));
    }
 
+   let is_syncing = railgun_provider.is_syncing().await;
+   if is_syncing {
+      return Err(anyhow!("Railgun is syncing, try again later"));
+   }
+
+   // If railgun cannot sync error out so we dont allow shields
+   if let Err(e) = ctx.sync_railgun(chain.id(), false).await {
+      return Err(anyhow!("Railgun is not synced: {:?}", e));
+   }
+
    let z_client = ctx.get_zeus_client();
 
    let token = currency.to_erc20().into_owned();

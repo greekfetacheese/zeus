@@ -18,16 +18,16 @@ use zeus_eth::{
 use zeus_railgun::{Groth16Prover, PrefetchReport, RailgunSigner};
 
 const MALLOC_TRIM_INTERVAL: u64 = 300;
-const MEASURE_RPCS_INTERVAL: u64 = 200;
+const MEASURE_RPCS_INTERVAL: u64 = 60;
 const WALLET_STATE_INTERVAL: u64 = 600;
-const FEE_INTERVAL: u64 = 60;
+const FEE_INTERVAL: u64 = 300;
 const RAILGUN_SYNC_INTERVAL: u64 = 60;
 
 pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
    let client = ctx.get_zeus_client();
 
    let mut tasks = Vec::new();
-   let semaphore = Arc::new(Semaphore::new(5));
+   let semaphore = Arc::new(Semaphore::new(2));
 
    let time = std::time::Instant::now();
    for chain in SUPPORTED_CHAINS {
@@ -564,10 +564,8 @@ async fn state_update_interval(ctx: ZeusCtx) {
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
             for chain in SUPPORTED_CHAINS {
-               let error = ctx_clone.read(|ctx| ctx.railgun_status.sync_error(chain));
-
                // Only do a resync if we detect an invalid root error
-               let is_invalid_root = error.map(|e| e.contains("Invalid root")).unwrap_or(false);
+               let is_invalid_root = ctx_clone.read(|ctx| ctx.railgun_status.is_error_invalid_root(chain));
 
                if is_invalid_root {
                   match ctx_clone.resync_railgun(chain).await {

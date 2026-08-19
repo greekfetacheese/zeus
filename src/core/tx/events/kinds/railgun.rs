@@ -13,6 +13,10 @@ use zeus_railgun::{
    caip::AssetId,
 };
 
+fn default_fee_token() -> Option<ERC20Token> {
+   Some(ERC20Token::wrapped_native_token(1))
+}
+
 /// Decoded Railgun shield event
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShieldParams {
@@ -121,6 +125,8 @@ pub struct UnshieldParams {
    pub fee: Option<NumericValue>,
    pub fee_usd: Option<NumericValue>,
    pub is_self_broadcast: bool,
+   #[serde(default = "default_fee_token")]
+   pub fee_token: Option<ERC20Token>,
    pub broadcaster_fee: Option<NumericValue>,
    pub broadcaster_fee_usd: Option<NumericValue>,
 }
@@ -147,6 +153,7 @@ impl UnshieldParams {
                fee: Some(fee),
                fee_usd: Some(fee_usd),
                is_self_broadcast: false,
+               fee_token: None,
                broadcaster_fee: None,
                broadcaster_fee_usd: None,
             });
@@ -163,6 +170,7 @@ impl UnshieldParams {
             fee: None,
             fee_usd: None,
             is_self_broadcast: false,
+            fee_token: None,
             broadcaster_fee: None,
             broadcaster_fee_usd: None,
          });
