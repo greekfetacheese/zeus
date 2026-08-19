@@ -1113,8 +1113,17 @@ async fn unshield_via_paymaster(
       return Err(anyhow!("Unshield UserOperation failed",));
    }
 
-   let logs = receipt.logs.clone();
-   let logs = logs.iter().map(|l| l.clone().into_inner()).collect::<Vec<_>>();
+   // Prefer the included handleOps tx logs (same source self-broadcast uses).
+   // `UserOperationReceipt.logs` is bundler-filtered and can drop the Railgun
+   // Unshield emitted during paymaster validation.
+   let logs: Vec<zeus_eth::alloy_primitives::Log> = {
+      let handle_ops: Vec<_> = receipt.receipt.logs().iter().cloned().map(Into::into).collect();
+      if handle_ops.is_empty() {
+         receipt.logs.iter().map(|l| l.clone().into_inner()).collect()
+      } else {
+         handle_ops
+      }
+   };
    let timestamp = TimeStamp::now_as_secs()?;
    let block = receipt.receipt.block_number.unwrap_or(0);
 
@@ -1152,7 +1161,19 @@ async fn unshield_via_paymaster(
    )
    .await?;
 
-   let main_event = new_tx_analysis.infer_main_event(ctx.clone(), chain.id());
+   let main_event = new_tx_analysis.resolve_unshield_event(unshield_params);
+   if let DecodedEvent::Unshield(params) = &main_event {
+      let mut found = false;
+      for event in &mut new_tx_analysis.decoded_events {
+         if let DecodedEvent::Unshield(existing) = event {
+            *existing = params.clone();
+            found = true;
+         }
+      }
+      if !found {
+         new_tx_analysis.decoded_events.push(main_event.clone());
+      }
+   }
    let main_event_name = if main_event.is_known() {
       main_event.name()
    } else {

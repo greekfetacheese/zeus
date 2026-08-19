@@ -4,7 +4,7 @@
 //! composes them into a single main event for notifications, history, and confirm UI.
 
 use super::analysis::TransactionAnalysis;
-use super::events::{DecodedEvent, SwapParams, TransferParams};
+use super::events::{DecodedEvent, SwapParams, TransferParams, UnshieldParams};
 use crate::core::{ZeusCtx, types::Dapp};
 use zeus_eth::{
    alloy_primitives::U256,
@@ -84,10 +84,52 @@ impl TransactionAnalysis {
       DecodedEvent::Other
    }
 
+   /// Resolve the Unshield that matches a known Zeus-originated intent.
+   ///
+   /// Bundler `handleOps` receipts are not 1:1 with a single Railgun unshield:
+   /// UserOp-scoped logs may omit the validation-phase `Unshield` event, and the
+   /// included transaction may contain other UserOps. Ranking then returns
+   /// [`DecodedEvent::Other`]. This keeps the known intent (and broadcast fee
+   /// metadata that never appears as a public ERC-20 transfer).
+   pub fn resolve_unshield_event(&self, known: UnshieldParams) -> DecodedEvent {
+      let unshields = self.unshields();
+      let mut params = match unshields.as_slice() {
+         [] => known.clone(),
+         [only] => only.clone(),
+         many => many
+            .iter()
+            .find(|got| unshield_matches_known(got, &known))
+            .cloned()
+            .unwrap_or_else(|| known.clone()),
+      };
+
+      // Broadcast fee is a private note, not recoverable from public logs.
+      params.is_self_broadcast = known.is_self_broadcast;
+      params.fee_token = known.fee_token.clone();
+      params.broadcaster_fee = known.broadcaster_fee.clone();
+      params.broadcaster_fee_usd = known.broadcaster_fee_usd.clone();
+
+      // Unwrap-to-ETH unshields to the ephemeral SA; confirm/history show the
+      // user-selected recipient.
+      if known.recipient != params.recipient {
+         params.recipient = known.recipient;
+      }
+
+      DecodedEvent::Unshield(params)
+   }
+
    /// Stored override from [`Self::set_main_event`], if any.
    fn main_event_override(&self) -> Option<DecodedEvent> {
       self.main_event_opt().cloned()
    }
+}
+
+fn unshield_matches_known(got: &UnshieldParams, known: &UnshieldParams) -> bool {
+   let same_token = got.token_data.tokenAddress == known.token_data.tokenAddress;
+   if !same_token {
+      return false;
+   }
+   got.recipient == known.recipient || got.amount_wei == known.amount_wei
 }
 
 fn compose_native_transfer(
@@ -374,5 +416,124 @@ mod tests {
       let params = compose_single_swap(&analysis);
       assert_eq!(params.received.wei(), onchain_received.wei());
       assert_eq!(params.recipient, Some(user));
+   }
+
+   fn unshield_params(token: ERC20Token, recipient: Address, amount_wei: U256) -> UnshieldParams {
+      use zeus_railgun::abi::railgun::{TokenData, TokenType};
+
+      let amount = NumericValue::format_wei(amount_wei, token.decimals);
+      UnshieldParams {
+         chain: 1,
+         recipient,
+         token_data: TokenData {
+            tokenType: TokenType::ERC20,
+            tokenAddress: token.address,
+            tokenSubID: U256::ZERO,
+         },
+         erc20: Some(token.clone()),
+         amount_wei,
+         amount: Some(amount),
+         amount_usd: None,
+         fee: None,
+         fee_usd: None,
+         is_self_broadcast: false,
+         fee_token: Some(token),
+         broadcaster_fee: Some(NumericValue::parse_to_wei("0.001", 18)),
+         broadcaster_fee_usd: None,
+      }
+   }
+
+   /// Bundler handleOps receipts often omit Unshield or bury it among other
+   /// UserOps. Ranking then returns Other; the known intent must still win.
+   #[test]
+   fn bundler_receipt_without_unshield_uses_known_intent() {
+      let key = PrivateKeySigner::random();
+      let user = key.address();
+      let token = ERC20Token::weth();
+      let known = unshield_params(
+         token.clone(),
+         user,
+         U256::from(1_000_000_000_000_000_000u64),
+      );
+
+      let events = vec![
+         DecodedEvent::Transfer(transfer(
+            Currency::from(token.clone()),
+            NumericValue::parse_to_wei("1", 18),
+            Address::ZERO,
+            user,
+         )),
+         DecodedEvent::Transfer(transfer(
+            Currency::from(token),
+            NumericValue::parse_to_wei("0.001", 18),
+            Address::ZERO,
+            Address::ZERO,
+         )),
+      ];
+
+      let analysis = analysis(user, events);
+      assert!(analysis.infer_main_event(ZeusCtx::new(), 1).is_other());
+
+      let resolved = analysis.resolve_unshield_event(known.clone());
+      let params = resolved.unshield_params();
+      assert_eq!(params.recipient, known.recipient);
+      assert_eq!(params.amount_wei, known.amount_wei);
+      assert_eq!(
+         params.broadcaster_fee.as_ref().map(|v| v.wei()),
+         known.broadcaster_fee.as_ref().map(|v| v.wei())
+      );
+      assert!(!params.is_self_broadcast);
+   }
+
+   /// A bundled handleOps may contain another user's Unshield. Pick ours.
+   #[test]
+   fn bundler_receipt_with_multiple_unshields_picks_matching() {
+      let user = PrivateKeySigner::random().address();
+      let other = PrivateKeySigner::random().address();
+      let token = ERC20Token::weth();
+      let ours_amt = U256::from(5_000_000_000_000_000_000u64);
+      let known = unshield_params(token.clone(), user, ours_amt);
+
+      let other_unshield = unshield_params(
+         token.clone(),
+         other,
+         U256::from(1_000_000_000_000_000_000u64),
+      );
+      let our_unshield = unshield_params(token, user, ours_amt);
+
+      let analysis = analysis(
+         user,
+         vec![
+            DecodedEvent::Unshield(other_unshield),
+            DecodedEvent::Unshield(our_unshield),
+         ],
+      );
+      assert!(analysis.infer_main_event(ZeusCtx::new(), 1).is_other());
+
+      let resolved = analysis.resolve_unshield_event(known.clone());
+      let params = resolved.unshield_params();
+      assert_eq!(params.recipient, user);
+      assert_eq!(params.amount_wei, ours_amt);
+      assert_eq!(
+         params.broadcaster_fee.as_ref().map(|v| v.wei()),
+         known.broadcaster_fee.as_ref().map(|v| v.wei())
+      );
+   }
+
+   /// Unwrap-to-ETH rewrites the UX recipient; on-chain Unshield.to is the SA.
+   #[test]
+   fn bundler_unshield_keeps_ux_recipient_when_onchain_to_is_sa() {
+      let user = PrivateKeySigner::random().address();
+      let sa = PrivateKeySigner::random().address();
+      let token = ERC20Token::weth();
+      let amount = U256::from(2_000_000_000_000_000_000u64);
+
+      let known = unshield_params(token.clone(), user, amount);
+      let onchain = unshield_params(token, sa, amount);
+
+      let analysis = analysis(user, vec![DecodedEvent::Unshield(onchain)]);
+      let resolved = analysis.resolve_unshield_event(known);
+      assert_eq!(resolved.unshield_params().recipient, user);
+      assert_eq!(resolved.unshield_params().amount_wei, amount);
    }
 }
