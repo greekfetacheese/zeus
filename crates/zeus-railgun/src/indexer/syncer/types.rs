@@ -1,4 +1,4 @@
-use alloy_primitives::FixedBytes;
+use alloy_primitives::{B256, FixedBytes};
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -28,6 +28,10 @@ pub struct Shield {
    pub ciphertext: Ciphertext,
    pub shield_key: [u8; 32],
    pub hash: Option<UtxoLeafHash>,
+   #[serde(default)]
+   pub timestamp: u64,
+   #[serde(default)]
+   pub tx_hash: B256,
 }
 
 /// A single transact commitment event
@@ -40,6 +44,10 @@ pub struct Transact {
    pub blinded_sender_viewing_key: [u8; 32],
    pub blinded_receiver_viewing_key: [u8; 32],
    pub annotation_data: Vec<u8>,
+   #[serde(default)]
+   pub timestamp: u64,
+   #[serde(default)]
+   pub tx_hash: B256,
 }
 
 /// A single nullified event
@@ -47,6 +55,10 @@ pub struct Transact {
 pub struct Nullified {
    pub tree_number: u32,
    pub nullifier: FixedBytes<32>,
+   #[serde(default)]
+   pub timestamp: u64,
+   #[serde(default)]
+   pub tx_hash: B256,
 }
 
 /// Legacy ciphertext format from pre-Mar23 CommitmentBatch events.

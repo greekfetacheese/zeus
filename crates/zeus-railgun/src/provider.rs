@@ -25,7 +25,10 @@ use crate::{
    chain_config::ChainConfig,
    circuit::groth16_prover::Groth16Prover,
    database::DatabaseError,
-   indexer::utxo_indexer::{UtxoIndexer, UtxoIndexerError},
+   indexer::{
+      indexed_account::{PrivateHistoryEntry, SpentNote},
+      utxo_indexer::{UtxoIndexer, UtxoIndexerError},
+   },
    note::{Note, utxo::UtxoNote},
    poi::{
       provider::{PoiProvider, PoiProviderError},
@@ -78,6 +81,45 @@ impl NoteEntry {
          blinded_commitment: format!("0x{:064x}", note.blinded_commitment),
          commitment_type: note.commitment_type,
          memo: note.memo,
+      }
+   }
+}
+
+/// A spent UTXO note reconstructed from Railgun sync (Nullified + prior decrypt).
+#[derive(Debug, Clone, Serialize)]
+pub struct SpentNoteEntry {
+   pub asset: AssetId,
+   pub amount: u128,
+   #[serde(rename = "treeNumber")]
+   pub tree_number: u32,
+   #[serde(rename = "leafIndex")]
+   pub leaf_index: u32,
+   #[serde(rename = "blindedCommitment")]
+   pub blinded_commitment: String,
+   #[serde(rename = "commitmentType")]
+   pub commitment_type: BlindedCommitmentType,
+   pub memo: String,
+   #[serde(rename = "spentBlock")]
+   pub spent_block: u64,
+   #[serde(rename = "spentTimestamp")]
+   pub spent_timestamp: u64,
+   pub nullifier: String,
+}
+
+impl SpentNoteEntry {
+   fn from_spent(spent: SpentNote) -> Self {
+      let note = spent.note;
+      Self {
+         asset: note.asset(),
+         amount: note.value(),
+         tree_number: note.tree_number,
+         leaf_index: note.leaf_index,
+         blinded_commitment: format!("0x{:064x}", note.blinded_commitment),
+         commitment_type: note.commitment_type,
+         memo: note.memo,
+         spent_block: spent.spent_block,
+         spent_timestamp: spent.spent_timestamp,
+         nullifier: format!("0x{:064x}", note.nullifier),
       }
    }
 }
@@ -345,6 +387,26 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
          .into_iter()
          .map(|(note, poi_status)| NoteEntry::from_note(note, poi_status))
          .collect()
+   }
+
+   /// Returns notes this address has spent (nullified).
+   ///
+   /// Survives a wallet-state wipe: a full Railgun resync rebuilds this from
+   /// Shield/Transact decrypt + Nullified events.
+   pub async fn spent_notes(&self, address: RailgunAddress) -> Vec<SpentNoteEntry> {
+      self
+         .utxo_indexer
+         .read()
+         .await
+         .spent(address)
+         .into_iter()
+         .map(SpentNoteEntry::from_spent)
+         .collect()
+   }
+
+   /// Grouped private spends: input UTXOs minus change that returned to this 0zk.
+   pub async fn private_history(&self, address: RailgunAddress) -> Vec<PrivateHistoryEntry> {
+      self.utxo_indexer.read().await.private_history(address)
    }
 
    /// Returns the balance for the given address.

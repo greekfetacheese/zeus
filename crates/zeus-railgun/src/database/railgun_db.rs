@@ -60,7 +60,7 @@ pub trait RailgunDB: Database + crate::MaybeSend {
       };
 
       let crypto = require_crypto_key(self)?;
-      deserialize_versioned_sensitive(&bytes, crypto, &storage_key)
+      decode_account_state_versioned(&bytes, crypto, &storage_key)
    }
 
    async fn set_account(
@@ -555,6 +555,32 @@ fn deserialize_versioned<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T
    }
 }
 
+/// Account blobs grew a trailing `spent_notes` field. Use
+/// [`IndexedAccountState::from_bincode`] so pre-upgrade v2/v4 payloads still load.
+fn decode_account_state_versioned(
+   bytes: &[u8],
+   crypto: &RailgunDbKey,
+   aad: &[u8],
+) -> Result<IndexedAccountState, DatabaseError> {
+   if let Ok((env, _)) =
+      decode_from_slice::<BincodeEnvelope, _>(bytes, bincode_next::config::standard())
+   {
+      if env.v >= ENCRYPTED_ENVELOPE_VERSION {
+         let plain = crypto.open(&env.data, aad)?;
+         return IndexedAccountState::from_bincode(&plain).map_err(DatabaseError::StorageError);
+      }
+      if env.v >= 2 {
+         return IndexedAccountState::from_bincode(&env.data).map_err(DatabaseError::StorageError);
+      }
+   }
+
+   let env: JsonEnvelope = serde_json::from_slice(bytes)?;
+   match env.v {
+      1 => serde_json::from_value(env.data).map_err(Into::into),
+      v => Err(DatabaseError::UnsupportedVersion(v)),
+   }
+}
+
 /// Deserialize sensitive states (accounts, POI): supports plaintext v1/v2 migration + v4 sealed.
 fn deserialize_versioned_sensitive<T: for<'de> Deserialize<'de>>(
    bytes: &[u8],
@@ -741,6 +767,7 @@ mod tests {
       let legacy_state = IndexedAccountState {
          notes: vec![],
          synced_block: 42,
+         spent_notes: vec![],
       };
       let seed: [u8; 64] = rand::random();
       let sec = secure_types::SecureArray::from_slice(&seed).unwrap();
@@ -752,6 +779,7 @@ mod tests {
 
       let loaded = db.get_account(&addr).await.unwrap();
       assert_eq!(loaded.synced_block, 42);
+      assert!(loaded.spent_notes.is_empty());
 
       // Rewrite encrypted
       db.set_account(&addr, &loaded).await.unwrap();

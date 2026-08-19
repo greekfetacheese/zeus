@@ -223,6 +223,8 @@ impl From<Commitment> for syncer::SyncEvent {
                },
                shield_key: shield_key.into(),
                hash: Some(value.hash.into()),
+               timestamp: 0,
+               tx_hash: Default::default(),
             },
             value.block_number,
          ),
@@ -244,6 +246,8 @@ impl From<Commitment> for syncer::SyncEvent {
                   blinded_receiver_viewing_key: *ciphertext.blinded_receiver_viewing_key,
                   blinded_sender_viewing_key: *ciphertext.blinded_sender_viewing_key,
                   annotation_data: ciphertext.annotation_data.to_vec(),
+                  timestamp: 0,
+                  tx_hash: Default::default(),
                },
                value.block_number,
             )
@@ -258,6 +262,8 @@ impl From<Nullified> for syncer::SyncEvent {
          syncer::Nullified {
             tree_number: value.tree_number,
             nullifier: value.nullifier.into(),
+            timestamp: 0,
+            tx_hash: Default::default(),
          },
          value.block_number,
       )

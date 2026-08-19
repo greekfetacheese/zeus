@@ -22,12 +22,13 @@ pub use circuit::remote_artifact_loader::{
    RemoteArtifactLoader, all_transact_circuit_names, transact_circuit_name,
 };
 pub use database::{RailgunDbKey, RedbDatabase};
+pub use indexer::indexed_account::{PrivateHistoryEntry, PrivateHistoryKind};
 pub use indexer::{
    syncer::{RpcSyncer, UtxoSyncer, snapshot::SnapshotLoader, subsquid::syncer::SubsquidSyncer},
    utxo_indexer::UtxoIndexer,
 };
 pub use merkle_tree::RootVerifier;
-pub use provider::{BalanceEntry, NoteEntry, RailgunProvider};
+pub use provider::{BalanceEntry, NoteEntry, RailgunProvider, SpentNoteEntry};
 
 pub use rand;
 /// ChaCha RNGs aligned with this crate's `rand` 0.9 (workspace may pin a different `rand_chacha`).

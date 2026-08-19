@@ -15,11 +15,16 @@ pub use crate::gui::ui::{
    RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, TokenSelectionWindow,
    TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
    common::dots_button,
-   dapps::{across::AcrossBridge, railgun::{ShieldUi, MergeNotesWindow}, uniswap::UniswapUi},
+   dapps::{
+      across::AcrossBridge,
+      railgun::{MergeNotesWindow, ShieldUi},
+      uniswap::UniswapUi,
+   },
    dev::DevUi,
    panels::{central_panel::FPSMetrics, left_panel::ConnectedDappsUi},
    settings::RailgunSettings,
    sign_msg_window::SignMsgWindow,
+   tx::SpentNoteWindow,
    tx_history::TxHistory,
 };
 
@@ -129,6 +134,7 @@ pub struct GUI {
    pub confirm_window: ConfirmWindow,
    pub tx_confirmation_window: TxConfirmationWindow,
    pub tx_window: TxWindow,
+   pub spent_note_window: SpentNoteWindow,
    pub sign_msg_window: SignMsgWindow,
    pub fps_metrics: FPSMetrics,
    pub connected_dapps: ConnectedDappsUi,
@@ -158,6 +164,7 @@ impl GUI {
       let confirm_window = ui::common::ConfirmWindow::new(overlay_manager.clone());
       let tx_confirmation_window = TxConfirmationWindow::new(overlay_manager.clone());
       let tx_window = TxWindow::new(overlay_manager.clone());
+      let spent_note_window = SpentNoteWindow::new(overlay_manager.clone());
       let wallet_ui = ui::WalletUi::new(overlay_manager.clone());
       let approvals = ApprovalsUi::new(overlay_manager.clone());
 
@@ -205,6 +212,7 @@ impl GUI {
          confirm_window,
          tx_confirmation_window,
          tx_window,
+         spent_note_window,
          sign_msg_window,
          fps_metrics,
          connected_dapps,

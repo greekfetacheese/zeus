@@ -1,7 +1,7 @@
 use crate::core::ZeusContext;
 use crate::gui::GUI;
-use eframe::egui::{Stroke, RichText, Ui, Window, vec2};
-use zeus_theme::{Theme, OverlayManager};
+use eframe::egui::{RichText, Stroke, Ui, Window, vec2};
+use zeus_theme::{OverlayManager, Theme};
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let theme = &gui.theme;
@@ -20,6 +20,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    gui.tx_confirmation_window.show(ctx, theme, icons.clone(), ui);
 
    gui.tx_window.show(ctx, theme, icons.clone(), ui);
+   gui.spent_note_window.show(ctx, theme, icons.clone(), ui);
 
    gui.confirm_window.show(theme, ui);
 

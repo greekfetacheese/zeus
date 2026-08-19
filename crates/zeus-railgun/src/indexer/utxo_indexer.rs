@@ -22,7 +22,7 @@ use crate::{
       },
    },
    indexer::{
-      indexed_account::IndexedAccount,
+      indexed_account::{IndexedAccount, PrivateHistoryEntry, SpentNote},
       syncer::{self, SyncEvent, SyncerError, UtxoSyncer},
    },
    merkle_tree::{MerkleTreeVerifier, UtxoLeafHash, UtxoMerkleTree},
@@ -214,6 +214,28 @@ impl UtxoIndexer {
       vec![]
    }
 
+   /// Lists spent (nullified) notes for a given address. Empty if the address is not registered.
+   pub fn spent(&self, address: RailgunAddress) -> Vec<SpentNote> {
+      for account in self.accounts.iter() {
+         if account.address().address == address.address {
+            return account.spent();
+         }
+      }
+
+      vec![]
+   }
+
+   /// Grouped private spends for a registered address.
+   pub fn private_history(&self, address: RailgunAddress) -> Vec<PrivateHistoryEntry> {
+      for account in self.accounts.iter() {
+         if account.address().address == address.address {
+            return account.private_history();
+         }
+      }
+
+      vec![]
+   }
+
    fn mark_tree_range_dirty(&mut self, tree_number: u32, start: usize, end: usize) {
       let chunks = dirty_chunks_for_range(start, end);
       if chunks.is_empty() {
@@ -389,20 +411,35 @@ impl UtxoIndexer {
 
       for log in logs {
          if let Ok(decoded) = <RailgunSmartWallet::Shield as SolEvent>::decode_log(&log) {
-            let mut shield_events = super::parse_shield(&decoded.data, block)?;
+            let mut shield_events = super::parse_shield(
+               &decoded.data,
+               block,
+               _timestamp,
+               Default::default(),
+            )?;
             events.append(&mut shield_events);
             continue;
          }
 
          if let Ok(decoded) = <RailgunSmartWallet::Transact as SolEvent>::decode_log(&log) {
             // Store chain block, not the fork timestamp — same contract as RpcSyncer.
-            let mut tx_events = super::parse_transact(&decoded.data, block)?;
+            let mut tx_events = super::parse_transact(
+               &decoded.data,
+               block,
+               _timestamp,
+               Default::default(),
+            )?;
             events.append(&mut tx_events);
             continue;
          }
 
          if let Ok(decoded) = <RailgunSmartWallet::Nullified as SolEvent>::decode_log(&log) {
-            let mut null_events = super::parse_nullified(&decoded.data, block)?;
+            let mut null_events = super::parse_nullified(
+               &decoded.data,
+               block,
+               _timestamp,
+               Default::default(),
+            )?;
             events.append(&mut null_events);
             continue;
          }
@@ -415,7 +452,12 @@ impl UtxoIndexer {
          }
 
          if let Ok(decoded) = <RailgunLegacy::Nullifiers as SolEvent>::decode_log(&log) {
-            let mut null_events = super::parse_legacy_nullifiers(&decoded.data, block)?;
+            let mut null_events = super::parse_legacy_nullifiers(
+               &decoded.data,
+               block,
+               _timestamp,
+               Default::default(),
+            )?;
             events.append(&mut null_events);
             continue;
          }
@@ -430,13 +472,23 @@ impl UtxoIndexer {
          }
 
          if let Ok(decoded) = <RailgunLegacy::Transact as SolEvent>::decode_log(&log) {
-            let mut tx_events = super::parse_legacy_transact(&decoded.data, block)?;
+            let mut tx_events = super::parse_legacy_transact(
+               &decoded.data,
+               block,
+               _timestamp,
+               Default::default(),
+            )?;
             events.append(&mut tx_events);
             continue;
          }
 
          if let Ok(decoded) = <RailgunLegacy::Shield as SolEvent>::decode_log(&log) {
-            let mut shield_events = super::parse_legacy_shield(&decoded.data, block)?;
+            let mut shield_events = super::parse_legacy_shield(
+               &decoded.data,
+               block,
+               _timestamp,
+               Default::default(),
+            )?;
             events.append(&mut shield_events);
             continue;
          }
@@ -512,7 +564,7 @@ impl UtxoIndexer {
 
       for account in self.accounts.iter_mut() {
          if block > account.synced_block() {
-            account.handle_shield_event(event)?;
+            account.handle_shield_event(event, block)?;
          }
       }
 
@@ -535,7 +587,7 @@ impl UtxoIndexer {
 
       for account in self.accounts.iter_mut() {
          if block > account.synced_block() {
-            account.handle_transact_event(event)?;
+            account.handle_transact_event(event, block)?;
          }
       }
 
@@ -545,7 +597,6 @@ impl UtxoIndexer {
    fn handle_nullified(&mut self, event: &syncer::Nullified, block: u64) {
       for account in self.accounts.iter_mut() {
          if block > account.synced_block() {
-            // timestamp arg is unused by the account handler today
             account.handle_nullified_event(event, block);
          }
       }

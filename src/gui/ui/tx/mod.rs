@@ -22,9 +22,11 @@ use std::sync::Arc;
 
 pub mod confrim_window;
 pub mod events;
+pub mod spent_note_window;
 pub mod tx_window;
 
 pub use confrim_window::TxConfirmationWindow;
+pub use spent_note_window::{SpentHistoryRow, SpentNoteWindow};
 pub use tx_window::TxWindow;
 
 /// Show the transaction cost in a horizontal layout from left to right

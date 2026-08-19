@@ -1,11 +1,22 @@
 //! UI that shows the transaction history
 
 use crate::core::{TransactionRich, WalletInfo, ZeusContext};
-use crate::gui::{SHARED_GUI, ui::show_with_fade};
+use crate::gui::{
+   SHARED_GUI,
+   ui::{
+      show_with_fade,
+      tx::spent_note_window::{SpentHistoryRow, spent_age},
+   },
+};
 use crate::utils::{RT, truncate_address};
-use egui::{Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Ui, vec2};
+use egui::{Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, Ui, vec2};
 use elegance::{Badge, BadgeTone};
-use zeus_eth::{alloy_primitives::Address, types::ChainId};
+use zeus_eth::{
+   alloy_primitives::{Address, U256},
+   types::ChainId,
+   utils::NumericValue,
+};
+use zeus_railgun::{PrivateHistoryEntry, PrivateHistoryKind};
 use zeus_theme::Theme;
 use zeus_widgets::{Button, ComboBox, Label};
 
@@ -13,6 +24,9 @@ const DEFAULT_TXS_PER_PAGE: usize = 10;
 
 const ZEUS_TIP: &str = "Zeus only shows transactions that have been been made in-app.\n
 It cannot track transactions made from other wallets.";
+
+const RAILGUN_TIP: &str = "Private history shows what actually left your 0zk.\n
+Change from spent UTXOs is subtracted so a 1 USDC transfer shows as 1 USDC.";
 
 pub struct TxHistory {
    open: bool,
@@ -26,6 +40,7 @@ pub struct TxHistory {
    selected_chain: Option<ChainId>,
    /// Filtered list for the current filters (avoids cloning every frame)
    cached_txs: Vec<TransactionRich>,
+   cached_spent: Vec<SpentHistoryRow>,
    /// Fingerprint of the last cache build so we rebuild only when needed
    cache_key: CacheKey,
 }
@@ -34,6 +49,7 @@ pub struct TxHistory {
 struct CacheKey {
    wallet: Option<Address>,
    chain: Option<u64>,
+   privacy: bool,
 }
 
 impl CacheKey {
@@ -43,6 +59,7 @@ impl CacheKey {
       Self {
          wallet: None,
          chain: Some(u64::MAX),
+         privacy: false,
       }
    }
 }
@@ -58,6 +75,7 @@ impl TxHistory {
          selected_wallet: None,
          selected_chain: None,
          cached_txs: Vec::new(),
+         cached_spent: Vec::new(),
          cache_key: CacheKey::default(),
       }
    }
@@ -75,6 +93,7 @@ impl TxHistory {
       self.loading = false;
       self.db_ready = true;
       self.cached_txs.clear();
+      self.cached_spent.clear();
       self.cache_key = CacheKey::invalid();
       self.current_page = 0;
    }
@@ -88,6 +107,7 @@ impl TxHistory {
       self.loading = false;
       self.db_ready = false;
       self.cached_txs = Vec::new();
+      self.cached_spent = Vec::new();
       self.cache_key = CacheKey::default();
       self.selected_chain = None;
       self.selected_wallet = None;
@@ -116,31 +136,45 @@ impl TxHistory {
       );
    }
 
-   fn current_cache_key(&self) -> CacheKey {
+   fn current_cache_key(&self, privacy: bool) -> CacheKey {
       CacheKey {
          wallet: self.selected_wallet.as_ref().map(|w| w.address),
          chain: self.selected_chain.map(|c| c.id()),
+         privacy,
       }
    }
 
-   fn rebuild_cache(&mut self) {
+   fn rebuild_cache(&mut self, privacy: bool) {
       if !self.db_ready {
          self.cached_txs.clear();
+         self.cached_spent.clear();
          return;
       }
 
-      let key = self.current_cache_key();
-      // Already built (or a build is in-flight) for this filter set
+      let key = self.current_cache_key(privacy);
       if key == self.cache_key {
          return;
       }
 
-      // Claim the key *before* spawning so we don't queue a rebuild every frame
-      // while the worker is still running.
       self.cache_key = key.clone();
 
       let selected_wallet = self.selected_wallet.clone();
       let selected_chain = self.selected_chain;
+
+      if privacy {
+         self.rebuild_spent_cache(key, selected_wallet, selected_chain);
+      } else {
+         self.rebuild_public_cache(key, selected_wallet, selected_chain);
+      }
+   }
+
+   fn rebuild_public_cache(
+      &mut self,
+      key: CacheKey,
+      selected_wallet: Option<WalletInfo>,
+      selected_chain: Option<ChainId>,
+   ) {
+      self.loading = true;
 
       RT.spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
@@ -177,9 +211,82 @@ impl TxHistory {
          txs.sort_unstable_by(|a, b| b.timestamp.cmp(&a.timestamp));
 
          SHARED_GUI.write(|gui| {
-            // Drop stale results if the user changed filters while we were building
+            gui.tx_history.loading = false;
             if gui.tx_history.cache_key == key {
                gui.tx_history.cached_txs = txs;
+               gui.tx_history.cached_spent.clear();
+            }
+            gui.request_repaint();
+         });
+      });
+   }
+
+   fn rebuild_spent_cache(
+      &mut self,
+      key: CacheKey,
+      selected_wallet: Option<WalletInfo>,
+      selected_chain: Option<ChainId>,
+   ) {
+      self.loading = true;
+
+      RT.spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let wallets = ctx.get_all_wallets_info();
+         let mut rows = Vec::new();
+
+         for wallet in wallets {
+            if let Some(selected) = &selected_wallet {
+               if selected.address != wallet.address {
+                  continue;
+               }
+            }
+
+            let Some(zk) = wallet.railgun_address.clone() else {
+               continue;
+            };
+
+            let chains_to_check: Vec<ChainId> = if let Some(chain) = selected_chain {
+               vec![chain]
+            } else {
+               ChainId::supported_chains()
+            };
+
+            for chain in chains_to_check {
+               if ctx.is_chain_disabled(chain.id()) || !ctx.railgun_is_supported(chain) {
+                  continue;
+               }
+
+               let Ok(provider) = ctx.get_railgun_provider(chain.id(), false).await else {
+                  continue;
+               };
+
+               let notes = provider.private_history(zk.clone()).await;
+
+               for entry in notes {
+                  let action = spent_action(&ctx, chain.id(), &entry);
+                  rows.push(SpentHistoryRow {
+                     wallet: wallet.address,
+                     chain: chain.id(),
+                     action,
+                     spent_block: entry.spent_block,
+                     spent_timestamp: entry.spent_timestamp,
+                     entry,
+                  });
+               }
+            }
+         }
+
+         rows.sort_unstable_by(|a, b| {
+            b.spent_timestamp
+               .cmp(&a.spent_timestamp)
+               .then_with(|| b.spent_block.cmp(&a.spent_block))
+         });
+
+         SHARED_GUI.write(|gui| {
+            gui.tx_history.loading = false;
+            if gui.tx_history.cache_key == key {
+               gui.tx_history.cached_spent = rows;
+               gui.tx_history.cached_txs.clear();
             }
             gui.request_repaint();
          });
@@ -194,7 +301,7 @@ impl TxHistory {
             ui.spacing_mut().item_spacing = vec2(10.0, 15.0);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-            self.rebuild_cache();
+            self.rebuild_cache(ctx.privacy_mode);
 
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                ui.spacing_mut().item_spacing.x = 20.0;
@@ -315,34 +422,47 @@ impl TxHistory {
 
             if self.loading {
                ui.vertical_centered(|ui| {
-                  ui.label(
-                     RichText::new("Loading transactions…")
-                        .size(theme.text_sizes.large)
-                        .color(theme.colors.text),
-                  );
+                  ui.add(Spinner::new().size(20.0).color(theme.colors.text));
                });
                return;
             }
 
-            if self.cached_txs.is_empty() {
+            let privacy = ctx.privacy_mode;
+            let empty = if privacy {
+               self.cached_spent.is_empty()
+            } else {
+               self.cached_txs.is_empty()
+            };
+            let tip = if privacy { RAILGUN_TIP } else { ZEUS_TIP };
+            let empty_label = if privacy {
+               "No spent notes match your filters"
+            } else {
+               "No transactions match your filters"
+            };
+
+            if empty {
                ui.horizontal(|ui| {
                   ui.add_space(400.0);
                   ui.spacing_mut().item_spacing.x = 5.0;
 
                   ui.label(
-                     RichText::new("No transactions match your filters")
+                     RichText::new(empty_label)
                         .size(theme.text_sizes.large)
                         .color(theme.colors.text),
                   );
 
                   let q_mark = RichText::new("?").size(theme.text_sizes.normal);
                   let info_tip = Badge::new(q_mark, BadgeTone::Info);
-                  ui.add(info_tip).on_hover_text(ZEUS_TIP);
+                  ui.add(info_tip).on_hover_text(tip);
                });
                return;
             }
 
-            let total_txs = self.cached_txs.len();
+            let total_txs = if privacy {
+               self.cached_spent.len()
+            } else {
+               self.cached_txs.len()
+            };
             let total_pages = (total_txs as f64 / self.txs_per_page as f64).ceil() as usize;
             // Ensure current page is valid
             self.current_page = self.current_page.min(total_pages.saturating_sub(1));
@@ -385,14 +505,18 @@ impl TxHistory {
                ui.spacing_mut().item_spacing.x = 5.0;
 
                ui.label(
-                  RichText::new(format!("{} transactions found", total_txs))
-                     .size(theme.text_sizes.large)
-                     .color(theme.colors.text),
+                  RichText::new(if privacy {
+                     format!("{} spent notes found", total_txs)
+                  } else {
+                     format!("{} transactions found", total_txs)
+                  })
+                  .size(theme.text_sizes.large)
+                  .color(theme.colors.text),
                );
 
                let q_mark = RichText::new("?").size(theme.text_sizes.normal);
                let info_tip = Badge::new(q_mark, BadgeTone::Info);
-               ui.add(info_tip).on_hover_text(ZEUS_TIP);
+               ui.add(info_tip).on_hover_text(tip);
             });
 
             ui.add_space(10.0);
@@ -406,11 +530,6 @@ impl TxHistory {
 
                   let start = self.current_page * self.txs_per_page;
                   let end = start.saturating_add(self.txs_per_page).min(total_txs);
-                  let txs_on_page = if start < end {
-                     &self.cached_txs[start..end]
-                  } else {
-                     &[]
-                  };
 
                   // Fixed content height for every column so icon-less rows
                   // and the Details button share one baseline.
@@ -446,69 +565,156 @@ impl TxHistory {
 
                   ui.add_space(8.0);
 
-                  // --- Body: one frame2 card per tx ---
+                  // --- Body: one frame2 card per row ---
                   let row_frame = theme.frame2.outer_margin(Margin::ZERO);
 
                   ui.vertical_centered(|ui| {
                      ui.spacing_mut().item_spacing.y = 10.0;
 
-                     for tx in txs_on_page {
-                        ui.allocate_ui(vec2(row_width, row_height + 16.0), |ui| {
-                           row_frame.show(ui, |ui| {
-                              ui.set_width(row_width);
-                              ui.spacing_mut().item_spacing.x = col_spacing;
+                     if privacy {
+                        let rows_on_page = if start < end {
+                           &self.cached_spent[start..end]
+                        } else {
+                           &[]
+                        };
+                        for row in rows_on_page {
+                           ui.allocate_ui(vec2(row_width, row_height + 16.0), |ui| {
+                              row_frame.show(ui, |ui| {
+                                 ui.set_width(row_width);
+                                 ui.spacing_mut().item_spacing.x = col_spacing;
 
-                              ui.horizontal(|ui| {
-                                 // Wallet
-                                 Self::row_cell(ui, column_widths[0], row_height, |ui| {
-                                    let name = self.wallet_name_or_address(ctx, tx.sender());
-                                    ui.label(
-                                       RichText::new(name)
-                                          .size(theme.text_sizes.normal)
-                                          .color(theme.colors.text),
-                                    )
-                                    .on_hover_text(tx.sender().to_string());
-                                 });
+                                 ui.horizontal(|ui| {
+                                    Self::row_cell(ui, column_widths[0], row_height, |ui| {
+                                       let name = self.wallet_name_or_address(ctx, row.wallet);
+                                       ui.label(
+                                          RichText::new(name)
+                                             .size(theme.text_sizes.normal)
+                                             .color(theme.colors.text),
+                                       )
+                                       .on_hover_text(row.wallet.to_string());
+                                    });
 
-                                 // Action
-                                 Self::row_cell(ui, column_widths[1], row_height, |ui| {
-                                    ui.label(
-                                       RichText::new(tx.main_event.name())
-                                          .size(theme.text_sizes.normal)
-                                          .color(theme.colors.text),
-                                    );
-                                 });
+                                    Self::row_cell(ui, column_widths[1], row_height, |ui| {
+                                       ui.label(
+                                          RichText::new(&row.action)
+                                             .size(theme.text_sizes.normal)
+                                             .color(theme.colors.text),
+                                       );
+                                    });
 
-                                 // Age
-                                 Self::row_cell(ui, column_widths[2], row_height, |ui| {
-                                    ui.label(
-                                       RichText::new(tx.timestamp.to_relative())
-                                          .size(theme.text_sizes.normal)
-                                          .color(theme.colors.text),
-                                    );
-                                 });
+                                    Self::row_cell(ui, column_widths[2], row_height, |ui| {
+                                       ui.label(
+                                          RichText::new(spent_age(ctx, row))
+                                             .size(theme.text_sizes.normal)
+                                             .color(theme.colors.text),
+                                       );
+                                    });
 
-                                 // Details
-                                 Self::row_cell(ui, column_widths[3], row_height, |ui| {
-                                    let text =
-                                       RichText::new("Details").size(theme.text_sizes.normal);
-                                    let details_button = Button::new(text).visuals(button_visuals);
-                                    if ui.add(details_button).clicked() {
-                                       let tx_clone = tx.clone();
-                                       RT.spawn_blocking(move || {
-                                          SHARED_GUI.write(|gui| {
-                                             gui.tx_window.open(Some(tx_clone));
+                                    Self::row_cell(ui, column_widths[3], row_height, |ui| {
+                                       let text =
+                                          RichText::new("Details").size(theme.text_sizes.normal);
+                                       let details_button =
+                                          Button::new(text).visuals(button_visuals);
+                                       if ui.add(details_button).clicked() {
+                                          let row = row.clone();
+                                          RT.spawn_blocking(move || {
+                                             SHARED_GUI.write(|gui| {
+                                                gui.spent_note_window.open(row);
+                                             });
                                           });
-                                       });
-                                    }
+                                       }
+                                    });
                                  });
                               });
                            });
-                        });
+                        }
+                     } else {
+                        let txs_on_page = if start < end {
+                           &self.cached_txs[start..end]
+                        } else {
+                           &[]
+                        };
+                        for tx in txs_on_page {
+                           ui.allocate_ui(vec2(row_width, row_height + 16.0), |ui| {
+                              row_frame.show(ui, |ui| {
+                                 ui.set_width(row_width);
+                                 ui.spacing_mut().item_spacing.x = col_spacing;
+
+                                 ui.horizontal(|ui| {
+                                    Self::row_cell(ui, column_widths[0], row_height, |ui| {
+                                       let name = self.wallet_name_or_address(ctx, tx.sender());
+                                       ui.label(
+                                          RichText::new(name)
+                                             .size(theme.text_sizes.normal)
+                                             .color(theme.colors.text),
+                                       )
+                                       .on_hover_text(tx.sender().to_string());
+                                    });
+
+                                    Self::row_cell(ui, column_widths[1], row_height, |ui| {
+                                       ui.label(
+                                          RichText::new(tx.main_event.name())
+                                             .size(theme.text_sizes.normal)
+                                             .color(theme.colors.text),
+                                       );
+                                    });
+
+                                    Self::row_cell(ui, column_widths[2], row_height, |ui| {
+                                       ui.label(
+                                          RichText::new(tx.timestamp.to_relative())
+                                             .size(theme.text_sizes.normal)
+                                             .color(theme.colors.text),
+                                       );
+                                    });
+
+                                    Self::row_cell(ui, column_widths[3], row_height, |ui| {
+                                       let text =
+                                          RichText::new("Details").size(theme.text_sizes.normal);
+                                       let details_button =
+                                          Button::new(text).visuals(button_visuals);
+                                       if ui.add(details_button).clicked() {
+                                          let tx_clone = tx.clone();
+                                          RT.spawn_blocking(move || {
+                                             SHARED_GUI.write(|gui| {
+                                                gui.tx_window.open(Some(tx_clone));
+                                             });
+                                          });
+                                       }
+                                    });
+                                 });
+                              });
+                           });
+                        }
                      }
                   });
                });
          });
       });
+   }
+}
+
+fn spent_action(
+   ctx: &crate::core::context::ZeusCtx,
+   chain: u64,
+   entry: &PrivateHistoryEntry,
+) -> String {
+   if entry.kind == PrivateHistoryKind::Merge {
+      return "Merged notes".to_string();
+   }
+   let (symbol, decimals) = match entry.asset.erc20_address() {
+      Some(addr) => ctx.read(|c| {
+         c.currency_db
+            .get_erc20_token(chain, addr)
+            .map(|t| (t.symbol.to_string(), t.decimals))
+            .unwrap_or_else(|| (truncate_address(addr.to_string()), 18))
+      }),
+      None => (entry.asset.to_string(), 18),
+   };
+   let amount = NumericValue::format_wei(U256::from(entry.amount), decimals);
+   let sent = format!("Sent {} {}", amount.abbreviated(), symbol);
+   if entry.memo.is_empty() {
+      sent
+   } else {
+      format!("{} · {}", sent, entry.memo)
    }
 }
