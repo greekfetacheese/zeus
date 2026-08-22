@@ -1,5 +1,7 @@
 # Zeus UI Components
 
+# This crate has been deprecated in favor of [egui-elements](https://github.com/greekfetacheese/egui-elements)
+
 This crate contains reusable egui UI components made for Zeus.
 
 ## Features

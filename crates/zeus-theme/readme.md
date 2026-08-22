@@ -1,5 +1,7 @@
 # zeus-theme
 
+# This crate has been deprecated in favor of [egui-elements](https://github.com/greekfetacheese/egui-elements)
+
 # Theme color styling for egui
 
 Available themes:
