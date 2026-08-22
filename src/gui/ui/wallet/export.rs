@@ -4,11 +4,9 @@ use crate::core::ZeusContext;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{Align2, Context, Order, RichText, Stroke, Ui, Window, vec2};
+use egui_elements::{Button, CredentialsForm, OverlayManager, QrImage, Theme};
 use ncrypt_me::Credentials;
-use zeus_theme::{OverlayManager, Theme};
-use zeus_ui_components::{CredentialsForm, QrImage};
 use zeus_wallet::Wallet;
-use zeus_widgets::Button;
 
 const MASTER_WALLET_WARNING: &str = "This is your master wallet, if this key gets exposed any child wallet you generated with this key will be compromised\n
 You don't have to export this key unless something broke in Zeus and you cannot move your funds to other wallets";
@@ -92,17 +90,17 @@ impl ExportKeyUi {
 
       let warning = "WARNING!";
       let warning_text = RichText::new(warning)
-         .size(theme.text_sizes.very_large)
+         .size(theme.typography.very_large)
          .color(theme.colors.warning);
       ui.label(warning_text);
 
       let warning_text = RichText::new(MASTER_WALLET_WARNING)
-         .size(theme.text_sizes.large)
+         .size(theme.typography.large)
          .color(theme.colors.warning);
       ui.label(warning_text);
 
       let button_text = "I understand the risks";
-      let text = RichText::new(button_text).size(theme.text_sizes.normal);
+      let text = RichText::new(button_text).size(theme.typography.normal);
       let button = Button::new(text).visuals(theme.button_visuals());
 
       if ui.add(button).clicked() {
@@ -110,7 +108,7 @@ impl ExportKeyUi {
       }
 
       let button_text = "Changed my mind";
-      let text = RichText::new(button_text).size(theme.text_sizes.normal);
+      let text = RichText::new(button_text).size(theme.typography.normal);
       let button = Button::new(text).visuals(theme.button_visuals());
 
       if ui.add(button).clicked() {
@@ -158,14 +156,14 @@ impl ExportKeyUi {
                   let warning_text = "Make sure to save this key in a safe place!";
                   ui.label(
                      RichText::new(warning_text)
-                        .size(theme.text_sizes.large)
+                        .size(theme.typography.large)
                         .color(theme.colors.warning),
                   );
 
                   ui.allocate_ui(area, |ui| {
                      ui.vertical_centered(|ui| {
                         ui.horizontal(|ui| {
-                           let text = RichText::new("Copy Key").size(theme.text_sizes.normal);
+                           let text = RichText::new("Copy Key").size(theme.typography.normal);
                            let button =
                               Button::new(text).visuals(button_visuals).min_size(button_size);
 
@@ -176,7 +174,7 @@ impl ExportKeyUi {
 
                            if let Some(seed_phrase) = &wallet.seed_phrase {
                               let text =
-                                 RichText::new("Copy Seed Phrase").size(theme.text_sizes.normal);
+                                 RichText::new("Copy Seed Phrase").size(theme.typography.normal);
                               let button =
                                  Button::new(text).visuals(button_visuals).min_size(button_size);
 
@@ -186,7 +184,7 @@ impl ExportKeyUi {
                               }
                            }
 
-                           let text = RichText::new("Show QR Code").size(theme.text_sizes.normal);
+                           let text = RichText::new("Show QR Code").size(theme.typography.normal);
                            let button =
                               Button::new(text).visuals(button_visuals).min_size(button_size);
 
@@ -199,7 +197,7 @@ impl ExportKeyUi {
 
                   if self.show_key_qrcode {
                      if let Some(error) = self.private_key_qr.error() {
-                        ui.label(RichText::new(error.to_string()).size(theme.text_sizes.large));
+                        ui.label(RichText::new(error.to_string()).size(theme.typography.large));
                      }
 
                      let image = self.private_key_qr.image().fit_to_exact_size(vec2(250.0, 250.0));
@@ -207,11 +205,11 @@ impl ExportKeyUi {
                   }
                } else {
                   ui.label(
-                     RichText::new("No wallet found, this is a bug").size(theme.text_sizes.normal),
+                     RichText::new("No wallet found, this is a bug").size(theme.typography.normal),
                   );
                }
 
-               let text = RichText::new("Close").size(theme.text_sizes.normal);
+               let text = RichText::new("Close").size(theme.typography.normal);
                let button = Button::new(text).visuals(button_visuals);
 
                if ui.add(button).clicked() {
@@ -234,7 +232,7 @@ impl ExportKeyUi {
       let title_frame = window_frame.stroke(Stroke::NONE);
       let mut clicked = false;
 
-      Window::new(RichText::new("Verify Credentials").size(theme.text_sizes.heading))
+      Window::new(RichText::new("Verify Credentials").size(theme.typography.heading))
          .open(&mut open)
          .order(Order::Middle)
          .resizable(false)
@@ -254,10 +252,10 @@ impl ExportKeyUi {
 
                ui.scope(|ui| {
                   ui.spacing_mut().button_padding = vec2(4.0, 4.0);
-                  self.credentials_form.show(theme, ui);
+                  self.credentials_form.show(ui);
                });
 
-               let text = RichText::new("Confrim").size(theme.text_sizes.normal);
+               let text = RichText::new("Confrim").size(theme.typography.normal);
                let button = Button::new(text)
                   .visuals(button_visuals)
                   .min_size(vec2(ui.available_width() * 0.8, 45.0));

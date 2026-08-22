@@ -15,12 +15,11 @@ use eframe::egui::{
 };
 use std::sync::Arc;
 
+use egui_elements::{Button, Label, Theme, visuals::ButtonVisuals};
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, ERC20Token},
 };
-use zeus_theme::{ButtonVisuals, Theme};
-use zeus_widgets::{Button, Label};
 
 pub struct PortfolioUi {
    open: bool,
@@ -97,12 +96,12 @@ impl PortfolioUi {
                      ui.vertical_centered(|ui| {
                         ui.label(
                            RichText::new(wallet_info.name_with_source())
-                              .size(theme.text_sizes.very_large),
+                              .size(theme.typography.very_large),
                         );
                         ui.label(
                            RichText::new(format!("${}", portfolio_value.abbreviated()))
                               .heading()
-                              .size(theme.text_sizes.heading + 4.0),
+                              .size(theme.typography.heading + 4.0),
                         );
                      });
 
@@ -111,7 +110,7 @@ impl PortfolioUi {
                         ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
                         let button_visuals = theme.button_visuals();
-                        let text = RichText::new("Add Token").size(theme.text_sizes.normal);
+                        let text = RichText::new("Add Token").size(theme.typography.normal);
                         let add_token = Button::new(text).visuals(button_visuals);
 
                         if ui.add(add_token).clicked() {
@@ -119,7 +118,7 @@ impl PortfolioUi {
                         }
 
                         let tint = theme.image_tint_recommended;
-                        let icon = match theme.dark_mode {
+                        let icon = match theme.dark {
                            true => icons.refresh_white_x22(tint),
                            false => icons.refresh_dark_x22(tint),
                         };
@@ -174,7 +173,7 @@ impl PortfolioUi {
                               ui.label(
                                  RichText::new(header)
                                     .strong()
-                                    .size(theme.text_sizes.large)
+                                    .size(theme.typography.large)
                                     .color(theme.colors.text),
                               );
                            }
@@ -206,7 +205,7 @@ impl PortfolioUi {
                                  Self::row_cell(ui, column_widths[0], row_height, |ui| {
                                     let icon = icons.currency_icon_x32(&native_currency, tint);
                                     let text = RichText::new(native_currency.symbol())
-                                       .size(theme.text_sizes.normal)
+                                       .size(theme.typography.normal)
                                        .color(theme.colors.text);
                                     let label = Label::new(text, Some(icon))
                                        .image_on_left()
@@ -223,7 +222,7 @@ impl PortfolioUi {
                                  Self::row_cell(ui, column_widths[1], row_height, |ui| {
                                     ui.label(
                                        RichText::new(format!("${}", price.formatted()))
-                                          .size(theme.text_sizes.normal)
+                                          .size(theme.typography.normal)
                                           .color(theme.colors.text),
                                     );
                                  });
@@ -232,7 +231,7 @@ impl PortfolioUi {
                                  Self::row_cell(ui, column_widths[2], row_height, |ui| {
                                     ui.label(
                                        RichText::new(balance.abbreviated())
-                                          .size(theme.text_sizes.normal)
+                                          .size(theme.typography.normal)
                                           .color(theme.colors.text),
                                     );
                                  });
@@ -241,7 +240,7 @@ impl PortfolioUi {
                                  Self::row_cell(ui, column_widths[3], row_height, |ui| {
                                     ui.label(
                                        RichText::new(format!("${}", value.abbreviated()))
-                                          .size(theme.text_sizes.normal)
+                                          .size(theme.typography.normal)
                                           .color(theme.colors.text),
                                     );
                                  });
@@ -271,7 +270,7 @@ impl PortfolioUi {
                                     let icon =
                                        icons.token_icon_x32(token.address, token.chain_id, tint);
                                     let text = RichText::new(&*token.symbol)
-                                       .size(theme.text_sizes.normal)
+                                       .size(theme.typography.normal)
                                        .color(theme.colors.text);
                                     let label = Label::new(text, Some(icon))
                                        .image_on_left()
@@ -288,7 +287,7 @@ impl PortfolioUi {
                                  Self::row_cell(ui, column_widths[1], row_height, |ui| {
                                     ui.label(
                                        RichText::new(format!("${}", price.formatted()))
-                                          .size(theme.text_sizes.normal)
+                                          .size(theme.typography.normal)
                                           .color(theme.colors.text),
                                     );
                                  });
@@ -297,7 +296,7 @@ impl PortfolioUi {
                                  Self::row_cell(ui, column_widths[2], row_height, |ui| {
                                     ui.label(
                                        RichText::new(balance.abbreviated())
-                                          .size(theme.text_sizes.normal)
+                                          .size(theme.typography.normal)
                                           .color(theme.colors.text),
                                     );
                                  });
@@ -306,7 +305,7 @@ impl PortfolioUi {
                                  Self::row_cell(ui, column_widths[3], row_height, |ui| {
                                     ui.label(
                                        RichText::new(format!("${}", value.formatted()))
-                                          .size(theme.text_sizes.normal)
+                                          .size(theme.typography.normal)
                                           .color(theme.colors.text),
                                     );
                                  });
@@ -314,7 +313,7 @@ impl PortfolioUi {
                                  // Remove
                                  Self::row_cell(ui, column_widths[4], row_height, |ui| {
                                     let button =
-                                       Button::new(RichText::new("X").size(theme.text_sizes.small))
+                                       Button::new(RichText::new("X").size(theme.typography.small))
                                           .visuals(button_visuals)
                                           .small();
 

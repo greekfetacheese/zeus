@@ -3,8 +3,7 @@
 use egui::{
    Align, Align2, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, Ui, Window, vec2,
 };
-use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::{Button, Label, SecureTextEdit};
+use egui_elements::{Button, Label, OverlayManager, SecureTextEdit, Theme};
 
 use crate::assets::icons::Icons;
 use crate::core::{SignMsgType, ZeusContext};
@@ -111,12 +110,12 @@ impl SignMsgWindow {
 
                   let msg = msg.unwrap();
 
-                  ui.label(RichText::new(&self.dapp).size(theme.text_sizes.large));
+                  ui.label(RichText::new(&self.dapp).size(theme.typography.large));
 
                   let frame = theme.frame2;
                   let frame_size = vec2(ui.available_width(), 45.0);
 
-                  ui.label(RichText::new(msg.title()).size(theme.text_sizes.large));
+                  ui.label(RichText::new(msg.title()).size(theme.typography.large));
 
                   if msg.is_permit2_single() {
                      ui.allocate_ui(frame_size, |ui| {
@@ -136,11 +135,11 @@ impl SignMsgWindow {
                   if let Some(mut formatted) = self.formatted_msg.clone() {
                      let text_edit = SecureTextEdit::multiline(&mut formatted)
                         .visuals(text_edit_visuals)
-                        .font(FontId::proportional(theme.text_sizes.large))
+                        .font(FontId::proportional(theme.typography.large))
                         .margin(Margin::same(10))
                         .desired_width(ui.available_width() * 0.90);
 
-                     ui.label(RichText::new("Message").size(theme.text_sizes.large));
+                     ui.label(RichText::new("Message").size(theme.typography.large));
 
                      let height = if msg.is_known() { 150.0 } else { 300.0 };
                      ScrollArea::vertical().max_height(height).show(ui, |ui| {
@@ -156,7 +155,7 @@ impl SignMsgWindow {
                      let button_size = vec2(ui.available_width() * 0.5, 45.0);
 
                      ui.horizontal(|ui| {
-                        let text = RichText::new("Sign").size(theme.text_sizes.normal);
+                        let text = RichText::new("Sign").size(theme.typography.normal);
                         let ok_btn =
                            Button::new(text).min_size(button_size).visuals(button_visuals);
 
@@ -165,7 +164,7 @@ impl SignMsgWindow {
                            self.close(ctx);
                         }
 
-                        let text = RichText::new("Cancel").size(theme.text_sizes.normal);
+                        let text = RichText::new("Cancel").size(theme.typography.normal);
                         let cancel_btn =
                            Button::new(text).min_size(button_size).visuals(button_visuals);
 
@@ -201,7 +200,7 @@ fn permit2_single_approval(
       // Token
       ui.horizontal(|ui| {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(RichText::new("Approve Token").size(theme.text_sizes.large));
+            ui.label(RichText::new("Approve Token").size(theme.typography.large));
          });
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -213,7 +212,7 @@ fn permit2_single_approval(
                tint,
             );
 
-            let text = RichText::new(text).size(theme.text_sizes.large);
+            let text = RichText::new(text).size(theme.typography.large);
             let label = Label::new(text, Some(icon))
                .wrap()
                .visuals(theme.label_visuals())
@@ -231,12 +230,12 @@ fn permit2_single_approval(
       if !is_revoke {
          ui.horizontal(|ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(RichText::new("Approval expire").size(theme.text_sizes.large));
+               ui.label(RichText::new("Approval expire").size(theme.typography.large));
             });
 
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                let expire = details.expiration.to_relative();
-               let text = RichText::new(expire).size(theme.text_sizes.large);
+               let text = RichText::new(expire).size(theme.typography.large);
                ui.label(text);
             });
          });
@@ -268,13 +267,13 @@ fn _permit2_batch_approval_ui(
    let details = msg.permit2_batch_details();
    let tint = theme.image_tint_recommended;
 
-   ui.label(RichText::new("Permit2 Batch Token Approval").size(theme.text_sizes.normal));
+   ui.label(RichText::new("Permit2 Batch Token Approval").size(theme.typography.normal));
 
    // Chain
    chain(chain_id, theme, icons.clone(), ui);
 
    ui.horizontal(|ui| {
-      ui.label(RichText::new("Approve Tokens").size(theme.text_sizes.normal));
+      ui.label(RichText::new("Approve Tokens").size(theme.typography.normal));
    });
 
    let token_details = details
@@ -295,7 +294,7 @@ fn _permit2_batch_approval_ui(
          let text = format!("{} {}", amount, token.symbol);
          let icon = icons.token_icon_x32(token.address, token.chain_id, tint);
          let label = Label::new(
-            RichText::new(text).size(theme.text_sizes.normal),
+            RichText::new(text).size(theme.typography.normal),
             Some(icon),
          )
          .wrap();
@@ -306,12 +305,12 @@ fn _permit2_batch_approval_ui(
    // Approval expire
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Approval expire").size(theme.text_sizes.normal));
+         ui.label(RichText::new("Approval expire").size(theme.typography.normal));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let expire = details.expiration.to_relative();
-         let text = RichText::new(expire).size(theme.text_sizes.normal);
+         let text = RichText::new(expire).size(theme.typography.normal);
          ui.label(text);
       });
    });

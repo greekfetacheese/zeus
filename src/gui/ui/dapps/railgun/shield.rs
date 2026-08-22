@@ -33,9 +33,8 @@ use crate::gui::{
    },
 };
 use crate::utils::simulate::{fetch_accounts_info, fetch_storage_for_railgun};
+use egui_elements::{Button, SecureTextEdit, Theme};
 use elegance::{Badge, BadgeTone};
-use zeus_theme::Theme;
-use zeus_widgets::{Button, SecureTextEdit};
 
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -245,7 +244,7 @@ impl ShieldUi {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
                let text = RichText::new("Railgun is not supported for the selected chain")
-                  .size(theme.text_sizes.very_large);
+                  .size(theme.typography.very_large);
                ui.label(text);
             });
          });
@@ -290,7 +289,7 @@ impl ShieldUi {
                   let ui_size = vec2(ui.available_width(), 20.0);
                   ui.allocate_ui(ui_size, |ui| {
                      ui.vertical_centered(|ui| {
-                     ui.label(RichText::new(title).size(theme.text_sizes.heading));
+                     ui.label(RichText::new(title).size(theme.typography.heading));
                      });
                   });
 
@@ -298,7 +297,7 @@ impl ShieldUi {
                   if self.mode.is_unshield() {
                      ui.add_space(6.0);
                      let merge_text =
-                        RichText::new("Merge Notes").size(theme.text_sizes.normal);
+                        RichText::new("Merge Notes").size(theme.typography.normal);
                      let merge_btn = Button::new(merge_text)
                         .min_size(vec2(100.0, 30.0))
                         .visuals(theme.button_visuals());
@@ -391,20 +390,20 @@ impl ShieldUi {
                   inner_frame.show(ui, |ui| {
                      ui.set_width(ui.available_width());
                      ui.horizontal(|ui| {
-                        ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
+                        ui.label(RichText::new("Recipient").size(theme.typography.large));
                         ui.add_space(10.0);
 
                         if !recipient.is_empty(recipient_privacy_mode) {
                            if let Some(name) = &recipient.name {
                               ui.label(
                                  RichText::new(name)
-                                    .size(theme.text_sizes.large)
+                                    .size(theme.typography.large)
                                     .color(theme.colors.info),
                               );
                            } else {
                               ui.label(
                                  RichText::new("Unknown Address")
-                                    .size(theme.text_sizes.large)
+                                    .size(theme.typography.large)
                                     .color(theme.colors.error),
                               );
                            }
@@ -416,7 +415,7 @@ impl ShieldUi {
                                  block_explorer, recipient.evm_address
                               );
                               let tint = theme.image_tint_recommended;
-                              let icon = match theme.dark_mode {
+                              let icon = match theme.dark {
                                  true => icons.external_link_white_x18(tint),
                                  false => icons.external_link_dark_x18(tint),
                               };
@@ -434,11 +433,11 @@ impl ShieldUi {
                      ui.horizontal(|ui| {
                         let hint = if recipient_privacy_mode {
                            RichText::new("Search contacts or enter a 0zk address")
-                              .size(theme.text_sizes.normal)
+                              .size(theme.typography.normal)
                               .color(theme.colors.text_muted)
                         } else {
                            RichText::new("Search contacts or enter a 0x address")
-                              .size(theme.text_sizes.normal)
+                              .size(theme.typography.normal)
                               .color(theme.colors.text_muted)
                         };
 
@@ -454,7 +453,7 @@ impl ShieldUi {
                               .hint_text(hint)
                               .min_size(vec2(ui.available_width(), 25.0))
                               .margin(Margin::same(10))
-                              .font(FontId::proportional(theme.text_sizes.normal)),
+                              .font(FontId::proportional(theme.typography.normal)),
                         );
                         if res.clicked() {
                            recipient_selection.open();
@@ -489,15 +488,15 @@ impl ShieldUi {
          ui.spacing_mut().item_spacing = vec2(0.0, 8.0);
 
          ui.horizontal(|ui| {
-            let text = RichText::new("Self-broadcast").size(theme.text_sizes.large);
+            let text = RichText::new("Self-broadcast").size(theme.typography.large);
             let checkbox = Checkbox::new(&mut self.self_broadcast, text);
             ui.add(checkbox);
 
             ui.add_space(10.0);
 
-            let q_mark = RichText::new("Breaks Anonymity").size(theme.text_sizes.large);
+            let q_mark = RichText::new("Breaks Anonymity").size(theme.typography.large);
             let badge = Badge::new(q_mark, BadgeTone::Warning);
-            let tip_text = RichText::new(SELF_BROADCAST_TIP).size(theme.text_sizes.normal);
+            let tip_text = RichText::new(SELF_BROADCAST_TIP).size(theme.typography.normal);
             ui.add(badge).on_hover_text(tip_text);
          });
 
@@ -505,16 +504,16 @@ impl ShieldUi {
          // ? Eg. going from USDC to ETH and not just limited to WETH > ETH
          if self.currency.is_native_wrapped() && !self.self_broadcast {
             ui.horizontal(|ui| {
-               let text = RichText::new("Unwrap to ETH").size(theme.text_sizes.large);
+               let text = RichText::new("Unwrap to ETH").size(theme.typography.large);
                let checkbox = Checkbox::new(&mut self.unwrap_to_eth, text);
                ui.add(checkbox);
 
                ui.add_space(10.0);
 
                let text = RichText::new("For empty wallets without funds for gas")
-                  .size(theme.text_sizes.normal);
+                  .size(theme.typography.normal);
                let badge = Badge::new(text, BadgeTone::Info);
-               let tip_text = RichText::new(UNWRAP_TO_ETH_TIP).size(theme.text_sizes.normal);
+               let tip_text = RichText::new(UNWRAP_TO_ETH_TIP).size(theme.typography.normal);
                ui.add(badge).on_hover_text(tip_text);
             });
          }
@@ -525,12 +524,12 @@ impl ShieldUi {
             ui.add_space(4.0);
             ui.label(
                RichText::new("WARNING: Custom bundler URL is set.")
-                  .size(theme.text_sizes.normal)
+                  .size(theme.typography.normal)
                   .color(theme.colors.warning),
             );
          }
 
-         let text = RichText::new("Broadcast options").size(theme.text_sizes.normal);
+         let text = RichText::new("Broadcast options").size(theme.typography.normal);
          let button = Button::new(text).visuals(theme.button_visuals());
          ui.horizontal(|ui| {
             if ui.add(button).clicked() {
@@ -550,7 +549,7 @@ impl ShieldUi {
       let title_frame = window_frame.stroke(Stroke::NONE);
 
       let title = RichText::new("Advanced broadcast options")
-         .size(theme.text_sizes.large)
+         .size(theme.typography.large)
          .color(theme.colors.text);
 
       Window::new(title)
@@ -572,7 +571,7 @@ impl ShieldUi {
 
                ui.allocate_ui(ui_size, |ui| {
                   ui.horizontal_centered(|ui| {
-                     ui.label(RichText::new("Bundler URL").size(theme.text_sizes.normal));
+                     ui.label(RichText::new("Bundler URL").size(theme.typography.normal));
 
                      ui.add_space(8.0);
 
@@ -581,12 +580,12 @@ impl ShieldUi {
                            .visuals(text_edit_visuals)
                            .hint_text(
                               RichText::new("https://public.pimlico.io/v2/{chainId}/rpc")
-                                 .size(theme.text_sizes.small)
+                                 .size(theme.typography.small)
                                  .color(theme.colors.text_muted),
                            )
                            .desired_width(ui.available_width())
                            .margin(Margin::same(6))
-                           .font(FontId::proportional(theme.text_sizes.small)),
+                           .font(FontId::proportional(theme.typography.small)),
                      );
 
                      if res.changed() {
@@ -599,7 +598,7 @@ impl ShieldUi {
                });
 
                ui.horizontal(|ui| {
-                  let text = RichText::new("Reset to default").size(theme.text_sizes.small);
+                  let text = RichText::new("Reset to default").size(theme.typography.small);
                   let button = Button::new(text).visuals(theme.button_visuals());
                   if ui.add(button).clicked() {
                      self.bundler_url = default_bundler_url(chain_id);
@@ -612,18 +611,18 @@ impl ShieldUi {
 
                let text = "Uses Railgun Privacy Paymaster.\nFee is paid from private WETH balance.\nPoint this at a self-hosted Alto for less reliance on public Pimlico.";
 
-               ui.label(RichText::new(text).size(theme.text_sizes.small));
+               ui.label(RichText::new(text).size(theme.typography.small));
             });
 
             if self.self_broadcast {
                ui.label(
                   RichText::new("Bundler options disabled while self-broadcast is enabled.")
-                     .size(theme.text_sizes.small)
+                     .size(theme.typography.small)
                      .color(theme.colors.warning),
                );
             }
 
-               let text = RichText::new("OK").size(theme.text_sizes.normal);
+               let text = RichText::new("OK").size(theme.typography.normal);
                let button = Button::new(text).visuals(theme.button_visuals());
 
                ui.vertical_centered(|ui| {
@@ -694,7 +693,7 @@ impl ShieldUi {
          button_text = "Railgun is not synced".to_string();
       }
 
-      let text = RichText::new(button_text).size(theme.text_sizes.large);
+      let text = RichText::new(button_text).size(theme.typography.large);
       let send = Button::new(text)
          .min_size(vec2(ui.available_width() * 0.8, 45.0))
          .visuals(button_visuals);

@@ -8,12 +8,11 @@ use crate::{
    core::{ZeusContext, types::RailgunConfig},
    gui::ui::chain_select::ChainSelect,
 };
-use egui::{Align2, Order, RichText, Ui, Stroke, Window, vec2};
+use egui::{Align2, Order, RichText, Stroke, Ui, Window, vec2};
+use egui_elements::{Button, OverlayManager, Theme};
 use elegance::{Badge, BadgeTone, Slider};
 use zeus_eth::types::SUPPORTED_CHAINS;
 use zeus_railgun::indexer::syncer::rpc::DEFAULT_BLOCK_RANGE;
-use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::Button;
 
 use std::sync::Arc;
 
@@ -85,8 +84,8 @@ impl RailgunSettings {
 
       let mut open = self.open;
 
-      let title = RichText::new("Railgun Settings").size(theme.text_sizes.heading);
-      let window_frame = theme.window_frame;
+      let title = RichText::new("Railgun Settings").size(theme.typography.heading);
+      let window_frame = theme.window_frame.fill(theme.frame1.fill);
       let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(title)
@@ -111,13 +110,13 @@ impl RailgunSettings {
                let ignore = [10, 56, 8453, 42161];
                self.chain_select.show(ctx, &ignore, theme, icons, ui);
 
-               let q_mark = RichText::new("?").size(theme.text_sizes.normal);
+               let q_mark = RichText::new("?").size(theme.typography.normal);
                let info_tip = Badge::new(q_mark, BadgeTone::Info);
 
                ui.allocate_ui(slider_size, |ui| {
                   ui.horizontal(|ui| {
                      ui.label(
-                        RichText::new("RPC Syncer Block Range").size(theme.text_sizes.normal),
+                        RichText::new("RPC Syncer Block Range").size(theme.typography.normal),
                      );
                      ui.add(info_tip).on_hover_text(BLOCK_RANGE_TIP);
                   });
@@ -136,7 +135,7 @@ impl RailgunSettings {
                   self.set_block_range(block_range);
                }
 
-               ui.label(RichText::new("RPC Syncer Concurrency").size(theme.text_sizes.normal));
+               ui.label(RichText::new("RPC Syncer Concurrency").size(theme.typography.normal));
 
                let mut concurrency = self.concurrency();
                let changed = ui
@@ -151,14 +150,14 @@ impl RailgunSettings {
 
                ui.add_space(10.0);
 
-               let text = RichText::new("Save").size(theme.text_sizes.normal);
+               let text = RichText::new("Save").size(theme.typography.normal);
                let button = Button::new(text).visuals(button_visuals).min_size(button_size);
                if ui.add(button).clicked() {
                   let new_config = self.config.clone();
                   post_click(ctx, new_config);
                }
 
-               let text = RichText::new("Reset").size(theme.text_sizes.normal);
+               let text = RichText::new("Reset").size(theme.typography.normal);
                let button = Button::new(text).visuals(button_visuals).min_size(button_size);
                if ui.add(button).clicked() {
                   let new_config = RailgunConfig::default();

@@ -4,9 +4,8 @@
 //! - The TxWindow is what we show to the user for a transaction that has been confirmed.
 
 use egui::{Align, Layout, RichText, Ui};
+use egui_elements::{Label, Theme};
 use zeus_eth::alloy_primitives::TxHash;
-use zeus_theme::Theme;
-use zeus_widgets::Label;
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
@@ -41,7 +40,7 @@ pub fn tx_cost(
 
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Cost").size(theme.text_sizes.large));
+         ui.label(RichText::new("Cost").size(theme.typography.large));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -52,7 +51,7 @@ pub fn tx_cost(
             eth.symbol,
             eth_cost_usd.abbreviated()
          );
-         ui.label(RichText::new(text).size(theme.text_sizes.large));
+         ui.label(RichText::new(text).size(theme.typography.large));
       });
    });
 }
@@ -63,7 +62,7 @@ pub fn tx_hash(chain: ChainId, tx_hash: &TxHash, theme: &Theme, ui: &mut Ui) {
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          let text = "Transaction hash";
-         ui.label(RichText::new(text).size(theme.text_sizes.large));
+         ui.label(RichText::new(text).size(theme.typography.large));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -71,7 +70,7 @@ pub fn tx_hash(chain: ChainId, tx_hash: &TxHash, theme: &Theme, ui: &mut Ui) {
          let explorer = chain.block_explorer();
          let link = format!("{}/tx/{}", explorer, tx_hash);
          ui.hyperlink_to(
-            RichText::new(hash_str).size(theme.text_sizes.large).color(theme.colors.info),
+            RichText::new(hash_str).size(theme.typography.large).color(theme.colors.info),
             link,
          );
       });
@@ -90,7 +89,7 @@ pub fn value(
 
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Value").size(theme.text_sizes.large));
+         ui.label(RichText::new("Value").size(theme.typography.large));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -101,7 +100,7 @@ pub fn value(
             eth.symbol(),
             value_usd.abbreviated()
          );
-         ui.label(RichText::new(text).size(theme.text_sizes.large));
+         ui.label(RichText::new(text).size(theme.typography.large));
       });
    });
 }
@@ -117,7 +116,7 @@ pub fn contract_interact(
 ) {
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         let text = RichText::new("Contract interaction").size(theme.text_sizes.large);
+         let text = RichText::new("Contract interaction").size(theme.typography.large);
          ui.label(text);
       });
 
@@ -135,7 +134,7 @@ pub fn contract_interact(
 
          ui.hyperlink_to(
             RichText::new(interact_to_name)
-               .size(theme.text_sizes.large)
+               .size(theme.typography.large)
                .color(theme.colors.info),
             link,
          );
@@ -155,7 +154,7 @@ pub fn address(
 ) {
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new(label).size(theme.text_sizes.large));
+         ui.label(RichText::new(label).size(theme.typography.large));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -170,7 +169,7 @@ pub fn address(
          let link = format!("{}/address/{}", explorer, address.to_string());
          ui.hyperlink_to(
             RichText::new(address_name)
-               .size(theme.text_sizes.large)
+               .size(theme.typography.large)
                .color(theme.colors.info),
             link,
          );
@@ -183,12 +182,12 @@ pub fn chain(chain: ChainId, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
    let tint = theme.image_tint_recommended;
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Chain").size(theme.text_sizes.large));
+         ui.label(RichText::new("Chain").size(theme.typography.large));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let icon = icons.chain_icon(chain.id(), tint);
-         let text = RichText::new(chain.name()).size(theme.text_sizes.large);
+         let text = RichText::new(chain.name()).size(theme.typography.large);
          let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.add(label);
       });
@@ -214,7 +213,7 @@ pub fn eth_spent(
       native.symbol,
       eth_spent_usd.abbreviated()
    );
-   let text = RichText::new(text).size(theme.text_sizes.normal);
+   let text = RichText::new(text).size(theme.typography.normal);
    ui.add(Label::new(text, Some(icon)).image_on_left().interactive(false));
 }
 
@@ -236,6 +235,6 @@ pub fn eth_received(
       native.symbol,
       eth_received_usd.abbreviated()
    );
-   let text = RichText::new(text).size(theme.text_sizes.large);
+   let text = RichText::new(text).size(theme.typography.large);
    ui.add(Label::new(text, None).image_on_left().interactive(false));
 }

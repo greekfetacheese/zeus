@@ -13,8 +13,7 @@ use crate::utils::{
 use eframe::egui::{Align2, RichText, Spinner, Ui, Vec2, vec2};
 use egui::{Align, Layout, Order};
 
-use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::{Button, Modal};
+use egui_elements::{Button, Modal, OverlayManager, Theme};
 
 /// A Window to prompt the user to confirm an action
 pub struct ConfirmWindow {
@@ -90,10 +89,10 @@ impl ConfirmWindow {
                ui.spacing_mut().item_spacing = vec2(25.0, 20.0);
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-               ui.label(RichText::new(self.msg.clone()).size(theme.text_sizes.normal));
+               ui.label(RichText::new(self.msg.clone()).size(theme.typography.normal));
 
                if let Some(msg) = &self.msg2 {
-                  ui.label(RichText::new(msg).size(theme.text_sizes.normal));
+                  ui.label(RichText::new(msg).size(theme.typography.normal));
                }
 
                let size = vec2(ui.available_width() * 0.6, 25.0);
@@ -103,7 +102,7 @@ impl ConfirmWindow {
                   ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                      let visuals = theme.button_visuals();
                      let button =
-                        Button::new(RichText::new("Confirm").size(theme.text_sizes.normal))
+                        Button::new(RichText::new("Confirm").size(theme.typography.normal))
                            .visuals(visuals)
                            .min_size(button_size);
 
@@ -113,7 +112,7 @@ impl ConfirmWindow {
                      }
 
                      let button =
-                        Button::new(RichText::new("Reject").size(theme.text_sizes.normal))
+                        Button::new(RichText::new("Reject").size(theme.typography.normal))
                            .visuals(visuals)
                            .min_size(button_size);
 
@@ -205,17 +204,17 @@ impl UpdateWindow {
                }
 
                let text = "A new version of Zeus is available!";
-               ui.label(RichText::new(text).size(theme.text_sizes.large));
+               ui.label(RichText::new(text).size(theme.typography.large));
 
                let text = "Would you like to update now?";
-               ui.label(RichText::new(text).size(theme.text_sizes.normal));
+               ui.label(RichText::new(text).size(theme.typography.normal));
 
                let visuals = theme.button_visuals();
 
-               let text = RichText::new("Update Now").size(theme.text_sizes.normal);
+               let text = RichText::new("Update Now").size(theme.typography.normal);
                let update_button = Button::new(text).visuals(visuals);
 
-               let text = RichText::new("Later").size(theme.text_sizes.normal);
+               let text = RichText::new("Later").size(theme.typography.normal);
                let later_button = Button::new(text).visuals(visuals);
 
                let size = vec2(ui.available_width() * 0.45, 25.0);
@@ -274,14 +273,14 @@ impl UpdateWindow {
    }
 
    fn auto_restart_failed_ui(&mut self, theme: &Theme, ui: &mut Ui) {
-      let text = RichText::new("Auto restart failed!").size(theme.text_sizes.large);
+      let text = RichText::new("Auto restart failed!").size(theme.typography.large);
       ui.label(text);
 
-      let text = RichText::new("Please start Zeus manually").size(theme.text_sizes.normal);
+      let text = RichText::new("Please start Zeus manually").size(theme.typography.normal);
       ui.label(text);
 
       let visuals = theme.button_visuals();
-      let text = RichText::new("Exit").size(theme.text_sizes.normal);
+      let text = RichText::new("Exit").size(theme.typography.normal);
       if ui.add(Button::new(text).visuals(visuals)).clicked() {
          std::process::exit(0);
       }
@@ -290,7 +289,7 @@ impl UpdateWindow {
    fn update_completed_ui(&mut self, theme: &Theme, ui: &mut Ui) {
       ui.add(Spinner::new().size(0.0).color(theme.colors.text));
 
-      let text = RichText::new("Update completed!").size(theme.text_sizes.large);
+      let text = RichText::new("Update completed!").size(theme.typography.large);
       ui.label(text);
 
       let current_unix = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
@@ -310,14 +309,14 @@ impl UpdateWindow {
          )
       };
 
-      ui.label(RichText::new(text).size(theme.text_sizes.normal));
+      ui.label(RichText::new(text).size(theme.typography.normal));
 
       if restart_in == 0 {
          restart_app();
       }
 
       let visuals = theme.button_visuals();
-      let text = RichText::new("Restart now").size(theme.text_sizes.normal);
+      let text = RichText::new("Restart now").size(theme.typography.normal);
       if ui.add(Button::new(text).visuals(visuals)).clicked() {
          restart_app();
       }
@@ -415,7 +414,7 @@ impl MsgWindow {
          return;
       }
 
-      let msg = RichText::new(&self.message).size(theme.text_sizes.normal);
+      let msg = RichText::new(&self.message).size(theme.typography.normal);
       let mut open = self.open;
 
       Modal::new("msg_window", &mut open)
@@ -433,7 +432,7 @@ impl MsgWindow {
                ui.label(msg);
 
                let size = vec2(ui.available_width() * 0.5, 25.0);
-               let text = RichText::new("OK").size(theme.text_sizes.normal);
+               let text = RichText::new("OK").size(theme.typography.normal);
                let visuals = theme.button_visuals();
                let ok_button = Button::new(text).visuals(visuals).min_size(size);
 

@@ -7,6 +7,7 @@ use crate::core::{
 use crate::gui::{SHARED_GUI, ui::show_with_fade};
 use crate::utils::{RT, TimeStamp, truncate_address};
 use egui::{Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, Ui, vec2};
+use egui_elements::{Button, ComboBox, Label, OverlayManager, Theme};
 use elegance::{Badge, BadgeTone};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -18,8 +19,6 @@ use zeus_eth::{
    types::ChainId,
    utils::{NumericValue, address_book},
 };
-use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::{Button, ComboBox, Label};
 
 const ZEUS_TIP: &str = "Zeus only shows approvals that have been been made in-app.\n
 It cannot track approvals made from other wallets.";
@@ -341,13 +340,13 @@ impl ApprovalsUi {
 
             ui.label(
                RichText::new(Self::amount_label(amount))
-                  .size(theme.text_sizes.normal)
+                  .size(theme.typography.normal)
                   .color(theme.colors.text),
             );
 
             if let Some(text) = expire {
-               let expire_text = RichText::new(text).size(theme.text_sizes.normal);
-               let q_mark = RichText::new("?").size(theme.text_sizes.normal);
+               let expire_text = RichText::new(text).size(theme.typography.normal);
+               let q_mark = RichText::new("?").size(theme.typography.normal);
                let info_tip = Badge::new(q_mark, BadgeTone::Info);
                ui.add(info_tip).on_hover_text(expire_text);
             }
@@ -381,7 +380,7 @@ impl ApprovalsUi {
                      wallet.name_with_id_short()
                   });
 
-               let text = RichText::new(selected_wallet_name).size(theme.text_sizes.normal);
+               let text = RichText::new(selected_wallet_name).size(theme.typography.normal);
                let label = Label::new(text, None)
                   .visuals(label_visuals)
                   .fill_width(true)
@@ -394,7 +393,7 @@ impl ApprovalsUi {
                   .show_ui(ui, |ui| {
                      ui.spacing_mut().item_spacing.y = 10.0;
 
-                     let text = RichText::new("All Wallets").size(theme.text_sizes.normal);
+                     let text = RichText::new("All Wallets").size(theme.typography.normal);
                      let label = Label::new(text, None)
                         .visuals(label_visuals)
                         .fill_width(true)
@@ -409,7 +408,7 @@ impl ApprovalsUi {
 
                      for (_, wallet) in wallets {
                         let text =
-                           RichText::new(&wallet.name_with_source()).size(theme.text_sizes.normal);
+                           RichText::new(&wallet.name_with_source()).size(theme.typography.normal);
                         let label = Label::new(text, None)
                            .visuals(label_visuals)
                            .sense(Sense::click())
@@ -432,7 +431,7 @@ impl ApprovalsUi {
                      chain.name().to_string()
                   });
 
-               let text = RichText::new(selected_chain_name).size(theme.text_sizes.normal);
+               let text = RichText::new(selected_chain_name).size(theme.typography.normal);
                let label = Label::new(text, None)
                   .visuals(label_visuals)
                   .fill_width(true)
@@ -445,7 +444,7 @@ impl ApprovalsUi {
                   .show_ui(ui, |ui| {
                      ui.spacing_mut().item_spacing.y = 10.0;
 
-                     let text = RichText::new("All Chains").size(theme.text_sizes.normal);
+                     let text = RichText::new("All Chains").size(theme.typography.normal);
                      let label = Label::new(text, None)
                         .visuals(label_visuals)
                         .fill_width(true)
@@ -463,7 +462,7 @@ impl ApprovalsUi {
                            continue;
                         }
 
-                        let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
+                        let text = RichText::new(chain.name()).size(theme.typography.normal);
                         let label = Label::new(text, None)
                            .visuals(label_visuals)
                            .sense(Sense::click())
@@ -495,11 +494,11 @@ impl ApprovalsUi {
 
                   ui.label(
                      RichText::new("No active approvals match your filters")
-                        .size(theme.text_sizes.large)
+                        .size(theme.typography.large)
                         .color(theme.colors.text),
                   );
 
-                  let q_mark = RichText::new("?").size(theme.text_sizes.normal);
+                  let q_mark = RichText::new("?").size(theme.typography.normal);
                   let info_tip = Badge::new(q_mark, BadgeTone::Info);
                   ui.add(info_tip).on_hover_text(ZEUS_TIP);
                });
@@ -516,11 +515,11 @@ impl ApprovalsUi {
                            "{} active approval(s)",
                            self.cached_rows.len()
                         ))
-                        .size(theme.text_sizes.large)
+                        .size(theme.typography.large)
                         .color(theme.colors.text),
                      );
 
-                     let q_mark = RichText::new("?").size(theme.text_sizes.normal);
+                     let q_mark = RichText::new("?").size(theme.typography.normal);
                      let info_tip = Badge::new(q_mark, BadgeTone::Info);
                      ui.add(info_tip).on_hover_text(ZEUS_TIP);
                   });
@@ -570,7 +569,7 @@ impl ApprovalsUi {
                               ui.label(
                                  RichText::new(header)
                                     .strong()
-                                    .size(theme.text_sizes.large)
+                                    .size(theme.typography.large)
                                     .color(theme.colors.text),
                               );
                            }
@@ -601,7 +600,7 @@ impl ApprovalsUi {
                                     let icon = icons.currency_icon_x32(&row.token, tint);
                                     ui.add(icon);
                                     let text = RichText::new(row.token.symbol())
-                                       .size(theme.text_sizes.normal)
+                                       .size(theme.typography.normal)
                                        .color(theme.colors.text);
                                     let label = Label::new(text, None)
                                        .wrap()
@@ -618,7 +617,7 @@ impl ApprovalsUi {
                                     let chain: ChainId = row.chain.into();
                                     ui.label(
                                        RichText::new(chain.name())
-                                          .size(theme.text_sizes.normal)
+                                          .size(theme.typography.normal)
                                           .color(theme.colors.text),
                                     );
                                  });
@@ -628,7 +627,7 @@ impl ApprovalsUi {
                                     let name = self.wallet_name(ctx, row.owner);
                                     ui.label(
                                        RichText::new(name)
-                                          .size(theme.text_sizes.normal)
+                                          .size(theme.typography.normal)
                                           .color(theme.colors.text),
                                     )
                                     .on_hover_text(row.owner.to_string());
@@ -644,7 +643,7 @@ impl ApprovalsUi {
                                        format!("{}/address/{}", explorer, row.spender.to_string());
                                     ui.hyperlink_to(
                                        RichText::new(name)
-                                          .size(theme.text_sizes.normal)
+                                          .size(theme.typography.normal)
                                           .color(theme.colors.info),
                                        link,
                                     );
@@ -677,7 +676,7 @@ impl ApprovalsUi {
                                     };
                                     ui.label(
                                        RichText::new(kind)
-                                          .size(theme.text_sizes.normal)
+                                          .size(theme.typography.normal)
                                           .color(theme.colors.text),
                                     );
                                  });
@@ -685,7 +684,7 @@ impl ApprovalsUi {
                                  // Revoke
                                  Self::row_cell(ui, column_widths[6], row_height, |ui| {
                                     let text =
-                                       RichText::new("Revoke").size(theme.text_sizes.normal);
+                                       RichText::new("Revoke").size(theme.typography.normal);
                                     let button = Button::new(text).visuals(button_visuals);
                                     if ui.add(button).clicked() {
                                        self.revoke(row);

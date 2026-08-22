@@ -5,10 +5,8 @@
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use egui::{Align2, Order, RichText, Stroke, Ui, Window, vec2};
+use egui_elements::{Button, CredentialsForm, OverlayManager, Theme};
 use ncrypt_me::Credentials;
-use zeus_theme::{OverlayManager, Theme};
-use zeus_ui_components::CredentialsForm;
-use zeus_widgets::Button;
 
 pub struct ChangeCredentialsUi {
    open: bool,
@@ -73,7 +71,7 @@ impl ChangeCredentialsUi {
       let window_frame = theme.window_frame;
       let title_frame = window_frame.stroke(Stroke::NONE);
 
-      Window::new(RichText::new("Verify Credentials").size(theme.text_sizes.heading))
+      Window::new(RichText::new("Verify Credentials").size(theme.typography.heading))
          .open(&mut open)
          .order(Order::Middle)
          .resizable(false)
@@ -91,10 +89,10 @@ impl ChangeCredentialsUi {
 
                ui.scope(|ui| {
                   ui.spacing_mut().button_padding = vec2(4.0, 4.0);
-                  self.credentials_form.show(theme, ui);
+                  self.credentials_form.show(ui);
                });
 
-               let text = RichText::new("Confrim").size(theme.text_sizes.large);
+               let text = RichText::new("Confrim").size(theme.typography.large);
                let button = Button::new(text)
                   .visuals(theme.button_visuals())
                   .min_size(vec2(ui.available_width() * 0.8, 45.0));
@@ -113,7 +111,8 @@ impl ChangeCredentialsUi {
                         gui.ctx.clone()
                      });
 
-                     let creds_match = ctx.read_vault(|vault| vault.credentials_match(&credentials));
+                     let creds_match =
+                        ctx.read_vault(|vault| vault.credentials_match(&credentials));
 
                      match creds_match {
                         true => {
@@ -157,7 +156,7 @@ impl ChangeCredentialsUi {
       let window_frame = theme.window_frame;
       let title_frame = window_frame.stroke(Stroke::NONE);
 
-      Window::new(RichText::new("New Credentials").size(theme.text_sizes.heading))
+      Window::new(RichText::new("New Credentials").size(theme.typography.heading))
          .open(&mut open)
          .order(Order::Middle)
          .resizable(false)
@@ -175,12 +174,12 @@ impl ChangeCredentialsUi {
 
                ui.scope(|ui| {
                   ui.spacing_mut().button_padding = vec2(4.0, 4.0);
-                  self.credentials_form.show(theme, ui);
+                  self.credentials_form.show(ui);
                });
 
                let visuals = theme.button_visuals();
 
-               let text = RichText::new("Confirm").size(theme.text_sizes.large);
+               let text = RichText::new("Confirm").size(theme.typography.large);
                let button = Button::new(text)
                   .visuals(visuals)
                   .min_size(vec2(ui.available_width() * 0.8, 45.0));

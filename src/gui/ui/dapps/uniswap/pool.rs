@@ -1,12 +1,11 @@
 use egui::{FontId, Frame, Grid, Margin, RichText, ScrollArea, Sense, TextEdit, Ui, vec2};
-use zeus_widgets::{ComboBox, Label};
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::utils::truncate_symbol_or_name;
+use egui_elements::{ComboBox, Label, Theme};
 use std::sync::Arc;
 use zeus_eth::amm::uniswap::{AnyUniswapPool, UniswapPool};
-use zeus_theme::Theme;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Version {
@@ -67,14 +66,14 @@ impl PoolsUi {
    fn select_version(&mut self, theme: &Theme, ui: &mut Ui) {
       let all_versions = Version::all();
       let selected_text = self.version.map(|v| v.to_str()).unwrap_or("Select Version");
-      let selected_text = RichText::new(selected_text).size(theme.text_sizes.normal);
+      let selected_text = RichText::new(selected_text).size(theme.typography.normal);
       let selected_label = Label::new(selected_text, None).sense(Sense::click()).interactive(false);
 
       ComboBox::new("pool_explore_combobox", selected_label)
          .width(200.0)
          .show_ui(ui, |ui| {
             for version in all_versions {
-               let text = RichText::new(version.to_str()).size(theme.text_sizes.normal);
+               let text = RichText::new(version.to_str()).size(theme.typography.normal);
                let label = Label::new(text, None).sense(Sense::click()).interactive(false);
                if ui.add(label).clicked() {
                   self.version = Some(version);
@@ -99,7 +98,7 @@ impl PoolsUi {
             .hint_text(RichText::new("Search pools"))
             .desired_width(ui_width * 0.5)
             .margin(Margin::same(10))
-            .font(FontId::proportional(theme.text_sizes.normal))
+            .font(FontId::proportional(theme.typography.normal))
             .show(ui);
 
          ui.scope(|ui| {
@@ -120,15 +119,15 @@ impl PoolsUi {
                // Header
 
                // Pool
-               ui.label(RichText::new("Pool").size(theme.text_sizes.large));
+               ui.label(RichText::new("Pool").size(theme.typography.large));
 
                // Protocol
-               ui.label(RichText::new("Protocol").size(theme.text_sizes.large));
+               ui.label(RichText::new("Protocol").size(theme.typography.large));
 
                // Fee
-               ui.label(RichText::new("Fee").size(theme.text_sizes.large));
+               ui.label(RichText::new("Fee").size(theme.typography.large));
 
-               ui.label(RichText::new("Has State").size(theme.text_sizes.large));
+               ui.label(RichText::new("Has State").size(theme.typography.large));
 
                ui.end_row();
 
@@ -171,14 +170,14 @@ impl PoolsUi {
                         let token1_symbol = truncate_symbol_or_name(token1.symbol(), 10);
 
                         let label0 = Label::new(
-                           RichText::new(token0_symbol).size(theme.text_sizes.normal),
+                           RichText::new(token0_symbol).size(theme.typography.normal),
                            Some(icon0),
                         )
                         .image_on_left()
                         .interactive(false);
 
                         let label1 = Label::new(
-                           RichText::new(token1_symbol).size(theme.text_sizes.normal),
+                           RichText::new(token1_symbol).size(theme.typography.normal),
                            Some(icon1),
                         )
                         .interactive(false);
@@ -188,7 +187,7 @@ impl PoolsUi {
                               ui.add(label0);
                               ui.add(
                                  Label::new(
-                                    RichText::new("/").size(theme.text_sizes.normal),
+                                    RichText::new("/").size(theme.typography.normal),
                                     None,
                                  )
                                  .interactive(false),
@@ -202,11 +201,11 @@ impl PoolsUi {
                      ui.scope(|ui| {
                         ui.set_width(column_width);
                         let text = if pool.dex_kind().is_v2() {
-                           RichText::new("V2").size(theme.text_sizes.normal)
+                           RichText::new("V2").size(theme.typography.normal)
                         } else if pool.dex_kind().is_v3() {
-                           RichText::new("V3").size(theme.text_sizes.normal)
+                           RichText::new("V3").size(theme.typography.normal)
                         } else {
-                           RichText::new("V4").size(theme.text_sizes.normal)
+                           RichText::new("V4").size(theme.typography.normal)
                         };
                         ui.label(text);
                      });
@@ -216,7 +215,7 @@ impl PoolsUi {
                         ui.set_width(column_width);
 
                         let fee = pool.fee().fee_percent();
-                        let text = RichText::new(format!("{fee}%")).size(theme.text_sizes.normal);
+                        let text = RichText::new(format!("{fee}%")).size(theme.typography.normal);
                         ui.label(text);
                      });
 
@@ -225,7 +224,7 @@ impl PoolsUi {
 
                         let has_state = pool.state().is_some();
                         let text = RichText::new(if has_state { "Yes" } else { "No" })
-                           .size(theme.text_sizes.normal);
+                           .size(theme.typography.normal);
                         ui.label(text);
                      });
 

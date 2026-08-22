@@ -3,10 +3,8 @@
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{Align2, FontId, Margin, Order, RichText, Stroke, Ui, Window, vec2};
+use egui_elements::{Button, OverlayManager, SecureTextEdit, SecureInputField, Theme};
 use zeus_eth::types::SUPPORTED_CHAINS;
-use zeus_theme::{OverlayManager, Theme};
-use zeus_ui_components::SecureInputField;
-use zeus_widgets::{Button, SecureTextEdit};
 
 #[derive(PartialEq, Eq)]
 pub enum ImportWalletType {
@@ -68,7 +66,7 @@ impl ImportWallet {
       let window_frame = theme.window_frame;
       let title_frame = window_frame.stroke(Stroke::NONE);
 
-      Window::new(RichText::new("Import Wallet").size(theme.text_sizes.heading))
+      Window::new(RichText::new("Import Wallet").size(theme.typography.heading))
          .open(&mut is_open)
          .order(Order::Middle)
          .resizable(false)
@@ -90,11 +88,11 @@ impl ImportWallet {
                ui.add_space(20.0);
 
                // Wallet Name
-               ui.label(RichText::new("Wallet Name (Optional)").size(theme.text_sizes.large));
+               ui.label(RichText::new("Wallet Name (Optional)").size(theme.typography.large));
                ui.add(
                   SecureTextEdit::singleline(&mut self.wallet_name)
                      .visuals(text_edit_visuals)
-                     .font(FontId::proportional(theme.text_sizes.normal))
+                     .font(FontId::proportional(theme.typography.normal))
                      .margin(Margin::same(10))
                      .min_size(size),
                );
@@ -113,11 +111,11 @@ impl ImportWallet {
 
                ui.scope(|ui| {
                   ui.spacing_mut().button_padding = vec2(4.0, 4.0);
-                  self.input_field.show(theme, ui);
+                  self.input_field.show(ui);
                });
 
                // Import Button
-               let text = RichText::new("Import").size(theme.text_sizes.normal);
+               let text = RichText::new("Import").size(theme.typography.normal);
                let button = Button::new(text).visuals(button_visuals);
 
                if ui.add(button).clicked() {

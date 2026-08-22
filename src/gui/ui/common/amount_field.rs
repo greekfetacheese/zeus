@@ -10,8 +10,8 @@ use zeus_eth::{
    currency::Currency,
    utils::NumericValue,
 };
-use zeus_theme::Theme;
-use zeus_widgets::{Button, Label, SecureTextEdit};
+
+use egui_elements::{Theme, Button, Label, SecureTextEdit};
 
 /// An amount field with an optional currency selector and customizable balance & max amount logic.
 pub struct AmountField {
@@ -87,7 +87,7 @@ impl AmountField {
          ui.horizontal(|ui| {
             // Optional label
             if let Some(label) = label {
-               ui.label(RichText::new(label).size(theme.text_sizes.large).color(theme.colors.text));
+               ui.label(RichText::new(label).size(theme.typography.large).color(theme.colors.text));
             }
 
             if loading {
@@ -100,7 +100,7 @@ impl AmountField {
                   let amount_percent = self.amount_percent;
 
                   let text =
-                     RichText::new(format!("{}%", amount_percent)).size(theme.text_sizes.normal);
+                     RichText::new(format!("{}%", amount_percent)).size(theme.typography.normal);
 
                   ui.label(text);
 
@@ -134,11 +134,11 @@ impl AmountField {
             ui.vertical(|ui| {
                let visuals = theme.text_edit_visuals();
                let hint =
-                  RichText::new("0").color(theme.colors.text_muted).size(theme.text_sizes.heading);
+                  RichText::new("0").color(theme.colors.text_muted).size(theme.typography.heading);
 
                let amount_input = SecureTextEdit::singleline(&mut self.amount)
                   .visuals(visuals)
-                  .font(FontId::proportional(theme.text_sizes.heading))
+                  .font(FontId::proportional(theme.typography.heading))
                   .hint_text(hint)
                   .margin(Margin::same(10))
                   .desired_width(ui.available_width() * 0.6)
@@ -155,7 +155,7 @@ impl AmountField {
                // USD Value
                let value = get_value();
                ui.label(
-                  RichText::new(format!("${}", value.abbreviated())).size(theme.text_sizes.normal),
+                  RichText::new(format!("${}", value.abbreviated())).size(theme.typography.normal),
                );
             });
 
@@ -166,7 +166,7 @@ impl AmountField {
 
                let visuals = theme.button_visuals();
                let icon = icons.currency_icon_x32(currency, tint);
-               let button_text = RichText::new(currency.symbol()).size(theme.text_sizes.normal);
+               let button_text = RichText::new(currency.symbol()).size(theme.typography.normal);
                let width = ui.available_width() * 0.5;
                let button = Button::image_and_text(icon, button_text)
                   .visuals(visuals)
@@ -182,13 +182,13 @@ impl AmountField {
                }
 
                // Balance
-               let wallet_icon = match theme.dark_mode {
+               let wallet_icon = match theme.dark {
                   true => icons.wallet_light(tint),
                   _ => icons.wallet_dark(),
                };
 
                let text = RichText::new(format!("{:.12}", balance.abbreviated()))
-                  .size(theme.text_sizes.normal)
+                  .size(theme.typography.normal)
                   .color(theme.colors.text);
                let label = Label::new(text, Some(wallet_icon)).interactive(false);
 

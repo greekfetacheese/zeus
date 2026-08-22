@@ -25,8 +25,7 @@ use crate::gui::{
    },
 };
 use crate::utils::simulate::fetch_accounts_info;
-use zeus_theme::Theme;
-use zeus_widgets::{Button, SecureTextEdit};
+use egui_elements::{Button, SecureTextEdit, Theme};
 
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256},
@@ -138,7 +137,7 @@ impl SendCryptoUi {
 
                   if privacy_mode && !ctx.railgun_is_supported(ctx.chain) {
                      let text = RichText::new("Railgun is not supported for the selected chain")
-                        .size(theme.text_sizes.very_large);
+                        .size(theme.typography.very_large);
                      ui.label(text);
                      return;
                   }
@@ -150,7 +149,7 @@ impl SendCryptoUi {
                   } else {
                      "Send Crypto"
                   };
-                  ui.label(RichText::new(title).size(theme.text_sizes.heading));
+                  ui.label(RichText::new(title).size(theme.typography.heading));
 
                   let owner = ctx.current_wallet_info().address;
                   let owner_zk = ctx.current_wallet_info().zk_address();
@@ -226,20 +225,20 @@ impl SendCryptoUi {
                   inner_frame.show(ui, |ui| {
                      ui.set_width(ui.available_width());
                      ui.horizontal(|ui| {
-                        ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
+                        ui.label(RichText::new("Recipient").size(theme.typography.large));
                         ui.add_space(10.0);
 
                         if !recipient.is_empty(recipient_privacy_mode) {
                            if let Some(name) = &recipient.name {
                               ui.label(
                                  RichText::new(name)
-                                    .size(theme.text_sizes.large)
+                                    .size(theme.typography.large)
                                     .color(theme.colors.info),
                               );
                            } else {
                               ui.label(
                                  RichText::new("Unknown Address")
-                                    .size(theme.text_sizes.large)
+                                    .size(theme.typography.large)
                                     .color(theme.colors.error),
                               );
                            }
@@ -251,7 +250,7 @@ impl SendCryptoUi {
                                  block_explorer, recipient.evm_address
                               );
                               let tint = theme.image_tint_recommended;
-                              let icon = match theme.dark_mode {
+                              let icon = match theme.dark {
                                  true => icons.external_link_white_x18(tint),
                                  false => icons.external_link_dark_x18(tint),
                               };
@@ -269,11 +268,11 @@ impl SendCryptoUi {
                      ui.horizontal(|ui| {
                         let hint = if recipient_privacy_mode {
                            RichText::new("Search contacts or enter a 0zk address")
-                              .size(theme.text_sizes.normal)
+                              .size(theme.typography.normal)
                               .color(theme.colors.text_muted)
                         } else {
                            RichText::new("Search contacts or enter an address")
-                              .size(theme.text_sizes.normal)
+                              .size(theme.typography.normal)
                               .color(theme.colors.text_muted)
                         };
 
@@ -289,7 +288,7 @@ impl SendCryptoUi {
                               .hint_text(hint)
                               .min_size(vec2(ui.available_width(), 25.0))
                               .margin(Margin::same(10))
-                              .font(FontId::proportional(theme.text_sizes.normal)),
+                              .font(FontId::proportional(theme.typography.normal)),
                         );
                         if res.clicked() {
                            recipient_selection.open();
@@ -387,7 +386,7 @@ impl SendCryptoUi {
          button_text = "Invalid Token".to_string();
       }
 
-      let text = RichText::new(button_text).size(theme.text_sizes.large);
+      let text = RichText::new(button_text).size(theme.typography.large);
       let send = Button::new(text)
          .min_size(vec2(ui.available_width() * 0.8, 45.0))
          .visuals(button_visuals);

@@ -5,8 +5,7 @@ use crate::core::{DecodedEvent, TransactionRich, ZeusContext, tx::events::*};
 use crate::gui::{SHARED_GUI, ui::GREEN_CHECK};
 use crate::utils::{RT, TimeStamp, truncate_address};
 use egui::{Align2, Order, ProgressBar, RichText, Spinner, Ui, Window, vec2};
-use zeus_theme::Theme;
-use zeus_widgets::{Button, Label, MultiLabel};
+use egui_elements::{Button, Label, MultiLabel, Theme};
 
 use std::sync::Arc;
 
@@ -324,10 +323,10 @@ impl Notification {
 
       ui.vertical_centered(|ui| {
          let text = format!("{}{}", &self.title, GREEN_CHECK);
-         ui.label(RichText::new(text).size(theme.text_sizes.large));
+         ui.label(RichText::new(text).size(theme.typography.large));
          self.show_notification(ctx, theme, icons, ui);
 
-         let text = RichText::new("Transaction Details").size(theme.text_sizes.normal);
+         let text = RichText::new("Transaction Details").size(theme.typography.normal);
          let button = Button::new(text).visuals(theme.button_visuals());
 
          if ui.add_enabled(self.tx.is_some(), button).clicked() {
@@ -359,7 +358,7 @@ impl Notification {
       let spinner_color = theme.colors.text;
 
       ui.vertical_centered(|ui| {
-         ui.label(RichText::new(&self.title).size(theme.text_sizes.large));
+         ui.label(RichText::new(&self.title).size(theme.typography.large));
          self.show_notification(ctx, theme, icons, ui);
 
          ui.add(Spinner::new().color(spinner_color).size(20.0));
@@ -378,13 +377,13 @@ impl Notification {
          let amount_out = params.received.abbreviated();
 
          let text_in = format!("{} {}", amount_in, symbol_in);
-         let text_in = RichText::new(text_in).size(theme.text_sizes.large);
+         let text_in = RichText::new(text_in).size(theme.typography.large);
          let icon_in = icons.currency_icon_x24(&params.input_currency, tint);
 
          let arrow = icons.arrow_right_white_x24(tint);
 
          let text_out = format!("{} {}", amount_out, symbol_out);
-         let text_out = RichText::new(text_out).size(theme.text_sizes.large);
+         let text_out = RichText::new(text_out).size(theme.typography.large);
          let icon_out = icons.currency_icon_x24(&params.output_currency, tint);
 
          let label_in = Label::new(text_in, Some(icon_in)).wrap().interactive(false);
@@ -410,13 +409,13 @@ impl Notification {
          let amount_out = params.received.abbreviated();
 
          let text_in = format!("{} {}", amount_in, symbol_in);
-         let text_in = RichText::new(text_in).size(theme.text_sizes.large);
+         let text_in = RichText::new(text_in).size(theme.typography.large);
          let icon_in = icons.currency_icon_x24(&params.input_currency, tint);
 
          let arrow = icons.arrow_right_white_x24(tint);
 
          let text_out = format!("{} {}", amount_out, symbol_out);
-         let text_out = RichText::new(text_out).size(theme.text_sizes.large);
+         let text_out = RichText::new(text_out).size(theme.typography.large);
          let icon_out = icons.currency_icon_x24(&params.output_currency, tint);
 
          let label_in = Label::new(text_in, Some(icon_in)).wrap().interactive(false);
@@ -426,14 +425,14 @@ impl Notification {
          let multi_label = MultiLabel::new(vec![label_in, label_arrow, label_out]);
          ui.add(multi_label);
 
-         let chain_in = RichText::new(from_chain.name()).size(theme.text_sizes.large);
+         let chain_in = RichText::new(from_chain.name()).size(theme.typography.large);
          let chain_in_icon = icons.chain_icon(from_chain.id(), tint);
          let label1 = Label::new(chain_in, Some(chain_in_icon)).interactive(false);
 
          let arrow = icons.arrow_right_white_x24(tint);
          let label_arrow = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
 
-         let chain_out = RichText::new(to_chain.name()).size(theme.text_sizes.large);
+         let chain_out = RichText::new(to_chain.name()).size(theme.typography.large);
          let chain_out_icon = icons.chain_icon(to_chain.id(), tint);
          let label2 = Label::new(chain_out, Some(chain_out_icon)).interactive(false);
 
@@ -453,7 +452,7 @@ impl Notification {
          let weth_received = eth_wrapped.clone();
 
          let text = format!("{} {}", eth_wrapped, native.symbol());
-         let text_amount = RichText::new(text).size(theme.text_sizes.large);
+         let text_amount = RichText::new(text).size(theme.typography.large);
          let icon = icons.currency_icon_x24(&native, tint);
          let label1 = Label::new(text_amount, Some(icon)).interactive(false);
 
@@ -461,7 +460,7 @@ impl Notification {
          let arrow_label = Label::new("", Some(arrow_icon)).spacing(0.0).interactive(false);
 
          let text = format!("{} {}", weth_received, weth.symbol());
-         let text_amount = RichText::new(text).size(theme.text_sizes.large);
+         let text_amount = RichText::new(text).size(theme.typography.large);
          let icon = icons.currency_icon_x24(&weth, tint);
 
          let label2 = Label::new(text_amount, Some(icon)).interactive(false);
@@ -482,7 +481,7 @@ impl Notification {
          let eth_received = params.eth_received.abbreviated();
 
          let text = format!("{} {}", weth_unwrapped, weth.symbol());
-         let text_amount = RichText::new(text).size(theme.text_sizes.large);
+         let text_amount = RichText::new(text).size(theme.typography.large);
          let icon = icons.currency_icon_x24(&weth, tint);
          let label1 = Label::new(text_amount, Some(icon)).interactive(false);
 
@@ -490,7 +489,7 @@ impl Notification {
          let arrow_label = Label::new("", Some(arrow_icon)).spacing(0.0).interactive(false);
 
          let text = format!("{} {}", eth_received, native.symbol());
-         let text_amount = RichText::new(text).size(theme.text_sizes.large);
+         let text_amount = RichText::new(text).size(theme.typography.large);
          let icon = icons.currency_icon_x24(&native, tint);
 
          let label2 = Label::new(text_amount, Some(icon)).interactive(false);
@@ -519,7 +518,7 @@ impl Notification {
          };
 
          let text = format!("{} {}", amount, currency.symbol());
-         let text = RichText::new(text).size(theme.text_sizes.large);
+         let text = RichText::new(text).size(theme.typography.large);
          let icon = icons.currency_icon_x24(&currency, tint);
 
          let label = Label::new(text, Some(icon)).wrap().interactive(false);
@@ -532,7 +531,7 @@ impl Notification {
             truncate_address(params.sender.to_string())
          };
 
-         let text = RichText::new(address_name).size(theme.text_sizes.normal);
+         let text = RichText::new(address_name).size(theme.typography.normal);
          let from_label = Label::new(text, None).interactive(false);
 
          let arrow = icons.arrow_right_white_x24(tint);
@@ -545,7 +544,7 @@ impl Notification {
             truncate_address(params.recipient.to_string())
          };
 
-         let text = RichText::new(address_name).size(theme.text_sizes.normal);
+         let text = RichText::new(address_name).size(theme.typography.normal);
          let to_label = Label::new(text, None).interactive(false);
 
          let multi_label = MultiLabel::new(vec![from_label, arrow_label, to_label]);
@@ -576,10 +575,10 @@ impl Notification {
                params.token.symbol,
                amount_usd.abbreviated()
             ))
-            .size(theme.text_sizes.normal)
+            .size(theme.typography.normal)
          } else {
             RichText::new(format!("{} {}", amount, params.token.symbol))
-               .size(theme.text_sizes.normal)
+               .size(theme.typography.normal)
          };
 
          let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
@@ -606,14 +605,14 @@ impl Notification {
                   token.symbol,
                   amount_usd.abbreviated()
                ))
-               .size(theme.text_sizes.normal)
+               .size(theme.typography.normal)
             } else {
                RichText::new(format!(
                   "{} {}",
                   amount.abbreviated(),
                   token.symbol
                ))
-               .size(theme.text_sizes.normal)
+               .size(theme.typography.normal)
             };
 
             let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
@@ -641,14 +640,14 @@ impl Notification {
                   token.symbol,
                   amount_usd.abbreviated()
                ))
-               .size(theme.text_sizes.normal)
+               .size(theme.typography.normal)
             } else {
                RichText::new(format!(
                   "{} {}",
                   amount.abbreviated(),
                   token.symbol
                ))
-               .size(theme.text_sizes.normal)
+               .size(theme.typography.normal)
             };
 
             let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
@@ -671,14 +670,14 @@ impl Notification {
                   token.symbol,
                   amount_usd.abbreviated()
                ))
-               .size(theme.text_sizes.normal)
+               .size(theme.typography.normal)
             } else {
                RichText::new(format!(
                   "{} {}",
                   amount.abbreviated(),
                   token.symbol
                ))
-               .size(theme.text_sizes.normal)
+               .size(theme.typography.normal)
             };
 
             let label = Label::new(text, Some(icon)).image_on_left().interactive(false);

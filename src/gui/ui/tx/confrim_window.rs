@@ -1,8 +1,5 @@
-use egui::{
-   Align, Align2, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, Ui, Window, vec2,
-};
-use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::{Button, Label, Modal, SecureTextEdit};
+use egui::{Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Ui, Window, vec2};
+use egui_elements::{Button, Label, Modal, OverlayManager, SecureTextEdit, Theme};
 
 use super::{address, chain, contract_interact, eth_received, events::*, tx_cost, value};
 use crate::assets::icons::Icons;
@@ -173,7 +170,7 @@ impl TxConfirmationWindow {
          return;
       }
 
-      let window_frame = theme.window_frame;
+      let window_frame = theme.window_frame.fill(theme.frame1.fill);
 
       Window::new("Transaction Confirmation Window")
          .title_bar(false)
@@ -189,279 +186,272 @@ impl TxConfirmationWindow {
             let button_visuals = theme.button_visuals();
             let text_edit_visuals = theme.text_edit_visuals();
 
-            Frame::new().show(ui, |ui| {
-               ui.vertical_centered(|ui| {
-                  ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
-                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-                  if self.tx.is_none() {
-                     ui.label(
-                        RichText::new("Transaction Analysis not found, this is a bug")
-                           .size(theme.text_sizes.large),
-                     );
-                     return;
-                  }
-
-                  let analysis = self.tx.as_ref().unwrap();
-                  let main_event = self.tx_main_event.as_ref().unwrap();
-
-                  if !self.dapp.is_empty() {
-                     ui.label(RichText::new(&self.dapp).size(theme.text_sizes.large));
-                  }
-
-                  let frame = theme.frame2;
-                  let frame_size = vec2(ui.available_width() * 0.95, 45.0);
-
-                  self.decoded_events.show(
-                     ctx,
-                     self.chain,
-                     theme,
-                     icons.clone(),
-                     analysis,
-                     frame_size,
-                     frame,
-                     self.size,
-                     ui,
+               if self.tx.is_none() {
+                  ui.label(
+                     RichText::new("Transaction Analysis not found, this is a bug")
+                        .size(theme.typography.large),
                   );
+                  return;
+               }
 
-                  let calldata = analysis.call_data.to_string();
-                  Self::show_calldata(&mut self.show_calldata, theme, calldata, ui);
+               let analysis = self.tx.as_ref().unwrap();
+               let main_event = self.tx_main_event.as_ref().unwrap();
 
-                  // Action Name
-                  ui.label(RichText::new(main_event.name()).size(theme.text_sizes.heading));
+               if !self.dapp.is_empty() {
+                  ui.label(RichText::new(&self.dapp).size(theme.typography.large));
+               }
 
-                  if !main_event.is_other() {
-                     ui.allocate_ui(frame_size, |ui| {
-                        frame.show(ui, |ui| {
-                           show_event(
-                              ctx,
-                              self.chain,
-                              theme,
-                              icons.clone(),
-                              main_event,
-                              ui,
-                           );
-                        });
-                     });
-                  }
+               let frame = theme.frame2;
+               let frame_size = vec2(ui.available_width() * 0.95, 45.0);
 
-                  // Tx Action is unknown
-                  if main_event.is_other() {
-                     let text = "Review the decoded events and proceed with caution";
-                     ui.label(
-                        RichText::new(text)
-                           .size(theme.text_sizes.large)
-                           .color(theme.colors.warning),
-                     );
-                  }
+               self.decoded_events.show(
+                  ctx,
+                  self.chain,
+                  theme,
+                  icons.clone(),
+                  analysis,
+                  frame_size,
+                  frame,
+                  self.size,
+                  ui,
+               );
 
-                  // Tx details
+               let calldata = analysis.call_data.to_string();
+               Self::show_calldata(&mut self.show_calldata, theme, calldata, ui);
+
+               // Action Name
+               ui.label(RichText::new(main_event.name()).size(theme.typography.heading));
+
+               if !main_event.is_other() {
                   ui.allocate_ui(frame_size, |ui| {
                      frame.show(ui, |ui| {
-                        chain(self.chain, theme, icons.clone(), ui);
-                        address(
+                        show_event(
                            ctx,
                            self.chain,
-                           "Sender",
-                           analysis.sender,
                            theme,
-                           ui,
-                        );
-
-                        // Contract interaction
-                        if analysis.contract_interact {
-                           contract_interact(ctx, self.chain, analysis.interact_to, theme, ui);
-                        }
-
-                        // Value to be sent
-                        value(ctx, self.chain, analysis.value_sent(), theme, ui);
-
-                        // Transaction cost
-                        tx_cost(
-                           self.chain,
-                           &self.tx_cost,
-                           &self.tx_cost_usd,
-                           theme,
+                           icons.clone(),
+                           main_event,
                            ui,
                         );
                      });
                   });
+               }
 
-                  // Show ETH received
-                  if !analysis.eth_received().is_zero()
-                     && !analysis.is_unwrap_weth()
-                     && !analysis.is_swap()
-                  {
-                     let text = "You will receive";
-                     ui.allocate_ui(frame_size, |ui| {
-                        frame.show(ui, |ui| {
-                           eth_received(
-                              self.chain.id(),
-                              analysis.eth_received(),
-                              analysis.eth_received_usd(ctx),
-                              theme,
-                              icons.clone(),
-                              text,
-                              ui,
-                           );
-                        });
-                     });
-                  }
+               // Tx Action is unknown
+               if main_event.is_other() {
+                  let text = "Review the decoded events and proceed with caution";
+                  ui.label(
+                     RichText::new(text).size(theme.typography.large).color(theme.colors.warning),
+                  );
+               }
 
-                  // Decoded Events / Show CallData - Buttons
-                  let ui_size = vec2(ui.available_width() * 0.6, 45.0);
-                  ui.allocate_ui(ui_size, |ui| {
-                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 10.0;
+               // Tx details
+               ui.allocate_ui(frame_size, |ui| {
+                  frame.show(ui, |ui| {
+                     chain(self.chain, theme, icons.clone(), ui);
+                     address(
+                        ctx,
+                        self.chain,
+                        "Sender",
+                        analysis.sender,
+                        theme,
+                        ui,
+                     );
 
-                        let button_size = vec2(150.0, 30.0);
+                     // Contract interaction
+                     if analysis.contract_interact {
+                        contract_interact(ctx, self.chain, analysis.interact_to, theme, ui);
+                     }
 
-                        let text = RichText::new("Decoded events").size(theme.text_sizes.large);
-                        let button =
-                           Button::new(text).visuals(theme.button_visuals()).min_size(button_size);
-                        let clicked = ui.add(button).clicked();
-                        if clicked {
-                           self.decoded_events.open();
-                        }
+                     // Value to be sent
+                     value(ctx, self.chain, analysis.value_sent(), theme, ui);
 
-                        let text = RichText::new("Calldata").size(theme.text_sizes.large);
-                        let button =
-                           Button::new(text).visuals(button_visuals).min_size(button_size);
-
-                        if ui.add(button).clicked() {
-                           self.show_calldata = true;
-                        }
-                     });
+                     // Transaction cost
+                     tx_cost(
+                        self.chain,
+                        &self.tx_cost,
+                        &self.tx_cost_usd,
+                        theme,
+                        ui,
+                     );
                   });
+               });
 
-                  let sufficient_balance =
-                     self.sufficient_balance(ctx, analysis.value_sent().wei(), analysis.sender);
-
-                  let mut recalculate_tx_cost = false;
-
-                  let size = vec2(ui.available_width() * 0.7, 45.0);
-                  ui.allocate_ui(size, |ui| {
+               // Show ETH received
+               if !analysis.eth_received().is_zero()
+                  && !analysis.is_unwrap_weth()
+                  && !analysis.is_swap()
+               {
+                  let text = "You will receive";
+                  ui.allocate_ui(frame_size, |ui| {
                      frame.show(ui, |ui| {
-                        ui.set_width(size.x);
-                        ui.spacing_mut().item_spacing = vec2(15.0, 10.0);
+                        eth_received(
+                           self.chain.id(),
+                           analysis.eth_received(),
+                           analysis.eth_received_usd(ctx),
+                           theme,
+                           icons.clone(),
+                           text,
+                           ui,
+                        );
+                     });
+                  });
+               }
 
-                        ui.horizontal(|ui| {
-                           let availabled_width = ui.available_width();
-                           let fee_width = ui.available_width() * 0.3;
-                           let gas_width = ui.available_width() * 0.5;
+               // Decoded Events / Show CallData - Buttons
+               let ui_size = vec2(ui.available_width() * 0.6, 45.0);
+               ui.allocate_ui(ui_size, |ui| {
+                  ui.horizontal(|ui| {
+                     ui.spacing_mut().item_spacing.x = 10.0;
 
-                           // Ajdust Priority Fee
+                     let button_size = vec2(150.0, 30.0);
+
+                     let text = RichText::new("Decoded events").size(theme.typography.large);
+                     let button =
+                        Button::new(text).visuals(theme.button_visuals()).min_size(button_size);
+                     let clicked = ui.add(button).clicked();
+                     if clicked {
+                        self.decoded_events.open();
+                     }
+
+                     let text = RichText::new("Calldata").size(theme.typography.large);
+                     let button = Button::new(text).visuals(button_visuals).min_size(button_size);
+
+                     if ui.add(button).clicked() {
+                        self.show_calldata = true;
+                     }
+                  });
+               });
+
+               let sufficient_balance =
+                  self.sufficient_balance(ctx, analysis.value_sent().wei(), analysis.sender);
+
+               let mut recalculate_tx_cost = false;
+
+               let size = vec2(ui.available_width() * 0.7, 45.0);
+               ui.allocate_ui(size, |ui| {
+                  frame.show(ui, |ui| {
+                     ui.set_width(size.x);
+                     ui.spacing_mut().item_spacing = vec2(15.0, 10.0);
+
+                     ui.horizontal(|ui| {
+                        let availabled_width = ui.available_width();
+                        let fee_width = ui.available_width() * 0.3;
+                        let gas_width = ui.available_width() * 0.5;
+
+                        // Ajdust Priority Fee
+                        ui.vertical(|ui| {
+                           let text = "Priority Fee (Gwei)";
+                           ui.label(RichText::new(text).size(theme.typography.normal));
+
+                           if self.chain.is_bsc() {
+                              ui.disable();
+                           }
+
+                           let res = ui.add(
+                              SecureTextEdit::singleline(&mut self.priority_fee)
+                                 .visuals(text_edit_visuals)
+                                 .margin(Margin::same(10))
+                                 .desired_width(fee_width)
+                                 .font(egui::FontId::proportional(
+                                    theme.typography.normal,
+                                 )),
+                           );
+
+                           if res.changed() {
+                              recalculate_tx_cost = true;
+                           }
+                        });
+
+                        // Take the available space because otherwise the gas limit
+                        // will not be pushed to the far right
+                        ui.add_space(availabled_width - (fee_width + gas_width));
+
+                        // Adjust Gas Limit
+                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                            ui.vertical(|ui| {
-                              let text = "Priority Fee (Gwei)";
-                              ui.label(RichText::new(text).size(theme.text_sizes.normal));
+                              let text = "Gas Limit";
+                              ui.label(RichText::new(text).size(theme.typography.normal));
 
-                              if self.chain.is_bsc() {
-                                 ui.disable();
-                              }
-
-                              let res = ui.add(
-                                 SecureTextEdit::singleline(&mut self.priority_fee)
+                              ui.add(
+                                 SecureTextEdit::singleline(&mut self.adjusted_gas_limit)
                                     .visuals(text_edit_visuals)
                                     .margin(Margin::same(10))
-                                    .desired_width(fee_width)
+                                    .desired_width(gas_width)
                                     .font(egui::FontId::proportional(
-                                       theme.text_sizes.normal,
+                                       theme.typography.normal,
                                     )),
                               );
-
-                              if res.changed() {
-                                 recalculate_tx_cost = true;
-                              }
-                           });
-
-                           // Take the available space because otherwise the gas limit
-                           // will not be pushed to the far right
-                           ui.add_space(availabled_width - (fee_width + gas_width));
-
-                           // Adjust Gas Limit
-                           ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                              ui.vertical(|ui| {
-                                 let text = "Gas Limit";
-                                 ui.label(RichText::new(text).size(theme.text_sizes.normal));
-
-                                 ui.add(
-                                    SecureTextEdit::singleline(&mut self.adjusted_gas_limit)
-                                       .visuals(text_edit_visuals)
-                                       .margin(Margin::same(10))
-                                       .desired_width(gas_width)
-                                       .font(egui::FontId::proportional(
-                                          theme.text_sizes.normal,
-                                       )),
-                                 );
-                              });
                            });
                         });
                      });
                   });
+               });
 
-                  ui.add_space(10.0);
+               ui.add_space(10.0);
 
-                  let base_case = self.chain.is_ethereum()
-                     && !main_event.is_other()
-                     && main_event.is_mev_vulnerable();
-                  let show_mev_protect = base_case || main_event.is_other();
-                  let tint = theme.image_tint_recommended;
+               let base_case = self.chain.is_ethereum()
+                  && !main_event.is_other()
+                  && main_event.is_mev_vulnerable();
+               let show_mev_protect = base_case || main_event.is_other();
+               let tint = theme.image_tint_recommended;
 
-                  if recalculate_tx_cost {
-                     self.calculate_tx_cost(ctx, self.gas_used);
-                  }
+               if recalculate_tx_cost {
+                  self.calculate_tx_cost(ctx, self.gas_used);
+               }
 
-                  if show_mev_protect {
-                     let icon = if self.mev_protect {
-                        icons.green_circle(tint)
-                     } else {
-                        icons.red_circle(tint)
-                     };
+               if show_mev_protect {
+                  let icon = if self.mev_protect {
+                     icons.green_circle(tint)
+                  } else {
+                     icons.red_circle(tint)
+                  };
 
-                     let text = if self.mev_protect {
-                        "MEV Protect is enabled"
-                     } else {
-                        "MEV Protect is disabled"
-                     };
+                  let text = if self.mev_protect {
+                     "MEV Protect is enabled"
+                  } else {
+                     "MEV Protect is disabled"
+                  };
 
-                     let text = RichText::new(text).size(theme.text_sizes.normal);
-                     ui.add(Label::new(text, Some(icon)).interactive(false));
-                  }
+                  let text = RichText::new(text).size(theme.typography.normal);
+                  ui.add(Label::new(text, Some(icon)).interactive(false));
+               }
 
-                  if !sufficient_balance {
-                     ui.label(
-                        RichText::new("Insufficient balance to send transaction")
-                           .size(theme.text_sizes.large)
-                           .color(theme.colors.error),
-                     );
-                  }
+               if !sufficient_balance {
+                  ui.label(
+                     RichText::new("Insufficient balance to send transaction")
+                        .size(theme.typography.large)
+                        .color(theme.colors.error),
+                  );
+               }
 
-                  // Buttons
-                  let size = vec2(ui.available_width() * 0.9, 45.0);
-                  ui.allocate_ui(size, |ui| {
-                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 20.0;
+               // Buttons
+               let size = vec2(ui.available_width() * 0.9, 45.0);
+               ui.allocate_ui(size, |ui| {
+                  ui.horizontal(|ui| {
+                     ui.spacing_mut().item_spacing.x = 20.0;
 
-                        let button_size = vec2(ui.available_width() * 0.5, 45.0);
+                     let button_size = vec2(ui.available_width() * 0.5, 45.0);
 
-                        let text = RichText::new("Confirm").size(theme.text_sizes.large);
-                        let confirm =
-                           Button::new(text).min_size(button_size).visuals(button_visuals);
+                     let text = RichText::new("Confirm").size(theme.typography.large);
+                     let confirm = Button::new(text).min_size(button_size).visuals(button_visuals);
 
-                        if ui.add_enabled(sufficient_balance, confirm).clicked() {
-                           self.confirmed_or_rejected = Some(true);
-                           self.close(ctx);
-                        }
+                     if ui.add_enabled(sufficient_balance, confirm).clicked() {
+                        self.confirmed_or_rejected = Some(true);
+                        self.close(ctx);
+                     }
 
-                        let text = RichText::new("Reject").size(theme.text_sizes.large);
-                        let reject =
-                           Button::new(text).min_size(button_size).visuals(button_visuals);
+                     let text = RichText::new("Reject").size(theme.typography.large);
+                     let reject = Button::new(text).min_size(button_size).visuals(button_visuals);
 
-                        if ui.add(reject).clicked() {
-                           self.confirmed_or_rejected = Some(false);
-                           self.close(ctx);
-                        }
-                     });
+                     if ui.add(reject).clicked() {
+                        self.confirmed_or_rejected = Some(false);
+                        self.close(ctx);
+                     }
                   });
                });
             });
@@ -476,7 +466,7 @@ impl TxConfirmationWindow {
 
    // TODO: Show the calldata structured for known abis not just as plain text
    fn show_calldata(open: &mut bool, theme: &Theme, mut calldata: String, ui: &mut Ui) {
-      let heading = RichText::new("Calldata").size(theme.text_sizes.heading);
+      let heading = RichText::new("Calldata").size(theme.typography.heading);
 
       let modal_width = 520.0;
       let edit_height = 260.0;
@@ -493,7 +483,7 @@ impl TxConfirmationWindow {
                let edit_width = ui.available_width() * 0.9;
 
                let text_edit = SecureTextEdit::multiline(&mut calldata)
-                  .font(FontId::monospace(theme.text_sizes.normal))
+                  .font(FontId::monospace(theme.typography.normal))
                   .visuals(theme.text_edit_visuals())
                   .desired_width(edit_width)
                   .margin(Margin::same(10));

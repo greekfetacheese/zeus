@@ -26,12 +26,12 @@ use zeus_eth::{
    types::ChainId,
 };
 
-use zeus_ui_components::QrImage;
 use zeus_wallet::Wallet;
-use zeus_widgets::{Button, Modal, SecureTextEdit};
 
+use egui_elements::{
+   Button, Modal, OverlayManager, QrImage, SecureTextEdit, Theme, visuals::ButtonVisuals,
+};
 use elegance::{Badge, BadgeTone, Indicator, IndicatorState, Menu, MenuItem, TabBar};
-use zeus_theme::{ButtonVisuals, OverlayManager, Theme};
 
 const DELEGATE_TIP1: &str = "This wallet has been temporarily upgraded to a smart contract";
 const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
@@ -217,7 +217,7 @@ impl Header {
             true => wallet.zk_address(),
          };
 
-         let address_text = RichText::new(address).size(theme.text_sizes.normal);
+         let address_text = RichText::new(address).size(theme.typography.normal);
          let label = Button::selectable(false, address_text).visuals(button_visuals.clone());
 
          if ui.add(label).clicked() {
@@ -226,7 +226,7 @@ impl Header {
 
          ui.add_space(7.0);
 
-         let icon = match theme.dark_mode {
+         let icon = match theme.dark {
             true => icons.qrcode_white_x18(*tint),
             false => icons.qrcode_dark_x18(*tint),
          };
@@ -244,7 +244,7 @@ impl Header {
          // Block explorer link
          let block_explorer = chain.block_explorer();
          let link = format!("{}/address/{}", block_explorer, wallet.address);
-         let icon = match theme.dark_mode {
+         let icon = match theme.dark {
             true => icons.external_link_white_x18(*tint),
             false => icons.external_link_dark_x18(*tint),
          };
@@ -264,8 +264,8 @@ impl Header {
          // ui.set_width(self.overview_size.0);
 
          let text = match deleg_addr.is_some() {
-            true => RichText::new("Delegated").size(theme.text_sizes.normal),
-            false => RichText::new("Not Delegated").size(theme.text_sizes.normal),
+            true => RichText::new("Delegated").size(theme.typography.normal),
+            false => RichText::new("Not Delegated").size(theme.typography.normal),
          };
 
          let tip = if deleg_addr.is_some() {
@@ -274,7 +274,7 @@ impl Header {
             DELEGATE_TIP2
          };
 
-         let tip_text = RichText::new(tip).size(theme.text_sizes.normal);
+         let tip_text = RichText::new(tip).size(theme.typography.normal);
 
          let tone = match deleg_addr.is_some() {
             true => BadgeTone::Warning,
@@ -303,7 +303,7 @@ impl Header {
             "Switch to {} mode",
             if privacy_mode { "Public" } else { "Privacy" }
          );
-         let rich_text = RichText::new(text).size(theme.text_sizes.normal);
+         let rich_text = RichText::new(text).size(theme.typography.normal);
          let button = Button::new(rich_text).visuals(button_visuals.clone());
 
          if ui.add(button).clicked() {
@@ -362,7 +362,7 @@ impl Header {
 
             ui.add_space(20.0);
 
-            let label = RichText::new("Railgun").size(theme.text_sizes.small);
+            let label = RichText::new("Railgun").size(theme.typography.small);
             ui.label(label);
 
             ui.add_space(40.0);
@@ -370,12 +370,12 @@ impl Header {
             ui.vertical(|ui| {
                ui.spacing_mut().item_spacing.y = 0.0;
                let text = RichText::new("Synced block")
-                  .size(theme.text_sizes.small)
+                  .size(theme.typography.small)
                   .color(theme.colors.text_muted);
                ui.label(text);
 
                let block = ctx.railgun_status().synced_block(chain.id());
-               let text = RichText::new(format!("{}", block)).size(theme.text_sizes.small);
+               let text = RichText::new(format!("{}", block)).size(theme.typography.small);
                ui.label(text);
             });
 
@@ -425,7 +425,7 @@ impl Header {
 
             ui.add_space(20.0);
 
-            let label = RichText::new("Wallet Connector").size(theme.text_sizes.small);
+            let label = RichText::new("Wallet Connector").size(theme.typography.small);
             ui.label(label);
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -577,7 +577,7 @@ impl Header {
                         self.delegate_ui(ctx, theme, wallet, ui);
                      }
 
-                     let text = RichText::new("Close").size(theme.text_sizes.normal);
+                     let text = RichText::new("Close").size(theme.typography.normal);
                      let button = Button::new(text).visuals(button_visuals);
                      if ui.add(button).clicked() {
                         self.close_delegate_window();
@@ -597,7 +597,7 @@ impl Header {
 
       let button_visuals = theme.button_visuals();
       let tint = theme.image_tint_recommended;
-      let icon = match theme.dark_mode {
+      let icon = match theme.dark {
          true => icons.refresh_white_x22(tint),
          false => icons.refresh_dark_x22(tint),
       };
@@ -641,7 +641,7 @@ impl Header {
 
    // TODO: Maybe ask for credentials before proceeding
    fn delegate_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, wallet: Address, ui: &mut Ui) {
-      let text = RichText::new("Delegate to").size(theme.text_sizes.large);
+      let text = RichText::new("Delegate to").size(theme.typography.large);
       ui.label(text);
 
       let text_edit_visuals = theme.text_edit_visuals();
@@ -649,18 +649,18 @@ impl Header {
 
       let hint = RichText::new("Enter a smart contract address")
          .color(theme.colors.text_muted)
-         .size(theme.text_sizes.normal);
+         .size(theme.typography.normal);
 
       let text = SecureTextEdit::singleline(&mut self.delegate_to)
          .visuals(text_edit_visuals)
          .hint_text(hint)
-         .font(FontId::proportional(theme.text_sizes.normal))
+         .font(FontId::proportional(theme.typography.normal))
          .margin(Margin::same(10))
          .desired_width(ui.available_width() * 0.8);
 
       ui.add(text);
 
-      let text = RichText::new("Delegate").size(theme.text_sizes.large);
+      let text = RichText::new("Delegate").size(theme.typography.large);
       let button = Button::new(text).visuals(button_visuals);
 
       let clicked = ui.add(button).clicked();
@@ -719,7 +719,7 @@ impl Header {
       delegated_address: Address,
       ui: &mut Ui,
    ) {
-      let text = RichText::new("Currently delegated to").size(theme.text_sizes.normal);
+      let text = RichText::new("Currently delegated to").size(theme.typography.normal);
       ui.label(text);
 
       let button_visuals = theme.button_visuals();
@@ -734,11 +734,11 @@ impl Header {
          delegated_address.to_string()
       );
       let text = RichText::new(address_short)
-         .size(theme.text_sizes.normal)
+         .size(theme.typography.normal)
          .color(theme.colors.info);
       ui.hyperlink_to(text, link);
 
-      let text = RichText::new("Undelegate").size(theme.text_sizes.normal);
+      let text = RichText::new("Undelegate").size(theme.typography.normal);
       let button = Button::new(text).visuals(button_visuals).min_size(vec2(100.0, 30.0));
 
       let clicked = ui.add(button).clicked();
@@ -851,7 +851,7 @@ impl QRCodeWindow {
 
                if self.wallet.is_none() {
                   ui.label(
-                     RichText::new("No wallet found, this is a bug").size(theme.text_sizes.normal),
+                     RichText::new("No wallet found, this is a bug").size(theme.typography.normal),
                   );
                   ui.add(Spinner::new().size(17.0).color(theme.colors.text));
                   self.close_button(theme, ui);
@@ -861,7 +861,7 @@ impl QRCodeWindow {
                // Wallet Name and Address
                if let Some(wallet) = self.wallet.as_ref() {
                   ui.label(
-                     RichText::new(wallet.name_with_source().as_str()).size(theme.text_sizes.large),
+                     RichText::new(wallet.name_with_source().as_str()).size(theme.typography.large),
                   );
 
                   let text = match privacy_mode {
@@ -869,7 +869,7 @@ impl QRCodeWindow {
                      true => "Private Address (zk)",
                   };
 
-                  let rich_text = RichText::new(text).size(theme.text_sizes.large);
+                  let rich_text = RichText::new(text).size(theme.typography.large);
                   ui.label(rich_text);
 
                   let address = match privacy_mode {
@@ -879,7 +879,7 @@ impl QRCodeWindow {
 
                   if !address.is_empty() {
                      let address_text =
-                        RichText::new(address.clone()).size(theme.text_sizes.normal);
+                        RichText::new(address.clone()).size(theme.typography.normal);
                      let label = Button::selectable(false, address_text)
                         .visuals(theme.button_visuals())
                         .wrap();
@@ -894,7 +894,7 @@ impl QRCodeWindow {
 
                if !privacy_mode {
                   if let Some(error) = self.evm_address_qr.error() {
-                     ui.label(RichText::new(error.to_string()).size(theme.text_sizes.large));
+                     ui.label(RichText::new(error.to_string()).size(theme.typography.large));
                   }
                }
 
@@ -915,7 +915,7 @@ impl QRCodeWindow {
    }
 
    fn close_button(&mut self, theme: &Theme, ui: &mut Ui) {
-      let text = RichText::new("Close").size(theme.text_sizes.normal);
+      let text = RichText::new("Close").size(theme.typography.normal);
       let button = Button::new(text).visuals(theme.button_visuals());
 
       if ui.add(button).clicked() {

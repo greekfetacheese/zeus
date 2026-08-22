@@ -6,8 +6,8 @@ use eframe::egui::{RichText, Sense, Ui, Vec2};
 use std::sync::Arc;
 
 use zeus_eth::types::ChainId;
-use zeus_theme::Theme;
-use zeus_widgets::{ComboBox, Label};
+
+use egui_elements::{ComboBox, Label, Theme};
 
 /// A ComboBox to select a chain
 pub struct ChainSelect {
@@ -57,7 +57,7 @@ impl ChainSelect {
       let supported_chains = ChainId::supported_chains();
       let expansion = self.expansion;
 
-      let text_size = theme.text_sizes.normal;
+      let text_size = theme.typography.normal;
       let combo_visuals = theme.combo_box_visuals();
       let label_visuals = theme.label_visuals();
       let tint = theme.image_tint_recommended;

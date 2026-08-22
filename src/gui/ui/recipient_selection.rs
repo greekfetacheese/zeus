@@ -11,13 +11,12 @@ use crate::utils::RT;
 use eframe::egui::{
    Align2, FontId, Margin, Order, RichText, ScrollArea, Sense, Spinner, Stroke, Ui, Window, vec2,
 };
+use egui_elements::{Button, OverlayManager, SecureTextEdit, Theme, utils::frame as frame_fn};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
 use zeus_railgun::RailgunAddress;
-use zeus_theme::{OverlayManager, Theme, utils::frame_it};
-use zeus_widgets::{Button, SecureTextEdit};
 
 /// Validated address entered in the search bar that is not already a
 /// wallet/contact — shown as an "Unknown Address" option.
@@ -236,7 +235,7 @@ impl RecipientSelectionWindow {
          self.close();
       }
 
-      let title = RichText::new("Recipient").size(theme.text_sizes.heading);
+      let title = RichText::new("Recipient").size(theme.typography.heading);
       let window_frame = theme.window_frame;
       let title_frame = window_frame.stroke(Stroke::NONE);
 
@@ -264,7 +263,7 @@ impl RecipientSelectionWindow {
                   return;
                }
 
-               let text = RichText::new("Add a contact").size(theme.text_sizes.normal);
+               let text = RichText::new("Add a contact").size(theme.typography.normal);
                let add_contact = Button::new(text).visuals(button_visuals);
 
                if ui.add(add_contact).clicked() {
@@ -275,7 +274,7 @@ impl RecipientSelectionWindow {
 
                // Search bar
                let hint = RichText::new("Search contacts or enter an address")
-                  .size(theme.text_sizes.normal)
+                  .size(theme.typography.normal)
                   .color(theme.colors.text_muted);
 
                ui.add(
@@ -284,15 +283,15 @@ impl RecipientSelectionWindow {
                      .hint_text(hint)
                      .min_size(vec2(ui.available_width() * 0.80, 25.0))
                      .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.text_sizes.normal)),
+                     .font(FontId::proportional(theme.typography.normal)),
                );
 
                ui.add_space(15.0);
 
                ui.allocate_ui(size, |ui| {
                   ui.horizontal(|ui| {
-                     let contacts_text = RichText::new("Contacts").size(theme.text_sizes.large);
-                     let wallet_text = RichText::new("Wallets").size(theme.text_sizes.large);
+                     let contacts_text = RichText::new("Contacts").size(theme.typography.large);
+                     let wallet_text = RichText::new("Wallets").size(theme.typography.large);
 
                      let contact_button = Button::selectable(self.contacts_tab_open, contacts_text)
                         .visuals(button_visuals);
@@ -330,12 +329,12 @@ impl RecipientSelectionWindow {
                if self.parsing_unknown_recipient {
                   ui.add(Spinner::new().size(17.0).color(theme.colors.text));
                } else if let Some(unknown) = self.unknown_recipient.clone() {
-                  ui.label(RichText::new("Unknown Address").size(theme.text_sizes.large));
+                  ui.label(RichText::new("Unknown Address").size(theme.typography.large));
 
                   match unknown {
                      UnknownRecipient::Evm(address) => {
                         let address_text =
-                           RichText::new(address.to_string()).size(theme.text_sizes.normal);
+                           RichText::new(address.to_string()).size(theme.typography.normal);
                         let button = Button::new(address_text).visuals(button_visuals);
 
                         if ui.add(button).clicked() {
@@ -344,7 +343,7 @@ impl RecipientSelectionWindow {
                         }
                      }
                      UnknownRecipient::Zk(zk_address) => {
-                        let address_text = RichText::new(&zk_address).size(theme.text_sizes.normal);
+                        let address_text = RichText::new(&zk_address).size(theme.typography.normal);
                         let button = Button::new(address_text).visuals(button_visuals);
 
                         if ui.add(button).clicked() {
@@ -400,7 +399,7 @@ impl RecipientSelectionWindow {
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
       let mut frame = theme.frame2;
-      let visuals = theme.frame2_visuals;
+      let visuals = theme.visuals.frame2_visuals;
 
       for contact in &contacts {
          let valid_search = valid_contact_search(contact, privacy_mode, &self.search_query);
@@ -416,10 +415,10 @@ impl RecipientSelectionWindow {
          };
 
          if valid_search {
-            let res = frame_it(&mut frame, Some(visuals), ui, |ui| {
+            let res = frame_fn(&mut frame, visuals, ui, |ui| {
                ui.set_width(ui.available_width());
                let name = RichText::new(contact.name.clone())
-                  .size(theme.text_sizes.large)
+                  .size(theme.typography.large)
                   .color(theme.colors.text);
                ui.horizontal(|ui| {
                   ui.label(name);
@@ -428,7 +427,7 @@ impl RecipientSelectionWindow {
                ui.add_space(6.0);
 
                let address_text =
-                  RichText::new(&address).size(theme.text_sizes.normal).color(theme.colors.text);
+                  RichText::new(&address).size(theme.typography.normal).color(theme.colors.text);
                let button = Button::selectable(false, address_text).visuals(theme.button_visuals());
 
                ui.horizontal(|ui| {
@@ -481,7 +480,7 @@ impl RecipientSelectionWindow {
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
       let mut frame = theme.frame2;
-      let visuals = theme.frame2_visuals;
+      let visuals = theme.visuals.frame2_visuals;
 
       let wallets = &self.wallets;
 
@@ -500,25 +499,25 @@ impl RecipientSelectionWindow {
          };
 
          if valid_search {
-            let res = frame_it(&mut frame, Some(visuals), ui, |ui| {
+            let res = frame_fn(&mut frame, visuals, ui, |ui| {
                ui.set_width(ui.available_width());
                ui.horizontal(|ui| {
                   let name_text = RichText::new(wallet.name_with_source())
-                     .size(theme.text_sizes.large)
+                     .size(theme.typography.large)
                      .color(theme.colors.text);
                   ui.label(name_text);
 
                   ui.add_space(10.0);
 
                   let value_text = RichText::new(format!("${}", value.abbreviated()))
-                     .size(theme.text_sizes.normal);
+                     .size(theme.typography.normal);
                   ui.label(value_text);
                });
 
                ui.add_space(6.0);
 
                let address_text =
-                  RichText::new(&address).size(theme.text_sizes.normal).color(theme.colors.text);
+                  RichText::new(&address).size(theme.typography.normal).color(theme.colors.text);
 
                let button = Button::selectable(false, address_text).visuals(theme.button_visuals());
 

@@ -535,7 +535,7 @@ dependencies = [
  "either",
  "futures",
  "futures-utils-wasm",
- "lru",
+ "lru 0.16.4",
  "parking_lot",
  "pin-project",
  "reqwest 0.13.4",
@@ -951,15 +951,6 @@ name = "anyhow"
 version = "1.0.99"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0674a1ddeecb70197781e945de4b3b8ffb61fa939a5597bcf48503737663100"
-
-[[package]]
-name = "approx"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cab112f0a86d568ea0e627cc1d6be74a1e9cd55214684db5561995f6dad897c6"
-dependencies = [
- "num-traits",
-]
 
 [[package]]
 name = "arbitrary"
@@ -1916,7 +1907,7 @@ dependencies = [
  "bitflags 2.13.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -1937,7 +1928,7 @@ dependencies = [
  "bitflags 2.13.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "regex",
@@ -2213,12 +2204,6 @@ name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
-
-[[package]]
-name = "by_address"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64fa3c856b712db6612c019f14756e64e4bcea13337a6b33b696333a9eaa2d06"
 
 [[package]]
 name = "byte-slice-cast"
@@ -3726,12 +3711,29 @@ dependencies = [
 
 [[package]]
 name = "egui-elegance"
-version = "0.15.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbe3aed7ee6ba68244c144bad3798be2398f03e461279fa7c219a9f0ccd1f5e5"
+checksum = "582c0660e958c3e5eb134d4dabdf76e3f588fdacd1ff472a0ab6294f4e8982c7"
 dependencies = [
  "egui",
  "js-sys",
+]
+
+[[package]]
+name = "egui-elements"
+version = "1.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8b67335e16f136b255141fb3fd8b316f8819a5408cc85fe45819ada18801fde"
+dependencies = [
+ "egui",
+ "egui-elegance",
+ "enigo",
+ "image",
+ "qrcodegen-no-heap",
+ "rqrr-zeroize",
+ "secure-types",
+ "serde",
+ "xcap",
 ]
 
 [[package]]
@@ -4085,7 +4087,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4229,12 +4231,6 @@ name = "fallible-iterator"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
-
-[[package]]
-name = "fast-srgb8"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd2e7510819d6fbf51a5545c8f922716ecfb14df168a3242f7d33e0239efe6a1"
 
 [[package]]
 name = "fastrand"
@@ -5025,6 +5021,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
  "allocator-api2",
+ "equivalent",
  "foldhash 0.2.0",
  "serde",
  "serde_core",
@@ -5968,6 +5965,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lru"
+version = "0.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d2f2f9b4ba7e6b24d95e7e899329d35be83bcded72c8540cdd5368932d1d90a"
+dependencies = [
+ "hashbrown 0.17.1",
+]
+
+[[package]]
 name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6371,7 +6377,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7177,31 +7183,6 @@ checksum = "30d5b2194ed13191c1999ae0704b7839fb18384fa22e49b57eeaa97d79ce40da"
 dependencies = [
  "libc",
  "winapi",
-]
-
-[[package]]
-name = "palette"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cbf71184cc5ecc2e4e1baccdb21026c20e5fc3dcf63028a086131b3ab00b6e6"
-dependencies = [
- "approx",
- "fast-srgb8",
- "palette_derive",
- "phf 0.11.3",
- "serde",
-]
-
-[[package]]
-name = "palette_derive"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5030daf005bface118c096f510ffb781fc28f9ab6a32ab224d8631be6851d30"
-dependencies = [
- "by_address",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
 ]
 
 [[package]]
@@ -8792,14 +8773,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "rqrr"
+name = "rqrr-zeroize"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffbe87d9e8db95652c25ded2418150e00b08c2fde09e23ec15896d2c470c6631"
+checksum = "15469072ec2f788a9bfa1f7ea4edca49e45c14d754ce38ae3df5396ccc9f041c"
 dependencies = [
  "g2p",
  "image",
- "lru",
+ "lru 0.18.2",
+ "zeroize",
 ]
 
 [[package]]
@@ -8887,7 +8869,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8900,7 +8882,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8958,7 +8940,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9712,7 +9694,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -9984,7 +9966,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -10532,7 +10514,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -11512,7 +11494,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -12376,18 +12358,18 @@ dependencies = [
 
 [[package]]
 name = "zeroize"
-version = "1.8.2"
+version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b97154e67e32c85465826e8bcc1c59429aaaf107c1e4a9e53c8d8ccd5eff88d0"
+checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
 dependencies = [
  "zeroize_derive",
 ]
 
 [[package]]
 name = "zeroize_derive"
-version = "1.4.3"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85a5b4158499876c763cb03bc4e49185d3cccbabb15b33c627f7884f43db852e"
+checksum = "3c50655cbb0fe3fc43170059e702f1ce5e19b84cec58dc87b037a09935c2f328"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -12443,6 +12425,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui-elegance",
+ "egui-elements",
  "egui_extras",
  "either",
  "futures",
@@ -12471,10 +12454,7 @@ dependencies = [
  "zeus-bip32",
  "zeus-eth",
  "zeus-railgun",
- "zeus-theme",
- "zeus-ui-components",
  "zeus-wallet",
- "zeus-widgets",
  "zip",
 ]
 
@@ -12580,36 +12560,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "zeus-theme"
-version = "0.5.0"
-dependencies = [
- "eframe",
- "egui",
- "palette",
- "secure-types",
- "serde",
- "serde_json",
- "zeus-widgets",
-]
-
-[[package]]
-name = "zeus-ui-components"
-version = "0.5.0"
-dependencies = [
- "eframe",
- "egui",
- "egui_extras",
- "enigo",
- "image",
- "qrcodegen-no-heap",
- "rqrr",
- "secure-types",
- "xcap",
- "zeus-theme",
- "zeus-widgets",
-]
-
-[[package]]
 name = "zeus-wallet"
 version = "0.1.2"
 dependencies = [
@@ -12626,15 +12576,6 @@ dependencies = [
  "serde_json",
  "sha3 0.12.0",
  "zeus-bip32",
-]
-
-[[package]]
-name = "zeus-widgets"
-version = "0.5.0"
-dependencies = [
- "egui",
- "secure-types",
- "zeus-theme",
 ]
 
 [[package]]

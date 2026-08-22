@@ -20,8 +20,9 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
-use zeus_theme::{OverlayManager, Theme, utils::frame_it};
-use zeus_widgets::{Button, Label, SecureTextEdit};
+use egui_elements::{
+   Button, Label, OverlayManager, SecureTextEdit, Theme, utils::frame as frame_fn,
+};
 
 /// A simple window that allows the user to select a token
 ///
@@ -172,10 +173,10 @@ impl TokenSelectionWindow {
       }
 
       let mut close_window = false;
-      let window_frame = theme.window_frame;
+      let window_frame = theme.window_frame.fill(theme.frame1.fill);
       let title_frame = window_frame.stroke(Stroke::NONE);
 
-      Window::new(RichText::new(&self.title).size(theme.text_sizes.heading))
+      Window::new(RichText::new(&self.title).size(theme.typography.heading))
          .open(&mut open)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
@@ -199,7 +200,7 @@ impl TokenSelectionWindow {
                }
 
                let hint = RichText::new("Search tokens or enter an address")
-                  .size(theme.text_sizes.normal)
+                  .size(theme.typography.normal)
                   .color(theme.colors.text_muted);
 
                ui.add(
@@ -208,7 +209,7 @@ impl TokenSelectionWindow {
                      .hint_text(hint)
                      .desired_width(ui_width * 0.7)
                      .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.text_sizes.normal)),
+                     .font(FontId::proportional(theme.typography.normal)),
                );
                ui.add_space(20.0);
             });
@@ -227,7 +228,7 @@ impl TokenSelectionWindow {
             let row_height = 80.0;
             let tint = theme.image_tint_recommended;
             let mut frame = theme.frame2.outer_margin(Margin::same(5));
-            let frame_visuals = theme.frame2_visuals;
+            let frame_visuals = theme.visuals.frame2_visuals;
 
             ScrollArea::vertical().auto_shrink(Vec2b::new(false, false)).show_rows(
                ui,
@@ -240,7 +241,7 @@ impl TokenSelectionWindow {
                         let symbol = truncate_symbol_or_name(currency.symbol(), 10);
                         let text = format!("{}\n{}", name, symbol);
                         let icon = icons.currency_icon_x32(currency, tint);
-                        let rich_text = RichText::new(text).size(theme.text_sizes.normal);
+                        let rich_text = RichText::new(text).size(theme.typography.normal);
                         let label = Label::new(rich_text, Some(icon))
                            .interactive(false)
                            .wrap()
@@ -249,7 +250,7 @@ impl TokenSelectionWindow {
                         let mut more_clicked = false;
                         let token_address = currency.erc20_opt().map(|token| token.address);
 
-                        let res = frame_it(&mut frame, Some(frame_visuals), ui, |ui| {
+                        let res = frame_fn(&mut frame, frame_visuals, ui, |ui| {
                            ui.horizontal(|ui| {
                               ui.set_width(ui.available_width());
 
@@ -300,12 +301,12 @@ impl TokenSelectionWindow {
 
                                     ui.vertical(|ui| {
                                        ui.label(
-                                          RichText::new(value_text).size(theme.text_sizes.normal),
+                                          RichText::new(value_text).size(theme.typography.normal),
                                        );
 
                                        ui.label(
                                           RichText::new(format!("{:.12}", balance.abbreviated()))
-                                             .size(theme.text_sizes.normal),
+                                             .size(theme.typography.normal),
                                        );
                                     });
                                  }
@@ -349,7 +350,7 @@ impl TokenSelectionWindow {
          let size = vec2(ui.available_width() * 0.7, 40.0);
          let button_visuals = theme.button_visuals();
 
-         let text = RichText::new("Add Token").size(theme.text_sizes.large);
+         let text = RichText::new("Add Token").size(theme.typography.large);
          let button = Button::new(text).min_size(size).visuals(button_visuals);
 
          if ui.add(button).clicked() {

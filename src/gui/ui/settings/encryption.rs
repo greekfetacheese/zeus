@@ -5,10 +5,9 @@
 use crate::utils::RT;
 use crate::{core::ZeusContext, gui::SHARED_GUI};
 use egui::{Align2, Order, RichText, Stroke, Ui, Window, vec2};
+use egui_elements::{Button, OverlayManager, Theme};
 use elegance::{Badge, BadgeTone, Slider};
 use ncrypt_me::Argon2;
-use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::Button;
 
 const MIN_M_COST: u32 = 1024_000;
 const MIN_T_COST: u32 = 8;
@@ -76,7 +75,7 @@ impl EncryptionSettings {
       }
 
       let mut open = self.open;
-      let title = RichText::new("Encryption Settings").size(theme.text_sizes.heading);
+      let title = RichText::new("Encryption Settings").size(theme.typography.heading);
       let window_frame = theme.window_frame;
       let title_frame = window_frame.stroke(Stroke::NONE);
 
@@ -117,13 +116,13 @@ impl EncryptionSettings {
 
             let mem_fmt = |mb: f64| format!("{:.0}", mb / 1000.0);
 
-            let q_mark = RichText::new("?").size(theme.text_sizes.normal);
+            let q_mark = RichText::new("?").size(theme.typography.normal);
 
             ui.vertical_centered(|ui| {
                ui.allocate_ui(slider_size, |ui| {
                   ui.horizontal(|ui| {
                      let info_tip = Badge::new(q_mark.clone(), BadgeTone::Info);
-                     ui.label(RichText::new("Memory cost (MB):").size(theme.text_sizes.normal));
+                     ui.label(RichText::new("Memory cost (MB):").size(theme.typography.normal));
                      ui.add(info_tip).on_hover_text(M_COST_TIP);
                   });
                });
@@ -141,7 +140,7 @@ impl EncryptionSettings {
                ui.allocate_ui(slider_size, |ui| {
                   ui.horizontal(|ui| {
                      let info_tip = Badge::new(q_mark.clone(), BadgeTone::Info);
-                     ui.label(RichText::new("Iterations:").size(theme.text_sizes.normal));
+                     ui.label(RichText::new("Iterations:").size(theme.typography.normal));
                      ui.add(info_tip).on_hover_text(T_COST_TIP);
                   });
                });
@@ -156,7 +155,7 @@ impl EncryptionSettings {
                ui.allocate_ui(slider_size, |ui| {
                   ui.horizontal(|ui| {
                      let info_tip = Badge::new(q_mark, BadgeTone::Info);
-                     ui.label(RichText::new("Parallelism:").size(theme.text_sizes.normal));
+                     ui.label(RichText::new("Parallelism:").size(theme.typography.normal));
                      ui.add(info_tip).on_hover_text(P_COST_TIP);
                   });
                });
@@ -171,7 +170,7 @@ impl EncryptionSettings {
                ui.add_space(20.0);
 
                let size = vec2(ui.available_width() * 0.6, 35.0);
-               let text = RichText::new("Save").size(theme.text_sizes.large);
+               let text = RichText::new("Save").size(theme.typography.large);
                let button = Button::new(text).visuals(button_visuals).min_size(size);
 
                if ui.add(button).clicked() {

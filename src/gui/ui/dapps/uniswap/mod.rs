@@ -9,10 +9,9 @@ use zeus_eth::utils::NumericValue;
 use crate::assets::icons::Icons;
 use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::ui::TokenSelectionWindow;
+use egui_elements::{Button, Label, Modal, Theme, visuals::ButtonVisuals};
 use std::str::FromStr;
 use std::sync::Arc;
-use zeus_theme::{ButtonVisuals, Theme};
-use zeus_widgets::{Button, Label, Modal};
 
 pub mod pool;
 pub mod settings;
@@ -120,7 +119,7 @@ impl UniswapUi {
             let button_visuals = theme.button_visuals();
 
             let tint = theme.image_tint_recommended;
-            let icon = match theme.dark_mode {
+            let icon = match theme.dark {
                true => icons.gear_white_x24(tint),
                false => icons.gear_dark_x24(tint),
             };
@@ -135,7 +134,7 @@ impl UniswapUi {
                self.settings.open();
             }
 
-            let icon = match theme.dark_mode {
+            let icon = match theme.dark {
                true => icons.refresh_white_x22(tint),
                false => icons.refresh_dark_x22(tint),
             };
@@ -162,14 +161,14 @@ impl UniswapUi {
 
             #[cfg(feature = "dev")]
             {
-               let text = RichText::new("Swap").size(theme.text_sizes.large);
+               let text = RichText::new("Swap").size(theme.typography.large);
                let swap_button = Button::new(text).visuals(button_visuals);
                if ui.add(swap_button).clicked() {
                   self.swap_ui.open();
                   self.pools_ui.open = false;
                }
 
-               let text = RichText::new("Pools").size(theme.text_sizes.large);
+               let text = RichText::new("Pools").size(theme.typography.large);
                let pools_button = Button::new(text).visuals(button_visuals);
                if ui.add(pools_button).clicked() {
                   self.pools_ui.open = true;
@@ -212,7 +211,7 @@ impl UniswapUi {
                // TODO: Add support for BSC, There is an issue with batch calls
                if ctx.chain.is_bsc() {
                   let text = RichText::new("Swap feature is not available on Binance Smart Chain")
-                     .size(theme.text_sizes.large)
+                     .size(theme.typography.large)
                      .color(theme.colors.error);
                   ui.label(text);
                }
@@ -259,7 +258,7 @@ impl UniswapUi {
 
                ui.add_space(10.0);
 
-               let text = RichText::new("Close").size(theme.text_sizes.normal);
+               let text = RichText::new("Close").size(theme.typography.normal);
                let visuals = theme.button_visuals();
                if ui.add(Button::new(text).visuals(visuals)).clicked() {
                   self.settings.close();
@@ -292,7 +291,7 @@ pub fn currencies_amount_and_value(
          ui.horizontal(|ui| {
             ui.vertical(|ui| {
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  let text = RichText::new(token0.symbol()).size(theme.text_sizes.large);
+                  let text = RichText::new(token0.symbol()).size(theme.typography.large);
                   let icon = icons.currency_icon_x32(token0, tint);
                   let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
                   ui.add(label);
@@ -301,7 +300,7 @@ pub fn currencies_amount_and_value(
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   let balance = ctx.get_currency_balance(chain, owner, token0);
                   let b_text = format!("(Balance: {})", balance.abbreviated());
-                  let text = RichText::new(b_text).size(theme.text_sizes.normal);
+                  let text = RichText::new(b_text).size(theme.typography.normal);
                   let label = Label::new(text, None).interactive(false);
                   ui.add(label);
                });
@@ -311,12 +310,12 @@ pub fn currencies_amount_and_value(
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                let value = NumericValue::value(amount0.f64(), price0_usd.f64());
                let text = RichText::new(format!("(${})", value.abbreviated()))
-                  .size(theme.text_sizes.normal);
+                  .size(theme.typography.normal);
                ui.label(text);
 
                ui.add_space(5.0);
 
-               let text = RichText::new(amount0.abbreviated()).size(theme.text_sizes.normal);
+               let text = RichText::new(amount0.abbreviated()).size(theme.typography.normal);
                ui.label(text);
             });
          });
@@ -327,7 +326,7 @@ pub fn currencies_amount_and_value(
          ui.horizontal(|ui| {
             ui.vertical(|ui| {
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  let text = RichText::new(token1.symbol()).size(theme.text_sizes.large);
+                  let text = RichText::new(token1.symbol()).size(theme.typography.large);
                   let icon = icons.currency_icon_x32(token1, tint);
                   let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
                   ui.add(label);
@@ -336,7 +335,7 @@ pub fn currencies_amount_and_value(
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   let balance = ctx.get_currency_balance(chain, owner, token1);
                   let b_text = format!("(Balance: {})", balance.abbreviated());
-                  let text = RichText::new(b_text).size(theme.text_sizes.normal);
+                  let text = RichText::new(b_text).size(theme.typography.normal);
                   let label = Label::new(text, None).interactive(false);
                   ui.add(label);
                });
@@ -346,12 +345,12 @@ pub fn currencies_amount_and_value(
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                let value = NumericValue::value(amount1.f64(), price1_usd.f64());
                let text = RichText::new(format!("(${})", value.abbreviated()))
-                  .size(theme.text_sizes.normal);
+                  .size(theme.typography.normal);
                ui.label(text);
 
                ui.add_space(5.0);
 
-               let text = RichText::new(amount1.abbreviated()).size(theme.text_sizes.normal);
+               let text = RichText::new(amount1.abbreviated()).size(theme.typography.normal);
                ui.label(text);
             });
          });

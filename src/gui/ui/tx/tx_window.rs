@@ -1,6 +1,5 @@
 use egui::{Align2, Frame, Margin, Order, RichText, Stroke, Ui, Window, vec2};
-use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::Button;
+use egui_elements::{Button, OverlayManager, Theme};
 
 use super::{chain, contract_interact, eth_received, events::*, tx_cost, tx_hash, value};
 use crate::assets::icons::Icons;
@@ -53,8 +52,8 @@ impl TxWindow {
          return;
       }
 
-      let title = RichText::new("Transaction Details").size(theme.text_sizes.heading);
-      let window_frame = theme.window_frame;
+      let title = RichText::new("Transaction Details").size(theme.typography.heading);
+      let window_frame = theme.window_frame.fill(theme.frame1.fill);
       let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(title)
@@ -78,10 +77,10 @@ impl TxWindow {
                   ui.add_space(20.0);
 
                   if self.tx.is_none() {
-                     ui.label(RichText::new("Transaction not found").size(theme.text_sizes.large));
+                     ui.label(RichText::new("Transaction not found").size(theme.typography.large));
                      let size = vec2(ui.available_width() * 0.8, 45.0);
 
-                     let text = RichText::new("Close").size(theme.text_sizes.normal);
+                     let text = RichText::new("Close").size(theme.typography.normal);
                      let close_button = Button::new(text).min_size(size).visuals(button_visuals);
 
                      if ui.add(close_button).clicked() {
@@ -113,7 +112,7 @@ impl TxWindow {
 
                   if !main_event.is_other() && tx.success {
                      ui.label(
-                        RichText::new(main_event.name()).size(theme.text_sizes.very_large).strong(),
+                        RichText::new(main_event.name()).size(theme.typography.very_large).strong(),
                      );
                      ui.allocate_ui(frame_size, |ui| {
                         frame.show(ui, |ui| {
@@ -132,7 +131,7 @@ impl TxWindow {
                   // Tx Action is unknown
                   if main_event.is_other() && tx.success {
                      let text =
-                        RichText::new("Show all decoded events").size(theme.text_sizes.large);
+                        RichText::new("Show all decoded events").size(theme.typography.large);
                      let button = Button::new(text).visuals(theme.button_visuals());
                      let clicked = ui.add(button).clicked();
                      if clicked {
@@ -143,7 +142,7 @@ impl TxWindow {
                   if !tx.success {
                      let text = "Transaction failed";
                      ui.label(
-                        RichText::new(text).size(theme.text_sizes.large).color(theme.colors.error),
+                        RichText::new(text).size(theme.typography.large).color(theme.colors.error),
                      );
                   }
 
@@ -187,7 +186,7 @@ impl TxWindow {
                   ui.add_space(30.0);
 
                   let size = vec2(ui.available_width() * 0.8, 45.0);
-                  let text = RichText::new("Close").size(theme.text_sizes.normal);
+                  let text = RichText::new("Close").size(theme.typography.normal);
                   let close_button = Button::new(text).min_size(size).visuals(button_visuals);
 
                   if ui.add(close_button).clicked() {

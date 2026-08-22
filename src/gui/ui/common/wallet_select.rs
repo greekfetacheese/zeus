@@ -5,9 +5,8 @@ use crate::core::ZeusContext;
 use eframe::egui::{RichText, Sense, Ui, Vec2};
 use std::sync::Arc;
 
-use zeus_theme::Theme;
+use egui_elements::{ComboBox, Label, Theme};
 use zeus_wallet::Wallet;
-use zeus_widgets::{ComboBox, Label};
 
 /// A ComboBox to select a wallet
 pub struct WalletSelect {
@@ -54,7 +53,7 @@ impl WalletSelect {
       let combo_visuals = theme.combo_box_visuals();
       let label_visuals = theme.label_visuals();
       let wallet_icon = icons.wallet_main_x24();
-      let text = RichText::new(&self.wallet.name_with_id_short()).size(theme.text_sizes.normal);
+      let text = RichText::new(&self.wallet.name_with_id_short()).size(theme.typography.normal);
 
       let current_wallet_label = Label::new(text, Some(wallet_icon))
          .image_on_left()
@@ -72,7 +71,7 @@ impl WalletSelect {
                for wallet in vault.all_wallets() {
                   let is_selected = wallet.address() == self.wallet.address();
                   let text =
-                     RichText::new(wallet.name_with_id_short()).size(theme.text_sizes.normal);
+                     RichText::new(wallet.name_with_id_short()).size(theme.typography.normal);
 
                   let wallet_label = Label::new(text, None)
                      .fill_width(true)

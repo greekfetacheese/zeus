@@ -3,8 +3,7 @@
 use egui::{
    Align, Align2, Frame, Layout, Order, RichText, ScrollArea, Stroke, Ui, Vec2, Window, vec2,
 };
-use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::{Label, MultiLabel};
+use egui_elements::{Label, MultiLabel, OverlayManager, Theme};
 
 use crate::assets::icons::Icons;
 use crate::core::{TransactionAnalysis, ZeusContext, tx::events::*};
@@ -61,10 +60,10 @@ impl DecodedEvents {
          return;
       }
 
-      let title = RichText::new("Decoded Events").size(theme.text_sizes.heading);
+      let title = RichText::new("Decoded Events").size(theme.typography.heading);
       let mut open = self.open;
 
-      let window_frame = theme.window_frame;
+      let window_frame = theme.window_frame.fill(theme.frame1.fill);
       let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(title)
@@ -90,7 +89,7 @@ impl DecodedEvents {
                   "Decoded {} out of {} total events",
                   known_events, all_events
                );
-               ui.label(RichText::new(text).size(theme.text_sizes.very_large));
+               ui.label(RichText::new(text).size(theme.typography.very_large));
 
                ScrollArea::vertical().max_height(window_size.1).show(ui, |ui| {
                   ui.set_width(width);
@@ -98,7 +97,7 @@ impl DecodedEvents {
                   for event in &analysis.decoded_events {
                      ui.allocate_ui(frame_size, |ui| {
                         frame.show(ui, |ui| {
-                           ui.label(RichText::new(event.name()).size(theme.text_sizes.heading));
+                           ui.label(RichText::new(event.name()).size(theme.typography.heading));
 
                            show_event(ctx, chain, theme, icons.clone(), event, ui);
                         });
@@ -135,11 +134,11 @@ pub fn eoa_delegate_event_ui(
    // Nonce
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Nonce").size(theme.text_sizes.large));
+         ui.label(RichText::new("Nonce").size(theme.typography.large));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         ui.label(RichText::new(format!("{}", params.nonce)).size(theme.text_sizes.normal));
+         ui.label(RichText::new(format!("{}", params.nonce)).size(theme.typography.normal));
       });
    });
 }
@@ -172,9 +171,9 @@ pub fn permit_event_ui(
          params.token.symbol(),
          amount_usd.abbreviated()
       ))
-      .size(theme.text_sizes.large)
+      .size(theme.typography.large)
    } else {
-      RichText::new(format!("{} {}", amount, params.token.symbol())).size(theme.text_sizes.large)
+      RichText::new(format!("{} {}", amount, params.token.symbol())).size(theme.typography.large)
    };
 
    let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
@@ -194,11 +193,11 @@ pub fn permit_event_ui(
    if !is_revoke {
       ui.horizontal(|ui| {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(RichText::new("Expiration").size(theme.text_sizes.large));
+            ui.label(RichText::new("Expiration").size(theme.typography.large));
          });
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            ui.label(RichText::new(expiration).size(theme.text_sizes.large));
+            ui.label(RichText::new(expiration).size(theme.typography.large));
          });
       });
    }
@@ -231,9 +230,9 @@ pub fn token_approval_event_ui(
          params.token.symbol,
          amount_usd.abbreviated()
       ))
-      .size(theme.text_sizes.large)
+      .size(theme.typography.large)
    } else {
-      RichText::new(format!("{} {}", amount, params.token.symbol)).size(theme.text_sizes.large)
+      RichText::new(format!("{} {}", amount, params.token.symbol)).size(theme.typography.large)
    };
 
    let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
@@ -269,7 +268,7 @@ fn transfer_event_ui(
                amount.abbreviated(),
                currency.symbol()
             ))
-            .size(theme.text_sizes.large);
+            .size(theme.typography.large);
             let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
             ui.add(label);
          });
@@ -278,7 +277,7 @@ fn transfer_event_ui(
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let amount = params.amount_usd.clone().unwrap_or_default();
             ui.label(
-               RichText::new(format!("~ ${}", amount.abbreviated())).size(theme.text_sizes.large),
+               RichText::new(format!("~ ${}", amount.abbreviated())).size(theme.typography.large),
             );
          });
       });
@@ -306,7 +305,7 @@ fn transfer_event_ui(
 
       ui.horizontal(|ui| {
          let text = "Actual amount sent";
-         ui.label(RichText::new(text).size(theme.text_sizes.large));
+         ui.label(RichText::new(text).size(theme.typography.large));
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             ui.label(
@@ -314,7 +313,7 @@ fn transfer_event_ui(
                   "~ ${}",
                   real_amount_sent_usd.abbreviated()
                ))
-               .size(theme.text_sizes.large),
+               .size(theme.typography.large),
             );
 
             let currency = &params.currency;
@@ -323,7 +322,7 @@ fn transfer_event_ui(
                real_amount_sent.abbreviated(),
                currency.symbol()
             ))
-            .size(theme.text_sizes.large);
+            .size(theme.typography.large);
             let label = Label::new(text, None).interactive(false);
             ui.add(label);
          });
@@ -351,7 +350,7 @@ fn shield_event_ui(
             params.amount_usd.as_ref(),
          ) {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               let text = RichText::new(format!("Shield",)).size(theme.text_sizes.large);
+               let text = RichText::new(format!("Shield",)).size(theme.typography.large);
                let label = Label::new(text, None).interactive(false);
                ui.add(label);
             });
@@ -364,12 +363,12 @@ fn shield_event_ui(
                   amount.abbreviated(),
                   token.symbol,
                ))
-               .size(theme.text_sizes.large);
+               .size(theme.typography.large);
 
                let label1 = Label::new(text, Some(icon)).interactive(false);
 
                let text = RichText::new(format!("~ ${}", amount_usd.abbreviated()))
-                  .size(theme.text_sizes.large);
+                  .size(theme.typography.large);
                let label2 = Label::new(text, None).interactive(false);
 
                let multi_label = MultiLabel::new(vec![label1, label2]);
@@ -383,7 +382,7 @@ fn shield_event_ui(
    if let Some(recipient) = &params.recipient {
       ui.horizontal(|ui| {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            let text = RichText::new(format!("Recipient",)).size(theme.text_sizes.large);
+            let text = RichText::new(format!("Recipient",)).size(theme.typography.large);
             let label = Label::new(text, None).interactive(false);
             ui.add(label);
          });
@@ -394,18 +393,18 @@ fn shield_event_ui(
 
             let (text, evm_address_opt) = if let Some(wallet) = wallet_opt {
                let rich = RichText::new(wallet.name())
-                  .size(theme.text_sizes.large)
+                  .size(theme.typography.large)
                   .color(theme.colors.info);
                (rich, Some(wallet.address.to_string()))
             } else if let Some(contact) = contact_opt {
                let rich = RichText::new(contact.name)
-                  .size(theme.text_sizes.large)
+                  .size(theme.typography.large)
                   .color(theme.colors.info);
                (rich, Some(contact.evm_address))
             } else {
                let truncated = format!("{}...{}", &recipient[..6], &recipient[121..]);
                let rich =
-                  RichText::new(truncated).size(theme.text_sizes.large).color(theme.colors.info);
+                  RichText::new(truncated).size(theme.typography.large).color(theme.colors.info);
                (rich, None)
             };
 
@@ -428,16 +427,16 @@ fn shield_event_ui(
    ) {
       ui.horizontal(|ui| {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(RichText::new("Protocol fee").size(theme.text_sizes.large));
+            ui.label(RichText::new("Protocol fee").size(theme.typography.large));
          });
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
 
             let token_text = format!("{} {}", fee.abbreviated(), token.symbol);
-            let token_rich_text = RichText::new(token_text).size(theme.text_sizes.large);
+            let token_rich_text = RichText::new(token_text).size(theme.typography.large);
 
             let fee_usd_text = format!("~ ${}", fee_usd.abbreviated());
-            let fee_usd_rich_text = RichText::new(fee_usd_text).size(theme.text_sizes.large);
+            let fee_usd_rich_text = RichText::new(fee_usd_text).size(theme.typography.large);
 
             let label1 = Label::new(token_rich_text, Some(icon)).interactive(false);
             let label2 = Label::new(fee_usd_rich_text, None).interactive(false);
@@ -479,7 +478,7 @@ fn unshield_event_ui(
             params.amount_usd.as_ref(),
          ) {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               let text = RichText::new(format!("Receive",)).size(theme.text_sizes.large);
+               let text = RichText::new(format!("Receive",)).size(theme.typography.large);
                let label = Label::new(text, None).interactive(false);
                ui.add(label);
             });
@@ -492,12 +491,12 @@ fn unshield_event_ui(
                   amount.abbreviated(),
                   token.symbol,
                ))
-               .size(theme.text_sizes.large);
+               .size(theme.typography.large);
 
                let label1 = Label::new(text, Some(icon)).interactive(false);
 
                let text = RichText::new(format!("~ ${}", amount_usd.abbreviated()))
-                  .size(theme.text_sizes.large);
+                  .size(theme.typography.large);
                let label2 = Label::new(text, None).interactive(false);
 
                let multi_label = MultiLabel::new(vec![label1, label2]);
@@ -515,16 +514,16 @@ fn unshield_event_ui(
    ) {
       ui.horizontal(|ui| {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(RichText::new("Protocol fee").size(theme.text_sizes.large));
+            ui.label(RichText::new("Protocol fee").size(theme.typography.large));
          });
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
 
             let token_text = format!("{} {}", fee.abbreviated(), token.symbol);
-            let token_rich_text = RichText::new(token_text).size(theme.text_sizes.large);
+            let token_rich_text = RichText::new(token_text).size(theme.typography.large);
 
             let fee_usd_text = format!("~ ${}", fee_usd.abbreviated());
-            let fee_usd_rich_text = RichText::new(fee_usd_text).size(theme.text_sizes.large);
+            let fee_usd_rich_text = RichText::new(fee_usd_text).size(theme.typography.large);
 
             let label1 = Label::new(token_rich_text, Some(icon)).interactive(false);
             let label2 = Label::new(fee_usd_rich_text, None).interactive(false);
@@ -545,16 +544,16 @@ fn unshield_event_ui(
       ) {
          ui.horizontal(|ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(RichText::new("Broadcaster fee").size(theme.text_sizes.large));
+               ui.label(RichText::new("Broadcaster fee").size(theme.typography.large));
             });
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                let icon = icons.token_icon_x24(token.address, chain.id(), tint);
 
                let fee_text = format!("{} {}", bf_fee.abbreviated(), token.symbol);
-               let fee_rich_text = RichText::new(fee_text).size(theme.text_sizes.large);
+               let fee_rich_text = RichText::new(fee_text).size(theme.typography.large);
 
                let fee_usd_text = format!("~ ${}", bf_fee_usd.abbreviated());
-               let fee_usd_rich_text = RichText::new(fee_usd_text).size(theme.text_sizes.large);
+               let fee_usd_rich_text = RichText::new(fee_usd_text).size(theme.typography.large);
 
                let label1 = Label::new(fee_rich_text, Some(icon)).interactive(false);
                let label2 = Label::new(fee_usd_rich_text, None).interactive(false);
@@ -567,13 +566,13 @@ fn unshield_event_ui(
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                ui.label(
                   RichText::new("Broadcaster fee")
-                     .size(theme.text_sizes.large)
+                     .size(theme.typography.large)
                      .color(theme.colors.warning),
                );
             });
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                ui.label(
-                  RichText::new("N/A").size(theme.text_sizes.large).color(theme.colors.error),
+                  RichText::new("N/A").size(theme.typography.large).color(theme.colors.error),
                );
             });
          });
@@ -601,7 +600,7 @@ fn private_transfer_event_ui(
             params.amount_usd.as_ref(),
          ) {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               let text = RichText::new("Send").size(theme.text_sizes.large);
+               let text = RichText::new("Send").size(theme.typography.large);
                let label = Label::new(text, None).interactive(false);
                ui.add(label);
             });
@@ -613,12 +612,12 @@ fn private_transfer_event_ui(
                   amount.abbreviated(),
                   token.symbol,
                ))
-               .size(theme.text_sizes.large);
+               .size(theme.typography.large);
 
                let label1 = Label::new(text, Some(icon)).interactive(false);
 
                let text = RichText::new(format!("~ ${}", amount_usd.abbreviated()))
-                  .size(theme.text_sizes.large);
+                  .size(theme.typography.large);
                let label2 = Label::new(text, None).interactive(false);
 
                let multi_label = MultiLabel::new(vec![label1, label2]);
@@ -631,7 +630,7 @@ fn private_transfer_event_ui(
    // Recipient 0zk
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         let text = RichText::new("Recipient").size(theme.text_sizes.large);
+         let text = RichText::new("Recipient").size(theme.typography.large);
          let label = Label::new(text, None).interactive(false);
          ui.add(label);
       });
@@ -643,12 +642,12 @@ fn private_transfer_event_ui(
 
          let (text, evm_address_opt) = if let Some(wallet) = wallet_opt {
             let rich = RichText::new(wallet.name())
-               .size(theme.text_sizes.large)
+               .size(theme.typography.large)
                .color(theme.colors.info);
             (rich, Some(wallet.address.to_string()))
          } else if let Some(contact) = contact_opt {
             let rich = RichText::new(contact.name)
-               .size(theme.text_sizes.large)
+               .size(theme.typography.large)
                .color(theme.colors.info);
             (rich, Some(contact.evm_address))
          } else if recipient.len() > 12 {
@@ -658,11 +657,11 @@ fn private_transfer_event_ui(
                &recipient[recipient.len() - 6..]
             );
             let rich =
-               RichText::new(truncated).size(theme.text_sizes.large).color(theme.colors.info);
+               RichText::new(truncated).size(theme.typography.large).color(theme.colors.info);
             (rich, None)
          } else {
             let rich = RichText::new(recipient.clone())
-               .size(theme.text_sizes.large)
+               .size(theme.typography.large)
                .color(theme.colors.info);
             (rich, None)
          };
@@ -712,7 +711,7 @@ fn bridge_event_ui(
          amount.abbreviated(),
          currency_in.symbol()
       ))
-      .size(theme.text_sizes.large)
+      .size(theme.typography.large)
       .color(theme.colors.error);
       let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -723,7 +722,7 @@ fn bridge_event_ui(
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let value = params.amount_usd.clone().unwrap_or_default();
          ui.label(
-            RichText::new(format!("~ ${}", value.abbreviated())).size(theme.text_sizes.large),
+            RichText::new(format!("~ ${}", value.abbreviated())).size(theme.typography.large),
          );
       });
    });
@@ -738,7 +737,7 @@ fn bridge_event_ui(
             amount.abbreviated(),
             currency_out.symbol()
          ))
-         .size(theme.text_sizes.large)
+         .size(theme.typography.large)
          .color(theme.colors.success);
          let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.add(label);
@@ -747,7 +746,7 @@ fn bridge_event_ui(
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let value = params.received_usd.clone().unwrap_or_default();
          let text =
-            RichText::new(format!("~ ${}", value.abbreviated())).size(theme.text_sizes.large);
+            RichText::new(format!("~ ${}", value.abbreviated())).size(theme.typography.large);
          ui.label(text);
       });
    });
@@ -775,13 +774,13 @@ fn bridge_event_ui(
    // Origin Chain Column
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Origin Chain").size(theme.text_sizes.large));
+         ui.label(RichText::new("Origin Chain").size(theme.typography.large));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let chain: ChainId = params.origin_chain.into();
          let icon = icons.chain_icon(chain.id(), tint);
-         let text = RichText::new(chain.name()).size(theme.text_sizes.large);
+         let text = RichText::new(chain.name()).size(theme.typography.large);
          let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.add(label);
       });
@@ -790,13 +789,13 @@ fn bridge_event_ui(
    // Destination Chain Column
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Destination Chain").size(theme.text_sizes.large));
+         ui.label(RichText::new("Destination Chain").size(theme.typography.large));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let chain: ChainId = params.destination_chain.into();
          let icon = icons.chain_icon(chain.id(), tint);
-         let text = RichText::new(chain.name()).size(theme.text_sizes.large);
+         let text = RichText::new(chain.name()).size(theme.typography.large);
          let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.add(label);
       });
@@ -816,7 +815,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
          amount.abbreviated(),
          currency.symbol()
       ))
-      .size(theme.text_sizes.large)
+      .size(theme.typography.large)
       .color(theme.colors.error);
       let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -827,7 +826,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let value = params.amount_in_usd.clone().unwrap_or_default();
          ui.label(
-            RichText::new(format!("~ ${}", value.abbreviated())).size(theme.text_sizes.large),
+            RichText::new(format!("~ ${}", value.abbreviated())).size(theme.typography.large),
          );
       });
    });
@@ -843,7 +842,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
             amount.abbreviated(),
             currency.symbol()
          ))
-         .size(theme.text_sizes.large)
+         .size(theme.typography.large)
          .color(theme.colors.success);
          let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.add(label);
@@ -852,7 +851,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let value = params.received_usd.clone().unwrap_or_default();
          let text =
-            RichText::new(format!("~ ${}", value.abbreviated())).size(theme.text_sizes.large);
+            RichText::new(format!("~ ${}", value.abbreviated())).size(theme.typography.large);
          ui.label(text);
       });
    });
@@ -862,7 +861,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
    let amount_usd = params.min_received_usd.clone();
    if amount.is_some() && amount_usd.is_some() {
       ui.horizontal(|ui| {
-         ui.label(RichText::new("Minimum Received").size(theme.text_sizes.large));
+         ui.label(RichText::new("Minimum Received").size(theme.typography.large));
          ui.add_space(15.0);
 
          let amount = amount.unwrap();
@@ -871,7 +870,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
          let amount_symbol = format!("{} {}", amount.abbreviated(), currency.symbol());
          let amount_usd = format!("~ ${}", amount_usd.abbreviated());
          let text =
-            RichText::new(format!("{} {}", amount_symbol, amount_usd)).size(theme.text_sizes.large);
+            RichText::new(format!("{} {}", amount_symbol, amount_usd)).size(theme.typography.large);
          let label = Label::new(text, None).interactive(false);
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             ui.add(label);
@@ -899,7 +898,7 @@ fn wrap_eth_event_ui(
          params.eth_wrapped.abbreviated(),
          weth.symbol()
       ))
-      .size(theme.text_sizes.large)
+      .size(theme.typography.large)
       .color(theme.colors.success);
       let label = Label::new(text, Some(weth_icon)).image_on_left().interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -910,7 +909,7 @@ fn wrap_eth_event_ui(
       let weth_received_usd = params.eth_wrapped_usd.clone().unwrap_or_default();
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let text = RichText::new(format!("~ ${}", weth_received_usd.abbreviated()))
-            .size(theme.text_sizes.large);
+            .size(theme.typography.large);
          ui.label(text);
       });
    });
@@ -945,7 +944,7 @@ fn unwrap_weth_event_ui(
          params.weth_unwrapped.abbreviated(),
          eth.symbol
       ))
-      .size(theme.text_sizes.large)
+      .size(theme.typography.large)
       .color(theme.colors.success);
       let label = Label::new(text, Some(eth_icon)).image_on_left().interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -956,7 +955,7 @@ fn unwrap_weth_event_ui(
       let weth_unwrapped_usd = params.weth_unwrapped_usd.clone().unwrap_or_default();
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let text = RichText::new(format!("~ ${}", weth_unwrapped_usd.abbreviated()))
-            .size(theme.text_sizes.large);
+            .size(theme.typography.large);
          ui.label(text);
       });
    });
@@ -991,7 +990,7 @@ fn uniswap_position_op_event_ui(
       let icon = icons.currency_icon_x32(currency0, tint);
 
       let text = format!("{} {}", amount0.abbreviated(), currency0.symbol());
-      let text = RichText::new(text).size(theme.text_sizes.large);
+      let text = RichText::new(text).size(theme.typography.large);
 
       let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -1001,7 +1000,7 @@ fn uniswap_position_op_event_ui(
       // Value
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let amount = amount0_usd.abbreviated();
-         ui.label(RichText::new(format!("~ ${}", amount)).size(theme.text_sizes.large));
+         ui.label(RichText::new(format!("~ ${}", amount)).size(theme.typography.large));
       });
    });
 
@@ -1010,7 +1009,7 @@ fn uniswap_position_op_event_ui(
       let icon = icons.currency_icon_x32(currency1, tint);
       let text = format!("{} {}", amount1.abbreviated(), currency1.symbol());
 
-      let text = RichText::new(text).size(theme.text_sizes.large);
+      let text = RichText::new(text).size(theme.typography.large);
       let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);
@@ -1019,7 +1018,7 @@ fn uniswap_position_op_event_ui(
       // Value
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let amount = amount1_usd.abbreviated();
-         ui.label(RichText::new(format!("~ ${}", amount)).size(theme.text_sizes.large));
+         ui.label(RichText::new(format!("~ ${}", amount)).size(theme.typography.large));
       });
    });
 
@@ -1030,7 +1029,7 @@ fn uniswap_position_op_event_ui(
    };
 
    if min_amount0.is_some() && min_amount1.is_some() {
-      ui.label(RichText::new(text).size(theme.text_sizes.large));
+      ui.label(RichText::new(text).size(theme.typography.large));
    }
 
    // Minimum Amount A and Amount & value
@@ -1043,7 +1042,7 @@ fn uniswap_position_op_event_ui(
             min_amount0.abbreviated(),
             currency0.symbol()
          );
-         let text = RichText::new(text).size(theme.text_sizes.large);
+         let text = RichText::new(text).size(theme.typography.large);
 
          let label = Label::new(text, Some(icon)).image_on_left();
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -1053,7 +1052,7 @@ fn uniswap_position_op_event_ui(
          // Value
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let amount = min_amount0_usd.abbreviated();
-            ui.label(RichText::new(format!("~ ${}", amount)).size(theme.text_sizes.large));
+            ui.label(RichText::new(format!("~ ${}", amount)).size(theme.typography.large));
          });
       });
    }
@@ -1069,7 +1068,7 @@ fn uniswap_position_op_event_ui(
             currency1.symbol()
          );
 
-         let text = RichText::new(text).size(theme.text_sizes.large);
+         let text = RichText::new(text).size(theme.typography.large);
          let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
@@ -1078,7 +1077,7 @@ fn uniswap_position_op_event_ui(
          // Value
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let amount = min_amount1_usd.abbreviated();
-            ui.label(RichText::new(format!("~ ${}", amount)).size(theme.text_sizes.large));
+            ui.label(RichText::new(format!("~ ${}", amount)).size(theme.typography.large));
          });
       });
    }

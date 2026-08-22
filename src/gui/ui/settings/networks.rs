@@ -8,10 +8,9 @@ use eframe::egui::{
    Align, Align2, CornerRadius, CursorIcon, FontId, Layout, Margin, Order, RichText, ScrollArea,
    Slider, Spinner, Stroke, Ui, Window, vec2,
 };
+use egui_elements::{Button, Modal, OverlayManager, SecureTextEdit, Theme, visuals::ButtonVisuals};
 use std::sync::Arc;
 use zeus_eth::alloy_provider::Provider;
-use zeus_theme::{ButtonVisuals, OverlayManager, Theme};
-use zeus_widgets::{Button, Modal, SecureTextEdit};
 
 pub struct NetworkSettings {
    open: bool,
@@ -110,10 +109,10 @@ impl NetworkSettings {
       self.rpc_settings(ctx, theme, ui);
 
       let mut open = self.open;
-      let window_frame = theme.window_frame;
+      let window_frame = theme.window_frame.fill(theme.frame1.fill);
       let title_frame = window_frame.stroke(Stroke::NONE);
 
-      Window::new(RichText::new("Network Settings").size(theme.text_sizes.heading))
+      Window::new(RichText::new("Network Settings").size(theme.typography.heading))
          .open(&mut open)
          .resizable(false)
          .order(Order::Middle)
@@ -149,8 +148,8 @@ impl NetworkSettings {
                   // Enable/Disable Network button
                   let disabled = ctx.is_chain_disabled(chain);
                   let text = match disabled {
-                     true => RichText::new("Enable Network").size(theme.text_sizes.normal),
-                     false => RichText::new("Disable Network").size(theme.text_sizes.normal),
+                     true => RichText::new("Enable Network").size(theme.typography.normal),
+                     false => RichText::new("Disable Network").size(theme.typography.normal),
                   };
 
                   let button = Button::new(text).visuals(button_visuals);
@@ -169,7 +168,7 @@ impl NetworkSettings {
                   }
 
                   // Add Network button
-                  let text = RichText::new("Add RPC Url").size(theme.text_sizes.normal);
+                  let text = RichText::new("Add RPC Url").size(theme.typography.normal);
                   let button = Button::new(text).visuals(button_visuals);
 
                   if ui.add(button).clicked() {
@@ -177,7 +176,7 @@ impl NetworkSettings {
                   }
 
                   // Refresh button
-                  let icon = match theme.dark_mode {
+                  let icon = match theme.dark {
                      true => icons.refresh_white_x22(tint),
                      false => icons.refresh_dark_x22(tint),
                   };
@@ -220,32 +219,32 @@ impl NetworkSettings {
             ui.horizontal(|ui| {
                ui.scope(|ui| {
                   ui.set_width(url_width);
-                  ui.label(RichText::new("Url").size(theme.text_sizes.normal));
+                  ui.label(RichText::new("Url").size(theme.typography.normal));
                });
 
                ui.scope(|ui| {
                   ui.set_width(others_width);
-                  ui.label(RichText::new("Enabled").size(theme.text_sizes.normal));
+                  ui.label(RichText::new("Enabled").size(theme.typography.normal));
                });
 
                ui.scope(|ui| {
                   ui.set_width(others_width);
-                  ui.label(RichText::new("Status").size(theme.text_sizes.normal));
+                  ui.label(RichText::new("Status").size(theme.typography.normal));
                });
 
                ui.scope(|ui| {
                   ui.set_width(others_width);
-                  ui.label(RichText::new("Archive").size(theme.text_sizes.normal));
+                  ui.label(RichText::new("Archive").size(theme.typography.normal));
                });
 
                ui.scope(|ui| {
                   ui.set_width(mev_protect_width);
-                  ui.label(RichText::new("MEV Protect").size(theme.text_sizes.normal));
+                  ui.label(RichText::new("MEV Protect").size(theme.typography.normal));
                });
 
                ui.scope(|ui| {
                   ui.set_width(others_width);
-                  ui.label(RichText::new("Latency").size(theme.text_sizes.normal));
+                  ui.label(RichText::new("Latency").size(theme.typography.normal));
                });
             });
 
@@ -261,7 +260,7 @@ impl NetworkSettings {
                         ui.add(
                            SecureTextEdit::singleline(&mut url)
                               .visuals(text_edit_visuals)
-                              .font(FontId::proportional(theme.text_sizes.small))
+                              .font(FontId::proportional(theme.typography.small))
                               .min_size(vec2(url_width, 15.0))
                               .margin(Margin::same(5)),
                         );
@@ -346,11 +345,11 @@ impl NetworkSettings {
                      // Latency column
                      ui.scope(|ui| {
                         ui.set_width(others_width);
-                        ui.label(RichText::new(rpc.latency_str()).size(theme.text_sizes.normal));
+                        ui.label(RichText::new(rpc.latency_str()).size(theme.typography.normal));
                      });
 
                      // Settings button
-                     let icon = match theme.dark_mode {
+                     let icon = match theme.dark {
                         true => icons.gear_white_x24(tint),
                         false => icons.gear_dark_x24(tint),
                      };
@@ -373,7 +372,7 @@ impl NetworkSettings {
                      // Test button column
                      ui.scope(|ui| {
                         ui.set_width(buttons_width);
-                        let text = RichText::new("Test").size(theme.text_sizes.small);
+                        let text = RichText::new("Test").size(theme.typography.small);
                         let button = Button::new(text).visuals(button_visuals);
 
                         let test_in_progress = rpc.test_in_progress;
@@ -395,7 +394,7 @@ impl NetworkSettings {
                      });
 
                      // Remove button column
-                     let button = Button::new(RichText::new("X").size(theme.text_sizes.small))
+                     let button = Button::new(RichText::new("X").size(theme.typography.small))
                         .visuals(button_visuals);
 
                      ui.scope(|ui| {
@@ -428,7 +427,7 @@ impl NetworkSettings {
       let window_frame = theme.window_frame;
       let title_frame = window_frame.stroke(Stroke::NONE);
 
-      Window::new(RichText::new("Server Port").size(theme.text_sizes.normal))
+      Window::new(RichText::new("Server Port").size(theme.typography.normal))
          .open(&mut open)
          .order(Order::Foreground)
          .resizable(false)
@@ -481,14 +480,14 @@ impl NetworkSettings {
                ui.spacing_mut().item_spacing.y = 15.0;
 
                if self.rpc_to_edit.is_none() {
-                  let text = RichText::new("No RPC selected").size(theme.text_sizes.normal);
+                  let text = RichText::new("No RPC selected").size(theme.typography.normal);
                   ui.label(text);
                   return;
                }
 
                let rpc = self.rpc_to_edit.as_mut().unwrap();
 
-               let text = RichText::new("MEV Protect").size(theme.text_sizes.normal);
+               let text = RichText::new("MEV Protect").size(theme.typography.normal);
 
                ui.label(text);
                let clicked = ui.checkbox(&mut rpc.mev_protect, "").clicked();
@@ -508,7 +507,7 @@ impl NetworkSettings {
                   });
                }
 
-               let text = RichText::new("Close").size(theme.text_sizes.normal);
+               let text = RichText::new("Close").size(theme.typography.normal);
                let button = Button::new(text).visuals(theme.button_visuals());
                if ui.add(button).clicked() {
                   self.close_rpc_settings();
@@ -530,7 +529,7 @@ impl NetworkSettings {
       let window_frame = theme.window_frame;
       let title_frame = window_frame.stroke(Stroke::NONE);
 
-      Window::new(RichText::new("Add Network").size(theme.text_sizes.large))
+      Window::new(RichText::new("Add Network").size(theme.typography.large))
          .open(&mut open)
          .order(Order::Foreground)
          .resizable(false)
@@ -550,12 +549,12 @@ impl NetworkSettings {
             ui.vertical_centered(|ui| {
                let ui_width = ui.available_width();
 
-               let hint_text = RichText::new("Enter a url").size(theme.text_sizes.normal);
+               let hint_text = RichText::new("Enter a url").size(theme.typography.normal);
                ui.add(
                   SecureTextEdit::singleline(&mut self.url_to_add)
                      .visuals(text_edit_visuals)
                      .hint_text(hint_text)
-                     .font(FontId::proportional(theme.text_sizes.normal))
+                     .font(FontId::proportional(theme.typography.normal))
                      .min_size(vec2(ui_width * 0.5, 20.0))
                      .margin(Margin::same(10)),
                );
@@ -564,7 +563,7 @@ impl NetworkSettings {
                if !self.valid_url() && !self.url_to_add.is_empty() {
                   ui.label(
                      RichText::new("Invalid URL")
-                        .size(theme.text_sizes.small)
+                        .size(theme.typography.small)
                         .color(theme.colors.error),
                   );
                }
@@ -573,7 +572,7 @@ impl NetworkSettings {
                   ui.add(Spinner::new().size(15.0).color(theme.colors.text));
                }
 
-               let text = RichText::new("Add").size(theme.text_sizes.normal);
+               let text = RichText::new("Add").size(theme.typography.normal);
                let button = Button::new(text).visuals(button_visuals);
                if self.valid_url() {
                   if ui.add_enabled(!self.refreshing, button).clicked() {

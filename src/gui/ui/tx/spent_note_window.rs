@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
 use egui::{Align, Align2, Frame, Layout, Margin, Order, RichText, Stroke, Ui, Window, vec2};
+use egui_elements::{Button, OverlayManager, Theme};
 use zeus_eth::{alloy_primitives::U256, currency::Currency, types::ChainId, utils::NumericValue};
-use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::Button;
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
@@ -66,7 +65,7 @@ impl SpentNoteWindow {
          return;
       }
 
-      let title = RichText::new("Spent Note").size(theme.text_sizes.heading);
+      let title = RichText::new("Spent Note").size(theme.typography.heading);
       let window_frame = theme.window_frame;
       let title_frame = window_frame.stroke(Stroke::NONE);
 
@@ -89,9 +88,9 @@ impl SpentNoteWindow {
                   let button_visuals = theme.button_visuals();
 
                   let Some(row) = self.row.as_ref() else {
-                     ui.label(RichText::new("Spent note not found").size(theme.text_sizes.large));
+                     ui.label(RichText::new("Spent note not found").size(theme.typography.large));
                      let size = vec2(ui.available_width() * 0.8, 45.0);
-                     let text = RichText::new("Close").size(theme.text_sizes.normal);
+                     let text = RichText::new("Close").size(theme.typography.normal);
                      let close_button = Button::new(text).min_size(size).visuals(button_visuals);
                      if ui.add(close_button).clicked() {
                         self.close();
@@ -108,7 +107,7 @@ impl SpentNoteWindow {
                         PrivateHistoryKind::Merge => "Merged Notes",
                         PrivateHistoryKind::Send => "Private Transfer",
                      })
-                     .size(theme.text_sizes.very_large)
+                     .size(theme.typography.very_large)
                      .strong(),
                   );
 
@@ -162,7 +161,7 @@ impl SpentNoteWindow {
                   });
 
                   let size = vec2(ui.available_width() * 0.8, 45.0);
-                  let text = RichText::new("Close").size(theme.text_sizes.normal);
+                  let text = RichText::new("Close").size(theme.typography.normal);
                   let close_button = Button::new(text).min_size(size).visuals(button_visuals);
 
                   if ui.add(close_button).clicked() {
@@ -224,10 +223,10 @@ pub(crate) fn spent_age(_ctx: &ZeusContext, row: &SpentHistoryRow) -> String {
 fn kv_row(label: &str, value: &str, theme: &Theme, ui: &mut Ui) {
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new(label).size(theme.text_sizes.large));
+         ui.label(RichText::new(label).size(theme.typography.large));
       });
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         ui.label(RichText::new(value).size(theme.text_sizes.large).color(theme.colors.text));
+         ui.label(RichText::new(value).size(theme.typography.large).color(theme.colors.text));
       });
    });
 }

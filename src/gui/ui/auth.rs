@@ -7,11 +7,9 @@ use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::utils::RT;
 use eframe::egui::{Align2, FontId, Margin, RichText, Ui, Window, vec2};
+use egui_elements::{Button, CredentialsForm, Label, SecureTextEdit, Theme};
 use ncrypt_me::{Argon2, Credentials, zeroize::Zeroize};
 use std::time::Instant;
-use zeus_theme::Theme;
-use zeus_ui_components::CredentialsForm;
-use zeus_widgets::{Button, Label, SecureTextEdit};
 
 #[cfg(feature = "dev")]
 use secure_types::SecureString;
@@ -67,14 +65,14 @@ impl UnlockVault {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                let ui_width = ui.available_width();
 
-               ui.label(RichText::new("Unlock your Vault").size(theme.text_sizes.heading));
+               ui.label(RichText::new("Unlock your Vault").size(theme.typography.heading));
 
                ui.scope(|ui| {
                   ui.spacing_mut().button_padding = vec2(4.0, 4.0);
-                  self.credentials_form.show(theme, ui);
+                  self.credentials_form.show(ui);
                });
 
-               let text = RichText::new("Unlock").size(theme.text_sizes.large);
+               let text = RichText::new("Unlock").size(theme.typography.large);
                let button =
                   Button::new(text).visuals(button_visuals).min_size(vec2(ui_width * 0.50, 35.0));
 
@@ -353,8 +351,8 @@ impl RecoverHDWallet {
             self.memory.available_gb()
          );
 
-         ui.label(RichText::new(text1).size(theme.text_sizes.normal).color(theme.colors.warning));
-         ui.label(RichText::new(text2).size(theme.text_sizes.normal).color(theme.colors.warning));
+         ui.label(RichText::new(text1).size(theme.typography.normal).color(theme.colors.warning));
+         ui.label(RichText::new(text2).size(theme.typography.normal).color(theme.colors.warning));
       }
 
       if !meets_min_mem {
@@ -365,7 +363,7 @@ impl RecoverHDWallet {
             m_cost_gb
          );
 
-         ui.label(RichText::new(text).size(theme.text_sizes.normal).color(theme.colors.warning));
+         ui.label(RichText::new(text).size(theme.typography.normal).color(theme.colors.warning));
       }
    }
 
@@ -394,19 +392,19 @@ impl RecoverHDWallet {
 
                let ui_width = ui.available_width();
 
-               ui.label(RichText::new("No vault was found").size(theme.text_sizes.heading));
+               ui.label(RichText::new("No vault was found").size(theme.typography.heading));
                ui.label(
                   RichText::new("Recover your wallet from your credentials")
-                     .size(theme.text_sizes.large),
+                     .size(theme.typography.large),
                );
 
                // Credentials input
                ui.scope(|ui| {
                   ui.spacing_mut().button_padding = vec2(4.0, 4.0);
-                  self.credentials_form.show(theme, ui);
+                  self.credentials_form.show(ui);
                });
 
-               let text = RichText::new("Next").size(theme.text_sizes.large);
+               let text = RichText::new("Next").size(theme.typography.large);
                let next_button =
                   Button::new(text).visuals(button_visuals).min_size(vec2(ui_width * 0.25, 25.0));
 
@@ -458,16 +456,16 @@ impl RecoverHDWallet {
             ui.vertical_centered(|ui| {
                self.show_requirements_warning(theme, ui);
 
-               ui.label(RichText::new("Wallet Name").size(theme.text_sizes.heading));
+               ui.label(RichText::new("Wallet Name").size(theme.typography.heading));
 
                SecureTextEdit::singleline(&mut self.wallet_name)
                   .visuals(text_edit_visuals)
-                  .font(FontId::proportional(theme.text_sizes.normal))
+                  .font(FontId::proportional(theme.typography.normal))
                   .margin(Margin::same(10))
                   .min_size(vec2(ui.available_width() * 0.9, 25.0))
                   .show(ui);
 
-               let text = RichText::new("Recover").size(theme.text_sizes.large);
+               let text = RichText::new("Recover").size(theme.typography.large);
                let recover_button = Button::new(text)
                   .visuals(button_visuals)
                   .min_size(vec2(ui.available_width() * 0.9, 25.0));
@@ -597,12 +595,12 @@ impl RecoverHDWallet {
 
          let warning = "Make sure to never forget your credentials, it is the only way to recover your wallet";
 
-         let text1 = RichText::new(tip1).size(theme.text_sizes.large);
-         let text2 = RichText::new(tip2).size(theme.text_sizes.large);
-         let text3 = RichText::new(tip3).size(theme.text_sizes.large);
-         let text4 = RichText::new(tip4).size(theme.text_sizes.large);
-         let text5 = RichText::new(tip5).size(theme.text_sizes.large);
-         let warning_text = RichText::new(warning).size(theme.text_sizes.very_large).color(theme.colors.warning);
+         let text1 = RichText::new(tip1).size(theme.typography.large);
+         let text2 = RichText::new(tip2).size(theme.typography.large);
+         let text3 = RichText::new(tip3).size(theme.typography.large);
+         let text4 = RichText::new(tip4).size(theme.typography.large);
+         let text5 = RichText::new(tip5).size(theme.typography.large);
+         let warning_text = RichText::new(warning).size(theme.typography.very_large).color(theme.colors.warning);
 
          let label1 = Label::new(text1, None).wrap().interactive(false);
          let label2 = Label::new(text2, None).wrap().interactive(false);
@@ -636,7 +634,7 @@ impl RecoverHDWallet {
          });
 
          let button_visuals = theme.button_visuals();
-         let text = RichText::new("Ok").size(theme.text_sizes.large);
+         let text = RichText::new("Ok").size(theme.typography.large);
          let ok_button = Button::new(text).visuals(button_visuals).min_size(vec2(ui.available_width() * 0.25, 25.0));
 
          ui.vertical_centered(|ui| {

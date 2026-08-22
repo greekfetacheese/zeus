@@ -3,8 +3,7 @@ use egui::{Align, Layout, RichText, Slider, Ui, vec2};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::REFRESH;
 use crate::utils::RT;
-use zeus_theme::Theme;
-use zeus_widgets::{Button, SecureTextEdit};
+use egui_elements::{Button, SecureTextEdit, Theme};
 
 const MIN_SLIPPAGE: f64 = 0.1;
 const MAX_SLIPPAGE: f64 = 20.0;
@@ -86,10 +85,10 @@ impl UniswapSettingsUi {
 
       // Slippage
       ui.horizontal(|ui| {
-         let text = RichText::new("Slippage").size(theme.text_sizes.normal);
+         let text = RichText::new("Slippage").size(theme.typography.normal);
          ui.label(text).on_hover_text(SLIPPAGE_TIP);
 
-         let text = RichText::new(REFRESH).size(theme.text_sizes.very_small);
+         let text = RichText::new(REFRESH).size(theme.typography.very_small);
          let button = Button::new(text).visuals(button_visuals).small();
 
          if ui.add(button).clicked() {
@@ -99,7 +98,7 @@ impl UniswapSettingsUi {
 
          let res = ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let slippage = format!("{:.1}", self.slippage_f64);
-            ui.label(RichText::new(slippage).size(theme.text_sizes.normal));
+            ui.label(RichText::new(slippage).size(theme.typography.normal));
 
             ui.add(
                Slider::new(
@@ -117,11 +116,11 @@ impl UniswapSettingsUi {
 
       // Swap deadline
       ui.horizontal(|ui| {
-         let text = RichText::new("Deadline (minutes)").size(theme.text_sizes.normal);
+         let text = RichText::new("Deadline (minutes)").size(theme.typography.normal);
          ui.label(text).on_hover_text(DEADLINE_TIP);
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            ui.label(RichText::new(self.deadline.to_string()).size(theme.text_sizes.normal));
+            ui.label(RichText::new(self.deadline.to_string()).size(theme.typography.normal));
             ui.add(Slider::new(&mut self.deadline, MIN_DEADLINE..=MAX_DEADLINE).show_value(false));
          });
       });
@@ -129,10 +128,10 @@ impl UniswapSettingsUi {
       if swap_ui_open {
          // Max Hops
          ui.horizontal(|ui| {
-            ui.label(RichText::new("Max Hops").size(theme.text_sizes.normal));
+            ui.label(RichText::new("Max Hops").size(theme.typography.normal));
 
             let res = ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               ui.label(RichText::new(self.max_hops.to_string()).size(theme.text_sizes.normal));
+               ui.label(RichText::new(self.max_hops.to_string()).size(theme.typography.normal));
                ui.add(Slider::new(&mut self.max_hops, 1..=10).show_value(false))
             });
 
@@ -149,11 +148,11 @@ impl UniswapSettingsUi {
 
          // Max Split Routes
          ui.horizontal(|ui| {
-            ui.label(RichText::new("Max Routes").size(theme.text_sizes.normal));
+            ui.label(RichText::new("Max Routes").size(theme.typography.normal));
 
             let res = ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                ui.label(
-                  RichText::new(self.max_split_routes.to_string()).size(theme.text_sizes.normal),
+                  RichText::new(self.max_split_routes.to_string()).size(theme.typography.normal),
                );
                ui.add(Slider::new(&mut self.max_split_routes, 1..=10).show_value(false))
             });
@@ -169,10 +168,10 @@ impl UniswapSettingsUi {
             }
          });
 
-         let text = RichText::new("MEV Protect").size(theme.text_sizes.normal);
+         let text = RichText::new("MEV Protect").size(theme.typography.normal);
          ui.checkbox(&mut self.mev_protect, text);
 
-         let text = RichText::new("Split Routing").size(theme.text_sizes.normal);
+         let text = RichText::new("Split Routing").size(theme.typography.normal);
          let res = ui.checkbox(&mut self.split_routing_enabled, text);
          if res.changed() {
             RT.spawn_blocking(move || {
@@ -184,15 +183,15 @@ impl UniswapSettingsUi {
             });
          }
 
-         let text = RichText::new("Swap on V2").size(theme.text_sizes.normal);
+         let text = RichText::new("Swap on V2").size(theme.typography.normal);
          let v2_was_on = self.swap_on_v2;
          let v2_res = ui.checkbox(&mut self.swap_on_v2, text);
 
-         let text = RichText::new("Swap on V3").size(theme.text_sizes.normal);
+         let text = RichText::new("Swap on V3").size(theme.typography.normal);
          let v3_was_on = self.swap_on_v3;
          let v3_res = ui.checkbox(&mut self.swap_on_v3, text);
 
-         let text = RichText::new("Swap on V4").size(theme.text_sizes.normal);
+         let text = RichText::new("Swap on V4").size(theme.typography.normal);
          let v4_was_on = self.swap_on_v4;
          let v4_res = ui.checkbox(&mut self.swap_on_v4, text);
 
@@ -207,13 +206,13 @@ impl UniswapSettingsUi {
             });
          }
 
-         let text = RichText::new("Simulate Mode").size(theme.text_sizes.normal);
+         let text = RichText::new("Simulate Mode").size(theme.typography.normal);
          ui.checkbox(&mut self.simulate_mode, text);
       }
 
       if view_position_open {
          let visuals = theme.text_edit_visuals();
-         let text = RichText::new("Number of Days to go back").size(theme.text_sizes.normal);
+         let text = RichText::new("Number of Days to go back").size(theme.typography.normal);
          ui.label(text);
          ui.add(SecureTextEdit::singleline(&mut self.days).desired_width(25.0).visuals(visuals));
       }

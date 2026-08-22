@@ -8,6 +8,7 @@ use eframe::egui::{
    Align, Align2, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner, Stroke,
    Ui, Vec2, Window, vec2,
 };
+use egui_elements::{Button, OverlayManager, SecureTextEdit, Theme};
 use zeus_bip32::BIP32_HARDEN;
 use zeus_eth::{
    alloy_primitives::Address,
@@ -15,9 +16,7 @@ use zeus_eth::{
    types::SUPPORTED_CHAINS,
    utils::{NumericValue, batch, truncate_address},
 };
-use zeus_theme::{OverlayManager, Theme};
 use zeus_wallet::SecureHDWallet;
-use zeus_widgets::{Button, SecureTextEdit};
 
 use std::sync::Arc;
 use tokio::{sync::Semaphore, task::JoinHandle};
@@ -150,7 +149,7 @@ impl DiscoverChildWallets {
       let was_open = self.open;
       let mut is_open = self.open;
 
-      let title = RichText::new("Discover Wallets").size(theme.text_sizes.heading);
+      let title = RichText::new("Discover Wallets").size(theme.typography.heading);
       let window_frame = theme.window_frame;
       let title_frame = window_frame.stroke(Stroke::NONE);
 
@@ -174,7 +173,7 @@ impl DiscoverChildWallets {
                ui.add_space(15.0);
 
                if self.loading {
-                  ui.label(RichText::new("Loading...").size(theme.text_sizes.normal));
+                  ui.label(RichText::new("Loading...").size(theme.typography.normal));
                   ui.add(Spinner::new().size(15.0).color(theme.colors.text));
                   return;
                }
@@ -203,15 +202,15 @@ impl DiscoverChildWallets {
                   )
                };
 
-               ui.label(RichText::new(text).size(theme.text_sizes.normal));
+               ui.label(RichText::new(text).size(theme.typography.normal));
 
                let batch_size = self.discovered_wallets.batch_size;
 
                let text = format!("Generate next {} wallets", batch_size);
-               let text = RichText::new(text).size(theme.text_sizes.normal);
+               let text = RichText::new(text).size(theme.typography.normal);
                let gen_button = Button::new(text).visuals(button_visuals);
 
-               let text = RichText::new(REFRESH).size(theme.text_sizes.normal);
+               let text = RichText::new(REFRESH).size(theme.typography.normal);
                let refresh_button = Button::new(text).visuals(button_visuals);
 
                let size = vec2(ui.available_width() * 0.4, 45.0);
@@ -248,7 +247,7 @@ impl DiscoverChildWallets {
 
                      ui.scope(|ui| {
                         ui.set_width(column_widths[0]);
-                        let text = RichText::new("Derivation Path").size(theme.text_sizes.normal);
+                        let text = RichText::new("Derivation Path").size(theme.typography.normal);
                         ui.label(text);
                      });
 
@@ -256,7 +255,7 @@ impl DiscoverChildWallets {
 
                      ui.scope(|ui| {
                         ui.set_width(column_widths[1]);
-                        let text = RichText::new("Address").size(theme.text_sizes.normal);
+                        let text = RichText::new("Address").size(theme.typography.normal);
                         ui.label(text);
                      });
 
@@ -264,7 +263,7 @@ impl DiscoverChildWallets {
 
                      ui.scope(|ui| {
                         ui.set_width(column_widths[2]);
-                        let text = RichText::new("Value").size(theme.text_sizes.normal);
+                        let text = RichText::new("Value").size(theme.typography.normal);
                         ui.label(text);
                      });
                      // Just occupy space
@@ -299,7 +298,7 @@ impl DiscoverChildWallets {
                   ui.allocate_ui(size, |ui| {
                      ui.horizontal(|ui| {
                         ui.add_enabled_ui(self.current_page > 0, |ui| {
-                           let prev_text = RichText::new("Previous").size(theme.text_sizes.normal);
+                           let prev_text = RichText::new("Previous").size(theme.typography.normal);
                            let button = Button::new(prev_text).visuals(button_visuals);
 
                            if ui.add(button).clicked() {
@@ -312,11 +311,11 @@ impl DiscoverChildWallets {
                            self.current_page + 1,
                            total_pages
                         ))
-                        .size(theme.text_sizes.normal);
+                        .size(theme.typography.normal);
 
                         ui.label(page_text);
                         ui.add_enabled_ui(self.current_page + 1 < total_pages, |ui| {
-                           let next_text = RichText::new("Next").size(theme.text_sizes.normal);
+                           let next_text = RichText::new("Next").size(theme.typography.normal);
                            let button = Button::new(next_text).visuals(button_visuals);
 
                            if ui.add(button).clicked() {
@@ -491,7 +490,7 @@ impl DiscoverChildWallets {
                      ui.scope(|ui| {
                         ui.set_width(column_widths[0]);
                         let text = child.path.derivation_string();
-                        let rich_text = RichText::new(text).size(theme.text_sizes.small);
+                        let rich_text = RichText::new(text).size(theme.typography.small);
                         ui.label(rich_text);
                      });
 
@@ -504,7 +503,7 @@ impl DiscoverChildWallets {
                         let link = format!("{}/address/{}", explorer, address);
                         ui.hyperlink_to(
                            RichText::new(text)
-                              .size(theme.text_sizes.small)
+                              .size(theme.typography.small)
                               .color(theme.colors.info),
                            link,
                         );
@@ -537,13 +536,13 @@ impl DiscoverChildWallets {
                      ui.label(
                         RichText::new(format!("${}", value.abbreviated()))
                            .color(theme.colors.text_muted)
-                           .size(theme.text_sizes.small),
+                           .size(theme.typography.small),
                      );
                   });
 
                   ui.scope(|ui| {
                      ui.set_width(column_widths[3]);
-                     let text = RichText::new("Add").size(theme.text_sizes.normal);
+                     let text = RichText::new("Add").size(theme.typography.normal);
                      let button = Button::new(text).visuals(button_visuals);
 
                      if ui.add(button).clicked() {
@@ -568,7 +567,7 @@ impl DiscoverChildWallets {
 
       let mut open = self.add_wallet_window;
 
-      let title = RichText::new("Add Wallet").size(theme.text_sizes.heading);
+      let title = RichText::new("Add Wallet").size(theme.typography.heading);
       let window_frame = theme.window_frame;
       let title_frame = window_frame.stroke(Stroke::NONE);
 
@@ -589,17 +588,17 @@ impl DiscoverChildWallets {
             let text_edit_visuals = theme.text_edit_visuals();
 
             ui.vertical_centered(|ui| {
-               let text = RichText::new("Wallet Name (Optional)").size(theme.text_sizes.large);
+               let text = RichText::new("Wallet Name (Optional)").size(theme.typography.large);
                ui.label(text);
 
                SecureTextEdit::singleline(&mut self.wallet_name)
                   .visuals(text_edit_visuals)
-                  .font(FontId::proportional(theme.text_sizes.normal))
+                  .font(FontId::proportional(theme.typography.normal))
                   .margin(Margin::same(10))
                   .min_size(vec2(ui.available_width() * 0.9, 25.0))
                   .show(ui);
 
-               let text = RichText::new("Add Wallet").size(theme.text_sizes.large);
+               let text = RichText::new("Add Wallet").size(theme.typography.large);
                let button = Button::new(text).visuals(button_visuals);
 
                if ui.add(button).clicked() {

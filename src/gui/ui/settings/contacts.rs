@@ -8,14 +8,12 @@ use egui::{
    Align, Align2, FontId, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Spinner, Stroke,
    Ui, Window, vec2,
 };
+use egui_elements::{Button, Label, Modal, OverlayManager, QrImage, SecureTextEdit, Theme};
 use elegance::{Menu, MenuItem};
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::alloy_primitives::Address;
 use zeus_railgun::RailgunAddress;
-use zeus_theme::{OverlayManager, Theme};
-use zeus_ui_components::QrImage;
-use zeus_widgets::{Button, Label, Modal, SecureTextEdit};
 
 pub struct AddContact {
    open: bool,
@@ -72,10 +70,10 @@ impl AddContact {
          return;
       }
 
-      let window_frame = theme.window_frame;
+      let window_frame = theme.window_frame.fill(theme.frame1.fill);
       let title_frame = window_frame.stroke(Stroke::NONE);
 
-      Window::new(RichText::new("Add new contact").size(theme.text_sizes.heading))
+      Window::new(RichText::new("Add new contact").size(theme.typography.heading))
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
@@ -94,37 +92,37 @@ impl AddContact {
                let text_edit_visuals = theme.text_edit_visuals();
                let button_visuals = theme.button_visuals();
 
-               ui.label(RichText::new("Name").size(theme.text_sizes.large));
+               ui.label(RichText::new("Name").size(theme.typography.large));
                let name = &mut self.contact.name;
                ui.add(
                   SecureTextEdit::singleline(name)
                      .visuals(text_edit_visuals)
                      .min_size(text_edit_size)
                      .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.text_sizes.normal)),
+                     .font(FontId::proportional(theme.typography.normal)),
                );
 
-               ui.label(RichText::new("Public Address").size(theme.text_sizes.large));
+               ui.label(RichText::new("Public Address").size(theme.typography.large));
                let address = &mut self.contact.evm_address;
                ui.add(
                   SecureTextEdit::singleline(address)
                      .visuals(text_edit_visuals)
                      .min_size(text_edit_size)
                      .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.text_sizes.normal)),
+                     .font(FontId::proportional(theme.typography.normal)),
                );
 
-               ui.label(RichText::new("Railgun Address").size(theme.text_sizes.large));
+               ui.label(RichText::new("Railgun Address").size(theme.typography.large));
                let address = &mut self.contact.zk_address;
                ui.add(
                   SecureTextEdit::singleline(address)
                      .visuals(text_edit_visuals)
                      .min_size(text_edit_size)
                      .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.text_sizes.normal)),
+                     .font(FontId::proportional(theme.typography.normal)),
                );
 
-               let text = RichText::new("Add").size(theme.text_sizes.large);
+               let text = RichText::new("Add").size(theme.typography.large);
                let size = vec2(ui.available_width() * 0.5, 30.0);
                let button = Button::new(text).visuals(button_visuals).min_size(size);
 
@@ -245,10 +243,10 @@ impl DeleteContact {
       }
 
       let mut should_close = false;
-      let window_frame = theme.window_frame;
+      let window_frame = theme.window_frame.fill(theme.frame1.fill);
       let title_frame = window_frame.stroke(Stroke::NONE);
 
-      Window::new(RichText::new("Delete contact").size(theme.text_sizes.heading))
+      Window::new(RichText::new("Delete contact").size(theme.typography.heading))
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
@@ -269,17 +267,17 @@ impl DeleteContact {
                let contact_to_delete = self.contact_to_delete.clone();
                ui.label(
                   RichText::new("Are you sure you want to delete this contact?")
-                     .size(theme.text_sizes.large),
+                     .size(theme.typography.large),
                );
-               ui.label(RichText::new(&contact_to_delete.name).size(theme.text_sizes.large));
+               ui.label(RichText::new(&contact_to_delete.name).size(theme.typography.large));
                ui.label(
                   RichText::new(contact_to_delete.evm_address.to_string())
-                     .size(theme.text_sizes.normal),
+                     .size(theme.typography.normal),
                );
 
                let button_visuals = theme.button_visuals();
 
-               let text = RichText::new("Delete").size(theme.text_sizes.normal);
+               let text = RichText::new("Delete").size(theme.typography.normal);
                let button = Button::new(text).visuals(button_visuals);
 
                let res_delete = ui.add(button);
@@ -360,10 +358,10 @@ impl EditContact {
          return;
       }
 
-      let window_frame = theme.window_frame;
+      let window_frame = theme.window_frame.fill(theme.frame1.fill);
       let title_frame = window_frame.stroke(Stroke::NONE);
 
-      Window::new(RichText::new("Edit contact").size(theme.text_sizes.heading))
+      Window::new(RichText::new("Edit contact").size(theme.typography.heading))
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
@@ -384,7 +382,7 @@ impl EditContact {
                let button_visuals = theme.button_visuals();
 
                let mut contact = self.contact_to_edit.clone();
-               ui.label(RichText::new("Name:").size(theme.text_sizes.large));
+               ui.label(RichText::new("Name:").size(theme.typography.large));
                let name = &mut contact.name;
 
                ui.add(
@@ -392,10 +390,10 @@ impl EditContact {
                      .visuals(text_edit_visuals)
                      .min_size(text_edit_size)
                      .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.text_sizes.normal)),
+                     .font(FontId::proportional(theme.typography.normal)),
                );
 
-               ui.label(RichText::new("Address:").size(theme.text_sizes.large));
+               ui.label(RichText::new("Address:").size(theme.typography.large));
                let address = &mut contact.evm_address;
 
                ui.add(
@@ -403,22 +401,22 @@ impl EditContact {
                      .visuals(text_edit_visuals)
                      .min_size(text_edit_size)
                      .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.text_sizes.normal)),
+                     .font(FontId::proportional(theme.typography.normal)),
                );
 
-               ui.label(RichText::new("Railgun Address:").size(theme.text_sizes.large));
+               ui.label(RichText::new("Railgun Address:").size(theme.typography.large));
                let address = &mut contact.zk_address;
                ui.add(
                   SecureTextEdit::singleline(address)
                      .visuals(text_edit_visuals)
                      .min_size(text_edit_size)
                      .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.text_sizes.normal)),
+                     .font(FontId::proportional(theme.typography.normal)),
                );
 
                self.contact_to_edit = contact.clone();
 
-               let text = RichText::new("Save").size(theme.text_sizes.large);
+               let text = RichText::new("Save").size(theme.typography.large);
                let size = vec2(ui.available_width() * 0.5, 30.0);
                let button = Button::new(text).visuals(button_visuals).min_size(size);
 
@@ -582,7 +580,7 @@ impl QrWindow {
 
                if self.contact.is_none() {
                   ui.label(
-                     RichText::new("No contact found, this is a bug").size(theme.text_sizes.normal),
+                     RichText::new("No contact found, this is a bug").size(theme.typography.normal),
                   );
                   ui.add(Spinner::new().size(17.0).color(theme.colors.text));
                   self.close_button(theme, ui);
@@ -590,14 +588,14 @@ impl QrWindow {
                }
 
                if let Some(contact) = self.contact.as_ref() {
-                  ui.label(RichText::new(&contact.name).size(theme.text_sizes.large));
+                  ui.label(RichText::new(&contact.name).size(theme.typography.large));
 
                   let text = match privacy_mode {
                      false => "Public Address (EVM)",
                      true => "Private Address (zk)",
                   };
 
-                  let rich_text = RichText::new(text).size(theme.text_sizes.large);
+                  let rich_text = RichText::new(text).size(theme.typography.large);
                   ui.label(rich_text);
 
                   let address = match privacy_mode {
@@ -607,7 +605,7 @@ impl QrWindow {
 
                   if !address.is_empty() {
                      let address_text =
-                        RichText::new(address.clone()).size(theme.text_sizes.normal);
+                        RichText::new(address.clone()).size(theme.typography.normal);
                      let label = Button::selectable(false, address_text)
                         .visuals(theme.button_visuals())
                         .wrap();
@@ -622,10 +620,10 @@ impl QrWindow {
 
                if !privacy_mode {
                   if let Some(error) = self.evm_address_qr.error() {
-                     ui.label(RichText::new(error.to_string()).size(theme.text_sizes.large));
+                     ui.label(RichText::new(error.to_string()).size(theme.typography.large));
                   }
                } else if let Some(error) = self.zk_address_qr.error() {
-                  ui.label(RichText::new(error.to_string()).size(theme.text_sizes.large));
+                  ui.label(RichText::new(error.to_string()).size(theme.typography.large));
                }
 
                if !privacy_mode {
@@ -650,7 +648,7 @@ impl QrWindow {
    }
 
    fn close_button(&mut self, theme: &Theme, ui: &mut Ui) {
-      let text = RichText::new("Close").size(theme.text_sizes.normal);
+      let text = RichText::new("Close").size(theme.typography.normal);
       let button = Button::new(text).visuals(theme.button_visuals());
 
       if ui.add(button).clicked() {
@@ -721,10 +719,10 @@ impl ContactsUi {
       }
 
       let mut open = self.open;
-      let window_frame = theme.window_frame;
+      let window_frame = theme.window_frame.fill(theme.frame1.fill);
       let title_frame = window_frame.stroke(Stroke::NONE);
 
-      Window::new(RichText::new("Contacts").size(theme.text_sizes.heading))
+      Window::new(RichText::new("Contacts").size(theme.typography.heading))
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
@@ -746,7 +744,7 @@ impl ContactsUi {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
                // Add contact button
-               let text = RichText::new("Add Contact").size(theme.text_sizes.normal);
+               let text = RichText::new("Add Contact").size(theme.typography.normal);
                let button = Button::new(text).visuals(button_visuals);
                if ui.add(button).clicked() {
                   self.add_contact.open();
@@ -755,13 +753,13 @@ impl ContactsUi {
                ui.add_space(20.0);
 
                if contacts.is_empty() {
-                  ui.label(RichText::new("No contacts found").size(theme.text_sizes.large));
+                  ui.label(RichText::new("No contacts found").size(theme.typography.large));
                   return;
                }
 
                // Search bar
                let hint = RichText::new("Search contacts or enter an address")
-                  .size(theme.text_sizes.normal)
+                  .size(theme.typography.normal)
                   .color(theme.colors.text_muted);
 
                ui.add(
@@ -770,7 +768,7 @@ impl ContactsUi {
                      .hint_text(hint)
                      .min_size(vec2(ui.available_width() * 0.80, 25.0))
                      .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.text_sizes.normal)),
+                     .font(FontId::proportional(theme.typography.normal)),
                );
 
                ui.add_space(15.0);
@@ -807,7 +805,7 @@ impl ContactsUi {
          // Contact Name
          ui.horizontal(|ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               let text = RichText::new(&contact.name).size(theme.text_sizes.large);
+               let text = RichText::new(&contact.name).size(theme.typography.large);
                let label = Label::new(text, None).wrap().interactive(false);
                ui.add(label);
             });
@@ -859,7 +857,7 @@ impl ContactsUi {
             };
 
             let address_text = RichText::new(&address_short)
-               .size(theme.text_sizes.normal)
+               .size(theme.typography.normal)
                .color(theme.colors.text);
 
             let label = Button::selectable(false, address_text).visuals(button_visuals);

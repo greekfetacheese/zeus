@@ -4,8 +4,7 @@ use crate::core::context::theme_kind_dir;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use egui::{Align2, Order, RichText, Sense, Stroke, Ui, Window, vec2};
-use zeus_theme::{OverlayManager, Theme, ThemeKind};
-use zeus_widgets::{Button, ComboBox, Label};
+use egui_elements::{Button, ComboBox, Label, OverlayManager, Theme, ThemeKind};
 
 pub struct ThemeSettings {
    open: bool,
@@ -43,8 +42,8 @@ impl ThemeSettings {
          return;
       }
 
-      let title = RichText::new("Theme Settings").size(theme.text_sizes.large);
-      let window_frame = theme.window_frame;
+      let title = RichText::new("Theme Settings").size(theme.typography.large);
+      let window_frame = theme.window_frame.fill(theme.frame1.fill);
       let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(title)
@@ -64,7 +63,7 @@ impl ThemeSettings {
                let combo_visuals = theme.combo_box_visuals();
                let label_visuals = theme.label_visuals();
 
-               let selected_text = RichText::new(theme.kind.to_str()).size(theme.text_sizes.normal);
+               let selected_text = RichText::new(theme.kind.to_str()).size(theme.typography.normal);
                let label = Label::new(selected_text, None)
                   .visuals(label_visuals)
                   .sense(Sense::click())
@@ -78,7 +77,7 @@ impl ThemeSettings {
                      ui.spacing_mut().item_spacing.y = 10.0;
 
                      for kind in ThemeKind::to_vec() {
-                        let text = RichText::new(kind.to_str()).size(theme.text_sizes.normal);
+                        let text = RichText::new(kind.to_str()).size(theme.typography.normal);
                         let label = Label::new(text, None)
                            .visuals(label_visuals)
                            .expand(Some(6.0))
@@ -86,10 +85,9 @@ impl ThemeSettings {
                            .fill_width(true);
 
                         if ui.add(label).clicked() {
-                           let new_theme = Theme::new(kind);
-                           let new_theme2 = new_theme.clone();
+                           let mut new_theme = Theme::new(kind);
 
-                           new_theme2.install(ui.ctx());
+                           new_theme.install(ui.ctx());
 
                            RT.spawn_blocking(move || {
                               SHARED_GUI.write(|gui| {
@@ -100,7 +98,7 @@ impl ThemeSettings {
                      }
                   });
 
-               let text = RichText::new("Save").size(theme.text_sizes.normal);
+               let text = RichText::new("Save").size(theme.typography.normal);
                let button = Button::new(text).min_size(vec2(ui.available_width() * 0.7, 35.0));
                if ui.add(button).clicked() {
                   self.close();

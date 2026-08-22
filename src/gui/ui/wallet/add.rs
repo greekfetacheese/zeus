@@ -8,8 +8,7 @@ use crate::assets::Icons;
 use crate::core::ZeusContext;
 use eframe::egui::{Align2, Order, RichText, Stroke, Ui, Window, vec2};
 
-use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::Button;
+use egui_elements::{Button, OverlayManager, Theme};
 
 use std::sync::Arc;
 
@@ -80,7 +79,7 @@ impl AddWalletUi {
       let window_frame = theme.window_frame;
       let title_frame = window_frame.stroke(Stroke::NONE);
 
-      Window::new(RichText::new("Add a new Wallet").size(theme.text_sizes.heading))
+      Window::new(RichText::new("Add a new Wallet").size(theme.typography.heading))
          .open(&mut open)
          .order(Order::Middle)
          .resizable(false)
@@ -100,7 +99,7 @@ impl AddWalletUi {
                let size = vec2(ui.available_width() * 0.9, 50.0);
 
                // Derive a new child wallet from the master wallet
-               let text = RichText::new("Derive from Master Wallet").size(theme.text_sizes.large);
+               let text = RichText::new("Derive from Master Wallet").size(theme.typography.large);
                let button = Button::new(text).visuals(button_visuals).min_size(size);
 
                if ui.add(button).clicked() {
@@ -108,7 +107,7 @@ impl AddWalletUi {
                }
 
                // From private key
-               let text = RichText::new("Import from a Private Key").size(theme.text_sizes.large);
+               let text = RichText::new("Import from a Private Key").size(theme.typography.large);
                let button = Button::new(text).visuals(button_visuals).min_size(size);
 
                if ui.add(button).clicked() {
@@ -116,7 +115,7 @@ impl AddWalletUi {
                }
 
                // From seed phrase
-               let text = RichText::new("Import from a Seed Phrase").size(theme.text_sizes.large);
+               let text = RichText::new("Import from a Seed Phrase").size(theme.typography.large);
                let button = Button::new(text).visuals(button_visuals).min_size(size);
 
                if ui.add(button).clicked() {

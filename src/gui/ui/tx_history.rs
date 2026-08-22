@@ -10,6 +10,7 @@ use crate::gui::{
 };
 use crate::utils::{RT, truncate_address};
 use egui::{Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, Ui, vec2};
+use egui_elements::{Button, ComboBox, Label, Theme};
 use elegance::{Badge, BadgeTone};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -17,8 +18,6 @@ use zeus_eth::{
    utils::NumericValue,
 };
 use zeus_railgun::{PrivateHistoryEntry, PrivateHistoryKind};
-use zeus_theme::Theme;
-use zeus_widgets::{Button, ComboBox, Label};
 
 const DEFAULT_TXS_PER_PAGE: usize = 10;
 
@@ -318,7 +317,7 @@ impl TxHistory {
                      wallet.name_with_id_short()
                   });
 
-               let text = RichText::new(selected_wallet_name).size(theme.text_sizes.normal);
+               let text = RichText::new(selected_wallet_name).size(theme.typography.normal);
                let label = Label::new(text, None)
                   .visuals(label_visuals)
                   .fill_width(true)
@@ -331,7 +330,7 @@ impl TxHistory {
                   .show_ui(ui, |ui| {
                      ui.spacing_mut().item_spacing.y = 10.0;
 
-                     let text = RichText::new("All Wallets").size(theme.text_sizes.normal);
+                     let text = RichText::new("All Wallets").size(theme.typography.normal);
                      let label = Label::new(text, None)
                         .visuals(label_visuals)
                         .fill_width(true)
@@ -347,7 +346,7 @@ impl TxHistory {
 
                      for (_, wallet) in wallets {
                         let text =
-                           RichText::new(&wallet.name_with_source()).size(theme.text_sizes.normal);
+                           RichText::new(&wallet.name_with_source()).size(theme.typography.normal);
                         let label = Label::new(text, None)
                            .visuals(label_visuals)
                            .sense(Sense::click())
@@ -369,7 +368,7 @@ impl TxHistory {
                      chain.name().to_string()
                   });
 
-               let text = RichText::new(selected_chain_name).size(theme.text_sizes.normal);
+               let text = RichText::new(selected_chain_name).size(theme.typography.normal);
                let label = Label::new(text, None)
                   .visuals(label_visuals)
                   .fill_width(true)
@@ -382,7 +381,7 @@ impl TxHistory {
                   .show_ui(ui, |ui| {
                      ui.spacing_mut().item_spacing.y = 10.0;
 
-                     let text = RichText::new("All Chains").size(theme.text_sizes.normal);
+                     let text = RichText::new("All Chains").size(theme.typography.normal);
                      let label = Label::new(text, None)
                         .visuals(label_visuals)
                         .fill_width(true)
@@ -401,7 +400,7 @@ impl TxHistory {
                            continue;
                         }
 
-                        let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
+                        let text = RichText::new(chain.name()).size(theme.typography.normal);
                         let label = Label::new(text, None)
                            .visuals(label_visuals)
                            .sense(Sense::click())
@@ -447,11 +446,11 @@ impl TxHistory {
 
                   ui.label(
                      RichText::new(empty_label)
-                        .size(theme.text_sizes.large)
+                        .size(theme.typography.large)
                         .color(theme.colors.text),
                   );
 
-                  let q_mark = RichText::new("?").size(theme.text_sizes.normal);
+                  let q_mark = RichText::new("?").size(theme.typography.normal);
                   let info_tip = Badge::new(q_mark, BadgeTone::Info);
                   ui.add(info_tip).on_hover_text(tip);
                });
@@ -477,7 +476,7 @@ impl TxHistory {
                   ui.spacing_mut().button_padding = vec2(4.0, 6.0);
 
                   let prev_enabled = self.current_page > 0;
-                  let text = RichText::new("Previous").size(theme.text_sizes.small);
+                  let text = RichText::new("Previous").size(theme.typography.small);
                   let prev_button = Button::new(text).visuals(button_visuals);
                   if ui.add_enabled(prev_enabled, prev_button).clicked() {
                      self.current_page -= 1;
@@ -489,12 +488,12 @@ impl TxHistory {
                         self.current_page + 1,
                         total_pages.max(1)
                      ))
-                     .size(theme.text_sizes.small)
+                     .size(theme.typography.small)
                      .color(theme.colors.text),
                   );
 
                   let next_enabled = (self.current_page + 1) < total_pages;
-                  let text = RichText::new("Next").size(theme.text_sizes.small);
+                  let text = RichText::new("Next").size(theme.typography.small);
                   let next_button = Button::new(text).visuals(button_visuals);
                   if ui.add_enabled(next_enabled, next_button).clicked() {
                      self.current_page += 1;
@@ -510,11 +509,11 @@ impl TxHistory {
                   } else {
                      format!("{} transactions found", total_txs)
                   })
-                  .size(theme.text_sizes.large)
+                  .size(theme.typography.large)
                   .color(theme.colors.text),
                );
 
-               let q_mark = RichText::new("?").size(theme.text_sizes.normal);
+               let q_mark = RichText::new("?").size(theme.typography.normal);
                let info_tip = Badge::new(q_mark, BadgeTone::Info);
                ui.add(info_tip).on_hover_text(tip);
             });
@@ -555,7 +554,7 @@ impl TxHistory {
                               ui.label(
                                  RichText::new(header)
                                     .strong()
-                                    .size(theme.text_sizes.large)
+                                    .size(theme.typography.large)
                                     .color(theme.colors.text),
                               );
                            }
@@ -588,7 +587,7 @@ impl TxHistory {
                                        let name = self.wallet_name_or_address(ctx, row.wallet);
                                        ui.label(
                                           RichText::new(name)
-                                             .size(theme.text_sizes.normal)
+                                             .size(theme.typography.normal)
                                              .color(theme.colors.text),
                                        )
                                        .on_hover_text(row.wallet.to_string());
@@ -597,7 +596,7 @@ impl TxHistory {
                                     Self::row_cell(ui, column_widths[1], row_height, |ui| {
                                        ui.label(
                                           RichText::new(&row.action)
-                                             .size(theme.text_sizes.normal)
+                                             .size(theme.typography.normal)
                                              .color(theme.colors.text),
                                        );
                                     });
@@ -605,14 +604,14 @@ impl TxHistory {
                                     Self::row_cell(ui, column_widths[2], row_height, |ui| {
                                        ui.label(
                                           RichText::new(spent_age(ctx, row))
-                                             .size(theme.text_sizes.normal)
+                                             .size(theme.typography.normal)
                                              .color(theme.colors.text),
                                        );
                                     });
 
                                     Self::row_cell(ui, column_widths[3], row_height, |ui| {
                                        let text =
-                                          RichText::new("Details").size(theme.text_sizes.normal);
+                                          RichText::new("Details").size(theme.typography.normal);
                                        let details_button =
                                           Button::new(text).visuals(button_visuals);
                                        if ui.add(details_button).clicked() {
@@ -645,7 +644,7 @@ impl TxHistory {
                                        let name = self.wallet_name_or_address(ctx, tx.sender());
                                        ui.label(
                                           RichText::new(name)
-                                             .size(theme.text_sizes.normal)
+                                             .size(theme.typography.normal)
                                              .color(theme.colors.text),
                                        )
                                        .on_hover_text(tx.sender().to_string());
@@ -654,7 +653,7 @@ impl TxHistory {
                                     Self::row_cell(ui, column_widths[1], row_height, |ui| {
                                        ui.label(
                                           RichText::new(tx.main_event.name())
-                                             .size(theme.text_sizes.normal)
+                                             .size(theme.typography.normal)
                                              .color(theme.colors.text),
                                        );
                                     });
@@ -662,14 +661,14 @@ impl TxHistory {
                                     Self::row_cell(ui, column_widths[2], row_height, |ui| {
                                        ui.label(
                                           RichText::new(tx.timestamp.to_relative())
-                                             .size(theme.text_sizes.normal)
+                                             .size(theme.typography.normal)
                                              .color(theme.colors.text),
                                        );
                                     });
 
                                     Self::row_cell(ui, column_widths[3], row_height, |ui| {
                                        let text =
-                                          RichText::new("Details").size(theme.text_sizes.normal);
+                                          RichText::new("Details").size(theme.typography.normal);
                                        let details_button =
                                           Button::new(text).visuals(button_visuals);
                                        if ui.add(details_button).clicked() {

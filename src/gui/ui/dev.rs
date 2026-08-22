@@ -1,5 +1,4 @@
-use eframe::egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Ui, Window, vec2};
-use zeus_widgets::Label;
+use eframe::egui::{Align2, Frame, Order, RichText, ScrollArea, Ui, Window, vec2};
 
 use crate::assets::Icons;
 use crate::core::{DecodedEvent, SignMsgType, TransactionAnalysis, ZeusContext};
@@ -10,7 +9,7 @@ use crate::utils::self_update::UpdateInfo;
 use zeus_eth::currency::ERC20Token;
 
 use std::sync::Arc;
-use zeus_theme::Theme;
+use egui_elements::{Label, Button, Theme};
 
 pub struct DevUi {
    pub open: bool,
@@ -52,8 +51,8 @@ impl DevUi {
          ui.spacing_mut().item_spacing = vec2(0.0, 20.0);
 
          let button_size = vec2(self.size.0, 50.0);
-         let text_size = theme.text_sizes.normal;
-         let header = RichText::new("Dev UI").size(theme.text_sizes.heading);
+         let text_size = theme.typography.normal;
+         let header = RichText::new("Dev UI").size(theme.typography.heading);
 
          ui.label(header);
 
@@ -74,7 +73,7 @@ impl DevUi {
       ui: &mut Ui,
    ) {
       let mut open = self.ui_testing.is_open();
-      let title = RichText::new("Ui Testing").size(theme.text_sizes.heading);
+      let title = RichText::new("Ui Testing").size(theme.typography.heading);
       let window_frame = theme.window_frame;
 
       Window::new(title)
@@ -133,7 +132,7 @@ impl UiTesting {
          ui.spacing_mut().item_spacing.y = 20.0;
          let button_size = vec2(self.size.0, 50.0);
 
-         let text_size = theme.text_sizes.normal;
+         let text_size = theme.typography.normal;
 
          ScrollArea::vertical().show(ui, |ui| {
             let button =
@@ -651,7 +650,7 @@ impl UiTesting {
    fn icon_window(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let mut open = self.icon_window_open;
 
-      let title = RichText::new("Icons").size(theme.text_sizes.heading);
+      let title = RichText::new("Icons").size(theme.typography.heading);
       Window::new(title)
          .open(&mut open)
          .resizable(false)

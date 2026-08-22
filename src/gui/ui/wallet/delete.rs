@@ -5,9 +5,7 @@ use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{Align2, Id, Order, RichText, Ui, Stroke, Window, vec2};
 use ncrypt_me::Credentials;
-use zeus_theme::{OverlayManager, Theme};
-use zeus_ui_components::CredentialsForm;
-use zeus_widgets::Button;
+use egui_elements::{Button, CredentialsForm, OverlayManager, Theme};
 
 pub struct DeleteWalletUi {
    open: bool,
@@ -77,7 +75,7 @@ impl DeleteWalletUi {
       let mut clicked = false;
 
       let id = Id::new("verify_credentials_delete_wallet_ui");
-      Window::new(RichText::new("Verify Credentials").size(theme.text_sizes.heading))
+      Window::new(RichText::new("Verify Credentials").size(theme.typography.heading))
          .id(id)
          .open(&mut open)
          .order(Order::Middle)
@@ -96,10 +94,10 @@ impl DeleteWalletUi {
 
                ui.scope(|ui| {
                   ui.spacing_mut().button_padding = vec2(4.0, 4.0);
-                  self.credentials_form.show(theme, ui);
+                  self.credentials_form.show(ui);
                });
 
-               let text = RichText::new("Confirm").size(theme.text_sizes.normal);
+               let text = RichText::new("Confirm").size(theme.typography.normal);
                let button = Button::new(text)
                   .visuals(button_visuals)
                   .min_size(vec2(ui.available_width() * 0.8, 45.0));
@@ -194,23 +192,23 @@ impl DeleteWalletUi {
                ui.spacing_mut().item_spacing.y = 15.0;
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-               ui.label(RichText::new(wallet.name_with_source()).size(theme.text_sizes.large));
-               ui.label(RichText::new(wallet.address.to_string()).size(theme.text_sizes.normal));
+               ui.label(RichText::new(wallet.name_with_source()).size(theme.typography.large));
+               ui.label(RichText::new(wallet.address.to_string()).size(theme.typography.normal));
 
                // TODO: Maybe adjust for privacy mode
                let include_testnets = ctx.chain.is_testnet();
                let value = ctx.get_total_value(wallet.address, include_testnets);
                ui.label(
                   RichText::new(format!("Value ${}", value.public.abbreviated()))
-                     .size(theme.text_sizes.large).strong(),
+                     .size(theme.typography.large).strong(),
                );
 
                let text = "Deleting this wallet will also delete all its transaction history and token approval data next time Zeus starts\n
                Are you sure you want to continue?";
-               let text = RichText::new(text).size(theme.text_sizes.normal).color(theme.colors.warning);
+               let text = RichText::new(text).size(theme.typography.normal).color(theme.colors.warning);
                ui.label(text);
 
-               let text = RichText::new("Changed my mind").size(theme.text_sizes.normal);
+               let text = RichText::new("Changed my mind").size(theme.typography.normal);
                let button = Button::new(text).visuals(button_visuals).min_size(vec2(100.0, 35.0));
 
                if ui.add(button).clicked() {
@@ -220,7 +218,7 @@ impl DeleteWalletUi {
                
                ui.add_space(5.0);
 
-               let text = RichText::new("Delete").size(theme.text_sizes.normal);
+               let text = RichText::new("Delete").size(theme.typography.normal);
                let button = Button::new(text).visuals(button_visuals).min_size(vec2(100.0, 35.0));
 
                if ui.add(button).clicked() {

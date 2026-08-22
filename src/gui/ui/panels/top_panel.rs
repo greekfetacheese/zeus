@@ -2,8 +2,7 @@ use crate::core::ZeusContext;
 use crate::gui::{GUI, SHARED_GUI};
 use crate::utils::{RT, TimeStamp};
 use egui::{Align, Layout, Margin, RichText, Spinner, Ui, vec2};
-use zeus_widgets::{Button, Label};
-
+use egui_elements::{Button, Label};
 
 const DATA_SYNCING_MSG: &str = "Zeus is still syncing important data";
 const DEX_SYNCING_MSG: &str = "Zeus is still syncing DEX data";
@@ -57,12 +56,12 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
                      "No functional or enabled RPC for the {} network",
                      chain.name()
                   );
-                  let rich_text = RichText::new(text).size(theme.text_sizes.normal);
+                  let rich_text = RichText::new(text).size(theme.typography.normal);
                   ui.add(Label::new(rich_text, None).interactive(false));
 
                   ui.add_space(10.0);
 
-                  let text = RichText::new("Open Network Settings").size(theme.text_sizes.normal);
+                  let text = RichText::new("Open Network Settings").size(theme.typography.normal);
                   let button = Button::new(text).visuals(theme.button_visuals());
                   if ui.add(button).clicked() {
                      gui.settings.open_network_settings();
@@ -96,7 +95,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       if let Some(msg) = status_msg {
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             frame.show(ui, |ui| {
-               ui.label(RichText::new(msg).size(theme.text_sizes.normal));
+               ui.label(RichText::new(msg).size(theme.typography.normal));
                ui.add_space(10.0);
                ui.add(Spinner::new().size(20.0).color(theme.colors.text));
             });

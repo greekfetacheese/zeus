@@ -7,13 +7,12 @@ use crate::{assets::icons::Icons, gui::SHARED_GUI};
 use egui::{Align, Grid, Id, Layout, RichText, ScrollArea, Sense, Stroke, Ui, Window, vec2};
 
 use anyhow::anyhow;
+use egui_elements::{Button, ComboBox, Label, Theme};
 use std::sync::Arc;
 use std::{collections::HashSet, time::Instant};
 use zeus_eth::alloy_rpc_types::Block;
 use zeus_eth::revm::context::ContextTr;
 use zeus_eth::revm_utils::simulate::erc20_balance;
-use zeus_theme::Theme;
-use zeus_widgets::{Button, ComboBox, Label};
 
 use crate::core::{
    DecodedEvent, SwapParams, TokenApproveParams, TransactionAnalysis, UnwrapWETHParams,
@@ -134,14 +133,14 @@ impl SimulateWindow {
                let button_visuals = theme.button_visuals();
 
                if self.pool_initial.is_none() {
-                  let text = RichText::new("No Pool Selected").size(theme.text_sizes.normal);
+                  let text = RichText::new("No Pool Selected").size(theme.typography.normal);
                   ui.label(text);
                   return;
                }
 
                ui.vertical_centered(|ui| {
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-                  let text = RichText::new("Reset Pool State").size(theme.text_sizes.normal);
+                  let text = RichText::new("Reset Pool State").size(theme.typography.normal);
                   let button = Button::new(text).visuals(button_visuals);
 
                   if ui.add(button).clicked() {
@@ -157,7 +156,7 @@ impl SimulateWindow {
                      });
                   }
 
-                  ui.label(RichText::new("Pool Info").size(theme.text_sizes.normal));
+                  ui.label(RichText::new("Pool Info").size(theme.typography.normal));
                });
 
                let pool = self.pool_initial.as_ref().unwrap();
@@ -167,7 +166,7 @@ impl SimulateWindow {
                   let token0 = pool.currency0();
                   let token1 = pool.currency1();
                   let pair = format!("{} - {}", token0.symbol(), token1.symbol());
-                  let text = RichText::new(pair).size(theme.text_sizes.normal);
+                  let text = RichText::new(pair).size(theme.typography.normal);
                   ui.label(text);
 
                   // Price
@@ -181,7 +180,7 @@ impl SimulateWindow {
                      pool.quote_currency().symbol(),
                      quote_price.formatted(),
                   );
-                  let text = RichText::new(price).size(theme.text_sizes.normal);
+                  let text = RichText::new(price).size(theme.typography.normal);
                   ui.label(text);
 
                   // Base USD Price
@@ -190,19 +189,19 @@ impl SimulateWindow {
                      pool.base_currency().symbol(),
                      base_price.formatted(),
                   );
-                  let text = RichText::new(price).size(theme.text_sizes.normal);
+                  let text = RichText::new(price).size(theme.typography.normal);
                   ui.label(text);
 
                   // Pool balances
                   let (token0_balance, token1_balance) = pool.pool_balances();
 
-                  ui.label(RichText::new("Pool Balances").size(theme.text_sizes.normal));
+                  ui.label(RichText::new("Pool Balances").size(theme.typography.normal));
                   let token0_balance = format!(
                      "{} {}",
                      token0.symbol(),
                      token0_balance.abbreviated(),
                   );
-                  let text = RichText::new(token0_balance).size(theme.text_sizes.normal);
+                  let text = RichText::new(token0_balance).size(theme.typography.normal);
                   ui.label(text);
 
                   let token1_balance = format!(
@@ -210,7 +209,7 @@ impl SimulateWindow {
                      token1.symbol(),
                      token1_balance.abbreviated(),
                   );
-                  let text = RichText::new(token1_balance).size(theme.text_sizes.normal);
+                  let text = RichText::new(token1_balance).size(theme.typography.normal);
                   ui.label(text);
 
                   if self.pool_after.is_none() {
@@ -222,7 +221,7 @@ impl SimulateWindow {
 
                   ui.vertical_centered(|ui| {
                      ui.label(
-                        RichText::new("Pool State after swaps").size(theme.text_sizes.normal),
+                        RichText::new("Pool State after swaps").size(theme.typography.normal),
                      );
                   });
 
@@ -235,20 +234,20 @@ impl SimulateWindow {
                      pool.quote_currency().symbol(),
                      quote_price.formatted(),
                   );
-                  let text = RichText::new(price).size(theme.text_sizes.normal);
+                  let text = RichText::new(price).size(theme.typography.normal);
                   ui.label(text);
 
                   // TODO: Actually calculate the token balances for V3
                   // Pool balances
                   let (token0_balance, token1_balance) = pool_after.pool_balances();
 
-                  ui.label(RichText::new("Pool Balances").size(theme.text_sizes.normal));
+                  ui.label(RichText::new("Pool Balances").size(theme.typography.normal));
                   let token0_balance = format!(
                      "{} {}",
                      token0.symbol(),
                      token0_balance.abbreviated(),
                   );
-                  let text = RichText::new(token0_balance).size(theme.text_sizes.normal);
+                  let text = RichText::new(token0_balance).size(theme.typography.normal);
                   ui.label(text);
 
                   let token1_balance = format!(
@@ -256,7 +255,7 @@ impl SimulateWindow {
                      token1.symbol(),
                      token1_balance.abbreviated(),
                   );
-                  let text = RichText::new(token1_balance).size(theme.text_sizes.normal);
+                  let text = RichText::new(token1_balance).size(theme.typography.normal);
                   ui.label(text);
                });
             });
@@ -367,7 +366,7 @@ impl SwapUi {
       let combo_visuals = theme.combo_box_visuals();
       let label_visuals = theme.label_visuals();
 
-      let selected_text = RichText::new(current_version.as_str()).size(theme.text_sizes.normal);
+      let selected_text = RichText::new(current_version.as_str()).size(theme.typography.normal);
       let label = Label::new(selected_text, None)
          .visuals(label_visuals)
          .sense(Sense::click())
@@ -381,7 +380,7 @@ impl SwapUi {
             ui.spacing_mut().item_spacing.y = 10.0;
 
             for version in versions {
-               let text = RichText::new(version.as_str()).size(theme.text_sizes.normal);
+               let text = RichText::new(version.as_str()).size(theme.typography.normal);
                let label = Label::new(text, None)
                   .sense(Sense::click())
                   .visuals(label_visuals)
@@ -411,14 +410,14 @@ impl SwapUi {
 
       let mut changed = false;
       ui.horizontal(|ui| {
-         ui.label(RichText::new("Fee Tier").size(theme.text_sizes.normal));
+         ui.label(RichText::new("Fee Tier").size(theme.typography.normal));
          ui.add_space(10.0);
          Grid::new("swap_ui_fee_tier_select").spacing(vec2(15.0, 0.0)).show(ui, |ui| {
             for pool in pools {
                let selected = self.pool.as_ref() == Some(pool);
 
                let fee = pool.fee().fee_percent();
-               let text = RichText::new(format!("{fee}%")).size(theme.text_sizes.normal);
+               let text = RichText::new(format!("{fee}%")).size(theme.typography.normal);
                let button = Button::new(text).visuals(visuals).selected(selected);
 
                if ui.add(button).clicked() {
@@ -478,7 +477,7 @@ impl SwapUi {
 
          if simulate_mode {
             let text =
-               RichText::new("You are on Simulate Mode").size(theme.text_sizes.large).strong();
+               RichText::new("You are on Simulate Mode").size(theme.typography.large).strong();
             ui.label(text);
          }
 
@@ -519,7 +518,7 @@ impl SwapUi {
             }
 
             if pools.is_empty() {
-               ui.label(RichText::new("No pools found").size(theme.text_sizes.normal));
+               ui.label(RichText::new("No pools found").size(theme.typography.normal));
             }
          }
 
@@ -655,7 +654,7 @@ impl SwapUi {
       let visuals = theme.button_visuals();
       let got_pool = self.pool.is_some();
       let enabled = !self.amount_in_field.amount.is_empty() && got_pool;
-      let button = Button::new(RichText::new("Simulate").size(theme.text_sizes.large))
+      let button = Button::new(RichText::new("Simulate").size(theme.typography.large))
          .min_size(vec2(ui.available_width() * 0.8, 45.0))
          .visuals(visuals);
 
@@ -726,7 +725,7 @@ impl SwapUi {
 
       let visuals = theme.button_visuals();
       let swap_button = Button::new(
-         RichText::new(button_text).size(theme.text_sizes.large).color(theme.colors.text),
+         RichText::new(button_text).size(theme.typography.large).color(theme.colors.text),
       )
       .min_size(vec2(ui.available_width() * 0.8, 45.0))
       .visuals(visuals);
@@ -1115,7 +1114,7 @@ impl SwapUi {
       ui: &mut Ui,
    ) {
       let frame = theme.frame2;
-      let text_size = theme.text_sizes.large;
+      let text_size = theme.typography.large;
       let tint = theme.image_tint_recommended;
 
       frame.show(ui, |ui| {
@@ -1132,7 +1131,7 @@ impl SwapUi {
                ScrollArea::vertical().show(ui, |ui| {
                   let swaps_len = self.quote.swap_steps.len();
                   let text = format!("Total swaps {}", swaps_len);
-                  ui.label(RichText::new(text).size(theme.text_sizes.very_small));
+                  ui.label(RichText::new(text).size(theme.typography.very_small));
                   ui.add_space(5.0);
 
                   for step in &self.quote.swap_steps {
@@ -1147,7 +1146,7 @@ impl SwapUi {
                         step.pool.dex_kind().version_str(),
                         step.pool.fee().fee_percent()
                      );
-                     ui.label(RichText::new(text).size(theme.text_sizes.very_small));
+                     ui.label(RichText::new(text).size(theme.typography.very_small));
                   }
                });
             });

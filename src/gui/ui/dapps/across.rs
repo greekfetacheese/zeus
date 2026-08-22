@@ -6,12 +6,13 @@ use crate::gui::{
    SHARED_GUI,
    ui::{ChainSelect, ContactsUi, RecipientSelectionWindow, common::AmountField},
 };
-use crate::utils::{RT, write_private, estimate_tx_cost};
+use crate::utils::{RT, estimate_tx_cost, write_private};
 use anyhow::anyhow;
 use egui::{
    Align, Align2, CornerRadius, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText,
    Slider, Spinner, Ui, Window, vec2,
 };
+use egui_elements::{Button, Modal, OverlayManager, SecureTextEdit, Theme, visuals::ButtonVisuals};
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 use zeus_eth::currency::ERC20Token;
@@ -25,8 +26,6 @@ use zeus_eth::{
    types::{BSC, ChainId, ETH_SEPOLIA},
    utils::{NumericValue, address_book},
 };
-use zeus_theme::{ButtonVisuals, OverlayManager, Theme};
-use zeus_widgets::{Button, Modal, SecureTextEdit};
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -202,19 +201,19 @@ impl AcrossBridge {
                let ui_width = ui.available_width();
 
                let warning = "Bridge functionality is powered by the Across Protocol, make sure you understand the risks";
-               let warning_text = RichText::new(warning).size(theme.text_sizes.normal).color(theme.colors.warning);
+               let warning_text = RichText::new(warning).size(theme.typography.normal).color(theme.colors.warning);
 
                ui.horizontal(|ui| {
                   let size = vec2(ui.available_width(), 20.0);
                   ui.allocate_ui(size, |ui| {
                      ui.vertical_centered(|ui| {
-                        ui.label(RichText::new("Bridge").size(theme.text_sizes.heading));
+                        ui.label(RichText::new("Bridge").size(theme.typography.heading));
                         ui.label(warning_text);
                      });
                   });
 
                   ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                     let icon = match theme.dark_mode {
+                     let icon = match theme.dark {
                         true => icons.gear_white_x24(tint),
                         false => icons.gear_dark_x24(tint),
                      };
@@ -275,20 +274,20 @@ impl AcrossBridge {
                // Recipient
                inner_frame.show(ui, |ui| {
                   ui.horizontal(|ui| {
-                     ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
+                     ui.label(RichText::new("Recipient").size(theme.typography.large));
                      ui.add_space(10.0);
 
                      if !recipient.is_empty(false) {
                         if let Some(name) = &recipient.name {
                            ui.label(
                               RichText::new(name)
-                                 .size(theme.text_sizes.large)
+                                 .size(theme.typography.large)
                                  .color(theme.colors.info),
                            );
                         } else {
                            ui.label(
                               RichText::new("Unknown Address")
-                                 .size(theme.text_sizes.large)
+                                 .size(theme.typography.large)
                                  .color(theme.colors.error),
                            );
                         }
@@ -298,7 +297,7 @@ impl AcrossBridge {
                         let chain = self.to_chain.chain;
                         let block_explorer = chain.block_explorer();
                         let link = format!("{}/address/{}", block_explorer, recipient.evm_address);
-                        let icon = match theme.dark_mode {
+                        let icon = match theme.dark {
                            true => icons.external_link_white_x18(tint),
                            false => icons.external_link_dark_x18(tint),
                         };
@@ -315,7 +314,7 @@ impl AcrossBridge {
                   ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                      let visuals = theme.text_edit_visuals();
                      let hint = RichText::new("Search contacts or enter an address")
-                        .size(theme.text_sizes.normal)
+                        .size(theme.typography.normal)
                         .color(theme.colors.text_muted);
 
                      let res = ui.add(
@@ -324,7 +323,7 @@ impl AcrossBridge {
                            .hint_text(hint)
                            .min_size(vec2(ui_width, 25.0))
                            .margin(Margin::same(10))
-                           .font(FontId::proportional(theme.text_sizes.normal)),
+                           .font(FontId::proportional(theme.typography.normal)),
                      );
 
                      if res.clicked() {
@@ -350,7 +349,7 @@ impl AcrossBridge {
                            ui.add_space(5.0);
 
                            let tint = theme.image_tint_recommended;
-                           let icon = match theme.dark_mode {
+                           let icon = match theme.dark {
                               true => icons.arrow_right_white_x24(tint),
                               false => icons.arrow_right_dark_x24(tint),
                            };
@@ -374,13 +373,13 @@ impl AcrossBridge {
                   ui.spacing_mut().item_spacing = vec2(0.0, 5.0);
 
                   let network_fee_text = format!("Network≈ ${}", network_fee.abbreviated());
-                  ui.label(RichText::new(network_fee_text).size(theme.text_sizes.small));
+                  ui.label(RichText::new(network_fee_text).size(theme.typography.small));
 
                   let bridge_fee_text = format!("Bridge≈ ${}", bridge_fee.abbreviated());
-                  ui.label(RichText::new(bridge_fee_text).size(theme.text_sizes.small));
+                  ui.label(RichText::new(bridge_fee_text).size(theme.typography.small));
 
                   let total_text = format!("Total≈ ${}", total_fee.abbreviated());
-                  ui.label(RichText::new(total_text).size(theme.text_sizes.small));
+                  ui.label(RichText::new(total_text).size(theme.typography.small));
 
                   if self.requesting {
                      ui.add(Spinner::new().size(20.0).color(theme.colors.text));
@@ -400,7 +399,7 @@ impl AcrossBridge {
                            "Estimated time to fill: {} seconds",
                            fill_time
                         ))
-                        .size(theme.text_sizes.normal),
+                        .size(theme.typography.normal),
                      );
                   }
                });
@@ -444,7 +443,7 @@ impl AcrossBridge {
       }
 
       let visuals = theme.button_visuals();
-      let text = RichText::new(button_text).size(theme.text_sizes.large);
+      let text = RichText::new(button_text).size(theme.typography.large);
       let button = Button::new(text)
          .min_size(vec2(ui.available_width() * 0.8, 45.0))
          .visuals(visuals);
@@ -645,10 +644,10 @@ impl AcrossBridge {
 
             ui.allocate_ui(size, |ui| {
                ui.horizontal_centered(|ui| {
-                  ui.label(RichText::new("API URL").size(theme.text_sizes.normal));
+                  ui.label(RichText::new("API URL").size(theme.typography.normal));
                   ui.add_space(10.0);
                   SecureTextEdit::singleline(&mut self.settings.api_url)
-                     .font(FontId::proportional(theme.text_sizes.small))
+                     .font(FontId::proportional(theme.typography.small))
                      .margin(Margin::same(5))
                      .desired_width(ui.available_width())
                      .visuals(visuals)
@@ -658,7 +657,7 @@ impl AcrossBridge {
 
             ui.allocate_ui(size, |ui| {
                ui.horizontal_centered(|ui| {
-                  ui.label(RichText::new("Use API").size(theme.text_sizes.normal));
+                  ui.label(RichText::new("Use API").size(theme.typography.normal));
                   ui.add_space(10.0);
                   ui.checkbox(&mut self.settings.use_api, "");
                });
@@ -667,7 +666,7 @@ impl AcrossBridge {
             if !self.settings.use_api {
                ui.allocate_ui(size, |ui| {
                   ui.horizontal_centered(|ui| {
-                     ui.label(RichText::new("Fee to pay %").size(theme.text_sizes.normal));
+                     ui.label(RichText::new("Fee to pay %").size(theme.typography.normal));
                      ui.add_space(10.0);
                      ui.add(Slider::new(
                         &mut self.settings.fee_to_pay,
@@ -677,7 +676,7 @@ impl AcrossBridge {
                });
             }
 
-            let text = RichText::new("Save").size(theme.text_sizes.large);
+            let text = RichText::new("Save").size(theme.typography.large);
             let button = Button::new(text)
                .visuals(theme.button_visuals())
                .min_size(vec2(ui.available_width() * 0.3, 15.0));

@@ -1,7 +1,7 @@
 use crate::core::ZeusContext;
 use crate::gui::GUI;
 use eframe::egui::{RichText, Stroke, Ui, Window, vec2};
-use zeus_theme::{OverlayManager, Theme};
+use egui_elements::{OverlayManager, Theme};
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let theme = &gui.theme;
@@ -95,6 +95,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       let theme = gui.editor.show(&mut gui.theme, ui);
       if let Some(theme) = theme {
          gui.theme = theme;
+         gui.theme.install(ui.ctx());
       }
    }
 }

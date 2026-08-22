@@ -6,8 +6,7 @@ use crate::core::ZeusCtx;
 use crate::gui::SHARED_GUI;
 use crate::server::run_server;
 use crate::utils::{
-   RT,
-   TimeStamp,
+   RT, TimeStamp,
    self_update::check_for_updates,
    state::{on_startup, test_and_measure_rpcs},
 };
@@ -15,10 +14,10 @@ use eframe::{
    CreationContext,
    egui::{self, Frame},
 };
+use egui_elements::overlay::OverlayManager;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use zeus_theme::OverlayManager;
 
 pub struct ZeusApp {
    pub style_has_been_set: bool,
@@ -45,11 +44,11 @@ impl ZeusApp {
          shared_gui.egui_ctx = egui_ctx.clone();
       });
 
-      let theme = SHARED_GUI.read(|shared_gui| shared_gui.theme.clone());
+      let mut theme = SHARED_GUI.read(|shared_gui| shared_gui.theme.clone());
       let ctx = SHARED_GUI.read(|shared_gui| shared_gui.ctx.clone());
 
-      let theme_clone = theme.clone();
-      theme_clone.install(&egui_ctx);
+      theme.install(&egui_ctx);
+      SHARED_GUI.write(|shared_gui| shared_gui.theme = theme.clone());
 
       tracing::info!(
          "ZeusApp loaded in {}ms",
@@ -230,9 +229,12 @@ impl eframe::App for ZeusApp {
          zeus_ctx.write(|ctx| {
             self.on_shutdown(ui.ctx());
 
+            #[cfg(feature = "dev")]
+            gui.theme.install(ui.ctx());
+
             // This is needed for Windows
             if !self.style_has_been_set {
-               let style = gui.theme.style.clone();
+               let style = gui.theme.style();
                ui.set_global_style(style);
                self.style_has_been_set = true;
             }
@@ -240,10 +242,6 @@ impl eframe::App for ZeusApp {
             let color = gui.theme.colors.bg;
             let panel_frame = Frame::new().fill(color);
             self.overlay.paint_overlay(ui.ctx(), true);
-            gui.inject_elegance_theme(ui.ctx());
-
-            #[cfg(feature = "dev")]
-            zeus_theme::utils::apply_theme_changes(&mut gui.theme, ui);
 
             // Paint the Ui that belongs to the top panel
             egui::Panel::top("top_panel")

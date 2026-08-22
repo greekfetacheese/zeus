@@ -1,14 +1,14 @@
 pub mod app;
 pub mod ui;
 
-use eframe::egui::{Color32, Context, Ui};
+use egui::{Context, Ui};
 use std::sync::{Arc, RwLock};
 use ui::settings;
 
 use crate::assets::icons::Icons;
 use crate::core::context::{ZeusContext, ZeusCtx, load_theme_kind};
+use egui_elements::{editor::ThemeEditor, overlay::OverlayManager, theme::*};
 use lazy_static::lazy_static;
-use zeus_theme::{OverlayManager, Theme, ThemeEditor, ThemeKind};
 
 pub use crate::gui::ui::{
    ApprovalsUi, ConfirmWindow, Header, LoadingWindow, MsgWindow, Notification, PortfolioUi,
@@ -28,49 +28,8 @@ pub use crate::gui::ui::{
    tx_history::TxHistory,
 };
 
-use elegance::Theme as EleganceTheme;
-
 lazy_static! {
    pub static ref SHARED_GUI: SharedGUI = SharedGUI::default();
-}
-
-pub fn elegance_theme_key() -> egui::Id {
-   egui::Id::new("elegance::theme")
-}
-
-/// Zeus theme colours to use for the elegance palette.
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct EleganceThemeKey {
-   dark: bool,
-   bg: Color32,
-   widget_bg: Color32,
-   border: Color32,
-   text: Color32,
-   text_muted: Color32,
-   accent: Color32,
-   info: Color32,
-   success: Color32,
-   error: Color32,
-   warning: Color32,
-}
-
-impl EleganceThemeKey {
-   fn from_theme(theme: &Theme) -> Self {
-      let c = &theme.colors;
-      Self {
-         dark: theme.dark_mode,
-         bg: c.bg,
-         widget_bg: c.widget_bg,
-         border: c.border,
-         text: c.text,
-         text_muted: c.text_muted,
-         accent: c.accent,
-         info: c.info,
-         success: c.success,
-         error: c.error,
-         warning: c.warning,
-      }
-   }
 }
 
 #[derive(Clone)]
@@ -142,10 +101,6 @@ pub struct GUI {
    pub update_window: UpdateWindow,
    pub dev: DevUi,
    pub merge_notes_window: MergeNotesWindow,
-
-   /// Last Zeus colour fingerprint we injected into `ctx.data`.
-   /// `None` = never injected this session.
-   injected_elegance_key: Option<EleganceThemeKey>,
 }
 
 impl GUI {
@@ -220,7 +175,6 @@ impl GUI {
          update_window,
          dev: DevUi::new(),
          merge_notes_window,
-         injected_elegance_key: None,
       }
    }
 
@@ -254,54 +208,6 @@ impl GUI {
 
    pub fn should_show_right_panel(&self) -> bool {
       self.uniswap.is_open()
-   }
-
-   /// Inject an elegance [`Theme`] built from the active Zeus theme into
-   /// `ctx.data` under the key elegance reads, so elegance widgets
-   /// (`TabBar`, `Card`, `StatusPill`, `Indicator`) take Zeus's colours and
-   /// respect light/dark without disturbing the rest of the UI.
-   pub fn inject_elegance_theme(&mut self, ctx: &egui::Context) {
-      let key = EleganceThemeKey::from_theme(&self.theme);
-      if self.injected_elegance_key == Some(key) {
-         return;
-      }
-
-      let c = &self.theme.colors;
-      let mut pal = if key.dark {
-         elegance::Palette::charcoal()
-      } else {
-         elegance::Palette::frost()
-      };
-
-      pal.is_dark = key.dark;
-      pal.bg = c.bg;
-      pal.card = c.widget_bg;
-      pal.input_bg = c.widget_bg;
-      pal.border = c.border;
-      pal.text = c.text;
-      pal.text_muted = c.text_muted;
-      pal.text_faint = c.text_muted;
-      pal.focus = c.accent;
-      pal.blue = c.info;
-      pal.green = c.success;
-      pal.green_hover = c.success;
-      pal.red = c.error;
-      pal.red_hover = c.error;
-      pal.amber = c.warning;
-      pal.amber_hover = c.warning;
-      pal.purple = c.accent;
-      pal.purple_hover = c.accent;
-      pal.success = c.success;
-      pal.danger = c.error;
-      pal.warning = c.warning;
-
-      let elegance_theme = EleganceTheme {
-         palette: pal,
-         ..EleganceTheme::slate()
-      };
-
-      ctx.data_mut(|d| d.insert_temp(elegance_theme_key(), elegance_theme));
-      self.injected_elegance_key = Some(key);
    }
 }
 

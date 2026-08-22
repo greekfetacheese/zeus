@@ -1,13 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/zeus-theme",
     "crates/zeus-eth",
-    "crates/zeus-widgets",
     "crates/zeus-railgun",
     "crates/zeus-bip32",
     "crates/zeus-wallet",
-    "crates/zeus-ui-components",
     "crates/zeus-poseidon",
     "crates/zeus-userop-kit",
 ]
@@ -27,7 +24,8 @@ eframe = { version = "=0.36", features = ["wgpu"] }
 egui = { version = "=0.36", features = ["serde"] }
 egui_extras = { version = "=0.36", features = ["image"] }
 image = "=0.25.10"
-egui-elegance = "0.15"
+egui-elegance = "0.16"
+egui-elements = {version = "1", features = ["full"]}
 
 # Zeus Crates
 zeus-bip32 = { path = "crates/zeus-bip32", features = ["serde"] }
@@ -35,12 +33,6 @@ zeus-wallet = { path = "crates/zeus-wallet", features = ["serde"] }
 zeus-eth = { path = "crates/zeus-eth" }
 zeus-railgun = { path = "crates/zeus-railgun" }
 userop-kit = { path = "crates/zeus-userop-kit" }
-zeus-theme = { path = "crates/zeus-theme", features = ["serde"] }
-zeus-widgets = { path = "crates/zeus-widgets", features = ["secure-types"] }
-zeus-ui-components = { path = "crates/zeus-ui-components", features = [
-    "secure-types",
-    "qr-scanner",
-] }
 
 # Alloy
 alloy-consensus = "=2.3.0"

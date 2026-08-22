@@ -1,8 +1,7 @@
 //! Merge Notes window consolidate fragmented private UTXOs via self-transfer.
 
-use eframe::egui::{Order, RichText, ScrollArea, Spinner, Ui, vec2};
-use zeus_theme::Theme;
-use zeus_widgets::{Button, Modal};
+use egui::{Order, RichText, ScrollArea, Spinner, Ui, vec2};
+use egui_elements::{Button, Modal, Theme};
 
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -133,13 +132,13 @@ impl MergeNotesWindow {
 
                ui.label(
                   RichText::new(EXPLAIN)
-                     .size(theme.text_sizes.small)
+                     .size(theme.typography.small)
                      .color(theme.colors.text),
                );
 
                ui.label(
                   RichText::new(format!("Token: {}", self.currency.symbol()))
-                     .size(theme.text_sizes.normal)
+                     .size(theme.typography.normal)
                      .strong(),
                );
 
@@ -148,13 +147,13 @@ impl MergeNotesWindow {
                      ui.add(Spinner::new().size(28.0));
                      ui.label(
                         RichText::new("Scanning private notes…")
-                           .size(theme.text_sizes.normal),
+                           .size(theme.typography.normal),
                      );
                   }
                   MergeState::Error(msg) => {
                      ui.label(
                         RichText::new(msg)
-                           .size(theme.text_sizes.normal)
+                           .size(theme.typography.normal)
                            .color(theme.colors.error),
                      );
                      self.close_button(theme, ui);
@@ -164,7 +163,7 @@ impl MergeNotesWindow {
                         RichText::new(
                            "No merge needed you already have at most one note per tree for this token.",
                         )
-                        .size(theme.text_sizes.normal)
+                        .size(theme.typography.normal)
                         .color(theme.colors.success),
                      );
                      self.close_button(theme, ui);
@@ -194,7 +193,7 @@ impl MergeNotesWindow {
       let decimals = self.currency.decimals();
       let amount = NumericValue::format_wei(U256::from(suggestion.amount), decimals);
 
-      ui.label(RichText::new("Recommended merge").size(theme.text_sizes.large).strong());
+      ui.label(RichText::new("Recommended merge").size(theme.typography.large).strong());
 
       ui.label(
          RichText::new(format!(
@@ -202,7 +201,7 @@ impl MergeNotesWindow {
             suggestion.input_count(),
             suggestion.circuit_label()
          ))
-         .size(theme.text_sizes.normal),
+         .size(theme.typography.normal),
       );
 
       ui.label(
@@ -211,7 +210,7 @@ impl MergeNotesWindow {
             amount.formatted(),
             self.currency.symbol()
          ))
-         .size(theme.text_sizes.normal),
+         .size(theme.typography.normal),
       );
 
       // Clone suggestion for the confirm path (state may move on click).
@@ -229,7 +228,7 @@ impl MergeNotesWindow {
                ""
             }
          ))
-         .size(theme.text_sizes.small)
+         .size(theme.typography.small)
          .color(theme.colors.text),
       );
 
@@ -238,7 +237,7 @@ impl MergeNotesWindow {
             "UTXO tree #{}",
             suggestion_for_display.tree_number
          ))
-         .size(theme.text_sizes.small)
+         .size(theme.typography.small)
          .color(theme.colors.text),
       );
 
@@ -254,7 +253,7 @@ impl MergeNotesWindow {
                      self.currency.symbol(),
                      n.leaf_index
                   ))
-                  .size(theme.text_sizes.small),
+                  .size(theme.typography.small),
                );
             }
          });
@@ -266,11 +265,11 @@ impl MergeNotesWindow {
       let ui_size = vec2(ui.available_width(), 45.0);
       let visuals = theme.button_visuals();
 
-      let confirm = Button::new(RichText::new("Confirm Merge").size(theme.text_sizes.large))
+      let confirm = Button::new(RichText::new("Confirm Merge").size(theme.typography.large))
          .visuals(visuals)
          .min_size(button_size);
 
-      let cancel = Button::new(RichText::new("Cancel").size(theme.text_sizes.large))
+      let cancel = Button::new(RichText::new("Cancel").size(theme.typography.large))
          .visuals(visuals)
          .min_size(button_size);
 
@@ -292,7 +291,7 @@ impl MergeNotesWindow {
    fn close_button(&mut self, theme: &Theme, ui: &mut Ui) {
       let visuals = theme.button_visuals();
       let button =
-         Button::new(RichText::new("Close").size(theme.text_sizes.normal)).visuals(visuals);
+         Button::new(RichText::new("Close").size(theme.typography.normal)).visuals(visuals);
       if ui.add(button).clicked() {
          self.close();
       }

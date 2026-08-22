@@ -2,8 +2,7 @@ use crate::core::ZeusContext;
 use crate::gui::{GUI, ui::dapps::railgun::RailgunMode};
 use eframe::egui::{Align2, Order, RichText, ScrollArea, Ui, Window, vec2};
 use egui::{FontId, Margin, Stroke};
-use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::{Button, SecureTextEdit};
+use egui_elements::{Button, OverlayManager, SecureTextEdit, Theme};
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let privacy_mode = ctx.privacy_mode;
@@ -18,7 +17,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       ui.vertical_centered(|ui| {
          ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-         let text_size = gui.theme.text_sizes.large;
+         let text_size = gui.theme.typography.large;
          let button_size = vec2(80.0, 40.0);
 
          let is_open = gui.portofolio.is_open();
@@ -285,7 +284,7 @@ impl ConnectedDappsUi {
       let window_frame = theme.window_frame;
       let title_frame = window_frame.stroke(Stroke::NONE);
 
-      let title = RichText::new("Connected Dapps").size(theme.text_sizes.heading);
+      let title = RichText::new("Connected Dapps").size(theme.typography.heading);
       Window::new(title)
          .open(&mut open)
          .collapsible(false)
@@ -306,14 +305,14 @@ impl ConnectedDappsUi {
             ui.scope(|ui| {
                ui.vertical_centered(|ui| {
                   if dapps_are_empty {
-                     ui.label(RichText::new("No connected dapps").size(theme.text_sizes.normal));
+                     ui.label(RichText::new("No connected dapps").size(theme.typography.normal));
                      return;
                   }
                });
             });
 
             if !dapps_are_empty {
-               let text = RichText::new("Disconnect all").size(theme.text_sizes.normal);
+               let text = RichText::new("Disconnect all").size(theme.typography.normal);
                let button = Button::new(text).visuals(button_visuals);
                if ui.add(button).clicked() {
                   ctx.disconnect_all_dapps();
@@ -327,10 +326,10 @@ impl ConnectedDappsUi {
                         .visuals(text_edit_visuals)
                         .min_size(vec2(ui.available_width() * 0.10, 25.0))
                         .margin(Margin::same(10))
-                        .font(FontId::proportional(theme.text_sizes.normal));
+                        .font(FontId::proportional(theme.typography.normal));
                      ui.add(edit);
 
-                     let text = RichText::new("Disconnect").size(theme.text_sizes.normal);
+                     let text = RichText::new("Disconnect").size(theme.typography.normal);
                      let button =
                         Button::new(text).visuals(button_visuals).min_size(vec2(50.0, 25.0));
                      if ui.add(button).clicked() {

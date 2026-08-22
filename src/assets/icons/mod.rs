@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::RwLock;
 use zeus_eth::{alloy_primitives::Address, currency::Currency};
-use zeus_theme::utils::TINT_1;
+use egui_elements::utils::TINT_1;
 
 use bincode_next::{config::standard, decode_from_slice};
 

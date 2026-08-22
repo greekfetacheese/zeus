@@ -3,15 +3,14 @@ use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::RT;
 use eframe::egui::{
-   Align, Align2, FontId, Layout, Margin, Context, Order, RichText, ScrollArea, Spinner, Stroke, Ui, Vec2,
-   Window, vec2,
+   Align, Align2, Context, FontId, Layout, Margin, Order, RichText, ScrollArea, Spinner, Stroke,
+   Ui, Vec2, Window, vec2,
 };
+use egui_elements::{Button, Label, OverlayManager, SecureTextEdit, Theme};
 use elegance::{Menu, MenuItem};
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
-use zeus_theme::{OverlayManager, Theme};
 use zeus_wallet::Wallet;
-use zeus_widgets::{Button, Label, SecureTextEdit};
 
 pub mod add;
 pub mod delete;
@@ -211,7 +210,7 @@ impl WalletUi {
                }
 
                // Add Wallet Button
-               let text = RichText::new("Add Wallet").size(theme.text_sizes.normal);
+               let text = RichText::new("Add Wallet").size(theme.typography.normal);
                let button = Button::new(text).visuals(button_visuals);
 
                if ui.add(button).clicked() {
@@ -221,7 +220,7 @@ impl WalletUi {
                let current_wallet = ctx.current_wallet_info();
 
                ui.add_space(10.0);
-               ui.label(RichText::new("Selected Wallet").size(theme.text_sizes.large));
+               ui.label(RichText::new("Selected Wallet").size(theme.typography.large));
                self.wallet(ctx, theme, icons.clone(), &current_wallet, ui);
 
                // Search bar
@@ -229,14 +228,14 @@ impl WalletUi {
 
                let hint = RichText::new("Search...")
                   .color(theme.colors.text_muted)
-                  .size(theme.text_sizes.normal);
+                  .size(theme.typography.normal);
 
                ui.add(
                   SecureTextEdit::singleline(&mut self.search_query)
                      .visuals(text_edit_visuals)
                      .hint_text(hint)
                      .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.text_sizes.normal))
+                     .font(FontId::proportional(theme.typography.normal))
                      .min_size(vec2(ui.available_width() * 0.7, 20.0)),
                );
 
@@ -284,7 +283,7 @@ impl WalletUi {
             ui.horizontal(|ui| {
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   // Wallet name
-                  let text = RichText::new(wallet.name_with_source()).size(theme.text_sizes.normal);
+                  let text = RichText::new(wallet.name_with_source()).size(theme.typography.normal);
                   let label = Label::new(text, None).interactive(false);
 
                   ui.set_width(ui.available_width() * 0.85);
@@ -329,7 +328,7 @@ impl WalletUi {
             // Address and value
             ui.horizontal(|ui| {
                let text =
-                  RichText::new(wallet.evm_address_truncated()).size(theme.text_sizes.small);
+                  RichText::new(wallet.evm_address_truncated()).size(theme.typography.small);
                let label = Button::selectable(false, text).visuals(button_visuals);
 
                if ui.add(label).clicked() {
@@ -358,7 +357,7 @@ impl WalletUi {
                      });
                      ui.label(
                         RichText::new(format!("${}", value.abbreviated()))
-                           .size(theme.text_sizes.small),
+                           .size(theme.typography.small),
                      );
                   });
                });
@@ -390,7 +389,7 @@ impl WalletUi {
 
       let mut open = self.rename_wallet;
 
-      let title = RichText::new("Rename Wallet").size(theme.text_sizes.heading);
+      let title = RichText::new("Rename Wallet").size(theme.typography.heading);
       let window_frame = theme.window_frame;
       let title_frame = window_frame.stroke(Stroke::NONE);
 
@@ -417,23 +416,23 @@ impl WalletUi {
                let wallet = self.wallet_to_rename.as_ref();
 
                if wallet.is_none() {
-                  ui.label(RichText::new("No wallet selected").size(theme.text_sizes.large));
+                  ui.label(RichText::new("No wallet selected").size(theme.typography.large));
                   return;
                }
 
                let old_wallet = wallet.unwrap();
 
-               ui.label(RichText::new("Wallet Name").size(theme.text_sizes.large));
+               ui.label(RichText::new("Wallet Name").size(theme.typography.large));
                ui.add_space(10.0);
 
                SecureTextEdit::singleline(&mut self.new_wallet_name)
                   .visuals(text_edit_visuals)
-                  .font(FontId::proportional(theme.text_sizes.normal))
+                  .font(FontId::proportional(theme.typography.normal))
                   .margin(Margin::same(10))
                   .min_size(vec2(ui.available_width() * 0.9, 25.0))
                   .show(ui);
 
-               let text = RichText::new("Rename").size(theme.text_sizes.normal);
+               let text = RichText::new("Rename").size(theme.typography.normal);
                let rename_button = Button::new(text).visuals(button_visuals);
 
                if ui.add(rename_button).clicked() {

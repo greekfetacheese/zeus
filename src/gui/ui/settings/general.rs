@@ -2,10 +2,9 @@
 
 use crate::core::ZeusContext;
 use egui::{Align2, Order, RichText, ScrollArea, Slider, Stroke, Ui, Window, vec2};
+use egui_elements::{Button, OverlayManager, Theme};
 use std::collections::HashSet;
 use zeus_eth::types::ChainId;
-use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::Button;
 
 pub struct GeneralSettings {
    open: bool,
@@ -76,7 +75,7 @@ impl GeneralSettings {
 
       let mut open = self.open;
 
-      let title = RichText::new("General Settings").size(theme.text_sizes.heading);
+      let title = RichText::new("General Settings").size(theme.typography.heading);
       let window_frame = theme.window_frame;
       let title_frame = window_frame.stroke(Stroke::NONE);
 
@@ -100,10 +99,10 @@ impl GeneralSettings {
                ScrollArea::vertical().show(ui, |ui| {
                   let slider_size = vec2(ui.available_width() * 0.4, 20.0);
 
-                  let header = RichText::new("Pool Manager").size(theme.text_sizes.very_large);
+                  let header = RichText::new("Pool Manager").size(theme.typography.very_large);
                   ui.label(header);
 
-                  let text = RichText::new("Reset Settings").size(theme.text_sizes.normal);
+                  let text = RichText::new("Reset Settings").size(theme.typography.normal);
                   let button = Button::new(text).visuals(button_visuals);
 
                   if ui.add(button).clicked() {
@@ -111,14 +110,14 @@ impl GeneralSettings {
                   }
 
                   let text =
-                     RichText::new("Discover V4 Pools on startup").size(theme.text_sizes.normal);
+                     RichText::new("Discover V4 Pools on startup").size(theme.typography.normal);
                   ui.checkbox(&mut self.discover_v4_pools_on_startup, text);
 
                   let text = RichText::new("Chains to ignore at V4 historic sync")
-                     .size(theme.text_sizes.normal);
+                     .size(theme.typography.normal);
                   ui.label(text);
                   for chain in ChainId::supported_chains() {
-                     let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
+                     let text = RichText::new(chain.name()).size(theme.typography.normal);
                      let mut ignore = self.ignore_chains.contains(&chain.id());
                      ui.checkbox(&mut ignore, text);
                      if ignore {
@@ -130,7 +129,7 @@ impl GeneralSettings {
 
                   ui.label(
                      RichText::new("Concurrency for Discovering & Updating Pools")
-                        .size(theme.text_sizes.normal),
+                        .size(theme.typography.normal),
                   );
                   ui.allocate_ui(slider_size, |ui| {
                      ui.add(Slider::new(
@@ -141,7 +140,7 @@ impl GeneralSettings {
 
                   ui.label(
                      RichText::new("Batch Size for Discovering Pools")
-                        .size(theme.text_sizes.normal),
+                        .size(theme.typography.normal),
                   );
                   ui.allocate_ui(slider_size, |ui| {
                      ui.add(Slider::new(
@@ -152,7 +151,7 @@ impl GeneralSettings {
 
                   ui.label(
                      RichText::new("Batch Size when updating pools state")
-                        .size(theme.text_sizes.normal),
+                        .size(theme.typography.normal),
                   );
                   ui.allocate_ui(slider_size, |ui| {
                      ui.add(Slider::new(
@@ -161,12 +160,12 @@ impl GeneralSettings {
                      ));
                   });
 
-                  let header = RichText::new("Balance Manager").size(theme.text_sizes.very_large);
+                  let header = RichText::new("Balance Manager").size(theme.typography.very_large);
                   ui.label(header);
 
                   ui.label(
                      RichText::new("Concurrency for syncing balances")
-                        .size(theme.text_sizes.normal),
+                        .size(theme.typography.normal),
                   );
                   ui.allocate_ui(slider_size, |ui| {
                      ui.add(Slider::new(
@@ -176,7 +175,7 @@ impl GeneralSettings {
                   });
 
                   ui.label(
-                     RichText::new("Batch Size for syncing balances").size(theme.text_sizes.normal),
+                     RichText::new("Batch Size for syncing balances").size(theme.typography.normal),
                   );
                   ui.allocate_ui(slider_size, |ui| {
                      ui.add(Slider::new(

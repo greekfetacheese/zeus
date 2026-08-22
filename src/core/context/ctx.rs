@@ -15,7 +15,7 @@ use std::{
    sync::{Arc, RwLock},
    time::{Duration, Instant},
 };
-use zeus_theme::ThemeKind;
+use egui_elements::theme::ThemeKind;
 use zeus_wallet::Wallet;
 
 use zeus_eth::{
