@@ -2,7 +2,7 @@
 
 use eframe::egui::{
    Align, Align2, FontId, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Sense, Spinner,
-   Stroke, Ui, Window, emath::Vec2b, vec2,
+   Stroke, Ui, emath::Vec2b, vec2,
 };
 
 use crate::assets::icons::Icons;
@@ -21,7 +21,7 @@ use zeus_eth::{
 };
 
 use egui_elements::{
-   Button, Label, OverlayManager, SecureTextEdit, Theme, utils::frame as frame_fn,
+   Button, Label, OverlayManager, widgets::Window, SecureTextEdit, Theme, utils::frame as frame_fn,
 };
 
 /// A simple window that allows the user to select a token

@@ -1,8 +1,8 @@
 //! UI that allows the user to change the general settings.
 
 use crate::core::ZeusContext;
-use egui::{Align2, Order, RichText, ScrollArea, Slider, Stroke, Ui, Window, vec2};
-use egui_elements::{Button, OverlayManager, Theme};
+use egui::{Align2, Order, RichText, ScrollArea, Slider, Stroke, Ui, vec2};
+use egui_elements::{Button, OverlayManager, Theme, widgets::Window};
 use std::collections::HashSet;
 use zeus_eth::types::ChainId;
 

@@ -1,9 +1,9 @@
 //! UI to show the decoded events for a transaction
 
 use egui::{
-   Align, Align2, Frame, Layout, Order, RichText, ScrollArea, Stroke, Ui, Vec2, Window, vec2,
+   Align, Align2, Frame, Layout, Order, RichText, ScrollArea, Stroke, Ui, Vec2, vec2,
 };
-use egui_elements::{Label, MultiLabel, OverlayManager, Theme};
+use egui_elements::{Label, MultiLabel, OverlayManager, Theme, widgets::Window};
 
 use crate::assets::icons::Icons;
 use crate::core::{TransactionAnalysis, ZeusContext, tx::events::*};

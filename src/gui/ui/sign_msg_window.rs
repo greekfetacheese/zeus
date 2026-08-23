@@ -1,9 +1,9 @@
 //! UI that allows the user to inspect and sign a message
 
 use egui::{
-   Align, Align2, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, Ui, Window, vec2,
+   Align, Align2, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2,
 };
-use egui_elements::{Button, Label, OverlayManager, SecureTextEdit, Theme};
+use egui_elements::{Button, Label, OverlayManager, SecureTextEdit, widgets::Window, Theme};
 
 use crate::assets::icons::Icons;
 use crate::core::{SignMsgType, ZeusContext};

@@ -1,6 +1,6 @@
 use eframe::egui::{
    Align, Align2, Checkbox, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl, Order, RichText,
-   Stroke, Ui, Window, vec2,
+   Stroke, Ui, vec2,
 };
 
 use std::{
@@ -33,7 +33,7 @@ use crate::gui::{
    },
 };
 use crate::utils::simulate::{fetch_accounts_info, fetch_storage_for_railgun};
-use egui_elements::{Button, SecureTextEdit, Theme};
+use egui_elements::{Button, SecureTextEdit, Theme, widgets::Window};
 use elegance::{Badge, BadgeTone};
 
 use zeus_eth::{

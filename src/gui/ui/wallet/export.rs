@@ -3,8 +3,8 @@
 use crate::core::ZeusContext;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use eframe::egui::{Align2, Context, Order, RichText, Stroke, Ui, Window, vec2};
-use egui_elements::{Button, CredentialsForm, OverlayManager, QrImage, Theme};
+use eframe::egui::{Align2, Context, Order, RichText, Stroke, Ui, vec2};
+use egui_elements::{Button, CredentialsForm, OverlayManager, widgets::Window, QrImage, Theme};
 use ncrypt_me::Credentials;
 use zeus_wallet::Wallet;
 

@@ -4,9 +4,9 @@ use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::RT;
 use eframe::egui::{
    Align, Align2, Context, FontId, Layout, Margin, Order, RichText, ScrollArea, Spinner, Stroke,
-   Ui, Vec2, Window, vec2,
+   Ui, Vec2, vec2,
 };
-use egui_elements::{Button, Label, OverlayManager, SecureTextEdit, Theme};
+use egui_elements::{Button, widgets::Window, Label, OverlayManager, SecureTextEdit, Theme};
 use elegance::{Menu, MenuItem};
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};

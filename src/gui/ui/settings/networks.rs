@@ -6,9 +6,9 @@ use crate::gui::{SHARED_GUI, ui::ChainSelect};
 use crate::utils::{RT, state};
 use eframe::egui::{
    Align, Align2, CornerRadius, CursorIcon, FontId, Layout, Margin, Order, RichText, ScrollArea,
-   Slider, Spinner, Stroke, Ui, Window, vec2,
+   Slider, Spinner, Stroke, Ui, vec2,
 };
-use egui_elements::{Button, Modal, OverlayManager, SecureTextEdit, Theme, visuals::ButtonVisuals};
+use egui_elements::{Button, Modal, OverlayManager, widgets::Window, SecureTextEdit, Theme, visuals::ButtonVisuals};
 use std::sync::Arc;
 use zeus_eth::alloy_provider::Provider;
 

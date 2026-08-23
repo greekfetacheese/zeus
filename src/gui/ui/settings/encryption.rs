@@ -4,8 +4,8 @@
 
 use crate::utils::RT;
 use crate::{core::ZeusContext, gui::SHARED_GUI};
-use egui::{Align2, Order, RichText, Stroke, Ui, Window, vec2};
-use egui_elements::{Button, OverlayManager, Theme};
+use egui::{Align2, Order, RichText, Stroke, Ui, vec2};
+use egui_elements::{Button, OverlayManager, widgets::Window, Theme};
 use elegance::{Badge, BadgeTone, Slider};
 use ncrypt_me::Argon2;
 

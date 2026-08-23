@@ -6,9 +6,9 @@ use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::RT;
 use egui::{
    Align, Align2, FontId, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Spinner, Stroke,
-   Ui, Window, vec2,
+   Ui, vec2,
 };
-use egui_elements::{Button, Label, Modal, OverlayManager, QrImage, SecureTextEdit, Theme};
+use egui_elements::{Button, Label, Modal, widgets::Window, OverlayManager, QrImage, SecureTextEdit, Theme};
 use elegance::{Menu, MenuItem};
 use std::str::FromStr;
 use std::sync::Arc;

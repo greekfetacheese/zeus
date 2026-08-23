@@ -9,9 +9,9 @@ use crate::gui::SHARED_GUI;
 use crate::gui::ui::ContactsUi;
 use crate::utils::RT;
 use eframe::egui::{
-   Align2, FontId, Margin, Order, RichText, ScrollArea, Sense, Spinner, Stroke, Ui, Window, vec2,
+   Align2, FontId, Margin, Order, RichText, ScrollArea, Sense, Spinner, Stroke, Ui, vec2,
 };
-use egui_elements::{Button, OverlayManager, SecureTextEdit, Theme, utils::frame as frame_fn};
+use egui_elements::{Button, OverlayManager, SecureTextEdit, Theme, widgets::Window, utils::frame as frame_fn};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -236,7 +236,7 @@ impl RecipientSelectionWindow {
       }
 
       let title = RichText::new("Recipient").size(theme.typography.heading);
-      let window_frame = theme.window_frame;
+      let window_frame = theme.window_frame.fill(theme.frame1.fill);
       let title_frame = window_frame.stroke(Stroke::NONE);
 
       let _window_res = Window::new(title)

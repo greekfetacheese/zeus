@@ -1,8 +1,8 @@
 use crate::core::ZeusContext;
 use crate::gui::{GUI, ui::dapps::railgun::RailgunMode};
-use eframe::egui::{Align2, Order, RichText, ScrollArea, Ui, Window, vec2};
+use eframe::egui::{Align2, Order, RichText, ScrollArea, Ui, vec2};
 use egui::{FontId, Margin, Stroke};
-use egui_elements::{Button, OverlayManager, SecureTextEdit, Theme};
+use egui_elements::{Button, OverlayManager, SecureTextEdit, widgets::Window, Theme};
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let privacy_mode = ctx.privacy_mode;

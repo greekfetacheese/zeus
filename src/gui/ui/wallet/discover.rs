@@ -6,9 +6,9 @@ use crate::gui::{SHARED_GUI, ui::REFRESH};
 use crate::utils::RT;
 use eframe::egui::{
    Align, Align2, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner, Stroke,
-   Ui, Vec2, Window, vec2,
+   Ui, Vec2, vec2,
 };
-use egui_elements::{Button, OverlayManager, SecureTextEdit, Theme};
+use egui_elements::{Button, widgets::Window, OverlayManager, SecureTextEdit, Theme};
 use zeus_bip32::BIP32_HARDEN;
 use zeus_eth::{
    alloy_primitives::Address,
@@ -150,7 +150,7 @@ impl DiscoverChildWallets {
       let mut is_open = self.open;
 
       let title = RichText::new("Discover Wallets").size(theme.typography.heading);
-      let window_frame = theme.window_frame;
+      let window_frame = theme.window_frame.fill(theme.frame1.fill);
       let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(title)

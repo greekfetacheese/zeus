@@ -4,10 +4,10 @@ use crate::gui::ui::dapps::uniswap::ProtocolVersion;
 use crate::gui::ui::*;
 use crate::utils::universal_router_v2::SwapType;
 use crate::{assets::icons::Icons, gui::SHARED_GUI};
-use egui::{Align, Grid, Id, Layout, RichText, ScrollArea, Sense, Stroke, Ui, Window, vec2};
+use egui::{Align, Grid, Id, Layout, RichText, ScrollArea, Sense, Stroke, Ui, vec2};
 
 use anyhow::anyhow;
-use egui_elements::{Button, ComboBox, Label, Theme};
+use egui_elements::{Button, widgets::Window, ComboBox, Label, Theme};
 use std::sync::Arc;
 use std::{collections::HashSet, time::Instant};
 use zeus_eth::alloy_rpc_types::Block;

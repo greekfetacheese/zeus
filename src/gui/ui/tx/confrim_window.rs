@@ -1,5 +1,5 @@
-use egui::{Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Ui, Window, vec2};
-use egui_elements::{Button, Label, Modal, OverlayManager, SecureTextEdit, Theme};
+use egui::{Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2};
+use egui_elements::{Button, Label, Modal, OverlayManager, SecureTextEdit, widgets::Window, Theme};
 
 use super::{address, chain, contract_interact, eth_received, events::*, tx_cost, value};
 use crate::assets::icons::Icons;

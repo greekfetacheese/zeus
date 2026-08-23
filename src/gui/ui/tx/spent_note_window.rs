@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use egui::{Align, Align2, Frame, Layout, Margin, Order, RichText, Stroke, Ui, Window, vec2};
-use egui_elements::{Button, OverlayManager, Theme};
+use egui::{Align, Align2, Frame, Layout, Margin, Order, RichText, Stroke, Ui, vec2};
+use egui_elements::{Button, OverlayManager, widgets::Window, Theme};
 use zeus_eth::{alloy_primitives::U256, currency::Currency, types::ChainId, utils::NumericValue};
 
 use crate::assets::icons::Icons;
