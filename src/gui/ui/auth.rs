@@ -2,7 +2,7 @@
 //!
 //! If the vault is not found, it will show the wallet recovery UI.
 
-use crate::core::{M_COST, Vault, ZeusContext};
+use crate::core::{Vault, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::utils::RT;
@@ -10,6 +10,7 @@ use eframe::egui::{Align2, FontId, Margin, RichText, Ui, Window, vec2};
 use egui_elements::{Button, CredentialsForm, Label, SecureTextEdit, Theme};
 use ncrypt_me::{Argon2, Credentials, zeroize::Zeroize};
 use std::time::Instant;
+use zeus_wallet::wallet::M_COST;
 
 #[cfg(feature = "dev")]
 use secure_types::SecureString;

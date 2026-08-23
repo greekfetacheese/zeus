@@ -16,7 +16,7 @@ use std::io::Cursor;
 use std::path::PathBuf;
 use zeus_eth::alloy_primitives::Address;
 use zeus_railgun::RailgunAddress;
-use zeus_wallet::{SecureHDWallet, Wallet, derive_seed};
+use zeus_wallet::{SecureHDWallet, Wallet, derive_seed, wallet::{M_COST, P_COST, T_COST}};
 
 pub const VAULT_FILE: &str = "vault.data";
 

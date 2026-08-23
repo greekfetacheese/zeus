@@ -3,12 +3,6 @@ use zeus_wallet::Wallet;
 
 use zeus_railgun::RailgunAddress;
 
-// Argon2 parameters used to derive the seed from the credentials
-// Hash lenght is always 64 bytes (512 bits)
-pub const M_COST: u32 = 8192_000;
-pub const T_COST: u32 = 96;
-pub const P_COST: u32 = 1;
-
 pub const DEV_M_COST: u32 = 256_000;
 pub const DEV_T_COST: u32 = 16;
 pub const DEV_P_COST: u32 = 1;

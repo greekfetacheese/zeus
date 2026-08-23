@@ -14,7 +14,10 @@ use zeus_bip32::{
    BIP32_HARDEN, DEFAULT_DERIVATION_PATH, DerivationPath, SecureXPriv, XKeyInfo, root_from_seed,
 };
 
-pub type ZkAddress = String;
+// Zeus default Argon2 parameters
+pub const M_COST: u32 = 8192_000;
+pub const T_COST: u32 = 96;
+pub const P_COST: u32 = 1;
 
 /// Derive the seed from the given username and password
 pub fn derive_seed(
