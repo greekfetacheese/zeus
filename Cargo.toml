@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/zeus-eth",
     "crates/zeus-railgun",
+    "crates/zeus-railgun-snapshot",
     "crates/zeus-bip32",
     "crates/zeus-wallet",
     "crates/zeus-poseidon",

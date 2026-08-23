@@ -1,0 +1,20 @@
+[package]
+name = "zeus-railgun-snapshot"
+version = "0.1.0"
+edition = "2024"
+description = "Standalone CLI to generate Railgun events-snapshot blobs without compiling the Zeus GUI"
+publish = false
+
+[[bin]]
+name = "railgun-snapshot"
+path = "src/main.rs"
+
+[dependencies]
+zeus-railgun = { path = "../zeus-railgun" }
+alloy-provider = { workspace = true, features = ["reqwest"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+clap = { version = "=4.5.53", features = ["derive", "env"] }
+url = "2"
