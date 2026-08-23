@@ -9,6 +9,28 @@ members = [
     "crates/zeus-userop-kit",
 ]
 
+[workspace.dependencies]
+alloy-consensus = "=2.3.0"
+alloy-contract = "=2.3.0"
+alloy-dyn-abi = "=1.6.1"
+alloy-eips = "=2.3.0"
+alloy-json-rpc = "=2.3.0"
+alloy-network = "=2.3.0"
+alloy-primitives = "=1.6.1"
+alloy-provider = "=2.3.0"
+alloy-pubsub = "=2.3.0"
+alloy-rpc-client = "=2.3.0"
+alloy-rpc-types = "=2.3.0"
+alloy-serde = "=2.3.0"
+alloy-signer = "=2.3.0"
+alloy-signer-local = "=2.3.0"
+alloy-sol-types = "=1.6.1"
+alloy-transport = "=2.3.0"
+alloy-transport-http = "=2.3.0"
+alloy-transport-ws = "=2.3.0"
+alloy-tx-macros = "=2.3.0"
+generic-array = { version = "=0.14.7", features = ["zeroize"] }
+
 [package]
 name = "zeus"
 authors = ["Michalis Molfetas"]
@@ -24,7 +46,7 @@ eframe = { version = "=0.36", features = ["wgpu"] }
 egui = { version = "=0.36", features = ["serde"] }
 egui_extras = { version = "=0.36", features = ["image"] }
 image = "=0.25.10"
-egui-elegance = "0.16"
+egui-elegance = "=0.16"
 egui-elements = {version = "1", features = ["full"]}
 
 # Zeus Crates
@@ -35,19 +57,22 @@ zeus-railgun = { path = "crates/zeus-railgun" }
 userop-kit = { path = "crates/zeus-userop-kit" }
 
 # Alloy
-alloy-consensus = "=2.3.0"
-alloy-signer-local = { version = "=2.3.0", features = ["mnemonic"] }
-alloy-eips = "=2.3.0"
-alloy-sol-types = { version = "=1.6.1", features = ["json"] }
+alloy-consensus = { workspace = true }
+alloy-signer-local = { workspace = true, features = ["mnemonic"] }
+alloy-eips = { workspace = true }
+alloy-sol-types = { workspace = true, features = ["json"] }
+
+# Force feature unification: RustCrypto 0.10 already pulls 0.14.7.
+generic-array = { workspace = true }
 
 # Crypto
 rand = "=0.8"
-generic-array = { version = "=1.2.0", features = ["zeroize"] }
-minisign-verify = "0.2.4"
+minisign-verify = "=0.2.5"
+
 
 # Encryption
 ncrypt-me = "0.3"
-chacha20poly1305 = "0.10"
+chacha20poly1305 = "=0.10"
 
 # Memory
 secure-types = "0.3"
@@ -64,23 +89,23 @@ futures = "=0.3.31"
 reqwest = { version = "=0.12.23", features = ["json"] }
 
 # Misc
-brotli = "8"
+brotli = "=8.0.4"
 zip = "=6.0.0"
 tempfile = "=3.23.0"
 semver = "=1.0.27"
-self_update = "0.42"
+self_update = "=0.42"
 sysinfo = "=0.37.2"
-chrono = "0.4.42"
-either = "1.15.0"
-rayon = "=1.11.0"
-anyhow = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+chrono = "=0.4.45"
+either = "=1.15.0"
+rayon = "=1.12.0"
+anyhow = "=1.0.104"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
 lazy_static = "=1.5.0"
-bincode-next = "3.1.1"
+bincode-next = "=3.1.1"
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc = "=0.2.189"
 
 [profile.prod]
 inherits = "release"

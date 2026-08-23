@@ -12,6 +12,7 @@ use crate::types::{ChainCode, Key32};
 
 pub mod aes;
 pub mod babyjubjub;
+pub mod blake512;
 pub mod common;
 pub mod keys;
 pub mod railgun_base_37;

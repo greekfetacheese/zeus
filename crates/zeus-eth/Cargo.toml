@@ -10,19 +10,23 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 
 # Alloy
-alloy-sol-types = {version = "1.6", features = ["json"]}
-alloy-dyn-abi = {version = "1.6", features = ["eip712"]}
-alloy-primitives = "1.6"
-alloy-signer-local = "2.3"
-alloy-signer = {version = "2.3", features = ["eip712"]}
+alloy-sol-types = { workspace = true, features = ["json"] }
+alloy-dyn-abi = { workspace = true, features = ["eip712"] }
+alloy-primitives = { workspace = true }
+alloy-signer-local = { workspace = true }
+alloy-signer = { workspace = true, features = ["eip712"] }
 
-alloy-rpc-types = "2.3"
-alloy-json-rpc = "2.3"
-alloy-contract = "2.3"
-alloy-network = "2.3"
-alloy-provider = {version = "2.3", features = ["ws"]}
-alloy-transport = {version = "2.3", features = ["throttle"]}
-alloy-rpc-client = {version = "2.3", features = ["reqwest"]}
+alloy-rpc-types = { workspace = true }
+alloy-json-rpc = { workspace = true }
+alloy-contract = { workspace = true }
+alloy-network = { workspace = true }
+alloy-provider = { workspace = true, features = ["ws"] }
+alloy-transport = { workspace = true, features = ["throttle"] }
+alloy-rpc-client = { workspace = true, features = ["reqwest"] }
+alloy-pubsub = { workspace = true }
+alloy-transport-http = { workspace = true }
+alloy-transport-ws = { workspace = true }
+alloy-tx-macros = { workspace = true }
 
 # EVM
 revm = { version = "42.0.1", features = [

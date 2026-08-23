@@ -6,12 +6,12 @@ edition = "2024"
 [dependencies]
 
 # Alloy
-alloy-sol-types = { version = "1.6", features = ["json"] }
-alloy-primitives = "1.6"
-alloy-rpc-types = "2.3"
-alloy-provider = "2.3"
-alloy-signer = "2.3"
-alloy-contract = "2.3"
+alloy-sol-types = { workspace = true, features = ["json"] }
+alloy-primitives = { workspace = true }
+alloy-rpc-types = { workspace = true }
+alloy-provider = { workspace = true }
+alloy-signer = { workspace = true }
+alloy-contract = { workspace = true }
 
 # Internal
 poseidon-rust = { path = "../zeus-poseidon" }
@@ -29,7 +29,6 @@ ctr = "0.9"
 hmac = {version = "0.13", features = ["zeroize"]}
 curve25519-dalek = "4"
 ed25519-dalek = "2.2.0"
-blake-hash = { version = "0.2.0", default-features = false }
 ruint = { version = "1", features = ["serde", "num-bigint", "ark-ff-06", "zeroize"] }
 rand_chacha = "0.9"
 num-bigint = "0.4"

@@ -10,7 +10,6 @@ use alloy_primitives::U256;
 use anyhow::anyhow;
 use ark_ed_on_bn254::Fr as BabyJubScalar;
 use ark_ff::{BigInteger, PrimeField};
-use blake_hash::{Blake512, Digest};
 use curve25519_dalek::{EdwardsPoint, Scalar, constants::ED25519_BASEPOINT_TABLE};
 use secure_types::Zeroize;
 use sha2::Digest as ShaDigest;
@@ -75,7 +74,7 @@ pub fn compute_public_spending_key(
    let spending_priv = spending_priv_res.map_err(|e| anyhow!("Derive spending key {}", e))?;
 
    let mut scalar_bytes = spending_priv.unlock(|priv_bytes| {
-      let mut hash = Blake512::digest(priv_bytes);
+      let mut hash = crate::crypto::blake512::blake512(priv_bytes);
       let mut sb = [0u8; 32];
       sb.copy_from_slice(&hash[..32]);
       hash.zeroize();

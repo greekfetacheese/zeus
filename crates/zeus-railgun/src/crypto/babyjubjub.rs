@@ -2,7 +2,6 @@ use std::str::FromStr;
 
 use ark_bn254::Fr;
 use ark_ff::{AdditiveGroup, Field};
-use blake_hash::Digest;
 use num_bigint::{BigInt as NumBigInt, Sign};
 use num_traits::One;
 use poseidon_rust::poseidon_hash;
@@ -67,7 +66,7 @@ impl PrivateKey {
 
    pub fn scalar_key(&self) -> NumBigInt {
       // compatible with circomlib blake512
-      let hash = blake_hash::Blake512::digest(&self.key);
+      let hash = super::blake512::blake512(&self.key);
 
       let mut h = [0u8; 32];
       h.copy_from_slice(&hash[..32]);
@@ -94,7 +93,7 @@ impl PrivateKey {
       let suborder = u256_to_num_bigint(ORDER >> 3);
 
       // h = blake512(sk)
-      let h = blake_hash::Blake512::digest(&self.key);
+      let h = super::blake512::blake512(&self.key);
 
       // msg_le_32
       let mut msg32 = [0u8; 32];
@@ -107,7 +106,7 @@ impl PrivateKey {
       r_bytes[32..].copy_from_slice(&msg32);
 
       // r = blake512(r_bytes) mod suborder
-      let r_hashed = blake_hash::Blake512::digest(&r_bytes);
+      let r_hashed = super::blake512::blake512(&r_bytes);
       let mut r = NumBigInt::from_bytes_le(Sign::Plus, &r_hashed);
       r %= &suborder;
 
