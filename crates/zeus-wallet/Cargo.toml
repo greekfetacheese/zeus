@@ -6,11 +6,11 @@ repository = "https://github.com/greekfetacheese/zeus/tree/master/crates/zeus-wa
 keywords = ["bip32", "crypto", "derivation"]
 categories = ["cryptography"]
 license = "MIT OR Apache-2.0"
-version = "0.1.2"
+version = "0.1.21"
 edition = "2024"
 
 [dependencies]
-zeus-bip32 = { path = "../zeus-bip32", version = "0.1.0" }
+zeus-bip32 = { path = "../zeus-bip32", version = "0.1" }
 
 alloy-signer-local = { version = "2.3", features = ["mnemonic", "zeroize"] }
 alloy-network = "2.3"
