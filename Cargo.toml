@@ -36,7 +36,7 @@ generic-array = { version = "=0.14.7", features = ["zeroize"] }
 name = "zeus"
 authors = ["Michalis Molfetas"]
 description = "A truly seedless and decentralized self-custodial Ethereum wallet"
-version = "0.9.51"
+version = "0.9.52"
 edition = "2024"
 default-run = "zeus"
 
