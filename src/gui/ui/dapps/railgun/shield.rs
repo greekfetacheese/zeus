@@ -757,7 +757,7 @@ impl ShieldUi {
          let self_broadcast = self.self_broadcast;
          let unwrap_to_eth = self.unwrap_to_eth;
          let bundler_url = self.bundler_url.clone();
-         // Unshield futures are not `Send` (`&dyn Bundler` / `&dyn Signer` across awaits).
+         // Unshield futures are not `Send` (`PimlicoBundler` / `&dyn Signer` across awaits).
          // Do NOT spin up a nested current_thread runtime: revm's ForkDB uses
          // `tokio::task::block_in_place`, which panics outside a multi-thread runtime.
          // Drive the non-Send future on the existing multi-thread `RT` via `block_on`

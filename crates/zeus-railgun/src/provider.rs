@@ -13,9 +13,9 @@ use thiserror::Error;
 use tracing::{debug, warn};
 use userop_kit::{
    builder::UserOperationBuilder,
-   bundler::{Bundler, BundlerError},
+   bundler::{BundlerError, PimlicoBundler},
    signable_user_operation::SignableUserOperation,
-   smart_account::SmartAccount,
+   smart_account::simple_smart_account::{Call, SimpleSmartAccount},
 };
 
 use crate::{
@@ -472,14 +472,14 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
    /// transaction, with an additional fee note transfer to cover the bundler fees. The
    /// `fee_payer` is the signer that will authorize the fee note transfer to the bundler's
    /// address for the estimated fee amount in `fee_token`.
-   pub async fn prepare_userop<S: SmartAccount>(
+   pub async fn prepare_userop(
       &mut self,
       builder: TransactionBuilder,
-      bundler: &dyn Bundler,
-      sender: &S,
+      bundler: &PimlicoBundler,
+      sender: &SimpleSmartAccount<P>,
       fee_payer: RailgunSigner,
       fee_token: Address,
-      calldata: S::CallData,
+      calldata: Vec<Call>,
       rng: &mut impl Rng,
    ) -> Result<SignableUserOperation, RailgunProviderError> {
       let privacy_paymaster = self

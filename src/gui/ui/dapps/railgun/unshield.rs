@@ -11,11 +11,8 @@ use alloy_signer_local::PrivateKeySigner;
 use anyhow::anyhow;
 use tracing::{error, info};
 use userop_kit::{
-   bundler::{Bundler, pimlico::PimlicoBundler},
-   smart_account::{
-      SmartAccount,
-      simple_smart_account::{Call, SIMPLE_7702_ACCOUNT, SimpleSmartAccount},
-   },
+   bundler::PimlicoBundler,
+   smart_account::simple_smart_account::{Call, SIMPLE_7702_ACCOUNT, SimpleSmartAccount},
 };
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, KECCAK256_EMPTY, U256, keccak256},

@@ -59,7 +59,7 @@ impl SignableUserOperation {
    }
 }
 
-#[cfg(all(test, native))]
+#[cfg(test)]
 mod tests {
    use alloy_primitives::{Bytes, U256, address, b256};
    use alloy_signer::Signature;

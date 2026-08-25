@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use crate::{
    abis::entry_point::EntryPoint,
    entry_point::{ENTRY_POINT_08, entry_point_08_domain},
-   smart_account::SmartAccount,
 };
 
 /// eth-infinitism Simple7702Account implementation used as EIP-7702 delegate target.
@@ -31,15 +30,10 @@ pub struct SimpleSmartAccount<P> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(js, derive(tsify::Tsify))]
-#[cfg_attr(js, tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct Call {
-   #[cfg_attr(js, tsify(type = "`0x${string}`"))]
    pub target: Address,
-   #[cfg_attr(js, tsify(type = "`0x${string}`"))]
    pub value: U256,
-   #[cfg_attr(js, tsify(type = "`0x${string}`"))]
    pub data: Bytes,
 }
 
@@ -65,29 +59,20 @@ where
          dummy_signature,
       }
    }
-}
 
-#[cfg_attr(native, async_trait::async_trait)]
-#[cfg_attr(wasm, async_trait::async_trait(?Send))]
-impl<P> SmartAccount for SimpleSmartAccount<P>
-where
-   P: Provider<Ethereum>,
-{
-   type CallData = Vec<Call>;
-
-   fn entry_point(&self) -> Address {
+   pub fn entry_point(&self) -> Address {
       self.entry_point
    }
 
-   fn domain(&self) -> Eip712Domain {
+   pub fn domain(&self) -> Eip712Domain {
       self.domain.clone()
    }
 
-   fn address(&self) -> Address {
+   pub fn address(&self) -> Address {
       self.owner
    }
 
-   async fn nonce(&self) -> Result<U256, anyhow::Error> {
+   pub async fn nonce(&self) -> Result<U256, anyhow::Error> {
       let call = EntryPoint::getNonceCall::new((self.owner, U192::from(0)));
       let calldata = call.abi_encode();
 
@@ -101,7 +86,7 @@ where
       Ok(nonce)
    }
 
-   async fn authorization(&self) -> Result<Authorization, anyhow::Error> {
+   pub async fn authorization(&self) -> Result<Authorization, anyhow::Error> {
       let nonce = self.owner_nonce().await?;
 
       Ok(Authorization {
@@ -111,11 +96,11 @@ where
       })
    }
 
-   fn dummy_signature(&self) -> Bytes {
+   pub fn dummy_signature(&self) -> Bytes {
       self.dummy_signature.clone()
    }
 
-   fn encode_call_data(&self, call_data: Self::CallData) -> Bytes {
+   pub fn encode_call_data(&self, call_data: Vec<Call>) -> Bytes {
       if call_data.is_empty() {
          // If no calls, return empty data to save gas.
          return Bytes::new();
@@ -132,9 +117,7 @@ where
 
       abi::BaseAccount::executeBatchCall::new((calls,)).abi_encode().into()
    }
-}
 
-impl<P: Provider<Ethereum>> SimpleSmartAccount<P> {
    /// Gets the nonce for the owner address
    async fn owner_nonce(&self) -> Result<u64, anyhow::Error> {
       let nonce: u64 = self.provider.get_transaction_count(self.owner).await? as u64;

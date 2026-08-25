@@ -1,11 +1,12 @@
 use alloy_dyn_abi::Eip712Domain;
 use alloy_eips::eip7702::Authorization;
 use alloy_primitives::{Address, Bytes, U256};
+use alloy_provider::{Provider, network::Ethereum};
 
 use crate::{
-   bundler::{Bundler, BundlerError},
+   bundler::{BundlerError, PimlicoBundler},
    signable_user_operation::SignableUserOperation,
-   smart_account::smart_account::{SmartAccount, SmartAccountError},
+   smart_account::{SmartAccountError, simple_smart_account::SimpleSmartAccount},
    user_operation::{UserOperation, UserOperationGasEstimate},
 };
 
@@ -45,8 +46,8 @@ impl UserOperationBuilder {
    }
 
    /// Create a new UserOperationBuilder with a smart account
-   pub async fn new_with_smart_account(
-      smart_account: &impl SmartAccount,
+   pub async fn new_with_smart_account<P: Provider<Ethereum>>(
+      smart_account: &SimpleSmartAccount<P>,
    ) -> Result<Self, SmartAccountError> {
       Ok(Self::new(
          smart_account.address(),
@@ -90,7 +91,10 @@ impl UserOperationBuilder {
    }
 
    /// Fetches a gas estimate from the provider for the current UserOp.
-   pub async fn with_gas_estimate(mut self, bundler: &dyn Bundler) -> Result<Self, BundlerError> {
+   pub async fn with_gas_estimate(
+      mut self,
+      bundler: &PimlicoBundler,
+   ) -> Result<Self, BundlerError> {
       let op = self.build();
       let est = bundler.estimate_gas(&op).await?;
 
