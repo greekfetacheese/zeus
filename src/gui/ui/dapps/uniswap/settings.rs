@@ -5,9 +5,7 @@ use crate::gui::ui::REFRESH;
 use crate::utils::RT;
 use egui_elements::{Button, SecureTextEdit, Theme};
 
-const MIN_SLIPPAGE: f64 = 0.1;
-const MAX_SLIPPAGE: f64 = 20.0;
-const DEFAULT_SLIPPAGE: f64 = 0.5;
+const DEFAULT_SLIPPAGE: f64 = 0.05;
 
 const MIN_DEADLINE: u64 = 1; // minutes
 const MAX_DEADLINE: u64 = 60; // minutes
@@ -50,8 +48,8 @@ impl UniswapSettingsUi {
          max_split_routes: 5,
          deadline: 5,
          mev_protect: true,
-         slippage: "0.5".to_string(),
-         slippage_f64: 0.5,
+         slippage: DEFAULT_SLIPPAGE.to_string(),
+         slippage_f64: DEFAULT_SLIPPAGE,
          simulate_mode: false,
          days: String::new(),
       }
@@ -96,22 +94,12 @@ impl UniswapSettingsUi {
             self.slippage = DEFAULT_SLIPPAGE.to_string();
          }
 
-         let res = ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let slippage = format!("{:.1}", self.slippage_f64);
-            ui.label(RichText::new(slippage).size(theme.typography.normal));
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            SecureTextEdit::singleline(&mut self.slippage).desired_width(50.0).show(ui);
 
-            ui.add(
-               Slider::new(
-                  &mut self.slippage_f64,
-                  MIN_SLIPPAGE..=MAX_SLIPPAGE,
-               )
-               .show_value(false),
-            )
+            let slippage = self.slippage.parse().unwrap_or(DEFAULT_SLIPPAGE);
+            self.slippage_f64 = slippage;
          });
-
-         if res.inner.changed() {
-            self.slippage = self.slippage_f64.to_string();
-         }
       });
 
       // Swap deadline

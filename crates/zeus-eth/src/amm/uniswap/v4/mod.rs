@@ -55,10 +55,14 @@ impl Actions {
          Self::DECREASE_LIQUIDITY(params) => params.abi_encode_params(),
          Self::MINT_POSITION(params) => params.abi_encode_params(),
          Self::BURN_POSITION(params) => params.abi_encode_params(),
-         Self::SWAP_EXACT_IN_SINGLE(params) => params.abi_encode_params(),
-         Self::SWAP_EXACT_IN(params) => params.abi_encode_params(),
-         Self::SWAP_EXACT_OUT_SINGLE(params) => params.abi_encode_params(),
-         Self::SWAP_EXACT_OUT(params) => params.abi_encode_params(),
+         // V4Router CalldataDecoder decodes these as `abi.decode(params, (Struct))`,
+         // which expects an outer offset word. `abi_encode_params()` starts at
+         // currency0, so ETH pools (currency0 == address(0)) work by accident
+         // and ERC20/ERC20 pools revert.
+         Self::SWAP_EXACT_IN_SINGLE(params) => params.abi_encode(),
+         Self::SWAP_EXACT_IN(params) => params.abi_encode(),
+         Self::SWAP_EXACT_OUT_SINGLE(params) => params.abi_encode(),
+         Self::SWAP_EXACT_OUT(params) => params.abi_encode(),
          Self::SETTLE(params) => params.abi_encode_params(),
          Self::SETTLE_ALL(params) => params.abi_encode_params(),
          Self::SETTLE_PAIR(params) => params.abi_encode_params(),
@@ -151,8 +155,14 @@ pub const fn permissions(address: Address) -> HookPermissions {
       after_donate: has_permission(address, HookOptions::AfterDonate),
       before_swap_returns_delta: has_permission(address, HookOptions::BeforeSwapReturnsDelta),
       after_swap_returns_delta: has_permission(address, HookOptions::AfterSwapReturnsDelta),
-      after_add_liquidity_returns_delta: has_permission(address, HookOptions::AfterAddLiquidityReturnsDelta),
-      after_remove_liquidity_returns_delta: has_permission(address, HookOptions::AfterRemoveLiquidityReturnsDelta),
+      after_add_liquidity_returns_delta: has_permission(
+         address,
+         HookOptions::AfterAddLiquidityReturnsDelta,
+      ),
+      after_remove_liquidity_returns_delta: has_permission(
+         address,
+         HookOptions::AfterRemoveLiquidityReturnsDelta,
+      ),
    }
 }
 
@@ -167,7 +177,8 @@ pub const fn has_permission(address: Address, hook_option: HookOptions) -> bool 
 #[inline]
 #[must_use]
 pub const fn has_initialize_permissions(address: Address) -> bool {
-   has_permission(address, HookOptions::BeforeInitialize) || has_permission(address, HookOptions::AfterInitialize)
+   has_permission(address, HookOptions::BeforeInitialize)
+      || has_permission(address, HookOptions::AfterInitialize)
 }
 
 #[inline]
@@ -183,11 +194,44 @@ pub const fn has_liquidity_permissions(address: Address) -> bool {
 #[must_use]
 pub const fn has_swap_permissions(address: Address) -> bool {
    // this implicitly encapsulates swap delta permissions
-   has_permission(address, HookOptions::BeforeSwap) || has_permission(address, HookOptions::AfterSwap)
+   has_permission(address, HookOptions::BeforeSwap)
+      || has_permission(address, HookOptions::AfterSwap)
 }
 
 #[inline]
 #[must_use]
 pub const fn has_donate_permissions(address: Address) -> bool {
-   has_permission(address, HookOptions::BeforeDonate) || has_permission(address, HookOptions::AfterDonate)
+   has_permission(address, HookOptions::BeforeDonate)
+      || has_permission(address, HookOptions::AfterDonate)
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use crate::abi::uniswap::v4::actions::{ExactInputSingleParams, PoolKey};
+   use alloy_primitives::{U256, address};
+
+   #[test]
+   fn swap_exact_in_single_encoding_starts_with_struct_offset() {
+      let params = ExactInputSingleParams {
+         poolKey: PoolKey {
+            currency0: address!("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"),
+            currency1: address!("0xdAC17F958D2ee523a2206206994597C13D831ec7"),
+            fee: 10.try_into().unwrap(),
+            tickSpacing: 1.try_into().unwrap(),
+            hooks: Address::ZERO,
+         },
+         zeroForOne: true,
+         amountIn: 1_000_000,
+         amountOutMinimum: 0,
+         hookData: Bytes::default(),
+      };
+      let encoded = Actions::SWAP_EXACT_IN_SINGLE(params).abi_encode();
+      let offset = U256::from_be_slice(&encoded[..32]);
+      assert_eq!(
+         offset,
+         U256::from(32u64),
+         "CalldataDecoder reads the first word as the struct offset"
+      );
+   }
 }

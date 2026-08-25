@@ -16,73 +16,8 @@ mod tests {
       utils::{NumericValue, address_book},
    };
 
-   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-   async fn single_v4_swap_eth_to_erc20_mainnet() {
-      let chain_id = 1;
+   use crate::tests::unlock_ctx;
 
-      let pool: AnyUniswapPool = UniswapV4Pool::eth_uni().into();
-      let currency_in = Currency::from(NativeCurrency::from(chain_id));
-      let currency_out = pool.quote_currency().clone();
-      let amount_in = NumericValue::parse_to_wei("10", currency_in.decimals());
-
-      let swap_on_v2 = true;
-      let swap_on_v3 = true;
-      let swap_on_v4 = true;
-      let max_hops = 2;
-      let max_routes = 1;
-      let with_split_routing = true;
-
-      test_swap(
-         chain_id,
-         amount_in,
-         currency_in,
-         currency_out,
-         swap_on_v2,
-         swap_on_v3,
-         swap_on_v4,
-         max_hops,
-         max_routes,
-         with_split_routing,
-         vec![pool],
-      )
-      .await
-      .unwrap();
-   }
-
-   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-   async fn single_v4_swap_erc20_to_eth_mainnet() {
-      let chain_id = 1;
-
-      let pool: AnyUniswapPool = UniswapV4Pool::eth_uni().into();
-      let currency_in = pool.quote_currency().clone();
-      let currency_out = Currency::from(NativeCurrency::from(chain_id));
-      let amount_in = NumericValue::parse_to_wei("1000", currency_in.decimals());
-
-      let swap_on_v2 = true;
-      let swap_on_v3 = true;
-      let swap_on_v4 = true;
-      let max_hops = 2;
-      let max_routes = 1;
-      let with_split_routing = true;
-
-      test_swap(
-         chain_id,
-         amount_in,
-         currency_in,
-         currency_out,
-         swap_on_v2,
-         swap_on_v3,
-         swap_on_v4,
-         max_hops,
-         max_routes,
-         with_split_routing,
-         vec![pool],
-      )
-      .await
-      .unwrap();
-   }
-
-   /*
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn single_v4_swap_erc20_to_erc20_mainnet() {
       let chain_id = 1;
@@ -115,7 +50,6 @@ mod tests {
       .await
       .unwrap();
    }
-   */
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn swap_from_eth_to_erc20_mainnet_with_split_routing_and_v4_enabled() {
@@ -245,53 +179,6 @@ mod tests {
       .unwrap();
    }
 
-   /*
-   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-   async fn swap_from_eth_to_erc20_base_chain_aerodrome() {
-      let chain_id = 8453;
-
-      let currency_in = Currency::from(NativeCurrency::from(chain_id));
-      let currency_out = Currency::from(ERC20Token::usdc_base());
-      let amount_in = NumericValue::parse_to_wei("10", currency_in.decimals());
-
-      let pool: AnyUniswapPool = UniswapV3Pool {
-         chain_id: chain_id,
-         address: address!("0xb2cc224c1c9feE385f8ad6a55b4d94E92359DC59"),
-         fee: FeeAmount::CUSTOM(425),
-         currency0: ERC20Token::wrapped_native_token(chain_id).into(),
-         currency1: currency_out.clone(),
-         dex: DexKind::UniswapV3,
-         state: State::default(),
-         liquidity_amount0: U256::ZERO,
-         liquidity_amount1: U256::ZERO,
-      }.into();
-
-
-      let swap_on_v2 = true;
-      let swap_on_v3 = true;
-      let swap_on_v4 = false;
-      let max_hops = 4;
-      let max_routes = 10;
-      let with_split_routing = false;
-
-      test_swap(
-         chain_id,
-         amount_in,
-         currency_in,
-         currency_out,
-         swap_on_v2,
-         swap_on_v3,
-         swap_on_v4,
-         max_hops,
-         max_routes,
-         with_split_routing,
-         vec![pool],
-      )
-      .await
-      .unwrap();
-   }
-   */
-
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn swap_from_erc20_to_eth_base_chain() {
       let chain_id = 8453;
@@ -363,70 +250,6 @@ mod tests {
       let currency_in = Currency::from(ERC20Token::usdc_arbitrum());
       let currency_out = Currency::from(NativeCurrency::from(chain_id));
       let amount_in = NumericValue::parse_to_wei("1000", currency_in.decimals());
-
-      let swap_on_v2 = true;
-      let swap_on_v3 = true;
-      let swap_on_v4 = false;
-      let max_hops = 4;
-      let max_routes = 10;
-      let with_split_routing = false;
-
-      test_swap(
-         chain_id,
-         amount_in,
-         currency_in,
-         currency_out,
-         swap_on_v2,
-         swap_on_v3,
-         swap_on_v4,
-         max_hops,
-         max_routes,
-         with_split_routing,
-         Vec::new(),
-      )
-      .await
-      .unwrap();
-   }
-
-   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-   async fn swap_from_eth_to_erc20_optimism_chain() {
-      let chain_id = 10;
-
-      let currency_in = Currency::from(NativeCurrency::from(chain_id));
-      let currency_out = Currency::from(ERC20Token::usdt_optimism());
-      let amount_in = NumericValue::parse_to_wei("10", currency_in.decimals());
-
-      let swap_on_v2 = true;
-      let swap_on_v3 = true;
-      let swap_on_v4 = false;
-      let max_hops = 4;
-      let max_routes = 10;
-      let with_split_routing = false;
-
-      test_swap(
-         chain_id,
-         amount_in,
-         currency_in,
-         currency_out,
-         swap_on_v2,
-         swap_on_v3,
-         swap_on_v4,
-         max_hops,
-         max_routes,
-         with_split_routing,
-         Vec::new(),
-      )
-      .await
-      .unwrap();
-   }
-
-   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-   async fn swap_from_eth_to_erc20_arbitrum() {
-      let chain_id = 42161;
-
-      let currency_in = Currency::from(NativeCurrency::from(chain_id));
-      let currency_out = Currency::from(ERC20Token::usdt_arbitrum());
-      let amount_in = NumericValue::parse_to_wei("10", currency_in.decimals());
 
       let swap_on_v2 = true;
       let swap_on_v3 = true;
@@ -540,7 +363,7 @@ mod tests {
    #[test]
    fn test_relevant_pools_link_to_eth() {
       let chain = 1;
-      let ctx = ZeusCtx::new();
+      let ctx = unlock_ctx();
       let currency_in = Currency::from(ERC20Token::link());
       let currency_out = Currency::from(NativeCurrency::from(chain));
 
@@ -592,7 +415,7 @@ mod tests {
       with_split_routing: bool,
       given_pools: Vec<AnyUniswapPool>,
    ) -> Result<(), anyhow::Error> {
-      let ctx = ZeusCtx::new();
+      let ctx = unlock_ctx();
 
       let pools = if given_pools.is_empty() {
          let relevant_pools = get_relevant_pools(

@@ -1159,7 +1159,7 @@ impl SwapUi {
             });
 
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               ui.label(RichText::new(format!("{:.1}%", settings.slippage_f64())).size(text_size));
+               ui.label(RichText::new(format!("{:.2}%", settings.slippage_f64())).size(text_size));
             });
          });
 
