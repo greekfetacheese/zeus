@@ -1,10 +1,11 @@
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
+use redb::backends::InMemoryBackend;
 use redb::{Database as RedbInner, Durability, ReadableDatabase, TableDefinition};
 use tokio::task;
 
-use crate::database::{Database, DatabaseError, RailgunDbKey, WriteBatch, WriteDurability};
+use crate::database::{DatabaseError, RailgunDbKey, WriteBatch, WriteDurability};
 
 const TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("railgun_kv");
 
@@ -12,6 +13,7 @@ const TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("railgun_kv");
 ///
 /// This is a good choice for desktop wallets because it is embedded,
 /// fast, and has good durability guarantees.
+#[derive(Clone)]
 pub struct RedbDatabase {
    inner: Arc<RwLock<RedbInner>>,
    crypto_key: RailgunDbKey,
@@ -25,7 +27,16 @@ impl RedbDatabase {
          RedbInner::create(path.as_ref())?
       };
 
-      // Ensure the table exists (cheap/no-op on subsequent opens)
+      Self::from_inner(inner, crypto_key)
+   }
+
+   /// In-memory redb (tests). Same API as a file-backed DB.
+   pub fn in_memory(crypto_key: RailgunDbKey) -> Result<Self, redb::Error> {
+      let inner = RedbInner::builder().create_with_backend(InMemoryBackend::new())?;
+      Self::from_inner(inner, crypto_key)
+   }
+
+   fn from_inner(inner: RedbInner, crypto_key: RailgunDbKey) -> Result<Self, redb::Error> {
       let tx = inner.begin_write()?;
       {
          let _ = tx.open_table(TABLE);
@@ -36,6 +47,10 @@ impl RedbDatabase {
          inner: Arc::new(RwLock::new(inner)),
          crypto_key,
       })
+   }
+
+   pub fn crypto_key(&self) -> &RailgunDbKey {
+      &self.crypto_key
    }
 
    /// Compact the underlying redb file to reclaim unused space.
@@ -60,12 +75,8 @@ impl RedbDatabase {
          WriteDurability::None => Durability::None,
       }
    }
-}
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl Database for RedbDatabase {
-   async fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, DatabaseError> {
+   pub async fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, DatabaseError> {
       let inner = self.inner.clone();
       let key = key.to_vec();
 
@@ -88,19 +99,19 @@ impl Database for RedbDatabase {
       .map_err(|e| DatabaseError::StorageError(e.to_string()))?
    }
 
-   async fn set(&self, key: &[u8], value: &[u8]) -> Result<(), DatabaseError> {
+   pub async fn set(&self, key: &[u8], value: &[u8]) -> Result<(), DatabaseError> {
       let mut batch = WriteBatch::new();
       batch.put(key.to_vec(), value.to_vec());
       self.apply_batch(batch, WriteDurability::Immediate).await
    }
 
-   async fn delete(&self, key: &[u8]) -> Result<(), DatabaseError> {
+   pub async fn delete(&self, key: &[u8]) -> Result<(), DatabaseError> {
       let mut batch = WriteBatch::new();
       batch.delete(key.to_vec());
       self.apply_batch(batch, WriteDurability::Immediate).await
    }
 
-   async fn apply_batch(
+   pub async fn apply_batch(
       &self,
       batch: WriteBatch,
       durability: WriteDurability,
@@ -140,7 +151,7 @@ impl Database for RedbDatabase {
       .map_err(|e| DatabaseError::StorageError(e.to_string()))?
    }
 
-   async fn keys_with_prefix(&self, prefix: &[u8]) -> Result<Vec<Vec<u8>>, DatabaseError> {
+   pub async fn keys_with_prefix(&self, prefix: &[u8]) -> Result<Vec<Vec<u8>>, DatabaseError> {
       let inner = self.inner.clone();
       let prefix = prefix.to_vec();
 
@@ -166,13 +177,5 @@ impl Database for RedbDatabase {
       })
       .await
       .map_err(|e| DatabaseError::StorageError(e.to_string()))?
-   }
-
-   async fn compact(&self) -> Result<bool, DatabaseError> {
-      RedbDatabase::compact(self).await
-   }
-
-   fn crypto_key(&self) -> Option<&RailgunDbKey> {
-      Some(&self.crypto_key)
    }
 }

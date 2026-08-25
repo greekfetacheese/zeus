@@ -7,7 +7,7 @@ use clap::{Parser, ValueEnum};
 use tracing::info;
 use url::Url;
 use zeus_railgun::{
-   ChainConfig, RpcSyncer, SnapshotLoader, SubsquidSyncer, UtxoSyncer,
+   ChainConfig, RpcSyncer, SnapshotLoader, SubsquidSyncer,
    indexer::syncer::snapshot::EventsSnapshot,
 };
 
@@ -134,12 +134,12 @@ async fn main() -> anyhow::Result<()> {
          let syncer = RpcSyncer::new(provider, chain.id, chain.railgun_smart_wallet)
             .with_snapshot_loader(loader.clone());
          if let Some(range) = args.block_range {
-            UtxoSyncer::set_block_range(&syncer, range).await;
+            syncer.set_block_range(range).await;
          }
          if let Some(n) = args.concurrency {
-            UtxoSyncer::set_concurrency(&syncer, n).await;
+            syncer.set_concurrency(n).await;
          }
-         let events = UtxoSyncer::sync(&syncer, from_block, to_block).await?;
+         let events = syncer.sync(from_block, to_block).await?;
          info!(
             "RPC sync returned {} events in range",
             events.len()
@@ -148,7 +148,7 @@ async fn main() -> anyhow::Result<()> {
       Source::Subsquid => {
          let syncer = SubsquidSyncer::new(&chain.subsquid_endpoint, chain.id)
             .with_snapshot_loader(loader.clone());
-         let events = UtxoSyncer::sync(&syncer, from_block, to_block).await?;
+         let events = syncer.sync(from_block, to_block).await?;
          info!(
             "Subsquid sync returned {} events in range",
             events.len()
@@ -179,7 +179,7 @@ async fn resolve_to_block(args: &Args, chain: &ChainConfig) -> anyhow::Result<u6
       }
       Source::Subsquid => {
          let syncer = SubsquidSyncer::new(&chain.subsquid_endpoint, chain.id);
-         UtxoSyncer::latest_block(&syncer).await.context("Subsquid latest block")
+         syncer.latest_block().await.context("Subsquid latest block")
       }
    }
 }

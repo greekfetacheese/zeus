@@ -47,16 +47,13 @@ sha3 = "0.12"
 # Misc
 bincode-next = { version = "3", features = ["serde"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
-web-time = "1.1"
 wasmer = { version = "6.1", default-features = false }
-async-trait = "0.1.89"
 redb = "4"
-futures = "0.3.31"
 rand = "0.9"
 lazy_static = "1"
 anyhow = "1"
 serde_json = "1"
-secure-types = { version = "0.3", features = ["serde"] }
+secure-types = "0.3"
 tracing = "0.1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

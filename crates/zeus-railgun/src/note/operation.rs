@@ -4,7 +4,7 @@ use thiserror::Error;
 use crate::{
    account::signer::RailgunSigner,
    caip::AssetId,
-   note::{EncryptableNote, Note, transfer::TransferNote, unshield::UnshieldNote, utxo::UtxoNote},
+   note::{OutputNote, transfer::TransferNote, unshield::UnshieldNote, utxo::UtxoNote},
 };
 
 /// An Operation represents a single "operation" within a railgun transaction.
@@ -151,15 +151,15 @@ impl Operation {
       &self.in_notes
    }
 
-   pub fn out_notes(&self) -> Vec<Box<dyn Note>> {
-      let mut notes: Vec<Box<dyn Note>> = Vec::new();
+   pub fn out_notes(&self) -> Vec<OutputNote> {
+      let mut notes: Vec<OutputNote> = Vec::new();
 
       for transfer in &self.out_notes {
-         notes.push(Box::new(transfer.clone()));
+         notes.push(OutputNote::Transfer(transfer.clone()));
       }
 
       if let Some(unshield) = &self.unshield_note {
-         notes.push(Box::new(unshield.clone()));
+         notes.push(OutputNote::Unshield(*unshield));
       }
 
       notes.into_iter().filter(|n| n.value() > 0).collect()
@@ -169,13 +169,7 @@ impl Operation {
       self.unshield_note.clone()
    }
 
-   pub fn out_encryptable_notes(&self) -> Vec<Box<dyn EncryptableNote>> {
-      let mut notes: Vec<Box<dyn EncryptableNote>> = Vec::new();
-
-      for transfer in &self.out_notes {
-         notes.push(Box::new(transfer.clone()));
-      }
-
-      notes.into_iter().filter(|n| n.value() > 0).collect()
+   pub fn out_encryptable_notes(&self) -> Vec<TransferNote> {
+      self.out_notes.iter().filter(|n| n.value() > 0).cloned().collect()
    }
 }

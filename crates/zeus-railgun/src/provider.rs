@@ -29,7 +29,7 @@ use crate::{
       indexed_account::{PrivateHistoryEntry, SpentNote},
       utxo_indexer::{UtxoIndexer, UtxoIndexerError},
    },
-   note::{Note, utxo::UtxoNote},
+   note::{OutputNote, utxo::UtxoNote},
    poi::{
       provider::{PoiProvider, PoiProviderError},
       types::{BlindedCommitmentType, PoiStatus},
@@ -782,7 +782,7 @@ fn get_fee_note(
    operation: &ProvedOperation,
    fee_asset: AssetId,
    fee_value: u128,
-) -> Result<Box<dyn Note>, RailgunProviderError> {
+) -> Result<OutputNote, RailgunProviderError> {
    operation
       .inner
       .out_notes()
@@ -791,7 +791,7 @@ fn get_fee_note(
       .ok_or(RailgunProviderError::FeeNoteNotFound)
 }
 
-fn is_fee_note(note: &Box<dyn Note>, fee_asset: AssetId, fee_value: u128) -> bool {
+fn is_fee_note(note: &OutputNote, fee_asset: AssetId, fee_value: u128) -> bool {
    note.asset() == fee_asset && note.value() == fee_value && note.memo() == "fee"
 }
 

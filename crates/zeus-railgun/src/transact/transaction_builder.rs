@@ -30,7 +30,6 @@ use crate::{
    },
    merkle_tree::UtxoMerkleTree,
    note::{
-      Note,
       encrypt::EncryptError,
       operation::{Operation, OperationVerificationError},
       transfer::TransferNote,

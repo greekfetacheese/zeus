@@ -1,7 +1,4 @@
-use std::{
-   collections::{BTreeSet, HashMap},
-   sync::Arc,
-};
+use std::collections::{BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -10,14 +7,14 @@ use tracing::{info, warn};
 use crate::{
    crypto::railgun_txid::Txid,
    database::{
-      Database, DatabaseError, RailgunDB, WriteBatch, WriteDurability,
+      DatabaseError, RedbDatabase, WriteBatch, WriteDurability,
       railgun_db::{
          all_chunk_indices, dirty_chunks_for_range, push_txid_tree_save, put_txid_indexer,
       },
    },
-   indexer::syncer::{Operation, SyncerError, TxidSyncer},
+   indexer::syncer::{Operation, SubsquidSyncer, SyncerError},
    merkle_tree::{TOTAL_LEAVES, TxidLeafHash, TxidMerkleTree, UtxoTreeIndex},
-   poi::client::{PoiClientError, PoiNodeClient},
+   poi::client::{PoiClient, PoiClientError},
 };
 
 pub struct TxidIndexer {
@@ -29,8 +26,8 @@ pub struct TxidIndexer {
    /// Trees loaded from legacy monolithic blobs; next save migrates fully to chunks.
    legacy_trees: BTreeSet<u32>,
 
-   db: Arc<dyn Database>,
-   txid_syncer: Arc<dyn TxidSyncer>,
+   db: RedbDatabase,
+   txid_syncer: SubsquidSyncer,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -56,8 +53,8 @@ pub enum TxidIndexerError {
 
 impl TxidIndexer {
    pub async fn new(
-      db: Arc<dyn Database>,
-      txid_syncer: Arc<dyn TxidSyncer>,
+      db: RedbDatabase,
+      txid_syncer: SubsquidSyncer,
    ) -> Result<Self, TxidIndexerError> {
       let inner = db.get_txid_indexer().await?;
 
@@ -116,15 +113,14 @@ impl TxidIndexer {
    pub async fn sync_to(
       &mut self,
       to_block: u64,
-      poi_client: &impl PoiNodeClient,
+      poi_client: &PoiClient,
    ) -> Result<(), TxidIndexerError> {
       let from_block = self.inner.synced_block + 1;
 
-      let syncer = self.txid_syncer.clone();
-      let latest_block = syncer.latest_block().await?;
+      let latest_block = self.txid_syncer.latest_block().await?;
       let to_block = to_block.min(latest_block);
 
-      let ops = syncer.sync(from_block, to_block).await?;
+      let ops = self.txid_syncer.sync_operations(from_block, to_block).await?;
       info!("Fetched {} operations from syncer", ops.len());
       for op in ops {
          self.inner.pending.push(op);
@@ -137,7 +133,7 @@ impl TxidIndexer {
    }
 
    #[tracing::instrument(name = "txid_update", skip_all)]
-   async fn update(&mut self, poi_client: &impl PoiNodeClient) -> Result<(), TxidIndexerError> {
+   async fn update(&mut self, poi_client: &PoiClient) -> Result<(), TxidIndexerError> {
       let validated = poi_client.validated_txid().await?;
       info!(
          "Latest validated txid index from POI: tree {}, leaf {}",

@@ -7,13 +7,11 @@ use std::{
 };
 
 use alloy_primitives::ChainId;
-use alloy_provider::{DynProvider, network::Ethereum};
-use alloy_rpc_types::BlockId;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
 
 use crate::{
-   merkle_tree::{MerkleRoot, MerkleTreeVerifier, RailgunMerkleProof},
+   merkle_tree::{MerkleRoot, RailgunMerkleProof},
    poi::types::{
       BlindedCommitment, BlindedCommitmentData, BlindedCommitmentType, ChainParams,
       GetMerkleProofsParams, GetPoisPerListParams, ListKey, PoiStatus, PoisPerListMap,
@@ -21,34 +19,6 @@ use crate::{
       ValidatedRailgunTxidStatus,
    },
 };
-
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait PoiNodeClient {
-   fn list_keys(&self) -> Vec<ListKey>;
-   async fn poi_status(
-      &self,
-      list_key: &ListKey,
-      blinded_commitment: BlindedCommitment,
-      commitment_type: BlindedCommitmentType,
-   ) -> Result<PoiStatus, PoiClientError>;
-   async fn merkle_proof(
-      &self,
-      list_key: &ListKey,
-      blinded_commitment: BlindedCommitment,
-   ) -> Result<RailgunMerkleProof, PoiClientError>;
-   async fn submit_proof(
-      &self,
-      proof_data: HashMap<ListKey, TransactProofData>,
-   ) -> Result<(), PoiClientError>;
-   async fn validated_txid(&self) -> Result<ValidatedRailgunTxidStatus, PoiClientError>;
-   async fn validate_txid_merkleroot(
-      &self,
-      tree: u32,
-      index: u32,
-      merkleroot: MerkleRoot,
-   ) -> Result<bool, PoiClientError>;
-}
 
 #[derive(Clone)]
 pub struct PoiClient {
@@ -129,12 +99,8 @@ impl PoiClient {
          txid_version: TxidVersion::V2PoseidonMerkle,
       }
    }
-}
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl PoiNodeClient for PoiClient {
-   fn list_keys(&self) -> Vec<ListKey> {
+   pub fn list_keys(&self) -> Vec<ListKey> {
       self.list_keys.clone()
    }
 
@@ -142,7 +108,7 @@ impl PoiNodeClient for PoiClient {
    ///
    /// NOTE: Fetches a single status rather than batching many blinded commitments
    /// because I don't know how the POI node handles partial failures in a batch.
-   async fn poi_status(
+   pub async fn poi_status(
       &self,
       list_key: &ListKey,
       blinded_commitment: BlindedCommitment,
@@ -176,7 +142,7 @@ impl PoiNodeClient for PoiClient {
    ///
    /// NOTE: Fetches a single proof rather than batching many blinded commitments
    /// because I don't know how the POI node handles partial failures in a batch.
-   async fn merkle_proof(
+   pub async fn merkle_proof(
       &self,
       list_key: &ListKey,
       blinded_commitment: BlindedCommitment,
@@ -201,7 +167,7 @@ impl PoiNodeClient for PoiClient {
    }
 
    /// Submits a proved transaction to the POI node.
-   async fn submit_proof(
+   pub async fn submit_proof(
       &self,
       proof_data: HashMap<ListKey, TransactProofData>,
    ) -> Result<(), PoiClientError> {
@@ -230,12 +196,12 @@ impl PoiNodeClient for PoiClient {
    }
 
    /// Returns the current validated txid status from the POI node.
-   async fn validated_txid(&self) -> Result<ValidatedRailgunTxidStatus, PoiClientError> {
+   pub async fn validated_txid(&self) -> Result<ValidatedRailgunTxidStatus, PoiClientError> {
       self.call("ppoi_validated_txid", self.chain()).await
    }
 
    /// Validates a txid merkle root against the POI node.
-   async fn validate_txid_merkleroot(
+   pub async fn validate_txid_merkleroot(
       &self,
       tree: u32,
       index: u32,
@@ -252,24 +218,6 @@ impl PoiNodeClient for PoiClient {
             },
          )
          .await
-   }
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl MerkleTreeVerifier for PoiClient {
-   async fn verify_root(
-      &self,
-      tree_number: u32,
-      tree_index: u32,
-      root: MerkleRoot,
-      _block_id: Option<BlockId>,
-   ) -> Result<bool, Box<dyn std::error::Error + Send + Sync + 'static>> {
-      Ok(self.validate_txid_merkleroot(tree_number, tree_index, root).await?)
-   }
-
-   async fn set_provider(&self, _provider: DynProvider<Ethereum>) {
-      // PoiClient uses its own JSON-RPC client, not an alloy provider; no-op.
    }
 }
 

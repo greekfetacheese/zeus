@@ -16,7 +16,7 @@ use crate::{
       parse_legacy_nullifiers, parse_legacy_shield, parse_legacy_transact, parse_legacy_unshield,
       parse_nullified, parse_shield, parse_transact,
       syncer::{
-         SyncEvent, SyncerError, UtxoSyncer,
+         SyncEvent, SyncerError,
          snapshot::{EventsSnapshot, SnapshotLoader},
       },
    },
@@ -56,11 +56,9 @@ fn default_block_range(chain: u64) -> u64 {
 /// and fetches all the `SyncEvent` from the Railgun contract on-chain.
 ///
 /// Requires an archive node.
+#[derive(Clone)]
 pub struct RpcSyncer {
-   /// Type-erased provider so it can be swapped at runtime via [`UtxoSyncer::set_provider`].
-   ///
-   /// Stored behind a shared `Mutex` so the swap works through `Arc<dyn UtxoSyncer>`
-   /// (which only offers `&self`).
+   /// Type-erased provider so it can be swapped at runtime via [`RpcSyncer::set_provider`].
    provider: Arc<Mutex<DynProvider<Ethereum>>>,
    chain_id: u64,
    railgun_address: Address,
@@ -233,31 +231,14 @@ impl RpcSyncer {
 
       Self::get_logs_with_retry(&client, &filter, from_block, to_block).await
    }
-}
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl UtxoSyncer for RpcSyncer {
-   async fn latest_block(&self) -> Result<u64, SyncerError> {
+   pub async fn latest_block(&self) -> Result<u64, SyncerError> {
       let client = self.provider.lock().await.clone();
       let latest = client.get_block_number().await.map_err(|e| SyncerError::new(e))?;
       Ok(latest)
    }
 
-   async fn set_concurrency(&self, concurrency: usize) {
-      self.set_concurrency(concurrency).await;
-   }
-
-   async fn set_block_range(&self, block_range: u64) {
-      self.set_block_range(block_range).await;
-   }
-
-   async fn set_provider(&self, provider: DynProvider<Ethereum>) {
-      let provider_cell = self.provider.clone();
-      *provider_cell.lock().await = provider;
-   }
-
-   async fn sync(&self, from_block: u64, to_block: u64) -> Result<Vec<SyncEvent>, SyncerError> {
+   pub async fn sync(&self, from_block: u64, to_block: u64) -> Result<Vec<SyncEvent>, SyncerError> {
       if from_block > to_block {
          return Ok(vec![]);
       }

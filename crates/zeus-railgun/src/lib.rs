@@ -24,7 +24,7 @@ pub use circuit::remote_artifact_loader::{
 pub use database::{RailgunDbKey, RedbDatabase};
 pub use indexer::indexed_account::{PrivateHistoryEntry, PrivateHistoryKind};
 pub use indexer::{
-   syncer::{RpcSyncer, UtxoSyncer, snapshot::SnapshotLoader, subsquid::syncer::SubsquidSyncer},
+   syncer::{RpcSyncer, SubsquidSyncer, snapshot::SnapshotLoader},
    utxo_indexer::UtxoIndexer,
 };
 pub use merkle_tree::RootVerifier;
@@ -34,13 +34,3 @@ pub use rand;
 /// ChaCha RNGs aligned with this crate's `rand` 0.9 (workspace may pin a different `rand_chacha`).
 /// Prefer this over a direct `rand_chacha` dep when calling railgun `build` / `prepare_userop`.
 pub use rand_chacha;
-
-#[cfg(not(target_arch = "wasm32"))]
-pub trait MaybeSend: Send + Sync {}
-#[cfg(not(target_arch = "wasm32"))]
-impl<T: Send + Sync> MaybeSend for T {}
-
-#[cfg(target_arch = "wasm32")]
-pub trait MaybeSend {}
-#[cfg(target_arch = "wasm32")]
-impl<T> MaybeSend for T {}

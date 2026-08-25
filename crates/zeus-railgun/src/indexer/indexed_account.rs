@@ -470,7 +470,7 @@ mod tests {
    use crate::{
       account::signer::RailgunSigner,
       caip::AssetId,
-      note::{EncryptableNote, Note, encrypt::encrypt_shield, transfer::TransferNote},
+      note::{encrypt::encrypt_shield, transfer::TransferNote},
    };
 
    #[test]

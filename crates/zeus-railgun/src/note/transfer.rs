@@ -8,10 +8,7 @@ use crate::{
    crypto::keys::ViewingKey,
    crypto::poseidon_hash,
    merkle_tree::UtxoLeafHash,
-   note::{
-      EncryptableNote, Note,
-      encrypt::{EncryptError, encrypt_note},
-   },
+   note::encrypt::{EncryptError, encrypt_note},
 };
 
 /// Transfer notes represent value being sent from one Railgun account to another.
@@ -43,10 +40,8 @@ impl TransferNote {
          memo: memo.to_string(),
       }
    }
-}
 
-impl EncryptableNote for TransferNote {
-   fn encrypt(&self, rng: &mut dyn RngCore) -> Result<CommitmentCiphertext, EncryptError> {
+   pub fn encrypt(&self, rng: &mut dyn RngCore) -> Result<CommitmentCiphertext, EncryptError> {
       encrypt_note(
          &self.to,
          &self.random,
@@ -58,26 +53,24 @@ impl EncryptableNote for TransferNote {
          rng,
       )
    }
-}
 
-impl Note for TransferNote {
-   fn asset(&self) -> AssetId {
+   pub fn asset(&self) -> AssetId {
       self.asset
    }
 
-   fn value(&self) -> u128 {
+   pub fn value(&self) -> u128 {
       self.value
    }
 
-   fn memo(&self) -> String {
+   pub fn memo(&self) -> String {
       self.memo.clone()
    }
 
-   fn random(&self) -> [u8; 16] {
+   pub fn random(&self) -> [u8; 16] {
       self.random
    }
 
-   fn hash(&self) -> UtxoLeafHash {
+   pub fn hash(&self) -> UtxoLeafHash {
       poseidon_hash(&[
          self.note_public_key(),
          self.asset.hash(),
@@ -87,7 +80,7 @@ impl Note for TransferNote {
       .into()
    }
 
-   fn note_public_key(&self) -> U256 {
+   pub fn note_public_key(&self) -> U256 {
       poseidon_hash(&[
          self.to.master_pubkey().to_u256(),
          U256::from_be_slice(&self.random),
@@ -106,7 +99,7 @@ mod tests {
       caip::AssetId,
       crypto::keys::{SpendingKey, ViewingKey},
       merkle_tree::UtxoLeafHash,
-      note::{Note, transfer::TransferNote},
+      note::transfer::TransferNote,
       types::Chain,
    };
 

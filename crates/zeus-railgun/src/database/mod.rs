@@ -1,10 +1,8 @@
 pub mod crypto;
-pub mod memory;
 pub mod railgun_db;
 pub mod redb;
 
 pub use crypto::{ENCRYPTED_ENVELOPE_VERSION, RailgunDbKey};
-pub use railgun_db::RailgunDB;
 pub use redb::RedbDatabase;
 
 /// Durability requested for a write batch.
@@ -45,51 +43,6 @@ impl WriteBatch {
 
    pub fn len_ops(&self) -> usize {
       self.puts.len() + self.deletes.len()
-   }
-}
-
-/// Key-value database interface.
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait Database: crate::MaybeSend {
-   async fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, DatabaseError>;
-   async fn set(&self, key: &[u8], value: &[u8]) -> Result<(), DatabaseError>;
-   async fn delete(&self, key: &[u8]) -> Result<(), DatabaseError>;
-
-   /// Apply many puts/deletes in one atomic unit (one txn on redb).
-   async fn apply_batch(
-      &self,
-      batch: WriteBatch,
-      durability: WriteDurability,
-   ) -> Result<(), DatabaseError> {
-      // Default: sequential fallback (memory / simple backends).
-      let _ = durability;
-      for (k, v) in batch.puts {
-         self.set(&k, &v).await?;
-      }
-      for k in batch.deletes {
-         self.delete(&k).await?;
-      }
-      Ok(())
-   }
-
-   /// Return all keys that start with `prefix`.
-   ///
-   /// Default is empty — backends that support iteration should override.
-   async fn keys_with_prefix(&self, _prefix: &[u8]) -> Result<Vec<Vec<u8>>, DatabaseError> {
-      Ok(Vec::new())
-   }
-
-   async fn compact(&self) -> Result<bool, DatabaseError> {
-      Ok(false)
-   }
-
-   /// Key used to AEAD-seal sensitive envelopes (accounts, POI).
-   ///
-   /// Required for account/POI read-write. Public tree/index watermarks do not
-   /// need it.
-   fn crypto_key(&self) -> Option<&crypto::RailgunDbKey> {
-      None
    }
 }
 

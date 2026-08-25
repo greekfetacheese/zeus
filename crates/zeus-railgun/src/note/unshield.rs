@@ -1,7 +1,7 @@
 use alloy_primitives::{Address, aliases::U120};
 use ruint::aliases::U256;
 
-use crate::{abi, caip::AssetId, crypto::poseidon_hash, merkle_tree::UtxoLeafHash, note::Note};
+use crate::{abi, caip::AssetId, crypto::poseidon_hash, merkle_tree::UtxoLeafHash};
 
 /// Unshield notes represent value exiting the Railgun system to an external address.
 #[derive(Debug, Copy, Clone)]
@@ -31,26 +31,24 @@ impl UnshieldNote {
    pub fn unshield_type(&self) -> abi::railgun::UnshieldType {
       abi::railgun::UnshieldType::NORMAL
    }
-}
 
-impl Note for UnshieldNote {
-   fn asset(&self) -> AssetId {
+   pub fn asset(&self) -> AssetId {
       self.asset
    }
 
-   fn value(&self) -> u128 {
+   pub fn value(&self) -> u128 {
       self.value
    }
 
-   fn memo(&self) -> String {
+   pub fn memo(&self) -> String {
       String::new()
    }
 
-   fn random(&self) -> [u8; 16] {
+   pub fn random(&self) -> [u8; 16] {
       [0u8; 16]
    }
 
-   fn hash(&self) -> UtxoLeafHash {
+   pub fn hash(&self) -> UtxoLeafHash {
       poseidon_hash(&[
          self.note_public_key(),
          self.asset.hash(),
@@ -60,7 +58,7 @@ impl Note for UnshieldNote {
       .into()
    }
 
-   fn note_public_key(&self) -> U256 {
+   pub fn note_public_key(&self) -> U256 {
       let mut bytes = [0u8; 32];
       bytes[12..32].copy_from_slice(self.receiver.as_slice());
       U256::from_be_bytes(bytes)
@@ -72,11 +70,7 @@ mod tests {
    use alloy_primitives::address;
    use ruint::uint;
 
-   use crate::{
-      caip::AssetId,
-      merkle_tree::UtxoLeafHash,
-      note::{Note, unshield::UnshieldNote},
-   };
+   use crate::{caip::AssetId, merkle_tree::UtxoLeafHash, note::unshield::UnshieldNote};
 
    #[test]
    fn test_hash() {

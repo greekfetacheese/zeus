@@ -12809,7 +12809,6 @@ dependencies = [
  "ark-relations",
  "ark-serialize 0.6.0",
  "ark-std 0.6.0",
- "async-trait",
  "bech32",
  "bincode-next",
  "bip39",
@@ -12818,7 +12817,6 @@ dependencies = [
  "ctr",
  "curve25519-dalek",
  "ed25519-dalek",
- "futures",
  "hex",
  "hmac 0.13.0",
  "k256 0.14.0",
@@ -12841,7 +12839,6 @@ dependencies = [
  "tracing",
  "userop-kit",
  "wasmer",
- "web-time",
  "zeus-wallet",
 ]
 

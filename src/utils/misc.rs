@@ -10,7 +10,6 @@ use chrono::{DateTime, Utc};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::runtime::Runtime;
 
@@ -18,7 +17,7 @@ use crate::core::ctx::{railgun_db_file, railgun_dir};
 use zeus_eth::utils::client::RpcClient;
 use zeus_railgun::{
    ChainConfig, Groth16Prover, RailgunDbKey, RailgunProvider, RedbDatabase, RootVerifier,
-   RpcSyncer, SnapshotLoader, SubsquidSyncer, UtxoIndexer, UtxoSyncer,
+   RpcSyncer, SnapshotLoader, SubsquidSyncer, UtxoIndexer,
 };
 
 use anyhow::anyhow;
@@ -53,19 +52,13 @@ pub async fn create_railgun_provider(
    )
    .with_snapshot_loader(snapshot_loader.clone());
 
-   let subsquid_syncer: Option<Arc<dyn UtxoSyncer>> = Some(Arc::new(
+   let subsquid_syncer = Some(
       SubsquidSyncer::new(&chain_config.subsquid_endpoint, chain)
          .with_snapshot_loader(snapshot_loader),
-   ));
+   );
 
    let db = RedbDatabase::new(db_file, db_key)?;
-   let utxo_indexer = UtxoIndexer::new(
-      Arc::new(db),
-      Arc::new(rpc_syncer),
-      subsquid_syncer,
-      Arc::new(utxo_verifier),
-   )
-   .await?;
+   let utxo_indexer = UtxoIndexer::new(db, rpc_syncer, subsquid_syncer, utxo_verifier).await?;
 
    let prover = Groth16Prover::new(Some(railgun_dir))
       .with_embedded_circuits(crate::embedded::railgun::embedded_circuits());
@@ -79,7 +72,11 @@ pub async fn create_railgun_provider(
    )
    .await?;
 
-   tracing::info!("Railgun provider created for chain {} in {}ms", chain, time.elapsed().as_millis());
+   tracing::info!(
+      "Railgun provider created for chain {} in {}ms",
+      chain,
+      time.elapsed().as_millis()
+   );
 
    Ok(railgun_provider)
 }

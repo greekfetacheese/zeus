@@ -1,6 +1,5 @@
 use std::{
    collections::{BTreeMap, BTreeSet, HashMap},
-   sync::Arc,
    u64,
 };
 
@@ -15,7 +14,7 @@ use crate::{
    abi::{legacy::RailgunLegacy, railgun::RailgunSmartWallet},
    account::{address::RailgunAddress, signer::RailgunSigner},
    database::{
-      Database, DatabaseError, RailgunDB, RailgunDbKey, WriteBatch, WriteDurability,
+      DatabaseError, RailgunDbKey, RedbDatabase, WriteBatch, WriteDurability,
       railgun_db::{
          account_key, all_chunk_indices, dirty_chunks_for_range, push_utxo_tree_save, put_account,
          put_utxo_indexer,
@@ -23,9 +22,9 @@ use crate::{
    },
    indexer::{
       indexed_account::{IndexedAccount, PrivateHistoryEntry, SpentNote},
-      syncer::{self, SyncEvent, SyncerError, UtxoSyncer},
+      syncer::{self, RpcSyncer, SubsquidSyncer, SyncEvent, SyncerError},
    },
-   merkle_tree::{MerkleTreeVerifier, UtxoLeafHash, UtxoMerkleTree},
+   merkle_tree::{RootVerifier, UtxoLeafHash, UtxoMerkleTree},
    note::utxo::{NoteError, UtxoNote},
 };
 
@@ -41,12 +40,12 @@ pub struct UtxoIndexer {
    /// Trees loaded from legacy monolithic blobs, next save migrates fully to chunks.
    legacy_trees: BTreeSet<u32>,
 
-   db: Arc<dyn Database>,
+   db: RedbDatabase,
    /// AEAD key for sealing account note state in the DB.
    db_key: RailgunDbKey,
-   pub rpc_syncer: Arc<dyn UtxoSyncer>,
-   subsquid_syncer: Option<Arc<dyn UtxoSyncer>>,
-   pub utxo_verifier: Arc<dyn MerkleTreeVerifier>,
+   pub rpc_syncer: RpcSyncer,
+   subsquid_syncer: Option<SubsquidSyncer>,
+   pub utxo_verifier: RootVerifier,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -73,12 +72,12 @@ pub enum UtxoIndexerError {
 
 impl UtxoIndexer {
    pub async fn new(
-      db: Arc<dyn Database>,
-      rpc_syncer: Arc<dyn UtxoSyncer>,
-      subsquid_syncer: Option<Arc<dyn UtxoSyncer>>,
-      utxo_verifier: Arc<dyn MerkleTreeVerifier>,
+      db: RedbDatabase,
+      rpc_syncer: RpcSyncer,
+      subsquid_syncer: Option<SubsquidSyncer>,
+      utxo_verifier: RootVerifier,
    ) -> Result<Self, UtxoIndexerError> {
-      let db_key = db.crypto_key().cloned().ok_or(DatabaseError::MissingCryptoKey)?;
+      let db_key = db.crypto_key().clone();
       let state = db.get_utxo_indexer().await?;
 
       let mut utxo_trees = BTreeMap::new();
@@ -296,18 +295,17 @@ impl UtxoIndexer {
          self.accounts.len()
       );
 
-      let syncer: Arc<dyn UtxoSyncer> = if use_subsquid {
-         self.subsquid_syncer.clone().ok_or_else(|| {
+      let latest_block = if use_subsquid {
+         let syncer = self.subsquid_syncer.as_ref().ok_or_else(|| {
             SyncerError::new(std::io::Error::new(
                std::io::ErrorKind::Other,
                "subsquid syncer not configured",
             ))
-         })?
+         })?;
+         syncer.latest_block().await?
       } else {
-         self.rpc_syncer.clone()
+         self.rpc_syncer.latest_block().await?
       };
-
-      let latest_block = syncer.latest_block().await?;
 
       let to_block = to_block.min(latest_block);
 
@@ -315,8 +313,16 @@ impl UtxoIndexer {
          return Ok(());
       }
 
-      // Sync
-      let events = syncer.sync(from_block, to_block).await?;
+      let events = if use_subsquid {
+         self
+            .subsquid_syncer
+            .as_ref()
+            .expect("checked above")
+            .sync(from_block, to_block)
+            .await?
+      } else {
+         self.rpc_syncer.sync(from_block, to_block).await?
+      };
       debug!("Fetched {} events from syncer", events.len());
 
       let mut tree_leaves: HashMap<u32, Vec<(u32, UtxoLeafHash)>> = HashMap::new();

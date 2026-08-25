@@ -8,7 +8,7 @@ use crate::{
    caip::AssetId,
    crypto::poseidon_hash,
    merkle_tree::{MerkleRoot, MerkleTreeError, UtxoMerkleTree},
-   note::{Note, utxo::UtxoNote},
+   note::{OutputNote, utxo::UtxoNote},
 };
 
 #[derive(Debug, Clone)]
@@ -49,7 +49,7 @@ impl TransactCircuitInputs {
       signer: &RailgunSigner,
       asset: AssetId,
       notes_in: &[UtxoNote],
-      notes_out: &[Box<dyn Note>],
+      notes_out: &[OutputNote],
    ) -> Result<Self, TransactCircuitInputsError> {
       if notes_in.is_empty() || notes_out.is_empty() {
          return Err(TransactCircuitInputsError::EmptyInputNotes);

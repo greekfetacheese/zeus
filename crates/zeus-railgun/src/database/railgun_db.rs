@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
    account::address::RailgunAddress,
    database::{
-      Database, DatabaseError, RailgunDbKey, WriteBatch, WriteDurability,
+      DatabaseError, RailgunDbKey, RedbDatabase, WriteBatch, WriteDurability,
       crypto::ENCRYPTED_ENVELOPE_VERSION,
    },
    indexer::{
@@ -27,15 +27,8 @@ pub const TREE_LEAF_CHUNK: u32 = 1024;
 /// Envelope version for chunked leaf tree storage (meta + chunks).
 const TREE_CHUNK_FORMAT: u32 = 3;
 
-fn require_crypto_key(db: &(impl Database + ?Sized)) -> Result<&RailgunDbKey, DatabaseError> {
-   db.crypto_key().ok_or(DatabaseError::MissingCryptoKey)
-}
-
-/// Database trait extension with Railgun-specific methods for storing and retrieving typed state.
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait RailgunDB: Database + crate::MaybeSend {
-   async fn get_utxo_indexer(&self) -> Result<UtxoIndexerState, DatabaseError> {
+impl RedbDatabase {
+   pub async fn get_utxo_indexer(&self) -> Result<UtxoIndexerState, DatabaseError> {
       let key = utxo_indexer_key();
       let Some(bytes) = self.get(&key).await? else {
          return Ok(Default::default());
@@ -44,13 +37,13 @@ pub trait RailgunDB: Database + crate::MaybeSend {
       deserialize_versioned(&bytes)
    }
 
-   async fn set_utxo_indexer(&self, state: &UtxoIndexerState) -> Result<(), DatabaseError> {
+   pub async fn set_utxo_indexer(&self, state: &UtxoIndexerState) -> Result<(), DatabaseError> {
       let mut batch = WriteBatch::new();
       put_envelope(&mut batch, &utxo_indexer_key(), 2, state)?;
       self.apply_batch(batch, WriteDurability::Immediate).await
    }
 
-   async fn get_account(
+   pub async fn get_account(
       &self,
       addr: &RailgunAddress,
    ) -> Result<IndexedAccountState, DatabaseError> {
@@ -59,37 +52,35 @@ pub trait RailgunDB: Database + crate::MaybeSend {
          return Ok(Default::default());
       };
 
-      let crypto = require_crypto_key(self)?;
-      decode_account_state_versioned(&bytes, crypto, &storage_key)
+      decode_account_state_versioned(&bytes, self.crypto_key(), &storage_key)
    }
 
-   async fn set_account(
+   pub async fn set_account(
       &self,
       addr: &RailgunAddress,
       state: &IndexedAccountState,
    ) -> Result<(), DatabaseError> {
       let mut batch = WriteBatch::new();
-      let crypto = require_crypto_key(self)?;
-      put_account(&mut batch, addr, state, crypto)?;
+      put_account(&mut batch, addr, state, self.crypto_key())?;
       self.apply_batch(batch, WriteDurability::Immediate).await
    }
 
    /// Delete sealed account state for `addr` from the DB.
-   async fn delete_account(&self, addr: &RailgunAddress) -> Result<(), DatabaseError> {
+   pub async fn delete_account(&self, addr: &RailgunAddress) -> Result<(), DatabaseError> {
       let mut batch = WriteBatch::new();
       batch.delete(account_key(addr));
       self.apply_batch(batch, WriteDurability::Immediate).await
    }
 
    /// Storage keys for all persisted account blobs (`account:…`).
-   async fn list_account_keys(&self) -> Result<Vec<Vec<u8>>, DatabaseError> {
+   pub async fn list_account_keys(&self) -> Result<Vec<Vec<u8>>, DatabaseError> {
       self.keys_with_prefix(b"account:").await
    }
 
    /// Load UTXO tree leaves. Supports legacy full-level blobs and chunked leaf format.
    ///
    /// Returns `(leaves, loaded_from_legacy_blob)`.
-   async fn get_utxo_tree_leaves(
+   pub async fn get_utxo_tree_leaves(
       &self,
       tree_number: u32,
    ) -> Result<Option<(Vec<U256>, bool)>, DatabaseError> {
@@ -97,7 +88,7 @@ pub trait RailgunDB: Database + crate::MaybeSend {
    }
 
    /// Legacy helper: load full tree state (rebuilds levels from leaves).
-   async fn get_utxo_tree(
+   pub async fn get_utxo_tree(
       &self,
       tree_number: u32,
    ) -> Result<Option<RailgunMerkleTreeState>, DatabaseError> {
@@ -108,7 +99,7 @@ pub trait RailgunDB: Database + crate::MaybeSend {
       Ok(Some(tree.state()))
    }
 
-   async fn set_utxo_tree(
+   pub async fn set_utxo_tree(
       &self,
       tree_number: u32,
       state: RailgunMerkleTreeState,
@@ -129,7 +120,7 @@ pub trait RailgunDB: Database + crate::MaybeSend {
       self.apply_batch(batch, WriteDurability::Immediate).await
    }
 
-   async fn get_txid_indexer(&self) -> Result<TxidIndexerState, DatabaseError> {
+   pub async fn get_txid_indexer(&self) -> Result<TxidIndexerState, DatabaseError> {
       let key = txid_indexer_key();
       let Some(bytes) = self.get(&key).await? else {
          return Ok(Default::default());
@@ -138,20 +129,20 @@ pub trait RailgunDB: Database + crate::MaybeSend {
       deserialize_versioned(&bytes)
    }
 
-   async fn set_txid_indexer(&self, state: &TxidIndexerState) -> Result<(), DatabaseError> {
+   pub async fn set_txid_indexer(&self, state: &TxidIndexerState) -> Result<(), DatabaseError> {
       let mut batch = WriteBatch::new();
       put_envelope(&mut batch, &txid_indexer_key(), 2, state)?;
       self.apply_batch(batch, WriteDurability::Immediate).await
    }
 
-   async fn get_txid_tree_leaves(
+   pub async fn get_txid_tree_leaves(
       &self,
       tree_number: u32,
    ) -> Result<Option<(Vec<U256>, bool)>, DatabaseError> {
       load_tree_leaves(self, Kind::Txid, tree_number).await
    }
 
-   async fn get_txid_tree(
+   pub async fn get_txid_tree(
       &self,
       tree_number: u32,
    ) -> Result<Option<RailgunMerkleTreeState>, DatabaseError> {
@@ -162,7 +153,7 @@ pub trait RailgunDB: Database + crate::MaybeSend {
       Ok(Some(tree.state()))
    }
 
-   async fn set_txid_tree(
+   pub async fn set_txid_tree(
       &self,
       tree_number: u32,
       state: RailgunMerkleTreeState,
@@ -183,24 +174,22 @@ pub trait RailgunDB: Database + crate::MaybeSend {
       self.apply_batch(batch, WriteDurability::Immediate).await
    }
 
-   async fn get_poi_provider(&self) -> Result<PoiProviderState, DatabaseError> {
+   pub async fn get_poi_provider(&self) -> Result<PoiProviderState, DatabaseError> {
       let storage_key = poi_provider_key();
       let Some(bytes) = self.get(&storage_key).await? else {
          return Ok(Default::default());
       };
 
-      let crypto = require_crypto_key(self)?;
-      deserialize_versioned_sensitive(&bytes, crypto, &storage_key)
+      deserialize_versioned_sensitive(&bytes, self.crypto_key(), &storage_key)
    }
 
-   async fn set_poi_provider(&self, state: &PoiProviderState) -> Result<(), DatabaseError> {
+   pub async fn set_poi_provider(&self, state: &PoiProviderState) -> Result<(), DatabaseError> {
       let mut batch = WriteBatch::new();
-      let crypto = require_crypto_key(self)?;
-      put_poi_provider(&mut batch, state, crypto)?;
+      put_poi_provider(&mut batch, state, self.crypto_key())?;
       self.apply_batch(batch, WriteDurability::Immediate).await
    }
 
-   async fn write_envelope<S: Serialize + crate::MaybeSend>(
+   pub async fn write_envelope<S: Serialize>(
       &self,
       key: &[u8],
       version: u32,
@@ -212,7 +201,7 @@ pub trait RailgunDB: Database + crate::MaybeSend {
    }
 
    /// One-shot indexer save: watermark + dirty tree chunks + dirty accounts.
-   async fn apply_utxo_save_batch(
+   pub async fn apply_utxo_save_batch(
       &self,
       batch: WriteBatch,
       durability: WriteDurability,
@@ -220,8 +209,6 @@ pub trait RailgunDB: Database + crate::MaybeSend {
       self.apply_batch(batch, durability).await
    }
 }
-
-impl<D: Database + ?Sized> RailgunDB for D {}
 
 // ---------------------------------------------------------------------------
 // Chunked tree persistence
@@ -409,8 +396,8 @@ fn push_tree_save(
    Ok(())
 }
 
-async fn load_tree_leaves<D: Database + ?Sized>(
-   db: &D,
+async fn load_tree_leaves(
+   db: &RedbDatabase,
    kind: Kind,
    tree_number: u32,
 ) -> Result<Option<(Vec<U256>, bool)>, DatabaseError> {
@@ -661,11 +648,11 @@ fn poi_provider_key() -> Vec<u8> {
 #[cfg(test)]
 mod tests {
    use super::*;
-   use crate::database::memory::MemoryDatabase;
+   use crate::database::RedbDatabase;
    use crate::merkle_tree::RailgunMerkleTree;
 
-   fn test_db() -> MemoryDatabase {
-      MemoryDatabase::new(RailgunDbKey::generate().unwrap())
+   fn test_db() -> RedbDatabase {
+      RedbDatabase::in_memory(RailgunDbKey::generate().unwrap()).unwrap()
    }
 
    #[tokio::test]
@@ -762,7 +749,7 @@ mod tests {
       use crate::indexer::indexed_account::IndexedAccountState;
 
       let crypto = RailgunDbKey::generate().unwrap();
-      let db = MemoryDatabase::new(crypto.clone());
+      let db = RedbDatabase::in_memory(crypto.clone()).unwrap();
 
       let legacy_state = IndexedAccountState {
          notes: vec![],
@@ -792,7 +779,7 @@ mod tests {
       assert_eq!(loaded2.synced_block, 42);
 
       // Wrong key cannot open
-      let db_bad = MemoryDatabase::new(RailgunDbKey::generate().unwrap());
+      let db_bad = RedbDatabase::in_memory(RailgunDbKey::generate().unwrap()).unwrap();
       db_bad.set(&account_key(&addr), &raw).await.unwrap();
       assert!(db_bad.get_account(&addr).await.is_err());
    }

@@ -16,15 +16,15 @@ use crate::{
       keys::{NullifyingKey, SpendingPublicKey},
       railgun_txid::Txid,
    },
-   database::{Database, DatabaseError, RailgunDB},
+   database::{DatabaseError, RedbDatabase},
    indexer::{
-      syncer::TxidSyncer,
+      syncer::SubsquidSyncer,
       txid_indexer::{TxidIndexer, TxidIndexerError},
    },
    merkle_tree::{RailgunMerkleProof, TOTAL_LEAVES, TxidMerkleTree, UtxoTreeIndex},
    note::utxo::{self, UtxoNote},
    poi::{
-      client::{PoiClient, PoiClientError, PoiNodeClient},
+      client::{PoiClient, PoiClientError},
       note::PoiNote,
       types::{BlindedCommitment, BlindedCommitmentType, ListKey, PoiStatus, TransactProofData},
    },
@@ -34,7 +34,7 @@ use crate::{
 #[derive(Clone)]
 pub struct PoiProvider {
    inner: Arc<RwLock<PoiProviderState>>,
-   db: Arc<dyn Database>,
+   db: RedbDatabase,
    poi_client: PoiClient,
    txid_indexer: Arc<RwLock<TxidIndexer>>,
 }
@@ -103,8 +103,8 @@ enum PendingPoiError {
 impl PoiProvider {
    pub async fn new(
       chain_id: ChainId,
-      db: Arc<dyn Database>,
-      txid_syncer: Arc<dyn TxidSyncer>,
+      db: RedbDatabase,
+      txid_syncer: SubsquidSyncer,
       poi_endpoint: impl Into<String>,
       list_keys: Vec<ListKey>,
    ) -> Result<Self, PoiProviderError> {

@@ -1,11 +1,10 @@
-use alloy_provider::{DynProvider, network::Ethereum};
 use serde::{Serialize, de::DeserializeOwned};
+use std::time::Duration;
 use tracing::{debug, error, info, warn};
-use web_time::Duration;
 
 use super::types::*;
 use crate::indexer::syncer::{
-   self, SyncerError, TxidSyncer, UtxoSyncer,
+   self, SyncerError,
    snapshot::{EventsSnapshot, SnapshotLoader},
 };
 
@@ -60,20 +59,12 @@ impl SubsquidSyncer {
       self.snapshot_loader = Some(snapshot_loader);
       self
    }
-}
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl UtxoSyncer for SubsquidSyncer {
-   async fn latest_block(&self) -> Result<u64, SyncerError> {
-      Ok(self.latest_block().await?)
+   pub async fn latest_block(&self) -> Result<u64, SyncerError> {
+      Ok(self.fetch_latest_block().await?)
    }
 
-   async fn set_concurrency(&self, _concurrency: usize) {}
-
-   async fn set_block_range(&self, _block_range: u64) {}
-
-   async fn sync(
+   pub async fn sync(
       &self,
       from_block: u64,
       to_block: u64,
@@ -198,19 +189,7 @@ impl UtxoSyncer for SubsquidSyncer {
       Ok(events)
    }
 
-   async fn set_provider(&self, _provider: DynProvider<Ethereum>) {
-      // SubsquidSyncer uses a reqwest client, not an alloy provider; no-op.
-   }
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl TxidSyncer for SubsquidSyncer {
-   async fn latest_block(&self) -> Result<u64, SyncerError> {
-      Ok(self.latest_block().await?)
-   }
-
-   async fn sync(
+   pub async fn sync_operations(
       &self,
       from_block: u64,
       to_block: u64,
@@ -313,7 +292,7 @@ impl SubsquidSyncer {
       Ok(())
    }
 
-   async fn latest_block(&self) -> Result<u64, SubsquidSyncerError> {
+   async fn fetch_latest_block(&self) -> Result<u64, SubsquidSyncerError> {
       if let Some(override_block) = self.latest_block_override {
          return Ok(override_block);
       }

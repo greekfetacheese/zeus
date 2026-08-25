@@ -20,29 +20,10 @@ use tokio::sync::Mutex;
 
 use crate::abi::railgun::RailgunSmartWallet;
 
-/// Validates a Merkle root against an external authority (e.g. on-chain or a POI node).
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait MerkleTreeVerifier: crate::MaybeSend {
-   async fn verify_root(
-      &self,
-      tree_number: u32,
-      index: u32,
-      root: MerkleRoot,
-      block_id: Option<BlockId>,
-   ) -> Result<bool, Box<dyn std::error::Error + Send + Sync + 'static>>;
-
-   /// Replaces the underlying RPC provider at runtime.
-   ///
-   /// Object-safe: takes a type-erased [`DynProvider`] so it can be called through
-   /// `Arc<dyn MerkleTreeVerifier>`.
-   async fn set_provider(&self, provider: DynProvider<Ethereum>);
-}
-
-/// A Merkle root verifier that uses a Json RPC client
+/// A Merkle root verifier that uses a Json RPC client.
+#[derive(Clone)]
 pub struct RootVerifier {
    railgun_address: Address,
-   /// Stored behind a shared `Mutex` so the swap works through `Arc<dyn MerkleTreeVerifier>`.
    provider: Arc<Mutex<DynProvider<Ethereum>>>,
 }
 
@@ -55,15 +36,10 @@ impl RootVerifier {
    }
 
    pub async fn set_provider(&self, provider: DynProvider<Ethereum>) {
-      let cell = self.provider.clone();
-      *cell.lock().await = provider;
+      *self.provider.lock().await = provider;
    }
-}
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl MerkleTreeVerifier for RootVerifier {
-   async fn verify_root(
+   pub async fn verify_root(
       &self,
       tree_number: u32,
       _index: u32,
@@ -91,9 +67,5 @@ impl MerkleTreeVerifier for RootVerifier {
       let exists = <bool as alloy_sol_types::SolValue>::abi_decode(&data)?;
 
       Ok(exists)
-   }
-
-   async fn set_provider(&self, provider: DynProvider<Ethereum>) {
-      self.set_provider(provider).await;
    }
 }

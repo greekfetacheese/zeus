@@ -17,7 +17,6 @@ use crate::{
    },
    indexer::syncer::types::{Shield, Transact},
    merkle_tree::UtxoLeafHash,
-   note::Note,
    poi::types::BlindedCommitmentType,
 };
 
@@ -152,30 +151,28 @@ impl UtxoNote {
          BlindedCommitmentType::Shield,
       ))
    }
-}
 
-impl Note for UtxoNote {
-   fn asset(&self) -> AssetId {
+   pub fn asset(&self) -> AssetId {
       self.asset
    }
 
-   fn value(&self) -> u128 {
+   pub fn value(&self) -> u128 {
       self.value
    }
 
-   fn memo(&self) -> String {
+   pub fn memo(&self) -> String {
       self.memo.clone()
    }
 
-   fn random(&self) -> [u8; 16] {
+   pub fn random(&self) -> [u8; 16] {
       self.random
    }
 
-   fn hash(&self) -> UtxoLeafHash {
+   pub fn hash(&self) -> UtxoLeafHash {
       self.hash
    }
 
-   fn note_public_key(&self) -> U256 {
+   pub fn note_public_key(&self) -> U256 {
       self.note_public_key
    }
 }
