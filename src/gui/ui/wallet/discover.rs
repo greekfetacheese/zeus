@@ -8,7 +8,7 @@ use eframe::egui::{
    Align, Align2, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner, Stroke,
    Ui, Vec2, vec2,
 };
-use egui_elements::{Button, widgets::Window, OverlayManager, SecureTextEdit, Theme};
+use egui_elements::{Button, OverlayManager, SecureTextEdit, Theme, widgets::Window};
 use zeus_bip32::BIP32_HARDEN;
 use zeus_eth::{
    alloy_primitives::Address,
@@ -607,11 +607,7 @@ impl DiscoverChildWallets {
                   let balances = self.discovered_wallets.balances.clone();
 
                   RT.spawn_blocking(move || {
-                     let ctx = SHARED_GUI.write(|gui| {
-                        gui.loading_window.open("Encrypting vault...");
-                        gui.request_repaint();
-                        gui.ctx.clone()
-                     });
+                     let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
 
                      let mut new_vault = ctx.get_vault();
                      let res = new_vault.derive_child_wallet_at_mut(name, index);
@@ -647,6 +643,11 @@ impl DiscoverChildWallets {
                            );
                         });
                      }
+
+                     SHARED_GUI.write(|gui| {
+                        gui.loading_window.open("Encrypting vault...");
+                        gui.request_repaint();
+                     });
 
                      // On success save the vault and update the hd wallet in the Ui
                      // If this op fails we revert the changes

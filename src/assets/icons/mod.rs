@@ -676,6 +676,28 @@ impl Icons {
       }
    }
 
+   pub fn visible_dark(&self) -> Image<'static> {
+      Image::new(&self.misc.view).sense(Sense::click())
+   }
+
+   pub fn visible_light(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.view_light).sense(Sense::click()).tint(TINT_1),
+         false => Image::new(&self.misc.view_light).sense(Sense::click()),
+      }
+   }
+
+   pub fn invisible_dark(&self) -> Image<'static> {
+      Image::new(&self.misc.hide).sense(Sense::click())
+   }
+
+   pub fn invisible_light(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.hide_light).sense(Sense::click()).tint(TINT_1),
+         false => Image::new(&self.misc.hide_light).sense(Sense::click()),
+      }
+   }
+
    /// For light themes
    pub fn view_dark(&self) -> Image<'static> {
       Image::new(&self.misc.view).sense(Sense::click())

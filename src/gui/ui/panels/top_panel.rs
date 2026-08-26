@@ -40,9 +40,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let available_width = ui.available_width();
 
    ui.horizontal(|ui| {
-      ui.vertical(|ui| {
-         gui.header.show(ctx, theme, icons.clone(), ui);
-      });
+      ui.set_min_height(150.0);
 
       if !has_available_rpcs {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -61,7 +59,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
                   ui.add_space(10.0);
 
-                  let text = RichText::new("Open Network Settings").size(theme.typography.normal);
+                  let text = RichText::new("Network Settings").size(theme.typography.normal);
                   let button = Button::new(text).visuals(theme.button_visuals());
                   if ui.add(button).clicked() {
                      gui.settings.open_network_settings();

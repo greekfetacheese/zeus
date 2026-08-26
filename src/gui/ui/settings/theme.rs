@@ -68,6 +68,7 @@ impl ThemeSettings {
                   .visuals(label_visuals)
                   .sense(Sense::click())
                   .expand(Some(6.0))
+                  .interactive(true)
                   .fill_width(true);
 
                ComboBox::new("theme_settings_combobox", label)
@@ -82,6 +83,7 @@ impl ThemeSettings {
                            .visuals(label_visuals)
                            .expand(Some(6.0))
                            .sense(Sense::click())
+                           .interactive(true)
                            .fill_width(true);
 
                         if ui.add(label).clicked() {

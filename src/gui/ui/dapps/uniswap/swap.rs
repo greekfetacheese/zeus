@@ -371,6 +371,7 @@ impl SwapUi {
          .visuals(label_visuals)
          .sense(Sense::click())
          .expand(Some(6.0))
+         .interactive(true)
          .fill_width(true);
 
       ComboBox::new("protocol_version", label)
@@ -385,6 +386,7 @@ impl SwapUi {
                   .sense(Sense::click())
                   .visuals(label_visuals)
                   .expand(Some(6.0))
+                  .interactive(true)
                   .fill_width(true);
 
                if ui.add(label).clicked() {

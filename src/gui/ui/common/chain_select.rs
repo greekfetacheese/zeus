@@ -68,6 +68,7 @@ impl ChainSelect {
          Some(icon),
       )
       .image_on_left()
+      .interactive(true)
       .sense(Sense::click())
       .visuals(label_visuals);
 
@@ -94,6 +95,7 @@ impl ChainSelect {
                   .image_on_left()
                   .expand(expansion)
                   .fill_width(true)
+                  .interactive(true)
                   .selected(is_selected)
                   .visuals(label_visuals)
                   .sense(Sense::click());

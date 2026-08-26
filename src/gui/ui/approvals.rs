@@ -6,7 +6,10 @@ use crate::core::{
 };
 use crate::gui::{SHARED_GUI, ui::show_with_fade};
 use crate::utils::{RT, TimeStamp, truncate_address};
-use egui::{Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, Ui, vec2};
+use egui::{
+   Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, UiBuilder,
+   vec2,
+};
 use egui_elements::{Button, ComboBox, Label, OverlayManager, Theme};
 use elegance::{Badge, BadgeTone};
 use std::collections::HashMap;
@@ -79,7 +82,6 @@ pub struct ApprovalsUi {
    cached_rows: Vec<ApprovalRow>,
    cache_key: CacheKey,
    cached_permit_info: PermitInfoMap,
-   size: (f32, f32),
 }
 
 impl ApprovalsUi {
@@ -93,7 +95,6 @@ impl ApprovalsUi {
          cached_rows: Vec::new(),
          cache_key: CacheKey::default(),
          cached_permit_info: HashMap::new(),
-         size: (1000.0, 620.0),
       }
    }
 
@@ -307,18 +308,17 @@ impl ApprovalsUi {
       }
    }
 
-   /// Fixed-size cell. Content is vertically centered so icon / text / button
-   /// columns share one baseline across every row (including Permit2 expire).
+   /// Fixed-size cell. The parent always advances by `width` even if a label
+   /// wants more space — otherwise long Chain/Wallet/Spender names shove later
+   /// columns to the right.
    fn row_cell(ui: &mut Ui, width: f32, height: f32, add_contents: impl FnOnce(&mut Ui)) {
-      ui.allocate_ui_with_layout(
-         vec2(width, height),
-         Layout::left_to_right(Align::Center),
-         |ui| {
-            ui.set_min_size(vec2(width, height));
-            ui.set_max_size(vec2(width, height));
-            add_contents(ui);
-         },
-      );
+      let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+      let mut child =
+         ui.new_child(UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)));
+      // Don't clip — Button chrome expands a few px and clip cuts the left
+      // edge of Revoke. Truncate wrap keeps long labels inside the cell.
+      child.style_mut().wrap_mode = Some(TextWrapMode::Truncate);
+      add_contents(&mut child);
    }
 
    fn amount_cell(
@@ -329,29 +329,22 @@ impl ApprovalsUi {
       expire: Option<String>,
       theme: &Theme,
    ) {
-      ui.allocate_ui_with_layout(
-         vec2(width, height),
-         Layout::left_to_right(Align::Center),
-         |ui| {
-            ui.set_min_size(vec2(width, height));
-            ui.set_max_size(vec2(width, height));
-            ui.spacing_mut().item_spacing.x = 5.0;
-            ui.set_width(width);
+      Self::row_cell(ui, width, height, |ui| {
+         ui.spacing_mut().item_spacing.x = 5.0;
 
-            ui.label(
-               RichText::new(Self::amount_label(amount))
-                  .size(theme.typography.normal)
-                  .color(theme.colors.text),
-            );
+         ui.label(
+            RichText::new(Self::amount_label(amount))
+               .size(theme.typography.normal)
+               .color(theme.colors.text),
+         );
 
-            if let Some(text) = expire {
-               let expire_text = RichText::new(text).size(theme.typography.normal);
-               let q_mark = RichText::new("?").size(theme.typography.normal);
-               let info_tip = Badge::new(q_mark, BadgeTone::Info);
-               ui.add(info_tip).on_hover_text(expire_text);
-            }
-         },
-      );
+         if let Some(text) = expire {
+            let expire_text = RichText::new(text).size(theme.typography.normal);
+            let q_mark = RichText::new("?").size(theme.typography.normal);
+            let info_tip = Badge::new(q_mark, BadgeTone::Info);
+            ui.add(info_tip).on_hover_text(expire_text);
+         }
+      });
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -359,8 +352,6 @@ impl ApprovalsUi {
 
       show_with_fade(ui, "approvals_ui_fade", self.open, |ui| {
          frame.show(ui, |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
             ui.spacing_mut().item_spacing = vec2(10.0, 12.0);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
@@ -384,6 +375,7 @@ impl ApprovalsUi {
                let label = Label::new(text, None)
                   .visuals(label_visuals)
                   .fill_width(true)
+                  .interactive(true)
                   .sense(Sense::click())
                   .expand(expansion);
 
@@ -397,6 +389,7 @@ impl ApprovalsUi {
                      let label = Label::new(text, None)
                         .visuals(label_visuals)
                         .fill_width(true)
+                        .interactive(true)
                         .sense(Sense::click())
                         .expand(expansion);
 
@@ -411,6 +404,7 @@ impl ApprovalsUi {
                            RichText::new(&wallet.name_with_source()).size(theme.typography.normal);
                         let label = Label::new(text, None)
                            .visuals(label_visuals)
+                           .interactive(true)
                            .sense(Sense::click())
                            .fill_width(true)
                            .expand(expansion);
@@ -435,6 +429,7 @@ impl ApprovalsUi {
                let label = Label::new(text, None)
                   .visuals(label_visuals)
                   .fill_width(true)
+                  .interactive(true)
                   .sense(Sense::click())
                   .expand(expansion);
 
@@ -448,6 +443,7 @@ impl ApprovalsUi {
                      let label = Label::new(text, None)
                         .visuals(label_visuals)
                         .fill_width(true)
+                        .interactive(true)
                         .sense(Sense::click())
                         .expand(expansion);
 
@@ -466,6 +462,7 @@ impl ApprovalsUi {
                         let label = Label::new(text, None)
                            .visuals(label_visuals)
                            .sense(Sense::click())
+                           .interactive(true)
                            .fill_width(true)
                            .expand(expansion);
 
@@ -539,24 +536,37 @@ impl ApprovalsUi {
                .show(ui, |ui| {
                   ui.set_width(ui.available_width());
 
-                  // Fixed content height for every column
+                  // Fixed content height for every column.
+                  // Size columns from the *inner* card width (after frame2
+                  // padding) so header cells line up with body cells and the
+                  // row actually fills the card — leftover used to live after
+                  // Revoke because body spacing/padding did not match the header.
                   let row_height = 48.0;
                   let col_spacing = 20.0;
+                  let n_cols = 7.0;
+                  let row_frame = theme.frame2.outer_margin(Margin::ZERO);
+                  let inner_left = row_frame.inner_margin.leftf();
+                  let inner_right = row_frame.inner_margin.rightf();
+                  let inner_y = row_frame.inner_margin.topf() + row_frame.inner_margin.bottomf();
+                  let row_width = ui.available_width();
+                  let inner_width = (row_width - inner_left - inner_right).max(0.0);
+                  let usable = (inner_width - col_spacing * (n_cols - 1.0)).max(0.0);
+                  // Compact action column; remaining width goes to the data columns.
+                  let revoke_w = 100.0_f32.min(usable);
+                  let rest = (usable - revoke_w).max(0.0);
                   let column_widths = [
-                     ui.available_width() * 0.18, // Asset
-                     ui.available_width() * 0.10, // Chain
-                     ui.available_width() * 0.14, // Wallet
-                     ui.available_width() * 0.18, // Spender
-                     ui.available_width() * 0.14, // Amount (+ expire)
-                     ui.available_width() * 0.10, // Type
-                     ui.available_width() * 0.12, // Revoke
+                     rest * 0.20, // Asset
+                     rest * 0.13, // Chain
+                     rest * 0.16, // Wallet
+                     rest * 0.22, // Spender
+                     rest * 0.16, // Amount (+ expire)
+                     rest * 0.13, // Type
+                     revoke_w,    // Revoke
                   ];
-                  let row_width: f32 = column_widths.iter().sum::<f32>()
-                     + col_spacing * (column_widths.len() as f32 - 1.0);
 
-                  // --- Header (same widths as body cells; not inside a frame) ---
+                  // --- Header (same widths + left inset as body cells) ---
                   ui.horizontal(|ui| {
-                     ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0);
+                     ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0 + inner_left);
                      ui.spacing_mut().item_spacing.x = col_spacing;
                      for (i, header) in
                         ["Asset", "Chain", "Wallet", "Spender", "Amount", "Type", ""]
@@ -583,15 +593,14 @@ impl ApprovalsUi {
                   // Do NOT put Frame inside a Grid cell — Frame becomes a single
                   // cell and every column collapses into the first one.
                   let rows = self.cached_rows.clone();
-                  let row_frame = theme.frame2.outer_margin(0);
 
                   ui.vertical_centered(|ui| {
                      ui.spacing_mut().item_spacing.y = 10.0;
 
                      for row in rows {
-                        ui.allocate_ui(vec2(row_width, row_height + 16.0), |ui| {
+                        ui.allocate_ui(vec2(row_width, row_height + inner_y), |ui| {
                            row_frame.show(ui, |ui| {
-                              ui.set_width(row_width);
+                              ui.set_width(inner_width);
                               ui.spacing_mut().item_spacing.x = col_spacing;
 
                               ui.horizontal(|ui| {
@@ -602,10 +611,8 @@ impl ApprovalsUi {
                                     let text = RichText::new(row.token.symbol())
                                        .size(theme.typography.normal)
                                        .color(theme.colors.text);
-                                    let label = Label::new(text, None)
-                                       .wrap()
-                                       .visuals(label_visuals)
-                                       .interactive(false);
+                                    let label =
+                                       Label::new(text, None).wrap().visuals(label_visuals);
                                     ui.scope(|ui| {
                                        ui.set_max_width(column_widths[0] - 40.0);
                                        ui.add(label).on_hover_text(row.token.name());
@@ -615,22 +622,25 @@ impl ApprovalsUi {
                                  // Chain
                                  Self::row_cell(ui, column_widths[1], row_height, |ui| {
                                     let chain: ChainId = row.chain.into();
-                                    ui.label(
-                                       RichText::new(chain.name())
-                                          .size(theme.typography.normal)
-                                          .color(theme.colors.text),
-                                    );
+                                    let text = RichText::new(chain.name())
+                                       .size(theme.typography.normal)
+                                       .color(theme.colors.text);
+                                    let label = Label::new(text, None)
+                                       .wrap_mode(TextWrapMode::Truncate)
+                                       .visuals(label_visuals);
+                                    ui.add(label).on_hover_text(chain.name());
                                  });
 
                                  // Wallet
                                  Self::row_cell(ui, column_widths[2], row_height, |ui| {
                                     let name = self.wallet_name(ctx, row.owner);
-                                    ui.label(
-                                       RichText::new(name)
-                                          .size(theme.typography.normal)
-                                          .color(theme.colors.text),
-                                    )
-                                    .on_hover_text(row.owner.to_string());
+                                    let text = RichText::new(&name)
+                                       .size(theme.typography.normal)
+                                       .color(theme.colors.text);
+                                    let label = Label::new(text, None)
+                                       .wrap_mode(TextWrapMode::Truncate)
+                                       .visuals(label_visuals);
+                                    ui.add(label).on_hover_text(format!("{}\n{}", name, row.owner));
                                  });
 
                                  // Spender
@@ -641,12 +651,10 @@ impl ApprovalsUi {
                                     let explorer = chain.block_explorer();
                                     let link =
                                        format!("{}/address/{}", explorer, row.spender.to_string());
-                                    ui.hyperlink_to(
-                                       RichText::new(name)
-                                          .size(theme.typography.normal)
-                                          .color(theme.colors.info),
-                                       link,
-                                    );
+                                    let text = RichText::new(&name)
+                                       .size(theme.typography.normal)
+                                       .color(theme.colors.info);
+                                    ui.hyperlink_to(text, link);
                                  });
 
                                  // Amount
@@ -681,14 +689,16 @@ impl ApprovalsUi {
                                     );
                                  });
 
-                                 // Revoke
+                                 // Revoke — hug the right inner edge of the card.
                                  Self::row_cell(ui, column_widths[6], row_height, |ui| {
-                                    let text =
-                                       RichText::new("Revoke").size(theme.typography.normal);
-                                    let button = Button::new(text).visuals(button_visuals);
-                                    if ui.add(button).clicked() {
-                                       self.revoke(row);
-                                    }
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                       let text =
+                                          RichText::new("Revoke").size(theme.typography.normal);
+                                       let button = Button::new(text).visuals(button_visuals);
+                                       if ui.add(button).clicked() {
+                                          self.revoke(row);
+                                       }
+                                    });
                                  });
                               });
                            });

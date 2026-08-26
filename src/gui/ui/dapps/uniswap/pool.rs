@@ -67,14 +67,14 @@ impl PoolsUi {
       let all_versions = Version::all();
       let selected_text = self.version.map(|v| v.to_str()).unwrap_or("Select Version");
       let selected_text = RichText::new(selected_text).size(theme.typography.normal);
-      let selected_label = Label::new(selected_text, None).sense(Sense::click()).interactive(false);
+      let selected_label = Label::new(selected_text, None).sense(Sense::click()).interactive(true);
 
       ComboBox::new("pool_explore_combobox", selected_label)
          .width(200.0)
          .show_ui(ui, |ui| {
             for version in all_versions {
                let text = RichText::new(version.to_str()).size(theme.typography.normal);
-               let label = Label::new(text, None).sense(Sense::click()).interactive(false);
+               let label = Label::new(text, None).sense(Sense::click()).interactive(true);
                if ui.add(label).clicked() {
                   self.version = Some(version);
                }

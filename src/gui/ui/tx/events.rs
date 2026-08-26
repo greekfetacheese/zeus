@@ -1044,7 +1044,7 @@ fn uniswap_position_op_event_ui(
          );
          let text = RichText::new(text).size(theme.typography.large);
 
-         let label = Label::new(text, Some(icon)).image_on_left();
+         let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
          });

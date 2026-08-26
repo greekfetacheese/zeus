@@ -1,245 +1,276 @@
 use crate::core::ZeusContext;
 use crate::gui::{GUI, ui::dapps::railgun::RailgunMode};
 use eframe::egui::{Align2, Order, RichText, ScrollArea, Ui, vec2};
-use egui::{FontId, Margin, Stroke};
-use egui_elements::{Button, OverlayManager, SecureTextEdit, widgets::Window, Theme};
+use egui::{FontId, Margin, Shadow, Stroke};
+use egui_elements::{
+   Button, Frame as Frame2, Label, OverlayManager, SecureTextEdit, Theme, widgets::Window,
+};
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let privacy_mode = ctx.privacy_mode;
+   let chain_id = ctx.chain.id();
+   let icons = gui.icons.clone();
    let theme = &gui.theme;
-   ui.set_width(140.0);
 
-   let color = theme.colors.hover;
-   let stroke = Stroke::new(1.0, color);
-   let frame = theme.frame2.inner_margin(Margin::symmetric(0, 10)).stroke(stroke);
+   gui.header.show(ctx, theme, icons, ui);
 
-   frame.show(ui, |ui| {
-      ui.vertical_centered(|ui| {
-         ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+   ui.add_space(10.0);
 
-         let text_size = gui.theme.typography.large;
-         let button_size = vec2(80.0, 40.0);
+   ui.vertical(|ui| {
+      ui.spacing_mut().item_spacing = vec2(0.0, 4.0);
 
-         let is_open = gui.portofolio.is_open();
-         let home = Button::selectable(is_open, RichText::new("Home").size(text_size))
-            .min_size(button_size);
+      let text_size = gui.theme.typography.normal;
+      let mut visuals = theme.frame2_visuals();
+      visuals.bg = theme.frame1.fill;
+      visuals.border = Stroke::NONE;
+      visuals.shadow = Shadow::NONE;
 
-         if ui.add(home).clicked() {
-            gui.portofolio.open();
-            gui.uniswap.close();
-            gui.send_crypto.close();
-            gui.settings.close();
-            gui.wallet_ui.close();
-            gui.tx_history.close(ctx);
-            gui.across_bridge.close();
-            gui.dev.close();
-            gui.shield_ui.close();
-            gui.approvals.close();
-         }
+      let is_open = gui.portofolio.is_open();
 
-         let is_open = gui.send_crypto.is_open();
-         let send = Button::selectable(is_open, RichText::new("Send").size(text_size))
-            .min_size(button_size);
+      let frame = Frame2::from_egui(theme.frame2)
+         .interactive(true)
+         .fill_width(true)
+         .square_corners()
+         .visuals(visuals);
 
-         if ui.add(send).clicked() {
-            let privacy_mode = ctx.privacy_mode;
-            let chain_id = ctx.chain.id();
-            gui.send_crypto.open();
-            gui.send_crypto.default_currency(privacy_mode, chain_id);
-            gui.uniswap.close();
-            gui.portofolio.close();
-            gui.settings.close();
-            gui.wallet_ui.close();
-            gui.tx_history.close(ctx);
-            gui.across_bridge.close();
-            gui.dev.close();
-            // This is shared, so reset it to avoid any issues
-            gui.recipient_selection.reset();
-            gui.shield_ui.close();
-            gui.approvals.close();
-         }
-
-         let is_open = gui.shield_ui.is_open();
-         let title = match privacy_mode {
-            false => "Shield",
-            true => "Unshield",
-         };
-
-         let mode = match privacy_mode {
-            false => RailgunMode::Shield,
-            true => RailgunMode::Unshield,
-         };
-
-         let shield =
-            Button::selectable(is_open, RichText::new(title).size(text_size)).min_size(button_size);
-
-         if ui.add(shield).clicked() {
-            gui.shield_ui.open(mode);
-            gui.portofolio.close();
-            gui.uniswap.close();
-            gui.send_crypto.close();
-            gui.settings.close();
-            gui.wallet_ui.close();
-            gui.tx_history.close(ctx);
-            gui.across_bridge.close();
-            gui.dev.close();
-            // This is shared, so reset it to avoid any issues
-            gui.recipient_selection.reset();
-            gui.approvals.close();
-         }
-
-         let is_open = gui.uniswap.is_open();
-         let swap = Button::selectable(is_open, RichText::new("Swap").size(text_size))
-            .min_size(button_size);
-
-         if ui.add(swap).clicked() {
-            gui.uniswap.open();
-            gui.portofolio.close();
-            gui.send_crypto.close();
-            gui.settings.close();
-            gui.wallet_ui.close();
-            gui.tx_history.close(ctx);
-            gui.across_bridge.close();
-            gui.dev.close();
-            gui.shield_ui.close();
-            gui.approvals.close();
-         }
-
-         let is_open = gui.across_bridge.is_open();
-         let bridge = Button::selectable(is_open, RichText::new("Bridge").size(text_size))
-            .min_size(button_size);
-
-         if ui.add(bridge).clicked() {
-            gui.across_bridge.open();
-            gui.portofolio.close();
-            gui.uniswap.close();
-            gui.send_crypto.close();
-            gui.settings.close();
-            gui.wallet_ui.close();
-            gui.tx_history.close(ctx);
-            // This is shared, so reset it to avoid any issues
-            gui.recipient_selection.reset();
-            gui.dev.close();
-            gui.shield_ui.close();
-            gui.approvals.close();
-         }
-
-         let is_open = gui.wallet_ui.is_open();
-         let wallets = Button::selectable(is_open, RichText::new("Wallets").size(text_size))
-            .min_size(button_size);
-
-         if ui.add(wallets).clicked() {
-            gui.wallet_ui.open();
-            gui.portofolio.close();
-            gui.uniswap.close();
-            gui.send_crypto.close();
-            gui.settings.close();
-            gui.tx_history.close(ctx);
-            gui.across_bridge.close();
-            gui.dev.close();
-            gui.shield_ui.close();
-            gui.approvals.close();
-         }
-
-         let is_open = gui.tx_history.is_open();
-         let tx_history = Button::selectable(
-            is_open,
-            RichText::new("Transactions").size(text_size),
-         )
-         .min_size(button_size);
-
-         if ui.add(tx_history).clicked() {
-            gui.tx_history.open();
-            gui.portofolio.close();
-            gui.uniswap.close();
-            gui.send_crypto.close();
-            gui.settings.close();
-            gui.wallet_ui.close();
-            gui.across_bridge.close();
-            gui.dev.close();
-            gui.shield_ui.close();
-            gui.approvals.close();
-         }
-
-         let is_open = gui.approvals.is_open();
-         let approvals = Button::selectable(
-            is_open,
-            RichText::new("Approvals").size(text_size),
-         )
-         .min_size(button_size);
-
-         if ui.add(approvals).clicked() {
-            gui.approvals.open();
-            gui.portofolio.close();
-            gui.uniswap.close();
-            gui.send_crypto.close();
-            gui.settings.close();
-            gui.wallet_ui.close();
-            gui.tx_history.close(ctx);
-            gui.across_bridge.close();
-            gui.dev.close();
-            gui.shield_ui.close();
-         }
-
-         let is_open = gui.settings.is_open();
-         let settings = Button::selectable(is_open, RichText::new("Settings").size(text_size))
-            .min_size(button_size);
-
-         if ui.add(settings).clicked() {
-            gui.settings.open();
-            gui.portofolio.close();
-            gui.uniswap.close();
-            gui.send_crypto.close();
-            gui.wallet_ui.close();
-            gui.tx_history.close(ctx);
-            gui.across_bridge.close();
-            gui.dev.close();
-            gui.shield_ui.close();
-            gui.approvals.close();
-         }
-
-         let connected_dapps = Button::selectable(
-            false,
-            RichText::new("Connected Dapps").size(text_size),
-         )
-         .min_size(button_size);
-
-         if ui.add(connected_dapps).clicked() {
-            gui.connected_dapps.open();
-         }
-
-         #[cfg(feature = "dev")]
-         {
-            let text = RichText::new("Theme Editor").size(text_size);
-            let theme_editor = Button::selectable(false, text).min_size(button_size);
-            if ui.add(theme_editor).clicked() {
-               gui.editor.open = true;
-            }
-
-            let text = RichText::new("FPS Metrics").size(text_size);
-            let fps_metrics = Button::selectable(false, text).min_size(button_size);
-            if ui.add(fps_metrics).clicked() {
-               gui.fps_metrics.open = true;
-            }
-
-            {
-               let text = RichText::new("Dev UI").size(text_size);
-               let dev = Button::selectable(false, text).min_size(button_size);
-               if ui.add(dev).clicked() {
-                  gui.dev.open();
-                  gui.portofolio.close();
-                  gui.uniswap.close();
-                  gui.send_crypto.close();
-                  gui.wallet_ui.close();
-                  gui.tx_history.close(ctx);
-                  gui.across_bridge.close();
-                  gui.settings.close();
-                  gui.shield_ui.close();
-                  gui.approvals.close();
-               }
-            }
-         }
+      let home = frame.selected(is_open).show(ui, |ui| {
+         ui.add(Label::new(RichText::new("Home").size(text_size), None).interactive(false));
       });
+
+      if home.response.clicked() {
+         gui.portofolio.open();
+         gui.uniswap.close();
+         gui.send_crypto.close();
+         gui.settings.close();
+         gui.wallet_ui.close();
+         gui.tx_history.close(ctx);
+         gui.across_bridge.close();
+         gui.dev.close();
+         gui.shield_ui.close();
+         gui.approvals.close();
+      }
+
+      let is_open = gui.send_crypto.is_open();
+
+      let send = frame.selected(is_open).show(ui, |ui| {
+         ui.add(Label::new(RichText::new("Send").size(text_size), None).interactive(false));
+      });
+
+      if send.response.clicked() {
+         gui.send_crypto.open();
+         gui.send_crypto.default_currency(privacy_mode, chain_id);
+         gui.uniswap.close();
+         gui.portofolio.close();
+         gui.settings.close();
+         gui.wallet_ui.close();
+         gui.tx_history.close(ctx);
+         gui.across_bridge.close();
+         gui.dev.close();
+         // This is shared, so reset it to avoid any issues
+         gui.recipient_selection.reset();
+         gui.shield_ui.close();
+         gui.approvals.close();
+      }
+
+      let is_open = gui.shield_ui.is_open();
+      let title = match privacy_mode {
+         false => "Shield",
+         true => "Unshield",
+      };
+
+      let mode = match privacy_mode {
+         false => RailgunMode::Shield,
+         true => RailgunMode::Unshield,
+      };
+
+      let shield = frame.selected(is_open).show(ui, |ui| {
+         ui.add(Label::new(RichText::new(title).size(text_size), None).interactive(false));
+      });
+
+      if shield.response.clicked() {
+         gui.shield_ui.open(mode);
+         gui.portofolio.close();
+         gui.uniswap.close();
+         gui.send_crypto.close();
+         gui.settings.close();
+         gui.wallet_ui.close();
+         gui.tx_history.close(ctx);
+         gui.across_bridge.close();
+         gui.dev.close();
+         // This is shared, so reset it to avoid any issues
+         gui.recipient_selection.reset();
+         gui.approvals.close();
+      }
+
+      let is_open = gui.uniswap.is_open();
+      let swap = frame.selected(is_open).show(ui, |ui| {
+         ui.add(Label::new(RichText::new("Swap").size(text_size), None).interactive(false));
+      });
+
+      if swap.response.clicked() {
+         gui.uniswap.open();
+         gui.portofolio.close();
+         gui.send_crypto.close();
+         gui.settings.close();
+         gui.wallet_ui.close();
+         gui.tx_history.close(ctx);
+         gui.across_bridge.close();
+         gui.dev.close();
+         gui.shield_ui.close();
+         gui.approvals.close();
+      }
+
+      let is_open = gui.across_bridge.is_open();
+      let bridge = frame.selected(is_open).show(ui, |ui| {
+         ui.add(Label::new(RichText::new("Bridge").size(text_size), None).interactive(false));
+      });
+
+      if bridge.response.clicked() {
+         gui.across_bridge.open();
+         gui.portofolio.close();
+         gui.uniswap.close();
+         gui.send_crypto.close();
+         gui.settings.close();
+         gui.wallet_ui.close();
+         gui.tx_history.close(ctx);
+         // This is shared, so reset it to avoid any issues
+         gui.recipient_selection.reset();
+         gui.dev.close();
+         gui.shield_ui.close();
+         gui.approvals.close();
+      }
+
+      let is_open = gui.wallet_ui.is_open();
+      let wallets = frame.selected(is_open).show(ui, |ui| {
+         ui.add(Label::new(RichText::new("Wallets").size(text_size), None).interactive(false));
+      });
+
+      if wallets.response.clicked() {
+         gui.wallet_ui.open();
+         gui.portofolio.close();
+         gui.uniswap.close();
+         gui.send_crypto.close();
+         gui.settings.close();
+         gui.tx_history.close(ctx);
+         gui.across_bridge.close();
+         gui.dev.close();
+         gui.shield_ui.close();
+         gui.approvals.close();
+      }
+
+      let is_open = gui.tx_history.is_open();
+      let tx_history = frame.selected(is_open).show(ui, |ui| {
+         ui.add(
+            Label::new(
+               RichText::new("Transactions").size(text_size),
+               None,
+            )
+            .interactive(false),
+         );
+      });
+
+      if tx_history.response.clicked() {
+         gui.tx_history.open();
+         gui.portofolio.close();
+         gui.uniswap.close();
+         gui.send_crypto.close();
+         gui.settings.close();
+         gui.wallet_ui.close();
+         gui.across_bridge.close();
+         gui.dev.close();
+         gui.shield_ui.close();
+         gui.approvals.close();
+      }
+
+      let is_open = gui.approvals.is_open();
+      let approvals = frame.selected(is_open).show(ui, |ui| {
+         ui.add(Label::new(RichText::new("Approvals").size(text_size), None).interactive(false));
+      });
+
+      if approvals.response.clicked() {
+         gui.approvals.open();
+         gui.portofolio.close();
+         gui.uniswap.close();
+         gui.send_crypto.close();
+         gui.settings.close();
+         gui.wallet_ui.close();
+         gui.tx_history.close(ctx);
+         gui.across_bridge.close();
+         gui.dev.close();
+         gui.shield_ui.close();
+      }
+
+      let is_open = gui.settings.is_open();
+      let settings = frame.selected(is_open).show(ui, |ui| {
+         ui.add(Label::new(RichText::new("Settings").size(text_size), None).interactive(false));
+      });
+
+      if settings.response.clicked() {
+         gui.settings.open();
+         gui.portofolio.close();
+         gui.uniswap.close();
+         gui.send_crypto.close();
+         gui.wallet_ui.close();
+         gui.tx_history.close(ctx);
+         gui.across_bridge.close();
+         gui.dev.close();
+         gui.shield_ui.close();
+         gui.approvals.close();
+      }
+
+      let connected_dapps = frame.selected(false).show(ui, |ui| {
+         ui.add(
+            Label::new(
+               RichText::new("Connected Dapps").size(text_size),
+               None,
+            )
+            .interactive(false),
+         );
+      });
+
+      if connected_dapps.response.clicked() {
+         gui.connected_dapps.open();
+      }
+
+      #[cfg(feature = "dev")]
+      {
+         let text = RichText::new("Theme Editor").size(text_size);
+         let theme_editor = frame.selected(false).show(ui, |ui| {
+            ui.add(Label::new(text, None).interactive(false));
+         });
+
+         if theme_editor.response.clicked() {
+            gui.editor.open = true;
+         }
+
+         let text = RichText::new("FPS Metrics").size(text_size);
+         let fps_metrics = frame.selected(false).show(ui, |ui| {
+            ui.add(Label::new(text, None).interactive(false));
+         });
+
+         if fps_metrics.response.clicked() {
+            gui.fps_metrics.open = true;
+         }
+
+         {
+            let text = RichText::new("Dev UI").size(text_size);
+            let dev = frame.selected(false).show(ui, |ui| {
+               ui.add(Label::new(text, None).interactive(false));
+            });
+            if dev.response.clicked() {
+               gui.dev.open();
+               gui.portofolio.close();
+               gui.uniswap.close();
+               gui.send_crypto.close();
+               gui.wallet_ui.close();
+               gui.tx_history.close(ctx);
+               gui.across_bridge.close();
+               gui.settings.close();
+               gui.shield_ui.close();
+               gui.approvals.close();
+            }
+         }
+      }
    });
 }
 

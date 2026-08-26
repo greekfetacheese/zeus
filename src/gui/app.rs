@@ -239,52 +239,44 @@ impl eframe::App for ZeusApp {
                self.style_has_been_set = true;
             }
 
-            let color = gui.theme.colors.bg;
-            let panel_frame = Frame::new().fill(color);
+            let bg = gui.theme.colors.bg;
+            let main_frame = Frame::new().fill(bg);
+
+            let left_frame_bg = match ctx.vault_unlocked {
+               true => gui.theme.frame1.fill,
+               false => bg,
+            };
+
+            let left_frame = Frame::new().fill(left_frame_bg);
             self.overlay.paint_overlay(ui.ctx(), true);
 
-            // Paint the Ui that belongs to the top panel
+            // Left panel first so it owns the full window height. Header + nav
+            // then sit at the top-left; the top panel is only the message bar.
+            egui::Panel::left("left_panel")
+               .min_size(260.0)
+               .max_size(260.0)
+               .resizable(false)
+               .frame(left_frame)
+               .show_separator_line(false)
+               .show(ui, |ui| {
+                  if ctx.vault_unlocked {
+                     gui.show_left_panel(ctx, ui);
+                  }
+               });
+
             egui::Panel::top("top_panel")
                .min_size(150.0)
                .resizable(false)
                .show_separator_line(false)
-               .frame(panel_frame)
+               .frame(main_frame)
                .show(ui, |ui| {
                   if ctx.vault_unlocked {
                      gui.show_top_panel(ctx, ui);
                   }
                });
 
-            // Paint the Ui that belongs to the left panel
-            egui::Panel::left("left_panel")
-               .min_size(150.0)
-               .max_size(150.0)
-               .resizable(false)
-               .frame(panel_frame)
-               .show_separator_line(false)
-               .show(ui, |ui| {
-                  if ctx.vault_unlocked {
-                     ui.add_space(10.0);
-                     gui.show_left_panel(ctx, ui);
-                  }
-               });
-
-            if gui.should_show_right_panel() {
-               // Paint the Ui that belongs to the left panel
-               egui::Panel::right("right_panel")
-                  .min_size(150.0)
-                  .resizable(false)
-                  .show_separator_line(false)
-                  .frame(panel_frame)
-                  .show(ui, |ui| {
-                     if ctx.vault_unlocked {
-                        gui.show_right_panel(ui);
-                     }
-                  });
-            }
-
             // Paint the Ui that belongs to the central panel
-            egui::CentralPanel::default().frame(panel_frame).show(ui, |ui| {
+            egui::CentralPanel::default().frame(main_frame).show(ui, |ui| {
                gui.show_central_panel(ctx, ui);
             });
 

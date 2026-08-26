@@ -58,6 +58,7 @@ impl WalletSelect {
       let current_wallet_label = Label::new(text, Some(wallet_icon))
          .image_on_left()
          .expand(expansion)
+         .interactive(true)
          .visuals(label_visuals)
          .sense(Sense::click());
 
@@ -75,6 +76,7 @@ impl WalletSelect {
 
                   let wallet_label = Label::new(text, None)
                      .fill_width(true)
+                     .interactive(true)
                      .expand(expansion)
                      .selected(is_selected)
                      .visuals(label_visuals)

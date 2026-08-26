@@ -320,6 +320,7 @@ impl TxHistory {
                let text = RichText::new(selected_wallet_name).size(theme.typography.normal);
                let label = Label::new(text, None)
                   .visuals(label_visuals)
+                  .interactive(true)
                   .fill_width(true)
                   .sense(Sense::click())
                   .expand(expansion);
@@ -333,6 +334,7 @@ impl TxHistory {
                      let text = RichText::new("All Wallets").size(theme.typography.normal);
                      let label = Label::new(text, None)
                         .visuals(label_visuals)
+                        .interactive(true)
                         .fill_width(true)
                         .sense(Sense::click())
                         .expand(expansion);
@@ -350,6 +352,7 @@ impl TxHistory {
                         let label = Label::new(text, None)
                            .visuals(label_visuals)
                            .sense(Sense::click())
+                           .interactive(true)
                            .fill_width(true)
                            .expand(expansion);
 
@@ -371,6 +374,7 @@ impl TxHistory {
                let text = RichText::new(selected_chain_name).size(theme.typography.normal);
                let label = Label::new(text, None)
                   .visuals(label_visuals)
+                  .interactive(true)
                   .fill_width(true)
                   .sense(Sense::click())
                   .expand(expansion);
@@ -384,6 +388,7 @@ impl TxHistory {
                      let text = RichText::new("All Chains").size(theme.typography.normal);
                      let label = Label::new(text, None)
                         .visuals(label_visuals)
+                        .interactive(true)
                         .fill_width(true)
                         .sense(Sense::click())
                         .expand(expansion);
@@ -404,6 +409,7 @@ impl TxHistory {
                         let label = Label::new(text, None)
                            .visuals(label_visuals)
                            .sense(Sense::click())
+                           .interactive(true)
                            .fill_width(true)
                            .expand(expansion);
 

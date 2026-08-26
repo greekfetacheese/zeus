@@ -297,7 +297,7 @@ fn _permit2_batch_approval_ui(
             RichText::new(text).size(theme.typography.normal),
             Some(icon),
          )
-         .wrap();
+         .wrap().interactive(false);
          ui.add(label);
       });
    }

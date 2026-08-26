@@ -48,7 +48,6 @@ pub struct Header {
    open: bool,
    overlay: OverlayManager,
    overview_size: (f32, f32),
-   services_size: (f32, f32),
    chain_select: ChainSelect,
    wallet_select: WalletSelect,
    wallet_info: WalletInfo,
@@ -62,17 +61,15 @@ pub struct Header {
 
 impl Header {
    pub fn new(overlay: OverlayManager) -> Self {
-      let overview_size = (230.0, 240.0);
-      let services_size = (330.0, 240.0);
+      let overview_size = (260.0, 250.0);
 
-      let chain_select = ChainSelect::new("main_chain_select", 1).size(vec2(overview_size.0, 20.0));
-      let wallet_select = WalletSelect::new("main_wallet_select").size(vec2(overview_size.0, 20.0));
+      let chain_select = ChainSelect::new("main_chain_select", 1).size(vec2(220.0, 20.0));
+      let wallet_select = WalletSelect::new("main_wallet_select").size(vec2(220.0, 20.0));
 
       Self {
          open: false,
          overlay: overlay.clone(),
          overview_size,
-         services_size,
          chain_select,
          wallet_select,
          wallet_info: WalletInfo::default(),
@@ -139,28 +136,23 @@ impl Header {
       let tint = theme.image_tint_recommended;
       let button_visuals = theme.button_visuals();
 
-      let frame = theme.frame1.outer_margin(Margin::same(10));
       let evm_addr = self.wallet_info.address;
 
       self.show_deleg_settings_window(ctx, theme, icons.clone(), evm_addr, ui);
 
       self.qrcode_window.show(ctx, theme, ui);
 
-      frame.show(ui, |ui| {
-         let (width, height) = if self.tab == 0 {
-            (self.overview_size.0, self.overview_size.1)
-         } else {
-            (self.services_size.0, self.services_size.1)
-         };
+      let frame2 = theme.frame2.outer_margin(Margin::same(10));
 
-         ui.set_width(width);
-         ui.set_height(height);
+      frame2.show(ui, |ui| {
+         ui.set_max_width(self.overview_size.0);
+         ui.set_height(self.overview_size.1);
 
          ui.vertical(|ui| {
-            // Tab strip: Overview (wallet/chain) and Services (background tasks).
+            // Tab strip: Overview (wallet/chain) and Diagnostics.
             ui.add(TabBar::new(
                &mut self.tab,
-               ["Overview", "Services"],
+               ["Overview", "Diagnostics"],
             ));
 
             ui.add_space(5.0);
@@ -261,8 +253,6 @@ impl Header {
       // Wallet delegated status
       let deleg_addr = ctx.delegated_wallets.get(chain.id(), wallet.address);
       ui.horizontal(|ui| {
-         // ui.set_width(self.overview_size.0);
-
          let text = match deleg_addr.is_some() {
             true => RichText::new("Delegated").size(theme.typography.normal),
             false => RichText::new("Not Delegated").size(theme.typography.normal),
@@ -297,14 +287,26 @@ impl Header {
 
       // Privacy mode switch button
       ui.scope(|ui| {
-         ui.spacing_mut().button_padding = vec2(8.0, 8.0);
+         ui.spacing_mut().button_padding = vec2(4.0, 6.0);
+
+         let icon = if ctx.privacy_mode {
+            match theme.dark {
+               true => icons.invisible_light(*tint),
+               false => icons.invisible_dark(),
+            }
+         } else {
+            match theme.dark {
+               true => icons.visible_light(*tint),
+               false => icons.visible_dark(),
+            }
+         }.fit_to_exact_size(vec2(18.0, 18.0));
 
          let text = format!(
-            "Switch to {} mode",
-            if privacy_mode { "Public" } else { "Privacy" }
+            "{} mode",
+            if privacy_mode { "Privacy" } else { "Public" }
          );
          let rich_text = RichText::new(text).size(theme.typography.normal);
-         let button = Button::new(rich_text).visuals(button_visuals.clone());
+         let button = Button::image_and_text(icon, rich_text).visuals(*button_visuals);
 
          if ui.add(button).clicked() {
             let privacy_mode = !privacy_mode;
@@ -338,13 +340,15 @@ impl Header {
       let chain = ctx.chain;
       let railgun_is_supported = ctx.railgun_is_supported(chain);
 
-      ui.spacing_mut().item_spacing.y = 0.0;
+      ui.spacing_mut().item_spacing.y = 10.0;
 
-      let frame = theme.frame2;
+      let frame = theme.frame1.inner_margin(Margin::same(5));
       let frame_height = 40.0;
+      let frame_width = self.overview_size.0 - 50.0;
 
       // Railgun Status
       frame.show(ui, |ui| {
+         ui.set_max_width(frame_width);
          ui.set_height(frame_height);
 
          ui.horizontal(|ui| {
@@ -360,12 +364,12 @@ impl Header {
 
             ui.add(Indicator::new(sync_state));
 
-            ui.add_space(20.0);
+            ui.add_space(10.0);
 
             let label = RichText::new("Railgun").size(theme.typography.small);
             ui.label(label);
 
-            ui.add_space(40.0);
+            ui.add_space(10.0);
 
             ui.vertical(|ui| {
                ui.spacing_mut().item_spacing.y = 0.0;
@@ -412,6 +416,7 @@ impl Header {
 
       // Wallet Connector Status
       frame.show(ui, |ui| {
+         ui.set_max_width(frame_width);
          ui.set_height(frame_height);
 
          ui.horizontal(|ui| {
@@ -423,7 +428,7 @@ impl Header {
 
             ui.add(Indicator::new(state));
 
-            ui.add_space(20.0);
+            ui.add_space(10.0);
 
             let label = RichText::new("Wallet Connector").size(theme.typography.small);
             ui.label(label);
