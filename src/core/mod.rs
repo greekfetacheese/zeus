@@ -1,3 +1,4 @@
+pub mod clear_signing;
 pub mod context;
 pub mod signature;
 pub mod tx;

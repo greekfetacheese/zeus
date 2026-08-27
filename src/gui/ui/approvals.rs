@@ -14,7 +14,6 @@ use egui_elements::{Button, ComboBox, Label, OverlayManager, Theme};
 use elegance::{Badge, BadgeTone};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 use zeus_eth::{
    abi::permit::{allowance, encode_permit_single_call},
    alloy_primitives::{Address, U256},
@@ -801,17 +800,17 @@ async fn revoke_permit2_approval(
    token: Currency,
    spender: Address,
 ) -> Result<(), anyhow::Error> {
-   let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+   let ctx = SHARED_GUI.write(|gui| {
+      gui.loading_window.open("Preparing Permit2 revoke");
+      gui.request_repaint();
+      gui.ctx.clone()
+   });
+
    let chain: ChainId = chain_id.into();
    let token_addr = token.address();
 
    let permit2 = address_book::permit2_contract(chain_id)?;
    let client = ctx.get_zeus_client();
-
-   SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Preparing Permit2 revoke");
-      gui.request_repaint();
-   });
 
    let allowance_data = client
       .request(chain_id, |client| async move {
@@ -836,45 +835,18 @@ async fn revoke_permit2_approval(
       allowance_data.nonce,
    );
 
-   let msg_type = crate::core::SignMsgType::new(ctx.clone(), chain_id, Some(msg), None).await?;
+   let signature = signature::sign::sign_message(
+      ctx.clone(),
+      "".to_string(),
+      chain_id.into(),
+      Some(msg),
+      None,
+   )
+   .await?;
 
    SHARED_GUI.write(|gui| {
-      gui.loading_window.reset();
-      ctx.write(|ctx| {
-         gui.sign_msg_window.open(ctx, "".to_string(), chain_id, msg_type.clone());
-      });
       gui.request_repaint();
    });
-
-   // Wait for the user to sign or cancel
-   let mut signed = None;
-   loop {
-      tokio::time::sleep(Duration::from_millis(50)).await;
-      SHARED_GUI.read(|gui| {
-         signed = gui.sign_msg_window.is_signed();
-      });
-      if signed.is_some() {
-         SHARED_GUI.write(|gui| {
-            ctx.write(|ctx| {
-               gui.sign_msg_window.close(ctx);
-            });
-         });
-         break;
-      }
-   }
-
-   let signed = signed.unwrap();
-   if !signed {
-      SHARED_GUI.request_repaint();
-      return Err(anyhow::anyhow!(
-         "You cancelled the signing process"
-      ));
-   }
-
-   let wallet = ctx
-      .get_wallet(owner)
-      .ok_or_else(|| anyhow::anyhow!("Wallet not found for approval owner"))?;
-   let signature = msg_type.sign(&wallet.key).await?;
 
    let calldata = encode_permit_single_call(
       owner,

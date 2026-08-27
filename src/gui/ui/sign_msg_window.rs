@@ -1,11 +1,10 @@
 //! UI that allows the user to inspect and sign a message
 
-use egui::{
-   Align, Align2, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2,
-};
-use egui_elements::{Button, Label, OverlayManager, SecureTextEdit, widgets::Window, Theme};
+use egui::{Align, Align2, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2};
+use egui_elements::{Button, Label, OverlayManager, SecureTextEdit, Theme, widgets::Window};
 
 use crate::assets::icons::Icons;
+use crate::core::clear_signing::FormattedValue;
 use crate::core::{SignMsgType, ZeusContext};
 use crate::gui::ui::tx::{address, chain, contract_interact};
 
@@ -39,7 +38,7 @@ impl SignMsgWindow {
          msg: None,
          formatted_msg: None,
          signed: None,
-         size: (500.0, 550.0),
+         size: (500.0, 750.0),
       }
    }
 
@@ -80,7 +79,7 @@ impl SignMsgWindow {
          return;
       }
 
-      let window_frame = theme.window_frame;
+      let window_frame = theme.window_frame.fill(theme.frame1.fill);
 
       Window::new("Sign Message")
          .title_bar(false)
@@ -125,6 +124,18 @@ impl SignMsgWindow {
                      });
                   }
 
+                  if msg.is_clear_signed() {
+                     let frame_size = vec2(ui.available_width(), 300.0);
+
+                     ui.allocate_ui(frame_size, |ui| {
+                        frame.show(ui, |ui| {
+                           ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                              clear_signed_ui(ctx, self.chain, &msg, theme, icons.clone(), ui);
+                           });
+                        });
+                     });
+                  }
+
                   ui.add_space(20.0);
 
                   if self.formatted_msg.is_none() {
@@ -141,7 +152,7 @@ impl SignMsgWindow {
 
                      ui.label(RichText::new("Message").size(theme.typography.large));
 
-                     let height = if msg.is_known() { 150.0 } else { 300.0 };
+                     let height = if msg.is_known() { 300.0 } else { 450.0 };
                      ScrollArea::vertical().max_height(height).show(ui, |ui| {
                         ui.add(text_edit);
                      });
@@ -256,6 +267,91 @@ fn permit2_single_approval(
    });
 }
 
+fn clear_signed_ui(
+   ctx: &mut ZeusContext,
+   chain_id: ChainId,
+   msg: &SignMsgType,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   ui: &mut Ui,
+) {
+   let details = msg.clear_signed_details();
+   let display = &details.display;
+   let tint = theme.image_tint_recommended;
+
+   if let Some(owner) = display.owner.as_ref() {
+      let name = match &display.contract_name {
+         Some(c) => format!("{owner} · {c}"),
+         None => owner.clone(),
+      };
+      ui.label(RichText::new(name).size(theme.typography.normal));
+   }
+
+   if let Some(intent) = display.interpolated_intent.as_ref() {
+      ui.label(RichText::new(intent).size(theme.typography.large));
+   }
+
+   for warning in &display.warnings {
+      ui.label(RichText::new(warning).size(theme.typography.normal).color(theme.colors.warning));
+   }
+
+   chain(chain_id, theme, icons.clone(), ui);
+
+   for field in &display.fields {
+      match &field.value {
+         FormattedValue::Address(addr) => {
+            address(ctx, chain_id, &field.label, *addr, theme, ui);
+         }
+         FormattedValue::TokenAmount {
+            amount,
+            token,
+            unlimited,
+         } => {
+            ui.horizontal(|ui| {
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  ui.label(RichText::new(&field.label).size(theme.typography.large));
+               });
+               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                  let amount_txt = if *unlimited {
+                     "Unlimited".to_string()
+                  } else {
+                     amount.abbreviated()
+                  };
+                  let text = format!("{} {}", amount_txt, token.symbol);
+                  let icon = icons.token_icon_x32(token.address, token.chain_id, tint);
+                  let text = RichText::new(text).size(theme.typography.large);
+                  let label = Label::new(text, Some(icon))
+                     .wrap()
+                     .visuals(theme.label_visuals())
+                     .interactive(false);
+                  ui.add(label);
+               });
+            });
+         }
+         FormattedValue::Date(ts) => {
+            ui.horizontal(|ui| {
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  ui.label(RichText::new(&field.label).size(theme.typography.large));
+               });
+               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                  ui.label(RichText::new(ts.to_relative()).size(theme.typography.large));
+               });
+            });
+         }
+         FormattedValue::Text(text) | FormattedValue::Bytes(text) => {
+            ui.horizontal(|ui| {
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  ui.label(RichText::new(&field.label).size(theme.typography.large));
+               });
+               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                  ui.label(RichText::new(text).size(theme.typography.large));
+               });
+            });
+         }
+      }
+   }
+}
+
 fn _permit2_batch_approval_ui(
    ctx: &mut ZeusContext,
    chain_id: ChainId,
@@ -297,7 +393,8 @@ fn _permit2_batch_approval_ui(
             RichText::new(text).size(theme.typography.normal),
             Some(icon),
          )
-         .wrap().interactive(false);
+         .wrap()
+         .interactive(false);
          ui.add(label);
       });
    }

@@ -164,9 +164,13 @@ pub async fn on_startup(ctx: ZeusCtx) {
       tasks.push(task);
    }
 
-   // Prefetch all transact circuit artifacts (01x01 ..= 05x05) into the
-   // on-disk cache so first prove / merge does not hit the network cold.
    RT.spawn(async move {
+      // Prefetch ERC-7730 registry index so the first unknown typed-data
+      // sign does not wait on GitHub.
+      crate::core::clear_signing::registry::prefetch_index().await;
+
+      // Prefetch all transact circuit artifacts (01x01 ..= 05x05) into the
+      // on-disk cache so first prove / merge does not hit the network cold.
       match prefetch_railgun_circuits().await {
          Ok(report) => {
             info!(
@@ -565,7 +569,8 @@ async fn state_update_interval(ctx: ZeusCtx) {
          RT.spawn(async move {
             for chain in SUPPORTED_CHAINS {
                // Only do a resync if we detect an invalid root error
-               let is_invalid_root = ctx_clone.read(|ctx| ctx.railgun_status.is_error_invalid_root(chain));
+               let is_invalid_root =
+                  ctx_clone.read(|ctx| ctx.railgun_status.is_error_invalid_root(chain));
 
                if is_invalid_root {
                   match ctx_clone.resync_railgun(chain).await {

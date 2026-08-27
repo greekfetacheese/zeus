@@ -1,4 +1,7 @@
 use super::parse_typed_data;
+use crate::core::clear_signing::{
+   self, ClearDisplay, ClearSource, DisplayField, FormattedValue, Intent,
+};
 use crate::{core::ZeusCtx, utils::TimeStamp};
 use anyhow::anyhow;
 use serde_json::{Value, json};
@@ -19,13 +22,24 @@ const PERMIT_SINGLE: &str = "PermitSingle";
 pub enum SignMsgType {
    Permit2(Permit2Details),
    Permit2Batch(Permit2BatchDetails),
+   ClearSigned(ClearSignedDetails),
    PersonalSign(String),
    Other(Value),
+}
+
+#[derive(Debug, Clone)]
+pub struct ClearSignedDetails {
+   pub raw: Value,
+   pub display: ClearDisplay,
 }
 
 impl SignMsgType {
    pub fn dummy_permit2() -> Self {
       Self::Permit2(Permit2Details::dummy())
+   }
+
+   pub fn dummy_clear_signed() -> Self {
+      Self::ClearSigned(ClearSignedDetails::dummy())
    }
 
    pub async fn new(
@@ -39,18 +53,34 @@ impl SignMsgType {
       }
 
       if let Some(value) = msg_value {
-         let mut msg_type = Self::Other(value.clone());
-         if let Ok(details) = Permit2Details::new(ctx, chain, value).await {
-            msg_type = Self::Permit2(details);
+         if let Ok(details) = Permit2Details::new(ctx.clone(), chain, value.clone()).await {
+            return Ok(Self::Permit2(details));
          }
-         return Ok(msg_type);
+         if let Ok(typed) = parse_typed_data(value.clone()) {
+            if let Some(display) =
+               clear_signing::try_clear_sign_typed_data(ctx, chain, &typed).await
+            {
+               return Ok(Self::ClearSigned(ClearSignedDetails {
+                  raw: value,
+                  display,
+               }));
+            }
+         }
+         return Ok(Self::Other(value));
       }
 
       return Err(anyhow!("No message found"));
    }
 
    pub fn is_known(&self) -> bool {
-      matches!(self, Self::Permit2(_) | Self::Permit2Batch(_))
+      matches!(
+         self,
+         Self::Permit2(_) | Self::Permit2Batch(_) | Self::ClearSigned(_)
+      )
+   }
+
+   pub fn is_clear_signed(&self) -> bool {
+      matches!(self, Self::ClearSigned(_))
    }
 
    pub fn is_permit2_single(&self) -> bool {
@@ -78,33 +108,17 @@ impl SignMsgType {
 
    pub fn typed_data(&self) -> Option<TypedData> {
       match self {
-         Self::Permit2(details) => match parse_typed_data(details.raw_msg.clone()) {
-            Ok(data) => Some(data),
-            Err(_) => None,
-         },
-         Self::Permit2Batch(details) => match parse_typed_data(details.msg_value.clone()) {
-            Ok(data) => Some(data),
-            Err(_) => None,
-         },
+         Self::Permit2(details) => parse_typed_data(details.raw_msg.clone()).ok(),
+         Self::Permit2Batch(details) => parse_typed_data(details.msg_value.clone()).ok(),
+         Self::ClearSigned(details) => parse_typed_data(details.raw.clone()).ok(),
          Self::PersonalSign(_) => None,
-         Self::Other(details) => match parse_typed_data(details.clone()) {
-            Ok(data) => Some(data),
-            Err(_) => None,
-         },
+         Self::Other(details) => parse_typed_data(details.clone()).ok(),
       }
    }
 
    pub async fn sign(&self, signer: &SecureKey) -> Result<Signature, anyhow::Error> {
       match self {
-         Self::Permit2(_) => {
-            let typed = match self.typed_data() {
-               Some(data) => data,
-               None => return Err(anyhow!("No typed data found")),
-            };
-            let sig = signer.to_signer().sign_dynamic_typed_data(&typed).await?;
-            Ok(sig)
-         }
-         Self::Permit2Batch(_) => {
+         Self::Permit2(_) | Self::Permit2Batch(_) | Self::ClearSigned(_) => {
             let typed = match self.typed_data() {
                Some(data) => data,
                None => return Err(anyhow!("No typed data found")),
@@ -138,6 +152,7 @@ impl SignMsgType {
       match self {
          Self::Permit2(details) => details.msg_value.clone(),
          Self::Permit2Batch(details) => details.msg_value.clone(),
+         Self::ClearSigned(details) => details.raw.clone(),
          Self::PersonalSign(msg) => json!(msg),
          Self::Other(details) => details.clone(),
       }
@@ -147,6 +162,7 @@ impl SignMsgType {
       match self {
          Self::Permit2(_) => "Permit2 Token Approval",
          Self::Permit2Batch(_) => "Permit2 Batch Token Approval",
+         Self::ClearSigned(details) => details.display.heading.as_str(),
          Self::PersonalSign(_) => "Personal Sign",
          Self::Other(_) => "Unknown Message",
       }
@@ -169,6 +185,57 @@ impl SignMsgType {
       match self {
          Self::Permit2Batch(details) => details,
          _ => panic!("Not a permit2 message"),
+      }
+   }
+
+   pub fn clear_signed_details(&self) -> &ClearSignedDetails {
+      match self {
+         Self::ClearSigned(details) => details,
+         _ => panic!("Not a clear-signed message"),
+      }
+   }
+}
+
+impl ClearSignedDetails {
+   pub fn dummy() -> Self {
+      let usdc = Address::from_str("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913").unwrap();
+      let spender = Address::from_str("0x2222222222222222222222222222222222222222").unwrap();
+      let token = ERC20Token {
+         chain_id: 8453,
+         address: usdc,
+         symbol: "USDC".into(),
+         name: "USD Coin".into(),
+         decimals: 6,
+         total_supply: U256::ZERO,
+      };
+      Self {
+         raw: dummy_permit_json(),
+         display: ClearDisplay {
+            heading: "Permit".to_string(),
+            intent: Intent::Text("Permit".to_string()),
+            interpolated_intent: Some("Approve 1 USDC for Router".to_string()),
+            owner: Some("Circle".to_string()),
+            contract_name: Some("USDC".to_string()),
+            info_url: None,
+            fields: vec![
+               DisplayField {
+                  label: "Spender".to_string(),
+                  value: FormattedValue::Address(spender),
+               },
+               DisplayField {
+                  label: "Amount".to_string(),
+                  value: FormattedValue::TokenAmount {
+                     amount: NumericValue::format_wei(U256::from(1_000_000u64), 6),
+                     token,
+                     unlimited: false,
+                  },
+               },
+            ],
+            source: ClearSource::Registry {
+               path: "dummy".to_string(),
+            },
+            warnings: Vec::new(),
+         },
       }
    }
 }
@@ -284,6 +351,40 @@ impl Permit2Details {
          self.amount.abbreviated()
       }
    }
+}
+
+fn dummy_permit_json() -> serde_json::Value {
+   serde_json::json!({
+       "types": {
+           "Permit": [
+               {"name": "owner", "type": "address"},
+               {"name": "spender", "type": "address"},
+               {"name": "value", "type": "uint256"},
+               {"name": "nonce", "type": "uint256"},
+               {"name": "deadline", "type": "uint256"}
+           ],
+           "EIP712Domain": [
+               {"name": "name", "type": "string"},
+               {"name": "version", "type": "string"},
+               {"name": "chainId", "type": "uint256"},
+               {"name": "verifyingContract", "type": "address"}
+           ]
+       },
+       "domain": {
+           "name": "USD Coin",
+           "version": "2",
+           "chainId": "8453",
+           "verifyingContract": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+       },
+       "primaryType": "Permit",
+       "message": {
+           "owner": "0x1111111111111111111111111111111111111111",
+           "spender": "0x2222222222222222222222222222222222222222",
+           "value": "1000000",
+           "nonce": "0",
+           "deadline": "1745151870"
+       }
+   })
 }
 
 fn dummy_permit2_json() -> serde_json::Value {

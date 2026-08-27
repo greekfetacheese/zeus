@@ -3,13 +3,13 @@ use eframe::egui::{Align2, Frame, Order, RichText, ScrollArea, Ui, Window, vec2}
 use crate::assets::Icons;
 use crate::core::{DecodedEvent, SignMsgType, TransactionAnalysis, ZeusContext};
 use crate::gui::{SHARED_GUI, ui::notification::NotificationType};
-use crate::utils::{RT, TimeStamp};
 use crate::utils::self_update::UpdateInfo;
+use crate::utils::{RT, TimeStamp};
 
 use zeus_eth::currency::ERC20Token;
 
+use egui_elements::{Button, Label, Theme};
 use std::sync::Arc;
-use egui_elements::{Label, Button, Theme};
 
 pub struct DevUi {
    pub open: bool,
@@ -639,6 +639,22 @@ impl UiTesting {
 
                      ctx.write(|ctx| {
                         gui.sign_msg_window.open(ctx, "app.uniswap.org".to_string(), 8453, msg);
+                     });
+                  });
+               });
+            }
+
+            let button =
+               Button::new(RichText::new("Sign Clear Message").size(text_size)).min_size(button_size);
+
+            if ui.add(button).clicked() {
+               RT.spawn_blocking(move || {
+                  let msg = SignMsgType::dummy_clear_signed();
+                  SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
+
+                     ctx.write(|ctx| {
+                        gui.sign_msg_window.open(ctx, "app.example.org".to_string(), 8453, msg);
                      });
                   });
                });
