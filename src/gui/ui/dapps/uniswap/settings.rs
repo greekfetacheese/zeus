@@ -6,6 +6,7 @@ use crate::utils::RT;
 use egui_elements::{Button, SecureTextEdit, Theme};
 
 const DEFAULT_SLIPPAGE: f64 = 0.05;
+const MAX_SLIPPAGE: f64 = 20.0;
 
 const MIN_DEADLINE: u64 = 1; // minutes
 const MAX_DEADLINE: u64 = 60; // minutes
@@ -95,10 +96,21 @@ impl UniswapSettingsUi {
          }
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            SecureTextEdit::singleline(&mut self.slippage).desired_width(50.0).show(ui);
+            let output =
+               SecureTextEdit::singleline(&mut self.slippage).desired_width(50.0).show(ui);
 
-            let slippage = self.slippage.parse().unwrap_or(DEFAULT_SLIPPAGE);
-            self.slippage_f64 = slippage;
+            if output.response.changed() {
+               let adjusted_slippage = self.slippage.parse().unwrap_or(DEFAULT_SLIPPAGE);
+
+               let new_slippage = if adjusted_slippage > MAX_SLIPPAGE {
+                  MAX_SLIPPAGE
+               } else {
+                  adjusted_slippage
+               };
+
+               self.slippage_f64 = new_slippage;
+               self.slippage = new_slippage.to_string();
+            }
          });
       });
 

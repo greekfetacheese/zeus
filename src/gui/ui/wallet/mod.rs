@@ -1,12 +1,12 @@
 use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, ZeusContext};
-use crate::gui::{SHARED_GUI, dots_button};
+use crate::gui::{SHARED_GUI, dots_button, ui::show_with_fade};
 use crate::utils::RT;
 use eframe::egui::{
    Align, Align2, Context, FontId, Layout, Margin, Order, RichText, ScrollArea, Spinner, Stroke,
    Ui, Vec2, vec2,
 };
-use egui_elements::{Button, widgets::Window, Label, OverlayManager, SecureTextEdit, Theme};
+use egui_elements::{Button, Label, OverlayManager, SecureTextEdit, Theme, widgets::Window};
 use elegance::{Menu, MenuItem};
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
@@ -27,7 +27,6 @@ pub struct WalletUi {
    open: bool,
    loading: bool,
    overlay: OverlayManager,
-   main_ui: bool,
    rename_wallet: bool,
    new_wallet_name: String,
    wallet_to_rename: Option<Wallet>,
@@ -49,7 +48,6 @@ impl WalletUi {
          open: false,
          loading: false,
          overlay: overlay.clone(),
-         main_ui: true,
          rename_wallet: false,
          new_wallet_name: String::new(),
          wallet_to_rename: None,
@@ -166,11 +164,10 @@ impl WalletUi {
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      if !self.open {
-         return;
-      }
+      show_with_fade(ui, "wallet_ui_fade", self.open, |ui| {
+         self.main_ui(ctx, theme, icons.clone(), ui);
+      });
 
-      self.main_ui(ctx, theme, icons.clone(), ui);
       self.rename_wallet(theme, ui);
       self.add_wallet_ui.show(ctx, theme, icons.clone(), ui);
       self.export_key_ui.show(ctx, theme, ui);
@@ -181,20 +178,10 @@ impl WalletUi {
    ///
    /// We can see, manage and add new wallets.
    fn main_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      if !self.main_ui {
-         return;
-      }
-
       let frame = theme.frame1;
 
-      Window::new("wallet_main_ui")
-         .title_bar(false)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Background)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 100.0))
-         .frame(frame)
-         .show(ui.ctx(), |ui| {
+      ui.vertical_centered(|ui| {
+         frame.show(ui, |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
             ui.spacing_mut().item_spacing = Vec2::new(8.0, 10.0);
@@ -258,6 +245,7 @@ impl WalletUi {
                });
             });
          });
+      });
    }
 
    /// Show a wallet
@@ -351,14 +339,15 @@ impl WalletUi {
                               continue;
                            }
 
-                           let icon = icons.chain_icon(chain, tint).fit_to_exact_size(vec2(16.0, 16.0));
+                           let icon =
+                              icons.chain_icon(chain, tint).fit_to_exact_size(vec2(16.0, 16.0));
                            ui.add(icon);
                         }
                      });
-                     ui.label(
-                        RichText::new(format!("${}", value.abbreviated()))
-                           .size(theme.typography.small),
-                     );
+                     let value_text = RichText::new(format!("${}", value.abbreviated()))
+                        .size(theme.typography.small);
+                     let label = Label::new(value_text, None).wrap().interactive(false);
+                     ui.add(label);
                   });
                });
             });

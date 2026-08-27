@@ -10,28 +10,29 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let recipient_selection = &mut gui.recipient_selection;
    let contacts_ui = &mut gui.settings.contacts_ui;
 
-   if ctx.vault_unlocked {
-      let chain_id = ctx.chain.id();
-      let owner = ctx.current_wallet_info().address;
+   gui.recover_wallet_ui.show(ctx, theme, ui);
+   gui.unlock_vault_ui.show(ctx, theme, ui);
 
-      token_selection.show(ctx, theme, icons.clone(), chain_id, owner, ui);
+   gui.msg_window.show(theme, ui);
+   gui.loading_window.show(theme, ui);
+   gui.confirm_window.show(theme, ui);
+
+   // Vault must be unlocked so the wallet cache is populated
+   if !ctx.vault_unlocked {
+      return;
    }
+
+   let chain_id = ctx.chain.id();
+   let owner = ctx.current_wallet_info().address;
+
+   token_selection.show(ctx, theme, icons.clone(), chain_id, owner, ui);
 
    gui.tx_confirmation_window.show(ctx, theme, icons.clone(), ui);
 
    gui.tx_window.show(ctx, theme, icons.clone(), ui);
    gui.spent_note_window.show(ctx, theme, icons.clone(), ui);
 
-   gui.confirm_window.show(theme, ui);
-
-   gui.msg_window.show(theme, ui);
-
-   gui.loading_window.show(theme, ui);
-
    gui.sign_msg_window.show(ctx, theme, icons.clone(), ui);
-
-   gui.recover_wallet_ui.show(ctx, theme, ui);
-   gui.unlock_vault_ui.show(ctx, theme, ui);
 
    gui.across_bridge.show(
       ctx,

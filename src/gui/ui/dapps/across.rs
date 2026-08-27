@@ -4,13 +4,13 @@ use crate::assets::icons::Icons;
 use crate::core::{ZeusContext, ZeusCtx, data_dir, send_transaction};
 use crate::gui::{
    SHARED_GUI,
-   ui::{ChainSelect, ContactsUi, RecipientSelectionWindow, common::AmountField},
+   ui::{ChainSelect, ContactsUi, RecipientSelectionWindow, common::AmountField, show_with_fade},
 };
 use crate::utils::{RT, estimate_tx_cost, write_private};
 use anyhow::anyhow;
 use egui::{
-   Align, Align2, CornerRadius, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText,
-   Slider, Spinner, Ui, Window, vec2,
+   Align, CornerRadius, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText, Slider,
+   Spinner, Ui, vec2,
 };
 use egui_elements::{Button, Modal, OverlayManager, SecureTextEdit, Theme, visuals::ButtonVisuals};
 use egui_lucide::Lucide;
@@ -157,6 +157,21 @@ impl AcrossBridge {
       self.currency = currency.into();
    }
 
+   fn show_railgun_not_supported(&self, theme: &Theme, ui: &mut Ui) {
+      let frame = theme.frame1;
+      ui.vertical_centered(|ui| {
+         frame.show(ui, |ui| {
+            ui.set_width(self.size.0);
+            ui.set_max_height(self.size.1);
+            ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+
+            let text = RichText::new("Bridge is not supported on Private Mode")
+               .size(theme.typography.very_large);
+            ui.label(text);
+         });
+      });
+   }
+
    pub fn show(
       &mut self,
       ctx: &mut ZeusContext,
@@ -166,10 +181,6 @@ impl AcrossBridge {
       contacts_ui: &mut ContactsUi,
       ui: &mut Ui,
    ) {
-      if !self.open {
-         return;
-      }
-
       if self.settings_open {
          self.settings_window(theme, ui);
       }
@@ -185,17 +196,17 @@ impl AcrossBridge {
       let frame = theme.frame1;
       let button_visuals = theme.button_visuals();
 
-      Window::new("across_bridge_ui")
-         .title_bar(false)
-         .resizable(false)
-         .order(Order::Background)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 100.0))
-         .frame(frame)
-         .show(ui.ctx(), |ui| {
+      show_with_fade(ui, "across_bridge_ui_fade", self.open, |ui| {
+         if ctx.privacy_mode {
+            self.show_railgun_not_supported(theme, ui);
+            return;
+         }
+         
+         ui.vertical_centered(|ui| {
+            frame.show(ui, |ui| {
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
             ui.vertical_centered(|ui| {
-               ui.set_width(self.size.0);
-               ui.set_height(self.size.1);
                ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                let ui_width = ui.available_width();
@@ -395,7 +406,9 @@ impl AcrossBridge {
 
                self.bridge_button(ctx, theme, depositor, recipient.evm_address, ui);
             });
+            });
          });
+      });
    }
 
    fn bridge_button(

@@ -51,7 +51,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                   let text = format!(
-                     "No functional or enabled RPC for the {} network",
+                     "No functional RPC for the {} network",
                      chain.name()
                   );
                   let rich_text = RichText::new(text).size(theme.typography.normal);

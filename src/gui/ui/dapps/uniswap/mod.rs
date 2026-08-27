@@ -1,6 +1,5 @@
 use egui::{
-   Align, Align2, CornerRadius, CursorIcon, Frame, Layout, Order, RichText, Spinner, Ui, Window,
-   vec2,
+   Align, CornerRadius, CursorIcon, Frame, Layout, Order, RichText, Spinner, Ui, vec2,
 };
 use zeus_eth::alloy_primitives::Address;
 use zeus_eth::currency::Currency;
@@ -9,6 +8,7 @@ use zeus_eth::utils::NumericValue;
 use crate::assets::icons::Icons;
 use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::ui::TokenSelectionWindow;
+use crate::gui::ui::show_with_fade;
 use egui_elements::{Button, Label, Modal, Theme, visuals::ButtonVisuals};
 use egui_lucide::Lucide;
 use std::str::FromStr;
@@ -173,6 +173,21 @@ impl UniswapUi {
       });
    }
 
+   fn show_railgun_not_supported(&self, theme: &Theme, ui: &mut Ui) {
+      let frame = theme.frame1;
+      ui.vertical_centered(|ui| {
+         frame.show(ui, |ui| {
+            ui.set_width(self.size.0);
+            ui.set_max_height(self.size.1);
+            ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+
+            let text = RichText::new("Private swaps are not supported")
+               .size(theme.typography.very_large);
+            ui.label(text);
+         });
+      });
+   }
+
    pub fn show(
       &mut self,
       ctx: &mut ZeusContext,
@@ -181,21 +196,16 @@ impl UniswapUi {
       token_selection: &mut TokenSelectionWindow,
       ui: &mut Ui,
    ) {
-      if !self.open {
-         return;
-      }
+      let frame = theme.frame1;
 
-      let window_frame = theme.frame1;
+      show_with_fade(ui, "swap_ui_fade", self.open, |ui| {
+         if ctx.privacy_mode {
+            self.show_railgun_not_supported(theme, ui);
+            return;
+         }
 
-      Window::new("uniswap_ui")
-         .title_bar(false)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Background)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 100.0))
-         .frame(window_frame)
-         .show(ui.ctx(), |ui| {
-            ui.vertical_centered(|ui| {
+         ui.vertical_centered(|ui| {
+            frame.show(ui, |ui| {
                ui.set_width(self.size.0);
                ui.set_height(self.size.1);
 
@@ -226,6 +236,7 @@ impl UniswapUi {
                self.show_settings(theme, ui);
             });
          });
+      });
    }
 
    pub fn show_settings(&mut self, theme: &Theme, ui: &mut Ui) {

@@ -110,6 +110,18 @@ impl SendCryptoUi {
       self.search_query = String::new();
    }
 
+   fn show_railgun_not_supported(&self, theme: &Theme, ui: &mut Ui) {
+      ui.vertical_centered(|ui| {
+         ui.set_width(self.size.0);
+         ui.set_max_height(self.size.1);
+         ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+
+         let text = RichText::new("Railgun is not supported for the selected chain")
+            .size(theme.typography.very_large);
+         ui.label(text);
+      });
+   }
+
    pub fn show(
       &mut self,
       ctx: &mut ZeusContext,
@@ -137,9 +149,7 @@ impl SendCryptoUi {
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
                   if privacy_mode && !ctx.railgun_is_supported(ctx.chain) {
-                     let text = RichText::new("Railgun is not supported for the selected chain")
-                        .size(theme.typography.very_large);
-                     ui.label(text);
+                     self.show_railgun_not_supported(theme, ui);
                      return;
                   }
 
@@ -252,7 +262,8 @@ impl SendCryptoUi {
                                  "{}/address/{}",
                                  block_explorer, recipient.evm_address
                               );
-                              let icon = Lucide::ExternalLink.size(18.0).color(theme.colors.text).image();
+                              let icon =
+                                 Lucide::ExternalLink.size(18.0).color(theme.colors.text).image();
 
                               let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
 

@@ -1161,7 +1161,20 @@ impl SwapUi {
             });
 
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               ui.label(RichText::new(format!("{:.2}%", settings.slippage_f64())).size(text_size));
+               let slippage = settings.slippage_f64();
+               let color = if slippage < 1.0 {
+                  theme.colors.text
+               } else if slippage < 2.5 {
+                  theme.colors.warning
+               } else {
+                  theme.colors.error
+               };
+
+               ui.label(
+                  RichText::new(format!("{:.2}%", settings.slippage_f64()))
+                     .size(text_size)
+                     .color(color),
+               );
             });
          });
 

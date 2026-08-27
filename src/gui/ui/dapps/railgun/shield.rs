@@ -1,6 +1,6 @@
 use eframe::egui::{
-   Align, Align2, Checkbox, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl, Order, RichText,
-   Stroke, Ui, vec2,
+   Align, Align2, Checkbox, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText, Stroke,
+   Ui, vec2,
 };
 
 use std::{
@@ -34,8 +34,8 @@ use crate::gui::{
 };
 use crate::utils::simulate::{fetch_accounts_info, fetch_storage_for_railgun};
 use egui_elements::{Button, SecureTextEdit, Theme, widgets::Window};
-use elegance::{Badge, BadgeTone};
 use egui_lucide::Lucide;
+use elegance::{Badge, BadgeTone};
 
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -238,16 +238,14 @@ impl ShieldUi {
       let frame = theme.frame1;
       ui.vertical_centered(|ui| {
          frame.show(ui, |ui| {
-            Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
-               ui.set_width(self.size.0);
-               ui.set_max_height(self.size.1);
-               ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.set_width(self.size.0);
+            ui.set_max_height(self.size.1);
+            ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-               let text = RichText::new("Railgun is not supported for the selected chain")
-                  .size(theme.typography.very_large);
-               ui.label(text);
-            });
+            let text = RichText::new("Railgun is not supported for the selected chain")
+               .size(theme.typography.very_large);
+            ui.label(text);
          });
       });
    }
