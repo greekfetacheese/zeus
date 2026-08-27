@@ -2,17 +2,19 @@
 #![allow(unused_variables)]
 
 use eframe::egui::{
-   ColorImage, Context, Image, Sense, TextureHandle, epaint::textures::TextureOptions,
+   ColorImage, Context, Image, ImageSource, Sense, TextureHandle, Vec2,
+   epaint::textures::TextureOptions,
 };
+use std::borrow::Cow;
 
 use crate::core::context::currencies::TokenData;
 use crate::embedded::TOKEN_DATA;
+use egui_elements::utils::TINT_1;
 use image::imageops::FilterType;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::RwLock;
 use zeus_eth::{alloy_primitives::Address, currency::Currency};
-use egui_elements::utils::TINT_1;
 
 use bincode_next::{config::standard, decode_from_slice};
 
@@ -30,7 +32,7 @@ pub struct Icons {
 impl Default for Icons {
    fn default() -> Self {
       let egui_ctx = Context::default();
-      let chain_icons = ChainIcons::new(&egui_ctx).unwrap();
+      let chain_icons = ChainIcons::new();
       let currency_icons = CurrencyIcons::new(&egui_ctx).unwrap();
       let misc_icons = MiscIcons::new(&egui_ctx).unwrap();
 
@@ -245,45 +247,37 @@ impl TokenIcons {
 }
 
 pub struct ChainIcons {
-   pub eth_x24: TextureHandle,
-   pub op_x24: TextureHandle,
-   pub bsc_x24: TextureHandle,
-   pub base_x24: TextureHandle,
-   pub arbitrum_x24: TextureHandle,
-   pub eth_x16: TextureHandle,
-   pub op_x16: TextureHandle,
-   pub bsc_x16: TextureHandle,
-   pub base_x16: TextureHandle,
-   pub arbitrum_x16: TextureHandle,
+   pub eth: ImageSource<'static>,
+   pub op: ImageSource<'static>,
+   pub bsc: ImageSource<'static>,
+   pub base: ImageSource<'static>,
+   pub arbitrum: ImageSource<'static>,
 }
+
 impl ChainIcons {
-   pub fn new(ctx: &Context) -> Result<Self, anyhow::Error> {
-      let texture_options = TextureOptions::default();
-
-      let eth_x24 = load_image(include_bytes!("chain/x24/ethereum.png"))?;
-      let bsc_x24 = load_image(include_bytes!("chain/x24/bsc.png"))?;
-      let op_x24 = load_image(include_bytes!("chain/x24/op.png"))?;
-      let base_x24 = load_image(include_bytes!("chain/x24/base.png"))?;
-      let arbitrum_x24 = load_image(include_bytes!("chain/x24/arbitrum.png"))?;
-
-      let eth_x16 = load_image(include_bytes!("chain/x16/ethereum.png"))?;
-      let bsc_x16 = load_image(include_bytes!("chain/x16/bsc.png"))?;
-      let op_x16 = load_image(include_bytes!("chain/x16/op.png"))?;
-      let base_x16 = load_image(include_bytes!("chain/x16/base.png"))?;
-      let arbitrum_x16 = load_image(include_bytes!("chain/x16/arbitrum.png"))?;
-
-      Ok(Self {
-         eth_x24: ctx.load_texture("eth", eth_x24, texture_options),
-         op_x24: ctx.load_texture("op", op_x24, texture_options),
-         bsc_x24: ctx.load_texture("bsc", bsc_x24, texture_options),
-         base_x24: ctx.load_texture("base", base_x24, texture_options),
-         arbitrum_x24: ctx.load_texture("arbitrum", arbitrum_x24, texture_options),
-         eth_x16: ctx.load_texture("eth_x16", eth_x16, texture_options),
-         op_x16: ctx.load_texture("op_x16", op_x16, texture_options),
-         bsc_x16: ctx.load_texture("bsc_x16", bsc_x16, texture_options),
-         base_x16: ctx.load_texture("base_x16", base_x16, texture_options),
-         arbitrum_x16: ctx.load_texture("arbitrum_x16", arbitrum_x16, texture_options),
-      })
+   pub fn new() -> Self {
+      Self {
+         eth: static_bytes_source(
+            "bytes://chain/eth.png",
+            include_bytes!("chain/eth.png"),
+         ),
+         op: static_bytes_source(
+            "bytes://chain/op.svg",
+            include_bytes!("chain/op.svg"),
+         ),
+         bsc: static_bytes_source(
+            "bytes://chain/bsc.svg",
+            include_bytes!("chain/bsc.svg"),
+         ),
+         base: static_bytes_source(
+            "bytes://chain/base.svg",
+            include_bytes!("chain/base.svg"),
+         ),
+         arbitrum: static_bytes_source(
+            "bytes://chain/arbitrum.svg",
+            include_bytes!("chain/arbitrum.svg"),
+         ),
+      }
    }
 }
 
@@ -329,168 +323,21 @@ impl CurrencyIcons {
 }
 
 pub struct MiscIcons {
-   pub red_circle: TextureHandle,
-   pub green_circle: TextureHandle,
-   pub orange_circle: TextureHandle,
-   pub swap: TextureHandle,
-   pub view: TextureHandle,
-   pub view_light: TextureHandle,
-   pub hide: TextureHandle,
-   pub hide_light: TextureHandle,
-   pub wallet_light: TextureHandle,
-   pub wallet_dark: TextureHandle,
    pub wallet_main_x24: TextureHandle,
-   pub arrow_right_white_x24: TextureHandle,
-   pub arrow_right_dark_x24: TextureHandle,
-   pub gear_white_x24: TextureHandle,
-   pub gear_dark_x24: TextureHandle,
-   pub refresh_white_x22: TextureHandle,
-   pub refresh_dark_x22: TextureHandle,
-   pub refresh_white_x28: TextureHandle,
-   pub refresh_dark_x28: TextureHandle,
-   pub external_link_white_x18: TextureHandle,
-   pub external_link_dark_x18: TextureHandle,
-   pub qrcode_white_x18: TextureHandle,
-   pub qrcode_dark_x18: TextureHandle,
-   pub info: TextureHandle,
-   pub server_green: TextureHandle,
-   pub server_red: TextureHandle,
 }
 
 impl MiscIcons {
    pub fn new(ctx: &Context) -> Result<Self, anyhow::Error> {
       let texture_options = TextureOptions::default();
 
-      let red_circle = load_image(include_bytes!("misc/x16/red-circle.png"))?;
-      let green_circle = load_image(include_bytes!("misc/x16/green-circle.png"))?;
-      let orange_circle = load_image(include_bytes!("misc/x16/orange-circle.png"))?;
-
-      let server_green = load_and_resize_image(include_bytes!("misc/server-green.png"), 24, 24)?;
-      let server_red = load_and_resize_image(include_bytes!("misc/server-red.png"), 24, 24)?;
-
-      let swap = load_image(include_bytes!("misc/x24/swap.png"))?;
-      let view = load_image(include_bytes!("misc/x24/view.png"))?;
-      let view_light = load_image(include_bytes!("misc/x24/view-light.png"))?;
-
-      let hide = load_image(include_bytes!("misc/x24/hide.png"))?;
-      let hide_light = load_image(include_bytes!("misc/x24/hide-light.png"))?;
-
-      let wallet_light = load_image(include_bytes!("misc/x16/wallet-white.png"))?;
       let wallet_main_x24 = load_image(include_bytes!("misc/x24/wallet-main.png"))?;
 
-      let wallet_dark = load_image(include_bytes!("misc/x16/wallet-dark.png"))?;
-
-      let arrow_right_white_x24 = load_and_resize_image(
-         include_bytes!("misc/arrow-right-white.png"),
-         24,
-         24,
-      )?;
-
-      let arrow_right_dark_x24 = load_and_resize_image(
-         include_bytes!("misc/arrow-right-dark.png"),
-         24,
-         24,
-      )?;
-
-      let gear_white_x24 = load_and_resize_image(include_bytes!("misc/gear-white.png"), 24, 24)?;
-      let gear_dark_x24 = load_and_resize_image(include_bytes!("misc/gear-dark.png"), 24, 24)?;
-      let refresh_white_x22 =
-         load_and_resize_image(include_bytes!("misc/refresh-white.png"), 22, 22)?;
-      let refresh_dark_x22 =
-         load_and_resize_image(include_bytes!("misc/refresh-dark.png"), 22, 22)?;
-      let refresh_white_x28 =
-         load_and_resize_image(include_bytes!("misc/refresh-white.png"), 28, 28)?;
-      let refresh_dark_x28 =
-         load_and_resize_image(include_bytes!("misc/refresh-dark.png"), 28, 28)?;
-
-      let external_link_white_x18 = load_and_resize_image(
-         include_bytes!("misc/external-link-white.png"),
-         18,
-         18,
-      )?;
-      let external_link_dark_x18 = load_and_resize_image(
-         include_bytes!("misc/external-link-dark.png"),
-         18,
-         18,
-      )?;
-
-      let qrcode_white_x18 =
-         load_and_resize_image(include_bytes!("misc/qr-code-white.png"), 18, 18)?;
-      let qrcode_dark_x18 = load_and_resize_image(include_bytes!("misc/qr-code-dark.png"), 18, 18)?;
-
-      let info = load_and_resize_image(include_bytes!("misc/info.png"), 14, 14)?;
-
       Ok(Self {
-         red_circle: ctx.load_texture("red_circle", red_circle, texture_options),
-         green_circle: ctx.load_texture("green_circle", green_circle, texture_options),
-         orange_circle: ctx.load_texture("orange_circle", orange_circle, texture_options),
-         swap: ctx.load_texture("swap", swap, texture_options),
-         view: ctx.load_texture("view", view, texture_options),
-         hide: ctx.load_texture("hide", hide, texture_options),
-         view_light: ctx.load_texture("view_light", view_light, texture_options),
-         hide_light: ctx.load_texture("hide_light", hide_light, texture_options),
-         wallet_light: ctx.load_texture("wallet_light", wallet_light, texture_options),
-         wallet_dark: ctx.load_texture("wallet_dark", wallet_dark, texture_options),
          wallet_main_x24: ctx.load_texture(
             "wallet_main_x24",
             wallet_main_x24,
             texture_options,
          ),
-         arrow_right_white_x24: ctx.load_texture(
-            "arrow_right_white_x24",
-            arrow_right_white_x24,
-            texture_options,
-         ),
-         arrow_right_dark_x24: ctx.load_texture(
-            "arrow_right_dark_x24",
-            arrow_right_dark_x24,
-            texture_options,
-         ),
-         gear_white_x24: ctx.load_texture("gear_white_x24", gear_white_x24, texture_options),
-         gear_dark_x24: ctx.load_texture("gear_dark_x24", gear_dark_x24, texture_options),
-         refresh_white_x22: ctx.load_texture(
-            "refresh_white_x22",
-            refresh_white_x22,
-            texture_options,
-         ),
-         refresh_dark_x22: ctx.load_texture(
-            "refresh_dark_x22",
-            refresh_dark_x22,
-            texture_options,
-         ),
-         refresh_white_x28: ctx.load_texture(
-            "refresh_white_x28",
-            refresh_white_x28,
-            texture_options,
-         ),
-         refresh_dark_x28: ctx.load_texture(
-            "refresh_dark_x28",
-            refresh_dark_x28,
-            texture_options,
-         ),
-         external_link_white_x18: ctx.load_texture(
-            "external_link_white_x18",
-            external_link_white_x18,
-            texture_options,
-         ),
-         external_link_dark_x18: ctx.load_texture(
-            "external_link_dark_x18",
-            external_link_dark_x18,
-            texture_options,
-         ),
-         qrcode_white_x18: ctx.load_texture(
-            "qrcode_white_x18",
-            qrcode_white_x18,
-            texture_options,
-         ),
-         qrcode_dark_x18: ctx.load_texture(
-            "qrcode_dark_x18",
-            qrcode_dark_x18,
-            texture_options,
-         ),
-         info: ctx.load_texture("info", info, texture_options),
-         server_green: ctx.load_texture("server_green", server_green, texture_options),
-         server_red: ctx.load_texture("server_red", server_red, texture_options),
       })
    }
 }
@@ -499,7 +346,7 @@ impl Icons {
    pub fn new(ctx: &Context) -> Result<Self, anyhow::Error> {
       let texture_options = TextureOptions::default();
 
-      let chain_icons = ChainIcons::new(ctx)?;
+      let chain_icons = ChainIcons::new();
       let currency_icons = CurrencyIcons::new(ctx)?;
       let misc_icons = MiscIcons::new(ctx)?;
 
@@ -513,31 +360,18 @@ impl Icons {
 
    /// Return the chain icon based on the chain_id
    pub fn chain_icon(&self, id: u64, tint: bool) -> Image<'static> {
-      let mut img = match id {
-         1 => Image::new(&self.chain.eth_x24),
-         10 => Image::new(&self.chain.op_x24),
-         56 => Image::new(&self.chain.bsc_x24),
-         8453 => Image::new(&self.chain.base_x24),
-         42161 => Image::new(&self.chain.arbitrum_x24),
-         _ => Image::new(&self.chain.eth_x24),
+      let source = match id {
+         1 => self.chain.eth.clone(),
+         10 => self.chain.op.clone(),
+         56 => self.chain.bsc.clone(),
+         8453 => self.chain.base.clone(),
+         42161 => self.chain.arbitrum.clone(),
+         _ => self.chain.eth.clone(),
       };
 
-      if tint {
-         img = img.tint(TINT_1);
-      }
-
-      img
-   }
-
-   pub fn chain_icon_x16(&self, id: u64, tint: bool) -> Image<'static> {
-      let mut img = match id {
-         1 => Image::new(&self.chain.eth_x16),
-         10 => Image::new(&self.chain.op_x16),
-         56 => Image::new(&self.chain.bsc_x16),
-         8453 => Image::new(&self.chain.base_x16),
-         42161 => Image::new(&self.chain.arbitrum_x16),
-         _ => Image::new(&self.chain.eth_x16),
-      };
+      let mut img = Image::new(source)
+         .fit_to_exact_size(Vec2::splat(24.0))
+         .show_loading_spinner(false);
 
       if tint {
          img = img.tint(TINT_1);
@@ -648,208 +482,8 @@ impl Icons {
       img
    }
 
-   pub fn red_circle(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.red_circle).tint(TINT_1),
-         false => Image::new(&self.misc.red_circle),
-      }
-   }
-
-   pub fn green_circle(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.green_circle).tint(TINT_1),
-         false => Image::new(&self.misc.green_circle),
-      }
-   }
-
-   pub fn orange_circle(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.orange_circle).tint(TINT_1),
-         false => Image::new(&self.misc.orange_circle),
-      }
-   }
-
-   pub fn swap(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.swap).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.swap).sense(Sense::click()),
-      }
-   }
-
-   pub fn visible_dark(&self) -> Image<'static> {
-      Image::new(&self.misc.view).sense(Sense::click())
-   }
-
-   pub fn visible_light(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.view_light).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.view_light).sense(Sense::click()),
-      }
-   }
-
-   pub fn invisible_dark(&self) -> Image<'static> {
-      Image::new(&self.misc.hide).sense(Sense::click())
-   }
-
-   pub fn invisible_light(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.hide_light).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.hide_light).sense(Sense::click()),
-      }
-   }
-
-   /// For light themes
-   pub fn view_dark(&self) -> Image<'static> {
-      Image::new(&self.misc.view).sense(Sense::click())
-   }
-
-   /// For light themes
-   pub fn hide_dark(&self) -> Image<'static> {
-      Image::new(&self.misc.hide).sense(Sense::click())
-   }
-
-   /// For dark themes
-   pub fn view_light(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.view_light).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.view_light).sense(Sense::click()),
-      }
-   }
-
-   /// For dark themes
-   pub fn hide_light(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.hide_light).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.hide_light).sense(Sense::click()),
-      }
-   }
-
-   /// For dark themes
-   pub fn wallet_light(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.wallet_light).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.wallet_light).sense(Sense::click()),
-      }
-   }
-
    pub fn wallet_main_x24(&self) -> Image<'static> {
       Image::new(&self.misc.wallet_main_x24).sense(Sense::click())
-   }
-
-   /// For light themes
-   pub fn wallet_dark(&self) -> Image<'static> {
-      Image::new(&self.misc.wallet_dark).sense(Sense::click())
-   }
-
-   /// For dark themes
-   pub fn arrow_right_white_x24(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.arrow_right_white_x24).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.arrow_right_white_x24).sense(Sense::click()),
-      }
-   }
-
-   /// For light themes
-   pub fn arrow_right_dark_x24(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.arrow_right_dark_x24).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.arrow_right_dark_x24).sense(Sense::click()),
-      }
-   }
-
-   /// For light themes
-   pub fn gear_dark_x24(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.gear_dark_x24).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.gear_dark_x24).sense(Sense::click()),
-      }
-   }
-
-   /// For dark themes
-   pub fn gear_white_x24(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.gear_white_x24).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.gear_white_x24).sense(Sense::click()),
-      }
-   }
-
-   pub fn refresh_dark_x22(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.refresh_dark_x22).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.refresh_dark_x22).sense(Sense::click()),
-      }
-   }
-
-   pub fn refresh_white_x22(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.refresh_white_x22).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.refresh_white_x22).sense(Sense::click()),
-      }
-   }
-
-   pub fn refresh_white_x28(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.refresh_white_x28).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.refresh_white_x28).sense(Sense::click()),
-      }
-   }
-
-   pub fn refresh_dark_x28(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.refresh_dark_x28).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.refresh_dark_x28).sense(Sense::click()),
-      }
-   }
-
-   pub fn external_link_white_x18(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.external_link_white_x18)
-            .sense(Sense::click())
-            .tint(TINT_1),
-         false => Image::new(&self.misc.external_link_white_x18).sense(Sense::click()),
-      }
-   }
-
-   pub fn external_link_dark_x18(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.external_link_dark_x18).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.external_link_dark_x18).sense(Sense::click()),
-      }
-   }
-
-   pub fn qrcode_white_x18(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.qrcode_white_x18).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.qrcode_white_x18).sense(Sense::click()),
-      }
-   }
-
-   pub fn qrcode_dark_x18(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.qrcode_dark_x18).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.qrcode_dark_x18).sense(Sense::click()),
-      }
-   }
-
-   pub fn info(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.info).tint(TINT_1),
-         false => Image::new(&self.misc.info),
-      }
-   }
-
-   pub fn server_green(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.server_green).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.server_green).sense(Sense::click()),
-      }
-   }
-
-   pub fn server_red(&self, tint: bool) -> Image<'static> {
-      match tint {
-         true => Image::new(&self.misc.server_red).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.server_red).sense(Sense::click()),
-      }
    }
 }
 
@@ -867,6 +501,13 @@ fn load_and_resize_image(
       size,
       pixels.as_slice(),
    ))
+}
+
+fn static_bytes_source(uri: &'static str, bytes: &'static [u8]) -> ImageSource<'static> {
+   ImageSource::Bytes {
+      uri: Cow::Borrowed(uri),
+      bytes: bytes.into(),
+   }
 }
 
 fn load_image(image_data: &[u8]) -> Result<ColorImage, image::ImageError> {

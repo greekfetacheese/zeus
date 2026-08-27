@@ -45,9 +45,10 @@ default-run = "zeus"
 # GUI
 eframe = { version = "=0.36", features = ["wgpu"] }
 egui = { version = "=0.36", features = ["serde"] }
-egui_extras = { version = "=0.36", features = ["image"] }
+egui_extras = { version = "=0.36", features = ["image", "svg"] }
 image = "=0.25.10"
 egui-elegance = "=0.16"
+egui-lucide = "0.1"
 egui-elements = {version = "1", features = ["full"]}
 
 # Zeus Crates

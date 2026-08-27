@@ -32,6 +32,7 @@ use egui_elements::{
    Button, Modal, OverlayManager, QrImage, SecureTextEdit, Theme, visuals::ButtonVisuals,
 };
 use elegance::{Badge, BadgeTone, Indicator, IndicatorState, Menu, MenuItem, TabBar};
+use egui_lucide::Lucide;
 
 const DELEGATE_TIP1: &str = "This wallet has been temporarily upgraded to a smart contract";
 const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
@@ -133,12 +134,11 @@ impl Header {
 
       let chain = ctx.chain;
       let privacy_mode = ctx.privacy_mode;
-      let tint = theme.image_tint_recommended;
       let button_visuals = theme.button_visuals();
 
       let evm_addr = self.wallet_info.address;
 
-      self.show_deleg_settings_window(ctx, theme, icons.clone(), evm_addr, ui);
+      self.show_deleg_settings_window(ctx, theme, evm_addr, ui);
 
       self.qrcode_window.show(ctx, theme, ui);
 
@@ -162,7 +162,6 @@ impl Header {
                   ctx,
                   theme,
                   &icons,
-                  &tint,
                   &button_visuals,
                   privacy_mode,
                   chain,
@@ -181,7 +180,6 @@ impl Header {
       ctx: &mut ZeusContext,
       theme: &Theme,
       icons: &Arc<Icons>,
-      tint: &bool,
       button_visuals: &ButtonVisuals,
       privacy_mode: bool,
       chain: ChainId,
@@ -196,6 +194,7 @@ impl Header {
       });
 
       let wallet = &self.wallet_info;
+      let icon_color = theme.colors.text;
 
       // Wallet address, on click copy it to the clipboard
       ui.horizontal(|ui| {
@@ -218,12 +217,9 @@ impl Header {
 
          ui.add_space(7.0);
 
-         let icon = match theme.dark {
-            true => icons.qrcode_white_x18(*tint),
-            false => icons.qrcode_dark_x18(*tint),
-         };
+         let icon = Lucide::QrCode.size(16.0).color(icon_color).image();
 
-         let button = Button::image(icon).visuals(button_visuals.clone());
+         let button = Button::image(icon);
          let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
          // QR Code Window
@@ -236,12 +232,9 @@ impl Header {
          // Block explorer link
          let block_explorer = chain.block_explorer();
          let link = format!("{}/address/{}", block_explorer, wallet.address);
-         let icon = match theme.dark {
-            true => icons.external_link_white_x18(*tint),
-            false => icons.external_link_dark_x18(*tint),
-         };
+         let icon = Lucide::ExternalLink.size(16.0).color(icon_color).image();
 
-         let button = Button::image(icon).visuals(button_visuals.clone());
+         let button = Button::image(icon);
          let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
          if res.clicked() {
@@ -289,18 +282,11 @@ impl Header {
       ui.scope(|ui| {
          ui.spacing_mut().button_padding = vec2(4.0, 6.0);
 
-         let icon = if ctx.privacy_mode {
-            match theme.dark {
-               true => icons.invisible_light(*tint),
-               false => icons.invisible_dark(),
-            }
-         } else {
-            match theme.dark {
-               true => icons.visible_light(*tint),
-               false => icons.visible_dark(),
-            }
-         }.fit_to_exact_size(vec2(18.0, 18.0));
-
+         let icon = match ctx.privacy_mode {
+            false => Lucide::Eye.size(20.0).color(icon_color).image(),
+            true => Lucide::EyeOff.size(20.0).color(icon_color).image(),
+         };
+      
          let text = format!(
             "{} mode",
             if privacy_mode { "Privacy" } else { "Public" }
@@ -542,7 +528,6 @@ impl Header {
       &mut self,
       ctx: &mut ZeusContext,
       theme: &Theme,
-      icons: Arc<Icons>,
       wallet: Address,
       ui: &mut Ui,
    ) {
@@ -591,21 +576,17 @@ impl Header {
                });
 
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  self.refresh(theme, icons, wallet, ui);
+                  self.refresh(theme, wallet, ui);
                });
             });
          });
    }
 
-   fn refresh(&mut self, theme: &Theme, icons: Arc<Icons>, wallet: Address, ui: &mut Ui) {
+   fn refresh(&mut self, theme: &Theme, wallet: Address, ui: &mut Ui) {
       ui.spacing_mut().button_padding = vec2(4.0, 4.0);
 
       let button_visuals = theme.button_visuals();
-      let tint = theme.image_tint_recommended;
-      let icon = match theme.dark {
-         true => icons.refresh_white_x22(tint),
-         false => icons.refresh_dark_x22(tint),
-      };
+      let icon = Lucide::RefreshCw.size(20.0).color(theme.colors.text).image();
 
       if !self.syncing {
          let mut visuals = ButtonVisuals::default();

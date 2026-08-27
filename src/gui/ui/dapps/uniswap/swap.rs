@@ -7,7 +7,8 @@ use crate::{assets::icons::Icons, gui::SHARED_GUI};
 use egui::{Align, Grid, Id, Layout, RichText, ScrollArea, Sense, Stroke, Ui, vec2};
 
 use anyhow::anyhow;
-use egui_elements::{Button, widgets::Window, ComboBox, Label, Theme};
+use egui_elements::{Button, ComboBox, Label, Theme, widgets::Window};
+use egui_lucide::Lucide;
 use std::sync::Arc;
 use std::{collections::HashSet, time::Instant};
 use zeus_eth::alloy_rpc_types::Block;
@@ -559,10 +560,10 @@ impl SwapUi {
 
          // Swap Currencies
          ui.vertical_centered(|ui| {
-            let tint = theme.image_tint_recommended;
-            let visuals = theme.button_visuals();
-            let swap_button =
-               Button::image(icons.swap(tint)).visuals(visuals).min_size(vec2(40.0, 40.0));
+            ui.spacing_mut().button_padding = vec2(6.0, 6.0);
+
+            let icon = Lucide::RefreshCw.size(20.0).color(theme.colors.text).image();
+            let swap_button = Button::image(icon);
 
             if ui.add(swap_button).clicked() {
                self.swap_currencies();
@@ -634,7 +635,7 @@ impl SwapUi {
 
          if !simulate_mode {
             self.swap_button(ctx, theme, settings, ui);
-            self.swap_details(ctx, theme, icons, settings, ui);
+            self.swap_details(ctx, theme, settings, ui);
          }
       });
    }
@@ -1111,20 +1112,19 @@ impl SwapUi {
       &self,
       ctx: &mut ZeusContext,
       theme: &Theme,
-      icons: Arc<Icons>,
       settings: &UniswapSettingsUi,
       ui: &mut Ui,
    ) {
       let frame = theme.frame2;
       let text_size = theme.typography.large;
-      let tint = theme.image_tint_recommended;
 
       frame.show(ui, |ui| {
          ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
+
          // Routing
          ui.horizontal(|ui| {
             let text = RichText::new("Routing").size(text_size);
-            let info = icons.info(tint);
+            let info = Lucide::Info.size(20.0).color(theme.colors.text).image();
             let label = Label::new(text, Some(info)).interactive(false);
 
             ui.add(label).on_hover_ui(|ui| {

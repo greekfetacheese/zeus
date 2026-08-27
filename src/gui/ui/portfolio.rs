@@ -16,6 +16,7 @@ use eframe::egui::{
 use std::sync::Arc;
 
 use egui_elements::{Button, Label, Theme, visuals::ButtonVisuals};
+use egui_lucide::Lucide;
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, ERC20Token},
@@ -117,11 +118,7 @@ impl PortfolioUi {
                            token_selection.open(privacy_mode, chain_id, owner);
                         }
 
-                        let tint = theme.image_tint_recommended;
-                        let icon = match theme.dark {
-                           true => icons.refresh_white_x22(tint),
-                           false => icons.refresh_dark_x22(tint),
-                        };
+                        let icon = Lucide::RefreshCw.size(20.0).color(theme.colors.text).image();
 
                         if !self.show_spinner {
                            let mut visuals = ButtonVisuals::default();

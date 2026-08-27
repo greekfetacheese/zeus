@@ -13,6 +13,7 @@ use egui::{
    Slider, Spinner, Ui, Window, vec2,
 };
 use egui_elements::{Button, Modal, OverlayManager, SecureTextEdit, Theme, visuals::ButtonVisuals};
+use egui_lucide::Lucide;
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 use zeus_eth::currency::ERC20Token;
@@ -183,7 +184,6 @@ impl AcrossBridge {
 
       let frame = theme.frame1;
       let button_visuals = theme.button_visuals();
-      let tint = theme.image_tint_recommended;
 
       Window::new("across_bridge_ui")
          .title_bar(false)
@@ -213,10 +213,7 @@ impl AcrossBridge {
                   });
 
                   ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                     let icon = match theme.dark {
-                        true => icons.gear_white_x24(tint),
-                        false => icons.gear_dark_x24(tint),
-                     };
+                     let icon = Lucide::Settings.size(20.0).color(theme.colors.text).image();
 
                      let mut visuals = ButtonVisuals::default();
                      visuals.bg_hover = button_visuals.bg_hover;
@@ -297,10 +294,7 @@ impl AcrossBridge {
                         let chain = self.to_chain.chain;
                         let block_explorer = chain.block_explorer();
                         let link = format!("{}/address/{}", block_explorer, recipient.evm_address);
-                        let icon = match theme.dark {
-                           true => icons.external_link_white_x18(tint),
-                           false => icons.external_link_dark_x18(tint),
-                        };
+                        let icon = Lucide::ExternalLink.size(18.0).color(theme.colors.text).image();
 
                         let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
 
@@ -348,12 +342,7 @@ impl AcrossBridge {
 
                            ui.add_space(5.0);
 
-                           let tint = theme.image_tint_recommended;
-                           let icon = match theme.dark {
-                              true => icons.arrow_right_white_x24(tint),
-                              false => icons.arrow_right_dark_x24(tint),
-                           };
-
+                           let icon = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
                            ui.add(icon);
 
                            ui.add_space(5.0);

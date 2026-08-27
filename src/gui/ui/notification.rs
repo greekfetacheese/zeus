@@ -6,6 +6,7 @@ use crate::gui::{SHARED_GUI, ui::GREEN_CHECK};
 use crate::utils::{RT, TimeStamp, truncate_address};
 use egui::{Align2, Order, ProgressBar, RichText, Spinner, Ui, Window, vec2};
 use egui_elements::{Button, Label, MultiLabel, Theme};
+use egui_lucide::Lucide;
 
 use std::sync::Arc;
 
@@ -380,7 +381,7 @@ impl Notification {
          let text_in = RichText::new(text_in).size(theme.typography.large);
          let icon_in = icons.currency_icon_x24(&params.input_currency, tint);
 
-         let arrow = icons.arrow_right_white_x24(tint);
+         let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
 
          let text_out = format!("{} {}", amount_out, symbol_out);
          let text_out = RichText::new(text_out).size(theme.typography.large);
@@ -412,7 +413,7 @@ impl Notification {
          let text_in = RichText::new(text_in).size(theme.typography.large);
          let icon_in = icons.currency_icon_x24(&params.input_currency, tint);
 
-         let arrow = icons.arrow_right_white_x24(tint);
+         let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
 
          let text_out = format!("{} {}", amount_out, symbol_out);
          let text_out = RichText::new(text_out).size(theme.typography.large);
@@ -429,7 +430,7 @@ impl Notification {
          let chain_in_icon = icons.chain_icon(from_chain.id(), tint);
          let label1 = Label::new(chain_in, Some(chain_in_icon)).interactive(false);
 
-         let arrow = icons.arrow_right_white_x24(tint);
+         let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
          let label_arrow = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
 
          let chain_out = RichText::new(to_chain.name()).size(theme.typography.large);
@@ -456,7 +457,7 @@ impl Notification {
          let icon = icons.currency_icon_x24(&native, tint);
          let label1 = Label::new(text_amount, Some(icon)).interactive(false);
 
-         let arrow_icon = icons.arrow_right_white_x24(tint);
+         let arrow_icon = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
          let arrow_label = Label::new("", Some(arrow_icon)).spacing(0.0).interactive(false);
 
          let text = format!("{} {}", weth_received, weth.symbol());
@@ -485,7 +486,7 @@ impl Notification {
          let icon = icons.currency_icon_x24(&weth, tint);
          let label1 = Label::new(text_amount, Some(icon)).interactive(false);
 
-         let arrow_icon = icons.arrow_right_white_x24(tint);
+         let arrow_icon = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
          let arrow_label = Label::new("", Some(arrow_icon)).spacing(0.0).interactive(false);
 
          let text = format!("{} {}", eth_received, native.symbol());
@@ -534,7 +535,7 @@ impl Notification {
          let text = RichText::new(address_name).size(theme.typography.normal);
          let from_label = Label::new(text, None).interactive(false);
 
-         let arrow = icons.arrow_right_white_x24(tint);
+         let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
          let arrow_label = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
 
          let address_name = ctx.get_address_name(chain, params.recipient);

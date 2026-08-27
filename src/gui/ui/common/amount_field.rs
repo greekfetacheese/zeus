@@ -12,6 +12,7 @@ use zeus_eth::{
 };
 
 use egui_elements::{Theme, Button, Label, SecureTextEdit};
+use egui_lucide::Lucide;
 
 /// An amount field with an optional currency selector and customizable balance & max amount logic.
 pub struct AmountField {
@@ -182,15 +183,12 @@ impl AmountField {
                }
 
                // Balance
-               let wallet_icon = match theme.dark {
-                  true => icons.wallet_light(tint),
-                  _ => icons.wallet_dark(),
-               };
+               let icon = Lucide::WalletMinimal.size(17.0).color(theme.colors.text).image();
 
-               let text = RichText::new(format!("{:.12}", balance.abbreviated()))
+               let text = RichText::new(format!("{:.10}", balance.abbreviated()))
                   .size(theme.typography.normal)
                   .color(theme.colors.text);
-               let label = Label::new(text, Some(wallet_icon)).interactive(false);
+               let label = Label::new(text, Some(icon)).interactive(false);
 
                ui.add(label);
             });

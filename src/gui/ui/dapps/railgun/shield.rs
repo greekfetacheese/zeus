@@ -35,6 +35,7 @@ use crate::gui::{
 use crate::utils::simulate::{fetch_accounts_info, fetch_storage_for_railgun};
 use egui_elements::{Button, SecureTextEdit, Theme, widgets::Window};
 use elegance::{Badge, BadgeTone};
+use egui_lucide::Lucide;
 
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -414,11 +415,7 @@ impl ShieldUi {
                                  "{}/address/{}",
                                  block_explorer, recipient.evm_address
                               );
-                              let tint = theme.image_tint_recommended;
-                              let icon = match theme.dark {
-                                 true => icons.external_link_white_x18(tint),
-                                 false => icons.external_link_dark_x18(tint),
-                              };
+                              let icon = Lucide::ExternalLink.size(18.0).color(theme.colors.text).image();
 
                               let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
 

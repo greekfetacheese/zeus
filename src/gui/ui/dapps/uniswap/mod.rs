@@ -10,6 +10,7 @@ use crate::assets::icons::Icons;
 use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::ui::TokenSelectionWindow;
 use egui_elements::{Button, Label, Modal, Theme, visuals::ButtonVisuals};
+use egui_lucide::Lucide;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -107,7 +108,7 @@ impl UniswapUi {
       self.open
    }
 
-   fn header(&mut self, _ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn header(&mut self, _ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       let size = vec2(ui.available_width() * 0.95, 30.0);
 
       ui.allocate_ui(size, |ui| {
@@ -118,11 +119,7 @@ impl UniswapUi {
 
             let button_visuals = theme.button_visuals();
 
-            let tint = theme.image_tint_recommended;
-            let icon = match theme.dark {
-               true => icons.gear_white_x24(tint),
-               false => icons.gear_dark_x24(tint),
-            };
+            let icon = Lucide::Settings.size(20.0).color(theme.colors.text).image();
 
             let mut visuals = ButtonVisuals::default();
             visuals.bg_hover = button_visuals.bg_hover;
@@ -134,10 +131,7 @@ impl UniswapUi {
                self.settings.open();
             }
 
-            let icon = match theme.dark {
-               true => icons.refresh_white_x22(tint),
-               false => icons.refresh_dark_x22(tint),
-            };
+            let icon = Lucide::RefreshCw.size(20.0).color(theme.colors.text).image();
 
             let syncing = self.swap_ui.pool_data_syncing
                || self.swap_ui.syncing_pools
@@ -216,7 +210,7 @@ impl UniswapUi {
                   ui.label(text);
                }
 
-               self.header(ctx, theme, icons.clone(), ui);
+               self.header(ctx, theme, ui);
 
                self.swap_ui.show(
                   ctx,

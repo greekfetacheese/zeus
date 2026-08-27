@@ -11,6 +11,8 @@ use eframe::egui::{
 use egui_elements::{Button, Modal, OverlayManager, widgets::Window, SecureTextEdit, Theme, visuals::ButtonVisuals};
 use std::sync::Arc;
 use zeus_eth::alloy_provider::Provider;
+use elegance::{Indicator, IndicatorState};
+use egui_lucide::Lucide;
 
 pub struct NetworkSettings {
    open: bool,
@@ -103,8 +105,6 @@ impl NetworkSettings {
          return;
       }
 
-      let tint = theme.image_tint_recommended;
-
       self.add_rpc(theme, ui);
       self.rpc_settings(ctx, theme, ui);
 
@@ -176,10 +176,7 @@ impl NetworkSettings {
                   }
 
                   // Refresh button
-                  let icon = match theme.dark {
-                     true => icons.refresh_white_x22(tint),
-                     false => icons.refresh_dark_x22(tint),
-                  };
+                  let icon = Lucide::RefreshCw.size(20.0).color(theme.colors.text).image();
 
                   if !self.refreshing {
                      let mut visuals = ButtonVisuals::default();
@@ -307,27 +304,30 @@ impl NetworkSettings {
                      ui.scope(|ui| {
                         ui.set_width(others_width);
                         ui.add_space(12.0);
-                        let icon = if rpc.is_working() {
+                        let state = if rpc.is_working() {
                            match rpc.is_fully_functional() {
-                              true => icons.green_circle(tint),
-                              false => icons.orange_circle(tint),
+                              true => Indicator::new(IndicatorState::On).size(12.0),
+                              false => Indicator::new(IndicatorState::Connecting).size(12.0),
                            }
                         } else {
-                           icons.red_circle(tint)
+                           Indicator::new(IndicatorState::Off).size(12.0)
                         };
-                        ui.add(icon);
+                        ui.add(state);
                      });
 
                      // Archive Node column
                      ui.scope(|ui| {
                         ui.set_width(others_width);
                         ui.add_space(15.0);
-                        let icon = if rpc.is_archive() {
-                           icons.green_circle(tint)
+                      let state = if rpc.is_working() {
+                           match rpc.is_fully_functional() {
+                              true => Indicator::new(IndicatorState::On).size(12.0),
+                              false => Indicator::new(IndicatorState::Connecting).size(12.0),
+                           }
                         } else {
-                           icons.red_circle(tint)
+                           Indicator::new(IndicatorState::Off).size(12.0)
                         };
-                        ui.add(icon);
+                        ui.add(state);
                      });
 
                      // MEV Protect column
@@ -335,9 +335,9 @@ impl NetworkSettings {
                         ui.set_width(mev_protect_width);
                         ui.add_space(30.0);
                         let icon = if rpc.is_mev_protect() {
-                           icons.green_circle(tint)
+                           Indicator::new(IndicatorState::On).size(12.0)
                         } else {
-                           icons.red_circle(tint)
+                           Indicator::new(IndicatorState::Off).size(12.0)
                         };
                         ui.add(icon);
                      });
@@ -349,10 +349,7 @@ impl NetworkSettings {
                      });
 
                      // Settings button
-                     let icon = match theme.dark {
-                        true => icons.gear_white_x24(tint),
-                        false => icons.gear_dark_x24(tint),
-                     };
+                     let icon = Lucide::Settings.size(20.0).color(theme.colors.text).image();
 
                      let mut visuals = ButtonVisuals::default();
                      visuals.bg_hover = button_visuals.bg_hover;

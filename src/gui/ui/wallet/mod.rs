@@ -351,7 +351,7 @@ impl WalletUi {
                               continue;
                            }
 
-                           let icon = icons.chain_icon_x16(chain, tint);
+                           let icon = icons.chain_icon(chain, tint).fit_to_exact_size(vec2(16.0, 16.0));
                            ui.add(icon);
                         }
                      });

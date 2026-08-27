@@ -1,11 +1,12 @@
 use egui::{Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2};
-use egui_elements::{Button, Label, Modal, OverlayManager, SecureTextEdit, widgets::Window, Theme};
+use egui_elements::{Button, Label, Modal, OverlayManager, SecureTextEdit, Theme, widgets::Window};
 
 use super::{address, chain, contract_interact, eth_received, events::*, tx_cost, value};
 use crate::assets::icons::Icons;
 use crate::core::{DecodedEvent, TransactionAnalysis, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::{RT, estimate_tx_cost};
+use elegance::{Indicator, IndicatorState};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::NativeCurrency,
@@ -398,7 +399,6 @@ impl TxConfirmationWindow {
                   && !main_event.is_other()
                   && main_event.is_mev_vulnerable();
                let show_mev_protect = base_case || main_event.is_other();
-               let tint = theme.image_tint_recommended;
 
                if recalculate_tx_cost {
                   self.calculate_tx_cost(ctx, self.gas_used);
@@ -406,9 +406,9 @@ impl TxConfirmationWindow {
 
                if show_mev_protect {
                   let icon = if self.mev_protect {
-                     icons.green_circle(tint)
+                     Indicator::new(IndicatorState::On).size(12.0)
                   } else {
-                     icons.red_circle(tint)
+                     Indicator::new(IndicatorState::Off).size(12.0)
                   };
 
                   let text = if self.mev_protect {
@@ -418,7 +418,14 @@ impl TxConfirmationWindow {
                   };
 
                   let text = RichText::new(text).size(theme.typography.normal);
-                  ui.add(Label::new(text, Some(icon)).interactive(false));
+
+                  let size = vec2(ui.available_width() * 0.3, 15.0);
+
+                  ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
+                     ui.add(Label::new(text, None).interactive(false));
+                     ui.add_space(10.0);
+                     ui.add(icon);
+                  });
                }
 
                if !sufficient_balance {
