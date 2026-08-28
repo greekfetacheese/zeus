@@ -25,6 +25,8 @@ use zeus_eth::{
 const ZEUS_TIP: &str = "Zeus only shows approvals that have been been made in-app.\n
 It cannot track approvals made from other wallets.";
 
+const DEFAULT_ROWS_PER_PAGE: usize = 10;
+
 #[derive(Debug, Clone)]
 enum ApprovalKind {
    Erc20(TokenApproveParams),
@@ -81,6 +83,8 @@ pub struct ApprovalsUi {
    cached_rows: Vec<ApprovalRow>,
    cache_key: CacheKey,
    cached_permit_info: PermitInfoMap,
+   current_page: usize,
+   rows_per_page: usize,
 }
 
 impl ApprovalsUi {
@@ -94,6 +98,8 @@ impl ApprovalsUi {
          cached_rows: Vec::new(),
          cache_key: CacheKey::default(),
          cached_permit_info: HashMap::new(),
+         current_page: 0,
+         rows_per_page: DEFAULT_ROWS_PER_PAGE,
       }
    }
 
@@ -109,6 +115,7 @@ impl ApprovalsUi {
       self.open = true;
       self.cached_rows.clear();
       self.cache_key = CacheKey::invalid();
+      self.current_page = 0;
    }
 
    pub fn close(&mut self) {
@@ -122,6 +129,7 @@ impl ApprovalsUi {
       self.cached_rows = Vec::new();
       self.cache_key = CacheKey::default();
       self.cached_permit_info = HashMap::new();
+      self.current_page = 0;
    }
 
    fn current_cache_key(&self) -> CacheKey {
@@ -284,6 +292,7 @@ impl ApprovalsUi {
    fn invalidate_cache(&mut self) {
       self.cached_rows.clear();
       self.cache_key = CacheKey::invalid();
+      self.current_page = 0;
    }
 
    fn wallet_name(&self, ctx: &mut ZeusContext, address: Address) -> String {
@@ -396,6 +405,7 @@ impl ApprovalsUi {
                      if ui.add(label).clicked() {
                         if self.selected_wallet.is_some() {
                            self.selected_wallet = None;
+                           self.current_page = 0;
                         }
                      }
 
@@ -414,6 +424,7 @@ impl ApprovalsUi {
                               != Some(wallet.address)
                            {
                               self.selected_wallet = Some(wallet.clone());
+                              self.current_page = 0;
                            }
                         }
                      }
@@ -450,6 +461,7 @@ impl ApprovalsUi {
                      if ui.add(label).clicked() {
                         if self.selected_chain.is_some() {
                            self.selected_chain = None;
+                           self.current_page = 0;
                         }
                      }
 
@@ -469,6 +481,7 @@ impl ApprovalsUi {
                         if ui.add(label).clicked() {
                            if self.selected_chain != Some(chain) {
                               self.selected_chain = Some(chain);
+                              self.current_page = 0;
                            }
                         }
                      }
@@ -502,30 +515,58 @@ impl ApprovalsUi {
                return;
             }
 
-            let size = vec2(200.0, 30.0);
-            ui.vertical_centered(|ui| {
-               ui.allocate_ui(size, |ui| {
-                  ui.horizontal(|ui| {
-                     ui.spacing_mut().item_spacing.x = 5.0;
-                     ui.label(
-                        RichText::new(format!(
-                           "{} active approval(s)",
-                           self.cached_rows.len()
-                        ))
-                        .size(theme.typography.large)
-                        .color(theme.colors.text),
-                     );
+            let total_rows = self.cached_rows.len();
+            let total_pages = (total_rows as f64 / self.rows_per_page as f64).ceil() as usize;
+            self.current_page = self.current_page.min(total_pages.saturating_sub(1));
 
-                     let q_mark = RichText::new("?").size(theme.typography.normal);
-                     let info_tip = Badge::new(q_mark, BadgeTone::Info);
-                     ui.add(info_tip).on_hover_text(ZEUS_TIP);
-                  });
+            let button_visuals = theme.button_visuals();
+
+            ui.horizontal(|ui| {
+               ui.horizontal(|ui| {
+                  ui.spacing_mut().item_spacing.x = 12.0;
+                  ui.spacing_mut().button_padding = vec2(4.0, 6.0);
+
+                  let prev_enabled = self.current_page > 0;
+                  let text = RichText::new("Previous").size(theme.typography.small);
+                  let prev_button = Button::new(text).visuals(button_visuals);
+                  if ui.add_enabled(prev_enabled, prev_button).clicked() {
+                     self.current_page -= 1;
+                  }
+
+                  ui.label(
+                     RichText::new(format!(
+                        "Page {} of {}",
+                        self.current_page + 1,
+                        total_pages.max(1)
+                     ))
+                     .size(theme.typography.small)
+                     .color(theme.colors.text),
+                  );
+
+                  let next_enabled = (self.current_page + 1) < total_pages;
+                  let text = RichText::new("Next").size(theme.typography.small);
+                  let next_button = Button::new(text).visuals(button_visuals);
+                  if ui.add_enabled(next_enabled, next_button).clicked() {
+                     self.current_page += 1;
+                  }
                });
+
+               ui.add_space(200.0);
+               ui.spacing_mut().item_spacing.x = 5.0;
+
+               ui.label(
+                  RichText::new(format!("{} active approval(s)", total_rows))
+                     .size(theme.typography.large)
+                     .color(theme.colors.text),
+               );
+
+               let q_mark = RichText::new("?").size(theme.typography.normal);
+               let info_tip = Badge::new(q_mark, BadgeTone::Info);
+               ui.add(info_tip).on_hover_text(ZEUS_TIP);
             });
 
             ui.add_space(10.0);
 
-            let button_visuals = theme.button_visuals();
             let label_visuals = theme.label_visuals();
             let tint = theme.image_tint_recommended;
 
@@ -592,7 +633,13 @@ impl ApprovalsUi {
                   // --- Body: one frame2 card per approval ---
                   // Do NOT put Frame inside a Grid cell — Frame becomes a single
                   // cell and every column collapses into the first one.
-                  let rows = self.cached_rows.clone();
+                  let start = self.current_page * self.rows_per_page;
+                  let end = start.saturating_add(self.rows_per_page).min(total_rows);
+                  let rows = if start < end {
+                     self.cached_rows[start..end].to_vec()
+                  } else {
+                     Vec::new()
+                  };
 
                   ui.vertical_centered(|ui| {
                      ui.spacing_mut().item_spacing.y = 10.0;

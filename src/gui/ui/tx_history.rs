@@ -9,7 +9,10 @@ use crate::gui::{
    },
 };
 use crate::utils::{RT, truncate_address};
-use egui::{Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, Ui, vec2};
+use egui::{
+   Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, UiBuilder,
+   vec2,
+};
 use egui_elements::{Button, ComboBox, Label, Theme};
 use elegance::{Badge, BadgeTone};
 use zeus_eth::{
@@ -121,18 +124,14 @@ impl TxHistory {
       }
    }
 
-   /// Fixed-size cell with vertically centered content so every column
-   /// shares one baseline across framed rows.
+   /// Fixed-size cell. The parent always advances by `width` even if a label
+   /// wants more space — otherwise long Wallet/Action names shove later columns.
    fn row_cell(ui: &mut Ui, width: f32, height: f32, add_contents: impl FnOnce(&mut Ui)) {
-      ui.allocate_ui_with_layout(
-         vec2(width, height),
-         Layout::left_to_right(Align::Center),
-         |ui| {
-            ui.set_min_size(vec2(width, height));
-            ui.set_max_size(vec2(width, height));
-            add_contents(ui);
-         },
-      );
+      let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+      let mut child =
+         ui.new_child(UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)));
+      child.style_mut().wrap_mode = Some(TextWrapMode::Truncate);
+      add_contents(&mut child);
    }
 
    fn current_cache_key(&self, privacy: bool) -> CacheKey {
@@ -536,25 +535,37 @@ impl TxHistory {
                   let start = self.current_page * self.txs_per_page;
                   let end = start.saturating_add(self.txs_per_page).min(total_txs);
 
-                  // Fixed content height for every column so icon-less rows
-                  // and the Details button share one baseline.
+                  // Size columns from the *inner* card width (after frame2
+                  // padding) so header cells line up with body cells and the
+                  // row fills the card — same recipe as ApprovalsUi.
                   let row_height = 40.0;
                   let col_spacing = 20.0;
+                  let n_cols = 5.0;
+                  let row_frame = theme.frame2.outer_margin(Margin::ZERO);
+                  let inner_left = row_frame.inner_margin.leftf();
+                  let inner_right = row_frame.inner_margin.rightf();
+                  let inner_y = row_frame.inner_margin.topf() + row_frame.inner_margin.bottomf();
+                  let row_width = ui.available_width();
+                  let inner_width = (row_width - inner_left - inner_right).max(0.0);
+                  let usable = (inner_width - col_spacing * (n_cols - 1.0)).max(0.0);
+                  let details_w = 100.0_f32.min(usable);
+                  let rest = (usable - details_w).max(0.0);
                   let column_widths = [
-                     ui.available_width() * 0.22, // Wallet
-                     ui.available_width() * 0.28, // Action
-                     ui.available_width() * 0.22, // Age
-                     ui.available_width() * 0.16, // Details
+                     rest * 0.22, // Wallet
+                     rest * 0.16, // Chain
+                     rest * 0.40, // Action
+                     rest * 0.22, // Age
+                     details_w,   // Details
                   ];
+                  let label_visuals = theme.label_visuals();
 
-                  let row_width: f32 = column_widths.iter().sum::<f32>()
-                     + col_spacing * (column_widths.len() as f32 - 1.0);
-
-                  // --- Header (same widths as body cells; not inside a frame) ---
+                  // --- Header (same widths + left inset as body cells) ---
                   ui.horizontal(|ui| {
-                     ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0);
+                     ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0 + inner_left);
                      ui.spacing_mut().item_spacing.x = col_spacing;
-                     for (i, header) in ["Wallet", "Action", "Age", ""].into_iter().enumerate() {
+                     for (i, header) in
+                        ["Wallet", "Chain", "Action", "Age", ""].into_iter().enumerate()
+                     {
                         Self::row_cell(ui, column_widths[i], 28.0, |ui| {
                            if !header.is_empty() {
                               ui.label(
@@ -571,8 +582,6 @@ impl TxHistory {
                   ui.add_space(8.0);
 
                   // --- Body: one frame2 card per row ---
-                  let row_frame = theme.frame2.outer_margin(Margin::ZERO);
-
                   ui.vertical_centered(|ui| {
                      ui.spacing_mut().item_spacing.y = 10.0;
 
@@ -583,51 +592,71 @@ impl TxHistory {
                            &[]
                         };
                         for row in rows_on_page {
-                           ui.allocate_ui(vec2(row_width, row_height + 16.0), |ui| {
+                           ui.allocate_ui(vec2(row_width, row_height + inner_y), |ui| {
                               row_frame.show(ui, |ui| {
-                                 ui.set_width(row_width);
+                                 ui.set_width(inner_width);
                                  ui.spacing_mut().item_spacing.x = col_spacing;
 
                                  ui.horizontal(|ui| {
                                     Self::row_cell(ui, column_widths[0], row_height, |ui| {
                                        let name = self.wallet_name_or_address(ctx, row.wallet);
-                                       ui.label(
-                                          RichText::new(name)
-                                             .size(theme.typography.normal)
-                                             .color(theme.colors.text),
-                                       )
-                                       .on_hover_text(row.wallet.to_string());
+                                       let text = RichText::new(&name)
+                                          .size(theme.typography.normal)
+                                          .color(theme.colors.text);
+                                       let label = Label::new(text, None)
+                                          .wrap_mode(TextWrapMode::Truncate)
+                                          .visuals(label_visuals);
+                                       ui.add(label)
+                                          .on_hover_text(format!("{}\n{}", name, row.wallet));
                                     });
 
                                     Self::row_cell(ui, column_widths[1], row_height, |ui| {
-                                       ui.label(
-                                          RichText::new(&row.action)
-                                             .size(theme.typography.normal)
-                                             .color(theme.colors.text),
-                                       );
+                                       let chain: ChainId = row.chain.into();
+                                       let text = RichText::new(chain.name())
+                                          .size(theme.typography.normal)
+                                          .color(theme.colors.text);
+                                       let label = Label::new(text, None)
+                                          .wrap_mode(TextWrapMode::Truncate)
+                                          .visuals(label_visuals);
+                                       ui.add(label).on_hover_text(chain.name());
                                     });
 
                                     Self::row_cell(ui, column_widths[2], row_height, |ui| {
-                                       ui.label(
-                                          RichText::new(spent_age(ctx, row))
-                                             .size(theme.typography.normal)
-                                             .color(theme.colors.text),
-                                       );
+                                       let text = RichText::new(&row.action)
+                                          .size(theme.typography.normal)
+                                          .color(theme.colors.text);
+                                       let label = Label::new(text, None)
+                                          .wrap_mode(TextWrapMode::Truncate)
+                                          .visuals(label_visuals);
+                                       ui.add(label).on_hover_text(&row.action);
                                     });
 
                                     Self::row_cell(ui, column_widths[3], row_height, |ui| {
-                                       let text =
-                                          RichText::new("Details").size(theme.typography.normal);
-                                       let details_button =
-                                          Button::new(text).visuals(button_visuals);
-                                       if ui.add(details_button).clicked() {
-                                          let row = row.clone();
-                                          RT.spawn_blocking(move || {
-                                             SHARED_GUI.write(|gui| {
-                                                gui.spent_note_window.open(row);
+                                       let age = spent_age(ctx, row);
+                                       let text = RichText::new(&age)
+                                          .size(theme.typography.normal)
+                                          .color(theme.colors.text);
+                                       let label = Label::new(text, None)
+                                          .wrap_mode(TextWrapMode::Truncate)
+                                          .visuals(label_visuals);
+                                       ui.add(label).on_hover_text(&age);
+                                    });
+
+                                    Self::row_cell(ui, column_widths[4], row_height, |ui| {
+                                       ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                          let text =
+                                             RichText::new("Details").size(theme.typography.normal);
+                                          let details_button =
+                                             Button::new(text).visuals(button_visuals);
+                                          if ui.add(details_button).clicked() {
+                                             let row = row.clone();
+                                             RT.spawn_blocking(move || {
+                                                SHARED_GUI.write(|gui| {
+                                                   gui.spent_note_window.open(row);
+                                                });
                                              });
-                                          });
-                                       }
+                                          }
+                                       });
                                     });
                                  });
                               });
@@ -640,51 +669,75 @@ impl TxHistory {
                            &[]
                         };
                         for tx in txs_on_page {
-                           ui.allocate_ui(vec2(row_width, row_height + 16.0), |ui| {
+                           ui.allocate_ui(vec2(row_width, row_height + inner_y), |ui| {
                               row_frame.show(ui, |ui| {
-                                 ui.set_width(row_width);
+                                 ui.set_width(inner_width);
                                  ui.spacing_mut().item_spacing.x = col_spacing;
 
                                  ui.horizontal(|ui| {
                                     Self::row_cell(ui, column_widths[0], row_height, |ui| {
                                        let name = self.wallet_name_or_address(ctx, tx.sender());
-                                       ui.label(
-                                          RichText::new(name)
-                                             .size(theme.typography.normal)
-                                             .color(theme.colors.text),
-                                       )
-                                       .on_hover_text(tx.sender().to_string());
+                                       let text = RichText::new(&name)
+                                          .size(theme.typography.normal)
+                                          .color(theme.colors.text);
+                                       let label = Label::new(text, None)
+                                          .wrap_mode(TextWrapMode::Truncate)
+                                          .visuals(label_visuals);
+                                       ui.add(label).on_hover_text(format!(
+                                          "{}\n{}",
+                                          name,
+                                          tx.sender()
+                                       ));
                                     });
 
                                     Self::row_cell(ui, column_widths[1], row_height, |ui| {
-                                       ui.label(
-                                          RichText::new(tx.summary_name())
-                                             .size(theme.typography.normal)
-                                             .color(theme.colors.text),
-                                       );
+                                       let chain: ChainId = tx.chain.into();
+                                       let text = RichText::new(chain.name())
+                                          .size(theme.typography.normal)
+                                          .color(theme.colors.text);
+                                       let label = Label::new(text, None)
+                                          .wrap_mode(TextWrapMode::Truncate)
+                                          .visuals(label_visuals);
+                                       ui.add(label).on_hover_text(chain.name());
                                     });
 
                                     Self::row_cell(ui, column_widths[2], row_height, |ui| {
-                                       ui.label(
-                                          RichText::new(tx.timestamp.to_relative())
-                                             .size(theme.typography.normal)
-                                             .color(theme.colors.text),
-                                       );
+                                       let action = tx.summary_name();
+                                       let text = RichText::new(&action)
+                                          .size(theme.typography.normal)
+                                          .color(theme.colors.text);
+                                       let label = Label::new(text, None)
+                                          .wrap_mode(TextWrapMode::Truncate)
+                                          .visuals(label_visuals);
+                                       ui.add(label).on_hover_text(&action);
                                     });
 
                                     Self::row_cell(ui, column_widths[3], row_height, |ui| {
-                                       let text =
-                                          RichText::new("Details").size(theme.typography.normal);
-                                       let details_button =
-                                          Button::new(text).visuals(button_visuals);
-                                       if ui.add(details_button).clicked() {
-                                          let tx_clone = tx.clone();
-                                          RT.spawn_blocking(move || {
-                                             SHARED_GUI.write(|gui| {
-                                                gui.tx_window.open(Some(tx_clone));
+                                       let age = tx.timestamp.to_relative();
+                                       let text = RichText::new(&age)
+                                          .size(theme.typography.normal)
+                                          .color(theme.colors.text);
+                                       let label = Label::new(text, None)
+                                          .wrap_mode(TextWrapMode::Truncate)
+                                          .visuals(label_visuals);
+                                       ui.add(label).on_hover_text(&age);
+                                    });
+
+                                    Self::row_cell(ui, column_widths[4], row_height, |ui| {
+                                       ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                          let text =
+                                             RichText::new("Details").size(theme.typography.normal);
+                                          let details_button =
+                                             Button::new(text).visuals(button_visuals);
+                                          if ui.add(details_button).clicked() {
+                                             let tx_clone = tx.clone();
+                                             RT.spawn_blocking(move || {
+                                                SHARED_GUI.write(|gui| {
+                                                   gui.tx_window.open(Some(tx_clone));
+                                                });
                                              });
-                                          });
-                                       }
+                                          }
+                                       });
                                     });
                                  });
                               });
@@ -723,11 +776,7 @@ fn spent_action(
          format!("Unshield {:.5} {}", amount.abbreviated(), symbol)
       }
       PrivateHistoryKind::Send => {
-         format!(
-            "Transfer {:.5} {}",
-            amount.abbreviated(),
-            symbol
-         )
+         format!("Transfer {:.5} {}", amount.abbreviated(), symbol)
       }
       PrivateHistoryKind::Spend => {
          format!("Sent {:.5} {}", amount.abbreviated(), symbol)
