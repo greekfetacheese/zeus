@@ -1,3 +1,4 @@
+use crate::core::clear_signing;
 use crate::core::{
    TransactionAnalysis, TransactionRich, ZeusCtx, client::CLIENT_TIMEOUT_FOR_SENDING_TX,
 };
@@ -283,6 +284,7 @@ pub async fn send_transaction(
 
    let fee = SHARED_GUI.read(|gui| gui.tx_confirmation_window.get_priority_fee());
    let gas_limit = SHARED_GUI.read(|gui| gui.tx_confirmation_window.get_gas_limit());
+   let confirm_clear = SHARED_GUI.read(|gui| gui.tx_confirmation_window.get_clear_display());
 
    let priority_fee = if fee.is_zero() {
       ctx.get_priority_fee(chain.id()).unwrap_or_default()
@@ -402,8 +404,31 @@ pub async fn send_transaction(
    }
 
    let main_event = new_tx_analysis.infer_main_event(ctx.clone(), chain.id());
+
+   let clear_display = if main_event.is_other() {
+      if confirm_clear.is_some() {
+         confirm_clear
+      } else if new_tx_analysis.contract_interact && new_tx_analysis.call_data.len() >= 4 {
+         clear_signing::try_clear_sign_calldata(
+            ctx.clone(),
+            chain.id(),
+            from,
+            interact_to,
+            new_tx_analysis.value,
+            &new_tx_analysis.call_data,
+         )
+         .await
+      } else {
+         None
+      }
+   } else {
+      None
+   };
+
    let main_event_name = if main_event.is_known() {
       main_event.name()
+   } else if let Some(display) = &clear_display {
+      display.heading.clone()
    } else {
       "Transaction successful".to_string()
    };
@@ -440,6 +465,7 @@ pub async fn send_transaction(
       contract_interact: new_tx_analysis.contract_interact,
       analysis: new_tx_analysis,
       main_event,
+      clear_display,
    };
 
    let ctx_clone = ctx.clone();

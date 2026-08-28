@@ -2,7 +2,7 @@ use eframe::egui::{Align2, Frame, Order, RichText, ScrollArea, Ui, Window, vec2}
 
 use crate::assets::Icons;
 use crate::core::clear_signing::ClearDisplay;
-use crate::core::{DecodedEvent, SignMsgType, TransactionAnalysis, ZeusContext};
+use crate::core::{DecodedEvent, SignMsgType, TransactionAnalysis, TransactionRich, ZeusContext};
 use crate::gui::{SHARED_GUI, ui::notification::NotificationType};
 use crate::utils::self_update::UpdateInfo;
 use crate::utils::{RT, TimeStamp};
@@ -453,6 +453,19 @@ impl UiTesting {
                         false,
                         display,
                      );
+                  });
+               });
+            }
+
+            let button =
+               Button::new(RichText::new("Clear Signed Tx History").size(text_size))
+                  .min_size(button_size);
+
+            if ui.add(button).clicked() {
+               let tx = TransactionRich::dummy_clear_signed();
+               RT.spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                     gui.tx_window.open(Some(tx));
                   });
                });
             }

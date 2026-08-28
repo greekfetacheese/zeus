@@ -1,8 +1,9 @@
-use egui::{Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2};
-use egui_elements::{Button, Label, Modal, OverlayManager, SecureTextEdit, Theme, widgets::Window};
+use egui::{Align, Align2, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2};
+use egui_elements::{Button, Label, OverlayManager, SecureTextEdit, Theme, widgets::Window};
 
 use super::{
-   address, chain, clear_display_ui, contract_interact, eth_received, events::*, tx_cost, value,
+   address, chain, clear_display_ui, contract_interact, eth_received, events::*,
+   show_calldata_modal, tx_cost, value,
 };
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::{self, ClearDisplay};
@@ -230,6 +231,10 @@ impl TxConfirmationWindow {
       self.gas_limit
    }
 
+   pub fn get_clear_display(&self) -> Option<ClearDisplay> {
+      self.clear_display.clone()
+   }
+
    // TODO: Adjust the UI for txs that are sponsored by another account
    /// Calculate the cost of the transaction
    fn calculate_tx_cost(&mut self, ctx: &mut ZeusContext, gas_used: u64) {
@@ -307,7 +312,7 @@ impl TxConfirmationWindow {
 
                let calldata = analysis.call_data.to_string();
                let clear_display = self.clear_display.as_ref();
-               Self::show_calldata(
+               show_calldata_modal(
                   &mut self.show_calldata,
                   theme,
                   ctx,
@@ -595,64 +600,5 @@ impl TxConfirmationWindow {
       let balance = ctx.get_eth_balance(self.chain.id(), sender);
       let total_cost = eth_spent + self.tx_cost.wei();
       balance.wei() >= total_cost
-   }
-
-   fn show_calldata(
-      open: &mut bool,
-      theme: &Theme,
-      ctx: &mut ZeusContext,
-      chain: ChainId,
-      icons: Arc<Icons>,
-      display: Option<&ClearDisplay>,
-      mut calldata: String,
-      ui: &mut Ui,
-   ) {
-      let heading = if let Some(d) = display {
-         RichText::new(&d.heading).size(theme.typography.heading)
-      } else {
-         RichText::new("Calldata").size(theme.typography.heading)
-      };
-
-      let modal_width = 520.0;
-      let edit_height = 260.0;
-
-      Modal::new("Calldata", open)
-         .backdrop_order(Order::Tooltip)
-         .content_order(Order::Debug)
-         .heading(heading)
-         .max_width(modal_width)
-         .show(ui.ctx(), |ui| {
-            ui.set_width(ui.available_width());
-
-            ui.vertical_centered(|ui| {
-               if let Some(display) = display {
-                  ScrollArea::vertical()
-                     .id_salt("clear_display_calldata_window")
-                     .max_height(300.0)
-                     .show(ui, |ui| {
-                        clear_display_ui(ctx, chain, display, theme, icons.clone(), ui);
-                     });
-
-                  ui.add_space(12.0);
-                  ui.label(RichText::new("Raw").size(theme.typography.large));
-               }
-
-               let edit_width = ui.available_width() * 0.9;
-
-               let text_edit = SecureTextEdit::multiline(&mut calldata)
-                  .font(FontId::monospace(theme.typography.normal))
-                  .visuals(theme.text_edit_visuals())
-                  .desired_width(edit_width)
-                  .margin(Margin::same(10));
-
-               ScrollArea::vertical().id_salt("raw_calldata").max_height(edit_height).show(
-                  ui,
-                  |ui| {
-                     ui.set_min_width(edit_width);
-                     ui.add(text_edit);
-                  },
-               );
-            });
-         });
    }
 }

@@ -658,7 +658,7 @@ impl TxHistory {
 
                                     Self::row_cell(ui, column_widths[1], row_height, |ui| {
                                        ui.label(
-                                          RichText::new(tx.main_event.name())
+                                          RichText::new(tx.summary_name())
                                              .size(theme.typography.normal)
                                              .color(theme.colors.text),
                                        );

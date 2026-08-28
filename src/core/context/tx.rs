@@ -9,6 +9,7 @@ use zeus_eth::{
 };
 
 use crate::core::tx::{DecodedEvent, TransactionAnalysis, TransactionRich};
+use crate::core::clear_signing::ClearDisplay;
 use crate::utils::TimeStamp;
 
 /// Transactions by chain and wallet address
@@ -117,6 +118,8 @@ struct StoredTx {
    contract_interact: bool,
    analysis: TransactionAnalysis,
    main_event: DecodedEvent,
+   #[serde(default)]
+   clear_display: Option<ClearDisplay>,
 }
 
 impl From<&TransactionRich> for StoredTx {
@@ -137,6 +140,7 @@ impl From<&TransactionRich> for StoredTx {
          contract_interact: tx.contract_interact,
          analysis: tx.analysis.clone(),
          main_event: tx.main_event.clone(),
+         clear_display: tx.clear_display.clone(),
       }
    }
 }
@@ -163,6 +167,7 @@ impl TryFrom<StoredTx> for TransactionRich {
          contract_interact: s.contract_interact,
          analysis: s.analysis,
          main_event: s.main_event,
+         clear_display: s.clear_display,
       })
    }
 }

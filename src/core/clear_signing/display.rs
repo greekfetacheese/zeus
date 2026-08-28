@@ -1,7 +1,8 @@
 use crate::utils::TimeStamp;
+use serde::{Deserialize, Serialize};
 use zeus_eth::{alloy_primitives::Address, currency::ERC20Token, utils::NumericValue};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClearDisplay {
    /// Short heading shown as the sign-window title.
    pub heading: String,
@@ -15,7 +16,7 @@ pub struct ClearDisplay {
    pub warnings: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Intent {
    Text(String),
    Pairs(Vec<(String, String)>),
@@ -32,18 +33,18 @@ impl Intent {
    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClearSource {
    Registry { path: String },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisplayField {
    pub label: String,
    pub value: FormattedValue,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FormattedValue {
    Text(String),
    Address(Address),

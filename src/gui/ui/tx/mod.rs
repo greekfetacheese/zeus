@@ -3,8 +3,8 @@
 //! - The TxConfirmationWindow contains as much information as possible about the transaction before the user confirms it.
 //! - The TxWindow is what we show to the user for a transaction that has been confirmed.
 
-use egui::{Align, Layout, RichText, Ui};
-use egui_elements::{Label, Theme};
+use egui::{Align, FontId, Layout, Margin, Order, RichText, ScrollArea, Ui};
+use egui_elements::{Label, Modal, SecureTextEdit, Theme};
 use zeus_eth::alloy_primitives::TxHash;
 
 use crate::assets::icons::Icons;
@@ -321,4 +321,63 @@ pub fn clear_display_ui(
          }
       }
    }
+}
+
+pub fn show_calldata_modal(
+   open: &mut bool,
+   theme: &Theme,
+   ctx: &mut ZeusContext,
+   chain: ChainId,
+   icons: Arc<Icons>,
+   display: Option<&ClearDisplay>,
+   mut calldata: String,
+   ui: &mut Ui,
+) {
+   let heading = if let Some(d) = display {
+      RichText::new(&d.heading).size(theme.typography.heading)
+   } else {
+      RichText::new("Calldata").size(theme.typography.heading)
+   };
+
+   let modal_width = 520.0;
+   let edit_height = 260.0;
+
+   Modal::new("Calldata", open)
+      .backdrop_order(Order::Tooltip)
+      .content_order(Order::Debug)
+      .heading(heading)
+      .max_width(modal_width)
+      .show(ui.ctx(), |ui| {
+         ui.set_width(ui.available_width());
+
+         ui.vertical_centered(|ui| {
+            if let Some(display) = display {
+               ScrollArea::vertical()
+                  .id_salt("clear_display_calldata_window")
+                  .max_height(300.0)
+                  .show(ui, |ui| {
+                     clear_display_ui(ctx, chain, display, theme, icons.clone(), ui);
+                  });
+
+               ui.add_space(12.0);
+               ui.label(RichText::new("Raw").size(theme.typography.large));
+            }
+
+            let edit_width = ui.available_width() * 0.9;
+
+            let text_edit = SecureTextEdit::multiline(&mut calldata)
+               .font(FontId::monospace(theme.typography.normal))
+               .visuals(theme.text_edit_visuals())
+               .desired_width(edit_width)
+               .margin(Margin::same(10));
+
+            ScrollArea::vertical()
+               .id_salt("raw_calldata")
+               .max_height(edit_height)
+               .show(ui, |ui| {
+                  ui.set_min_width(edit_width);
+                  ui.add(text_edit);
+               });
+         });
+      });
 }

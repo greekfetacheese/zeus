@@ -817,7 +817,6 @@ impl ZeusClient {
             }
          };
          client = Some(c);
-         tracing::info!("Using MEV protect RPC: {}", rpc.url);
          break;
       }
 

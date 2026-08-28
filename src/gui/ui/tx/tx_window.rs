@@ -1,9 +1,15 @@
-use egui::{Align2, Frame, Margin, Order, RichText, Stroke, Ui, vec2};
+use egui::{Align2, Frame, Margin, Order, RichText, ScrollArea, Spinner, Stroke, Ui, vec2};
 use egui_elements::{Button, OverlayManager, Theme, widgets::Window};
 
-use super::{chain, contract_interact, eth_received, events::*, tx_cost, tx_hash, value};
+use super::{
+   chain, clear_display_ui, contract_interact, eth_received, events::*, show_calldata_modal,
+   tx_cost, tx_hash, value,
+};
 use crate::assets::icons::Icons;
+use crate::core::clear_signing;
 use crate::core::{TransactionRich, ZeusContext};
+use crate::gui::SHARED_GUI;
+use crate::utils::RT;
 use zeus_eth::types::ChainId;
 
 use std::sync::Arc;
@@ -11,9 +17,11 @@ use std::sync::Arc;
 /// A window to show details for a transaction that has been sent to the network
 pub struct TxWindow {
    open: bool,
+   loading: bool,
    overlay: OverlayManager,
    decoded_events: DecodedEvents,
    tx: Option<TransactionRich>,
+   show_calldata: bool,
    size: (f32, f32),
 }
 
@@ -21,9 +29,11 @@ impl TxWindow {
    pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         loading: false,
          overlay: overlay.clone(),
          decoded_events: DecodedEvents::new(overlay),
          tx: None,
+         show_calldata: false,
          size: (550.0, 400.0),
       }
    }
@@ -36,6 +46,7 @@ impl TxWindow {
       self.overlay.window_closed();
       self.open = false;
       self.tx = None;
+      self.show_calldata = false;
    }
 
    /// Show this [TxWindow]
@@ -43,8 +54,56 @@ impl TxWindow {
       if !self.open {
          self.overlay.window_opened();
       }
+      self.show_calldata = false;
       self.tx = tx;
       self.open = true;
+      self.maybe_fill_clear_display();
+   }
+
+   fn maybe_fill_clear_display(&mut self) {
+      let Some(tx) = self.tx.as_ref() else {
+         return;
+      };
+
+      if !tx.main_event.is_other() || tx.clear_display.is_some() {
+         return;
+      }
+
+      if !tx.analysis.contract_interact || tx.analysis.call_data.len() < 4 {
+         return;
+      }
+
+      self.loading = true;
+
+      let hash = tx.hash;
+      let chain = tx.chain;
+      let from = tx.sender();
+      let to = tx.interact_to();
+      let value = tx.value();
+      let calldata = tx.call_data();
+
+      RT.spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let display =
+            clear_signing::try_clear_sign_calldata(ctx, chain, from, to, value, &calldata).await;
+
+         let Some(display) = display else {
+            SHARED_GUI.write(|gui| {
+               gui.tx_window.loading = false;
+            });
+            return;
+         };
+
+         SHARED_GUI.write(|gui| {
+            if let Some(open_tx) = gui.tx_window.tx.as_mut() {
+               if open_tx.hash == hash && open_tx.clear_display.is_none() {
+                  open_tx.clear_display = Some(display);
+               }
+            }
+            gui.tx_window.loading = false;
+            gui.request_repaint();
+         });
+      });
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -72,6 +131,11 @@ impl TxWindow {
                   ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
+                  if self.loading {
+                     ui.add(Spinner::new().size(20.0).color(theme.colors.text));
+                     return;
+                  }
+
                   let button_visuals = theme.button_visuals();
 
                   ui.add_space(20.0);
@@ -90,7 +154,6 @@ impl TxWindow {
                   }
 
                   let tx = self.tx.as_ref().unwrap();
-                  let main_event = &tx.main_event;
                   let chain_id: ChainId = tx.chain.into();
 
                   let frame = theme.frame2;
@@ -108,34 +171,72 @@ impl TxWindow {
                      ui,
                   );
 
+                  let calldata = tx.analysis.call_data.to_string();
+                  let clear_display = tx.clear_display.clone();
+                  show_calldata_modal(
+                     &mut self.show_calldata,
+                     theme,
+                     ctx,
+                     chain_id,
+                     icons.clone(),
+                     clear_display.as_ref(),
+                     calldata,
+                     ui,
+                  );
+
                   let frame_size = vec2(ui.available_width() * 0.9, 45.0);
+                  let tx = self.tx.as_ref().unwrap();
+                  let main_event = &tx.main_event;
 
                   if !main_event.is_other() && tx.success {
+                     let frame_size = vec2(ui.available_width() * 0.9, 300.0);
+
                      ui.label(
-                        RichText::new(main_event.name()).size(theme.typography.very_large).strong(),
+                        RichText::new(tx.summary_name()).size(theme.typography.very_large).strong(),
                      );
                      ui.allocate_ui(frame_size, |ui| {
-                        frame.show(ui, |ui| {
-                           show_event(
-                              ctx,
-                              chain_id,
-                              theme,
-                              icons.clone(),
-                              main_event,
-                              ui,
-                           );
-                        });
+                        ScrollArea::vertical().id_salt("clear_diplay_ui").max_height(300.0).show(
+                           ui,
+                           |ui| {
+                              frame.show(ui, |ui| {
+                                 show_event(
+                                    ctx,
+                                    chain_id,
+                                    theme,
+                                    icons.clone(),
+                                    main_event,
+                                    ui,
+                                 );
+                              });
+                           },
+                        );
                      });
                   }
 
-                  // Tx Action is unknown
                   if main_event.is_other() && tx.success {
-                     let text =
-                        RichText::new("Show all decoded events").size(theme.typography.large);
-                     let button = Button::new(text).visuals(theme.button_visuals());
-                     let clicked = ui.add(button).clicked();
-                     if clicked {
-                        self.decoded_events.open();
+                     ui.label(
+                        RichText::new(tx.summary_name()).size(theme.typography.very_large).strong(),
+                     );
+
+                     if let Some(display) = tx.clear_display.clone() {
+                        let display_size = vec2(ui.available_width() * 0.95, 300.0);
+                        ui.allocate_ui(display_size, |ui| {
+                           frame.show(ui, |ui| {
+                              ScrollArea::vertical()
+                                 .id_salt("tx_window_clear_display")
+                                 .max_height(300.0)
+                                 .show(ui, |ui| {
+                                    clear_display_ui(
+                                       ctx,
+                                       chain_id,
+                                       &display,
+                                       theme,
+                                       icons.clone(),
+                                       ui,
+                                    );
+                                 });
+                           });
+                        });
                      }
                   }
 
@@ -182,6 +283,28 @@ impl TxWindow {
                         });
                      });
                   }
+
+                  let ui_size = vec2(ui.available_width() * 0.6, 45.0);
+                  ui.allocate_ui(ui_size, |ui| {
+                     ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 10.0;
+                        let button_size = vec2(150.0, 30.0);
+
+                        let text = RichText::new("Decoded events").size(theme.typography.large);
+                        let button =
+                           Button::new(text).visuals(theme.button_visuals()).min_size(button_size);
+                        if ui.add(button).clicked() {
+                           self.decoded_events.open();
+                        }
+
+                        let text = RichText::new("Calldata").size(theme.typography.large);
+                        let button =
+                           Button::new(text).visuals(button_visuals).min_size(button_size);
+                        if ui.add(button).clicked() {
+                           self.show_calldata = true;
+                        }
+                     });
+                  });
 
                   ui.add_space(30.0);
 

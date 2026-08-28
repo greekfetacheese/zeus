@@ -1336,6 +1336,7 @@ async fn shield(
       contract_interact: new_tx_analysis.contract_interact,
       analysis: new_tx_analysis,
       main_event: new_main_event,
+      clear_display: None,
    };
 
    let ctx_clone = ctx.clone();

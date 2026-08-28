@@ -1,3 +1,4 @@
+use crate::core::clear_signing::ClearDisplay;
 use crate::utils::TimeStamp;
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, TxHash, U256},
@@ -31,6 +32,9 @@ pub struct TransactionRich {
 
    pub analysis: TransactionAnalysis,
    pub main_event: DecodedEvent,
+   /// ERC-7730 view when [`Self::main_event`] is unknown. Older vaults omit this.
+   #[serde(default)]
+   pub clear_display: Option<ClearDisplay>,
 }
 
 impl TransactionRich {
@@ -49,5 +53,36 @@ impl TransactionRich {
 
    pub fn call_data(&self) -> Bytes {
       self.analysis.call_data.clone()
+   }
+
+   /// History / details heading. Prefers the ERC-7730 intent when the main event is unknown.
+   pub fn summary_name(&self) -> String {
+      if self.main_event.is_other() {
+         if let Some(display) = &self.clear_display {
+            return display.heading.clone();
+         }
+      }
+      self.main_event.name()
+   }
+
+   pub fn dummy_clear_signed() -> Self {
+      Self {
+         tx_type: TxType::Eip1559,
+         success: true,
+         chain: 8453,
+         block: 1,
+         timestamp: TimeStamp::Seconds(1_745_151_870),
+         value_sent: NumericValue::default(),
+         value_sent_usd: NumericValue::default(),
+         eth_received: NumericValue::default(),
+         eth_received_usd: NumericValue::default(),
+         tx_cost: NumericValue::default(),
+         tx_cost_usd: NumericValue::default(),
+         hash: TxHash::default(),
+         contract_interact: true,
+         analysis: TransactionAnalysis::dummy_clear_signed(),
+         main_event: DecodedEvent::Other,
+         clear_display: Some(ClearDisplay::dummy_calldata()),
+      }
    }
 }
