@@ -40,7 +40,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let available_width = ui.available_width();
 
    ui.horizontal(|ui| {
-      ui.set_min_height(150.0);
+      ui.set_min_height(200.0);
 
       if !has_available_rpcs {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {

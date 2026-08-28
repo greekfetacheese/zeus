@@ -239,12 +239,20 @@ impl Notification {
 
       let frame = theme.frame1;
 
+      let avail_width = ui.available_width();
+
+      let (x, y) = if avail_width > 1650.0 {
+         (150.0, -400.0)
+      } else {
+         (110.0, -370.0)
+      };
+
       Window::new("notification_window")
          .title_bar(false)
          .resizable(false)
          .collapsible(false)
          .order(Order::Background)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, -310.0))
+         .anchor(Align2::CENTER_CENTER, vec2(x, y))
          .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.spacing_mut().item_spacing = vec2(0.0, 10.0);

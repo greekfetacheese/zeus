@@ -265,7 +265,7 @@ impl eframe::App for ZeusApp {
                });
 
             egui::Panel::top("top_panel")
-               .min_size(150.0)
+               .min_size(200.0)
                .resizable(false)
                .show_separator_line(false)
                .frame(main_frame)
