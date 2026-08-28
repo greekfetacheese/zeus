@@ -12,7 +12,7 @@ pub use path::Container;
 use crate::core::ZeusCtx;
 use zeus_eth::{
    alloy_dyn_abi::TypedData,
-   alloy_primitives::{Address, keccak256},
+   alloy_primitives::{Address, Bytes, U256, keccak256},
    currency::ERC20Token,
 };
 
@@ -46,6 +46,7 @@ pub async fn try_clear_sign_typed_data(
       from: Some(signer),
       to: Some(verifying),
       chain_id,
+      value: U256::ZERO,
    };
 
    let mut data = FormatData::default();
@@ -68,6 +69,82 @@ pub async fn try_clear_sign_typed_data(
       &descriptor,
       spec,
       &typed.message,
+      &container,
+      &data,
+      path,
+   ))
+}
+
+/// Try to clear-sign a contract call. Returns `None` on any miss/failure
+/// so the caller can fall back to hex calldata.
+pub async fn try_clear_sign_calldata(
+   ctx: ZeusCtx,
+   chain: u64,
+   from: Address,
+   to: Address,
+   value: U256,
+   calldata: &Bytes,
+) -> Option<ClearDisplay> {
+   if calldata.len() < 4 {
+      return None;
+   }
+   let mut selector = [0u8; 4];
+   selector.copy_from_slice(&calldata[..4]);
+
+   let mut resolved = registry::resolve_calldata_descriptor(chain, to).await;
+   if resolved.is_none() {
+      if let Some(impl_addr) = sourcify::implementation_address(chain, to).await {
+         if impl_addr != to {
+            resolved = registry::resolve_calldata_descriptor(chain, impl_addr).await;
+         }
+      }
+   }
+
+   let (path, descriptor) = resolved?;
+   let mut bound = descriptor::bind_calldata(&descriptor, chain, to, selector);
+   if bound.is_err() {
+      if let Some(dep) = descriptor
+         .context
+         .contract
+         .as_ref()
+         .and_then(|c| c.deployments.iter().find(|d| d.chain_id == chain).map(|d| d.address))
+      {
+         bound = descriptor::bind_calldata(&descriptor, chain, dep, selector);
+      }
+   }
+   let (_key, spec) = bound.ok()?;
+
+   let parsed = descriptor::parse_call_format(_key).ok()?;
+   let args = format::decode_call_args(&parsed, &calldata[4..]).ok()?;
+
+   let container = Container {
+      from: Some(from),
+      to: Some(to),
+      chain_id: chain,
+      value,
+   };
+
+   let mut data = FormatData::default();
+   let tokens = format::collect_token_addresses(spec, &args, &descriptor.metadata, &container);
+   for (token_chain, addr) in tokens {
+      if let Some(token) = resolve_token(ctx.clone(), token_chain, addr).await {
+         data.tokens.insert((token_chain, addr), token);
+      }
+      if let Some(name) = ctx.get_address_name(token_chain, addr) {
+         data.names.insert((token_chain, addr), name);
+      }
+   }
+   if let Some(name) = ctx.get_address_name(chain, to) {
+      data.names.insert((chain, to), name);
+   }
+   if let Some(name) = ctx.get_address_name(chain, from) {
+      data.names.insert((chain, from), name);
+   }
+
+   Some(format::format_eip712(
+      &descriptor,
+      spec,
+      &args,
       &container,
       &data,
       path,
@@ -325,6 +402,7 @@ mod tests {
          from: None,
          to: Some(usdc),
          chain_id: 8453,
+         value: U256::ZERO,
       };
       let display = format::format_eip712(
          &desc,
@@ -418,5 +496,158 @@ mod tests {
          "Permit2"
       );
       assert_eq!(merged["display"]["formats"]["X"]["intent"], "Hi");
+   }
+
+   fn aave_supply_descriptor() -> serde_json::Value {
+      json!({
+          "$schema": "https://eips.ethereum.org/assets/eip-7730/erc7730-v2.schema.json",
+          "context": {
+              "contract": {
+                  "deployments": [
+                      { "chainId": 8453, "address": "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5" }
+                  ]
+              }
+          },
+          "metadata": { "owner": "Aave DAO", "contractName": "PoolInstance" },
+          "display": {
+              "formats": {
+                  "supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode)": {
+                      "intent": "Supply",
+                      "fields": [
+                          {
+                              "path": "amount",
+                              "format": "tokenAmount",
+                              "label": "Amount to supply",
+                              "params": { "tokenPath": "asset" }
+                          },
+                          { "path": "onBehalfOf", "format": "addressName", "label": "Collateral recipient" },
+                          { "path": "referralCode", "label": "Referral Code", "visible": "never" }
+                      ]
+                  },
+                  "multicall(bytes[] data)": {
+                      "intent": "Multicall",
+                      "fields": [
+                          { "path": "data.[]", "format": "calldata", "label": "Call", "params": { "calleePath": "@.to" } }
+                      ]
+                  }
+              }
+          }
+      })
+   }
+
+   #[test]
+   fn supply_selector_matches_aave() {
+      let sel = descriptor::selector_from_format_key(
+         "supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode)",
+      )
+      .unwrap();
+      // keccak256("supply(address,uint256,address,uint16)")[:4] = 0x617ba037
+      assert_eq!(sel, [0x61, 0x7b, 0xa0, 0x37]);
+   }
+
+   #[test]
+   fn bind_calldata_rejects_wrong_to() {
+      let desc = descriptor::parse_descriptor(&aave_supply_descriptor()).unwrap();
+      let pool = Address::from_str("0x1111111111111111111111111111111111111111").unwrap();
+      let sel = [0x61, 0x7b, 0xa0, 0x37];
+      assert!(descriptor::bind_calldata(&desc, 8453, pool, sel).is_err());
+   }
+
+   #[test]
+   fn format_aave_supply() {
+      let desc = descriptor::parse_descriptor(&aave_supply_descriptor()).unwrap();
+      let pool = Address::from_str("0xA238Dd80C259a72e81d7e4664a9801593F98d1c5").unwrap();
+      let sel = descriptor::selector_from_format_key(
+         "supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode)",
+      )
+      .unwrap();
+      let (key, spec) = descriptor::bind_calldata(&desc, 8453, pool, sel).unwrap();
+      let parsed = descriptor::parse_call_format(key).unwrap();
+
+      let usdc = Address::from_str("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913").unwrap();
+      let recipient = Address::from_str("0x2222222222222222222222222222222222222222").unwrap();
+      let mut encoded = Vec::new();
+      encoded.extend_from_slice(&[0u8; 12]);
+      encoded.extend_from_slice(usdc.as_slice());
+      let amount = U256::from(1_000_000u64);
+      encoded.extend_from_slice(&amount.to_be_bytes::<32>());
+      encoded.extend_from_slice(&[0u8; 12]);
+      encoded.extend_from_slice(recipient.as_slice());
+      encoded.extend_from_slice(&U256::from(0u64).to_be_bytes::<32>());
+
+      let args = format::decode_call_args(&parsed, &encoded).unwrap();
+      let token = ERC20Token {
+         chain_id: 8453,
+         address: usdc,
+         symbol: "USDC".into(),
+         name: "USD Coin".into(),
+         decimals: 6,
+         total_supply: Default::default(),
+      };
+      let mut data = FormatData::default();
+      data.tokens.insert((8453, usdc), token);
+      data.names.insert((8453, recipient), "Me".to_string());
+      let container = Container {
+         from: None,
+         to: Some(pool),
+         chain_id: 8453,
+         value: U256::ZERO,
+      };
+      let display = format::format_eip712(
+         &desc,
+         spec,
+         &args,
+         &container,
+         &data,
+         "registry/aave/calldata-lpv3.json".to_string(),
+      );
+      assert_eq!(display.heading, "Supply");
+      assert_eq!(display.owner.as_deref(), Some("Aave DAO"));
+      assert_eq!(display.fields.len(), 2);
+      match &display.fields[0].value {
+         FormattedValue::TokenAmount {
+            token, unlimited, ..
+         } => {
+            assert_eq!(token.symbol.as_ref(), "USDC");
+            assert!(!*unlimited);
+         }
+         other => panic!("expected token amount, got {other:?}"),
+      }
+      assert_eq!(display.fields[1].value.as_text(), "Me");
+   }
+
+   #[test]
+   fn nested_calldata_is_skipped() {
+      let desc = descriptor::parse_descriptor(&aave_supply_descriptor()).unwrap();
+      let pool = Address::from_str("0xA238Dd80C259a72e81d7e4664a9801593F98d1c5").unwrap();
+      let sel = descriptor::selector_from_format_key("multicall(bytes[] data)").unwrap();
+      let (_key, spec) = descriptor::bind_calldata(&desc, 8453, pool, sel).unwrap();
+      let args = json!({ "data": ["0x"] });
+      let container = Container {
+         from: None,
+         to: Some(pool),
+         chain_id: 8453,
+         value: U256::ZERO,
+      };
+      let display = format::format_eip712(
+         &desc,
+         spec,
+         &args,
+         &container,
+         &FormatData::default(),
+         "x".to_string(),
+      );
+      assert!(display.fields.is_empty());
+      assert!(!display.warnings.is_empty());
+   }
+
+   #[test]
+   fn calldata_index_lookup() {
+      let pool = Address::from_str("0xA238Dd80C259a72e81d7e4664a9801593F98d1c5").unwrap();
+      let index = json!({
+          "eip155:8453:0xa238dd80c259a72e81d7e4664a9801593f98d1c5": "registry/aave/calldata-lpv3.json"
+      });
+      let path = registry::calldata_index_lookup_for_tests(&index, 8453, pool).unwrap();
+      assert_eq!(path, "registry/aave/calldata-lpv3.json");
    }
 }

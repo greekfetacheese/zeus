@@ -1,8 +1,11 @@
 use egui::{Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2};
 use egui_elements::{Button, Label, Modal, OverlayManager, SecureTextEdit, Theme, widgets::Window};
 
-use super::{address, chain, contract_interact, eth_received, events::*, tx_cost, value};
+use super::{
+   address, chain, clear_display_ui, contract_interact, eth_received, events::*, tx_cost, value,
+};
 use crate::assets::icons::Icons;
+use crate::core::clear_signing::{self, ClearDisplay};
 use crate::core::{DecodedEvent, TransactionAnalysis, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::{RT, estimate_tx_cost};
@@ -40,6 +43,7 @@ pub struct TxConfirmationWindow {
    tx_cost: NumericValue,
    tx_cost_usd: NumericValue,
    show_calldata: bool,
+   clear_display: Option<ClearDisplay>,
    size: (f32, f32),
 }
 
@@ -64,6 +68,7 @@ impl TxConfirmationWindow {
          tx_cost: NumericValue::default(),
          tx_cost_usd: NumericValue::default(),
          show_calldata: false,
+         clear_display: None,
          size: (550.0, 400.0),
       }
    }
@@ -94,6 +99,53 @@ impl TxConfirmationWindow {
       mev_protect: bool,
       sponsored: bool,
    ) {
+      self.open_inner(
+         ctx,
+         dapp,
+         chain,
+         tx,
+         priority_fee,
+         mev_protect,
+         sponsored,
+         None,
+      );
+   }
+
+   /// Open with a pre-built ERC-7730 display (dev dummy; skips registry lookup).
+   pub fn open_with_clear_display(
+      &mut self,
+      ctx: ZeusCtx,
+      dapp: String,
+      chain: ChainId,
+      tx: TransactionAnalysis,
+      priority_fee: String,
+      mev_protect: bool,
+      sponsored: bool,
+      display: ClearDisplay,
+   ) {
+      self.open_inner(
+         ctx,
+         dapp,
+         chain,
+         tx,
+         priority_fee,
+         mev_protect,
+         sponsored,
+         Some(display),
+      );
+   }
+
+   fn open_inner(
+      &mut self,
+      ctx: ZeusCtx,
+      dapp: String,
+      chain: ChainId,
+      tx: TransactionAnalysis,
+      priority_fee: String,
+      mev_protect: bool,
+      sponsored: bool,
+      prebuilt_display: Option<ClearDisplay>,
+   ) {
       if !self.open {
          self.overlay.window_opened();
       }
@@ -105,13 +157,29 @@ impl TxConfirmationWindow {
          self.tx_cost_usd = NumericValue::default();
       }
 
-      RT.spawn_blocking(move || {
+      RT.spawn(async move {
          ctx.set_tx_confirm_window_open(true);
 
          let native = NativeCurrency::from(chain.id());
          let main_event = tx.infer_main_event(ctx.clone(), chain.id());
          let gas_used = tx.gas_used;
          let gas_limit = gas_used * 15 / 10;
+
+         let clear_display = if prebuilt_display.is_some() {
+            prebuilt_display
+         } else if tx.contract_interact && tx.call_data.len() >= 4 {
+            clear_signing::try_clear_sign_calldata(
+               ctx.clone(),
+               chain.id(),
+               tx.sender,
+               tx.interact_to,
+               tx.value,
+               &tx.call_data,
+            )
+            .await
+         } else {
+            None
+         };
 
          SHARED_GUI.write(|gui| {
             gui.tx_confirmation_window.dapp = dapp;
@@ -124,12 +192,14 @@ impl TxConfirmationWindow {
             gui.tx_confirmation_window.native_currency = native;
             gui.tx_confirmation_window.tx = Some(tx);
             gui.tx_confirmation_window.tx_main_event = Some(main_event);
+            gui.tx_confirmation_window.clear_display = clear_display;
             gui.tx_confirmation_window.open = true;
             gui.tx_confirmation_window.confirmed_or_rejected = None;
 
             ctx.write(|ctx| {
                gui.tx_confirmation_window.calculate_tx_cost(ctx, gas_used);
             });
+            gui.request_repaint();
          });
       });
    }
@@ -222,10 +292,29 @@ impl TxConfirmationWindow {
                );
 
                let calldata = analysis.call_data.to_string();
-               Self::show_calldata(&mut self.show_calldata, theme, calldata, ui);
+               let clear_display = self.clear_display.as_ref();
+               Self::show_calldata(
+                  &mut self.show_calldata,
+                  theme,
+                  ctx,
+                  self.chain,
+                  icons.clone(),
+                  clear_display,
+                  calldata,
+                  ui,
+               );
 
                // Action Name
-               ui.label(RichText::new(main_event.name()).size(theme.typography.heading));
+               let action_name = if main_event.is_other() {
+                  self
+                     .clear_display
+                     .as_ref()
+                     .map(|d| d.heading.clone())
+                     .unwrap_or_else(|| main_event.name())
+               } else {
+                  main_event.name()
+               };
+               ui.label(RichText::new(action_name).size(theme.typography.heading));
 
                if !main_event.is_other() {
                   ui.allocate_ui(frame_size, |ui| {
@@ -242,12 +331,35 @@ impl TxConfirmationWindow {
                   });
                }
 
-               // Tx Action is unknown
                if main_event.is_other() {
-                  let text = "Review the decoded events and proceed with caution";
-                  ui.label(
-                     RichText::new(text).size(theme.typography.large).color(theme.colors.warning),
-                  );
+                  let frame_size = vec2(ui.available_width() * 0.95, 300.0);
+
+                  if let Some(display) = self.clear_display.clone() {
+                     ui.allocate_ui(frame_size, |ui| {
+                        frame.show(ui, |ui| {
+                           ScrollArea::vertical()
+                              .id_salt("clear_diplay_ui")
+                              .max_height(300.0)
+                              .show(ui, |ui| {
+                                 clear_display_ui(
+                                    ctx,
+                                    self.chain,
+                                    &display,
+                                    theme,
+                                    icons.clone(),
+                                    ui,
+                                 );
+                              });
+                        });
+                     });
+                  } else {
+                     let text = "Review the decoded events and proceed with caution";
+                     ui.label(
+                        RichText::new(text)
+                           .size(theme.typography.large)
+                           .color(theme.colors.warning),
+                     );
+                  }
                }
 
                // Tx details
@@ -471,9 +583,21 @@ impl TxConfirmationWindow {
       balance.wei() >= total_cost
    }
 
-   // TODO: Show the calldata structured for known abis not just as plain text
-   fn show_calldata(open: &mut bool, theme: &Theme, mut calldata: String, ui: &mut Ui) {
-      let heading = RichText::new("Calldata").size(theme.typography.heading);
+   fn show_calldata(
+      open: &mut bool,
+      theme: &Theme,
+      ctx: &mut ZeusContext,
+      chain: ChainId,
+      icons: Arc<Icons>,
+      display: Option<&ClearDisplay>,
+      mut calldata: String,
+      ui: &mut Ui,
+   ) {
+      let heading = if let Some(d) = display {
+         RichText::new(&d.heading).size(theme.typography.heading)
+      } else {
+         RichText::new("Calldata").size(theme.typography.heading)
+      };
 
       let modal_width = 520.0;
       let edit_height = 260.0;
@@ -487,6 +611,18 @@ impl TxConfirmationWindow {
             ui.set_width(ui.available_width());
 
             ui.vertical_centered(|ui| {
+               if let Some(display) = display {
+                  ScrollArea::vertical()
+                     .id_salt("clear_display_calldata_window")
+                     .max_height(300.0)
+                     .show(ui, |ui| {
+                        clear_display_ui(ctx, chain, display, theme, icons.clone(), ui);
+                     });
+
+                  ui.add_space(12.0);
+                  ui.label(RichText::new("Raw").size(theme.typography.large));
+               }
+
                let edit_width = ui.available_width() * 0.9;
 
                let text_edit = SecureTextEdit::multiline(&mut calldata)
@@ -495,10 +631,13 @@ impl TxConfirmationWindow {
                   .desired_width(edit_width)
                   .margin(Margin::same(10));
 
-               ScrollArea::vertical().max_height(edit_height).show(ui, |ui| {
-                  ui.set_min_width(edit_width);
-                  ui.add(text_edit);
-               });
+               ScrollArea::vertical().id_salt("raw_calldata").max_height(edit_height).show(
+                  ui,
+                  |ui| {
+                     ui.set_min_width(edit_width);
+                     ui.add(text_edit);
+                  },
+               );
             });
          });
    }

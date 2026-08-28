@@ -696,4 +696,27 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
       }
    }
+
+   /// Unknown contract call so the confirm UI can show ERC-7730 rows.
+   pub fn dummy_clear_signed() -> Self {
+      let pool = Address::from_str("0xA238Dd80C259a72e81d7e4664a9801593F98d1c5").unwrap();
+      let calldata = Bytes::from_str("0x617ba037000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda0291300000000000000000000000000000000000000000000000000000000000f424000000000000000000000000022222222222222222222222222222222222222220000000000000000000000000000000000000000000000000000000000000000").unwrap();
+      Self {
+         chain: 8453,
+         sender: vitalik(),
+         interact_to: pool,
+         contract_interact: true,
+         value: U256::ZERO,
+         call_data: calldata,
+         gas_used: 180_000,
+         eth_balance_before: U256::ZERO,
+         eth_balance_after: U256::ZERO,
+         decoded_selector: "Supply".to_string(),
+         logs_len: 0,
+         known_events: 0,
+         decoded_events: Vec::new(),
+         main_event: None,
+         onchain_swap_received: None,
+      }
+   }
 }

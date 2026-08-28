@@ -1,12 +1,13 @@
 use eframe::egui::{Align2, Frame, Order, RichText, ScrollArea, Ui, Window, vec2};
 
 use crate::assets::Icons;
+use crate::core::clear_signing::ClearDisplay;
 use crate::core::{DecodedEvent, SignMsgType, TransactionAnalysis, ZeusContext};
 use crate::gui::{SHARED_GUI, ui::notification::NotificationType};
 use crate::utils::self_update::UpdateInfo;
 use crate::utils::{RT, TimeStamp};
-
 use zeus_eth::currency::ERC20Token;
+use zeus_eth::types::ChainId;
 
 use egui_elements::{Button, Label, Theme};
 use std::sync::Arc;
@@ -409,8 +410,9 @@ impl UiTesting {
                });
             }
 
-            let button = Button::new(RichText::new("Unknown Tx Analysis").size(text_size))
-               .min_size(button_size);
+            let button =
+               Button::new(RichText::new("Unknown Tx Analysis").size(text_size))
+                  .min_size(button_size);
 
             if ui.add(button).clicked() {
                RT.spawn_blocking(move || {
@@ -426,6 +428,30 @@ impl UiTesting {
                         "1".to_string(),
                         true,
                         false,
+                     );
+                  });
+               });
+            }
+
+            let button = Button::new(RichText::new("Clear Signed Tx").size(text_size))
+               .min_size(button_size);
+
+            if ui.add(button).clicked() {
+               let analysis = TransactionAnalysis::dummy_clear_signed();
+               let display = ClearDisplay::dummy_calldata();
+               RT.spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
+
+                     gui.tx_confirmation_window.open_with_clear_display(
+                        ctx.clone(),
+                        "app.aave.com".to_string(),
+                        ChainId::from(8453),
+                        analysis,
+                        "1".to_string(),
+                        false,
+                        false,
+                        display,
                      );
                   });
                });

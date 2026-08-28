@@ -10,7 +10,8 @@ use zeus_eth::alloy_primitives::{Address, B256, keccak256};
 
 const REGISTRY_BASE: &str =
    "https://raw.githubusercontent.com/ethereum/clear-signing-erc7730-registry/master";
-const INDEX_PATH: &str = "index.eip712.json";
+const EIP712_INDEX_PATH: &str = "index.eip712.json";
+const CALLDATA_INDEX_PATH: &str = "index.calldata.json";
 const FETCH_TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_INCLUDE_DEPTH: usize = 3;
 
@@ -33,8 +34,8 @@ fn cache_dir() -> Result<PathBuf, anyhow::Error> {
    Ok(dir)
 }
 
-fn cached_index_path() -> Result<PathBuf, anyhow::Error> {
-   Ok(cache_dir()?.join("index.eip712.json"))
+fn cached_index_path(name: &str) -> Result<PathBuf, anyhow::Error> {
+   Ok(cache_dir()?.join(name))
 }
 
 fn cached_file_path(registry_path: &str) -> Result<PathBuf, anyhow::Error> {
@@ -73,15 +74,27 @@ async fn get_json(registry_path: &str) -> Result<Value, anyhow::Error> {
 }
 
 pub async fn prefetch_index() {
-   match fetch_index(true).await {
+   match fetch_named_index(EIP712_INDEX_PATH, true).await {
       Ok(_) => tracing::info!("ERC-7730 EIP-712 index ready"),
-      Err(e) => tracing::warn!("ERC-7730 index prefetch failed: {e}"),
+      Err(e) => tracing::warn!("ERC-7730 EIP-712 index prefetch failed: {e}"),
+   }
+   match fetch_named_index(CALLDATA_INDEX_PATH, true).await {
+      Ok(_) => tracing::info!("ERC-7730 calldata index ready"),
+      Err(e) => tracing::warn!("ERC-7730 calldata index prefetch failed: {e}"),
    }
 }
 
 async fn fetch_index(force_network: bool) -> Result<Value, anyhow::Error> {
+   fetch_named_index(EIP712_INDEX_PATH, force_network).await
+}
+
+async fn fetch_calldata_index(force_network: bool) -> Result<Value, anyhow::Error> {
+   fetch_named_index(CALLDATA_INDEX_PATH, force_network).await
+}
+
+async fn fetch_named_index(name: &str, force_network: bool) -> Result<Value, anyhow::Error> {
    if !force_network {
-      if let Ok(path) = cached_index_path() {
+      if let Ok(path) = cached_index_path(name) {
          if let Ok(bytes) = std::fs::read(&path) {
             if let Ok(v) = serde_json::from_slice(&bytes) {
                return Ok(v);
@@ -90,7 +103,7 @@ async fn fetch_index(force_network: bool) -> Result<Value, anyhow::Error> {
       }
    }
 
-   let url = format!("{REGISTRY_BASE}/{INDEX_PATH}");
+   let url = format!("{REGISTRY_BASE}/{name}");
    let bytes = http_client()
       .get(&url)
       .send()
@@ -100,9 +113,9 @@ async fn fetch_index(force_network: bool) -> Result<Value, anyhow::Error> {
       .bytes()
       .await?;
    let value: Value = serde_json::from_slice(&bytes)?;
-   if let Ok(path) = cached_index_path() {
+   if let Ok(path) = cached_index_path(name) {
       if let Err(e) = write_private(&path, &bytes) {
-         tracing::warn!("Failed to cache ERC-7730 index: {e}");
+         tracing::warn!("Failed to cache ERC-7730 index {name}: {e}");
       }
    }
    Ok(value)
@@ -114,10 +127,7 @@ pub fn lookup_index_path(
    verifying: Address,
    type_hash: B256,
 ) -> Option<String> {
-   let keys = [
-      format!("eip155:{chain}:{}", format!("{verifying:#x}")),
-      format!("eip155:{chain}:{}", verifying.to_checksum(None)),
-   ];
+   let keys = caip10_keys(chain, verifying);
 
    let want = format!("{type_hash:#x}");
    for key in keys {
@@ -149,6 +159,30 @@ pub fn lookup_index_path(
       }
    }
    None
+}
+
+fn caip10_keys(chain: u64, address: Address) -> [String; 2] {
+   [
+      format!("eip155:{chain}:{}", format!("{address:#x}")),
+      format!("eip155:{chain}:{}", address.to_checksum(None)),
+   ]
+}
+
+pub fn lookup_calldata_index_path(index: &Value, chain: u64, to: Address) -> Option<String> {
+   for key in caip10_keys(chain, to) {
+      if let Some(path) = index.get(&key).and_then(|v| v.as_str()) {
+         return Some(path.to_string());
+      }
+   }
+   None
+}
+
+pub async fn resolve_calldata_descriptor(chain: u64, to: Address) -> Option<(String, Descriptor)> {
+   let index = fetch_calldata_index(false).await.ok()?;
+   let path = lookup_calldata_index_path(&index, chain, to)?;
+   let merged = load_merged(&path).await.ok()?;
+   let descriptor = descriptor::parse_descriptor(&merged).ok()?;
+   Some((path, descriptor))
 }
 
 pub async fn resolve_eip712_descriptor(
@@ -217,4 +251,9 @@ pub fn index_lookup_for_tests(
 #[cfg(test)]
 pub fn resolve_include_for_tests(parent: &str, inc: &str) -> String {
    resolve_include(parent, inc)
+}
+
+#[cfg(test)]
+pub fn calldata_index_lookup_for_tests(index: &Value, chain: u64, to: Address) -> Option<String> {
+   lookup_calldata_index_path(index, chain, to)
 }

@@ -4,7 +4,7 @@ use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::str::FromStr;
 use zeus_eth::{
-   alloy_dyn_abi::TypedData,
+   alloy_dyn_abi::{DynSolType, Specifier, TypedData, parser as sol_parser},
    alloy_primitives::{Address, B256, U256, keccak256},
 };
 
@@ -18,6 +18,12 @@ pub struct Descriptor {
 #[derive(Debug, Clone, Default)]
 pub struct Context {
    pub eip712: Option<Eip712Context>,
+   pub contract: Option<ContractContext>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ContractContext {
+   pub deployments: Vec<Deployment>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -149,25 +155,36 @@ fn parse_context(value: Option<&Value>) -> Result<Context, anyhow::Error> {
       return Ok(Context::default());
    };
    let eip712 = value.get("eip712").map(parse_eip712_context).transpose()?;
-   Ok(Context { eip712 })
+   let contract = value.get("contract").map(parse_contract_context).transpose()?;
+   Ok(Context { eip712, contract })
+}
+
+fn parse_contract_context(value: &Value) -> Result<ContractContext, anyhow::Error> {
+   Ok(ContractContext {
+      deployments: parse_deployments(value.get("deployments"))?,
+   })
+}
+
+fn parse_deployments(value: Option<&Value>) -> Result<Vec<Deployment>, anyhow::Error> {
+   let mut deployments = Vec::new();
+   let Some(arr) = value.and_then(|v| v.as_array()) else {
+      return Ok(deployments);
+   };
+   for item in arr {
+      let chain_id = json_u64(item.get("chainId")).ok_or_else(|| anyhow!("deployment chainId"))?;
+      let address = item
+         .get("address")
+         .and_then(|v| v.as_str())
+         .ok_or_else(|| anyhow!("deployment missing address"))?;
+      let address = Address::from_str(address)?;
+      deployments.push(Deployment { chain_id, address });
+   }
+   Ok(deployments)
 }
 
 fn parse_eip712_context(value: &Value) -> Result<Eip712Context, anyhow::Error> {
    let domain = value.get("domain").and_then(|v| v.as_object()).cloned().unwrap_or_default();
-
-   let mut deployments = Vec::new();
-   if let Some(arr) = value.get("deployments").and_then(|v| v.as_array()) {
-      for item in arr {
-         let chain_id =
-            json_u64(item.get("chainId")).ok_or_else(|| anyhow!("deployment chainId"))?;
-         let address = item
-            .get("address")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("deployment missing address"))?;
-         let address = Address::from_str(address)?;
-         deployments.push(Deployment { chain_id, address });
-      }
-   }
+   let deployments = parse_deployments(value.get("deployments"))?;
 
    let domain_separator = value
       .get("domainSeparator")
@@ -344,6 +361,87 @@ pub fn bind_eip712<'a>(
    Err(anyhow!(
       "no display.formats entry matches encodeType"
    ))
+}
+
+/// Bind a contract call to this descriptor and return the matching format spec + format key.
+pub fn bind_calldata<'a>(
+   descriptor: &'a Descriptor,
+   chain_id: u64,
+   to: Address,
+   selector: [u8; 4],
+) -> Result<(&'a str, &'a FormatSpec), anyhow::Error> {
+   let contract = descriptor
+      .context
+      .contract
+      .as_ref()
+      .ok_or_else(|| anyhow!("descriptor is not bound to a contract context"))?;
+
+   if !contract.deployments.is_empty() {
+      let matched = contract.deployments.iter().any(|d| d.chain_id == chain_id && d.address == to);
+      if !matched {
+         return Err(anyhow!(
+            "to/chainId is not in descriptor deployments"
+         ));
+      }
+   }
+
+   for (key, spec) in &descriptor.formats {
+      if let Ok(got) = selector_from_format_key(key) {
+         if got == selector {
+            return Ok((key.as_str(), spec));
+         }
+      }
+   }
+
+   Err(anyhow!(
+      "no display.formats entry matches selector"
+   ))
+}
+
+pub fn selector_from_format_key(key: &str) -> Result<[u8; 4], anyhow::Error> {
+   let parsed = parse_call_format(key)?;
+   Ok(parsed.selector)
+}
+
+pub struct ParsedCallFormat {
+   pub name: String,
+   pub selector: [u8; 4],
+   pub arg_names: Vec<String>,
+   pub arg_types: Vec<DynSolType>,
+}
+
+pub fn parse_call_format(key: &str) -> Result<ParsedCallFormat, anyhow::Error> {
+   let key = key.trim();
+   let open = key.find('(').ok_or_else(|| anyhow!("format key is not a function signature"))?;
+   let name = key[..open].trim().to_string();
+   if name.is_empty() {
+      return Err(anyhow!("format key missing function name"));
+   }
+   let close = key.rfind(')').ok_or_else(|| anyhow!("format key missing ')'"))?;
+   let params_src = &key[open..=close];
+   let params = sol_parser::Parameters::parse(params_src).map_err(|e| anyhow!("{e}"))?;
+
+   let mut arg_names = Vec::new();
+   let mut arg_types = Vec::new();
+   let mut type_names = Vec::new();
+   for (i, p) in params.params.iter().enumerate() {
+      arg_names.push(p.name.map(|s| s.to_string()).unwrap_or_else(|| format!("arg{i}")));
+      let ty: DynSolType = p.ty.resolve().map_err(|e| anyhow!("{e}"))?;
+      type_names.push(ty.sol_type_name().into_owned());
+      arg_types.push(ty);
+   }
+
+   let preimage = format!("{name}({})", type_names.join(","));
+   let hash = keccak256(preimage.as_bytes());
+   let mut selector = [0u8; 4];
+   selector.copy_from_slice(&hash[..4]);
+
+   Ok(ParsedCallFormat {
+      name,
+      selector,
+      arg_names,
+      arg_types,
+   })
 }
 
 fn domain_field(typed: &TypedData, key: &str) -> Option<String> {

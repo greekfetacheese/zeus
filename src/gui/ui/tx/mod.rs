@@ -9,6 +9,7 @@ use zeus_eth::alloy_primitives::TxHash;
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
+use crate::core::clear_signing::{ClearDisplay, FormattedValue};
 use crate::utils::{truncate_address, truncate_hash};
 use zeus_eth::{
    alloy_primitives::Address,
@@ -237,4 +238,87 @@ pub fn eth_received(
    );
    let text = RichText::new(text).size(theme.typography.large);
    ui.add(Label::new(text, None).image_on_left().interactive(false));
+}
+
+pub fn clear_display_ui(
+   ctx: &mut ZeusContext,
+   chain_id: ChainId,
+   display: &ClearDisplay,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   ui: &mut Ui,
+) {
+   let tint = theme.image_tint_recommended;
+
+   ui.spacing_mut().item_spacing.y = 10.0;
+
+   if let Some(owner) = display.owner.as_ref() {
+      let name = match &display.contract_name {
+         Some(c) => format!("{owner} · {c}"),
+         None => owner.clone(),
+      };
+      ui.label(RichText::new(name).size(theme.typography.normal));
+   }
+
+   if let Some(intent) = display.interpolated_intent.as_ref() {
+      ui.label(RichText::new(intent).size(theme.typography.large));
+   }
+
+   for warning in &display.warnings {
+      ui.label(RichText::new(warning).size(theme.typography.normal).color(theme.colors.warning));
+   }
+
+   for field in &display.fields {
+      match &field.value {
+         FormattedValue::Address(addr) => {
+            address(ctx, chain_id, &field.label, *addr, theme, ui);
+         }
+         FormattedValue::TokenAmount {
+            amount,
+            token,
+            unlimited,
+         } => {
+            ui.horizontal(|ui| {
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  ui.label(RichText::new(&field.label).size(theme.typography.large));
+               });
+               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                  let amount_txt = if *unlimited {
+                     "Unlimited".to_string()
+                  } else {
+                     amount.abbreviated()
+                  };
+                  let text = format!("{} {}", amount_txt, token.symbol);
+                  let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+                  let text = RichText::new(text).size(theme.typography.large);
+                  let label = Label::new(text, Some(icon))
+                     .wrap()
+                     .visuals(theme.label_visuals())
+                     .interactive(false);
+                  ui.add(label);
+               });
+            });
+         }
+         FormattedValue::Date(ts) => {
+            ui.horizontal(|ui| {
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  ui.label(RichText::new(&field.label).size(theme.typography.large));
+               });
+               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                  ui.label(RichText::new(ts.to_relative()).size(theme.typography.large));
+               });
+            });
+         }
+         FormattedValue::Text(text) | FormattedValue::Bytes(text) => {
+            ui.horizontal(|ui| {
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  ui.label(RichText::new(&field.label).size(theme.typography.large));
+               });
+               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                  ui.label(RichText::new(text).size(theme.typography.large));
+               });
+            });
+         }
+      }
+   }
 }

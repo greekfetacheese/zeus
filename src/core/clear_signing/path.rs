@@ -36,6 +36,7 @@ pub struct Container {
    pub from: Option<Address>,
    pub to: Option<Address>,
    pub chain_id: u64,
+   pub value: U256,
 }
 
 impl Container {
@@ -44,7 +45,7 @@ impl Container {
          "from" => self.from.map(|a| Value::String(a.to_string())),
          "to" | "verifyingContract" => self.to.map(|a| Value::String(a.to_string())),
          "chainId" => Some(Value::from(self.chain_id)),
-         "value" => Some(Value::from(0u64)),
+         "value" => Some(Value::String(self.value.to_string())),
          _ => None,
       }
    }

@@ -1,11 +1,12 @@
-use super::descriptor::{Descriptor, FieldSpec, FormatSpec, Metadata};
+use super::descriptor::{Descriptor, FieldSpec, FormatSpec, Metadata, ParsedCallFormat};
 use super::display::{ClearDisplay, ClearSource, DisplayField, FormattedValue};
 use super::path::{self, Container};
 use crate::utils::TimeStamp;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::collections::HashMap;
 use zeus_eth::{
-   alloy_primitives::{Address, U256},
+   alloy_dyn_abi::DynSolValue,
+   alloy_primitives::{Address, U256, hex},
    currency::ERC20Token,
    utils::NumericValue,
 };
@@ -40,6 +41,13 @@ pub fn format_eip712(
 
    for field in &spec.fields {
       if field.is_hidden() {
+         continue;
+      }
+      if field.format == "calldata" || field.path.contains("[]") {
+         warnings.push(format!(
+            "{}: nested calldata not shown",
+            field.label
+         ));
          continue;
       }
       match format_field(
@@ -161,7 +169,7 @@ fn format_token_amount(
    let chain = token_chain(field, message, metadata, container);
    let token_addr = token_address(field, message, metadata, container);
 
-   let unlimited = is_unlimited(field, amount);
+   let unlimited = is_unlimited(field, amount, message, metadata, container);
 
    if let Some(addr) = token_addr {
       if let Some(token) = data.token(chain, addr) {
@@ -248,14 +256,26 @@ fn json_u64_ref(value: &Value) -> Option<u64> {
    path::value_as_u256(value).and_then(|n| u64::try_from(n).ok())
 }
 
-fn is_unlimited(field: &FieldSpec, amount: U256) -> bool {
+fn is_unlimited(
+   field: &FieldSpec,
+   amount: U256,
+   message: &Value,
+   metadata: &Metadata,
+   container: &Container,
+) -> bool {
    if amount == U256::MAX {
       return true;
    }
-   if let Some(th) = field.params.get("threshold").and_then(|v| match v {
-      Value::String(s) => path::parse_u256(s),
-      other => path::value_as_u256(other),
-   }) {
+   let Some(th_val) = field.params.get("threshold") else {
+      return false;
+   };
+   let resolved = match th_val {
+      Value::String(s) if s.starts_with('$') || s.starts_with('#') || s.starts_with('@') => {
+         path::resolve_path(s, message, &metadata.constants, container)
+      }
+      other => Some(other.clone()),
+   };
+   if let Some(th) = resolved.as_ref().and_then(path::value_as_u256) {
       return amount >= th;
    }
    false
@@ -290,5 +310,39 @@ fn json_to_text(value: &Value) -> String {
       Value::Bool(b) => b.to_string(),
       Value::Null => "null".to_string(),
       other => other.to_string(),
+   }
+}
+
+/// ABI-decode calldata args (without selector) into a JSON object keyed by argument name.
+pub fn decode_call_args(parsed: &ParsedCallFormat, data: &[u8]) -> Result<Value, anyhow::Error> {
+   let tuple = zeus_eth::alloy_dyn_abi::DynSolType::Tuple(parsed.arg_types.clone());
+   let decoded = tuple.abi_decode_params(data).map_err(|e| anyhow::anyhow!("{e}"))?;
+   let values = match decoded {
+      DynSolValue::Tuple(v) => v,
+      other => vec![other],
+   };
+   if values.len() != parsed.arg_names.len() {
+      return Err(anyhow::anyhow!("arg count mismatch"));
+   }
+   let mut map = Map::new();
+   for (name, value) in parsed.arg_names.iter().zip(values.into_iter()) {
+      map.insert(name.clone(), dyn_to_json(&value));
+   }
+   Ok(Value::Object(map))
+}
+
+fn dyn_to_json(value: &DynSolValue) -> Value {
+   match value {
+      DynSolValue::Bool(b) => Value::Bool(*b),
+      DynSolValue::Uint(n, _) => Value::String(n.to_string()),
+      DynSolValue::Int(n, _) => Value::String(n.to_string()),
+      DynSolValue::Address(a) => Value::String(a.to_string()),
+      DynSolValue::Bytes(b) => Value::String(format!("0x{}", hex::encode(b))),
+      DynSolValue::FixedBytes(w, size) => Value::String(format!("0x{}", hex::encode(&w[..*size]))),
+      DynSolValue::String(s) => Value::String(s.clone()),
+      DynSolValue::Array(items) | DynSolValue::FixedArray(items) | DynSolValue::Tuple(items) => {
+         Value::Array(items.iter().map(dyn_to_json).collect())
+      }
+      other => Value::String(format!("{other:?}")),
    }
 }
