@@ -25,6 +25,8 @@ pub struct TxConfirmationWindow {
    decoded_events: DecodedEvents,
    /// True to confirm, false to reject
    confirmed_or_rejected: Option<bool>,
+   /// Bumped on every `open`. Late clear-signing tasks must not apply to a newer prompt.
+   open_generation: u64,
    dapp: String,
    chain: ChainId,
    native_currency: NativeCurrency,
@@ -54,6 +56,7 @@ impl TxConfirmationWindow {
          overlay: overlay.clone(),
          decoded_events: DecodedEvents::new(overlay),
          confirmed_or_rejected: None,
+         open_generation: 0,
          dapp: String::new(),
          chain: ChainId::default(),
          native_currency: NativeCurrency::default(),
@@ -151,6 +154,13 @@ impl TxConfirmationWindow {
       }
 
       self.sponsored = sponsored;
+      // `send_transaction` polls this immediately. Confirm/Reject only `close()`
+      // the window, so the previous answer stays in this field and would be
+      // treated as the new prompt (auto-confirm + spinner while this task
+      // is still fetching a clear-signing descriptor).
+      self.confirmed_or_rejected = None;
+      self.open_generation = self.open_generation.wrapping_add(1);
+      let generation = self.open_generation;
 
       if sponsored {
          self.tx_cost = NumericValue::default();
@@ -182,6 +192,10 @@ impl TxConfirmationWindow {
          };
 
          SHARED_GUI.write(|gui| {
+            if gui.tx_confirmation_window.open_generation != generation {
+               return;
+            }
+
             gui.tx_confirmation_window.dapp = dapp;
             gui.tx_confirmation_window.priority_fee = priority_fee;
             gui.tx_confirmation_window.mev_protect = mev_protect;
