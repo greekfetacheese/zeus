@@ -185,6 +185,7 @@ impl UnlockVault {
                ctx.load_currency_db();
                ctx.load_pool_manager();
                ctx.load_zeus_client();
+               ctx.load_or_create_address_book();
 
                let bundler_url = match BundlerUrl::exists() {
                   Ok(true) => match BundlerUrl::load(&key) {
@@ -551,6 +552,7 @@ impl RecoverHDWallet {
                               tracing::error!("Failed to save initial wallet state: {e}");
                            }
                            ctx.build_wallet_info_cache();
+                           ctx.load_or_create_address_book();
                         }
                         Err(e) => {
                            SHARED_GUI.write(|gui| {

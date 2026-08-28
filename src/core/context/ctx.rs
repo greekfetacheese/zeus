@@ -1,6 +1,6 @@
 use super::{
-   ApprovalManagerHandle, BalanceManagerHandle, CurrencyDB, PoolManagerHandle, WalletPortfolio,
-   ZeusClient, price_manager::PriceManagerHandle, tx::TxDBHandle,
+   AddressBookHandle, ApprovalManagerHandle, BalanceManagerHandle, CurrencyDB, PoolManagerHandle,
+   WalletPortfolio, ZeusClient, price_manager::PriceManagerHandle, tx::TxDBHandle,
 };
 
 use crate::core::{TransactionRich, WalletState, WalletValue};
@@ -8,14 +8,15 @@ use crate::core::{Vault, WalletInfo, client::Rpc, types::*};
 use crate::server::SERVER_PORT;
 use crate::utils::{TimeStamp, create_railgun_provider};
 use anyhow::anyhow;
+use egui_elements::theme::ThemeKind;
 use ncrypt_me::Argon2;
 use std::{
-   collections::HashMap,
+   collections::{HashMap, HashSet},
    path::PathBuf,
+   str::FromStr,
    sync::{Arc, RwLock},
    time::{Duration, Instant},
 };
-use egui_elements::theme::ThemeKind;
 use zeus_wallet::Wallet;
 
 use zeus_eth::{
@@ -28,7 +29,7 @@ use zeus_eth::{
    },
    currency::{Currency, NativeCurrency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
-   utils::{NumericValue, address_book, client::RpcClient},
+   utils::{NumericValue, client::RpcClient},
 };
 use zeus_railgun::{RailgunAddress, RailgunProvider, RailgunSigner, SnapshotLoader};
 
@@ -703,6 +704,9 @@ impl ZeusCtx {
    ///
    /// This should be called at the startup and whenever a wallet is added or removed.
    pub fn build_wallet_info_cache(&self) {
+      let previous: HashSet<Address> =
+         self.read(|ctx| ctx.wallet_info_cache.keys().copied().collect());
+
       let mut cache = HashMap::new();
       let wallets = self.read_vault(|vault| vault.clone_all_wallets());
       for wallet in wallets {
@@ -710,9 +714,21 @@ impl ZeusCtx {
          cache.insert(wallet.address(), info);
       }
 
+      let wallets: Vec<WalletInfo> = cache.values().cloned().collect();
+
       self.write(|ctx| {
          ctx.wallet_info_cache = cache;
       });
+
+      let book = self.address_book();
+      if book.is_persisted() {
+         book.apply_wallet_diff(&previous, &wallets);
+         self.save_address_book();
+      }
+   }
+
+   pub fn address_book(&self) -> AddressBookHandle {
+      self.read(|ctx| ctx.address_book.clone())
    }
 
    pub fn wallet_with_zk_address_exists(&self, zk_address: &RailgunAddress) -> bool {
@@ -740,6 +756,10 @@ impl ZeusCtx {
       self.write_wallet_state(|ws| {
          ws.contacts.retain(|c| c.evm_address != evm_address);
       });
+      if let Ok(address) = Address::from_str(evm_address) {
+         self.address_book().remove_identity(address);
+         self.save_address_book();
+      }
    }
 
    pub fn add_contact(&self, contact: Contact) -> Result<(), anyhow::Error> {
@@ -760,6 +780,11 @@ impl ZeusCtx {
             "Contact with address {} already exists",
             contact.evm_address
          ));
+      }
+
+      if let Ok(address) = Address::from_str(&contact.evm_address) {
+         self.address_book().insert_identity(address, contact.name.as_str());
+         self.save_address_book();
       }
 
       self.write_wallet_state(|ws| {
@@ -869,7 +894,7 @@ impl ZeusCtx {
          Ok(false) => {
             tracing::warn!("Token data file missing, skipping load");
             return;
-         },
+         }
          Err(e) => {
             tracing::error!("Error checking CurrencyDB: {:?}", e);
             return;
@@ -887,6 +912,54 @@ impl ZeusCtx {
       match CurrencyDB::load_from_file(&key) {
          Ok(db) => self.write(|ctx| ctx.currency_db = db),
          Err(e) => tracing::error!("Error loading CurrencyDB: {:?}", e),
+      }
+   }
+
+   pub fn save_address_book(&self) {
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(_) => return,
+      };
+      let book = self.address_book();
+      match book.save(&key) {
+         Ok(_) => tracing::trace!("AddressBook saved"),
+         Err(e) => tracing::error!("Error saving AddressBook: {:?}", e),
+      }
+   }
+
+   /// Load `address_book.data`, or create it from well-known contracts, wallets, and contacts.
+   ///
+   /// Call after vault unlock (wallets + contacts + currency db are available).
+   pub fn load_or_create_address_book(&self) {
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error loading AddressBook: {:?}", e);
+            return;
+         }
+      };
+
+      let book = self.address_book();
+      match AddressBookHandle::exists() {
+         Ok(true) => match AddressBookHandle::load_from_file(&key) {
+            Ok(loaded) => book.replace_from(&loaded),
+            Err(e) => tracing::error!("Error loading AddressBook: {:?}", e),
+         },
+         Ok(false) => {}
+         Err(e) => {
+            tracing::error!("Error checking AddressBook: {:?}", e);
+            return;
+         }
+      }
+
+      book.seed_well_known();
+      let wallets = self.get_all_wallets_info();
+      book.seed_wallets(&wallets);
+      let contacts = self.contacts();
+      book.seed_contacts(&contacts);
+
+      if let Err(e) = book.save(&key) {
+         tracing::error!("Error saving AddressBook: {:?}", e);
       }
    }
 
@@ -912,7 +985,7 @@ impl ZeusCtx {
          Ok(false) => {
             tracing::warn!("ZeusClient file missing, skipping load");
             return;
-         },
+         }
          Err(e) => {
             tracing::error!("Error checking ZeusClient: {:?}", e);
             return;
@@ -955,7 +1028,7 @@ impl ZeusCtx {
          Ok(false) => {
             tracing::warn!("Pool Manager file missing, skipping load");
             return;
-         },
+         }
          Err(e) => {
             tracing::error!("Error checking Pool Manager: {:?}", e);
             return;
@@ -1167,8 +1240,44 @@ impl ZeusCtx {
    }
 
    /// Return the name of this address if its known
-   pub fn get_address_name(&self, chain: u64, address: Address) -> Option<String> {
+   pub fn get_address_name(&self, chain: u64, address: Address) -> Option<Arc<str>> {
       self.read(|ctx| ctx.get_address_name(chain, address))
+   }
+
+   /// Off-frame ERC-7730 / Sourcify fill. No-op if already named or already attempted.
+   ///
+   /// Returns true if a new name was stored.
+   pub async fn lookup_address_name(&self, chain: u64, address: Address) -> bool {
+      if self.get_address_name(chain, address).is_some() {
+         return false;
+      }
+
+      let book = self.address_book();
+      if !book.mark_pending(chain, address) {
+         return false;
+      }
+
+      if self.read(|ctx| ctx.currency_db.get_erc20_token(chain, address).is_some()) {
+         return false;
+      }
+
+      let name = if let Some(name) =
+         crate::core::clear_signing::registry::resolve_contract_label(chain, address).await
+      {
+         Some(name)
+      } else {
+         crate::core::clear_signing::sourcify::contract_name(chain, address).await
+      };
+
+      let Some(name) = name else {
+         return false;
+      };
+
+      if !book.insert_contract(chain, address, name.as_str()) {
+         return false;
+      }
+      self.save_address_book();
+      true
    }
 
    /// Get the V2 pool for the given address
@@ -1761,10 +1870,10 @@ pub struct ZeusContext {
    /// only then the Zeus UI unlocks
    pub vault_unlocked: bool,
 
-   /// The name of well known addresses
+   /// Fast address names (wallets, contacts, well-known + ERC-7730/Sourcify).
    ///
-   /// Mapped by (chain_id, address)
-   pub address_names: HashMap<(u64, Address), String>,
+   /// Token names stay in [`Self::currency_db`].
+   pub address_book: AddressBookHandle,
 
    /// Holds all ERC20 tokens
    pub currency_db: CurrencyDB,
@@ -1851,6 +1960,7 @@ fn tighten_existing_secret_files() {
       Vault::dir().ok(),
       WalletState::dir().ok(),
       CurrencyDB::dir().ok(),
+      AddressBookHandle::dir().ok(),
       pool_data_dir().ok(),
       ZeusClient::dir().ok(),
       bundler_url_dir().ok(),
@@ -1909,7 +2019,6 @@ impl ZeusContext {
       };
 
       let priority_fee = PriorityFee::default();
-      let address_names = build_address_name_cache();
 
       Self {
          client,
@@ -1926,7 +2035,7 @@ impl ZeusContext {
          save_wallet_state_in_progress: false,
          vault_exists,
          vault_unlocked: false,
-         address_names,
+         address_book: AddressBookHandle::default(),
          currency_db,
          pool_manager,
          price_manager,
@@ -2060,30 +2169,14 @@ impl ZeusContext {
       self.price_manager.get_token_price(token).unwrap_or_default()
    }
 
-   /// Return the name of this address if its known
-   pub fn get_address_name(&self, chain: u64, address: Address) -> Option<String> {
-      if let Some(name) = self.get_wallet_name(address) {
+   /// Return the name of this address if its known.
+   ///
+   /// Checks the address book, then token metadata. No list scans.
+   pub fn get_address_name(&self, chain: u64, address: Address) -> Option<Arc<str>> {
+      if let Some(name) = self.address_book.get(chain, address) {
          return Some(name);
       }
-
-      if let Some(name) = self.currency_db.get_token_name(chain, address) {
-         return Some(name.to_string());
-      }
-
-      if let Some(name) = self.address_names.get(&(chain, address)) {
-         return Some(name.to_string());
-      }
-
-      if let Some(name) = self.get_contact_by_address(&address.to_string()) {
-         return Some(name.name);
-      }
-
-      #[cfg(feature = "dev")]
-      if address == address_book::vitalik() {
-         return Some("Vitalik".to_string());
-      }
-
-      None
+      self.currency_db.get_token_name(chain, address)
    }
 
    /// Get the wallet info for the given zk address
@@ -2257,89 +2350,6 @@ impl ZeusContext {
    pub fn is_railgun_provider_syncing(&self, chain: u64) -> bool {
       self.railgun_status.sync_in_progress(chain)
    }
-}
-
-fn build_address_name_cache() -> HashMap<(u64, Address), String> {
-   let mut cache = HashMap::new();
-
-   for chain in SUPPORTED_CHAINS {
-      if let Ok(address) = address_book::railgun_smart_wallet(chain) {
-         cache.insert((chain, address), format!("Railgun Smart Wallet"));
-      }
-
-      if let Ok(address) = address_book::entry_point(chain) {
-         cache.insert((chain, address), format!("Entry Point"));
-      }
-
-      if let Ok(address) = address_book::permit2_contract(chain) {
-         cache.insert((chain, address), format!("Permit2"));
-      }
-
-      if let Ok(address) = address_book::uniswap_v4_pool_manager(chain) {
-         cache.insert(
-            (chain, address),
-            format!("Uniswap V4 Pool Manager"),
-         );
-      }
-
-      if let Ok(address) = address_book::universal_router_v2(chain) {
-         cache.insert((chain, address), format!("Universal Router V2"));
-      }
-
-      if let Ok(address) = address_book::uniswap_v3_nft_position_manager(chain) {
-         cache.insert(
-            (chain, address),
-            format!("Uniswap V3 NFT Position Manager"),
-         );
-      }
-
-      if let Ok(address) = address_book::uniswap_v4_nft_position_manager(chain) {
-         cache.insert(
-            (chain, address),
-            format!("Uniswap V4 NFT Position Manager"),
-         );
-      }
-
-      if let Ok(address) = address_book::uniswap_v2_factory(chain) {
-         cache.insert((chain, address), format!("Uniswap V2 Factory"));
-      }
-
-      if let Ok(address) = address_book::uniswap_v2_router(chain) {
-         cache.insert((chain, address), format!("Uniswap V2 Router"));
-      }
-
-      if let Ok(address) = address_book::uniswap_v3_factory(chain) {
-         cache.insert((chain, address), format!("Uniswap V3 Factory"));
-      }
-
-      if let Ok(address) = address_book::pancakeswap_v2_factory(chain) {
-         cache.insert(
-            (chain, address),
-            format!("PancakeSwap V2 Factory"),
-         );
-      }
-
-      if let Ok(address) = address_book::pancakeswap_v2_router(chain) {
-         cache.insert((chain, address), format!("PancakeSwap V2 Router"));
-      }
-
-      if let Ok(address) = address_book::pancakeswap_v3_factory(chain) {
-         cache.insert(
-            (chain, address),
-            format!("PancakeSwap V3 Factory"),
-         );
-      }
-
-      if let Ok(address) = address_book::pancakeswap_v3_router(chain) {
-         cache.insert((chain, address), format!("PancakeSwap V3 Router"));
-      }
-
-      if let Ok(address) = address_book::across_spoke_pool_v2(chain) {
-         cache.insert((chain, address), format!("Across Spoke Pool V2"));
-      }
-   }
-
-   cache
 }
 
 #[cfg(test)]

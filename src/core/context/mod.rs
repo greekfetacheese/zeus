@@ -1,3 +1,4 @@
+pub mod address_book;
 pub mod approval_manager;
 pub mod balance_manager;
 pub mod client;
@@ -9,6 +10,7 @@ pub mod portfolio;
 pub mod price_manager;
 pub mod tx;
 
+pub use address_book::AddressBookHandle;
 pub use approval_manager::ApprovalManagerHandle;
 pub use balance_manager::BalanceManagerHandle;
 pub use discovered_wallets::DiscoveredWallets;

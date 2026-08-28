@@ -151,6 +151,7 @@ impl ZeusApp {
                   ctx.save_zeus_client();
                   ctx.save_pool_manager();
                   ctx.save_currency_db();
+                  ctx.save_address_book();
                   ctx.save_price_manager();
                })
                .await;

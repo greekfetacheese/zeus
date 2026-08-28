@@ -293,6 +293,7 @@ impl ApprovalsUi {
 
    fn spender_label(&self, ctx: &mut ZeusContext, chain: u64, spender: Address) -> String {
       ctx.get_address_name(chain, spender)
+         .map(|s| s.to_string())
          .unwrap_or_else(|| truncate_address(spender.to_string()))
    }
 

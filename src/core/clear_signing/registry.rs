@@ -185,6 +185,65 @@ pub async fn resolve_calldata_descriptor(chain: u64, to: Address) -> Option<(Str
    Some((path, descriptor))
 }
 
+/// Best-effort human name from ERC-7730 metadata (calldata index, then EIP-712 index).
+pub async fn resolve_contract_label(chain: u64, address: Address) -> Option<String> {
+   if let Some(path) = lookup_calldata_path(chain, address).await {
+      if let Some(name) = label_from_descriptor_path(&path).await {
+         return Some(name);
+      }
+   }
+   if let Some(path) = lookup_any_eip712_path(chain, address).await {
+      if let Some(name) = label_from_descriptor_path(&path).await {
+         return Some(name);
+      }
+   }
+   None
+}
+
+async fn lookup_calldata_path(chain: u64, address: Address) -> Option<String> {
+   let index = fetch_calldata_index(false).await.ok()?;
+   lookup_calldata_index_path(&index, chain, address)
+}
+
+async fn lookup_any_eip712_path(chain: u64, address: Address) -> Option<String> {
+   let index = fetch_index(false).await.ok()?;
+   lookup_any_eip712_index_path(&index, chain, address)
+}
+
+fn lookup_any_eip712_index_path(index: &Value, chain: u64, address: Address) -> Option<String> {
+   for key in caip10_keys(chain, address) {
+      let Some(entry) = index.get(&key) else {
+         continue;
+      };
+      let Some(map) = entry.as_object() else {
+         continue;
+      };
+      for arr in map.values() {
+         let Some(arr) = arr.as_array() else {
+            continue;
+         };
+         for item in arr {
+            if let Some(path) = item.get("path").and_then(|v| v.as_str()) {
+               return Some(path.to_string());
+            }
+         }
+      }
+   }
+   None
+}
+
+async fn label_from_descriptor_path(path: &str) -> Option<String> {
+   let merged = load_merged(path).await.ok()?;
+   let meta = merged.get("metadata")?;
+   let contract_name = meta.get("contractName").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+   let owner = meta.get("owner").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+   match (contract_name, owner) {
+      (Some(c), _) => Some(c.to_string()),
+      (None, Some(o)) => Some(o.to_string()),
+      _ => None,
+   }
+}
+
 pub async fn resolve_eip712_descriptor(
    chain: u64,
    verifying: Address,

@@ -10,7 +10,8 @@ use zeus_eth::alloy_primitives::TxHash;
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::core::clear_signing::{ClearDisplay, FormattedValue};
-use crate::utils::{truncate_address, truncate_hash};
+use crate::gui::SHARED_GUI;
+use crate::utils::{RT, truncate_address, truncate_hash};
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, NativeCurrency},
@@ -122,12 +123,12 @@ pub fn contract_interact(
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let interact_to_name = ctx.get_address_name(chain.id(), interact_to);
-
-         let interact_to_name = if let Some(interact_to_name_str) = interact_to_name {
-            interact_to_name_str
-         } else {
-            truncate_address(interact_to.to_string())
+         let interact_to_name = match ctx.get_address_name(chain.id(), interact_to) {
+            Some(name) => name.to_string(),
+            None => {
+               request_address_name(chain.id(), interact_to);
+               truncate_address(interact_to.to_string())
+            }
          };
 
          let explorer = chain.block_explorer();
@@ -159,11 +160,12 @@ pub fn address(
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let address_name = ctx.get_address_name(chain.id(), address);
-         let address_name = if let Some(address_name_str) = address_name {
-            address_name_str
-         } else {
-            truncate_address(address.to_string())
+         let address_name = match ctx.get_address_name(chain.id(), address) {
+            Some(name) => name.to_string(),
+            None => {
+               request_address_name(chain.id(), address);
+               truncate_address(address.to_string())
+            }
          };
 
          let explorer = chain.block_explorer();
@@ -380,4 +382,15 @@ pub fn show_calldata_modal(
                });
          });
       });
+}
+
+fn request_address_name(chain: u64, address: Address) {
+   RT.spawn(async move {
+      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+      if ctx.lookup_address_name(chain, address).await {
+         SHARED_GUI.write(|gui| {
+            gui.request_repaint();
+         });
+      }
+   });
 }

@@ -535,7 +535,7 @@ impl Notification {
 
          let address_name = ctx.get_address_name(chain, params.sender);
          let address_name = if let Some(address_name_str) = address_name {
-            address_name_str
+            address_name_str.to_string()
          } else {
             truncate_address(params.sender.to_string())
          };
@@ -548,7 +548,7 @@ impl Notification {
 
          let address_name = ctx.get_address_name(chain, params.recipient);
          let address_name = if let Some(address_name_str) = address_name {
-            address_name_str
+            address_name_str.to_string()
          } else {
             truncate_address(params.recipient.to_string())
          };

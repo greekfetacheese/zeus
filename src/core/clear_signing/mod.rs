@@ -61,7 +61,7 @@ pub async fn try_clear_sign_typed_data(
          data.tokens.insert((token_chain, addr), token);
       }
       if let Some(name) = ctx.get_address_name(token_chain, addr) {
-         data.names.insert((token_chain, addr), name);
+         data.names.insert((token_chain, addr), name.to_string());
       }
    }
 
@@ -131,14 +131,14 @@ pub async fn try_clear_sign_calldata(
          data.tokens.insert((token_chain, addr), token);
       }
       if let Some(name) = ctx.get_address_name(token_chain, addr) {
-         data.names.insert((token_chain, addr), name);
+         data.names.insert((token_chain, addr), name.to_string());
       }
    }
    if let Some(name) = ctx.get_address_name(chain, to) {
-      data.names.insert((chain, to), name);
+      data.names.insert((chain, to), name.to_string());
    }
    if let Some(name) = ctx.get_address_name(chain, from) {
-      data.names.insert((chain, from), name);
+      data.names.insert((chain, from), name.to_string());
    }
 
    Some(format::format_eip712(

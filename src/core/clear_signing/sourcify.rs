@@ -29,6 +29,26 @@ pub async fn implementation_address(chain: u64, address: Address) -> Option<Addr
    parse_implementation(&value)
 }
 
+/// Verified contract name from Sourcify, if any.
+pub async fn contract_name(chain: u64, address: Address) -> Option<String> {
+   let url = format!("{SOURCIFY_BASE}/v2/contract/{chain}/{address:#x}?fields=name,compilation");
+   let resp = http_client().get(&url).send().await.ok()?;
+   if !resp.status().is_success() {
+      return None;
+   }
+   let value: Value = resp.json().await.ok()?;
+   parse_contract_name(&value)
+}
+
+pub fn parse_contract_name(value: &Value) -> Option<String> {
+   let name = value
+      .get("name")
+      .and_then(|v| v.as_str())
+      .or_else(|| value.pointer("/compilation/name").and_then(|v| v.as_str()))
+      .filter(|s| !s.is_empty())?;
+   Some(name.to_string())
+}
+
 pub fn parse_implementation(value: &Value) -> Option<Address> {
    let proxy = value.get("proxyResolution").unwrap_or(value);
 
