@@ -57,10 +57,69 @@ pub struct IndexedAccountState {
 /// How a grouped private spend should be shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrivateHistoryKind {
-   /// Net value left this 0zk (transfer, unshield, or paymaster fee).
+   /// zk → zk transfer labeled via the sender's change-note memo.
    Send,
+   /// Net value exited Railgun to a public address.
+   Unshield,
    /// Inputs were consolidated back to this 0zk (net ≈ 0).
    Merge,
+   /// Spend we cannot classify (legacy notes, paymaster fee, exact-amount with no change).
+   Spend,
+}
+
+const HISTORY_KIND_TRANSFER: &str = "Private Transfer";
+const HISTORY_KIND_UNSHIELD: &str = "Unshield";
+const HISTORY_KIND_SEP: &str = " · ";
+
+/// Memo written on the sender's change note so private history can label the spend.
+///
+/// Unshield notes have no ciphertext, and outgoing transfer notes are encrypted to
+/// the recipient — only change (self) notes are decryptable by the sender.
+pub fn encode_history_memo(kind: PrivateHistoryKind, user_memo: &str) -> String {
+   let kind_s = match kind {
+      PrivateHistoryKind::Unshield => HISTORY_KIND_UNSHIELD,
+      PrivateHistoryKind::Merge => "Merged notes",
+      PrivateHistoryKind::Send | PrivateHistoryKind::Spend => HISTORY_KIND_TRANSFER,
+   };
+   let user = user_memo.trim();
+   if user.is_empty() {
+      kind_s.to_string()
+   } else {
+      format!("{kind_s}{HISTORY_KIND_SEP}{user}")
+   }
+}
+
+/// Split a change-note memo into `(kind hint, user-facing memo)`.
+///
+/// `"change"` and empty strings are treated as unlabeled.
+pub fn decode_history_memo(raw: &str) -> (Option<PrivateHistoryKind>, String) {
+   let raw = raw.trim();
+   if raw.is_empty() || raw == "change" {
+      return (None, String::new());
+   }
+   if raw == "merge notes" || raw == "Merged notes" {
+      return (Some(PrivateHistoryKind::Merge), String::new());
+   }
+   if raw == HISTORY_KIND_UNSHIELD {
+      return (Some(PrivateHistoryKind::Unshield), String::new());
+   }
+   if let Some(rest) = raw.strip_prefix(HISTORY_KIND_UNSHIELD) {
+      if let Some(user) = rest.strip_prefix(HISTORY_KIND_SEP) {
+         return (
+            Some(PrivateHistoryKind::Unshield),
+            user.to_string(),
+         );
+      }
+   }
+   if raw == HISTORY_KIND_TRANSFER {
+      return (Some(PrivateHistoryKind::Send), String::new());
+   }
+   if let Some(rest) = raw.strip_prefix(HISTORY_KIND_TRANSFER) {
+      if let Some(user) = rest.strip_prefix(HISTORY_KIND_SEP) {
+         return (Some(PrivateHistoryKind::Send), user.to_string());
+      }
+   }
+   (None, raw.to_string())
 }
 
 /// One user-facing private spend: input UTXOs minus change that came back.
@@ -433,10 +492,15 @@ fn reconstruct_private_history(
       }
 
       let amount = spent_sum.saturating_sub(change_amount);
+      let (memo_kind, display_memo) = decode_history_memo(&memo);
       let kind = if amount == 0 && change_amount > 0 {
          PrivateHistoryKind::Merge
-      } else {
+      } else if memo_kind == Some(PrivateHistoryKind::Unshield) {
+         PrivateHistoryKind::Unshield
+      } else if memo_kind == Some(PrivateHistoryKind::Send) {
          PrivateHistoryKind::Send
+      } else {
+         PrivateHistoryKind::Spend
       };
 
       out.push(PrivateHistoryEntry {
@@ -447,7 +511,7 @@ fn reconstruct_private_history(
          spent_block,
          spent_timestamp,
          tx_hash,
-         memo,
+         memo: display_memo,
          kind,
       });
    }
@@ -731,9 +795,44 @@ mod tests {
 
       let history = account.private_history();
       assert_eq!(history.len(), 1);
-      assert_eq!(history[0].kind, PrivateHistoryKind::Send);
+      assert_eq!(history[0].kind, PrivateHistoryKind::Spend);
       assert_eq!(history[0].amount, 100);
       assert_eq!(history[0].change_amount, 133);
       assert_eq!(history[0].input_count, 1);
+   }
+
+   #[test]
+   fn history_memo_roundtrip() {
+      assert_eq!(
+         encode_history_memo(PrivateHistoryKind::Unshield, ""),
+         "Unshield"
+      );
+      assert_eq!(
+         encode_history_memo(PrivateHistoryKind::Unshield, " lunch "),
+         "Unshield · lunch"
+      );
+      assert_eq!(
+         encode_history_memo(PrivateHistoryKind::Send, "rent"),
+         "Private Transfer · rent"
+      );
+      assert_eq!(
+         decode_history_memo("Unshield · lunch"),
+         (
+            Some(PrivateHistoryKind::Unshield),
+            "lunch".to_string()
+         )
+      );
+      assert_eq!(
+         decode_history_memo("Private Transfer"),
+         (Some(PrivateHistoryKind::Send), String::new())
+      );
+      assert_eq!(
+         decode_history_memo("change"),
+         (None, String::new())
+      );
+      assert_eq!(
+         decode_history_memo("fee"),
+         (None, "fee".to_string())
+      );
    }
 }

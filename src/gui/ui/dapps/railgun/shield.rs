@@ -144,6 +144,8 @@ pub struct ShieldUi {
    open_merge_notes: bool,
    /// Broadcast options window
    open_broadcast_options: bool,
+   /// Optional memo for unshield (written on change notes for private history).
+   memo: String,
 }
 
 impl ShieldUi {
@@ -166,6 +168,7 @@ impl ShieldUi {
          bundler_url: BundlerUrl::default().url,
          open_merge_notes: false,
          open_broadcast_options: false,
+         memo: String::new(),
       }
    }
 
@@ -455,6 +458,33 @@ impl ShieldUi {
                         }
                      });
                   });
+
+                  if self.mode.is_unshield() {
+                     inner_frame.show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                           ui.label(RichText::new("Memo").size(theme.typography.large));
+                           ui.add_space(8.0);
+                           ui.label(
+                              RichText::new("(optional)")
+                                 .size(theme.typography.small)
+                                 .color(theme.colors.text_muted),
+                           );
+                        });
+                        ui.add(
+                           SecureTextEdit::singleline(&mut self.memo)
+                              .visuals(text_edit_visuals)
+                              .hint_text(
+                                 RichText::new("Shown in private history")
+                                    .size(theme.typography.normal)
+                                    .color(theme.colors.text_muted),
+                              )
+                              .min_size(vec2(ui.available_width(), 25.0))
+                              .margin(Margin::same(10))
+                              .font(FontId::proportional(theme.typography.normal)),
+                        );
+                     });
+                  }
 
                   if self.mode.is_unshield() {
                      self.unshield_options(theme, chain.id(), ui);
@@ -752,6 +782,7 @@ impl ShieldUi {
          let self_broadcast = self.self_broadcast;
          let unwrap_to_eth = self.unwrap_to_eth;
          let bundler_url = self.bundler_url.clone();
+         let memo = self.memo.clone();
          // Unshield futures are not `Send` (`PimlicoBundler` / `&dyn Signer` across awaits).
          // Do NOT spin up a nested current_thread runtime: revm's ForkDB uses
          // `tokio::task::block_in_place`, which panics outside a multi-thread runtime.
@@ -774,6 +805,7 @@ impl ShieldUi {
                self_broadcast,
                unwrap_to_eth,
                bundler_url,
+               memo,
             ));
 
             match result {

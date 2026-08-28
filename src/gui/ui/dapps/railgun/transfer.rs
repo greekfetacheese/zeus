@@ -16,8 +16,9 @@ use zeus_eth::{
    utils::NumericValue,
 };
 use zeus_railgun::{
-   RailgunAddress, RailgunSigner,
+   PrivateHistoryKind, RailgunAddress, RailgunSigner,
    caip::AssetId,
+   encode_history_memo,
    rand::SeedableRng,
    rand_chacha::ChaCha12Rng,
    transact::{NoteSelectionMode, TransactionBuilder},
@@ -47,6 +48,7 @@ pub async fn private_transfer(
    amount: NumericValue,
    from: Address,
    recipient_zk: String,
+   memo: String,
 ) -> Result<(), anyhow::Error> {
    if !ctx.railgun_is_supported(chain) {
       return Err(anyhow!(
@@ -123,13 +125,18 @@ pub async fn private_transfer(
       amount_usd: Some(amount_usd),
    };
 
-   let tx = TransactionBuilder::new().transfer(
-      railgun_signer.clone(),
-      recipient,
-      asset,
-      amount_u128,
-      "",
-   );
+   let tx = TransactionBuilder::new()
+      .transfer(
+         railgun_signer.clone(),
+         recipient,
+         asset,
+         amount_u128,
+         memo.trim(),
+      )
+      .with_change_memo(&encode_history_memo(
+         PrivateHistoryKind::Send,
+         memo.trim(),
+      ));
 
    exec_private_transfer(
       ctx,

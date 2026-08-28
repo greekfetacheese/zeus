@@ -22,7 +22,9 @@ pub use circuit::remote_artifact_loader::{
    RemoteArtifactLoader, all_transact_circuit_names, transact_circuit_name,
 };
 pub use database::{RailgunDbKey, RedbDatabase};
-pub use indexer::indexed_account::{PrivateHistoryEntry, PrivateHistoryKind};
+pub use indexer::indexed_account::{
+   PrivateHistoryEntry, PrivateHistoryKind, decode_history_memo, encode_history_memo,
+};
 pub use indexer::{
    syncer::{RpcSyncer, SubsquidSyncer, snapshot::SnapshotLoader},
    utxo_indexer::UtxoIndexer,

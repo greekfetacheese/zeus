@@ -68,6 +68,8 @@ pub struct TransactionBuilder {
    adapt_contract: Option<Address>,
    adapt_params: Option<[u8; 32]>,
    selection_mode: NoteSelectionMode,
+   /// Optional memo on change notes (sender-decryptable private history label).
+   change_memo: Option<String>,
 }
 
 #[derive(Debug, Error)]
@@ -143,6 +145,7 @@ impl TransactionBuilder {
          adapt_contract: None,
          adapt_params: None,
          selection_mode: NoteSelectionMode::LargestFirst,
+         change_memo: None,
       }
    }
 }
@@ -207,6 +210,18 @@ impl TransactionBuilder {
       self
    }
 
+   /// Sets the memo written on change notes (the only output the sender can decrypt).
+   ///
+   /// Empty / whitespace-only values are ignored so fee/merge builders keep the
+   /// default `"change"` memo.
+   pub fn with_change_memo(mut self, memo: &str) -> Self {
+      let memo = memo.trim();
+      if !memo.is_empty() {
+         self.change_memo = Some(memo.to_string());
+      }
+      self
+   }
+
    /// True if any intent spends `asset` (used by the fee loop to decide whether
    /// the paymaster fee merges into an existing operation or is a separate prove).
    pub fn spends_asset(&self, asset: AssetId) -> bool {
@@ -233,7 +248,13 @@ impl TransactionBuilder {
       rng: &mut R,
    ) -> Result<Vec<ProvedOperation>, TransactionBuilderError> {
       let groups = self.group_intents();
-      let mut operations = build_groups(in_notes, groups, self.selection_mode, rng)?;
+      let mut operations = build_groups(
+         in_notes,
+         groups,
+         self.selection_mode,
+         self.change_memo.as_deref(),
+         rng,
+      )?;
 
       for op in &mut operations {
          op.adapt_contract = self.adapt_contract;
@@ -276,6 +297,7 @@ fn build_groups<R: Rng>(
    in_notes: &[UtxoNote],
    groups: BTreeMap<(RailgunAddress, AssetId), Vec<Intent>>,
    selection_mode: NoteSelectionMode,
+   change_memo: Option<&str>,
    rng: &mut R,
 ) -> Result<Vec<Operation>, TransactionBuilderError> {
    let mut operations = Vec::new();
@@ -286,6 +308,7 @@ fn build_groups<R: Rng>(
          asset,
          intents,
          selection_mode,
+         change_memo,
          rng,
       )?;
       operations.extend(ops);
@@ -300,6 +323,7 @@ fn build_group<R: Rng>(
    asset: AssetId,
    mut intents: Vec<Intent>,
    selection_mode: NoteSelectionMode,
+   change_memo: Option<&str>,
    rng: &mut R,
 ) -> Result<Vec<Operation>, TransactionBuilderError> {
    // Sort intents smallest to largest. Helps to ensure small intents don't
@@ -400,7 +424,7 @@ fn build_group<R: Rng>(
       for note in selected {
          op.add_in_note(note.clone());
       }
-      add_change_note(op, asset, rng);
+      add_change_note(op, asset, rng, change_memo);
    }
 
    Ok(operations.into_values().collect())
@@ -570,17 +594,23 @@ fn select_notes<'a>(
 }
 
 /// Helper to add a change note to an operation if there is excess value.
-fn add_change_note<R: Rng>(operation: &mut Operation, asset: AssetId, rng: &mut R) {
+fn add_change_note<R: Rng>(
+   operation: &mut Operation,
+   asset: AssetId,
+   rng: &mut R,
+   change_memo: Option<&str>,
+) {
    let signer = operation.from.clone();
    let change = operation.in_value().saturating_sub(operation.out_value());
    if change > 0 {
+      let memo = change_memo.filter(|s| !s.is_empty()).unwrap_or("change");
       let change_note = TransferNote::new(
          signer.keys().viewing_private_key.clone(),
          signer.address().clone(),
          asset,
          change,
          rng.random(),
-         "change",
+         memo,
       );
       operation.add_out_note(change_note);
    }

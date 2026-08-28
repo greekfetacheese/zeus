@@ -49,6 +49,8 @@ pub struct SendCryptoUi {
    pub recipient: String,
    pub recipient_name: Option<String>,
    pub search_query: String,
+   /// Optional memo for private (zk → zk) transfers.
+   pub memo: String,
    pub size: (f32, f32),
    pub price_syncing: bool,
    pub syncing_balance: bool,
@@ -65,7 +67,8 @@ impl SendCryptoUi {
          recipient: String::new(),
          recipient_name: None,
          search_query: String::new(),
-         size: (500.0, 620.0),
+         memo: String::new(),
+         size: (500.0, 690.0),
          price_syncing: false,
          syncing_balance: false,
          sending_tx: false,
@@ -86,6 +89,7 @@ impl SendCryptoUi {
       self.clear_recipient();
       self.amount_field.reset();
       self.clear_search_query();
+      self.memo.clear();
    }
 
    pub fn set_currency(&mut self, currency: Currency) {
@@ -305,6 +309,33 @@ impl SendCryptoUi {
                         }
                      });
                   });
+
+                  if privacy_mode {
+                     inner_frame.show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                           ui.label(RichText::new("Memo").size(theme.typography.large));
+                           ui.add_space(8.0);
+                           ui.label(
+                              RichText::new("(optional)")
+                                 .size(theme.typography.small)
+                                 .color(theme.colors.text_muted),
+                           );
+                        });
+                        ui.add(
+                           SecureTextEdit::singleline(&mut self.memo)
+                              .visuals(text_edit_visuals)
+                              .hint_text(
+                                 RichText::new("Shown in private history")
+                                    .size(theme.typography.normal)
+                                    .color(theme.colors.text_muted),
+                              )
+                              .min_size(vec2(ui.available_width(), 25.0))
+                              .margin(Margin::same(10))
+                              .font(FontId::proportional(theme.typography.normal)),
+                        );
+                     });
+                  }
 
                   let recipient_str = if recipient_privacy_mode {
                      recipient.zk_address
@@ -554,6 +585,7 @@ impl SendCryptoUi {
          &self.amount_field.amount,
          self.currency.decimals(),
       );
+      let memo = self.memo.clone();
 
       ctx.railgun_status.set_op_in_progress(chain.id(), true);
 
@@ -571,6 +603,7 @@ impl SendCryptoUi {
             amount,
             from,
             recipient,
+            memo,
          ));
 
          match result {
@@ -578,6 +611,7 @@ impl SendCryptoUi {
                SHARED_GUI.write(|gui| {
                   gui.send_crypto.sending_tx = false;
                   gui.send_crypto.amount_field.reset();
+                  gui.send_crypto.memo.clear();
                   gui.loading_window.reset();
                   gui.request_repaint();
                });

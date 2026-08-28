@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use egui::{Align, Align2, Frame, Layout, Margin, Order, RichText, Stroke, Ui, vec2};
-use egui_elements::{Button, OverlayManager, widgets::Window, Theme};
+use egui_elements::{Button, OverlayManager, Theme, widgets::Window};
 use zeus_eth::{alloy_primitives::U256, currency::Currency, types::ChainId, utils::NumericValue};
 
 use crate::assets::icons::Icons;
@@ -66,7 +66,7 @@ impl SpentNoteWindow {
       }
 
       let title = RichText::new("Spent Note").size(theme.typography.heading);
-      let window_frame = theme.window_frame;
+      let window_frame = theme.window_frame.fill(theme.frame1.fill);
       let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(title)
@@ -105,7 +105,9 @@ impl SpentNoteWindow {
                   ui.label(
                      RichText::new(match row.entry.kind {
                         PrivateHistoryKind::Merge => "Merged Notes",
+                        PrivateHistoryKind::Unshield => "Unshield",
                         PrivateHistoryKind::Send => "Private Transfer",
+                        PrivateHistoryKind::Spend => "Private Spend",
                      })
                      .size(theme.typography.very_large)
                      .strong(),

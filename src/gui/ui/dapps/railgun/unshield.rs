@@ -27,8 +27,8 @@ use zeus_eth::{
    utils::{NumericValue, address_book},
 };
 use zeus_railgun::{
-   RailgunSigner, adapter_data::decode_fee_from_paymaster_data, caip::AssetId, rand::SeedableRng,
-   rand_chacha::ChaCha12Rng, transact::TransactionBuilder,
+   PrivateHistoryKind, RailgunSigner, adapter_data::decode_fee_from_paymaster_data, caip::AssetId,
+   encode_history_memo, rand::SeedableRng, rand_chacha::ChaCha12Rng, transact::TransactionBuilder,
 };
 
 use crate::{
@@ -75,6 +75,7 @@ pub async fn unshield(
    self_broadcast: bool,
    unwrap_to_eth: bool,
    bundler_url: String,
+   memo: String,
 ) -> Result<(), anyhow::Error> {
    if !ctx.railgun_is_supported(chain) {
       return Err(anyhow!(
@@ -116,12 +117,17 @@ pub async fn unshield(
    let amount_u128: u128 =
       amount.wei().try_into().map_err(|_| anyhow!("Amount too large for unshield"))?;
 
-   let tx = TransactionBuilder::new().unshield(
-      railgun_signer.clone(),
-      recipient,
-      asset,
-      amount_u128,
-   )?;
+   let tx = TransactionBuilder::new()
+      .unshield(
+         railgun_signer.clone(),
+         recipient,
+         asset,
+         amount_u128,
+      )?
+      .with_change_memo(&encode_history_memo(
+         PrivateHistoryKind::Unshield,
+         memo.trim(),
+      ));
 
    if self_broadcast {
       unshield_self_broadcast(
@@ -146,6 +152,7 @@ pub async fn unshield(
          railgun_signer,
          tx,
          bundler_url,
+         memo,
       )
       .await
    }
@@ -582,6 +589,7 @@ async fn unshield_via_paymaster(
    railgun_signer: RailgunSigner,
    tx: TransactionBuilder,
    bundler_url: String,
+   memo: String,
 ) -> Result<(), anyhow::Error> {
    let mut railgun_provider = ctx.get_railgun_provider(chain.id(), false).await?;
 
@@ -765,12 +773,17 @@ async fn unshield_via_paymaster(
          ));
       }
 
-      let tx = TransactionBuilder::new().unshield(
-         railgun_signer.clone(),
-         sa_addr,
-         AssetId::Erc20(chain_config.wrapped_base_token),
-         amount_u128,
-      )?;
+      let tx = TransactionBuilder::new()
+         .unshield(
+            railgun_signer.clone(),
+            sa_addr,
+            AssetId::Erc20(chain_config.wrapped_base_token),
+            amount_u128,
+         )?
+         .with_change_memo(&encode_history_memo(
+            PrivateHistoryKind::Unshield,
+            memo.trim(),
+         ));
 
       let weth = ERC20Token::wrapped_native_token(chain.id());
       let received_u256 = U256::from(received);
@@ -797,6 +810,7 @@ async fn unshield_via_paymaster(
 
       (tx, calls)
    } else {
+      let _ = memo;
       (tx, Vec::new())
    };
 

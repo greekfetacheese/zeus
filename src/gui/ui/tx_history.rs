@@ -715,11 +715,25 @@ fn spent_action(
       }),
       None => (entry.asset.to_string(), 18),
    };
+
    let amount = NumericValue::format_wei(U256::from(entry.amount), decimals);
-   let sent = format!("Sent {} {}", amount.abbreviated(), symbol);
-   if entry.memo.is_empty() {
-      sent
-   } else {
-      format!("{} · {}", sent, entry.memo)
-   }
+
+   let action = match entry.kind {
+      PrivateHistoryKind::Unshield => {
+         format!("Unshield {:.5} {}", amount.abbreviated(), symbol)
+      }
+      PrivateHistoryKind::Send => {
+         format!(
+            "Transfer {:.5} {}",
+            amount.abbreviated(),
+            symbol
+         )
+      }
+      PrivateHistoryKind::Spend => {
+         format!("Sent {:.5} {}", amount.abbreviated(), symbol)
+      }
+      PrivateHistoryKind::Merge => "Merged notes".to_string(),
+   };
+
+   action
 }
