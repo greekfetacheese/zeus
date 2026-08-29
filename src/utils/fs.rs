@@ -3,6 +3,7 @@
 //! Use this for anything under `data/` that should not be world-readable:
 //! vault ciphertext, wallet state, RPC endpoints, pairing tokens, etc.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /// Write `contents` to `path`, readable/writable only by the current owner.
@@ -59,6 +60,63 @@ pub fn write_private(path: &Path, contents: &[u8]) -> Result<(), anyhow::Error> 
 pub fn write_private_atomic(path: &Path, contents: &[u8]) -> Result<(), anyhow::Error> {
    let tmp = tmp_path(path);
    match write_private(&tmp, contents) {
+      Ok(()) => {}
+      Err(e) => {
+         let _ = std::fs::remove_file(&tmp);
+         return Err(e);
+      }
+   }
+
+   match replace_file(&tmp, path) {
+      Ok(()) => Ok(()),
+      Err(e) => {
+         let _ = std::fs::remove_file(&tmp);
+         Err(e)
+      }
+   }
+}
+
+/// Stream `reader` into `path` via a sibling `*.tmp` + rename (owner-only).
+///
+/// Prefer this over buffering a large Railgun DB / snapshot in memory.
+pub fn write_private_from_reader(path: &Path, mut reader: impl Read) -> Result<(), anyhow::Error> {
+   if let Some(parent) = path.parent() {
+      if !parent.as_os_str().is_empty() {
+         std::fs::create_dir_all(parent)?;
+      }
+   }
+
+   let tmp = tmp_path(path);
+   let mut write_tmp = || -> Result<(), anyhow::Error> {
+      #[cfg(unix)]
+      {
+         use std::os::unix::fs::OpenOptionsExt;
+
+         let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)?;
+         std::io::copy(&mut reader, &mut file)?;
+         file.sync_all()?;
+         drop(file);
+         restrict_file_to_owner(&tmp)?;
+      }
+
+      #[cfg(not(unix))]
+      {
+         let mut file = std::fs::File::create(&tmp)?;
+         std::io::copy(&mut reader, &mut file)?;
+         file.sync_all()?;
+         drop(file);
+         restrict_file_to_owner(&tmp)?;
+      }
+
+      Ok(())
+   };
+
+   match write_tmp() {
       Ok(()) => {}
       Err(e) => {
          let _ = std::fs::remove_file(&tmp);

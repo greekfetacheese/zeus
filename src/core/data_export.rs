@@ -176,6 +176,28 @@ pub fn is_allowed_token_icon_rel(rel: &Path) -> bool {
    is_chain_id(&parts[0]) && is_token_address_dir(&parts[1]) && is_icon_file(&parts[2])
 }
 
+/// Relative path inside the zip after a leading `data/` component.
+pub fn archive_rel_parts(enclosed: &Path) -> Option<Vec<String>> {
+   let parts = normal_components(enclosed)?;
+   if parts.first().map(|s| s.as_str()) != Some("data") || parts.len() < 2 {
+      return None;
+   }
+   Some(parts[1..].to_vec())
+}
+
+/// Whether `parts` (relative to `data/`) is a known persisted path.
+pub fn is_allowed_archive_parts(parts: &[String]) -> bool {
+   match parts {
+      [name] => CORE_FILE_NAMES.iter().any(|n| *n == name.as_str()),
+      [dir, name] if dir == CLEAR_SIGNING_DIR => is_allowed_clear_signing_file(name),
+      [dir, name] if dir == RAILGUN_DIR => is_allowed_railgun_file(name),
+      [dir, chain, addr, file] if dir == TOKEN_ICONS_DIR => {
+         is_chain_id(chain) && is_token_address_dir(addr) && is_icon_file(file)
+      }
+      _ => false,
+   }
+}
+
 fn collect_flat_dir(
    data_dir: &Path,
    dir_name: &str,
@@ -490,6 +512,21 @@ mod tests {
          zip_path_for(Path::new("vault.data")).as_deref(),
          Some("data/vault.data")
       );
+      assert!(is_allowed_archive_parts(&[
+         "vault.data".to_string()
+      ]));
+      assert!(!is_allowed_archive_parts(&[
+         "connector.json".to_string()
+      ]));
+      assert!(!is_allowed_archive_parts(&[
+         "railgun".to_string(),
+         "notes.txt".to_string()
+      ]));
+      assert_eq!(
+         archive_rel_parts(Path::new("data/vault.data")).as_deref(),
+         Some(["vault.data".to_string()].as_slice())
+      );
+      assert!(archive_rel_parts(Path::new("vault.data")).is_none());
    }
 
    #[test]

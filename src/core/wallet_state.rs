@@ -259,18 +259,30 @@ impl WalletState {
 
    /// Encrypt and write `wallet_state.data` (atomic replace).
    pub fn encrypt_and_save(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
-      let sealed = self.read(|ws| key.seal_json(ws, WALLET_STATE_AAD))?;
+      let sealed = self.encrypt_to_bytes(key)?;
       let path = Self::dir()?;
       write_private_atomic(&path, &sealed)?;
       Ok(())
+   }
+
+   /// Seal this wallet state (import/export verification, tests).
+   pub fn encrypt_to_bytes(&self, key: &WalletStateKey) -> Result<Vec<u8>, anyhow::Error> {
+      self.read(|ws| key.seal_json(ws, WALLET_STATE_AAD))
+   }
+
+   /// Open a sealed `wallet_state.data` blob with the vault-held key.
+   pub fn decrypt_from_bytes(key: &WalletStateKey, sealed: &[u8]) -> Result<Self, anyhow::Error> {
+      let inner: WalletStateInner = key
+         .open_json(sealed, WALLET_STATE_AAD)
+         .map_err(|e| anyhow!("Failed to decrypt wallet state: {e}"))?;
+      Ok(Self::new(inner))
    }
 
    /// Load from `wallet_state.data` using the vault-held key.
    pub fn load(key: &WalletStateKey) -> Result<Self, anyhow::Error> {
       let path = Self::dir()?;
       let sealed = std::fs::read(&path).map_err(|e| anyhow!("read {}: {e}", path.display()))?;
-      let inner: WalletStateInner = key.open_json(&sealed, WALLET_STATE_AAD)?;
-      Ok(Self::new(inner))
+      Self::decrypt_from_bytes(key, &sealed)
    }
 
    /// Load sealed file if present; otherwise use `legacy` (vault migration) or default.

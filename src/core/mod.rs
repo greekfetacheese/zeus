@@ -1,6 +1,7 @@
 pub mod clear_signing;
 pub mod context;
 pub mod data_export;
+pub mod data_import;
 pub mod signature;
 pub mod tx;
 pub mod types;

@@ -16,7 +16,10 @@ use std::io::Cursor;
 use std::path::PathBuf;
 use zeus_eth::alloy_primitives::Address;
 use zeus_railgun::RailgunAddress;
-use zeus_wallet::{SecureHDWallet, Wallet, derive_seed, wallet::{M_COST, P_COST, T_COST}};
+use zeus_wallet::{
+   SecureHDWallet, Wallet, derive_seed,
+   wallet::{M_COST, P_COST, T_COST},
+};
 
 pub const VAULT_FILE: &str = "vault.data";
 
@@ -567,9 +570,13 @@ impl Vault {
       };
 
       let encrypted_data = std::fs::read(dir)?;
-      let decrypted_data = decrypt_data_unsecured(encrypted_data, self.credentials.clone())?;
+      self.decrypt_bytes(encrypted_data)
+   }
 
-      Ok(decrypted_data)
+   /// Decrypt vault ciphertext already in memory (import / tests).
+   pub fn decrypt_bytes(&self, encrypted_data: Vec<u8>) -> Result<Vec<u8>, anyhow::Error> {
+      decrypt_data_unsecured(encrypted_data, self.credentials.clone())
+         .map_err(|e| anyhow!("Failed to unlock vault: {e}"))
    }
 
    /// Load the vault from the decrypted data.

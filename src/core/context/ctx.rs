@@ -1049,6 +1049,90 @@ impl ZeusCtx {
       }
    }
 
+   /// After an import has written `data/`, drop the live vault/state and load
+   /// the imported files. `vault` is already unlocked by [`crate::core::data_import::import_data_from_zip`].
+   pub fn reload_from_data_dir(&self, mut vault: Vault) -> Result<(Wallet, Argon2), anyhow::Error> {
+      let info = vault.encrypted_info()?;
+      vault.ensure_wallet_state_key()?;
+      let key = vault.wallet_state_key()?;
+      let (wallet_state, _) = WalletState::load_or_migrate(&key, None)?;
+      let master_wallet = vault.get_master_wallet();
+
+      let mut new_wallet_info_cache = HashMap::new();
+      for wallet in vault.clone_all_wallets() {
+         let info = WalletInfo::from_wallet(&wallet, true);
+         new_wallet_info_cache.insert(wallet.address(), info);
+      }
+
+      self.write_vault(|old| {
+         old.erase();
+      });
+      self.set_vault(vault);
+      self.set_wallet_state(wallet_state);
+
+      self.address_book().replace_from(&AddressBookHandle::default());
+
+      self.write(|ctx| {
+         ctx.currency_db = CurrencyDB::default();
+         ctx.delegated_wallets = DelegatedWallets::new();
+         ctx.railgun_provider.clear();
+         ctx.railgun_status = RailgunStatus::new();
+         ctx.railgun_resync_attempts.clear();
+         ctx.wallet_info_cache = new_wallet_info_cache;
+         ctx.current_wallet.erase();
+         ctx.current_wallet = master_wallet.clone();
+         ctx.argon_params = info.argon2.clone();
+         ctx.vault_exists = true;
+         ctx.vault_unlocked = true;
+         ctx.eth_calls.clear();
+         ctx.estimate_gas.clear();
+         ctx.codes.clear();
+         ctx.storage.clear();
+         ctx.transactions.clear();
+         ctx.receipts.clear();
+      });
+
+      let defaults = ZeusClient::default();
+      self.get_zeus_client().write(|map| {
+         defaults.read(|d| *map = d.clone());
+      });
+
+      let fresh_pools = PoolManagerHandle::default();
+      self.pool_manager().write(|manager| {
+         fresh_pools.read(|fresh| *manager = fresh.clone());
+      });
+
+      match PriceManagerHandle::load_from_file() {
+         Ok(loaded) => {
+            self.price_manager().write(|manager| {
+               loaded.read(|fresh| *manager = fresh.clone());
+            });
+         }
+         Err(_) => {
+            let fresh = PriceManagerHandle::new();
+            self.price_manager().write(|manager| {
+               fresh.read(|f| *manager = f.clone());
+            });
+         }
+      }
+
+      match DisabledChains::load_from_file() {
+         Ok(chains) => self.write(|ctx| ctx.disabled_chains = chains),
+         Err(_) => self.write(|ctx| ctx.disabled_chains = DisabledChains::default()),
+      }
+      match RailgunConfig::load_from_file() {
+         Ok(config) => self.write(|ctx| ctx.railgun_config = config),
+         Err(_) => self.write(|ctx| ctx.railgun_config = RailgunConfig::default()),
+      }
+
+      self.load_currency_db();
+      self.load_pool_manager();
+      self.load_zeus_client();
+      self.load_or_create_address_book();
+
+      Ok((master_wallet, info.argon2))
+   }
+
    pub fn save_price_manager(&self) {
       let manager = self.price_manager();
       match manager.save_to_file() {
