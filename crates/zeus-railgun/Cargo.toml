@@ -53,7 +53,7 @@ rand = "0.9"
 lazy_static = "1"
 anyhow = "1"
 serde_json = "1"
-secure-types = "0.3"
+secure-types = {version = "0.3", features = ["serde"]}
 tracing = "0.1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

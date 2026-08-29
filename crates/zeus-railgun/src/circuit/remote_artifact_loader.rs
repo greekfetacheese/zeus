@@ -1,7 +1,7 @@
 use std::{
    collections::{BTreeSet, HashMap, VecDeque},
    io::Cursor,
-   path::PathBuf,
+   path::{Path, PathBuf},
    sync::{Arc, Mutex},
 };
 
@@ -25,6 +25,14 @@ pub const ARTIFACT_MAX_OUTPUTS: usize = 5;
 
 /// Compressed files required for a complete transact circuit on disk.
 const TRANSACT_ARTIFACT_FILES: &[&str] = &["wasm.br", "proving_key.bin.br", "matrices.bin.br"];
+
+/// On-disk folder under `cache_dir` for downloaded circuit artifacts.
+/// Remote / logical names stay `railgun/{nn}x{mm}`; Zeus's cache_dir is already
+/// `data/railgun`, so we store under `circuits/` instead of nesting `railgun/`.
+const DISK_CIRCUIT_DIR: &str = "circuits";
+
+/// Pre-rename on-disk folder (`{cache_dir}/railgun/...`).
+const LEGACY_DISK_CIRCUIT_DIR: &str = "railgun";
 
 /// Format a transact circuit path used by the artifact host.
 /// Example: `railgun/04x01`.
@@ -163,7 +171,8 @@ pub struct RemoteArtifactLoader {
 
    /// Optional on-disk cache directory.
    /// When set, downloaded .br files are persisted here so we don't re-download.
-   /// Recommended structure: {cache_dir}/{circuit_name}/{artifact}.br
+   /// Recommended structure: `{cache_dir}/circuits/{nn}x{mm}/{artifact}.br`
+   /// (legacy `{cache_dir}/railgun/...` is renamed to `circuits/` on construct).
    cache_dir: Option<PathBuf>,
 
    /// Circuits embedded in the host binary. Looked up before disk/network and
@@ -231,6 +240,9 @@ impl Default for RemoteArtifactLoader {
 
 impl RemoteArtifactLoader {
    pub fn new(base_url: &str, cache_dir: Option<PathBuf>) -> Self {
+      if let Some(ref dir) = cache_dir {
+         migrate_legacy_circuit_cache(dir);
+      }
       Self {
          base_url: base_url.trim_end_matches('/').to_string(),
          client: reqwest::Client::new(),
@@ -241,6 +253,9 @@ impl RemoteArtifactLoader {
    }
 
    pub fn with_cache_dir(self, dir: Option<PathBuf>) -> Self {
+      if let Some(ref d) = dir {
+         migrate_legacy_circuit_cache(d);
+      }
       Self {
          cache_dir: dir,
          ..self
@@ -554,7 +569,55 @@ impl RemoteArtifactLoader {
    }
 
    fn artifact_path(&self, circuit_name: &str, filename: &str) -> Option<PathBuf> {
-      self.cache_dir.as_ref().map(|dir| dir.join(circuit_name).join(filename))
+      self
+         .cache_dir
+         .as_ref()
+         .map(|dir| dir.join(disk_circuit_relpath(circuit_name)).join(filename))
+   }
+}
+
+/// Map a logical/remote circuit name to a path relative to `cache_dir`.
+///
+/// `railgun/04x01` → `circuits/04x01`
+/// `railgun/poi/04x01` → `circuits/poi/04x01`
+fn disk_circuit_relpath(circuit_name: &str) -> PathBuf {
+   let rest = circuit_name.strip_prefix("railgun/").unwrap_or(circuit_name);
+   let mut path = PathBuf::from(DISK_CIRCUIT_DIR);
+   for component in rest.split('/') {
+      if !component.is_empty() {
+         path.push(component);
+      }
+   }
+   path
+}
+
+/// If `{cache_dir}/railgun` exists and `{cache_dir}/circuits` does not, rename.
+fn migrate_legacy_circuit_cache(cache_dir: &Path) {
+   let legacy = cache_dir.join(LEGACY_DISK_CIRCUIT_DIR);
+   let current = cache_dir.join(DISK_CIRCUIT_DIR);
+   if !legacy.is_dir() {
+      return;
+   }
+   if current.exists() {
+      warn!(
+         "Legacy circuit cache {} exists but {} is already present; leaving both",
+         legacy.display(),
+         current.display()
+      );
+      return;
+   }
+   match std::fs::rename(&legacy, &current) {
+      Ok(()) => info!(
+         "Renamed legacy circuit cache {} -> {}",
+         legacy.display(),
+         current.display()
+      ),
+      Err(e) => warn!(
+         "Failed to rename legacy circuit cache {} -> {}: {}",
+         legacy.display(),
+         current.display(),
+         e
+      ),
    }
 }
 
@@ -634,5 +697,70 @@ mod tests {
       assert!(loader.is_circuit_available("railgun/01x01"));
       assert!(loader.available_circuits().contains(1, 1));
       assert_eq!(loader.max_cached_inputs_for_outputs(1), 1);
+   }
+
+   #[test]
+   fn disk_path_uses_circuits_not_nested_railgun() {
+      let dir = PathBuf::from("/nonexistent-zeus-railgun-cache");
+      let loader = RemoteArtifactLoader::new(
+         "https://example.invalid/artifacts",
+         Some(dir.clone()),
+      );
+      let path = loader.artifact_path("railgun/04x01", "wasm.br").unwrap();
+      assert_eq!(
+         path,
+         dir.join("circuits").join("04x01").join("wasm.br")
+      );
+
+      let poi = loader.artifact_path("railgun/poi/04x01", "wasm.br").unwrap();
+      assert_eq!(
+         poi,
+         dir.join("circuits").join("poi").join("04x01").join("wasm.br")
+      );
+   }
+
+   fn unique_temp_dir() -> PathBuf {
+      let dir = std::env::temp_dir().join(format!(
+         "zeus-railgun-artifact-test-{}",
+         std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+      ));
+      std::fs::create_dir_all(&dir).unwrap();
+      dir
+   }
+
+   #[test]
+   fn migrates_legacy_railgun_dir_to_circuits() {
+      let root = unique_temp_dir();
+      let legacy = root.join("railgun").join("04x01");
+      std::fs::create_dir_all(&legacy).unwrap();
+      std::fs::write(legacy.join("wasm.br"), b"x").unwrap();
+
+      let _loader = RemoteArtifactLoader::new(
+         "https://example.invalid/artifacts",
+         Some(root.clone()),
+      );
+
+      assert!(!root.join("railgun").exists());
+      assert!(root.join("circuits").join("04x01").join("wasm.br").is_file());
+      let _ = std::fs::remove_dir_all(&root);
+   }
+
+   #[test]
+   fn migrate_leaves_legacy_when_circuits_already_exists() {
+      let root = unique_temp_dir();
+      std::fs::create_dir_all(root.join("railgun").join("old")).unwrap();
+      std::fs::create_dir_all(root.join("circuits").join("new")).unwrap();
+
+      let _loader = RemoteArtifactLoader::new(
+         "https://example.invalid/artifacts",
+         Some(root.clone()),
+      );
+
+      assert!(root.join("railgun").join("old").is_dir());
+      assert!(root.join("circuits").join("new").is_dir());
+      let _ = std::fs::remove_dir_all(&root);
    }
 }
