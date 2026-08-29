@@ -3,7 +3,7 @@ use crate::core::ctx::data_dir;
 use crate::utils::write_private;
 use anyhow::Context;
 use serde_json::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
 use zeus_eth::alloy_primitives::{Address, B256, keccak256};
@@ -13,6 +13,7 @@ const REGISTRY_BASE: &str =
 const EIP712_INDEX_PATH: &str = "index.eip712.json";
 const CALLDATA_INDEX_PATH: &str = "index.calldata.json";
 const FETCH_TIMEOUT: Duration = Duration::from_secs(3);
+const INDEX_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_INCLUDE_DEPTH: usize = 3;
 
 fn http_client() -> &'static reqwest::Client {
@@ -36,6 +37,16 @@ fn cache_dir() -> Result<PathBuf, anyhow::Error> {
 
 fn cached_index_path(name: &str) -> Result<PathBuf, anyhow::Error> {
    Ok(cache_dir()?.join(name))
+}
+
+fn cached_index_is_fresh(path: &Path) -> bool {
+   let Ok(meta) = std::fs::metadata(path) else {
+      return false;
+   };
+   let Ok(modified) = meta.modified() else {
+      return false;
+   };
+   modified.elapsed().map(|age| age < INDEX_CACHE_TTL).unwrap_or(false)
 }
 
 fn cached_file_path(registry_path: &str) -> Result<PathBuf, anyhow::Error> {
@@ -93,8 +104,9 @@ async fn fetch_calldata_index(force_network: bool) -> Result<Value, anyhow::Erro
 }
 
 async fn fetch_named_index(name: &str, force_network: bool) -> Result<Value, anyhow::Error> {
-   if !force_network {
-      if let Ok(path) = cached_index_path(name) {
+   if let Ok(path) = cached_index_path(name) {
+      let fresh = cached_index_is_fresh(&path);
+      if fresh || !force_network {
          if let Ok(bytes) = std::fs::read(&path) {
             if let Ok(v) = serde_json::from_slice(&bytes) {
                return Ok(v);

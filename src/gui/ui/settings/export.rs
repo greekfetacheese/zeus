@@ -51,7 +51,7 @@ impl ExportDataUi {
 
       let mut open = self.open;
       let title = RichText::new("Export Data").size(theme.typography.heading);
-      let window_frame = theme.window_frame;
+      let window_frame = theme.window_frame.fill(theme.frame1.fill);
       let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(title)
@@ -71,36 +71,35 @@ impl ExportDataUi {
             let button_visuals = theme.button_visuals();
 
             ui.vertical_centered(|ui| {
-               ui.label(
-                  RichText::new(
-                     "Core files (vault, wallet state, tokens, pools, RPCs, settings) are always included.",
-                  )
-                  .size(theme.typography.normal),
-               );
-               ui.label(
-                  RichText::new(
-                     "The zip is not password-protected, persisted data is already encrypted.",
-                  )
-                  .size(theme.typography.normal),
-               );
+               let text = "Export your wallets and state files to a zip archive.";
+               let text = RichText::new(text).size(theme.typography.normal);
+               ui.label(text);
+
+               let text = "The zip is not password-protected.";
+               let text = RichText::new(text).size(theme.typography.normal);
+               ui.label(text);
+
+               let text = "All sensitive data is already encrypted with your credentials.";
+               let text = RichText::new(text).size(theme.typography.normal);
+               ui.label(text);
+               
 
                ui.add_space(8.0);
 
                let text = RichText::new("Optional files").size(theme.typography.normal);
                ui.label(text);
 
-
                ui.vertical(|ui| {
-               let text =
-                  RichText::new("Include clear signing cache").size(theme.typography.normal);
-               ui.checkbox(&mut self.options.clear_signing, text);
+                  let text =
+                     RichText::new("Include clear signing cache").size(theme.typography.normal);
+                  ui.checkbox(&mut self.options.clear_signing, text);
 
-               let text = RichText::new("Include Railgun data").size(theme.typography.normal);
-               ui.checkbox(&mut self.options.railgun, text);
+                  let text = RichText::new("Include Railgun data").size(theme.typography.normal);
+                  ui.checkbox(&mut self.options.railgun, text);
 
-               let text =
-                  RichText::new("Include downloaded token icons").size(theme.typography.normal);
-               ui.checkbox(&mut self.options.token_icons, text);
+                  let text =
+                     RichText::new("Include downloaded token icons").size(theme.typography.normal);
+                  ui.checkbox(&mut self.options.token_icons, text);
                });
 
                ui.add_space(20.0);
