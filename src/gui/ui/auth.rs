@@ -5,6 +5,7 @@
 use crate::core::{Vault, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::railgun::BundlerUrl;
+use crate::gui::ui::settings::ImportDataUi;
 use crate::utils::RT;
 use eframe::egui::{Align2, FontId, Margin, RichText, Ui, Window, vec2};
 use egui_elements::{Button, CredentialsForm, Label, SecureTextEdit, Theme};
@@ -320,12 +321,18 @@ impl RecoverHDWallet {
       self.credentials_form.erase();
    }
 
-   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+   pub fn show(
+      &mut self,
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      import: &mut ImportDataUi,
+      ui: &mut Ui,
+   ) {
       if ctx.vault_exists {
          return;
       }
 
-      self.credentials_input(theme, ui);
+      self.credentials_input(theme, import, ui);
       self.recover_hd_wallet(ctx, theme, ui);
       self.show_tips(ctx, theme, ui);
    }
@@ -369,7 +376,7 @@ impl RecoverHDWallet {
       }
    }
 
-   fn credentials_input(&mut self, theme: &Theme, ui: &mut Ui) {
+   fn credentials_input(&mut self, theme: &Theme, import: &mut ImportDataUi, ui: &mut Ui) {
       if !self.credentials_input {
          return;
       }
@@ -429,6 +436,14 @@ impl RecoverHDWallet {
                         });
                      }
                   });
+               }
+
+               let text = RichText::new("Import Data").size(theme.typography.large);
+               let import_button =
+                  Button::new(text).visuals(button_visuals).min_size(vec2(ui_width * 0.25, 25.0));
+
+               if ui.add(import_button).clicked() {
+                  import.open_first_run();
                }
             });
          });

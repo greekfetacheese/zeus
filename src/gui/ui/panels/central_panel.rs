@@ -10,8 +10,9 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let recipient_selection = &mut gui.recipient_selection;
    let contacts_ui = &mut gui.settings.contacts_ui;
 
-   gui.recover_wallet_ui.show(ctx, theme, ui);
+   gui.recover_wallet_ui.show(ctx, theme, &mut gui.settings.import, ui);
    gui.unlock_vault_ui.show(ctx, theme, ui);
+   gui.settings.import.show(theme, ui);
 
    gui.msg_window.show(theme, ui);
    gui.loading_window.show(theme, ui);

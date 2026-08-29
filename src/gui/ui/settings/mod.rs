@@ -87,7 +87,6 @@ impl SettingsUi {
       self.general.show(ctx, theme, ui);
       self.theme.show(theme, ui);
       self.export.show(theme, ui);
-      self.import.show(theme, ui);
    }
 
    pub fn main_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {

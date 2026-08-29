@@ -14,6 +14,8 @@ pub struct ImportDataUi {
    overlay: OverlayManager,
    credentials_form: CredentialsForm,
    zip_path: Option<PathBuf>,
+   /// True when opened from first-run recover (no vault on disk yet).
+   first_run: bool,
    size: (f32, f32),
 }
 
@@ -29,6 +31,7 @@ impl ImportDataUi {
          overlay,
          credentials_form,
          zip_path: None,
+         first_run: false,
          size: (600.0, 600.0),
       }
    }
@@ -38,10 +41,20 @@ impl ImportDataUi {
    }
 
    pub fn open(&mut self) {
+      self.open_with(false);
+   }
+
+   /// First-run recover: import a backup instead of regenerating the HD wallet.
+   pub fn open_first_run(&mut self) {
+      self.open_with(true);
+   }
+
+   fn open_with(&mut self, first_run: bool) {
       if !self.open {
          self.overlay.window_opened();
          self.open = true;
       }
+      self.first_run = first_run;
       self.credentials_form.open();
    }
 
@@ -91,7 +104,11 @@ impl ImportDataUi {
 
             frame.show(ui, |ui| {
                ui.vertical_centered(|ui| {
-                  let text = "This will replace your existing wallets and state files!!";
+                  let text = if self.first_run {
+                     "Import a Zeus data backup instead of recovering from credentials."
+                  } else {
+                     "This will replace your existing wallets and state files!!"
+                  };
                   let text =
                      RichText::new(text).size(theme.typography.large).color(theme.colors.warning);
                   ui.label(text);
@@ -215,7 +232,9 @@ impl ImportDataUi {
                SHARED_GUI.write(|gui| {
                   gui.settings.import.reset();
                   gui.settings.encryption.set_argon2(argon);
+                  gui.header.open();
                   gui.header.set_current_wallet(master_wallet);
+                  gui.portofolio.open();
                   if let Some(url) = bundler_url {
                      gui.shield_ui.set_bundler_url(url);
                   }
