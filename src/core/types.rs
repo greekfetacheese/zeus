@@ -361,6 +361,7 @@ impl DelegatedWallets {
 pub struct RailgunStatus {
    /// An operation in progress like shield/unshield etc..
    pub op_in_progress: HashMap<u64, bool>,
+   pub circuits_download_in_progress: bool,
    pub resync_in_progress: HashMap<u64, bool>,
    pub sync_in_progress: HashMap<u64, bool>,
    pub railgun_synced: HashMap<u64, bool>,
@@ -373,6 +374,7 @@ impl RailgunStatus {
    pub fn new() -> Self {
       Self {
          op_in_progress: HashMap::new(),
+         circuits_download_in_progress: false,
          resync_in_progress: HashMap::new(),
          sync_in_progress: HashMap::new(),
          railgun_synced: HashMap::new(),
@@ -391,6 +393,7 @@ impl RailgunStatus {
 
       Self {
          op_in_progress: HashMap::new(),
+         circuits_download_in_progress: false,
          resync_in_progress: HashMap::new(),
          sync_in_progress: HashMap::new(),
          railgun_synced,
@@ -402,6 +405,14 @@ impl RailgunStatus {
 
    pub fn op_in_progress(&self, chain: u64) -> bool {
       self.op_in_progress.get(&chain).cloned().unwrap_or(false)
+   }
+
+   pub fn circuits_download_in_progress(&self) -> bool {
+      self.circuits_download_in_progress
+   }
+
+   pub fn set_circuits_download_in_progress(&mut self, in_progress: bool) {
+      self.circuits_download_in_progress = in_progress;
    }
 
    pub fn set_op_in_progress(&mut self, chain: u64, in_progress: bool) {

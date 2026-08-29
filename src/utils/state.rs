@@ -164,6 +164,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
       tasks.push(task);
    }
 
+   let ctx2 = ctx.clone();
    RT.spawn(async move {
       // Prefetch ERC-7730 registry index so the first unknown typed-data
       // sign does not wait on GitHub.
@@ -171,6 +172,9 @@ pub async fn on_startup(ctx: ZeusCtx) {
 
       // Prefetch all transact circuit artifacts (01x01 ..= 05x05) into the
       // on-disk cache so first prove / merge does not hit the network cold.
+      ctx2.write(|ctx| {
+         ctx.railgun_status.set_circuits_download_in_progress(true);
+      });
       match prefetch_railgun_circuits().await {
          Ok(report) => {
             info!(
@@ -187,6 +191,9 @@ pub async fn on_startup(ctx: ZeusCtx) {
          }
          Err(e) => error!("Railgun circuit prefetch error: {:?}", e),
       }
+      ctx2.write(|ctx| {
+         ctx.railgun_status.set_circuits_download_in_progress(false);
+      });
    });
 
    for task in tasks {
