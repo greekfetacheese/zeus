@@ -10,6 +10,7 @@ use std::sync::Arc;
 pub mod change_credentials;
 pub mod contacts;
 pub mod encryption;
+pub mod export;
 pub mod general;
 pub mod networks;
 pub mod railgun;
@@ -18,6 +19,7 @@ pub mod theme;
 pub use change_credentials::ChangeCredentialsUi;
 pub use contacts::ContactsUi;
 pub use encryption::EncryptionSettings;
+pub use export::ExportDataUi;
 pub use general::GeneralSettings;
 pub use networks::NetworkSettings;
 pub use railgun::RailgunSettings;
@@ -31,6 +33,7 @@ pub struct SettingsUi {
    theme: ThemeSettings,
    pub contacts_ui: ContactsUi,
    pub change_credentials_ui: ChangeCredentialsUi,
+   pub export: ExportDataUi,
    size: (f32, f32),
 }
 
@@ -44,7 +47,8 @@ impl SettingsUi {
          theme: ThemeSettings::new(overlay.clone()),
          contacts_ui: ContactsUi::new(overlay.clone()),
          change_credentials_ui: ChangeCredentialsUi::new(overlay.clone()),
-         size: (550.0, 520.0),
+         export: ExportDataUi::new(overlay.clone()),
+         size: (550.0, 590.0),
       }
    }
 
@@ -77,6 +81,7 @@ impl SettingsUi {
       self.contacts_ui.show(ctx, theme, icons.clone(), ui);
       self.general.show(ctx, theme, ui);
       self.theme.show(theme, ui);
+      self.export.show(theme, ui);
    }
 
    pub fn main_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
@@ -134,6 +139,13 @@ impl SettingsUi {
 
                if ui.add(button).clicked() {
                   self.theme.open();
+               }
+
+               let text = RichText::new("Export Data").size(theme.typography.large);
+               let button = Button::new(text).visuals(button_visuals).min_size(size);
+
+               if ui.add(button).clicked() {
+                  self.export.open();
                }
             });
          });
