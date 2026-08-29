@@ -30,9 +30,6 @@ pub use token_selection::TokenSelectionWindow;
 pub use tx::{TxConfirmationWindow, TxWindow};
 pub use wallet::WalletUi;
 
-pub const GREEN_CHECK: &str = "✅";
-pub const REFRESH: &str = "⟲";
-
 use egui::FontFamily;
 
 pub fn inter_bold() -> FontFamily {

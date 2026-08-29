@@ -889,6 +889,7 @@ async fn revoke_permit2_approval(
       chain_id.into(),
       Some(msg),
       None,
+      Some(owner),
    )
    .await?;
 

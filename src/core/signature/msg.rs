@@ -160,7 +160,7 @@ impl SignMsgType {
 
    pub fn title(&self) -> &str {
       match self {
-         Self::Permit2(_) => "Permit2 Token Approval",
+         Self::Permit2(p) => p.title(),
          Self::Permit2Batch(_) => "Permit2 Batch Token Approval",
          Self::ClearSigned(details) => details.display.heading.as_str(),
          Self::PersonalSign(_) => "Personal Sign",
@@ -265,6 +265,14 @@ pub struct Permit2Details {
 }
 
 impl Permit2Details {
+   pub fn title(&self) -> &str {
+      if self.amount.is_zero() {
+         "Revoke Permit2"
+      } else {
+         "Permit2 Token Approval"
+      }
+   }
+
    pub fn dummy() -> Self {
       let permit2 = Address::from_str("0x000000000022d473030f116ddee9f6b43ac78ba3").unwrap();
       let spender = Address::from_str("0x6ff5693b99212da76ad316178a184ab56d299b43").unwrap();

@@ -17,6 +17,16 @@ pub struct TokenApproveParams {
    pub spender: Address,
 }
 
+impl TokenApproveParams {
+   pub fn name(&self) -> &str {
+      if self.amount.is_zero() {
+         "Revoke Token Approval"
+      } else {
+         "Token Approval"
+      }
+   }
+}
+
 /// Untagged helper used to accept both the current flat format and the legacy
 /// `Vec`-based format when deserializing `TokenApproveParams`.
 #[derive(Deserialize)]

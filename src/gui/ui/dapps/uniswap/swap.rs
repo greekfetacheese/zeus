@@ -2185,6 +2185,7 @@ async fn swap_via_ur(
             chain,
             Some(msg),
             None,
+            None,
          )
          .await?;
          SHARED_GUI.write(|gui| {

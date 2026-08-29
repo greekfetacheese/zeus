@@ -72,6 +72,10 @@ impl PermitParams {
       let token = Currency::from(erc_token.clone());
       let amount = NumericValue::format_wei(amount, token.decimals());
 
+      if amount.is_zero() {
+         name = "Revoke Permit".to_string();
+      }
+
       let amount_usd =
          ctx.get_currency_value_for_amount(amount.f64(), &Currency::from(token.clone()));
 

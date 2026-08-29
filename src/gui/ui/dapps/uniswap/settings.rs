@@ -1,9 +1,9 @@
 use egui::{Align, Layout, RichText, Slider, Ui, vec2};
 
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::REFRESH;
 use crate::utils::RT;
 use egui_elements::{Button, SecureTextEdit, Theme};
+use egui_lucide::Lucide;
 
 const DEFAULT_SLIPPAGE: f64 = 0.05;
 const MAX_SLIPPAGE: f64 = 20.0;
@@ -87,8 +87,8 @@ impl UniswapSettingsUi {
          let text = RichText::new("Slippage").size(theme.typography.normal);
          ui.label(text).on_hover_text(SLIPPAGE_TIP);
 
-         let text = RichText::new(REFRESH).size(theme.typography.very_small);
-         let button = Button::new(text).visuals(button_visuals).small();
+         let icon = Lucide::RefreshCw.size(14.0).color(theme.colors.text).image();
+         let button = Button::image(icon).small().visuals(button_visuals);
 
          if ui.add(button).clicked() {
             self.slippage_f64 = DEFAULT_SLIPPAGE;

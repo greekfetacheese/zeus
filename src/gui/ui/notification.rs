@@ -2,7 +2,7 @@
 
 use crate::assets::Icons;
 use crate::core::{DecodedEvent, TransactionRich, ZeusContext, tx::events::*};
-use crate::gui::{SHARED_GUI, ui::GREEN_CHECK};
+use crate::gui::SHARED_GUI;
 use crate::utils::{RT, TimeStamp, truncate_address};
 use egui::{Align2, Order, ProgressBar, RichText, Spinner, Ui, Window, vec2};
 use egui_elements::{Button, Label, MultiLabel, Theme};
@@ -331,8 +331,11 @@ impl Notification {
       }
 
       ui.vertical_centered(|ui| {
-         let text = format!("{}{}", &self.title, GREEN_CHECK);
-         ui.label(RichText::new(text).size(theme.typography.large));
+         let icon = Lucide::Check.size(20.0).color(theme.colors.text).image();
+         let text = RichText::new(&self.title).size(theme.typography.large);
+         let label = Label::new(text, Some(icon)).interactive(false);
+         ui.add(label);
+
          self.show_notification(ctx, theme, icons, ui);
 
          let text = RichText::new("Transaction Details").size(theme.typography.normal);

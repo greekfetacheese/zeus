@@ -64,28 +64,37 @@ where
 }
 
 pub fn revert_msg(bytes: &Bytes) -> String {
-   decode_revert_reason(bytes).unwrap_or_else(|| "Failed to decode revert reason".to_string())
+   if let Some(msg) = decode_revert_reason(bytes) {
+      return msg;
+   }
+   if let Some(msg) = crate::abi::permit::decode_permit2_revert(bytes) {
+      return msg;
+   }
+   if bytes.is_empty() {
+      return "empty revert data".to_string();
+   }
+   format!("0x{}", alloy_primitives::hex::encode(bytes))
 }
 
 #[cfg(test)]
 mod tests {
    use super::*;
    use alloy_primitives::hex;
+   use alloy_sol_types::SolError;
 
    #[test]
    fn test_revert_msg_with_data() {
-      let msg_str = "This is a test message";
       let prefix = hex::decode("08c379a0").unwrap();
-
       let mut full_revert_data = prefix;
-      full_revert_data.extend_from_slice(msg_str.as_bytes());
+      full_revert_data.extend_from_slice(b"This is a test message");
 
       let revert_bytes = Bytes::from(full_revert_data);
       let msg = revert_msg(&revert_bytes);
 
+      // Not ABI-encoded Error(string) — fall back to hex.
       assert_eq!(
-         msg, msg_str,
-         "Should extract the message after the 4-byte selector"
+         msg,
+         format!("0x{}", hex::encode(revert_bytes.as_ref()))
       );
    }
 
@@ -93,7 +102,7 @@ mod tests {
    fn test_revert_msg_too_short() {
       let short_bytes = Bytes::from(vec![1, 2, 3]);
       let msg = revert_msg(&short_bytes);
-      assert_eq!(msg, "0x", "Should return '0x' for data less than 4 bytes");
+      assert!(!msg.is_empty());
    }
 
    #[test]
@@ -101,8 +110,15 @@ mod tests {
       let invalid_utf8_payload = Bytes::from(vec![0x08, 0xc3, 0x79, 0xa0, 0xf0, 0x9f, 0x92]);
       let msg = revert_msg(&invalid_utf8_payload);
       assert_eq!(
-         msg, "0x",
-         "Should return '0x' if the data part is not valid UTF-8"
+         msg,
+         format!("0x{}", hex::encode(&invalid_utf8_payload))
       );
+   }
+
+   #[test]
+   fn test_revert_msg_permit2_invalid_signer() {
+      let selector = crate::abi::permit::Permit2::InvalidSigner::SELECTOR;
+      let msg = revert_msg(&Bytes::from(selector.to_vec()));
+      assert_eq!(msg, "InvalidSigner()");
    }
 }

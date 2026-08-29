@@ -1154,6 +1154,7 @@ async fn eth_sign_typed_data_v4(
       chain,
       Some(typed_data_value),
       None,
+      None,
    )
    .await
    {
@@ -1240,7 +1241,7 @@ async fn personal_sign(
    let full_message = String::from_utf8_lossy(&message_bytes).to_string();
 
    let chain = ctx.chain();
-   let signature = match sign_message(ctx, origin, chain, None, Some(full_message)).await {
+   let signature = match sign_message(ctx, origin, chain, None, Some(full_message), None).await {
       Ok(sig) => sig,
       Err(e) => {
          SHARED_GUI.write(|gui| {

@@ -2,13 +2,15 @@
 
 use crate::assets::Icons;
 use crate::core::{DiscoveredWallets, WalletPortfolio, ZeusContext, ZeusCtx};
-use crate::gui::{SHARED_GUI, ui::REFRESH};
+use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{
    Align, Align2, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner, Stroke,
    Ui, Vec2, vec2,
 };
 use egui_elements::{Button, OverlayManager, SecureTextEdit, Theme, widgets::Window};
+use egui_lucide::Lucide;
+
 use zeus_bip32::BIP32_HARDEN;
 use zeus_eth::{
    alloy_primitives::Address,
@@ -210,8 +212,8 @@ impl DiscoverChildWallets {
                let text = RichText::new(text).size(theme.typography.normal);
                let gen_button = Button::new(text).visuals(button_visuals);
 
-               let text = RichText::new(REFRESH).size(theme.typography.normal);
-               let refresh_button = Button::new(text).visuals(button_visuals);
+               let icon = Lucide::RefreshCw.size(16.0).color(theme.colors.text).image();
+               let refresh_button = Button::image(icon).visuals(button_visuals);
 
                let size = vec2(ui.available_width() * 0.4, 45.0);
 

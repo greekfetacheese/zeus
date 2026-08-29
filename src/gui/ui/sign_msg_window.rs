@@ -114,7 +114,7 @@ impl SignMsgWindow {
                   let frame = theme.frame2;
                   let frame_size = vec2(ui.available_width(), 45.0);
 
-                  ui.label(RichText::new(msg.title()).size(theme.typography.large));
+                  ui.label(RichText::new(msg.title()).size(theme.typography.heading));
 
                   if msg.is_permit2_single() {
                      ui.allocate_ui(frame_size, |ui| {
@@ -471,7 +471,7 @@ fn format_permit2_single_approval(msg: &SignMsgType) -> String {
    writeln!(
       formatted,
       "  Verifying Contract: {}",
-      "Uniswap Protocol: Permit2".to_string()
+      details.permit2_contract.to_string()
    )
    .unwrap();
    writeln!(formatted).unwrap();
