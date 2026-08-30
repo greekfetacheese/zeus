@@ -14,6 +14,7 @@ use egui::{
 };
 use egui_elements::{Button, Modal, OverlayManager, SecureTextEdit, Theme, visuals::ButtonVisuals};
 use egui_lucide::Lucide;
+use elegance::{Badge, BadgeTone};
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 use zeus_eth::currency::ERC20Token;
@@ -41,6 +42,15 @@ const TIME_BETWEEN_EACH_REQUEST: u64 = 2;
 const BLOCK_TIMEOUT: u64 = 10;
 
 const SETTINGS_FILE: &str = "across_settings.json";
+const ACROSS_URL: &str = "https://across.to";
+
+const ACROSS_RISK_WARNING: &str = "You can lose funds if Across does not complete the transfer";
+
+const ACROSS_RISK_TIP: &str = "Zeus only submits your deposit on this chain.\n\
+Across relayers and contracts deliver it on the destination.\n\
+Zeus does not custody or control that step.\n\
+If a fill never happens you should get a refund after the deadline, but delays, downtime, or a contract bug can still cost you money.\n\
+Only bridge what you can afford to lose.";
 
 type ChainPath = (u64, u64);
 
@@ -201,211 +211,241 @@ impl AcrossBridge {
             self.show_railgun_not_supported(theme, ui);
             return;
          }
-         
+
          ui.vertical_centered(|ui| {
             frame.show(ui, |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
-            ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               let ui_width = ui.available_width();
+               ui.set_width(self.size.0);
+               ui.set_height(self.size.1);
+               ui.vertical_centered(|ui| {
+                  ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+                  let ui_width = ui.available_width();
 
-               let warning = "Bridge functionality is powered by the Across Protocol, make sure you understand the risks";
-               let warning_text = RichText::new(warning).size(theme.typography.normal).color(theme.colors.warning);
+                  let warning = "Bridge functionality is powered by the Across Protocol";
+                  let warning_text = RichText::new(warning)
+                     .size(theme.typography.normal)
+                     .underline()
+                     .color(theme.colors.warning);
 
-               ui.horizontal(|ui| {
-                  let size = vec2(ui.available_width(), 20.0);
-                  ui.allocate_ui(size, |ui| {
-                     ui.vertical_centered(|ui| {
-                        ui.label(RichText::new("Bridge").size(theme.typography.heading));
-                        ui.label(warning_text);
+                  let warning_text2 = RichText::new(ACROSS_RISK_WARNING)
+                     .size(theme.typography.normal)
+                     .color(theme.colors.warning);
+
+                  ui.horizontal(|ui| {
+                     let size = vec2(ui.available_width(), 80.0);
+                     ui.allocate_ui(size, |ui| {
+                        ui.vertical_centered(|ui| {
+                           ui.spacing_mut().item_spacing = vec2(0.0, 8.0);
+                           ui.visuals_mut().hyperlink_color = theme.colors.warning;
+                           ui.label(RichText::new("Bridge").size(theme.typography.heading));
+                           ui.hyperlink_to(warning_text, ACROSS_URL);
+
+                           ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                              ui.spacing_mut().item_spacing.x = 5.0;
+                              ui.label(warning_text2);
+                              let q_mark = RichText::new("?").size(theme.typography.normal);
+                              let badge = Badge::new(q_mark, BadgeTone::Warning);
+                              let tip_text =
+                                 RichText::new(ACROSS_RISK_TIP).size(theme.typography.normal);
+                              ui.add(badge).on_hover_text(tip_text);
+                           });
+                        });
+                     });
+
+                     ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                        let icon = Lucide::Settings.size(20.0).color(theme.colors.text).image();
+
+                        let mut visuals = ButtonVisuals::default();
+                        visuals.bg_hover = button_visuals.bg_hover;
+                        visuals.corner_radius = CornerRadius::same(25);
+                        let button = Button::image(icon).small().visuals(visuals);
+                        let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+
+                        if res.clicked() {
+                           self.open_settings();
+                        }
                      });
                   });
 
-                  ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                     let icon = Lucide::Settings.size(20.0).color(theme.colors.text).image();
+                  ui.add_space(5.0);
 
-                     let mut visuals = ButtonVisuals::default();
-                     visuals.bg_hover = button_visuals.bg_hover;
-                     visuals.corner_radius = CornerRadius::same(25);
-                     let button = Button::image(icon).small().visuals(visuals);
-                     let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+                  let inner_frame = theme.frame2;
 
-                     if res.clicked() {
-                        self.open_settings();
-                     }
-                  });
-               });
+                  let label = String::from("Amount");
+                  let owner = ctx.current_wallet_info().address;
+                  let cost = self.cost(ctx);
+                  let balance = ctx.get_currency_balance(from_chain, owner, &self.currency);
+                  let amount = self.amount_field.amount.parse().unwrap_or(0.0);
+                  let value = ctx.get_currency_value_for_amount(amount, &self.currency);
+                  let privacy_mode = false;
 
-               let inner_frame = theme.frame2;
+                  let max_amount = if balance.wei() > cost.0.wei() {
+                     NumericValue::format_wei(
+                        balance.wei() - cost.0.wei(),
+                        self.currency.decimals(),
+                     )
+                  } else {
+                     NumericValue::default()
+                  };
 
-               let label = String::from("Amount");
-               let owner = ctx.current_wallet_info().address;
-               let cost = self.cost(ctx);
-               let balance = ctx.get_currency_balance(from_chain, owner, &self.currency);
-               let amount = self.amount_field.amount.parse().unwrap_or(0.0);
-               let value = ctx.get_currency_value_for_amount(amount, &self.currency);
-               let privacy_mode = false;
+                  inner_frame.show(ui, |ui| {
+                     ui.set_width(ui_width);
 
-               let max_amount = if balance.wei() > cost.0.wei() {
-                  NumericValue::format_wei(
-                     balance.wei() - cost.0.wei(),
-                     self.currency.decimals(),
-                  )
-               } else {
-                  NumericValue::default()
-               };
-
-               inner_frame.show(ui, |ui| {
-                  ui.set_width(ui_width);
-
-                  self.amount_field.show(
-                     self.currency.chain_id(),
-                     privacy_mode,
-                     theme,
-                     icons.clone(),
-                     Some(label),
-                     owner,
-                     &self.currency,
-                     None,
-                     None,
-                     || balance,
-                     || max_amount,
-                     || value,
-                     false,
-                     true,
-                     ui,
-                  );
-               });
-
-               // Recipient
-               inner_frame.show(ui, |ui| {
-                  ui.horizontal(|ui| {
-                     ui.label(RichText::new("Recipient").size(theme.typography.large));
-                     ui.add_space(10.0);
-
-                     if !recipient.is_empty(false) {
-                        if let Some(name) = &recipient.name {
-                           ui.label(
-                              RichText::new(name)
-                                 .size(theme.typography.large)
-                                 .color(theme.colors.info),
-                           );
-                        } else {
-                           ui.label(
-                              RichText::new("Unknown Address")
-                                 .size(theme.typography.large)
-                                 .color(theme.colors.error),
-                           );
-                        }
-
-                        ui.add_space(5.0);
-
-                        let chain = self.to_chain.chain;
-                        let block_explorer = chain.block_explorer();
-                        let link = format!("{}/address/{}", block_explorer, recipient.evm_address);
-                        let icon = Lucide::ExternalLink.size(18.0).color(theme.colors.text).image();
-
-                        let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
-
-                        if res.clicked() {
-                           let url = OpenUrl::new_tab(link);
-                           ui.ctx().open_url(url);
-                        }
-                     }
+                     self.amount_field.show(
+                        self.currency.chain_id(),
+                        privacy_mode,
+                        theme,
+                        icons.clone(),
+                        Some(label),
+                        owner,
+                        &self.currency,
+                        None,
+                        None,
+                        || balance,
+                        || max_amount,
+                        || value,
+                        false,
+                        true,
+                        ui,
+                     );
                   });
 
-                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     let visuals = theme.text_edit_visuals();
-                     let hint = RichText::new("Search contacts or enter an address")
-                        .size(theme.typography.normal)
-                        .color(theme.colors.text_muted);
+                  // Recipient
+                  inner_frame.show(ui, |ui| {
+                     ui.horizontal(|ui| {
+                        ui.label(RichText::new("Recipient").size(theme.typography.large));
+                        ui.add_space(10.0);
 
-                     let res = ui.add(
-                        SecureTextEdit::singleline(&mut recipient_selection.recipient.evm_address)
+                        if !recipient.is_empty(false) {
+                           if let Some(name) = &recipient.name {
+                              ui.label(
+                                 RichText::new(name)
+                                    .size(theme.typography.large)
+                                    .color(theme.colors.info),
+                              );
+                           } else {
+                              ui.label(
+                                 RichText::new("Unknown Address")
+                                    .size(theme.typography.large)
+                                    .color(theme.colors.error),
+                              );
+                           }
+
+                           ui.add_space(5.0);
+
+                           let chain = self.to_chain.chain;
+                           let block_explorer = chain.block_explorer();
+                           let link = format!(
+                              "{}/address/{}",
+                              block_explorer, recipient.evm_address
+                           );
+                           let icon =
+                              Lucide::ExternalLink.size(18.0).color(theme.colors.text).image();
+
+                           let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+
+                           if res.clicked() {
+                              let url = OpenUrl::new_tab(link);
+                              ui.ctx().open_url(url);
+                           }
+                        }
+                     });
+
+                     ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                        let visuals = theme.text_edit_visuals();
+                        let hint = RichText::new("Search contacts or enter an address")
+                           .size(theme.typography.normal)
+                           .color(theme.colors.text_muted);
+
+                        let res = ui.add(
+                           SecureTextEdit::singleline(
+                              &mut recipient_selection.recipient.evm_address,
+                           )
                            .visuals(visuals)
                            .hint_text(hint)
                            .min_size(vec2(ui_width, 25.0))
                            .margin(Margin::same(10))
                            .font(FontId::proportional(theme.typography.normal)),
-                     );
+                        );
 
-                     if res.clicked() {
-                        recipient_selection.open();
-                     }
+                        if res.clicked() {
+                           recipient_selection.open();
+                        }
+                     });
                   });
-               });
 
-               let size = vec2(ui.available_width() * 0.83, 25.0);
+                  let size = vec2(ui.available_width() * 0.83, 25.0);
 
-               // From Chain
-               inner_frame.show(ui, |ui| {
-                  ui.set_width(ui_width);
+                  // From Chain
+                  inner_frame.show(ui, |ui| {
+                     ui.set_width(ui_width);
 
-                  ui.allocate_ui(size, |ui| {
-                     ui.vertical_centered(|ui| {
-                        ui.horizontal(|ui| {
-                           let ignore_chains = [BSC, ETH_SEPOLIA];
+                     ui.allocate_ui(size, |ui| {
+                        ui.vertical_centered(|ui| {
+                           ui.horizontal(|ui| {
+                              let ignore_chains = [BSC, ETH_SEPOLIA];
 
-                           // From Chain
-                           self.from_chain.show(ctx, &ignore_chains, theme, icons.clone(), ui);
+                              // From Chain
+                              self.from_chain.show(ctx, &ignore_chains, theme, icons.clone(), ui);
 
-                           ui.add_space(5.0);
+                              ui.add_space(5.0);
 
-                           let icon = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
-                           ui.add(icon);
+                              let icon =
+                                 Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
+                              ui.add(icon);
 
-                           ui.add_space(5.0);
+                              ui.add_space(5.0);
 
-                           // To Chain
-                           self.to_chain.show(ctx, &ignore_chains, theme, icons.clone(), ui);
+                              // To Chain
+                              self.to_chain.show(ctx, &ignore_chains, theme, icons.clone(), ui);
+                           });
                         });
                      });
                   });
-               });
 
-               let network_fee = self.cost(ctx).1;
-               let bridge_fee = self.bridge_fee(ctx);
-               let total_fee = NumericValue::from_f64(network_fee.f64() + bridge_fee.f64());
+                  let network_fee = self.cost(ctx).1;
+                  let bridge_fee = self.bridge_fee(ctx);
+                  let total_fee = NumericValue::from_f64(network_fee.f64() + bridge_fee.f64());
 
-               inner_frame.show(ui, |ui| {
-                  ui.spacing_mut().item_spacing = vec2(0.0, 5.0);
+                  inner_frame.show(ui, |ui| {
+                     ui.spacing_mut().item_spacing = vec2(0.0, 5.0);
 
-                  let network_fee_text = format!("Network≈ ${}", network_fee.abbreviated());
-                  ui.label(RichText::new(network_fee_text).size(theme.typography.small));
+                     let network_fee_text = format!("Network≈ ${}", network_fee.abbreviated());
+                     ui.label(RichText::new(network_fee_text).size(theme.typography.small));
 
-                  let bridge_fee_text = format!("Bridge≈ ${}", bridge_fee.abbreviated());
-                  ui.label(RichText::new(bridge_fee_text).size(theme.typography.small));
+                     let bridge_fee_text = format!("Bridge≈ ${}", bridge_fee.abbreviated());
+                     ui.label(RichText::new(bridge_fee_text).size(theme.typography.small));
 
-                  let total_text = format!("Total≈ ${}", total_fee.abbreviated());
-                  ui.label(RichText::new(total_text).size(theme.typography.small));
+                     let total_text = format!("Total≈ ${}", total_fee.abbreviated());
+                     ui.label(RichText::new(total_text).size(theme.typography.small));
 
-                  if self.requesting {
-                     ui.add(Spinner::new().size(20.0).color(theme.colors.text));
-                  }
+                     if self.requesting {
+                        ui.add(Spinner::new().size(20.0).color(theme.colors.text));
+                     }
 
-                  // Estimated time to fill
-                  let fill_time = self
-                     .api_res_cache
-                     .get(&(
-                        self.from_chain.chain.id(),
-                        self.to_chain.chain.id(),
-                     ))
-                     .map(|c| c.res.suggested_fees.estimated_fill_time_sec);
-                  if let Some(fill_time) = fill_time {
-                     ui.label(
-                        RichText::new(format!(
-                           "Estimated time to fill: {} seconds",
-                           fill_time
+                     // Estimated time to fill
+                     let fill_time = self
+                        .api_res_cache
+                        .get(&(
+                           self.from_chain.chain.id(),
+                           self.to_chain.chain.id(),
                         ))
-                        .size(theme.typography.normal),
-                     );
-                  }
-               });
+                        .map(|c| c.res.suggested_fees.estimated_fill_time_sec);
+                     if let Some(fill_time) = fill_time {
+                        ui.label(
+                           RichText::new(format!(
+                              "Estimated time to fill: {} seconds",
+                              fill_time
+                           ))
+                           .size(theme.typography.normal),
+                        );
+                     }
+                  });
 
-               self.bridge_button(ctx, theme, depositor, recipient.evm_address, ui);
-            });
+                  ui.add_space(10.0);
+
+                  self.bridge_button(ctx, theme, depositor, recipient.evm_address, ui);
+               });
             });
          });
       });
