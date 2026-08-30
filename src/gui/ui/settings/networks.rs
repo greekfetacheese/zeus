@@ -8,11 +8,13 @@ use eframe::egui::{
    Align, Align2, CornerRadius, CursorIcon, FontId, Layout, Margin, Order, RichText, ScrollArea,
    Slider, Spinner, Stroke, Ui, vec2,
 };
-use egui_elements::{Button, Modal, OverlayManager, widgets::Window, SecureTextEdit, Theme, visuals::ButtonVisuals};
+use egui_elements::{
+   Button, Modal, OverlayManager, SecureTextEdit, Theme, visuals::ButtonVisuals, widgets::Window,
+};
+use egui_lucide::Lucide;
+use elegance::{Indicator, IndicatorState};
 use std::sync::Arc;
 use zeus_eth::alloy_provider::Provider;
-use elegance::{Indicator, IndicatorState};
-use egui_lucide::Lucide;
 
 pub struct NetworkSettings {
    open: bool,
@@ -319,7 +321,7 @@ impl NetworkSettings {
                      ui.scope(|ui| {
                         ui.set_width(others_width);
                         ui.add_space(15.0);
-                      let state = if rpc.is_working() {
+                        let state = if rpc.is_working() {
                            match rpc.is_fully_functional() {
                               true => Indicator::new(IndicatorState::On).size(12.0),
                               false => Indicator::new(IndicatorState::Connecting).size(12.0),

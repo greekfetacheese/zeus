@@ -215,8 +215,7 @@ impl UniswapPool for UniswapV4Pool {
    }
 
    fn tick_spacing(&self) -> alloy_primitives::aliases::I24 {
-      FeeAmount::i24_tick_spacing(self.resolved_tick_spacing())
-         .unwrap_or_else(|| self.fee.tick_spacing())
+      FeeAmount::i24_tick_spacing(self.resolved_tick_spacing()).unwrap_or_else(|| self.fee.tick_spacing())
    }
 
    fn tick_spacing_i32(&self) -> i32 {
@@ -225,15 +224,9 @@ impl UniswapPool for UniswapV4Pool {
 
    fn id(&self) -> B256 {
       let (address0, address1) = if self.currency0().address() < self.currency1().address() {
-         (
-            self.currency0().address(),
-            self.currency1().address(),
-         )
+         (self.currency0().address(), self.currency1().address())
       } else {
-         (
-            self.currency1().address(),
-            self.currency0().address(),
-         )
+         (self.currency1().address(), self.currency0().address())
       };
 
       keccak256(
@@ -250,15 +243,9 @@ impl UniswapPool for UniswapV4Pool {
 
    fn key(&self) -> PoolKey {
       let (address0, address1) = if self.currency0().address() < self.currency1().address() {
-         (
-            self.currency0().address(),
-            self.currency1().address(),
-         )
+         (self.currency0().address(), self.currency1().address())
       } else {
-         (
-            self.currency1().address(),
-            self.currency0().address(),
-         )
+         (self.currency1().address(), self.currency0().address())
       };
 
       PoolKey {
@@ -346,42 +333,24 @@ impl UniswapPool for UniswapV4Pool {
    }
 
    fn pool_balances(&self) -> (NumericValue, NumericValue) {
-      let amount0 = NumericValue::format_wei(
-         self.liquidity_amount0,
-         self.currency0().decimals(),
-      );
-      let amount1 = NumericValue::format_wei(
-         self.liquidity_amount1,
-         self.currency1().decimals(),
-      );
+      let amount0 = NumericValue::format_wei(self.liquidity_amount0, self.currency0().decimals());
+      let amount1 = NumericValue::format_wei(self.liquidity_amount1, self.currency1().decimals());
       (amount0, amount1)
    }
 
    fn base_balance(&self) -> NumericValue {
       if self.currency0().is_base() {
-         NumericValue::format_wei(
-            self.liquidity_amount0,
-            self.currency0().decimals(),
-         )
+         NumericValue::format_wei(self.liquidity_amount0, self.currency0().decimals())
       } else {
-         NumericValue::format_wei(
-            self.liquidity_amount1,
-            self.currency1().decimals(),
-         )
+         NumericValue::format_wei(self.liquidity_amount1, self.currency1().decimals())
       }
    }
 
    fn quote_balance(&self) -> NumericValue {
       if self.currency0().is_base() {
-         NumericValue::format_wei(
-            self.liquidity_amount1,
-            self.currency1().decimals(),
-         )
+         NumericValue::format_wei(self.liquidity_amount1, self.currency1().decimals())
       } else {
-         NumericValue::format_wei(
-            self.liquidity_amount0,
-            self.currency0().decimals(),
-         )
+         NumericValue::format_wei(self.liquidity_amount0, self.currency0().decimals())
       }
    }
 
@@ -402,9 +371,7 @@ impl UniswapPool for UniswapV4Pool {
       let sqrt_price_x96 = state.sqrt_price;
 
       if sqrt_price_x96.is_zero() {
-         return Err(anyhow::anyhow!(
-            "Invalid state: sqrt_price is zero"
-         ));
+         return Err(anyhow::anyhow!("Invalid state: sqrt_price is zero"));
       }
 
       let liquidity_u256 = U256::from(liquidity);
@@ -437,11 +404,7 @@ impl UniswapPool for UniswapV4Pool {
       Ok(())
    }
 
-   async fn update_state<P, N>(
-      &mut self,
-      client: P,
-      block: Option<BlockId>,
-   ) -> Result<(), anyhow::Error>
+   async fn update_state<P, N>(&mut self, client: P, block: Option<BlockId>) -> Result<(), anyhow::Error>
    where
       P: Provider<N> + Clone + 'static,
       N: Network,
@@ -455,11 +418,7 @@ impl UniswapPool for UniswapV4Pool {
    fn simulate_swap(&self, currency_in: &Currency, amount_in: U256) -> Result<U256, anyhow::Error> {
       let fee = self.fee.fee_percent();
       if fee > MAX_FEE {
-         return Err(anyhow!(
-            "Pool Fee {} exceeds max fee {}",
-            fee,
-            MAX_FEE
-         ));
+         return Err(anyhow!("Pool Fee {} exceeds max fee {}", fee, MAX_FEE));
       }
 
       if self.hook_impacts_swap() {
@@ -468,23 +427,18 @@ impl UniswapPool for UniswapV4Pool {
 
       let zero_for_one = self.zero_for_one(currency_in);
       let fee = self.fee.fee();
-      let state = self.state().v3_state().ok_or(anyhow!("State not initialized"))?;
+      let state = self
+         .state()
+         .v3_state()
+         .ok_or(anyhow!("State not initialized"))?;
       let amount_out = calculate_swap(state, fee, zero_for_one, amount_in)?;
       Ok(amount_out)
    }
 
-   fn simulate_swap_mut(
-      &mut self,
-      currency_in: &Currency,
-      amount_in: U256,
-   ) -> Result<U256, anyhow::Error> {
+   fn simulate_swap_mut(&mut self, currency_in: &Currency, amount_in: U256) -> Result<U256, anyhow::Error> {
       let fee = self.fee.fee_percent();
       if fee > MAX_FEE {
-         return Err(anyhow!(
-            "Pool Fee {} exceeds max fee {}",
-            fee,
-            MAX_FEE
-         ));
+         return Err(anyhow!("Pool Fee {} exceeds max fee {}", fee, MAX_FEE));
       }
 
       if self.hook_impacts_swap() {
@@ -493,7 +447,10 @@ impl UniswapPool for UniswapV4Pool {
 
       let zero_for_one = self.zero_for_one(currency_in);
       let fee = self.fee.fee();
-      let state = self.state_mut().v3_state_mut().ok_or(anyhow!("State not initialized"))?;
+      let state = self
+         .state_mut()
+         .v3_state_mut()
+         .ok_or(anyhow!("State not initialized"))?;
       let amount_out = calculate_swap_mut(state, fee, zero_for_one, amount_in)?;
 
       Ok(amount_out)
@@ -527,10 +484,7 @@ impl UniswapPool for UniswapV4Pool {
       Ok(SwapResult {
          amount_in,
          amount_out,
-         ideal_amount_out: NumericValue::parse_to_wei(
-            &ideal_amount_out.to_string(),
-            currency_out.decimals(),
-         ),
+         ideal_amount_out: NumericValue::parse_to_wei(&ideal_amount_out.to_string(), currency_out.decimals()),
          price_impact,
       })
    }
@@ -551,8 +505,7 @@ impl UniswapPool for UniswapV4Pool {
          return Ok(0.0);
       }
 
-      let amount_out =
-         format_units(amount_out, self.quote_currency().decimals())?.parse::<f64>()?;
+      let amount_out = format_units(amount_out, self.quote_currency().decimals())?.parse::<f64>()?;
       let price = base_usd / amount_out;
 
       Ok(price)
@@ -564,11 +517,7 @@ impl UniswapPool for UniswapV4Pool {
    /// ## Returns
    ///
    /// - (base_price, quote_price)
-   async fn tokens_price<P, N>(
-      &self,
-      client: P,
-      block: Option<BlockId>,
-   ) -> Result<(f64, f64), anyhow::Error>
+   async fn tokens_price<P, N>(&self, client: P, block: Option<BlockId>) -> Result<(f64, f64), anyhow::Error>
    where
       P: Provider<N> + Clone + 'static,
       N: Network,
@@ -750,18 +699,14 @@ mod tests {
    #[test]
    fn correct_pool_creation() {
       let pool1 = UniswapV4Pool::link_usdc();
-      let id1 =
-         B256::from_str("0x50ae33c238824aa1937d5d9f1766c487bca39b548f8d957994e8357eeeca3280")
-            .unwrap();
+      let id1 = B256::from_str("0x50ae33c238824aa1937d5d9f1766c487bca39b548f8d957994e8357eeeca3280").unwrap();
       assert_eq!(pool1.id(), id1);
    }
 
    #[test]
    fn correct_pool_creation_virtual() {
       let pool1 = UniswapV4Pool::eth_virtual();
-      let id1 =
-         B256::from_str("0xc344274edb26787476d6176a4d6666e5c2c424f7f39d82646fe2713796df85db")
-            .unwrap();
+      let id1 = B256::from_str("0xc344274edb26787476d6176a4d6666e5c2c424f7f39d82646fe2713796df85db").unwrap();
       assert_eq!(pool1.id(), id1);
    }
 
@@ -773,8 +718,7 @@ mod tests {
       pool.fee = FeeAmount::new(625);
       pool.tick_spacing = 12;
       let swapped_fee_id =
-         B256::from_str("0xdde064c3358b4d4f32b5edce5ce4b655ad8b65bd9b934087946eb0b8b55ae533")
-            .unwrap();
+         B256::from_str("0xdde064c3358b4d4f32b5edce5ce4b655ad8b65bd9b934087946eb0b8b55ae533").unwrap();
       assert_eq!(pool.id(), swapped_fee_id);
       assert_ne!(pool.id(), UniswapV4Pool::eth_virtual().id());
    }
@@ -792,7 +736,9 @@ mod tests {
       let quote = pool.quote_currency();
 
       let amount_in = NumericValue::parse_to_wei("10", base.decimals());
-      let swap_result = pool.simulate_swap_result(base, quote, amount_in.clone()).unwrap();
+      let swap_result = pool
+         .simulate_swap_result(base, quote, amount_in.clone())
+         .unwrap();
 
       println!("=== V4 Swap Test ===");
       println!(
@@ -807,10 +753,7 @@ mod tests {
          swap_result.amount_out.f64(),
          quote.symbol()
       );
-      println!(
-         "With Price Impact: {:.4}%",
-         swap_result.price_impact
-      );
+      println!("With Price Impact: {:.4}%", swap_result.price_impact);
    }
 
    #[tokio::test]
@@ -855,16 +798,8 @@ mod tests {
 
       let (balance0, balance1) = pool.pool_balances();
 
-      eprintln!(
-         "{} {}",
-         pool.currency0().symbol(),
-         balance0.abbreviated()
-      );
-      eprintln!(
-         "{} {}",
-         pool.currency1().symbol(),
-         balance1.abbreviated()
-      );
+      eprintln!("{} {}", pool.currency0().symbol(), balance0.abbreviated());
+      eprintln!("{} {}", pool.currency1().symbol(), balance1.abbreviated());
    }
 
    #[tokio::test]
@@ -878,16 +813,8 @@ mod tests {
 
       let (balance0, balance1) = pool.pool_balances();
 
-      eprintln!(
-         "{} {}",
-         pool.currency0().symbol(),
-         balance0.abbreviated()
-      );
-      eprintln!(
-         "{} {}",
-         pool.currency1().symbol(),
-         balance1.abbreviated()
-      );
+      eprintln!("{} {}", pool.currency0().symbol(), balance0.abbreviated());
+      eprintln!("{} {}", pool.currency1().symbol(), balance1.abbreviated());
    }
 
    #[tokio::test]
@@ -905,16 +832,8 @@ mod tests {
       let eth_in_uni = pool.calculate_price(pool.base_currency()).unwrap();
       let eth_balance = pool.base_balance();
 
-      println!(
-         "{} Price: ${}",
-         pool.base_currency().symbol(),
-         base_price
-      );
-      println!(
-         "{} Price: ${}",
-         pool.quote_currency().symbol(),
-         quote_price
-      );
+      println!("{} Price: ${}", pool.base_currency().symbol(), base_price);
+      println!("{} Price: ${}", pool.quote_currency().symbol(), quote_price);
       println!("UNI in terms of ETH: {}", uni_in_eth);
       println!("ETH in terms of UNI: {}", eth_in_uni);
       println!("ETH Liquidity: {}", eth_balance.f64());

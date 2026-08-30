@@ -155,14 +155,8 @@ pub const fn permissions(address: Address) -> HookPermissions {
       after_donate: has_permission(address, HookOptions::AfterDonate),
       before_swap_returns_delta: has_permission(address, HookOptions::BeforeSwapReturnsDelta),
       after_swap_returns_delta: has_permission(address, HookOptions::AfterSwapReturnsDelta),
-      after_add_liquidity_returns_delta: has_permission(
-         address,
-         HookOptions::AfterAddLiquidityReturnsDelta,
-      ),
-      after_remove_liquidity_returns_delta: has_permission(
-         address,
-         HookOptions::AfterRemoveLiquidityReturnsDelta,
-      ),
+      after_add_liquidity_returns_delta: has_permission(address, HookOptions::AfterAddLiquidityReturnsDelta),
+      after_remove_liquidity_returns_delta: has_permission(address, HookOptions::AfterRemoveLiquidityReturnsDelta),
    }
 }
 
@@ -177,8 +171,7 @@ pub const fn has_permission(address: Address, hook_option: HookOptions) -> bool 
 #[inline]
 #[must_use]
 pub const fn has_initialize_permissions(address: Address) -> bool {
-   has_permission(address, HookOptions::BeforeInitialize)
-      || has_permission(address, HookOptions::AfterInitialize)
+   has_permission(address, HookOptions::BeforeInitialize) || has_permission(address, HookOptions::AfterInitialize)
 }
 
 #[inline]
@@ -194,15 +187,13 @@ pub const fn has_liquidity_permissions(address: Address) -> bool {
 #[must_use]
 pub const fn has_swap_permissions(address: Address) -> bool {
    // this implicitly encapsulates swap delta permissions
-   has_permission(address, HookOptions::BeforeSwap)
-      || has_permission(address, HookOptions::AfterSwap)
+   has_permission(address, HookOptions::BeforeSwap) || has_permission(address, HookOptions::AfterSwap)
 }
 
 #[inline]
 #[must_use]
 pub const fn has_donate_permissions(address: Address) -> bool {
-   has_permission(address, HookOptions::BeforeDonate)
-      || has_permission(address, HookOptions::AfterDonate)
+   has_permission(address, HookOptions::BeforeDonate) || has_permission(address, HookOptions::AfterDonate)
 }
 
 #[cfg(test)]

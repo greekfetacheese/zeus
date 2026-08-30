@@ -3,9 +3,9 @@
 use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use eframe::egui::{Align2, Id, Order, RichText, Ui, Stroke, vec2};
+use eframe::egui::{Align2, Id, Order, RichText, Stroke, Ui, vec2};
+use egui_elements::{Button, CredentialsForm, OverlayManager, Theme, widgets::Window};
 use ncrypt_me::Credentials;
-use egui_elements::{Button, CredentialsForm, widgets::Window, OverlayManager, Theme};
 
 pub struct DeleteWalletUi {
    open: bool,
@@ -215,7 +215,7 @@ impl DeleteWalletUi {
                   clicked = false;
                   self.reset();
                }
-               
+
                ui.add_space(5.0);
 
                let text = RichText::new("Delete").size(theme.typography.normal);

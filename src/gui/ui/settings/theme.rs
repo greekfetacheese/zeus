@@ -4,7 +4,7 @@ use crate::core::context::theme_kind_dir;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use egui::{Align2, Order, RichText, Sense, Stroke, Ui, vec2};
-use egui_elements::{Button, ComboBox, Label, OverlayManager, widgets::Window, Theme, ThemeKind};
+use egui_elements::{Button, ComboBox, Label, OverlayManager, Theme, ThemeKind, widgets::Window};
 
 pub struct ThemeSettings {
    open: bool,

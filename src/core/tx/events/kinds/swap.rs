@@ -1,7 +1,7 @@
 use crate::core::{ZeusCtx, types::Dapp};
-use zeus_eth::amm::uniswap::UniswapPool;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
+use zeus_eth::amm::uniswap::UniswapPool;
 use zeus_eth::{
    abi::protocols::uniswap,
    alloy_primitives::{Address, Log, U256},

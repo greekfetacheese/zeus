@@ -529,7 +529,6 @@ pub async fn fetch_storage(
    out
 }
 
-
 #[cfg(test)]
 mod tests {
    use super::*;

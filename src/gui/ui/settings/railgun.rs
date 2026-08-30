@@ -9,7 +9,7 @@ use crate::{
    gui::ui::chain_select::ChainSelect,
 };
 use egui::{Align2, Order, RichText, Stroke, Ui, vec2};
-use egui_elements::{Button, OverlayManager, widgets::Window, Theme};
+use egui_elements::{Button, OverlayManager, Theme, widgets::Window};
 use elegance::{Badge, BadgeTone, Slider};
 use zeus_eth::types::SUPPORTED_CHAINS;
 use zeus_railgun::indexer::syncer::rpc::DEFAULT_BLOCK_RANGE;

@@ -93,7 +93,7 @@ mod tests {
 
       let generated = ctx.write_vault(|vault| vault.ensure_railgun_db_key())?;
       assert!(!generated);
-      
+
       let db_key = ctx.write_vault(|vault| vault.railgun_db_key())?;
 
       let mut railgun_provider: RailgunProvider<RpcClient> =

@@ -3,7 +3,9 @@
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{Align2, FontId, Margin, Order, RichText, Stroke, Ui, vec2};
-use egui_elements::{Button, OverlayManager, SecureTextEdit, widgets::Window, SecureInputField, Theme};
+use egui_elements::{
+   Button, OverlayManager, SecureInputField, SecureTextEdit, Theme, widgets::Window,
+};
 use zeus_eth::types::SUPPORTED_CHAINS;
 
 #[derive(PartialEq, Eq)]

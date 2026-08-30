@@ -1,7 +1,7 @@
+use crate::NumericValue;
 use crate::currency::Currency;
 use crate::types::ChainId;
-use crate::utils::{address_book};
-use crate::NumericValue;
+use crate::utils::address_book;
 use alloy_primitives::{
    Address, B256, U256,
    aliases::{I24, U24},

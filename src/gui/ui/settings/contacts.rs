@@ -8,7 +8,9 @@ use egui::{
    Align, Align2, FontId, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Spinner, Stroke,
    Ui, vec2,
 };
-use egui_elements::{Button, Label, Modal, widgets::Window, OverlayManager, QrImage, SecureTextEdit, Theme};
+use egui_elements::{
+   Button, Label, Modal, OverlayManager, QrImage, SecureTextEdit, Theme, widgets::Window,
+};
 use elegance::{Menu, MenuItem};
 use std::str::FromStr;
 use std::sync::Arc;

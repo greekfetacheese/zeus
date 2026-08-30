@@ -457,7 +457,7 @@ impl BalanceManagerHandle {
       owner: Address,
       balance: U256,
       token: &ERC20Token,
-   ) {      
+   ) {
       let balance = NumericValue::currency_balance(balance, token.decimals);
       self.write(|manager| {
          manager.token_balances.insert((chain, owner, token.address), balance);

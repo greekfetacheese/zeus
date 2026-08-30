@@ -99,7 +99,7 @@ pub fn spawn_fetch_token_icon(chain_id: u64, address: Address) {
             SHARED_GUI.write(|gui| {
                gui.request_repaint();
             });
-            
+
             tracing::info!("Fetched token icon for {address} on chain {chain_id}");
          }
          Ok(None) => {

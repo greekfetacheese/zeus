@@ -163,10 +163,7 @@ pub fn decode_permit2_revert(data: &[u8]) -> Option<String> {
       return Some("LengthMismatch()".to_string());
    }
    if let Ok(err) = Permit2::SignatureExpired::abi_decode(data) {
-      return Some(format!(
-         "SignatureExpired({})",
-         err.signatureDeadline
-      ));
+      return Some(format!("SignatureExpired({})", err.signatureDeadline));
    }
    if let Ok(err) = Permit2::InvalidAmount::abi_decode(data) {
       return Some(format!("InvalidAmount({})", err.maxAmount));

@@ -1,3 +1,4 @@
+pub mod approvals;
 pub mod auth;
 pub mod common;
 pub mod dapps;
@@ -14,7 +15,6 @@ pub mod token_selection;
 pub mod tx;
 pub mod tx_history;
 pub mod wallet;
-pub mod approvals;
 
 pub use approvals::ApprovalsUi;
 pub use auth::{RecoverHDWallet, UnlockVault};

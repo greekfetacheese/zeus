@@ -9,10 +9,10 @@ use std::borrow::Cow;
 use crate::amm::uniswap::state::get_v2_pool_state;
 use crate::amm::uniswap::{DexKind, FeeAmount, State, SwapResult, UniswapPool};
 
+use crate::NumericValue;
 use crate::abi::uniswap::{v2, v4::PoolKey};
 use crate::currency::{Currency, ERC20Token};
-use crate::utils::{price_feed::get_base_token_price};
-use crate::NumericValue;
+use crate::utils::price_feed::get_base_token_price;
 
 use alloy_contract::private::{Network, Provider};
 use core::cmp::Ordering;

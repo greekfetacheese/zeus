@@ -10,10 +10,10 @@ use crate::amm::uniswap::{
    AnyUniswapPool, DexKind, FeeAmount, State, SwapResult, UniswapPool, state::get_v3_pool_state,
 };
 
+use crate::NumericValue;
 use crate::abi::uniswap::{v3, v4::PoolKey};
 use crate::currency::{Currency, ERC20Token};
-use crate::utils::{price_feed::get_base_token_price};
-use crate::NumericValue;
+use crate::utils::price_feed::get_base_token_price;
 
 use anyhow::bail;
 use core::cmp::Ordering;

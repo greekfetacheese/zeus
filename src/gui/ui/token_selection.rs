@@ -21,7 +21,7 @@ use zeus_eth::{
 };
 
 use egui_elements::{
-   Button, Label, OverlayManager, widgets::Window, SecureTextEdit, Theme, utils::frame as frame_fn,
+   Button, Label, OverlayManager, SecureTextEdit, Theme, utils::frame as frame_fn, widgets::Window,
 };
 
 /// A simple window that allows the user to select a token

@@ -20,4 +20,4 @@ pub use revm;
 
 pub use crate::currency::{Currency, ERC20Token, NativeCurrency};
 pub use crate::types::{ChainId, SUPPORTED_CHAINS};
-pub use crate::utils::{numeric_value::NumericValue, client::*};
+pub use crate::utils::{client::*, numeric_value::NumericValue};

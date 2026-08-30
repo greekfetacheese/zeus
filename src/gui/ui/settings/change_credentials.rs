@@ -5,7 +5,7 @@
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use egui::{Align2, Order, RichText, Stroke, Ui, vec2};
-use egui_elements::{Button, CredentialsForm, widgets::Window, OverlayManager, Theme};
+use egui_elements::{Button, CredentialsForm, OverlayManager, Theme, widgets::Window};
 use ncrypt_me::Credentials;
 
 pub struct ChangeCredentialsUi {

@@ -77,11 +77,11 @@ pub fn load_downloaded_icons() -> HashMap<(Address, u64), (Vec<u8>, Vec<u8>)> {
          let (Ok(x32), Ok(x24)) = (std::fs::read(x32_path), std::fs::read(x24_path)) else {
             continue;
          };
-         
+
          if x32.is_empty() || x24.is_empty() {
             continue;
          }
-         
+
          map.insert((address, chain_id), (x32, x24));
       }
    }

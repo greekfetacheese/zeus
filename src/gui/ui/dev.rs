@@ -208,7 +208,7 @@ impl UiTesting {
                let title = swap_title.clone();
                let notification_clone = swap_notification.clone();
                RT.spawn_blocking(move || {
-                  
+
                   SHARED_GUI.write(|gui| {
                      gui.notification.open_with_progress_bar(
                         now,

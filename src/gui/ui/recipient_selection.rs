@@ -11,7 +11,9 @@ use crate::utils::RT;
 use eframe::egui::{
    Align2, FontId, Margin, Order, RichText, ScrollArea, Sense, Spinner, Stroke, Ui, vec2,
 };
-use egui_elements::{Button, Label, OverlayManager, SecureTextEdit, Theme, widgets::Window, utils::frame as frame_fn};
+use egui_elements::{
+   Button, Label, OverlayManager, SecureTextEdit, Theme, utils::frame as frame_fn, widgets::Window,
+};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;

@@ -82,7 +82,6 @@ impl ExportDataUi {
                let text = "All sensitive data is already encrypted with your credentials.";
                let text = RichText::new(text).size(theme.typography.normal);
                ui.label(text);
-               
 
                ui.add_space(8.0);
 

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use zeus_eth::{
-   types::ETH_SEPOLIA,
    alloy_primitives::{Address, Bytes},
+   types::ETH_SEPOLIA,
    types::{ChainId, SUPPORTED_CHAINS},
    utils::NumericValue,
 };
@@ -10,7 +10,7 @@ use crate::core::{
    WalletInfo,
    context::{DELEGATE_WALLET_CHECK_TIMEOUT, disabled_chains_dir, railgun_config_dir},
 };
-use crate::utils::{write_private, TimeStamp};
+use crate::utils::{TimeStamp, write_private};
 
 use zeus_railgun::indexer::syncer::rpc::{
    DEFAULT_BLOCK_RANGE, DEFAULT_CONCURRENCY, SEPOLIA_BLOCK_RANGE,

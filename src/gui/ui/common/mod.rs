@@ -13,7 +13,7 @@ pub use wallet_select::WalletSelect;
 pub use windows::{ConfirmWindow, LoadingWindow, MsgWindow, UpdateWindow};
 
 use egui::{Response, Ui, pos2, vec2};
-use egui_elements::{Theme, Button};
+use egui_elements::{Button, Theme};
 
 pub fn dots_button(theme: &Theme, ui: &mut Ui) -> Response {
    let visuals = theme.button_visuals();

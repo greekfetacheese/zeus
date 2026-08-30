@@ -13,7 +13,6 @@ use zeus_eth::{
 };
 use zeus_wallet::SecureKey;
 
-
 pub mod msg;
 pub mod sign;
 

@@ -526,7 +526,8 @@ impl DiscoverChildWallets {
                            if ctx.is_chain_disabled(chain) {
                               continue;
                            }
-                           let icon = icons.chain_icon(chain, tint).fit_to_exact_size(vec2(16.0, 16.0));
+                           let icon =
+                              icons.chain_icon(chain, tint).fit_to_exact_size(vec2(16.0, 16.0));
                            ui.add(icon);
                         }
                      });

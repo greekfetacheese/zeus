@@ -31,8 +31,8 @@ use zeus_wallet::Wallet;
 use egui_elements::{
    Button, Modal, OverlayManager, QrImage, SecureTextEdit, Theme, visuals::ButtonVisuals,
 };
-use elegance::{Badge, BadgeTone, Indicator, IndicatorState, Menu, MenuItem, TabBar};
 use egui_lucide::Lucide;
+use elegance::{Badge, BadgeTone, Indicator, IndicatorState, Menu, MenuItem, TabBar};
 
 const DELEGATE_TIP1: &str = "This wallet has been temporarily upgraded to a smart contract";
 const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
@@ -286,7 +286,7 @@ impl Header {
             false => Lucide::Eye.size(20.0).color(icon_color).image(),
             true => Lucide::EyeOff.size(20.0).color(icon_color).image(),
          };
-      
+
          let text = format!(
             "{} mode",
             if privacy_mode { "Privacy" } else { "Public" }

@@ -11,7 +11,7 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
-use egui_elements::{Theme, Button, Label, SecureTextEdit};
+use egui_elements::{Button, Label, SecureTextEdit, Theme};
 use egui_lucide::Lucide;
 
 /// An amount field with an optional currency selector and customizable balance & max amount logic.

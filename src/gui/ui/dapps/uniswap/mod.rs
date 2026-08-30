@@ -1,6 +1,4 @@
-use egui::{
-   Align, CornerRadius, CursorIcon, Frame, Layout, Order, RichText, Spinner, Ui, vec2,
-};
+use egui::{Align, CornerRadius, CursorIcon, Frame, Layout, Order, RichText, Spinner, Ui, vec2};
 use zeus_eth::alloy_primitives::Address;
 use zeus_eth::currency::Currency;
 use zeus_eth::utils::NumericValue;
@@ -181,8 +179,8 @@ impl UniswapUi {
             ui.set_max_height(self.size.1);
             ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
 
-            let text = RichText::new("Private swaps are not supported")
-               .size(theme.typography.very_large);
+            let text =
+               RichText::new("Private swaps are not supported").size(theme.typography.very_large);
             ui.label(text);
          });
       });

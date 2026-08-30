@@ -92,10 +92,7 @@ mod tests {
       let msg = revert_msg(&revert_bytes);
 
       // Not ABI-encoded Error(string) — fall back to hex.
-      assert_eq!(
-         msg,
-         format!("0x{}", hex::encode(revert_bytes.as_ref()))
-      );
+      assert_eq!(msg, format!("0x{}", hex::encode(revert_bytes.as_ref())));
    }
 
    #[test]
@@ -109,10 +106,7 @@ mod tests {
    fn test_revert_msg_with_invalid_utf8() {
       let invalid_utf8_payload = Bytes::from(vec![0x08, 0xc3, 0x79, 0xa0, 0xf0, 0x9f, 0x92]);
       let msg = revert_msg(&invalid_utf8_payload);
-      assert_eq!(
-         msg,
-         format!("0x{}", hex::encode(&invalid_utf8_payload))
-      );
+      assert_eq!(msg, format!("0x{}", hex::encode(&invalid_utf8_payload)));
    }
 
    #[test]

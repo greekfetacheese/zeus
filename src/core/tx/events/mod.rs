@@ -472,7 +472,6 @@ impl DecodedEvent {
       }
    }
 
-
    pub fn as_bridge(&self) -> Option<&BridgeParams> {
       match self {
          Self::Bridge(p) => Some(p),

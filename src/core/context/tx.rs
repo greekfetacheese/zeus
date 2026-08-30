@@ -8,8 +8,8 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
-use crate::core::tx::{DecodedEvent, TransactionAnalysis, TransactionRich};
 use crate::core::clear_signing::ClearDisplay;
+use crate::core::tx::{DecodedEvent, TransactionAnalysis, TransactionRich};
 use crate::utils::TimeStamp;
 
 /// Transactions by chain and wallet address
