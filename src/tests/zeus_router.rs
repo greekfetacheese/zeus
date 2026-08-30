@@ -323,7 +323,6 @@ mod tests {
 
       let quote = if with_split_routing {
          get_quote_with_split_routing(
-            ctx.clone(),
             amount_in.clone(),
             currency_in.clone(),
             currency_out.clone(),
@@ -337,7 +336,6 @@ mod tests {
          )
       } else {
          get_quote(
-            ctx.clone(),
             amount_in.clone(),
             currency_in.clone(),
             currency_out.clone(),

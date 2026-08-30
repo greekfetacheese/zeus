@@ -340,11 +340,7 @@ impl DiscoverChildWallets {
             let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
             ctx.write_wallet_state(|ws| ws.discovered_wallets = wallets);
 
-            if let Err(e) = ctx.save_wallet_state() {
-               tracing::error!("Failed to save discovered wallets: {e}");
-            }
-
-            tracing::info!("Discovered wallets updated");
+            tracing::debug!("Discovered wallets updated");
 
             SHARED_GUI.write(|gui| {
                gui.wallet_ui.add_wallet_ui.open();

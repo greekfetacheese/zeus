@@ -1064,7 +1064,6 @@ impl SwapUi {
 
          let quote = if split_routing_enabled {
             get_quote_with_split_routing(
-               ctx_clone.clone(),
                amount_in.clone(),
                currency_in.clone(),
                currency_out.clone(),
@@ -1078,7 +1077,6 @@ impl SwapUi {
             )
          } else {
             get_quote(
-               ctx_clone.clone(),
                amount_in.clone(),
                currency_in.clone(),
                currency_out.clone(),

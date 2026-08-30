@@ -84,6 +84,38 @@ mod tests {
    }
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   async fn swap_from_eth_to_usdc_mainnet_with_split_routing_and_v4_enabled() {
+      let chain_id = 1;
+
+      let currency_in = Currency::from(NativeCurrency::from(chain_id));
+      let currency_out = Currency::from(ERC20Token::usdc());
+      let amount_in = NumericValue::parse_to_wei("300", currency_in.decimals());
+
+      let swap_on_v2 = true;
+      let swap_on_v3 = true;
+      let swap_on_v4 = true;
+      let max_hops = 6;
+      let max_routes = 5;
+      let with_split_routing = true;
+
+      test_swap(
+         chain_id,
+         amount_in,
+         currency_in,
+         currency_out,
+         swap_on_v2,
+         swap_on_v3,
+         swap_on_v4,
+         max_hops,
+         max_routes,
+         with_split_routing,
+         Vec::new(),
+      )
+      .await
+      .unwrap();
+   }
+
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn swap_from_erc20_to_eth_mainnet_with_split_routing_and_v4_enabled() {
       let chain_id = 1;
 
@@ -307,38 +339,6 @@ mod tests {
       .unwrap();
    }
 
-   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-   async fn swap_from_erc20_to_eth_mainnet() {
-      let chain_id = 1;
-
-      let currency_in = Currency::from(ERC20Token::usdc());
-      let currency_out = Currency::from(NativeCurrency::from(chain_id));
-      let amount_in = NumericValue::parse_to_wei("100000", currency_in.decimals());
-
-      let swap_on_v2 = true;
-      let swap_on_v3 = true;
-      let swap_on_v4 = false;
-      let max_hops = 4;
-      let max_routes = 10;
-      let with_split_routing = false;
-
-      test_swap(
-         chain_id,
-         amount_in,
-         currency_in,
-         currency_out,
-         swap_on_v2,
-         swap_on_v3,
-         swap_on_v4,
-         max_hops,
-         max_routes,
-         with_split_routing,
-         Vec::new(),
-      )
-      .await
-      .unwrap();
-   }
-
    #[test]
    fn test_relevant_pools_usdc_to_eth() {
       let chain = 1;
@@ -451,7 +451,6 @@ mod tests {
 
       let quote = if with_split_routing {
          get_quote_with_split_routing(
-            ctx.clone(),
             amount_in.clone(),
             currency_in.clone(),
             currency_out.clone(),
@@ -465,7 +464,6 @@ mod tests {
          )
       } else {
          get_quote(
-            ctx.clone(),
             amount_in.clone(),
             currency_in.clone(),
             currency_out.clone(),

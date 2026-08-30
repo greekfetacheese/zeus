@@ -16,6 +16,36 @@ use zeus_wallet::SecureKey;
 #[cfg(feature = "dev")]
 use tracing::debug;
 
+/// Universal Router `ActionConstants.CONTRACT_BALANCE` (`1 << 255`).
+///
+/// V2/V3 exact-in treat this as "swap the router's full token balance".
+/// Intermediate hops must use it: a quoted amount that is even 1 wei above the
+/// previous hop's actual output makes UR `safeTransfer` revert `TRANSFER_FAILED`.
+const CONTRACT_BALANCE: U256 = U256::from_limbs([0, 0, 0, 0x8000_0000_0000_0000]);
+
+/// True when this hop spends the user's trade input (or its wrapped native).
+///
+/// Split slices of ETH→WETH after `WRAP_ETH` still spend trade input: they must
+/// keep the quoted amount. [`CONTRACT_BALANCE`] is only for tokens produced by
+/// an earlier hop (e.g. USDC after USDT→USDC). Using it on a WETH split slice
+/// spends the entire wrapped balance; later V3 hops then revert `AS`.
+fn spends_trade_input(step_in: &Currency, trade_in: &Currency) -> bool {
+   if step_in == trade_in {
+      return true;
+   }
+   (trade_in.is_native() && step_in.is_native_wrapped())
+      || (trade_in.is_native_wrapped() && step_in.is_native())
+}
+
+/// Amount to encode for a V2/V3 exact-in hop.
+fn v2_v3_amount_in(spends_trade_input: bool, quoted: U256) -> U256 {
+   if spends_trade_input {
+      quoted
+   } else {
+      CONTRACT_BALANCE
+   }
+}
+
 // https://docs.uniswap.org/contracts/universal-router/technical-reference
 #[allow(non_camel_case_types)]
 #[derive(Clone, Debug, PartialEq)]
@@ -265,8 +295,11 @@ pub async fn encode_swap(
          );
       }
 
-      // A step uses initial funds ONLY if its input is the main currency_in for the entire trade.
+      // Pull from the user only when this hop's token is still the trade input
+      // (not WETH after WRAP, not an intermediate). Permit2 already moved ERC20
+      // onto the router, so those hops also pay from the router.
       let uses_initial_funds = swap.currency_in == currency_in;
+      let amount_is_trade_input = spends_trade_input(&swap.currency_in, &currency_in);
 
       // All intermediate swaps send funds back to the router.
       // The final output is handled by SWEEP or UNWRAP_WETH at the end.
@@ -288,7 +321,7 @@ pub async fn encode_swap(
          let path = vec![step_currency_in.address(), swap.currency_out.address()];
          let input = encode_v2_swap_exact_in(
             recipient_addr,
-            swap.amount_in.wei(),
+            v2_v3_amount_in(amount_is_trade_input, swap.amount_in.wei()),
             step_amount_out_min,
             path,
             payer_is_user,
@@ -302,7 +335,7 @@ pub async fn encode_swap(
          let fees = vec![swap.pool.fee().fee_u24()];
          let input = encode_v3_swap_exact_in(
             recipient_addr,
-            swap.amount_in.wei(),
+            v2_v3_amount_in(amount_is_trade_input, swap.amount_in.wei()),
             step_amount_out_min,
             path,
             fees,
@@ -489,4 +522,53 @@ fn encode_v4_router_command_input(
    .abi_encode_params();
 
    Ok(params.into())
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use zeus_eth::currency::{Currency, ERC20Token, NativeCurrency};
+
+   fn eth() -> Currency {
+      Currency::from(NativeCurrency::from(1u64))
+   }
+
+   fn weth() -> Currency {
+      Currency::wrapped_native(1)
+   }
+
+   fn usdc() -> Currency {
+      Currency::from(ERC20Token::usdc())
+   }
+
+   fn usdt() -> Currency {
+      Currency::from(ERC20Token::usdt())
+   }
+
+   #[test]
+   fn initial_v2_v3_hop_uses_quoted_amount() {
+      let quoted = U256::from(499_993_647_689u64);
+      assert_eq!(v2_v3_amount_in(true, quoted), quoted);
+   }
+
+   #[test]
+   fn intermediate_v2_v3_hop_uses_contract_balance() {
+      let quoted = U256::from(499_993_647_689u64);
+      assert_eq!(v2_v3_amount_in(false, quoted), CONTRACT_BALANCE);
+      // 1 << 255, same as ActionConstants.CONTRACT_BALANCE
+      assert_eq!(CONTRACT_BALANCE, U256::from(1u8) << 255);
+   }
+
+   #[test]
+   fn eth_in_weth_split_slice_is_trade_input() {
+      assert!(spends_trade_input(&weth(), &eth()));
+      assert!(spends_trade_input(&eth(), &eth()));
+      assert!(!spends_trade_input(&usdc(), &eth()));
+   }
+
+   #[test]
+   fn usdt_to_usdc_hop_is_not_trade_input() {
+      assert!(!spends_trade_input(&usdc(), &usdt()));
+      assert!(spends_trade_input(&usdt(), &usdt()));
+   }
 }
