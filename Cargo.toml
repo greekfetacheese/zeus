@@ -34,8 +34,8 @@ generic-array = { version = "=0.14.7", features = ["zeroize"] }
 
 [package]
 name = "zeus"
-authors = ["Michalis Molfetas"]
-description = "A truly seedless and decentralized self-custodial Ethereum wallet"
+authors = ["Michalis Molfetas <greekfetacheese@proton.me>"]
+description = "A seedless, self-custodial Ethereum wallet that just works."
 version = "0.9.52"
 edition = "2024"
 default-run = "zeus"

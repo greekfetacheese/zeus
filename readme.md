@@ -1,6 +1,6 @@
 # <p align="center">Zeus</p>
 
-## <p align="center"><b>A truly seedless and decentralized self-custodial Ethereum wallet.</b></p>
+## <p align="center"><b>A seedless, self-custodial Ethereum wallet that just works.</b></p>
 
 ![Screenshot](src/zeus.png)
  
