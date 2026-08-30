@@ -11,7 +11,7 @@ use crate::utils::RT;
 use eframe::egui::{
    Align2, FontId, Margin, Order, RichText, ScrollArea, Sense, Spinner, Stroke, Ui, vec2,
 };
-use egui_elements::{Button, OverlayManager, SecureTextEdit, Theme, widgets::Window, utils::frame as frame_fn};
+use egui_elements::{Button, Label, OverlayManager, SecureTextEdit, Theme, widgets::Window, utils::frame as frame_fn};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -417,11 +417,12 @@ impl RecipientSelectionWindow {
          if valid_search {
             let res = frame_fn(&mut frame, visuals, ui, |ui| {
                ui.set_width(ui.available_width());
-               let name = RichText::new(contact.name.clone())
+               let text = RichText::new(contact.name.clone())
                   .size(theme.typography.large)
                   .color(theme.colors.text);
                ui.horizontal(|ui| {
-                  ui.label(name);
+                  let label = Label::new(text, None).interactive(false);
+                  ui.add(label);
                });
 
                ui.add_space(6.0);
@@ -502,23 +503,24 @@ impl RecipientSelectionWindow {
             let res = frame_fn(&mut frame, visuals, ui, |ui| {
                ui.set_width(ui.available_width());
                ui.horizontal(|ui| {
-                  let name_text = RichText::new(wallet.name_with_source())
+                  let text = RichText::new(wallet.name_with_source())
                      .size(theme.typography.large)
                      .color(theme.colors.text);
-                  ui.label(name_text);
+                  let label = Label::new(text, None).interactive(false);
+                  ui.add(label);
 
                   ui.add_space(10.0);
 
-                  let value_text = RichText::new(format!("${}", value.abbreviated()))
+                  let text = RichText::new(format!("${}", value.abbreviated()))
                      .size(theme.typography.normal);
-                  ui.label(value_text);
+                  let label = Label::new(text, None).interactive(false);
+                  ui.add(label);
                });
 
                ui.add_space(6.0);
 
                let address_text =
                   RichText::new(&address).size(theme.typography.normal).color(theme.colors.text);
-
                let button = Button::selectable(false, address_text).visuals(theme.button_visuals());
 
                ui.horizontal(|ui| {
