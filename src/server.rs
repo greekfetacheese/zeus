@@ -307,6 +307,15 @@ impl JsonRpcError {
    }
 }
 
+/// True when the user declined a confirm/sign prompt.
+///
+/// Dapps (OpenSea/viem, etc.) retry `-32603` up to 3 times, which re-opens
+/// the confirm UI. EIP-1193 `4001` is not retried.
+fn is_user_rejected(err: &anyhow::Error) -> bool {
+   let msg = err.to_string();
+   msg.contains("Transaction rejected") || msg.contains("You cancelled the signing process")
+}
+
 // Handler for GET /status
 async fn status_handler(ctx: ZeusCtx) -> Result<impl warp::Reply, Infallible> {
    let chain = ctx.chain().id_as_hex();
@@ -1160,12 +1169,21 @@ async fn eth_sign_typed_data_v4(
    {
       Ok(signature) => signature,
       Err(e) => {
+         let rejected = is_user_rejected(&e);
          SHARED_GUI.write(|gui| {
             gui.loading_window.reset();
-            let msg = format!("Error Signing Message: {}", e);
-            gui.msg_window.open(msg);
+            if !rejected {
+               let msg = format!("Error Signing Message: {}", e);
+               gui.msg_window.open(msg);
+            }
             gui.request_repaint();
          });
+         if rejected {
+            return Ok(JsonRpcResponse::error(
+               USER_REJECTED_REQUEST,
+               payload.id,
+            ));
+         }
          error!("Error signing message: {:?}", e);
          return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
       }
@@ -1244,12 +1262,21 @@ async fn personal_sign(
    let signature = match sign_message(ctx, origin, chain, None, Some(full_message), None).await {
       Ok(sig) => sig,
       Err(e) => {
+         let rejected = is_user_rejected(&e);
          SHARED_GUI.write(|gui| {
             gui.loading_window.reset();
-            let msg = format!("Error Signing Message: {}", e);
-            gui.msg_window.open(msg);
+            if !rejected {
+               let msg = format!("Error Signing Message: {}", e);
+               gui.msg_window.open(msg);
+            }
             gui.request_repaint();
          });
+         if rejected {
+            return Ok(JsonRpcResponse::error(
+               USER_REJECTED_REQUEST,
+               payload.id,
+            ));
+         }
          error!("Error signing personal message: {:?}", e);
          return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
       }
@@ -1548,16 +1575,25 @@ async fn eth_send_transaction(
    {
       Ok(res) => res,
       Err(e) => {
+         let rejected = is_user_rejected(&e);
          SHARED_GUI.write(|gui| {
             gui.loading_window.reset();
             gui.notification.reset();
             ctx.write(|ctx| {
                gui.tx_confirmation_window.reset(ctx);
             });
-            let msg = format!("Error Sending Transaction: {}", e);
-            gui.msg_window.open(msg);
+            if !rejected {
+               let msg = format!("Error Sending Transaction: {}", e);
+               gui.msg_window.open(msg);
+            }
             gui.request_repaint();
          });
+         if rejected {
+            return Ok(JsonRpcResponse::error(
+               USER_REJECTED_REQUEST,
+               payload.id,
+            ));
+         }
          error!("Error sending tx: {:?}", e);
          return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
       }
@@ -1946,5 +1982,14 @@ mod connector_auth_tests {
          body._origin.as_deref(),
          Some("https://app.uniswap.org")
       );
+   }
+
+   #[test]
+   fn user_reject_errors_are_detected() {
+      assert!(is_user_rejected(&anyhow!("Transaction rejected")));
+      assert!(is_user_rejected(&anyhow!(
+         "You cancelled the signing process"
+      )));
+      assert!(!is_user_rejected(&anyhow!("RPC timeout")));
    }
 }

@@ -14,13 +14,37 @@ class EventEmitter {
             console.warn(`Zeus: Possible memory leak - ${this.listeners[event].length + 1} listeners added for '${event}'. Use setMaxListeners to increase.`);
         }
         this.listeners[event].push(callback);
-       // console.log(`Zeus: Listener added for event: ${event}`);
+        return this;
+    }
+
+    addListener(event, callback) {
+        return this.on(event, callback);
+    }
+
+    once(event, callback) {
+        const wrapper = (...args) => {
+            this.removeListener(event, wrapper);
+            callback(...args);
+        };
+        return this.on(event, wrapper);
+    }
+
+    removeListener(event, callback) {
+        if (!this.listeners[event]) return this;
+        this.listeners[event] = this.listeners[event].filter(cb => cb !== callback);
+        if (this.listeners[event].length === 0) {
+            delete this.listeners[event];
+        }
+        return this;
+    }
+
+    off(event, callback) {
+        return this.removeListener(event, callback);
     }
 
     emit(event, ...args) {
-       // console.log(`Emitting event: ${event}`, args);
         if (this.listeners[event]) {
-            this.listeners[event].forEach(callback => {
+            this.listeners[event].slice().forEach(callback => {
                 try {
                     callback(...args);
                 } catch (e) {
@@ -28,10 +52,12 @@ class EventEmitter {
                 }
             });
         }
+        return this;
     }
 
     setMaxListeners(n) {
         this.maxListeners = n;
+        return this;
     }
 
     removeAllListeners(event) {
@@ -40,6 +66,7 @@ class EventEmitter {
         } else {
             this.listeners = {};
         }
+        return this;
     }
 }
 
@@ -217,6 +244,18 @@ class ZeusProvider extends EventEmitter {
                        // console.error("Zeus: Failed to get chainId for connect event:", e);
                         this.emit("connect", {});
                     }
+                }
+            }
+
+            // EIP-1193: dapps (Beefy/web3-onboard, etc.) update UI from chainChanged,
+            // not from the wallet_switchEthereumChain result. Emitting only via the
+            // background /status poll is too late and often never arrives (MV3 SW).
+            if (method === 'wallet_switchEthereumChain' || method === 'wallet_addEthereumChain') {
+                const requested = params && params[0] && params[0].chainId;
+                const newChainId = requested || await this.request({ method: 'eth_chainId' });
+                if (newChainId && this._chainId !== newChainId) {
+                    this._chainId = newChainId;
+                    this.emit('chainChanged', newChainId);
                 }
             }
 

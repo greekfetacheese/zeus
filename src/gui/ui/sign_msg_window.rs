@@ -90,7 +90,7 @@ impl SignMsgWindow {
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+            ui.set_max_height(self.size.1);
 
             let button_visuals = theme.button_visuals();
             let text_edit_visuals = theme.text_edit_visuals();
