@@ -32,8 +32,8 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       let frame = Frame2::from_egui(theme.frame2)
          .interactive(true)
          .fill_width(true)
-         .square_corners()
-         .visuals(visuals);
+         .visuals(visuals)
+         .corner_radius(0);
 
       let icon = Lucide::House.size(20.0).color(icon_color).image();
       let home = frame.selected(is_open).show(ui, |ui| {
