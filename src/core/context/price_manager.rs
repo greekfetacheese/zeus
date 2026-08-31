@@ -3,10 +3,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use crate::core::persisted::{PersistedFile, file_path};
 use crate::core::{
-   PoolManagerHandle, ZeusCtx,
-   context::{DEFAULT_POOL_MINIMUM_LIQUIDITY, data_dir},
-   serde_hashmap,
+   PoolManagerHandle, ZeusCtx, context::DEFAULT_POOL_MINIMUM_LIQUIDITY, serde_hashmap,
 };
 use crate::utils::{RT, write_private};
 use zeus_eth::{
@@ -17,8 +16,6 @@ use zeus_eth::{
 };
 
 use tokio::task::JoinHandle;
-
-const PRICE_DATA_FILE: &str = "price_data.json";
 
 /// Time in seconds to wait before updating the base token prices again
 pub const TOKEN_PRICE_UPDATE_INTERVAL: u64 = 600;
@@ -40,7 +37,7 @@ impl PriceManagerHandle {
    }
 
    pub fn load_from_file() -> Result<Self, anyhow::Error> {
-      let dir = data_dir()?.join(PRICE_DATA_FILE);
+      let dir = file_path(PersistedFile::PriceData)?;
       let data = std::fs::read(dir)?;
       let manager = serde_json::from_slice(&data)?;
       Ok(Self(Arc::new(RwLock::new(manager))))
@@ -48,7 +45,7 @@ impl PriceManagerHandle {
 
    pub fn save_to_file(&self) -> Result<(), anyhow::Error> {
       let data = serde_json::to_string(&self.read(|manager| manager.clone()))?;
-      let dir = data_dir()?.join(PRICE_DATA_FILE);
+      let dir = file_path(PersistedFile::PriceData)?;
       write_private(&dir, data.as_bytes())?;
       Ok(())
    }

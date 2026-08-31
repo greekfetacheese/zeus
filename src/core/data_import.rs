@@ -8,6 +8,7 @@
 //! 4. Only then are files written over the destination `data/` directory.
 
 use super::data_export::{archive_rel_parts, is_allowed_archive_parts};
+use super::persisted::PersistedFile;
 use super::{Vault, WalletState};
 use crate::utils::{restrict_dir_to_owner, write_private_from_reader};
 use anyhow::anyhow;
@@ -16,9 +17,6 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use zip::ZipArchive;
-
-const VAULT_NAME: &str = "vault.data";
-const WALLET_STATE_NAME: &str = "wallet_state.data";
 
 /// Files written plus the already-unlocked imported vault.
 pub struct ImportedData {
@@ -102,10 +100,10 @@ fn list_allowed_entries(
          ));
       }
 
-      if parts.as_slice() == [VAULT_NAME] {
+      if parts.as_slice() == [PersistedFile::Vault.name()] {
          has_vault = true;
       }
-      if parts.as_slice() == [WALLET_STATE_NAME] {
+      if parts.as_slice() == [PersistedFile::WalletState.name()] {
          has_wallet_state = true;
       }
 
@@ -129,9 +127,9 @@ fn verify_imported_vault(
    entries: &[(usize, Vec<String>)],
    credentials: Credentials,
 ) -> Result<Vault, anyhow::Error> {
-   let vault_idx =
-      index_of(entries, VAULT_NAME).ok_or_else(|| anyhow!("Archive is missing data/vault.data"))?;
-   let state_idx = index_of(entries, WALLET_STATE_NAME)
+   let vault_idx = index_of(entries, PersistedFile::Vault)
+      .ok_or_else(|| anyhow!("Archive is missing data/vault.data"))?;
+   let state_idx = index_of(entries, PersistedFile::WalletState)
       .ok_or_else(|| anyhow!("Archive is missing data/wallet_state.data"))?;
 
    let vault_bytes = read_entry(archive, vault_idx)?;
@@ -176,14 +174,17 @@ fn read_entry(archive: &mut ZipArchive<File>, index: usize) -> Result<Vec<u8>, a
    Ok(buf)
 }
 
-fn index_of(entries: &[(usize, Vec<String>)], name: &str) -> Option<usize> {
-   entries.iter().find(|(_, parts)| parts.as_slice() == [name]).map(|(i, _)| *i)
+fn index_of(entries: &[(usize, Vec<String>)], file: PersistedFile) -> Option<usize> {
+   entries
+      .iter()
+      .find(|(_, parts)| parts.as_slice() == [file.name()])
+      .map(|(i, _)| *i)
 }
 
 fn write_priority(parts: &[String]) -> u8 {
    match parts {
-      [name] if name == VAULT_NAME => 2,
-      [name] if name == WALLET_STATE_NAME => 1,
+      [name] if name == PersistedFile::Vault.name() => 2,
+      [name] if name == PersistedFile::WalletState.name() => 1,
       _ => 0,
    }
 }

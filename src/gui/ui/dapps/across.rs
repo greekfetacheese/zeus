@@ -1,7 +1,8 @@
 //! UI that allows the user to bridge assets between chains using the Across protocol (https://across.to)
 
 use crate::assets::icons::Icons;
-use crate::core::{ZeusContext, ZeusCtx, data_dir, send_transaction};
+use crate::core::persisted::{PersistedFile, file_path};
+use crate::core::{ZeusContext, ZeusCtx, send_transaction};
 use crate::gui::{
    SHARED_GUI,
    ui::{ChainSelect, ContactsUi, RecipientSelectionWindow, common::AmountField, show_with_fade},
@@ -41,7 +42,6 @@ const TIME_BETWEEN_EACH_REQUEST: u64 = 2;
 /// Timeout for the dest chain block
 const BLOCK_TIMEOUT: u64 = 10;
 
-const SETTINGS_FILE: &str = "across_settings.json";
 const ACROSS_URL: &str = "https://across.to";
 
 const ACROSS_RISK_WARNING: &str = "You can lose funds if Across does not complete the transfer";
@@ -78,7 +78,7 @@ impl Default for Settings {
 }
 
 fn load_settings() -> Result<Settings, anyhow::Error> {
-   let dir = data_dir()?.join(SETTINGS_FILE);
+   let dir = file_path(PersistedFile::AcrossSettings)?;
    let data = std::fs::read(dir)?;
    let settings = serde_json::from_slice(&data)?;
    Ok(settings)
@@ -86,7 +86,7 @@ fn load_settings() -> Result<Settings, anyhow::Error> {
 
 fn save_settings(settings: Settings) -> Result<(), anyhow::Error> {
    let data = serde_json::to_string(&settings)?;
-   let dir = data_dir()?.join(SETTINGS_FILE);
+   let dir = file_path(PersistedFile::AcrossSettings)?;
    write_private(&dir, data.as_bytes())?;
    Ok(())
 }

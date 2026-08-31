@@ -1,4 +1,5 @@
-use crate::core::{WalletStateKey, ZeusCtx, context::data_dir};
+use crate::core::persisted::{PersistedFile, file_path};
+use crate::core::{WalletStateKey, ZeusCtx};
 use crate::utils::{RT, TimeStamp, write_private_atomic};
 use zeus_eth::{
    abi::{
@@ -25,8 +26,6 @@ use std::{
 
 use std::time::Instant;
 use tokio::{sync::Semaphore, time::sleep};
-
-const PROVIDER_DATA_FILE: &str = "providers.data";
 
 /// Bound ciphertext to this logical slot (AAD).
 const PROVIDER_AAD: &[u8] = b"zeus-providers-v1";
@@ -474,7 +473,7 @@ impl ZeusClient {
    }
 
    pub fn dir() -> Result<std::path::PathBuf, anyhow::Error> {
-      Ok(data_dir()?.join(PROVIDER_DATA_FILE))
+      file_path(PersistedFile::Providers)
    }
 
    pub fn exists() -> Result<bool, anyhow::Error> {

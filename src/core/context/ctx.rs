@@ -3,6 +3,7 @@ use super::{
    WalletPortfolio, ZeusClient, price_manager::PriceManagerHandle, tx::TxDBHandle,
 };
 
+use crate::core::persisted::{self, PersistedFile};
 use crate::core::{TransactionRich, WalletState, WalletValue};
 use crate::core::{Vault, WalletInfo, client::Rpc, types::*};
 use crate::server::SERVER_PORT;
@@ -12,7 +13,6 @@ use egui_elements::theme::ThemeKind;
 use ncrypt_me::Argon2;
 use std::{
    collections::{HashMap, HashSet},
-   path::PathBuf,
    str::FromStr,
    sync::{Arc, RwLock},
    time::{Duration, Instant},
@@ -33,72 +33,15 @@ use zeus_eth::{
 };
 use zeus_railgun::{RailgunAddress, RailgunProvider, RailgunSigner, SnapshotLoader};
 
-const SERVER_PORT_FILE: &str = "server_port.json";
-const THEME_FILE: &str = "theme.json";
-const POOL_DATA_FILE: &str = "pool_data.data";
-const BUNDLER_URL_FILE: &str = "bundler_url.data";
-const DISABLED_CHAINS_FILE: &str = "disabled_chains.json";
-pub const RAILGUN_CONFIG_FILE: &str = "railgun_config.json";
+pub use persisted::{
+   bundler_url_dir, data_dir, disabled_chains_dir, pool_data_dir, railgun_config_dir,
+   railgun_db_file, railgun_dir, server_port_dir, theme_kind_dir,
+};
 
 /// This is the minimum USD value in a base currency that a pool needs to have in order to be considered sufficiently liquid
 pub const DEFAULT_POOL_MINIMUM_LIQUIDITY: f64 = 10_000.0;
 
 pub const DELEGATE_WALLET_CHECK_TIMEOUT: u64 = 600;
-
-/// Zeus data directory
-pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = std::env::current_dir()?.join("data");
-
-   if !dir.exists() {
-      std::fs::create_dir_all(dir.clone())?;
-   }
-
-   if let Err(e) = crate::utils::restrict_dir_to_owner(&dir) {
-      tracing::warn!("Failed to restrict data/ permissions: {e}");
-   }
-
-   Ok(dir)
-}
-
-pub fn railgun_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = data_dir()?.join("railgun");
-   if !dir.exists() {
-      std::fs::create_dir_all(dir.clone())?;
-   }
-
-   if let Err(e) = crate::utils::restrict_dir_to_owner(&dir) {
-      tracing::warn!("Failed to restrict data/railgun/ permissions: {e}");
-   }
-
-   Ok(dir)
-}
-
-pub fn railgun_db_file(chain: u64) -> Result<PathBuf, anyhow::Error> {
-   let dir = railgun_dir()?;
-   let file_name = format!("railgun:{}.db", chain);
-   let file = dir.join(file_name);
-   Ok(file)
-}
-
-pub fn theme_kind_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = data_dir()?.join(THEME_FILE);
-   Ok(dir)
-}
-
-pub fn server_port_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = data_dir()?.join(SERVER_PORT_FILE);
-   Ok(dir)
-}
-
-pub fn disabled_chains_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = data_dir()?.join(DISABLED_CHAINS_FILE);
-   Ok(dir)
-}
-
-pub fn railgun_config_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = data_dir()?.join(RAILGUN_CONFIG_FILE);
-   Ok(dir)
-}
 
 pub fn load_server_port() -> Result<u16, anyhow::Error> {
    let dir = server_port_dir()?;
@@ -112,17 +55,6 @@ pub fn load_theme_kind() -> Result<ThemeKind, anyhow::Error> {
    let theme_kind_str = std::fs::read_to_string(dir)?;
    let theme_kind = serde_json::from_str(&theme_kind_str)?;
    Ok(theme_kind)
-}
-
-/// Pool data directory
-pub fn pool_data_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = data_dir()?.join(POOL_DATA_FILE);
-   Ok(dir)
-}
-
-/// Sealed bundler URL file
-pub fn bundler_url_dir() -> Result<PathBuf, anyhow::Error> {
-   Ok(data_dir()?.join(BUNDLER_URL_FILE))
 }
 
 /// Thread-safe handle to the [ZeusContext]
@@ -2048,7 +1980,7 @@ fn tighten_existing_secret_files() {
       pool_data_dir().ok(),
       ZeusClient::dir().ok(),
       bundler_url_dir().ok(),
-      data_dir().ok().map(|dir| dir.join(crate::connector::SESSION_FILE)),
+      persisted::file_path(PersistedFile::Connector).ok(),
    ];
 
    for path in paths.into_iter().flatten() {

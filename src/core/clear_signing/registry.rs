@@ -1,5 +1,7 @@
 use super::descriptor::{self, Descriptor};
-use crate::core::ctx::data_dir;
+use crate::core::persisted::{
+   CLEAR_SIGNING_INDEX_CALLDATA, CLEAR_SIGNING_INDEX_EIP712, PersistedTree, tree_dir,
+};
 use crate::utils::write_private;
 use anyhow::Context;
 use serde_json::Value;
@@ -10,8 +12,8 @@ use zeus_eth::alloy_primitives::{Address, B256, keccak256};
 
 const REGISTRY_BASE: &str =
    "https://raw.githubusercontent.com/ethereum/clear-signing-erc7730-registry/master";
-const EIP712_INDEX_PATH: &str = "index.eip712.json";
-const CALLDATA_INDEX_PATH: &str = "index.calldata.json";
+const EIP712_INDEX_PATH: &str = CLEAR_SIGNING_INDEX_EIP712;
+const CALLDATA_INDEX_PATH: &str = CLEAR_SIGNING_INDEX_CALLDATA;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(3);
 const INDEX_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_INCLUDE_DEPTH: usize = 3;
@@ -28,11 +30,7 @@ fn http_client() -> &'static reqwest::Client {
 }
 
 fn cache_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = data_dir()?.join("clear_signing");
-   if !dir.exists() {
-      std::fs::create_dir_all(&dir)?;
-   }
-   Ok(dir)
+   tree_dir(PersistedTree::ClearSigning)
 }
 
 fn cached_index_path(name: &str) -> Result<PathBuf, anyhow::Error> {

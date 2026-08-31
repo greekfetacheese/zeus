@@ -3,8 +3,9 @@
 //! Token names stay in [`super::CurrencyDB`] — this map is wallets, contacts,
 //! well-known contracts, and names learned from ERC-7730 / Sourcify.
 
+use crate::core::persisted::{PersistedFile, file_path};
 use crate::core::types::Contact;
-use crate::core::{WalletInfo, WalletStateKey, context::data_dir, serde_hashmap};
+use crate::core::{WalletInfo, WalletStateKey, serde_hashmap};
 use crate::utils::write_private_atomic;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -12,7 +13,6 @@ use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::address_book};
 
-const FILE_NAME: &str = "address_book.data";
 const ADDRESS_BOOK_AAD: &[u8] = b"zeus-address-book-v1";
 
 type NameMap = HashMap<(u64, Address), Arc<str>>;
@@ -62,7 +62,7 @@ impl AddressBookHandle {
    }
 
    pub fn dir() -> Result<std::path::PathBuf, anyhow::Error> {
-      Ok(data_dir()?.join(FILE_NAME))
+      file_path(PersistedFile::AddressBook)
    }
 
    pub fn exists() -> Result<bool, anyhow::Error> {

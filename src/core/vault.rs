@@ -1,8 +1,8 @@
 use super::{types::Contact, wallet::*};
 use crate::core::context::{
    ApprovalManagerHandle, BalanceManagerHandle, DiscoveredWallets, PortfolioDB, TxDBHandle,
-   data_dir,
 };
+use crate::core::persisted::{PersistedFile, file_path};
 use crate::core::wallet_state::{WalletStateInner, WalletStateKey};
 use crate::utils::write_private_atomic;
 use anyhow::anyhow;
@@ -20,8 +20,6 @@ use zeus_wallet::{
    SecureHDWallet, Wallet, derive_seed,
    wallet::{M_COST, P_COST, T_COST},
 };
-
-pub const VAULT_FILE: &str = "vault.data";
 
 /// Plaintext vault payload encoding (first byte of decrypted data).
 ///
@@ -667,13 +665,12 @@ impl Vault {
 
    /// Vault directory
    pub fn dir() -> Result<PathBuf, anyhow::Error> {
-      Ok(data_dir()?.join(VAULT_FILE))
+      file_path(PersistedFile::Vault)
    }
 
    /// Is a Vault exists at the data directory
    pub fn exists() -> Result<bool, anyhow::Error> {
-      let dir = data_dir()?.join(VAULT_FILE);
-      Ok(dir.exists())
+      Ok(Self::dir()?.exists())
    }
 }
 

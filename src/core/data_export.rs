@@ -18,45 +18,21 @@
 //!   token_icons/        (optional)
 //! ```
 
+use crate::core::persisted::{
+   DATA_DIR_NAME, ExportPolicy, PersistedFile, PersistedTree, normal_components,
+};
 use crate::utils::restrict_file_to_owner;
 use anyhow::anyhow;
 use std::fs::File;
 use std::io::BufWriter;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use zip::ZipWriter;
 use zip::write::SimpleFileOptions;
 
-/// Files Zeus persists at the root of `data/`.
-///
-/// `connector.json` and the native-messaging host manifest are omitted:
-/// they are machine/session specific and regenerated on start.
-pub const CORE_FILE_NAMES: &[&str] = &[
-   "vault.data",
-   "wallet_state.data",
-   "tokens.data",
-   "pool_data.data",
-   "providers.data",
-   "bundler_url.data",
-   "address_book.data",
-   "price_data.json",
-   "theme.json",
-   "server_port.json",
-   "disabled_chains.json",
-   "railgun_config.json",
-   "across_settings.json",
-];
-
-const CLEAR_SIGNING_DIR: &str = "clear_signing";
-const RAILGUN_DIR: &str = "railgun";
-const TOKEN_ICONS_DIR: &str = "token_icons";
-
-/// Optional trees the user can add on top of the core files.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ExportOptions {
-   pub clear_signing: bool,
-   pub railgun: bool,
-   pub token_icons: bool,
-}
+pub use crate::core::persisted::{
+   ExportOptions, is_allowed_clear_signing_file, is_allowed_railgun_file,
+   is_allowed_rel_parts as is_allowed_archive_parts, is_allowed_token_icon_rel,
+};
 
 /// One file that passed the name check, ready to pack.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,9 +42,13 @@ pub struct ExportEntry {
    pub zip_path: String,
 }
 
-/// Known persisted names at the `data/` root.
+/// Known core persisted names at the `data/` root.
 pub fn persisted_file_names() -> impl Iterator<Item = &'static str> {
-   CORE_FILE_NAMES.iter().copied()
+   PersistedFile::ALL
+      .iter()
+      .copied()
+      .filter(|f| f.export_policy() == ExportPolicy::Core)
+      .map(PersistedFile::name)
 }
 
 /// Collect files under `data_dir` that are allowed for `options`.
@@ -80,32 +60,25 @@ pub fn collect_export_entries(
 ) -> Result<Vec<ExportEntry>, anyhow::Error> {
    let mut entries = Vec::new();
 
-   for name in persisted_file_names() {
-      let abs = data_dir.join(name);
+   for file in PersistedFile::ALL {
+      if file.export_policy() != ExportPolicy::Core {
+         continue;
+      }
+      let abs = data_dir.join(file.name());
       if !is_regular_file(&abs) {
          continue;
       }
-      entries.push(entry_for(abs, Path::new(name))?);
+      entries.push(entry_for(abs, Path::new(file.name()))?);
    }
 
-   if options.clear_signing {
-      collect_flat_dir(
-         data_dir,
-         CLEAR_SIGNING_DIR,
-         is_allowed_clear_signing_file,
-         &mut entries,
-      )?;
-   }
-   if options.railgun {
-      collect_flat_dir(
-         data_dir,
-         RAILGUN_DIR,
-         is_allowed_railgun_file,
-         &mut entries,
-      )?;
-   }
-   if options.token_icons {
-      collect_token_icons(data_dir, &mut entries)?;
+   for tree in PersistedTree::ALL {
+      match tree.export_policy() {
+         ExportPolicy::Never => continue,
+         ExportPolicy::Optional if !options.include_tree(*tree) => continue,
+         ExportPolicy::Optional | ExportPolicy::Core => {
+            collect_tree(data_dir, *tree, &mut entries)?;
+         }
+      }
    }
 
    Ok(entries)
@@ -151,91 +124,21 @@ pub fn export_data_to_zip(
    Ok(entries.len())
 }
 
-pub fn is_allowed_clear_signing_file(name: &str) -> bool {
-   name == "index.eip712.json" || name == "index.calldata.json" || is_keccak256_json(name)
-}
-
-pub fn is_allowed_railgun_file(name: &str) -> bool {
-   if let Some(rest) = name.strip_prefix("railgun:") {
-      return rest.strip_suffix(".db").is_some_and(is_chain_id);
-   }
-   if let Some(rest) = name.strip_prefix("events-snapshot:") {
-      return rest.strip_suffix(".data").is_some_and(is_chain_id)
-         || rest.strip_suffix(".meta").is_some_and(is_chain_id);
-   }
-   false
-}
-
-pub fn is_allowed_token_icon_rel(rel: &Path) -> bool {
-   let Some(parts) = normal_components(rel) else {
-      return false;
-   };
-   if parts.len() != 3 {
-      return false;
-   }
-   is_chain_id(&parts[0]) && is_token_address_dir(&parts[1]) && is_icon_file(&parts[2])
-}
-
 /// Relative path inside the zip after a leading `data/` component.
 pub fn archive_rel_parts(enclosed: &Path) -> Option<Vec<String>> {
    let parts = normal_components(enclosed)?;
-   if parts.first().map(|s| s.as_str()) != Some("data") || parts.len() < 2 {
+   if parts.first().map(|s| s.as_str()) != Some(DATA_DIR_NAME) || parts.len() < 2 {
       return None;
    }
    Some(parts[1..].to_vec())
 }
 
-/// Whether `parts` (relative to `data/`) is a known persisted path.
-pub fn is_allowed_archive_parts(parts: &[String]) -> bool {
-   match parts {
-      [name] => CORE_FILE_NAMES.iter().any(|n| *n == name.as_str()),
-      [dir, name] if dir == CLEAR_SIGNING_DIR => is_allowed_clear_signing_file(name),
-      [dir, name] if dir == RAILGUN_DIR => is_allowed_railgun_file(name),
-      [dir, chain, addr, file] if dir == TOKEN_ICONS_DIR => {
-         is_chain_id(chain) && is_token_address_dir(addr) && is_icon_file(file)
-      }
-      _ => false,
-   }
-}
-
-fn collect_flat_dir(
+fn collect_tree(
    data_dir: &Path,
-   dir_name: &str,
-   allow: fn(&str) -> bool,
+   tree: PersistedTree,
    out: &mut Vec<ExportEntry>,
 ) -> Result<(), anyhow::Error> {
-   let dir = data_dir.join(dir_name);
-   if !dir.is_dir() {
-      return Ok(());
-   }
-
-   let read = match std::fs::read_dir(&dir) {
-      Ok(read) => read,
-      Err(_) => return Ok(()),
-   };
-
-   for entry in read.flatten() {
-      let abs = entry.path();
-      if !is_regular_file(&abs) {
-         continue;
-      }
-      let name = entry.file_name();
-      let Some(name) = name.to_str() else {
-         continue;
-      };
-      if !allow(name) {
-         tracing::warn!("Skipping unknown file in data/{dir_name}: {name}");
-         continue;
-      }
-      let rel = Path::new(dir_name).join(name);
-      out.push(entry_for(abs, &rel)?);
-   }
-
-   Ok(())
-}
-
-fn collect_token_icons(data_dir: &Path, out: &mut Vec<ExportEntry>) -> Result<(), anyhow::Error> {
-   let root = data_dir.join(TOKEN_ICONS_DIR);
+   let root = data_dir.join(tree.dir_name());
    if !root.is_dir() {
       return Ok(());
    }
@@ -247,12 +150,13 @@ fn collect_token_icons(data_dir: &Path, out: &mut Vec<ExportEntry>) -> Result<()
       let Some(rel) = abs.strip_prefix(data_dir).ok().map(|p| p.to_path_buf()) else {
          continue;
       };
-      let Ok(under_icons) = rel.strip_prefix(TOKEN_ICONS_DIR) else {
+      let Ok(under) = rel.strip_prefix(tree.dir_name()) else {
          continue;
       };
-      if !is_allowed_token_icon_rel(under_icons) {
+      if !tree.allows_rel(under) {
          tracing::warn!(
-            "Skipping unknown token icon path: {}",
+            "Skipping unknown file in data/{}: {}",
+            tree.dir_name(),
             rel.display()
          );
          continue;
@@ -294,51 +198,11 @@ fn zip_path_for(rel: &Path) -> Option<String> {
    if parts.is_empty() {
       return None;
    }
-   Some(format!("data/{}", parts.join("/")))
-}
-
-fn normal_components(path: &Path) -> Option<Vec<String>> {
-   let mut parts = Vec::new();
-   for component in path.components() {
-      match component {
-         Component::Normal(s) => {
-            let s = s.to_str()?;
-            if s.is_empty() || s == "." || s == ".." {
-               return None;
-            }
-            parts.push(s.to_string());
-         }
-         Component::CurDir => {}
-         _ => return None,
-      }
-   }
-   Some(parts)
+   Some(format!("{}/{}", DATA_DIR_NAME, parts.join("/")))
 }
 
 fn is_regular_file(path: &Path) -> bool {
    path.symlink_metadata().map(|m| m.file_type().is_file()).unwrap_or(false)
-}
-
-fn is_chain_id(s: &str) -> bool {
-   !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
-}
-
-fn is_keccak256_json(name: &str) -> bool {
-   let Some(stem) = name.strip_suffix(".json") else {
-      return false;
-   };
-   stem.len() == 64 && stem.chars().all(|c| c.is_ascii_hexdigit())
-}
-
-fn is_token_address_dir(s: &str) -> bool {
-   let Some(hex) = s.strip_prefix("0x") else {
-      return false;
-   };
-   hex.len() == 40 && hex.chars().all(|c| c.is_ascii_hexdigit())
-}
-
-fn is_icon_file(name: &str) -> bool {
-   name == "x32.png" || name == "x24.png"
 }
 
 #[cfg(test)]

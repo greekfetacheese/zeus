@@ -3,6 +3,7 @@
 use crate::core::{
    data_dir,
    data_export::{ExportOptions, export_data_to_zip},
+   persisted::{ExportPolicy, PersistedTree},
 };
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
@@ -89,16 +90,13 @@ impl ExportDataUi {
                ui.label(text);
 
                ui.vertical(|ui| {
-                  let text =
-                     RichText::new("Include clear signing cache").size(theme.typography.normal);
-                  ui.checkbox(&mut self.options.clear_signing, text);
-
-                  let text = RichText::new("Include Railgun data").size(theme.typography.normal);
-                  ui.checkbox(&mut self.options.railgun, text);
-
-                  let text =
-                     RichText::new("Include downloaded token icons").size(theme.typography.normal);
-                  ui.checkbox(&mut self.options.token_icons, text);
+                  for tree in PersistedTree::ALL {
+                     if tree.export_policy() != ExportPolicy::Optional {
+                        continue;
+                     }
+                     let text = RichText::new(tree.export_label()).size(theme.typography.normal);
+                     ui.checkbox(self.options.flag_mut(*tree), text);
+                  }
                });
 
                ui.add_space(20.0);

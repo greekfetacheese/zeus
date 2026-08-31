@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-use crate::core::{WalletStateKey, context::data_dir, serde_hashmap};
+use crate::core::persisted::{PersistedFile, file_path};
+use crate::core::{WalletStateKey, serde_hashmap};
 use crate::embedded::TOKEN_DATA;
 use crate::utils::write_private_atomic;
 
@@ -12,8 +13,6 @@ use zeus_eth::{
 };
 
 use bincode_next::{Decode, Encode, config::standard, decode_from_slice};
-
-const FILE_NAME: &str = "tokens.data";
 
 /// Bound ciphertext to this logical slot (AAD).
 const CURRENCY_DB_AAD: &[u8] = b"zeus-currency-db-v1";
@@ -75,7 +74,7 @@ impl CurrencyDB {
    }
 
    pub fn dir() -> Result<std::path::PathBuf, anyhow::Error> {
-      Ok(data_dir()?.join(FILE_NAME))
+      file_path(PersistedFile::Tokens)
    }
 
    pub fn exists() -> Result<bool, anyhow::Error> {

@@ -6,8 +6,8 @@
 
 use crate::core::context::{
    ApprovalManagerHandle, BalanceManagerHandle, DiscoveredWallets, PortfolioDB, TxDBHandle,
-   data_dir,
 };
+use crate::core::persisted::{PersistedFile, file_path};
 use crate::core::types::Contact;
 use crate::utils::write_private_atomic;
 use anyhow::anyhow;
@@ -22,8 +22,6 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-
-pub const WALLET_STATE_FILE: &str = "wallet_state.data";
 
 /// Bound ciphertext to this logical slot (AAD).
 const WALLET_STATE_AAD: &[u8] = b"zeus-wallet-state-v1";
@@ -250,7 +248,7 @@ impl WalletState {
    }
 
    pub fn dir() -> Result<PathBuf, anyhow::Error> {
-      Ok(data_dir()?.join(WALLET_STATE_FILE))
+      file_path(PersistedFile::WalletState)
    }
 
    pub fn exists() -> Result<bool, anyhow::Error> {

@@ -5,7 +5,7 @@
 //! Zeus. A per-session pairing token in a user-only file, delivered to the
 //! extension via native messaging, is the capability secret.
 
-use crate::core::context::ctx::data_dir;
+use crate::core::persisted::{PersistedFile, file_path};
 use anyhow::anyhow;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,6 @@ use zeus_eth::alloy_primitives::hex;
 pub const TOKEN_HEADER: &str = "x-zeus-token";
 pub const ORIGIN_HEADER: &str = "x-zeus-origin";
 pub const NATIVE_HOST_NAME: &str = "io.github.zeus_wallet";
-pub const SESSION_FILE: &str = "connector.json";
 /// Pinned unpacked-extension id (`key` in `wallet-connector/manifest.json`).
 pub const EXTENSION_ID: &str = "iolkcnlbibolmedkdoffgaeabhimikai";
 
@@ -78,7 +77,7 @@ pub fn parse_dapp_origin(raw: &str) -> Result<String, anyhow::Error> {
 }
 
 pub fn connector_session_path() -> Result<PathBuf, anyhow::Error> {
-   Ok(data_dir()?.join(SESSION_FILE))
+   file_path(PersistedFile::Connector)
 }
 
 pub fn write_connector_session(
@@ -159,10 +158,11 @@ pub fn register_native_host(exe_path: &Path, workdir: &Path) -> Result<(), anyho
       "allowed_origins": [format!("chrome-extension://{EXTENSION_ID}/")],
    });
    let body = serde_json::to_vec_pretty(&manifest)?;
-   let file_name = format!("{NATIVE_HOST_NAME}.json");
+   let file_name = PersistedFile::NativeHostManifest.name();
+   debug_assert_eq!(file_name, format!("{NATIVE_HOST_NAME}.json"));
    // Stable copy next to the wrapper. Chrome on Windows discovers hosts via
    // HKCU, so this path is what the registry value points at.
-   let manifest_path = data_dir()?.join(&file_name);
+   let manifest_path = file_path(PersistedFile::NativeHostManifest)?;
    std::fs::write(&manifest_path, &body)?;
 
    for dir in native_host_dirs() {
@@ -192,14 +192,12 @@ fn shell_single_quote(s: &str) -> String {
 }
 
 fn write_native_host_wrapper(exe: &Path, workdir: &Path) -> Result<PathBuf, anyhow::Error> {
-   let dir = data_dir()?;
-
    #[cfg(unix)]
    {
       use std::io::Write;
       use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
-      let path = dir.join("zeus_connector_host.sh");
+      let path = file_path(PersistedFile::NativeHostWrapperUnix)?;
       let script = format!(
          "#!/bin/sh\ncd {cwd} || exit 1\nexec {exe} --native-messaging-host\n",
          cwd = shell_single_quote(&workdir.to_string_lossy()),
@@ -222,7 +220,7 @@ fn write_native_host_wrapper(exe: &Path, workdir: &Path) -> Result<PathBuf, anyh
 
    #[cfg(windows)]
    {
-      let path = dir.join("zeus_connector_host.cmd");
+      let path = file_path(PersistedFile::NativeHostWrapperWindows)?;
       let script = format!(
          "@echo off\r\ncd /d \"{}\"\r\n\"{}\" --native-messaging-host\r\n",
          workdir.to_string_lossy().replace('"', ""),

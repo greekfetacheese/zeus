@@ -1,17 +1,11 @@
-use crate::core::context::data_dir;
+use crate::core::persisted::{PersistedTree, TOKEN_ICON_X24, TOKEN_ICON_X32, tree_dir};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use zeus_eth::alloy_primitives::Address;
 
-const DIR_NAME: &str = "token_icons";
-
 fn token_icons_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = data_dir()?.join(DIR_NAME);
-   if !dir.exists() {
-      std::fs::create_dir_all(&dir)?;
-   }
-   Ok(dir)
+   tree_dir(PersistedTree::TokenIcons)
 }
 
 fn icon_dir(chain_id: u64, address: Address) -> Result<PathBuf, anyhow::Error> {
@@ -26,8 +20,8 @@ pub fn save_token_icon(
 ) -> Result<(), anyhow::Error> {
    let dir = icon_dir(chain_id, address)?;
    std::fs::create_dir_all(&dir)?;
-   std::fs::write(dir.join("x32.png"), x32)?;
-   std::fs::write(dir.join("x24.png"), x24)?;
+   std::fs::write(dir.join(TOKEN_ICON_X32), x32)?;
+   std::fs::write(dir.join(TOKEN_ICON_X24), x24)?;
    Ok(())
 }
 
@@ -72,8 +66,8 @@ pub fn load_downloaded_icons() -> HashMap<(Address, u64), (Vec<u8>, Vec<u8>)> {
             continue;
          };
 
-         let x32_path = token_entry.path().join("x32.png");
-         let x24_path = token_entry.path().join("x24.png");
+         let x32_path = token_entry.path().join(TOKEN_ICON_X32);
+         let x24_path = token_entry.path().join(TOKEN_ICON_X24);
          let (Ok(x32), Ok(x24)) = (std::fs::read(x32_path), std::fs::read(x24_path)) else {
             continue;
          };
