@@ -7,7 +7,7 @@ use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::gui::ui::settings::ImportDataUi;
 use crate::utils::RT;
-use eframe::egui::{Align2, FontId, Margin, RichText, Ui, Window, vec2};
+use egui::{Align2, FontId, Margin, RichText, Ui, Window, vec2};
 use egui_elements::{Button, CredentialsForm, Label, SecureTextEdit, Theme};
 use ncrypt_me::{Argon2, Credentials, zeroize::Zeroize};
 use std::time::Instant;

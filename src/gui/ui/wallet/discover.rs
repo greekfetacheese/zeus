@@ -4,7 +4,7 @@ use crate::assets::Icons;
 use crate::core::{DiscoveredWallets, WalletPortfolio, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use eframe::egui::{
+use egui::{
    Align, Align2, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner, Stroke,
    Ui, Vec2, vec2,
 };

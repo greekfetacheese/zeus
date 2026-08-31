@@ -10,7 +10,7 @@ use crate::utils::{
    RT, TimeStamp,
    self_update::{UpdateInfo, restart_app, update_zeus},
 };
-use eframe::egui::{Align2, RichText, Spinner, Ui, Vec2, vec2};
+use egui::{Align2, RichText, Spinner, Ui, Vec2, vec2};
 use egui::{Align, Layout, Order};
 
 use egui_elements::{Button, Modal, OverlayManager, Theme};

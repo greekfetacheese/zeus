@@ -1,4 +1,4 @@
-use eframe::egui::{
+use egui::{
    Align, Align2, Checkbox, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText, Stroke,
    Ui, vec2,
 };

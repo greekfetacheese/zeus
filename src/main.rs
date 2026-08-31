@@ -1,12 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use eframe::{
-   egui,
-   egui_wgpu::{WgpuConfiguration, WgpuSetup, WgpuSetupCreateNew},
-   wgpu::{self, InstanceDescriptor, MemoryHints, Trace},
-};
+use egui_miniquad as egui_mq;
 use gui::app::ZeusApp;
-use std::sync::Arc;
+use miniquad as mq;
 
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::Registry;
@@ -26,10 +22,66 @@ pub mod utils;
 
 use std::panic;
 
-fn main() -> eframe::Result {
+fn main() {
    // Native messaging uses stdin/stdout. Must run before any tracing to stdout,
    // and must NEVER fall through into the GUI, Brave/Chrome spawn this process
    // on every sendNativeMessage and kill it when the handshake ends.
+   if connector::is_native_messaging_invocation() {
+      if let Err(e) = connector::run_native_messaging_host() {
+         eprintln!("zeus connector host: {e}");
+         std::process::exit(1);
+      }
+      return;
+   }
+
+   let _tracing_guard = setup_tracing();
+
+   cleanup_old_logs();
+
+   panic::set_hook(Box::new(|panic_info| {
+      let message = panic_info.payload().downcast_ref::<&str>().map_or("Unknown panic", |s| s);
+      let location = panic_info.location().map_or("Unknown location".to_string(), |loc| {
+         format!("{}:{}:{}", loc.file(), loc.line(), loc.column())
+      });
+      tracing::error!("Panic occurred: '{}' at {}", message, location);
+   }));
+
+   let current_version = self_update::cargo_crate_version!().to_string();
+
+   #[cfg(feature = "dev")]
+   let title = format!("Zeus {} (dev build)", current_version);
+
+   #[cfg(not(feature = "dev"))]
+   let title = format!("Zeus {}", current_version);
+
+   let conf = mq::conf::Conf {
+      window_title: title,
+      high_dpi: true,
+      window_width: 1280,
+      window_height: 900,
+      window_resizable: true,
+      platform: mq::conf::Platform {
+         blocking_event_loop: true,
+         linux_wm_class: "zeus",
+         ..Default::default()
+      },
+      ..Default::default()
+   };
+
+   mq::start(conf, || Box::new(Stage::new()));
+}
+
+/*
+// eframe + wgpu backend (kept for rollback)
+
+use eframe::{
+   egui,
+   egui_wgpu::{WgpuConfiguration, WgpuSetup, WgpuSetupCreateNew},
+   wgpu::{self, InstanceDescriptor, MemoryHints, Trace},
+};
+use std::sync::Arc;
+
+fn main() -> eframe::Result {
    if connector::is_native_messaging_invocation() {
       if let Err(e) = connector::run_native_messaging_host() {
          eprintln!("zeus connector host: {e}");
@@ -39,9 +91,7 @@ fn main() -> eframe::Result {
    }
 
    let _tracing_guard = setup_tracing();
-
    cleanup_old_logs();
-
    panic::set_hook(Box::new(|panic_info| {
       let message = panic_info.payload().downcast_ref::<&str>().map_or("Unknown panic", |s| s);
       let location = panic_info.location().map_or("Unknown location".to_string(), |loc| {
@@ -72,7 +122,6 @@ fn main() -> eframe::Result {
          .with_min_inner_size([1280.0, 900.0])
          .with_transparent(false)
          .with_resizable(true),
-
       ..Default::default()
    };
 
@@ -89,9 +138,7 @@ fn main() -> eframe::Result {
       options,
       Box::new(|cc| {
          egui_extras::install_image_loaders(&cc.egui_ctx);
-
          let app = ZeusApp::new(cc);
-
          Ok(Box::new(app))
       }),
    )
@@ -127,6 +174,107 @@ fn wgpu_device_descriptor(adapter: &wgpu::Adapter) -> wgpu::DeviceDescriptor<'st
       memory_hints: MemoryHints::MemoryUsage,
       trace: Trace::Off,
       ..Default::default()
+   }
+}
+*/
+
+/// miniquad + egui-miniquad backend (see `examples/demo.rs` in egui-miniquad).
+struct Stage {
+   egui_mq: egui_mq::EguiMq,
+   mq_ctx: Box<dyn mq::RenderingBackend>,
+   app: ZeusApp,
+}
+
+impl Stage {
+   fn new() -> Self {
+      let mut mq_ctx = mq::window::new_rendering_backend();
+      let egui_mq = egui_mq::EguiMq::new(&mut *mq_ctx);
+      let egui_ctx = egui_mq.egui_ctx().clone();
+
+      // Wake the blocking event loop when workers call `request_repaint()`.
+      egui_ctx.set_request_repaint_callback(|_| {
+         mq::window::schedule_update();
+      });
+
+      egui_extras::install_image_loaders(&egui_ctx);
+
+      let app = ZeusApp::new(&egui_ctx);
+
+      Self {
+         egui_mq,
+         mq_ctx,
+         app,
+      }
+   }
+
+   fn wake() {
+      mq::window::schedule_update();
+   }
+}
+
+impl mq::EventHandler for Stage {
+   fn update(&mut self) {}
+
+   fn draw(&mut self) {
+      if self.app.should_quit() {
+         mq::window::order_quit();
+         return;
+      }
+
+      self.mq_ctx.begin_default_pass(mq::PassAction::clear_color(0.0, 0.0, 0.0, 1.0));
+      self.mq_ctx.end_render_pass();
+
+      self.egui_mq.run(&mut *self.mq_ctx, |_mq_ctx, ui| {
+         self.app.ui(ui);
+      });
+
+      self.egui_mq.draw(&mut *self.mq_ctx);
+      self.mq_ctx.commit_frame();
+   }
+
+   fn resize_event(&mut self, _width: f32, _height: f32) {
+      Self::wake();
+   }
+
+   fn mouse_motion_event(&mut self, x: f32, y: f32) {
+      self.egui_mq.mouse_motion_event(x, y);
+      Self::wake();
+   }
+
+   fn mouse_wheel_event(&mut self, dx: f32, dy: f32) {
+      self.egui_mq.mouse_wheel_event(dx, dy);
+      Self::wake();
+   }
+
+   fn mouse_button_down_event(&mut self, mb: mq::MouseButton, x: f32, y: f32) {
+      self.egui_mq.mouse_button_down_event(mb, x, y);
+      Self::wake();
+   }
+
+   fn mouse_button_up_event(&mut self, mb: mq::MouseButton, x: f32, y: f32) {
+      self.egui_mq.mouse_button_up_event(mb, x, y);
+      Self::wake();
+   }
+
+   fn char_event(&mut self, character: char, _keymods: mq::KeyMods, _repeat: bool) {
+      self.egui_mq.char_event(character);
+      Self::wake();
+   }
+
+   fn key_down_event(&mut self, keycode: mq::KeyCode, keymods: mq::KeyMods, _repeat: bool) {
+      self.egui_mq.key_down_event(keycode, keymods);
+      Self::wake();
+   }
+
+   fn key_up_event(&mut self, keycode: mq::KeyCode, keymods: mq::KeyMods) {
+      self.egui_mq.key_up_event(keycode, keymods);
+      Self::wake();
+   }
+
+   fn quit_requested_event(&mut self) {
+      mq::window::cancel_quit();
+      self.app.request_close();
+      Self::wake();
    }
 }
 

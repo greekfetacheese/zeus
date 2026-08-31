@@ -1,6 +1,6 @@
 //! A Window that allows the user to select a token
 
-use eframe::egui::{
+use egui::{
    Align, Align2, FontId, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Sense, Spinner,
    Stroke, Ui, emath::Vec2b, vec2,
 };

@@ -2,7 +2,7 @@
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
-use eframe::egui::{RichText, Sense, Ui, Vec2};
+use egui::{RichText, Sense, Ui, Vec2};
 use std::sync::Arc;
 
 use egui_elements::{ComboBox, Label, Theme};

@@ -1,6 +1,6 @@
 use crate::core::ZeusContext;
 use crate::gui::{GUI, ui::dapps::railgun::RailgunMode};
-use eframe::egui::{Align2, Order, RichText, ScrollArea, Ui, vec2};
+use egui::{Align2, Order, RichText, ScrollArea, Ui, vec2};
 use egui::{FontId, Margin, Shadow, Stroke};
 use egui_elements::{
    Button, Frame as Frame2, Label, OverlayManager, SecureTextEdit, Theme, widgets::Window,

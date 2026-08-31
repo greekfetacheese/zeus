@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-use eframe::egui::{
+use egui::{
    ColorImage, Context, Image, ImageSource, Sense, TextureHandle, Vec2,
    epaint::textures::TextureOptions,
 };

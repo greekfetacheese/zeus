@@ -6,7 +6,7 @@
 
 use crate::assets::Icons;
 use crate::core::ZeusContext;
-use eframe::egui::{Align2, Order, RichText, Stroke, Ui, vec2};
+use egui::{Align2, Order, RichText, Stroke, Ui, vec2};
 
 use egui_elements::{Button, OverlayManager, Theme, widgets::Window};
 

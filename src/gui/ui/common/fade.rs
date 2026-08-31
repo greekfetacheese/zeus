@@ -22,7 +22,7 @@
 //! immediately. Only repeated closed-frame ticks drive the value back to 0 so
 //! the next open can fade in.
 
-use eframe::egui::{Id, Ui, emath};
+use egui::{Id, Ui, emath};
 
 /// Fade-in opacity for a panel. Close is instant (never paints while closed).
 ///

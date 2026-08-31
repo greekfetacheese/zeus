@@ -1,6 +1,6 @@
 use crate::core::ZeusContext;
 use crate::gui::GUI;
-use eframe::egui::{RichText, Stroke, Ui, vec2};
+use egui::{RichText, Stroke, Ui, vec2};
 use egui_elements::{OverlayManager, Theme, widgets::Window};
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {

@@ -43,7 +43,10 @@ default-run = "zeus"
 [dependencies]
 
 # GUI
-eframe = { version = "=0.36", features = ["wgpu"] }
+# crates.io 0.16.0 pins egui 0.31; vendor is git master bumped to egui 0.36.
+egui-miniquad = { path = "vendor/egui-miniquad" }
+miniquad = "0.4.11"
+# eframe = { version = "=0.36", features = ["wgpu"] } # rollback: eframe + wgpu backend
 egui = { version = "=0.36", features = ["serde"] }
 egui_extras = { version = "=0.36", features = ["image", "svg"] }
 image = "=0.25.10"

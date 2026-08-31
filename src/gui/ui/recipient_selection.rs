@@ -8,7 +8,7 @@ use crate::core::{
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::ContactsUi;
 use crate::utils::RT;
-use eframe::egui::{
+use egui::{
    Align2, FontId, Margin, Order, RichText, ScrollArea, Sense, Spinner, Stroke, Ui, vec2,
 };
 use egui_elements::{

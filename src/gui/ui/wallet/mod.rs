@@ -2,7 +2,7 @@ use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::{SHARED_GUI, dots_button, ui::show_with_fade};
 use crate::utils::RT;
-use eframe::egui::{
+use egui::{
    Align, Align2, Context, FontId, Layout, Margin, Order, RichText, ScrollArea, Spinner, Stroke,
    Ui, Vec2, vec2,
 };

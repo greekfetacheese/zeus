@@ -4,7 +4,7 @@ use crate::assets::icons::Icons;
 use crate::core::{ZeusContext, ZeusCtx, client::Rpc};
 use crate::gui::{SHARED_GUI, ui::ChainSelect};
 use crate::utils::{RT, state};
-use eframe::egui::{
+use egui::{
    Align, Align2, CornerRadius, CursorIcon, FontId, Layout, Margin, Order, RichText, ScrollArea,
    Slider, Spinner, Stroke, Ui, vec2,
 };

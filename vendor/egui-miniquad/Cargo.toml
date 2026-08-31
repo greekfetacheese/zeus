@@ -1,0 +1,32 @@
+# Vendored from https://github.com/not-fl3/egui-miniquad (master @ 47417e0)
+# crates.io 0.16.0 still depends on egui 0.31; git master already uses egui 0.36
+# APIs (`Context::run_ui`) but still declares 0.35. Bumped here so Zeus can
+# share a single egui 0.36 tree. Drop this vendor when crates.io catches up.
+
+[package]
+name = "egui-miniquad"
+version = "0.16.0"
+authors = [
+  "Logachev Fedor <not.fl3@gmail.com>",
+  "Emil Ernerfeldt <emil.ernerfeldt@gmail.com>",
+]
+description = "Bindings between egui and miniquad"
+edition = "2021"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+homepage = "https://github.com/not-fl3/egui-miniquad"
+repository = "https://github.com/not-fl3/egui-miniquad"
+categories = ["gui", "game-development"]
+keywords = ["gui", "imgui", "immediate", "portable", "gamedev"]
+
+[dependencies]
+bytemuck = "1.25"
+egui = { version = "0.36", features = ["bytemuck"] }
+log = "0.4"
+miniquad = { version = "0.4.11" }
+quad-url = "0.1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2.7", features = ["custom"] }
+quad-rand = "0.2.3"

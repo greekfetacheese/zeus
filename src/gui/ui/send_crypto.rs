@@ -1,7 +1,7 @@
 //! UI that allows the user to send ETH or ERC20 tokens (public) or private
 //! Railgun (zk → zk) transfers when privacy mode is enabled.
 
-use eframe::egui::{CursorIcon, FontId, Frame, Margin, OpenUrl, RichText, Ui, vec2};
+use egui::{CursorIcon, FontId, Frame, Margin, OpenUrl, RichText, Ui, vec2};
 
 use std::{
    collections::HashMap,

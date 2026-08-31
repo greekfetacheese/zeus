@@ -10,10 +10,6 @@ use crate::utils::{
    self_update::check_for_updates,
    state::{on_startup, test_and_measure_rpcs},
 };
-use eframe::{
-   CreationContext,
-   egui::{self, Frame},
-};
 use egui_elements::overlay::OverlayManager;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,16 +23,18 @@ pub struct ZeusApp {
    allow_close: Arc<AtomicBool>,
    /// Prevents spawning multiple shutdown tasks while cleanup is in flight.
    shutdown_started: bool,
+   /// Set when the window close button is clicked (miniquad quit_requested).
+   close_requested: bool,
 }
 
 impl ZeusApp {
-   pub fn new(cc: &CreationContext) -> Self {
+   pub fn new(egui_ctx: &egui::Context) -> Self {
       let time = std::time::Instant::now();
-      let egui_ctx = cc.egui_ctx.clone();
+      let egui_ctx = egui_ctx.clone();
 
       setup_fonts(&egui_ctx);
 
-      let icons = Icons::new(&cc.egui_ctx).unwrap();
+      let icons = Icons::new(&egui_ctx).unwrap();
       let icons = Arc::new(icons);
 
       SHARED_GUI.write(|shared_gui| {
@@ -106,20 +104,31 @@ impl ZeusApp {
          ctx,
          allow_close: Arc::new(AtomicBool::new(false)),
          shutdown_started: false,
+         close_requested: false,
       }
    }
 
+   pub fn request_close(&mut self) {
+      self.close_requested = true;
+   }
+
+   pub fn should_quit(&self) -> bool {
+      self.allow_close.load(Ordering::SeqCst)
+   }
+
    fn on_shutdown(&mut self, ctx: &egui::Context) {
-      if !ctx.input(|i| i.viewport().close_requested()) {
+      if !self.close_requested {
          return;
       }
 
-      // Final close after cleanup finished, do not cancel.
+      // Final close after cleanup finished — Stage::draw will order_quit.
       if self.allow_close.load(Ordering::SeqCst) {
          return;
       }
 
-      ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+      // eframe rollback:
+      // if !ctx.input(|i| i.viewport().close_requested()) { return; }
+      // ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
 
       if self.shutdown_started {
          return;
@@ -206,21 +215,28 @@ impl ZeusApp {
             gui.request_repaint();
          });
 
-         // Allow the next close_requested through, then re-request close.
+         // Allow the next close_requested through, then quit from Stage::draw.
          allow_close.store(true, Ordering::SeqCst);
-         egui_ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+         // eframe rollback:
+         // egui_ctx.send_viewport_cmd(egui::ViewportCommand::Close);
          egui_ctx.request_repaint();
          tracing::info!("Shutdown command sent");
       });
    }
-}
 
-impl eframe::App for ZeusApp {
-   fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-      egui::Rgba::TRANSPARENT.to_array()
+   /*
+   impl eframe::App for ZeusApp {
+      fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+         egui::Rgba::TRANSPARENT.to_array()
+      }
+
+      fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+         self.ui(ui);
+      }
    }
+   */
 
-   fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+   pub fn ui(&mut self, ui: &mut Ui) {
       #[cfg(feature = "dev")]
       let time = std::time::Instant::now();
 

@@ -1,4 +1,4 @@
-use eframe::egui::{Align2, Frame, Order, RichText, ScrollArea, Ui, Window, vec2};
+use egui::{Align2, Frame, Order, RichText, ScrollArea, Ui, Window, vec2};
 
 use crate::assets::Icons;
 use crate::core::clear_signing::ClearDisplay;

@@ -9,7 +9,7 @@ use crate::gui::{
    ui::{TokenSelectionWindow, common::show_with_fade},
 };
 use crate::utils::RT;
-use eframe::egui::{
+use egui::{
    Align, CornerRadius, CursorIcon, Frame, Layout, Margin, RichText, ScrollArea, Spinner, Ui, Vec2,
    vec2,
 };
