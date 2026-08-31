@@ -127,9 +127,12 @@ async function pollServerStatus() {
         const originsJson = JSON.stringify(currentOrigins);
 
         const accountsJson = JSON.stringify(currentAccounts.slice().sort());
-        const chainIdChanged = lastKnownChainId !== currentChainId;
-        const accountsChanged = lastKnownAccounts !== accountsJson;
-        const originsChanged = lastKnownConnectedOrigins !== originsJson;
+        const previousOriginsJson = lastKnownConnectedOrigins;
+        const previousAccounts = lastKnownAccounts;
+        const previousChainId = lastKnownChainId;
+        const chainIdChanged = previousChainId !== currentChainId;
+        const accountsChanged = previousAccounts !== accountsJson;
+        const originsChanged = previousOriginsJson !== originsJson;
 
         lastKnownChainId = currentChainId;
         lastKnownAccounts = accountsJson;
@@ -144,7 +147,7 @@ async function pollServerStatus() {
             chrome.tabs.query({ url: ["http://*/*", "https://*/*"] }, (tabs) => {
                 tabs.forEach(tab => {
                     const tabOrigin = new URL(tab.url).origin;
-                    const wasConnected = JSON.parse(lastKnownConnectedOrigins).includes(tabOrigin);
+                    const wasConnected = JSON.parse(previousOriginsJson).includes(tabOrigin);
                     const isConnected = currentOrigins.includes(tabOrigin);
 
                     if (originsChanged) {

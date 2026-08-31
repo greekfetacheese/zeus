@@ -47,6 +47,10 @@ impl ConfirmWindow {
       }
       self.open = true;
       self.msg = msg.into();
+      self.msg2 = None;
+      // Previous Confirm/Reject must not auto-approve the next prompt
+      // (connect and switch share this window).
+      self.confirm = None;
    }
 
    pub fn close(&mut self) {

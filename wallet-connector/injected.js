@@ -129,6 +129,15 @@ window.addEventListener("message", (event) => {
 });
 
 const FIVE_MINUTES = 60000 * 5;
+const ZEUS_PROVIDER_UUID = crypto.randomUUID();
+
+function accountsFromPermissions(result) {
+    if (!Array.isArray(result)) return [];
+    const perm = result.find(p => p && p.parentCapability === 'eth_accounts');
+    if (!perm || !Array.isArray(perm.caveats)) return [];
+    const caveat = perm.caveats.find(c => c && c.type === 'restrictReturnedAccounts');
+    return (caveat && Array.isArray(caveat.value)) ? caveat.value : [];
+}
 
 function backgroundFetch(url, options) {
     return new Promise((resolve, reject) => {
@@ -163,13 +172,16 @@ class ZeusProvider extends EventEmitter {
         this.setMaxListeners(MAX_LISTENERS);
         this._initializeState();
         this._announceProvider();
+        window.addEventListener("eip6963:requestProvider", () => {
+            this._announceProvider();
+        });
     }
 
     _announceProvider() {
         const announceEvent = new CustomEvent("eip6963:announceProvider", {
             detail: Object.freeze({
                 info: {
-                    uuid: crypto.randomUUID(),
+                    uuid: ZEUS_PROVIDER_UUID,
                     name: "Zeus Wallet",
                     icon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50' y='50' font-size='50' text-anchor='middle' dy='.3em'%3E⚡%3C/text%3E%3C/svg%3E",
                     rdns: "io.github.zeus-wallet"
@@ -178,9 +190,6 @@ class ZeusProvider extends EventEmitter {
             })
         });
         window.dispatchEvent(announceEvent);
-        window.addEventListener("eip6963:requestProvider", (event) => {
-            this._announceProvider();
-        });
     }
 
     async _initializeState() {
@@ -201,6 +210,28 @@ class ZeusProvider extends EventEmitter {
 
     isConnected() {
         return this._isConnected;
+    }
+
+    async _applyAccounts(newAccounts) {
+        const currentAccountsJson = JSON.stringify(this._accounts || []);
+        const newAccountsJson = JSON.stringify(newAccounts);
+        const wasConnected = this._isConnected;
+        this._accounts = newAccounts;
+        this._isConnected = newAccounts.length > 0;
+
+        if (currentAccountsJson !== newAccountsJson) {
+            this.emit('accountsChanged', newAccounts);
+        }
+
+        if (!wasConnected && this._isConnected) {
+            try {
+                const chainData = await this.request({ method: 'eth_chainId' });
+                this._chainId = chainData;
+                this.emit("connect", { chainId: this._chainId });
+            } catch (e) {
+                this.emit("connect", {});
+            }
+        }
     }
 
     async request({ method, params }) {
@@ -228,21 +259,18 @@ class ZeusProvider extends EventEmitter {
 
             const result = response.result;
 
-            if (method === 'eth_requestAccounts' || method === 'wallet_requestPermissions') {
-                const newAccounts = result || [];
-                const wasConnected = this._isConnected;
-                this._accounts = newAccounts;
-                this._isConnected = newAccounts.length > 0;
-
-                if (!wasConnected && this._isConnected) {
+            if (method === 'eth_requestAccounts') {
+                await this._applyAccounts(Array.isArray(result) ? result : []);
+            } else if (method === 'wallet_requestPermissions') {
+                const fromPerms = accountsFromPermissions(result);
+                if (fromPerms.length > 0) {
+                    await this._applyAccounts(fromPerms);
+                } else {
                     try {
-                        const chainData = await this.request({ method: 'eth_chainId' });
-                        this._chainId = chainData;
-                        this.emit("connect", { chainId: this._chainId });
-                       // console.log("Zeus: Emitted 'connect' event.", { chainId: this._chainId });
+                        const accounts = await this.request({ method: 'eth_accounts' });
+                        await this._applyAccounts(Array.isArray(accounts) ? accounts : []);
                     } catch (e) {
-                       // console.error("Zeus: Failed to get chainId for connect event:", e);
-                        this.emit("connect", {});
+                        // permissions granted but accounts fetch failed; leave state
                     }
                 }
             }
