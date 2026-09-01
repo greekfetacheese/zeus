@@ -1,10 +1,10 @@
+use super::Error;
 use super::secure_key::SecureKey;
 use alloy_primitives::Address;
 use alloy_signer_local::{
    LocalSignerError, MnemonicBuilder, PrivateKeySigner,
    coins_bip39::{English, Mnemonic},
 };
-use anyhow::anyhow;
 use argon2_rs::Argon2;
 use rand::RngCore;
 use secure_types::{SecureArray, SecureString, SecureVec, Zeroize};
@@ -26,7 +26,7 @@ pub fn derive_seed(
    m_cost: u32,
    t_cost: u32,
    p_cost: u32,
-) -> Result<SecureVec<u8>, anyhow::Error> {
+) -> Result<SecureVec<u8>, Error> {
    let mut hasher = Sha3_512::new();
 
    username.unlock_str(|username| {
@@ -42,12 +42,10 @@ pub fn derive_seed(
    let seed = password.unlock_str(|password| argon2.hash_password(password, username_hash))?;
    let secure_seed = SecureVec::from_vec(seed)?;
 
-   // Should never happen but if seed is not 64 bytes, return an error
-   // I prefer not to panic here
    if secure_seed.len() != 64 {
-      return Err(anyhow!(
+      return Err(Error::SeedLengthTooShort(format!(
          "Seed is not 64 bytes long, this is a bug"
-      ));
+      )));
    }
 
    Ok(secure_seed)
@@ -100,9 +98,11 @@ impl Wallet {
    }
 
    /// Returns the private key + ChainCode as a 64-byte SecureArray
-   pub fn full_key(&self) -> Result<SecureArray<u8, 64>, anyhow::Error> {
+   pub fn full_key(&self) -> Result<SecureArray<u8, 64>, Error> {
       if self.xkey_info.is_none() {
-         return Err(anyhow!("XKeyInfo is missing"));
+         return Err(Error::XKeyInfoIsMissing(
+            "XKeyInfo is missing".to_string(),
+         ));
       }
 
       let info = self.xkey_info.as_ref().unwrap();
@@ -121,7 +121,7 @@ impl Wallet {
    }
 
    /// Generate the seed needed to derive the RailgunKeys and the RailgunAddress
-   pub fn seed(&self) -> Result<SecureArray<u8, 64>, anyhow::Error> {
+   pub fn seed(&self) -> Result<SecureArray<u8, 64>, Error> {
       if self.xkey_info.is_some() {
          let key = self.full_key()?;
          return Ok(key);
@@ -129,18 +129,20 @@ impl Wallet {
 
       if self.seed_phrase.is_some() {
          let seed = self.seed_phrase.as_ref().unwrap();
-         let mnemonic = seed.unlock_str(|seed_str| {
-            let mnemonic = Mnemonic::<English>::new_from_phrase(seed_str);
-            mnemonic
-         })?;
-         let mut bytes = mnemonic.to_seed("".into())?;
+         let mnemonic = seed
+            .unlock_str(|seed_str| {
+               let mnemonic = Mnemonic::<English>::new_from_phrase(seed_str);
+               mnemonic
+            })
+            .map_err(|e| Error::Custom(e.to_string()))?;
+         let mut bytes = mnemonic.to_seed("".into()).map_err(|e| Error::Custom(e.to_string()))?;
          let sec_bytes = SecureArray::from_slice_mut(&mut bytes)?;
          return Ok(sec_bytes);
       }
 
-      Err(anyhow!(
-         "Could not derive seed, The wallet must be either Master/Child or imported from a seed phrase"
-      ))
+      Err(Error::WalletIsNotChildOrMaster(
+         "Could not derive seed, The wallet must be either Master/Child or imported from a seed phrase".to_string()
+         ))
    }
 
    pub fn name_with_id(&self) -> String {
@@ -192,13 +194,13 @@ impl Wallet {
    }
 
    /// Create a new wallet from a mnemonic phrase
-   pub fn new_from_mnemonic(name: String, phrase: SecureString) -> Result<Self, anyhow::Error> {
+   pub fn new_from_mnemonic(name: String, phrase: SecureString) -> Result<Self, Error> {
       let phrase_string = phrase.unlock_str(|phrase| phrase.to_string());
       let wallet = MnemonicBuilder::<English>::default()
          .phrase(phrase_string)
          .index(0)?
          .build()
-         .map_err(|_| anyhow!("It seems that the given phrase is invalid"))?;
+         .map_err(|_| Error::Custom("It seems that the given phrase is invalid".to_string()))?;
 
       let key = SecureKey::from(wallet);
 
@@ -363,7 +365,7 @@ impl SecureHDWallet {
    }
 
    /// Derive a new child wallet using the current path
-   pub fn derive_child(&mut self, name: String) -> Result<Address, anyhow::Error> {
+   pub fn derive_child(&mut self, name: String) -> Result<Address, Error> {
       let xpriv = self.master_to_xpriv();
 
       let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH)?;
@@ -393,7 +395,7 @@ impl SecureHDWallet {
    /// Derive a new child wallet using the given name and index
    ///
    /// Does not increments the `next_child_index` nor it does save the wallet
-   pub fn derive_child_at(&self, name: String, index: u32) -> Result<Wallet, anyhow::Error> {
+   pub fn derive_child_at(&self, name: String, index: u32) -> Result<Wallet, Error> {
       let xpriv = self.master_to_xpriv();
 
       let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH)?;
@@ -415,11 +417,7 @@ impl SecureHDWallet {
    /// Derive a new child wallet using the given name and index
    ///
    /// Does not increments the `next_child_index` but adds the wallet to [Self::children]
-   pub fn derive_child_at_mut(
-      &mut self,
-      name: String,
-      index: u32,
-   ) -> Result<Wallet, anyhow::Error> {
+   pub fn derive_child_at_mut(&mut self, name: String, index: u32) -> Result<Wallet, Error> {
       let xpriv = self.master_to_xpriv();
 
       let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH)?;
@@ -436,11 +434,11 @@ impl SecureHDWallet {
       };
 
       if self.children.contains(&wallet) {
-         return Err(anyhow!(
+         return Err(Error::ChildAlreadyExists(format!(
             "Wallet At {} with Address {} already exists",
             child_path.derivation_string(),
             wallet.address()
-         ));
+         )));
       } else {
          self.children.push(wallet.clone());
          Ok(wallet)

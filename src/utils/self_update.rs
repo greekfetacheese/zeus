@@ -2,9 +2,9 @@ use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use anyhow::anyhow;
 use minisign_verify::{PublicKey, Signature};
-use self_update::backends::github::ReleaseList;
-use self_update::{cargo_crate_version, self_replace::self_replace, update::Release};
-use std::{env, io::Write};
+use self_replace::self_replace;
+use self_update::{backends::github::ReleaseList, cargo_crate_version};
+use std::io::Write;
 use zip::ZipArchive;
 
 const PUBLIC_KEY: &str = "RWRXdtAo1pQA54VsAh9XfZQDkO1aateQkMSVk3UAlxOzIF2kJZ9a6vha";
@@ -23,7 +23,7 @@ pub struct UpdateInfo {
 pub async fn check_for_updates() -> Result<UpdateInfo, anyhow::Error> {
    let current_version = cargo_crate_version!().to_string();
 
-   let releases: Vec<Release> = ReleaseList::configure()
+   let releases = ReleaseList::configure()
       .repo_owner(REPO_OWNER)
       .repo_name(REPO_NAME)
       .build()?
@@ -32,8 +32,8 @@ pub async fn check_for_updates() -> Result<UpdateInfo, anyhow::Error> {
    let target = self_update::get_target();
 
    let latest_release = releases.into_iter().find(|r| {
-      r.assets.iter().any(|asset| {
-         let name = asset.name.to_lowercase();
+      r.assets().iter().any(|asset| {
+         let name = asset.name().to_lowercase();
          if target.contains("windows") {
             name.contains("windows") && name.ends_with(".zip")
          } else if target.contains("linux") {
@@ -55,7 +55,7 @@ pub async fn check_for_updates() -> Result<UpdateInfo, anyhow::Error> {
       });
    };
 
-   let new_version = release.version.trim_start_matches('v').to_owned();
+   let new_version = release.version().trim_start_matches('v').to_owned();
    let new_semver = semver::Version::parse(&new_version)?;
    let current_semver = semver::Version::parse(&current_version)?;
 
@@ -71,10 +71,10 @@ pub async fn check_for_updates() -> Result<UpdateInfo, anyhow::Error> {
    // Find the correct asset for current platform
    let asset = release.asset_for(target, None).or_else(|| {
       release
-         .assets
+         .assets()
          .iter()
          .find(|a| {
-            let n = a.name.to_lowercase();
+            let n = a.name().to_lowercase();
             (target.contains("windows") && n.contains("windows") && n.ends_with(".zip"))
                || (target.contains("linux") && n.contains("linux"))
                || (target.contains("darwin") && (n.contains("macos") || n.contains("darwin")))
@@ -92,8 +92,8 @@ pub async fn check_for_updates() -> Result<UpdateInfo, anyhow::Error> {
    Ok(UpdateInfo {
       available: true,
       version: Some(new_version),
-      download_url: Some(asset.download_url.clone()),
-      asset_name: Some(asset.name.clone()),
+      download_url: Some(asset.download_url().to_owned()),
+      asset_name: Some(asset.name().to_owned()),
    })
 }
 

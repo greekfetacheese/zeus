@@ -43,7 +43,13 @@ default-run = "zeus"
 [dependencies]
 
 # GUI
-eframe = { version = "=0.36", features = ["wgpu"] }
+eframe = { version = "=0.36", default-features = false, features = [
+    "wgpu",
+    "default_fonts",
+    "links",
+    "wayland",
+    "x11",
+] }
 egui = { version = "=0.36", features = ["serde"] }
 egui_extras = { version = "=0.36", features = ["image", "svg"] }
 image = "=0.25.10"
@@ -89,14 +95,19 @@ tracing-appender = "=0.2.3"
 tokio = { version = "=1.47.1", features = ["rt-multi-thread"] }
 warp = { version = "=0.4.2", features = ["server"] }
 futures = "=0.3.31"
-reqwest = { version = "=0.12.23", features = ["json"] }
+reqwest = { version = "0.13", features = ["json", "query"] }
 
 # Misc
 brotli = "=8.0.4"
 zip = "=6.0.0"
 tempfile = "=3.23.0"
 semver = "=1.0.27"
-self_update = "=0.42"
+self_update = { version = "1.2", default-features = false, features = [
+    "github",
+    "reqwest",
+    "rustls",
+] }
+self-replace = "1"
 sysinfo = "=0.37.2"
 chrono = "=0.4.45"
 either = "=1.15.0"

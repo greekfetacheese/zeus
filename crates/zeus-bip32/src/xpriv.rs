@@ -1,4 +1,4 @@
-use hmac::{Hmac, KeyInit, Mac};
+use hmac::{Hmac, Mac};
 use k256::ecdsa::{SigningKey, VerifyingKey};
 use ripemd::{Digest, Ripemd160};
 use secure_types::{SecureArray, Zeroize};

@@ -2,7 +2,7 @@ use alloy_primitives::U256;
 use ark_bn254::Fr;
 use ark_ed_on_bn254::Fq;
 use ark_ff::{BigInteger, One, PrimeField, Zero};
-use hmac::{Hmac, KeyInit, Mac};
+use hmac::{Hmac, Mac};
 use lazy_static::lazy_static;
 use secure_types::Zeroize;
 use sha2::Sha512;

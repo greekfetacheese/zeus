@@ -8,10 +8,10 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-sha2 = "0.11"
-hmac = {version = "0.13", features = ["zeroize"]}
-ripemd = "0.2"
-k256 = "0.14"
+sha2 = "0.10"
+hmac = "0.12"
+ripemd = "0.1"
+k256 = "0.13"
 secure-types = "0.3"
 thiserror = "2"
 serde = { version = "1", optional = true, features = ["derive"] }
