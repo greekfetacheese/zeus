@@ -22,7 +22,7 @@ pub use crate::gui::ui::{
    },
    dev::DevUi,
    panels::{central_panel::FPSMetrics, left_panel::ConnectedDappsUi},
-   settings::RailgunSettings,
+   settings::SettingsPage,
    sign_msg_window::SignMsgWindow,
    tx::SpentNoteWindow,
    tx_history::TxHistory,
@@ -87,7 +87,6 @@ pub struct GUI {
    pub msg_window: MsgWindow,
    pub loading_window: LoadingWindow,
    pub settings: SettingsUi,
-   pub railgun_settings: RailgunSettings,
    pub tx_history: TxHistory,
    pub data_inspection: bool,
    pub confirm_window: ConfirmWindow,
@@ -124,8 +123,6 @@ impl GUI {
       let approvals = ApprovalsUi::new(overlay_manager.clone());
 
       let settings = ctx.write(|ctx| settings::SettingsUi::new(ctx, overlay_manager.clone()));
-      let railgun_settings =
-         ctx.write(|ctx| settings::RailgunSettings::new(ctx, overlay_manager.clone()));
 
       let tx_history = ui::tx_history::TxHistory::new();
       let sign_msg_window = SignMsgWindow::new(overlay_manager.clone());
@@ -161,7 +158,6 @@ impl GUI {
          msg_window,
          loading_window,
          settings,
-         railgun_settings,
          tx_history,
          data_inspection: false,
          confirm_window,
@@ -202,8 +198,21 @@ impl GUI {
       self.msg_window.open(msg);
    }
 
+   /// App-wide overlay dialogs. Areas bind to the *current* viewport, so this
+   /// must run on Settings' pass as well as the main window.
+   pub fn show_overlay_modals(&mut self, ui: &mut Ui) {
+      let theme = &self.theme;
+      self.msg_window.show(theme, ui);
+      self.loading_window.show(theme, ui);
+      self.confirm_window.show(theme, ui);
+      self.update_window.show(theme, ui);
+   }
+
    pub fn request_repaint(&self) {
       self.egui_ctx.request_repaint();
+      if self.settings.is_open() {
+         self.egui_ctx.request_repaint_of(settings::settings_viewport_id());
+      }
    }
 
    pub fn should_show_right_panel(&self) -> bool {

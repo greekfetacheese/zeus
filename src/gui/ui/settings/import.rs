@@ -74,8 +74,9 @@ impl ImportDataUi {
       self.credentials_form.erase();
    }
 
+   /// First-run recover window on the main app (vault still locked).
    pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
-      if !self.open {
+      if !self.open || !self.first_run {
          return;
       }
 
@@ -98,72 +99,83 @@ impl ImportDataUi {
             ui.spacing_mut().item_spacing = vec2(5.0, 15.0);
             ui.spacing_mut().button_padding = vec2(10.0, 4.0);
 
-            let button_visuals = theme.button_visuals();
-
             let frame = Frame::new().inner_margin(Margin::same(10));
 
             frame.show(ui, |ui| {
-               ui.vertical_centered(|ui| {
-                  let text = if self.first_run {
-                     "Import a Zeus data backup instead of recovering from credentials."
-                  } else {
-                     "This will replace your existing wallets and state files!!"
-                  };
-                  let text =
-                     RichText::new(text).size(theme.typography.large).color(theme.colors.warning);
-                  ui.label(text);
-
-                  ui.add_space(8.0);
-
-                  let size = vec2(ui.available_width() * 0.5, 35.0);
-                  let text = RichText::new("Choose a file").size(theme.typography.large);
-                  let button = Button::new(text).visuals(button_visuals).min_size(size);
-                  if ui.add(button).clicked() {
-                     if let Some(path) = rfd::FileDialog::new()
-                        .set_title("Import Zeus data")
-                        .add_filter("ZIP archive", &["zip"])
-                        .pick_file()
-                     {
-                        self.zip_path = Some(path);
-                     }
-                  }
-
-                  let selected = self
-                     .zip_path
-                     .as_ref()
-                     .map(|p| p.display().to_string())
-                     .unwrap_or_else(|| "No archive selected".to_string());
-                  ui.label(
-                     RichText::new(selected)
-                        .size(theme.typography.normal)
-                        .color(theme.colors.text_muted),
-                  );
-
-                  ui.scope(|ui| {
-                     ui.spacing_mut().button_padding = vec2(4.0, 4.0);
-                     let text = "Enter the credentials that will unlock the vault";
-                     let text = RichText::new(text).size(theme.typography.large);
-                     ui.label(text);
-
-                     self.credentials_form.show(ui);
-                  });
-
-                  ui.add_space(5.0);
-
-                  let size = vec2(ui.available_width() * 0.6, 45.0);
-                  let text = RichText::new("Import").size(theme.typography.large);
-                  let button = Button::new(text).visuals(button_visuals).min_size(size);
-
-                  if ui.add(button).clicked() {
-                     self.import();
-                  }
-               });
+               self.body(theme, ui);
             });
          });
 
       if !open {
          self.reset();
       }
+   }
+
+   /// Settings Data page (vault already unlocked).
+   pub fn show_page(&mut self, theme: &Theme, ui: &mut Ui) {
+      ui.spacing_mut().item_spacing = vec2(5.0, 12.0);
+      ui.spacing_mut().button_padding = vec2(10.0, 4.0);
+      ui.label(RichText::new("Import").size(theme.typography.very_large));
+      self.body(theme, ui);
+   }
+
+   fn body(&mut self, theme: &Theme, ui: &mut Ui) {
+      let button_visuals = theme.button_visuals();
+
+      ui.vertical(|ui| {
+         let text = if self.first_run {
+            "Import a Zeus data backup instead of recovering from credentials."
+         } else {
+            "This will replace your existing wallets and state files!!"
+         };
+         let text = RichText::new(text).size(theme.typography.large).color(theme.colors.warning);
+         ui.label(text);
+
+         ui.add_space(8.0);
+
+         let size = vec2(ui.available_width() * 0.5, 35.0);
+         let text = RichText::new("Choose a file").size(theme.typography.large);
+         let button = Button::new(text).visuals(button_visuals).min_size(size);
+         if ui.add(button).clicked() {
+            if let Some(path) = rfd::FileDialog::new()
+               .set_title("Import Zeus data")
+               .add_filter("ZIP archive", &["zip"])
+               .pick_file()
+            {
+               self.zip_path = Some(path);
+            }
+         }
+
+         let selected = self
+            .zip_path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "No archive selected".to_string());
+         ui.label(
+            RichText::new(selected)
+               .size(theme.typography.normal)
+               .color(theme.colors.text_muted),
+         );
+
+         ui.scope(|ui| {
+            ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+            let text = "Enter the credentials that will unlock the vault";
+            let text = RichText::new(text).size(theme.typography.large);
+            ui.label(text);
+
+            self.credentials_form.show(ui);
+         });
+
+         ui.add_space(5.0);
+
+         let size = vec2(ui.available_width() * 0.6, 45.0);
+         let text = RichText::new("Import").size(theme.typography.large);
+         let button = Button::new(text).visuals(button_visuals).min_size(size);
+
+         if ui.add(button).clicked() {
+            self.import();
+         }
+      });
    }
 
    fn import(&self) {

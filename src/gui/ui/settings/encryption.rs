@@ -4,8 +4,8 @@
 
 use crate::utils::RT;
 use crate::{core::ZeusContext, gui::SHARED_GUI};
-use egui::{Align2, Order, RichText, Stroke, Ui, vec2};
-use egui_elements::{Button, OverlayManager, Theme, widgets::Window};
+use egui::{RichText, Ui, vec2};
+use egui_elements::{Button, Theme};
 use elegance::{Badge, BadgeTone, Slider};
 use ncrypt_me::Argon2;
 
@@ -32,37 +32,18 @@ const P_COST_TIP: &str = "How many parallel lanes (threads) the Argon2 algorithm
 You should keep this number as low as possible, best value for maximum security is 1";
 
 pub struct EncryptionSettings {
-   open: bool,
-   overlay: OverlayManager,
    argon_params: Argon2,
-   pub size: (f32, f32),
 }
 
 impl EncryptionSettings {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
-         open: false,
-         overlay,
          argon_params: Argon2::balanced(),
-         size: (360.0, 300.0),
       }
    }
 
-   pub fn is_open(&self) -> bool {
-      self.open
-   }
-
-   pub fn open(&mut self, ctx: &mut ZeusContext) {
-      if !self.open {
-         self.overlay.window_opened();
-         self.open = true;
-         self.argon_params = ctx.argon_params.clone();
-      }
-   }
-
-   pub fn close(&mut self) {
-      self.overlay.window_closed();
-      self.open = false;
+   pub fn sync_from_ctx(&mut self, ctx: &mut ZeusContext) {
+      self.argon_params = ctx.argon_params.clone();
    }
 
    pub fn set_argon2(&mut self, argon_params: Argon2) {
@@ -70,118 +51,102 @@ impl EncryptionSettings {
    }
 
    pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
-      if !self.open {
-         return;
-      }
+      ui.vertical_centered(|ui| {
+         ui.spacing_mut().item_spacing = vec2(5.0, 12.0);
+         ui.spacing_mut().button_padding = vec2(10.0, 4.0);
 
-      let mut open = self.open;
-      let title = RichText::new("Encryption Settings").size(theme.typography.heading);
-      let window_frame = theme.window_frame;
-      let title_frame = window_frame.stroke(Stroke::NONE);
+         ui.label(RichText::new("Vault encryption").size(theme.typography.very_large));
+         ui.label(
+            RichText::new(
+               "This only affects vault encryption. It does not change master wallet recovery.",
+            )
+            .size(theme.typography.normal)
+            .color(theme.colors.text_muted),
+         );
 
-      Window::new(title)
-         .open(&mut open)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Middle)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
-         .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
-            ui.spacing_mut().item_spacing = vec2(5.0, 15.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 4.0);
+         let slider_size = vec2((ui.available_width() * 0.6).min(420.0), 20.0);
+         let button_visuals = theme.button_visuals();
 
-            let slider_size = vec2(ui.available_width() * 0.6, 20.0);
-            let button_visuals = theme.button_visuals();
+         let min_m_cost = if cfg!(feature = "dev") {
+            DEV_M_MIN_COST
+         } else {
+            MIN_M_COST
+         };
 
-            let min_m_cost = if cfg!(feature = "dev") {
-               DEV_M_MIN_COST
-            } else {
-               MIN_M_COST
-            };
+         let min_t_cost = if cfg!(feature = "dev") {
+            DEV_T_MIN_COST
+         } else {
+            MIN_T_COST
+         };
 
-            let min_t_cost = if cfg!(feature = "dev") {
-               DEV_T_MIN_COST
-            } else {
-               MIN_T_COST
-            };
+         let max_p_cost = if cfg!(feature = "dev") {
+            DEV_P_MAX_COST
+         } else {
+            MAX_P_COST
+         };
 
-            let max_p_cost = if cfg!(feature = "dev") {
-               DEV_P_MAX_COST
-            } else {
-               MAX_P_COST
-            };
+         let mem_fmt = |mb: f64| format!("{:.0}", mb / 1000.0);
 
-            let mem_fmt = |mb: f64| format!("{:.0}", mb / 1000.0);
+         let q_mark = RichText::new("?").size(theme.typography.normal);
 
-            let q_mark = RichText::new("?").size(theme.typography.normal);
-
-            ui.vertical_centered(|ui| {
-               ui.allocate_ui(slider_size, |ui| {
-                  ui.horizontal(|ui| {
-                     let info_tip = Badge::new(q_mark.clone(), BadgeTone::Info);
-                     ui.label(RichText::new("Memory cost (MB):").size(theme.typography.normal));
-                     ui.add(info_tip).on_hover_text(M_COST_TIP);
-                  });
-               });
-
-               ui.allocate_ui(slider_size, |ui| {
-                  ui.add(
-                     Slider::new(
-                        &mut self.argon_params.m_cost,
-                        min_m_cost..=MAX_M_COST,
-                     )
-                     .value_fmt(mem_fmt),
-                  );
-               });
-
-               ui.allocate_ui(slider_size, |ui| {
-                  ui.horizontal(|ui| {
-                     let info_tip = Badge::new(q_mark.clone(), BadgeTone::Info);
-                     ui.label(RichText::new("Iterations:").size(theme.typography.normal));
-                     ui.add(info_tip).on_hover_text(T_COST_TIP);
-                  });
-               });
-
-               ui.allocate_ui(slider_size, |ui| {
-                  ui.add(Slider::new(
-                     &mut self.argon_params.t_cost,
-                     min_t_cost..=MAX_T_COST,
-                  ));
-               });
-
-               ui.allocate_ui(slider_size, |ui| {
-                  ui.horizontal(|ui| {
-                     let info_tip = Badge::new(q_mark, BadgeTone::Info);
-                     ui.label(RichText::new("Parallelism:").size(theme.typography.normal));
-                     ui.add(info_tip).on_hover_text(P_COST_TIP);
-                  });
-               });
-
-               ui.allocate_ui(slider_size, |ui| {
-                  ui.add(Slider::new(
-                     &mut self.argon_params.p_cost,
-                     MIN_P_COST..=max_p_cost,
-                  ));
-               });
-
-               ui.add_space(20.0);
-
-               let size = vec2(ui.available_width() * 0.6, 35.0);
-               let text = RichText::new("Save").size(theme.typography.large);
-               let button = Button::new(text).visuals(button_visuals).min_size(size);
-
-               if ui.add(button).clicked() {
-                  self.save();
-               }
+         ui.allocate_ui(slider_size, |ui| {
+            ui.horizontal(|ui| {
+               let info_tip = Badge::new(q_mark.clone(), BadgeTone::Info);
+               ui.label(RichText::new("Memory cost (MB):").size(theme.typography.normal));
+               ui.add(info_tip).on_hover_text(M_COST_TIP);
             });
          });
 
-      if !open {
-         self.close();
-      }
+         ui.allocate_ui(slider_size, |ui| {
+            ui.add(
+               Slider::new(
+                  &mut self.argon_params.m_cost,
+                  min_m_cost..=MAX_M_COST,
+               )
+               .value_fmt(mem_fmt),
+            );
+         });
+
+         ui.allocate_ui(slider_size, |ui| {
+            ui.horizontal(|ui| {
+               let info_tip = Badge::new(q_mark.clone(), BadgeTone::Info);
+               ui.label(RichText::new("Iterations:").size(theme.typography.normal));
+               ui.add(info_tip).on_hover_text(T_COST_TIP);
+            });
+         });
+
+         ui.allocate_ui(slider_size, |ui| {
+            ui.add(Slider::new(
+               &mut self.argon_params.t_cost,
+               min_t_cost..=MAX_T_COST,
+            ));
+         });
+
+         ui.allocate_ui(slider_size, |ui| {
+            ui.horizontal(|ui| {
+               let info_tip = Badge::new(q_mark, BadgeTone::Info);
+               ui.label(RichText::new("Parallelism:").size(theme.typography.normal));
+               ui.add(info_tip).on_hover_text(P_COST_TIP);
+            });
+         });
+
+         ui.allocate_ui(slider_size, |ui| {
+            ui.add(Slider::new(
+               &mut self.argon_params.p_cost,
+               MIN_P_COST..=max_p_cost,
+            ));
+         });
+
+         ui.add_space(12.0);
+
+         let size = vec2(200.0, 35.0);
+         let text = RichText::new("Save").size(theme.typography.large);
+         let button = Button::new(text).visuals(button_visuals).min_size(size);
+
+         if ui.add(button).clicked() {
+            self.save();
+         }
+      });
    }
 
    fn save(&self) {
@@ -194,7 +159,6 @@ impl EncryptionSettings {
             gui.ctx.clone()
          });
 
-         // Encrypt the vault with the new params
          match ctx.encrypt_and_save_vault(None, Some(new_params.clone())) {
             Ok(_) => {
                ctx.write(|ctx| {
@@ -203,7 +167,6 @@ impl EncryptionSettings {
                SHARED_GUI.write(|gui| {
                   gui.loading_window.reset();
                   gui.open_msg_window("Encryption settings have been updated");
-                  gui.settings.encryption.close();
                   gui.settings.encryption.argon_params = new_params;
                   gui.request_repaint();
                });

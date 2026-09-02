@@ -281,6 +281,10 @@ impl eframe::App for ZeusApp {
                gui.show_central_panel(ctx, ui);
             });
 
+            let icons = gui.icons.clone();
+            let theme = &gui.theme;
+            gui.settings.show(ctx, icons, theme, ui);
+
             #[cfg(feature = "dev")]
             gui.fps_metrics.update(time.elapsed().as_secs_f64() * 1000.0);
          });

@@ -25,7 +25,7 @@ pub use notification::{Notification, NotificationType};
 pub use portfolio::PortfolioUi;
 pub use recipient_selection::RecipientSelectionWindow;
 pub use send_crypto::SendCryptoUi;
-pub use settings::{ContactsUi, EncryptionSettings, NetworkSettings, SettingsUi};
+pub use settings::{ContactsUi, EncryptionSettings, NetworkSettings, SettingsPage, SettingsUi};
 pub use token_selection::TokenSelectionWindow;
 pub use tx::{TxConfirmationWindow, TxWindow};
 pub use wallet::WalletUi;

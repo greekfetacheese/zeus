@@ -4,6 +4,10 @@ use eframe::egui::{RichText, Stroke, Ui, vec2};
 use egui_elements::{OverlayManager, Theme, widgets::Window};
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
+   if !gui.settings.is_open() {
+      gui.show_overlay_modals(ui);
+   }
+
    let theme = &gui.theme;
    let icons = gui.icons.clone();
    let token_selection = &mut gui.token_selection;
@@ -13,10 +17,6 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    gui.recover_wallet_ui.show(ctx, theme, &mut gui.settings.import, ui);
    gui.unlock_vault_ui.show(ctx, theme, ui);
    gui.settings.import.show(theme, ui);
-
-   gui.msg_window.show(theme, ui);
-   gui.loading_window.show(theme, ui);
-   gui.confirm_window.show(theme, ui);
 
    // Vault must be unlocked so the wallet cache is populated
    if !ctx.vault_unlocked {
@@ -73,16 +73,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    }
    gui.merge_notes_window.show(ctx, theme, ui);
 
-   gui.settings.show(ctx, icons.clone(), theme, ui);
-   gui.railgun_settings.show(ctx, theme, icons.clone(), ui);
    gui.connected_dapps.show(ctx, theme, ui);
 
    gui.wallet_ui.show(ctx, theme, icons.clone(), ui);
    gui.tx_history.show(ctx, theme, ui);
-   gui.update_window.show(theme, ui);
-
-   // This allows to show the network settings independently from the settings ui
-   gui.settings.network.show(ctx, theme, icons.clone(), ui);
 
    gui.approvals.show(ctx, theme, icons.clone(), ui);
 

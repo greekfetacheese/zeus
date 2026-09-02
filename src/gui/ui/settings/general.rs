@@ -1,14 +1,12 @@
 //! UI that allows the user to change the general settings.
 
 use crate::core::ZeusContext;
-use egui::{Align2, Order, RichText, ScrollArea, Slider, Stroke, Ui, vec2};
-use egui_elements::{Button, OverlayManager, Theme, widgets::Window};
+use egui::{RichText, Ui, vec2};
+use egui_elements::{Button, Theme};
 use std::collections::HashSet;
 use zeus_eth::types::ChainId;
 
 pub struct GeneralSettings {
-   open: bool,
-   overlay: OverlayManager,
    discover_v4_pools_on_startup: bool,
    concurrency_for_syncing_balances: usize,
    concurrency_for_discovering_pools: usize,
@@ -16,49 +14,26 @@ pub struct GeneralSettings {
    batch_size_for_updating_pools_state: usize,
    batch_size_for_discovering_pools: usize,
    ignore_chains: HashSet<u64>,
-   size: (f32, f32),
 }
 
 impl GeneralSettings {
-   pub fn new(ctx: &mut ZeusContext, overlay: OverlayManager) -> Self {
+   pub fn new(ctx: &mut ZeusContext) -> Self {
+      let mut this = Self {
+         discover_v4_pools_on_startup: false,
+         concurrency_for_syncing_balances: 1,
+         concurrency_for_discovering_pools: 1,
+         batch_size_for_syncing_balances: 1,
+         batch_size_for_updating_pools_state: 1,
+         batch_size_for_discovering_pools: 1,
+         ignore_chains: HashSet::new(),
+      };
+      this.sync_from_ctx(ctx);
+      this
+   }
+
+   pub fn sync_from_ctx(&mut self, ctx: &mut ZeusContext) {
       let pool_manager = ctx.pool_manager.clone();
       let balance_manager = ctx.read_wallet_state(|ws| ws.balance_manager.clone());
-      Self {
-         open: false,
-         overlay,
-         discover_v4_pools_on_startup: pool_manager.do_we_discover_v4_pools(),
-         concurrency_for_syncing_balances: balance_manager.concurrency(),
-         concurrency_for_discovering_pools: pool_manager.concurrency(),
-         batch_size_for_syncing_balances: balance_manager.batch_size(),
-         batch_size_for_updating_pools_state: pool_manager.batch_size_for_updating_pools_state(),
-         batch_size_for_discovering_pools: pool_manager.batch_size_for_discovering_pools(),
-         ignore_chains: pool_manager.ignore_chains(),
-         size: (400.0, 550.0),
-      }
-   }
-
-   pub fn open(&mut self) {
-      if !self.open {
-         self.overlay.window_opened();
-         self.open = true;
-      }
-   }
-
-   pub fn close(&mut self) {
-      self.overlay.window_closed();
-      self.open = false;
-   }
-
-   pub fn is_open(&self) -> bool {
-      self.open
-   }
-
-   fn reset_settings(&mut self, ctx: &mut ZeusContext) {
-      let pool_manager = ctx.pool_manager.clone();
-      let balance_manager = ctx.read_wallet_state(|ws| ws.balance_manager.clone());
-      pool_manager.reset_default_settings();
-      balance_manager.reset_default_settings();
-
       self.discover_v4_pools_on_startup = pool_manager.do_we_discover_v4_pools();
       self.concurrency_for_syncing_balances = balance_manager.concurrency();
       self.concurrency_for_discovering_pools = pool_manager.concurrency();
@@ -68,135 +43,99 @@ impl GeneralSettings {
       self.ignore_chains = pool_manager.ignore_chains();
    }
 
-   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
-      if !self.open {
-         return;
-      }
-
-      let mut open = self.open;
-
-      let title = RichText::new("General Settings").size(theme.typography.heading);
-      let window_frame = theme.window_frame;
-      let title_frame = window_frame.stroke(Stroke::NONE);
-
-      Window::new(title)
-         .open(&mut open)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Middle)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
-         .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
-            ui.spacing_mut().item_spacing = vec2(5.0, 20.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 4.0);
-
-            let button_visuals = theme.button_visuals();
-
-            ui.vertical_centered(|ui| {
-               ScrollArea::vertical().show(ui, |ui| {
-                  let slider_size = vec2(ui.available_width() * 0.4, 20.0);
-
-                  let header = RichText::new("Pool Manager").size(theme.typography.very_large);
-                  ui.label(header);
-
-                  let text = RichText::new("Reset Settings").size(theme.typography.normal);
-                  let button = Button::new(text).visuals(button_visuals);
-
-                  if ui.add(button).clicked() {
-                     self.reset_settings(ctx);
-                  }
-
-                  let text =
-                     RichText::new("Discover V4 Pools on startup").size(theme.typography.normal);
-                  ui.checkbox(&mut self.discover_v4_pools_on_startup, text);
-
-                  let text = RichText::new("Chains to ignore at V4 historic sync")
-                     .size(theme.typography.normal);
-                  ui.label(text);
-                  for chain in ChainId::supported_chains() {
-                     let text = RichText::new(chain.name()).size(theme.typography.normal);
-                     let mut ignore = self.ignore_chains.contains(&chain.id());
-                     ui.checkbox(&mut ignore, text);
-                     if ignore {
-                        self.ignore_chains.insert(chain.id());
-                     } else {
-                        self.ignore_chains.remove(&chain.id());
-                     }
-                  }
-
-                  ui.label(
-                     RichText::new("Concurrency for Discovering & Updating Pools")
-                        .size(theme.typography.normal),
-                  );
-                  ui.allocate_ui(slider_size, |ui| {
-                     ui.add(Slider::new(
-                        &mut self.concurrency_for_discovering_pools,
-                        1..=10,
-                     ));
-                  });
-
-                  ui.label(
-                     RichText::new("Batch Size for Discovering Pools")
-                        .size(theme.typography.normal),
-                  );
-                  ui.allocate_ui(slider_size, |ui| {
-                     ui.add(Slider::new(
-                        &mut self.batch_size_for_discovering_pools,
-                        1..=60,
-                     ));
-                  });
-
-                  ui.label(
-                     RichText::new("Batch Size when updating pools state")
-                        .size(theme.typography.normal),
-                  );
-                  ui.allocate_ui(slider_size, |ui| {
-                     ui.add(Slider::new(
-                        &mut self.batch_size_for_updating_pools_state,
-                        1..=50,
-                     ));
-                  });
-
-                  let header = RichText::new("Balance Manager").size(theme.typography.very_large);
-                  ui.label(header);
-
-                  ui.label(
-                     RichText::new("Concurrency for syncing balances")
-                        .size(theme.typography.normal),
-                  );
-                  ui.allocate_ui(slider_size, |ui| {
-                     ui.add(Slider::new(
-                        &mut self.concurrency_for_syncing_balances,
-                        1..=10,
-                     ));
-                  });
-
-                  ui.label(
-                     RichText::new("Batch Size for syncing balances").size(theme.typography.normal),
-                  );
-                  ui.allocate_ui(slider_size, |ui| {
-                     ui.add(Slider::new(
-                        &mut self.batch_size_for_syncing_balances,
-                        1..=50,
-                     ));
-                  });
-               });
-            });
-         });
-
-      let closed = self.open && !open;
-      // self.open = open;
-
-      if closed {
-         self.close();
-         self.save_settings(ctx);
-      }
+   fn reset_settings(&mut self, ctx: &mut ZeusContext) {
+      let pool_manager = ctx.pool_manager.clone();
+      let balance_manager = ctx.read_wallet_state(|ws| ws.balance_manager.clone());
+      pool_manager.reset_default_settings();
+      balance_manager.reset_default_settings();
+      self.sync_from_ctx(ctx);
    }
 
-   fn save_settings(&self, ctx: &mut ZeusContext) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+      ui.spacing_mut().item_spacing = vec2(5.0, 16.0);
+      ui.spacing_mut().button_padding = vec2(10.0, 4.0);
+
+      let button_visuals = theme.button_visuals();
+      let slider_size = vec2((ui.available_width() * 0.5).min(360.0), 20.0);
+
+      ui.label(RichText::new("General").size(theme.typography.heading));
+      ui.separator();
+
+      let header = RichText::new("Pool Manager").size(theme.typography.very_large);
+      ui.label(header);
+
+      let text = RichText::new("Reset Settings").size(theme.typography.normal);
+      let button = Button::new(text).visuals(button_visuals);
+
+      if ui.add(button).clicked() {
+         self.reset_settings(ctx);
+      }
+
+      let text = RichText::new("Discover V4 Pools on startup").size(theme.typography.normal);
+      ui.checkbox(&mut self.discover_v4_pools_on_startup, text);
+
+      let text =
+         RichText::new("Chains to ignore at V4 historic sync").size(theme.typography.normal);
+      ui.label(text);
+      for chain in ChainId::supported_chains() {
+         let text = RichText::new(chain.name()).size(theme.typography.normal);
+         let mut ignore = self.ignore_chains.contains(&chain.id());
+         ui.checkbox(&mut ignore, text);
+         if ignore {
+            self.ignore_chains.insert(chain.id());
+         } else {
+            self.ignore_chains.remove(&chain.id());
+         }
+      }
+
+      ui.label(
+         RichText::new("Concurrency for Discovering & Updating Pools")
+            .size(theme.typography.normal),
+      );
+      ui.allocate_ui(slider_size, |ui| {
+         ui.add(egui::Slider::new(
+            &mut self.concurrency_for_discovering_pools,
+            1..=10,
+         ));
+      });
+
+      ui.label(RichText::new("Batch Size for Discovering Pools").size(theme.typography.normal));
+      ui.allocate_ui(slider_size, |ui| {
+         ui.add(egui::Slider::new(
+            &mut self.batch_size_for_discovering_pools,
+            1..=60,
+         ));
+      });
+
+      ui.label(RichText::new("Batch Size when updating pools state").size(theme.typography.normal));
+      ui.allocate_ui(slider_size, |ui| {
+         ui.add(egui::Slider::new(
+            &mut self.batch_size_for_updating_pools_state,
+            1..=50,
+         ));
+      });
+
+      let header = RichText::new("Balance Manager").size(theme.typography.very_large);
+      ui.label(header);
+
+      ui.label(RichText::new("Concurrency for syncing balances").size(theme.typography.normal));
+      ui.allocate_ui(slider_size, |ui| {
+         ui.add(egui::Slider::new(
+            &mut self.concurrency_for_syncing_balances,
+            1..=10,
+         ));
+      });
+
+      ui.label(RichText::new("Batch Size for syncing balances").size(theme.typography.normal));
+      ui.allocate_ui(slider_size, |ui| {
+         ui.add(egui::Slider::new(
+            &mut self.batch_size_for_syncing_balances,
+            1..=50,
+         ));
+      });
+   }
+
+   pub fn save_settings(&self, ctx: &mut ZeusContext) {
       // Balance settings live in the vault and are written on vault save / shutdown.
       let balance_manager = ctx.read_wallet_state(|ws| ws.balance_manager.clone());
       if self.concurrency_for_syncing_balances != balance_manager.concurrency() {

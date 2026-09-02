@@ -48,7 +48,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          gui.portofolio.open();
          gui.uniswap.close();
          gui.send_crypto.close();
-         gui.settings.close();
+
          gui.wallet_ui.close();
          gui.tx_history.close(ctx);
          gui.across_bridge.close();
@@ -73,7 +73,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          gui.send_crypto.default_currency(privacy_mode, chain_id);
          gui.uniswap.close();
          gui.portofolio.close();
-         gui.settings.close();
+
          gui.wallet_ui.close();
          gui.tx_history.close(ctx);
          gui.across_bridge.close();
@@ -113,7 +113,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          gui.portofolio.close();
          gui.uniswap.close();
          gui.send_crypto.close();
-         gui.settings.close();
+
          gui.wallet_ui.close();
          gui.tx_history.close(ctx);
          gui.across_bridge.close();
@@ -138,7 +138,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          gui.uniswap.open();
          gui.portofolio.close();
          gui.send_crypto.close();
-         gui.settings.close();
+
          gui.wallet_ui.close();
          gui.tx_history.close(ctx);
          gui.across_bridge.close();
@@ -166,7 +166,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          gui.portofolio.close();
          gui.uniswap.close();
          gui.send_crypto.close();
-         gui.settings.close();
+
          gui.wallet_ui.close();
          gui.tx_history.close(ctx);
          // This is shared, so reset it to avoid any issues
@@ -195,7 +195,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          gui.portofolio.close();
          gui.uniswap.close();
          gui.send_crypto.close();
-         gui.settings.close();
+
          gui.tx_history.close(ctx);
          gui.across_bridge.close();
          gui.dev.close();
@@ -222,7 +222,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          gui.portofolio.close();
          gui.uniswap.close();
          gui.send_crypto.close();
-         gui.settings.close();
+
          gui.wallet_ui.close();
          gui.across_bridge.close();
          gui.dev.close();
@@ -249,7 +249,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          gui.portofolio.close();
          gui.uniswap.close();
          gui.send_crypto.close();
-         gui.settings.close();
+
          gui.wallet_ui.close();
          gui.tx_history.close(ctx);
          gui.across_bridge.close();
@@ -272,16 +272,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       });
 
       if settings.response.clicked() {
-         gui.settings.open();
-         gui.portofolio.close();
-         gui.uniswap.close();
-         gui.send_crypto.close();
-         gui.wallet_ui.close();
-         gui.tx_history.close(ctx);
-         gui.across_bridge.close();
-         gui.dev.close();
-         gui.shield_ui.close();
-         gui.approvals.close();
+         gui.settings.open(ctx);
       }
 
       let icon = Lucide::Link.size(20.0).color(icon_color).image();
@@ -333,7 +324,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
                gui.wallet_ui.close();
                gui.tx_history.close(ctx);
                gui.across_bridge.close();
-               gui.settings.close();
+
                gui.shield_ui.close();
                gui.approvals.close();
             }

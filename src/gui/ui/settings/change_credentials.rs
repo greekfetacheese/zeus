@@ -4,31 +4,27 @@
 
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use egui::{Align2, Order, RichText, Stroke, Ui, vec2};
-use egui_elements::{Button, CredentialsForm, OverlayManager, Theme, widgets::Window};
+use egui::{RichText, Ui, Vec2, vec2};
+use egui_elements::{Button, CredentialsForm, Theme};
 use ncrypt_me::Credentials;
 
 pub struct ChangeCredentialsUi {
-   open: bool,
-   overlay: OverlayManager,
+   ui_size: Vec2,
    credentials_form: CredentialsForm,
    verified_credentials: bool,
-   size: (f32, f32),
 }
 
 impl ChangeCredentialsUi {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       let form_size = vec2(550.0 * 0.6, 20.0);
       let credentials_form = CredentialsForm::new()
          .with_min_size(form_size)
          .with_enabled_virtual_keyboard()
          .with_open(true);
       Self {
-         open: false,
-         overlay,
+         ui_size: vec2(550.0, 500.0),
          credentials_form,
          verified_credentials: false,
-         size: (550.0, 350.0),
       }
    }
 
@@ -36,161 +32,108 @@ impl ChangeCredentialsUi {
       self.credentials_form.erase();
    }
 
-   pub fn is_open(&self) -> bool {
-      self.open
-   }
-
-   pub fn open(&mut self) {
-      if !self.open {
-         self.overlay.window_opened();
-         self.open = true;
-      }
-   }
-
-   pub fn close(&mut self) {
-      self.overlay.window_closed();
-      self.open = false;
-   }
-
    pub fn reset(&mut self) {
-      self.close();
-      *self = Self::new(self.overlay.clone());
+      *self = Self::new();
    }
 
    pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
-      self.verify_credentials_ui(theme, ui);
-      self.change_credentials_ui(theme, ui);
+      ui.vertical_centered(|ui| {
+      ui.label(RichText::new("Change Credentials").size(theme.typography.very_large));
+      ui.label(
+         RichText::new("This only changes vault encryption credentials. It does not change master wallet recovery.")
+            .size(theme.typography.normal)
+            .color(theme.colors.text_muted),
+      );
+
+      ui.add_space(8.0);
+
+      let frame = theme.frame1;
+
+      frame.show(ui, |ui| {
+         ui.set_max_size(self.ui_size);
+
+      if !self.verified_credentials {
+         self.verify_credentials_ui(theme, ui);
+      } else {
+         ui.set_max_height(self.ui_size.y + 50.0);
+         self.change_credentials_ui(theme, ui);
+      }
+   });
+
+   });
    }
 
    fn verify_credentials_ui(&mut self, theme: &Theme, ui: &mut Ui) {
-      if !self.open {
-         return;
-      }
+      ui.spacing_mut().item_spacing.y = 16.0;
+      ui.spacing_mut().button_padding = theme.button_padding;
 
-      let mut open = self.open;
-      let window_frame = theme.window_frame;
-      let title_frame = window_frame.stroke(Stroke::NONE);
+      ui.label(RichText::new("Verify current credentials").size(theme.typography.large));
 
-      Window::new(RichText::new("Verify Credentials").size(theme.typography.heading))
-         .open(&mut open)
-         .order(Order::Middle)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
-         .show(ui.ctx(), |ui| {
-            ui.set_min_size(vec2(self.size.0, self.size.1));
+      ui.scope(|ui| {
+         ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+         self.credentials_form.show(ui);
+      });
 
-            ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 20.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               ui.add_space(20.0);
+      let text = RichText::new("Confirm").size(theme.typography.large);
+      let button = Button::new(text).visuals(theme.button_visuals()).min_size(vec2(200.0, 45.0));
 
-               ui.scope(|ui| {
-                  ui.spacing_mut().button_padding = vec2(4.0, 4.0);
-                  self.credentials_form.show(ui);
-               });
+      if ui.add(button).clicked() {
+         let username = self.credentials_form.username();
+         let password = self.credentials_form.password();
+         let confirm_password = self.credentials_form.confirm_password();
 
-               let text = RichText::new("Confrim").size(theme.typography.large);
-               let button = Button::new(text)
-                  .visuals(theme.button_visuals())
-                  .min_size(vec2(ui.available_width() * 0.8, 45.0));
+         let credentials = Credentials::new(username, password, confirm_password);
 
-               if ui.add(button).clicked() {
-                  let username = self.credentials_form.username();
-                  let password = self.credentials_form.password();
-                  let confirm_password = self.credentials_form.confirm_password();
+         RT.spawn_blocking(move || {
+            let ctx = SHARED_GUI.write(|gui| {
+               gui.loading_window.open("Checking credentials...");
+               gui.request_repaint();
+               gui.ctx.clone()
+            });
 
-                  let credentials = Credentials::new(username, password, confirm_password);
+            let creds_match = ctx.read_vault(|vault| vault.credentials_match(&credentials));
 
-                  RT.spawn_blocking(move || {
-                     let ctx = SHARED_GUI.write(|gui| {
-                        gui.loading_window.open("Checking credentials...");
-                        gui.request_repaint();
-                        gui.ctx.clone()
-                     });
-
-                     let creds_match =
-                        ctx.read_vault(|vault| vault.credentials_match(&credentials));
-
-                     match creds_match {
-                        true => {
-                           SHARED_GUI.write(|gui| {
-                              // Allow the user to change the credentials
-                              gui.settings.change_credentials_ui.verified_credentials = true;
-                              // Erase the credentials form
-                              gui.settings.change_credentials_ui.credentials_form.erase();
-                              gui.loading_window.reset();
-                              gui.request_repaint();
-                           });
-                        }
-                        false => {
-                           SHARED_GUI.write(|gui| {
-                              gui.open_msg_window("Credentials do not match");
-                              gui.loading_window.reset();
-                              gui.request_repaint();
-                           });
-                           return;
-                        }
-                     }
+            match creds_match {
+               true => {
+                  SHARED_GUI.write(|gui| {
+                     gui.settings.change_credentials_ui.verified_credentials = true;
+                     gui.settings.change_credentials_ui.credentials_form.erase();
+                     gui.loading_window.reset();
+                     gui.request_repaint();
                   });
                }
-            });
+               false => {
+                  SHARED_GUI.write(|gui| {
+                     gui.open_msg_window("Credentials do not match");
+                     gui.loading_window.reset();
+                     gui.request_repaint();
+                  });
+                  return;
+               }
+            }
          });
-
-      if !open {
-         self.reset();
       }
    }
 
    fn change_credentials_ui(&mut self, theme: &Theme, ui: &mut Ui) {
-      if !self.verified_credentials || !self.open {
-         return;
-      }
-
       self.credentials_form.set_confirm_password(true);
 
-      let mut open = self.open;
-      let mut clicked = false;
-      let window_frame = theme.window_frame;
-      let title_frame = window_frame.stroke(Stroke::NONE);
+      ui.spacing_mut().item_spacing.y = 16.0;
+      ui.spacing_mut().button_padding = theme.button_padding;
 
-      Window::new(RichText::new("New Credentials").size(theme.typography.heading))
-         .open(&mut open)
-         .order(Order::Middle)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
-         .show(ui.ctx(), |ui| {
-            ui.set_min_size(vec2(self.size.0, self.size.1));
+      ui.label(RichText::new("Enter new credentials").size(theme.typography.large));
 
-            ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 20.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               ui.add_space(20.0);
+      ui.scope(|ui| {
+         ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+         self.credentials_form.show(ui);
+      });
 
-               ui.scope(|ui| {
-                  ui.spacing_mut().button_padding = vec2(4.0, 4.0);
-                  self.credentials_form.show(ui);
-               });
+      let visuals = theme.button_visuals();
 
-               let visuals = theme.button_visuals();
+      let text = RichText::new("Confirm").size(theme.typography.large);
+      let button = Button::new(text).visuals(visuals).min_size(vec2(200.0, 45.0));
 
-               let text = RichText::new("Confirm").size(theme.typography.large);
-               let button = Button::new(text)
-                  .visuals(visuals)
-                  .min_size(vec2(ui.available_width() * 0.8, 45.0));
-
-               if ui.add(button).clicked() {
-                  clicked = true;
-               }
-            });
-         });
-
-      if clicked {
+      if ui.add(button).clicked() {
          let username = self.credentials_form.username();
          let password = self.credentials_form.password();
          let confirm_password = self.credentials_form.confirm_password();
@@ -239,11 +182,6 @@ impl ChangeCredentialsUi {
                }
             };
          });
-      }
-
-      // If the window was open and now we closed it
-      if !open {
-         self.reset();
       }
    }
 }

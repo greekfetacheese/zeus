@@ -1,28 +1,34 @@
 //! UI that allows the user to add,edit and remove contacts.
 
-use crate::assets::icons::Icons;
 use crate::core::{ZeusContext, types::Contact};
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::RT;
 use egui::{
-   Align, Align2, FontId, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Spinner, Stroke,
-   Ui, vec2,
+   Align, Align2, FontId, Frame, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Spinner,
+   Stroke, Ui, vec2,
 };
 use egui_elements::{
-   Button, Label, Modal, OverlayManager, QrImage, SecureTextEdit, Theme, widgets::Window,
+   Button, Label, OverlayManager, QrImage, SecureTextEdit, Theme, widgets::Window,
 };
 use elegance::{Menu, MenuItem};
 use std::str::FromStr;
-use std::sync::Arc;
 use zeus_eth::alloy_primitives::Address;
 use zeus_railgun::RailgunAddress;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ContactsPageView {
+   List,
+   Add,
+   Edit,
+   Delete,
+   Qr,
+}
 
 pub struct AddContact {
    open: bool,
    overlay: OverlayManager,
    contact: Contact,
    contact_added: bool,
-   size: (f32, f32),
 }
 
 impl AddContact {
@@ -32,7 +38,6 @@ impl AddContact {
          overlay,
          contact: Contact::default(),
          contact_added: false,
-         size: (450.0, 250.0),
       }
    }
 
@@ -48,8 +53,10 @@ impl AddContact {
    }
 
    pub fn close(&mut self) {
-      self.overlay.window_closed();
-      self.open = false;
+      if self.open {
+         self.overlay.window_closed();
+         self.open = false;
+      }
    }
 
    pub fn contact_added(&self) -> bool {
@@ -66,6 +73,7 @@ impl AddContact {
       &self.contact
    }
 
+   /// Window used by recipient selection on the main app.
    pub fn show(&mut self, theme: &Theme, reset_on_success: bool, ui: &mut Ui) {
       let mut open = self.open;
       if !open {
@@ -84,444 +92,346 @@ impl AddContact {
          .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
-
-            ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 20.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               let text_edit_size = vec2(ui.available_width() * 0.6, 25.0);
-               let text_edit_visuals = theme.text_edit_visuals();
-               let button_visuals = theme.button_visuals();
-
-               ui.label(RichText::new("Name").size(theme.typography.large));
-               let name = &mut self.contact.name;
-               ui.add(
-                  SecureTextEdit::singleline(name)
-                     .visuals(text_edit_visuals)
-                     .min_size(text_edit_size)
-                     .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.typography.normal)),
-               );
-
-               ui.label(RichText::new("Public Address").size(theme.typography.large));
-               let address = &mut self.contact.evm_address;
-               ui.add(
-                  SecureTextEdit::singleline(address)
-                     .visuals(text_edit_visuals)
-                     .min_size(text_edit_size)
-                     .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.typography.normal)),
-               );
-
-               ui.label(RichText::new("Railgun Address").size(theme.typography.large));
-               let address = &mut self.contact.zk_address;
-               ui.add(
-                  SecureTextEdit::singleline(address)
-                     .visuals(text_edit_visuals)
-                     .min_size(text_edit_size)
-                     .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.typography.normal)),
-               );
-
-               let text = RichText::new("Add").size(theme.typography.large);
-               let size = vec2(ui.available_width() * 0.5, 30.0);
-               let button = Button::new(text).visuals(button_visuals).min_size(size);
-
-               if ui.add(button).clicked() {
-                  let new_contact = self.contact.clone();
-
-                  RT.spawn_blocking(move || {
-                     let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                     // make sure the evm address is valid
-                     let _ = match Address::from_str(&new_contact.evm_address) {
-                        Ok(address) => address,
-                        Err(e) => {
-                           SHARED_GUI.write(|gui| {
-                              let msg = format!("Address is not an Ethereum address: {}", e);
-                              gui.open_msg_window(msg);
-                              gui.request_repaint();
-                           });
-                           return;
-                        }
-                     };
-
-                     if !new_contact.zk_address.is_empty() {
-                        match RailgunAddress::from_zk_address(&new_contact.zk_address) {
-                           Ok(_) => {}
-                           Err(e) => {
-                              SHARED_GUI.write(|gui| {
-                                 let msg = format!("Address is not a valid Railgun address: {}", e);
-                                 gui.open_msg_window(msg);
-                                 gui.request_repaint();
-                              });
-                              return;
-                           }
-                        }
-                     }
-
-                     match ctx.add_contact(new_contact.clone()) {
-                        Ok(_) => {
-                           SHARED_GUI.write(|gui| {
-                              // gui.settings.contacts_ui.add_contact.close();
-                              gui.settings.contacts_ui.add_contact.contact_added = true;
-                              if reset_on_success {
-                                 gui.settings.contacts_ui.add_contact.reset();
-                              }
-                           });
-                        }
-                        Err(e) => {
-                           SHARED_GUI.write(|gui| {
-                              gui.open_msg_window(format!(
-                                 "Failed to add contact: {}",
-                                 e.to_string()
-                              ));
-                              gui.request_repaint();
-                           });
-                           return;
-                        }
-                     }
-
-                     // On failure the contact is removed
-                     match ctx.save_wallet_state() {
-                        Ok(_) => {}
-                        Err(e) => {
-                           SHARED_GUI.write(|gui| {
-                              let error = format!(
-                                 "Changes didn't take effect, encountered error: {}",
-                                 e
-                              );
-                              gui.open_msg_window(error);
-                              gui.request_repaint();
-                           });
-                           ctx.remove_contact(&new_contact.evm_address);
-                        }
-                     }
-                  });
-               }
-            });
+            ui.set_width(450.0);
+            ui.set_height(250.0);
+            self.body(theme, reset_on_success, ui);
          });
 
       if !open {
          self.close();
+      }
+   }
+
+   fn body(&mut self, theme: &Theme, reset_on_success: bool, ui: &mut Ui) {
+      let res = ui.vertical_centered(|ui| {
+         ui.spacing_mut().item_spacing.y = 16.0;
+         ui.spacing_mut().button_padding = theme.button_padding;
+
+         let text_edit_size = vec2(ui.available_width() * 0.6, 25.0);
+         let text_edit_visuals = theme.text_edit_visuals();
+         let button_visuals = theme.button_visuals();
+
+         ui.label(RichText::new("Name").size(theme.typography.large));
+         let name = &mut self.contact.name;
+         ui.add(
+            SecureTextEdit::singleline(name)
+               .visuals(text_edit_visuals)
+               .min_size(text_edit_size)
+               .margin(Margin::same(10))
+               .font(FontId::proportional(theme.typography.normal)),
+         );
+
+         ui.label(RichText::new("Public Address").size(theme.typography.large));
+         let address = &mut self.contact.evm_address;
+         ui.add(
+            SecureTextEdit::singleline(address)
+               .visuals(text_edit_visuals)
+               .min_size(text_edit_size)
+               .margin(Margin::same(10))
+               .font(FontId::proportional(theme.typography.normal)),
+         );
+
+         ui.label(RichText::new("Railgun Address").size(theme.typography.large));
+         let address = &mut self.contact.zk_address;
+         ui.add(
+            SecureTextEdit::singleline(address)
+               .visuals(text_edit_visuals)
+               .min_size(text_edit_size)
+               .margin(Margin::same(10))
+               .font(FontId::proportional(theme.typography.normal)),
+         );
+
+         let text = RichText::new("Add").size(theme.typography.large);
+         let size = vec2(100.0, 25.0);
+         let button = Button::new(text).visuals(button_visuals).min_size(size);
+         ui.add(button)
+      });
+
+      if res.inner.clicked() {
+         let new_contact = self.contact.clone();
+
+         RT.spawn_blocking(move || {
+            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+            let _ = match Address::from_str(&new_contact.evm_address) {
+               Ok(address) => address,
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     let msg = format!("Address is not an Ethereum address: {}", e);
+                     gui.open_msg_window(msg);
+                     gui.request_repaint();
+                  });
+                  return;
+               }
+            };
+
+            if !new_contact.zk_address.is_empty() {
+               match RailgunAddress::from_zk_address(&new_contact.zk_address) {
+                  Ok(_) => {}
+                  Err(e) => {
+                     SHARED_GUI.write(|gui| {
+                        let msg = format!("Address is not a valid Railgun address: {}", e);
+                        gui.open_msg_window(msg);
+                        gui.request_repaint();
+                     });
+                     return;
+                  }
+               }
+            }
+
+            match ctx.add_contact(new_contact.clone()) {
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.settings.contacts_ui.add_contact.contact_added = true;
+                     if reset_on_success {
+                        gui.settings.contacts_ui.add_contact.reset();
+                        gui.settings.contacts_ui.view = ContactsPageView::List;
+                     }
+                  });
+               }
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.open_msg_window(format!(
+                        "Failed to add contact: {}",
+                        e.to_string()
+                     ));
+                     gui.request_repaint();
+                  });
+                  return;
+               }
+            }
+
+            match ctx.save_wallet_state() {
+               Ok(_) => {}
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     let error = format!(
+                        "Changes didn't take effect, encountered error: {}",
+                        e
+                     );
+                     gui.open_msg_window(error);
+                     gui.request_repaint();
+                  });
+                  ctx.remove_contact(&new_contact.evm_address);
+               }
+            }
+         });
       }
    }
 }
 
 struct DeleteContact {
-   open: bool,
-   overlay: OverlayManager,
    contact_to_delete: Contact,
-   size: (f32, f32),
 }
 
 impl DeleteContact {
-   pub fn new(overlay: OverlayManager) -> Self {
+   fn new() -> Self {
       Self {
-         open: false,
-         overlay,
          contact_to_delete: Contact::default(),
-         size: (450.0, 180.0),
       }
    }
 
-   pub fn open(&mut self) {
-      if !self.open {
-         self.overlay.window_opened();
-         self.open = true;
-      }
-   }
+   fn body(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+      ui.spacing_mut().item_spacing.y = 15.0;
+      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-   pub fn close(&mut self) {
-      self.overlay.window_closed();
-      self.open = false;
-   }
+      let contact_to_delete = self.contact_to_delete.clone();
+      ui.label(
+         RichText::new("Are you sure you want to delete this contact?")
+            .size(theme.typography.large),
+      );
+      ui.label(RichText::new(&contact_to_delete.name).size(theme.typography.large));
+      ui.label(
+         RichText::new(contact_to_delete.evm_address.to_string()).size(theme.typography.normal),
+      );
 
-   fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
-      let mut open = self.open;
+      let button_visuals = theme.button_visuals();
+      let text = RichText::new("Delete").size(theme.typography.normal);
+      let button = Button::new(text).visuals(button_visuals);
 
-      if !open {
-         return;
-      }
+      if ui.add(button).clicked() {
+         ctx.remove_contact(&contact_to_delete.evm_address);
 
-      let mut should_close = false;
-      let window_frame = theme.window_frame.fill(theme.frame1.fill);
-      let title_frame = window_frame.stroke(Stroke::NONE);
-
-      Window::new(RichText::new("Delete contact").size(theme.typography.heading))
-         .open(&mut open)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Foreground)
-         .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
-         .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
-
-            ui.vertical_centered(|ui| {
-               ui.set_width(self.size.0);
-               ui.spacing_mut().item_spacing.y = 15.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               ui.add_space(20.0);
-
-               let contact_to_delete = self.contact_to_delete.clone();
-               ui.label(
-                  RichText::new("Are you sure you want to delete this contact?")
-                     .size(theme.typography.large),
-               );
-               ui.label(RichText::new(&contact_to_delete.name).size(theme.typography.large));
-               ui.label(
-                  RichText::new(contact_to_delete.evm_address.to_string())
-                     .size(theme.typography.normal),
-               );
-
-               let button_visuals = theme.button_visuals();
-
-               let text = RichText::new("Delete").size(theme.typography.normal);
-               let button = Button::new(text).visuals(button_visuals);
-
-               let res_delete = ui.add(button);
-
-               if res_delete.clicked() {
-                  ctx.remove_contact(&contact_to_delete.evm_address);
-
-                  RT.spawn_blocking(move || {
-                     let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                     // On failure the contact is added again
-                     match ctx.save_wallet_state() {
-                        Ok(_) => {}
-                        Err(e) => {
-                           SHARED_GUI.write(|gui| {
-                              let error = format!(
-                                 "Changes didn't take effect, encountered error: {}",
-                                 e
-                              );
-                              gui.open_msg_window(error);
-                              gui.request_repaint();
-                           });
-                           let _res = ctx.add_contact(contact_to_delete);
-                        }
-                     }
+         RT.spawn_blocking(move || {
+            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+            match ctx.save_wallet_state() {
+               Ok(_) => {}
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     let error = format!(
+                        "Changes didn't take effect, encountered error: {}",
+                        e
+                     );
+                     gui.open_msg_window(error);
+                     gui.request_repaint();
                   });
-
-                  should_close = true;
-                  self.contact_to_delete = Contact::default();
+                  let _res = ctx.add_contact(contact_to_delete);
                }
-            });
+            }
          });
 
-      if should_close {
-         self.close();
-      }
-
-      if !open {
-         self.close();
+         self.contact_to_delete = Contact::default();
+         SHARED_GUI.write(|gui| {
+            gui.settings.contacts_ui.view = ContactsPageView::List;
+         });
       }
    }
 }
 
 struct EditContact {
-   open: bool,
-   overlay: OverlayManager,
    contact_to_edit: Contact,
    old_contact: Contact,
-   size: (f32, f32),
 }
 
 impl EditContact {
-   pub fn new(overlay: OverlayManager) -> Self {
+   fn new() -> Self {
       Self {
-         open: false,
-         overlay,
          contact_to_edit: Contact::default(),
          old_contact: Contact::default(),
-         size: (450.0, 250.0),
       }
    }
 
-   pub fn open(&mut self) {
-      if !self.open {
-         self.overlay.window_opened();
-         self.open = true;
-      }
-   }
+   fn body(&mut self, theme: &Theme, ui: &mut Ui) {
+      let res = ui.vertical_centered(|ui| {
+         ui.spacing_mut().item_spacing.y = 16.0;
+         ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+         let text_edit_size = vec2(ui.available_width() * 0.6, 25.0);
 
-   pub fn close(&mut self) {
-      self.overlay.window_closed();
-      self.open = false;
-   }
+         let text_edit_visuals = theme.text_edit_visuals();
+         let button_visuals = theme.button_visuals();
 
-   fn show(&mut self, _ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
-      let mut open = self.open;
+         let mut contact = self.contact_to_edit.clone();
+         ui.label(RichText::new("Name:").size(theme.typography.large));
+         let name = &mut contact.name;
 
-      if !open {
-         return;
-      }
+         ui.add(
+            SecureTextEdit::singleline(name)
+               .visuals(text_edit_visuals)
+               .min_size(text_edit_size)
+               .margin(Margin::same(10))
+               .font(FontId::proportional(theme.typography.normal)),
+         );
 
-      let window_frame = theme.window_frame.fill(theme.frame1.fill);
-      let title_frame = window_frame.stroke(Stroke::NONE);
+         ui.label(RichText::new("Address:").size(theme.typography.large));
+         let address = &mut contact.evm_address;
 
-      Window::new(RichText::new("Edit contact").size(theme.typography.heading))
-         .open(&mut open)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Foreground)
-         .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
-         .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+         ui.add(
+            SecureTextEdit::singleline(address)
+               .visuals(text_edit_visuals)
+               .min_size(text_edit_size)
+               .margin(Margin::same(10))
+               .font(FontId::proportional(theme.typography.normal)),
+         );
 
-            ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 20.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               let text_edit_size = vec2(ui.available_width() * 0.6, 25.0);
+         ui.label(RichText::new("Railgun Address:").size(theme.typography.large));
+         let address = &mut contact.zk_address;
+         ui.add(
+            SecureTextEdit::singleline(address)
+               .visuals(text_edit_visuals)
+               .min_size(text_edit_size)
+               .margin(Margin::same(10))
+               .font(FontId::proportional(theme.typography.normal)),
+         );
 
-               let text_edit_visuals = theme.text_edit_visuals();
-               let button_visuals = theme.button_visuals();
+         self.contact_to_edit = contact.clone();
 
-               let mut contact = self.contact_to_edit.clone();
-               ui.label(RichText::new("Name:").size(theme.typography.large));
-               let name = &mut contact.name;
+         let text = RichText::new("Save").size(theme.typography.large);
+         let size = vec2(100.0, 25.0);
+         let button = Button::new(text).visuals(button_visuals).min_size(size);
 
-               ui.add(
-                  SecureTextEdit::singleline(name)
-                     .visuals(text_edit_visuals)
-                     .min_size(text_edit_size)
-                     .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.typography.normal)),
-               );
+         ui.add(button)
+      });
 
-               ui.label(RichText::new("Address:").size(theme.typography.large));
-               let address = &mut contact.evm_address;
+      if res.inner.clicked() {
+         let old_contact = self.old_contact.clone();
+         let edited_contact = self.contact_to_edit.clone();
 
-               ui.add(
-                  SecureTextEdit::singleline(address)
-                     .visuals(text_edit_visuals)
-                     .min_size(text_edit_size)
-                     .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.typography.normal)),
-               );
+         RT.spawn_blocking(move || {
+            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+            let _ = match Address::from_str(&edited_contact.evm_address) {
+               Ok(address) => address,
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     let msg = format!("Address is not an Ethereum address: {}", e);
+                     gui.open_msg_window(msg);
+                     gui.request_repaint();
+                  });
+                  return;
+               }
+            };
 
-               ui.label(RichText::new("Railgun Address:").size(theme.typography.large));
-               let address = &mut contact.zk_address;
-               ui.add(
-                  SecureTextEdit::singleline(address)
-                     .visuals(text_edit_visuals)
-                     .min_size(text_edit_size)
-                     .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.typography.normal)),
-               );
-
-               self.contact_to_edit = contact.clone();
-
-               let text = RichText::new("Save").size(theme.typography.large);
-               let size = vec2(ui.available_width() * 0.5, 30.0);
-               let button = Button::new(text).visuals(button_visuals).min_size(size);
-
-               if ui.add(button).clicked() {
-                  let old_contact = self.old_contact.clone();
-                  let edited_contact = self.contact_to_edit.clone();
-
-                  RT.spawn_blocking(move || {
-                     let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                     // make sure the address is valid
-                     let _ = match Address::from_str(&edited_contact.evm_address) {
-                        Ok(address) => address,
-                        Err(e) => {
-                           SHARED_GUI.write(|gui| {
-                              let msg = format!("Address is not an Ethereum address: {}", e);
-                              gui.open_msg_window(msg);
-                              gui.request_repaint();
-                           });
-                           return;
-                        }
-                     };
-
-                     if !edited_contact.zk_address.is_empty() {
-                        match RailgunAddress::from_zk_address(&edited_contact.zk_address) {
-                           Ok(_) => {}
-                           Err(e) => {
-                              SHARED_GUI.write(|gui| {
-                                 let msg = format!("Address is not a valid Railgun address: {}", e);
-                                 gui.open_msg_window(msg);
-                                 gui.request_repaint();
-                              });
-                              return;
-                           }
-                        }
-                     }
-
+            if !edited_contact.zk_address.is_empty() {
+               match RailgunAddress::from_zk_address(&edited_contact.zk_address) {
+                  Ok(_) => {}
+                  Err(e) => {
                      SHARED_GUI.write(|gui| {
-                        gui.settings.contacts_ui.edit_contact.contact_to_edit = Contact::default();
-                        gui.settings.contacts_ui.edit_contact.old_contact = Contact::default();
-                        gui.settings.contacts_ui.edit_contact.close();
+                        let msg = format!("Address is not a valid Railgun address: {}", e);
+                        gui.open_msg_window(msg);
+                        gui.request_repaint();
                      });
+                     return;
+                  }
+               }
+            }
 
-                     ctx.write_wallet_state(|ws| {
-                        let new_contact = ws
-                           .contacts
-                           .iter_mut()
-                           .find(|c| c.evm_address == old_contact.evm_address);
-                        if let Some(new_contact) = new_contact {
-                           *new_contact = edited_contact.clone();
-                        }
-                     });
+            SHARED_GUI.write(|gui| {
+               gui.settings.contacts_ui.edit_contact.contact_to_edit = Contact::default();
+               gui.settings.contacts_ui.edit_contact.old_contact = Contact::default();
+               gui.settings.contacts_ui.view = ContactsPageView::List;
+            });
 
-                     // On failure the contact changes are reverted
-                     match ctx.save_wallet_state() {
-                        Ok(_) => {}
-                        Err(e) => {
-                           SHARED_GUI.write(|gui| {
-                              let error = format!(
-                                 "Changes didn't take effect, encountered error: {}",
-                                 e
-                              );
-                              gui.open_msg_window(error);
-                              gui.request_repaint();
-                           });
+            ctx.write_wallet_state(|ws| {
+               let new_contact =
+                  ws.contacts.iter_mut().find(|c| c.evm_address == old_contact.evm_address);
+               if let Some(new_contact) = new_contact {
+                  *new_contact = edited_contact.clone();
+               }
+            });
 
-                           ctx.write_wallet_state(|ws| {
-                              let new_contact = ws
-                                 .contacts
-                                 .iter_mut()
-                                 .find(|c| c.evm_address == edited_contact.evm_address);
-                              if let Some(new_contact) = new_contact {
-                                 *new_contact = old_contact.clone();
-                              }
-                           });
-                        }
+            match ctx.save_wallet_state() {
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.open_msg_window("Contact saved");
+                     gui.request_repaint();
+                  });
+               }
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     let error = format!(
+                        "Changes didn't take effect, encountered error: {}",
+                        e
+                     );
+                     gui.open_msg_window(error);
+                     gui.request_repaint();
+                  });
+
+                  ctx.write_wallet_state(|ws| {
+                     let new_contact = ws
+                        .contacts
+                        .iter_mut()
+                        .find(|c| c.evm_address == edited_contact.evm_address);
+                     if let Some(new_contact) = new_contact {
+                        *new_contact = old_contact.clone();
                      }
                   });
                }
-            });
+            }
          });
-
-      if !open {
-         self.close();
       }
    }
 }
 
 struct QrWindow {
-   open: bool,
    contact: Option<Contact>,
    evm_address_qr: QrImage,
    zk_address_qr: QrImage,
-   size: (f32, f32),
 }
 
 impl QrWindow {
    fn new() -> Self {
       Self {
-         open: false,
          contact: None,
          evm_address_qr: QrImage::empty_with_error("No QR code found".to_string()),
          zk_address_qr: QrImage::empty_with_error("No QR code found".to_string()),
-         size: (400.0, 400.0),
       }
    }
 
@@ -548,252 +458,213 @@ impl QrWindow {
          });
       });
 
-      self.open = true;
       self.contact = Some(contact_clone);
    }
 
-   fn close(&mut self) {
-      self.open = false;
-   }
-
    fn reset(&mut self) {
-      self.close();
       *self = Self::new();
    }
 
-   fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
-      if !self.open {
+   fn body(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+      let privacy_mode = ctx.privacy_mode;
+
+      ui.spacing_mut().item_spacing = vec2(10.0, 8.0);
+      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+      if self.contact.is_none() {
+         ui.label(RichText::new("No contact found, this is a bug").size(theme.typography.normal));
+         ui.add(Spinner::new().size(17.0).color(theme.colors.text));
          return;
       }
 
-      let privacy_mode = ctx.privacy_mode;
-      let mut open = self.open;
+      if let Some(contact) = self.contact.as_ref() {
+         ui.label(RichText::new(&contact.name).size(theme.typography.large));
 
-      Modal::new("Contact QR Code", &mut open)
-         .backdrop_order(Order::Middle)
-         .content_order(Order::Foreground)
-         .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+         let text = match privacy_mode {
+            false => "Public Address (EVM)",
+            true => "Private Address (zk)",
+         };
 
-            ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing = vec2(10.0, 8.0);
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+         let rich_text = RichText::new(text).size(theme.typography.large);
+         ui.label(rich_text);
 
-               if self.contact.is_none() {
-                  ui.label(
-                     RichText::new("No contact found, this is a bug").size(theme.typography.normal),
-                  );
-                  ui.add(Spinner::new().size(17.0).color(theme.colors.text));
-                  self.close_button(theme, ui);
-                  return;
-               }
+         let address = match privacy_mode {
+            false => contact.evm_address.clone(),
+            true => contact.zk_address.clone(),
+         };
 
-               if let Some(contact) = self.contact.as_ref() {
-                  ui.label(RichText::new(&contact.name).size(theme.typography.large));
+         if !address.is_empty() {
+            let address_text = RichText::new(address.clone()).size(theme.typography.normal);
+            let label =
+               Button::selectable(false, address_text).visuals(theme.button_visuals()).wrap();
 
-                  let text = match privacy_mode {
-                     false => "Public Address (EVM)",
-                     true => "Private Address (zk)",
-                  };
-
-                  let rich_text = RichText::new(text).size(theme.typography.large);
-                  ui.label(rich_text);
-
-                  let address = match privacy_mode {
-                     false => contact.evm_address.clone(),
-                     true => contact.zk_address.clone(),
-                  };
-
-                  if !address.is_empty() {
-                     let address_text =
-                        RichText::new(address.clone()).size(theme.typography.normal);
-                     let label = Button::selectable(false, address_text)
-                        .visuals(theme.button_visuals())
-                        .wrap();
-
-                     if ui.add(label).clicked() {
-                        ui.ctx().copy_text(address);
-                     }
-                  }
-               }
-
-               ui.add_space(10.0);
-
-               if !privacy_mode {
-                  if let Some(error) = self.evm_address_qr.error() {
-                     ui.label(RichText::new(error.to_string()).size(theme.typography.large));
-                  }
-               } else if let Some(error) = self.zk_address_qr.error() {
-                  ui.label(RichText::new(error.to_string()).size(theme.typography.large));
-               }
-
-               if !privacy_mode {
-                  let image = self.evm_address_qr.image().fit_to_exact_size(vec2(250.0, 250.0));
-                  ui.add(image);
-               } else {
-                  let image = self.zk_address_qr.image().fit_to_exact_size(vec2(250.0, 250.0));
-                  ui.add(image);
-               }
-
-               ui.add_space(10.0);
-
-               self.close_button(theme, ui);
-            });
-         });
-
-      if !open {
-         self.evm_address_qr.clear(ui.ctx());
-         self.zk_address_qr.clear(ui.ctx());
-         self.reset();
+            if ui.add(label).clicked() {
+               ui.ctx().copy_text(address);
+            }
+         }
       }
-   }
 
-   fn close_button(&mut self, theme: &Theme, ui: &mut Ui) {
-      let text = RichText::new("Close").size(theme.typography.normal);
-      let button = Button::new(text).visuals(theme.button_visuals());
+      ui.add_space(10.0);
 
-      if ui.add(button).clicked() {
-         self.evm_address_qr.clear(ui.ctx());
-         self.zk_address_qr.clear(ui.ctx());
-         self.reset();
+      if !privacy_mode {
+         if let Some(error) = self.evm_address_qr.error() {
+            ui.label(RichText::new(error.to_string()).size(theme.typography.large));
+         }
+      } else if let Some(error) = self.zk_address_qr.error() {
+         ui.label(RichText::new(error.to_string()).size(theme.typography.large));
+      }
+
+      if !privacy_mode {
+         let image = self.evm_address_qr.image().fit_to_exact_size(vec2(250.0, 250.0));
+         ui.add(image);
+      } else {
+         let image = self.zk_address_qr.image().fit_to_exact_size(vec2(250.0, 250.0));
+         ui.add(image);
       }
    }
 }
 
 pub struct ContactsUi {
-   open: bool,
-   overlay: OverlayManager,
-   main_ui: bool,
+   view: ContactsPageView,
    search_query: String,
    pub add_contact: AddContact,
    delete_contact: DeleteContact,
    edit_contact: EditContact,
    qr_window: QrWindow,
-   pub size: (f32, f32),
 }
 
 impl ContactsUi {
    pub fn new(overlay: OverlayManager) -> Self {
       Self {
-         open: false,
-         overlay: overlay.clone(),
-         main_ui: true,
+         view: ContactsPageView::List,
          search_query: String::new(),
-         add_contact: AddContact::new(overlay.clone()),
-         delete_contact: DeleteContact::new(overlay.clone()),
-         edit_contact: EditContact::new(overlay),
+         add_contact: AddContact::new(overlay),
+         delete_contact: DeleteContact::new(),
+         edit_contact: EditContact::new(),
          qr_window: QrWindow::new(),
-         size: (500.0, 550.0),
       }
    }
 
-   pub fn open(&mut self) {
-      if !self.open {
-         self.overlay.window_opened();
-         self.open = true;
-      }
-   }
-
-   pub fn close(&mut self) {
-      if self.qr_window.open {
+   pub fn reset_page(&mut self) {
+      if self.view == ContactsPageView::Qr {
          self.qr_window.reset();
       }
-      self.overlay.window_closed();
-      self.open = false;
+      self.view = ContactsPageView::List;
+      self.search_query.clear();
    }
 
-   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      if !self.open {
-         return;
-      }
-
-      self.main_ui(ctx, theme, icons, ui);
-      self.add_contact.show(theme, true, ui);
-      self.delete_contact.show(ctx, theme, ui);
-      self.edit_contact.show(ctx, theme, ui);
-      self.qr_window.show(ctx, theme, ui);
-   }
-
-   fn main_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, _icons: Arc<Icons>, ui: &mut Ui) {
-      if !self.main_ui {
-         return;
-      }
-
-      let mut open = self.open;
-      let window_frame = theme.window_frame.fill(theme.frame1.fill);
-      let title_frame = window_frame.stroke(Stroke::NONE);
-
-      Window::new(RichText::new("Contacts").size(theme.typography.heading))
-         .open(&mut open)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Middle)
-         .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
-         .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
-
-            let contacts = ctx.read_wallet_state(|ws| ws.contacts.clone());
-
-            let text_edit_visuals = theme.text_edit_visuals();
-            let button_visuals = theme.button_visuals();
-
+   pub fn show_page(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+      match self.view {
+         ContactsPageView::List => {
+            self.list_ui(ctx, theme, ui);
+         }
+         ContactsPageView::Add => {
+            self.back_row(theme, ui);
             ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 10.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-
-               // Add contact button
-               let text = RichText::new("Add Contact").size(theme.typography.normal);
-               let button = Button::new(text).visuals(button_visuals);
-               if ui.add(button).clicked() {
-                  self.add_contact.open();
-               }
-
-               ui.add_space(20.0);
-
-               if contacts.is_empty() {
-                  ui.label(RichText::new("No contacts found").size(theme.typography.large));
-                  return;
-               }
-
-               // Search bar
-               let hint = RichText::new("Search contacts or enter an address")
-                  .size(theme.typography.normal)
-                  .color(theme.colors.text_muted);
-
-               ui.add(
-                  SecureTextEdit::singleline(&mut self.search_query)
-                     .visuals(text_edit_visuals)
-                     .hint_text(hint)
-                     .min_size(vec2(ui.available_width() * 0.80, 25.0))
-                     .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.typography.normal)),
-               );
-
-               ui.add_space(15.0);
-
-               ScrollArea::vertical().max_height(self.size.1).show(ui, |ui| {
-                  ui.set_width(self.size.0);
-
-                  for contact in &contacts {
-                     let valid = valid_contact_search(contact, &self.search_query);
-
-                     if !valid {
-                        continue;
-                     }
-
-                     self.contact(ctx, theme, contact, ui);
-                  }
-               });
+               ui.label(RichText::new("Add contact").size(theme.typography.heading));
+               ui.add_space(10.0);
+               self.add_contact.body(theme, true, ui);
             });
-         });
-
-      if !open {
-         self.close();
+         }
+         ContactsPageView::Edit => {
+            self.back_row(theme, ui);
+            ui.vertical_centered(|ui| {
+               ui.label(RichText::new("Edit contact").size(theme.typography.heading));
+               ui.add_space(10.0);
+               self.edit_contact.body(theme, ui);
+            });
+         }
+         ContactsPageView::Delete => {
+            self.back_row(theme, ui);
+            ui.vertical_centered(|ui| {
+               ui.label(RichText::new("Delete contact").size(theme.typography.heading));
+               ui.add_space(10.0);
+               self.delete_contact.body(ctx, theme, ui);
+            });
+         }
+         ContactsPageView::Qr => {
+            self.back_row(theme, ui);
+            ui.vertical_centered(|ui| {
+               ui.label(RichText::new("Contact QR Code").size(theme.typography.heading));
+               ui.add_space(10.0);
+               self.qr_window.body(ctx, theme, ui);
+            });
+         }
       }
+   }
+
+   fn back_row(&mut self, theme: &Theme, ui: &mut Ui) {
+      let text = RichText::new("Back").size(theme.typography.normal);
+      let button = Button::new(text).min_size(vec2(50.0, 20.0));
+
+      let res = ui.scope(|ui| {
+         ui.spacing_mut().button_padding = theme.button_padding;
+         ui.add(button)
+      });
+
+      if res.inner.clicked() {
+         if self.view == ContactsPageView::Qr {
+            self.qr_window.evm_address_qr.clear(ui.ctx());
+            self.qr_window.zk_address_qr.clear(ui.ctx());
+            self.qr_window.reset();
+         }
+         self.view = ContactsPageView::List;
+      }
+      ui.add_space(8.0);
+   }
+
+   fn list_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+      let contacts = ctx.read_wallet_state(|ws| ws.contacts.clone());
+
+      let text_edit_visuals = theme.text_edit_visuals();
+      let button_visuals = theme.button_visuals();
+
+      ui.spacing_mut().item_spacing.y = 10.0;
+      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+      let text = RichText::new("Add Contact").size(theme.typography.normal);
+      let button = Button::new(text).visuals(button_visuals);
+      if ui.add(button).clicked() {
+         self.view = ContactsPageView::Add;
+      }
+
+      ui.add_space(12.0);
+
+      if contacts.is_empty() {
+         ui.label(RichText::new("No contacts found").size(theme.typography.large));
+         return;
+      }
+
+      let hint = RichText::new("Search contacts or enter an address")
+         .size(theme.typography.normal)
+         .color(theme.colors.text_muted);
+
+      ui.add(
+         SecureTextEdit::singleline(&mut self.search_query)
+            .visuals(text_edit_visuals)
+            .hint_text(hint)
+            .min_size(vec2(ui.available_width() * 0.40, 25.0))
+            .margin(Margin::same(10))
+            .font(FontId::proportional(theme.typography.normal)),
+      );
+
+      ui.add_space(15.0);
+
+      ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+         Frame::new().inner_margin(10.0).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+
+            for contact in &contacts {
+               let valid = valid_contact_search(contact, &self.search_query);
+
+               if !valid {
+                  continue;
+               }
+
+               self.contact(ctx, theme, contact, ui);
+            }
+         });
+      });
    }
 
    fn contact(&mut self, ctx: &ZeusContext, theme: &Theme, contact: &Contact, ui: &mut Ui) {
@@ -804,7 +675,6 @@ impl ContactsUi {
       frame.show(ui, |ui| {
          ui.set_width(ui.available_width());
 
-         // Contact Name
          ui.horizontal(|ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                let text = RichText::new(&contact.name).size(theme.typography.large);
@@ -812,24 +682,24 @@ impl ContactsUi {
                ui.add(label);
             });
 
-            // More button
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                let more = dots_button(theme, ui);
                let id = format!("{}_more_options", contact.evm_address);
 
                Menu::new(id).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("Edit").shortcut("⌘ E")).clicked() {
-                     self.edit_contact.open();
+                     self.view = ContactsPageView::Edit;
                      self.edit_contact.contact_to_edit = contact.clone();
                      self.edit_contact.old_contact = contact.clone();
                   }
 
                   if ui.add(MenuItem::new("Show QR Code").shortcut("⌘ Q")).clicked() {
+                     self.view = ContactsPageView::Qr;
                      self.qr_window.open(contact.clone());
                   }
 
                   if ui.add(MenuItem::new("Delete").shortcut("⌘ D")).clicked() {
-                     self.delete_contact.open();
+                     self.view = ContactsPageView::Delete;
                      self.delete_contact.contact_to_delete = contact.clone();
                   }
 
@@ -844,7 +714,6 @@ impl ContactsUi {
             });
          });
 
-         // Address - Hyperlink button
          ui.horizontal(|ui| {
             ui.spacing_mut().button_padding = vec2(4.0, 4.0);
 

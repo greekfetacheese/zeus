@@ -10,7 +10,7 @@
 use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, ZeusContext, delegate_to};
 use crate::gui::{
-   SHARED_GUI,
+   SHARED_GUI, SettingsPage,
    ui::{ChainSelect, WalletSelect, common::dots_button, dapps::railgun::RailgunMode},
 };
 use crate::utils::{RT, truncate_address};
@@ -390,7 +390,9 @@ impl Header {
                   if ui.add(MenuItem::new("Settings").shortcut("⌘ S")).clicked() {
                      RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
-                           gui.railgun_settings.open(gui.ctx.clone());
+                           gui.ctx.clone().write(|ctx| {
+                              gui.settings.open_page(SettingsPage::Railgun, ctx);
+                           });
                            gui.request_repaint();
                         });
                      });

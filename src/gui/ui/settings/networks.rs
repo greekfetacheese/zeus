@@ -5,94 +5,66 @@ use crate::core::{ZeusContext, ZeusCtx, client::Rpc};
 use crate::gui::{SHARED_GUI, ui::ChainSelect};
 use crate::utils::{RT, state};
 use eframe::egui::{
-   Align, Align2, CornerRadius, CursorIcon, FontId, Layout, Margin, Order, RichText, ScrollArea,
-   Slider, Spinner, Stroke, Ui, vec2,
+   Align, CornerRadius, CursorIcon, FontId, InnerResponse, Layout, Margin, RichText, ScrollArea,
+   Spinner, Ui, vec2,
 };
-use egui_elements::{
-   Button, Modal, OverlayManager, SecureTextEdit, Theme, visuals::ButtonVisuals, widgets::Window,
-};
+use egui_elements::{Button, SecureTextEdit, Theme, visuals::ButtonVisuals};
 use egui_lucide::Lucide;
 use elegance::{Indicator, IndicatorState};
 use std::sync::Arc;
 use zeus_eth::alloy_provider::Provider;
 
+enum NetworkView {
+   List,
+   AddRpc,
+   EditRpc,
+}
+
 pub struct NetworkSettings {
-   open: bool,
-   overlay: OverlayManager,
+   view: NetworkView,
    refreshing: bool,
-   add_rpc: bool,
-   rpc_settings_open: bool,
    rpc_to_edit: Option<Rpc>,
    url_to_add: String,
    chain_select: ChainSelect,
-   size: (f32, f32),
-
-   #[allow(dead_code)]
-   change_server_port: bool,
-   #[allow(dead_code)]
-   valid_url: bool,
 }
 
 impl NetworkSettings {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       let mut chain_select =
-         ChainSelect::new("network_settings_chain_select", 1).size(vec2(200.0, 15.0));
+         ChainSelect::new("network_settings_chain_select", 1).size(vec2(250.0, 15.0));
       chain_select.show_disabled_chains = true;
 
       Self {
-         open: false,
-         overlay,
+         view: NetworkView::List,
          refreshing: false,
-         add_rpc: false,
-         rpc_settings_open: false,
          rpc_to_edit: None,
-         change_server_port: false,
-         valid_url: false,
          url_to_add: String::new(),
          chain_select,
-         size: (550.0, 400.0),
       }
    }
 
-   pub fn is_open(&self) -> bool {
-      self.open
-   }
-
-   pub fn open(&mut self) {
-      if !self.open {
-         self.overlay.window_opened();
-         self.open = true;
-      }
-   }
-
-   pub fn close(&mut self) {
-      self.overlay.window_closed();
-      self.open = false;
+   pub fn reset_view(&mut self) {
+      self.view = NetworkView::List;
+      self.rpc_to_edit = None;
+      self.url_to_add.clear();
    }
 
    pub fn open_add_rpc(&mut self) {
-      if !self.add_rpc {
-         self.overlay.window_opened();
-         self.add_rpc = true;
-      }
+      self.view = NetworkView::AddRpc;
    }
 
    pub fn close_add_rpc(&mut self) {
-      self.overlay.window_closed();
-      self.add_rpc = false;
+      self.view = NetworkView::List;
       self.url_to_add.clear();
    }
 
    pub fn open_rpc_settings(&mut self) {
-      if !self.rpc_settings_open {
-         self.overlay.window_opened();
-         self.rpc_settings_open = true;
-      }
+      self.view = NetworkView::EditRpc;
    }
 
    pub fn close_rpc_settings(&mut self) {
-      self.overlay.window_closed();
-      self.rpc_settings_open = false;
+      self.view = NetworkView::List;
+      self.rpc_to_edit = None;
    }
 
    fn valid_url(&self) -> bool {
@@ -102,489 +74,340 @@ impl NetworkSettings {
          || self.url_to_add.starts_with("wss://")
    }
 
-   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      if !self.open {
-         return;
+   fn back_button(&mut self, theme: &Theme, ui: &mut Ui) {
+      let text = RichText::new("Back").size(theme.typography.normal);
+      let button = Button::new(text).visuals(theme.button_visuals());
+      if ui.add(button).clicked() {
+         self.reset_view();
       }
+   }
 
-      self.add_rpc(theme, ui);
-      self.rpc_settings(ctx, theme, ui);
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      ui.label(RichText::new("Networks").size(theme.typography.heading));
+      ui.add_space(8.0);
+      ui.separator();
 
-      let mut open = self.open;
-      let window_frame = theme.window_frame.fill(theme.frame1.fill);
-      let title_frame = window_frame.stroke(Stroke::NONE);
+      match self.view {
+         NetworkView::List => self.list_ui(ctx, theme, icons, ui),
+         NetworkView::AddRpc => self.add_rpc(theme, ui),
+         NetworkView::EditRpc => self.rpc_settings(ctx, theme, ui),
+      }
+   }
 
-      Window::new(RichText::new("Network Settings").size(theme.typography.heading))
-         .open(&mut open)
-         .resizable(false)
-         .order(Order::Middle)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
-         .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+   fn list_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-            let button_visuals = theme.button_visuals();
-            let text_edit_visuals = theme.text_edit_visuals();
+      let button_visuals = theme.button_visuals();
+      let text_edit_visuals = theme.text_edit_visuals();
 
-            ui.add_space(25.0);
-            let chain = self.chain_select.chain.id();
-            let z_client = ctx.client.clone();
-            let mut rpcs = z_client.get_rpcs(chain);
+      let chain = self.chain_select.chain.id();
+      let z_client = ctx.client.clone();
+      let mut rpcs = z_client.get_rpcs(chain);
 
-            ui.horizontal(|ui| {
-               // Chain Select
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  ui.spacing_mut().button_padding = vec2(8.0, 4.0);
-                  self.chain_select.show(ctx, &[0], theme, icons.clone(), ui);
+      ui.add_space(10.0);
+
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.spacing_mut().button_padding = vec2(8.0, 4.0);
+            self.chain_select.show(ctx, &[0], theme, icons.clone(), ui);
+         });
+
+         ui.add_space(30.0);
+
+         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.spacing_mut().button_padding = vec2(8.0, 10.0);
+
+            let disabled = ctx.is_chain_disabled(chain);
+            let text = match disabled {
+               true => RichText::new("Enable Network").size(theme.typography.normal),
+               false => RichText::new("Disable Network").size(theme.typography.normal),
+            };
+
+            let button = Button::new(text).visuals(button_visuals);
+
+            if ui.add(button).clicked() {
+               if disabled {
+                  ctx.enable_chain(chain);
+               } else {
+                  ctx.disable_chain(chain);
+               }
+
+               RT.spawn_blocking(move || {
+                  let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+                  ctx.save_disabled_chains();
                });
+            }
 
-               ui.add_space(30.0);
+            let text = RichText::new("Add RPC Url").size(theme.typography.normal);
+            let button = Button::new(text).visuals(button_visuals);
 
-               ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                  ui.spacing_mut().button_padding = vec2(8.0, 10.0);
+            if ui.add(button).clicked() {
+               self.open_add_rpc();
+            }
 
-                  // Enable/Disable Network button
-                  let disabled = ctx.is_chain_disabled(chain);
-                  let text = match disabled {
-                     true => RichText::new("Enable Network").size(theme.typography.normal),
-                     false => RichText::new("Disable Network").size(theme.typography.normal),
-                  };
+            let icon = Lucide::RefreshCw.size(20.0).color(theme.colors.text).image();
 
-                  let button = Button::new(text).visuals(button_visuals);
+            if !self.refreshing {
+               let mut visuals = ButtonVisuals::default();
+               visuals.bg_hover = button_visuals.bg_hover;
+               visuals.corner_radius = CornerRadius::same(25);
+               let button = Button::image(icon).small().visuals(visuals);
+               let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
-                  if ui.add(button).clicked() {
-                     if disabled {
-                        ctx.enable_chain(chain);
-                     } else {
-                        ctx.disable_chain(chain);
-                     }
+               if res.clicked() {
+                  self.refreshing = true;
 
-                     RT.spawn_blocking(move || {
-                        let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                        ctx.save_disabled_chains();
-                     });
-                  }
-
-                  // Add Network button
-                  let text = RichText::new("Add RPC Url").size(theme.typography.normal);
-                  let button = Button::new(text).visuals(button_visuals);
-
-                  if ui.add(button).clicked() {
-                     self.open_add_rpc();
-                  }
-
-                  // Refresh button
-                  let icon = Lucide::RefreshCw.size(20.0).color(theme.colors.text).image();
-
-                  if !self.refreshing {
-                     let mut visuals = ButtonVisuals::default();
-                     visuals.bg_hover = button_visuals.bg_hover;
-                     visuals.corner_radius = CornerRadius::same(25);
-                     let button = Button::image(icon).small().visuals(visuals);
-                     let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
-
-                     if res.clicked() {
-                        self.refreshing = true;
-
-                        RT.spawn(async move {
-                           let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                           let z_client = ctx.get_zeus_client();
-                           z_client.run_rpc_checks(ctx.clone()).await;
-                           z_client.sort_by_fastest();
-                           SHARED_GUI.write(|gui| {
-                              gui.settings.network.refreshing = false;
-                           });
-                        });
-                     }
-                  } else {
-                     ui.add(Spinner::new().size(17.0).color(theme.colors.text));
-                  }
-               });
-            });
-
-            ui.add_space(20.0);
-            ui.spacing_mut().item_spacing.y = 15.0;
-
-            let url_width = ui.available_width() * 0.35;
-            let mev_protect_width = ui.available_width() * 0.20;
-            let others_width = ui.available_width() * 0.12;
-            let buttons_width = ui.available_width() * 0.08;
-
-            // Header
-            ui.horizontal(|ui| {
-               ui.scope(|ui| {
-                  ui.set_width(url_width);
-                  ui.label(RichText::new("Url").size(theme.typography.normal));
-               });
-
-               ui.scope(|ui| {
-                  ui.set_width(others_width);
-                  ui.label(RichText::new("Enabled").size(theme.typography.normal));
-               });
-
-               ui.scope(|ui| {
-                  ui.set_width(others_width);
-                  ui.label(RichText::new("Status").size(theme.typography.normal));
-               });
-
-               ui.scope(|ui| {
-                  ui.set_width(others_width);
-                  ui.label(RichText::new("Archive").size(theme.typography.normal));
-               });
-
-               ui.scope(|ui| {
-                  ui.set_width(mev_protect_width);
-                  ui.label(RichText::new("MEV Protect").size(theme.typography.normal));
-               });
-
-               ui.scope(|ui| {
-                  ui.set_width(others_width);
-                  ui.label(RichText::new("Latency").size(theme.typography.normal));
-               });
-            });
-
-            ScrollArea::vertical().auto_shrink([false; 2]).content_margin(5).show(ui, |ui| {
-               ui.set_width(ui.available_width());
-
-               for (_url, rpc) in rpcs.iter_mut() {
-                  ui.horizontal(|ui| {
-                     // Url text edit
-                     let mut url = rpc.url.to_string();
-                     ui.scope(|ui| {
-                        ui.set_width(url_width);
-                        ui.add(
-                           SecureTextEdit::singleline(&mut url)
-                              .visuals(text_edit_visuals)
-                              .font(FontId::proportional(theme.typography.small))
-                              .min_size(vec2(url_width, 15.0))
-                              .margin(Margin::same(5)),
-                        );
-                     });
-
-                     // Enabled column
-                     let was_enabled = rpc.enabled;
-                     let res = ui.scope(|ui| {
-                        ui.set_width(others_width);
-                        ui.add_space(15.0);
-                        ui.checkbox(&mut rpc.enabled, "")
-                     });
-
-                     if res.inner.clicked() {
-                        let z_client = ctx.client.clone();
-                        z_client.write(|rpcs_map| {
-                           let rpcs_opt = rpcs_map.get_mut(&chain);
-                           if let Some(rpcs) = rpcs_opt {
-                              if let Some(old_rpc) = rpcs.get_mut(&rpc.url) {
-                                 old_rpc.enabled = rpc.enabled;
-                              }
-                           }
-                        });
-
-                        // If we just enabled the RPC, we need to run a check
-                        if !was_enabled && rpc.enabled {
-                           let rpc = rpc.clone();
-                           RT.spawn(async move {
-                              let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                              let z_client = ctx.get_zeus_client();
-                              z_client.run_check_for(ctx.clone(), rpc).await;
-
-                              post_enable_rpc(ctx, chain).await
-                           });
-                        }
-
-                        RT.spawn_blocking(move || {
-                           let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                           ctx.save_zeus_client();
-                        });
-                     }
-
-                     // Status column
-                     ui.scope(|ui| {
-                        ui.set_width(others_width);
-                        ui.add_space(12.0);
-                        let state = if rpc.is_working() {
-                           match rpc.is_fully_functional() {
-                              true => Indicator::new(IndicatorState::On).size(12.0),
-                              false => Indicator::new(IndicatorState::Connecting).size(12.0),
-                           }
-                        } else {
-                           Indicator::new(IndicatorState::Off).size(12.0)
-                        };
-                        ui.add(state);
-                     });
-
-                     // Archive Node column
-                     ui.scope(|ui| {
-                        ui.set_width(others_width);
-                        ui.add_space(15.0);
-                        let state = if rpc.is_working() {
-                           match rpc.is_fully_functional() {
-                              true => Indicator::new(IndicatorState::On).size(12.0),
-                              false => Indicator::new(IndicatorState::Connecting).size(12.0),
-                           }
-                        } else {
-                           Indicator::new(IndicatorState::Off).size(12.0)
-                        };
-                        ui.add(state);
-                     });
-
-                     // MEV Protect column
-                     ui.scope(|ui| {
-                        ui.set_width(mev_protect_width);
-                        ui.add_space(30.0);
-                        let icon = if rpc.is_mev_protect() {
-                           Indicator::new(IndicatorState::On).size(12.0)
-                        } else {
-                           Indicator::new(IndicatorState::Off).size(12.0)
-                        };
-                        ui.add(icon);
-                     });
-
-                     // Latency column
-                     ui.scope(|ui| {
-                        ui.set_width(others_width);
-                        ui.label(RichText::new(rpc.latency_str()).size(theme.typography.normal));
-                     });
-
-                     // Settings button
-                     let icon = Lucide::Settings.size(20.0).color(theme.colors.text).image();
-
-                     let mut visuals = ButtonVisuals::default();
-                     visuals.bg_hover = button_visuals.bg_hover;
-                     visuals.corner_radius = CornerRadius::same(15);
-                     let button = Button::image(icon).small().visuals(visuals);
-
-                     ui.scope(|ui| {
-                        ui.set_width(buttons_width);
-                        let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
-
-                        if res.clicked() {
-                           self.open_rpc_settings();
-                           self.rpc_to_edit = Some(rpc.clone());
-                        }
-                     });
-
-                     // Test button column
-                     ui.scope(|ui| {
-                        ui.set_width(buttons_width);
-                        let text = RichText::new("Test").size(theme.typography.small);
-                        let button = Button::new(text).visuals(button_visuals);
-
-                        let test_in_progress = rpc.test_in_progress;
-
-                        if !test_in_progress {
-                           if ui.add(button).clicked() {
-                              let rpc_clone = rpc.clone();
-
-                              RT.spawn(async move {
-                                 let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                                 let z_client = ctx.get_zeus_client();
-                                 z_client.run_check_for(ctx, rpc_clone).await;
-                                 z_client.sort_by_fastest();
-                              });
-                           }
-                        } else {
-                           ui.add(Spinner::new().size(17.0).color(theme.colors.text));
-                        }
-                     });
-
-                     // Remove button column
-                     let button = Button::new(RichText::new("X").size(theme.typography.small))
-                        .visuals(button_visuals);
-
-                     ui.scope(|ui| {
-                        ui.set_width(buttons_width);
-
-                        if ui.add(button).clicked() {
-                           let z_client = ctx.client.clone();
-                           z_client.remove_rpc(chain, rpc.url.clone());
-
-                           RT.spawn_blocking(move || {
-                              let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                              ctx.save_zeus_client();
-                           });
-                        }
+                  RT.spawn(async move {
+                     let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+                     let z_client = ctx.get_zeus_client();
+                     z_client.run_rpc_checks(ctx.clone()).await;
+                     z_client.sort_by_fastest();
+                     SHARED_GUI.write(|gui| {
+                        gui.settings.network.refreshing = false;
                      });
                   });
                }
-            });
+            } else {
+               ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+            }
          });
+      });
 
-      if !open {
-         self.close();
-      }
-   }
+      ui.add_space(12.0);
 
-   fn _change_server_port(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
-      let mut open = self.change_server_port;
-      let was_open = open;
+      // Status columns + actions are fixed; leftover width goes to the URL so
+      // Test / X stay on-screen. Fractions of available_width overflowed.
+      const COL_SPACING: f32 = 8.0;
+      const HEADER_H: f32 = 24.0;
+      const ROW_H: f32 = 32.0;
+      const ENABLED_W: f32 = 64.0;
+      const STATUS_W: f32 = 52.0;
+      const ARCHIVE_W: f32 = 60.0;
+      const MEV_W: f32 = 88.0;
+      const LATENCY_W: f32 = 64.0;
+      const ACTIONS_W: f32 = 148.0;
+      const N_GAPS: f32 = 6.0;
 
-      let window_frame = theme.window_frame;
-      let title_frame = window_frame.stroke(Stroke::NONE);
+      let fixed = ENABLED_W + STATUS_W + ARCHIVE_W + MEV_W + LATENCY_W + ACTIONS_W;
+      let url_w = (ui.available_width() - fixed - COL_SPACING * N_GAPS).max(140.0);
 
-      Window::new(RichText::new("Server Port").size(theme.typography.normal))
-         .open(&mut open)
-         .order(Order::Foreground)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
-         .show(ui.ctx(), |ui| {
-            ui.set_width(150.0);
-            ui.set_height(100.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      ui.spacing_mut().item_spacing = vec2(COL_SPACING, 8.0);
+      ui.spacing_mut().button_padding = vec2(8.0, 4.0);
 
-            ui.vertical_centered(|ui| {
-               ctx.write(|ctx| {
-                  let slider = Slider::new(&mut ctx.server_port, 1000..=65535);
-                  ui.add(slider);
+      ui.horizontal(|ui| {
+         ui.spacing_mut().item_spacing.x = COL_SPACING;
+         rpc_col(ui, url_w, HEADER_H, |ui| {
+            ui.label(RichText::new("Url").size(theme.typography.small));
+         });
+         rpc_col(ui, ENABLED_W, HEADER_H, |ui| {
+            ui.label(RichText::new("Enabled").size(theme.typography.small));
+         });
+         rpc_col(ui, STATUS_W, HEADER_H, |ui| {
+            ui.label(RichText::new("Status").size(theme.typography.small));
+         });
+         rpc_col(ui, ARCHIVE_W, HEADER_H, |ui| {
+            ui.label(RichText::new("Archive").size(theme.typography.small));
+         });
+         rpc_col(ui, MEV_W, HEADER_H, |ui| {
+            ui.label(RichText::new("MEV Protect").size(theme.typography.small));
+         });
+         rpc_col(ui, LATENCY_W, HEADER_H, |ui| {
+            ui.label(RichText::new("Latency").size(theme.typography.small));
+         });
+      });
+
+      ScrollArea::vertical().auto_shrink([false; 2]).content_margin(5).show(ui, |ui| {
+         ui.set_width(ui.available_width());
+         ui.spacing_mut().item_spacing = vec2(COL_SPACING, 8.0);
+
+         for (_url, rpc) in rpcs.iter_mut() {
+            ui.horizontal(|ui| {
+               ui.spacing_mut().item_spacing.x = COL_SPACING;
+
+               let mut url = rpc.url.to_string();
+               rpc_col(ui, url_w, ROW_H, |ui| {
+                  ui.add(
+                     SecureTextEdit::singleline(&mut url)
+                        .visuals(text_edit_visuals)
+                        .font(FontId::proportional(theme.typography.small))
+                        .min_size(vec2(url_w, 20.0))
+                        .margin(Margin::same(5)),
+                  );
                });
-            });
-         });
-      if was_open && !open {
-         RT.spawn_blocking(move || match ctx.save_server_port() {
-            Ok(_) => {
-               tracing::info!("Saved server port");
-            }
-            Err(e) => {
-               tracing::error!("Error saving server port: {:?}", e);
-            }
-         });
-      }
-      self.change_server_port = open;
-   }
 
-   pub fn rpc_settings(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
-      if !self.rpc_settings_open {
-         return;
-      }
+               let was_enabled = rpc.enabled;
+               let res = rpc_col(ui, ENABLED_W, ROW_H, |ui| {
+                  ui.checkbox(&mut rpc.enabled, "")
+               });
 
-      let mut open = self.rpc_settings_open;
-
-      Modal::new("Endpoint Settings", &mut open)
-         .backdrop_order(Order::Middle)
-         .content_order(Order::Foreground)
-         .closable(false)
-         .show(ui.ctx(), |ui| {
-            ui.set_width(300.0);
-            ui.set_height(100.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-
-            ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 15.0;
-
-               if self.rpc_to_edit.is_none() {
-                  let text = RichText::new("No RPC selected").size(theme.typography.normal);
-                  ui.label(text);
-                  return;
-               }
-
-               let rpc = self.rpc_to_edit.as_mut().unwrap();
-
-               let text = RichText::new("MEV Protect").size(theme.typography.normal);
-
-               ui.label(text);
-               let clicked = ui.checkbox(&mut rpc.mev_protect, "").clicked();
-
-               if clicked {
+               if res.inner.clicked() {
                   let z_client = ctx.client.clone();
                   z_client.write(|rpcs_map| {
-                     if let Some(rpcs) = rpcs_map.get_mut(&rpc.chain_id) {
+                     let rpcs_opt = rpcs_map.get_mut(&chain);
+                     if let Some(rpcs) = rpcs_opt {
                         if let Some(old_rpc) = rpcs.get_mut(&rpc.url) {
-                           old_rpc.mev_protect = rpc.mev_protect;
+                           old_rpc.enabled = rpc.enabled;
                         }
                      }
                   });
+
+                  if !was_enabled && rpc.enabled {
+                     let rpc = rpc.clone();
+                     RT.spawn(async move {
+                        let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+                        let z_client = ctx.get_zeus_client();
+                        z_client.run_check_for(ctx.clone(), rpc).await;
+
+                        post_enable_rpc(ctx, chain).await
+                     });
+                  }
+
                   RT.spawn_blocking(move || {
                      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                      ctx.save_zeus_client();
                   });
                }
 
-               let text = RichText::new("Close").size(theme.typography.normal);
-               let button = Button::new(text).visuals(theme.button_visuals());
-               if ui.add(button).clicked() {
-                  self.close_rpc_settings();
-               }
-            });
-         });
+               rpc_col(ui, STATUS_W, ROW_H, |ui| {
+                  ui.add(rpc_status_indicator(rpc));
+               });
 
-      if !open {
-         self.close_rpc_settings();
-      }
+               rpc_col(ui, ARCHIVE_W, ROW_H, |ui| {
+                  ui.add(rpc_archive_indicator(rpc));
+               });
+
+               rpc_col(ui, MEV_W, ROW_H, |ui| {
+                  ui.add(rpc_mev_indicator(rpc));
+               });
+
+               rpc_col(ui, LATENCY_W, ROW_H, |ui| {
+                  ui.label(RichText::new(rpc.latency_str()).size(theme.typography.small));
+               });
+
+               rpc_col(ui, ACTIONS_W, ROW_H, |ui| {
+                  ui.spacing_mut().item_spacing.x = 4.0;
+
+                  let icon = Lucide::Settings.size(16.0).color(theme.colors.text).image();
+                  let mut visuals = ButtonVisuals::default();
+                  visuals.bg_hover = button_visuals.bg_hover;
+                  visuals.corner_radius = CornerRadius::same(15);
+                  let settings_btn = Button::image(icon).small().visuals(visuals);
+                  if ui.add(settings_btn).on_hover_cursor(CursorIcon::PointingHand).clicked() {
+                     self.open_rpc_settings();
+                     self.rpc_to_edit = Some(rpc.clone());
+                  }
+
+                  if rpc.test_in_progress {
+                     ui.add(Spinner::new().size(14.0).color(theme.colors.text));
+                  } else {
+                     let text = RichText::new("Test").size(theme.typography.normal);
+                     let button = Button::new(text).visuals(button_visuals);
+                     if ui.add(button).clicked() {
+                        let rpc_clone = rpc.clone();
+                        RT.spawn(async move {
+                           let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+                           let z_client = ctx.get_zeus_client();
+                           z_client.run_check_for(ctx, rpc_clone).await;
+                           z_client.sort_by_fastest();
+                        });
+                     }
+                  }
+
+                  ui.add_space(5.0);
+
+                  let button = Button::new(RichText::new("X").size(theme.typography.normal))
+                     .visuals(button_visuals);
+                  if ui.add(button).clicked() {
+                     let z_client = ctx.client.clone();
+                     z_client.remove_rpc(chain, rpc.url.clone());
+
+                     RT.spawn_blocking(move || {
+                        let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+                        ctx.save_zeus_client();
+                     });
+                  }
+               });
+            });
+         }
+      });
    }
 
-   pub fn add_rpc(&mut self, theme: &Theme, ui: &mut Ui) {
-      if !self.add_rpc {
+   fn rpc_settings(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      ui.spacing_mut().item_spacing.y = 15.0;
+
+      self.back_button(theme, ui);
+      ui.label(RichText::new("Endpoint Settings").size(theme.typography.large));
+
+      if self.rpc_to_edit.is_none() {
+         let text = RichText::new("No RPC selected").size(theme.typography.normal);
+         ui.label(text);
          return;
       }
 
-      let mut open = self.add_rpc;
-      let window_frame = theme.window_frame;
-      let title_frame = window_frame.stroke(Stroke::NONE);
+      let rpc = self.rpc_to_edit.as_mut().unwrap();
 
-      Window::new(RichText::new("Add Network").size(theme.typography.large))
-         .open(&mut open)
-         .order(Order::Foreground)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
-         .show(ui.ctx(), |ui| {
-            ui.set_width(300.0);
-            ui.set_height(100.0);
-            ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      let text = RichText::new("MEV Protect").size(theme.typography.normal);
+      ui.label(text);
+      let clicked = ui.checkbox(&mut rpc.mev_protect, "").clicked();
 
-            let button_visuals = theme.button_visuals();
-            let text_edit_visuals = theme.text_edit_visuals();
-
-            ui.vertical_centered(|ui| {
-               let ui_width = ui.available_width();
-
-               let hint_text = RichText::new("Enter a url").size(theme.typography.normal);
-               ui.add(
-                  SecureTextEdit::singleline(&mut self.url_to_add)
-                     .visuals(text_edit_visuals)
-                     .hint_text(hint_text)
-                     .font(FontId::proportional(theme.typography.normal))
-                     .min_size(vec2(ui_width * 0.5, 20.0))
-                     .margin(Margin::same(10)),
-               );
-               ui.add_space(2.0);
-
-               if !self.valid_url() && !self.url_to_add.is_empty() {
-                  ui.label(
-                     RichText::new("Invalid URL")
-                        .size(theme.typography.small)
-                        .color(theme.colors.error),
-                  );
+      if clicked {
+         let z_client = ctx.client.clone();
+         z_client.write(|rpcs_map| {
+            if let Some(rpcs) = rpcs_map.get_mut(&rpc.chain_id) {
+               if let Some(old_rpc) = rpcs.get_mut(&rpc.url) {
+                  old_rpc.mev_protect = rpc.mev_protect;
                }
-
-               if self.refreshing {
-                  ui.add(Spinner::new().size(15.0).color(theme.colors.text));
-               }
-
-               let text = RichText::new("Add").size(theme.typography.normal);
-               let button = Button::new(text).visuals(button_visuals);
-               if self.valid_url() {
-                  if ui.add_enabled(!self.refreshing, button).clicked() {
-                     self.refreshing = true;
-                     let chain = self.chain_select.chain.id();
-                     validate_rpc(chain, self.url_to_add.clone());
-                  }
-               }
-            });
+            }
          });
+         RT.spawn_blocking(move || {
+            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+            ctx.save_zeus_client();
+         });
+      }
+   }
 
-      if !open {
-         self.close_add_rpc();
+   fn add_rpc(&mut self, theme: &Theme, ui: &mut Ui) {
+      ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
+      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+      self.back_button(theme, ui);
+      ui.label(RichText::new("Add RPC").size(theme.typography.large));
+
+      let button_visuals = theme.button_visuals();
+      let text_edit_visuals = theme.text_edit_visuals();
+      let ui_width = ui.available_width();
+
+      let hint_text = RichText::new("Enter a url").size(theme.typography.normal);
+      ui.add(
+         SecureTextEdit::singleline(&mut self.url_to_add)
+            .visuals(text_edit_visuals)
+            .hint_text(hint_text)
+            .font(FontId::proportional(theme.typography.normal))
+            .min_size(vec2(ui_width * 0.5, 20.0))
+            .margin(Margin::same(10)),
+      );
+
+      if !self.valid_url() && !self.url_to_add.is_empty() {
+         ui.label(
+            RichText::new("Invalid URL")
+               .size(theme.typography.small)
+               .color(theme.colors.error),
+         );
+      }
+
+      if self.refreshing {
+         ui.add(Spinner::new().size(15.0).color(theme.colors.text));
+      }
+
+      let text = RichText::new("Add").size(theme.typography.normal);
+      let button = Button::new(text).visuals(button_visuals);
+      if self.valid_url() {
+         if ui.add_enabled(!self.refreshing, button).clicked() {
+            self.refreshing = true;
+            let chain = self.chain_select.chain.id();
+            validate_rpc(chain, self.url_to_add.clone());
+         }
       }
    }
 }
@@ -655,6 +478,50 @@ fn validate_rpc(chain: u64, url: String) {
 
       post_enable_rpc(ctx, chain).await
    });
+}
+
+fn rpc_col<R>(
+   ui: &mut Ui,
+   width: f32,
+   height: f32,
+   add_contents: impl FnOnce(&mut Ui) -> R,
+) -> InnerResponse<R> {
+   ui.allocate_ui_with_layout(
+      vec2(width, height),
+      Layout::left_to_right(Align::Center),
+      |ui| {
+         ui.set_min_size(vec2(width, height));
+         ui.set_max_size(vec2(width, height));
+         add_contents(ui)
+      },
+   )
+}
+
+fn rpc_status_indicator(rpc: &Rpc) -> Indicator {
+   if rpc.is_working() {
+      match rpc.is_fully_functional() {
+         true => Indicator::new(IndicatorState::On).size(12.0),
+         false => Indicator::new(IndicatorState::Connecting).size(12.0),
+      }
+   } else {
+      Indicator::new(IndicatorState::Off).size(12.0)
+   }
+}
+
+fn rpc_archive_indicator(rpc: &Rpc) -> Indicator {
+   if rpc.is_archive() {
+      Indicator::new(IndicatorState::On).size(12.0)
+   } else {
+      Indicator::new(IndicatorState::Off).size(12.0)
+   }
+}
+
+fn rpc_mev_indicator(rpc: &Rpc) -> Indicator {
+   if rpc.is_mev_protect() {
+      Indicator::new(IndicatorState::On).size(12.0)
+   } else {
+      Indicator::new(IndicatorState::Off).size(12.0)
+   }
 }
 
 async fn post_enable_rpc(ctx: ZeusCtx, chain: u64) {
