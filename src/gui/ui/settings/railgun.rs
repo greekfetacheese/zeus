@@ -64,6 +64,14 @@ impl RailgunSettings {
 
       let ignore = [10, 56, 8453, 42161];
       self.chain_select.show(ctx, &ignore, theme, icons, ui);
+      ui.add_space(10.0);
+
+      let chain = self.chain_select.chain.id();
+      let mut enabled = self.config.is_enabled(chain);
+      let enable_text = RichText::new("Enable Railgun").size(theme.typography.normal);
+      if ui.checkbox(&mut enabled, enable_text).changed() {
+         self.config.set_enabled(chain, enabled);
+      }
 
       let q_mark = RichText::new("?").size(theme.typography.normal);
       let info_tip = Badge::new(q_mark, BadgeTone::Info);
@@ -155,6 +163,14 @@ fn post_click(ctx: &mut ZeusContext, new_config: RailgunConfig) {
             continue;
          }
 
+         if !new_config.is_enabled(chain) {
+            continue;
+         }
+
+         if let Err(e) = ctx.register_railgun_signers(chain, false).await {
+            tracing::error!("Error registering Railgun signers: {:?}", e);
+         }
+
          let provider = match ctx.get_railgun_provider(chain, false).await {
             Ok(provider) => provider,
             Err(e) => {
@@ -173,6 +189,10 @@ fn post_click(ctx: &mut ZeusContext, new_config: RailgunConfig) {
          let syncer = provider.utxo_indexer.read().await.rpc_syncer.clone();
          syncer.set_block_range(block_range).await;
          syncer.set_concurrency(concurrency).await;
+
+         if let Err(e) = ctx.sync_railgun(chain, false).await {
+            tracing::error!("Error syncing Railgun: {:?}", e);
+         }
       }
    });
 }

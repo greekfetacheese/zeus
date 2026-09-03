@@ -270,7 +270,7 @@ async fn process_private_tokens(
 ) -> Result<TokenList, anyhow::Error> {
    let mut token_list: TokenList = Vec::new();
 
-   if !ctx.railgun_is_supported(chain_id.into()) {
+   if !ctx.railgun_is_supported(chain_id.into()) || !ctx.is_railgun_enabled(chain_id) {
       return Ok(token_list);
    }
 

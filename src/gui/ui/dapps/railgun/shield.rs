@@ -253,6 +253,25 @@ impl ShieldUi {
       });
    }
 
+   fn show_not_enabled(&self, theme: &Theme, ui: &mut Ui) {
+      let frame = theme.frame1;
+      ui.vertical_centered(|ui| {
+         frame.show(ui, |ui| {
+            ui.set_width(self.size.0);
+            ui.set_max_height(self.size.1);
+            ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+            let text = RichText::new("Railgun is disabled").size(theme.typography.very_large);
+            ui.label(text);
+            ui.label(
+               RichText::new("Enable it in Settings/Railgun to shield and unshield.")
+                  .size(theme.typography.large),
+            );
+         });
+      });
+   }
+
    pub fn show(
       &mut self,
       ctx: &mut ZeusContext,
@@ -266,6 +285,11 @@ impl ShieldUi {
       show_with_fade(ui, "shield_ui_fade", self.open, |ui| {
          if !ctx.railgun_is_supported(ctx.chain) {
             self.show_not_supported(theme, ui);
+            return;
+         }
+
+         if !ctx.is_railgun_enabled(ctx.chain.id()) {
+            self.show_not_enabled(theme, ui);
             return;
          }
 
@@ -985,6 +1009,12 @@ async fn shield(
       return Err(anyhow!(
          "Railgun is not supported for the {} network",
          chain.name()
+      ));
+   }
+
+   if !ctx.is_railgun_enabled(chain.id()) {
+      return Err(anyhow!(
+         "Railgun is disabled. Enable it in Settings → Railgun."
       ));
    }
 

@@ -60,6 +60,7 @@ mod tests {
       let ctx = ZeusCtx::new();
       let chain = ChainId::EthereumSepolia;
       load_vault(ctx.clone());
+      ctx.write(|ctx| ctx.railgun_config.set_enabled(chain.id(), true));
 
       {
          let _ = ctx.get_railgun_provider(chain.id(), false).await?;

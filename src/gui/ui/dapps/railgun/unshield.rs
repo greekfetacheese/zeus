@@ -84,6 +84,12 @@ pub async fn unshield(
       ));
    }
 
+   if !ctx.is_railgun_enabled(chain.id()) {
+      return Err(anyhow!(
+         "Railgun is disabled. Enable it in Settings/Railgun."
+      ));
+   }
+
    if !currency.is_erc20() {
       return Err(anyhow!(
          "Unshield requires an ERC-20 asset (use WETH for native-equivalent)"

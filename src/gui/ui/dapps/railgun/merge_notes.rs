@@ -351,6 +351,12 @@ async fn load_suggestion(
       ));
    }
 
+   if !ctx.is_railgun_enabled(chain.id()) {
+      return Err(anyhow::anyhow!(
+         "Railgun is disabled. Enable it in Settings/Railgun."
+      ));
+   }
+
    let wallet = ctx.get_current_wallet();
    if !wallet.can_derive_zk_address() {
       return Err(anyhow::anyhow!(

@@ -22,6 +22,8 @@ use serde::{Deserialize, Serialize};
 pub struct RailgunConfig {
    pub rpc_syncer_concurrency: usize,
    pub rpc_syncer_block_range: HashMap<u64, u64>,
+   #[serde(default)]
+   pub enabled: HashMap<u64, bool>,
 }
 
 impl RailgunConfig {
@@ -40,6 +42,7 @@ impl RailgunConfig {
       Self {
          rpc_syncer_concurrency: DEFAULT_CONCURRENCY,
          rpc_syncer_block_range,
+         enabled: HashMap::new(),
       }
    }
 
@@ -56,6 +59,19 @@ impl RailgunConfig {
       let data = serde_json::to_string(self)?;
       write_private(&dir, data.as_bytes())?;
       Ok(())
+   }
+
+   /// Empty map (the default) means Railgun is disabled for every chain.
+   pub fn is_enabled(&self, chain: u64) -> bool {
+      self.enabled.get(&chain).copied().unwrap_or(false)
+   }
+
+   pub fn set_enabled(&mut self, chain: u64, enabled: bool) {
+      self.enabled.insert(chain, enabled);
+   }
+
+   pub fn any_enabled(&self) -> bool {
+      self.enabled.values().any(|enabled| *enabled)
    }
 }
 

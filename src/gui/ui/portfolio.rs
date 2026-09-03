@@ -137,6 +137,21 @@ impl PortfolioUi {
                   });
                });
 
+               if privacy_mode
+                  && ctx.railgun_is_supported(ctx.chain)
+                  && !ctx.is_railgun_enabled(chain_id)
+               {
+                  ui.label(
+                     RichText::new("Railgun is disabled")
+                        .size(theme.typography.large)
+                        .color(theme.colors.warning),
+                  );
+                  ui.label(
+                     RichText::new("Enable it in Settings/Railgun to see private balances.")
+                        .size(theme.typography.normal),
+                  );
+               }
+
                // Token List
                ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
                   ui.set_width(ui.available_width());

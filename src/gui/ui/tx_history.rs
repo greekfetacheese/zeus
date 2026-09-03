@@ -250,7 +250,10 @@ impl TxHistory {
             };
 
             for chain in chains_to_check {
-               if ctx.is_chain_disabled(chain.id()) || !ctx.railgun_is_supported(chain) {
+               if ctx.is_chain_disabled(chain.id())
+                  || !ctx.railgun_is_supported(chain)
+                  || !ctx.is_railgun_enabled(chain.id())
+               {
                   continue;
                }
 
@@ -432,11 +435,27 @@ impl TxHistory {
             }
 
             let privacy = ctx.privacy_mode;
+
+            if privacy && !ctx.is_railgun_enabled(ctx.chain.id()) {
+               ui.vertical_centered(|ui| {
+                  let text = RichText::new("Railgun is disabled")
+                     .size(theme.typography.large)
+                     .color(theme.colors.warning);
+                  ui.label(text);
+                  ui.label(
+                     RichText::new("Enable it in Settings/Railgun to see private transactions.")
+                        .size(theme.typography.normal),
+                  );
+               });
+               return;
+            }
+
             let empty = if privacy {
                self.cached_spent.is_empty()
             } else {
                self.cached_txs.is_empty()
             };
+
             let tip = if privacy { RAILGUN_TIP } else { ZEUS_TIP };
             let empty_label = if privacy {
                "No spent notes match your filters"

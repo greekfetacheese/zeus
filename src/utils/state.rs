@@ -170,6 +170,10 @@ pub async fn on_startup(ctx: ZeusCtx) {
       // sign does not wait on GitHub.
       crate::core::clear_signing::registry::prefetch_index().await;
 
+      if !ctx2.read(|ctx| ctx.railgun_config.any_enabled()) {
+         return;
+      }
+
       // Prefetch all transact circuit artifacts (01x01 ..= 05x05) into the
       // on-disk cache so first prove / merge does not hit the network cold.
       ctx2.write(|ctx| {
@@ -289,7 +293,7 @@ pub fn cleanup_orphaned_wallet_data(ctx: ZeusCtx) {
       let start = Instant::now();
 
       for chain in ChainId::supported_chains() {
-         if !ctx.railgun_is_supported(chain) {
+         if !ctx.railgun_is_supported(chain) || !ctx.is_railgun_enabled(chain.id()) {
             continue;
          }
 

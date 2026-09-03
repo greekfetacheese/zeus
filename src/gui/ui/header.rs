@@ -304,7 +304,7 @@ impl Header {
                false => IndicatorState::Connecting,
             };
 
-            if !railgun_is_supported {
+            if !railgun_is_supported || !ctx.is_railgun_enabled(chain.id()) {
                sync_state = IndicatorState::Off;
             }
 

@@ -108,7 +108,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 fn check_railgun(chain: u64) {
    RT.spawn(async move {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-      if !ctx.railgun_is_supported(chain.into()) {
+      if !ctx.railgun_is_supported(chain.into()) || !ctx.is_railgun_enabled(chain) {
          return;
       }
 

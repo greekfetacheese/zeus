@@ -157,6 +157,10 @@ impl ZeusCtx {
       }
    }
 
+   pub fn is_railgun_enabled(&self, chain: u64) -> bool {
+      self.read(|ctx| ctx.is_railgun_enabled(chain))
+   }
+
    /// Register all the available `RailgunSigners` from the vault's wallets
    ///
    /// This should be called at the startup and whenever a wallet is added.
@@ -191,6 +195,10 @@ impl ZeusCtx {
          return Ok(());
       }
 
+      if !self.is_railgun_enabled(chain.id()) {
+         return Ok(());
+      }
+
       let mut provider = self.get_railgun_provider(chain.id(), ignore_resync).await?;
       provider.register(signer.clone()).await?;
 
@@ -207,6 +215,10 @@ impl ZeusCtx {
    /// the RailgunProvider will be re-created and resynced from scratch again.
    pub async fn resync_railgun(&self, chain: u64) -> Result<(), anyhow::Error> {
       if !self.railgun_is_supported(chain.into()) {
+         return Ok(());
+      }
+
+      if !self.is_railgun_enabled(chain) {
          return Ok(());
       }
 
@@ -319,6 +331,10 @@ impl ZeusCtx {
          return Ok(());
       }
 
+      if !self.is_railgun_enabled(chain) {
+         return Ok(());
+      }
+
       let mut provider = match self.get_railgun_provider(chain, ignore_resync).await {
          Ok(provider) => provider,
          Err(err) => {
@@ -371,6 +387,12 @@ impl ZeusCtx {
          return Err(anyhow!(
             "Railgun is not supported for the {} network",
             chain
+         ));
+      }
+
+      if !self.is_railgun_enabled(chain) {
+         return Err(anyhow!(
+            "Railgun is disabled for this network. Enable it in Settings/Railgun."
          ));
       }
 
@@ -2369,6 +2391,10 @@ impl ZeusContext {
 
    pub fn is_railgun_provider_syncing(&self, chain: u64) -> bool {
       self.railgun_status.sync_in_progress(chain)
+   }
+
+   pub fn is_railgun_enabled(&self, chain: u64) -> bool {
+      self.railgun_config.is_enabled(chain)
    }
 }
 
