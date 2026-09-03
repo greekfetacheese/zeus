@@ -17,9 +17,7 @@ impl ThemeSettings {
       ui.spacing_mut().item_spacing = vec2(0.0, 16.0);
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-      ui.label(RichText::new("Appearance").size(theme.typography.heading));
       ui.label(RichText::new("Theme").size(theme.typography.large));
-      ui.separator();
 
       let combo_visuals = theme.combo_box_visuals();
       let label_visuals = theme.label_visuals();

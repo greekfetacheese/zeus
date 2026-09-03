@@ -668,7 +668,7 @@ impl ContactsUi {
    }
 
    fn contact(&mut self, ctx: &ZeusContext, theme: &Theme, contact: &Contact, ui: &mut Ui) {
-      let frame = theme.frame2;
+      let frame = theme.frame1;
       let privacy_mode = ctx.privacy_mode;
       let button_visuals = theme.button_visuals();
 

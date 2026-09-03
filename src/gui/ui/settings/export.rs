@@ -24,29 +24,33 @@ impl ExportDataUi {
    pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
       ui.spacing_mut().item_spacing = vec2(5.0, 12.0);
       ui.spacing_mut().button_padding = vec2(10.0, 4.0);
+      ui.add_space(10.0);
 
       let button_visuals = theme.button_visuals();
 
-      ui.label(RichText::new("Export").size(theme.typography.very_large));
+      ui.vertical_centered(|ui| {
+         ui.label(RichText::new("Export Data").size(theme.typography.heading));
 
-      let text = "Export your wallets and state files to a zip archive.";
-      let text = RichText::new(text).size(theme.typography.normal);
-      ui.label(text);
+         ui.scope(|ui| {
+            ui.spacing_mut().item_spacing.y = 5.0;
+            let text = "Export your wallets and state files to a zip archive.";
+            let text = RichText::new(text).size(theme.typography.normal);
+            ui.label(text);
 
-      let text = "The zip is not password-protected.";
-      let text = RichText::new(text).size(theme.typography.normal);
-      ui.label(text);
+            let text = "The zip is not password-protected.";
+            let text = RichText::new(text).size(theme.typography.normal);
+            ui.label(text);
 
-      let text = "All sensitive data is already encrypted with your credentials.";
-      let text = RichText::new(text).size(theme.typography.normal);
-      ui.label(text);
+            let text = "All sensitive data is already encrypted with your credentials.";
+            let text = RichText::new(text).size(theme.typography.normal);
+            ui.label(text);
+         });
 
-      ui.add_space(8.0);
+         ui.add_space(8.0);
 
-      let text = RichText::new("Optional files").size(theme.typography.normal);
-      ui.label(text);
+         let text = RichText::new("Optional files").size(theme.typography.normal);
+         ui.label(text);
 
-      ui.vertical(|ui| {
          for tree in PersistedTree::ALL {
             if tree.export_policy() != ExportPolicy::Optional {
                continue;
@@ -54,17 +58,17 @@ impl ExportDataUi {
             let text = RichText::new(tree.export_label()).size(theme.typography.normal);
             ui.checkbox(self.options.flag_mut(*tree), text);
          }
+
+         ui.add_space(12.0);
+
+         let size = vec2(100.0, 35.0);
+         let text = RichText::new("Export").size(theme.typography.large);
+         let button = Button::new(text).visuals(button_visuals).min_size(size);
+
+         if ui.add(button).clicked() {
+            self.export();
+         }
       });
-
-      ui.add_space(12.0);
-
-      let size = vec2(200.0, 35.0);
-      let text = RichText::new("Export").size(theme.typography.large);
-      let button = Button::new(text).visuals(button_visuals).min_size(size);
-
-      if ui.add(button).clicked() {
-         self.export();
-      }
    }
 
    fn export(&self) {

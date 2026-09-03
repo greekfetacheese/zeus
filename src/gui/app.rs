@@ -55,21 +55,7 @@ impl ZeusApp {
          time.elapsed().as_millis()
       );
 
-      RT.spawn(async move {
-         let info = match check_for_updates().await {
-            Ok(info) => info,
-            Err(e) => {
-               tracing::error!("Failed to check for updates: {:?}", e);
-               Default::default()
-            }
-         };
-
-         if info.available {
-            SHARED_GUI.write(|gui| {
-               gui.update_window.open(info);
-            });
-         }
-      });
+      do_check_for_updates();
 
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
@@ -290,6 +276,24 @@ impl eframe::App for ZeusApp {
          });
       });
    }
+}
+
+fn do_check_for_updates() {
+   RT.spawn(async move {
+      let info = match check_for_updates().await {
+         Ok(info) => info,
+         Err(e) => {
+            tracing::error!("Failed to check for updates: {:?}", e);
+            Default::default()
+         }
+      };
+
+      if info.available {
+         SHARED_GUI.write(|gui| {
+            gui.update_window.open(info);
+         });
+      }
+   });
 }
 
 pub fn setup_fonts(ctx: &egui::Context) {

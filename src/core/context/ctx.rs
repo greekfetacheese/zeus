@@ -1500,6 +1500,10 @@ impl ZeusCtx {
       chain: u64,
       account: Address,
    ) -> Result<(), anyhow::Error> {
+      if self.is_chain_disabled(chain) {
+         return Ok(());
+      }
+
       let client = self.get_zeus_client();
       let code = client
          .request(chain, |client| async move {

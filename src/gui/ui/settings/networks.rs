@@ -83,9 +83,7 @@ impl NetworkSettings {
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      ui.label(RichText::new("Networks").size(theme.typography.heading));
       ui.add_space(8.0);
-      ui.separator();
 
       match self.view {
          NetworkView::List => self.list_ui(ctx, theme, icons, ui),
@@ -287,7 +285,7 @@ impl NetworkSettings {
                rpc_col(ui, ACTIONS_W, ROW_H, |ui| {
                   ui.spacing_mut().item_spacing.x = 4.0;
 
-                  let icon = Lucide::Settings.size(16.0).color(theme.colors.text).image();
+                  let icon = Lucide::Settings.size(20.0).color(theme.colors.text).image();
                   let mut visuals = ButtonVisuals::default();
                   visuals.bg_hover = button_visuals.bg_hover;
                   visuals.corner_radius = CornerRadius::same(15);

@@ -7,7 +7,7 @@ use crate::{
    core::{ZeusContext, types::RailgunConfig},
    gui::ui::chain_select::ChainSelect,
 };
-use egui::{RichText, Ui, vec2};
+use egui::{Align, Layout, RichText, Ui, vec2};
 use egui_elements::{Button, Theme};
 use elegance::{Badge, BadgeTone, Slider};
 use zeus_eth::types::SUPPORTED_CHAINS;
@@ -56,12 +56,10 @@ impl RailgunSettings {
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       ui.spacing_mut().item_spacing = vec2(5.0, 16.0);
       ui.spacing_mut().button_padding = vec2(10.0, 4.0);
-
-      ui.label(RichText::new("Railgun").size(theme.typography.heading));
-      ui.separator();
+      ui.add_space(10.0);
 
       let slider_size = vec2((ui.available_width() * 0.6).min(420.0), 24.0);
-      let button_size = vec2(200.0, 35.0);
+      let button_size = vec2(100.0, 35.0);
       let button_visuals = theme.button_visuals();
 
       let ignore = [10, 56, 8453, 42161];
@@ -102,22 +100,29 @@ impl RailgunSettings {
       }
 
       ui.add_space(10.0);
+      let ui_size = vec2(ui.available_width() * 0.5, 35.0);
 
-      let text = RichText::new("Save").size(theme.typography.normal);
-      let button = Button::new(text).visuals(button_visuals).min_size(button_size);
-      if ui.add(button).clicked() {
-         let new_config = self.config.clone();
-         post_click(ctx, new_config);
-      }
+      ui.allocate_ui(ui_size, |ui| {
+         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+            let text = RichText::new("Save").size(theme.typography.normal);
+            let button = Button::new(text).visuals(button_visuals).min_size(button_size);
+            if ui.add(button).clicked() {
+               let new_config = self.config.clone();
+               post_click(ctx, new_config);
+            }
 
-      let text = RichText::new("Reset").size(theme.typography.normal);
-      let button = Button::new(text).visuals(button_visuals).min_size(button_size);
-      if ui.add(button).clicked() {
-         let new_config = RailgunConfig::default();
-         self.config = new_config.clone();
+            ui.add_space(10.0);
 
-         post_click(ctx, new_config);
-      }
+            let text = RichText::new("Reset").size(theme.typography.normal);
+            let button = Button::new(text).visuals(button_visuals).min_size(button_size);
+            if ui.add(button).clicked() {
+               let new_config = RailgunConfig::default();
+               self.config = new_config.clone();
+
+               post_click(ctx, new_config);
+            }
+         });
+      });
    }
 }
 

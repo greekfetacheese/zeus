@@ -7,7 +7,7 @@ use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::gui::ui::settings::ImportDataUi;
 use crate::utils::RT;
-use eframe::egui::{Align2, FontId, Margin, RichText, Ui, Window, vec2};
+use egui::{Align2, Align, Layout, FontId, Margin, RichText, Ui, Window, vec2};
 use egui_elements::{Button, CredentialsForm, Label, SecureTextEdit, Theme};
 use ncrypt_me::{Argon2, Credentials, zeroize::Zeroize};
 use std::time::Instant;
@@ -399,8 +399,6 @@ impl RecoverHDWallet {
             ui.vertical_centered(|ui| {
                self.show_requirements_warning(theme, ui);
 
-               let ui_width = ui.available_width();
-
                ui.label(RichText::new("No vault was found").size(theme.typography.heading));
                ui.label(
                   RichText::new("Recover your wallet from your credentials")
@@ -413,11 +411,32 @@ impl RecoverHDWallet {
                   self.credentials_form.show(ui);
                });
 
-               let text = RichText::new("Next").size(theme.typography.large);
-               let next_button =
-                  Button::new(text).visuals(button_visuals).min_size(vec2(ui_width * 0.25, 25.0));
+               ui.add_space(10.0);
 
-               if ui.add(next_button).clicked() {
+               let ui_size = vec2(ui.available_width() * 0.5, 35.0);
+               let mut import_clicked = false;
+               let mut recover_clicked = false;
+
+               // Recover / Import buttons
+               ui.allocate_ui(ui_size, |ui| {
+                  ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                     let text = RichText::new("Recover").size(theme.typography.large);
+                     let recover_button =
+                        Button::new(text).visuals(button_visuals).min_size(vec2(150.0, 25.0));
+
+                     recover_clicked = ui.add(recover_button).clicked();
+
+                     ui.add_space(10.0);
+
+                     let text = RichText::new("Import Data").size(theme.typography.large);
+                     let import_button =
+                        Button::new(text).visuals(button_visuals).min_size(vec2(150.0, 25.0));
+
+                     import_clicked = ui.add(import_button).clicked();
+                  });
+               });
+
+               if recover_clicked {
                   let username = self.credentials_form.username();
                   let password = self.credentials_form.password();
                   let confirm_password = self.credentials_form.confirm_password();
@@ -438,11 +457,7 @@ impl RecoverHDWallet {
                   });
                }
 
-               let text = RichText::new("Import Data").size(theme.typography.large);
-               let import_button =
-                  Button::new(text).visuals(button_visuals).min_size(vec2(ui_width * 0.25, 25.0));
-
-               if ui.add(import_button).clicked() {
+               if import_clicked {
                   import.open_first_run();
                }
             });

@@ -4,7 +4,6 @@ use crate::core::ZeusContext;
 use egui::{RichText, Ui, vec2};
 use egui_elements::{Button, Theme};
 use std::collections::HashSet;
-use zeus_eth::types::ChainId;
 
 pub struct GeneralSettings {
    discover_v4_pools_on_startup: bool,
@@ -57,9 +56,7 @@ impl GeneralSettings {
 
       let button_visuals = theme.button_visuals();
       let slider_size = vec2((ui.available_width() * 0.5).min(360.0), 20.0);
-
-      ui.label(RichText::new("General").size(theme.typography.heading));
-      ui.separator();
+      ui.add_space(10.0);
 
       let header = RichText::new("Pool Manager").size(theme.typography.very_large);
       ui.label(header);
@@ -71,9 +68,10 @@ impl GeneralSettings {
          self.reset_settings(ctx);
       }
 
-      let text = RichText::new("Discover V4 Pools on startup").size(theme.typography.normal);
-      ui.checkbox(&mut self.discover_v4_pools_on_startup, text);
+      // let text = RichText::new("Discover V4 Pools on startup").size(theme.typography.normal);
+      // ui.checkbox(&mut self.discover_v4_pools_on_startup, text);
 
+      /*
       let text =
          RichText::new("Chains to ignore at V4 historic sync").size(theme.typography.normal);
       ui.label(text);
@@ -87,6 +85,7 @@ impl GeneralSettings {
             self.ignore_chains.remove(&chain.id());
          }
       }
+      */
 
       ui.label(
          RichText::new("Concurrency for Discovering & Updating Pools")
@@ -114,6 +113,9 @@ impl GeneralSettings {
             1..=50,
          ));
       });
+
+      ui.separator();
+      ui.add_space(10.0);
 
       let header = RichText::new("Balance Manager").size(theme.typography.very_large);
       ui.label(header);

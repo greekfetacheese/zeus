@@ -11,7 +11,7 @@ use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, ZeusContext, delegate_to};
 use crate::gui::{
    SHARED_GUI, SettingsPage,
-   ui::{ChainSelect, WalletSelect, common::dots_button, dapps::railgun::RailgunMode},
+   ui::{ChainSelect, WalletSelect, common::*},
 };
 use crate::utils::{RT, truncate_address};
 use egui::{
@@ -278,47 +278,7 @@ impl Header {
          }
       });
 
-      // Privacy mode switch button
-      ui.scope(|ui| {
-         ui.spacing_mut().button_padding = vec2(4.0, 6.0);
-
-         let icon = match ctx.privacy_mode {
-            false => Lucide::Eye.size(20.0).color(icon_color).image(),
-            true => Lucide::EyeOff.size(20.0).color(icon_color).image(),
-         };
-
-         let text = format!(
-            "{} mode",
-            if privacy_mode { "Privacy" } else { "Public" }
-         );
-         let rich_text = RichText::new(text).size(theme.typography.normal);
-         let button = Button::image_and_text(icon, rich_text).visuals(*button_visuals);
-
-         if ui.add(button).clicked() {
-            let privacy_mode = !privacy_mode;
-
-            ctx.privacy_mode = privacy_mode;
-
-            RT.spawn_blocking(move || {
-               let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-               let chain = ctx.chain();
-               let owner = ctx.current_wallet_info().address;
-
-               let new_mode = match privacy_mode {
-                  false => RailgunMode::Shield,
-                  true => RailgunMode::Unshield,
-               };
-               SHARED_GUI.write(|gui| {
-                  gui.shield_ui.set_mode(new_mode);
-                  gui.shield_ui.default_currency(chain.id());
-                  gui.send_crypto.default_currency(privacy_mode, chain.id());
-                  gui.token_selection.process_currencies(privacy_mode, chain.id(), owner);
-                  gui.wallet_ui.calc_wallet_value();
-                  gui.recipient_selection.calc_wallet_value();
-               });
-            });
-         }
-      });
+      privacy_mode_switch(ctx, theme, ui);
    }
 
    /// Services tab

@@ -85,17 +85,20 @@ impl ImportDataUi {
       let window_frame = theme.window_frame.fill(theme.frame1.fill);
       let title_frame = window_frame.stroke(Stroke::NONE);
 
+      // Inner `set_max_width` does not size the Window. Resize auto-expands
+      // up to the full Zeus content rect, which is why this looked fullscreen
+      // with the 600px column stuck on the left.
       Window::new(title)
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
          .order(Order::Middle)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .max_width(self.size.0)
          .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
             ui.spacing_mut().item_spacing = vec2(5.0, 15.0);
             ui.spacing_mut().button_padding = vec2(10.0, 4.0);
 
@@ -115,14 +118,16 @@ impl ImportDataUi {
    pub fn show_page(&mut self, theme: &Theme, ui: &mut Ui) {
       ui.spacing_mut().item_spacing = vec2(5.0, 12.0);
       ui.spacing_mut().button_padding = vec2(10.0, 4.0);
-      ui.label(RichText::new("Import").size(theme.typography.very_large));
+      ui.vertical_centered(|ui| {
+         ui.label(RichText::new("Import").size(theme.typography.heading));
+      });
       self.body(theme, ui);
    }
 
    fn body(&mut self, theme: &Theme, ui: &mut Ui) {
       let button_visuals = theme.button_visuals();
 
-      ui.vertical(|ui| {
+      ui.vertical_centered(|ui| {
          let text = if self.first_run {
             "Import a Zeus data backup instead of recovering from credentials."
          } else {
@@ -133,9 +138,9 @@ impl ImportDataUi {
 
          ui.add_space(8.0);
 
-         let size = vec2(ui.available_width() * 0.5, 35.0);
+         let btn_size = vec2(150.0, 35.0);
          let text = RichText::new("Choose a file").size(theme.typography.large);
-         let button = Button::new(text).visuals(button_visuals).min_size(size);
+         let button = Button::new(text).visuals(button_visuals).min_size(btn_size);
          if ui.add(button).clicked() {
             if let Some(path) = rfd::FileDialog::new()
                .set_title("Import Zeus data")
@@ -156,6 +161,7 @@ impl ImportDataUi {
                .size(theme.typography.normal)
                .color(theme.colors.text_muted),
          );
+         ui.add_space(10.0);
 
          ui.scope(|ui| {
             ui.spacing_mut().button_padding = vec2(4.0, 4.0);
@@ -168,9 +174,8 @@ impl ImportDataUi {
 
          ui.add_space(5.0);
 
-         let size = vec2(ui.available_width() * 0.6, 45.0);
          let text = RichText::new("Import").size(theme.typography.large);
-         let button = Button::new(text).visuals(button_visuals).min_size(size);
+         let button = Button::new(text).visuals(button_visuals).min_size(btn_size);
 
          if ui.add(button).clicked() {
             self.import();

@@ -364,10 +364,6 @@ fn insert_missing_portfolios(ctx: ZeusCtx, chain: u64) {
 async fn check_delegated_status(ctx: ZeusCtx, chain: u64) {
    let accounts = ctx.get_all_wallets_info();
 
-   if ctx.is_chain_disabled(chain) {
-      return;
-   }
-
    let ctx = ctx.clone();
    let accounts = accounts.clone();
 

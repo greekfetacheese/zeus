@@ -3,7 +3,7 @@
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::{WindowCtx, window_frame};
+use crate::gui::ui::{WindowCtx, common::privacy_mode_switch, window_frame};
 use egui::{
    RichText, ScrollArea, Shadow, Stroke, Ui, ViewportBuilder, ViewportClass, ViewportId, vec2,
 };
@@ -133,17 +133,22 @@ impl SettingsUi {
       self.page = page;
    }
 
-   fn viewport_builder(&mut self) -> ViewportBuilder {
+   fn viewport_builder(&mut self, egui_ctx: &egui::Context) -> ViewportBuilder {
       let mut builder = ViewportBuilder::default()
          .with_title("Settings")
          .with_decorations(false)
          .with_min_inner_size([800.0, 560.0])
          .with_resizable(true);
 
-      // Do not send InnerSize every parent frame — that can fight the user resize
-      // and force extra wgpu surface work.
+      // Size + position only on first open. Repeating InnerSize/Position every
+      // parent frame fights user resize/drag (and Wayland cannot set position).
       if !self.size_applied {
-         builder = builder.with_inner_size([1120.0, 720.0]);
+         const SIZE: [f32; 2] = [1120.0, 720.0];
+         builder = builder.with_inner_size(SIZE);
+         if let Some(parent) = egui_ctx.input(|i| i.viewport().outer_rect) {
+            let size = vec2(SIZE[0], SIZE[1]);
+            builder = builder.with_position(parent.center() - size * 0.5);
+         }
          self.size_applied = true;
       }
 
@@ -160,7 +165,7 @@ impl SettingsUi {
          return;
       }
 
-      let builder = self.viewport_builder();
+      let builder = self.viewport_builder(ui.ctx());
       let id = settings_viewport_id();
 
       // Native eframe has embed_viewports=false. If a backend embeds, the deferred
@@ -203,8 +208,7 @@ impl SettingsUi {
                      SettingsPage::Appearance => self.theme.show(theme, ui),
                      SettingsPage::Networks => self.network.show(ctx, theme, icons, ui),
                      SettingsPage::Security => {
-                        ui.label(RichText::new("Security").size(theme.typography.heading));
-                        ui.separator();
+                        ui.add_space(10.0);
                         self.change_credentials_ui.show(theme, ui);
                         ui.add_space(24.0);
                         ui.separator();
@@ -214,8 +218,6 @@ impl SettingsUi {
                      SettingsPage::Contacts => self.contacts_ui.show_page(ctx, theme, ui),
                      SettingsPage::Railgun => self.railgun.show(ctx, theme, icons, ui),
                      SettingsPage::Data => {
-                        ui.label(RichText::new("Data").size(theme.typography.heading));
-                        ui.separator();
                         self.export.show(theme, ui);
                         ui.add_space(24.0);
                         ui.separator();
@@ -281,6 +283,9 @@ impl SettingsUi {
             Lucide::Archive.size(20.0).color(icon_color).image(),
          ),
       ];
+
+      privacy_mode_switch(ctx, theme, ui);
+      ui.add_space(10.0);
 
       for (page, label, icon) in items {
          let selected = self.page == page;

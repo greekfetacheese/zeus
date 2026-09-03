@@ -42,10 +42,10 @@ impl ChangeCredentialsUi {
       ui.label(
          RichText::new("This only changes vault encryption credentials. It does not change master wallet recovery.")
             .size(theme.typography.normal)
-            .color(theme.colors.text_muted),
+            .color(theme.colors.text),
       );
 
-      ui.add_space(8.0);
+      ui.add_space(15.0);
 
       let frame = theme.frame1;
 
