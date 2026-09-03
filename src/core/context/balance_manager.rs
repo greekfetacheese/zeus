@@ -479,7 +479,31 @@ impl BalanceManagerHandle {
             .token_balances
             .retain(|(_chain, owner, _token), _| wallets.contains(owner));
          manager.token_balances.shrink_to_fit();
-         let token_removed = token_before - manager.token_balances.len();
+         let token_removed = token_before.saturating_sub(manager.token_balances.len());
+
+         (eth_removed, token_removed)
+      })
+   }
+
+   /// Remove all entries that have a 0 balance
+   ///
+   /// This will save up space and the manager will still return 0 balance for the removed entries
+   ///
+   /// # Returns
+   /// 
+   /// The number of removed entries (eth, tokens)
+   pub fn remove_zero_balances(&self) -> (usize, usize) {
+      self.write(|manager| {
+         let eth_before = manager.eth_balances.len();
+         let token_before = manager.token_balances.len();
+
+         manager.eth_balances.retain(|_, balance| !balance.is_zero());
+         manager.eth_balances.shrink_to_fit();
+         manager.token_balances.retain(|_, balance| !balance.is_zero());
+         manager.token_balances.shrink_to_fit();
+
+         let eth_removed = eth_before.saturating_sub(manager.eth_balances.len());
+         let token_removed = token_before.saturating_sub(manager.token_balances.len());
 
          (eth_removed, token_removed)
       })
@@ -487,7 +511,7 @@ impl BalanceManagerHandle {
 }
 
 fn default_concurrency() -> usize {
-   2
+   1
 }
 
 fn default_max_retries() -> usize {

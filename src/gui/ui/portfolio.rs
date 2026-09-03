@@ -342,6 +342,7 @@ impl PortfolioUi {
       RT.spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let chain = ctx.chain().id();
+         let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
          let portfolio = ctx.get_portfolio(chain, owner);
          let tokens = portfolio.tokens().clone();
 
@@ -361,32 +362,20 @@ impl PortfolioUi {
             Err(e) => tracing::error!("Error updating tokens balance: {:?}", e),
          }
 
-         // Update the pool state that includes these tokens
+         // Update the token prices
+         let price_manager = ctx.price_manager();
          let pool_manager = ctx.pool_manager();
 
-         match pool_manager.discover_pools_for_tokens(ctx.clone(), chain, tokens.clone()).await {
-            Ok(_) => {}
-            Err(e) => tracing::error!("Error syncing pools: {:?}", e),
-         }
-
-         let mut pools = Vec::new();
-
-         for token in tokens {
-            if token.is_base() {
-               continue;
-            }
-
-            let c = token.into();
-            pools.extend(pool_manager.get_pools_that_have_currency(&c));
-         }
-
-         match pool_manager.update_state_for_pools(ctx.clone(), chain, pools).await {
-            Ok(_) => {}
-            Err(e) => tracing::error!("Error updating pool state: {:?}", e),
+         if let Err(e) =
+            price_manager.calculate_prices(ctx.clone(), chain, pool_manager, tokens).await
+         {
+            tracing::error!("Error updating pool state: {:?}", e);
          }
 
          ctx.update_public_data(chain, owner);
-         ctx.update_private_data(chain, owner).await;
+         if privacy_mode {
+            ctx.update_private_data(chain, owner).await;
+         }
 
          SHARED_GUI.write(|gui| {
             gui.portofolio.show_spinner = false;
@@ -426,43 +415,29 @@ impl PortfolioUi {
       }
 
       self.show_spinner = true;
+      let privacy_mode = ctx.privacy_mode;
 
       RT.spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-         let manager = ctx.pool_manager();
-         match manager
-            .discover_pools_for_tokens(ctx.clone(), chain_id, vec![token.clone()])
+         let pool_manager = ctx.pool_manager();
+         let price_manager = ctx.price_manager();
+         let tokens = vec![token];
+
+         if let Err(e) = price_manager
+            .calculate_prices(
+               ctx.clone(),
+               chain_id,
+               pool_manager,
+               tokens.clone(),
+            )
             .await
          {
-            Ok(_) => {
-               tracing::info!("Synced Pools for {}", token.symbol);
-            }
-            Err(e) => tracing::error!(
-               "Error syncing pools for {}: {:?}",
-               token.symbol,
-               e
-            ),
-         }
-
-         // Avoid potentialy syncing hundreds of pools
-         if !currency.is_base() {
-            match manager.update_for_currencies(ctx.clone(), chain_id, vec![currency]).await {
-               Ok(_) => {
-                  tracing::info!("Updated pool state for {}", token.symbol);
-               }
-               Err(e) => {
-                  tracing::error!(
-                     "Error updating pool state for {}: {:?}",
-                     token.symbol,
-                     e
-                  );
-               }
-            }
+            tracing::error!("Error updating pool state: {:?}", e);
          }
 
          let balance_manager = ctx.balance_manager();
          match balance_manager
-            .update_tokens_balance(ctx.clone(), chain_id, owner, vec![token], false)
+            .update_tokens_balance(ctx.clone(), chain_id, owner, tokens, false)
             .await
          {
             Ok(_) => {}
@@ -470,7 +445,9 @@ impl PortfolioUi {
          }
 
          ctx.update_public_data(chain_id, owner);
-         ctx.update_private_data(chain_id, owner).await;
+         if privacy_mode {
+            ctx.update_private_data(chain_id, owner).await;
+         }
 
          SHARED_GUI.write(|gui| {
             gui.portofolio.show_spinner = false;

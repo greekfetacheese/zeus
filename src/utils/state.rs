@@ -266,6 +266,14 @@ pub fn cleanup_orphaned_wallet_data(ctx: ZeusCtx) {
       debug!("No orphaned wallet data to clean");
    }
 
+   let balance_manager = ctx.balance_manager();
+   let (eth_removed, token_removed) = balance_manager.remove_zero_balances();
+   tracing::info!(
+      "Removed {} eth and {} tokens zero balances",
+      eth_removed,
+      token_removed
+   );
+
    RT.spawn(async move {
       let wallets = ctx.read_vault(|vault| vault.clone_all_wallets());
       let mut keep_signers = Vec::new();

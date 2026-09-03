@@ -803,7 +803,7 @@ fn default_batch_size_for_discovering_pools() -> usize {
 }
 
 fn default_concurrency() -> usize {
-   4
+   1
 }
 
 fn default_discover_v4_pools() -> bool {
@@ -835,11 +835,13 @@ pub struct PoolManager {
    #[serde(with = "serde_hashmap")]
    pub checkpoints: CheckpointMap,
 
+   /// Concurrent requests when syncing and discovering pools
+   /// 
    /// Set to 1 for no concurrency
    #[serde(default = "default_concurrency")]
    pub concurrency: usize,
 
-   /// Batch size when syncing the pools state
+   /// Batch size when syncing the pools state used in [batch_update_state]
    #[serde(default = "default_batch_size_for_updating_pool_state")]
    pub batch_size_for_updating_pool_state: usize,
 

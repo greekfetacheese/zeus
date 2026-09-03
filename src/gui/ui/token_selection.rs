@@ -32,6 +32,7 @@ use egui_elements::{
 pub struct TokenSelectionWindow {
    open: bool,
    loading: bool,
+   syncing_balances: bool,
    overlay: OverlayManager,
    title: String,
    pub size: (f32, f32),
@@ -53,6 +54,7 @@ impl TokenSelectionWindow {
       Self {
          open: false,
          loading: false,
+         syncing_balances: false,
          title: "Select Token".to_string(),
          overlay,
          size: (550.0, 500.0),
@@ -192,11 +194,54 @@ impl TokenSelectionWindow {
             let text_edit_visuals = theme.text_edit_visuals();
 
             ui.vertical_centered(|ui| {
-               ui.add_space(20.0);
+               ui.add_space(10.0);
 
                if self.loading {
                   ui.add(Spinner::new().size(25.0).color(theme.colors.text));
                   return;
+               }
+
+               if !ctx.privacy_mode {
+                  let text = RichText::new("Sync balances").size(theme.typography.normal);
+                  let button = Button::new(text).min_size(vec2(70.0, 25.0));
+
+                  let size = vec2(ui.available_width() * 0.25, 25.0);
+                  let mut sync_clicked = false;
+
+                  ui.allocate_ui(size, |ui| {
+                     ui.spacing_mut().button_padding = theme.button_padding;
+
+                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        sync_clicked = ui.add_enabled(!self.syncing_balances, button).clicked();
+                        ui.add_space(5.0);
+                        if self.syncing_balances {
+                           ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+                        }
+                     });
+                  });
+
+                  if sync_clicked {
+                     self.syncing_balances = true;
+                     let chain = ctx.chain;
+                     let owner = ctx.current_wallet_info().address;
+                     RT.spawn(async move {
+                        let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+                        sync_balances(ctx.clone(), chain.id(), owner).await;
+
+                        let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
+
+                        SHARED_GUI.write(|gui| {
+                           gui.token_selection.syncing_balances = false;
+                           // Reopen the window if we are still in public mode
+                           // so the balances are updated
+                           if !privacy_mode {
+                              gui.token_selection.open(privacy_mode, chain.id(), owner);
+                           }
+                        });
+                     });
+                  }
+
+                  ui.add_space(10.0);
                }
 
                let hint = RichText::new("Search tokens or enter an address")
@@ -534,4 +579,30 @@ fn process_currencies(
       .sort_by(|a, b| b.2.f64().partial_cmp(&a.2.f64()).unwrap_or(std::cmp::Ordering::Equal));
 
    currency_list
+}
+
+async fn sync_balances(ctx: ZeusCtx, chain: u64, owner: Address) {
+   let manager = ctx.balance_manager();
+   let currencies = ctx.get_currencies(chain);
+   let tokens = currencies.iter().map(|c| c.to_erc20().into_owned()).collect::<Vec<_>>();
+
+   match manager.update_tokens_balance(ctx.clone(), chain, owner, tokens, false).await {
+      Ok(_) => {
+         tracing::info!("Synced balances for chain {}", chain);
+      }
+      Err(e) => {
+         tracing::error!(
+            "Error syncing balances for chain {}: {:?}",
+            chain,
+            e
+         );
+      }
+   }
+
+   let (eth_removed, token_removed) = manager.remove_zero_balances();
+   tracing::info!(
+      "Removed {} eth and {} tokens zero balances",
+      eth_removed,
+      token_removed
+   );
 }
