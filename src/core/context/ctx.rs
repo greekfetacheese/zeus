@@ -460,6 +460,13 @@ impl ZeusCtx {
             return Ok(provider);
          }
 
+         let has_loaded = self.read(|ctx| ctx.railgun_provider.get(&chain).is_some());
+         if !has_loaded {
+            self.write(|ctx| {
+               ctx.railgun_status.set_loading_db_in_progress(chain, true);
+            });
+         }
+
          let provider = match create_railgun_provider(client, chain, db_key.clone()).await {
             Ok(provider) => provider,
             Err(e) => {
@@ -469,6 +476,11 @@ impl ZeusCtx {
                      ctx.railgun_status.set_sync_error(chain, error_str);
                   });
                }
+
+               self.write(|ctx| {
+                  ctx.railgun_status.set_loading_db_in_progress(chain, false);
+               });
+
                retries += 1;
                tokio::time::sleep(wait_time).await;
                continue;
@@ -478,6 +490,7 @@ impl ZeusCtx {
          self.write(|ctx| {
             ctx.railgun_provider.insert(chain, provider.clone());
             ctx.railgun_status.ui_can_check.insert(chain, true);
+            ctx.railgun_status.loading_db_in_progress.insert(chain, false);
          });
 
          return Ok(provider);
@@ -2391,6 +2404,10 @@ impl ZeusContext {
 
    pub fn is_railgun_provider_syncing(&self, chain: u64) -> bool {
       self.railgun_status.sync_in_progress(chain)
+   }
+
+   pub fn is_railgun_db_loading(&self, chain: u64) -> bool {
+      self.railgun_status.loading_db_in_progress(chain)
    }
 
    pub fn is_railgun_enabled(&self, chain: u64) -> bool {

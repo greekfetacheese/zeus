@@ -402,6 +402,7 @@ pub struct RailgunStatus {
    pub op_in_progress: HashMap<u64, bool>,
    pub circuits_download_in_progress: bool,
    pub resync_in_progress: HashMap<u64, bool>,
+   pub loading_db_in_progress: HashMap<u64, bool>,
    pub sync_in_progress: HashMap<u64, bool>,
    pub railgun_synced: HashMap<u64, bool>,
    pub railgun_synced_block: HashMap<u64, u64>,
@@ -415,6 +416,7 @@ impl RailgunStatus {
          op_in_progress: HashMap::new(),
          circuits_download_in_progress: false,
          resync_in_progress: HashMap::new(),
+         loading_db_in_progress: HashMap::new(),
          sync_in_progress: HashMap::new(),
          railgun_synced: HashMap::new(),
          railgun_synced_block: HashMap::new(),
@@ -434,6 +436,7 @@ impl RailgunStatus {
          op_in_progress: HashMap::new(),
          circuits_download_in_progress: false,
          resync_in_progress: HashMap::new(),
+         loading_db_in_progress: HashMap::new(),
          sync_in_progress: HashMap::new(),
          railgun_synced,
          railgun_synced_block,
@@ -444,6 +447,14 @@ impl RailgunStatus {
 
    pub fn op_in_progress(&self, chain: u64) -> bool {
       self.op_in_progress.get(&chain).cloned().unwrap_or(false)
+   }
+
+   pub fn loading_db_in_progress(&self, chain: u64) -> bool {
+      self.loading_db_in_progress.get(&chain).cloned().unwrap_or(false)
+   }
+
+   pub fn set_loading_db_in_progress(&mut self, chain: u64, in_progress: bool) {
+      self.loading_db_in_progress.insert(chain, in_progress);
    }
 
    pub fn circuits_download_in_progress(&self) -> bool {

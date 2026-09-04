@@ -10,6 +10,7 @@ const ON_STARTUP_SYNC_MSG: &str = "Zeus is syncing your wallets state";
 const VAULT_SAVE_IN_PROGRESS_MSG: &str = "Saving vault in progress, do not close Zeus yet!";
 const WALLET_STATE_SAVE_IN_PROGRESS_MSG: &str = "Saving state in progress, do not close Zeus yet!";
 const RAILGUN_SYNCING_MSG: &str = "Railgun state sync in progress, do not close Zeus yet!";
+const RAILGUN_DB_LOADING_MSG: &str = "Loading Railgun DB";
 const CIRCUITS_DOWNLOAD_MSG: &str = "Downloading Railgun circuits, do not close Zeus yet!";
 
 const AVAILABLE_RPCS_CHECK_THRESHOLD: u64 = 100;
@@ -73,12 +74,15 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       gui.notification.show(ctx, &gui.theme, icons, ui);
 
       let is_railgun_syncing = ctx.is_railgun_provider_syncing(chain.id());
+      let is_railgun_db_loading = ctx.is_railgun_db_loading(chain.id());
       let chain_syncing = ctx.state_sync.get(&chain.id()).cloned().unwrap_or(false);
 
       let status_msg = if ctx.data_syncing {
          Some(DATA_SYNCING_MSG)
       } else if is_railgun_syncing {
          Some(RAILGUN_SYNCING_MSG)
+      } else if is_railgun_db_loading {
+         Some(RAILGUN_DB_LOADING_MSG)
       } else if ctx.dex_syncing {
          Some(DEX_SYNCING_MSG)
       } else if ctx.on_startup_syncing || chain_syncing {
