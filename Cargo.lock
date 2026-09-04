@@ -12053,6 +12053,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "zeus-tokens"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "anyhow",
+ "bincode-next",
+ "clap",
+ "image",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "zeus-eth",
+]
+
+[[package]]
 name = "zeus-wallet"
 version = "0.1.21"
 dependencies = [
