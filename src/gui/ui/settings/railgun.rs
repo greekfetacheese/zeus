@@ -53,6 +53,14 @@ impl RailgunSettings {
       self.config.rpc_syncer_concurrency = concurrency;
    }
 
+   fn state_update_interval(&self) -> u64 {
+      self.config.state_update_interval_minutes.clamp(1, 60)
+   }
+
+   fn set_state_update_interval(&mut self, minutes: u64) {
+      self.config.state_update_interval_minutes = minutes.clamp(1, 60);
+   }
+
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       ui.spacing_mut().item_spacing = vec2(5.0, 16.0);
       ui.spacing_mut().button_padding = vec2(10.0, 4.0);
@@ -105,6 +113,19 @@ impl RailgunSettings {
          .changed();
       if changed {
          self.set_concurrency(concurrency);
+      }
+
+      ui.label(RichText::new("State Update Interval (Minutes)").size(theme.typography.normal));
+
+      let mut interval = self.state_update_interval();
+      let changed = ui
+         .allocate_ui(slider_size, |ui| {
+            ui.add(Slider::new(&mut interval, 1..=60).desired_width(slider_size.x))
+         })
+         .inner
+         .changed();
+      if changed {
+         self.set_state_update_interval(interval);
       }
 
       ui.add_space(10.0);
@@ -192,6 +213,11 @@ fn post_click(ctx: &mut ZeusContext, new_config: RailgunConfig) {
 
          if let Err(e) = ctx.sync_railgun(chain, false).await {
             tracing::error!("Error syncing Railgun: {:?}", e);
+         }
+
+         let wallets = ctx.get_all_wallets_info();
+         for wallet in wallets {
+            ctx.update_private_data(chain, wallet.address).await;
          }
       }
    });

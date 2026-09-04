@@ -21,7 +21,6 @@ const MALLOC_TRIM_INTERVAL: u64 = 300;
 const MEASURE_RPCS_INTERVAL: u64 = 60;
 const WALLET_STATE_INTERVAL: u64 = 600;
 const FEE_INTERVAL: u64 = 300;
-const RAILGUN_SYNC_INTERVAL: u64 = 60;
 
 pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
    let client = ctx.get_zeus_client();
@@ -579,7 +578,8 @@ async fn state_update_interval(ctx: ZeusCtx) {
          fee_time_passed = Instant::now();
       }
 
-      if railgun_sync_time_passed.elapsed().as_secs() > RAILGUN_SYNC_INTERVAL {
+      let railgun_sync_interval = ctx.read(|ctx| ctx.railgun_config.state_update_interval_secs());
+      if railgun_sync_time_passed.elapsed().as_secs() > railgun_sync_interval {
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
             for chain in SUPPORTED_CHAINS {

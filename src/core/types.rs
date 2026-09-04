@@ -18,12 +18,23 @@ use zeus_railgun::indexer::syncer::rpc::{
 
 use serde::{Deserialize, Serialize};
 
+const DEFAULT_STATE_UPDATE_INTERVAL_MINUTES: u64 = 5;
+const MIN_STATE_UPDATE_INTERVAL_MINUTES: u64 = 1;
+const MAX_STATE_UPDATE_INTERVAL_MINUTES: u64 = 60;
+
+fn default_state_update_interval_minutes() -> u64 {
+   DEFAULT_STATE_UPDATE_INTERVAL_MINUTES
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RailgunConfig {
    pub rpc_syncer_concurrency: usize,
    pub rpc_syncer_block_range: HashMap<u64, u64>,
    #[serde(default)]
    pub enabled: HashMap<u64, bool>,
+   /// How often to sync Railgun state, in minutes (1–60).
+   #[serde(default = "default_state_update_interval_minutes")]
+   pub state_update_interval_minutes: u64,
 }
 
 impl RailgunConfig {
@@ -43,6 +54,7 @@ impl RailgunConfig {
          rpc_syncer_concurrency: DEFAULT_CONCURRENCY,
          rpc_syncer_block_range,
          enabled: HashMap::new(),
+         state_update_interval_minutes: DEFAULT_STATE_UPDATE_INTERVAL_MINUTES,
       }
    }
 
@@ -72,6 +84,17 @@ impl RailgunConfig {
 
    pub fn any_enabled(&self) -> bool {
       self.enabled.values().any(|enabled| *enabled)
+   }
+
+   /// Railgun state-update interval in seconds (clamped to 1–60 minutes).
+   pub fn state_update_interval_secs(&self) -> u64 {
+      self
+         .state_update_interval_minutes
+         .clamp(
+            MIN_STATE_UPDATE_INTERVAL_MINUTES,
+            MAX_STATE_UPDATE_INTERVAL_MINUTES,
+         )
+         .saturating_mul(60)
    }
 }
 
