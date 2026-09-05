@@ -127,7 +127,6 @@ pub fn address(
             Some(name) => name.to_string(),
             None => {
                if !ctx.address_name_requested(chain.id(), address) {
-                  tracing::info!("Requesting name for address {}", address);
                   request_address_name(chain.id(), address);
                }
                truncate_address(address.to_string())
