@@ -2362,6 +2362,15 @@ impl ZeusContext {
       self.disabled_chains.is_disabled(chain)
    }
 
+   /// Check the address book to see if we have ever requested a name for this address
+   ///
+   /// # Returns
+   /// `true` if we have ever requested a name for this address
+   pub fn address_name_requested(&self, chain: u64, address: Address) -> bool {
+      let first = self.address_book.mark_pending(chain, address);
+      !first
+   }
+
    /// Check if we have any enabled and working RPCs for the given chain
    ///
    /// Returns true if we have at least one enabled and working RPC

@@ -2,8 +2,8 @@ use egui::{Align2, Frame, Margin, Order, RichText, ScrollArea, Spinner, Stroke, 
 use egui_elements::{Button, OverlayManager, Theme, widgets::Window};
 
 use super::{
-   chain, clear_display_ui, contract_interact, eth_received, events::*, show_calldata_modal,
-   tx_cost, tx_hash, value,
+   address, chain, clear_display_ui, eth_received, events::*, show_calldata_modal, tx_cost,
+   tx_hash, value,
 };
 use crate::assets::icons::Icons;
 use crate::core::clear_signing;
@@ -252,7 +252,8 @@ impl TxWindow {
                         chain(chain_id, theme, icons.clone(), ui);
 
                         if tx.contract_interact {
-                           contract_interact(ctx, chain_id, tx.interact_to(), theme, ui);
+                           let label = "Contract interaction";
+                           address(ctx, chain_id, label, tx.interact_to(), theme, ui);
                         }
 
                         value(ctx, chain_id, tx.value_sent.clone(), theme, ui);

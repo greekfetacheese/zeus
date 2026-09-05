@@ -58,7 +58,10 @@ pub fn format_eip712(
          data,
       ) {
          Ok(display_field) => {
-            formatted_by_path.insert(field.path.clone(), display_field.value.as_text());
+            formatted_by_path.insert(
+               field.path.clone(),
+               interpolation_text(&display_field.value, container.chain_id, data),
+            );
             fields.push(display_field);
          }
          Err(e) => {
@@ -134,7 +137,7 @@ fn format_field(
    .ok_or_else(|| anyhow::anyhow!("path not found"))?;
 
    let value = match field.format.as_str() {
-      "addressName" => format_address(&raw, container.chain_id, data),
+      "addressName" => format_address(&raw),
       "tokenAmount" => format_token_amount(field, &raw, message, metadata, container, data)?,
       "date" => format_date(field, &raw)?,
       "enum" => format_enum(field, &raw, metadata)?,
@@ -147,14 +150,20 @@ fn format_field(
    })
 }
 
-fn format_address(raw: &Value, chain: u64, data: &FormatData) -> FormattedValue {
+fn format_address(raw: &Value) -> FormattedValue {
    if let Some(addr) = path::value_as_address(raw) {
-      if let Some(name) = data.name(chain, addr) {
-         return FormattedValue::Text(name.to_string());
-      }
       return FormattedValue::Address(addr);
    }
    FormattedValue::Text(json_to_text(raw))
+}
+
+fn interpolation_text(value: &FormattedValue, chain: u64, data: &FormatData) -> String {
+   match value {
+      FormattedValue::Address(addr) => {
+         data.name(chain, *addr).map(str::to_string).unwrap_or_else(|| addr.to_string())
+      }
+      other => other.as_text(),
+   }
 }
 
 fn format_token_amount(

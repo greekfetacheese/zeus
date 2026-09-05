@@ -2,8 +2,7 @@ use egui::{Align, Align2, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2}
 use egui_elements::{Button, Label, OverlayManager, SecureTextEdit, Theme, widgets::Window};
 
 use super::{
-   address, chain, clear_display_ui, contract_interact, eth_received, events::*,
-   show_calldata_modal, tx_cost, value,
+   address, chain, clear_display_ui, eth_received, events::*, show_calldata_modal, tx_cost, value,
 };
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::{self, ClearDisplay};
@@ -396,7 +395,15 @@ impl TxConfirmationWindow {
 
                      // Contract interaction
                      if analysis.contract_interact {
-                        contract_interact(ctx, self.chain, analysis.interact_to, theme, ui);
+                        let label = "Contract interaction";
+                        address(
+                           ctx,
+                           self.chain,
+                           label,
+                           analysis.interact_to,
+                           theme,
+                           ui,
+                        );
                      }
 
                      // Value to be sent

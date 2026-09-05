@@ -1,12 +1,14 @@
 //! UI that allows the user to inspect and sign a message
 
-use egui::{Align, Align2, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2};
-use egui_elements::{Button, Label, OverlayManager, SecureTextEdit, Theme, widgets::Window};
+use egui::{
+   Align, Align2, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui, vec2,
+};
+use egui_elements::{Button, Label, OverlayManager, Theme, widgets::Window};
 
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::FormattedValue;
 use crate::core::{SignMsgType, ZeusContext};
-use crate::gui::ui::tx::{address, chain, contract_interact};
+use crate::gui::ui::tx::{address, chain};
 
 use serde_json::{Value, to_string_pretty};
 use std::fmt::Write;
@@ -93,7 +95,6 @@ impl SignMsgWindow {
             ui.set_max_height(self.size.1);
 
             let button_visuals = theme.button_visuals();
-            let text_edit_visuals = theme.text_edit_visuals();
 
             Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
                ui.vertical_centered(|ui| {
@@ -144,8 +145,7 @@ impl SignMsgWindow {
 
                   // Show the msg
                   if let Some(mut formatted) = self.formatted_msg.clone() {
-                     let text_edit = SecureTextEdit::multiline(&mut formatted)
-                        .visuals(text_edit_visuals)
+                     let text_edit = TextEdit::multiline(&mut formatted)
                         .font(FontId::proportional(theme.typography.large))
                         .margin(Margin::same(10))
                         .desired_width(ui.available_width() * 0.90);
@@ -253,7 +253,15 @@ fn permit2_single_approval(
       }
 
       // Permit2 Contract
-      contract_interact(ctx, chain_id, details.permit2_contract, theme, ui);
+      let label = "Contract interaction";
+      address(
+         ctx,
+         chain_id,
+         label,
+         details.permit2_contract,
+         theme,
+         ui,
+      );
 
       // Spender
       address(
@@ -413,7 +421,15 @@ fn _permit2_batch_approval_ui(
    });
 
    // Permit2 Contract
-   contract_interact(ctx, chain_id, details.permit2_contract, theme, ui);
+   let label = "Contract interaction";
+   address(
+      ctx,
+      chain_id,
+      label,
+      details.permit2_contract,
+      theme,
+      ui,
+   );
 
    // Spender
    address(

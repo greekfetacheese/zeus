@@ -418,7 +418,10 @@ mod tests {
       assert_eq!(display.owner.as_deref(), Some("Circle"));
       assert_eq!(display.fields.len(), 3);
       assert_eq!(display.fields[0].label, "Spender");
-      assert_eq!(display.fields[0].value.as_text(), "Router");
+      match &display.fields[0].value {
+         FormattedValue::Address(addr) => assert_eq!(*addr, spender),
+         other => panic!("expected address, got {other:?}"),
+      }
       match &display.fields[1].value {
          FormattedValue::TokenAmount {
             token, unlimited, ..
@@ -635,7 +638,10 @@ mod tests {
          }
          other => panic!("expected token amount, got {other:?}"),
       }
-      assert_eq!(display.fields[1].value.as_text(), "Me");
+      match &display.fields[1].value {
+         FormattedValue::Address(addr) => assert_eq!(*addr, recipient),
+         other => panic!("expected address, got {other:?}"),
+      }
    }
 
    #[test]

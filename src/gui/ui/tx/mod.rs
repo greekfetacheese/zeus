@@ -3,8 +3,8 @@
 //! - The TxConfirmationWindow contains as much information as possible about the transaction before the user confirms it.
 //! - The TxWindow is what we show to the user for a transaction that has been confirmed.
 
-use egui::{Align, FontId, Layout, Margin, Order, RichText, ScrollArea, Ui};
-use egui_elements::{Label, Modal, SecureTextEdit, Theme};
+use egui::{Align, FontId, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui};
+use egui_elements::{Label, Modal, Theme};
 use zeus_eth::alloy_primitives::TxHash;
 
 use crate::assets::icons::Icons;
@@ -107,44 +107,7 @@ pub fn value(
    });
 }
 
-/// Show the contract interaction with a hyperlink to the block explorer
-/// in a horizontal layout from left to right
-pub fn contract_interact(
-   ctx: &mut ZeusContext,
-   chain: ChainId,
-   interact_to: Address,
-   theme: &Theme,
-   ui: &mut Ui,
-) {
-   ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         let text = RichText::new("Contract interaction").size(theme.typography.large);
-         ui.label(text);
-      });
-
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let interact_to_name = match ctx.get_address_name(chain.id(), interact_to) {
-            Some(name) => name.to_string(),
-            None => {
-               request_address_name(chain.id(), interact_to);
-               truncate_address(interact_to.to_string())
-            }
-         };
-
-         let explorer = chain.block_explorer();
-         let link = format!("{}/address/{}", explorer, interact_to);
-
-         ui.hyperlink_to(
-            RichText::new(interact_to_name)
-               .size(theme.typography.large)
-               .color(theme.colors.info),
-            link,
-         );
-      });
-   });
-}
-
-/// Show the address of the sender or recipient depending on the context
+/// Show a label with a hyperlink to the block explorer
 /// in a horizontal layout from left to right
 pub fn address(
    ctx: &mut ZeusContext,
@@ -163,7 +126,10 @@ pub fn address(
          let address_name = match ctx.get_address_name(chain.id(), address) {
             Some(name) => name.to_string(),
             None => {
-               request_address_name(chain.id(), address);
+               if !ctx.address_name_requested(chain.id(), address) {
+                  tracing::info!("Requesting name for address {}", address);
+                  request_address_name(chain.id(), address);
+               }
                truncate_address(address.to_string())
             }
          };
@@ -367,9 +333,8 @@ pub fn show_calldata_modal(
 
             let edit_width = ui.available_width() * 0.9;
 
-            let text_edit = SecureTextEdit::multiline(&mut calldata)
+            let text_edit = TextEdit::multiline(&mut calldata)
                .font(FontId::monospace(theme.typography.normal))
-               .visuals(theme.text_edit_visuals())
                .desired_width(edit_width)
                .margin(Margin::same(10));
 
