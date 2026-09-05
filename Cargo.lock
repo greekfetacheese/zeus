@@ -11987,6 +11987,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "zeus-pools"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "zeus-eth",
+]
+
+[[package]]
 name = "zeus-railgun"
 version = "0.1.1"
 dependencies = [

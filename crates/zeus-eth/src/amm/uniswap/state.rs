@@ -132,7 +132,11 @@ pub struct TickInfo {
 }
 
 impl V3PoolState {
-   pub fn new(pool_data: V3PoolData, tick_spacing: I24, _block: Option<BlockId>) -> Result<Self, anyhow::Error> {
+   pub fn new(
+      pool_data: V3PoolData,
+      tick_spacing: I24,
+      _block: Option<BlockId>,
+   ) -> Result<Self, anyhow::Error> {
       let mut tick_bitmap_map = HashMap::new();
       tick_bitmap_map.insert(pool_data.wordPos, pool_data.tickBitmap);
 
@@ -209,7 +213,8 @@ where
    if !pool.dex_kind().is_v2() {
       return Err(anyhow::anyhow!("Pool is not v2"));
    }
-   let reserves = crate::abi::uniswap::v2::pool::get_reserves(pool.address(), client, block).await?;
+   let reserves =
+      crate::abi::uniswap::v2::pool::get_reserves(pool.address(), client, block).await?;
    let reserve0 = U256::from(reserves.0);
    let reserve1 = U256::from(reserves.1);
    let reserves = PoolReserves::new(reserve0, reserve1, reserves.2 as u64);
@@ -242,10 +247,7 @@ where
    };
 
    let pool_data = batch::get_v3_state(client, pool.chain_id(), vec![pool2]).await?;
-   let data = pool_data
-      .first()
-      .cloned()
-      .ok_or_else(|| anyhow!("Pool data not found"))?;
+   let data = pool_data.first().cloned().ok_or_else(|| anyhow!("Pool data not found"))?;
 
    let v3_pool_state = V3PoolState::new(data.clone(), tick_spacing, block)?;
    Ok((State::v3(v3_pool_state), data))
@@ -270,10 +272,7 @@ where
    };
 
    let state = batch::get_v4_pool_state(client.clone(), pool.chain_id(), vec![pool_data]).await?;
-   let state = state
-      .first()
-      .cloned()
-      .ok_or_else(|| anyhow!("Pool data not found"))?;
+   let state = state.first().cloned().ok_or_else(|| anyhow!("Pool data not found"))?;
 
    let pool_state = V3PoolState::for_v4(pool, state)?;
 
@@ -434,42 +433,49 @@ where
    let v3_pool_data = Arc::try_unwrap(v3_data).unwrap().into_inner();
    let v4_pool_data = Arc::try_unwrap(v4_data).unwrap().into_inner();
 
-   // update the state of the pools
+   tracing::info!(
+      target: "zeus_eth::amm::uniswap::state",
+      "Applying state to {} pools (v2={}, v3={}, v4={}) ChainId {}",
+      pools.len(),
+      v2_reserves.len(),
+      v3_pool_data.len(),
+      v4_pool_data.len(),
+      chain_id
+   );
+
+   let v2_by_addr: HashMap<_, _> = v2_reserves.into_iter().map(|d| (d.pool, d)).collect();
+   let v3_by_addr: HashMap<_, _> = v3_pool_data.into_iter().map(|d| (d.pool, d)).collect();
+   let v4_by_id: HashMap<_, _> = v4_pool_data.into_iter().map(|d| (d.pool, d)).collect();
+
    for pool in pools.iter_mut() {
-      if pool.dex_kind().is_v2() && pool.chain_id() == chain_id {
-         for data in &v2_reserves {
-            if data.pool == pool.address() {
-               pool.set_state(State::v2(data.clone().into()));
-            }
-         }
+      if pool.chain_id() != chain_id {
+         continue;
       }
 
-      if pool.dex_kind().is_v3() && pool.chain_id() == chain_id {
-         for data in &v3_pool_data {
-            if data.pool == pool.address() {
-               let state = V3PoolState::new(data.clone(), pool.tick_spacing(), None)?;
-               pool.set_state(State::v3(state));
-               pool.v3_mut(|pool| {
-                  pool.liquidity_amount0 = data.tokenABalance;
-                  pool.liquidity_amount1 = data.tokenBBalance;
-               });
-            }
+      if pool.dex_kind().is_v2() {
+         if let Some(data) = v2_by_addr.get(&pool.address()) {
+            pool.set_state(State::v2(data.clone().into()));
          }
-      }
-
-      if pool.dex_kind().is_v4() && pool.chain_id() == chain_id {
-         for data in &v4_pool_data {
-            if data.pool == pool.id() {
-               let state = V3PoolState::for_v4(pool, data.clone())?;
-               pool.set_state(State::v3(state));
-               match pool.compute_virtual_reserves() {
-                  Ok(_) => {}
-                  Err(e) => {
-                     tracing::error!(target: "zeus_eth::amm::uniswap::state","Error computing virtual reserves for pool {} / {} ID: {} {:?}",
-                      pool.currency0().symbol(),
-                       pool.currency1().symbol(),
-                        pool.id(), e);
-                  }
+      } else if pool.dex_kind().is_v3() {
+         if let Some(data) = v3_by_addr.get(&pool.address()) {
+            let state = V3PoolState::new(data.clone(), pool.tick_spacing(), None)?;
+            pool.set_state(State::v3(state));
+            pool.v3_mut(|pool| {
+               pool.liquidity_amount0 = data.tokenABalance;
+               pool.liquidity_amount1 = data.tokenBBalance;
+            });
+         }
+      } else if pool.dex_kind().is_v4() {
+         if let Some(data) = v4_by_id.get(&pool.id()) {
+            let state = V3PoolState::for_v4(pool, data.clone())?;
+            pool.set_state(State::v3(state));
+            match pool.compute_virtual_reserves() {
+               Ok(_) => {}
+               Err(e) => {
+                  tracing::error!(target: "zeus_eth::amm::uniswap::state","Error computing virtual reserves for pool {} / {} ID: {} {:?}",
+                   pool.currency0().symbol(),
+                    pool.currency1().symbol(),
+                     pool.id(), e);
                }
             }
          }

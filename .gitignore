@@ -1,6 +1,7 @@
 /target
 /data
 /token_data
+/pool_snapshots
 /logs
 /releases
 scc.exe
