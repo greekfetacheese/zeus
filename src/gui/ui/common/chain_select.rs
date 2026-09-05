@@ -76,7 +76,7 @@ impl ChainSelect {
          .visuals(combo_visuals)
          .width(self.size.x)
          .show_ui(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 10.0;
+            ui.spacing_mut().item_spacing.y = theme.spacing.sm;
 
             for chain in supported_chains {
                if ignore_chains.contains(&chain.id()) {

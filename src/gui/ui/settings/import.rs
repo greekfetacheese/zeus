@@ -99,8 +99,8 @@ impl ImportDataUi {
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
-            ui.spacing_mut().item_spacing = vec2(5.0, 15.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 4.0);
+            ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.md);
+            ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
 
             let frame = Frame::new().inner_margin(Margin::same(10));
 
@@ -116,8 +116,8 @@ impl ImportDataUi {
 
    /// Settings Data page (vault already unlocked).
    pub fn show_page(&mut self, theme: &Theme, ui: &mut Ui) {
-      ui.spacing_mut().item_spacing = vec2(5.0, 12.0);
-      ui.spacing_mut().button_padding = vec2(10.0, 4.0);
+      ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.md);
+      ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
       ui.vertical_centered(|ui| {
          ui.label(RichText::new("Import").size(theme.typography.heading));
       });
@@ -164,7 +164,7 @@ impl ImportDataUi {
          ui.add_space(10.0);
 
          ui.scope(|ui| {
-            ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+            ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
             let text = "Enter the credentials that will unlock the vault";
             let text = RichText::new(text).size(theme.typography.large);
             ui.label(text);

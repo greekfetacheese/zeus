@@ -90,8 +90,8 @@ impl ConfirmWindow {
             ui.set_max_height(self.size.1);
 
             ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing = vec2(25.0, 20.0);
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.spacing_mut().item_spacing = vec2(theme.spacing.xl, theme.spacing.xl);
+               ui.spacing_mut().button_padding = theme.button_padding;
 
                ui.label(RichText::new(self.msg.clone()).size(theme.typography.normal));
 
@@ -194,8 +194,8 @@ impl UpdateWindow {
             ui.set_width(self.size.0);
             ui.set_max_height(self.size.1);
             ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing = vec2(10.0, 15.0);
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
+               ui.spacing_mut().button_padding = theme.button_padding;
 
                if self.update_completed {
                   self.update_completed_ui(theme, ui);
@@ -430,8 +430,8 @@ impl MsgWindow {
             ui.set_max_height(self.size.1);
 
             ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 20.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.spacing_mut().item_spacing.y = theme.spacing.xl;
+               ui.spacing_mut().button_padding = theme.button_padding;
 
                ui.label(msg);
 

@@ -93,7 +93,7 @@ impl NetworkSettings {
    }
 
    fn list_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      ui.spacing_mut().button_padding = theme.button_padding;
 
       let button_visuals = theme.button_visuals();
       let text_edit_visuals = theme.text_edit_visuals();
@@ -106,14 +106,14 @@ impl NetworkSettings {
 
       ui.horizontal(|ui| {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.spacing_mut().button_padding = vec2(8.0, 4.0);
+            ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
             self.chain_select.show(ctx, &[0], theme, icons.clone(), ui);
          });
 
          ui.add_space(30.0);
 
          ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.spacing_mut().button_padding = vec2(8.0, 10.0);
+            ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.sm);
 
             let disabled = ctx.is_chain_disabled(chain);
             let text = match disabled {
@@ -189,8 +189,8 @@ impl NetworkSettings {
       let fixed = ENABLED_W + STATUS_W + ARCHIVE_W + MEV_W + LATENCY_W + ACTIONS_W;
       let url_w = (ui.available_width() - fixed - COL_SPACING * N_GAPS).max(140.0);
 
-      ui.spacing_mut().item_spacing = vec2(COL_SPACING, 8.0);
-      ui.spacing_mut().button_padding = vec2(8.0, 4.0);
+      ui.spacing_mut().item_spacing = vec2(COL_SPACING, theme.spacing.sm);
+      ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
 
       ui.horizontal(|ui| {
          ui.spacing_mut().item_spacing.x = COL_SPACING;
@@ -216,7 +216,7 @@ impl NetworkSettings {
 
       ScrollArea::vertical().auto_shrink([false; 2]).content_margin(5).show(ui, |ui| {
          ui.set_width(ui.available_width());
-         ui.spacing_mut().item_spacing = vec2(COL_SPACING, 8.0);
+         ui.spacing_mut().item_spacing = vec2(COL_SPACING, theme.spacing.sm);
 
          for (_url, rpc) in rpcs.iter_mut() {
             ui.horizontal(|ui| {
@@ -283,7 +283,7 @@ impl NetworkSettings {
                });
 
                rpc_col(ui, ACTIONS_W, ROW_H, |ui| {
-                  ui.spacing_mut().item_spacing.x = 4.0;
+                  ui.spacing_mut().item_spacing.x = theme.spacing.xs;
 
                   let icon = Lucide::Settings.size(20.0).color(theme.colors.text).image();
                   let mut visuals = ButtonVisuals::default();
@@ -331,8 +331,8 @@ impl NetworkSettings {
    }
 
    fn rpc_settings(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
-      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-      ui.spacing_mut().item_spacing.y = 15.0;
+      ui.spacing_mut().button_padding = theme.button_padding;
+      ui.spacing_mut().item_spacing.y = theme.spacing.md;
 
       self.back_button(theme, ui);
       ui.label(RichText::new("Endpoint Settings").size(theme.typography.large));
@@ -366,8 +366,8 @@ impl NetworkSettings {
    }
 
    fn add_rpc(&mut self, theme: &Theme, ui: &mut Ui) {
-      ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
-      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
+      ui.spacing_mut().button_padding = theme.button_padding;
 
       self.back_button(theme, ui);
       ui.label(RichText::new("Add RPC").size(theme.typography.large));

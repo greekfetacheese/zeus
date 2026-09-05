@@ -36,8 +36,8 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
    let frame = theme.frame1.outer_margin(Margin::same(10));
 
-   ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
-   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+   ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+   ui.spacing_mut().button_padding = theme.button_padding;
 
    let available_width = ui.available_width();
 

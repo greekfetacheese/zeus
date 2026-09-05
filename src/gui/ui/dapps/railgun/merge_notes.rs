@@ -127,8 +127,8 @@ impl MergeNotesWindow {
             ui.set_max_height(self.size.1);
 
             ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing = vec2(0.0, 12.0);
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
+               ui.spacing_mut().button_padding = theme.button_padding;
 
                ui.label(
                   RichText::new(EXPLAIN)
@@ -275,7 +275,7 @@ impl MergeNotesWindow {
 
       ui.allocate_ui(ui_size, |ui| {
          ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 10.0;
+            ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
             if ui.add(confirm).clicked() {
                self.start_merge(ctx, amount_for_merge);

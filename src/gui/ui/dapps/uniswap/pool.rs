@@ -90,8 +90,8 @@ impl PoolsUi {
       ui.vertical_centered(|ui| {
          ui.set_width(self.size.0);
          ui.set_max_height(self.size.1);
-         ui.spacing_mut().item_spacing = vec2(10.0, 15.0);
-         ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+         ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
+         ui.spacing_mut().button_padding = theme.button_padding;
          let ui_width = ui.available_width();
 
          TextEdit::singleline(&mut self.search_query)
@@ -157,7 +157,7 @@ impl PoolsUi {
                      // Pool
                      ui.scope(|ui| {
                         ui.set_width(column_width);
-                        ui.spacing_mut().item_spacing.x = 5.0;
+                        ui.spacing_mut().item_spacing.x = theme.spacing.xs;
                         let tint = theme.image_tint_recommended;
 
                         let token0 = pool.currency0();

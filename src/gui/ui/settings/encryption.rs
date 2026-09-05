@@ -52,8 +52,8 @@ impl EncryptionSettings {
 
    pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
       ui.vertical_centered(|ui| {
-         ui.spacing_mut().item_spacing = vec2(5.0, 12.0);
-         ui.spacing_mut().button_padding = vec2(10.0, 4.0);
+         ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.md);
+         ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
 
          ui.label(RichText::new("Vault encryption").size(theme.typography.very_large));
          ui.label(

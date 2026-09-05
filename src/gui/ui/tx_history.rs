@@ -299,14 +299,14 @@ impl TxHistory {
          Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.set_height(ui.available_height());
-            ui.spacing_mut().item_spacing = vec2(10.0, 15.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
+            ui.spacing_mut().button_padding = theme.button_padding;
 
             self.rebuild_cache(ctx.privacy_mode);
 
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.spacing_mut().item_spacing.x = 20.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.spacing_mut().item_spacing.x = theme.spacing.xl;
+               ui.spacing_mut().button_padding = theme.button_padding;
 
                let combo_visuals = theme.combo_box_visuals();
                let label_visuals = theme.label_visuals();
@@ -331,7 +331,7 @@ impl TxHistory {
                   .visuals(combo_visuals)
                   .width(200.0)
                   .show_ui(ui, |ui| {
-                     ui.spacing_mut().item_spacing.y = 10.0;
+                     ui.spacing_mut().item_spacing.y = theme.spacing.sm;
 
                      let text = RichText::new("All Wallets").size(theme.typography.normal);
                      let label = Label::new(text, None)
@@ -385,7 +385,7 @@ impl TxHistory {
                   .visuals(combo_visuals)
                   .width(200.0)
                   .show_ui(ui, |ui| {
-                     ui.spacing_mut().item_spacing.y = 10.0;
+                     ui.spacing_mut().item_spacing.y = theme.spacing.sm;
 
                      let text = RichText::new("All Chains").size(theme.typography.normal);
                      let label = Label::new(text, None)
@@ -466,7 +466,7 @@ impl TxHistory {
             if empty {
                ui.horizontal(|ui| {
                   ui.add_space(400.0);
-                  ui.spacing_mut().item_spacing.x = 5.0;
+                  ui.spacing_mut().item_spacing.x = theme.spacing.xs;
 
                   ui.label(
                      RichText::new(empty_label)
@@ -496,8 +496,8 @@ impl TxHistory {
             ui.horizontal(|ui| {
                // Pagination centered and vertically aligned with the buttons
                ui.horizontal(|ui| {
-                  ui.spacing_mut().item_spacing.x = 12.0;
-                  ui.spacing_mut().button_padding = vec2(4.0, 6.0);
+                  ui.spacing_mut().item_spacing.x = theme.spacing.md;
+                  ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.sm);
 
                   let prev_enabled = self.current_page > 0;
                   let text = RichText::new("Previous").size(theme.typography.small);
@@ -525,7 +525,7 @@ impl TxHistory {
                });
 
                ui.add_space(200.0);
-               ui.spacing_mut().item_spacing.x = 5.0;
+               ui.spacing_mut().item_spacing.x = theme.spacing.xs;
 
                ui.label(
                   RichText::new(if privacy {
@@ -602,7 +602,7 @@ impl TxHistory {
 
                   // --- Body: one frame2 card per row ---
                   ui.vertical_centered(|ui| {
-                     ui.spacing_mut().item_spacing.y = 10.0;
+                     ui.spacing_mut().item_spacing.y = theme.spacing.sm;
 
                      if privacy {
                         let rows_on_page = if start < end {

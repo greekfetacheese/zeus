@@ -84,8 +84,8 @@ impl ImportWallet {
             let text_edit_visuals = theme.text_edit_visuals();
 
             ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 20.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.spacing_mut().item_spacing.y = theme.spacing.xl;
+               ui.spacing_mut().button_padding = theme.button_padding;
                let size = vec2(ui.available_width() * 0.5, 40.0);
                ui.add_space(20.0);
 
@@ -112,7 +112,7 @@ impl ImportWallet {
                self.input_field.set_id(text);
 
                ui.scope(|ui| {
-                  ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+                  ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
                   self.input_field.show(ui);
                });
 

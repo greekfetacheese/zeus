@@ -80,7 +80,7 @@ impl UniswapSettingsUi {
       ui: &mut Ui,
    ) {
       let button_visuals = theme.button_visuals();
-      ui.spacing_mut().item_spacing = vec2(10.0, 15.0);
+      ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
 
       // Slippage
       ui.horizontal(|ui| {

@@ -82,8 +82,8 @@ impl SpentNoteWindow {
 
             Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
                ui.vertical_centered(|ui| {
-                  ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
-                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+                  ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
+                  ui.spacing_mut().button_padding = theme.button_padding;
 
                   let button_visuals = theme.button_visuals();
 

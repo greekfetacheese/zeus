@@ -10,8 +10,7 @@ use crate::gui::{
 };
 use crate::utils::RT;
 use eframe::egui::{
-   Align, CornerRadius, CursorIcon, Frame, Layout, Margin, RichText, ScrollArea, Spinner, Ui, Vec2,
-   vec2,
+   Align, CornerRadius, CursorIcon, Frame, Layout, Margin, RichText, ScrollArea, Spinner, Ui, vec2,
 };
 use std::sync::Arc;
 
@@ -87,7 +86,7 @@ impl PortfolioUi {
             ui.vertical_centered_justified(|ui| {
                ui.set_width(ui.available_width() * 0.7);
 
-               ui.spacing_mut().item_spacing = Vec2::new(16.0, 15.0);
+               ui.spacing_mut().item_spacing = vec2(theme.spacing.lg, theme.spacing.md);
 
                let frame = theme.frame1;
 
@@ -108,7 +107,7 @@ impl PortfolioUi {
 
                      // Refresh - Add Token (right)
                      ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+                        ui.spacing_mut().button_padding = theme.button_padding;
 
                         let button_visuals = theme.button_visuals();
                         let text = RichText::new("Add Token").size(theme.typography.normal);
@@ -197,7 +196,7 @@ impl PortfolioUi {
 
                   // --- Body: one frame2 card per asset ---
                   ui.vertical_centered(|ui| {
-                     ui.spacing_mut().item_spacing.y = 10.0;
+                     ui.spacing_mut().item_spacing.y = theme.spacing.sm;
 
                      // Native currency first (public mode only)
                      if !privacy_mode {

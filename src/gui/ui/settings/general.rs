@@ -51,8 +51,8 @@ impl GeneralSettings {
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
-      ui.spacing_mut().item_spacing = vec2(5.0, 16.0);
-      ui.spacing_mut().button_padding = vec2(10.0, 4.0);
+      ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.lg);
+      ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
 
       let button_visuals = theme.button_visuals();
       let slider_size = vec2((ui.available_width() * 0.5).min(360.0), 20.0);

@@ -144,8 +144,8 @@ impl ExportKeyUi {
             let area = vec2(ui.available_width() * 0.6, 50.0);
 
             ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 20.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.spacing_mut().item_spacing.y = theme.spacing.xl;
+               ui.spacing_mut().button_padding = theme.button_padding;
 
                self.show_warning(theme, ui);
                if self.show_warning {
@@ -246,12 +246,12 @@ impl ExportKeyUi {
             let button_visuals = theme.button_visuals();
 
             ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 20.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.spacing_mut().item_spacing.y = theme.spacing.xl;
+               ui.spacing_mut().button_padding = theme.button_padding;
                ui.add_space(20.0);
 
                ui.scope(|ui| {
-                  ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+                  ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
                   self.credentials_form.show(ui);
                });
 

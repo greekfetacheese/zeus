@@ -49,7 +49,7 @@ impl DevUi {
       ui.vertical_centered(|ui| {
          ui.set_width(self.size.0);
          ui.set_height(self.size.1);
-         ui.spacing_mut().item_spacing = vec2(0.0, 20.0);
+         ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.xl);
 
          let button_size = vec2(self.size.0, 50.0);
          let text_size = theme.typography.normal;
@@ -130,7 +130,7 @@ impl UiTesting {
       ui.vertical_centered(|ui| {
          ui.set_width(self.size.0);
          ui.set_height(self.size.1);
-         ui.spacing_mut().item_spacing.y = 20.0;
+         ui.spacing_mut().item_spacing.y = theme.spacing.xl;
          let button_size = vec2(self.size.0, 50.0);
 
          let text_size = theme.typography.normal;
@@ -716,7 +716,7 @@ impl UiTesting {
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
-            ui.spacing_mut().item_spacing = vec2(0.0, 20.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.xl);
 
             let weth = ERC20Token::weth();
             let dai = ERC20Token::dai();

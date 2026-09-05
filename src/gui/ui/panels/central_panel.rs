@@ -146,7 +146,7 @@ impl FPSMetrics {
             ui.set_max_height(130.0);
 
             ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing = vec2(0.0, 5.0);
+               ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.xs);
 
                let counter = self.overlay.counter();
                let text = format!("Overlay Counter: {}", counter);

@@ -77,8 +77,8 @@ impl DecodedEvents {
                let width = window_size.0 + 50.0;
                ui.set_width(width);
                ui.set_height(window_size.1);
-               ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
+               ui.spacing_mut().button_padding = theme.button_padding;
 
                let all_events = analysis.total_events();
                let known_events = analysis.known_events;

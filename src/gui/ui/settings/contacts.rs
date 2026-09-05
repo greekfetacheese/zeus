@@ -104,7 +104,7 @@ impl AddContact {
 
    fn body(&mut self, theme: &Theme, reset_on_success: bool, ui: &mut Ui) {
       let res = ui.vertical_centered(|ui| {
-         ui.spacing_mut().item_spacing.y = 16.0;
+         ui.spacing_mut().item_spacing.y = theme.spacing.lg;
          ui.spacing_mut().button_padding = theme.button_padding;
 
          let text_edit_size = vec2(ui.available_width() * 0.6, 25.0);
@@ -231,8 +231,8 @@ impl DeleteContact {
    }
 
    fn body(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
-      ui.spacing_mut().item_spacing.y = 15.0;
-      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      ui.spacing_mut().item_spacing.y = theme.spacing.md;
+      ui.spacing_mut().button_padding = theme.button_padding;
 
       let contact_to_delete = self.contact_to_delete.clone();
       ui.label(
@@ -292,8 +292,8 @@ impl EditContact {
 
    fn body(&mut self, theme: &Theme, ui: &mut Ui) {
       let res = ui.vertical_centered(|ui| {
-         ui.spacing_mut().item_spacing.y = 16.0;
-         ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+         ui.spacing_mut().item_spacing.y = theme.spacing.lg;
+         ui.spacing_mut().button_padding = theme.button_padding;
          let text_edit_size = vec2(ui.available_width() * 0.6, 25.0);
 
          let text_edit_visuals = theme.text_edit_visuals();
@@ -468,8 +468,8 @@ impl QrWindow {
    fn body(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       let privacy_mode = ctx.privacy_mode;
 
-      ui.spacing_mut().item_spacing = vec2(10.0, 8.0);
-      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.sm);
+      ui.spacing_mut().button_padding = theme.button_padding;
 
       if self.contact.is_none() {
          ui.label(RichText::new("No contact found, this is a bug").size(theme.typography.normal));
@@ -619,8 +619,8 @@ impl ContactsUi {
       let text_edit_visuals = theme.text_edit_visuals();
       let button_visuals = theme.button_visuals();
 
-      ui.spacing_mut().item_spacing.y = 10.0;
-      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      ui.spacing_mut().item_spacing.y = theme.spacing.sm;
+      ui.spacing_mut().button_padding = theme.button_padding;
 
       let text = RichText::new("Add Contact").size(theme.typography.normal);
       let button = Button::new(text).visuals(button_visuals);
@@ -715,7 +715,7 @@ impl ContactsUi {
          });
 
          ui.horizontal(|ui| {
-            ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+            ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
 
             let address_short = match privacy_mode {
                false => contact.evm_address.clone(),

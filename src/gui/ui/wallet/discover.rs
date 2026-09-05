@@ -6,7 +6,7 @@ use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{
    Align, Align2, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner, Stroke,
-   Ui, Vec2, vec2,
+   Ui, vec2,
 };
 use egui_elements::{Button, OverlayManager, SecureTextEdit, Theme, widgets::Window};
 use egui_lucide::Lucide;
@@ -166,8 +166,8 @@ impl DiscoverChildWallets {
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
-            ui.spacing_mut().item_spacing = Vec2::new(20.0, 15.0);
-            ui.spacing_mut().button_padding = Vec2::new(10.0, 8.0);
+            ui.spacing_mut().item_spacing = vec2(theme.spacing.xl, theme.spacing.md);
+            ui.spacing_mut().button_padding = theme.button_padding;
 
             let button_visuals = theme.button_visuals();
 
@@ -521,7 +521,7 @@ impl DiscoverChildWallets {
                      };
 
                      ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 1.0;
+                        ui.spacing_mut().item_spacing.x = theme.spacing.xs;
                         for chain in SUPPORTED_CHAINS {
                            if ctx.is_chain_disabled(chain) {
                               continue;
@@ -580,8 +580,8 @@ impl DiscoverChildWallets {
          .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
-            ui.spacing_mut().item_spacing = vec2(10.0, 20.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.xl);
+            ui.spacing_mut().button_padding = theme.button_padding;
 
             let button_visuals = theme.button_visuals();
             let text_edit_visuals = theme.text_edit_visuals();

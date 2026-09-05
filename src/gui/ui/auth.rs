@@ -64,14 +64,14 @@ impl UnlockVault {
 
             ui.vertical_centered(|ui| {
                ui.add_space(10.0);
-               ui.spacing_mut().item_spacing.y = 25.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.spacing_mut().item_spacing.y = theme.spacing.xl;
+               ui.spacing_mut().button_padding = theme.button_padding;
                let ui_width = ui.available_width();
 
                ui.label(RichText::new("Unlock your Vault").size(theme.typography.heading));
 
                ui.scope(|ui| {
-                  ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+                  ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
                   self.credentials_form.show(ui);
                });
 
@@ -396,8 +396,8 @@ impl RecoverHDWallet {
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
-            ui.spacing_mut().item_spacing.y = 15.0;
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().item_spacing.y = theme.spacing.md;
+            ui.spacing_mut().button_padding = theme.button_padding;
 
             let button_visuals = theme.button_visuals();
 
@@ -412,7 +412,7 @@ impl RecoverHDWallet {
 
                // Credentials input
                ui.scope(|ui| {
-                  ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+                  ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
                   self.credentials_form.show(ui);
                });
 
@@ -484,8 +484,8 @@ impl RecoverHDWallet {
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .show(ui.ctx(), |ui| {
             ui.set_max_size(vec2(self.size2.0, self.size2.1));
-            ui.spacing_mut().item_spacing.y = 15.0;
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().item_spacing.y = theme.spacing.md;
+            ui.spacing_mut().button_padding = theme.button_padding;
 
             let button_visuals = theme.button_visuals();
             let text_edit_visuals = theme.text_edit_visuals();
@@ -635,8 +635,8 @@ impl RecoverHDWallet {
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
-            ui.spacing_mut().item_spacing.y = 15.0;
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().item_spacing.y = theme.spacing.md;
+            ui.spacing_mut().button_padding = theme.button_padding;
 
             let tip1 = "You just created a new Hierarchical Deterministic (HD) wallet";
             let tip2 = "This wallet can always be recovered with the same credentials even if you lose your Vault";
@@ -711,8 +711,8 @@ impl RecoverHDWallet {
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
-            ui.spacing_mut().item_spacing.y = 15.0;
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().item_spacing.y = theme.spacing.md;
+            ui.spacing_mut().button_padding = theme.button_padding;
 
             let heading = RichText::new("Railgun Privacy")
                .size(theme.typography.heading);

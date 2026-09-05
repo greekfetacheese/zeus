@@ -62,8 +62,8 @@ impl RailgunSettings {
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      ui.spacing_mut().item_spacing = vec2(5.0, 16.0);
-      ui.spacing_mut().button_padding = vec2(10.0, 4.0);
+      ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.lg);
+      ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
       ui.add_space(10.0);
 
       let slider_size = vec2((ui.available_width() * 0.6).min(420.0), 24.0);

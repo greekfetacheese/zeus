@@ -231,7 +231,7 @@ impl SettingsUi {
    }
 
    fn nav(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
-      ui.spacing_mut().item_spacing = vec2(0.0, 4.0);
+      ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.xs);
 
       let text_size = theme.typography.normal;
       let icon_color = theme.colors.text;

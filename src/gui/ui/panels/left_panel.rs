@@ -18,7 +18,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    ui.add_space(10.0);
 
    ui.vertical(|ui| {
-      ui.spacing_mut().item_spacing = vec2(0.0, 4.0);
+      ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.xs);
 
       let text_size = gui.theme.typography.normal;
       let icon_color = theme.colors.text;
@@ -384,8 +384,8 @@ impl ConnectedDappsUi {
          .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
-            ui.spacing_mut().item_spacing.y = 20.0;
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().item_spacing.y = theme.spacing.xl;
+            ui.spacing_mut().button_padding = theme.button_padding;
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 

@@ -94,7 +94,7 @@ impl AddWalletUi {
             let button_visuals = theme.button_visuals();
 
             ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 20.0;
+               ui.spacing_mut().item_spacing.y = theme.spacing.xl;
                ui.add_space(30.0);
                let size = vec2(ui.available_width() * 0.9, 50.0);
 

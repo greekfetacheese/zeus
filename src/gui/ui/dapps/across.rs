@@ -177,7 +177,7 @@ impl AcrossBridge {
          frame.show(ui, |ui| {
             ui.set_width(self.size.0);
             ui.set_max_height(self.size.1);
-            ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
 
             let text = RichText::new("Bridge is not supported on Private Mode")
                .size(theme.typography.very_large);
@@ -221,8 +221,8 @@ impl AcrossBridge {
                ui.set_width(self.size.0);
                ui.set_height(self.size.1);
                ui.vertical_centered(|ui| {
-                  ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
-                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+                  ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+                  ui.spacing_mut().button_padding = theme.button_padding;
                   let ui_width = ui.available_width();
 
                   let warning = "Bridge functionality is powered by the Across Protocol";
@@ -239,13 +239,13 @@ impl AcrossBridge {
                      let size = vec2(ui.available_width(), 80.0);
                      ui.allocate_ui(size, |ui| {
                         ui.vertical_centered(|ui| {
-                           ui.spacing_mut().item_spacing = vec2(0.0, 8.0);
+                           ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
                            ui.visuals_mut().hyperlink_color = theme.colors.warning;
                            ui.label(RichText::new("Bridge").size(theme.typography.heading));
                            ui.hyperlink_to(warning_text, ACROSS_URL);
 
                            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                              ui.spacing_mut().item_spacing.x = 5.0;
+                              ui.spacing_mut().item_spacing.x = theme.spacing.xs;
                               ui.label(warning_text2);
                               let q_mark = RichText::new("?").size(theme.typography.normal);
                               let badge = Badge::new(q_mark, BadgeTone::Warning);
@@ -408,7 +408,7 @@ impl AcrossBridge {
                   let total_fee = NumericValue::from_f64(network_fee.f64() + bridge_fee.f64());
 
                   inner_frame.show(ui, |ui| {
-                     ui.spacing_mut().item_spacing = vec2(0.0, 5.0);
+                     ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.xs);
 
                      let network_fee_text = format!("Network≈ ${}", network_fee.abbreviated());
                      ui.label(RichText::new(network_fee_text).size(theme.typography.small));
@@ -678,8 +678,8 @@ impl AcrossBridge {
          .show(ui.ctx(), |ui| {
             ui.set_width(350.0);
             ui.set_height(150.0);
-            ui.spacing_mut().item_spacing = vec2(0.0, 5.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.xs);
+            ui.spacing_mut().button_padding = theme.button_padding;
 
             let visuals = theme.text_edit_visuals();
             let size = vec2(ui.available_width() * 0.9, 45.0);

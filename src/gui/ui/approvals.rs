@@ -339,7 +339,7 @@ impl ApprovalsUi {
       theme: &Theme,
    ) {
       Self::row_cell(ui, width, height, |ui| {
-         ui.spacing_mut().item_spacing.x = 5.0;
+         ui.spacing_mut().item_spacing.x = theme.spacing.xs;
 
          ui.label(
             RichText::new(Self::amount_label(amount))
@@ -361,13 +361,13 @@ impl ApprovalsUi {
 
       show_with_fade(ui, "approvals_ui_fade", self.open, |ui| {
          frame.show(ui, |ui| {
-            ui.spacing_mut().item_spacing = vec2(10.0, 12.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
+            ui.spacing_mut().button_padding = theme.button_padding;
 
             self.rebuild_cache();
 
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.spacing_mut().item_spacing.x = 20.0;
+               ui.spacing_mut().item_spacing.x = theme.spacing.xl;
 
                let combo_visuals = theme.combo_box_visuals();
                let label_visuals = theme.label_visuals();
@@ -392,7 +392,7 @@ impl ApprovalsUi {
                   .visuals(combo_visuals)
                   .width(200.0)
                   .show_ui(ui, |ui| {
-                     ui.spacing_mut().item_spacing.y = 10.0;
+                     ui.spacing_mut().item_spacing.y = theme.spacing.sm;
 
                      let text = RichText::new("All Wallets").size(theme.typography.normal);
                      let label = Label::new(text, None)
@@ -448,7 +448,7 @@ impl ApprovalsUi {
                   .visuals(combo_visuals)
                   .width(200.0)
                   .show_ui(ui, |ui| {
-                     ui.spacing_mut().item_spacing.y = 10.0;
+                     ui.spacing_mut().item_spacing.y = theme.spacing.sm;
 
                      let text = RichText::new("All Chains").size(theme.typography.normal);
                      let label = Label::new(text, None)
@@ -500,7 +500,7 @@ impl ApprovalsUi {
             if self.cached_rows.is_empty() {
                ui.horizontal(|ui| {
                   ui.add_space(300.0);
-                  ui.spacing_mut().item_spacing.x = 5.0;
+                  ui.spacing_mut().item_spacing.x = theme.spacing.xs;
 
                   ui.label(
                      RichText::new("No active approvals match your filters")
@@ -523,8 +523,8 @@ impl ApprovalsUi {
 
             ui.horizontal(|ui| {
                ui.horizontal(|ui| {
-                  ui.spacing_mut().item_spacing.x = 12.0;
-                  ui.spacing_mut().button_padding = vec2(4.0, 6.0);
+                  ui.spacing_mut().item_spacing.x = theme.spacing.md;
+                  ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.sm);
 
                   let prev_enabled = self.current_page > 0;
                   let text = RichText::new("Previous").size(theme.typography.small);
@@ -552,7 +552,7 @@ impl ApprovalsUi {
                });
 
                ui.add_space(200.0);
-               ui.spacing_mut().item_spacing.x = 5.0;
+               ui.spacing_mut().item_spacing.x = theme.spacing.xs;
 
                ui.label(
                   RichText::new(format!("{} active approval(s)", total_rows))
@@ -642,7 +642,7 @@ impl ApprovalsUi {
                   };
 
                   ui.vertical_centered(|ui| {
-                     ui.spacing_mut().item_spacing.y = 10.0;
+                     ui.spacing_mut().item_spacing.y = theme.spacing.sm;
 
                      for row in rows {
                         ui.allocate_ui(vec2(row_width, row_height + inner_y), |ui| {

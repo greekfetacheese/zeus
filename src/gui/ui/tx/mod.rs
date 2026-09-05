@@ -217,7 +217,7 @@ pub fn clear_display_ui(
 ) {
    let tint = theme.image_tint_recommended;
 
-   ui.spacing_mut().item_spacing.y = 10.0;
+   ui.spacing_mut().item_spacing.y = theme.spacing.sm;
 
    if let Some(owner) = display.owner.as_ref() {
       let name = match &display.contract_name {

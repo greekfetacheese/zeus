@@ -201,7 +201,7 @@ impl RecipientSelectionWindow {
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().button_padding = theme.button_padding;
             let size = vec2(ui.available_width() * 0.4, 45.0);
             let button_visuals = theme.button_visuals();
             let text_edit_visuals = theme.text_edit_visuals();
@@ -346,8 +346,8 @@ impl RecipientSelectionWindow {
    ) {
       let contacts = ctx.read_wallet_state(|ws| ws.contacts.clone());
 
-      ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
-      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
+      ui.spacing_mut().button_padding = theme.button_padding;
 
       let mut frame = theme.frame2;
       let visuals = theme.visuals.frame2_visuals;
@@ -428,8 +428,8 @@ impl RecipientSelectionWindow {
       close_window: &mut bool,
       ui: &mut Ui,
    ) {
-      ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
-      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
+      ui.spacing_mut().button_padding = theme.button_padding;
 
       let mut frame = theme.frame2;
       let visuals = theme.visuals.frame2_visuals;

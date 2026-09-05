@@ -80,7 +80,7 @@ impl CollectFees {
             ui.vertical_centered(|ui| {
                ui.set_width(self.size.0);
                ui.set_height(self.size.1);
-               ui.spacing_mut().item_spacing = vec2(10.0, 15.0);
+               ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
 
                let position = self.position.as_ref();
                if position.is_none() {
@@ -233,7 +233,7 @@ impl RemoveLiquidity {
             ui.vertical_centered(|ui| {
                ui.set_width(self.size.0);
                ui.set_height(self.size.1);
-               ui.spacing_mut().item_spacing = vec2(10.0, 15.0);
+               ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
 
                let position = self.position.as_ref();
                if position.is_none() {
@@ -445,7 +445,7 @@ impl AddLiquidity {
             ui.vertical_centered(|ui| {
                ui.set_width(self.size.0);
                ui.set_height(self.size.1);
-               ui.spacing_mut().item_spacing = vec2(10.0, 15.0);
+               ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
 
                let position = self.position.as_ref();
                if position.is_none() {
@@ -665,7 +665,7 @@ impl PositionDetails {
             ui.vertical_centered(|ui| {
                ui.set_width(self.size.0);
                ui.set_height(self.size.1);
-               ui.spacing_mut().item_spacing = vec2(10.0, 15.0);
+               ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
 
                ui.add_space(20.0);
 
@@ -862,11 +862,11 @@ impl ViewPositionsUi {
 
       ui.vertical_centered(|ui| {
          ui.set_width(self.size.0);
-         ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
-         ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+         ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
+         ui.spacing_mut().button_padding = theme.button_padding;
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            ui.spacing_mut().item_spacing = vec2(5.0, 15.0);
+            ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.md);
 
             let text = RichText::new("Sync Positions").size(theme.text_sizes.normal);
             let button = Button::new(text);
@@ -918,7 +918,7 @@ impl ViewPositionsUi {
                for position in &positions {
                   frame.show(ui, |ui| {
                      ui.set_width(ui.available_width());
-                     ui.spacing_mut().item_spacing = vec2(5.0, 15.0);
+                     ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.md);
 
                      ui.vertical(|ui| {
                         ui.horizontal(|ui| {

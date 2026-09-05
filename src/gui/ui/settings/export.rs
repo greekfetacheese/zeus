@@ -22,8 +22,8 @@ impl ExportDataUi {
    }
 
    pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
-      ui.spacing_mut().item_spacing = vec2(5.0, 12.0);
-      ui.spacing_mut().button_padding = vec2(10.0, 4.0);
+      ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.md);
+      ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
       ui.add_space(10.0);
 
       let button_visuals = theme.button_visuals();
@@ -32,7 +32,7 @@ impl ExportDataUi {
          ui.label(RichText::new("Export Data").size(theme.typography.heading));
 
          ui.scope(|ui| {
-            ui.spacing_mut().item_spacing.y = 5.0;
+            ui.spacing_mut().item_spacing.y = theme.spacing.xs;
             let text = "Export your wallets and state files to a zip archive.";
             let text = RichText::new(text).size(theme.typography.normal);
             ui.label(text);

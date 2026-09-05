@@ -14,8 +14,8 @@ impl ThemeSettings {
    }
 
    pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
-      ui.spacing_mut().item_spacing = vec2(0.0, 16.0);
-      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.lg);
+      ui.spacing_mut().button_padding = theme.button_padding;
 
       ui.label(RichText::new("Theme").size(theme.typography.large));
 
@@ -34,7 +34,7 @@ impl ThemeSettings {
          .width(200.0)
          .visuals(combo_visuals)
          .show_ui(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 10.0;
+            ui.spacing_mut().item_spacing.y = theme.spacing.sm;
 
             for kind in ThemeKind::to_vec() {
                let text = RichText::new(kind.to_str()).size(theme.typography.normal);

@@ -98,8 +98,8 @@ impl SignMsgWindow {
 
             Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
                ui.vertical_centered(|ui| {
-                  ui.spacing_mut().item_spacing.y = 15.0;
-                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+                  ui.spacing_mut().item_spacing.y = theme.spacing.md;
+                  ui.spacing_mut().button_padding = theme.button_padding;
 
                   let msg = self.msg.clone();
 
@@ -162,7 +162,7 @@ impl SignMsgWindow {
                   let ui_size = vec2(ui.available_width() * 0.9, 45.0);
 
                   ui.allocate_ui(ui_size, |ui| {
-                     ui.spacing_mut().item_spacing.x = 20.0;
+                     ui.spacing_mut().item_spacing.x = theme.spacing.xl;
                      let button_size = vec2(ui.available_width() * 0.5, 45.0);
 
                      ui.horizontal(|ui| {

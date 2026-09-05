@@ -276,8 +276,8 @@ impl TxConfirmationWindow {
             let text_edit_visuals = theme.text_edit_visuals();
 
             ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
+               ui.spacing_mut().button_padding = theme.button_padding;
 
                if self.tx.is_none() {
                   ui.label(
@@ -445,7 +445,7 @@ impl TxConfirmationWindow {
                let ui_size = vec2(ui.available_width() * 0.6, 45.0);
                ui.allocate_ui(ui_size, |ui| {
                   ui.horizontal(|ui| {
-                     ui.spacing_mut().item_spacing.x = 10.0;
+                     ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
                      let button_size = vec2(150.0, 30.0);
 
@@ -475,7 +475,7 @@ impl TxConfirmationWindow {
                ui.allocate_ui(size, |ui| {
                   frame.show(ui, |ui| {
                      ui.set_width(size.x);
-                     ui.spacing_mut().item_spacing = vec2(15.0, 10.0);
+                     ui.spacing_mut().item_spacing = vec2(theme.spacing.md, theme.spacing.sm);
 
                      ui.horizontal(|ui| {
                         let availabled_width = ui.available_width();
@@ -578,7 +578,7 @@ impl TxConfirmationWindow {
                let size = vec2(ui.available_width() * 0.9, 45.0);
                ui.allocate_ui(size, |ui| {
                   ui.horizontal(|ui| {
-                     ui.spacing_mut().item_spacing.x = 20.0;
+                     ui.spacing_mut().item_spacing.x = theme.spacing.xl;
 
                      let button_size = vec2(ui.available_width() * 0.5, 45.0);
 

@@ -7,7 +7,7 @@ use crate::gui::{
 use crate::utils::RT;
 use eframe::egui::{
    Align, Align2, Context, FontId, Layout, Margin, Order, RichText, ScrollArea, Spinner, Stroke,
-   Ui, Vec2, vec2,
+   Ui, vec2,
 };
 use egui_elements::{Button, Label, OverlayManager, SecureTextEdit, Theme, widgets::Window};
 use elegance::{Menu, MenuItem};
@@ -136,8 +136,8 @@ impl WalletUi {
          frame.show(ui, |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
-            ui.spacing_mut().item_spacing = Vec2::new(8.0, 10.0);
-            ui.spacing_mut().button_padding = Vec2::new(10.0, 8.0);
+            ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.sm);
+            ui.spacing_mut().button_padding = theme.button_padding;
 
             let button_visuals = theme.button_visuals();
             let text_edit_visuals = theme.text_edit_visuals();
@@ -216,7 +216,7 @@ impl WalletUi {
 
       frame.show(ui, |ui| {
          ui.set_width(ui.available_width() * 0.7);
-         ui.spacing_mut().button_padding = Vec2::new(8.0, 8.0);
+         ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.sm);
 
          // Wallet info column
          ui.vertical(|ui| {
@@ -278,7 +278,7 @@ impl WalletUi {
 
                ui.add_space(10.0);
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
+                  ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.xs);
                   ui.vertical(|ui| {
                      let value =
                         self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
@@ -350,8 +350,8 @@ impl WalletUi {
             let text_edit_visuals = theme.text_edit_visuals();
 
             ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 15.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.spacing_mut().item_spacing.y = theme.spacing.md;
+               ui.spacing_mut().button_padding = theme.button_padding;
                ui.add_space(20.0);
 
                let wallet = self.wallet_to_rename.as_ref();

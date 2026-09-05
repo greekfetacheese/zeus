@@ -64,13 +64,13 @@ impl ChangeCredentialsUi {
    }
 
    fn verify_credentials_ui(&mut self, theme: &Theme, ui: &mut Ui) {
-      ui.spacing_mut().item_spacing.y = 16.0;
+      ui.spacing_mut().item_spacing.y = theme.spacing.lg;
       ui.spacing_mut().button_padding = theme.button_padding;
 
       ui.label(RichText::new("Verify current credentials").size(theme.typography.large));
 
       ui.scope(|ui| {
-         ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+         ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
          self.credentials_form.show(ui);
       });
 
@@ -118,13 +118,13 @@ impl ChangeCredentialsUi {
    fn change_credentials_ui(&mut self, theme: &Theme, ui: &mut Ui) {
       self.credentials_form.set_confirm_password(true);
 
-      ui.spacing_mut().item_spacing.y = 16.0;
+      ui.spacing_mut().item_spacing.y = theme.spacing.lg;
       ui.spacing_mut().button_padding = theme.button_padding;
 
       ui.label(RichText::new("Enter new credentials").size(theme.typography.large));
 
       ui.scope(|ui| {
-         ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+         ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
          self.credentials_form.show(ui);
       });
 

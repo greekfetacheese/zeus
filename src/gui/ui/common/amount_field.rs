@@ -155,7 +155,7 @@ impl AmountField {
 
       ui.vertical(|ui| {
          ui.set_width(ui.available_width());
-         ui.spacing_mut().item_spacing = vec2(0.0, 8.0);
+         ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
 
          ui.horizontal(|ui| {
             if let Some(label) = label {

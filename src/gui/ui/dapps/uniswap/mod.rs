@@ -113,7 +113,7 @@ impl UniswapUi {
          ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             // Swap - Pool - Settings Buttons
             ui.set_width(self.size.0);
-            ui.spacing_mut().item_spacing.x = 10.0;
+            ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
             let button_visuals = theme.button_visuals();
 
@@ -177,7 +177,7 @@ impl UniswapUi {
          frame.show(ui, |ui| {
             ui.set_width(self.size.0);
             ui.set_max_height(self.size.1);
-            ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
 
             let text =
                RichText::new("Private swaps are not supported").size(theme.typography.very_large);
@@ -207,8 +207,8 @@ impl UniswapUi {
                ui.set_width(self.size.0);
                ui.set_height(self.size.1);
 
-               ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+               ui.spacing_mut().button_padding = theme.button_padding;
 
                // TODO: Add support for BSC, There is an issue with batch calls
                if ctx.chain.is_bsc() {
@@ -251,7 +251,7 @@ impl UniswapUi {
          .show(ui.ctx(), |ui| {
             ui.set_width(300.0);
             ui.set_height(400.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().button_padding = theme.button_padding;
 
             let swap_ui_open = self.swap_ui.is_open();
             let view_positions_open = false;

@@ -66,7 +66,7 @@ impl WalletSelect {
          .visuals(combo_visuals)
          .width(self.size.x)
          .show_ui(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 14.0;
+            ui.spacing_mut().item_spacing.y = theme.spacing.md;
 
             ctx.read_vault(|vault| {
                for wallet in vault.all_wallets() {

@@ -244,8 +244,8 @@ impl ShieldUi {
          frame.show(ui, |ui| {
             ui.set_width(self.size.0);
             ui.set_max_height(self.size.1);
-            ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+            ui.spacing_mut().button_padding = theme.button_padding;
 
             let text = RichText::new("Railgun is not supported for the selected chain")
                .size(theme.typography.very_large);
@@ -260,8 +260,8 @@ impl ShieldUi {
          frame.show(ui, |ui| {
             ui.set_width(self.size.0);
             ui.set_max_height(self.size.1);
-            ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+            ui.spacing_mut().button_padding = theme.button_padding;
 
             let text = RichText::new("Railgun is disabled").size(theme.typography.very_large);
             ui.label(text);
@@ -302,8 +302,8 @@ impl ShieldUi {
             frame.show(ui, |ui| {
                   ui.set_width(self.size.0);
                   ui.set_max_height(self.size.1);
-                  ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
-                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+                  ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+                  ui.spacing_mut().button_padding = theme.button_padding;
 
                   let text_edit_visuals = theme.text_edit_visuals();
 
@@ -534,7 +534,7 @@ impl ShieldUi {
 
       inner_frame.show(ui, |ui| {
          ui.set_width(ui.available_width());
-         ui.spacing_mut().item_spacing = vec2(0.0, 8.0);
+         ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
 
          ui.horizontal(|ui| {
             let text = RichText::new("Self-broadcast").size(theme.typography.large);
@@ -609,8 +609,8 @@ impl ShieldUi {
          .title_frame(title_frame)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
-            ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+            ui.spacing_mut().button_padding = theme.button_padding;
 
             ui.add_enabled_ui(!self.self_broadcast, |ui| {
                ui.set_width(450.0);

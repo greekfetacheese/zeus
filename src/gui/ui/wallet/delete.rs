@@ -88,12 +88,12 @@ impl DeleteWalletUi {
             ui.set_min_size(vec2(self.size.0, self.size.1));
 
             ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 20.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.spacing_mut().item_spacing.y = theme.spacing.xl;
+               ui.spacing_mut().button_padding = theme.button_padding;
                ui.add_space(20.0);
 
                ui.scope(|ui| {
-                  ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+                  ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
                   self.credentials_form.show(ui);
                });
 
@@ -189,8 +189,8 @@ impl DeleteWalletUi {
             let button_visuals = theme.button_visuals();
 
             ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 15.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.spacing_mut().item_spacing.y = theme.spacing.md;
+               ui.spacing_mut().button_padding = theme.button_padding;
 
                ui.label(RichText::new(wallet.name_with_source()).size(theme.typography.large));
                ui.label(RichText::new(wallet.address.to_string()).size(theme.typography.normal));

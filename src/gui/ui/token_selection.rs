@@ -213,7 +213,7 @@ impl TokenSelectionWindow {
             let text_edit_visuals = theme.text_edit_visuals();
 
             ui.vertical_centered(|ui| {
-               ui.add_space(10.0);
+               ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
 
                if self.loading {
                   ui.add(Spinner::new().size(25.0).color(theme.colors.text));
@@ -232,8 +232,8 @@ impl TokenSelectionWindow {
 
                      ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                         sync_clicked = ui.add_enabled(!self.syncing_balances, button).clicked();
-                        ui.add_space(5.0);
                         if self.syncing_balances {
+                           ui.add_space(5.0);
                            ui.add(Spinner::new().size(17.0).color(theme.colors.text));
                         }
                      });
@@ -275,7 +275,7 @@ impl TokenSelectionWindow {
                      .margin(Margin::same(10))
                      .font(FontId::proportional(theme.typography.normal)),
                );
-               ui.add_space(20.0);
+               ui.add_space(10.0);
             });
 
             ui.vertical_centered(|ui| {
@@ -299,6 +299,8 @@ impl TokenSelectionWindow {
                row_height,
                num_rows,
                |ui, row_range| {
+                  ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+                  
                   for row_index in row_range {
                      if let Some((currency, balance, value)) = filtered_list.get(row_index) {
                         let name = truncate_symbol_or_name(currency.name(), 25);

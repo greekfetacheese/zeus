@@ -109,7 +109,7 @@ impl SimulateWindow {
             ui.vertical(|ui| {
                ui.set_width(self.size.0);
                ui.set_height(self.size.1);
-               ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
+               ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
 
                let button_visuals = theme.button_visuals();
 
@@ -120,7 +120,7 @@ impl SimulateWindow {
                }
 
                ui.vertical_centered(|ui| {
-                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+                  ui.spacing_mut().button_padding = theme.button_padding;
                   let text = RichText::new("Reset Pool State").size(theme.typography.normal);
                   let button = Button::new(text).visuals(button_visuals);
 
@@ -359,7 +359,7 @@ impl SwapUi {
          .width(100.0)
          .visuals(combo_visuals)
          .show_ui(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 10.0;
+            ui.spacing_mut().item_spacing.y = theme.spacing.sm;
 
             for version in versions {
                let text = RichText::new(version.as_str()).size(theme.typography.normal);
@@ -456,7 +456,7 @@ impl SwapUi {
       ui.vertical_centered(|ui| {
          ui.set_width(self.size.0);
          ui.set_height(self.size.1);
-         ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+         ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
 
          if simulate_mode {
             let text =
@@ -537,7 +537,7 @@ impl SwapUi {
 
          // Swap Currencies
          ui.vertical_centered(|ui| {
-            ui.spacing_mut().button_padding = vec2(6.0, 6.0);
+            ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.sm);
 
             let icon = Lucide::RefreshCw.size(20.0).color(theme.colors.text).image();
             let swap_button = Button::image(icon);
@@ -1089,7 +1089,7 @@ impl SwapUi {
       let text_size = theme.typography.large;
 
       frame.show(ui, |ui| {
-         ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
+         ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.sm);
 
          // Routing
          ui.horizontal(|ui| {

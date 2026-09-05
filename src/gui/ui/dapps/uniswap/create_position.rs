@@ -165,7 +165,7 @@ impl CreatePositionUi {
             let size = vec2(ui.available_width() * 0.5, 45.0);
 
             ui.horizontal(|ui| {
-               ui.spacing_mut().item_spacing.x = 20.0;
+               ui.spacing_mut().item_spacing.x = theme.spacing.xl;
                ui.set_max_width(ui.available_width() * 0.9);
                self.add_liquidity_button(ctx.clone(), theme, settings, size, ui);
                self.simulate_button(theme, size, ui);
@@ -190,8 +190,8 @@ impl CreatePositionUi {
             ui.set_width(self.sim_window_size.0);
             ui.set_height(self.sim_window_size.1);
 
-            ui.spacing_mut().item_spacing.y = 10.0;
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().item_spacing.y = theme.spacing.sm;
+            ui.spacing_mut().button_padding = theme.button_padding;
 
             ui.vertical_centered(|ui| {
                let tip1 = RichText::new(SIM_TIP).size(theme.text_sizes.small);
@@ -274,7 +274,7 @@ impl CreatePositionUi {
                if self.sim_result.is_some() {
                   ScrollArea::vertical().show(ui, |ui| {
                      ui.vertical_centered(|ui| {
-                        ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
+                        ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.sm);
 
                         let result = self.sim_result.clone().unwrap();
 
@@ -510,8 +510,8 @@ impl CreatePositionUi {
          self.select_version(chain_id, theme, ui);
       });
 
-      ui.spacing_mut().item_spacing.y = 10.0;
-      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      ui.spacing_mut().item_spacing.y = theme.spacing.sm;
+      ui.spacing_mut().button_padding = theme.button_padding;
       let ui_width = ui.available_width();
 
       if self.syncing_pools || self.pool_data_syncing {
@@ -529,8 +529,8 @@ impl CreatePositionUi {
       let size = vec2(ui_width * 0.3, 40.0);
       ui.allocate_ui(size, |ui| {
          ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 20.0;
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().item_spacing.x = theme.spacing.xl;
+            ui.spacing_mut().button_padding = theme.button_padding;
 
             let tint = theme.image_tint_recommended;
             let icon0 = icons.currency_icon(&self.currency0, tint);
@@ -743,8 +743,8 @@ impl SetPriceRangeUi {
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      ui.spacing_mut().item_spacing.y = 10.0;
-      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      ui.spacing_mut().item_spacing.y = theme.spacing.sm;
+      ui.spacing_mut().button_padding = theme.button_padding;
 
       if self.selected_pool.is_none() {
          let text = RichText::new("No selected pool found").size(theme.text_sizes.very_large);

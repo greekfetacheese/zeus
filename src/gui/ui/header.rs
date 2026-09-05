@@ -129,8 +129,8 @@ impl Header {
          return;
       }
 
-      ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
-      ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+      ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+      ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
 
       let chain = ctx.chain;
       let privacy_mode = ctx.privacy_mode;
@@ -286,7 +286,7 @@ impl Header {
       let chain = ctx.chain;
       let railgun_is_supported = ctx.railgun_is_supported(chain);
 
-      ui.spacing_mut().item_spacing.y = 10.0;
+      ui.spacing_mut().item_spacing.y = theme.spacing.sm;
 
       let frame = theme.frame1.inner_margin(Margin::same(5));
       let frame_height = 40.0;
@@ -510,8 +510,8 @@ impl Header {
          .show(ui.ctx(), |ui| {
             ui.set_width(350.0);
             ui.set_height(200.0);
-            ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
+            ui.spacing_mut().button_padding = theme.button_padding;
 
             let button_visuals = theme.button_visuals();
 
@@ -545,7 +545,7 @@ impl Header {
    }
 
    fn refresh(&mut self, theme: &Theme, wallet: Address, ui: &mut Ui) {
-      ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+      ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
 
       let button_visuals = theme.button_visuals();
       let icon = Lucide::RefreshCw.size(20.0).color(theme.colors.text).image();
@@ -794,8 +794,8 @@ impl QRCodeWindow {
             ui.set_height(self.size.1);
 
             ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing = vec2(10.0, 8.0);
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.sm);
+               ui.spacing_mut().button_padding = theme.button_padding;
 
                if self.wallet.is_none() {
                   ui.label(
