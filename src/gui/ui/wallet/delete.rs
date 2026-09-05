@@ -195,12 +195,18 @@ impl DeleteWalletUi {
                ui.label(RichText::new(wallet.name_with_source()).size(theme.typography.large));
                ui.label(RichText::new(wallet.address.to_string()).size(theme.typography.normal));
 
-               // TODO: Maybe adjust for privacy mode
                let include_testnets = ctx.chain.is_testnet();
                let value = ctx.get_total_value(wallet.address, include_testnets);
                ui.label(
-                  RichText::new(format!("Value ${}", value.public.abbreviated()))
-                     .size(theme.typography.large).strong(),
+                  RichText::new(format!("Value ${}", value.for_mode(false).abbreviated()))
+                     .size(theme.typography.large)
+                     .strong(),
+               );
+
+               ui.label(
+                  RichText::new(format!("Railgun Value ${}", value.for_mode(true).abbreviated()))
+                     .size(theme.typography.large)
+                     .strong(),
                );
 
                let text = "Deleting this wallet will also delete all its transaction history and token approval data next time Zeus starts\n

@@ -1,6 +1,9 @@
 use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, ZeusContext};
-use crate::gui::{SHARED_GUI, dots_button, ui::show_with_fade};
+use crate::gui::{
+   SHARED_GUI, dots_button,
+   ui::{WalletListByValue, show_with_fade},
+};
 use crate::utils::RT;
 use eframe::egui::{
    Align, Align2, Context, FontId, Layout, Margin, Order, RichText, ScrollArea, Spinner, Stroke,
@@ -9,7 +12,7 @@ use eframe::egui::{
 use egui_elements::{Button, Label, OverlayManager, SecureTextEdit, Theme, widgets::Window};
 use elegance::{Menu, MenuItem};
 use std::{collections::HashMap, sync::Arc};
-use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
+use zeus_eth::{alloy_primitives::Address, utils::NumericValue};
 use zeus_wallet::Wallet;
 
 pub mod add;
@@ -95,66 +98,15 @@ impl WalletUi {
    pub fn calc_wallet_value(&mut self) {
       self.loading = true;
 
-      // TODO: This op is the same as the one in RecipientSelectionWindow
-      // ? We should make it a helper function at some point?
       RT.spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-         let mut wallets = ctx.get_all_wallets_info();
-         let mut portfolios = Vec::new();
-
-         for chain in SUPPORTED_CHAINS {
-            if ctx.is_chain_disabled(chain) {
-               continue;
-            }
-
-            for wallet in &wallets {
-               portfolios.push(ctx.get_portfolio(chain, wallet.address));
-            }
-         }
-
-         let include_testnets = ctx.chain().is_testnet();
-         let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
-
-         wallets.sort_by(|a, b| {
-            let wallet_a = a.address;
-            let wallet_b = b.address;
-
-            let value_a = ctx.get_total_value(wallet_a, include_testnets);
-            let value_b = ctx.get_total_value(wallet_b, include_testnets);
-
-            let (value_a, value_b) = if privacy_mode {
-               (value_a.private, value_b.private)
-            } else {
-               (value_a.public, value_b.public)
-            };
-
-            // Sort in descending order (highest value first)
-            value_b.f64().partial_cmp(&value_a.f64()).unwrap_or(std::cmp::Ordering::Equal)
-         });
-
-         let mut wallet_value = HashMap::new();
-         let mut wallet_chains = HashMap::new();
-
-         for wallet in &wallets {
-            let value = ctx.get_total_value(wallet.address, include_testnets);
-            let value = if privacy_mode {
-               value.private
-            } else {
-               value.public
-            };
-
-            wallet_value.insert(wallet.address, value);
-
-            // ? Adjust also this for privacy mode?
-            let chains = ctx.get_chains_that_have_balance(wallet.address);
-            wallet_chains.insert(wallet.address, chains);
-         }
+         let list = WalletListByValue::collect(&ctx);
 
          SHARED_GUI.write(|gui| {
             gui.wallet_ui.loading = false;
-            gui.wallet_ui.wallets = wallets;
-            gui.wallet_ui.wallet_value = wallet_value;
-            gui.wallet_ui.wallet_chains = wallet_chains;
+            gui.wallet_ui.wallets = list.wallets;
+            gui.wallet_ui.wallet_value = list.values;
+            gui.wallet_ui.wallet_chains = list.chains;
          });
       });
    }

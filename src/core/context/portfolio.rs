@@ -23,6 +23,17 @@ pub struct WalletValue {
    pub private: NumericValue,
 }
 
+impl WalletValue {
+   /// Public value, or private (Railgun) when privacy mode is on.
+   pub fn for_mode(&self, privacy_mode: bool) -> &NumericValue {
+      if privacy_mode {
+         &self.private
+      } else {
+         &self.public
+      }
+   }
+}
+
 /// Portfolio DB persisted inside the encrypted vault.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PortfolioDB {
