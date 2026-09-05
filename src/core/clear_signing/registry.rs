@@ -1,7 +1,12 @@
 use super::descriptor::{self, Descriptor};
+use super::registry_pins::{
+   MAX_REGISTRY_JSON_BYTES, RegistryPinError, is_allowed_registry_path, is_registry_file_pinned,
+   verify_registry_pin,
+};
 use crate::core::persisted::{
    CLEAR_SIGNING_INDEX_CALLDATA, CLEAR_SIGNING_INDEX_EIP712, PersistedTree, tree_dir,
 };
+use crate::embedded::clear_signing as embedded_registry;
 use crate::utils::write_private;
 use anyhow::Context;
 use serde_json::Value;
@@ -14,7 +19,7 @@ const REGISTRY_BASE: &str =
    "https://raw.githubusercontent.com/ethereum/clear-signing-erc7730-registry/master";
 const EIP712_INDEX_PATH: &str = CLEAR_SIGNING_INDEX_EIP712;
 const CALLDATA_INDEX_PATH: &str = CLEAR_SIGNING_INDEX_CALLDATA;
-const FETCH_TIMEOUT: Duration = Duration::from_secs(3);
+const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 const INDEX_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_INCLUDE_DEPTH: usize = 3;
 
@@ -52,15 +57,34 @@ fn cached_file_path(registry_path: &str) -> Result<PathBuf, anyhow::Error> {
    Ok(cache_dir()?.join(format!("{hash:x}.json")))
 }
 
-async fn get_json(registry_path: &str) -> Result<Value, anyhow::Error> {
-   if let Ok(path) = cached_file_path(registry_path) {
-      if let Ok(bytes) = std::fs::read(&path) {
-         if let Ok(v) = serde_json::from_slice(&bytes) {
-            return Ok(v);
-         }
-      }
+fn ensure_pinned_path(registry_path: &str) -> Result<(), anyhow::Error> {
+   if !is_allowed_registry_path(registry_path) {
+      anyhow::bail!("refusing registry path {registry_path}");
    }
+   if !is_registry_file_pinned(registry_path) {
+      return Err(
+         RegistryPinError::Unpinned {
+            path: registry_path.to_string(),
+         }
+         .into(),
+      );
+   }
+   Ok(())
+}
 
+fn read_pinned_json(path: &Path, registry_path: &str) -> Option<Value> {
+   let bytes = std::fs::read(path).ok()?;
+   match verify_registry_pin(registry_path, &bytes) {
+      Ok(()) => serde_json::from_slice(&bytes).ok(),
+      Err(RegistryPinError::Mismatch { .. } | RegistryPinError::TooLarge { .. }) => {
+         let _ = std::fs::remove_file(path);
+         None
+      }
+      Err(_) => None,
+   }
+}
+
+async fn fetch_registry_bytes(registry_path: &str) -> Result<Vec<u8>, anyhow::Error> {
    let url = format!("{REGISTRY_BASE}/{registry_path}");
    let bytes = http_client()
       .get(&url)
@@ -71,12 +95,51 @@ async fn get_json(registry_path: &str) -> Result<Value, anyhow::Error> {
       .context("registry status")?
       .bytes()
       .await?;
+   if bytes.len() > MAX_REGISTRY_JSON_BYTES {
+      return Err(
+         RegistryPinError::TooLarge {
+            path: registry_path.to_string(),
+            size: bytes.len(),
+         }
+         .into(),
+      );
+   }
+   Ok(bytes.to_vec())
+}
+
+fn cache_registry_file(path: &Path, bytes: &[u8], label: &str) {
+   if let Err(e) = write_private(path, bytes) {
+      tracing::warn!("Failed to cache ERC-7730 {label}: {e}");
+   }
+}
+
+fn read_embedded_json(registry_path: &str) -> Result<Option<Value>, anyhow::Error> {
+   let Some(bytes) = embedded_registry::get(registry_path) else {
+      return Ok(None);
+   };
+   verify_registry_pin(registry_path, bytes)?;
+   Ok(Some(serde_json::from_slice(bytes)?))
+}
+
+async fn get_json(registry_path: &str) -> Result<Value, anyhow::Error> {
+   ensure_pinned_path(registry_path)?;
+
+   if let Some(v) = read_embedded_json(registry_path)? {
+      return Ok(v);
+   }
+
+   if let Ok(path) = cached_file_path(registry_path) {
+      if let Some(v) = read_pinned_json(&path, registry_path) {
+         return Ok(v);
+      }
+   }
+
+   let bytes = fetch_registry_bytes(registry_path).await?;
+   verify_registry_pin(registry_path, &bytes)?;
    let value: Value = serde_json::from_slice(&bytes)?;
 
    if let Ok(path) = cached_file_path(registry_path) {
-      if let Err(e) = write_private(&path, &bytes) {
-         tracing::warn!("Failed to cache ERC-7730 file {registry_path}: {e}");
-      }
+      cache_registry_file(&path, &bytes, registry_path);
    }
 
    Ok(value)
@@ -102,31 +165,47 @@ async fn fetch_calldata_index(force_network: bool) -> Result<Value, anyhow::Erro
 }
 
 async fn fetch_named_index(name: &str, force_network: bool) -> Result<Value, anyhow::Error> {
+   ensure_pinned_path(name)?;
+
+   if let Some(v) = read_embedded_json(name)? {
+      return Ok(v);
+   }
+
    if let Ok(path) = cached_index_path(name) {
       let fresh = cached_index_is_fresh(&path);
       if fresh || !force_network {
-         if let Ok(bytes) = std::fs::read(&path) {
-            if let Ok(v) = serde_json::from_slice(&bytes) {
-               return Ok(v);
-            }
+         if let Some(v) = read_pinned_json(&path, name) {
+            return Ok(v);
          }
       }
    }
 
-   let url = format!("{REGISTRY_BASE}/{name}");
-   let bytes = http_client()
-      .get(&url)
-      .send()
-      .await
-      .context("index fetch")?
-      .error_for_status()?
-      .bytes()
-      .await?;
+   let bytes = match fetch_registry_bytes(name).await {
+      Ok(bytes) => bytes,
+      Err(e) => {
+         if let Ok(path) = cached_index_path(name) {
+            if let Some(v) = read_pinned_json(&path, name) {
+               tracing::warn!("ERC-7730 index {name} fetch failed ({e}); using pinned cache");
+               return Ok(v);
+            }
+         }
+         return Err(e);
+      }
+   };
+
+   if let Err(e) = verify_registry_pin(name, &bytes) {
+      if let Ok(path) = cached_index_path(name) {
+         if let Some(v) = read_pinned_json(&path, name) {
+            tracing::warn!("ERC-7730 index {name} pin mismatch ({e}); using pinned cache");
+            return Ok(v);
+         }
+      }
+      return Err(e.into());
+   }
+   
    let value: Value = serde_json::from_slice(&bytes)?;
    if let Ok(path) = cached_index_path(name) {
-      if let Err(e) = write_private(&path, &bytes) {
-         tracing::warn!("Failed to cache ERC-7730 index {name}: {e}");
-      }
+      cache_registry_file(&path, &bytes, name);
    }
    Ok(value)
 }

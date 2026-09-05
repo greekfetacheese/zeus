@@ -79,6 +79,7 @@ generic-array = { workspace = true }
 # Crypto
 rand = "=0.8"
 minisign-verify = "=0.2.5"
+sha2 = "0.10"
 
 
 # Encryption

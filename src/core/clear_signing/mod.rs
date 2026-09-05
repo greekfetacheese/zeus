@@ -3,6 +3,7 @@ pub mod display;
 pub mod format;
 pub mod path;
 pub mod registry;
+pub mod registry_pins;
 pub mod sourcify;
 
 pub use display::{ClearDisplay, ClearSource, DisplayField, FormattedValue, Intent};
@@ -463,6 +464,27 @@ mod tests {
          path,
          "registry/uniswap/common-eip712-uniswap.json"
       );
+   }
+
+   #[test]
+   fn include_rejects_absolute_url_and_escape() {
+      use super::registry_pins::is_allowed_registry_path;
+      let url = registry::resolve_include_for_tests(
+         "registry/uniswap/eip712-uniswap-permit2.json",
+         "https://evil.example/x.json",
+      );
+      assert!(!is_allowed_registry_path(&url));
+      let escaped = registry::resolve_include_for_tests(
+         "registry/uniswap/eip712-uniswap-permit2.json",
+         "../../../../etc/passwd.json",
+      );
+      assert!(!is_allowed_registry_path(&escaped));
+      let ercs = registry::resolve_include_for_tests(
+         "registry/permit/eip712-permit-base-usdc.json",
+         "../../ercs/eip712-erc2612-permit.json",
+      );
+      assert_eq!(ercs, "ercs/eip712-erc2612-permit.json");
+      assert!(is_allowed_registry_path(&ercs));
    }
 
    #[test]
