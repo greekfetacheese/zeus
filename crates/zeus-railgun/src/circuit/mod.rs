@@ -1,3 +1,4 @@
+pub mod artifact_pins;
 pub mod groth16_prover;
 pub mod inputs;
 pub mod proof;

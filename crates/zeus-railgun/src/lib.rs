@@ -16,6 +16,9 @@ pub mod types;
 
 pub use account::{address::RailgunAddress, signer::RailgunSigner};
 pub use chain_config::ChainConfig;
+pub use circuit::artifact_pins::{
+   ArtifactPinError, all_poi_circuit_names, is_artifact_pinned, verify_artifact_pin,
+};
 pub use circuit::groth16_prover::Groth16Prover;
 pub use circuit::remote_artifact_loader::{
    ARTIFACT_MAX_INPUTS, ARTIFACT_MAX_OUTPUTS, AvailableCircuits, EmbeddedCircuit, PrefetchReport,

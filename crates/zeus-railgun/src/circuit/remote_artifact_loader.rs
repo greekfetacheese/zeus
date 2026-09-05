@@ -12,6 +12,7 @@ use ark_serialize::CanonicalDeserialize;
 use tokio::fs;
 use tracing::{debug, info, warn};
 
+use crate::circuit::artifact_pins::{ArtifactPinError, is_artifact_pinned, verify_artifact_pin};
 use crate::crypto::serializable_np_index::SerializableNpIndex;
 
 /// Minimum compressed size we accept for a remote artifact. 404 HTML pages
@@ -227,6 +228,8 @@ pub enum RemoteArtifactLoaderError {
    DecompressionError(#[from] std::io::Error),
    #[error("No on-disk cache directory configured")]
    NoCacheDir,
+   #[error(transparent)]
+   Pin(#[from] ArtifactPinError),
 }
 
 impl Default for RemoteArtifactLoader {
@@ -335,7 +338,8 @@ impl RemoteArtifactLoader {
    }
 
    /// True when all required compressed files for `circuit_name` exist on disk
-   /// and pass basic validation (size / not-HTML). Does not hit the network.
+   /// and pass basic validation (size / not-HTML). Does not hit the network
+   /// and does **not** hash (see [`Self::disk_circuit_pinned`]).
    pub fn is_circuit_on_disk(&self, circuit_name: &str) -> bool {
       for file in TRANSACT_ARTIFACT_FILES {
          let Some(path) = self.artifact_path(circuit_name, file) else {
@@ -347,6 +351,23 @@ impl RemoteArtifactLoader {
          match std::fs::read(&path) {
             Ok(data) if validate_compressed_artifact(&data).is_ok() => {}
             _ => return false,
+         }
+      }
+      true
+   }
+
+   /// True when the on-disk set exists and every compressed file matches its
+   /// SHA-256 pin. Used by prefetch so a poisoned cache is not treated as ready.
+   fn disk_circuit_pinned(&self, circuit_name: &str) -> bool {
+      for file in TRANSACT_ARTIFACT_FILES {
+         let Some(path) = self.artifact_path(circuit_name, file) else {
+            return false;
+         };
+         let Ok(data) = std::fs::read(&path) else {
+            return false;
+         };
+         if verify_artifact_pin(circuit_name, file, &data).is_err() {
+            return false;
          }
       }
       true
@@ -426,7 +447,7 @@ impl RemoteArtifactLoader {
             continue;
          }
 
-         if self.is_circuit_on_disk(&name) {
+         if self.is_circuit_on_disk(&name) && self.disk_circuit_pinned(&name) {
             debug!("Circuit already cached on disk: {}", name);
             report.already_cached.push(name);
             continue;
@@ -466,26 +487,42 @@ impl RemoteArtifactLoader {
    ///
    /// Order: memory → **binary embed** → disk → remote download.
    /// Embeds are never written to disk.
+   ///
+   /// Every source except the in-memory cache is SHA-256 pinned. Unpinned
+   /// names fail closed (no download). A pin mismatch on disk is deleted and
+   /// we try the host; a mismatch on embed or download is fatal.
    async fn load_compressed(
       &self,
       circuit_name: &str,
       filename: &str,
    ) -> Result<Vec<u8>, RemoteArtifactLoaderError> {
+      if !is_artifact_pinned(circuit_name, filename) {
+         return Err(
+            ArtifactPinError::Unpinned {
+               circuit: circuit_name.to_string(),
+               file: filename.to_string(),
+            }
+            .into(),
+         );
+      }
+
       let url = format!("{}/{}/{}", self.base_url, circuit_name, filename);
       let disk_path = self.artifact_path(circuit_name, filename);
 
-      // 1. Memory cache (L1)
+      // 1. Memory cache (L1) — inserted only after a pin check.
       if let Some(cached) = self.cache.lock().unwrap().get(&url) {
          debug!("Artifact served from memory cache: {}", url);
          return Ok(cached);
       }
 
       // 2. Binary embed available anytime, do not spill to disk.
+      // Pin failure is fatal: do not fall through to the (untrusted) host.
       if let Some(data) = self.embedded_bytes(circuit_name, filename) {
          debug!(
             "Artifact served from binary embed: {}/{}",
             circuit_name, filename
          );
+         verify_artifact_pin(circuit_name, filename, data)?;
          let owned = data.to_vec();
          self.cache.lock().unwrap().insert(url, owned.clone());
          return Ok(owned);
@@ -499,7 +536,14 @@ impl RemoteArtifactLoader {
                path.display()
             );
             let data = fs::read(path).await?;
-            if let Err(reason) = validate_compressed_artifact(&data) {
+            let discard = if let Err(reason) = validate_compressed_artifact(&data) {
+               Some(reason)
+            } else if let Err(e) = verify_artifact_pin(circuit_name, filename, &data) {
+               Some(e.to_string())
+            } else {
+               None
+            };
+            if let Some(reason) = discard {
                debug!(
                   "Discarding invalid disk cache entry {}: {}",
                   path.display(),
@@ -551,6 +595,7 @@ impl RemoteArtifactLoader {
             reason,
          });
       }
+      verify_artifact_pin(circuit_name, filename, &data)?;
 
       if let Some(ref path) = disk_path {
          if let Some(parent) = path.parent() {
@@ -761,6 +806,78 @@ mod tests {
 
       assert!(root.join("railgun").join("old").is_dir());
       assert!(root.join("circuits").join("new").is_dir());
+      let _ = std::fs::remove_dir_all(&root);
+   }
+
+   fn write_fake_circuit(root: &Path, circuit: &str) {
+      let dir = root.join("circuits").join(circuit);
+      std::fs::create_dir_all(&dir).unwrap();
+      let blob = vec![0xABu8; 300];
+      for file in TRANSACT_ARTIFACT_FILES {
+         std::fs::write(dir.join(file), &blob).unwrap();
+      }
+   }
+
+   #[test]
+   fn poisoned_disk_cache_is_not_pinned() {
+      let root = unique_temp_dir();
+      write_fake_circuit(&root, "01x04");
+      let loader = RemoteArtifactLoader::new(
+         "https://example.invalid/artifacts",
+         Some(root.clone()),
+      );
+      assert!(loader.is_circuit_on_disk("railgun/01x04"));
+      assert!(!loader.disk_circuit_pinned("railgun/01x04"));
+      let _ = std::fs::remove_dir_all(&root);
+   }
+
+   #[tokio::test]
+   async fn unpinned_circuit_is_not_downloaded() {
+      let loader = RemoteArtifactLoader::new("https://example.invalid/artifacts", None);
+      let err = loader.load_wasm("railgun/poi/01x01").await.unwrap_err();
+      assert!(
+         matches!(
+            err,
+            RemoteArtifactLoaderError::Pin(ArtifactPinError::Unpinned { .. })
+         ),
+         "{err:?}"
+      );
+   }
+
+   #[tokio::test]
+   async fn embedded_pin_mismatch_does_not_fall_through() {
+      static BLOB: [u8; 300] = [0xAB; 300];
+      let loader = RemoteArtifactLoader::new("https://example.invalid/artifacts", None)
+         .with_embedded_circuits([EmbeddedCircuit::new("railgun/01x01", &BLOB, &BLOB, &BLOB)]);
+      let err = loader.load_wasm("railgun/01x01").await.unwrap_err();
+      assert!(
+         matches!(
+            err,
+            RemoteArtifactLoaderError::Pin(ArtifactPinError::Mismatch { .. })
+         ),
+         "{err:?}"
+      );
+   }
+
+   #[tokio::test]
+   async fn disk_pin_mismatch_is_deleted() {
+      let root = unique_temp_dir();
+      write_fake_circuit(&root, "01x04");
+      let wasm = root.join("circuits").join("01x04").join("wasm.br");
+      assert!(wasm.is_file());
+      let loader = RemoteArtifactLoader::new("http://127.0.0.1:1/artifacts", Some(root.clone()));
+      let err = loader.load_wasm("railgun/01x04").await.unwrap_err();
+      assert!(
+         !matches!(
+            err,
+            RemoteArtifactLoaderError::Pin(ArtifactPinError::Unpinned { .. })
+         ),
+         "should attempt host after dropping poison, got {err:?}"
+      );
+      assert!(
+         !wasm.is_file(),
+         "poisoned wasm.br should have been deleted"
+      );
       let _ = std::fs::remove_dir_all(&root);
    }
 }

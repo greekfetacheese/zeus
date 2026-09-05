@@ -47,3 +47,29 @@ pub fn embedded_circuits() -> Vec<EmbeddedCircuit> {
       railgun_circuit!("02x01"),
    ]
 }
+
+#[cfg(test)]
+mod tests {
+   use super::embedded_circuits;
+   use zeus_railgun::verify_artifact_pin;
+
+   #[test]
+   fn embedded_circuits_match_sha256_pins() {
+      for circuit in embedded_circuits() {
+         verify_artifact_pin(circuit.name, "wasm.br", circuit.wasm_br)
+            .unwrap_or_else(|e| panic!("{} wasm.br: {e}", circuit.name));
+         verify_artifact_pin(
+            circuit.name,
+            "proving_key.bin.br",
+            circuit.proving_key_br,
+         )
+         .unwrap_or_else(|e| panic!("{} proving_key.bin.br: {e}", circuit.name));
+         verify_artifact_pin(
+            circuit.name,
+            "matrices.bin.br",
+            circuit.matrices_br,
+         )
+         .unwrap_or_else(|e| panic!("{} matrices.bin.br: {e}", circuit.name));
+      }
+   }
+}
