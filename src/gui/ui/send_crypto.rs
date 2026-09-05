@@ -20,7 +20,7 @@ use crate::gui::{
    SHARED_GUI,
    ui::{
       ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
-      common::{AmountField, show_with_fade},
+      common::{AmountField, AmountFieldParams, show_with_fade},
       dapps::railgun::private_transfer,
    },
 };
@@ -192,50 +192,43 @@ impl SendCryptoUi {
                   let inner_frame = theme.frame2;
 
                   // Currency Selection
-                  let label = String::from("Amount");
                   let balance = self.balance_for_mode(ctx, owner, privacy_mode);
-                  let balance_clone = balance.clone();
                   let cost = self.cost(ctx, privacy_mode);
-                  let balance_fn = || balance_clone;
-
-                  let max_amount_fn = || {
-                     let currency = self.currency.clone();
-                     if privacy_mode || currency.is_erc20() {
-                        return balance;
-                     } else {
-                        if balance.wei() < cost.wei() {
-                           return NumericValue::default();
-                        }
-                        let max = balance.wei() - cost.wei();
-                        NumericValue::format_wei(max, currency.decimals())
-                     }
+                  let max_amount = if privacy_mode || self.currency.is_erc20() {
+                     balance.clone()
+                  } else if balance.wei() < cost.wei() {
+                     NumericValue::default()
+                  } else {
+                     NumericValue::format_wei(
+                        balance.wei() - cost.wei(),
+                        self.currency.decimals(),
+                     )
                   };
 
                   let amount = self.amount_field.amount.clone();
                   let currency = self.currency.clone();
                   let data_syncing = self.price_syncing || self.syncing_balance;
                   let should_calculate_price = self.should_calculate_price(&currency);
-
                   let value = value(ctx, currency, amount, should_calculate_price);
-                  let value_fn = || value;
 
                   inner_frame.show(ui, |ui| {
                      ui.set_width(ui.available_width());
                      self.amount_field.show(
-                        chain.id(),
-                        token_privacy_mode,
-                        theme,
-                        icons.clone(),
-                        Some(label),
-                        owner,
-                        &self.currency,
-                        Some(token_selection),
-                        None,
-                        balance_fn,
-                        max_amount_fn,
-                        value_fn,
-                        data_syncing,
-                        true,
+                        AmountFieldParams::new(
+                           theme,
+                           icons.clone(),
+                           &self.currency,
+                           owner,
+                           chain.id(),
+                        )
+                        .privacy_mode(token_privacy_mode)
+                        .balance(balance)
+                        .max_amount(max_amount)
+                        .value(value)
+                        .label("Amount")
+                        .token_selection(token_selection, None)
+                        .loading(data_syncing)
+                        .show_slider(true),
                         ui,
                      );
                   });

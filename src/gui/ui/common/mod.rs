@@ -7,7 +7,7 @@ pub mod wallet_select;
 pub mod window_frame;
 pub mod windows;
 
-pub use amount_field::AmountField;
+pub use amount_field::{AmountField, AmountFieldParams};
 pub use chain_select::ChainSelect;
 pub use fade::{panel_fade, show_with_fade};
 pub use wallet_select::WalletSelect;

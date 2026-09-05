@@ -28,7 +28,8 @@ use crate::assets::icons::Icons;
 use crate::gui::{
    SHARED_GUI,
    ui::{
-      ContactsUi, RecipientSelectionWindow, TokenSelectionWindow, common::AmountField,
+      ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
+      common::{AmountField, AmountFieldParams},
       dapps::uniswap::swap::wrap_eth,
    },
 };
@@ -358,7 +359,6 @@ impl ShieldUi {
                   let inner_frame = theme.frame2;
 
                   // Currency Selection
-                  let label = String::from("Amount");
                   let balance = self.balance_for_mode(ctx, owner);
                   let max_amount = balance.clone();
 
@@ -366,7 +366,6 @@ impl ShieldUi {
                   let currency = self.currency.clone();
                   let data_syncing = self.price_syncing || self.syncing_balance;
                   let should_calculate_price = self.should_calculate_price(&currency);
-
                   let value = value(ctx, currency, amount, should_calculate_price);
 
                   // Token list: public tokens for shield, private notes for unshield.
@@ -377,20 +376,21 @@ impl ShieldUi {
                   inner_frame.show(ui, |ui| {
                      ui.set_width(ui.available_width());
                      self.amount_field.show(
-                        chain.id(),
-                        token_privacy_mode,
-                        theme,
-                        icons.clone(),
-                        Some(label),
-                        owner,
-                        &self.currency,
-                        Some(token_selection),
-                        None,
-                        || balance,
-                        || max_amount,
-                        || value,
-                        data_syncing,
-                        true,
+                        AmountFieldParams::new(
+                           theme,
+                           icons.clone(),
+                           &self.currency,
+                           owner,
+                           chain.id(),
+                        )
+                        .privacy_mode(token_privacy_mode)
+                        .balance(balance)
+                        .max_amount(max_amount)
+                        .value(value)
+                        .label("Amount")
+                        .token_selection(token_selection, None)
+                        .loading(data_syncing)
+                        .show_slider(true),
                         ui,
                      );
                   });

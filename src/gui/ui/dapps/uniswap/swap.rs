@@ -61,26 +61,6 @@ impl Action {
    }
 }
 
-/// Currency direction
-///
-/// This is mostly used for the [swap_section()] and in the [TokenSelectionWindow]
-/// to identify if the user is selecting the currency to be sold or bought
-#[derive(Copy, Clone, PartialEq)]
-pub enum InOrOut {
-   In,
-   Out,
-}
-
-impl InOrOut {
-   pub fn to_string(&self) -> String {
-      (match self {
-         Self::In => "Sell",
-         Self::Out => "Buy",
-      })
-      .to_string()
-   }
-}
-
 pub struct SimulateWindow {
    size: (f32, f32),
    /// Selected pool at its initial state
@@ -530,29 +510,26 @@ impl SwapUi {
          // Currency in
          let inner_frame = theme.frame2;
          let mut amount_changed = false;
-         let label = String::from("Sell");
          let balance = ctx.get_currency_balance(chain_id, owner, &self.currency_in);
-         let max_amount = ctx.get_currency_balance(chain_id, owner, &self.currency_in);
+         let max_amount = balance.clone();
          let amount = self.amount_in_field.amount.parse().unwrap_or(0.0);
          let value = ctx.get_currency_value_for_amount(amount, &self.currency_in);
-         let privacy_mode = false;
 
          inner_frame.show(ui, |ui| {
             let changed = self.amount_in_field.show(
-               chain_id,
-               privacy_mode,
-               theme,
-               icons.clone(),
-               Some(label),
-               owner,
-               &self.currency_in,
-               Some(token_selection),
-               Some(InOrOut::In),
-               || balance,
-               || max_amount,
-               || value,
-               false,
-               true,
+               AmountFieldParams::new(
+                  theme,
+                  icons.clone(),
+                  &self.currency_in,
+                  owner,
+                  chain_id,
+               )
+               .balance(balance)
+               .max_amount(max_amount)
+               .value(value)
+               .label("Sell")
+               .token_selection(token_selection, Some(InOrOut::In))
+               .show_slider(true),
                ui,
             );
             amount_changed = changed;
@@ -578,28 +555,23 @@ impl SwapUi {
          });
 
          // Currency out
-         let label = String::from("Buy");
          let balance = ctx.get_currency_balance(chain_id, owner, &self.currency_out);
-         let max_amount = NumericValue::default();
          let amount = self.amount_out_field.amount.parse().unwrap_or(0.0);
          let value = ctx.get_currency_value_for_amount(amount, &self.currency_out);
 
          inner_frame.show(ui, |ui| {
             self.amount_out_field.show(
-               chain_id,
-               privacy_mode,
-               theme,
-               icons.clone(),
-               Some(label),
-               owner,
-               &self.currency_out,
-               Some(token_selection),
-               Some(InOrOut::Out),
-               || balance,
-               || max_amount,
-               || value,
-               false,
-               false,
+               AmountFieldParams::new(
+                  theme,
+                  icons.clone(),
+                  &self.currency_out,
+                  owner,
+                  chain_id,
+               )
+               .balance(balance)
+               .value(value)
+               .label("Buy")
+               .token_selection(token_selection, Some(InOrOut::Out)),
                ui,
             )
          });

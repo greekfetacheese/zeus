@@ -5,7 +5,11 @@ use crate::core::persisted::{PersistedFile, file_path};
 use crate::core::{ZeusContext, ZeusCtx, send_transaction};
 use crate::gui::{
    SHARED_GUI,
-   ui::{ChainSelect, ContactsUi, RecipientSelectionWindow, common::AmountField, show_with_fade},
+   ui::{
+      ChainSelect, ContactsUi, RecipientSelectionWindow,
+      common::{AmountField, AmountFieldParams},
+      show_with_fade,
+   },
 };
 use crate::utils::{RT, estimate_tx_cost, write_private};
 use anyhow::anyhow;
@@ -271,13 +275,11 @@ impl AcrossBridge {
 
                   let inner_frame = theme.frame2;
 
-                  let label = String::from("Amount");
                   let owner = ctx.current_wallet_info().address;
                   let cost = self.cost(ctx);
                   let balance = ctx.get_currency_balance(from_chain, owner, &self.currency);
                   let amount = self.amount_field.amount.parse().unwrap_or(0.0);
                   let value = ctx.get_currency_value_for_amount(amount, &self.currency);
-                  let privacy_mode = false;
 
                   let max_amount = if balance.wei() > cost.0.wei() {
                      NumericValue::format_wei(
@@ -292,20 +294,18 @@ impl AcrossBridge {
                      ui.set_width(ui_width);
 
                      self.amount_field.show(
-                        self.currency.chain_id(),
-                        privacy_mode,
-                        theme,
-                        icons.clone(),
-                        Some(label),
-                        owner,
-                        &self.currency,
-                        None,
-                        None,
-                        || balance,
-                        || max_amount,
-                        || value,
-                        false,
-                        true,
+                        AmountFieldParams::new(
+                           theme,
+                           icons.clone(),
+                           &self.currency,
+                           owner,
+                           self.currency.chain_id(),
+                        )
+                        .balance(balance)
+                        .max_amount(max_amount)
+                        .value(value)
+                        .label("Amount")
+                        .show_slider(true),
                         ui,
                      );
                   });

@@ -7,7 +7,6 @@ use eframe::egui::{
 
 use crate::assets::icons::Icons;
 use crate::core::{ZeusContext, ZeusCtx};
-use crate::gui::ui::dapps::uniswap::swap::InOrOut;
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::{RT, token_icon::spawn_fetch_token_icon, truncate_symbol_or_name};
 use elegance::{Menu, MenuItem};
@@ -23,6 +22,26 @@ use zeus_eth::{
 use egui_elements::{
    Button, Label, OverlayManager, SecureTextEdit, Theme, utils::frame as frame_fn, widgets::Window,
 };
+
+/// Currency direction for [`TokenSelectionWindow`].
+///
+/// Used by Swap (and similar) to know whether the user is picking the currency
+/// to sell or buy.
+#[derive(Copy, Clone, PartialEq)]
+pub enum InOrOut {
+   In,
+   Out,
+}
+
+impl InOrOut {
+   pub fn to_string(&self) -> String {
+      (match self {
+         Self::In => "Sell",
+         Self::Out => "Buy",
+      })
+      .to_string()
+   }
+}
 
 /// A simple window that allows the user to select a token
 ///
