@@ -4,7 +4,8 @@ use super::{
    error::UniswapV3MathError,
    full_math::{mul_div, mul_div_rounding_up},
    sqrt_price_math::{
-      _get_amount_0_delta, _get_amount_1_delta, get_next_sqrt_price_from_input, get_next_sqrt_price_from_output,
+      _get_amount_0_delta, _get_amount_1_delta, get_next_sqrt_price_from_input,
+      get_next_sqrt_price_from_output,
    },
 };
 
@@ -136,7 +137,12 @@ pub fn compute_swap_step(
 
    if exact_in && sqrt_ratio_next_x_96 != sqrt_ratio_target_x_96 {
       let fee_amount = amount_remaining.into_raw() - amount_in;
-      Ok((sqrt_ratio_next_x_96, amount_in, amount_out, fee_amount))
+      Ok((
+         sqrt_ratio_next_x_96,
+         amount_in,
+         amount_out,
+         fee_amount,
+      ))
    } else {
       let fee_amount = mul_div_rounding_up(
          amount_in,
@@ -144,7 +150,12 @@ pub fn compute_swap_step(
          U256::from(1e6 as u32 - fee_pips),
       )?;
 
-      Ok((sqrt_ratio_next_x_96, amount_in, amount_out, fee_amount))
+      Ok((
+         sqrt_ratio_next_x_96,
+         amount_in,
+         amount_out,
+         fee_amount,
+      ))
    }
 }
 
@@ -152,7 +163,9 @@ pub fn compute_swap_step(
 mod test {
 
    use crate::amm::uniswap::math::U256_1;
-   use crate::amm::uniswap::math::sqrt_price_math::{get_next_sqrt_price_from_input, get_next_sqrt_price_from_output};
+   use crate::amm::uniswap::math::sqrt_price_math::{
+      get_next_sqrt_price_from_input, get_next_sqrt_price_from_output,
+   };
    use crate::amm::uniswap::math::swap_math::compute_swap_step;
    use alloy_primitives::{I256, U256};
    use std::str::FromStr;
@@ -178,9 +191,18 @@ mod test {
          U256::from_str("79623317895830914510639640423").unwrap()
       );
 
-      assert_eq!(amount_in, U256::from_str("9975124224178055").unwrap());
-      assert_eq!(fee_amount, U256::from_str("5988667735148").unwrap());
-      assert_eq!(amount_out, U256::from_str("9925619580021728").unwrap());
+      assert_eq!(
+         amount_in,
+         U256::from_str("9975124224178055").unwrap()
+      );
+      assert_eq!(
+         fee_amount,
+         U256::from_str("5988667735148").unwrap()
+      );
+      assert_eq!(
+         amount_out,
+         U256::from_str("9925619580021728").unwrap()
+      );
 
       assert!(amount_in + fee_amount < U256::from_limbs(*amount.as_limbs()));
 
@@ -203,9 +225,18 @@ mod test {
       let (sqrt_p, amount_in, amount_out, fee_amount) =
          compute_swap_step(price, price_target, liquidity, amount, fee).unwrap();
 
-      assert_eq!(amount_in, U256::from_str("9975124224178055").unwrap());
-      assert_eq!(fee_amount, U256::from_str("5988667735148").unwrap());
-      assert_eq!(amount_out, U256::from_str("9925619580021728").unwrap());
+      assert_eq!(
+         amount_in,
+         U256::from_str("9975124224178055").unwrap()
+      );
+      assert_eq!(
+         fee_amount,
+         U256::from_str("5988667735148").unwrap()
+      );
+      assert_eq!(
+         amount_out,
+         U256::from_str("9925619580021728").unwrap()
+      );
       assert!(amount_out < (amount * -I256::ONE).into_raw());
 
       assert!(amount_in + fee_amount < U256::from_limbs(*amount.as_limbs()));
@@ -234,9 +265,18 @@ mod test {
       let (sqrt_p, amount_in, amount_out, fee_amount) =
          compute_swap_step(price, price_target, liquidity, amount, fee).unwrap();
 
-      assert_eq!(amount_in, U256::from_str("999400000000000000").unwrap());
-      assert_eq!(fee_amount, U256::from_str("600000000000000").unwrap());
-      assert_eq!(amount_out, U256::from_str("666399946655997866").unwrap());
+      assert_eq!(
+         amount_in,
+         U256::from_str("999400000000000000").unwrap()
+      );
+      assert_eq!(
+         fee_amount,
+         U256::from_str("600000000000000").unwrap()
+      );
+      assert_eq!(
+         amount_out,
+         U256::from_str("666399946655997866").unwrap()
+      );
       assert_eq!(amount_in + fee_amount, amount.into_raw());
 
       let price_after_whole_input_amount_less_fee = get_next_sqrt_price_from_input(
@@ -263,8 +303,14 @@ mod test {
       let (sqrt_p, amount_in, amount_out, fee_amount) =
          compute_swap_step(price, price_target, liquidity, amount, fee).unwrap();
 
-      assert_eq!(amount_in, U256::from_str("2000000000000000000").unwrap());
-      assert_eq!(fee_amount, U256::from_str("1200720432259356").unwrap());
+      assert_eq!(
+         amount_in,
+         U256::from_str("2000000000000000000").unwrap()
+      );
+      assert_eq!(
+         fee_amount,
+         U256::from_str("1200720432259356").unwrap()
+      );
       assert_eq!(amount_out, (amount * -I256::ONE).into_raw());
 
       let price_after_whole_output_amount = get_next_sqrt_price_from_output(
@@ -274,16 +320,8 @@ mod test {
          zero_for_one,
       )
       .unwrap();
-      //sqrtPrice 158456325028528675187087900672
-      //price_after_whole_output_amount Should be: 158456325028528675187087900672
-      // sqrtp: 158456325028528675187087900672, price_after_whole output amount: 118842243771396506390315925504
 
       assert!(sqrt_p < price_target);
-      //TODO:FIXME: failing
-      println!(
-         "sqrtp: {:?}, price_after_whole output amount: {:?}",
-         sqrt_p, price_after_whole_output_amount
-      );
       assert_eq!(sqrt_p, price_after_whole_output_amount);
 
       //------------------------------------------------------------
@@ -326,7 +364,9 @@ mod test {
          fee_amount,
          U256::from_str("39614120871253040049813").unwrap()
       );
-      assert!(amount_in + fee_amount < U256::from_str("3915081100057732413702495386755767").unwrap());
+      assert!(
+         amount_in + fee_amount < U256::from_str("3915081100057732413702495386755767").unwrap()
+      );
       assert_eq!(amount_out, U256::from_str("0").unwrap());
 
       assert_eq!(sqrt_p, U256::from_str("1").unwrap());
@@ -360,8 +400,14 @@ mod test {
       let amount_remaining = -I256::from_limbs(*U256::from(4).as_limbs());
       let fee = 3000;
 
-      let (sqrt_p, amount_in, amount_out, fee_amount) =
-         compute_swap_step(price, price_target, liquidity, amount_remaining, fee).unwrap();
+      let (sqrt_p, amount_in, amount_out, fee_amount) = compute_swap_step(
+         price,
+         price_target,
+         liquidity,
+         amount_remaining,
+         fee,
+      )
+      .unwrap();
 
       assert_eq!(amount_out, U256::ZERO);
       assert_eq!(sqrt_p, price_target);
@@ -381,8 +427,14 @@ mod test {
       let amount_remaining = -I256::from_limbs(*U256::from(263000).as_limbs());
       let fee = 3000;
 
-      let (sqrt_p, amount_in, amount_out, fee_amount) =
-         compute_swap_step(price, price_target, liquidity, amount_remaining, fee).unwrap();
+      let (sqrt_p, amount_in, amount_out, fee_amount) = compute_swap_step(
+         price,
+         price_target,
+         liquidity,
+         amount_remaining,
+         fee,
+      )
+      .unwrap();
 
       assert_eq!(amount_out, U256::from(26214));
       assert_eq!(sqrt_p, price_target);
