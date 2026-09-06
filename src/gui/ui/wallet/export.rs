@@ -81,33 +81,33 @@ impl ExportKeyUi {
          return;
       }
 
-      let warning = "WARNING!";
-      let warning_text = RichText::new(warning)
-         .size(theme.typography.very_large)
-         .color(theme.colors.warning);
-      ui.label(warning_text);
+      ui.label(
+         RichText::new("WARNING!")
+            .size(theme.typography.very_large)
+            .color(theme.colors.warning)
+            .strong(),
+      );
 
-      let warning_text = RichText::new(MASTER_WALLET_WARNING)
-         .size(theme.typography.large)
-         .color(theme.colors.warning);
-      ui.label(warning_text);
+      ui.label(
+         RichText::new(MASTER_WALLET_WARNING)
+            .size(theme.typography.normal)
+            .color(theme.colors.warning),
+      );
 
-      let button_text = "I understand the risks";
-      let text = RichText::new(button_text).size(theme.typography.normal);
-      let button = Button::new(text).visuals(theme.button_visuals());
+      let button_visuals = theme.button_visuals();
+      let button_size = vec2(ui.available_width() * 0.9, 45.0);
 
+      let text = RichText::new("I understand the risks").size(theme.typography.normal);
+      let button = Button::new(text).visuals(button_visuals).min_size(button_size);
       if ui.add(button).clicked() {
          self.show_warning = false;
       }
 
-      let button_text = "Changed my mind";
-      let text = RichText::new(button_text).size(theme.typography.normal);
-      let button = Button::new(text).visuals(theme.button_visuals());
-
+      let text = RichText::new("Changed my mind").size(theme.typography.normal);
+      let button = Button::new(text).visuals(button_visuals).min_size(button_size);
       if ui.add(button).clicked() {
          let erased = self.private_key_qr.clear(ui.ctx());
          self.reset();
-
          debug_assert!(erased);
       }
    }
@@ -117,23 +117,26 @@ impl ExportKeyUi {
          return;
       }
 
-      let id = Id::new("show_key_export_ui");
       let mut open = self.show_key;
+      let frame = theme.window_frame.fill(theme.frame1.fill);
+      let title = RichText::new("Export Key").size(theme.typography.heading);
+      let id = Id::new("show_key_export_ui");
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)
          .content_order(Order::Foreground)
-         .closable(false)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         .closable(true)
+         .frame(frame)
          .show(ui.ctx(), |ui| {
-            ui.set_max_width(self.size.0);
-            ui.set_max_height(self.size.1);
+            ui.set_width(self.size.0);
 
             let button_visuals = theme.button_visuals();
-            let button_size = vec2(100.0, 20.0);
-            let area = vec2(ui.available_width() * 0.6, 50.0);
 
             ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = theme.spacing.xl;
+               ui.spacing_mut().item_spacing.y = theme.spacing.md;
                ui.spacing_mut().button_padding = theme.button_padding;
 
                self.show_warning(theme, ui);
@@ -141,74 +144,67 @@ impl ExportKeyUi {
                   return;
                }
 
-               if let Some(wallet) = self.wallet_to_export.as_ref() {
-                  let warning_text = "Make sure to save this key in a safe place!";
-                  ui.label(
-                     RichText::new(warning_text)
-                        .size(theme.typography.large)
-                        .color(theme.colors.warning),
-                  );
-
-                  ui.allocate_ui(area, |ui| {
-                     ui.vertical_centered(|ui| {
-                        ui.horizontal(|ui| {
-                           let text = RichText::new("Copy Key").size(theme.typography.normal);
-                           let button =
-                              Button::new(text).visuals(button_visuals).min_size(button_size);
-
-                           if ui.add(button).clicked() {
-                              ui.ctx()
-                                 .copy_text(wallet.key_string().unlock_str(|key| key.to_string()));
-                           }
-
-                           if let Some(seed_phrase) = &wallet.seed_phrase {
-                              let text =
-                                 RichText::new("Copy Seed Phrase").size(theme.typography.normal);
-                              let button =
-                                 Button::new(text).visuals(button_visuals).min_size(button_size);
-
-                              if ui.add(button).clicked() {
-                                 ui.ctx()
-                                    .copy_text(seed_phrase.unlock_str(|seed| seed.to_string()));
-                              }
-                           }
-
-                           let text = RichText::new("Show QR Code").size(theme.typography.normal);
-                           let button =
-                              Button::new(text).visuals(button_visuals).min_size(button_size);
-
-                           if ui.add(button).clicked() {
-                              self.show_key_qrcode = true;
-                           }
-                        });
-                     });
-                  });
-
-                  if self.show_key_qrcode {
-                     if let Some(error) = self.private_key_qr.error() {
-                        ui.label(RichText::new(error.to_string()).size(theme.typography.large));
-                     }
-
-                     let image = self.private_key_qr.image().fit_to_exact_size(vec2(250.0, 250.0));
-                     ui.add(image);
-                  }
-               } else {
+               let Some(wallet) = self.wallet_to_export.as_ref() else {
                   ui.label(
                      RichText::new("No wallet found, this is a bug").size(theme.typography.normal),
                   );
-               }
+                  return;
+               };
 
-               let text = RichText::new("Close").size(theme.typography.normal);
-               let button = Button::new(text).visuals(button_visuals);
+               ui.label(
+                  RichText::new("Make sure to save this key in a safe place!")
+                     .size(theme.typography.large)
+                     .color(theme.colors.warning),
+               );
 
-               if ui.add(button).clicked() {
-                  let erased = self.private_key_qr.clear(ui.ctx());
-                  self.reset();
+               let has_seed = wallet.seed_phrase.is_some();
+               let n = if has_seed { 3.0 } else { 2.0 };
+               let content_width = ui.available_width() * 0.9;
+               let gap = theme.spacing.sm;
+               let button_size = vec2((content_width - gap * (n - 1.0)) / n, 45.0);
 
-                  debug_assert!(erased);
+               ui.allocate_ui(vec2(content_width, 45.0), |ui| {
+                  ui.spacing_mut().item_spacing.x = gap;
+                  ui.horizontal(|ui| {
+                     let text = RichText::new("Copy Key").size(theme.typography.normal);
+                     let button = Button::new(text).visuals(button_visuals).min_size(button_size);
+                     if ui.add(button).clicked() {
+                        ui.ctx().copy_text(wallet.key_string().unlock_str(|key| key.to_string()));
+                     }
+
+                     if let Some(seed_phrase) = &wallet.seed_phrase {
+                        let text = RichText::new("Copy Seed Phrase").size(theme.typography.normal);
+                        let button =
+                           Button::new(text).visuals(button_visuals).min_size(button_size);
+                        if ui.add(button).clicked() {
+                           ui.ctx().copy_text(seed_phrase.unlock_str(|seed| seed.to_string()));
+                        }
+                     }
+
+                     let text = RichText::new("Show QR Code").size(theme.typography.normal);
+                     let button = Button::new(text).visuals(button_visuals).min_size(button_size);
+                     if ui.add(button).clicked() {
+                        self.show_key_qrcode = true;
+                     }
+                  });
+               });
+
+               if self.show_key_qrcode {
+                  if let Some(error) = self.private_key_qr.error() {
+                     ui.label(RichText::new(error.to_string()).size(theme.typography.large));
+                  }
+
+                  let image = self.private_key_qr.image().fit_to_exact_size(vec2(250.0, 250.0));
+                  ui.add(image);
                }
             });
          });
+
+      if !open {
+         let erased = self.private_key_qr.clear(ui.ctx());
+         self.reset();
+         debug_assert!(erased);
+      }
    }
 
    fn verify_credentials_ui(&mut self, theme: &Theme, ui: &mut Ui) {

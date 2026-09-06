@@ -13,10 +13,9 @@ use crate::gui::{
    SHARED_GUI, SettingsPage,
    ui::{ChainSelect, WalletSelect, common::*},
 };
-use crate::utils::{RT, truncate_address};
+use crate::utils::RT;
 use egui::{
-   Align, CornerRadius, CursorIcon, FontId, Id, Layout, Margin, OpenUrl, Order, RichText, Spinner,
-   Ui, vec2,
+   Align, CursorIcon, FontId, Id, Layout, Margin, OpenUrl, Order, RichText, Spinner, Ui, vec2,
 };
 use std::str::FromStr;
 use std::sync::Arc;
@@ -473,61 +472,54 @@ impl Header {
          return;
       }
 
-      let id = Id::new("delegate_settings_window");
       let mut open = self.delegate_window_open;
+      let chain = ctx.chain;
+      let delegated = ctx.delegated_wallets.get(chain.id(), wallet);
+      let heading = if delegated.is_some() {
+         "Currently delegated"
+      } else {
+         "Delegate to"
+      };
+      let title = RichText::new(heading).size(theme.typography.heading);
+      let frame = theme.window_frame.fill(theme.frame1.fill);
+      let id = Id::new("delegate_settings_window");
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)
          .content_order(Order::Foreground)
-         .closable(false)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         .closable(true)
+         .frame(frame)
          .show(ui.ctx(), |ui| {
-            ui.set_width(350.0);
-            ui.set_height(200.0);
-            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
-            ui.spacing_mut().button_padding = theme.button_padding;
+            ui.set_width(450.0);
 
-            let button_visuals = theme.button_visuals();
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing.y = theme.spacing.md;
+               ui.spacing_mut().button_padding = theme.button_padding;
 
-            let chain = ctx.chain;
-            let delegated = ctx.delegated_wallets.get(chain.id(), wallet);
+               self.refresh(theme, wallet, ui);
 
-            ui.horizontal(|ui| {
-               let size = vec2(ui.available_width(), 20.0);
-
-               ui.allocate_ui(size, |ui| {
-                  ui.vertical_centered(|ui| {
-                     if let Some(delegated_adrress) = delegated {
-                        self.undelegate_ui(ctx, theme, wallet, delegated_adrress, ui);
-                     } else {
-                        self.delegate_ui(ctx, theme, wallet, ui);
-                     }
-
-                     let text = RichText::new("Close").size(theme.typography.normal);
-                     let button = Button::new(text).visuals(button_visuals);
-                     if ui.add(button).clicked() {
-                        self.close_delegate_window();
-                     }
-                  });
-               });
-
-               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  self.refresh(theme, wallet, ui);
-               });
+               if let Some(delegated_address) = delegated {
+                  self.undelegate_ui(ctx, theme, wallet, delegated_address, ui);
+               } else {
+                  self.delegate_ui(ctx, theme, wallet, ui);
+               }
             });
          });
+
+      self.delegate_window_open = open;
    }
 
    fn refresh(&mut self, theme: &Theme, wallet: Address, ui: &mut Ui) {
-      ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
+      ui.spacing_mut().button_padding = theme.button_padding;
 
-      let button_visuals = theme.button_visuals();
       let icon = Lucide::RefreshCw.size(20.0).color(theme.colors.text).image();
 
       if !self.syncing {
-         let mut visuals = ButtonVisuals::default();
-         visuals.bg_hover = button_visuals.bg_hover;
-         visuals.corner_radius = CornerRadius::same(25);
-         let button = Button::image(icon).small().visuals(visuals);
+         let text = RichText::new("Check Delegation Status").size(theme.typography.normal);
+         let button = Button::image_and_text(icon, text);
          let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
          if res.clicked() {
@@ -560,29 +552,29 @@ impl Header {
       }
    }
 
-   // TODO: Maybe ask for credentials before proceeding
+   // ? Maybe ask for credentials before proceeding
    fn delegate_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, wallet: Address, ui: &mut Ui) {
-      let text = RichText::new("Delegate to").size(theme.typography.large);
-      ui.label(text);
-
       let text_edit_visuals = theme.text_edit_visuals();
       let button_visuals = theme.button_visuals();
+      let field_width = ui.available_width() * 0.9;
+      let field_size = vec2(field_width, 45.0);
 
       let hint = RichText::new("Enter a smart contract address")
          .color(theme.colors.text_muted)
          .size(theme.typography.normal);
 
-      let text = SecureTextEdit::singleline(&mut self.delegate_to)
-         .visuals(text_edit_visuals)
-         .hint_text(hint)
-         .font(FontId::proportional(theme.typography.normal))
-         .margin(Margin::same(10))
-         .desired_width(ui.available_width() * 0.8);
-
-      ui.add(text);
+      ui.allocate_ui(field_size, |ui| {
+         let text = SecureTextEdit::singleline(&mut self.delegate_to)
+            .visuals(text_edit_visuals)
+            .hint_text(hint)
+            .font(FontId::proportional(theme.typography.normal))
+            .margin(Margin::same(10))
+            .desired_width(ui.available_width());
+         ui.add(text);
+      });
 
       let text = RichText::new("Delegate").size(theme.typography.large);
-      let button = Button::new(text).visuals(button_visuals);
+      let button = Button::new(text).visuals(button_visuals).min_size(field_size);
 
       let clicked = ui.add(button).clicked();
 
@@ -640,27 +632,20 @@ impl Header {
       delegated_address: Address,
       ui: &mut Ui,
    ) {
-      let text = RichText::new("Currently delegated to").size(theme.typography.normal);
-      ui.label(text);
-
       let button_visuals = theme.button_visuals();
-
       let chain = ctx.chain;
-
-      let address_short = truncate_address(delegated_address.to_string());
       let explorer = chain.block_explorer();
-      let link = format!(
-         "{}/address/{}",
-         explorer,
-         delegated_address.to_string()
-      );
-      let text = RichText::new(address_short)
-         .size(theme.typography.normal)
-         .color(theme.colors.info);
+      let link = format!("{}/address/{}", explorer, delegated_address);
+      let text = RichText::new(delegated_address.to_string())
+         .size(theme.typography.small)
+         .color(theme.colors.info)
+         .monospace();
       ui.hyperlink_to(text, link);
 
-      let text = RichText::new("Undelegate").size(theme.typography.normal);
-      let button = Button::new(text).visuals(button_visuals).min_size(vec2(100.0, 30.0));
+      let text = RichText::new("Undelegate").size(theme.typography.large);
+      let button = Button::new(text)
+         .visuals(button_visuals)
+         .min_size(vec2(ui.available_width() * 0.9, 45.0));
 
       let clicked = ui.add(button).clicked();
       if clicked {

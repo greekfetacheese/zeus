@@ -130,62 +130,75 @@ impl WalletUi {
          frame.show(ui, |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
-            ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.sm);
+            ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
             ui.spacing_mut().button_padding = theme.button_padding;
 
             let button_visuals = theme.button_visuals();
             let text_edit_visuals = theme.text_edit_visuals();
+            let content_width = ui.available_width() * 0.9;
 
             ui.vertical_centered(|ui| {
-               if self.loading {
-                  ui.add(Spinner::new().size(17.0).color(theme.colors.text));
-                  return;
-               }
-
-               // Add Wallet Button
-               let text = RichText::new("Add Wallet").size(theme.typography.normal);
-               let button = Button::new(text).visuals(button_visuals);
+               let text = RichText::new("Add Wallet").size(theme.typography.large);
+               let button =
+                  Button::new(text).visuals(button_visuals).min_size(vec2(content_width, 45.0));
 
                if ui.add(button).clicked() {
                   self.add_wallet_ui.open();
                }
 
+               ui.add_space(10.0);
+
                let current_wallet = ctx.current_wallet_info();
 
-               ui.add_space(10.0);
                ui.label(RichText::new("Selected Wallet").size(theme.typography.large));
-               self.wallet(ctx, theme, icons.clone(), &current_wallet, ui);
+               self.wallet(
+                  ctx,
+                  theme,
+                  icons.clone(),
+                  &current_wallet,
+                  content_width,
+                  ui,
+               );
 
-               // Search bar
-               ui.add_space(8.0);
+               ui.add_space(10.0);
 
                let hint = RichText::new("Search...")
                   .color(theme.colors.text_muted)
                   .size(theme.typography.normal);
 
-               ui.add(
+               ui.allocate_ui(vec2(content_width, 45.0), |ui| {
                   SecureTextEdit::singleline(&mut self.search_query)
                      .visuals(text_edit_visuals)
                      .hint_text(hint)
                      .margin(Margin::same(10))
                      .font(FontId::proportional(theme.typography.normal))
-                     .min_size(vec2(ui.available_width() * 0.7, 20.0)),
-               );
+                     .desired_width(ui.available_width())
+                     .show(ui);
+               });
+
+               if self.loading {
+                  ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+                  return;
+               }
 
                let wallets = self.wallets.clone();
+               let query = self.search_query.to_lowercase();
 
-               // Wallet list
-               ScrollArea::vertical().show(ui, |ui| {
+               ScrollArea::vertical().content_margin(5).auto_shrink([false; 2]).show(ui, |ui| {
                   ui.set_width(ui.available_width());
 
                   for wallet in wallets.iter().filter(|w| *w != &current_wallet) {
-                     if self.search_query.is_empty()
-                        || wallet
-                           .name_with_source()
-                           .to_lowercase()
-                           .contains(&self.search_query.to_lowercase())
+                     if query.is_empty()
+                        || wallet.name_with_source().to_lowercase().contains(&query)
                      {
-                        self.wallet(ctx, theme, icons.clone(), wallet, ui);
+                        self.wallet(
+                           ctx,
+                           theme,
+                           icons.clone(),
+                           wallet,
+                           content_width,
+                           ui,
+                        );
                      }
                   }
                });
@@ -201,119 +214,89 @@ impl WalletUi {
       theme: &Theme,
       icons: Arc<Icons>,
       wallet: &WalletInfo,
+      width: f32,
       ui: &mut Ui,
    ) {
       let frame = theme.frame2;
       let tint = theme.image_tint_recommended;
-
       let button_visuals = theme.button_visuals();
 
       frame.show(ui, |ui| {
-         ui.set_width(ui.available_width() * 0.7);
-         ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.sm);
+         ui.set_width(width);
+         ui.spacing_mut().button_padding = theme.button_padding;
 
-         // Wallet info column
-         ui.vertical(|ui| {
-            ui.horizontal(|ui| {
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  // Wallet name
+         ui.horizontal(|ui| {
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+               let id = format!("{}_more_options", wallet.address);
+               let more = dots_button(theme, ui);
+               let enabled = !wallet.is_master();
+
+               Menu::new(id).show_below(&more, |ui| {
+                  if ui.add(MenuItem::new("Export").shortcut("⌘ E")).clicked() {
+                     let wallet = ctx.get_wallet(wallet.address);
+                     self.export_key_ui.open(wallet);
+                  }
+
+                  if ui.add(MenuItem::new("Rename").shortcut("⌘ R")).clicked() {
+                     let wallet_opt = ctx.get_wallet(wallet.address);
+                     self.open_rename_wallet(wallet_opt);
+                  }
+
+                  if ui.add(MenuItem::new("Show QR Code").shortcut("⌘ Q")).clicked() {
+                     let wallet_clone = wallet.clone();
+                     RT.spawn_blocking(move || {
+                        SHARED_GUI.write(|gui| {
+                           gui.header.qrcode_window.open(wallet_clone);
+                           gui.request_repaint();
+                        });
+                     });
+                  }
+
+                  if ui.add_enabled(enabled, MenuItem::new("Delete").shortcut("⌘ D")).clicked() {
+                     self.delete_wallet_ui.open(wallet.clone());
+                  }
+               });
+
+               ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                   let text = RichText::new(wallet.name_with_source()).size(theme.typography.normal);
                   let label = Label::new(text, None).interactive(false);
-
-                  ui.set_width(ui.available_width() * 0.85);
                   ui.add(label);
                });
-
-               // More button
-               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  let id = format!("{}_more_options", wallet.address);
-                  let more = dots_button(theme, ui);
-                  let enabled = !wallet.is_master();
-
-                  Menu::new(id).show_below(&more, |ui| {
-                     if ui.add(MenuItem::new("Export").shortcut("⌘ E")).clicked() {
-                        let wallet = ctx.get_wallet(wallet.address);
-                        self.export_key_ui.open(wallet);
-                     }
-
-                     if ui.add(MenuItem::new("Rename").shortcut("⌘ R")).clicked() {
-                        let wallet_opt = ctx.get_wallet(wallet.address);
-                        self.open_rename_wallet(wallet_opt);
-                     }
-
-                     if ui.add(MenuItem::new("Show QR Code").shortcut("⌘ Q")).clicked() {
-                        let wallet_clone = wallet.clone();
-                        RT.spawn_blocking(move || {
-                           SHARED_GUI.write(|gui| {
-                              gui.header.qrcode_window.open(wallet_clone);
-                              gui.request_repaint();
-                           });
-                        });
-                     }
-
-                     if ui.add_enabled(enabled, MenuItem::new("Delete").shortcut("⌘ D")).clicked()
-                     {
-                        self.delete_wallet_ui.open(wallet.clone());
-                     }
-                  });
-               });
             });
+         });
 
-            // Address and value
-            ui.horizontal(|ui| {
-               let text =
-                  RichText::new(wallet.evm_address_truncated()).size(theme.typography.small);
-               let label = Button::selectable(false, text).visuals(button_visuals);
+         ui.horizontal(|ui| {
+            let text = RichText::new(wallet.evm_address_truncated()).size(theme.typography.small);
+            let label = Button::selectable(false, text).visuals(button_visuals);
 
-               if ui.add(label).clicked() {
-                  // Copy the address to the clipboard
-                  ui.ctx().copy_text(wallet.address.to_string());
-               }
+            if ui.add(label).clicked() {
+               ui.ctx().copy_text(wallet.address.to_string());
+            }
 
-               ui.add_space(10.0);
-               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.xs);
-                  ui.vertical(|ui| {
-                     let value =
-                        self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
-                     let chains =
-                        self.wallet_chains.get(&wallet.address).cloned().unwrap_or_default();
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+               ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
-                     ui.horizontal(|ui| {
-                        for chain in chains {
-                           if ctx.is_chain_disabled(chain) {
-                              continue;
-                           }
+               let value = self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
+               let value_text =
+                  RichText::new(format!("${}", value.abbreviated())).size(theme.typography.small);
+               let label = Label::new(value_text, None).interactive(false);
+               ui.add(label);
 
-                           let icon =
-                              icons.chain_icon(chain, tint).fit_to_exact_size(vec2(16.0, 16.0));
-                           ui.add(icon);
-                        }
-                     });
-                     let value_text = RichText::new(format!("${}", value.abbreviated()))
-                        .size(theme.typography.small);
-                     let label = Label::new(value_text, None).wrap().interactive(false);
-                     ui.add(label);
-                  });
+               let chains = self.wallet_chains.get(&wallet.address).cloned().unwrap_or_default();
+               ui.horizontal(|ui| {
+                  ui.spacing_mut().item_spacing.x = theme.spacing.xs;
+                  for chain in chains {
+                     if ctx.is_chain_disabled(chain) {
+                        continue;
+                     }
+
+                     let icon = icons.chain_icon(chain, tint).fit_to_exact_size(vec2(16.0, 16.0));
+                     ui.add(icon);
+                  }
                });
             });
          });
       });
-
-      /*
-      if res.interact(Sense::click()).clicked() {
-         let new_selected_wallet = ctx.get_wallet(wallet.address);
-         if let Some(new_selected_wallet) = new_selected_wallet {
-            ctx.current_wallet = new_selected_wallet.clone();
-
-            RT.spawn_blocking(move || {
-               SHARED_GUI.write(|gui| {
-                  gui.header.set_current_wallet(new_selected_wallet);
-               });
-            });
-         }
-      }
-       */
    }
 
    /// Rename wallet UI
@@ -325,6 +308,7 @@ impl WalletUi {
       let mut open = self.rename_wallet;
 
       let title = RichText::new("Rename Wallet").size(theme.typography.heading);
+      let frame = theme.window_frame.fill(theme.frame1.fill);
       let id = Id::new("rename_wallet_window");
 
       Modal::new(id, &mut open)
@@ -334,9 +318,9 @@ impl WalletUi {
          .heading(title)
          .header_separator(false)
          .center_header(true)
+         .frame(frame)
          .show(ui.ctx(), |ui| {
-            ui.set_max_width(300.0);
-            ui.set_max_height(200.0);
+            ui.set_width(450.0);
 
             let button_visuals = theme.button_visuals();
             let text_edit_visuals = theme.text_edit_visuals();
@@ -344,29 +328,26 @@ impl WalletUi {
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = theme.spacing.md;
                ui.spacing_mut().button_padding = theme.button_padding;
-               ui.add_space(20.0);
 
-               let wallet = self.wallet_to_rename.as_ref();
-
-               if wallet.is_none() {
+               let Some(old_wallet) = self.wallet_to_rename.as_ref() else {
                   ui.label(RichText::new("No wallet selected").size(theme.typography.large));
                   return;
-               }
-
-               let old_wallet = wallet.unwrap();
+               };
 
                ui.label(RichText::new("Wallet Name").size(theme.typography.large));
-               ui.add_space(10.0);
 
-               SecureTextEdit::singleline(&mut self.new_wallet_name)
-                  .visuals(text_edit_visuals)
-                  .font(FontId::proportional(theme.typography.normal))
-                  .margin(Margin::same(10))
-                  .min_size(vec2(ui.available_width() * 0.9, 25.0))
-                  .show(ui);
+               let field_size = vec2(ui.available_width() * 0.9, 45.0);
+               ui.allocate_ui(field_size, |ui| {
+                  SecureTextEdit::singleline(&mut self.new_wallet_name)
+                     .visuals(text_edit_visuals)
+                     .font(FontId::proportional(theme.typography.normal))
+                     .margin(Margin::same(10))
+                     .desired_width(ui.available_width())
+                     .show(ui);
+               });
 
-               let text = RichText::new("Rename").size(theme.typography.normal);
-               let rename_button = Button::new(text).visuals(button_visuals);
+               let text = RichText::new("Rename").size(theme.typography.large);
+               let rename_button = Button::new(text).visuals(button_visuals).min_size(field_size);
 
                if ui.add(rename_button).clicked() {
                   let new_wallet_name = self.new_wallet_name.clone();
