@@ -104,7 +104,15 @@ async function authorizedFetch(url, options, origin) {
     };
 
     let { targetUrl, fetchOpts } = build(session);
-    let response = await fetch(targetUrl, fetchOpts);
+    let response;
+    try {
+        response = await fetch(targetUrl, fetchOpts);
+    } catch (e) {
+        // Zeus may have rebound on another port; reload connector.json.
+        session = await getSession(true);
+        ({ targetUrl, fetchOpts } = build(session));
+        response = await fetch(targetUrl, fetchOpts);
+    }
     if (response.status === 401) {
         session = await getSession(true);
         ({ targetUrl, fetchOpts } = build(session));

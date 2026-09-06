@@ -1953,7 +1953,8 @@ pub struct ZeusContext {
    /// Currently delegated wallets
    pub delegated_wallets: DelegatedWallets,
 
-   // TODO: Currenly unused
+   /// Local connector HTTP port (default [`crate::server::SERVER_PORT`];
+   /// may change at bind time if that port is taken).
    pub server_port: u16,
 
    /// True if the local server that communicates with the wallet connector (browser extension) is running

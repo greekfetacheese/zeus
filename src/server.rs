@@ -24,8 +24,49 @@ use zeus_eth::{
    types::ChainId,
 };
 
-/// Default server port
+/// Default connector port. If it is taken, [`bind_connector_listener`] walks
+/// nearby high ports and the bound port is written to `connector.json`.
 pub const SERVER_PORT: u16 = 65534;
+/// Preferred port plus this many decrements (skipping 0).
+const CONNECTOR_PORT_ATTEMPTS: u16 = 32;
+
+fn connector_port_candidates(preferred: u16) -> impl Iterator<Item = u16> {
+   (0..CONNECTOR_PORT_ATTEMPTS)
+      .filter_map(move |i| preferred.checked_sub(i))
+      .filter(|&p| p != 0)
+}
+
+/// Bind `127.0.0.1` on `preferred`, then nearby ports if that one is in use.
+async fn bind_connector_listener(
+   preferred: u16,
+) -> Result<(tokio::net::TcpListener, u16), std::io::Error> {
+   let mut last_err = None;
+   for port in connector_port_candidates(preferred) {
+      let addr = SocketAddr::from(([127, 0, 0, 1], port));
+      match tokio::net::TcpListener::bind(addr).await {
+         Ok(listener) => {
+            if port != preferred {
+               warn!(
+                  "Connector port {} is in use, listening on {}",
+                  preferred, port
+               );
+            }
+            return Ok((listener, port));
+         }
+         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            last_err = Some(e);
+         }
+         Err(e) => return Err(e),
+      }
+   }
+
+   Err(last_err.unwrap_or_else(|| {
+      std::io::Error::new(
+         std::io::ErrorKind::AddrInUse,
+         "no free connector port on 127.0.0.1",
+      )
+   }))
+}
 
 // EIP-1193 Error codes
 pub const USER_REJECTED_REQUEST: i32 = 4001;
@@ -2053,7 +2094,19 @@ async fn handle_rejection(err: Rejection) -> Result<impl warp::Reply, std::conve
 
 pub async fn run_server(ctx: ZeusCtx) -> Result<(), Box<dyn std::error::Error>> {
    let token = generate_pairing_token();
-   let port = ctx.server_port();
+   let preferred = ctx.server_port();
+   let (listener, port) = match bind_connector_listener(preferred).await {
+      Ok(bound) => bound,
+      Err(e) => {
+         error!(
+            "Cannot bind connector on 127.0.0.1 starting at {}: {}",
+            preferred, e
+         );
+         return Err(e.into());
+      }
+   };
+   ctx.write(|ctx| ctx.server_port = port);
+
    let session = ConnectorSession {
       token: token.clone(),
       port,
@@ -2061,8 +2114,9 @@ pub async fn run_server(ctx: ZeusCtx) -> Result<(), Box<dyn std::error::Error>> 
    let session_path = connector_session_path()?;
    write_connector_session(&session_path, &session)?;
    info!(
-      "Wrote connector session to {}",
-      session_path.display()
+      "Wrote connector session to {} (port {})",
+      session_path.display(),
+      port
    );
 
    match (std::env::current_exe(), std::env::current_dir()) {
@@ -2097,19 +2151,11 @@ pub async fn run_server(ctx: ZeusCtx) -> Result<(), Box<dyn std::error::Error>> 
       .with(warp::trace::request())
       .recover(handle_rejection);
 
-   let port = ctx.server_port();
-   let addr = SocketAddr::from(([127, 0, 0, 1], port));
-
-   let listener = match tokio::net::TcpListener::bind(addr).await {
-      Ok(l) => l,
-      Err(e) => {
-         error!("Cannot bind to {}: {}", addr, e);
-         return Err(e.into());
-      }
-   };
-
    ctx.write(|ctx| ctx.server_running = true);
-   info!("Zeus (warp) RPC server listening on {}", addr);
+   info!(
+      "Zeus (warp) RPC server listening on 127.0.0.1:{}",
+      port
+   );
 
    warp::serve(routes).incoming(listener).run().await;
 
@@ -2203,5 +2249,27 @@ mod connector_auth_tests {
          RequestMethod::from_str("eth_getBlockByNumber").unwrap(),
          RequestMethod::EthGetBlockByNumber
       );
+   }
+
+   #[test]
+   fn connector_port_candidates_prefer_then_decrement() {
+      let ports: Vec<u16> = connector_port_candidates(65534).collect();
+      assert_eq!(ports[0], 65534);
+      assert_eq!(ports[1], 65533);
+      assert_eq!(ports.len(), CONNECTOR_PORT_ATTEMPTS as usize);
+      assert!(!ports.contains(&0));
+   }
+
+   #[tokio::test]
+   async fn bind_connector_falls_back_when_preferred_is_in_use() {
+      let occupied = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
+         .await
+         .unwrap();
+      let preferred = occupied.local_addr().unwrap().port();
+      let (listener, port) = bind_connector_listener(preferred).await.unwrap();
+      assert_ne!(port, preferred);
+      assert!(connector_port_candidates(preferred).any(|p| p == port));
+      drop(listener);
+      drop(occupied);
    }
 }
