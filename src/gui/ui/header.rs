@@ -15,8 +15,8 @@ use crate::gui::{
 };
 use crate::utils::{RT, truncate_address};
 use egui::{
-   Align, Align2, CornerRadius, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText,
-   Spinner, Ui, Window, vec2,
+   Align, CornerRadius, CursorIcon, FontId, Id, Layout, Margin, OpenUrl, Order, RichText, Spinner,
+   Ui, vec2,
 };
 use std::str::FromStr;
 use std::sync::Arc;
@@ -28,9 +28,7 @@ use zeus_eth::{
 
 use zeus_wallet::Wallet;
 
-use egui_elements::{
-   Button, Modal, OverlayManager, QrImage, SecureTextEdit, Theme, visuals::ButtonVisuals,
-};
+use egui_elements::{Button, Modal, QrImage, SecureTextEdit, Theme, visuals::ButtonVisuals};
 use egui_lucide::Lucide;
 use elegance::{Badge, BadgeTone, Indicator, IndicatorState, Menu, MenuItem, TabBar};
 
@@ -47,7 +45,6 @@ const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
 /// - delegate status of the current wallet (Green if not delegated, Red if delegated)
 pub struct Header {
    open: bool,
-   overlay: OverlayManager,
    overview_size: (f32, f32),
    chain_select: ChainSelect,
    wallet_select: WalletSelect,
@@ -61,7 +58,7 @@ pub struct Header {
 }
 
 impl Header {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       let overview_size = (260.0, 250.0);
 
       let chain_select = ChainSelect::new("main_chain_select", 1).size(vec2(220.0, 20.0));
@@ -69,7 +66,6 @@ impl Header {
 
       Self {
          open: false,
-         overlay: overlay.clone(),
          overview_size,
          chain_select,
          wallet_select,
@@ -99,14 +95,10 @@ impl Header {
    }
 
    pub fn open_delegate_window(&mut self) {
-      if !self.delegate_window_open {
-         self.overlay.window_opened();
-      }
       self.delegate_window_open = true;
    }
 
    pub fn close_delegate_window(&mut self) {
-      self.overlay.window_closed();
       self.delegate_window_open = false;
    }
 
@@ -406,14 +398,6 @@ impl Header {
       ui: &mut Ui,
    ) {
       ui.vertical(|ui| {
-         if ctx.tx_confirm_window_open {
-            ui.disable();
-         }
-
-         if ctx.sign_msg_window_open {
-            ui.disable();
-         }
-
          let clicked = self.chain_select.show(ctx, &[0], theme, icons.clone(), ui);
          if clicked {
             let new_chain = self.chain_select.chain;
@@ -454,14 +438,6 @@ impl Header {
       ui: &mut Ui,
    ) {
       ui.vertical(|ui| {
-         if ctx.tx_confirm_window_open {
-            ui.disable();
-         }
-
-         if ctx.sign_msg_window_open {
-            ui.disable();
-         }
-
          let clicked = self.wallet_select.show(theme, ctx, icons.clone(), ui);
          if clicked {
             ctx.current_wallet = self.wallet_select.wallet.clone();
@@ -497,16 +473,13 @@ impl Header {
          return;
       }
 
-      let window_frame = theme.window_frame;
+      let id = Id::new("delegate_settings_window");
+      let mut open = self.delegate_window_open;
 
-      Window::new("Delegation_settings")
-         .title_bar(false)
-         .movable(false)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Middle)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(window_frame)
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .closable(false)
          .show(ui.ctx(), |ui| {
             ui.set_width(350.0);
             ui.set_height(200.0);

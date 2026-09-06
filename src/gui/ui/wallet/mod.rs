@@ -6,10 +6,10 @@ use crate::gui::{
 };
 use crate::utils::RT;
 use eframe::egui::{
-   Align, Align2, Context, FontId, Layout, Margin, Order, RichText, ScrollArea, Spinner, Stroke,
-   Ui, vec2,
+   Align, Context, FontId, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner, Ui, vec2,
 };
-use egui_elements::{Button, Label, OverlayManager, SecureTextEdit, Theme, widgets::Window};
+use egui_elements::Modal;
+use egui_elements::{Button, Label, SecureTextEdit, Theme};
 use elegance::{Menu, MenuItem};
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::{alloy_primitives::Address, utils::NumericValue};
@@ -29,7 +29,6 @@ pub use export::ExportKeyUi;
 pub struct WalletUi {
    open: bool,
    loading: bool,
-   overlay: OverlayManager,
    rename_wallet: bool,
    new_wallet_name: String,
    wallet_to_rename: Option<Wallet>,
@@ -46,18 +45,17 @@ pub struct WalletUi {
 }
 
 impl WalletUi {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
          loading: false,
-         overlay: overlay.clone(),
          rename_wallet: false,
          new_wallet_name: String::new(),
          wallet_to_rename: None,
-         add_wallet_ui: AddWalletUi::new(overlay.clone()),
+         add_wallet_ui: AddWalletUi::new(),
          search_query: String::new(),
-         export_key_ui: ExportKeyUi::new(overlay.clone()),
-         delete_wallet_ui: DeleteWalletUi::new(overlay),
+         export_key_ui: ExportKeyUi::new(),
+         delete_wallet_ui: DeleteWalletUi::new(),
          wallets: Vec::new(),
          wallet_value: HashMap::new(),
          wallet_chains: HashMap::new(),
@@ -76,15 +74,11 @@ impl WalletUi {
    }
 
    pub fn open_rename_wallet(&mut self, wallet: Option<Wallet>) {
-      if !self.rename_wallet {
-         self.overlay.window_opened();
-      }
       self.rename_wallet = true;
       self.wallet_to_rename = wallet;
    }
 
    pub fn close_rename_wallet(&mut self) {
-      self.overlay.window_closed();
       self.rename_wallet = false;
       self.wallet_to_rename = None;
       self.new_wallet_name.clear();
@@ -331,20 +325,18 @@ impl WalletUi {
       let mut open = self.rename_wallet;
 
       let title = RichText::new("Rename Wallet").size(theme.typography.heading);
-      let window_frame = theme.window_frame;
-      let title_frame = window_frame.stroke(Stroke::NONE);
+      let id = Id::new("rename_wallet_window");
 
-      Window::new(title)
-         .open(&mut open)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Foreground)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .closable(true)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
          .show(ui.ctx(), |ui| {
-            ui.set_width(300.0);
-            ui.set_height(200.0);
+            ui.set_max_width(300.0);
+            ui.set_max_height(200.0);
 
             let button_visuals = theme.button_visuals();
             let text_edit_visuals = theme.text_edit_visuals();

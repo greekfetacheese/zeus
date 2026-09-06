@@ -235,7 +235,9 @@ impl eframe::App for ZeusApp {
             };
 
             let left_frame = Frame::new().fill(left_frame_bg);
-            self.overlay.paint_overlay(ui.ctx(), true);
+
+            // Not used anymore
+            // self.overlay.paint_overlay(ui.ctx(), true);
 
             // Left panel first so it owns the full window height. Header + nav
             // then sit at the top-left; the top panel is only the message bar.

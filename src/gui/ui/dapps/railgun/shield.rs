@@ -1,6 +1,5 @@
 use eframe::egui::{
-   Align, Align2, Checkbox, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText, Stroke,
-   Ui, vec2,
+   Align, Checkbox, CursorIcon, FontId, Id, Layout, Margin, OpenUrl, Order, RichText, Ui, vec2,
 };
 
 use std::{
@@ -34,7 +33,7 @@ use crate::gui::{
    },
 };
 use crate::utils::simulate::{fetch_accounts_info, fetch_storage_for_railgun};
-use egui_elements::{Button, SecureTextEdit, Theme, widgets::Window};
+use egui_elements::{Button, Modal, SecureTextEdit, Theme};
 use egui_lucide::Lucide;
 use elegance::{Badge, BadgeTone};
 
@@ -215,17 +214,8 @@ impl ShieldUi {
       self.search_query = String::new();
    }
 
-   fn open_broadcast_options(&mut self, theme: &Theme) {
-      if !self.open_broadcast_options {
-         theme.overlay_manager.window_opened();
-      }
-
+   fn open_broadcast_options(&mut self) {
       self.open_broadcast_options = true;
-   }
-
-   fn close_broadcast_options(&mut self, theme: &Theme) {
-      self.open_broadcast_options = false;
-      theme.overlay_manager.window_closed();
    }
 
    /// If the user clicked Merge Notes this frame, return the currency to merge.
@@ -582,7 +572,7 @@ impl ShieldUi {
          let button = Button::new(text).visuals(theme.button_visuals());
          ui.horizontal(|ui| {
             if ui.add(button).clicked() {
-               self.open_broadcast_options(theme);
+               self.open_broadcast_options();
             }
          });
       });
@@ -594,20 +584,21 @@ impl ShieldUi {
       }
 
       let text_edit_visuals = theme.text_edit_visuals();
-      let window_frame = theme.window_frame;
-      let title_frame = window_frame.stroke(Stroke::NONE);
 
       let title = RichText::new("Advanced broadcast options")
          .size(theme.typography.large)
          .color(theme.colors.text);
 
-      Window::new(title)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Foreground)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
+      let id = Id::new("shield_ui_advanced_broadcast_options");
+      let mut open = self.open_broadcast_options;
+      let mut ok_clicked = false;
+
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
          .show(ui.ctx(), |ui| {
             ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
             ui.spacing_mut().button_padding = theme.button_padding;
@@ -658,9 +649,11 @@ impl ShieldUi {
                   }
                });
 
+               ui.add_space(10.0);
+
                let text = "Uses Railgun Privacy Paymaster.\nFee is paid from private WETH balance.\nPoint this at a self-hosted Alto for less reliance on public Pimlico.";
 
-               ui.label(RichText::new(text).size(theme.typography.small));
+               ui.label(RichText::new(text).size(theme.typography.normal));
             });
 
             if self.self_broadcast {
@@ -671,15 +664,23 @@ impl ShieldUi {
                );
             }
 
+            ui.add_space(10.0);
+
                let text = RichText::new("OK").size(theme.typography.normal);
                let button = Button::new(text).visuals(theme.button_visuals());
 
                ui.vertical_centered(|ui| {
                   if ui.add(button).clicked() {
-                     self.close_broadcast_options(theme);
+                     ok_clicked = true;
                   }
                });
          });
+
+      if ok_clicked {
+         open = false;
+      }
+
+      self.open_broadcast_options = open;
    }
 
    fn action_button(
@@ -1271,9 +1272,7 @@ async fn shield(
 
       if confirmed.is_some() {
          SHARED_GUI.write(|gui| {
-            ctx.write(|ctx| {
-               gui.tx_confirmation_window.close(ctx);
-            });
+            gui.tx_confirmation_window.close();
          });
          break;
       }

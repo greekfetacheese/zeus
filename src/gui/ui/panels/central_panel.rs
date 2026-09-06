@@ -1,7 +1,7 @@
 use crate::core::ZeusContext;
 use crate::gui::GUI;
 use eframe::egui::{RichText, Stroke, Ui, vec2};
-use egui_elements::{OverlayManager, Theme, widgets::Window};
+use egui_elements::{Theme, widgets::Window};
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    if !gui.settings.is_open() {
@@ -98,17 +98,15 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
 pub struct FPSMetrics {
    pub open: bool,
-   overlay: OverlayManager,
    pub max_fps: f64,
    pub time_ms: f64,
    pub time_micros: f64,
 }
 
 impl FPSMetrics {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
-         overlay,
          max_fps: 0.0,
          time_ms: 0.0,
          time_micros: 0.0,
@@ -147,29 +145,6 @@ impl FPSMetrics {
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.xs);
-
-               let counter = self.overlay.counter();
-               let text = format!("Overlay Counter: {}", counter);
-               let text = RichText::new(text).size(14.0);
-               ui.label(text);
-
-               let order = self.overlay.order();
-               let text = format!("Order: {}", order.short_debug_format());
-               let text = RichText::new(text).size(14.0);
-               ui.label(text);
-
-               let order = self.overlay.recommended_order();
-               let text = format!(
-                  "Recommended Order: {}",
-                  order.short_debug_format()
-               );
-               let text = RichText::new(text).size(14.0);
-               ui.label(text);
-
-               let alpha = self.overlay.calculate_alpha();
-               let text = format!("Overlay Alpha: {}", alpha);
-               let text = RichText::new(text).size(14.0);
-               ui.label(text);
 
                let max_fps = RichText::new(format!("Max FPS: {:.2}", self.max_fps)).size(14.0);
                ui.label(max_fps);

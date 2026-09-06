@@ -415,9 +415,7 @@ async fn unshield_self_broadcast(
 
       if confirmed.is_some() {
          SHARED_GUI.write(|gui| {
-            ctx.write(|ctx| {
-               gui.tx_confirmation_window.close(ctx);
-            });
+            gui.tx_confirmation_window.close();
          });
          break;
       }
@@ -1091,9 +1089,7 @@ async fn unshield_via_paymaster(
 
       if confirmed.is_some() {
          SHARED_GUI.write(|gui| {
-            ctx.write(|ctx| {
-               gui.tx_confirmation_window.close(ctx);
-            });
+            gui.tx_confirmation_window.close();
          });
          break;
       }

@@ -4,14 +4,13 @@ use crate::core::{data_dir, data_import::import_data_from_zip};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::utils::{RT, state};
-use egui::{Align2, Frame, Margin, Order, RichText, Stroke, Ui, vec2};
-use egui_elements::{Button, CredentialsForm, OverlayManager, Theme, widgets::Window};
+use egui::{Frame, Id, Margin, Order, RichText, Ui, vec2};
+use egui_elements::{Button, CredentialsForm, Modal, Theme};
 use ncrypt_me::Credentials;
 use std::path::PathBuf;
 
 pub struct ImportDataUi {
    open: bool,
-   overlay: OverlayManager,
    credentials_form: CredentialsForm,
    zip_path: Option<PathBuf>,
    /// True when opened from first-run recover (no vault on disk yet).
@@ -20,7 +19,7 @@ pub struct ImportDataUi {
 }
 
 impl ImportDataUi {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       let form_size = vec2(550.0 * 0.6, 20.0);
       let credentials_form = CredentialsForm::new()
          .with_min_size(form_size)
@@ -28,7 +27,6 @@ impl ImportDataUi {
          .with_enabled_virtual_keyboard();
       Self {
          open: false,
-         overlay,
          credentials_form,
          zip_path: None,
          first_run: false,
@@ -51,7 +49,6 @@ impl ImportDataUi {
 
    fn open_with(&mut self, first_run: bool) {
       if !self.open {
-         self.overlay.window_opened();
          self.open = true;
       }
       self.first_run = first_run;
@@ -60,14 +57,13 @@ impl ImportDataUi {
 
    pub fn close(&mut self) {
       if self.open {
-         self.overlay.window_closed();
          self.open = false;
       }
    }
 
    pub fn reset(&mut self) {
       self.close();
-      *self = Self::new(self.overlay.clone());
+      *self = Self::new();
    }
 
    pub fn erase(&mut self) {
@@ -82,21 +78,16 @@ impl ImportDataUi {
 
       let mut open = self.open;
       let title = RichText::new("Import Data").size(theme.typography.heading);
-      let window_frame = theme.window_frame.fill(theme.frame1.fill);
-      let title_frame = window_frame.stroke(Stroke::NONE);
+      let id = Id::new("import_data_window");
 
-      // Inner `set_max_width` does not size the Window. Resize auto-expands
-      // up to the full Zeus content rect, which is why this looked fullscreen
-      // with the 600px column stuck on the left.
-      Window::new(title)
-         .open(&mut open)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Middle)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         .closable(true)
          .max_width(self.size.0)
-         .title_frame(title_frame)
-         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.md);

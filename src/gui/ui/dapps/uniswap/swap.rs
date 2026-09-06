@@ -1316,17 +1316,13 @@ impl SwapUi {
                SHARED_GUI.write(|gui| {
                   gui.uniswap.swap_ui.sending_tx = false;
                });
-               tracing::info!("Transaction Sent");
             }
             Err(e) => {
-               tracing::error!("Transaction Error: {:?}", e);
                SHARED_GUI.write(|gui| {
                   gui.uniswap.swap_ui.sending_tx = false;
                   gui.notification.reset();
                   gui.loading_window.reset();
-                  ctx.write(|ctx| {
-                     gui.tx_confirmation_window.reset(ctx);
-                  });
+                  gui.tx_confirmation_window.reset();
                   gui.msg_window.open(format!("Transaction Error: {}", e.to_string()));
                   gui.request_repaint();
                });

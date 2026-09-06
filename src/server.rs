@@ -1726,9 +1726,7 @@ async fn eth_send_transaction(
          SHARED_GUI.write(|gui| {
             gui.loading_window.reset();
             gui.notification.reset();
-            ctx.write(|ctx| {
-               gui.tx_confirmation_window.reset(ctx);
-            });
+            gui.tx_confirmation_window.reset();
             if !rejected {
                let msg = format!("Error Sending Transaction: {}", e);
                gui.msg_window.open(msg);

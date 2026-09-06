@@ -3,13 +3,12 @@
 use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use eframe::egui::{Align2, Id, Order, RichText, Stroke, Ui, vec2};
-use egui_elements::{Button, CredentialsForm, OverlayManager, Theme, widgets::Window};
+use eframe::egui::{Id, Order, RichText, Ui, vec2};
+use egui_elements::{Button, CredentialsForm, Modal, Theme};
 use ncrypt_me::Credentials;
 
 pub struct DeleteWalletUi {
    open: bool,
-   overlay: OverlayManager,
    credentials_form: CredentialsForm,
    verified_credentials: bool,
    wallet_to_delete: Option<WalletInfo>,
@@ -17,13 +16,12 @@ pub struct DeleteWalletUi {
 }
 
 impl DeleteWalletUi {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       let form_size = vec2(550.0 * 0.6, 20.0);
       let credentials_form =
          CredentialsForm::new().with_min_size(form_size).with_enabled_virtual_keyboard();
       Self {
          open: false,
-         overlay: overlay.clone(),
          credentials_form,
          verified_credentials: false,
          wallet_to_delete: None,
@@ -40,22 +38,18 @@ impl DeleteWalletUi {
    }
 
    pub fn open(&mut self, wallet: WalletInfo) {
-      if !self.open {
-         self.overlay.window_opened();
-      }
       self.open = true;
       self.wallet_to_delete = Some(wallet);
       self.credentials_form.open();
    }
 
    pub fn close(&mut self) {
-      self.overlay.window_closed();
       self.open = false;
    }
 
    pub fn reset(&mut self) {
       self.close();
-      *self = Self::new(self.overlay.clone());
+      *self = Self::new();
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
@@ -69,28 +63,27 @@ impl DeleteWalletUi {
       }
 
       let button_visuals = theme.button_visuals();
-      let window_frame = theme.window_frame;
-      let title_frame = window_frame.stroke(Stroke::NONE);
       let mut open = self.credentials_form.is_open();
       let mut clicked = false;
 
+      let frame = theme.window_frame.fill(theme.frame1.fill);
+      let title = RichText::new("Verify Credentials").size(theme.typography.heading);
       let id = Id::new("verify_credentials_delete_wallet_ui");
-      Window::new(RichText::new("Verify Credentials").size(theme.typography.heading))
-         .id(id)
-         .open(&mut open)
-         .order(Order::Middle)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
+
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         .closable(true)
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = theme.spacing.xl;
                ui.spacing_mut().button_padding = theme.button_padding;
-               ui.add_space(20.0);
 
                ui.scope(|ui| {
                   ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
@@ -161,30 +154,22 @@ impl DeleteWalletUi {
          return;
       }
 
+      let Some(wallet) = self.wallet_to_delete.clone() else {
+         return;
+      };
+
       let mut open = self.open;
       let mut clicked = false;
-
-      let wallet = self.wallet_to_delete.clone();
-      if wallet.is_none() {
-         return;
-      }
-
-      let wallet = wallet.unwrap();
+      let mut cancel = false;
 
       let id = Id::new("delete_wallet_ui_delete_wallet");
-      let window_frame = theme.window_frame;
 
-      Window::new("")
-         .id(id)
-         .title_bar(false)
-         .order(Order::Middle)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(window_frame)
-         .show(ui.ctx(), |ui| {
-            ui.set_width(300.0);
-            ui.set_max_height(250.0);
+      Modal::new(id, &mut open)
+      .backdrop_order(Order::Middle)
+      .content_order(Order::Foreground)
+      .closable(false)
+      .show(ui.ctx(), |ui| {
+            ui.set_width(self.size.0);
 
             let button_visuals = theme.button_visuals();
 
@@ -192,50 +177,93 @@ impl DeleteWalletUi {
                ui.spacing_mut().item_spacing.y = theme.spacing.md;
                ui.spacing_mut().button_padding = theme.button_padding;
 
-               ui.label(RichText::new(wallet.name_with_source()).size(theme.typography.large));
-               ui.label(RichText::new(wallet.address.to_string()).size(theme.typography.normal));
+               ui.label(
+                  RichText::new(wallet.name_with_source()).size(theme.typography.large),
+               );
+
+               ui.label(
+                  RichText::new(wallet.address.to_string())
+                     .size(theme.typography.small)
+                     .color(theme.colors.text_muted)
+                     .monospace(),
+               );
 
                let include_testnets = ctx.chain.is_testnet();
                let value = ctx.get_total_value(wallet.address, include_testnets);
-               ui.label(
-                  RichText::new(format!("Value ${}", value.for_mode(false).abbreviated()))
-                     .size(theme.typography.large)
+
+               let size = vec2(ui.available_width() * 0.4, 30.0);
+               let frame = theme.frame2;
+
+               ui.allocate_ui(size, |ui| {
+               ui.horizontal(|ui| {
+                  frame.show(ui, |ui| {
+                  ui.spacing_mut().item_spacing.x = theme.spacing.xl;
+                  ui.label(
+                     RichText::new(format!(
+                        "Public ${}",
+                        value.for_mode(false).abbreviated()
+                     ))
+                     .size(theme.typography.normal)
                      .strong(),
+                  );
+                  ui.label(
+                     RichText::new(format!(
+                        "Railgun ${}",
+                        value.for_mode(true).abbreviated()
+                     ))
+                     .size(theme.typography.normal)
+                     .strong(),
+                  );
+               });
+               });
+            });
+
+               ui.label(
+                  RichText::new(
+                     "Deleting this wallet will also delete all its transaction history and token approval data next time Zeus starts.",
+                  )
+                  .size(theme.typography.normal)
+                  .color(theme.colors.warning),
                );
 
                ui.label(
-                  RichText::new(format!("Railgun Value ${}", value.for_mode(true).abbreviated()))
-                     .size(theme.typography.large)
+                  RichText::new("Are you sure you want to continue?")
+                     .size(theme.typography.normal)
+                     .color(theme.colors.warning)
                      .strong(),
                );
 
-               let text = "Deleting this wallet will also delete all its transaction history and token approval data next time Zeus starts\n
-               Are you sure you want to continue?";
-               let text = RichText::new(text).size(theme.typography.normal).color(theme.colors.warning);
-               ui.label(text);
+               let content_width = ui.available_width() * 0.9;
+               let button_size = vec2((content_width - theme.spacing.sm) / 2.0, 45.0);
 
-               let text = RichText::new("Changed my mind").size(theme.typography.normal);
-               let button = Button::new(text).visuals(button_visuals).min_size(vec2(100.0, 35.0));
+               ui.allocate_ui(vec2(content_width, 45.0), |ui| {
+               ui.horizontal(|ui| {
+                  ui.spacing_mut().item_spacing.x = theme.spacing.md;
 
-               if ui.add(button).clicked() {
-                  clicked = false;
-                  self.reset();
-               }
+                  let text = RichText::new("Changed my mind").size(theme.typography.normal);
+                  let button = Button::new(text).visuals(button_visuals).min_size(button_size);
 
-               ui.add_space(5.0);
+                  if ui.add(button).clicked() {
+                     cancel = true;
+                  }
 
-               let text = RichText::new("Delete").size(theme.typography.normal);
-               let button = Button::new(text).visuals(button_visuals).min_size(vec2(100.0, 35.0));
+                  let text = RichText::new("Delete").size(theme.typography.normal);
+                  let button = Button::new(text).visuals(button_visuals).min_size(button_size);
 
-               if ui.add(button).clicked() {
-                  clicked = true;
-               }
+                  if ui.add(button).clicked() {
+                     clicked = true;
+                  }
+               });
+            });
             });
          });
 
-      if clicked {
-         open = false;
+      if cancel {
+         self.reset();
+         return;
+      }
 
+      if clicked {
          let is_current = ctx.is_current_wallet(wallet.address);
 
          RT.spawn_blocking(move || {
@@ -291,6 +319,9 @@ impl DeleteWalletUi {
                gui.wallet_ui.calc_wallet_value();
             });
          });
+
+         self.reset();
+         return;
       }
 
       if !open {

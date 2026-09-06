@@ -583,26 +583,6 @@ impl ZeusCtx {
       self.read(|ctx| ctx.save_wallet_state_in_progress)
    }
 
-   pub fn tx_confirm_window_open(&self) -> bool {
-      self.read(|ctx| ctx.tx_confirm_window_open)
-   }
-
-   pub fn set_tx_confirm_window_open(&self, open: bool) {
-      self.write(|ctx| {
-         ctx.tx_confirm_window_open = open;
-      });
-   }
-
-   pub fn sign_msg_window_open(&self) -> bool {
-      self.read(|ctx| ctx.sign_msg_window_open)
-   }
-
-   pub fn set_sign_msg_window_open(&self, open: bool) {
-      self.write(|ctx| {
-         ctx.sign_msg_window_open = open;
-      });
-   }
-
    /// Mutable access to the vault (does not hold the ZeusContext lock).
    pub fn write_vault<R>(&self, writer: impl FnOnce(&mut Vault) -> R) -> R {
       let vault = self.vault_handle();
@@ -1975,14 +1955,9 @@ pub struct ZeusContext {
 
    // TODO: Currenly unused
    pub server_port: u16,
+
    /// True if the local server that communicates with the wallet connector (browser extension) is running
    pub server_running: bool,
-
-   /// True if the transaction confirmation window is open
-   pub tx_confirm_window_open: bool,
-
-   /// True if the sign message window is open
-   pub sign_msg_window_open: bool,
 
    /// Last time checked for available RPCs
    pub last_checked_for_available_rpcs: HashMap<u64, u64>,
@@ -2111,8 +2086,6 @@ impl ZeusContext {
          delegated_wallets,
          server_port: SERVER_PORT,
          server_running: false,
-         tx_confirm_window_open: false,
-         sign_msg_window_open: false,
          last_checked_for_available_rpcs: HashMap::new(),
          railgun_provider_sync_last_check: HashMap::new(),
          available_rpcs: HashMap::new(),

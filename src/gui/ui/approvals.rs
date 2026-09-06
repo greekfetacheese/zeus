@@ -10,7 +10,7 @@ use egui::{
    Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, UiBuilder,
    vec2,
 };
-use egui_elements::{Button, ComboBox, Label, OverlayManager, Theme};
+use egui_elements::{Button, ComboBox, Label, Theme};
 use elegance::{Badge, BadgeTone};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -77,7 +77,6 @@ type PermitInfoMap = HashMap<(u64, Address, Address, Address), signature::Permit
 pub struct ApprovalsUi {
    open: bool,
    loading: bool,
-   _overlay: OverlayManager,
    selected_wallet: Option<WalletInfo>,
    selected_chain: Option<ChainId>,
    cached_rows: Vec<ApprovalRow>,
@@ -88,11 +87,10 @@ pub struct ApprovalsUi {
 }
 
 impl ApprovalsUi {
-   pub fn new(_overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
          loading: false,
-         _overlay,
          selected_wallet: None,
          selected_chain: None,
          cached_rows: Vec::new(),

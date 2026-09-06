@@ -6,9 +6,9 @@
 
 use crate::assets::Icons;
 use crate::core::ZeusContext;
-use eframe::egui::{Align2, Order, RichText, Stroke, Ui, vec2};
+use egui::{Id, Order, RichText, Ui, vec2};
 
-use egui_elements::{Button, OverlayManager, Theme, widgets::Window};
+use egui_elements::{Button, Modal, Theme};
 
 use std::sync::Arc;
 
@@ -17,7 +17,6 @@ use super::import::{ImportWallet, ImportWalletType};
 
 pub struct AddWalletUi {
    open: bool,
-   overlay: OverlayManager,
    pub import_wallet: ImportWallet,
    pub discover_child_wallets_ui: DiscoverChildWallets,
    #[allow(dead_code)]
@@ -28,12 +27,11 @@ pub struct AddWalletUi {
 }
 
 impl AddWalletUi {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
-         overlay: overlay.clone(),
-         import_wallet: ImportWallet::new(overlay.clone()),
-         discover_child_wallets_ui: DiscoverChildWallets::new(overlay),
+         import_wallet: ImportWallet::new(),
+         discover_child_wallets_ui: DiscoverChildWallets::new(),
          generate_wallet: false,
          wallet_name: String::new(),
          size: (450.0, 250.0),
@@ -49,14 +47,10 @@ impl AddWalletUi {
    }
 
    pub fn open(&mut self) {
-      if !self.open {
-         self.overlay.window_opened();
-         self.open = true;
-      }
+      self.open = true;
    }
 
    pub fn close(&mut self) {
-      self.overlay.window_closed();
       self.open = false;
    }
 
@@ -76,17 +70,18 @@ impl AddWalletUi {
       let mut import_from_pk_clicked = false;
       let mut import_from_seed_clicked = false;
 
-      let window_frame = theme.window_frame;
-      let title_frame = window_frame.stroke(Stroke::NONE);
+      let frame = theme.window_frame.fill(theme.frame1.fill);
+      let title = RichText::new("Add a new Wallet").size(theme.typography.heading);
+      let id = Id::new("add_wallet_window");
 
-      Window::new(RichText::new("Add a new Wallet").size(theme.typography.heading))
-         .open(&mut open)
-         .order(Order::Middle)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         .closable(true)
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);

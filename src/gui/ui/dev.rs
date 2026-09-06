@@ -674,11 +674,7 @@ impl UiTesting {
                RT.spawn_blocking(move || {
                   let msg = SignMsgType::dummy_permit2();
                   SHARED_GUI.write(|gui| {
-                     let ctx = gui.ctx.clone();
-
-                     ctx.write(|ctx| {
-                        gui.sign_msg_window.open(ctx, "app.uniswap.org".to_string(), 8453, msg);
-                     });
+                     gui.sign_msg_window.open("app.uniswap.org".to_string(), 8453, msg);
                   });
                });
             }
@@ -690,11 +686,7 @@ impl UiTesting {
                RT.spawn_blocking(move || {
                   let msg = SignMsgType::dummy_clear_signed();
                   SHARED_GUI.write(|gui| {
-                     let ctx = gui.ctx.clone();
-
-                     ctx.write(|ctx| {
-                        gui.sign_msg_window.open(ctx, "app.example.org".to_string(), 8453, msg);
-                     });
+                     gui.sign_msg_window.open("app.example.org".to_string(), 8453, msg);
                   });
                });
             }

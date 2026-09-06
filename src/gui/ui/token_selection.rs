@@ -1,8 +1,8 @@
 //! A Window that allows the user to select a token
 
 use eframe::egui::{
-   Align, Align2, FontId, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Sense, Spinner,
-   Stroke, Ui, emath::Vec2b, vec2,
+   Align, FontId, Id, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Sense, Spinner, Ui,
+   emath::Vec2b, vec2,
 };
 
 use crate::assets::icons::Icons;
@@ -19,9 +19,7 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
-use egui_elements::{
-   Button, Label, OverlayManager, SecureTextEdit, Theme, utils::frame as frame_fn, widgets::Window,
-};
+use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme, utils::frame as frame_fn};
 
 /// Currency direction for [`TokenSelectionWindow`].
 ///
@@ -52,7 +50,6 @@ pub struct TokenSelectionWindow {
    open: bool,
    loading: bool,
    syncing_balances: bool,
-   overlay: OverlayManager,
    title: String,
    pub size: (f32, f32),
    pub search_query: String,
@@ -69,13 +66,12 @@ pub struct TokenSelectionWindow {
 }
 
 impl TokenSelectionWindow {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
          loading: false,
          syncing_balances: false,
          title: "Select Token".to_string(),
-         overlay,
          size: (550.0, 500.0),
          search_query: String::new(),
          selected_currency: None,
@@ -94,10 +90,6 @@ impl TokenSelectionWindow {
    }
 
    pub fn open(&mut self, privacy_mode: bool, chain_id: u64, owner: Address) {
-      if !self.open {
-         self.overlay.window_opened();
-      }
-
       self.open = true;
       self.process_currencies(privacy_mode, chain_id, owner);
    }
@@ -113,7 +105,6 @@ impl TokenSelectionWindow {
    }
 
    pub fn close(&mut self) {
-      self.overlay.window_closed();
       self.open = false;
    }
 
@@ -194,17 +185,18 @@ impl TokenSelectionWindow {
       }
 
       let mut close_window = false;
-      let window_frame = theme.window_frame.fill(theme.frame1.fill);
-      let title_frame = window_frame.stroke(Stroke::NONE);
+      let frame = theme.window_frame.fill(theme.frame1.fill);
+      let title = RichText::new(&self.title).size(theme.typography.heading);
+      let id = Id::new("token_selection_window");
 
-      Window::new(RichText::new(&self.title).size(theme.typography.heading))
-         .open(&mut open)
-         .order(Order::Foreground)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .resizable(false)
-         .collapsible(false)
-         .title_frame(title_frame)
-         .frame(window_frame)
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         .closable(true)
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -300,7 +292,7 @@ impl TokenSelectionWindow {
                num_rows,
                |ui, row_range| {
                   ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
-                  
+
                   for row_index in row_range {
                      if let Some((currency, balance, value)) = filtered_list.get(row_index) {
                         let name = truncate_symbol_or_name(currency.name(), 25);

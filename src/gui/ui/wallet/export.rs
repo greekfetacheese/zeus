@@ -3,8 +3,8 @@
 use crate::core::ZeusContext;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use eframe::egui::{Align2, Context, Order, RichText, Stroke, Ui, vec2};
-use egui_elements::{Button, CredentialsForm, OverlayManager, QrImage, Theme, widgets::Window};
+use eframe::egui::{Context, Id, Order, RichText, Ui, vec2};
+use egui_elements::{Button, CredentialsForm, Modal, QrImage, Theme};
 use ncrypt_me::Credentials;
 use zeus_wallet::Wallet;
 
@@ -13,7 +13,6 @@ You don't have to export this key unless something broke in Zeus and you cannot 
 
 pub struct ExportKeyUi {
    open: bool,
-   overlay: OverlayManager,
    credentials_form: CredentialsForm,
    verified_credentials: bool,
    wallet_to_export: Option<Wallet>,
@@ -25,13 +24,12 @@ pub struct ExportKeyUi {
 }
 
 impl ExportKeyUi {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       let form_size = vec2(550.0 * 0.6, 20.0);
       let credentials_form =
          CredentialsForm::new().with_min_size(form_size).with_enabled_virtual_keyboard();
       Self {
          open: false,
-         overlay: overlay.clone(),
          credentials_form,
          verified_credentials: false,
          wallet_to_export: None,
@@ -50,23 +48,18 @@ impl ExportKeyUi {
          }
       }
 
-      if !self.open {
-         self.overlay.window_opened();
-      }
-
       self.open = true;
       self.credentials_form.open();
       self.wallet_to_export = wallet;
    }
 
    pub fn close(&mut self) {
-      self.overlay.window_closed();
       self.open = false;
    }
 
    fn reset(&mut self) {
       self.close();
-      *self = Self::new(self.overlay.clone());
+      *self = Self::new();
    }
 
    pub fn erase(&mut self, ctx: &Context) {
@@ -124,17 +117,13 @@ impl ExportKeyUi {
          return;
       }
 
-      let window_frame = theme.window_frame;
-      let title_frame = window_frame.stroke(Stroke::NONE);
+      let id = Id::new("show_key_export_ui");
+      let mut open = self.show_key;
 
-      Window::new("show_key_export_ui")
-         .title_bar(false)
-         .order(Order::Middle)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .closable(false)
          .show(ui.ctx(), |ui| {
             ui.set_max_width(self.size.0);
             ui.set_max_height(self.size.1);
@@ -228,18 +217,19 @@ impl ExportKeyUi {
       }
 
       let mut open = self.credentials_form.is_open();
-      let window_frame = theme.window_frame;
-      let title_frame = window_frame.stroke(Stroke::NONE);
+      let frame = theme.window_frame.fill(theme.frame1.fill);
+      let title = RichText::new("Verify Credentials").size(theme.typography.heading);
+      let id = Id::new("verify_credentials_window");
       let mut clicked = false;
 
-      Window::new(RichText::new("Verify Credentials").size(theme.typography.heading))
-         .open(&mut open)
-         .order(Order::Middle)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         .closable(true)
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
 

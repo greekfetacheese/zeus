@@ -480,9 +480,7 @@ async fn exec_private_transfer(
 
       if confirmed.is_some() {
          SHARED_GUI.write(|gui| {
-            ctx.write(|ctx| {
-               gui.tx_confirmation_window.close(ctx);
-            });
+            gui.tx_confirmation_window.close();
          });
          break;
       }

@@ -13,12 +13,11 @@ use crate::utils::{
 use eframe::egui::{Align2, RichText, Spinner, Ui, Vec2, vec2};
 use egui::{Align, Layout, Order};
 
-use egui_elements::{Button, Modal, OverlayManager, Theme};
+use egui_elements::{Button, Modal, Theme};
 
 /// A Window to prompt the user to confirm an action
 pub struct ConfirmWindow {
    open: bool,
-   overlay: OverlayManager,
    pub confirm: Option<bool>,
    pub msg: String,
    pub msg2: Option<String>,
@@ -26,10 +25,9 @@ pub struct ConfirmWindow {
 }
 
 impl ConfirmWindow {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
-         overlay,
          confirm: None,
          msg: String::new(),
          msg2: None,
@@ -42,9 +40,6 @@ impl ConfirmWindow {
    }
 
    pub fn open(&mut self, msg: impl Into<String>) {
-      if !self.open {
-         self.overlay.window_opened();
-      }
       self.open = true;
       self.msg = msg.into();
       self.msg2 = None;
@@ -54,7 +49,6 @@ impl ConfirmWindow {
    }
 
    pub fn close(&mut self) {
-      self.overlay.window_closed();
       self.open = false;
    }
 
@@ -134,7 +128,6 @@ impl ConfirmWindow {
 /// Window to prompt the user to update Zeus version
 pub struct UpdateWindow {
    open: bool,
-   overlay: OverlayManager,
    info: UpdateInfo,
    update_completed: bool,
    auto_restart_failed: bool,
@@ -143,10 +136,9 @@ pub struct UpdateWindow {
 }
 
 impl UpdateWindow {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
-         overlay,
          info: Default::default(),
          update_completed: false,
          auto_restart_failed: false,
@@ -156,9 +148,6 @@ impl UpdateWindow {
    }
 
    pub fn open(&mut self, info: UpdateInfo) {
-      if !self.open {
-         self.overlay.window_opened();
-      }
       self.open = true;
       self.info = info;
    }
@@ -174,7 +163,6 @@ impl UpdateWindow {
    }
 
    pub fn reset(&mut self) {
-      self.overlay.window_closed();
       self.open = false;
       self.info = Default::default();
    }

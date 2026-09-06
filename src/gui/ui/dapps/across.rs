@@ -17,7 +17,7 @@ use egui::{
    Align, CornerRadius, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText, Slider,
    Spinner, Ui, vec2,
 };
-use egui_elements::{Button, Modal, OverlayManager, SecureTextEdit, Theme, visuals::ButtonVisuals};
+use egui_elements::{Button, Modal, SecureTextEdit, Theme, visuals::ButtonVisuals};
 use egui_lucide::Lucide;
 use elegance::{Badge, BadgeTone};
 use std::time::Duration;
@@ -100,7 +100,6 @@ fn save_settings(settings: Settings) -> Result<(), anyhow::Error> {
 /// For simplicity currently only bridges Native Currencies (ETH)
 pub struct AcrossBridge {
    open: bool,
-   pub overlay: OverlayManager,
    pub currency: Currency,
    pub amount_field: AmountField,
    pub from_chain: ChainSelect,
@@ -119,14 +118,13 @@ pub struct AcrossBridge {
 }
 
 impl AcrossBridge {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       let settings = load_settings().unwrap_or_default();
       let from_chain = ChainSelect::new("across_bridge_from_chain", 1).size(vec2(180.0, 25.0));
       let to_chain = ChainSelect::new("across_bridge_to_chain", 10).size(vec2(180.0, 25.0));
 
       Self {
          open: false,
-         overlay,
          currency: NativeCurrency::from(1).into(),
          amount_field: AmountField::new(),
          from_chain,
@@ -147,14 +145,10 @@ impl AcrossBridge {
    }
 
    pub fn open_settings(&mut self) {
-      if !self.settings_open {
-         self.overlay.window_opened();
-         self.settings_open = true;
-      }
+      self.settings_open = true;
    }
 
    pub fn close_settings(&mut self) {
-      self.overlay.window_closed();
       self.settings_open = false;
    }
 
@@ -199,7 +193,6 @@ impl AcrossBridge {
          self.settings_window(theme, ui);
       }
 
-      recipient_selection.show(ctx, theme, icons.clone(), false, contacts_ui, ui);
       let recipient = recipient_selection.get_recipient();
       let from_chain = self.from_chain.chain.id();
       let depositor = ctx.current_wallet_info().address;
@@ -215,6 +208,9 @@ impl AcrossBridge {
             self.show_railgun_not_supported(theme, ui);
             return;
          }
+
+         recipient_selection.show(ctx, theme, icons.clone(), false, contacts_ui, ui);
+         let recipient = recipient_selection.get_recipient();
 
          ui.vertical_centered(|ui| {
             frame.show(ui, |ui| {

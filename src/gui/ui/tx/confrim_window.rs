@@ -1,5 +1,5 @@
-use egui::{Align, Align2, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2};
-use egui_elements::{Button, Label, OverlayManager, SecureTextEdit, Theme, widgets::Window};
+use egui::{Align, Id, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2};
+use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme};
 
 use super::{
    address, chain, clear_display_ui, eth_received, events::*, show_calldata_modal, tx_cost, value,
@@ -21,7 +21,6 @@ use std::sync::Arc;
 
 pub struct TxConfirmationWindow {
    open: bool,
-   overlay: OverlayManager,
    decoded_events: DecodedEvents,
    /// True to confirm, false to reject
    confirmed_or_rejected: Option<bool>,
@@ -50,11 +49,10 @@ pub struct TxConfirmationWindow {
 }
 
 impl TxConfirmationWindow {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
-         overlay: overlay.clone(),
-         decoded_events: DecodedEvents::new(overlay),
+         decoded_events: DecodedEvents::new(),
          confirmed_or_rejected: None,
          open_generation: 0,
          dapp: String::new(),
@@ -80,14 +78,12 @@ impl TxConfirmationWindow {
       self.open
    }
 
-   pub fn reset(&mut self, ctx: &mut ZeusContext) {
-      self.close(ctx);
-      *self = Self::new(self.overlay.clone());
+   pub fn reset(&mut self) {
+      self.close();
+      *self = Self::new();
    }
 
-   pub fn close(&mut self, ctx: &mut ZeusContext) {
-      self.overlay.window_closed();
-      ctx.tx_confirm_window_open = false;
+   pub fn close(&mut self) {
       self.open = false;
    }
 
@@ -149,10 +145,6 @@ impl TxConfirmationWindow {
       sponsored: bool,
       prebuilt_display: Option<ClearDisplay>,
    ) {
-      if !self.open {
-         self.overlay.window_opened();
-      }
-
       self.sponsored = sponsored;
       // `send_transaction` polls this immediately. Confirm/Reject only `close()`
       // the window, so the previous answer stays in this field and would be
@@ -168,8 +160,6 @@ impl TxConfirmationWindow {
       }
 
       RT.spawn(async move {
-         ctx.set_tx_confirm_window_open(true);
-
          let native = NativeCurrency::from(chain.id());
          let main_event = tx.infer_main_event(ctx.clone(), chain.id());
          let gas_used = tx.gas_used;
@@ -259,15 +249,15 @@ impl TxConfirmationWindow {
          return;
       }
 
-      let window_frame = theme.window_frame.fill(theme.frame1.fill);
+      let mut open = self.open;
+      let id = Id::new("tx_confirmation_window");
+      let frame = theme.window_frame.fill(theme.frame1.fill);
 
-      Window::new("Transaction Confirmation Window")
-         .title_bar(false)
-         .resizable(false)
-         .order(Order::Middle)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .collapsible(false)
-         .frame(window_frame)
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .closable(false)
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -587,7 +577,7 @@ impl TxConfirmationWindow {
 
                      if ui.add_enabled(sufficient_balance, confirm).clicked() {
                         self.confirmed_or_rejected = Some(true);
-                        self.close(ctx);
+                        self.close();
                      }
 
                      let text = RichText::new("Reject").size(theme.typography.large);
@@ -595,7 +585,7 @@ impl TxConfirmationWindow {
 
                      if ui.add(reject).clicked() {
                         self.confirmed_or_rejected = Some(false);
-                        self.close(ctx);
+                        self.close();
                      }
                   });
                });

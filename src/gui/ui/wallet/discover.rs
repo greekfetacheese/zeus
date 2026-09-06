@@ -8,7 +8,7 @@ use eframe::egui::{
    Align, Align2, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner, Stroke,
    Ui, vec2,
 };
-use egui_elements::{Button, OverlayManager, SecureTextEdit, Theme, widgets::Window};
+use egui_elements::{Button, Modal, SecureTextEdit, Theme, widgets::Window};
 use egui_lucide::Lucide;
 
 use zeus_bip32::BIP32_HARDEN;
@@ -29,7 +29,6 @@ use tokio::{sync::Semaphore, task::JoinHandle};
 /// updated in memory, it is written when the vault is saved (shutdown / vault ops).
 pub struct DiscoverChildWallets {
    open: bool,
-   overlay: OverlayManager,
    hd_wallet: SecureHDWallet,
    /// A clone of the HD Wallet just to discover wallets
    discovery_wallet: SecureHDWallet,
@@ -45,10 +44,9 @@ pub struct DiscoverChildWallets {
 }
 
 impl DiscoverChildWallets {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
-         overlay,
          hd_wallet: SecureHDWallet::random(),
          discovery_wallet: SecureHDWallet::random(),
          discovered_wallets: DiscoveredWallets::new(),
@@ -68,11 +66,7 @@ impl DiscoverChildWallets {
    }
 
    pub fn open(&mut self) {
-      if !self.open {
-         self.overlay.window_opened();
-         self.open = true;
-      }
-
+      self.open = true;
       self.loading = true;
 
       RT.spawn_blocking(move || {
@@ -109,18 +103,15 @@ impl DiscoverChildWallets {
    }
 
    pub fn close(&mut self) {
-      self.overlay.window_closed();
       self.open = false;
    }
 
    fn open_add_wallet_window(&mut self, index_to_add: u32) {
-      self.overlay.window_opened();
       self.index_to_add = index_to_add;
       self.add_wallet_window = true;
    }
 
    fn close_add_wallet_window(&mut self) {
-      self.overlay.window_closed();
       self.add_wallet_window = false;
    }
 
@@ -138,7 +129,7 @@ impl DiscoverChildWallets {
 
    pub fn reset(&mut self) {
       self.close();
-      *self = Self::new(self.overlay.clone());
+      *self = Self::new();
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -151,18 +142,18 @@ impl DiscoverChildWallets {
       let was_open = self.open;
       let mut is_open = self.open;
 
+      let frame = theme.window_frame.fill(theme.frame1.fill);
       let title = RichText::new("Discover Wallets").size(theme.typography.heading);
-      let window_frame = theme.window_frame.fill(theme.frame1.fill);
-      let title_frame = window_frame.stroke(Stroke::NONE);
+      let id = Id::new("discover_wallets_window");
 
-      Window::new(title)
-         .open(&mut is_open)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Middle)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
+      Modal::new(id, &mut is_open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         .closable(true)
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);

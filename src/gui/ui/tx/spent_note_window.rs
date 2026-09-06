@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use egui::{Align, Align2, Frame, Layout, Margin, Order, RichText, Stroke, Ui, vec2};
-use egui_elements::{Button, OverlayManager, Theme, widgets::Window};
+use egui::{Align, Frame, Id, Layout, Margin, Order, RichText, Ui, vec2};
+use egui_elements::{Button, Modal, Theme};
 use zeus_eth::{alloy_primitives::U256, currency::Currency, types::ChainId, utils::NumericValue};
 
 use crate::assets::icons::Icons;
@@ -25,16 +25,14 @@ pub struct SpentHistoryRow {
 /// Details for a spent Railgun note (privacy-mode history).
 pub struct SpentNoteWindow {
    open: bool,
-   overlay: OverlayManager,
    row: Option<SpentHistoryRow>,
    size: (f32, f32),
 }
 
 impl SpentNoteWindow {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
-         overlay,
          row: None,
          size: (550.0, 460.0),
       }
@@ -45,17 +43,11 @@ impl SpentNoteWindow {
    }
 
    pub fn close(&mut self) {
-      if self.open {
-         self.overlay.window_closed();
-      }
       self.open = false;
       self.row = None;
    }
 
    pub fn open(&mut self, row: SpentHistoryRow) {
-      if !self.open {
-         self.overlay.window_opened();
-      }
       self.row = Some(row);
       self.open = true;
    }
@@ -66,19 +58,21 @@ impl SpentNoteWindow {
       }
 
       let title = RichText::new("Spent Note").size(theme.typography.heading);
-      let window_frame = theme.window_frame.fill(theme.frame1.fill);
-      let title_frame = window_frame.stroke(Stroke::NONE);
+      let id = Id::new("spent_note_window");
+      let frame = theme.window_frame.fill(theme.frame1.fill);
+      let mut open = self.open;
 
-      Window::new(title)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Middle)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         .closable(false)
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_max_width(self.size.0);
-            ui.set_height(self.size.1);
+            ui.set_max_height(self.size.1);
 
             Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
                ui.vertical_centered(|ui| {
@@ -161,6 +155,8 @@ impl SpentNoteWindow {
                         );
                      });
                   });
+
+                  ui.add_space(10.0);
 
                   let size = vec2(ui.available_width() * 0.8, 45.0);
                   let text = RichText::new("Close").size(theme.typography.normal);

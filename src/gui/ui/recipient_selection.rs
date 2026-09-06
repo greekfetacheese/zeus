@@ -8,12 +8,8 @@ use crate::core::{
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::{ContactsUi, WalletListByValue};
 use crate::utils::RT;
-use eframe::egui::{
-   Align2, FontId, Margin, Order, RichText, ScrollArea, Sense, Spinner, Stroke, Ui, vec2,
-};
-use egui_elements::{
-   Button, Label, OverlayManager, SecureTextEdit, Theme, utils::frame as frame_fn, widgets::Window,
-};
+use eframe::egui::{FontId, Id, Margin, Order, RichText, ScrollArea, Sense, Spinner, Ui, vec2};
+use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme, utils::frame as frame_fn};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -31,7 +27,6 @@ enum UnknownRecipient {
 pub struct RecipientSelectionWindow {
    open: bool,
    loading: bool,
-   overlay: OverlayManager,
    contacts_tab_open: bool,
    wallets_tab_open: bool,
    pub recipient: Recipient,
@@ -49,15 +44,16 @@ pub struct RecipientSelectionWindow {
    wallet_value: HashMap<Address, NumericValue>,
    /// Chains that the wallet has balance on
    wallet_chains: HashMap<Address, Vec<u64>>,
+   /// Inline add-contact form inside this window (not a nested Window).
+   adding_contact: bool,
    size: (f32, f32),
 }
 
 impl RecipientSelectionWindow {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
          loading: false,
-         overlay,
          contacts_tab_open: true,
          wallets_tab_open: false,
          recipient: Recipient::default(),
@@ -69,6 +65,7 @@ impl RecipientSelectionWindow {
          wallets: Vec::new(),
          wallet_value: HashMap::new(),
          wallet_chains: HashMap::new(),
+         adding_contact: false,
          size: (500.0, 550.0),
       }
    }
@@ -78,10 +75,6 @@ impl RecipientSelectionWindow {
    }
 
    pub fn open(&mut self) {
-      if !self.open {
-         self.overlay.window_opened();
-      }
-
       self.open = true;
       self.calc_wallet_value();
    }
@@ -103,15 +96,16 @@ impl RecipientSelectionWindow {
    }
 
    pub fn close(&mut self) {
-      self.overlay.window_closed();
       self.search_query.clear();
       self.open = false;
+      self.adding_contact = false;
    }
 
    pub fn reset(&mut self) {
       self.recipient = Recipient::default();
       self.search_query.clear();
       self.clear_unknown_recipient_cache();
+      self.adding_contact = false;
    }
 
    fn clear_unknown_recipient_cache(&mut self) {
@@ -169,13 +163,13 @@ impl RecipientSelectionWindow {
       ui: &mut Ui,
    ) {
       let mut open = self.open;
+
       if !open {
          return;
       }
 
       let mut close_window = false;
 
-      contacts_ui.add_contact.show(theme, false, ui);
       let contact_added = contacts_ui.add_contact.contact_added();
 
       if contact_added {
@@ -186,18 +180,18 @@ impl RecipientSelectionWindow {
          self.close();
       }
 
+      let frame = theme.window_frame.fill(theme.frame1.fill);
       let title = RichText::new("Recipient").size(theme.typography.heading);
-      let window_frame = theme.window_frame.fill(theme.frame1.fill);
-      let title_frame = window_frame.stroke(Stroke::NONE);
+      let id = Id::new("recipient_selection_window");
 
-      let _window_res = Window::new(title)
-         .open(&mut open)
-         .order(Order::Middle)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         .closable(true)
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -205,6 +199,26 @@ impl RecipientSelectionWindow {
             let size = vec2(ui.available_width() * 0.4, 45.0);
             let button_visuals = theme.button_visuals();
             let text_edit_visuals = theme.text_edit_visuals();
+
+            if self.adding_contact {
+               let text = RichText::new("Back").size(theme.typography.normal);
+               let button = Button::new(text).min_size(vec2(50.0, 20.0));
+               let res = ui.scope(|ui| {
+                  ui.spacing_mut().button_padding = theme.button_padding;
+                  ui.add(button)
+               });
+               if res.inner.clicked() {
+                  self.adding_contact = false;
+                  contacts_ui.add_contact.reset();
+               }
+               ui.add_space(8.0);
+               ui.vertical_centered(|ui| {
+                  ui.label(RichText::new("Add contact").size(theme.typography.heading));
+                  ui.add_space(10.0);
+                  contacts_ui.add_contact.body(theme, false, ui);
+               });
+               return;
+            }
 
             ui.vertical_centered(|ui| {
                ui.add_space(20.0);
@@ -218,7 +232,7 @@ impl RecipientSelectionWindow {
                let add_contact = Button::new(text).visuals(button_visuals);
 
                if ui.add(add_contact).clicked() {
-                  contacts_ui.add_contact.open();
+                  self.adding_contact = true;
                }
 
                ui.add_space(15.0);
@@ -308,6 +322,9 @@ impl RecipientSelectionWindow {
          });
 
       if close_window || !open {
+         if self.adding_contact {
+            contacts_ui.add_contact.reset();
+         }
          self.close();
       }
    }
@@ -329,6 +346,7 @@ impl RecipientSelectionWindow {
          .id_salt("contact_tabs_scroll")
          .max_height(self.size.1)
          .max_width(ui.available_width())
+         .content_margin(5)
          .show(ui, |ui| {
             if are_valid_contacts {
                self.show_contacts(ctx, theme, privacy_mode, close_window, ui);
@@ -413,6 +431,7 @@ impl RecipientSelectionWindow {
          .id_salt("wallets_tabs_scroll")
          .max_height(self.size.1)
          .max_width(ui.available_width())
+         .content_margin(5)
          .show(ui, |ui| {
             if are_valid_wallets {
                self.show_wallets(ctx, theme, privacy_mode, close_window, ui);

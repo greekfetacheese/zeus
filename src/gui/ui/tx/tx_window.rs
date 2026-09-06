@@ -1,5 +1,5 @@
-use egui::{Align2, Order, RichText, ScrollArea, Spinner, Stroke, Ui, vec2};
-use egui_elements::{Button, OverlayManager, Theme, widgets::Window};
+use egui::{Id, Order, RichText, ScrollArea, Spinner, Ui, vec2};
+use egui_elements::{Button, Modal, Theme};
 
 use super::{
    address, chain, clear_display_ui, eth_received, events::*, show_calldata_modal, tx_cost,
@@ -18,7 +18,6 @@ use std::sync::Arc;
 pub struct TxWindow {
    open: bool,
    loading: bool,
-   overlay: OverlayManager,
    decoded_events: DecodedEvents,
    tx: Option<TransactionRich>,
    show_calldata: bool,
@@ -26,12 +25,11 @@ pub struct TxWindow {
 }
 
 impl TxWindow {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
          loading: false,
-         overlay: overlay.clone(),
-         decoded_events: DecodedEvents::new(overlay),
+         decoded_events: DecodedEvents::new(),
          tx: None,
          show_calldata: false,
          size: (550.0, 400.0),
@@ -43,7 +41,6 @@ impl TxWindow {
    }
 
    pub fn close(&mut self) {
-      self.overlay.window_closed();
       self.open = false;
       self.tx = None;
       self.show_calldata = false;
@@ -51,9 +48,6 @@ impl TxWindow {
 
    /// Show this [TxWindow]
    pub fn open(&mut self, tx: Option<TransactionRich>) {
-      if !self.open {
-         self.overlay.window_opened();
-      }
       self.show_calldata = false;
       self.tx = tx;
       self.open = true;
@@ -112,16 +106,18 @@ impl TxWindow {
       }
 
       let title = RichText::new("Transaction Details").size(theme.typography.heading);
-      let window_frame = theme.window_frame.fill(theme.frame1.fill);
-      let title_frame = window_frame.stroke(Stroke::NONE);
+      let id = Id::new("tx_window");
+      let frame = theme.window_frame.fill(theme.frame1.fill);
+      let mut open = self.open;
 
-      Window::new(title)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Middle)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .closable(false)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);

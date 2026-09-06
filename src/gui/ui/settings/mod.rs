@@ -7,7 +7,7 @@ use crate::gui::ui::{WindowCtx, common::privacy_mode_switch, window_frame};
 use egui::{
    RichText, ScrollArea, Shadow, Stroke, Ui, ViewportBuilder, ViewportClass, ViewportId, vec2,
 };
-use egui_elements::{Frame as Frame2, Label, OverlayManager, Theme};
+use egui_elements::{Frame as Frame2, Label, Theme};
 use egui_lucide::Lucide;
 use std::sync::Arc;
 
@@ -65,7 +65,7 @@ pub struct SettingsUi {
 }
 
 impl SettingsUi {
-   pub fn new(ctx: &mut ZeusContext, overlay: OverlayManager) -> Self {
+   pub fn new(ctx: &mut ZeusContext) -> Self {
       Self {
          open: false,
          size_applied: false,
@@ -74,10 +74,10 @@ impl SettingsUi {
          encryption: EncryptionSettings::new(),
          network: NetworkSettings::new(),
          theme: ThemeSettings::new(),
-         contacts_ui: ContactsUi::new(overlay.clone()),
+         contacts_ui: ContactsUi::new(),
          change_credentials_ui: ChangeCredentialsUi::new(),
          export: ExportDataUi::new(),
-         import: ImportDataUi::new(overlay),
+         import: ImportDataUi::new(),
          railgun: RailgunSettings::new(ctx),
       }
    }

@@ -4,12 +4,9 @@ use crate::core::{ZeusContext, types::Contact};
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::RT;
 use egui::{
-   Align, Align2, FontId, Frame, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Spinner,
-   Stroke, Ui, vec2,
+   Align, FontId, Frame, Layout, Margin, OpenUrl, RichText, ScrollArea, Spinner, Ui, vec2,
 };
-use egui_elements::{
-   Button, Label, OverlayManager, QrImage, SecureTextEdit, Theme, widgets::Window,
-};
+use egui_elements::{Button, Label, QrImage, SecureTextEdit, Theme};
 use elegance::{Menu, MenuItem};
 use std::str::FromStr;
 use zeus_eth::alloy_primitives::Address;
@@ -25,37 +22,15 @@ enum ContactsPageView {
 }
 
 pub struct AddContact {
-   open: bool,
-   overlay: OverlayManager,
    contact: Contact,
    contact_added: bool,
 }
 
 impl AddContact {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
-         open: false,
-         overlay,
          contact: Contact::default(),
          contact_added: false,
-      }
-   }
-
-   pub fn is_open(&self) -> bool {
-      self.open
-   }
-
-   pub fn open(&mut self) {
-      if !self.open {
-         self.overlay.window_opened();
-         self.open = true;
-      }
-   }
-
-   pub fn close(&mut self) {
-      if self.open {
-         self.overlay.window_closed();
-         self.open = false;
       }
    }
 
@@ -64,7 +39,6 @@ impl AddContact {
    }
 
    pub fn reset(&mut self) {
-      self.close();
       self.contact_added = false;
       self.contact = Contact::default();
    }
@@ -73,36 +47,7 @@ impl AddContact {
       &self.contact
    }
 
-   /// Window used by recipient selection on the main app.
-   pub fn show(&mut self, theme: &Theme, reset_on_success: bool, ui: &mut Ui) {
-      let mut open = self.open;
-      if !open {
-         return;
-      }
-
-      let window_frame = theme.window_frame.fill(theme.frame1.fill);
-      let title_frame = window_frame.stroke(Stroke::NONE);
-
-      Window::new(RichText::new("Add new contact").size(theme.typography.heading))
-         .open(&mut open)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Foreground)
-         .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
-         .show(ui.ctx(), |ui| {
-            ui.set_width(450.0);
-            ui.set_height(250.0);
-            self.body(theme, reset_on_success, ui);
-         });
-
-      if !open {
-         self.close();
-      }
-   }
-
-   fn body(&mut self, theme: &Theme, reset_on_success: bool, ui: &mut Ui) {
+   pub fn body(&mut self, theme: &Theme, reset_on_success: bool, ui: &mut Ui) {
       let res = ui.vertical_centered(|ui| {
          ui.spacing_mut().item_spacing.y = theme.spacing.lg;
          ui.spacing_mut().button_padding = theme.button_padding;
@@ -534,11 +479,11 @@ pub struct ContactsUi {
 }
 
 impl ContactsUi {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          view: ContactsPageView::List,
          search_query: String::new(),
-         add_contact: AddContact::new(overlay),
+         add_contact: AddContact::new(),
          delete_contact: DeleteContact::new(),
          edit_contact: EditContact::new(),
          qr_window: QrWindow::new(),

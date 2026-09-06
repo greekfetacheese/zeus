@@ -2,10 +2,8 @@
 
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use eframe::egui::{Align2, FontId, Margin, Order, RichText, Stroke, Ui, vec2};
-use egui_elements::{
-   Button, OverlayManager, SecureInputField, SecureTextEdit, Theme, widgets::Window,
-};
+use eframe::egui::{FontId, Id, Margin, Order, RichText, Ui, vec2};
+use egui_elements::{Button, Modal, SecureInputField, SecureTextEdit, Theme};
 use zeus_eth::types::SUPPORTED_CHAINS;
 
 #[derive(PartialEq, Eq)]
@@ -16,7 +14,6 @@ pub enum ImportWalletType {
 
 pub struct ImportWallet {
    open: bool,
-   overlay: OverlayManager,
    import_key_or_phrase: ImportWalletType,
    input_field: SecureInputField,
    wallet_name: String,
@@ -24,10 +21,9 @@ pub struct ImportWallet {
 }
 
 impl ImportWallet {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
-         overlay,
          import_key_or_phrase: ImportWalletType::PrivateKey,
          input_field: SecureInputField::new("Import Wallet", true, true),
          wallet_name: String::new(),
@@ -44,15 +40,11 @@ impl ImportWallet {
    }
 
    pub fn open(&mut self, import_type: ImportWalletType) {
-      if !self.open {
-         self.overlay.window_opened();
-         self.open = true;
-      }
+      self.open = true;
       self.import_key_or_phrase = import_type;
    }
 
    pub fn close(&mut self) {
-      self.overlay.window_closed();
       self.open = false;
    }
 
@@ -65,17 +57,18 @@ impl ImportWallet {
       let mut is_open = self.open;
       let mut clicked = false;
 
-      let window_frame = theme.window_frame;
-      let title_frame = window_frame.stroke(Stroke::NONE);
+      let frame = theme.window_frame.fill(theme.frame1.fill);
+      let title = RichText::new("Import Wallet").size(theme.typography.heading);
+      let id = Id::new("import_wallet_window");
 
-      Window::new(RichText::new("Import Wallet").size(theme.typography.heading))
-         .open(&mut is_open)
-         .order(Order::Middle)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
+      Modal::new(id, &mut is_open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         .closable(true)
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);

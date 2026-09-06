@@ -1,7 +1,7 @@
 //! UI to show the decoded events for a transaction
 
-use egui::{Align, Align2, Frame, Layout, Order, RichText, ScrollArea, Stroke, Ui, Vec2, vec2};
-use egui_elements::{Label, MultiLabel, OverlayManager, Theme, widgets::Window};
+use egui::{Align, Frame, Id, Layout, Order, RichText, ScrollArea, Ui, Vec2, vec2};
+use egui_elements::{Label, Modal, MultiLabel, Theme};
 
 use crate::assets::icons::Icons;
 use crate::core::{TransactionAnalysis, ZeusContext, tx::events::*};
@@ -17,15 +17,11 @@ use super::address;
 
 pub struct DecodedEvents {
    open: bool,
-   overlay: OverlayManager,
 }
 
 impl DecodedEvents {
-   pub fn new(overlay: OverlayManager) -> Self {
-      Self {
-         open: false,
-         overlay,
-      }
+   pub fn new() -> Self {
+      Self { open: false }
    }
 
    pub fn is_open(&self) -> bool {
@@ -33,12 +29,10 @@ impl DecodedEvents {
    }
 
    pub fn open(&mut self) {
-      self.overlay.window_opened();
       self.open = true;
    }
 
    pub fn close(&mut self) {
-      self.overlay.window_closed();
       self.open = false;
    }
 
@@ -59,19 +53,18 @@ impl DecodedEvents {
       }
 
       let title = RichText::new("Decoded Events").size(theme.typography.heading);
+      let id = Id::new("decoded_events_window");
+      let modal_frame = theme.window_frame.fill(theme.frame1.fill);
       let mut open = self.open;
 
-      let window_frame = theme.window_frame.fill(theme.frame1.fill);
-      let title_frame = window_frame.stroke(Stroke::NONE);
-
-      Window::new(title)
-         .open(&mut open)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Tooltip)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, -100.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Foreground)
+         .content_order(Order::Tooltip)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         .closable(true)
+         .frame(modal_frame)
          .show(ui.ctx(), |ui| {
             ui.vertical_centered(|ui| {
                let width = window_size.0 + 50.0;

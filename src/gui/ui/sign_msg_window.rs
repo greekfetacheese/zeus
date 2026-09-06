@@ -1,9 +1,9 @@
 //! UI that allows the user to inspect and sign a message
 
 use egui::{
-   Align, Align2, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui, vec2,
+   Align, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui, vec2,
 };
-use egui_elements::{Button, Label, OverlayManager, Theme, widgets::Window};
+use egui_elements::{Button, Label, Modal, Theme};
 
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::FormattedValue;
@@ -21,7 +21,6 @@ use zeus_eth::{
 
 pub struct SignMsgWindow {
    open: bool,
-   overlay: OverlayManager,
    dapp: String,
    chain: ChainId,
    msg: Option<SignMsgType>,
@@ -31,10 +30,9 @@ pub struct SignMsgWindow {
 }
 
 impl SignMsgWindow {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
-         overlay,
          dapp: String::new(),
          chain: ChainId::default(),
          msg: None,
@@ -48,11 +46,7 @@ impl SignMsgWindow {
       self.open
    }
 
-   pub fn open(&mut self, ctx: &mut ZeusContext, dapp: String, chain: u64, msg: SignMsgType) {
-      if !self.open {
-         self.overlay.window_opened();
-      }
-      ctx.sign_msg_window_open = true;
+   pub fn open(&mut self, dapp: String, chain: u64, msg: SignMsgType) {
       self.dapp = dapp;
       self.chain = chain.into();
       self.open = true;
@@ -61,14 +55,12 @@ impl SignMsgWindow {
       self.signed = None;
    }
 
-   pub fn reset(&mut self, ctx: &mut ZeusContext) {
-      self.close(ctx);
-      *self = Self::new(self.overlay.clone());
+   pub fn reset(&mut self) {
+      self.close();
+      *self = Self::new();
    }
 
-   pub fn close(&mut self, ctx: &mut ZeusContext) {
-      self.overlay.window_closed();
-      ctx.sign_msg_window_open = false;
+   pub fn close(&mut self) {
       self.open = false;
    }
 
@@ -81,15 +73,19 @@ impl SignMsgWindow {
          return;
       }
 
-      let window_frame = theme.window_frame.fill(theme.frame1.fill);
+      let mut open = self.open;
+      let title = RichText::new("Sign Message").size(theme.typography.heading);
+      let id = Id::new("sign_msg_window");
+      let frame = theme.window_frame.fill(theme.frame1.fill);
 
-      Window::new("Sign Message")
-         .title_bar(false)
-         .resizable(false)
-         .order(Order::Foreground)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .collapsible(false)
-         .frame(window_frame)
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         .closable(false)
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_max_height(self.size.1);
@@ -172,7 +168,7 @@ impl SignMsgWindow {
 
                         if ui.add(ok_btn).clicked() {
                            self.signed = Some(true);
-                           self.close(ctx);
+                           self.close();
                         }
 
                         let text = RichText::new("Cancel").size(theme.typography.normal);
@@ -180,7 +176,7 @@ impl SignMsgWindow {
                            Button::new(text).min_size(button_size).visuals(button_visuals);
 
                         if ui.add(cancel_btn).clicked() {
-                           self.reset(ctx);
+                           self.reset();
                            self.signed = Some(false);
                         }
                      });

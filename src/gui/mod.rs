@@ -107,29 +107,29 @@ impl GUI {
       let ctx = ZeusCtx::new();
       let overlay_manager = theme.overlay_manager.clone();
 
-      let token_selection = ui::TokenSelectionWindow::new(overlay_manager.clone());
-      let recipient_selection = ui::RecipientSelectionWindow::new(overlay_manager.clone());
+      let token_selection = ui::TokenSelectionWindow::new();
+      let recipient_selection = ui::RecipientSelectionWindow::new();
       let send_crypto = ui::SendCryptoUi::new();
-      let across_bridge = ui::dapps::across::AcrossBridge::new(overlay_manager.clone());
-      let header = Header::new(overlay_manager.clone());
+      let across_bridge = ui::dapps::across::AcrossBridge::new();
+      let header = Header::new();
 
       let msg_window = ui::MsgWindow::new();
       let loading_window = ui::LoadingWindow::new();
-      let confirm_window = ui::common::ConfirmWindow::new(overlay_manager.clone());
-      let tx_confirmation_window = TxConfirmationWindow::new(overlay_manager.clone());
-      let tx_window = TxWindow::new(overlay_manager.clone());
-      let spent_note_window = SpentNoteWindow::new(overlay_manager.clone());
-      let wallet_ui = ui::WalletUi::new(overlay_manager.clone());
-      let approvals = ApprovalsUi::new(overlay_manager.clone());
+      let confirm_window = ui::common::ConfirmWindow::new();
+      let tx_confirmation_window = TxConfirmationWindow::new();
+      let tx_window = TxWindow::new();
+      let spent_note_window = SpentNoteWindow::new();
+      let wallet_ui = ui::WalletUi::new();
+      let approvals = ApprovalsUi::new();
 
-      let settings = ctx.write(|ctx| settings::SettingsUi::new(ctx, overlay_manager.clone()));
+      let settings = ctx.write(|ctx| settings::SettingsUi::new(ctx));
 
       let tx_history = ui::tx_history::TxHistory::new();
-      let sign_msg_window = SignMsgWindow::new(overlay_manager.clone());
-      let connected_dapps = ConnectedDappsUi::new(overlay_manager.clone());
+      let sign_msg_window = SignMsgWindow::new();
+      let connected_dapps = ConnectedDappsUi::new();
       let notification = Notification::new();
-      let update_window = UpdateWindow::new(overlay_manager.clone());
-      let fps_metrics = FPSMetrics::new(overlay_manager.clone());
+      let update_window = UpdateWindow::new();
+      let fps_metrics = FPSMetrics::new();
       let uniswap = UniswapUi::new();
       let shield_ui = ShieldUi::new();
       let merge_notes_window = MergeNotesWindow::new();

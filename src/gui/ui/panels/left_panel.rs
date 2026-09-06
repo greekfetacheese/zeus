@@ -1,10 +1,8 @@
 use crate::core::ZeusContext;
 use crate::gui::{GUI, ui::dapps::railgun::RailgunMode};
-use eframe::egui::{Align2, Order, RichText, ScrollArea, Ui, vec2};
+use eframe::egui::{Id, Order, RichText, ScrollArea, Ui, vec2};
 use egui::{FontId, Margin, Shadow, Stroke};
-use egui_elements::{
-   Button, Frame as Frame2, Label, OverlayManager, SecureTextEdit, Theme, widgets::Window,
-};
+use egui_elements::{Button, Frame as Frame2, Label, Modal, SecureTextEdit, Theme};
 use egui_lucide::Lucide;
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
@@ -335,27 +333,21 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
 pub struct ConnectedDappsUi {
    open: bool,
-   overlay: OverlayManager,
    pub size: (f32, f32),
 }
 
 impl ConnectedDappsUi {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
-         overlay,
          size: (300.0, 400.0),
       }
    }
 
    pub fn open(&mut self) {
-      if !self.open {
-         self.overlay.window_opened();
-      }
       self.open = true;
    }
    pub fn close(&mut self) {
-      self.overlay.window_closed();
       self.open = false;
    }
 
@@ -371,23 +363,23 @@ impl ConnectedDappsUi {
       let mut open = self.open;
       let button_visuals = theme.button_visuals();
       let text_edit_visuals = theme.text_edit_visuals();
-      let window_frame = theme.window_frame;
-      let title_frame = window_frame.stroke(Stroke::NONE);
 
       let title = RichText::new("Connected Dapps").size(theme.typography.heading);
-      Window::new(title)
-         .open(&mut open)
-         .collapsible(false)
-         .resizable(false)
-         .order(Order::Middle)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .title_frame(title_frame)
-         .frame(window_frame)
+      let id = Id::new("connected_dapps_window");
+
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         .closable(true)
+         .max_width(self.size.0)
          .show(ui.ctx(), |ui| {
             ui.spacing_mut().item_spacing.y = theme.spacing.xl;
             ui.spacing_mut().button_padding = theme.button_padding;
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+            ui.set_max_width(self.size.0);
+            ui.set_max_height(self.size.1);
 
             let mut dapps = ctx.connected_dapps();
             let dapps_are_empty = dapps.is_empty();
