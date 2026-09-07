@@ -41,10 +41,21 @@ pub struct TxHistory {
    selected_wallet: Option<WalletInfo>,
    selected_chain: Option<ChainId>,
    /// Filtered list for the current filters (avoids cloning every frame)
-   cached_txs: Vec<TransactionRich>,
+   cached_txs: Vec<PublicHistoryRow>,
    cached_spent: Vec<SpentHistoryRow>,
    /// Fingerprint of the last cache build so we rebuild only when needed
    cache_key: CacheKey,
+}
+
+/// Public history row: Zeus wallet that owns the record, plus the stored tx.
+///
+/// The Wallet column uses [`Self::wallet`] (the `tx_db` key), not
+/// [`TransactionRich::sender`] — sponsored unshields set `analysis.sender`
+/// to the bundler EOA from the receipt.
+#[derive(Clone)]
+struct PublicHistoryRow {
+   wallet: Address,
+   tx: TransactionRich,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -201,12 +212,17 @@ impl TxHistory {
                }
 
                if let Some(wallet_txs) = tx_db.get_txs(chain.id(), wallet.address) {
-                  txs.extend(wallet_txs.iter().cloned());
+                  txs.extend(
+                     wallet_txs.iter().cloned().map(|tx| PublicHistoryRow {
+                        wallet: wallet.address,
+                        tx,
+                     }),
+                  );
                }
             }
          }
 
-         txs.sort_unstable_by(|a, b| b.timestamp.cmp(&a.timestamp));
+         txs.sort_unstable_by(|a, b| b.tx.timestamp.cmp(&a.tx.timestamp));
 
          SHARED_GUI.write(|gui| {
             gui.tx_history.loading = false;
@@ -687,7 +703,7 @@ impl TxHistory {
                         } else {
                            &[]
                         };
-                        for tx in txs_on_page {
+                        for row in txs_on_page {
                            ui.allocate_ui(vec2(row_width, row_height + inner_y), |ui| {
                               row_frame.show(ui, |ui| {
                                  ui.set_width(inner_width);
@@ -695,22 +711,19 @@ impl TxHistory {
 
                                  ui.horizontal(|ui| {
                                     Self::row_cell(ui, column_widths[0], row_height, |ui| {
-                                       let name = self.wallet_name_or_address(ctx, tx.sender());
+                                       let name = self.wallet_name_or_address(ctx, row.wallet);
                                        let text = RichText::new(&name)
                                           .size(theme.typography.normal)
                                           .color(theme.colors.text);
                                        let label = Label::new(text, None)
                                           .wrap_mode(TextWrapMode::Truncate)
                                           .visuals(label_visuals);
-                                       ui.add(label).on_hover_text(format!(
-                                          "{}\n{}",
-                                          name,
-                                          tx.sender()
-                                       ));
+                                       ui.add(label)
+                                          .on_hover_text(format!("{}\n{}", name, row.wallet));
                                     });
 
                                     Self::row_cell(ui, column_widths[1], row_height, |ui| {
-                                       let chain: ChainId = tx.chain.into();
+                                       let chain: ChainId = row.tx.chain.into();
                                        let text = RichText::new(chain.name())
                                           .size(theme.typography.normal)
                                           .color(theme.colors.text);
@@ -721,7 +734,7 @@ impl TxHistory {
                                     });
 
                                     Self::row_cell(ui, column_widths[2], row_height, |ui| {
-                                       let action = tx.summary_name();
+                                       let action = row.tx.summary_name();
                                        let text = RichText::new(&action)
                                           .size(theme.typography.normal)
                                           .color(theme.colors.text);
@@ -732,7 +745,7 @@ impl TxHistory {
                                     });
 
                                     Self::row_cell(ui, column_widths[3], row_height, |ui| {
-                                       let age = tx.timestamp.to_relative();
+                                       let age = row.tx.timestamp.to_relative();
                                        let text = RichText::new(&age)
                                           .size(theme.typography.normal)
                                           .color(theme.colors.text);
@@ -749,7 +762,7 @@ impl TxHistory {
                                           let details_button =
                                              Button::new(text).visuals(button_visuals);
                                           if ui.add(details_button).clicked() {
-                                             let tx_clone = tx.clone();
+                                             let tx_clone = row.tx.clone();
                                              RT.spawn_blocking(move || {
                                                 SHARED_GUI.write(|gui| {
                                                    gui.tx_window.open(Some(tx_clone));
