@@ -748,6 +748,12 @@ impl DiscoverChildWallets {
                            if let Err(e) = ctx_clone.register_railgun_signers(chain, false).await {
                               tracing::error!("Error registering Railgun signers: {:?}", e);
                            }
+
+                           if let Err(e) = ctx_clone.sync_railgun(chain, false).await {
+                              tracing::error!("Error syncing Railgun: {:?}", e);
+                           }
+
+                           ctx.update_private_data(chain, address).await;
                         }
                      });
 

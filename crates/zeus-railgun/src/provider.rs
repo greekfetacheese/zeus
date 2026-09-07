@@ -359,6 +359,28 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       self.utxo_indexer.write().await.save(trees_mutated).await
    }
 
+   /// Unload sealed UTXO trees that no registered account still spends from.
+   ///
+   /// Leaves stay on disk; only the in-memory rebuild is dropped.
+   pub async fn compact_utxo_trees(&self) -> Result<(), UtxoIndexerError> {
+      self.utxo_indexer.write().await.compact_utxo_trees().await
+   }
+
+   /// Tree numbers currently rebuilt in RAM.
+   pub async fn resident_utxo_trees(&self) -> Vec<u32> {
+      self.utxo_indexer.read().await.resident_trees()
+   }
+
+   /// All catalogued UTXO tree numbers, including sealed trees not in RAM.
+   pub async fn known_utxo_trees(&self) -> Vec<u32> {
+      self.utxo_indexer.read().await.known_tree_numbers()
+   }
+
+   /// Highest tree number (the only tree that still grows).
+   pub async fn open_utxo_tree(&self) -> Option<u32> {
+      self.utxo_indexer.read().await.open_tree_number()
+   }
+
    /// Verify root withing the given `block_id`
    ///
    /// If `block_id` is none the latest block will be used
@@ -746,14 +768,18 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       spendable_notes: &[UtxoNote],
       rng: &mut R,
    ) -> Result<Vec<ProvedOperation>, RailgunProviderError> {
-      let utxo_indexer = self.utxo_indexer.read().await;
+      let witnesses = {
+         let mut utxo_indexer = self.utxo_indexer.write().await;
+         utxo_indexer.ensure_resident_for_notes(spendable_notes).await?;
+         utxo_indexer.merkle_witnesses(spendable_notes)?
+      };
 
       let operations = builder
          .build(
             &self.prover,
             self.chain.id,
             spendable_notes,
-            &utxo_indexer.utxo_trees,
+            &witnesses,
             rng,
          )
          .await?;

@@ -9,6 +9,11 @@ use crate::database::{DatabaseError, RailgunDbKey, WriteBatch, WriteDurability};
 
 const TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("railgun_kv");
 
+/// redb's default page cache is 1 GiB. A desktop wallet only needs the open
+/// UTXO tree plus a few account blobs; 32 MiB is enough for tip sync without
+/// pinning the whole sealed-tree file in RAM.
+const PAGE_CACHE_BYTES: usize = 32 * 1024 * 1024;
+
 /// redb-backed persistent KV store for Railgun state.
 ///
 /// This is a good choice for desktop wallets because it is embedded,
@@ -21,18 +26,16 @@ pub struct RedbDatabase {
 
 impl RedbDatabase {
    pub fn new(path: impl AsRef<Path>, crypto_key: RailgunDbKey) -> Result<Self, redb::Error> {
-      let inner = if path.as_ref().exists() {
-         RedbInner::open(path.as_ref())?
-      } else {
-         RedbInner::create(path.as_ref())?
-      };
+      let inner = RedbInner::builder().set_cache_size(PAGE_CACHE_BYTES).create(path.as_ref())?;
 
       Self::from_inner(inner, crypto_key)
    }
 
    /// In-memory redb (tests). Same API as a file-backed DB.
    pub fn in_memory(crypto_key: RailgunDbKey) -> Result<Self, redb::Error> {
-      let inner = RedbInner::builder().create_with_backend(InMemoryBackend::new())?;
+      let inner = RedbInner::builder()
+         .set_cache_size(PAGE_CACHE_BYTES)
+         .create_with_backend(InMemoryBackend::new())?;
       Self::from_inner(inner, crypto_key)
    }
 

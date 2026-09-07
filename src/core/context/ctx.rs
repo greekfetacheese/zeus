@@ -165,6 +165,8 @@ impl ZeusCtx {
    ///
    /// This should be called at the startup and whenever a wallet is added.
    /// Also drops Railgun DB account state for wallets that no longer exist.
+   ///
+   /// Make sure after calling this also call to sync railgun and update private data
    pub async fn register_railgun_signers(
       &self,
       chain: u64,

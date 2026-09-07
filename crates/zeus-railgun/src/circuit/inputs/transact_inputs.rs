@@ -7,7 +7,7 @@ use crate::{
    account::signer::RailgunSigner,
    caip::AssetId,
    crypto::poseidon_hash,
-   merkle_tree::{MerkleRoot, MerkleTreeError, UtxoMerkleTree},
+   merkle_tree::{MerkleRoot, MerkleTreeError, RailgunMerkleProof, UtxoMerkleTree},
    note::{OutputNote, utxo::UtxoNote},
 };
 
@@ -40,6 +40,8 @@ pub enum TransactCircuitInputsError {
    MerkleTree(#[from] MerkleTreeError),
    #[error("Signing error: {0}")]
    Signing(#[from] anyhow::Error),
+   #[error("Merkle proof does not match note or tree root")]
+   InvalidMerkleProof,
 }
 
 impl TransactCircuitInputs {
@@ -55,11 +57,44 @@ impl TransactCircuitInputs {
          return Err(TransactCircuitInputsError::EmptyInputNotes);
       }
 
-      let merkleroot = merkle_tree.root();
       let merkle_proofs: Vec<_> = notes_in
          .iter()
          .map(|note| merkle_tree.generate_proof(note.hash()))
          .collect::<Result<_, _>>()?;
+
+      Self::from_notes_and_proofs(
+         merkle_tree.root(),
+         bound_params_hash,
+         signer,
+         asset,
+         notes_in,
+         notes_out,
+         &merkle_proofs,
+      )
+   }
+
+   pub fn from_notes_and_proofs(
+      merkleroot: MerkleRoot,
+      bound_params_hash: U256,
+      signer: &RailgunSigner,
+      asset: AssetId,
+      notes_in: &[UtxoNote],
+      notes_out: &[OutputNote],
+      merkle_proofs: &[RailgunMerkleProof],
+   ) -> Result<Self, TransactCircuitInputsError> {
+      if notes_in.is_empty() || notes_out.is_empty() {
+         return Err(TransactCircuitInputsError::EmptyInputNotes);
+      }
+      if merkle_proofs.len() != notes_in.len() {
+         return Err(TransactCircuitInputsError::InvalidMerkleProof);
+      }
+
+      for (note, proof) in notes_in.iter().zip(merkle_proofs) {
+         let leaf: U256 = note.hash().into();
+         if proof.element != leaf || proof.root != merkleroot || !proof.verify() {
+            return Err(TransactCircuitInputsError::InvalidMerkleProof);
+         }
+      }
 
       let nullifiers: Vec<U256> = notes_in.iter().map(|note| note.nullifier).collect();
       let commitments: Vec<U256> = notes_out.iter().map(|note| note.hash().into()).collect();

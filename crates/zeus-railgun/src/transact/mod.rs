@@ -9,6 +9,6 @@ pub use note_merge::{
 pub use proved_transaction::{ProvedOperation, ProvedTx};
 pub use shield_builder::ShieldBuilder;
 pub use transaction_builder::{
-   MAX_CIRCUIT_INPUTS, MAX_CIRCUIT_OUTPUTS, NoteSelectionMode, TransactionBuilder,
+   MAX_CIRCUIT_INPUTS, MAX_CIRCUIT_OUTPUTS, MerkleWitnesses, NoteSelectionMode, TransactionBuilder,
    TransactionBuilderError,
 };

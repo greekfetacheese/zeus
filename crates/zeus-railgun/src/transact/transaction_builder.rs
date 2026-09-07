@@ -14,7 +14,7 @@
 //! A "Transaction" means an EVM transaction.
 //!  - A transaction can have many operations across many trees and addresses.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use alloy_primitives::{Address, U256};
 use rand::Rng;
@@ -28,7 +28,7 @@ use crate::{
       groth16_prover::Groth16Prover,
       inputs::transact_inputs::{TransactCircuitInputs, TransactCircuitInputsError},
    },
-   merkle_tree::UtxoMerkleTree,
+   merkle_tree::{MerkleRoot, RailgunMerkleProof},
    note::{
       encrypt::EncryptError,
       operation::{Operation, OperationVerificationError},
@@ -113,14 +113,23 @@ pub enum TransactionBuilderError {
    Encryption(#[from] EncryptError),
    #[error("Prover error: {0}")]
    Prover(Box<dyn std::error::Error + Send + Sync>),
-   #[error("Missing tree for number {0}")]
-   MissingTree(u32),
+   #[error("Missing merkle witness for tree {0} leaf {1}")]
+   MissingWitness(u32, u32),
    #[error("No input notes")]
    NoInputNotes,
    #[error("Transact circuit input error: {0}")]
    TransactCircuitInput(#[from] TransactCircuitInputsError),
    #[error("Operation verification error: {0}")]
    OperationVerification(#[from] OperationVerificationError),
+}
+
+/// Merkle root + inclusion proofs for notes being spent.
+///
+/// Sealed trees may be absent from RAM; proofs are frozen at compact time.
+#[derive(Clone, Default)]
+pub struct MerkleWitnesses {
+   pub roots: BTreeMap<u32, MerkleRoot>,
+   pub proofs: HashMap<(u32, u32), RailgunMerkleProof>,
 }
 
 #[derive(Clone)]
@@ -244,7 +253,7 @@ impl TransactionBuilder {
       prover: &Groth16Prover,
       chain_id: u64,
       in_notes: &[UtxoNote],
-      utxo_trees: &BTreeMap<u32, UtxoMerkleTree>,
+      witnesses: &MerkleWitnesses,
       rng: &mut R,
    ) -> Result<Vec<ProvedOperation>, TransactionBuilderError> {
       let groups = self.group_intents();
@@ -270,7 +279,7 @@ impl TransactionBuilder {
          }
       }
 
-      let proved = prove_operations(prover, utxo_trees, chain_id, &operations, rng).await?;
+      let proved = prove_operations(prover, witnesses, chain_id, &operations, rng).await?;
       Ok(proved)
    }
 
@@ -618,18 +627,14 @@ fn add_change_note<R: Rng>(
 
 async fn prove_operations(
    prover: &Groth16Prover,
-   utxo_trees: &BTreeMap<u32, UtxoMerkleTree>,
+   witnesses: &MerkleWitnesses,
    chain_id: u64,
    operations: &[Operation],
    rng: &mut impl Rng,
 ) -> Result<Vec<ProvedOperation>, TransactionBuilderError> {
    let mut proved = Vec::new();
    for op in operations {
-      let tree = op.utxo_tree_number;
-      let Some(utxo_tree) = utxo_trees.get(&tree) else {
-         return Err(TransactionBuilderError::MissingTree(tree));
-      };
-      let proved_op = prove_operation(prover, utxo_tree, chain_id, op, rng).await?;
+      let proved_op = prove_operation(prover, witnesses, chain_id, op, rng).await?;
       proved.push(proved_op);
    }
    Ok(proved)
@@ -637,7 +642,7 @@ async fn prove_operations(
 
 async fn prove_operation(
    prover: &Groth16Prover,
-   utxo_tree: &UtxoMerkleTree,
+   witnesses: &MerkleWitnesses,
    chain_id: u64,
    operation: &Operation,
    rng: &mut impl Rng,
@@ -655,7 +660,7 @@ async fn prove_operation(
    //? min_gas_price, adapt_contract, and adapt_input are all vestigial fields for
    //? railgun relayers.
    let bound_params = abi::railgun::BoundParams::new(
-      utxo_tree.number() as u16,
+      operation.utxo_tree_number as u16,
       0,
       unshield_type,
       chain_id,
@@ -664,13 +669,25 @@ async fn prove_operation(
       commitment_ciphertexts,
    );
 
-   let inputs = TransactCircuitInputs::from_inputs(
-      utxo_tree,
+   let merkleroot = witnesses.roots.get(&operation.utxo_tree_number).copied().ok_or(
+      TransactionBuilderError::MissingWitness(operation.utxo_tree_number, 0),
+   )?;
+   let mut merkle_proofs = Vec::with_capacity(operation.in_notes().len());
+   for note in operation.in_notes() {
+      let proof = witnesses.proofs.get(&(note.tree_number, note.leaf_index)).cloned().ok_or(
+         TransactionBuilderError::MissingWitness(note.tree_number, note.leaf_index),
+      )?;
+      merkle_proofs.push(proof);
+   }
+
+   let inputs = TransactCircuitInputs::from_notes_and_proofs(
+      merkleroot,
       bound_params.hash(),
       &operation.from,
       operation.asset,
       operation.in_notes(),
       &operation.out_notes(),
+      &merkle_proofs,
    )?;
    let proof = prover
       .prove_transact(&inputs)

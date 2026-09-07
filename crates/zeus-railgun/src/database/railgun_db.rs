@@ -14,7 +14,7 @@ use crate::{
       indexed_account::IndexedAccountState, txid_indexer::TxidIndexerState,
       utxo_indexer::UtxoIndexerState,
    },
-   merkle_tree::RailgunMerkleTreeState,
+   merkle_tree::{RailgunMerkleProof, RailgunMerkleTreeState},
    poi::provider::PoiProviderState,
 };
 
@@ -85,6 +85,37 @@ impl RedbDatabase {
       tree_number: u32,
    ) -> Result<Option<(Vec<U256>, bool)>, DatabaseError> {
       load_tree_leaves(self, Kind::Utxo, tree_number).await
+   }
+
+   /// Frozen merkle proof for a sealed-tree note. Missing on old DBs is fine —
+   /// the indexer rebuilds the tree from leaves instead.
+   pub async fn get_utxo_note_proof(
+      &self,
+      tree_number: u32,
+      leaf_index: u32,
+   ) -> Result<Option<RailgunMerkleProof>, DatabaseError> {
+      let storage_key = utxo_proof_key(tree_number, leaf_index);
+      let Some(bytes) = self.get(&storage_key).await? else {
+         return Ok(None);
+      };
+      let proof = deserialize_versioned_sensitive(&bytes, self.crypto_key(), &storage_key)?;
+      Ok(Some(proof))
+   }
+
+   /// Chunked-format meta only (leaf count + root). `None` for missing or legacy blobs.
+   pub async fn get_utxo_tree_meta(
+      &self,
+      tree_number: u32,
+   ) -> Result<Option<UtxoTreeDiskMeta>, DatabaseError> {
+      let Some(meta_bytes) = self.get(&Kind::Utxo.meta_key(tree_number)).await? else {
+         return Ok(None);
+      };
+      let meta: TreeMeta = deserialize_versioned(&meta_bytes)?;
+      Ok(Some(UtxoTreeDiskMeta {
+         number: meta.number,
+         leaf_count: meta.leaf_count,
+         root: meta.root,
+      }))
    }
 
    /// Legacy helper: load full tree state (rebuilds levels from leaves).
@@ -243,6 +274,13 @@ impl Kind {
    }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UtxoTreeDiskMeta {
+   pub number: u32,
+   pub leaf_count: u32,
+   pub root: U256,
+}
+
 #[derive(Serialize, Deserialize)]
 struct TreeMeta {
    pub number: u32,
@@ -289,6 +327,17 @@ pub fn put_utxo_indexer(
    state: &UtxoIndexerState,
 ) -> Result<(), DatabaseError> {
    put_envelope(batch, &utxo_indexer_key(), 2, state)
+}
+
+pub fn put_utxo_note_proof(
+   batch: &mut WriteBatch,
+   tree_number: u32,
+   leaf_index: u32,
+   proof: &RailgunMerkleProof,
+   crypto: &RailgunDbKey,
+) -> Result<(), DatabaseError> {
+   let key = utxo_proof_key(tree_number, leaf_index);
+   put_envelope_encrypted(batch, &key, proof, crypto)
 }
 
 pub fn put_txid_indexer(
@@ -625,6 +674,10 @@ fn utxo_indexer_key() -> Vec<u8> {
    b"utxo_indexer".to_vec()
 }
 
+fn utxo_proof_key(tree_number: u32, leaf_index: u32) -> Vec<u8> {
+   format!("utxo_proof:{}:{}", tree_number, leaf_index).into_bytes()
+}
+
 pub fn account_key(addr: &RailgunAddress) -> Vec<u8> {
    format!("account:{:?}", addr).into_bytes()
 }
@@ -678,6 +731,10 @@ mod tests {
       let (loaded, legacy) = db.get_utxo_tree_leaves(0).await.unwrap().unwrap();
       assert!(!legacy);
       assert_eq!(loaded, leaves);
+      let meta = db.get_utxo_tree_meta(0).await.unwrap().unwrap();
+      assert_eq!(meta.leaf_count, 1500);
+      let root: U256 = tree.root().into();
+      assert_eq!(meta.root, root);
 
       // Append a few leaves — only last chunk should be rewritten.
       let extra: Vec<U256> = (1500..1510u64).map(U256::from).collect();
@@ -829,5 +886,35 @@ mod tests {
       let all: Vec<U256> = (0..(n1 as u64 + 500)).map(|i| U256::from(i * 17 + 3)).collect();
       cont.insert_leaves(&all, 0);
       assert_eq!(cont.root(), tree2.root());
+   }
+
+   #[tokio::test]
+   async fn utxo_note_proof_is_encrypted() {
+      use crate::merkle_tree::{MerkleRoot, RailgunMerkleProof};
+
+      let crypto = RailgunDbKey::generate().unwrap();
+      let db = RedbDatabase::in_memory(crypto.clone()).unwrap();
+      let proof = RailgunMerkleProof::new(
+         U256::from(1u64),
+         vec![U256::from(2u64); 16],
+         U256::from(0u64),
+         MerkleRoot::new(U256::from(3u64)),
+      );
+
+      let mut batch = WriteBatch::new();
+      put_utxo_note_proof(&mut batch, 0, 7, &proof, &crypto).unwrap();
+      db.apply_batch(batch, WriteDurability::Immediate).await.unwrap();
+
+      let raw = db.get(&utxo_proof_key(0, 7)).await.unwrap().unwrap();
+      let (env, _) =
+         decode_from_slice::<BincodeEnvelope, _>(&raw, bincode_next::config::standard()).unwrap();
+      assert_eq!(env.v, ENCRYPTED_ENVELOPE_VERSION);
+
+      let loaded = db.get_utxo_note_proof(0, 7).await.unwrap().unwrap();
+      assert_eq!(loaded, proof);
+
+      let db_bad = RedbDatabase::in_memory(RailgunDbKey::generate().unwrap()).unwrap();
+      db_bad.set(&utxo_proof_key(0, 7), &raw).await.unwrap();
+      assert!(db_bad.get_utxo_note_proof(0, 7).await.is_err());
    }
 }
