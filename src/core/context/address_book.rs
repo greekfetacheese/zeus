@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::address_book};
+use zeus_railgun::ChainConfig;
 
 const ADDRESS_BOOK_AAD: &[u8] = b"zeus-address-book-v1";
 
@@ -186,6 +187,26 @@ pub fn well_known_entries() -> Vec<((u64, Address), Arc<str>)> {
             (chain, address),
             Arc::from("Railgun Smart Wallet"),
          ));
+      }
+      if let Some(config) = ChainConfig::from_chain_id(chain) {
+         entries.push((
+            (chain, config.relay_adapt_contract),
+            Arc::from("Relay Adapt"),
+         ));
+
+         if let Some(paymaster) = config.privacy_paymaster {
+            entries.push((
+               (chain, paymaster),
+               Arc::from("Privacy Paymaster"),
+            ));
+         }
+
+         if let Some(fee_adapter) = config.railgun_fee_adapter {
+            entries.push((
+               (chain, fee_adapter),
+               Arc::from("Railgun Fee Adapter"),
+            ));
+         }
       }
       if let Ok(address) = address_book::entry_point(chain) {
          entries.push(((chain, address), Arc::from("Entry Point")));

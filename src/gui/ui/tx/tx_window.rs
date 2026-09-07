@@ -247,6 +247,9 @@ impl TxWindow {
                   frame.show(ui, |ui| {
                      chain(chain_id, theme, icons.clone(), ui);
 
+                     let label = "Sender";
+                     address(ctx, chain_id, label, tx.sender(), theme, ui);
+
                      if tx.contract_interact {
                         let label = "Contract interaction";
                         address(ctx, chain_id, label, tx.interact_to(), theme, ui);

@@ -136,42 +136,58 @@ impl ShieldBuilder {
 
 #[cfg(all(test))]
 mod tests {
-   use alloy_primitives::Address;
+   use alloy_primitives::{Address, U256};
+   use alloy_sol_types::SolCall;
    use rand::SeedableRng;
    use rand_chacha::ChaChaRng;
 
    use super::*;
    use crate::{
+      abi::railgun::{RailgunSmartWallet, RelayAdapt},
       account::address::RailgunAddress,
       crypto::keys::{SpendingKey, ViewingKey},
    };
 
-   #[test]
-   fn test_shield_builder() {
-      let mut rng = ChaChaRng::seed_from_u64(0);
+   fn test_recipient(rng: &mut ChaChaRng) -> RailgunAddress {
       let spending_key: SpendingKey = rng.random();
       let viewing_key: ViewingKey = rng.random();
-      let recipient = RailgunAddress::from_private_keys(spending_key, viewing_key, None);
+      RailgunAddress::from_private_keys(spending_key, viewing_key, None)
+   }
 
+   #[test]
+   fn test_shield_builder_erc20_is_self_broadcast_to_smart_wallet() {
+      let mut rng = ChaChaRng::seed_from_u64(0);
+      let recipient = test_recipient(&mut rng);
+      let chain = ChainConfig::mainnet();
       let asset: AssetId = AssetId::Erc20(Address::from([0u8; 20]));
       let value: u128 = 1_000_000;
 
-      let _shield_request = ShieldBuilder::new(ChainConfig::mainnet())
+      let txns = ShieldBuilder::new(chain.clone())
          .shield(recipient, asset, value)
          .build(&mut rng)
          .unwrap();
+
+      assert_eq!(txns.len(), 1);
+      assert_eq!(txns[0].to, chain.railgun_smart_wallet);
+      assert_eq!(txns[0].value, U256::ZERO);
+      assert!(txns[0].data.starts_with(&RailgunSmartWallet::shieldCall::SELECTOR));
    }
 
    #[test]
    fn test_shield_builder_native_eth_uses_relay_adapt() {
       let mut rng = ChaChaRng::seed_from_u64(0);
-      let spending_key: SpendingKey = rng.random();
-      let viewing_key: ViewingKey = rng.random();
-      let recipient = RailgunAddress::from_private_keys(spending_key, viewing_key, None);
+      let recipient = test_recipient(&mut rng);
+      let chain = ChainConfig::mainnet();
+      let value: u128 = 1_000_000;
 
-      let _tx = ShieldBuilder::new(ChainConfig::mainnet())
-         .shield_native(recipient, 1_000_000)
+      let txns = ShieldBuilder::new(chain.clone())
+         .shield_native(recipient, value)
          .build(&mut rng)
          .unwrap();
+
+      assert_eq!(txns.len(), 1);
+      assert_eq!(txns[0].to, chain.relay_adapt_contract);
+      assert_eq!(txns[0].value, U256::from(value));
+      assert!(txns[0].data.starts_with(&RelayAdapt::multicallCall::SELECTOR));
    }
 }

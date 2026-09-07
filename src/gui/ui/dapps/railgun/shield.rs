@@ -29,7 +29,6 @@ use crate::gui::{
    ui::{
       ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
       common::{AmountField, AmountFieldParams},
-      dapps::uniswap::swap::wrap_eth,
    },
 };
 use crate::utils::simulate::{fetch_accounts_info, fetch_storage_for_railgun};
@@ -1050,15 +1049,36 @@ async fn shield(
 
    let token = currency.to_erc20().into_owned();
    let railgun_address = railgun_provider.railgun_address();
-   let client = ctx.get_client(chain.id()).await?;
+   let relay_adapt = railgun_provider.chain_config().relay_adapt_contract;
+   let is_native = currency.is_native();
 
-   // TODO: At some point we want the WRAP + Approve + Shield to be done with a single transaction
+   // ERC-20 still needs an on-chain approval of RailgunSmartWallet before shield.
+   // Native ETH uses RelayAdapt wrap+shield in one self-broadcast tx (no approval).
+   if !is_native {
+      let client = ctx.get_client(chain.id()).await?;
+      let allowance = token.allowance(client, from, railgun_address).await?;
 
-   let allowance_fut = token.allowance(client.clone(), from, railgun_address);
+      if allowance < amount.wei() {
+         SHARED_GUI.write(|gui| {
+            gui.loading_window.open("Token approval required to shield");
+            gui.request_repaint();
+         });
 
-   // Wrap ETH into WETH if needed
-   if currency.is_native() {
-      wrap_eth(ctx.clone(), from, chain, amount.clone()).await?;
+         let calldata = token.encode_approve(railgun_address, amount.wei());
+         let (_, _) = send_transaction(
+            ctx.clone(),
+            "Railgun".to_string(),
+            None,
+            chain,
+            false,
+            from,
+            token.address,
+            calldata,
+            U256::ZERO,
+            vec![],
+         )
+         .await?;
+      }
    }
 
    SHARED_GUI.write(|gui| {
@@ -1066,52 +1086,30 @@ async fn shield(
       gui.request_repaint();
    });
 
-   let allowance = allowance_fut.await?;
-
-   // Approve if needed
-   if allowance < amount.wei() {
-      let calldata = token.encode_approve(railgun_address, amount.wei());
-      let value = U256::ZERO;
-      let dapp = "".to_string();
-      let mev_protect = false;
-      let auth_list = vec![];
-      let interact_to = token.address;
-
-      let (_, _) = send_transaction(
-         ctx.clone(),
-         dapp,
-         None,
-         chain,
-         mev_protect,
-         from,
-         interact_to,
-         calldata,
-         value,
-         auth_list,
-      )
-      .await?;
-   }
-
-   SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Wait while magic happens");
-      gui.request_repaint();
-   });
-
-   let asset = AssetId::Erc20(token.address);
    let amount_u128: u128 = amount.wei().try_into()?;
 
    let shield_tx = {
       let mut rng = ChaCha12Rng::from_os_rng();
-      railgun_provider
-         .shield()
-         .shield(recipient.clone(), asset, amount_u128)
-         .build(&mut rng)?
+      let builder = railgun_provider.shield();
+      let builder = if is_native {
+         builder.shield_native(recipient.clone(), amount_u128)
+      } else {
+         builder.shield(
+            recipient.clone(),
+            AssetId::Erc20(token.address),
+            amount_u128,
+         )
+      };
+      builder.build(&mut rng)?
    };
-   let calldata = shield_tx[0].data.clone();
-
-   let interact_to = railgun_provider.railgun_address();
+   let shield_tx = shield_tx
+      .into_iter()
+      .next()
+      .ok_or_else(|| anyhow!("Shield builder returned no transaction"))?;
+   let calldata = shield_tx.data.clone();
+   let interact_to = shield_tx.to;
+   let value = shield_tx.value;
    let auth_list = Vec::new();
-   let value = U256::ZERO;
 
    let eth_balance_before_fut = z_client.request(chain.id(), |client| async move {
       client
@@ -1142,6 +1140,8 @@ async fn shield(
    accounts.push(from);
    accounts.push(token.address);
    accounts.push(railgun_address);
+   accounts.push(interact_to);
+   accounts.push(relay_adapt);
    accounts.push(block.header.beneficiary);
 
    let common_accounts = railgun_common_accounts(chain.id());
@@ -1244,7 +1244,7 @@ async fn shield(
 
    let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
    let sponsored = false;
-   let dapp = "".to_string();
+   let dapp = "Railgun".to_string();
    let mev_protect = false;
 
    SHARED_GUI.write(|gui| {
@@ -1324,6 +1324,7 @@ async fn shield(
       gui.request_repaint();
    });
 
+   let client = ctx.get_client(chain.id()).await?;
    let receipt = send_tx(client, tx_params).await?;
 
    let logs: Vec<Log> = receipt.logs().to_vec();

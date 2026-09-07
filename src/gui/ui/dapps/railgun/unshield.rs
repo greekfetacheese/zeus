@@ -1028,7 +1028,8 @@ async fn unshield_via_paymaster(
    let calldata = handle_ops_data;
    let auth_list = Vec::new();
 
-   // TODO: Show the actual sender of the tx
+   // ? We can't know the actualy sender of the tx before hand
+   // ? TxHistory will show the actual sender
    let sender = from;
 
    let mut tx_analysis = TransactionAnalysis::new(
