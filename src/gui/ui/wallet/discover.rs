@@ -10,6 +10,7 @@ use eframe::egui::{
 };
 use egui_elements::{Button, Modal, SecureTextEdit, Theme, widgets::Window};
 use egui_lucide::Lucide;
+use elegance::{BadgeTone, Toast};
 
 use zeus_bip32::BIP32_HARDEN;
 use zeus_eth::{
@@ -20,7 +21,9 @@ use zeus_eth::{
 };
 use zeus_wallet::SecureHDWallet;
 
+use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::{sync::Semaphore, task::JoinHandle};
 
 /// A UI for discovering and derive child wallets from a master wallet (BIP32 HD)
@@ -34,6 +37,7 @@ pub struct DiscoverChildWallets {
    discovery_wallet: SecureHDWallet,
    discovered_wallets: DiscoveredWallets,
    syncing: bool,
+   adding_wallet: HashSet<Address>,
    pub loading: bool,
    add_wallet_window: bool,
    index_to_add: u32,
@@ -51,6 +55,7 @@ impl DiscoverChildWallets {
          discovery_wallet: SecureHDWallet::random(),
          discovered_wallets: DiscoveredWallets::new(),
          syncing: false,
+         adding_wallet: HashSet::new(),
          loading: false,
          add_wallet_window: false,
          index_to_add: 0,
@@ -466,6 +471,7 @@ impl DiscoverChildWallets {
          for child in wallets {
             // If child already exists it will displayed as disabled in the Ui
             let exists = self.hd_wallet.contains_child(child.address);
+            let wallet_is_beign_added = self.adding_wallet.contains(&child.address);
 
             let mut chains = Vec::new();
             let mut total_value = 0.0;
@@ -543,9 +549,16 @@ impl DiscoverChildWallets {
                            let button = Button::new(text)
                               .visuals(button_visuals)
                               .min_size(vec2(column_widths[3], 32.0));
-                           if ui.add(button).clicked() {
-                              add_wallet_clicked = true;
-                              index_to_add = child_index;
+
+                           let spinner = Spinner::new().size(20.0).color(theme.colors.text);
+
+                           if !wallet_is_beign_added {
+                              if ui.add(button).clicked() {
+                                 add_wallet_clicked = true;
+                                 index_to_add = child_index;
+                              }
+                           } else {
+                              ui.add(spinner);
                            }
                         });
                      });
@@ -644,9 +657,20 @@ impl DiscoverChildWallets {
                         });
                      }
 
+                     // Dont open the loading window here, just show a toast
+                     // Safety: The wallet is only added if the op is successful
+
                      SHARED_GUI.write(|gui| {
-                        gui.loading_window.open("Encrypting vault...");
-                        gui.request_repaint();
+                        gui.wallet_ui
+                           .add_wallet_ui
+                           .discover_child_wallets_ui
+                           .adding_wallet
+                           .insert(address);
+
+                        gui.wallet_ui
+                           .add_wallet_ui
+                           .discover_child_wallets_ui
+                           .close_add_wallet_window();
                      });
 
                      // On success save the vault and update the hd wallet in the Ui
@@ -661,6 +685,12 @@ impl DiscoverChildWallets {
                                  .discover_child_wallets_ui
                                  .close_add_wallet_window();
 
+                              gui.wallet_ui
+                                 .add_wallet_ui
+                                 .discover_child_wallets_ui
+                                 .adding_wallet
+                                 .remove(&address);
+
                               gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.wallet_name =
                                  String::new();
 
@@ -669,8 +699,11 @@ impl DiscoverChildWallets {
                                  .discover_child_wallets_ui
                                  .set_hd_wallet(hd_wallet);
 
-                              gui.loading_window.reset();
-                              gui.open_msg_window("Wallet Added");
+                              Toast::new("Wallet Added")
+                                 .tone(BadgeTone::Ok)
+                                 .description("Wallet added successfully")
+                                 .duration(Duration::from_secs(5))
+                                 .show(&gui.egui_ctx);
                            });
                         }
                         Err(e) => {
@@ -682,6 +715,12 @@ impl DiscoverChildWallets {
                                  .discover_child_wallets_ui
                                  .close_add_wallet_window();
 
+                              gui.wallet_ui
+                                 .add_wallet_ui
+                                 .discover_child_wallets_ui
+                                 .adding_wallet
+                                 .remove(&address);
+
                               gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.wallet_name =
                                  String::new();
 
@@ -690,11 +729,11 @@ impl DiscoverChildWallets {
                                  .discover_child_wallets_ui
                                  .set_hd_wallet(hd_wallet);
 
-                              gui.loading_window.reset();
-                              gui.open_msg_window(format!(
-                                 "Failed to encrypt vault: {}",
-                                 e.to_string()
-                              ));
+                              Toast::new("Failed to encrypt vault")
+                                 .tone(BadgeTone::Danger)
+                                 .description(e.to_string())
+                                 .duration(Duration::from_secs(5))
+                                 .show(&gui.egui_ctx);
                            });
                            return;
                         }

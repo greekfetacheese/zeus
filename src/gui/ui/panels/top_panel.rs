@@ -1,8 +1,9 @@
 use crate::core::ZeusContext;
 use crate::gui::{GUI, SHARED_GUI};
 use crate::utils::{RT, TimeStamp};
-use egui::{Align, Layout, Margin, RichText, Spinner, Ui, vec2};
+use egui::{Align, Align2, Area, Id, Layout, Margin, Order, RichText, Spinner, Ui, vec2};
 use egui_elements::{Button, Label};
+use elegance::Toasts;
 
 const DATA_SYNCING_MSG: &str = "Zeus is still syncing important data";
 const DEX_SYNCING_MSG: &str = "Zeus is still syncing DEX data";
@@ -98,15 +99,24 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       };
 
       if let Some(msg) = status_msg {
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            frame.show(ui, |ui| {
-               ui.label(RichText::new(msg).size(theme.typography.normal));
-               ui.add_space(10.0);
-               ui.add(Spinner::new().size(20.0).color(theme.colors.text));
+         // Paint above modal backdrops (Middle) so the pill stays full-bright
+         Area::new(Id::new("top_panel_status"))
+            .order(Order::Debug)
+            .anchor(Align2::RIGHT_TOP, vec2(-12.0, 12.0))
+            .interactable(false)
+            .show(ui.ctx(), |ui| {
+               frame.show(ui, |ui| {
+                  ui.horizontal(|ui| {
+                     ui.add(Spinner::new().size(20.0).color(theme.colors.text));
+                     ui.add_space(10.0);
+                     ui.label(RichText::new(msg).size(theme.typography.normal));
+                  });
+               });
             });
-         });
       }
    });
+
+   Toasts::new().anchor(Align2::RIGHT_TOP).render(ui.ctx());
 }
 
 fn check_railgun(chain: u64) {
@@ -116,14 +126,16 @@ fn check_railgun(chain: u64) {
          return;
       }
 
-      let can_check = ctx.write(|ctx| {
-         ctx.railgun_status.set_op_in_progress(chain, true);
-         ctx.railgun_status.ui_can_check.get(&chain).cloned().unwrap_or(false)
-      });
+      let can_check =
+         ctx.write(|ctx| ctx.railgun_status.ui_can_check.get(&chain).cloned().unwrap_or(false));
 
       if !can_check {
          return;
       }
+
+      ctx.write(|ctx| {
+         ctx.railgun_status.set_op_in_progress(chain, true);
+      });
 
       let railgun_provider = match ctx.get_railgun_provider(chain, false).await {
          Ok(provider) => provider,

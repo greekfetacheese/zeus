@@ -10,7 +10,8 @@ use eframe::egui::{
 };
 use egui_elements::Modal;
 use egui_elements::{Button, Label, SecureTextEdit, Theme};
-use elegance::{Menu, MenuItem};
+use elegance::{BadgeTone, Menu, MenuItem, Toast};
+use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::{alloy_primitives::Address, utils::NumericValue};
 use zeus_wallet::Wallet;
@@ -411,9 +412,12 @@ impl WalletUi {
                      }
 
                      SHARED_GUI.write(|gui| {
-                        gui.loading_window.open("Encrypting vault...");
+                        gui.wallet_ui.rename_wallet = false;
                      });
 
+                     // Don't open the loading window here so we don't block the
+                     // user from interacting with the UI. Toast when the save finishes.
+                     // Safety: The wallet is only updated if the op is successful
                      match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
                         Ok(_) => {
                            SHARED_GUI.write(|gui| {
@@ -425,14 +429,16 @@ impl WalletUi {
                               // Reset state
                               gui.wallet_ui.close_rename_wallet();
 
-                              gui.loading_window.reset();
-                              gui.open_msg_window("Success");
+                              Toast::new("Vault saved")
+                                 .tone(BadgeTone::Ok)
+                                 .description("Wallet renamed successfully")
+                                 .duration(Duration::from_secs(5))
+                                 .show(&gui.egui_ctx);
                               gui.request_repaint();
                            });
                         }
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
-                              gui.loading_window.reset();
                               gui.open_msg_window(format!(
                                  "Failed to encrypt vault, changes reverted: {}",
                                  e.to_string()

@@ -10,6 +10,7 @@ use zeus_eth::currency::ERC20Token;
 use zeus_eth::types::ChainId;
 
 use egui_elements::{Button, Label, Theme};
+use elegance::{BadgeTone, Toast};
 use std::sync::Arc;
 
 pub struct DevUi {
@@ -136,6 +137,45 @@ impl UiTesting {
          let text_size = theme.typography.normal;
 
          ScrollArea::vertical().show(ui, |ui| {
+            let button = Button::new(RichText::new("Toast OK").size(text_size)).min_size(button_size);
+            if ui.add(button).clicked() {
+               RT.spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                  Toast::new("Operation success").description("Everything looks good").tone(BadgeTone::Ok).show(&gui.egui_ctx);
+                  });
+               });
+            }
+
+            let button = Button::new(RichText::new("Toast Warning").size(text_size))
+               .min_size(button_size);
+            if ui.add(button).clicked() {
+               RT.spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                     Toast::new("Warning").description("Something might be wrong").tone(BadgeTone::Warning).show(&gui.egui_ctx);
+                  });
+               });
+            }
+
+            let button = Button::new(RichText::new("Toast Danger").size(text_size))
+               .min_size(button_size);
+            if ui.add(button).clicked() {
+               RT.spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                     Toast::new("Error").description("Something failed").tone(BadgeTone::Danger).show(&gui.egui_ctx);
+                  });
+               });
+            }
+
+            let button = Button::new(RichText::new("Toast Info").size(text_size))
+               .min_size(button_size);
+            if ui.add(button).clicked() {
+               RT.spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                     Toast::new("Informational").description("Something happened").tone(BadgeTone::Info).show(&gui.egui_ctx);
+                  });
+               });
+            }
+
             let button =
                Button::new(RichText::new("Icon Window").size(text_size)).min_size(button_size);
             if ui.add(button).clicked() {
