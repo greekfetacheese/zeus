@@ -9,6 +9,7 @@ use crate::gui::ui::settings::ImportDataUi;
 use crate::utils::RT;
 use egui::{Align, Align2, FontId, Layout, Margin, RichText, Ui, Window, vec2};
 use egui_elements::{Button, CredentialsForm, Label, SecureTextEdit, Theme};
+use elegance::{BadgeTone, Toast};
 use ncrypt_me::{Argon2, Credentials, zeroize::Zeroize};
 use std::time::Instant;
 use zeus_eth::types::ChainId;
@@ -296,7 +297,6 @@ pub struct RecoverHDWallet {
    allow_circuit_download: bool,
    memory: SystemMemory,
    pub size: (f32, f32),
-   size2: (f32, f32),
 }
 
 impl RecoverHDWallet {
@@ -320,7 +320,6 @@ impl RecoverHDWallet {
          allow_circuit_download: false,
          memory: SystemMemory::new(),
          size: (550.0, 350.0),
-         size2: (350.0, 250.0),
       }
    }
 
@@ -485,12 +484,13 @@ impl RecoverHDWallet {
          .frame(frame)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .show(ui.ctx(), |ui| {
-            ui.set_max_size(vec2(self.size2.0, self.size2.1));
+            ui.set_width(self.size.0);
             ui.spacing_mut().item_spacing.y = theme.spacing.md;
             ui.spacing_mut().button_padding = theme.button_padding;
 
             let button_visuals = theme.button_visuals();
             let text_edit_visuals = theme.text_edit_visuals();
+            let field_size = vec2(ui.available_width() * 0.9, 45.0);
 
             ui.vertical_centered(|ui| {
                self.show_requirements_warning(theme, ui);
@@ -506,13 +506,11 @@ impl RecoverHDWallet {
                   .font(FontId::proportional(theme.typography.normal))
                   .margin(Margin::same(10))
                   .hint_text(hint)
-                  .min_size(vec2(ui.available_width() * 0.9, 25.0))
+                  .min_size(field_size)
                   .show(ui);
 
                let text = RichText::new("Recover").size(theme.typography.large);
-               let recover_button = Button::new(text)
-                  .visuals(button_visuals)
-                  .min_size(vec2(ui.available_width() * 0.9, 25.0));
+               let recover_button = Button::new(text).visuals(button_visuals).min_size(field_size);
 
                if ui.add_enabled(!self.recover_button_clicked, recover_button).clicked() {
                   self.recover_button_clicked = true;
@@ -564,12 +562,26 @@ impl RecoverHDWallet {
                         gui.loading_window.open("Encrypting Vault...");
                      });
 
+                     let egui_ctx = SHARED_GUI.read(|gui| gui.egui_ctx.clone());
+
                      if let Err(e) = vault.ensure_railgun_db_key() {
-                        // ? Should not happen, at some point need to make
-                        // ? small PopUps in the UI to notify the user.
+                        let title = "Fatal Error";
+                        let err = format!("Failed to generate Railgun DB key: {e}");
+                        Toast::new(title)
+                           .description(err)
+                           .tone(BadgeTone::Danger)
+                           .persistent()
+                           .show(&egui_ctx);
                         tracing::error!("Failed to generate Railgun DB key: {e}");
                      }
                      if let Err(e) = vault.ensure_wallet_state_key() {
+                        let title = "Fatal Error";
+                        let err = format!("Failed to generate WalletState key: {e}");
+                        Toast::new(title)
+                           .description(err)
+                           .tone(BadgeTone::Danger)
+                           .persistent()
+                           .show(&egui_ctx);
                         tracing::error!("Failed to generate WalletState key: {e}");
                      }
 
@@ -591,8 +603,16 @@ impl RecoverHDWallet {
                            });
 
                            ctx.set_vault(vault);
+
                            // Fresh wallet state (empty), ensure sealed file exists.
                            if let Err(e) = ctx.save_wallet_state() {
+                              let title = "Fatal Error";
+                              let err = format!("Failed to save wallet state: {e}");
+                              Toast::new(title)
+                                 .description(err)
+                                 .tone(BadgeTone::Danger)
+                                 .persistent()
+                                 .show(&egui_ctx);
                               tracing::error!("Failed to save initial wallet state: {e}");
                            }
                            ctx.build_wallet_info_cache();
@@ -636,65 +656,60 @@ impl RecoverHDWallet {
          .frame(frame)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .show(ui.ctx(), |ui| {
-            ui.set_min_size(vec2(self.size.0, self.size.1));
+            ui.set_width(self.size.0);
             ui.spacing_mut().item_spacing.y = theme.spacing.md;
             ui.spacing_mut().button_padding = theme.button_padding;
 
-            let tip1 = "You just created a new Hierarchical Deterministic (HD) wallet";
-            let tip2 = "This wallet can always be recovered with the same credentials even if you lose your Vault";
-            let tip3 = "A Vault has been created with the credentials you just used for faster access to your wallets and contacts";
-            let tip4 = "If you want to create new wallets, it is recommended to derive them from the HD wallet you just created";
-            let tip5 = "You can import wallets from a seed phrase or a private key, but those can be lost forever if you lose your Vault";
-
-            let warning = "Make sure to never forget your credentials, it is the only way to recover your wallet";
-
-            let text1 = RichText::new(tip1).size(theme.typography.large);
-            let text2 = RichText::new(tip2).size(theme.typography.large);
-            let text3 = RichText::new(tip3).size(theme.typography.large);
-            let text4 = RichText::new(tip4).size(theme.typography.large);
-            let text5 = RichText::new(tip5).size(theme.typography.large);
-            let warning_text = RichText::new(warning)
-               .size(theme.typography.very_large)
-               .color(theme.colors.warning);
-
-            let label1 = Label::new(text1, None).wrap().interactive(false);
-            let label2 = Label::new(text2, None).wrap().interactive(false);
-            let label3 = Label::new(text3, None).wrap().interactive(false);
-            let label4 = Label::new(text4, None).wrap().interactive(false);
-            let label5 = Label::new(text5, None).wrap().interactive(false);
-            let label_warning = Label::new(warning_text, None).wrap().interactive(false);
-
-            ui.horizontal(|ui| {
-               ui.add(label1);
-            });
-
-            ui.horizontal(|ui| {
-               ui.add(label2);
-            });
-
-            ui.horizontal(|ui| {
-               ui.add(label3);
-            });
-
-            ui.horizontal(|ui| {
-               ui.add(label4);
-            });
-
-            ui.horizontal(|ui| {
-               ui.add(label5);
-            });
-
-            ui.horizontal(|ui| {
-               ui.add(label_warning);
-            });
-
             let button_visuals = theme.button_visuals();
-            let text = RichText::new("Next").size(theme.typography.large);
-            let next_button = Button::new(text)
-               .visuals(button_visuals)
-               .min_size(vec2(ui.available_width() * 0.25, 25.0));
+            let content_width = ui.available_width() * 0.9;
 
             ui.vertical_centered(|ui| {
+               ui.label(RichText::new("Your HD Wallet").size(theme.typography.heading));
+            });
+
+            ui.horizontal(|ui| {
+               let pad = ((ui.available_width() - content_width) / 2.0).max(0.0);
+               ui.add_space(pad);
+               ui.vertical(|ui| {
+                  ui.set_width(content_width);
+                  ui.spacing_mut().item_spacing.y = theme.spacing.md;
+
+                  let tips = [
+                     "You just created a new Hierarchical Deterministic (HD) wallet",
+                     "This wallet can always be recovered with the same credentials even if you lose your Vault",
+                     "A Vault has been created with the credentials you just used for faster access to your wallets and contacts",
+                     "If you want to create new wallets, it is recommended to derive them from the HD wallet you just created",
+                     "You can import wallets from a seed phrase or a private key, but those can be lost forever if you lose your Vault",
+                  ];
+                  for tip in tips {
+                     let text = RichText::new(tip).size(theme.typography.large);
+                     ui.add(
+                        Label::new(text, None)
+                           .wrap()
+                           .fill_width(true)
+                           .interactive(false),
+                     );
+                  }
+
+                  let warning = RichText::new(
+                     "Make sure to never forget your credentials, it is the only way to recover your wallet",
+                  )
+                  .size(theme.typography.very_large)
+                  .color(theme.colors.warning);
+                  ui.add(
+                     Label::new(warning, None)
+                        .wrap()
+                        .fill_width(true)
+                        .interactive(false),
+                  );
+               });
+            });
+
+            ui.vertical_centered(|ui| {
+               let text = RichText::new("Next").size(theme.typography.large);
+               let next_button = Button::new(text)
+                  .visuals(button_visuals)
+                  .min_size(vec2(content_width, 45.0));
                if ui.add(next_button).clicked() {
                   self.onboarding_step = 1;
                }
@@ -712,61 +727,57 @@ impl RecoverHDWallet {
          .frame(frame)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .show(ui.ctx(), |ui| {
-            ui.set_min_size(vec2(self.size.0, self.size.1 + 80.0));
+            ui.set_width(self.size.0);
             ui.spacing_mut().item_spacing.y = theme.spacing.md;
             ui.spacing_mut().button_padding = theme.button_padding;
 
-            let heading = RichText::new("Railgun Privacy")
-               .size(theme.typography.heading);
-
-            let text1 = RichText::new(
-               "Zeus can use Railgun to shield your assets and keep balances private on Ethereum.",
-            )
-            .size(theme.typography.large);
-
-            let text2 = RichText::new(
-               "Enabling it will sync private notes in the background. You can change this later in Settings/Railgun.",
-            )
-            .size(theme.typography.large);
-
-            let text3 = RichText::new(
-               "Private transactions need proving circuits. Allow Zeus to download them when they are not already available.\n
-               This is optional, Zeus already has a small set of circuits for the necessary operations.",
-            )
-            .size(theme.typography.large);
-
-            let heading_label = Label::new(heading, None).wrap().interactive(false);
-            let label1 = Label::new(text1, None).wrap().interactive(false);
-            let label2 = Label::new(text2, None).wrap().interactive(false);
-            let label3 = Label::new(text3, None).wrap().interactive(false);
-
-            ui.horizontal(|ui| {
-               ui.add(heading_label);
-            });
-            ui.horizontal(|ui| {
-               ui.add(label1);
-            });
-            ui.horizontal(|ui| {
-               ui.add(label2);
-            });
-            ui.horizontal(|ui| {
-               ui.add(label3);
-            });
-
-            let enable_text = RichText::new("Enable Railgun").size(theme.typography.large);
-            ui.checkbox(&mut self.enable_railgun, enable_text);
-
-            let download_text =
-               RichText::new("Allow Circuit Download").size(theme.typography.large);
-            ui.checkbox(&mut self.allow_circuit_download, download_text);
-
             let button_visuals = theme.button_visuals();
-            let text = RichText::new("Continue").size(theme.typography.large);
-            let continue_button = Button::new(text)
-               .visuals(button_visuals)
-               .min_size(vec2(ui.available_width() * 0.25, 25.0));
+            let content_width = ui.available_width() * 0.9;
 
             ui.vertical_centered(|ui| {
+               ui.label(RichText::new("Railgun Privacy").size(theme.typography.heading));
+            });
+
+            ui.horizontal(|ui| {
+               let pad = ((ui.available_width() - content_width) / 2.0).max(0.0);
+               ui.add_space(pad);
+               ui.vertical(|ui| {
+                  ui.set_width(content_width);
+                  ui.spacing_mut().item_spacing.y = theme.spacing.md;
+
+                  let paragraphs = [
+                     "Zeus can use Railgun to shield your assets and keep balances private on Ethereum.",
+                     "Enabling it will sync private notes in the background. You can change this later in Settings/Railgun.",
+                     "Private transactions need proving circuits. Allow Zeus to download them when they are not already available.",
+                     "This is optional. Zeus already has a small set of circuits for the necessary operations.",
+                  ];
+                  for paragraph in paragraphs {
+                     let text = RichText::new(paragraph).size(theme.typography.large);
+                     ui.add(
+                        Label::new(text, None)
+                           .wrap()
+                           .fill_width(true)
+                           .interactive(false),
+                     );
+                  }
+
+                  let enable_text = RichText::new("Enable Railgun").size(theme.typography.large);
+                  ui.checkbox(&mut self.enable_railgun, enable_text);
+
+                  let download_text =
+                     RichText::new("Allow Circuit Download").size(theme.typography.large);
+                  ui.checkbox(&mut self.allow_circuit_download, download_text);
+               });
+            });
+
+            ui.add_space(20.0);
+
+            ui.vertical_centered(|ui| {
+               let text = RichText::new("Continue").size(theme.typography.large);
+               let continue_button = Button::new(text)
+                  .visuals(button_visuals)
+                  .min_size(vec2(content_width, 45.0));
+
                if ui.add(continue_button).clicked() {
                   let enable_railgun = self.enable_railgun;
                   let allow_circuit_download = self.allow_circuit_download;
@@ -795,12 +806,12 @@ impl RecoverHDWallet {
                            .set_allow_circuit_download(allow_circuit_download);
                      });
 
-                        let config = ctx.read(|ctx| ctx.railgun_config.clone());
-                        if let Err(e) = config.save() {
-                           tracing::error!("Failed to save Railgun config: {e}");
-                        }
+                     let config = ctx.read(|ctx| ctx.railgun_config.clone());
+                     if let Err(e) = config.save() {
+                        tracing::error!("Failed to save Railgun config: {e}");
+                     }
 
-                        // Sync state will kickoff once the user enables at least 1 RPC
+                     // Sync state will kickoff once the user enables at least 1 RPC
                   });
                }
             });
