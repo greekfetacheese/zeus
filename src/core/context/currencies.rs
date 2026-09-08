@@ -25,7 +25,6 @@ pub struct TokenData {
    pub symbol: String,
    pub decimals: u8,
    pub icon_data_x32: Vec<u8>,
-   pub icon_data_x24: Vec<u8>,
 }
 
 type TokenMap = HashMap<Address, ERC20Token>;

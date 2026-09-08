@@ -210,7 +210,6 @@ async fn process_token_entry(
    };
 
    let mut write_buffer_x32 = Vec::new();
-   let mut write_buffer_x24 = Vec::new();
 
    {
       let mut cursor = Cursor::new(&mut write_buffer_x32);
@@ -222,17 +221,6 @@ async fn process_token_entry(
       img.write_with_encoder(encoder)?;
    }
 
-   {
-      let mut cursor = Cursor::new(&mut write_buffer_x24);
-      let encoder = PngEncoder::new_with_quality(
-         &mut cursor,
-         image::codecs::png::CompressionType::Best,
-         image::codecs::png::FilterType::Sub,
-      );
-      img.resize(24, 24, image::imageops::FilterType::Lanczos3)
-         .write_with_encoder(encoder)?;
-   }
-
    Ok(Some(TokenData::new(
       chain_id.id(),
       info.address,
@@ -240,7 +228,6 @@ async fn process_token_entry(
       info.symbol,
       info.decimals,
       write_buffer_x32,
-      write_buffer_x24,
    )))
 }
 

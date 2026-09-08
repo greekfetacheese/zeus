@@ -104,8 +104,9 @@ pub fn spawn_fetch_token_icon(chain_id: u64, address: Address) {
    RT.spawn(async move {
       match fetch_smoldapp_icon(chain_id, address).await {
          Ok(Some(icon)) => {
-            if let Err(e) = save_token_icon(chain_id, address, &icon) {
-               tracing::warn!("Failed to save token icon for {address} on chain {chain_id}: {e}");
+            if let Err(_e) = save_token_icon(chain_id, address, &icon) {
+               #[cfg(feature = "dev")]
+               tracing::warn!("Failed to save token icon for {address} on chain {chain_id}: {_e}");
             }
 
             icons.tokens.insert_icon(address, chain_id, icon);
@@ -114,14 +115,17 @@ pub fn spawn_fetch_token_icon(chain_id: u64, address: Address) {
                gui.request_repaint();
             });
 
+            #[cfg(feature = "dev")]
             tracing::info!("Fetched token icon for {address} on chain {chain_id}");
          }
          Ok(None) => {
+            #[cfg(feature = "dev")]
             tracing::debug!("No SmolDapp icon for {address} on chain {chain_id}");
             icons.tokens.finish_fetch(address, chain_id, true);
          }
-         Err(e) => {
-            tracing::warn!("Failed to fetch token icon for {address} on chain {chain_id}: {e}");
+         Err(_e) => {
+            #[cfg(feature = "dev")]
+            tracing::warn!("Failed to fetch token icon for {address} on chain {chain_id}: {_e}");
             icons.tokens.finish_fetch(address, chain_id, false);
          }
       }

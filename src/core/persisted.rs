@@ -392,7 +392,7 @@ fn is_token_address_dir(s: &str) -> bool {
 }
 
 fn is_icon_file(name: &str) -> bool {
-   name == TOKEN_ICON_X32 || name == TOKEN_ICON_X24
+   name == TOKEN_ICON_X32
 }
 
 #[cfg(test)]
