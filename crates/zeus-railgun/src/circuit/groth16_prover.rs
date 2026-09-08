@@ -51,6 +51,15 @@ impl Groth16Prover {
       self
    }
 
+   pub fn with_allow_download(self, allow: bool) -> Self {
+      self.artifact_loader.set_allow_download(allow);
+      self
+   }
+
+   pub fn set_allow_download(&self, allow: bool) {
+      self.artifact_loader.set_allow_download(allow);
+   }
+
    pub fn artifact_loader(&self) -> &RemoteArtifactLoader {
       &self.artifact_loader
    }

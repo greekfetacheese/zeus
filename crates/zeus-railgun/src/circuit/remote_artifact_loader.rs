@@ -2,7 +2,10 @@ use std::{
    collections::{BTreeSet, HashMap, VecDeque},
    io::Cursor,
    path::{Path, PathBuf},
-   sync::{Arc, Mutex},
+   sync::{
+      Arc, Mutex,
+      atomic::{AtomicBool, Ordering},
+   },
 };
 
 use ark_bn254::Fr;
@@ -179,6 +182,9 @@ pub struct RemoteArtifactLoader {
    /// Circuits embedded in the host binary. Looked up before disk/network and
    /// never auto-written to the disk cache.
    embedded: Arc<HashMap<&'static str, EmbeddedCircuit>>,
+
+   /// When false, skip remote fetch (embeds + disk only). Shared across clones.
+   allow_download: Arc<AtomicBool>,
 }
 
 struct Cache {
@@ -228,6 +234,8 @@ pub enum RemoteArtifactLoaderError {
    DecompressionError(#[from] std::io::Error),
    #[error("No on-disk cache directory configured")]
    NoCacheDir,
+   #[error("Circuit download is disabled ({circuit} / {file})")]
+   DownloadDisabled { circuit: String, file: String },
    #[error(transparent)]
    Pin(#[from] ArtifactPinError),
 }
@@ -252,7 +260,21 @@ impl RemoteArtifactLoader {
          cache: Arc::new(Mutex::new(Cache::new(64 * 1024 * 1024))),
          cache_dir,
          embedded: Arc::new(HashMap::new()),
+         allow_download: Arc::new(AtomicBool::new(true)),
       }
+   }
+
+   pub fn with_allow_download(self, allow: bool) -> Self {
+      self.allow_download.store(allow, Ordering::Relaxed);
+      self
+   }
+
+   pub fn set_allow_download(&self, allow: bool) {
+      self.allow_download.store(allow, Ordering::Relaxed);
+   }
+
+   pub fn allow_download(&self) -> bool {
+      self.allow_download.load(Ordering::Relaxed)
    }
 
    pub fn with_cache_dir(self, dir: Option<PathBuf>) -> Self {
@@ -453,6 +475,14 @@ impl RemoteArtifactLoader {
             continue;
          }
 
+         if !self.allow_download() {
+            debug!(
+               "Skipping download for {} (circuit download disabled)",
+               name
+            );
+            continue;
+         }
+
          if self.cache_dir.is_none() {
             report.failed.push((
                name,
@@ -558,6 +588,12 @@ impl RemoteArtifactLoader {
       }
 
       // 4. Remote download
+      if !self.allow_download() {
+         return Err(RemoteArtifactLoaderError::DownloadDisabled {
+            circuit: circuit_name.to_string(),
+            file: filename.to_string(),
+         });
+      }
       debug!("Downloading from remote: {}", url);
       let response = self.client.get(&url).send().await?;
       let status = response.status();
@@ -839,6 +875,20 @@ mod tests {
          matches!(
             err,
             RemoteArtifactLoaderError::Pin(ArtifactPinError::Unpinned { .. })
+         ),
+         "{err:?}"
+      );
+   }
+
+   #[tokio::test]
+   async fn download_disabled_skips_remote() {
+      let loader = RemoteArtifactLoader::new("https://example.invalid/artifacts", None)
+         .with_allow_download(false);
+      let err = loader.load_wasm("railgun/01x01").await.unwrap_err();
+      assert!(
+         matches!(
+            err,
+            RemoteArtifactLoaderError::DownloadDisabled { .. }
          ),
          "{err:?}"
       );

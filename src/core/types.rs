@@ -32,6 +32,9 @@ pub struct RailgunConfig {
    pub rpc_syncer_block_range: HashMap<u64, u64>,
    #[serde(default)]
    pub enabled: HashMap<u64, bool>,
+   /// When false, Railgun proving uses only embedded and on-disk circuits.
+   #[serde(default)]
+   pub allow_circuit_download: bool,
    /// How often to sync Railgun state, in minutes (1–60).
    #[serde(default = "default_state_update_interval_minutes")]
    pub state_update_interval_minutes: u64,
@@ -54,6 +57,7 @@ impl RailgunConfig {
          rpc_syncer_concurrency: DEFAULT_CONCURRENCY,
          rpc_syncer_block_range,
          enabled: HashMap::new(),
+         allow_circuit_download: false,
          state_update_interval_minutes: DEFAULT_STATE_UPDATE_INTERVAL_MINUTES,
       }
    }
@@ -84,6 +88,14 @@ impl RailgunConfig {
 
    pub fn any_enabled(&self) -> bool {
       self.enabled.values().any(|enabled| *enabled)
+   }
+
+   pub fn allow_circuit_download(&self) -> bool {
+      self.allow_circuit_download
+   }
+
+   pub fn set_allow_circuit_download(&mut self, allow: bool) {
+      self.allow_circuit_download = allow;
    }
 
    /// Railgun state-update interval in seconds (clamped to 1–60 minutes).

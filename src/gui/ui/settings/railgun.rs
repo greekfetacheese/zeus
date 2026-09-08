@@ -81,6 +81,12 @@ impl RailgunSettings {
          self.config.set_enabled(chain, enabled);
       }
 
+      let mut allow_download = self.config.allow_circuit_download();
+      let download_text = RichText::new("Allow Circuit Download").size(theme.typography.normal);
+      if ui.checkbox(&mut allow_download, download_text).changed() {
+         self.config.set_allow_circuit_download(allow_download);
+      }
+
       let q_mark = RichText::new("?").size(theme.typography.normal);
       let info_tip = Badge::new(q_mark, BadgeTone::Info);
 
@@ -156,7 +162,11 @@ impl RailgunSettings {
 }
 
 fn post_click(ctx: &mut ZeusContext, new_config: RailgunConfig) {
+   let allow_download = new_config.allow_circuit_download();
    ctx.railgun_config = new_config.clone();
+   for provider in ctx.railgun_provider.values() {
+      provider.prover().set_allow_download(allow_download);
+   }
 
    let new_config_clone = new_config.clone();
    RT.spawn(async move {
@@ -220,5 +230,7 @@ fn post_click(ctx: &mut ZeusContext, new_config: RailgunConfig) {
             ctx.update_private_data(chain, wallet.address).await;
          }
       }
+
+      crate::utils::state::prefetch_railgun_circuits_if_allowed(&ctx).await;
    });
 }

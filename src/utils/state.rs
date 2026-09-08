@@ -168,35 +168,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
       // Prefetch ERC-7730 registry index so the first unknown typed-data
       // sign does not wait on GitHub.
       crate::core::clear_signing::registry::prefetch_index().await;
-
-      if !ctx2.read(|ctx| ctx.railgun_config.any_enabled()) {
-         return;
-      }
-
-      // Prefetch all transact circuit artifacts (01x01 ..= 05x05) into the
-      // on-disk cache so first prove / merge does not hit the network cold.
-      ctx2.write(|ctx| {
-         ctx.railgun_status.set_circuits_download_in_progress(true);
-      });
-      match prefetch_railgun_circuits().await {
-         Ok(report) => {
-            info!(
-               "Railgun circuit prefetch: {} ready ({} embedded, {} disk, {} downloaded), {} failed",
-               report.ok_count(),
-               report.embedded.len(),
-               report.already_cached.len(),
-               report.downloaded.len(),
-               report.failed_count()
-            );
-            for (name, err) in &report.failed {
-               warn!("Circuit prefetch failed for {}: {}", name, err);
-            }
-         }
-         Err(e) => error!("Railgun circuit prefetch error: {:?}", e),
-      }
-      ctx2.write(|ctx| {
-         ctx.railgun_status.set_circuits_download_in_progress(false);
-      });
+      prefetch_railgun_circuits_if_allowed(&ctx2).await;
    });
 
    for task in tasks {
@@ -707,9 +679,42 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
 
 /// Prefetch pack circuits (`railgun/01x01` ..= `05x05`) into the Zeus
 /// railgun data directory. Skips circuits already complete on disk.
+/// No-op unless Railgun is enabled and circuit download is allowed.
+pub async fn prefetch_railgun_circuits_if_allowed(ctx: &ZeusCtx) {
+   if !ctx
+      .read(|ctx| ctx.railgun_config.any_enabled() && ctx.railgun_config.allow_circuit_download())
+   {
+      return;
+   }
+
+   ctx.write(|ctx| {
+      ctx.railgun_status.set_circuits_download_in_progress(true);
+   });
+   match prefetch_railgun_circuits().await {
+      Ok(report) => {
+         info!(
+            "Railgun circuit prefetch: {} ready ({} embedded, {} disk, {} downloaded), {} failed",
+            report.ok_count(),
+            report.embedded.len(),
+            report.already_cached.len(),
+            report.downloaded.len(),
+            report.failed_count()
+         );
+         for (name, err) in &report.failed {
+            warn!("Circuit prefetch failed for {}: {}", name, err);
+         }
+      }
+      Err(e) => error!("Railgun circuit prefetch error: {:?}", e),
+   }
+   ctx.write(|ctx| {
+      ctx.railgun_status.set_circuits_download_in_progress(false);
+   });
+}
+
 async fn prefetch_railgun_circuits() -> Result<PrefetchReport, anyhow::Error> {
    let dir = railgun_dir()?;
    let prover = Groth16Prover::new(Some(dir))
-      .with_embedded_circuits(crate::embedded::railgun::embedded_circuits());
+      .with_embedded_circuits(crate::embedded::railgun::embedded_circuits())
+      .with_allow_download(true);
    Ok(prover.prefetch_artifacts().await?)
 }

@@ -447,6 +447,9 @@ impl ZeusCtx {
 
          let provider_opt = self.read(|ctx| ctx.railgun_provider.get(&chain).cloned());
          if let Some(mut provider) = provider_opt {
+            provider
+               .prover()
+               .set_allow_download(self.read(|ctx| ctx.railgun_config.allow_circuit_download()));
             provider.set_provider(client.clone());
 
             let is_syncing = provider.is_syncing().await;
@@ -469,7 +472,16 @@ impl ZeusCtx {
             });
          }
 
-         let provider = match create_railgun_provider(client, chain, db_key.clone()).await {
+         let allow_circuit_download = self.read(|ctx| ctx.railgun_config.allow_circuit_download());
+         
+         let provider = match create_railgun_provider(
+            client,
+            chain,
+            db_key.clone(),
+            allow_circuit_download,
+         )
+         .await
+         {
             Ok(provider) => provider,
             Err(e) => {
                let error_str = e.to_string();

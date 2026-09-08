@@ -30,6 +30,7 @@ pub async fn create_railgun_provider(
    client: RpcClient,
    chain: u64,
    db_key: RailgunDbKey,
+   allow_circuit_download: bool,
 ) -> Result<RailgunProvider<RpcClient>, anyhow::Error> {
    let time = std::time::Instant::now();
 
@@ -61,7 +62,8 @@ pub async fn create_railgun_provider(
    let utxo_indexer = UtxoIndexer::new(db, rpc_syncer, subsquid_syncer, utxo_verifier).await?;
 
    let prover = Groth16Prover::new(Some(railgun_dir))
-      .with_embedded_circuits(crate::embedded::railgun::embedded_circuits());
+      .with_embedded_circuits(crate::embedded::railgun::embedded_circuits())
+      .with_allow_download(allow_circuit_download);
 
    let railgun_provider = RailgunProvider::new(
       chain_config,

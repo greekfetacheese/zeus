@@ -98,7 +98,7 @@ mod tests {
       let db_key = ctx.write_vault(|vault| vault.railgun_db_key())?;
 
       let mut railgun_provider: RailgunProvider<RpcClient> =
-         create_railgun_provider(client.clone(), chain.id(), db_key).await?;
+         create_railgun_provider(client.clone(), chain.id(), db_key, true).await?;
 
       railgun_provider.register(signer).await?;
       railgun_provider.set_provider(client.clone());
@@ -149,7 +149,7 @@ mod tests {
       let client = ctx.get_client(chain.id()).await?;
 
       let mut railgun_provider: RailgunProvider<RpcClient> =
-         create_railgun_provider(client.clone(), chain.id(), db_key).await?;
+         create_railgun_provider(client.clone(), chain.id(), db_key, true).await?;
 
       railgun_provider.register(signer.clone()).await?;
 

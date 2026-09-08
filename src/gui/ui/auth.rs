@@ -293,6 +293,7 @@ pub struct RecoverHDWallet {
    show_onboarding: bool,
    onboarding_step: u8,
    enable_railgun: bool,
+   allow_circuit_download: bool,
    memory: SystemMemory,
    pub size: (f32, f32),
    size2: (f32, f32),
@@ -316,6 +317,7 @@ impl RecoverHDWallet {
          show_onboarding: false,
          onboarding_step: 0,
          enable_railgun: false,
+         allow_circuit_download: false,
          memory: SystemMemory::new(),
          size: (550.0, 350.0),
          size2: (350.0, 250.0),
@@ -710,24 +712,33 @@ impl RecoverHDWallet {
          .frame(frame)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .show(ui.ctx(), |ui| {
-            ui.set_min_size(vec2(self.size.0, self.size.1));
+            ui.set_min_size(vec2(self.size.0, self.size.1 + 80.0));
             ui.spacing_mut().item_spacing.y = theme.spacing.md;
             ui.spacing_mut().button_padding = theme.button_padding;
 
             let heading = RichText::new("Railgun Privacy")
                .size(theme.typography.heading);
+
             let text1 = RichText::new(
                "Zeus can use Railgun to shield your assets and keep balances private on Ethereum.",
             )
             .size(theme.typography.large);
+
             let text2 = RichText::new(
                "Enabling it will sync private notes in the background. You can change this later in Settings/Railgun.",
+            )
+            .size(theme.typography.large);
+
+            let text3 = RichText::new(
+               "Private transactions need proving circuits. Allow Zeus to download them when they are not already available.\n
+               This is optional, Zeus already has a small set of circuits for the necessary operations.",
             )
             .size(theme.typography.large);
 
             let heading_label = Label::new(heading, None).wrap().interactive(false);
             let label1 = Label::new(text1, None).wrap().interactive(false);
             let label2 = Label::new(text2, None).wrap().interactive(false);
+            let label3 = Label::new(text3, None).wrap().interactive(false);
 
             ui.horizontal(|ui| {
                ui.add(heading_label);
@@ -738,9 +749,16 @@ impl RecoverHDWallet {
             ui.horizontal(|ui| {
                ui.add(label2);
             });
+            ui.horizontal(|ui| {
+               ui.add(label3);
+            });
 
             let enable_text = RichText::new("Enable Railgun").size(theme.typography.large);
             ui.checkbox(&mut self.enable_railgun, enable_text);
+
+            let download_text =
+               RichText::new("Allow Circuit Download").size(theme.typography.large);
+            ui.checkbox(&mut self.allow_circuit_download, download_text);
 
             let button_visuals = theme.button_visuals();
             let text = RichText::new("Continue").size(theme.typography.large);
@@ -751,6 +769,7 @@ impl RecoverHDWallet {
             ui.vertical_centered(|ui| {
                if ui.add(continue_button).clicked() {
                   let enable_railgun = self.enable_railgun;
+                  let allow_circuit_download = self.allow_circuit_download;
                   let current_wallet = ctx.read_vault(|vault| vault.get_master_wallet());
                   RT.spawn_blocking(move || {
                      let ctx = SHARED_GUI.write(|gui| {
@@ -772,6 +791,8 @@ impl RecoverHDWallet {
                               }
                            }
                         }
+                        ctx.railgun_config
+                           .set_allow_circuit_download(allow_circuit_download);
                      });
 
                         let config = ctx.read(|ctx| ctx.railgun_config.clone());
