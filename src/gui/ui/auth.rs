@@ -311,6 +311,8 @@ pub struct RecoverHDWallet {
    onboarding_step: u8,
    enable_railgun: bool,
    allow_circuit_download: bool,
+   fetch_token_icons: bool,
+   fetch_contract_names: bool,
    memory: SystemMemory,
    pub size: (f32, f32),
 }
@@ -334,6 +336,8 @@ impl RecoverHDWallet {
          onboarding_step: 0,
          enable_railgun: false,
          allow_circuit_download: false,
+         fetch_token_icons: false,
+         fetch_contract_names: false,
          memory: SystemMemory::new(),
          size: (550.0, 350.0),
       }
@@ -663,7 +667,8 @@ impl RecoverHDWallet {
 
       match self.onboarding_step {
          0 => self.show_onboarding_tips(theme, ui),
-         _ => self.show_onboarding_railgun(ctx, theme, ui),
+         1 => self.show_onboarding_railgun(ctx, theme, ui),
+         _ => self.show_onboarding_external_data(ctx, theme, ui),
       }
    }
 
@@ -794,16 +799,109 @@ impl RecoverHDWallet {
             ui.add_space(20.0);
 
             ui.vertical_centered(|ui| {
+               let text = RichText::new("Next").size(theme.typography.large);
+               let next_button = Button::new(text)
+                  .visuals(button_visuals)
+                  .min_size(vec2(content_width, 45.0));
+
+               if ui.add(next_button).clicked() {
+                  let enable_railgun = self.enable_railgun;
+                  let allow_circuit_download = self.allow_circuit_download;
+                  if enable_railgun {
+                     for chain in ChainId::supported_chains() {
+                        if ctx.railgun_is_supported(chain) {
+                           ctx.railgun_config.set_enabled(chain.id(), true);
+                        }
+                     }
+                  }
+                  ctx.railgun_config
+                     .set_allow_circuit_download(allow_circuit_download);
+                  let config = ctx.railgun_config.clone();
+                  RT.spawn_blocking(move || {
+                     if let Err(e) = config.save() {
+                        tracing::error!("Failed to save Railgun config: {e}");
+                     }
+                  });
+                  self.onboarding_step = 2;
+               }
+            });
+         });
+   }
+
+   fn show_onboarding_external_data(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+      let frame = theme.frame1;
+
+      Window::new("Recover_HD_Wallet_external_data")
+         .title_bar(false)
+         .movable(false)
+         .resizable(false)
+         .frame(frame)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .show(ui.ctx(), |ui| {
+            ui.set_width(self.size.0);
+            ui.spacing_mut().item_spacing.y = theme.spacing.md;
+            ui.spacing_mut().button_padding = theme.button_padding;
+
+            let button_visuals = theme.button_visuals();
+            let content_width = ui.available_width() * 0.9;
+
+            ui.vertical_centered(|ui| {
+               ui.label(RichText::new("External Data").size(theme.typography.heading));
+            });
+
+            ui.horizontal(|ui| {
+               let pad = ((ui.available_width() - content_width) / 2.0).max(0.0);
+               ui.add_space(pad);
+               ui.vertical(|ui| {
+                  ui.set_width(content_width);
+                  ui.spacing_mut().item_spacing.y = theme.spacing.md;
+
+                  let paragraphs = [
+                     "Zeus can download token icons from tokens.smold.app so unknown tokens show an image instead of a placeholder.",
+                     "Zeus can also look up verified contract names on sourcify.dev when you sign a transaction or message.",
+                     "Both are optional and just do http calls to third-party servers. No telemetry or data collection.",
+                     "You can change this later in Settings/General."
+                  ];
+                  for paragraph in paragraphs {
+                     let text = RichText::new(paragraph).size(theme.typography.large);
+                     ui.add(
+                        Label::new(text, None)
+                           .wrap()
+                           .fill_width(true)
+                           .interactive(false),
+                     );
+                  }
+
+                  let icons_text =
+                     RichText::new("Download Token Icons").size(theme.typography.large);
+                  ui.checkbox(&mut self.fetch_token_icons, icons_text);
+
+                  let names_text =
+                     RichText::new("Fetch Contract Names").size(theme.typography.large);
+                  ui.checkbox(&mut self.fetch_contract_names, names_text);
+               });
+            });
+
+            ui.add_space(20.0);
+
+            ui.vertical_centered(|ui| {
                let text = RichText::new("Continue").size(theme.typography.large);
                let continue_button = Button::new(text)
                   .visuals(button_visuals)
                   .min_size(vec2(content_width, 45.0));
 
                if ui.add(continue_button).clicked() {
-                  let enable_railgun = self.enable_railgun;
-                  let allow_circuit_download = self.allow_circuit_download;
+                  ctx.misc_config
+                     .set_fetch_token_icons(self.fetch_token_icons);
+                  ctx.misc_config
+                     .set_fetch_contract_names(self.fetch_contract_names);
+                  let config = ctx.misc_config.clone();
                   let current_wallet = ctx.read_vault(|vault| vault.get_master_wallet());
                   RT.spawn_blocking(move || {
+                     if let Err(e) = config.save() {
+                        tracing::error!("Failed to save misc config: {e}");
+                     }
+
                      let ctx = SHARED_GUI.write(|gui| {
                         gui.recover_wallet_ui.show_onboarding = false;
                         gui.portofolio.open();
@@ -816,21 +914,7 @@ impl RecoverHDWallet {
                      ctx.write(|ctx| {
                         ctx.vault_exists = true;
                         ctx.vault_unlocked = true;
-                        if enable_railgun {
-                           for chain in ChainId::supported_chains() {
-                              if ctx.railgun_is_supported(chain) {
-                                 ctx.railgun_config.set_enabled(chain.id(), true);
-                              }
-                           }
-                        }
-                        ctx.railgun_config
-                           .set_allow_circuit_download(allow_circuit_download);
                      });
-
-                     let config = ctx.read(|ctx| ctx.railgun_config.clone());
-                     if let Err(e) = config.save() {
-                        tracing::error!("Failed to save Railgun config: {e}");
-                     }
 
                      // Sync state will kickoff once the user enables at least 1 RPC
                   });

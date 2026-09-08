@@ -8,7 +8,9 @@ use zeus_eth::{
 
 use crate::core::{
    WalletInfo,
-   context::{DELEGATE_WALLET_CHECK_TIMEOUT, disabled_chains_dir, railgun_config_dir},
+   context::{
+      DELEGATE_WALLET_CHECK_TIMEOUT, disabled_chains_dir, misc_config_dir, railgun_config_dir,
+   },
 };
 use crate::utils::{TimeStamp, write_private};
 
@@ -111,6 +113,62 @@ impl RailgunConfig {
 }
 
 impl Default for RailgunConfig {
+   fn default() -> Self {
+      Self::new()
+   }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MiscConfig {
+   /// When true, unknown ERC-20 icons may be downloaded from SmolDapp.
+   #[serde(default)]
+   pub fetch_token_icons: bool,
+   /// When true, unknown contract names may be fetched from Sourcify.
+   #[serde(default)]
+   pub fetch_contract_names: bool,
+}
+
+impl MiscConfig {
+   pub fn new() -> Self {
+      Self {
+         fetch_token_icons: false,
+         fetch_contract_names: false,
+      }
+   }
+
+   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+      let dir = misc_config_dir()?;
+      let data = std::fs::read_to_string(dir)?;
+      let config = serde_json::from_str(&data)?;
+
+      Ok(config)
+   }
+
+   pub fn save(&self) -> Result<(), anyhow::Error> {
+      let dir = misc_config_dir()?;
+      let data = serde_json::to_string(self)?;
+      write_private(&dir, data.as_bytes())?;
+      Ok(())
+   }
+
+   pub fn fetch_token_icons(&self) -> bool {
+      self.fetch_token_icons
+   }
+
+   pub fn set_fetch_token_icons(&mut self, allow: bool) {
+      self.fetch_token_icons = allow;
+   }
+
+   pub fn fetch_contract_names(&self) -> bool {
+      self.fetch_contract_names
+   }
+
+   pub fn set_fetch_contract_names(&mut self, allow: bool) {
+      self.fetch_contract_names = allow;
+   }
+}
+
+impl Default for MiscConfig {
    fn default() -> Self {
       Self::new()
    }

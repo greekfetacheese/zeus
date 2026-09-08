@@ -88,7 +88,15 @@ async fn fetch_smoldapp_icon(
 /// Safe to call from any thread. Does not block on the network — missing
 /// icons stay on the ERC-20 placeholder until the download finishes.
 pub fn spawn_fetch_token_icon(chain_id: u64, address: Address) {
-   let icons = SHARED_GUI.read(|gui| gui.icons.clone());
+   let (icons, allowed) = SHARED_GUI.read(|gui| {
+      (
+         gui.icons.clone(),
+         gui.ctx.read(|ctx| ctx.misc_config.fetch_token_icons()),
+      )
+   });
+   if !allowed {
+      return;
+   }
    if !icons.tokens.try_begin_fetch(address, chain_id) {
       return;
    }

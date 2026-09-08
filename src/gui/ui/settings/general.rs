@@ -1,11 +1,18 @@
 //! UI that allows the user to change the general settings.
 
 use crate::core::ZeusContext;
-use egui::{RichText, Ui, vec2};
+use crate::utils::RT;
+use egui::{Align, Layout, RichText, Ui, vec2};
 use egui_elements::{Button, Theme};
+use elegance::{Badge, BadgeTone};
 use std::collections::HashSet;
 
+const ICONS_TIP: &str = "Allow Zeus to download token icons from tokens.smold.app";
+const SOURCIFY_TIP: &str = "Allow Zeus to look up verified contract names on sourcify.dev";
+
 pub struct GeneralSettings {
+   fetch_token_icons: bool,
+   fetch_contract_names: bool,
    discover_v4_pools_on_startup: bool,
    concurrency_for_syncing_balances: usize,
    concurrency_for_discovering_pools: usize,
@@ -18,6 +25,8 @@ pub struct GeneralSettings {
 impl GeneralSettings {
    pub fn new(ctx: &mut ZeusContext) -> Self {
       let mut this = Self {
+         fetch_token_icons: false,
+         fetch_contract_names: false,
          discover_v4_pools_on_startup: false,
          concurrency_for_syncing_balances: 1,
          concurrency_for_discovering_pools: 1,
@@ -30,9 +39,20 @@ impl GeneralSettings {
       this
    }
 
+   fn persist_misc(ctx: &ZeusContext) {
+      let config = ctx.misc_config.clone();
+      RT.spawn_blocking(move || {
+         if let Err(e) = config.save() {
+            tracing::error!("Failed to save misc config: {e}");
+         }
+      });
+   }
+
    pub fn sync_from_ctx(&mut self, ctx: &mut ZeusContext) {
       let pool_manager = ctx.pool_manager.clone();
       let balance_manager = ctx.read_wallet_state(|ws| ws.balance_manager.clone());
+      self.fetch_token_icons = ctx.misc_config.fetch_token_icons();
+      self.fetch_contract_names = ctx.misc_config.fetch_contract_names();
       self.discover_v4_pools_on_startup = pool_manager.do_we_discover_v4_pools();
       self.concurrency_for_syncing_balances = balance_manager.concurrency();
       self.concurrency_for_discovering_pools = pool_manager.concurrency();
@@ -56,6 +76,46 @@ impl GeneralSettings {
 
       let button_visuals = theme.button_visuals();
       let slider_size = vec2((ui.available_width() * 0.5).min(360.0), 20.0);
+      ui.add_space(10.0);
+
+      let header = RichText::new("External Data").size(theme.typography.very_large);
+      ui.label(header);
+
+      let q_mark_text = RichText::new("?").size(theme.typography.normal);
+      let qmark = Badge::new(q_mark_text.clone(), BadgeTone::Info);
+
+      let ui_size = vec2(ui.available_width() * 0.3, 30.0);
+      let icons_text = RichText::new("Download Token Icons").size(theme.typography.normal);
+
+      ui.allocate_ui_with_layout(
+         ui_size,
+         Layout::left_to_right(Align::Center),
+         |ui| {
+            if ui.checkbox(&mut self.fetch_token_icons, icons_text).changed() {
+               ctx.misc_config.set_fetch_token_icons(self.fetch_token_icons);
+               Self::persist_misc(ctx);
+            }
+
+            ui.add(qmark).on_hover_text(ICONS_TIP);
+         },
+      );
+
+      let names_text = RichText::new("Fetch Contract Names").size(theme.typography.normal);
+      let qmark = Badge::new(q_mark_text, BadgeTone::Info);
+
+      ui.allocate_ui_with_layout(
+         ui_size,
+         Layout::left_to_right(Align::Center),
+         |ui| {
+            if ui.checkbox(&mut self.fetch_contract_names, names_text).changed() {
+               ctx.misc_config.set_fetch_contract_names(self.fetch_contract_names);
+               Self::persist_misc(ctx);
+            }
+            ui.add(qmark).on_hover_text(SOURCIFY_TIP);
+         },
+      );
+
+      ui.separator();
       ui.add_space(10.0);
 
       let header = RichText::new("Pool Manager").size(theme.typography.very_large);
@@ -138,6 +198,19 @@ impl GeneralSettings {
    }
 
    pub fn save_settings(&self, ctx: &mut ZeusContext) {
+      let mut save_misc = false;
+      if self.fetch_token_icons != ctx.misc_config.fetch_token_icons() {
+         ctx.misc_config.set_fetch_token_icons(self.fetch_token_icons);
+         save_misc = true;
+      }
+      if self.fetch_contract_names != ctx.misc_config.fetch_contract_names() {
+         ctx.misc_config.set_fetch_contract_names(self.fetch_contract_names);
+         save_misc = true;
+      }
+      if save_misc {
+         Self::persist_misc(ctx);
+      }
+
       // Balance settings live in the vault and are written on vault save / shutdown.
       let balance_manager = ctx.read_wallet_state(|ws| ws.balance_manager.clone());
       if self.concurrency_for_syncing_balances != balance_manager.concurrency() {

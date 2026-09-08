@@ -34,8 +34,8 @@ use zeus_eth::{
 use zeus_railgun::{RailgunAddress, RailgunProvider, RailgunSigner, SnapshotLoader};
 
 pub use persisted::{
-   bundler_url_dir, data_dir, disabled_chains_dir, pool_data_dir, railgun_config_dir,
-   railgun_db_file, railgun_dir, server_port_dir, theme_kind_dir,
+   bundler_url_dir, data_dir, disabled_chains_dir, misc_config_dir, pool_data_dir,
+   railgun_config_dir, railgun_db_file, railgun_dir, server_port_dir, theme_kind_dir,
 };
 
 /// This is the minimum USD value in a base currency that a pool needs to have in order to be considered sufficiently liquid
@@ -473,7 +473,7 @@ impl ZeusCtx {
          }
 
          let allow_circuit_download = self.read(|ctx| ctx.railgun_config.allow_circuit_download());
-         
+
          let provider = match create_railgun_provider(
             client,
             chain,
@@ -1085,6 +1085,10 @@ impl ZeusCtx {
          Ok(config) => self.write(|ctx| ctx.railgun_config = config),
          Err(_) => self.write(|ctx| ctx.railgun_config = RailgunConfig::default()),
       }
+      match MiscConfig::load_from_file() {
+         Ok(config) => self.write(|ctx| ctx.misc_config = config),
+         Err(_) => self.write(|ctx| ctx.misc_config = MiscConfig::default()),
+      }
 
       self.load_currency_db();
       self.load_pool_manager();
@@ -1310,8 +1314,10 @@ impl ZeusCtx {
          crate::core::clear_signing::registry::resolve_contract_label(chain, address).await
       {
          Some(name)
-      } else {
+      } else if self.read(|ctx| ctx.misc_config.fetch_contract_names()) {
          crate::core::clear_signing::sourcify::contract_name(chain, address).await
+      } else {
+         None
       };
 
       let Some(name) = name else {
@@ -1996,6 +2002,9 @@ pub struct ZeusContext {
 
    /// Railgun configuration
    pub railgun_config: RailgunConfig,
+
+   /// Misc persisted settings (token icons, Sourcify names, …)
+   pub misc_config: MiscConfig,
 }
 
 /// `write_private` only tightens mode on the next save. Existing `0644` files
@@ -2063,6 +2072,14 @@ impl ZeusContext {
          }
       };
 
+      let misc_config = match MiscConfig::load_from_file() {
+         Ok(config) => config,
+         Err(e) => {
+            tracing::error!("Failed to load misc config: {:?}", e);
+            MiscConfig::default()
+         }
+      };
+
       let priority_fee = PriorityFee::default();
 
       Self {
@@ -2107,6 +2124,7 @@ impl ZeusContext {
          disabled_chains,
          railgun_status: RailgunStatus::new(),
          railgun_config,
+         misc_config,
       }
    }
 

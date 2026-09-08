@@ -145,6 +145,8 @@ async fn get_json(registry_path: &str) -> Result<Value, anyhow::Error> {
    Ok(value)
 }
 
+// ? This always early returns, without doing any http calls.
+// ? Because now indexes are embedded
 pub async fn prefetch_index() {
    match fetch_named_index(EIP712_INDEX_PATH, true).await {
       Ok(_) => tracing::info!("ERC-7730 EIP-712 index ready"),

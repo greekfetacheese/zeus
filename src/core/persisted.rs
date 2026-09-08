@@ -88,6 +88,7 @@ persisted_files! {
    ServerPort => "server_port.json",
    DisabledChains => "disabled_chains.json",
    RailgunConfig => "railgun_config.json",
+   MiscConfig => "misc_config.json",
    AcrossSettings => "across_settings.json",
    Connector => "connector.json",
    NativeHostManifest => "io.github.zeus_wallet.json",
@@ -135,6 +136,7 @@ impl Persisted {
             | PersistedFile::ServerPort
             | PersistedFile::DisabledChains
             | PersistedFile::RailgunConfig
+            | PersistedFile::MiscConfig
             | PersistedFile::AcrossSettings,
          ) => ExportPolicy::Core,
          Self::File(
@@ -278,6 +280,10 @@ pub fn railgun_config_dir() -> Result<PathBuf, anyhow::Error> {
    file_path(PersistedFile::RailgunConfig)
 }
 
+pub fn misc_config_dir() -> Result<PathBuf, anyhow::Error> {
+   file_path(PersistedFile::MiscConfig)
+}
+
 pub fn pool_data_dir() -> Result<PathBuf, anyhow::Error> {
    file_path(PersistedFile::PoolData)
 }
@@ -419,6 +425,7 @@ mod tests {
          .collect();
       assert!(names.contains(&"vault.data"));
       assert!(names.contains(&"wallet_state.data"));
+      assert!(names.contains(&"misc_config.json"));
       assert!(!names.contains(&"connector.json"));
    }
 
