@@ -15,6 +15,7 @@ use eframe::{
    egui::{self, Frame},
 };
 use egui_elements::overlay::OverlayManager;
+use elegance::{BadgeTone, Toast};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -34,14 +35,35 @@ impl ZeusApp {
       let time = std::time::Instant::now();
       let egui_ctx = cc.egui_ctx.clone();
 
-      setup_fonts(&egui_ctx);
+      // setup_fonts(&egui_ctx);
 
-      let icons = Icons::new(&cc.egui_ctx).unwrap();
-      let icons = Arc::new(icons);
+      // Lazy load the icons
+      let egui_ctx2 = cc.egui_ctx.clone();
+      RT.spawn_blocking(move || {
+         SHARED_GUI.write(|shared_gui| {
+            shared_gui.egui_ctx = egui_ctx2.clone();
+         });
 
-      SHARED_GUI.write(|shared_gui| {
-         shared_gui.icons = icons;
-         shared_gui.egui_ctx = egui_ctx.clone();
+         let icons = match Icons::new(&egui_ctx2) {
+            Ok(icons) => icons,
+            Err(e) => {
+               let title = "Fatal Error";
+               let err = format!("Failed to load icons: {e}");
+               Toast::new(title)
+                  .description(err)
+                  .tone(BadgeTone::Danger)
+                  .persistent()
+                  .show(&egui_ctx2);
+               tracing::error!("Failed to load icons: {e}");
+               return;
+            }
+         };
+
+         let icons = Arc::new(icons);
+
+         SHARED_GUI.write(|shared_gui| {
+            shared_gui.icons = icons;
+         });
       });
 
       let mut theme = SHARED_GUI.read(|shared_gui| shared_gui.theme.clone());

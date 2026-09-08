@@ -153,7 +153,9 @@ pub fn permit_event_ui(
    let expiration = params.expiration.to_relative();
 
    let tint = theme.image_tint_recommended;
-   let icon = icons.currency_icon_x32(&params.token, tint);
+   let icon_size = vec2(24.0, 24.0);
+
+   let icon = icons.currency_icon_x32(&params.token, tint).fit_to_exact_size(icon_size);
    let text = if show_usd_value {
       let amount_usd = params.amount_usd.as_ref().unwrap();
       RichText::new(format!(
@@ -167,7 +169,7 @@ pub fn permit_event_ui(
       RichText::new(format!("{} {}", amount, params.token.symbol())).size(theme.typography.large)
    };
 
-   let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+   let label = Label::new(text, Some(icon)).interactive(false);
    ui.add(label);
 
    // Owner
@@ -211,8 +213,11 @@ pub fn token_approval_event_ui(
 
    let show_usd_value = !is_unlimited && params.amount_usd.is_some();
    let tint = theme.image_tint_recommended;
+   let icon_size = vec2(24.0, 24.0);
 
-   let icon = icons.currency_icon_x32(&Currency::from(params.token.clone()), tint);
+   let icon = icons
+      .currency_icon_x32(&Currency::from(params.token.clone()), tint)
+      .fit_to_exact_size(icon_size);
    let text = if show_usd_value {
       let amount_usd = params.amount_usd.as_ref().unwrap();
       RichText::new(format!(
@@ -226,7 +231,7 @@ pub fn token_approval_event_ui(
       RichText::new(format!("{} {}", amount, params.token.symbol)).size(theme.typography.large)
    };
 
-   let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+   let label = Label::new(text, Some(icon)).interactive(false);
    ui.add(label);
 
    // Owner
@@ -246,6 +251,7 @@ fn transfer_event_ui(
 ) {
    let size = vec2(ui.available_width(), 30.0);
    let tint = theme.image_tint_recommended;
+   let icon_size = vec2(24.0, 24.0);
 
    // Currency to Send
    ui.allocate_ui(size, |ui| {
@@ -253,14 +259,14 @@ fn transfer_event_ui(
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             let currency = &params.currency;
             let amount = &params.amount;
-            let icon = icons.currency_icon_x32(currency, tint);
+            let icon = icons.currency_icon_x32(currency, tint).fit_to_exact_size(icon_size);
             let text = RichText::new(format!(
                "{} {} ",
                amount.abbreviated(),
                currency.symbol()
             ))
             .size(theme.typography.large);
-            let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+            let label = Label::new(text, Some(icon)).spacing(3.0).interactive(false);
             ui.add(label);
          });
 
@@ -331,6 +337,7 @@ fn shield_event_ui(
 ) {
    let size = vec2(ui.available_width(), 30.0);
    let tint = theme.image_tint_recommended;
+   let icon_size = vec2(24.0, 24.0);
 
    // Amount Shielded
    ui.allocate_ui(size, |ui| {
@@ -348,7 +355,9 @@ fn shield_event_ui(
 
             // Token & Amount (usd)
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+               let icon = icons
+                  .token_icon_x32(token.address, token.chain_id, tint)
+                  .fit_to_exact_size(icon_size);
                let text = RichText::new(format!(
                   "{} {}",
                   amount.abbreviated(),
@@ -421,7 +430,9 @@ fn shield_event_ui(
             ui.label(RichText::new("Protocol fee").size(theme.typography.large));
          });
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+            let icon = icons
+               .token_icon_x32(token.address, token.chain_id, tint)
+               .fit_to_exact_size(icon_size);
 
             let token_text = format!("{} {}", fee.abbreviated(), token.symbol);
             let token_rich_text = RichText::new(token_text).size(theme.typography.large);
@@ -448,6 +459,7 @@ fn unshield_event_ui(
 ) {
    let size = vec2(ui.available_width(), 30.0);
    let tint = theme.image_tint_recommended;
+   let icon_size = vec2(24.0, 24.0);
 
    // Recipient
    address(
@@ -476,7 +488,9 @@ fn unshield_event_ui(
 
             // Token & Amount (usd)
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+               let icon = icons
+                  .token_icon_x32(token.address, token.chain_id, tint)
+                  .fit_to_exact_size(icon_size);
                let text = RichText::new(format!(
                   "{} {}",
                   amount.abbreviated(),
@@ -508,7 +522,9 @@ fn unshield_event_ui(
             ui.label(RichText::new("Protocol fee").size(theme.typography.large));
          });
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+            let icon = icons
+               .token_icon_x32(token.address, token.chain_id, tint)
+               .fit_to_exact_size(icon_size);
 
             let token_text = format!("{} {}", fee.abbreviated(), token.symbol);
             let token_rich_text = RichText::new(token_text).size(theme.typography.large);
@@ -538,7 +554,9 @@ fn unshield_event_ui(
                ui.label(RichText::new("Broadcaster fee").size(theme.typography.large));
             });
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               let icon = icons.token_icon_x24(token.address, chain.id(), tint);
+               let icon = icons
+                  .token_icon_x32(token.address, chain.id(), tint)
+                  .fit_to_exact_size(icon_size);
 
                let fee_text = format!("{} {}", bf_fee.abbreviated(), token.symbol);
                let fee_rich_text = RichText::new(fee_text).size(theme.typography.large);
@@ -581,6 +599,7 @@ fn private_transfer_event_ui(
 ) {
    let size = vec2(ui.available_width(), 30.0);
    let tint = theme.image_tint_recommended;
+   let icon_size = vec2(24.0, 24.0);
 
    // Amount transferred
    ui.allocate_ui(size, |ui| {
@@ -597,7 +616,9 @@ fn private_transfer_event_ui(
             });
 
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+               let icon = icons
+                  .token_icon_x32(token.address, token.chain_id, tint)
+                  .fit_to_exact_size(icon_size);
                let text = RichText::new(format!(
                   "{} {}",
                   amount.abbreviated(),
@@ -679,6 +700,7 @@ fn bridge_event_ui(
    let origin_chain = params.origin_chain;
    let destination_chain = params.destination_chain;
    let tint = theme.image_tint_recommended;
+   let icon_size = vec2(24.0, 24.0);
 
    // EOA's always receive native ETH
    let currency_in = if params.input_currency.is_native_wrapped() {
@@ -696,7 +718,7 @@ fn bridge_event_ui(
    // Input currency column
    ui.horizontal(|ui| {
       let amount = &params.amount;
-      let icon = icons.currency_icon_x32(&currency_in, tint);
+      let icon = icons.currency_icon_x32(&currency_in, tint).fit_to_exact_size(icon_size);
       let text = RichText::new(format!(
          "- {} {} ",
          amount.abbreviated(),
@@ -704,7 +726,7 @@ fn bridge_event_ui(
       ))
       .size(theme.typography.large)
       .color(theme.colors.error);
-      let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+      let label = Label::new(text, Some(icon)).interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);
       });
@@ -722,7 +744,7 @@ fn bridge_event_ui(
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          let amount = &params.received;
-         let icon = icons.currency_icon_x32(&currency_out, tint);
+         let icon = icons.currency_icon_x32(&currency_out, tint).fit_to_exact_size(icon_size);
          let text = RichText::new(format!(
             "+ {} {}",
             amount.abbreviated(),
@@ -730,7 +752,7 @@ fn bridge_event_ui(
          ))
          .size(theme.typography.large)
          .color(theme.colors.success);
-         let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+         let label = Label::new(text, Some(icon)).interactive(false);
          ui.add(label);
       });
 
@@ -795,12 +817,13 @@ fn bridge_event_ui(
 
 fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut Ui) {
    let tint = theme.image_tint_recommended;
+   let icon_size = vec2(24.0, 24.0);
 
    // Input currency column
    ui.horizontal(|ui| {
       let currency = &params.input_currency;
       let amount = &params.amount_in;
-      let icon = icons.currency_icon_x32(currency, tint);
+      let icon = icons.currency_icon_x32(currency, tint).fit_to_exact_size(icon_size);
       let text = RichText::new(format!(
          "- {} {} ",
          amount.abbreviated(),
@@ -808,7 +831,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
       ))
       .size(theme.typography.large)
       .color(theme.colors.error);
-      let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+      let label = Label::new(text, Some(icon)).interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);
       });
@@ -827,7 +850,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          let currency = &params.output_currency;
          let amount = &params.received;
-         let icon = icons.currency_icon_x32(currency, tint);
+         let icon = icons.currency_icon_x32(currency, tint).fit_to_exact_size(icon_size);
          let text = RichText::new(format!(
             "+ {} {}",
             amount.abbreviated(),
@@ -835,7 +858,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
          ))
          .size(theme.typography.large)
          .color(theme.colors.success);
-         let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+         let label = Label::new(text, Some(icon)).interactive(false);
          ui.add(label);
       });
 
@@ -880,7 +903,7 @@ fn wrap_eth_event_ui(
 ) {
    let tint = theme.image_tint_recommended;
    let weth = Currency::from(ERC20Token::wrapped_native_token(chain.id()));
-   let weth_icon = icons.currency_icon_x32(&weth, tint);
+   let weth_icon = icons.currency_icon_x32(&weth, tint).fit_to_exact_size(vec2(24.0, 24.0));
 
    // Amount received + USD Value
    ui.horizontal(|ui| {
@@ -891,7 +914,7 @@ fn wrap_eth_event_ui(
       ))
       .size(theme.typography.large)
       .color(theme.colors.success);
-      let label = Label::new(text, Some(weth_icon)).image_on_left().interactive(false);
+      let label = Label::new(text, Some(weth_icon)).interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);
       });
@@ -926,7 +949,7 @@ fn unwrap_weth_event_ui(
 ) {
    let tint = theme.image_tint_recommended;
    let eth = NativeCurrency::from(chain.id());
-   let eth_icon = icons.native_currency_icon(chain.id(), tint);
+   let eth_icon = icons.native_currency_icon(chain.id(), tint).fit_to_exact_size(vec2(24.0, 24.0));
 
    // Amount received + USD Value
    ui.horizontal(|ui| {
@@ -937,7 +960,7 @@ fn unwrap_weth_event_ui(
       ))
       .size(theme.typography.large)
       .color(theme.colors.success);
-      let label = Label::new(text, Some(eth_icon)).image_on_left().interactive(false);
+      let label = Label::new(text, Some(eth_icon)).interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);
       });
@@ -975,15 +998,16 @@ fn uniswap_position_op_event_ui(
    let min_amount1_usd = params.min_amount1_usd.clone().unwrap_or_default();
 
    let tint = theme.image_tint_recommended;
+   let icon_size = vec2(24.0, 24.0);
 
    // Currency A and Amount & value
    ui.horizontal(|ui| {
-      let icon = icons.currency_icon_x32(currency0, tint);
+      let icon = icons.currency_icon_x32(currency0, tint).fit_to_exact_size(icon_size);
 
       let text = format!("{} {}", amount0.abbreviated(), currency0.symbol());
       let text = RichText::new(text).size(theme.typography.large);
 
-      let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+      let label = Label::new(text, Some(icon)).interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);
       });
@@ -997,11 +1021,11 @@ fn uniswap_position_op_event_ui(
 
    // Currency B and Amount & value
    ui.horizontal(|ui| {
-      let icon = icons.currency_icon_x32(currency1, tint);
+      let icon = icons.currency_icon_x32(currency1, tint).fit_to_exact_size(icon_size);
       let text = format!("{} {}", amount1.abbreviated(), currency1.symbol());
 
       let text = RichText::new(text).size(theme.typography.large);
-      let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+      let label = Label::new(text, Some(icon)).interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);
       });
@@ -1027,7 +1051,7 @@ fn uniswap_position_op_event_ui(
    if min_amount0.is_some() {
       let min_amount0 = min_amount0.unwrap();
       ui.horizontal(|ui| {
-         let icon = icons.currency_icon_x32(currency0, tint);
+         let icon = icons.currency_icon_x32(currency0, tint).fit_to_exact_size(icon_size);
          let text = format!(
             "{} {}",
             min_amount0.abbreviated(),
@@ -1035,7 +1059,7 @@ fn uniswap_position_op_event_ui(
          );
          let text = RichText::new(text).size(theme.typography.large);
 
-         let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+         let label = Label::new(text, Some(icon)).interactive(false);
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
          });
@@ -1052,7 +1076,7 @@ fn uniswap_position_op_event_ui(
    if min_amount1.is_some() {
       let min_amount1 = min_amount1.unwrap();
       ui.horizontal(|ui| {
-         let icon = icons.currency_icon_x32(currency1, tint);
+         let icon = icons.currency_icon_x32(currency1, tint).fit_to_exact_size(icon_size);
          let text = format!(
             "{} {}",
             min_amount1.abbreviated(),
@@ -1060,7 +1084,7 @@ fn uniswap_position_op_event_ui(
          );
 
          let text = RichText::new(text).size(theme.typography.large);
-         let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+         let label = Label::new(text, Some(icon)).interactive(false);
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
          });

@@ -248,31 +248,47 @@ struct SystemMemory {
    total: u64,
    available: u64,
    last_time_checked: Instant,
+   refresh_in_progress: bool,
 }
 
 impl SystemMemory {
    pub fn new() -> Self {
-      let mut sys = sysinfo::System::new();
-      sys.refresh_all();
-      let total = sys.total_memory();
-      let available = sys.available_memory();
       Self {
-         total,
-         available,
+         total: 0,
+         available: 0,
          last_time_checked: Instant::now(),
+         refresh_in_progress: false,
       }
    }
 
    fn update(&mut self) {
-      let now = Instant::now();
-      if now.duration_since(self.last_time_checked).as_secs() > 1 {
-         let mut sys = sysinfo::System::new();
-         sys.refresh_all();
-
-         self.total = sys.total_memory();
-         self.available = sys.available_memory();
-         self.last_time_checked = Instant::now();
+      if self.refresh_in_progress {
+         return;
       }
+
+      let now = Instant::now();
+      let needs_refresh =
+         self.total == 0 || now.duration_since(self.last_time_checked).as_secs() > 1;
+      if !needs_refresh {
+         return;
+      }
+
+      self.refresh_in_progress = true;
+      RT.spawn_blocking(|| {
+         let mut sys = sysinfo::System::new();
+         sys.refresh_memory();
+         let total = sys.total_memory();
+         let available = sys.available_memory();
+
+         SHARED_GUI.write(|gui| {
+            let memory = &mut gui.recover_wallet_ui.memory;
+            memory.total = total;
+            memory.available = available;
+            memory.last_time_checked = Instant::now();
+            memory.refresh_in_progress = false;
+            gui.request_repaint();
+         });
+      });
    }
 
    fn total_gb(&self) -> f64 {
@@ -347,6 +363,11 @@ impl RecoverHDWallet {
       self.memory.update();
 
       ui.add_space(10.0);
+
+      // First sample is filled in by the background refresh.
+      if self.memory.total == 0 {
+         return;
+      }
 
       let m_cost_bytes = M_COST as u64 * 1024;
       let m_cost_gb = m_cost_bytes as f64 / 1_000_000_000.0;

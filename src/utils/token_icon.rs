@@ -27,8 +27,14 @@ fn smoldapp_url(chain_id: u64, address: Address) -> String {
    format!("{SMOLDAPP_CDN}/{chain_id}/{address:#x}/logo-32.png")
 }
 
-fn resize_to_png(data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, anyhow::Error> {
+fn resize_if_needed(data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, anyhow::Error> {
    let image = image::load_from_memory(data)?;
+   let is_x32 = image.width() == 32 && image.height() == 32;
+
+   if is_x32 {
+      return Ok(data.to_vec());
+   }
+
    let resized = image.resize(width, height, FilterType::Lanczos3);
    let mut buf = Vec::new();
    resized.write_to(
@@ -38,13 +44,13 @@ fn resize_to_png(data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, anyhow
    Ok(buf)
 }
 
-/// Fetch the 32px SmolDapp icon and derive the 24px variant.
+/// Fetch the 32px SmolDapp icon.
 ///
 /// Returns `Ok(None)` on a 404 (token has no icon).
 async fn fetch_smoldapp_icon(
    chain_id: u64,
    address: Address,
-) -> Result<Option<(Vec<u8>, Vec<u8>)>, anyhow::Error> {
+) -> Result<Option<Vec<u8>>, anyhow::Error> {
    let url = smoldapp_url(chain_id, address);
    let response = http_client().get(&url).send().await?;
 
@@ -73,8 +79,8 @@ async fn fetch_smoldapp_icon(
    }
 
    let x32 = bytes.to_vec();
-   let x24 = resize_to_png(&x32, 24, 24)?;
-   Ok(Some((x32, x24)))
+   let icon = resize_if_needed(&x32, 32, 32)?;
+   Ok(Some(icon))
 }
 
 /// Download the token icon from SmolDapp in the background.
@@ -89,12 +95,12 @@ pub fn spawn_fetch_token_icon(chain_id: u64, address: Address) {
 
    RT.spawn(async move {
       match fetch_smoldapp_icon(chain_id, address).await {
-         Ok(Some((x32, x24))) => {
-            if let Err(e) = save_token_icon(chain_id, address, &x32, &x24) {
+         Ok(Some(icon)) => {
+            if let Err(e) = save_token_icon(chain_id, address, &icon) {
                tracing::warn!("Failed to save token icon for {address} on chain {chain_id}: {e}");
             }
 
-            icons.tokens.insert_icon(address, chain_id, x32, x24);
+            icons.tokens.insert_icon(address, chain_id, icon);
             icons.tokens.finish_fetch(address, chain_id, false);
             SHARED_GUI.write(|gui| {
                gui.request_repaint();

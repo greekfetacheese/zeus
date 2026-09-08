@@ -3,7 +3,7 @@
 //! - The TxConfirmationWindow contains as much information as possible about the transaction before the user confirms it.
 //! - The TxWindow is what we show to the user for a transaction that has been confirmed.
 
-use egui::{Align, FontId, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui};
+use egui::{Align, FontId, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui, vec2};
 use egui_elements::{Label, Modal, Theme};
 use zeus_eth::alloy_primitives::TxHash;
 
@@ -174,7 +174,7 @@ pub fn eth_spent(
 ) {
    let tint = theme.image_tint_recommended;
    let native = NativeCurrency::from(chain);
-   let icon = icons.native_currency_icon_x24(chain, tint);
+   let icon = icons.native_currency_icon(chain, tint).fit_to_exact_size(vec2(24.0, 24.0));
    let text = format!(
       "{} {} ≈ {}",
       eth_spent.abbreviated(),
@@ -182,7 +182,7 @@ pub fn eth_spent(
       eth_spent_usd.abbreviated()
    );
    let text = RichText::new(text).size(theme.typography.normal);
-   ui.add(Label::new(text, Some(icon)).image_on_left().interactive(false));
+   ui.add(Label::new(text, Some(icon)).interactive(false));
 }
 
 /// Show the ETH received in a horizontal layout from left to right
@@ -196,7 +196,6 @@ pub fn eth_received(
    ui: &mut Ui,
 ) {
    let native = NativeCurrency::from(chain);
-   // let icon = icons.native_currency_icon_x24(chain);
    let text = format!(
       "{text} {} {} ≈ ${}",
       eth_received.abbreviated(),
@@ -204,7 +203,7 @@ pub fn eth_received(
       eth_received_usd.abbreviated()
    );
    let text = RichText::new(text).size(theme.typography.large);
-   ui.add(Label::new(text, None).image_on_left().interactive(false));
+   ui.add(Label::new(text, None).interactive(false));
 }
 
 pub fn clear_display_ui(
@@ -256,7 +255,9 @@ pub fn clear_display_ui(
                      amount.abbreviated()
                   };
                   let text = format!("{} {}", amount_txt, token.symbol);
-                  let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+                  let icon = icons
+                     .token_icon_x32(token.address, token.chain_id, tint)
+                     .fit_to_exact_size(vec2(24.0, 24.0));
                   let text = RichText::new(text).size(theme.typography.large);
                   let label = Label::new(text, Some(icon))
                      .wrap()

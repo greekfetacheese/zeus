@@ -1,4 +1,4 @@
-use crate::core::persisted::{PersistedTree, TOKEN_ICON_X24, TOKEN_ICON_X32, tree_dir};
+use crate::core::persisted::{PersistedTree, TOKEN_ICON_X32, tree_dir};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -12,23 +12,17 @@ fn icon_dir(chain_id: u64, address: Address) -> Result<PathBuf, anyhow::Error> {
    Ok(token_icons_dir()?.join(chain_id.to_string()).join(format!("{address:#x}")))
 }
 
-pub fn save_token_icon(
-   chain_id: u64,
-   address: Address,
-   x32: &[u8],
-   x24: &[u8],
-) -> Result<(), anyhow::Error> {
+pub fn save_token_icon(chain_id: u64, address: Address, x32: &[u8]) -> Result<(), anyhow::Error> {
    let dir = icon_dir(chain_id, address)?;
    std::fs::create_dir_all(&dir)?;
    std::fs::write(dir.join(TOKEN_ICON_X32), x32)?;
-   std::fs::write(dir.join(TOKEN_ICON_X24), x24)?;
    Ok(())
 }
 
 /// Load previously downloaded token icons from `data/token_icons/`.
 ///
 /// Baked-in icons are merged by the caller and take priority.
-pub fn load_downloaded_icons() -> HashMap<(Address, u64), (Vec<u8>, Vec<u8>)> {
+pub fn load_downloaded_icons() -> HashMap<(Address, u64), Vec<u8>> {
    let mut map = HashMap::new();
    let root = match token_icons_dir() {
       Ok(dir) => dir,
@@ -67,16 +61,15 @@ pub fn load_downloaded_icons() -> HashMap<(Address, u64), (Vec<u8>, Vec<u8>)> {
          };
 
          let x32_path = token_entry.path().join(TOKEN_ICON_X32);
-         let x24_path = token_entry.path().join(TOKEN_ICON_X24);
-         let (Ok(x32), Ok(x24)) = (std::fs::read(x32_path), std::fs::read(x24_path)) else {
+         let Ok(x32) = std::fs::read(x32_path) else {
             continue;
          };
 
-         if x32.is_empty() || x24.is_empty() {
+         if x32.is_empty() {
             continue;
          }
 
-         map.insert((address, chain_id), (x32, x24));
+         map.insert((address, chain_id), x32);
       }
    }
 

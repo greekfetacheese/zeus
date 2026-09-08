@@ -380,6 +380,7 @@ impl Notification {
    fn show_swap_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let params = self.notification.swap_params();
       let tint = theme.image_tint_recommended;
+      let icon_size = vec2(24.0, 24.0);
 
       ui.vertical_centered(|ui| {
          let symbol_in = params.input_currency.symbol();
@@ -390,19 +391,24 @@ impl Notification {
 
          let text_in = format!("{} {}", amount_in, symbol_in);
          let text_in = RichText::new(text_in).size(theme.typography.large);
-         let icon_in = icons.currency_icon_x24(&params.input_currency, tint);
+         let icon_in = icons
+            .currency_icon_x32(&params.input_currency, tint)
+            .fit_to_exact_size(icon_size);
 
          let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
 
          let text_out = format!("{} {}", amount_out, symbol_out);
          let text_out = RichText::new(text_out).size(theme.typography.large);
-         let icon_out = icons.currency_icon_x24(&params.output_currency, tint);
+         let icon_out = icons
+            .currency_icon_x32(&params.output_currency, tint)
+            .fit_to_exact_size(icon_size);
 
-         let label_in = Label::new(text_in, Some(icon_in)).wrap().interactive(false);
+         let label_in = Label::new(text_in, Some(icon_in)).interactive(false);
          let label_arrow = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
-         let label_out = Label::new(text_out, Some(icon_out)).wrap().interactive(false);
+         let label_out = Label::new(text_out, Some(icon_out)).interactive(false);
 
          let multi_label = MultiLabel::new(vec![label_in, label_arrow, label_out]);
+
          ui.add(multi_label);
       });
    }
@@ -410,6 +416,7 @@ impl Notification {
    fn show_bridge_nofitication(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let params = self.notification.bridge_params();
       let tint = theme.image_tint_recommended;
+      let icon_size = vec2(24.0, 24.0);
 
       ui.vertical_centered(|ui| {
          let from_chain: ChainId = params.origin_chain.into();
@@ -422,13 +429,17 @@ impl Notification {
 
          let text_in = format!("{} {}", amount_in, symbol_in);
          let text_in = RichText::new(text_in).size(theme.typography.large);
-         let icon_in = icons.currency_icon_x24(&params.input_currency, tint);
+         let icon_in = icons
+            .currency_icon_x32(&params.input_currency, tint)
+            .fit_to_exact_size(icon_size);
 
          let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
 
          let text_out = format!("{} {}", amount_out, symbol_out);
          let text_out = RichText::new(text_out).size(theme.typography.large);
-         let icon_out = icons.currency_icon_x24(&params.output_currency, tint);
+         let icon_out = icons
+            .currency_icon_x32(&params.output_currency, tint)
+            .fit_to_exact_size(icon_size);
 
          let label_in = Label::new(text_in, Some(icon_in)).wrap().interactive(false);
          let label_arrow = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
@@ -456,6 +467,7 @@ impl Notification {
    fn show_wrap_eth_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let params = self.notification.wrap_eth_params();
       let tint = theme.image_tint_recommended;
+      let icon_size = vec2(24.0, 24.0);
 
       ui.vertical_centered(|ui| {
          let native: Currency = NativeCurrency::from(params.chain).into();
@@ -465,7 +477,7 @@ impl Notification {
 
          let text = format!("{} {}", eth_wrapped, native.symbol());
          let text_amount = RichText::new(text).size(theme.typography.large);
-         let icon = icons.currency_icon_x24(&native, tint);
+         let icon = icons.currency_icon_x32(&native, tint).fit_to_exact_size(icon_size);
          let label1 = Label::new(text_amount, Some(icon)).interactive(false);
 
          let arrow_icon = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
@@ -473,7 +485,7 @@ impl Notification {
 
          let text = format!("{} {}", weth_received, weth.symbol());
          let text_amount = RichText::new(text).size(theme.typography.large);
-         let icon = icons.currency_icon_x24(&weth, tint);
+         let icon = icons.currency_icon_x32(&weth, tint).fit_to_exact_size(icon_size);
 
          let label2 = Label::new(text_amount, Some(icon)).interactive(false);
 
@@ -485,6 +497,7 @@ impl Notification {
    fn show_unwrap_weth_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let params = self.notification.unwrap_weth_params();
       let tint = theme.image_tint_recommended;
+      let icon_size = vec2(24.0, 24.0);
 
       ui.vertical_centered(|ui| {
          let weth: Currency = ERC20Token::wrapped_native_token(params.chain).into();
@@ -494,7 +507,7 @@ impl Notification {
 
          let text = format!("{} {}", weth_unwrapped, weth.symbol());
          let text_amount = RichText::new(text).size(theme.typography.large);
-         let icon = icons.currency_icon_x24(&weth, tint);
+         let icon = icons.currency_icon_x32(&weth, tint).fit_to_exact_size(icon_size);
          let label1 = Label::new(text_amount, Some(icon)).interactive(false);
 
          let arrow_icon = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
@@ -502,7 +515,7 @@ impl Notification {
 
          let text = format!("{} {}", eth_received, native.symbol());
          let text_amount = RichText::new(text).size(theme.typography.large);
-         let icon = icons.currency_icon_x24(&native, tint);
+         let icon = icons.currency_icon_x32(&native, tint).fit_to_exact_size(icon_size);
 
          let label2 = Label::new(text_amount, Some(icon)).interactive(false);
          let multi_label = MultiLabel::new(vec![label1, arrow_label, label2]);
@@ -519,6 +532,7 @@ impl Notification {
    ) {
       let params = self.notification.transfer_params();
       let tint = theme.image_tint_recommended;
+      let icon_size = vec2(24.0, 24.0);
 
       ui.vertical_centered(|ui| {
          let chain = params.currency.chain_id();
@@ -531,7 +545,7 @@ impl Notification {
 
          let text = format!("{} {}", amount, currency.symbol());
          let text = RichText::new(text).size(theme.typography.large);
-         let icon = icons.currency_icon_x24(&currency, tint);
+         let icon = icons.currency_icon_x32(&currency, tint).fit_to_exact_size(icon_size);
 
          let label = Label::new(text, Some(icon)).wrap().interactive(false);
          ui.add(label);
@@ -567,6 +581,7 @@ impl Notification {
    fn show_token_approval_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let params = self.notification.token_approval_params();
       let tint = theme.image_tint_recommended;
+      let icon_size = vec2(24.0, 24.0);
 
       ui.vertical_centered(|ui| {
          let is_unlimited = params.amount.wei() == U256::MAX;
@@ -578,7 +593,9 @@ impl Notification {
 
          let show_usd_value = !is_unlimited && params.amount_usd.is_some();
 
-         let icon = icons.currency_icon_x32(&Currency::from(params.token.clone()), tint);
+         let icon = icons
+            .currency_icon_x32(&Currency::from(params.token.clone()), tint)
+            .fit_to_exact_size(icon_size);
          let text = if show_usd_value {
             let amount_usd = params.amount_usd.as_ref().unwrap();
             RichText::new(format!(
@@ -593,7 +610,7 @@ impl Notification {
                .size(theme.typography.normal)
          };
 
-         let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+         let label = Label::new(text, Some(icon)).interactive(false);
          ui.add(label);
       });
    }
@@ -601,6 +618,7 @@ impl Notification {
    fn show_shield_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let params = self.notification.shield_params();
       let tint = theme.image_tint_recommended;
+      let icon_size = vec2(24.0, 24.0);
 
       ui.vertical_centered(|ui| {
          if params.erc20.is_some() {
@@ -608,7 +626,9 @@ impl Notification {
             let amount = params.amount.as_ref().unwrap();
             let show_usd_value = params.amount_usd.is_some();
 
-            let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+            let icon = icons
+               .token_icon_x32(token.address, token.chain_id, tint)
+               .fit_to_exact_size(icon_size);
             let text = if show_usd_value {
                let amount_usd = params.amount_usd.as_ref().unwrap();
                RichText::new(format!(
@@ -636,6 +656,7 @@ impl Notification {
    fn show_unshield_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let params = self.notification.unshield_params();
       let tint = theme.image_tint_recommended;
+      let icon_size = vec2(24.0, 24.0);
 
       ui.vertical_centered(|ui| {
          if params.erc20.is_some() {
@@ -643,7 +664,9 @@ impl Notification {
             let amount = params.amount.as_ref().unwrap();
             let show_usd_value = params.amount_usd.is_some();
 
-            let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+            let icon = icons
+               .token_icon_x32(token.address, token.chain_id, tint)
+               .fit_to_exact_size(icon_size);
             let text = if show_usd_value {
                let amount_usd = params.amount_usd.as_ref().unwrap();
                RichText::new(format!(
@@ -671,10 +694,13 @@ impl Notification {
    fn show_private_transfer_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let params = self.notification.private_transfer_params();
       let tint = theme.image_tint_recommended;
+      let icon_size = vec2(24.0, 24.0);
 
       ui.vertical_centered(|ui| {
          if let (Some(token), Some(amount)) = (params.erc20.as_ref(), params.amount.as_ref()) {
-            let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+            let icon = icons
+               .token_icon_x32(token.address, token.chain_id, tint)
+               .fit_to_exact_size(icon_size);
             let text = if let Some(amount_usd) = params.amount_usd.as_ref() {
                RichText::new(format!(
                   "{} {} ~ ${}",
