@@ -1,3 +1,4 @@
+use crate::core::ZeusCtx;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use anyhow::anyhow;
@@ -18,6 +19,30 @@ pub struct UpdateInfo {
    pub version: Option<String>,
    pub download_url: Option<String>,
    pub asset_name: Option<String>,
+}
+
+/// Query GitHub for a newer Zeus release and open the update window if one exists.
+pub fn do_check_for_updates(ctx: ZeusCtx) {
+   if !ctx.read(|ctx| ctx.misc_config.check_for_updates()) {
+      return;
+   }
+
+   RT.spawn(async move {
+      let info = match check_for_updates().await {
+         Ok(info) => info,
+         Err(e) => {
+            tracing::error!("Failed to check for updates: {:?}", e);
+            Default::default()
+         }
+      };
+
+      if info.available {
+         SHARED_GUI.write(|gui| {
+            gui.update_window.open(info);
+            gui.request_repaint();
+         });
+      }
+   });
 }
 
 pub async fn check_for_updates() -> Result<UpdateInfo, anyhow::Error> {

@@ -1,6 +1,6 @@
 use crate::core::ctx::railgun_dir;
 use crate::core::{WalletPortfolio, ZeusCtx, types::BaseFee};
-use crate::utils::{RT, malloc_trim};
+use crate::utils::{RT, malloc_trim, self_update};
 use anyhow::anyhow;
 use tracing::{debug, error, info, warn};
 
@@ -41,6 +41,9 @@ pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
          let semaphore = semaphore.clone();
 
          if rpc.should_run_check() && rpc.is_enabled() {
+            #[cfg(feature = "dev")]
+            tracing::info!("Testing RPC {} on chain {}", _url, chain);
+
             let ctx = ctx.clone();
 
             let task = RT.spawn(async move {
@@ -96,8 +99,8 @@ pub async fn sync_state(ctx: ZeusCtx, chain: u64) {
       return;
    }
 
-   update_token_balances(ctx.clone(), chain, false).await;
-   update_token_prices(ctx.clone(), chain, false).await;
+   update_token_balances(ctx.clone(), chain).await;
+   update_token_prices(ctx.clone(), chain).await;
 
    let wallets = ctx.get_all_wallets_info();
    let addresses = wallets.iter().map(|w| w.address).collect::<Vec<_>>();
@@ -149,6 +152,8 @@ pub async fn on_startup(ctx: ZeusCtx) {
 
    cleanup_orphaned_wallet_data(ctx.clone());
 
+   self_update::do_check_for_updates(ctx.clone());
+
    let mut tasks = Vec::new();
 
    for chain in SUPPORTED_CHAINS {
@@ -191,6 +196,8 @@ pub async fn on_startup(ctx: ZeusCtx) {
    RT.spawn(async move {
       malloc_trim_interval().await;
    });
+
+   test_and_measure_rpcs(ctx.clone()).await;
 }
 
 /// Remove BalanceManager / PortfolioDB / TxDB / ApprovalManager entries for
@@ -366,15 +373,13 @@ async fn check_delegated_status(ctx: ZeusCtx, chain: u64) {
    }
 }
 
-// TODO: Improve the efficiency of the batch calls, right now is not worth doing
-// TODO: a full sync
+
 /// Update the token balances for all the wallet portfolios for the given chain
 ///
 /// - Arguments:
 ///    - ctx: The Zeus context
 ///    - chain: The chain ID
-///    - update_for_all: If true, update the balances for all the ERC20 tokens known to Zeus
-pub async fn update_token_balances(ctx: ZeusCtx, chain: u64, update_for_all: bool) {
+pub async fn update_token_balances(ctx: ZeusCtx, chain: u64) {
    if ctx.is_chain_disabled(chain) {
       return;
    }
@@ -383,34 +388,6 @@ pub async fn update_token_balances(ctx: ZeusCtx, chain: u64, update_for_all: boo
    let wallets_info = ctx.get_all_wallets_info();
    let wallets = wallets_info.iter().map(|w| w.address).collect::<Vec<_>>();
 
-   let portfolio_tokens = ctx.get_all_tokens_from_portfolios(chain);
-
-   let mut inserted = HashSet::new();
-   let mut tokens = Vec::new();
-
-   if update_for_all {
-      let currencies = ctx.get_currencies(chain);
-
-      for curr in &currencies {
-         let token = curr.to_erc20().into_owned();
-
-         if inserted.contains(&token.address) {
-            continue;
-         }
-
-         inserted.insert(token.address);
-         tokens.push(token);
-      }
-   }
-
-   for token in portfolio_tokens {
-      if inserted.contains(&token.address) {
-         continue;
-      }
-
-      inserted.insert(token.address);
-      tokens.push(token);
-   }
 
    if let Err(e) = balance_manager
       .update_eth_balance(ctx.clone(), chain, wallets.clone(), false)
@@ -420,8 +397,10 @@ pub async fn update_token_balances(ctx: ZeusCtx, chain: u64, update_for_all: boo
    }
 
    for wallet in wallets {
+      let tokens = ctx.get_portfolio(chain, wallet).tokens().clone();
+
       if let Err(e) = balance_manager
-         .update_tokens_balance(ctx.clone(), chain, wallet, tokens.clone(), false)
+         .update_tokens_balance(ctx.clone(), chain, wallet, tokens, false)
          .await
       {
          error!("Error updating tokens balance: {:?}", e);
@@ -434,8 +413,7 @@ pub async fn update_token_balances(ctx: ZeusCtx, chain: u64, update_for_all: boo
 /// - Arguments:
 ///    - ctx: The Zeus context
 ///    - chain: The chain ID
-///    - update_for_all: If true, update the prices for all the ERC20 tokens known to Zeus
-pub async fn update_token_prices(ctx: ZeusCtx, chain: u64, update_for_all: bool) {
+pub async fn update_token_prices(ctx: ZeusCtx, chain: u64) {
    if ctx.is_chain_disabled(chain) {
       return;
    }
@@ -446,21 +424,6 @@ pub async fn update_token_prices(ctx: ZeusCtx, chain: u64, update_for_all: bool)
    let portfolio_tokens = ctx.get_all_tokens_from_portfolios(chain);
    let mut inserted = HashSet::new();
    let mut tokens = Vec::new();
-
-   if update_for_all {
-      let currencies = ctx.get_currencies(chain);
-
-      for curr in &currencies {
-         let token = curr.to_erc20().into_owned();
-
-         if token.is_base() || inserted.contains(&token.address) {
-            continue;
-         }
-
-         inserted.insert(token.address);
-         tokens.push(token);
-      }
-   }
 
    for token in portfolio_tokens {
       if token.is_base() || inserted.contains(&token.address) {
@@ -516,7 +479,7 @@ async fn state_update_interval(ctx: ZeusCtx) {
                continue;
             }
 
-            update_token_prices(ctx.clone(), chain, false).await;
+            update_token_prices(ctx.clone(), chain).await;
 
             let portfolios = ctx.read_wallet_state(|ws| ws.portfolio_db.get_all(chain));
             for portfolio in &portfolios {

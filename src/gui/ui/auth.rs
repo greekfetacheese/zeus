@@ -313,6 +313,7 @@ pub struct RecoverHDWallet {
    allow_circuit_download: bool,
    fetch_token_icons: bool,
    fetch_contract_names: bool,
+   check_for_updates: bool,
    memory: SystemMemory,
    pub size: (f32, f32),
 }
@@ -338,6 +339,7 @@ impl RecoverHDWallet {
          allow_circuit_download: false,
          fetch_token_icons: false,
          fetch_contract_names: false,
+         check_for_updates: false,
          memory: SystemMemory::new(),
          size: (550.0, 350.0),
       }
@@ -859,7 +861,8 @@ impl RecoverHDWallet {
                   let paragraphs = [
                      "Zeus can download token icons from tokens.smold.app so unknown tokens show an image instead of a placeholder.",
                      "Zeus can also look up verified contract names on sourcify.dev when you sign a transaction or message.",
-                     "Both are optional and just do http calls to third-party servers. No telemetry or data collection.",
+                     "Zeus can check GitHub for a newer release on startup.",
+                     "These are optional and just do http calls to third-party servers. No telemetry or data collection involved.",
                      "You can change this later in Settings/General."
                   ];
                   for paragraph in paragraphs {
@@ -879,6 +882,10 @@ impl RecoverHDWallet {
                   let names_text =
                      RichText::new("Fetch Contract Names").size(theme.typography.large);
                   ui.checkbox(&mut self.fetch_contract_names, names_text);
+
+                  let updates_text =
+                     RichText::new("Check for Updates").size(theme.typography.large);
+                  ui.checkbox(&mut self.check_for_updates, updates_text);
                });
             });
 
@@ -895,6 +902,8 @@ impl RecoverHDWallet {
                      .set_fetch_token_icons(self.fetch_token_icons);
                   ctx.misc_config
                      .set_fetch_contract_names(self.fetch_contract_names);
+                  ctx.misc_config
+                     .set_check_for_updates(self.check_for_updates);
                   let config = ctx.misc_config.clone();
                   let current_wallet = ctx.read_vault(|vault| vault.get_master_wallet());
                   RT.spawn_blocking(move || {

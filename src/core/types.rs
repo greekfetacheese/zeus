@@ -126,6 +126,9 @@ pub struct MiscConfig {
    /// When true, unknown contract names may be fetched from Sourcify.
    #[serde(default)]
    pub fetch_contract_names: bool,
+   /// When true, Zeus may query GitHub for a newer release.
+   #[serde(default)]
+   pub check_for_updates: bool,
 }
 
 impl MiscConfig {
@@ -133,6 +136,7 @@ impl MiscConfig {
       Self {
          fetch_token_icons: false,
          fetch_contract_names: false,
+         check_for_updates: false,
       }
    }
 
@@ -165,6 +169,14 @@ impl MiscConfig {
 
    pub fn set_fetch_contract_names(&mut self, allow: bool) {
       self.fetch_contract_names = allow;
+   }
+
+   pub fn check_for_updates(&self) -> bool {
+      self.check_for_updates
+   }
+
+   pub fn set_check_for_updates(&mut self, allow: bool) {
+      self.check_for_updates = allow;
    }
 }
 

@@ -5,11 +5,7 @@ use crate::assets::{INTER_BOLD_18, icons::Icons};
 use crate::core::ZeusCtx;
 use crate::gui::SHARED_GUI;
 use crate::server::run_server;
-use crate::utils::{
-   RT, TimeStamp,
-   self_update::check_for_updates,
-   state::{on_startup, test_and_measure_rpcs},
-};
+use crate::utils::{RT, TimeStamp, state::on_startup};
 use eframe::{
    CreationContext,
    egui::{self, Frame},
@@ -76,13 +72,6 @@ impl ZeusApp {
          "ZeusApp loaded in {}ms",
          time.elapsed().as_millis()
       );
-
-      do_check_for_updates();
-
-      let ctx_clone = ctx.clone();
-      RT.spawn(async move {
-         test_and_measure_rpcs(ctx_clone).await;
-      });
 
       let now = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
       ctx.write(|ctx| {
@@ -300,24 +289,6 @@ impl eframe::App for ZeusApp {
          });
       });
    }
-}
-
-fn do_check_for_updates() {
-   RT.spawn(async move {
-      let info = match check_for_updates().await {
-         Ok(info) => info,
-         Err(e) => {
-            tracing::error!("Failed to check for updates: {:?}", e);
-            Default::default()
-         }
-      };
-
-      if info.available {
-         SHARED_GUI.write(|gui| {
-            gui.update_window.open(info);
-         });
-      }
-   });
 }
 
 pub fn setup_fonts(ctx: &egui::Context) {

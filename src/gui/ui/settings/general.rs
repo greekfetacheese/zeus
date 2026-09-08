@@ -9,10 +9,12 @@ use std::collections::HashSet;
 
 const ICONS_TIP: &str = "Allow Zeus to download token icons from tokens.smold.app";
 const SOURCIFY_TIP: &str = "Allow Zeus to look up verified contract names on sourcify.dev";
+const UPDATES_TIP: &str = "Allow Zeus to check GitHub for a newer Zeus release";
 
 pub struct GeneralSettings {
    fetch_token_icons: bool,
    fetch_contract_names: bool,
+   check_for_updates: bool,
    discover_v4_pools_on_startup: bool,
    concurrency_for_syncing_balances: usize,
    concurrency_for_discovering_pools: usize,
@@ -27,6 +29,7 @@ impl GeneralSettings {
       let mut this = Self {
          fetch_token_icons: false,
          fetch_contract_names: false,
+         check_for_updates: false,
          discover_v4_pools_on_startup: false,
          concurrency_for_syncing_balances: 1,
          concurrency_for_discovering_pools: 1,
@@ -53,6 +56,7 @@ impl GeneralSettings {
       let balance_manager = ctx.read_wallet_state(|ws| ws.balance_manager.clone());
       self.fetch_token_icons = ctx.misc_config.fetch_token_icons();
       self.fetch_contract_names = ctx.misc_config.fetch_contract_names();
+      self.check_for_updates = ctx.misc_config.check_for_updates();
       self.discover_v4_pools_on_startup = pool_manager.do_we_discover_v4_pools();
       self.concurrency_for_syncing_balances = balance_manager.concurrency();
       self.concurrency_for_discovering_pools = pool_manager.concurrency();
@@ -101,7 +105,7 @@ impl GeneralSettings {
       );
 
       let names_text = RichText::new("Fetch Contract Names").size(theme.typography.normal);
-      let qmark = Badge::new(q_mark_text, BadgeTone::Info);
+      let qmark = Badge::new(q_mark_text.clone(), BadgeTone::Info);
 
       ui.allocate_ui_with_layout(
          ui_size,
@@ -112,6 +116,21 @@ impl GeneralSettings {
                Self::persist_misc(ctx);
             }
             ui.add(qmark).on_hover_text(SOURCIFY_TIP);
+         },
+      );
+
+      let updates_text = RichText::new("Check for Updates").size(theme.typography.normal);
+      let qmark = Badge::new(q_mark_text.clone(), BadgeTone::Info);
+
+      ui.allocate_ui_with_layout(
+         ui_size,
+         Layout::left_to_right(Align::Center),
+         |ui| {
+            if ui.checkbox(&mut self.check_for_updates, updates_text).changed() {
+               ctx.misc_config.set_check_for_updates(self.check_for_updates);
+               Self::persist_misc(ctx);
+            }
+            ui.add(qmark).on_hover_text(UPDATES_TIP);
          },
       );
 
@@ -205,6 +224,10 @@ impl GeneralSettings {
       }
       if self.fetch_contract_names != ctx.misc_config.fetch_contract_names() {
          ctx.misc_config.set_fetch_contract_names(self.fetch_contract_names);
+         save_misc = true;
+      }
+      if self.check_for_updates != ctx.misc_config.check_for_updates() {
+         ctx.misc_config.set_check_for_updates(self.check_for_updates);
          save_misc = true;
       }
       if save_misc {
