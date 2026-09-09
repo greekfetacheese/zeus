@@ -175,7 +175,9 @@ impl DeleteContact {
       }
    }
 
-   fn body(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+   /// Returns `true` if the contact was deleted so the caller can switch view.
+   /// Do not touch `SHARED_GUI` here — Settings paint already holds that write lock.
+   fn body(&mut self, theme: &Theme, ui: &mut Ui) -> bool {
       ui.spacing_mut().item_spacing.y = theme.spacing.md;
       ui.spacing_mut().button_padding = theme.button_padding;
 
@@ -194,10 +196,10 @@ impl DeleteContact {
       let button = Button::new(text).visuals(button_visuals);
 
       if ui.add(button).clicked() {
-         ctx.remove_contact(&contact_to_delete.evm_address);
-
          RT.spawn_blocking(move || {
             let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+            ctx.remove_contact(&contact_to_delete.evm_address);
+
             match ctx.save_wallet_state() {
                Ok(_) => {}
                Err(e) => {
@@ -215,9 +217,9 @@ impl DeleteContact {
          });
 
          self.contact_to_delete = Contact::default();
-         SHARED_GUI.write(|gui| {
-            gui.settings.contacts_ui.view = ContactsPageView::List;
-         });
+         true
+      } else {
+         false
       }
    }
 }
@@ -521,11 +523,16 @@ impl ContactsUi {
          }
          ContactsPageView::Delete => {
             self.back_row(theme, ui);
-            ui.vertical_centered(|ui| {
-               ui.label(RichText::new("Delete contact").size(theme.typography.heading));
-               ui.add_space(10.0);
-               self.delete_contact.body(ctx, theme, ui);
-            });
+            let deleted = ui
+               .vertical_centered(|ui| {
+                  ui.label(RichText::new("Delete contact").size(theme.typography.heading));
+                  ui.add_space(10.0);
+                  self.delete_contact.body(theme, ui)
+               })
+               .inner;
+            if deleted {
+               self.view = ContactsPageView::List;
+            }
          }
          ContactsPageView::Qr => {
             self.back_row(theme, ui);

@@ -35,7 +35,7 @@ use zeus_railgun::{RailgunAddress, RailgunProvider, RailgunSigner, SnapshotLoade
 
 pub use persisted::{
    bundler_url_dir, data_dir, disabled_chains_dir, misc_config_dir, pool_data_dir,
-   railgun_config_dir, railgun_db_file, railgun_dir, server_port_dir, theme_kind_dir,
+   railgun_config_dir, railgun_db_file, railgun_dir, theme_kind_dir,
 };
 
 /// This is the minimum USD value in a base currency that a pool needs to have in order to be considered sufficiently liquid
@@ -43,11 +43,36 @@ pub const DEFAULT_POOL_MINIMUM_LIQUIDITY: f64 = 10_000.0;
 
 pub const DELEGATE_WALLET_CHECK_TIMEOUT: u64 = 600;
 
-pub fn load_server_port() -> Result<u16, anyhow::Error> {
-   let dir = server_port_dir()?;
-   let port_str = std::fs::read_to_string(dir)?;
-   let port = serde_json::from_str(&port_str)?;
-   Ok(port)
+/// Max entries in the wallet-connector RPC caches (`eth_call`, gas, code, …).
+const CONNECTOR_CACHE_CAP: usize = 20;
+
+fn railgun_supported(chain: ChainId) -> bool {
+   matches!(
+      chain,
+      ChainId::Ethereum | ChainId::EthereumSepolia
+   )
+}
+
+fn cache_elapsed_fresh(now: u64, old: u64, ttl_ms: u64) -> bool {
+   let elapsed = if now > old {
+      now - old
+   } else {
+      tracing::warn!("System time is behind block timestamp");
+      u64::MAX
+   };
+   elapsed < ttl_ms
+}
+
+fn cache_insert_capped<K, V>(map: &mut HashMap<K, V>, key: K, value: V)
+where
+   K: Eq + std::hash::Hash + Clone,
+{
+   map.insert(key, value);
+   if map.len() >= CONNECTOR_CACHE_CAP {
+      if let Some(oldest) = map.keys().next().cloned() {
+         map.remove(&oldest);
+      }
+   }
 }
 
 pub fn load_theme_kind() -> Result<ThemeKind, anyhow::Error> {
@@ -89,7 +114,7 @@ impl ZeusCtx {
    }
 
    /// Cheap clone of the vault handle (`Arc<RwLock<Vault>>`).
-   pub fn vault_handle(&self) -> Arc<RwLock<Vault>> {
+   fn vault_handle(&self) -> Arc<RwLock<Vault>> {
       self.read(|ctx| Arc::clone(&ctx.vault))
    }
 
@@ -129,14 +154,6 @@ impl ZeusCtx {
       });
    }
 
-   /// If pool_data.data has been deleted, we need to re-sync the pools
-   pub fn pools_need_resync(&self) -> bool {
-      match pool_data_dir() {
-         Ok(dir) => !dir.exists(),
-         Err(_) => true,
-      }
-   }
-
    pub fn vault_exists(&self) -> bool {
       self.read(|ctx| ctx.vault_exists)
    }
@@ -150,11 +167,7 @@ impl ZeusCtx {
    }
 
    pub fn railgun_is_supported(&self, chain: ChainId) -> bool {
-      match chain {
-         ChainId::Ethereum => true,
-         ChainId::EthereumSepolia => true,
-         _ => false,
-      }
+      railgun_supported(chain)
    }
 
    pub fn is_railgun_enabled(&self, chain: u64) -> bool {
@@ -275,10 +288,6 @@ impl ZeusCtx {
             "Dropped cached RailgunProvider for chain {} before db wipe",
             chain
          );
-
-         drop(provider);
-      } else {
-         drop(old_provider);
       }
 
       let res = async {
@@ -539,19 +548,17 @@ impl ZeusCtx {
          None => self.clone_vault(),
       };
 
-      let res = vault.encrypt(new_params);
+      let encrypted_data = match vault.encrypt(new_params) {
+         Ok(data) => data,
+         Err(e) => {
+            self.write(|ctx| ctx.save_vault_in_progress = false);
+            return Err(e);
+         }
+      };
 
-      if res.is_err() {
+      if let Err(e) = vault.save(None, encrypted_data) {
          self.write(|ctx| ctx.save_vault_in_progress = false);
-         return Err(res.err().unwrap());
-      }
-
-      let encrypted_data = res.unwrap();
-      let res = vault.save(None, encrypted_data);
-
-      if res.is_err() {
-         self.write(|ctx| ctx.save_vault_in_progress = false);
-         return Err(res.err().unwrap());
+         return Err(e);
       }
 
       self.write(|ctx| ctx.save_vault_in_progress = false);
@@ -581,16 +588,8 @@ impl ZeusCtx {
       res
    }
 
-   pub fn set_save_vault_in_progress(&self, save_vault_in_progress: bool) {
-      self.write(|ctx| ctx.save_vault_in_progress = save_vault_in_progress);
-   }
-
    pub fn save_vault_in_progress(&self) -> bool {
       self.read(|ctx| ctx.save_vault_in_progress)
-   }
-
-   pub fn set_save_wallet_state_in_progress(&self, in_progress: bool) {
-      self.write(|ctx| ctx.save_wallet_state_in_progress = in_progress);
    }
 
    pub fn save_wallet_state_in_progress(&self) -> bool {
@@ -628,12 +627,11 @@ impl ZeusCtx {
    /// Get the wallet with the given address
    pub fn get_wallet(&self, address: Address) -> Option<Wallet> {
       self.read_vault(|vault| {
-         for wallet in vault.all_wallets() {
-            if wallet.address() == address {
-               return Some(wallet.clone());
-            }
-         }
-         None
+         vault
+            .all_wallets()
+            .into_iter()
+            .find(|wallet| wallet.address() == address)
+            .cloned()
       })
    }
 
@@ -693,15 +691,11 @@ impl ZeusCtx {
    }
 
    pub fn wallet_with_zk_address_exists(&self, zk_address: &RailgunAddress) -> bool {
-      let exists = self.read(|ctx| {
-         for (_, wallet) in ctx.wallet_info_cache.iter() {
-            if wallet.zk_address() == zk_address.address {
-               return true;
-            }
-         }
-         false
-      });
-      exists
+      self.read(|ctx| {
+         ctx.wallet_info_cache
+            .values()
+            .any(|wallet| wallet.zk_address() == zk_address.address)
+      })
    }
 
    /// Get all wallets info without cloning the private key
@@ -770,18 +764,6 @@ impl ZeusCtx {
    pub fn client_available(&self, chain: u64) -> bool {
       let z_client = self.get_zeus_client();
       z_client.rpc_available(chain)
-   }
-
-   /// Check if any MEV protection client is available for the given chain
-   pub fn client_mev_protect_available(&self, chain: u64) -> bool {
-      let z_client = self.get_zeus_client();
-      z_client.mev_protect_available(chain)
-   }
-
-   /// Check if any archive client is available for the given chain
-   pub fn client_archive_available(&self, chain: u64) -> bool {
-      let z_client = self.get_zeus_client();
-      z_client.rpc_archive_available(chain)
    }
 
    pub fn get_zeus_client(&self) -> ZeusClient {
@@ -1183,8 +1165,7 @@ impl ZeusCtx {
       let portfolios = self.read_wallet_state(|ws| ws.portfolio_db.get_all(chain));
 
       for portfolio in portfolios {
-         let erc_tokens = portfolio.tokens().iter().map(|token| token.clone()).collect::<Vec<_>>();
-         tokens.extend(erc_tokens);
+         tokens.extend(portfolio.tokens().iter().cloned());
       }
       tokens
    }
@@ -1526,10 +1507,6 @@ impl ZeusCtx {
       self.read(|ctx| ctx.delegated_wallets.should_check(chain, account))
    }
 
-   pub fn get_delegated_address(&self, chain: u64, account: Address) -> Option<Address> {
-      self.read(|ctx| ctx.delegated_wallets.get(chain, account))
-   }
-
    pub async fn check_delegated_wallet_status(
       &self,
       chain: u64,
@@ -1587,12 +1564,7 @@ impl ZeusCtx {
 
       if let Some(receipt) = &receipt {
          self.write(|ctx| {
-            ctx.receipts.insert((chain, hash), receipt.clone());
-            let len = ctx.receipts.len();
-            if len >= 20 {
-               let oldest = ctx.receipts.iter().next().unwrap().0.clone();
-               ctx.receipts.remove(&oldest);
-            }
+            cache_insert_capped(&mut ctx.receipts, (chain, hash), receipt.clone());
          });
       }
 
@@ -1623,12 +1595,11 @@ impl ZeusCtx {
 
       if let Some(transaction) = &transaction {
          self.write(|ctx| {
-            ctx.transactions.insert((chain, hash), transaction.clone());
-            let len = ctx.transactions.len();
-            if len >= 20 {
-               let oldest = ctx.transactions.iter().next().unwrap().0.clone();
-               ctx.transactions.remove(&oldest);
-            }
+            cache_insert_capped(
+               &mut ctx.transactions,
+               (chain, hash),
+               transaction.clone(),
+            );
          });
       }
 
@@ -1670,12 +1641,11 @@ impl ZeusCtx {
          .await?;
 
       self.write(|ctx| {
-         ctx.storage.insert((chain, block, address, slot), storage.clone());
-         let len = ctx.storage.len();
-         if len >= 20 {
-            let oldest = ctx.storage.iter().next().unwrap().0.clone();
-            ctx.storage.remove(&oldest);
-         }
+         cache_insert_capped(
+            &mut ctx.storage,
+            (chain, block, address, slot),
+            storage.clone(),
+         );
       });
 
       Ok(storage)
@@ -1715,12 +1685,11 @@ impl ZeusCtx {
          .await?;
 
       self.write(|ctx| {
-         ctx.codes.insert((chain, block, address), code.clone());
-         let len = ctx.codes.len();
-         if len >= 20 {
-            let oldest = ctx.codes.iter().next().unwrap().0.clone();
-            ctx.codes.remove(&oldest);
-         }
+         cache_insert_capped(
+            &mut ctx.codes,
+            (chain, block, address),
+            code.clone(),
+         );
       });
 
       Ok(code)
@@ -1736,16 +1705,7 @@ impl ZeusCtx {
       let now = TimeStamp::now_as_millis()?.timestamp();
 
       if let Some(res) = res {
-         // time check
-         let old = res.timestamp;
-         let elapsed = if now > old {
-            now - old
-         } else {
-            tracing::warn!("System time is behind block timestamp");
-            u64::MAX
-         };
-
-         if elapsed < block_time {
+         if cache_elapsed_fresh(now, res.timestamp, block_time) {
             return Ok(res.gas);
          }
       }
@@ -1761,18 +1721,14 @@ impl ZeusCtx {
       let now = TimeStamp::now_as_millis()?.timestamp();
 
       self.write(|ctx| {
-         ctx.estimate_gas.insert(
+         cache_insert_capped(
+            &mut ctx.estimate_gas,
             (chain.id(), tx),
             EstimateGas {
                timestamp: now,
                gas,
             },
          );
-         let len = ctx.estimate_gas.len();
-         if len >= 20 {
-            let oldest = ctx.estimate_gas.iter().next().unwrap().0.clone();
-            ctx.estimate_gas.remove(&oldest);
-         }
       });
 
       Ok(gas)
@@ -1788,16 +1744,7 @@ impl ZeusCtx {
       let eth_call = self.read(|ctx| ctx.eth_calls.get(&(chain.id(), tx.clone())).cloned());
 
       if let Some(eth_call) = eth_call {
-         // time check
-         let old = eth_call.timestamp;
-         let elapsed = if now > old {
-            now - old
-         } else {
-            tracing::warn!("System time is behind block timestamp");
-            u64::MAX
-         };
-
-         if elapsed < block_time {
+         if cache_elapsed_fresh(now, eth_call.timestamp, block_time) {
             return Ok(eth_call);
          }
       }
@@ -1818,12 +1765,11 @@ impl ZeusCtx {
       };
 
       self.write(|ctx| {
-         ctx.eth_calls.insert((chain.id(), tx), eth_call.clone());
-         let len = ctx.eth_calls.len();
-         if len >= 20 {
-            let oldest = ctx.eth_calls.iter().next().unwrap().0.clone();
-            ctx.eth_calls.remove(&oldest);
-         }
+         cache_insert_capped(
+            &mut ctx.eth_calls,
+            (chain.id(), tx),
+            eth_call.clone(),
+         );
       });
 
       Ok(eth_call)
@@ -1839,16 +1785,8 @@ impl ZeusCtx {
       let block = self.read(|ctx| ctx.latest_block.get(&chain.id()).cloned());
 
       if let Some(block) = block {
-         // time check
          let block_timestamp_ms = block.timestamp * 1000u64;
-         let elapsed = if now > block_timestamp_ms {
-            now - block_timestamp_ms
-         } else {
-            tracing::warn!("System time is behind block timestamp");
-            u64::MAX
-         };
-
-         if elapsed < block_time {
+         if cache_elapsed_fresh(now, block_timestamp_ms, block_time) {
             return Ok(block);
          }
       }
@@ -1873,14 +1811,6 @@ impl ZeusCtx {
 
    pub fn server_port(&self) -> u16 {
       self.read(|ctx| ctx.server_port)
-   }
-
-   pub fn save_server_port(&self) -> Result<(), anyhow::Error> {
-      let port = self.server_port();
-      let dir = server_port_dir()?;
-      let string = serde_json::to_string(&port)?;
-      std::fs::write(dir, string)?;
-      Ok(())
    }
 }
 
@@ -2105,12 +2035,12 @@ impl ZeusContext {
          state_sync: HashMap::with_capacity(SUPPORTED_CHAINS.len()),
          base_fee: HashMap::with_capacity(SUPPORTED_CHAINS.len()),
          latest_block: HashMap::with_capacity(SUPPORTED_CHAINS.len()),
-         eth_calls: HashMap::with_capacity(20),
-         estimate_gas: HashMap::with_capacity(20),
-         codes: HashMap::with_capacity(20),
-         storage: HashMap::with_capacity(20),
-         transactions: HashMap::with_capacity(20),
-         receipts: HashMap::with_capacity(20),
+         eth_calls: HashMap::with_capacity(CONNECTOR_CACHE_CAP),
+         estimate_gas: HashMap::with_capacity(CONNECTOR_CACHE_CAP),
+         codes: HashMap::with_capacity(CONNECTOR_CACHE_CAP),
+         storage: HashMap::with_capacity(CONNECTOR_CACHE_CAP),
+         transactions: HashMap::with_capacity(CONNECTOR_CACHE_CAP),
+         receipts: HashMap::with_capacity(CONNECTOR_CACHE_CAP),
          priority_fee,
          connected_dapps: ConnectedDapps::default(),
          delegated_wallets,
@@ -2127,11 +2057,7 @@ impl ZeusContext {
    }
 
    pub fn railgun_is_supported(&self, chain: ChainId) -> bool {
-      match chain {
-         ChainId::Ethereum => true,
-         ChainId::EthereumSepolia => true,
-         _ => false,
-      }
+      railgun_supported(chain)
    }
 
    pub fn railgun_status(&self) -> &RailgunStatus {
@@ -2146,11 +2072,6 @@ impl ZeusContext {
    /// Mutable access to the vault.
    pub fn write_vault<R>(&self, writer: impl FnOnce(&mut Vault) -> R) -> R {
       writer(&mut self.vault.write().unwrap())
-   }
-
-   /// Cheap clone of the vault handle.
-   pub fn vault_handle(&self) -> Arc<RwLock<Vault>> {
-      Arc::clone(&self.vault)
    }
 
    /// Shared access to wallet app state.
@@ -2240,16 +2161,11 @@ impl ZeusContext {
 
    /// Get the wallet info for the given zk address
    pub fn get_wallet_info_by_zk_address(&self, address: &str) -> Option<WalletInfo> {
-      let mut wallet_opt = None;
-
-      for (_, wallet) in self.wallet_info_cache.iter() {
-         if wallet.zk_address_ref() == address {
-            wallet_opt = Some(wallet.clone());
-            break;
-         }
-      }
-
-      wallet_opt
+      self
+         .wallet_info_cache
+         .values()
+         .find(|wallet| wallet.zk_address_ref() == address)
+         .cloned()
    }
 
    /// Get the wallet name for the given address
@@ -2266,12 +2182,11 @@ impl ZeusContext {
    /// Get the wallet with the given address
    pub fn get_wallet(&self, address: Address) -> Option<Wallet> {
       self.read_vault(|vault| {
-         for wallet in vault.all_wallets() {
-            if wallet.address() == address {
-               return Some(wallet.clone());
-            }
-         }
-         None
+         vault
+            .all_wallets()
+            .into_iter()
+            .find(|wallet| wallet.address() == address)
+            .cloned()
       })
    }
 
@@ -2301,12 +2216,6 @@ impl ZeusContext {
             .find(|c| c.evm_address.to_lowercase() == evm_address)
             .cloned()
       })
-   }
-
-   pub fn remove_contact(&mut self, evm_address: &str) {
-      self.wallet_state.write(|ws| {
-         ws.contacts.retain(|c| c.evm_address != evm_address);
-      });
    }
 
    pub fn connected_dapps(&self) -> Vec<String> {
