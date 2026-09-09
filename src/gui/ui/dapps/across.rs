@@ -300,7 +300,6 @@ impl AcrossBridge {
                   let inner_frame = theme.frame2;
 
                   let owner = ctx.current_wallet_info().address;
-                  self.refresh_quote_cache(ctx);
                   let cost_wei = self.quote_cache.cost_wei.wei();
                   let value = self.quote_cache.amount_value.clone();
                   let balance = ctx.get_currency_balance(from_chain, owner, &self.currency);
