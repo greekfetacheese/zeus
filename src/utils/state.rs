@@ -99,7 +99,7 @@ pub async fn sync_state(ctx: ZeusCtx, chain: u64) {
       return;
    }
 
-   update_token_balances(ctx.clone(), chain).await;
+   update_wallets_balances(ctx.clone(), chain).await;
    update_token_prices(ctx.clone(), chain).await;
 
    let wallets = ctx.get_all_wallets_info();
@@ -374,12 +374,12 @@ async fn check_delegated_status(ctx: ZeusCtx, chain: u64) {
 }
 
 
-/// Update the token balances for all the wallet portfolios for the given chain
+/// Update the ETH & token balances for all the wallet portfolios for the given chain
 ///
 /// - Arguments:
 ///    - ctx: The Zeus context
 ///    - chain: The chain ID
-pub async fn update_token_balances(ctx: ZeusCtx, chain: u64) {
+pub async fn update_wallets_balances(ctx: ZeusCtx, chain: u64) {
    if ctx.is_chain_disabled(chain) {
       return;
    }
@@ -470,15 +470,12 @@ async fn state_update_interval(ctx: ZeusCtx) {
 
    loop {
       if wallet_state_passed.elapsed().as_secs() > WALLET_STATE_INTERVAL {
-         let manager = ctx.balance_manager();
-         manager.update_eth_balance_across_wallets_and_chains(ctx.clone()).await;
-         manager.update_tokens_balance_across_wallets_and_chains(ctx.clone()).await;
-
          for chain in SUPPORTED_CHAINS {
             if ctx.is_chain_disabled(chain) {
                continue;
             }
 
+            update_wallets_balances(ctx.clone(), chain).await;
             update_token_prices(ctx.clone(), chain).await;
 
             let portfolios = ctx.read_wallet_state(|ws| ws.portfolio_db.get_all(chain));
