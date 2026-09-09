@@ -48,7 +48,7 @@ fn v2_v3_amount_in(spends_trade_input: bool, quoted: U256) -> U256 {
 
 // https://docs.uniswap.org/contracts/universal-router/technical-reference
 #[allow(non_camel_case_types)]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(u8)]
 pub enum Commands {
    V3_SWAP_EXACT_IN = 0x00,
@@ -186,26 +186,7 @@ pub async fn encode_swap(
    let mut inputs = Vec::new();
    let mut execute_params = SwapExecuteParams::new();
 
-   if currency_in.is_native() {
-      // Always set the tx value to the total input amount when dealing with native ETH.
-      execute_params.set_value(amount_in);
-
-      // Calculate how much ETH needs to be wrapped for V2/V3 pools.
-      let amount_to_wrap: U256 = swap_steps
-         .iter()
-         // Compare against `weth_currency`, not the native `currency_in`.
-         .filter(|s| s.currency_in.is_native_wrapped() && !s.pool.dex_kind().is_uniswap_v4())
-         .map(|s| s.amount_in.wei())
-         .sum();
-
-      if amount_to_wrap > U256::ZERO {
-         let data = encode_wrap_eth(router_addr, amount_to_wrap);
-         commands.push(Commands::WRAP_ETH as u8);
-         inputs.push(data);
-      }
-   }
-
-   // Handle Permit2 approvals
+   // Handle Permit2 approvals (signature only; transfer is in encode_swap_plan)
    if currency_in.is_erc20() {
       let token_in = currency_in.to_erc20();
 
@@ -244,70 +225,135 @@ pub async fn encode_swap(
       execute_params.set_permit2_info(Some(permit_info));
    }
 
+   let plan = encode_swap_plan(
+      chain_id,
+      &swap_steps,
+      swap_type,
+      amount_in,
+      amount_out_min,
+      slippage,
+      &currency_in,
+      &currency_out,
+      recipient,
+   )?;
+
+   commands.extend(plan.commands);
+   inputs.extend(plan.inputs);
+   execute_params.set_value(plan.value);
+
+   let command_bytes = Bytes::from(commands);
+   #[cfg(feature = "dev")]
+   debug!("Command Bytes: {:?}", command_bytes);
+
+   let deadline = TimeStamp::now_as_secs()?.saturating_add_secs(deadline_in_minutes * 60);
+   let data = encode_execute_with_deadline(
+      command_bytes,
+      inputs,
+      U256::from(deadline.timestamp()),
+   );
+
+   execute_params.set_call_data(data);
+
+   Ok(execute_params)
+}
+
+struct SwapPlan {
+   commands: Vec<u8>,
+   inputs: Vec<Bytes>,
+   value: U256,
+}
+
+fn sum_amount_in<P: UniswapPool>(
+   steps: &[SwapStep<P>],
+   pred: impl Fn(&SwapStep<P>) -> bool,
+) -> U256 {
+   steps.iter().filter(|s| pred(s)).map(|s| s.amount_in.wei()).sum()
+}
+
+/// Quoted ETH/WETH left on the router after the hops (ignores WRAP/UNWRAP cmds).
+fn quoted_router_eth_weth<P: UniswapPool>(steps: &[SwapStep<P>]) -> (U256, U256) {
+   let mut eth = U256::ZERO;
+   let mut weth = U256::ZERO;
+   for swap in steps {
+      if swap.currency_in.is_native() && eth >= swap.amount_in.wei() {
+         eth -= swap.amount_in.wei();
+      }
+      if swap.currency_in.is_native_wrapped() && weth >= swap.amount_in.wei() {
+         weth -= swap.amount_in.wei();
+      }
+      if swap.currency_out.is_native() {
+         eth += swap.amount_out.wei();
+      }
+      if swap.currency_out.is_native_wrapped() {
+         weth += swap.amount_out.wei();
+      }
+   }
+   (eth, weth)
+}
+
+fn needs_v2_v3_wrap<P: UniswapPool>(step: &SwapStep<P>) -> bool {
+   step.currency_in.is_native_wrapped() && !step.pool.dex_kind().is_uniswap_v4()
+}
+
+fn needs_v4_native_unwrap<P: UniswapPool>(step: &SwapStep<P>) -> bool {
+   step.currency_in.is_native() && step.pool.dex_kind().is_uniswap_v4()
+}
+
+/// Command sequence without Permit2 signature or deadline wrapping.
+fn encode_swap_plan(
+   chain_id: u64,
+   swap_steps: &[SwapStep<impl UniswapPool + Clone>],
+   swap_type: SwapType,
+   amount_in: U256,
+   amount_out_min: U256,
+   slippage: f64,
+   currency_in: &Currency,
+   currency_out: &Currency,
+   recipient: Address,
+) -> Result<SwapPlan, anyhow::Error> {
+   let router_addr = address_book::universal_router_v2(chain_id)?;
+   let mut commands = Vec::new();
+   let mut inputs = Vec::new();
+   let mut value = U256::ZERO;
+
+   if currency_in.is_native() {
+      value = amount_in;
+      let amount_to_wrap = sum_amount_in(swap_steps, needs_v2_v3_wrap);
+      if amount_to_wrap > U256::ZERO {
+         commands.push(Commands::WRAP_ETH as u8);
+         inputs.push(encode_wrap_eth(router_addr, amount_to_wrap));
+      }
+   }
+
    let first_step_uses_permit2 = currency_in.is_erc20();
    if first_step_uses_permit2 {
-      let transfer_from_input = encode_permit2_transfer_from(
+      commands.push(Commands::PERMIT2_TRANSFER_FROM as u8);
+      inputs.push(encode_permit2_transfer_from(
          currency_in.to_erc20().address,
          router_addr,
          amount_in,
-      );
-
-      commands.push(Commands::PERMIT2_TRANSFER_FROM as u8);
-      inputs.push(transfer_from_input);
+      ));
    }
 
-   // WETH in + V4 native (address(0)) hops: Permit2 left WETH on the router,
-   // but V4 SETTLE wants ETH. UNWRAP_WETH unwraps the router's entire WETH
-   // balance, so re-WRAP any amount still needed by V2/V3 hops.
+   // WETH in + V4 native hops: Permit2 left WETH on the router, V4 SETTLE wants ETH.
+   // UNWRAP_WETH unwraps the entire WETH balance, so re-WRAP any V2/V3 remainder.
    if currency_in.is_native_wrapped() {
-      let amount_to_unwrap: U256 = swap_steps
-         .iter()
-         .filter(|s| s.currency_in.is_native() && s.pool.dex_kind().is_uniswap_v4())
-         .map(|s| s.amount_in.wei())
-         .sum();
-
+      let amount_to_unwrap = sum_amount_in(swap_steps, needs_v4_native_unwrap);
       if amount_to_unwrap > U256::ZERO {
-         let data = encode_unwrap_weth(router_addr, amount_to_unwrap);
          commands.push(Commands::UNWRAP_WETH as u8);
-         inputs.push(data);
+         inputs.push(encode_unwrap_weth(router_addr, amount_to_unwrap));
 
-         let amount_to_wrap: U256 = swap_steps
-            .iter()
-            .filter(|s| s.currency_in.is_native_wrapped() && !s.pool.dex_kind().is_uniswap_v4())
-            .map(|s| s.amount_in.wei())
-            .sum();
-
+         let amount_to_wrap = sum_amount_in(swap_steps, needs_v2_v3_wrap);
          if amount_to_wrap > U256::ZERO {
-            let data = encode_wrap_eth(router_addr, amount_to_wrap);
             commands.push(Commands::WRAP_ETH as u8);
-            inputs.push(data);
+            inputs.push(encode_wrap_eth(router_addr, amount_to_wrap));
          }
       }
    }
 
-   // Router ETH and WETH balances after the swaps
-   let mut router_eth_balance = U256::ZERO;
-   let mut router_weth_balance = U256::ZERO;
-
    let weth = Currency::wrapped_native(chain_id);
 
-   for swap in &swap_steps {
-      if swap.currency_in.is_native() && router_eth_balance >= swap.amount_in.wei() {
-         router_eth_balance -= swap.amount_in.wei();
-      }
-
-      if swap.currency_in.is_native_wrapped() && router_weth_balance >= swap.amount_in.wei() {
-         router_weth_balance -= swap.amount_in.wei();
-      }
-
-      if swap.currency_out.is_native() {
-         router_eth_balance += swap.amount_out.wei();
-      }
-
-      if swap.currency_out.is_native_wrapped() {
-         router_weth_balance += swap.amount_out.wei();
-      }
-
+   for swap in swap_steps {
       #[cfg(feature = "dev")]
       {
          debug!("|=== Swap Step ===|");
@@ -324,22 +370,11 @@ pub async fn encode_swap(
          );
       }
 
-      // Pull from the user only when this hop's token is still the trade input
-      // (not WETH after WRAP, not an intermediate). Permit2 already moved ERC20
-      // onto the router, so those hops also pay from the router.
-      let uses_initial_funds = swap.currency_in == currency_in;
-      let amount_is_trade_input = spends_trade_input(&swap.currency_in, &currency_in);
-
-      // All intermediate swaps send funds back to the router.
-      // The final output is handled by SWEEP or UNWRAP_WETH at the end.
-      let recipient_addr = router_addr;
+      let uses_initial_funds = swap.currency_in == *currency_in;
+      let amount_is_trade_input = spends_trade_input(&swap.currency_in, currency_in);
       let payer_is_user = uses_initial_funds && !first_step_uses_permit2;
-
-      // Slippage is only enforced at the very end.
       let step_amount_out_min = U256::ZERO;
 
-      // For V2/V3, the input currency should always be the WETH address, even if the user starts with ETH.
-      // The WRAP_ETH command ensures the router has the WETH.
       let step_currency_in = if swap.currency_in.is_native() {
          &weth
       } else {
@@ -349,7 +384,7 @@ pub async fn encode_swap(
       if swap.pool.dex_kind().is_uniswap_v2() {
          let path = vec![step_currency_in.address(), swap.currency_out.address()];
          let input = encode_v2_swap_exact_in(
-            recipient_addr,
+            router_addr,
             v2_v3_amount_in(amount_is_trade_input, swap.amount_in.wei()),
             step_amount_out_min,
             path,
@@ -363,7 +398,7 @@ pub async fn encode_swap(
          let path = vec![step_currency_in.address(), swap.currency_out.address()];
          let fees = vec![swap.pool.fee().fee_u24()];
          let input = encode_v3_swap_exact_in(
-            recipient_addr,
+            router_addr,
             v2_v3_amount_in(amount_is_trade_input, swap.amount_in.wei()),
             step_amount_out_min,
             path,
@@ -390,69 +425,48 @@ pub async fn encode_swap(
       }
    }
 
+   let (router_eth_balance, router_weth_balance) = quoted_router_eth_weth(swap_steps);
    let ur_has_weth_balance = router_weth_balance > U256::ZERO;
    let ur_has_eth_balance = router_eth_balance > U256::ZERO;
-
    let mut should_sweep = true;
-   let amount_to_sweep = amount_out_min;
 
-   // V4 native out + user wants WETH: wrap ETH on the router before SWEEP.
    if currency_out.is_native_wrapped() && ur_has_eth_balance {
-      let data = encode_wrap_eth(router_addr, CONTRACT_BALANCE);
       commands.push(Commands::WRAP_ETH as u8);
-      inputs.push(data);
+      inputs.push(encode_wrap_eth(router_addr, CONTRACT_BALANCE));
    }
 
-   // Handle native ETH output
-
-   // UR has just WETH, in that case we just unwrap WETH and send it to the recipient
    if currency_out.is_native() && ur_has_weth_balance && !ur_has_eth_balance {
-      let data = encode_unwrap_weth(recipient, amount_out_min);
       commands.push(Commands::UNWRAP_WETH as u8);
-      inputs.push(data);
-
+      inputs.push(encode_unwrap_weth(recipient, amount_out_min));
       should_sweep = false;
    }
 
-   // UR has both WETH and ETH, We need to UNWRAP WETH and then let the SWEEP to send all the ETH
    if currency_out.is_native() && ur_has_weth_balance && ur_has_eth_balance {
       let weth_amount = NumericValue::format_wei(router_weth_balance, currency_out.decimals());
       let amount_min = weth_amount.calc_slippage(slippage, currency_out.decimals());
-
-      let data = encode_unwrap_weth(router_addr, amount_min.wei());
       commands.push(Commands::UNWRAP_WETH as u8);
-      inputs.push(data);
+      inputs.push(encode_unwrap_weth(router_addr, amount_min.wei()));
    }
 
    if should_sweep {
       let sweep_params = Sweep {
          token: currency_out.address(),
          recipient,
-         amountMin: amount_to_sweep,
+         amountMin: amount_out_min,
       };
 
       #[cfg(feature = "dev")]
       debug!("Sweep Params: {:?}", sweep_params);
 
-      let data = sweep_params.abi_encode_params().into();
       commands.push(Commands::SWEEP as u8);
-      inputs.push(data);
+      inputs.push(sweep_params.abi_encode_params().into());
    }
 
-   let command_bytes = Bytes::from(commands);
-   #[cfg(feature = "dev")]
-   debug!("Command Bytes: {:?}", command_bytes);
-
-   let deadline = TimeStamp::now_as_secs()?.saturating_add_secs(deadline_in_minutes * 60);
-   let data = encode_execute_with_deadline(
-      command_bytes,
+   Ok(SwapPlan {
+      commands,
       inputs,
-      U256::from(deadline.timestamp()),
-   );
-
-   execute_params.set_call_data(data);
-
-   Ok(execute_params)
+      value,
+   })
 }
 
 fn encode_v4_internal_actions(
@@ -563,7 +577,11 @@ fn encode_v4_router_command_input(
 #[cfg(test)]
 mod tests {
    use super::*;
-   use zeus_eth::currency::{Currency, ERC20Token, NativeCurrency};
+   use zeus_eth::{
+      alloy_primitives::address,
+      amm::uniswap::{AnyUniswapPool, DexKind, UniswapV3Pool, UniswapV4Pool},
+      currency::{Currency, ERC20Token, NativeCurrency},
+   };
 
    fn eth() -> Currency {
       Currency::from(NativeCurrency::from(1u64))
@@ -581,6 +599,74 @@ mod tests {
       Currency::from(ERC20Token::usdt())
    }
 
+   fn recipient() -> Address {
+      address!("2222222222222222222222222222222222222222")
+   }
+
+   fn wei(amount: &str, decimals: u8) -> NumericValue {
+      NumericValue::parse_to_wei(amount, decimals)
+   }
+
+   fn v3_weth_usdc() -> UniswapV3Pool {
+      UniswapV3Pool::new(
+         1,
+         address!("1111111111111111111111111111111111111111"),
+         500,
+         ERC20Token::weth(),
+         ERC20Token::usdc(),
+         DexKind::UniswapV3,
+      )
+   }
+
+   fn step(
+      pool: impl Into<AnyUniswapPool>,
+      cin: Currency,
+      cout: Currency,
+      amt_in: NumericValue,
+      amt_out: NumericValue,
+   ) -> SwapStep<AnyUniswapPool> {
+      SwapStep::new(pool.into(), amt_in, amt_out, cin, cout)
+   }
+
+   fn plan(
+      currency_in: Currency,
+      currency_out: Currency,
+      amount_in: U256,
+      steps: Vec<SwapStep<AnyUniswapPool>>,
+   ) -> SwapPlan {
+      encode_swap_plan(
+         1,
+         &steps,
+         SwapType::ExactInput,
+         amount_in,
+         U256::from(1u64),
+         0.5,
+         &currency_in,
+         &currency_out,
+         recipient(),
+      )
+      .unwrap()
+   }
+
+   fn assert_commands(got: &SwapPlan, expected: &[Commands]) {
+      let exp: Vec<u8> = expected.iter().map(|c| *c as u8).collect();
+      assert_eq!(
+         got.commands, exp,
+         "got {:#04x?} expected {:#04x?}",
+         got.commands, exp
+      );
+   }
+
+   fn nth_input(got: &SwapPlan, cmd: Commands, nth: usize) -> &Bytes {
+      got.commands
+         .iter()
+         .enumerate()
+         .filter(|(_, c)| **c == cmd as u8)
+         .nth(nth)
+         .map(|(i, _)| &got.inputs[i])
+         .expect("command missing from plan")
+   }
+
    #[test]
    fn initial_v2_v3_hop_uses_quoted_amount() {
       let quoted = U256::from(499_993_647_689u64);
@@ -591,7 +677,6 @@ mod tests {
    fn intermediate_v2_v3_hop_uses_contract_balance() {
       let quoted = U256::from(499_993_647_689u64);
       assert_eq!(v2_v3_amount_in(false, quoted), CONTRACT_BALANCE);
-      // 1 << 255, same as ActionConstants.CONTRACT_BALANCE
       assert_eq!(CONTRACT_BALANCE, U256::from(1u8) << 255);
    }
 
@@ -603,8 +688,297 @@ mod tests {
    }
 
    #[test]
+   fn weth_in_native_v4_hop_is_trade_input() {
+      assert!(spends_trade_input(&eth(), &weth()));
+      assert!(spends_trade_input(&weth(), &weth()));
+   }
+
+   #[test]
    fn usdt_to_usdc_hop_is_not_trade_input() {
       assert!(!spends_trade_input(&usdc(), &usdt()));
       assert!(spends_trade_input(&usdt(), &usdt()));
+   }
+
+   #[test]
+   fn weth_to_usdc_via_v4_native_unwraps_before_swap() {
+      let amount_in = wei("1", 18);
+      let got = plan(
+         weth(),
+         usdc(),
+         amount_in.wei(),
+         vec![step(
+            UniswapV4Pool::eth_usdc(),
+            eth(),
+            usdc(),
+            amount_in.clone(),
+            wei("2500", 6),
+         )],
+      );
+
+      assert_eq!(got.value, U256::ZERO);
+      assert_commands(
+         &got,
+         &[
+            Commands::PERMIT2_TRANSFER_FROM,
+            Commands::UNWRAP_WETH,
+            Commands::V4_SWAP,
+            Commands::SWEEP,
+         ],
+      );
+
+      let unwrap =
+         UnwrapWeth::abi_decode_params(nth_input(&got, Commands::UNWRAP_WETH, 0)).unwrap();
+      assert_eq!(unwrap.amountMin, amount_in.wei());
+   }
+
+   #[test]
+   fn usdc_to_weth_via_v4_native_wraps_before_sweep() {
+      let amount_in = wei("2500", 6);
+      let got = plan(
+         usdc(),
+         weth(),
+         amount_in.wei(),
+         vec![step(
+            UniswapV4Pool::eth_usdc(),
+            usdc(),
+            eth(),
+            amount_in,
+            wei("1", 18),
+         )],
+      );
+
+      assert_commands(
+         &got,
+         &[
+            Commands::PERMIT2_TRANSFER_FROM,
+            Commands::V4_SWAP,
+            Commands::WRAP_ETH,
+            Commands::SWEEP,
+         ],
+      );
+
+      let wrap = WrapEth::abi_decode_params(nth_input(&got, Commands::WRAP_ETH, 0)).unwrap();
+      assert_eq!(wrap.amount, CONTRACT_BALANCE);
+   }
+
+   #[test]
+   fn weth_to_usdc_via_v3_does_not_unwrap() {
+      let amount_in = wei("1", 18);
+      let got = plan(
+         weth(),
+         usdc(),
+         amount_in.wei(),
+         vec![step(
+            v3_weth_usdc(),
+            weth(),
+            usdc(),
+            amount_in,
+            wei("2500", 6),
+         )],
+      );
+
+      assert_commands(
+         &got,
+         &[
+            Commands::PERMIT2_TRANSFER_FROM,
+            Commands::V3_SWAP_EXACT_IN,
+            Commands::SWEEP,
+         ],
+      );
+   }
+
+   #[test]
+   fn eth_to_usdc_via_v4_sends_value_without_wrap() {
+      let amount_in = wei("1", 18);
+      let got = plan(
+         eth(),
+         usdc(),
+         amount_in.wei(),
+         vec![step(
+            UniswapV4Pool::eth_usdc(),
+            eth(),
+            usdc(),
+            amount_in.clone(),
+            wei("2500", 6),
+         )],
+      );
+
+      assert_eq!(got.value, amount_in.wei());
+      assert_commands(&got, &[Commands::V4_SWAP, Commands::SWEEP]);
+   }
+
+   #[test]
+   fn eth_to_usdc_via_v3_wraps_first() {
+      let amount_in = wei("1", 18);
+      let got = plan(
+         eth(),
+         usdc(),
+         amount_in.wei(),
+         vec![step(
+            v3_weth_usdc(),
+            weth(),
+            usdc(),
+            amount_in.clone(),
+            wei("2500", 6),
+         )],
+      );
+
+      assert_eq!(got.value, amount_in.wei());
+      assert_commands(
+         &got,
+         &[
+            Commands::WRAP_ETH,
+            Commands::V3_SWAP_EXACT_IN,
+            Commands::SWEEP,
+         ],
+      );
+
+      let wrap = WrapEth::abi_decode_params(nth_input(&got, Commands::WRAP_ETH, 0)).unwrap();
+      assert_eq!(wrap.amount, amount_in.wei());
+   }
+
+   #[test]
+   fn weth_split_v4_native_and_v3_unwraps_then_rewraps() {
+      let v4_in = wei("0.6", 18);
+      let v3_in = wei("0.4", 18);
+      let amount_in = NumericValue::format_wei(v4_in.wei() + v3_in.wei(), 18);
+      let got = plan(
+         weth(),
+         usdc(),
+         amount_in.wei(),
+         vec![
+            step(
+               UniswapV4Pool::eth_usdc(),
+               eth(),
+               usdc(),
+               v4_in.clone(),
+               wei("1500", 6),
+            ),
+            step(
+               v3_weth_usdc(),
+               weth(),
+               usdc(),
+               v3_in.clone(),
+               wei("1000", 6),
+            ),
+         ],
+      );
+
+      assert_commands(
+         &got,
+         &[
+            Commands::PERMIT2_TRANSFER_FROM,
+            Commands::UNWRAP_WETH,
+            Commands::WRAP_ETH,
+            Commands::V4_SWAP,
+            Commands::V3_SWAP_EXACT_IN,
+            Commands::SWEEP,
+         ],
+      );
+
+      let unwrap =
+         UnwrapWeth::abi_decode_params(nth_input(&got, Commands::UNWRAP_WETH, 0)).unwrap();
+      assert_eq!(unwrap.amountMin, v4_in.wei());
+
+      let wrap = WrapEth::abi_decode_params(nth_input(&got, Commands::WRAP_ETH, 0)).unwrap();
+      assert_eq!(wrap.amount, v3_in.wei());
+   }
+
+   #[test]
+   fn v3_weth_out_to_native_unwraps_to_recipient_without_sweep() {
+      let amount_in = wei("2500", 6);
+      let got = plan(
+         usdc(),
+         eth(),
+         amount_in.wei(),
+         vec![step(
+            v3_weth_usdc(),
+            usdc(),
+            weth(),
+            amount_in,
+            wei("1", 18),
+         )],
+      );
+
+      assert_commands(
+         &got,
+         &[
+            Commands::PERMIT2_TRANSFER_FROM,
+            Commands::V3_SWAP_EXACT_IN,
+            Commands::UNWRAP_WETH,
+         ],
+      );
+
+      let unwrap =
+         UnwrapWeth::abi_decode_params(nth_input(&got, Commands::UNWRAP_WETH, 0)).unwrap();
+      assert_eq!(unwrap.recipient, recipient());
+      assert_eq!(unwrap.amountMin, U256::from(1u64));
+   }
+
+   #[test]
+   fn mixed_eth_and_weth_out_unwraps_then_sweeps() {
+      let amount_in = wei("5000", 6);
+      let got = plan(
+         usdc(),
+         eth(),
+         amount_in.wei(),
+         vec![
+            step(
+               UniswapV4Pool::eth_usdc(),
+               usdc(),
+               eth(),
+               wei("2500", 6),
+               wei("1", 18),
+            ),
+            step(
+               v3_weth_usdc(),
+               usdc(),
+               weth(),
+               wei("2500", 6),
+               wei("1", 18),
+            ),
+         ],
+      );
+
+      assert_commands(
+         &got,
+         &[
+            Commands::PERMIT2_TRANSFER_FROM,
+            Commands::V4_SWAP,
+            Commands::V3_SWAP_EXACT_IN,
+            Commands::UNWRAP_WETH,
+            Commands::SWEEP,
+         ],
+      );
+
+      let unwrap =
+         UnwrapWeth::abi_decode_params(nth_input(&got, Commands::UNWRAP_WETH, 0)).unwrap();
+      assert_ne!(unwrap.recipient, recipient());
+   }
+
+   #[test]
+   fn erc20_to_erc20_v4_has_no_wrap_or_unwrap() {
+      let amount_in = wei("10000", 6);
+      let got = plan(
+         usdc(),
+         usdt(),
+         amount_in.wei(),
+         vec![step(
+            UniswapV4Pool::usdc_usdt(),
+            usdc(),
+            usdt(),
+            amount_in,
+            wei("10000", 6),
+         )],
+      );
+
+      assert_commands(
+         &got,
+         &[
+            Commands::PERMIT2_TRANSFER_FROM,
+            Commands::V4_SWAP,
+            Commands::SWEEP,
+         ],
+      );
    }
 }
