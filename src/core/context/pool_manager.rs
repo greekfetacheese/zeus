@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
@@ -16,12 +15,10 @@ use crate::utils::{RT, TimeStamp, write_private_atomic};
 use zeus_eth::{
    abi::zeus::ZeusStateViewV3::{V3Pool, V4Pool},
    alloy_primitives::{Address, B256},
-   alloy_provider::Provider,
    amm::uniswap::{
       AnyUniswapPool, DexKind, FEE_TIERS, FeeAmount, UniswapPool, UniswapV2Pool, UniswapV3Pool,
       state::{State, V3PoolState},
-      sync::*,
-      v4::pool::MAX_FEE,
+      sync::Checkpoint,
    },
    currency::{Currency, ERC20Token},
    types::*,
@@ -140,41 +137,12 @@ impl PoolManagerHandle {
       }
    }
 
-   pub fn batch_size_for_discovering_pools(&self) -> usize {
-      let size = self.read(|manager| manager.batch_size_for_discovering_pools);
-      if size == 0 {
-         default_batch_size_for_discovering_pools()
-      } else {
-         size
-      }
-   }
-
-   pub fn do_we_discover_v4_pools(&self) -> bool {
-      self.read(|manager| manager.discover_v4_pools)
-   }
-
-   pub fn ignore_chains(&self) -> IgnoreChains {
-      self.read(|manager| manager.ignore_chains.clone())
-   }
-
-   pub fn set_ignore_chains(&self, ignore_chains: IgnoreChains) {
-      self.write(|manager| manager.ignore_chains = ignore_chains);
-   }
-
-   pub fn set_discover_v4_pools(&self, discover_v4_pools: bool) {
-      self.write(|manager| manager.discover_v4_pools = discover_v4_pools);
-   }
-
    pub fn set_concurrency(&self, concurrency: usize) {
       self.write(|manager| manager.concurrency = concurrency);
    }
 
    pub fn set_batch_size_for_updating_pools_state(&self, batch_size: usize) {
       self.write(|manager| manager.batch_size_for_updating_pool_state = batch_size);
-   }
-
-   pub fn set_batch_size_for_discovering_pools(&self, batch_size: usize) {
-      self.write(|manager| manager.batch_size_for_discovering_pools = batch_size);
    }
 
    /// Get all pools that include the given currency
@@ -193,18 +161,6 @@ impl PoolManagerHandle {
 
    pub fn get_pools_for_chain(&self, chain_id: u64) -> Vec<AnyUniswapPool> {
       self.read(|manager| manager.get_pools_for_chain(chain_id))
-   }
-
-   pub fn v2_pools_len(&self, chain: u64) -> usize {
-      self.read(|manager| manager.v2_pools_len(chain))
-   }
-
-   pub fn v3_pools_len(&self, chain: u64) -> usize {
-      self.read(|manager| manager.v3_pools_len(chain))
-   }
-
-   pub fn v4_pools_len(&self, chain: u64) -> usize {
-      self.read(|manager| manager.v4_pools_len(chain))
    }
 
    pub fn get_v2_pools_for_chain(&self, chain_id: u64) -> Vec<AnyUniswapPool> {
@@ -260,17 +216,6 @@ impl PoolManagerHandle {
       });
    }
 
-   pub fn remove_pool(
-      &self,
-      chain_id: u64,
-      dex: DexKind,
-      fee: u32,
-      currency0: Currency,
-      currency1: Currency,
-   ) {
-      self.write(|manager| manager.remove_pool(chain_id, dex, fee, currency0, currency1));
-   }
-
    /// Update the state of the manager based on the given currencies and chain
    ///
    /// It also updates the token prices
@@ -303,16 +248,6 @@ impl PoolManagerHandle {
       Ok(())
    }
 
-   /// Update the state of the manager for the given chain
-   pub async fn update(&self, ctx: ZeusCtx, chain_id: u64) -> Result<(), anyhow::Error> {
-      let pools = self.get_pools_for_chain(chain_id);
-      let updated_pools = self.update_state_for_pools(ctx.clone(), chain_id, pools).await?;
-
-      self.add_pools(updated_pools);
-
-      Ok(())
-   }
-
    /// Update the state for the given pools without updating the PriceManager
    pub(crate) async fn _update_state_for_pools(
       &self,
@@ -320,8 +255,8 @@ impl PoolManagerHandle {
       chain: u64,
       pools: Vec<AnyUniswapPool>,
    ) -> Result<Vec<AnyUniswapPool>, anyhow::Error> {
-      let concurrency = self.read(|manager| manager.concurrency);
-      let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
+      let concurrency = self.concurrency();
+      let batch_size = self.batch_size_for_updating_pools_state();
 
       let updated_pools =
          batch_update_state(ctx.clone(), chain, concurrency, batch_size, pools).await?;
@@ -380,53 +315,16 @@ impl PoolManagerHandle {
       Ok(pools)
    }
 
-   pub fn remove_v4_pools_with_no_base_token(&self) {
-      self.write(|manager| manager.remove_v4_pools_with_no_base_token())
-   }
-
-   pub fn remove_v4_pools_with_high_fee(&self) {
-      self.write(|manager| manager.remove_v4_pools_with_high_fee())
-   }
-
    pub fn add_last_discover_time(&self, chain: u64, token_a: Address, token_b: Address) {
       self.write(|manager| manager.add_last_discover(chain, token_a, token_b))
-   }
-
-   pub fn add_v4_pool_last_discover_time(&self, chain: u64, dex: DexKind) {
-      self.write(|manager| manager.add_v4_pool_last_discover(chain, dex))
    }
 
    fn get_last_discover(&self, chain: u64, token_a: Address, token_b: Address) -> Option<u64> {
       self.read(|manager| manager.get_last_discover_time(chain, token_a, token_b))
    }
 
-   fn get_v4_pool_last_discover(&self, chain: u64, dex: DexKind) -> Option<u64> {
-      self.read(|manager| manager.get_v4_pool_last_discover_time(chain, dex))
-   }
-
-   pub fn get_all_checkpoints(&self) -> Vec<Checkpoint> {
-      self.read(|manager| manager.checkpoints.values().cloned().collect())
-   }
-
-   pub fn remove_checkpoint(&self, chain: u64, dex: DexKind) {
-      self.write(|manager| manager.remove_checkpoint(chain, dex));
-   }
-
    fn should_discover_pools(&self, chain: u64, token_a: Address, token_b: Address) -> bool {
       let last_discover = self.get_last_discover(chain, token_a, token_b);
-      if last_discover.is_none() {
-         return true;
-      }
-
-      let last_discover = last_discover.unwrap();
-      let now = TimeStamp::now_as_secs().unwrap_or_default();
-      let passed = now.timestamp().saturating_sub(last_discover);
-
-      passed > POOL_DISCOVERY_TIMEOUT
-   }
-
-   fn should_discover_v4_pools(&self, chain: u64, dex: DexKind) -> bool {
-      let last_discover = self.get_v4_pool_last_discover(chain, dex);
       if last_discover.is_none() {
          return true;
       }
@@ -452,6 +350,11 @@ impl PoolManagerHandle {
       let mut tasks: Vec<JoinHandle<Result<ERC20Token, anyhow::Error>>> = Vec::new();
       let semaphore = Arc::new(Semaphore::new(self.concurrency()));
 
+      let v2_factory = uniswap_v2_factory(chain)?;
+      let v3_factory = uniswap_v3_factory(chain)?;
+      let state_view = uniswap_v4_stateview(chain)?;
+      let base_tokens = ERC20Token::base_tokens(chain);
+
       #[cfg(feature = "dev")]
       {
          let symbols = tokens.iter().map(|t| t.symbol.clone()).collect::<Vec<_>>();
@@ -468,15 +371,10 @@ impl PoolManagerHandle {
          let semaphore = semaphore.clone();
          let ctx = ctx.clone();
          let manager = self.clone();
-         let base_tokens = ERC20Token::base_tokens(chain);
-         let token = token.clone();
+         let base_tokens = base_tokens.clone();
 
          let task = RT.spawn(async move {
             let _permit = semaphore.acquire().await?;
-
-            let v2_factory = uniswap_v2_factory(chain)?;
-            let v3_factory = uniswap_v3_factory(chain)?;
-            let state_view = uniswap_v4_stateview(chain)?;
 
             let mut v4_pools_map = HashMap::new();
             let mut v4_pool_ids = Vec::new();
@@ -565,27 +463,19 @@ impl PoolManagerHandle {
                   continue;
                }
 
-               let exists = manager.get_v2_pool_from_address(chain, v2_pool.addr).is_some();
-
-               if exists {
+               if manager.get_v2_pool_from_address(chain, v2_pool.addr).is_some() {
                   continue;
                }
 
-               let token_a = tokens_map.get(&v2_pool.tokenA);
-               let token_b = tokens_map.get(&v2_pool.tokenB);
-
-               if token_a.is_none() {
+               let Some(token_a) = tokens_map.get(&v2_pool.tokenA) else {
                   tracing::error!("V2Pool Token not found: {}", v2_pool.tokenA);
                   continue;
-               }
+               };
 
-               if token_b.is_none() {
+               let Some(token_b) = tokens_map.get(&v2_pool.tokenB) else {
                   tracing::error!("V2Pool Token not found: {}", v2_pool.tokenB);
                   continue;
-               }
-
-               let token_a = token_a.unwrap();
-               let token_b = token_b.unwrap();
+               };
 
                let pool = UniswapV2Pool::new(
                   chain,
@@ -603,27 +493,20 @@ impl PoolManagerHandle {
                   continue;
                }
 
-               let exists = manager.get_v3_pool_from_address(chain, v3_pool.addr).is_some();
-
-               if exists {
+               if manager.get_v3_pool_from_address(chain, v3_pool.addr).is_some() {
                   continue;
                }
 
-               let token_a = tokens_map.get(&v3_pool.tokenA);
-               let token_b = tokens_map.get(&v3_pool.tokenB);
-
-               if token_a.is_none() {
+               let Some(token_a) = tokens_map.get(&v3_pool.tokenA) else {
                   tracing::error!("V3Pool Token not found: {}", v3_pool.tokenA);
                   continue;
-               }
+               };
 
-               if token_b.is_none() {
+               let Some(token_b) = tokens_map.get(&v3_pool.tokenB) else {
                   tracing::error!("V3Pool Token not found: {}", v3_pool.tokenB);
                   continue;
-               }
+               };
 
-               let token_a = token_a.unwrap();
-               let token_b = token_b.unwrap();
                let fee = v3_pool.fee.to_string().parse()?;
 
                let pool = UniswapV3Pool::new(
@@ -643,20 +526,14 @@ impl PoolManagerHandle {
                   continue;
                }
 
-               let exists = manager.get_v4_pool_from_id(chain, *v4_pool).is_some();
-
-               if exists {
+               if manager.get_v4_pool_from_id(chain, *v4_pool).is_some() {
                   continue;
                }
 
-               let pool_full = v4_pools_map.get(v4_pool);
-
-               if pool_full.is_none() {
+               let Some(pool_full) = v4_pools_map.get(v4_pool) else {
                   tracing::error!("V4Pool not found: {}", v4_pool);
                   continue;
-               }
-
-               let pool_full = pool_full.unwrap();
+               };
 
                manager.add_pool(pool_full.clone());
             }
@@ -698,82 +575,6 @@ impl PoolManagerHandle {
       self.write(|manager| {
          manager.pools.shrink_to_fit();
       });
-
-      Ok(())
-   }
-
-   /// Discover new pools from using the `eth_getLogs` method
-   ///
-   /// Archive node is required
-   pub async fn discover_pools(
-      &self,
-      ctx: ZeusCtx,
-      chain: ChainId,
-      dex: DexKind,
-      _dir: Option<PathBuf>,
-   ) -> Result<(), anyhow::Error> {
-      let ignore_chains = self.read(|manager| manager.ignore_chains.clone());
-      if ignore_chains.contains(&chain.id()) {
-         return Ok(());
-      }
-
-      // For Base use an http endpoint because at some point the Ws just fails
-      let http = chain.is_base();
-      let client = ctx.get_archive_client(chain.id(), http).await?;
-      let concurrency = self.read(|manager| manager.concurrency);
-      let batch_size = self.read(|manager| manager.batch_size_for_discovering_pools);
-
-      let latest_block = client.get_block_number().await?;
-
-      if !self.should_discover_v4_pools(chain.id(), dex) {
-         #[cfg(feature = "dev")]
-         debug!(target: "zeus_eth::amm::pool_manager", "Skipping discovering V4 pools for chain {}", chain.id());
-         return Ok(());
-      }
-
-      let checkpoint_opt = self.read(|manager| manager.get_checkpoint(chain.id(), dex));
-      let mut from_block = if let Some(checkpoint) = &checkpoint_opt {
-         checkpoint.block
-      } else {
-         dex.creation_block(chain.id())?
-      };
-
-      let chunk_size = BlockTime::Days(1);
-
-      // Sync in incremental chunks, updating checkpoint after each
-      while from_block < latest_block {
-         let chunk_blocks = chunk_size.go_forward(chain.id(), from_block)? - from_block;
-         let temp_to = std::cmp::min(from_block + chunk_blocks, latest_block);
-
-         let config = SyncConfig::new(
-            chain.id(),
-            vec![dex],
-            concurrency,
-            batch_size,
-            Some(from_block),
-            Some(temp_to),
-         );
-
-         let synced = sync_pools(client.clone(), config, 50_000).await?;
-
-         for res in synced {
-            self.write(|manager| {
-               manager.add_checkpoint(
-                  chain.id(),
-                  res.checkpoint.dex,
-                  res.checkpoint.clone(),
-               );
-            });
-
-            for pool in res.pools {
-               self.add_pool(pool);
-            }
-         }
-
-         from_block = temp_to + 1;
-      }
-
-      self.add_v4_pool_last_discover_time(chain.id(), dex);
 
       Ok(())
    }
@@ -836,7 +637,7 @@ pub struct PoolManager {
    pub checkpoints: CheckpointMap,
 
    /// Concurrent requests when syncing and discovering pools
-   /// 
+   ///
    /// Set to 1 for no concurrency
    #[serde(default = "default_concurrency")]
    pub concurrency: usize,
@@ -897,81 +698,15 @@ impl PoolManager {
       self.last_discover.insert(key, now.timestamp());
    }
 
-   fn add_v4_pool_last_discover(&mut self, chain: u64, dex: DexKind) {
-      let key = (chain, dex);
-      let now = TimeStamp::now_as_secs().unwrap_or_default();
-      self.v4_pool_last_discover.insert(key, now.timestamp());
-   }
-
    fn add_checkpoint(&mut self, chain: u64, dex: DexKind, checkpoint: Checkpoint) {
       let key = (chain, dex);
       self.checkpoints.insert(key, checkpoint);
-   }
-
-   fn remove_checkpoint(&mut self, chain: u64, dex: DexKind) {
-      let key = (chain, dex);
-      self.checkpoints.remove(&key);
-   }
-
-   fn get_checkpoint(&self, chain: u64, dex: DexKind) -> Option<Checkpoint> {
-      let key = (chain, dex);
-      self.checkpoints.get(&key).cloned()
    }
 
    fn get_last_discover_time(&self, chain: u64, token_a: Address, token_b: Address) -> Option<u64> {
       let time1 = self.last_discover.get(&(chain, token_a, token_b)).cloned();
       let time2 = self.last_discover.get(&(chain, token_b, token_a)).cloned();
       time1.or(time2)
-   }
-
-   fn get_v4_pool_last_discover_time(&self, chain: u64, dex: DexKind) -> Option<u64> {
-      self.v4_pool_last_discover.get(&(chain, dex)).cloned()
-   }
-
-   /// Removes pool that exceed the [MAX_FEE]
-   pub fn remove_v4_pools_with_high_fee(&mut self) {
-      let mut keys = Vec::new();
-      for (key, pool) in self.pools.iter() {
-         if !pool.dex_kind().is_v4() {
-            continue;
-         }
-
-         if pool.fee().fee_percent() > MAX_FEE {
-            keys.push(key.clone());
-         }
-      }
-
-      tracing::info!("Removed {} V4 pools with high fee", keys.len());
-
-      for key in keys {
-         self.pools.remove(&key);
-      }
-
-      self.pools.shrink_to_fit();
-   }
-
-   pub fn remove_v4_pools_with_no_base_token(&mut self) {
-      let mut keys = Vec::new();
-      for (key, pool) in self.pools.iter() {
-         if !pool.dex_kind().is_v4() {
-            continue;
-         }
-
-         if !pool.currency0().is_base() && !pool.currency1().is_base() {
-            keys.push(key.clone());
-         }
-      }
-
-      tracing::info!(
-         "Removed {} V4 pools with no base tokens",
-         keys.len()
-      );
-
-      for key in keys {
-         self.pools.remove(&key);
-      }
-
-      self.pools.shrink_to_fit();
    }
 
    pub fn add_pool(&mut self, pool: impl UniswapPool) {
@@ -985,17 +720,6 @@ impl PoolManager {
       );
 
       self.pools.insert(key, any_pool);
-   }
-
-   pub fn remove_pool(
-      &mut self,
-      chain_id: u64,
-      dex: DexKind,
-      fee: u32,
-      currency0: Currency,
-      currency1: Currency,
-   ) {
-      self.pools.remove(&(chain_id, dex, fee, currency0, currency1));
    }
 
    /// Get any pools that includes the given currency
@@ -1038,30 +762,6 @@ impl PoolManager {
       self.pools.values().filter(|p| p.chain_id() == chain_id).cloned().collect()
    }
 
-   pub fn v2_pools_len(&self, chain: u64) -> usize {
-      self
-         .pools
-         .values()
-         .filter(|p| p.chain_id() == chain && p.dex_kind().is_v2())
-         .count()
-   }
-
-   pub fn v3_pools_len(&self, chain: u64) -> usize {
-      self
-         .pools
-         .values()
-         .filter(|p| p.chain_id() == chain && p.dex_kind().is_v3())
-         .count()
-   }
-
-   pub fn v4_pools_len(&self, chain: u64) -> usize {
-      self
-         .pools
-         .values()
-         .filter(|p| p.chain_id() == chain && p.dex_kind().is_v4())
-         .count()
-   }
-
    pub fn get_v2_pools_for_chain(&self, chain_id: u64) -> Vec<AnyUniswapPool> {
       self
          .pools
@@ -1089,49 +789,15 @@ impl PoolManager {
          .collect()
    }
 
-   pub fn get_pool(
-      &self,
-      chain_id: u64,
-      dex: DexKind,
-      fee: u32,
-      currency_a: &Currency,
-      currency_b: &Currency,
-   ) -> Option<&AnyUniswapPool> {
-      if let Some(pool) = self.pools.get(&(
-         chain_id,
-         dex,
-         fee,
-         currency_a.clone(),
-         currency_b.clone(),
-      )) {
-         return Some(pool);
-      } else if let Some(pool) = self.pools.get(&(
-         chain_id,
-         dex,
-         fee,
-         currency_b.clone(),
-         currency_a.clone(),
-      )) {
-         return Some(pool);
-      } else {
-         return None;
-      }
-   }
-
    pub fn get_v2_pool_from_address(
       &self,
       chain_id: u64,
       address: Address,
    ) -> Option<&AnyUniswapPool> {
-      if let Some(pool) = self
+      self
          .pools
-         .iter()
-         .find(|(_, p)| p.address() == address && p.chain_id() == chain_id && p.dex_kind().is_v2())
-      {
-         Some(pool.1)
-      } else {
-         None
-      }
+         .values()
+         .find(|p| p.address() == address && p.chain_id() == chain_id && p.dex_kind().is_v2())
    }
 
    pub fn get_v3_pool_from_address(
@@ -1139,65 +805,18 @@ impl PoolManager {
       chain_id: u64,
       address: Address,
    ) -> Option<&AnyUniswapPool> {
-      if let Some(pool) = self
+      self
          .pools
-         .iter()
-         .find(|(_, p)| p.address() == address && p.chain_id() == chain_id && p.dex_kind().is_v3())
-      {
-         Some(pool.1)
-      } else {
-         None
-      }
+         .values()
+         .find(|p| p.address() == address && p.chain_id() == chain_id && p.dex_kind().is_v3())
    }
 
    pub fn get_v4_pool_from_id(&self, chain_id: u64, pool_id: B256) -> Option<&AnyUniswapPool> {
-      if let Some(pool) =
-         self.pools.iter().find(|(_, p)| p.id() == pool_id && p.chain_id() == chain_id)
-      {
-         Some(pool.1)
-      } else {
-         None
-      }
-   }
-
-   pub fn get_v3_pool_from_token_addresses_and_fee(
-      &self,
-      chain_id: u64,
-      fee: u32,
-      token_a: Address,
-      token_b: Address,
-   ) -> Option<&AnyUniswapPool> {
-      if let Some(pool) = self.pools.iter().find(|(_, p)| {
-         p.currency0().address() == token_a
-            && p.currency1().address() == token_b
-            && p.fee().fee() == fee
-            && p.chain_id() == chain_id
-            && p.dex_kind().is_v3()
-      }) {
-         Some(pool.1)
-      } else if let Some(pool) = self.pools.iter().find(|(_, p)| {
-         p.currency1().address() == token_b
-            && p.currency0().address() == token_a
-            && p.fee().fee() == fee
-            && p.chain_id() == chain_id
-            && p.dex_kind().is_v3()
-      }) {
-         Some(pool.1)
-      } else {
-         None
-      }
+      self.pools.values().find(|p| p.id() == pool_id && p.chain_id() == chain_id)
    }
 
    pub fn get_pool_from_address(&self, chain_id: u64, address: Address) -> Option<&AnyUniswapPool> {
-      if let Some(pool) = self
-         .pools
-         .iter()
-         .find(|(_, p)| p.address() == address && p.chain_id() == chain_id)
-      {
-         Some(pool.1)
-      } else {
-         None
-      }
+      self.pools.values().find(|p| p.address() == address && p.chain_id() == chain_id)
    }
 }
 
@@ -1223,57 +842,43 @@ async fn batch_update_state(
    let mut v3_pools = Vec::new();
    let mut v4_pools = Vec::new();
 
-   for pool in &pools {
+   for pool in pools {
       if pool.dex_kind().is_v2() {
-         v2_pools.push(pool.clone());
-      }
-
-      if pool.dex_kind().is_v3() {
-         v3_pools.push(pool.clone());
-      }
-
-      if pool.dex_kind().is_v4() {
-         v4_pools.push(pool.clone());
+         v2_pools.push(pool);
+      } else if pool.dex_kind().is_v3() {
+         v3_pools.push(pool);
+      } else if pool.dex_kind().is_v4() {
+         v4_pools.push(pool);
       }
    }
 
-   drop(pools);
+   let all_v2_addresses: Vec<Address> = v2_pools.iter().map(|p| p.address()).collect();
 
-   let all_v2_addresses: Vec<Address> = v2_pools
-      .iter()
-      .filter(|p| p.dex_kind().is_v2() && p.chain_id() == chain)
-      .map(|p| p.address())
-      .collect();
-
-   let mut all_v3_pool_info = Vec::new();
-   let mut all_v4_pool_info = Vec::new();
+   let mut all_v3_pool_info = Vec::with_capacity(v3_pools.len());
+   let mut all_v4_pool_info = Vec::with_capacity(v4_pools.len());
 
    for pool in &v3_pools {
-      if pool.dex_kind().is_v3() && pool.chain_id() == chain {
-         all_v3_pool_info.push(V3Pool {
-            addr: pool.address(),
-            tokenA: pool.currency0().address(),
-            tokenB: pool.currency1().address(),
-            fee: pool.fee().fee_u24(),
-         });
-      }
+      all_v3_pool_info.push(V3Pool {
+         addr: pool.address(),
+         tokenA: pool.currency0().address(),
+         tokenB: pool.currency1().address(),
+         fee: pool.fee().fee_u24(),
+      });
    }
 
    for pool in &v4_pools {
-      if pool.dex_kind().is_v4() && pool.chain_id() == chain {
-         let Some(tick_spacing) = FeeAmount::i24_tick_spacing(pool.tick_spacing_i32()) else {
-            tracing::warn!(
-               "Skipping V4 pool {} with invalid tick spacing 0 on chain {}",
-               pool.id(),
-               chain
-            );
-            continue;
-         };
-         all_v4_pool_info.push(V4Pool {
-            pool: pool.id(),
-            tickSpacing: tick_spacing,
-         });
-      }
+      let Some(tick_spacing) = FeeAmount::i24_tick_spacing(pool.tick_spacing_i32()) else {
+         tracing::warn!(
+            "Skipping V4 pool {} with invalid tick spacing 0 on chain {}",
+            pool.id(),
+            chain
+         );
+         continue;
+      };
+      all_v4_pool_info.push(V4Pool {
+         pool: pool.id(),
+         tickSpacing: tick_spacing,
+      });
    }
 
    #[cfg(feature = "dev")]
@@ -1298,7 +903,7 @@ async fn batch_update_state(
    );
 
    let mut tasks: Vec<JoinHandle<Result<PoolsState, anyhow::Error>>> = Vec::new();
-   let semaphore = Arc::new(Semaphore::new(concurrency));
+   let semaphore = Arc::new(Semaphore::new(concurrency.max(1)));
 
    for batch in &batches {
       let semaphore = semaphore.clone();
@@ -1353,73 +958,76 @@ async fn batch_update_state(
       }
    }
 
-   let mut pool_state = PoolsState::default();
+   let mut v2_by_addr = HashMap::new();
+   let mut v3_by_addr = HashMap::new();
+   let mut v4_by_id = HashMap::new();
 
    for state in results {
-      pool_state.v2Reserves.extend(state.v2Reserves);
-      pool_state.v3PoolsData.extend(state.v3PoolsData);
-      pool_state.v4PoolsData.extend(state.v4PoolsData);
+      for data in state.v2Reserves {
+         v2_by_addr.insert(data.pool, data);
+      }
+      for data in state.v3PoolsData {
+         if data.pool.is_zero() {
+            continue;
+         }
+         v3_by_addr.insert(data.pool, data);
+      }
+      for data in state.v4PoolsData {
+         if data.pool.is_zero() {
+            continue;
+         }
+         v4_by_id.insert(data.pool, data);
+      }
    }
 
-   let v2_reserves = &pool_state.v2Reserves;
-   let v3_pool_state = &pool_state.v3PoolsData;
-   let v4_pool_state = &pool_state.v4PoolsData;
+   #[cfg(feature = "dev")]
+   let (v2_state_len, v3_state_len, v4_state_len) =
+      (v2_by_addr.len(), v3_by_addr.len(), v4_by_id.len());
 
    for pool in v2_pools.iter_mut() {
-      for data in v2_reserves {
-         if data.pool == pool.address() {
-            pool.set_state(State::v2(data.clone().into()));
-         }
+      if let Some(data) = v2_by_addr.remove(&pool.address()) {
+         pool.set_state(State::v2(data.into()));
       }
    }
 
    for pool in v3_pools.iter_mut() {
-      for data in v3_pool_state {
-         // After StateViewV3 try/catch, failed pools are returned zeroed — skip them.
-         if data.pool.is_zero() {
-            continue;
-         }
-         if data.pool == pool.address() {
-            let state = V3PoolState::new(data.clone(), pool.tick_spacing(), None)?;
-            pool.set_state(State::v3(state));
-            pool.v3_mut(|pool| {
-               pool.liquidity_amount0 = data.tokenABalance;
-               pool.liquidity_amount1 = data.tokenBBalance;
-            });
-         }
-      }
+      let Some(data) = v3_by_addr.remove(&pool.address()) else {
+         continue;
+      };
+      let token_a_balance = data.tokenABalance;
+      let token_b_balance = data.tokenBBalance;
+      let state = V3PoolState::new(data, pool.tick_spacing(), None)?;
+      pool.set_state(State::v3(state));
+      pool.v3_mut(|pool| {
+         pool.liquidity_amount0 = token_a_balance;
+         pool.liquidity_amount1 = token_b_balance;
+      });
    }
 
    for pool in v4_pools.iter_mut() {
-      for data in v4_pool_state {
-         if data.pool.is_zero() {
-            continue;
-         }
-         if data.pool == pool.id() {
-            let state = V3PoolState::for_v4(pool, data.clone())?;
-            pool.set_state(State::v3(state));
-            match pool.compute_virtual_reserves() {
-               Ok(_) => {}
-               Err(e) => {
-                  tracing::error!(
-                     "Error computing virtual reserves for pool {} / {} ID: {} {:?}",
-                     pool.currency0().symbol(),
-                     pool.currency1().symbol(),
-                     pool.id(),
-                     e
-                  );
-               }
-            }
-         }
+      let Some(data) = v4_by_id.remove(&pool.id()) else {
+         continue;
+      };
+      let state = V3PoolState::for_v4(pool, data)?;
+      pool.set_state(State::v3(state));
+      #[cfg(feature = "dev")]
+      if let Err(e) = pool.compute_virtual_reserves() {
+         tracing::error!(
+            "Error computing virtual reserves for pool {} / {} ID: {} {:?}",
+            pool.currency0().symbol(),
+            pool.currency1().symbol(),
+            pool.id(),
+            e
+         );
       }
    }
 
    #[cfg(feature = "dev")]
    tracing::info!(
       "Updated pool state for {} V2 Pools {} V3 Pools {} V4 Pools in {} ms. Chain {}",
-      v2_reserves.len(),
-      v3_pool_state.len(),
-      v4_pool_state.len(),
+      v2_state_len,
+      v3_state_len,
+      v4_state_len,
       time.elapsed().as_millis(),
       chain
    );
@@ -1444,9 +1052,10 @@ fn get_batches(
    all_v3_pool_info: Vec<V3Pool>,
    all_v4_pool_info: Vec<V4Pool>,
 ) -> Vec<Batch> {
-   let total_len = all_v2_addresses.len() + all_v3_pool_info.len() + all_v4_pool_info.len();
+   let batch_size = batch_size.max(1);
+   let total_pools = all_v2_addresses.len() + all_v3_pool_info.len() + all_v4_pool_info.len();
 
-   if total_len <= batch_size {
+   if total_pools <= batch_size {
       return vec![Batch {
          v2_pools: all_v2_addresses,
          v3_pools: all_v3_pool_info,
@@ -1456,7 +1065,6 @@ fn get_batches(
 
    // Process in concurrent batches, chunking each pool type proportionally
    // so each batch includes slices from all 3 types of pools.
-   let total_pools = all_v2_addresses.len() + all_v3_pool_info.len() + all_v4_pool_info.len();
    let num_batches = (total_pools + batch_size - 1) / batch_size;
 
    let chunk_size_v2 = (all_v2_addresses.len() + num_batches - 1) / num_batches;

@@ -6,7 +6,6 @@ use egui_elements::{Button, Label};
 use elegance::Toasts;
 
 const DATA_SYNCING_MSG: &str = "Zeus is still syncing important data";
-const DEX_SYNCING_MSG: &str = "Zeus is still syncing DEX data";
 const ON_STARTUP_SYNC_MSG: &str = "Zeus is syncing your wallets state";
 const VAULT_SAVE_IN_PROGRESS_MSG: &str = "Saving vault in progress, do not close Zeus yet!";
 const WALLET_STATE_SAVE_IN_PROGRESS_MSG: &str = "Saving state in progress, do not close Zeus yet!";
@@ -84,8 +83,6 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          Some(RAILGUN_SYNCING_MSG)
       } else if is_railgun_db_loading {
          Some(RAILGUN_DB_LOADING_MSG)
-      } else if ctx.dex_syncing {
-         Some(DEX_SYNCING_MSG)
       } else if ctx.on_startup_syncing || chain_syncing {
          Some(ON_STARTUP_SYNC_MSG)
       } else if ctx.save_vault_in_progress {

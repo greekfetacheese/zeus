@@ -5,7 +5,6 @@ use crate::utils::RT;
 use egui::{Align, Layout, RichText, Ui, vec2};
 use egui_elements::{Button, Theme};
 use elegance::{Badge, BadgeTone};
-use std::collections::HashSet;
 
 const ICONS_TIP: &str = "Allow Zeus to download token icons from tokens.smold.app";
 const SOURCIFY_TIP: &str = "Allow Zeus to look up verified contract names on sourcify.dev";
@@ -15,13 +14,10 @@ pub struct GeneralSettings {
    fetch_token_icons: bool,
    fetch_contract_names: bool,
    check_for_updates: bool,
-   discover_v4_pools_on_startup: bool,
    concurrency_for_syncing_balances: usize,
    concurrency_for_discovering_pools: usize,
    batch_size_for_syncing_balances: usize,
    batch_size_for_updating_pools_state: usize,
-   batch_size_for_discovering_pools: usize,
-   ignore_chains: HashSet<u64>,
 }
 
 impl GeneralSettings {
@@ -30,13 +26,10 @@ impl GeneralSettings {
          fetch_token_icons: false,
          fetch_contract_names: false,
          check_for_updates: false,
-         discover_v4_pools_on_startup: false,
          concurrency_for_syncing_balances: 1,
          concurrency_for_discovering_pools: 1,
          batch_size_for_syncing_balances: 1,
          batch_size_for_updating_pools_state: 1,
-         batch_size_for_discovering_pools: 1,
-         ignore_chains: HashSet::new(),
       };
       this.sync_from_ctx(ctx);
       this
@@ -57,13 +50,10 @@ impl GeneralSettings {
       self.fetch_token_icons = ctx.misc_config.fetch_token_icons();
       self.fetch_contract_names = ctx.misc_config.fetch_contract_names();
       self.check_for_updates = ctx.misc_config.check_for_updates();
-      self.discover_v4_pools_on_startup = pool_manager.do_we_discover_v4_pools();
       self.concurrency_for_syncing_balances = balance_manager.concurrency();
       self.concurrency_for_discovering_pools = pool_manager.concurrency();
       self.batch_size_for_syncing_balances = balance_manager.batch_size();
       self.batch_size_for_updating_pools_state = pool_manager.batch_size_for_updating_pools_state();
-      self.batch_size_for_discovering_pools = pool_manager.batch_size_for_discovering_pools();
-      self.ignore_chains = pool_manager.ignore_chains();
    }
 
    fn reset_settings(&mut self, ctx: &mut ZeusContext) {
@@ -147,25 +137,6 @@ impl GeneralSettings {
          self.reset_settings(ctx);
       }
 
-      // let text = RichText::new("Discover V4 Pools on startup").size(theme.typography.normal);
-      // ui.checkbox(&mut self.discover_v4_pools_on_startup, text);
-
-      /*
-      let text =
-         RichText::new("Chains to ignore at V4 historic sync").size(theme.typography.normal);
-      ui.label(text);
-      for chain in ChainId::supported_chains() {
-         let text = RichText::new(chain.name()).size(theme.typography.normal);
-         let mut ignore = self.ignore_chains.contains(&chain.id());
-         ui.checkbox(&mut ignore, text);
-         if ignore {
-            self.ignore_chains.insert(chain.id());
-         } else {
-            self.ignore_chains.remove(&chain.id());
-         }
-      }
-      */
-
       ui.label(
          RichText::new("Concurrency for Discovering & Updating Pools")
             .size(theme.typography.normal),
@@ -174,14 +145,6 @@ impl GeneralSettings {
          ui.add(egui::Slider::new(
             &mut self.concurrency_for_discovering_pools,
             1..=10,
-         ));
-      });
-
-      ui.label(RichText::new("Batch Size for Discovering Pools").size(theme.typography.normal));
-      ui.allocate_ui(slider_size, |ui| {
-         ui.add(egui::Slider::new(
-            &mut self.batch_size_for_discovering_pools,
-            1..=60,
          ));
       });
 
@@ -243,30 +206,14 @@ impl GeneralSettings {
          balance_manager.set_batch_size(self.batch_size_for_syncing_balances);
       }
 
-      let _save_pool_manager =
-         if self.concurrency_for_discovering_pools != ctx.pool_manager.concurrency() {
-            ctx.pool_manager.set_concurrency(self.concurrency_for_discovering_pools);
-            true
-         } else if self.batch_size_for_updating_pools_state
-            != ctx.pool_manager.batch_size_for_updating_pools_state()
-         {
-            ctx.pool_manager
-               .set_batch_size_for_updating_pools_state(self.batch_size_for_updating_pools_state);
-            true
-         } else if self.batch_size_for_discovering_pools
-            != ctx.pool_manager.batch_size_for_discovering_pools()
-         {
-            ctx.pool_manager
-               .set_batch_size_for_discovering_pools(self.batch_size_for_discovering_pools);
-            true
-         } else if self.discover_v4_pools_on_startup != ctx.pool_manager.do_we_discover_v4_pools() {
-            ctx.pool_manager.set_discover_v4_pools(self.discover_v4_pools_on_startup);
-            true
-         } else if self.ignore_chains != ctx.pool_manager.ignore_chains() {
-            ctx.pool_manager.set_ignore_chains(self.ignore_chains.clone());
-            true
-         } else {
-            false
-         };
+      if self.concurrency_for_discovering_pools != ctx.pool_manager.concurrency() {
+         ctx.pool_manager.set_concurrency(self.concurrency_for_discovering_pools);
+      }
+      if self.batch_size_for_updating_pools_state
+         != ctx.pool_manager.batch_size_for_updating_pools_state()
+      {
+         ctx.pool_manager
+            .set_batch_size_for_updating_pools_state(self.batch_size_for_updating_pools_state);
+      }
    }
 }

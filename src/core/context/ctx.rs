@@ -1944,7 +1944,6 @@ pub struct ZeusContext {
 
    /// State flags for the UI that showup on the top right corner
    pub data_syncing: bool,
-   pub dex_syncing: bool,
    pub on_startup_syncing: bool,
    pub save_vault_in_progress: bool,
    pub save_wallet_state_in_progress: bool,
@@ -2102,7 +2101,6 @@ impl ZeusContext {
          pool_manager,
          price_manager,
          data_syncing: false,
-         dex_syncing: false,
          on_startup_syncing: false,
          state_sync: HashMap::with_capacity(SUPPORTED_CHAINS.len()),
          base_fee: HashMap::with_capacity(SUPPORTED_CHAINS.len()),
