@@ -65,8 +65,6 @@ pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
       let _ = task.await;
    }
 
-   client.sort_by_fastest();
-
    info!(
       "RPC checks took {} secs",
       time.elapsed().as_secs_f32()
@@ -373,7 +371,6 @@ async fn check_delegated_status(ctx: ZeusCtx, chain: u64) {
    }
 }
 
-
 /// Update the ETH & token balances for all the wallet portfolios for the given chain
 ///
 /// - Arguments:
@@ -387,7 +384,6 @@ pub async fn update_wallets_balances(ctx: ZeusCtx, chain: u64) {
    let balance_manager = ctx.balance_manager();
    let wallets_info = ctx.get_all_wallets_info();
    let wallets = wallets_info.iter().map(|w| w.address).collect::<Vec<_>>();
-
 
    if let Err(e) = balance_manager
       .update_eth_balance(ctx.clone(), chain, wallets.clone(), false)

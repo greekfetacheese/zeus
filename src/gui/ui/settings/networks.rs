@@ -159,7 +159,6 @@ impl NetworkSettings {
                      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                      let z_client = ctx.get_zeus_client();
                      z_client.run_rpc_checks(ctx.clone()).await;
-                     z_client.sort_by_fastest();
                      SHARED_GUI.write(|gui| {
                         gui.settings.network.refreshing = false;
                      });
@@ -306,7 +305,6 @@ impl NetworkSettings {
                            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                            let z_client = ctx.get_zeus_client();
                            z_client.run_check_for(ctx, rpc_clone).await;
-                           z_client.sort_by_fastest();
                         });
                      }
                   }
@@ -411,10 +409,7 @@ impl NetworkSettings {
 }
 
 fn validate_rpc(chain: u64, url: String) {
-   let default = false;
-   let enabled = true;
-   let mev_protect = false;
-   let rpc = Rpc::new(url.clone(), chain, default, enabled, mev_protect);
+   let rpc = Rpc::builder(url.clone(), chain).enabled().build();
 
    RT.spawn(async move {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
