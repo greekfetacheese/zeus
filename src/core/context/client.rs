@@ -550,7 +550,7 @@ impl ZeusClient {
          }
          Err(_e) => {
             #[cfg(feature = "dev")]
-            tracing::error!("Error testing RPC {} {:?}", rpc.url, e);
+            tracing::error!("Error testing RPC {} {:?}", rpc.url, _e);
             self.update_rpc(rpc.chain_id, &rpc.url, |rpc| {
                rpc.check.working = false;
             });
@@ -696,7 +696,7 @@ impl ZeusClient {
                   "Error connecting to client using {} for chain {}: {:?}",
                   rpc.url,
                   chain,
-                  e
+                  _e
                );
             }
          }
@@ -745,7 +745,7 @@ impl ZeusClient {
                   "Error connecting to client using {} for chain {}: {:?}",
                   rpc.url,
                   chain,
-                  e
+                  _e
                );
             }
          }
@@ -846,7 +846,7 @@ impl ZeusClient {
             Ok(client) => client,
             Err(_e) => {
                #[cfg(feature = "dev")]
-               tracing::warn!("Failed to connect to {}: {:?}", rpc.url, e);
+               tracing::warn!("Failed to connect to {}: {:?}", rpc.url, _e);
                // Do not mark it as not working, could be a network issue
                attempts += 1;
                self.penalize(chain, &rpc);
@@ -859,7 +859,7 @@ impl ZeusClient {
             Err(_e) => {
                self.penalize(chain, &rpc);
                #[cfg(feature = "dev")]
-               tracing::warn!("Request failed on {}: {:?}", rpc.url, e);
+               tracing::warn!("Request failed on {}: {:?}", rpc.url, _e);
                attempts += 1;
                sleep(Duration::from_millis(INITIAL_BACKOFF)).await;
             }

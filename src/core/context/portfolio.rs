@@ -287,15 +287,11 @@ async fn process_private_tokens(
 
    let mut provider = ctx.get_railgun_provider(chain_id, false).await?;
 
-   let wallet = ctx.get_wallet(owner);
-
-   if wallet.is_none() {
+   let Some(wallet) = ctx.get_wallet(owner) else {
       #[cfg(feature = "dev")]
       error!("Wallet not found for address {}", owner);
       return Ok(token_list);
-   }
-
-   let wallet = wallet.unwrap();
+   };
 
    if !wallet.can_derive_zk_address() {
       debug!(
