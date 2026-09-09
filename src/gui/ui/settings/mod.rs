@@ -3,7 +3,7 @@
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::{WindowCtx, common::privacy_mode_switch, window_frame};
+use crate::gui::ui::{WindowCtx, common::privacy_mode_switch, show_with_fade, window_frame};
 use egui::{
    RichText, ScrollArea, Shadow, Stroke, Ui, ViewportBuilder, ViewportClass, ViewportId, vec2,
 };
@@ -203,28 +203,79 @@ impl SettingsUi {
             ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
                egui::Frame::new().inner_margin(10.0).show(ui, |ui| {
                   ui.set_width(ui.available_width());
-                  match self.page {
-                     SettingsPage::General => self.general.show(ctx, theme, ui),
-                     SettingsPage::Appearance => self.theme.show(theme, ui),
-                     SettingsPage::Networks => self.network.show(ctx, theme, icons, ui),
-                     SettingsPage::Security => {
+                  let page = self.page;
+
+                  show_with_fade(
+                     ui,
+                     "settings_general_ui_fade",
+                     page == SettingsPage::General,
+                     |ui| {
+                        self.general.show(ctx, theme, ui);
+                     },
+                  );
+
+                  show_with_fade(
+                     ui,
+                     "settings_appearance_ui_fade",
+                     page == SettingsPage::Appearance,
+                     |ui| {
+                        self.theme.show(theme, ui);
+                     },
+                  );
+
+                  show_with_fade(
+                     ui,
+                     "settings_networks_ui_fade",
+                     page == SettingsPage::Networks,
+                     |ui| {
+                        self.network.show(ctx, theme, icons.clone(), ui);
+                     },
+                  );
+
+                  show_with_fade(
+                     ui,
+                     "settings_security_ui_fade",
+                     page == SettingsPage::Security,
+                     |ui| {
                         ui.add_space(10.0);
                         self.change_credentials_ui.show(theme, ui);
                         ui.add_space(24.0);
                         ui.separator();
                         ui.add_space(16.0);
                         self.encryption.show(theme, ui);
-                     }
-                     SettingsPage::Contacts => self.contacts_ui.show_page(ctx, theme, ui),
-                     SettingsPage::Railgun => self.railgun.show(ctx, theme, icons, ui),
-                     SettingsPage::Data => {
+                     },
+                  );
+
+                  show_with_fade(
+                     ui,
+                     "settings_contacts_ui_fade",
+                     page == SettingsPage::Contacts,
+                     |ui| {
+                        self.contacts_ui.show_page(ctx, theme, ui);
+                     },
+                  );
+
+                  show_with_fade(
+                     ui,
+                     "settings_railgun_ui_fade",
+                     page == SettingsPage::Railgun,
+                     |ui| {
+                        self.railgun.show(ctx, theme, icons.clone(), ui);
+                     },
+                  );
+
+                  show_with_fade(
+                     ui,
+                     "settings_data_ui_fade",
+                     page == SettingsPage::Data,
+                     |ui| {
                         self.export.show(theme, ui);
                         ui.add_space(24.0);
                         ui.separator();
                         ui.add_space(16.0);
                         self.import.show_page(theme, ui);
-                     }
-                  }
+                     },
+                  );
                });
             });
          });

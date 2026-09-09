@@ -2,7 +2,7 @@
 
 use crate::assets::icons::Icons;
 use crate::core::{ZeusContext, ZeusCtx, client::Rpc};
-use crate::gui::{SHARED_GUI, ui::ChainSelect};
+use crate::gui::{SHARED_GUI, ui::ChainSelect, ui::show_with_fade};
 use crate::utils::{RT, state};
 use eframe::egui::{
    Align, CornerRadius, CursorIcon, FontId, InnerResponse, Layout, Margin, RichText, ScrollArea,
@@ -85,11 +85,22 @@ impl NetworkSettings {
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       ui.add_space(8.0);
 
-      match self.view {
-         NetworkView::List => self.list_ui(ctx, theme, icons, ui),
-         NetworkView::AddRpc => self.add_rpc(theme, ui),
-         NetworkView::EditRpc => self.rpc_settings(ctx, theme, ui),
-      }
+      let view = &self.view;
+      let is_list = matches!(view, NetworkView::List);
+      let is_add = matches!(view, NetworkView::AddRpc);
+      let is_edit = matches!(view, NetworkView::EditRpc);
+
+      show_with_fade(ui, "network_list_ui_fade", is_list, |ui| {
+         self.list_ui(ctx, theme, icons.clone(), ui);
+      });
+
+      show_with_fade(ui, "network_add_rpc_ui_fade", is_add, |ui| {
+         self.add_rpc(theme, ui);
+      });
+
+      show_with_fade(ui, "network_edit_rpc_ui_fade", is_edit, |ui| {
+         self.rpc_settings(ctx, theme, ui);
+      });
    }
 
    fn list_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
