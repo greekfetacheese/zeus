@@ -767,11 +767,12 @@ fn value(
                   gui.send_crypto.price_syncing = false;
                });
             }
-            Err(e) => {
+            Err(_e) => {
                SHARED_GUI.write(|gui| {
                   gui.send_crypto.price_syncing = false;
                });
-               tracing::error!("Error calculating price: {:?}", e);
+               #[cfg(feature = "dev")]
+               tracing::error!("Error calculating price: {:?}", _e);
             }
          }
       });

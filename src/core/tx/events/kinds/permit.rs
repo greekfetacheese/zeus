@@ -88,11 +88,12 @@ impl PermitParams {
             .await
          {
             Ok(_) => {}
-            Err(e) => {
+            Err(_e) => {
+               #[cfg(feature = "dev")]
                tracing::error!(
                   "Error calculating price for token {}: {:?}",
                   token.symbol(),
-                  e
+                  _e
                );
             }
          }

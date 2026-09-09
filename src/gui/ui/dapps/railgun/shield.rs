@@ -982,11 +982,12 @@ fn value(
                   gui.shield_ui.price_syncing = false;
                });
             }
-            Err(e) => {
+            Err(_e) => {
                SHARED_GUI.write(|gui| {
                   gui.shield_ui.price_syncing = false;
                });
-               tracing::error!("Error calculating price: {:?}", e);
+               #[cfg(feature = "dev")]
+               tracing::error!("Error calculating price: {:?}", _e);
             }
          }
       });
