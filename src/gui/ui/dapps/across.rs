@@ -64,6 +64,31 @@ pub struct ApiResCache {
    pub last_updated: Option<Instant>,
 }
 
+/// Inputs that affect `cost`, `bridge_fee`, and `value`.
+#[derive(Clone, Copy, PartialEq, Default)]
+struct QuoteKey {
+   from_chain: u64,
+   to_chain: u64,
+   amount_wei: U256,
+   decimals: u8,
+   priority_fee: U256,
+   base_fee: u64,
+   price_bits: u64,
+   api_updated: Option<Instant>,
+   use_api: bool,
+   fee_to_pay_bits: u64,
+}
+
+#[derive(Clone, Default)]
+struct QuoteCache {
+   key: QuoteKey,
+   cost_wei: NumericValue,
+   cost_usd: NumericValue,
+   bridge_fee: NumericValue,
+   amount_value: NumericValue,
+   total_fee: NumericValue,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct Settings {
    api_url: String,
@@ -112,6 +137,8 @@ pub struct AcrossBridge {
    pub last_request_time: Option<Instant>,
    /// Cache API responses
    pub api_res_cache: HashMap<ChainPath, ApiResCache>,
+   /// Cached `cost` / `bridge_fee` / `value` — recomputed only when [QuoteKey] changes
+   quote_cache: QuoteCache,
    settings: Settings,
    pub settings_open: bool,
    pub size: (f32, f32),
@@ -134,6 +161,7 @@ impl AcrossBridge {
          requesting: false,
          last_request_time: None,
          api_res_cache: HashMap::new(),
+         quote_cache: QuoteCache::default(),
          settings,
          settings_open: false,
          size: (450.0, 570.0),
@@ -272,16 +300,13 @@ impl AcrossBridge {
                   let inner_frame = theme.frame2;
 
                   let owner = ctx.current_wallet_info().address;
-                  let cost = self.cost(ctx);
+                  self.refresh_quote_cache(ctx);
+                  let cost_wei = self.quote_cache.cost_wei.wei();
+                  let value = self.quote_cache.amount_value.clone();
                   let balance = ctx.get_currency_balance(from_chain, owner, &self.currency);
-                  let amount = self.amount_field.amount.parse().unwrap_or(0.0);
-                  let value = ctx.get_currency_value_for_amount(amount, &self.currency);
 
-                  let max_amount = if balance.wei() > cost.0.wei() {
-                     NumericValue::format_wei(
-                        balance.wei() - cost.0.wei(),
-                        self.currency.decimals(),
-                     )
+                  let max_amount = if balance.wei() > cost_wei {
+                     NumericValue::format_wei(balance.wei() - cost_wei, self.currency.decimals())
                   } else {
                      NumericValue::default()
                   };
@@ -399,20 +424,27 @@ impl AcrossBridge {
                      });
                   });
 
-                  let network_fee = self.cost(ctx).1;
-                  let bridge_fee = self.bridge_fee(ctx);
-                  let total_fee = NumericValue::from_f64(network_fee.f64() + bridge_fee.f64());
+                  self.refresh_quote_cache(ctx);
+                  let network_fee_text = format!(
+                     "Network≈ ${}",
+                     self.quote_cache.cost_usd.abbreviated()
+                  );
+                  let bridge_fee_text = format!(
+                     "Bridge≈ ${}",
+                     self.quote_cache.bridge_fee.abbreviated()
+                  );
+                  let total_text = format!(
+                     "Total≈ ${}",
+                     self.quote_cache.total_fee.abbreviated()
+                  );
 
                   inner_frame.show(ui, |ui| {
                      ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.xs);
 
-                     let network_fee_text = format!("Network≈ ${}", network_fee.abbreviated());
                      ui.label(RichText::new(network_fee_text).size(theme.typography.small));
 
-                     let bridge_fee_text = format!("Bridge≈ ${}", bridge_fee.abbreviated());
                      ui.label(RichText::new(bridge_fee_text).size(theme.typography.small));
 
-                     let total_text = format!("Total≈ ${}", total_fee.abbreviated());
                      ui.label(RichText::new(total_text).size(theme.typography.small));
 
                      if self.requesting {
@@ -513,15 +545,67 @@ impl AcrossBridge {
       balance.wei() >= amount
    }
 
+   fn quote_key(&self, ctx: &ZeusContext) -> QuoteKey {
+      let from_chain = self.from_chain.chain.id();
+      let to_chain = self.to_chain.chain.id();
+      let priority_fee =
+         ctx.priority_fee.get(from_chain).map(|fee| fee.wei()).unwrap_or(U256::ZERO);
+      let base_fee = ctx.get_base_fee(from_chain).map(|fee| fee.next).unwrap_or(0);
+      let price = ctx.get_currency_price(&self.currency);
+      let api_updated = if self.settings.use_api {
+         self
+            .api_res_cache
+            .get(&(from_chain, to_chain))
+            .and_then(|cache| cache.last_updated)
+      } else {
+         None
+      };
+
+      QuoteKey {
+         from_chain,
+         to_chain,
+         amount_wei: self.amount_field.amount_wei,
+         decimals: self.currency.decimals(),
+         priority_fee,
+         base_fee,
+         price_bits: price.f64().to_bits(),
+         api_updated,
+         use_api: self.settings.use_api,
+         fee_to_pay_bits: self.settings.fee_to_pay.to_bits(),
+      }
+   }
+
+   fn refresh_quote_cache(&mut self, ctx: &mut ZeusContext) {
+      let key = self.quote_key(ctx);
+      if key == self.quote_cache.key {
+         return;
+      }
+
+      let (cost_wei, cost_usd) = self.cost(ctx);
+      let amount = self.amount_field.amount.parse().unwrap_or(0.0);
+      let amount_value = self.value(ctx, amount);
+      let bridge_fee = self.bridge_fee(ctx);
+      let total_fee = NumericValue::from_f64(cost_usd.f64() + bridge_fee.f64());
+
+      self.quote_cache = QuoteCache {
+         key,
+         cost_wei,
+         cost_usd,
+         bridge_fee,
+         amount_value,
+         total_fee,
+      };
+   }
+
    /// Estimated cost of the transaction
    ///
    /// Returns (cost_wei, cost_usd)
    fn cost(&self, ctx: &mut ZeusContext) -> (NumericValue, NumericValue) {
       let chain = self.from_chain.chain;
       let gas_used: u64 = 70_000;
-      let fee = ctx.priority_fee.get(chain.id()).cloned().unwrap_or_default();
+      let fee = ctx.priority_fee.get(chain.id()).map(|fee| fee.wei()).unwrap_or(U256::ZERO);
 
-      estimate_tx_cost(ctx, chain.id(), gas_used, fee.wei())
+      estimate_tx_cost(ctx, chain.id(), gas_used, fee)
    }
 
    /// Input amount - Minimum amount
@@ -573,12 +657,11 @@ impl AcrossBridge {
 
    /// Currency value
    fn value(&self, ctx: &mut ZeusContext, amount: f64) -> NumericValue {
-      let price = ctx.get_currency_price(&Currency::from(self.currency.clone()));
-
       if amount == 0.0 {
          return NumericValue::default();
       }
 
+      let price = ctx.get_currency_price(&self.currency);
       NumericValue::value(amount, price.f64())
    }
 
