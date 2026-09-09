@@ -166,48 +166,6 @@ impl RequestMethod {
          RequestMethod::PersonalSign => "personal_sign",
       }
    }
-
-   pub fn is_connection_method(&self) -> bool {
-      matches!(
-         self,
-         RequestMethod::RequestAccounts | RequestMethod::WalletRequestPermissions
-      )
-   }
-
-   pub fn supported_methods() -> Vec<RequestMethod> {
-      vec![
-         RequestMethod::WalletAddEthereumChain,
-         RequestMethod::WalletSwitchEthereumChain,
-         RequestMethod::WalletGetPermissions,
-         RequestMethod::WalletGetCapabilities,
-         RequestMethod::WalletRequestPermissions,
-         RequestMethod::WalletRevokePermissions,
-         RequestMethod::EthGetTransactionByHash,
-         RequestMethod::EthGetTransactionReceipt,
-         RequestMethod::EthGetBlockByNumber,
-         RequestMethod::EthAccounts,
-         RequestMethod::RequestAccounts,
-         RequestMethod::EthSendTransaction,
-         RequestMethod::BlockNumber,
-         RequestMethod::EthCall,
-         RequestMethod::EthGetCode,
-         RequestMethod::EthGetStorageAt,
-         RequestMethod::ChainId,
-         RequestMethod::EstimateGas,
-         RequestMethod::EthGasPrice,
-         RequestMethod::EthMaxPriorityFeePerGas,
-         RequestMethod::GetBalance,
-         RequestMethod::EthSignedTypedDataV4,
-         RequestMethod::PersonalSign,
-      ]
-   }
-}
-
-const SAFE_UNCONNECTED_METHODS: &[RequestMethod] = &[RequestMethod::ChainId];
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct StatusResponse {
-   pub status: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -282,7 +240,7 @@ struct JsonRpcError {
 impl JsonRpcError {
    pub fn new(code: i32, err: String, data: Option<Value>) -> Self {
       Self {
-         code: code,
+         code,
          message: err,
          data,
       }
@@ -435,6 +393,179 @@ fn parse_rpc_bytes(value: Option<&Value>) -> Result<Bytes, ()> {
    }
 }
 
+fn rpc_params_array<'a>(
+   params: &'a Value,
+   method: &str,
+   min_len: usize,
+) -> Result<&'a [Value], ()> {
+   let Value::Array(arr) = params else {
+      error!(
+         "Invalid params for {}, params is not an array {:#?}",
+         method, params
+      );
+      return Err(());
+   };
+   if arr.len() < min_len {
+      error!(
+         "Invalid params for {}: expected at least {} elements, got {}",
+         method,
+         min_len,
+         arr.len()
+      );
+      return Err(());
+   }
+   Ok(arr)
+}
+
+fn rpc_params_object<'a>(
+   params: &'a Value,
+   method: &str,
+) -> Result<&'a serde_json::Map<String, Value>, ()> {
+   let arr = rpc_params_array(params, method, 1)?;
+   match arr.first() {
+      Some(Value::Object(obj)) => Ok(obj),
+      _ => {
+         error!(
+            "Invalid params for {}, params[0] is not an object {:#?}",
+            method, arr
+         );
+         Err(())
+      }
+   }
+}
+
+fn parse_rpc_address(s: &str, method: &str) -> Result<Address, ()> {
+   Address::from_str(s).map_err(|_| {
+      error!(
+         "Invalid params for {}, String is not a valid ethereum address {:#?}",
+         method, s
+      );
+   })
+}
+
+fn rpc_param_address(arr: &[Value], index: usize, method: &str) -> Result<Address, ()> {
+   let Some(Value::String(s)) = arr.get(index) else {
+      error!(
+         "Invalid params for {}: params[{}] is not a string",
+         method, index
+      );
+      return Err(());
+   };
+   parse_rpc_address(s, method)
+}
+
+fn parse_rpc_block_id(value: Option<&Value>, method: &str) -> Result<BlockId, ()> {
+   match value {
+      None => Ok(BlockId::latest()),
+      Some(Value::String(s)) => BlockId::from_str(s).map_err(|e| {
+         error!("Invalid params for {}: {}: {}", method, s, e);
+      }),
+      Some(Value::Number(n)) => {
+         let Some(num) = n.as_u64() else {
+            error!(
+               "Invalid params for {}: block number overflow",
+               method
+            );
+            return Err(());
+         };
+         BlockId::from_str(&hex_quantity_u64(num)).map_err(|_| {
+            error!(
+               "Invalid params for {}: invalid block number",
+               method
+            );
+         })
+      }
+      _ => {
+         error!(
+            "Invalid params for {}: block id is not a tag/number",
+            method
+         );
+         Err(())
+      }
+   }
+}
+
+struct RpcTxCall {
+   from: Address,
+   to: Address,
+   data: Bytes,
+   value: U256,
+}
+
+fn parse_rpc_tx_call(
+   object: &serde_json::Map<String, Value>,
+   default_from: Address,
+   method: &str,
+) -> Result<RpcTxCall, ()> {
+   let Some(to_str) = rpc_opt_string(object, "to") else {
+      error!(
+         "Invalid params for {}, missing 'to' {:#?}",
+         method, object
+      );
+      return Err(());
+   };
+   let to = parse_rpc_address(to_str, method)?;
+
+   let from = match rpc_opt_string(object, "from") {
+      Some(from_str) => parse_rpc_address(from_str, method)?,
+      None => default_from,
+   };
+
+   let data_val = object.get("data").or_else(|| object.get("input"));
+   let data = match parse_rpc_bytes(data_val) {
+      Ok(data) => data,
+      Err(_) => {
+         error!(
+            "Invalid params for {}, data/input is not valid bytes {:#?}",
+            method, data_val
+         );
+         return Err(());
+      }
+   };
+
+   let value = match parse_rpc_u256(object.get("value")) {
+      Ok(value) => value,
+      Err(_) => {
+         error!(
+            "Invalid params for {}, value is not a valid U256 {:#?}",
+            method,
+            object.get("value")
+         );
+         return Err(());
+      }
+   };
+
+   Ok(RpcTxCall {
+      from,
+      to,
+      data,
+      value,
+   })
+}
+
+impl RpcTxCall {
+   fn into_tx(self) -> TransactionRequest {
+      TransactionRequest::default()
+         .with_from(self.from)
+         .with_to(self.to)
+         .with_input(self.data)
+         .with_value(self.value)
+   }
+}
+
+async fn wait_for_user_confirm() -> bool {
+   loop {
+      tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+      let confirmed = SHARED_GUI.read(|gui| gui.confirm_window.get_confirm());
+      if let Some(confirmed) = confirmed {
+         SHARED_GUI.write(|gui| {
+            gui.confirm_window.reset();
+         });
+         return confirmed;
+      }
+   }
+}
+
 // Handler for GET /status
 async fn status_handler(ctx: ZeusCtx) -> Result<impl warp::Reply, Infallible> {
    let chain = ctx.chain().id_as_hex();
@@ -451,67 +582,48 @@ async fn status_handler(ctx: ZeusCtx) -> Result<impl warp::Reply, Infallible> {
    Ok(warp::reply::json(&res))
 }
 
-async fn request_accounts(
+fn request_accounts(
    ctx: ZeusCtx,
    origin: &str,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
    let current_wallet = ctx.current_wallet_info().address;
-   let connected = ctx.is_dapp_connected(origin);
-
-   if connected {
-      Ok(JsonRpcResponse {
-         jsonrpc: "2.0".to_string(),
-         id: payload.id,
-         result: Some(json!(vec![current_wallet.to_string()])),
-         error: None,
-      })
+   let result = if ctx.is_dapp_connected(origin) {
+      json!(vec![current_wallet.to_string()])
    } else {
-      return Ok(JsonRpcResponse {
-         jsonrpc: "2.0".to_string(),
-         id: payload.id,
-         result: Some(json!([])),
-         error: None,
-      });
-   }
+      json!([])
+   };
+   Ok(JsonRpcResponse::ok(Some(result), payload.id))
 }
 
-async fn get_permissions(
+fn get_permissions(
    ctx: ZeusCtx,
    origin: &str,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
    let current_wallet = ctx.current_wallet_info().address.to_string();
-   let connected = ctx.is_dapp_connected(origin);
-
-   if connected {
-      Ok(JsonRpcResponse {
-         jsonrpc: "2.0".to_string(),
-         id: payload.id,
-         result: Some(json!([{
-             "parentCapability": "eth_accounts",
-             "caveats": [{
-                 "type": "restrictReturnedAccounts",
-                 "value": [current_wallet]
-             }]
-         }])),
-         error: None,
-      })
+   let result = if ctx.is_dapp_connected(origin) {
+      json!([{
+          "parentCapability": "eth_accounts",
+          "caveats": [{
+              "type": "restrictReturnedAccounts",
+              "value": [current_wallet]
+          }]
+      }])
    } else {
-      return Ok(JsonRpcResponse {
-         jsonrpc: "2.0".to_string(),
-         id: payload.id,
-         result: Some(json!([])),
-         error: None,
-      });
-   }
+      json!([])
+   };
+   Ok(JsonRpcResponse::ok(Some(result), payload.id))
 }
 
-async fn get_capabilities(
-   _ctx: ZeusCtx,
-   payload: JsonRpcRequest,
-) -> Result<JsonRpcResponse, Infallible> {
-   Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
+/// EIP-5792. Zeus does not implement `wallet_sendCalls` / atomic batches /
+/// paymaster, so this is an empty capabilities map (not `-32602`).
+fn get_capabilities(payload: JsonRpcRequest) -> Result<JsonRpcResponse, Infallible> {
+   match &payload.params {
+      Value::Null | Value::Array(_) => {}
+      _ => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
+   }
+   Ok(JsonRpcResponse::ok(Some(json!({})), payload.id))
 }
 
 /// Aka disconnect
@@ -521,12 +633,7 @@ fn wallet_revoke_permissions(
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
    ctx.disconnect_dapp(&origin);
-   Ok(JsonRpcResponse {
-      jsonrpc: "2.0".to_string(),
-      id: payload.id,
-      result: Some(Value::Null),
-      error: None,
-   })
+   Ok(JsonRpcResponse::ok(Some(Value::Null), payload.id))
 }
 
 /// Depending on the dapp, we may receive eth_requestAccounts or wallet_getPermissions
@@ -535,30 +642,15 @@ async fn connect(
    ctx: ZeusCtx,
    origin: String,
    payload: JsonRpcRequest,
-   method: RequestMethod, // New param
+   method: RequestMethod,
 ) -> Result<JsonRpcResponse, Infallible> {
    SHARED_GUI.write(|gui| {
       gui.confirm_window.open("Connect to Dapp");
       gui.confirm_window.set_msg2(origin.clone());
+      gui.request_repaint();
    });
 
-   let mut confirmed = None;
-   loop {
-      tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-      SHARED_GUI.read(|gui| {
-         confirmed = gui.confirm_window.confirm;
-      });
-      if confirmed.is_some() {
-         SHARED_GUI.write(|gui| {
-            gui.confirm_window.reset();
-         });
-         break;
-      }
-   }
-
-   let confirmed = confirmed.unwrap();
-
-   if !confirmed {
+   if !wait_for_user_confirm().await {
       return Ok(JsonRpcResponse::error(
          USER_REJECTED_REQUEST,
          payload.id,
@@ -581,25 +673,15 @@ async fn connect(
       _ => Some(json!([])),
    };
 
-   Ok(JsonRpcResponse {
-      jsonrpc: "2.0".to_string(),
-      id: payload.id,
-      result,
-      error: None,
-   })
+   Ok(JsonRpcResponse::ok(result, payload.id))
 }
 
 fn chain_id(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcResponse, Infallible> {
    let chain_id = ctx.chain().id_as_hex();
-
-   let response = JsonRpcResponse {
-      jsonrpc: "2.0".to_string(),
-      id: payload.id,
-      result: Some(json!(chain_id)),
-      error: None,
-   };
-
-   Ok(response)
+   Ok(JsonRpcResponse::ok(
+      Some(json!(chain_id)),
+      payload.id,
+   ))
 }
 
 async fn block_number(
@@ -625,270 +707,85 @@ async fn block_number(
 }
 
 fn get_balance(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcResponse, Infallible> {
-   let params_array = match payload.params {
-      Value::Array(params) => params,
-      _ => {
-         return {
-            error!(
-               "Invalid params for eth_getBalance, params is not an array {:#?}",
-               payload.params
-            );
-            Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
-         };
-      }
+   let arr = match rpc_params_array(&payload.params, "eth_getBalance", 1) {
+      Ok(arr) => arr,
+      Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
-   let address_str = match params_array.first() {
-      Some(Value::String(address)) => address,
-      _ => {
-         return {
-            error!(
-               "Invalid params for eth_getBalance, address is not a string {:#?}",
-               params_array
-            );
-            Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
-         };
-      }
-   };
-
-   let address = match Address::from_str(address_str) {
+   let address = match rpc_param_address(arr, 0, "eth_getBalance") {
       Ok(address) => address,
-      Err(_) => {
-         return {
-            error!(
-               "Invalid params for eth_getBalance, address is not a valid address {:#?}",
-               address_str
-            );
-            Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
-         };
-      }
+      Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
    let chain = ctx.chain().id();
    let balance = ctx.get_eth_balance(chain, address);
 
-   let response = JsonRpcResponse {
-      jsonrpc: "2.0".to_string(),
-      id: payload.id,
-      result: Some(json!(hex_quantity_u256(balance.wei()))),
-      error: None,
-   };
-
-   Ok(response)
+   Ok(JsonRpcResponse::ok(
+      Some(json!(hex_quantity_u256(balance.wei()))),
+      payload.id,
+   ))
 }
 
 async fn eth_get_storage_at(
    ctx: ZeusCtx,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let array = match payload.params {
-      Value::Array(arr) => arr,
-      _ => {
-         error!("Invalid params for eth_getStorageAt: params is not an array");
-         return Ok(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id: payload.id,
-            result: None,
-            error: Some(JsonRpcError::invalid_params()),
-         });
-      }
+   let array = match rpc_params_array(&payload.params, "eth_getStorageAt", 2) {
+      Ok(arr) => arr,
+      Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
-   let (address_str, slot_str, block_str) = if array.len() == 3 {
-      let address_str = match &array[0] {
-         Value::String(s) => s,
-         _ => {
-            error!("Invalid params for eth_getStorageAt: params[0] is not a string");
-            return Ok(JsonRpcResponse {
-               jsonrpc: "2.0".to_string(),
-               id: payload.id,
-               result: None,
-               error: Some(JsonRpcError::invalid_params()),
-            });
-         }
-      };
-
-      let slot_str = match &array[1] {
-         Value::String(s) => s,
-         _ => {
-            error!("Invalid params for eth_getStorageAt: params[1] is not a string");
-            return Ok(JsonRpcResponse {
-               jsonrpc: "2.0".to_string(),
-               id: payload.id,
-               result: None,
-               error: Some(JsonRpcError::invalid_params()),
-            });
-         }
-      };
-
-      let block_str = match &array[2] {
-         Value::String(s) => s,
-         _ => {
-            error!("Invalid params for eth_getStorageAt: params[2] is not a string");
-            return Ok(JsonRpcResponse {
-               jsonrpc: "2.0".to_string(),
-               id: payload.id,
-               result: None,
-               error: Some(JsonRpcError::invalid_params()),
-            });
-         }
-      };
-
-      (address_str, slot_str, block_str)
-   } else {
-      error!("Invalid params for eth_getStorageAt: expected array with 3 elements");
-      return Ok(JsonRpcResponse {
-         jsonrpc: "2.0".to_string(),
-         id: payload.id,
-         result: None,
-         error: Some(JsonRpcError::invalid_params()),
-      });
-   };
-
-   let address = match Address::from_str(address_str) {
+   let address = match rpc_param_address(array, 0, "eth_getStorageAt") {
       Ok(address) => address,
-      Err(_) => {
-         error!("Invalid params for eth_getStorageAt: String is not a valid ethereum address");
-         return Ok(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id: payload.id,
-            result: None,
-            error: Some(JsonRpcError::invalid_params()),
-         });
-      }
+      Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
-   let slot = match U256::from_str(slot_str) {
+   let slot = match parse_rpc_u256(array.get(1)) {
       Ok(slot) => slot,
-      Err(_) => {
-         error!("Invalid params for eth_getStorageAt: String is not a valid U256 value");
-         return Ok(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id: payload.id,
-            result: None,
-            error: Some(JsonRpcError::invalid_params()),
-         });
+      Err(()) => {
+         error!(
+            "Invalid params for eth_getStorageAt: slot is not a valid U256 {:#?}",
+            array.get(1)
+         );
+         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
       }
    };
 
-   let block = match BlockId::from_str(block_str) {
+   let block = match parse_rpc_block_id(array.get(2), "eth_getStorageAt") {
       Ok(block) => block,
-      Err(_) => {
-         error!("Invalid params for eth_getStorageAt: String is not a valid block id");
-         return Ok(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id: payload.id,
-            result: None,
-            error: Some(JsonRpcError::invalid_params()),
-         });
-      }
+      Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
    let storage = match ctx.get_storage(block, address, slot).await {
       Ok(storage) => storage,
-      Err(_) => {
-         return Ok(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id: payload.id,
-            result: None,
-            error: Some(JsonRpcError::internal_error()),
-         });
-      }
+      Err(_) => return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id)),
    };
 
-   let bytes = storage.to_be_bytes_vec();
-   let hex = hex::encode(bytes);
-   let res = format!("0x{}", hex);
-
-   let response = JsonRpcResponse {
-      jsonrpc: "2.0".to_string(),
-      id: payload.id,
-      result: Some(Value::String(res)),
-      error: None,
-   };
-
-   Ok(response)
+   Ok(JsonRpcResponse::ok(
+      Some(Value::String(hex_data(
+         &storage.to_be_bytes_vec(),
+      ))),
+      payload.id,
+   ))
 }
 
 async fn eth_get_code(
    ctx: ZeusCtx,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let array = match payload.params {
-      Value::Array(arr) => arr,
-      _ => {
-         error!("Invalid params for eth_getCode: params is not an array");
-         return Ok(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id: payload.id,
-            result: None,
-            error: Some(JsonRpcError::invalid_params()),
-         });
-      }
+   let array = match rpc_params_array(&payload.params, "eth_getCode", 1) {
+      Ok(arr) => arr,
+      Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
-   let (address_str, block_str) = if array.len() == 2 {
-      let address_str = match &array[0] {
-         Value::String(s) => s,
-         _ => {
-            error!("Invalid params for eth_getCode: params[0] is not a string");
-            return Ok(JsonRpcResponse {
-               jsonrpc: "2.0".to_string(),
-               id: payload.id,
-               result: None,
-               error: Some(JsonRpcError::invalid_params()),
-            });
-         }
-      };
-
-      let block_str = match &array[1] {
-         Value::String(s) => s,
-         _ => {
-            error!("Invalid params for eth_getCode: params[1] is not a string");
-            return Ok(JsonRpcResponse {
-               jsonrpc: "2.0".to_string(),
-               id: payload.id,
-               result: None,
-               error: Some(JsonRpcError::invalid_params()),
-            });
-         }
-      };
-
-      (address_str, block_str)
-   } else {
-      error!("Invalid params for eth_getCode: expected array with 2 elements");
-      return Ok(JsonRpcResponse {
-         jsonrpc: "2.0".to_string(),
-         id: payload.id,
-         result: None,
-         error: Some(JsonRpcError::invalid_params()),
-      });
-   };
-
-   let address = match Address::from_str(address_str) {
+   let address = match rpc_param_address(array, 0, "eth_getCode") {
       Ok(address) => address,
-      Err(_) => {
-         error!("Invalid params for eth_getCode: String is not a valid ethereum address");
-         return Ok(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id: payload.id,
-            result: None,
-            error: Some(JsonRpcError::invalid_params()),
-         });
-      }
+      Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
-   let block = match BlockId::from_str(block_str) {
+   let block = match parse_rpc_block_id(array.get(1), "eth_getCode") {
       Ok(block) => block,
-      Err(_) => {
-         error!("Invalid params for eth_getCode: String is not a valid block id");
-         return Ok(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id: payload.id,
-            result: None,
-            error: Some(JsonRpcError::invalid_params()),
-         });
-      }
+      Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
    let code = match ctx.get_code(block, address).await {
@@ -899,16 +796,10 @@ async fn eth_get_code(
       }
    };
 
-   let result = hex::encode(code);
-
-   let response = JsonRpcResponse {
-      jsonrpc: "2.0".to_string(),
-      id: payload.id,
-      result: Some(Value::String(format!("0x{}", result))),
-      error: None,
-   };
-
-   Ok(response)
+   Ok(JsonRpcResponse::ok(
+      Some(Value::String(hex_data(&code))),
+      payload.id,
+   ))
 }
 
 async fn eth_get_transaction_by_hash(
@@ -1088,79 +979,21 @@ async fn eth_get_block_by_number(
 }
 
 async fn eth_call(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcResponse, Infallible> {
-   let params_array = match payload.params {
-      Value::Array(params) => params,
-      _ => {
-         return {
-            error!(
-               "Invalid params for eth_call, params is not an array {:#?}",
-               payload.params
-            );
-            Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
-         };
-      }
+   let params_object = match rpc_params_object(&payload.params, "eth_call") {
+      Ok(object) => object,
+      Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
-   let params_object = match params_array.first() {
-      Some(Value::Object(params)) => params,
-      _ => {
-         return {
-            error!(
-               "Invalid params for eth_call, params[0] is not an object {:#?}",
-               params_array
-            );
-            Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
-         };
-      }
-   };
-
-   let (calldata_str, to_str) = match (
-      params_object.get("data").or_else(|| params_object.get("input")),
-      params_object.get("to"),
+   let call = match parse_rpc_tx_call(
+      params_object,
+      ctx.current_wallet_info().address,
+      "eth_call",
    ) {
-      (Some(Value::String(calldata)), Some(Value::String(to))) => (calldata, to),
-      _ => {
-         return {
-            error!(
-               "Invalid params for eth_call, data/input and to are not strings {:#?}",
-               params_object
-            );
-            Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
-         };
-      }
+      Ok(call) => call,
+      Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
-   let to = match Address::from_str(to_str) {
-      Ok(to) => to,
-      Err(_) => {
-         return {
-            error!(
-               "Invalid params for eth_call, String is not a valid ethereum address {:#?}",
-               to_str
-            );
-            Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
-         };
-      }
-   };
-
-   let calldata = match Bytes::from_str(calldata_str) {
-      Ok(calldata) => calldata,
-      Err(_) => {
-         return {
-            error!(
-               "Invalid params for eth_call, String is not valid bytes {:#?}",
-               calldata_str
-            );
-            Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
-         };
-      }
-   };
-
-   let from = ctx.current_wallet_info().address;
-
-   let tx = TransactionRequest::default().with_from(from).with_to(to).with_input(calldata);
-
-   let output = match ctx.get_eth_call(tx).await {
+   let output = match ctx.get_eth_call(call.into_tx()).await {
       Ok(output) => output,
       Err(e) => {
          let err = JsonRpcError::new(INTERNAL_ERROR, e.to_string(), None);
@@ -1168,29 +1001,18 @@ async fn eth_call(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcRespon
       }
    };
 
-   let result = hex_data(&output.result);
-
-   let response = JsonRpcResponse {
-      jsonrpc: "2.0".to_string(),
-      id: payload.id,
-      result: Some(json!(result)),
-      error: None,
-   };
-
-   Ok(response)
+   Ok(JsonRpcResponse::ok(
+      Some(json!(hex_data(&output.result))),
+      payload.id,
+   ))
 }
 
 fn get_gas_price(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcResponse, Infallible> {
    let gas_price = ctx.get_base_fee(ctx.chain().id()).unwrap_or_default();
-
-   let response = JsonRpcResponse {
-      jsonrpc: "2.0".to_string(),
-      id: payload.id,
-      result: Some(json!(hex_quantity_u64(gas_price.next))),
-      error: None,
-   };
-
-   Ok(response)
+   Ok(JsonRpcResponse::ok(
+      Some(json!(hex_quantity_u64(gas_price.next))),
+      payload.id,
+   ))
 }
 
 async fn max_priority_fee_per_gas(
@@ -1229,128 +1051,38 @@ async fn estimate_gas(
    ctx: ZeusCtx,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
+   #[cfg(feature = "dev")]
    info!(
       "Received estimateGas params {:#?}",
       payload.params
    );
-   let params_array = match payload.params {
-      Value::Array(params) => params,
-      _ => {
-         return {
-            error!(
-               "Invalid params for eth_estimateGas, params is not an array {:#?}",
-               payload.params
-            );
-            Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
-         };
-      }
+
+   let object = match rpc_params_object(&payload.params, "eth_estimateGas") {
+      Ok(object) => object,
+      Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
-   let params_object = match params_array.first() {
-      Some(Value::Object(params)) => params,
-      _ => {
-         return {
-            error!(
-               "Invalid params for eth_estimateGas, params[0] is not an object {:#?}",
-               params_array
-            );
-            Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
-         };
-      }
+   let call = match parse_rpc_tx_call(
+      object,
+      ctx.current_wallet_info().address,
+      "eth_estimateGas",
+   ) {
+      Ok(call) => call,
+      Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
-   let to_str = match rpc_opt_string(params_object, "to") {
-      Some(s) => s,
-      None => {
-         error!(
-            "Invalid params for eth_estimateGas, missing 'to' {:#?}",
-            params_object
-         );
-         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
-      }
-   };
+   let tx = call.into_tx();
 
-   let to = match Address::from_str(to_str) {
-      Ok(to) => to,
-      Err(_) => {
-         return {
-            error!(
-               "Invalid params for eth_estimateGas, String is not a valid ethereum address {:#?}",
-               to_str
-            );
-            Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
-         };
-      }
-   };
-
-   let from = match rpc_opt_string(params_object, "from") {
-      Some(from_str) => match Address::from_str(from_str) {
-         Ok(from) => from,
-         Err(_) => {
-            error!(
-               "Invalid params for eth_estimateGas, String is not a valid ethereum address {:#?}",
-               from_str
-            );
-            return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
-         }
-      },
-      None => ctx.current_wallet_info().address,
-   };
-
-   let data_val = params_object.get("data").or_else(|| params_object.get("input"));
-   let calldata = match parse_rpc_bytes(data_val) {
-      Ok(calldata) => calldata,
-      Err(_) => {
-         error!(
-            "Invalid params for eth_estimateGas, data/input is not valid bytes {:#?}",
-            data_val
-         );
-         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
-      }
-   };
-
-   let value = match parse_rpc_u256(params_object.get("value")) {
-      Ok(value) => value,
-      Err(_) => {
-         error!(
-            "Invalid params for eth_estimateGas, value is not a valid U256 {:#?}",
-            params_object.get("value")
-         );
-         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
-      }
-   };
-
-   let chain = ctx.chain().id();
-   let client = match ctx.get_client(chain).await {
-      Ok(client) => client,
-      Err(e) => {
-         error!("Error getting client: {:?}", e);
-         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
-      }
-   };
-
-   let tx = TransactionRequest::default()
-      .with_from(from)
-      .with_to(to)
-      .with_input(calldata)
-      .with_value(value);
-
-   let gas = match client.estimate_gas(tx).await {
-      Ok(output) => output,
+   match ctx.estimate_gas(tx).await {
+      Ok(gas) => Ok(JsonRpcResponse::ok(
+         Some(json!(hex_quantity_u64(gas))),
+         payload.id,
+      )),
       Err(e) => {
          let err = JsonRpcError::new(INTERNAL_ERROR, e.to_string(), None);
-         return Ok(JsonRpcResponse::error_res(err, payload.id));
+         Ok(JsonRpcResponse::error_res(err, payload.id))
       }
-   };
-
-   let response = JsonRpcResponse {
-      jsonrpc: "2.0".to_string(),
-      id: payload.id,
-      result: Some(json!(hex_quantity_u64(gas))),
-      error: None,
-   };
-
-   Ok(response)
+   }
 }
 
 async fn eth_sign_typed_data_v4(
@@ -1407,9 +1139,7 @@ async fn eth_sign_typed_data_v4(
       }
    };
 
-   let sig_bytes = signature.as_bytes();
-   let sig_hex = hex::encode(sig_bytes);
-   let sig_hex = format!("0x{}", sig_hex);
+   let sig_hex = hex_data(&signature.as_bytes());
 
    let response = JsonRpcResponse::ok(Some(Value::String(sig_hex)), payload.id);
    Ok(response)
@@ -1500,8 +1230,7 @@ async fn personal_sign(
       }
    };
 
-   let sig_bytes = signature.as_bytes();
-   let sig_hex = format!("0x{}", hex::encode(sig_bytes));
+   let sig_hex = hex_data(&signature.as_bytes());
 
    Ok(JsonRpcResponse::ok(
       Some(Value::String(sig_hex)),
@@ -1509,6 +1238,8 @@ async fn personal_sign(
    ))
 }
 
+/// Zeus only knows a fixed chain set. If the requested chain is supported,
+/// confirm and switch; otherwise 4902 (same as an unknown switch).
 async fn switch_ethereum_chain(
    ctx: ZeusCtx,
    origin: String,
@@ -1520,40 +1251,10 @@ async fn switch_ethereum_chain(
    }
 }
 
-/// Zeus only knows a fixed chain set. If the requested chain is supported,
-/// confirm and switch; otherwise 4902 (same as an unknown switch).
-async fn add_ethereum_chain(
-   ctx: ZeusCtx,
-   origin: String,
-   payload: JsonRpcRequest,
-) -> Result<JsonRpcResponse, Infallible> {
-   match parse_requested_chain(&payload.params) {
-      Ok(chain) => apply_chain_switch(ctx, origin, chain, payload.id).await,
-      Err(code) => Ok(JsonRpcResponse::error(code, payload.id)),
-   }
-}
-
 fn parse_requested_chain(params: &Value) -> Result<ChainId, i32> {
-   let params_array = match params {
-      Value::Array(params) => params,
-      _ => {
-         error!(
-            "Invalid params for chain switch/add, params is not an array {:#?}",
-            params
-         );
-         return Err(INVALID_PARAMS);
-      }
-   };
-
-   let object = match params_array.first() {
-      Some(Value::Object(params)) => params,
-      _ => {
-         error!(
-            "Invalid params for chain switch/add, params[0] is not an object {:#?}",
-            params_array
-         );
-         return Err(INVALID_PARAMS);
-      }
+   let object = match rpc_params_object(params, "chain switch/add") {
+      Ok(object) => object,
+      Err(()) => return Err(INVALID_PARAMS),
    };
 
    let chain_id_hex_str = match object.get("chainId") {
@@ -1594,12 +1295,7 @@ async fn apply_chain_switch(
    payload_id: Value,
 ) -> Result<JsonRpcResponse, Infallible> {
    if ctx.chain() == chain {
-      return Ok(JsonRpcResponse {
-         jsonrpc: "2.0".to_string(),
-         id: payload_id,
-         result: Some(Value::Null),
-         error: None,
-      });
+      return Ok(JsonRpcResponse::ok(Some(Value::Null), payload_id));
    }
 
    SHARED_GUI.write(|gui| {
@@ -1612,21 +1308,7 @@ async fn apply_chain_switch(
       gui.request_repaint();
    });
 
-   let mut confirmed = None;
-   loop {
-      tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-      SHARED_GUI.read(|gui| {
-         confirmed = gui.confirm_window.get_confirm();
-      });
-      if confirmed.is_some() {
-         SHARED_GUI.write(|gui| {
-            gui.confirm_window.reset();
-         });
-         break;
-      }
-   }
-
-   if !confirmed.unwrap() {
+   if !wait_for_user_confirm().await {
       return Ok(JsonRpcResponse::error(
          USER_REJECTED_REQUEST,
          payload_id,
@@ -1642,12 +1324,7 @@ async fn apply_chain_switch(
       gui.request_repaint();
    });
 
-   Ok(JsonRpcResponse {
-      jsonrpc: "2.0".to_string(),
-      id: payload_id,
-      result: Some(Value::Null),
-      error: None,
-   })
+   Ok(JsonRpcResponse::ok(Some(Value::Null), payload_id))
 }
 
 async fn eth_send_transaction(
@@ -1655,101 +1332,30 @@ async fn eth_send_transaction(
    origin: String,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let params_array = match payload.params {
-      Value::Array(params) => params,
-      _ => {
-         return {
-            error!(
-               "Invalid params for eth_sendTransaction, params is not an array {:#?}",
-               payload.params
-            );
-            Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
-         };
-      }
+   let object = match rpc_params_object(&payload.params, "eth_sendTransaction") {
+      Ok(object) => object,
+      Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
-   // info!("eth_sendTransaction params: {:?}", params_array);
-
-   let object = match params_array.first() {
-      Some(Value::Object(params)) => params,
-      _ => {
-         return {
-            error!(
-               "Invalid params for eth_sendTransaction, params[0] is not an object {:#?}",
-               params_array
-            );
-            Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
-         };
-      }
-   };
-
-   let data_val = object.get("data").or_else(|| object.get("input"));
-   let call_data = match parse_rpc_bytes(data_val) {
-      Ok(data) => data,
-      Err(_) => {
-         error!(
-            "Invalid params for eth_sendTransaction, data/input is not valid bytes {:#?}",
-            data_val
-         );
-         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
-      }
-   };
-
-   let from = match rpc_opt_string(object, "from") {
-      Some(from_str) => match Address::from_str(from_str) {
-         Ok(from) => from,
-         Err(_) => {
-            error!(
-               "Invalid params for eth_sendTransaction, String is not a valid ethereum address {:#?}",
-               from_str
-            );
-            return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
-         }
-      },
-      None => ctx.current_wallet_info().address,
-   };
-
-   let to_str = match rpc_opt_string(object, "to") {
-      Some(s) => s,
-      None => {
-         error!(
-            "Invalid params for eth_sendTransaction, to is not a string {:#?}",
-            object
-         );
-         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
-      }
-   };
-
-   let value = match parse_rpc_u256(object.get("value")) {
-      Ok(v) => v,
-      Err(_) => {
-         error!(
-            "Invalid params for eth_sendTransaction, value is not valid {:#?}",
-            object.get("value")
-         );
-         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
-      }
-   };
-
-   let transact_to = match Address::from_str(&to_str) {
-      Ok(to) => to,
-      Err(_) => {
-         return {
-            error!(
-               "Invalid params for eth_sendTransaction, String is not a valid ethereum address {:#?}",
-               to_str
-            );
-            Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
-         };
-      }
+   let RpcTxCall {
+      from,
+      to: transact_to,
+      data: call_data,
+      value,
+   } = match parse_rpc_tx_call(
+      object,
+      ctx.current_wallet_info().address,
+      "eth_sendTransaction",
+   ) {
+      Ok(call) => call,
+      Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
    let chain = ctx.chain();
-   let auth_list = Vec::new();
 
    let (receipt, tx_rich) = match send_transaction(
       ctx.clone(),
-      origin.clone(),
+      origin,
       None,
       chain,
       true,
@@ -1757,7 +1363,7 @@ async fn eth_send_transaction(
       transact_to,
       call_data,
       value,
-      auth_list,
+      Vec::new(),
    )
    .await
    {
@@ -1921,7 +1527,6 @@ async fn eth_send_transaction(
    Ok(response)
 }
 
-// TODO: Apply rate limit
 async fn handle_request(
    ctx: ZeusCtx,
    origin: String,
@@ -1945,93 +1550,59 @@ async fn handle_request(
       origin
    );
 
-   let is_connection_method = method.is_connection_method();
    let dapp_connected = ctx.is_dapp_connected(&origin);
 
-   if method == RequestMethod::EthAccounts {
-      return request_accounts(ctx, &origin, payload).await;
-   }
-
-   if method == RequestMethod::WalletGetPermissions {
-      return get_permissions(ctx, &origin, payload).await;
-   }
-
    if !dapp_connected {
-      if is_connection_method {
-         info!(
-            "Dapp {} not connected, Requested connection with method {}",
-            origin,
-            method.as_str()
-         );
-         return connect(ctx, origin, payload, method).await;
-      } else if SAFE_UNCONNECTED_METHODS.contains(&method) {
-         // do nothing for now
-      } else {
-         error!(
-            "Dapp at origin '{}' is not connected and tried to call method '{}'.",
-            origin,
-            method.as_str()
-         );
-         return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id));
-      }
+      return match method {
+         RequestMethod::RequestAccounts | RequestMethod::WalletRequestPermissions => {
+            info!(
+               "Dapp {} not connected, Requested connection with method {}",
+               origin,
+               method.as_str()
+            );
+            connect(ctx, origin, payload, method).await
+         }
+         RequestMethod::EthAccounts => request_accounts(ctx, &origin, payload),
+         RequestMethod::WalletGetPermissions => get_permissions(ctx, &origin, payload),
+         RequestMethod::ChainId => chain_id(ctx, payload),
+         _ => {
+            error!(
+               "Dapp at origin '{}' is not connected and tried to call method '{}'.",
+               origin,
+               method.as_str()
+            );
+            Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id))
+         }
+      };
    }
 
-   // Dapp is CONNECTED - Handle other methods
    match method {
-      m if m == RequestMethod::BlockNumber => block_number(ctx, payload).await,
-      m if m == RequestMethod::ChainId => chain_id(ctx, payload),
-      m if m == RequestMethod::EthGasPrice => get_gas_price(ctx, payload),
-      m if m == RequestMethod::EthMaxPriorityFeePerGas => {
-         max_priority_fee_per_gas(ctx, payload).await
+      RequestMethod::BlockNumber => block_number(ctx, payload).await,
+      RequestMethod::ChainId => chain_id(ctx, payload),
+      RequestMethod::EthGasPrice => get_gas_price(ctx, payload),
+      RequestMethod::EthMaxPriorityFeePerGas => max_priority_fee_per_gas(ctx, payload).await,
+      RequestMethod::GetBalance => get_balance(ctx, payload),
+      RequestMethod::EthCall => eth_call(ctx, payload).await,
+      RequestMethod::EstimateGas => estimate_gas(ctx, payload).await,
+      RequestMethod::EthAccounts | RequestMethod::RequestAccounts => {
+         request_accounts(ctx, &origin, payload)
       }
-      m if m == RequestMethod::GetBalance => get_balance(ctx, payload),
-      m if m == RequestMethod::EthCall => eth_call(ctx, payload).await,
-      m if m == RequestMethod::EstimateGas => estimate_gas(ctx, payload).await,
-      m if m == RequestMethod::WalletGetPermissions => get_permissions(ctx, &origin, payload).await,
-      m if m == RequestMethod::RequestAccounts => request_accounts(ctx, &origin, payload).await,
-      m if m == RequestMethod::WalletRequestPermissions => {
-         get_permissions(ctx, &origin, payload).await
+      RequestMethod::WalletGetPermissions | RequestMethod::WalletRequestPermissions => {
+         get_permissions(ctx, &origin, payload)
       }
-      m if m == RequestMethod::WalletGetCapabilities => get_capabilities(ctx, payload).await,
-      m if m == RequestMethod::EthGetCode => eth_get_code(ctx, payload).await,
-      m if m == RequestMethod::EthGetStorageAt => eth_get_storage_at(ctx, payload).await,
-
-      m if m == RequestMethod::WalletRevokePermissions => {
-         wallet_revoke_permissions(ctx, origin, payload)
-      }
-
-      m if m == RequestMethod::EthSignedTypedDataV4 => {
-         eth_sign_typed_data_v4(ctx, origin, payload).await
-      }
-
-      m if m == RequestMethod::PersonalSign => personal_sign(ctx, origin, payload).await,
-
-      m if m == RequestMethod::EthSendTransaction => {
-         eth_send_transaction(ctx, origin, payload).await
-      }
-
-      m if m == RequestMethod::WalletSwitchEthereumChain => {
+      RequestMethod::WalletGetCapabilities => get_capabilities(payload),
+      RequestMethod::EthGetCode => eth_get_code(ctx, payload).await,
+      RequestMethod::EthGetStorageAt => eth_get_storage_at(ctx, payload).await,
+      RequestMethod::WalletRevokePermissions => wallet_revoke_permissions(ctx, origin, payload),
+      RequestMethod::EthSignedTypedDataV4 => eth_sign_typed_data_v4(ctx, origin, payload).await,
+      RequestMethod::PersonalSign => personal_sign(ctx, origin, payload).await,
+      RequestMethod::EthSendTransaction => eth_send_transaction(ctx, origin, payload).await,
+      RequestMethod::WalletSwitchEthereumChain | RequestMethod::WalletAddEthereumChain => {
          switch_ethereum_chain(ctx, origin, payload).await
       }
-
-      m if m == RequestMethod::WalletAddEthereumChain => {
-         add_ethereum_chain(ctx, origin, payload).await
-      }
-
-      m if m == RequestMethod::EthGetTransactionReceipt => {
-         eth_get_transaction_receipt(ctx, payload).await
-      }
-
-      m if m == RequestMethod::EthGetTransactionByHash => {
-         eth_get_transaction_by_hash(ctx, payload).await
-      }
-
-      m if m == RequestMethod::EthGetBlockByNumber => eth_get_block_by_number(ctx, payload).await,
-
-      _ => Ok(JsonRpcResponse::error(
-         UNSUPPORTED_METHOD,
-         payload.id,
-      )),
+      RequestMethod::EthGetTransactionReceipt => eth_get_transaction_receipt(ctx, payload).await,
+      RequestMethod::EthGetTransactionByHash => eth_get_transaction_by_hash(ctx, payload).await,
+      RequestMethod::EthGetBlockByNumber => eth_get_block_by_number(ctx, payload).await,
    }
 }
 
@@ -2237,6 +1808,47 @@ mod connector_auth_tests {
          parse_rpc_bytes(Some(&json!("0x"))),
          Ok(Bytes::new())
       );
+   }
+
+   #[test]
+   fn parse_rpc_block_id_defaults_to_latest() {
+      assert_eq!(
+         parse_rpc_block_id(None, "eth_getCode").unwrap(),
+         BlockId::latest()
+      );
+      assert_eq!(
+         parse_rpc_block_id(Some(&json!("latest")), "eth_getCode").unwrap(),
+         BlockId::latest()
+      );
+   }
+
+   #[test]
+   fn parse_rpc_tx_call_allows_missing_data() {
+      let object = match json!({ "to": "0x0000000000000000000000000000000000000001" }) {
+         Value::Object(map) => map,
+         _ => unreachable!(),
+      };
+      let call = parse_rpc_tx_call(&object, Address::ZERO, "eth_call").unwrap();
+      assert_eq!(
+         call.to,
+         Address::from_str("0x0000000000000000000000000000000000000001").unwrap()
+      );
+      assert!(call.data.is_empty());
+      assert_eq!(call.value, U256::ZERO);
+      assert_eq!(call.from, Address::ZERO);
+   }
+
+   #[test]
+   fn wallet_get_capabilities_returns_empty_object() {
+      let payload = JsonRpcRequest {
+         jsonrpc: "2.0".to_string(),
+         id: json!(1),
+         method: "wallet_getCapabilities".to_string(),
+         params: json!([]),
+      };
+      let res = get_capabilities(payload).unwrap();
+      assert!(res.error.is_none());
+      assert_eq!(res.result, Some(json!({})));
    }
 
    #[test]
