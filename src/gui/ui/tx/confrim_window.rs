@@ -523,9 +523,7 @@ impl TxConfirmationWindow {
 
                ui.add_space(10.0);
 
-               let base_case = self.chain.is_ethereum()
-                  && !main_event.is_other()
-                  && main_event.is_mev_vulnerable();
+               let base_case = !main_event.is_other() && main_event.is_mev_vulnerable();
                let show_mev_protect = base_case || main_event.is_other();
 
                if recalculate_tx_cost {

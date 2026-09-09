@@ -19,6 +19,104 @@ mod tests {
    use crate::tests::unlock_ctx;
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   async fn single_v4_swap_weth_to_usdc_mainnet() {
+      let chain_id = 1;
+
+      let pool: AnyUniswapPool = UniswapV4Pool::eth_usdc().into();
+      let currency_in = Currency::wrapped_native(chain_id);
+      let currency_out = Currency::from(ERC20Token::usdc());
+      let amount_in = NumericValue::parse_to_wei("1", currency_in.decimals());
+
+      let swap_on_v2 = true;
+      let swap_on_v3 = true;
+      let swap_on_v4 = true;
+      let max_hops = 2;
+      let max_routes = 1;
+      let with_split_routing = false;
+
+      test_swap(
+         chain_id,
+         amount_in,
+         currency_in,
+         currency_out,
+         swap_on_v2,
+         swap_on_v3,
+         swap_on_v4,
+         max_hops,
+         max_routes,
+         with_split_routing,
+         vec![pool],
+      )
+      .await
+      .unwrap();
+   }
+
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   async fn swap_from_weth_to_usdc_mainnet() {
+      let chain_id = 1;
+
+      let currency_in = Currency::wrapped_native(chain_id);
+      let currency_out = Currency::from(ERC20Token::usdc());
+      let amount_in = NumericValue::parse_to_wei("1", currency_in.decimals());
+
+      let swap_on_v2 = true;
+      let swap_on_v3 = true;
+      let swap_on_v4 = true;
+      let max_hops = 2;
+      let max_routes = 1;
+      let with_split_routing = false;
+
+      test_swap(
+         chain_id,
+         amount_in,
+         currency_in,
+         currency_out,
+         swap_on_v2,
+         swap_on_v3,
+         swap_on_v4,
+         max_hops,
+         max_routes,
+         with_split_routing,
+         Vec::new(),
+      )
+      .await
+      .unwrap();
+   }
+
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   async fn single_v4_swap_usdc_to_weth_mainnet() {
+      let chain_id = 1;
+
+      let pool: AnyUniswapPool = UniswapV4Pool::eth_usdc().into();
+      let currency_in = Currency::from(ERC20Token::usdc());
+      let currency_out = Currency::wrapped_native(chain_id);
+      let amount_in = NumericValue::parse_to_wei("2500", currency_in.decimals());
+
+      let swap_on_v2 = true;
+      let swap_on_v3 = true;
+      let swap_on_v4 = true;
+      let max_hops = 2;
+      let max_routes = 1;
+      let with_split_routing = false;
+
+      test_swap(
+         chain_id,
+         amount_in,
+         currency_in,
+         currency_out,
+         swap_on_v2,
+         swap_on_v3,
+         swap_on_v4,
+         max_hops,
+         max_routes,
+         with_split_routing,
+         vec![pool],
+      )
+      .await
+      .unwrap();
+   }
+
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn single_v4_swap_erc20_to_erc20_mainnet() {
       let chain_id = 1;
 

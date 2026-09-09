@@ -6,7 +6,6 @@ use crate::utils::state::get_base_fee;
 use alloy_eips::eip7702::{Authorization, SignedAuthorization};
 use anyhow::anyhow;
 use std::time::Duration;
-use zeus_eth::alloy_network::NetworkTransactionBuilder;
 
 use crate::gui::{SHARED_GUI, ui::NotificationType};
 use crate::utils::{
@@ -15,13 +14,14 @@ use crate::utils::{
 };
 use zeus_eth::{
    alloy_contract::private::Provider,
-   alloy_network::{Ethereum, TransactionBuilder, TransactionBuilder7702},
+   alloy_network::{
+      Ethereum, NetworkTransactionBuilder, TransactionBuilder, TransactionBuilder7702,
+   },
    alloy_primitives::{Address, Bytes, U256},
-   alloy_rpc_types::{BlockId, Log, TransactionReceipt, TransactionRequest},
+   alloy_rpc_types::{BlockId, TransactionReceipt, TransactionRequest},
    alloy_signer::SignerSync,
    revm_utils::{ForkFactory, Host, new_evm},
    types::ChainId,
-   utils::NumericValue,
 };
 use zeus_wallet::SecureKey;
 
@@ -74,31 +74,31 @@ impl TxParams {
       // add a 10% tolerance
       fee * U256::from(110) / U256::from(100)
    }
+}
 
-   pub fn gas_cost(&self) -> U256 {
-      if self.chain.supports_type_2_tx() {
-         U256::from(U256::from(self.gas_used) * self.max_fee_per_gas())
-      } else {
-         U256::from(self.gas_used * self.base_fee)
+async fn wait_tx_confirm() -> bool {
+   loop {
+      tokio::time::sleep(Duration::from_millis(50)).await;
+      let confirmed = SHARED_GUI.read(|gui| gui.tx_confirmation_window.get_confirmed_or_rejected());
+      if let Some(confirmed) = confirmed {
+         SHARED_GUI.write(|gui| {
+            gui.tx_confirmation_window.close();
+         });
+         return confirmed;
       }
    }
+}
 
-   pub fn sufficient_balance(&self, balance: NumericValue) -> Result<(), anyhow::Error> {
-      let coin = self.chain.coin_symbol();
-      let cost_in_eth = self.gas_cost();
-      let cost = NumericValue::format_wei(cost_in_eth, 18);
-
-      if balance.wei() < cost.wei() {
-         return Err(anyhow!(
-            "Insufficient balance to cover gas fees, need at least {} {} but you have {} {}",
-            cost.formatted(),
-            coin,
-            balance.formatted(),
-            coin
-         ));
+async fn wait_confirm_window() -> bool {
+   loop {
+      tokio::time::sleep(Duration::from_millis(50)).await;
+      let confirmed = SHARED_GUI.read(|gui| gui.confirm_window.get_confirm());
+      if let Some(confirmed) = confirmed {
+         SHARED_GUI.write(|gui| {
+            gui.confirm_window.reset();
+         });
+         return confirmed;
       }
-
-      Ok(())
    }
 }
 
@@ -146,20 +146,12 @@ pub async fn send_transaction(
          })
          .await?;
 
-      let block = if let Some(block) = block {
-         block
-      } else {
-         return Err(anyhow!(
-            "No block found, this is usally a provider issue"
-         ));
-      };
+      let block =
+         block.ok_or_else(|| anyhow!("No block found, this is usally a provider issue"))?;
 
       let block_id = BlockId::number(block.header.number);
 
-      let mut accounts = Vec::new();
-      accounts.push(from);
-      accounts.push(interact_to);
-      accounts.push(block.header.beneficiary);
+      let accounts = vec![from, interact_to, block.header.beneficiary];
 
       let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), block_id, accounts).await;
       let fork_client = ctx.get_client(chain.id()).await?;
@@ -176,14 +168,11 @@ pub async fn send_transaction(
          client.get_code_at(interact_to).await.map_err(|e| anyhow!("{:?}", e))
       });
 
-      let balance_after;
-      let sim_res;
-
-      {
+      let (sim_res, balance_after) = {
          let mut evm = new_evm(chain, Some(&block), fork_db);
 
          let time = std::time::Instant::now();
-         sim_res = simulate_transaction(
+         let sim_res = simulate_transaction(
             &mut evm,
             from,
             interact_to,
@@ -197,18 +186,14 @@ pub async fn send_transaction(
             time.elapsed().as_millis()
          );
 
-         let state = evm.balance(from);
-         balance_after = if let Some(state) = state {
-            state.data
-         } else {
-            U256::ZERO
-         };
-      }
+         let balance_after = evm.balance(from).map(|state| state.data).unwrap_or(U256::ZERO);
+         (sim_res, balance_after)
+      };
 
       let logs = sim_res.clone().into_logs();
 
       let bytecode = bytecode_fut.await?;
-      let contract_interact = Some(bytecode.len() > 0);
+      let contract_interact = Some(!bytecode.is_empty());
 
       TransactionAnalysis::new(
          ctx.clone(),
@@ -244,25 +229,7 @@ pub async fn send_transaction(
       gui.request_repaint();
    });
 
-   // wait for the user to confirm or reject the transaction
-   let mut confirmed = None;
-   loop {
-      tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-      SHARED_GUI.read(|gui| {
-         confirmed = gui.tx_confirmation_window.get_confirmed_or_rejected();
-      });
-
-      if confirmed.is_some() {
-         SHARED_GUI.write(|gui| {
-            gui.tx_confirmation_window.close();
-         });
-         break;
-      }
-   }
-
-   let confirmed = confirmed.unwrap();
-   if !confirmed {
+   if !wait_tx_confirm().await {
       return Err(anyhow!("Transaction rejected"));
    }
 
@@ -280,9 +247,13 @@ pub async fn send_transaction(
       gui.request_repaint();
    });
 
-   let fee = SHARED_GUI.read(|gui| gui.tx_confirmation_window.get_priority_fee());
-   let gas_limit = SHARED_GUI.read(|gui| gui.tx_confirmation_window.get_gas_limit());
-   let confirm_clear = SHARED_GUI.read(|gui| gui.tx_confirmation_window.get_clear_display());
+   let (fee, gas_limit, confirm_clear) = SHARED_GUI.read(|gui| {
+      (
+         gui.tx_confirmation_window.get_priority_fee(),
+         gui.tx_confirmation_window.get_gas_limit(),
+         gui.tx_confirmation_window.get_clear_display(),
+      )
+   });
 
    let priority_fee = if fee.is_zero() {
       ctx.get_priority_fee(chain.id()).unwrap_or_default()
@@ -309,58 +280,36 @@ pub async fn send_transaction(
       authorization_list.clone(),
    );
 
-   let z_client = ctx.get_zeus_client();
-   let rpc = z_client.get_best_rpc(chain.id()).ok_or(anyhow!("No available RPC found"))?;
-   let tx_client = z_client.connect_with_timeout(&rpc, CLIENT_TIMEOUT_FOR_SENDING_TX).await?;
+   let rpc = client.get_best_rpc(chain.id()).ok_or(anyhow!("No available RPC found"))?;
+   let tx_client = client.connect_with_timeout(&rpc, CLIENT_TIMEOUT_FOR_SENDING_TX).await?;
 
    // If needed use MEV protect client, if not found prompt the user to continue
-   let new_client = if chain.is_ethereum() && mev_protect {
-      let mev_client_res = ctx.get_mev_protect_client(chain.id()).await;
-
-      if mev_client_res.is_err() {
-         SHARED_GUI.write(|gui| {
-            let msg2 = "Continue without MEV protection?";
-            gui.confirm_window.open("No available MEV protect RPC found");
-            gui.confirm_window.set_msg2(msg2);
-            gui.request_repaint();
-         });
-
-         // wait for the user to confirm or reject the transaction
-         let mut confirmed = None;
-         loop {
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-            SHARED_GUI.read(|gui| {
-               confirmed = gui.confirm_window.get_confirm();
+   let send_client = if mev_protect {
+      match ctx.get_mev_protect_client(chain.id()).await {
+         Ok(mev_client) => mev_client,
+         Err(_) => {
+            SHARED_GUI.write(|gui| {
+               let msg2 = "Continue without MEV protection?";
+               gui.confirm_window.open("No available MEV protect RPC found");
+               gui.confirm_window.set_msg2(msg2);
+               gui.request_repaint();
             });
 
-            if confirmed.is_some() {
-               SHARED_GUI.write(|gui| {
-                  gui.confirm_window.reset();
-               });
-               break;
+            if !wait_confirm_window().await {
+               return Err(anyhow!("Transaction rejected"));
             }
-         }
 
-         let confirmed = confirmed.unwrap();
-         if !confirmed {
-            return Err(anyhow!("Transaction Rejected"));
+            tx_client
          }
-
-         // keep the old client
-         tx_client
-      } else {
-         mev_client_res.unwrap()
       }
    } else {
-      tx_client.clone()
+      tx_client
    };
 
-   let receipt = send_tx(new_client, tx_params).await?;
+   let receipt = send_tx(send_client, tx_params).await?;
    let tx_block = receipt.block_number.ok_or(anyhow!("No block number from tx receipt"))?;
 
-   let logs: Vec<Log> = receipt.logs().to_vec();
-   let logs = logs.iter().map(|l| l.clone().into_inner()).collect::<Vec<_>>();
+   let logs: Vec<_> = receipt.logs().iter().cloned().map(|l| l.into_inner()).collect();
 
    let timestamp = TimeStamp::now_as_secs()?;
 
@@ -521,8 +470,7 @@ pub async fn delegate_to(
 
    let nonce = client
       .request(chain.id(), |client| async move {
-         let nonce = client.get_transaction_count(address).await.map_err(|e| anyhow!("{:?}", e));
-         Ok(nonce?)
+         client.get_transaction_count(address).await.map_err(|e| anyhow!("{:?}", e))
       })
       .await?;
 
@@ -537,29 +485,19 @@ pub async fn delegate_to(
    let signature = wallet.to_signer().sign_hash_sync(&auth.signature_hash())?;
    let signed_authorization = auth.into_signed(signature);
 
-   let dapp = String::new();
-   let tx_analysis = None;
-   let mev_protect = false;
-   let call_data = Bytes::default();
-   let value = U256::ZERO;
-
-   let (receipt, _) = send_transaction(
+   send_transaction(
       ctx.clone(),
-      dapp,
-      tx_analysis,
+      String::new(),
+      None,
       chain,
-      mev_protect,
+      false,
       from,
       from,
-      call_data,
-      value,
+      Bytes::default(),
+      U256::ZERO,
       vec![signed_authorization],
    )
    .await?;
-
-   if !receipt.status() {
-      return Err(anyhow!("Transaction Failed"));
-   }
 
    if delegate_to.is_zero() {
       ctx.write(|ctx| {
@@ -578,9 +516,9 @@ pub async fn send_tx<P>(client: P, params: TxParams) -> Result<TransactionReceip
 where
    P: Provider<Ethereum> + Clone + 'static,
 {
-   let tx = make_tx_request(params.clone());
+   let tx = make_tx_request(&params);
    let wallet = params.signer.to_wallet();
-   let tx_envelope = tx.clone().build(&wallet).await?;
+   let tx_envelope = tx.build(&wallet).await?;
    drop(wallet);
 
    let time = std::time::Instant::now();
@@ -600,7 +538,7 @@ where
    Ok(receipt)
 }
 
-fn make_tx_request(params: TxParams) -> TransactionRequest {
+fn make_tx_request(params: &TxParams) -> TransactionRequest {
    if params.chain.supports_type_2_tx() {
       let mut tx = TransactionRequest::default()
          .with_from(params.signer.address())
@@ -614,18 +552,17 @@ fn make_tx_request(params: TxParams) -> TransactionRequest {
          .max_fee_per_gas(params.max_fee_per_gas().to::<u128>());
 
       if !params.authorization_list.is_empty() {
-         tx.set_authorization_list(params.authorization_list);
+         tx.set_authorization_list(params.authorization_list.clone());
       }
 
       tx
    } else {
-      // Legacy
       TransactionRequest::default()
          .with_from(params.signer.address())
          .with_to(params.transcact_to)
          .with_value(params.value)
          .with_nonce(params.nonce)
-         .with_input(params.call_data)
+         .with_input(params.call_data.clone())
          .with_gas_limit(params.gas_limit)
          .with_gas_price(params.base_fee.into())
    }

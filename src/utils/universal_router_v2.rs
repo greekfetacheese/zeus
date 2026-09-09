@@ -256,6 +256,35 @@ pub async fn encode_swap(
       inputs.push(transfer_from_input);
    }
 
+   // WETH in + V4 native (address(0)) hops: Permit2 left WETH on the router,
+   // but V4 SETTLE wants ETH. UNWRAP_WETH unwraps the router's entire WETH
+   // balance, so re-WRAP any amount still needed by V2/V3 hops.
+   if currency_in.is_native_wrapped() {
+      let amount_to_unwrap: U256 = swap_steps
+         .iter()
+         .filter(|s| s.currency_in.is_native() && s.pool.dex_kind().is_uniswap_v4())
+         .map(|s| s.amount_in.wei())
+         .sum();
+
+      if amount_to_unwrap > U256::ZERO {
+         let data = encode_unwrap_weth(router_addr, amount_to_unwrap);
+         commands.push(Commands::UNWRAP_WETH as u8);
+         inputs.push(data);
+
+         let amount_to_wrap: U256 = swap_steps
+            .iter()
+            .filter(|s| s.currency_in.is_native_wrapped() && !s.pool.dex_kind().is_uniswap_v4())
+            .map(|s| s.amount_in.wei())
+            .sum();
+
+         if amount_to_wrap > U256::ZERO {
+            let data = encode_wrap_eth(router_addr, amount_to_wrap);
+            commands.push(Commands::WRAP_ETH as u8);
+            inputs.push(data);
+         }
+      }
+   }
+
    // Router ETH and WETH balances after the swaps
    let mut router_eth_balance = U256::ZERO;
    let mut router_weth_balance = U256::ZERO;
@@ -366,6 +395,13 @@ pub async fn encode_swap(
 
    let mut should_sweep = true;
    let amount_to_sweep = amount_out_min;
+
+   // V4 native out + user wants WETH: wrap ETH on the router before SWEEP.
+   if currency_out.is_native_wrapped() && ur_has_eth_balance {
+      let data = encode_wrap_eth(router_addr, CONTRACT_BALANCE);
+      commands.push(Commands::WRAP_ETH as u8);
+      inputs.push(data);
+   }
 
    // Handle native ETH output
 
