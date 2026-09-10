@@ -2,7 +2,8 @@ use egui::{Align, Id, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2};
 use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme};
 
 use super::{
-   address, chain, clear_display_ui, eth_received, events::*, show_calldata_modal, tx_cost, value,
+   address, balance_change_row, chain, clear_display_ui, eth_received, events::*,
+   show_calldata_modal, tx_cost, value,
 };
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::{self, ClearDisplay};
@@ -287,6 +288,7 @@ impl TxConfirmationWindow {
                let frame = theme.frame2;
                let frame_size = vec2(ui.available_width() * 0.95, 45.0);
 
+               // Decoded events window
                self.decoded_events.show(
                   ctx,
                   self.chain,
@@ -301,6 +303,8 @@ impl TxConfirmationWindow {
 
                let calldata = analysis.call_data.to_string();
                let clear_display = self.clear_display.as_ref();
+
+               // Calldata window
                show_calldata_modal(
                   &mut self.show_calldata,
                   theme,
@@ -322,8 +326,10 @@ impl TxConfirmationWindow {
                } else {
                   main_event.name()
                };
+
                ui.label(RichText::new(action_name).size(theme.typography.heading));
 
+               // Main event details
                if !main_event.is_other() {
                   ui.allocate_ui(frame_size, |ui| {
                      frame.show(ui, |ui| {
@@ -339,6 +345,7 @@ impl TxConfirmationWindow {
                   });
                }
 
+               // Clear display UI
                if main_event.is_other() {
                   let frame_size = vec2(ui.available_width() * 0.95, 300.0);
 
@@ -368,6 +375,25 @@ impl TxConfirmationWindow {
                            .color(theme.colors.warning),
                      );
                   }
+               }
+
+               // Balance changes (native + tokens)
+               if main_event.is_other() && !analysis.balance_diff.is_empty() {
+                  ui.label(RichText::new("Balance changes").size(theme.typography.large));
+                  let diff_size = vec2(ui.available_width() * 0.95, 0.0);
+                  ui.allocate_ui(diff_size, |ui| {
+                     frame.show(ui, |ui| {
+                        ScrollArea::vertical()
+                           .id_salt("balance_diff_scroll")
+                           .max_height(150.0)
+                           .show(ui, |ui| {
+                              ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+                              for change in analysis.balance_diff.changes() {
+                                 balance_change_row(ctx, theme, icons.clone(), change, ui);
+                              }
+                           });
+                     });
+                  });
                }
 
                // Tx details

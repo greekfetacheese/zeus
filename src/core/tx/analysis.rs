@@ -16,6 +16,7 @@ use zeus_eth::{
    },
 };
 
+use super::balance_diff::BalanceDiff;
 use super::events::decode::{DecodeCtx, decode_transaction};
 use super::events::*;
 
@@ -58,6 +59,10 @@ pub struct TransactionAnalysis {
    /// `None` for wallet-connector / inferred swaps — those keep the log heuristic.
    #[serde(default)]
    onchain_swap_received: Option<OnchainSwapReceived>,
+
+   /// Signer ETH + ERC-20 deltas from simulation `balanceOf`, not logs.
+   #[serde(default)]
+   pub balance_diff: BalanceDiff,
 }
 
 /// Output-token amount the sender actually received, from `balanceOf` at
@@ -437,6 +442,7 @@ impl TransactionAnalysis {
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
          onchain_swap_received: None,
+         balance_diff: BalanceDiff::default(),
       }
    }
 
@@ -458,6 +464,7 @@ impl TransactionAnalysis {
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
          onchain_swap_received: None,
+         balance_diff: BalanceDiff::default(),
       }
    }
 
@@ -479,6 +486,7 @@ impl TransactionAnalysis {
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
          onchain_swap_received: None,
+         balance_diff: BalanceDiff::default(),
       }
    }
 
@@ -500,6 +508,7 @@ impl TransactionAnalysis {
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
          onchain_swap_received: None,
+         balance_diff: BalanceDiff::default(),
       }
    }
 
@@ -522,6 +531,7 @@ impl TransactionAnalysis {
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
          onchain_swap_received: None,
+         balance_diff: BalanceDiff::default(),
       }
    }
 
@@ -543,6 +553,7 @@ impl TransactionAnalysis {
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
          onchain_swap_received: None,
+         balance_diff: BalanceDiff::default(),
       }
    }
 
@@ -565,6 +576,7 @@ impl TransactionAnalysis {
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
          onchain_swap_received: None,
+         balance_diff: BalanceDiff::default(),
       }
    }
 
@@ -586,6 +598,7 @@ impl TransactionAnalysis {
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
          onchain_swap_received: None,
+         balance_diff: BalanceDiff::default(),
       }
    }
 
@@ -607,6 +620,7 @@ impl TransactionAnalysis {
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
          onchain_swap_received: None,
+         balance_diff: BalanceDiff::default(),
       }
    }
 
@@ -628,6 +642,7 @@ impl TransactionAnalysis {
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
          onchain_swap_received: None,
+         balance_diff: BalanceDiff::default(),
       }
    }
 
@@ -649,6 +664,7 @@ impl TransactionAnalysis {
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
          onchain_swap_received: None,
+         balance_diff: BalanceDiff::default(),
       }
    }
 
@@ -670,6 +686,7 @@ impl TransactionAnalysis {
          decoded_events: vec![main_event.clone()],
          main_event: Some(main_event),
          onchain_swap_received: None,
+         balance_diff: BalanceDiff::default(),
       }
    }
 
@@ -694,6 +711,7 @@ impl TransactionAnalysis {
          decoded_events: vec![erc20_transfer, unwrap_weth],
          main_event: None,
          onchain_swap_received: None,
+         balance_diff: BalanceDiff::default(),
       }
    }
 
@@ -717,6 +735,7 @@ impl TransactionAnalysis {
          decoded_events: Vec::new(),
          main_event: None,
          onchain_swap_received: None,
+         balance_diff: BalanceDiff::default(),
       }
    }
 }

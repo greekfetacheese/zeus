@@ -12,7 +12,7 @@ pub mod wallet_state;
 
 pub use context::*;
 pub use signature::{msg::SignMsgType, sign::sign_message};
-pub use tx::{analysis::*, events::*, rich::*, send::*};
+pub use tx::{analysis::*, balance_diff::*, events::*, rich::*, send::*};
 pub use vault::*;
 pub use wallet::*;
 pub use wallet_state::{WalletState, WalletStateInner, WalletStateKey};

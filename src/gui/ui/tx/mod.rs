@@ -10,6 +10,7 @@ use zeus_eth::alloy_primitives::TxHash;
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::core::clear_signing::{ClearDisplay, FormattedValue};
+use crate::core::tx::BalanceChange;
 use crate::gui::SHARED_GUI;
 use crate::utils::{RT, truncate_address, truncate_hash};
 use zeus_eth::{
@@ -204,6 +205,44 @@ pub fn eth_received(
    );
    let text = RichText::new(text).size(theme.typography.large);
    ui.add(Label::new(text, None).interactive(false));
+}
+
+pub fn balance_change_row(
+   ctx: &mut ZeusContext,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   change: &BalanceChange,
+   ui: &mut Ui,
+) {
+   let tint = theme.image_tint_recommended;
+   let icon_size = vec2(24.0, 24.0);
+   let icon = icons.currency_icon_x32(&change.currency, tint).fit_to_exact_size(icon_size);
+   let sign = if change.is_increase() { "+" } else { "−" };
+   let color = if change.is_increase() {
+      theme.colors.success
+   } else {
+      theme.colors.error
+   };
+   let delta = change.abs_delta();
+   let usd = ctx.get_currency_value_for_amount(delta.f64(), &change.currency);
+
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         let text = RichText::new(format!(
+            "{} {:.10} {}",
+            sign,
+            delta.abbreviated(),
+            change.currency.symbol()
+         ))
+         .size(theme.typography.large)
+         .color(color);
+         let label = Label::new(text, Some(icon)).spacing(3.0).interactive(false);
+         ui.add(label);
+      });
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         ui.label(RichText::new(format!("~ ${}", usd.abbreviated())).size(theme.typography.large));
+      });
+   });
 }
 
 pub fn clear_display_ui(

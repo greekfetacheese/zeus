@@ -7,6 +7,9 @@ use alloy_eips::eip7702::{Authorization, SignedAuthorization};
 use anyhow::anyhow;
 use std::time::Duration;
 
+use crate::core::tx::balance_diff::{
+   BalanceDiff, collect_token_candidates, native_change, token_change,
+};
 use crate::gui::{SHARED_GUI, ui::NotificationType};
 use crate::utils::{
    RT, TimeStamp, estimate_tx_cost,
@@ -20,7 +23,7 @@ use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256},
    alloy_rpc_types::{BlockId, TransactionReceipt, TransactionRequest},
    alloy_signer::SignerSync,
-   revm_utils::{ForkFactory, Host, new_evm},
+   revm_utils::{ForkFactory, Host, new_evm, simulate::erc20_balance},
    types::ChainId,
 };
 use zeus_wallet::SecureKey;
@@ -162,13 +165,16 @@ pub async fn send_transaction(
          factory.insert_account_info(info.address, info.info);
       }
 
+      let fork_before = factory.new_sandbox_fork();
       let fork_db = factory.new_sandbox_fork();
 
       let bytecode_fut = client.request(chain.id(), |client| async move {
          client.get_code_at(interact_to).await.map_err(|e| anyhow!("{:?}", e))
       });
 
-      let (sim_res, balance_after) = {
+      let portfolio_tokens = ctx.get_portfolio(chain.id(), from);
+
+      let (sim_res, balance_after, logs, measured_tokens) = {
          let mut evm = new_evm(chain, Some(&block), fork_db);
 
          let time = std::time::Instant::now();
@@ -187,15 +193,46 @@ pub async fn send_transaction(
          );
 
          let balance_after = evm.balance(from).map(|state| state.data).unwrap_or(U256::ZERO);
-         (sim_res, balance_after)
+         let logs = sim_res.clone().into_logs();
+
+         let candidates = collect_token_candidates(
+            portfolio_tokens.tokens().iter().map(|t| t.address),
+            interact_to,
+            logs.iter().map(|log| log.address),
+         );
+
+         let mut before_evm = new_evm(chain, Some(&block), fork_before);
+         before_evm.tx.caller = from;
+         let mut measured_tokens = Vec::new();
+         for token_addr in candidates {
+            let Ok(token_before) = erc20_balance(&mut before_evm, token_addr, from) else {
+               continue;
+            };
+            let Ok(token_after) = erc20_balance(&mut evm, token_addr, from) else {
+               continue;
+            };
+            if token_before != token_after {
+               measured_tokens.push((token_addr, token_before, token_after));
+            }
+         }
+
+         (sim_res, balance_after, logs, measured_tokens)
       };
 
-      let logs = sim_res.clone().into_logs();
+      let mut token_changes = Vec::new();
+      for (token_addr, token_before, token_after) in measured_tokens {
+         let Ok(token) = ctx.get_token(chain.id(), token_addr).await else {
+            continue;
+         };
+         if let Some(change) = token_change(token, token_before, token_after) {
+            token_changes.push(change);
+         }
+      }
 
       let bytecode = bytecode_fut.await?;
       let contract_interact = Some(!bytecode.is_empty());
 
-      TransactionAnalysis::new(
+      let mut analysis = TransactionAnalysis::new(
          ctx.clone(),
          chain.id(),
          from,
@@ -209,7 +246,13 @@ pub async fn send_transaction(
          balance_after,
          authorization_list.clone(),
       )
-      .await?
+      .await?;
+
+      analysis.balance_diff = BalanceDiff {
+         native: native_change(chain.id(), balance_before, balance_after),
+         tokens: token_changes,
+      };
+      analysis
    };
 
    let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
