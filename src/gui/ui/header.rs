@@ -693,7 +693,7 @@ impl QRCodeWindow {
          wallet: None,
          evm_address_qr: QrImage::empty_with_error("No QR code found".to_string()),
          zk_address_qr: QrImage::empty_with_error("No QR code found".to_string()),
-         size: (400.0, 400.0),
+         size: (450.0, 400.0),
       }
    }
 
@@ -742,11 +742,13 @@ impl QRCodeWindow {
       }
 
       let privacy_mode = ctx.privacy_mode;
+      let frame = theme.window_frame.fill(theme.frame1.fill);
       let mut open = self.open;
 
       Modal::new("QR Code Window", &mut open)
          .backdrop_order(Order::Middle)
          .content_order(Order::Foreground)
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -764,36 +766,43 @@ impl QRCodeWindow {
                   return;
                }
 
+               let frame = theme.frame2;
+
                // Wallet Name and Address
                if let Some(wallet) = self.wallet.as_ref() {
-                  ui.label(
-                     RichText::new(wallet.name_with_source().as_str()).size(theme.typography.large),
-                  );
+                  frame.show(ui, |ui| {
+                     ui.set_max_width(ui.available_width() * 0.95);
 
-                  let text = match privacy_mode {
-                     false => "Public Address (EVM)",
-                     true => "Private Address (zk)",
-                  };
+                     ui.label(
+                        RichText::new(wallet.name_with_source().as_str())
+                           .size(theme.typography.large),
+                     );
 
-                  let rich_text = RichText::new(text).size(theme.typography.large);
-                  ui.label(rich_text);
+                     let text = match privacy_mode {
+                        false => "Public Address (EVM)",
+                        true => "Private Address (zk)",
+                     };
 
-                  let address = match privacy_mode {
-                     false => wallet.address.to_string(),
-                     true => wallet.zk_address(),
-                  };
+                     let rich_text = RichText::new(text).size(theme.typography.large);
+                     ui.label(rich_text);
 
-                  if !address.is_empty() {
-                     let address_text =
-                        RichText::new(address.clone()).size(theme.typography.normal);
-                     let label = Button::selectable(false, address_text)
-                        .visuals(theme.button_visuals())
-                        .wrap();
+                     let address = match privacy_mode {
+                        false => wallet.address.to_string(),
+                        true => wallet.zk_address(),
+                     };
 
-                     if ui.add(label).clicked() {
-                        ui.ctx().copy_text(address);
+                     if !address.is_empty() {
+                        let address_text =
+                           RichText::new(address.clone()).size(theme.typography.normal);
+                        let label = Button::selectable(false, address_text)
+                           .visuals(theme.button_visuals())
+                           .wrap();
+
+                        if ui.add(label).clicked() {
+                           ui.ctx().copy_text(address);
+                        }
                      }
-                  }
+                  });
                }
 
                ui.add_space(10.0);

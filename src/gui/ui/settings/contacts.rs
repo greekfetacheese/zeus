@@ -482,7 +482,7 @@ impl QrWindow {
          return;
       }
 
-      let frame = theme.frame2;
+      let frame = theme.frame1;
 
       frame.show(ui, |ui| {
          ui.set_max_width(ui.available_width() * 0.5);

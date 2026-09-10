@@ -9,7 +9,7 @@ use egui_elements::{Button, Theme};
 use elegance::{Badge, BadgeTone, Slider};
 use ncrypt_me::Argon2;
 
-const MIN_M_COST: u32 = 1024_000;
+const MIN_M_COST: u32 = 512_000;
 const MIN_T_COST: u32 = 8;
 const MIN_P_COST: u32 = 1;
 
