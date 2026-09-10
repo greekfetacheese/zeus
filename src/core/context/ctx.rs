@@ -1278,6 +1278,9 @@ impl ZeusCtx {
    ///
    /// Returns true if a new name was stored.
    pub async fn lookup_address_name(&self, chain: u64, address: Address) -> bool {
+      if address.is_zero() {
+         return false;
+      }
       if self.get_address_name(chain, address).is_some() {
          return false;
       }
@@ -2152,7 +2155,11 @@ impl ZeusContext {
    /// Return the name of this address if its known.
    ///
    /// Checks the address book, then token metadata. No list scans.
+   /// The zero address is never named (ERC-7730 placeholders must not label burns).
    pub fn get_address_name(&self, chain: u64, address: Address) -> Option<Arc<str>> {
+      if address.is_zero() {
+         return None;
+      }
       if let Some(name) = self.address_book.get(chain, address) {
          return Some(name);
       }
@@ -2280,6 +2287,9 @@ impl ZeusContext {
    /// # Returns
    /// `true` if we have ever requested a name for this address
    pub fn address_name_requested(&self, chain: u64, address: Address) -> bool {
+      if address.is_zero() {
+         return true;
+      }
       let first = self.address_book.mark_pending(chain, address);
       !first
    }

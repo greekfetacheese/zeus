@@ -75,6 +75,9 @@ impl AddressBookHandle {
    }
 
    pub fn get(&self, chain: u64, address: Address) -> Option<Arc<str>> {
+      if address.is_zero() {
+         return None;
+      }
       self.read(|book| book.names.get(&(chain, address)).cloned())
    }
 
@@ -98,6 +101,9 @@ impl AddressBookHandle {
 
    /// Contract / registry name for a single chain. Does not overwrite an existing name.
    pub fn insert_contract(&self, chain: u64, address: Address, name: impl Into<Arc<str>>) -> bool {
+      if address.is_zero() {
+         return false;
+      }
       let name = name.into();
       self.write(|book| {
          book.pending.remove(&(chain, address));
@@ -146,7 +152,15 @@ impl AddressBookHandle {
 
    pub fn seed_well_known(&self) {
       self.write(|book| {
+         // EIP-712 descriptors (e.g. Hyperliquid) register verifyingContract 0x0.
+         // Never treat the zero address as a named contract.
+         for chain in SUPPORTED_CHAINS {
+            book.names.remove(&(chain, Address::ZERO));
+         }
          for ((chain, address), name) in well_known_entries() {
+            if address.is_zero() {
+               continue;
+            }
             book.names.entry((chain, address)).or_insert(name);
          }
       });
@@ -195,10 +209,7 @@ pub fn well_known_entries() -> Vec<((u64, Address), Arc<str>)> {
          ));
 
          if let Some(paymaster) = config.privacy_paymaster {
-            entries.push((
-               (chain, paymaster),
-               Arc::from("Privacy Paymaster"),
-            ));
+            entries.push(((chain, paymaster), Arc::from("Privacy Paymaster")));
          }
 
          if let Some(fee_adapter) = config.railgun_fee_adapter {
@@ -316,5 +327,23 @@ mod tests {
       let addr = Address::repeat_byte(0x33);
       assert!(book.mark_pending(1, addr));
       assert!(!book.mark_pending(1, addr));
+   }
+
+   #[test]
+   fn zero_address_is_never_named() {
+      let book = AddressBookHandle::default();
+      assert!(!book.insert_contract(1, Address::ZERO, "Hyperliquid Labs"));
+      assert_eq!(book.get(1, Address::ZERO), None);
+
+      book.write(|inner| {
+         inner.names.insert((1, Address::ZERO), Arc::from("Hyperliquid Labs"));
+      });
+      assert_eq!(book.get(1, Address::ZERO), None);
+
+      book.seed_well_known();
+      assert_eq!(book.get(1, Address::ZERO), None);
+      book.read(|inner| {
+         assert!(!inner.names.contains_key(&(1, Address::ZERO)));
+      });
    }
 }

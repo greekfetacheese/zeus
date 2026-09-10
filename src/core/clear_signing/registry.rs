@@ -204,7 +204,7 @@ async fn fetch_named_index(name: &str, force_network: bool) -> Result<Value, any
       }
       return Err(e.into());
    }
-   
+
    let value: Value = serde_json::from_slice(&bytes)?;
    if let Ok(path) = cached_index_path(name) {
       cache_registry_file(&path, &bytes, name);
@@ -278,6 +278,11 @@ pub async fn resolve_calldata_descriptor(chain: u64, to: Address) -> Option<(Str
 
 /// Best-effort human name from ERC-7730 metadata (calldata index, then EIP-712 index).
 pub async fn resolve_contract_label(chain: u64, address: Address) -> Option<String> {
+   // Hyperliquid (and similar) register EIP-712 verifyingContract as 0x0.
+   // That must not become a display name for the zero address in tx events.
+   if address.is_zero() {
+      return None;
+   }
    if let Some(path) = lookup_calldata_path(chain, address).await {
       if let Some(name) = label_from_descriptor_path(&path).await {
          return Some(name);
