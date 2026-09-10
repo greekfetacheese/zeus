@@ -60,7 +60,12 @@ where
    Ok(b)
 }
 
-pub async fn allowance<P, N>(token: Address, owner: Address, spender: Address, client: P) -> Result<U256, anyhow::Error>
+pub async fn allowance<P, N>(
+   token: Address,
+   owner: Address,
+   spender: Address,
+   client: P,
+) -> Result<U256, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
@@ -147,6 +152,11 @@ pub fn decode_approve_log(log: &LogData) -> Result<IERC20::Approval, anyhow::Err
 pub fn decode_transfer_call(bytes: &Bytes) -> Result<(Address, U256), anyhow::Error> {
    let b = IERC20::transferCall::abi_decode(bytes)?;
    Ok((b.recipient, b.amount))
+}
+
+pub fn decode_approve_call(bytes: &Bytes) -> Result<(Address, U256), anyhow::Error> {
+   let b = IERC20::approveCall::abi_decode(bytes)?;
+   Ok((b.spender, b.amount))
 }
 
 pub fn decode_balance_of(bytes: &Bytes) -> Result<U256, anyhow::Error> {

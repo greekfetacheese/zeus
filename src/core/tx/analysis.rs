@@ -16,6 +16,7 @@ use zeus_eth::{
    },
 };
 
+use super::approval_diff::ApprovalDiff;
 use super::balance_diff::BalanceDiff;
 use super::events::decode::{DecodeCtx, decode_transaction};
 use super::events::*;
@@ -63,6 +64,10 @@ pub struct TransactionAnalysis {
    /// Signer ETH + ERC-20 deltas from simulation `balanceOf`, not logs.
    #[serde(default)]
    pub balance_diff: BalanceDiff,
+
+   /// Signer ERC-20 / Permit2 allowance deltas from simulation `allowance`, not logs.
+   #[serde(default)]
+   pub approval_diff: ApprovalDiff,
 }
 
 /// Output-token amount the sender actually received, from `balanceOf` at
@@ -443,6 +448,7 @@ impl TransactionAnalysis {
          main_event: Some(main_event),
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
+         approval_diff: ApprovalDiff::default(),
       }
    }
 
@@ -465,6 +471,7 @@ impl TransactionAnalysis {
          main_event: Some(main_event),
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
+         approval_diff: ApprovalDiff::default(),
       }
    }
 
@@ -487,6 +494,7 @@ impl TransactionAnalysis {
          main_event: Some(main_event),
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
+         approval_diff: ApprovalDiff::default(),
       }
    }
 
@@ -509,6 +517,7 @@ impl TransactionAnalysis {
          main_event: Some(main_event),
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
+         approval_diff: ApprovalDiff::default(),
       }
    }
 
@@ -532,6 +541,7 @@ impl TransactionAnalysis {
          main_event: Some(main_event),
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
+         approval_diff: ApprovalDiff::default(),
       }
    }
 
@@ -554,6 +564,7 @@ impl TransactionAnalysis {
          main_event: Some(main_event),
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
+         approval_diff: ApprovalDiff::default(),
       }
    }
 
@@ -577,6 +588,7 @@ impl TransactionAnalysis {
          main_event: Some(main_event),
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
+         approval_diff: ApprovalDiff::default(),
       }
    }
 
@@ -599,6 +611,7 @@ impl TransactionAnalysis {
          main_event: Some(main_event),
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
+         approval_diff: ApprovalDiff::default(),
       }
    }
 
@@ -621,6 +634,7 @@ impl TransactionAnalysis {
          main_event: Some(main_event),
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
+         approval_diff: ApprovalDiff::default(),
       }
    }
 
@@ -643,6 +657,7 @@ impl TransactionAnalysis {
          main_event: Some(main_event),
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
+         approval_diff: ApprovalDiff::default(),
       }
    }
 
@@ -665,6 +680,7 @@ impl TransactionAnalysis {
          main_event: Some(main_event),
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
+         approval_diff: ApprovalDiff::default(),
       }
    }
 
@@ -687,6 +703,7 @@ impl TransactionAnalysis {
          main_event: Some(main_event),
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
+         approval_diff: ApprovalDiff::default(),
       }
    }
 
@@ -712,6 +729,7 @@ impl TransactionAnalysis {
          main_event: None,
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
+         approval_diff: ApprovalDiff::default(),
       }
    }
 
@@ -736,6 +754,7 @@ impl TransactionAnalysis {
          main_event: None,
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
+         approval_diff: ApprovalDiff::default(),
       }
    }
 }

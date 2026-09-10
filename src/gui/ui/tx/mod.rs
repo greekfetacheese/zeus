@@ -10,7 +10,7 @@ use zeus_eth::alloy_primitives::TxHash;
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::core::clear_signing::{ClearDisplay, FormattedValue};
-use crate::core::tx::BalanceChange;
+use crate::core::tx::{ApprovalChange, ApprovalKind, BalanceChange};
 use crate::gui::SHARED_GUI;
 use crate::utils::{RT, truncate_address, truncate_hash};
 use zeus_eth::{
@@ -241,6 +241,66 @@ pub fn balance_change_row(
       });
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          ui.label(RichText::new(format!("~ ${}", usd.abbreviated())).size(theme.typography.large));
+      });
+   });
+}
+
+pub fn approval_change_row(
+   ctx: &mut ZeusContext,
+   chain: ChainId,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   change: &ApprovalChange,
+   ui: &mut Ui,
+) {
+   let tint = theme.image_tint_recommended;
+   let icon_size = vec2(24.0, 24.0);
+   let icon = icons.currency_icon_x32(&change.token, tint).fit_to_exact_size(icon_size);
+
+   let amount = if change.is_unlimited() {
+      "Unlimited".to_string()
+   } else if change.is_revoke() {
+      "0".to_string()
+   } else {
+      change.after.abbreviated()
+   };
+   let amount = match change.kind {
+      ApprovalKind::Permit2 => format!("{amount} (Permit2)"),
+      ApprovalKind::Erc20 => amount,
+   };
+   let color = if change.is_revoke() {
+      theme.colors.success
+   } else {
+      theme.colors.warning
+   };
+
+   let spender_name = match ctx.get_address_name(chain.id(), change.spender) {
+      Some(name) => name.to_string(),
+      None => {
+         if !ctx.address_name_requested(chain.id(), change.spender) {
+            request_address_name(chain.id(), change.spender);
+         }
+         truncate_address(change.spender.to_string())
+      }
+   };
+   let explorer = chain.block_explorer();
+   let spender_link = format!("{}/address/{}", explorer, change.spender);
+
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         let text =
+            RichText::new(format!("{} → ", change.token.symbol())).size(theme.typography.large);
+         let label = Label::new(text, Some(icon)).spacing(3.0).interactive(false);
+         ui.add(label);
+         ui.hyperlink_to(
+            RichText::new(spender_name)
+               .size(theme.typography.large)
+               .color(theme.colors.info),
+            spender_link,
+         );
+      });
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         ui.label(RichText::new(amount).size(theme.typography.large).color(color));
       });
    });
 }

@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod approval_diff;
 pub mod balance_diff;
 pub mod events;
 pub mod main_event;
@@ -6,6 +7,7 @@ pub mod rich;
 pub mod send;
 
 pub use analysis::TransactionAnalysis;
+pub use approval_diff::{ApprovalChange, ApprovalDiff, ApprovalKind};
 pub use balance_diff::{BalanceChange, BalanceDiff};
 pub use events::DecodedEvent;
 pub use rich::TransactionRich;

@@ -2,8 +2,8 @@ use egui::{Align, Id, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2};
 use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme};
 
 use super::{
-   address, balance_change_row, chain, clear_display_ui, eth_received, events::*,
-   show_calldata_modal, tx_cost, value,
+   address, approval_change_row, balance_change_row, chain, clear_display_ui, eth_received,
+   events::*, show_calldata_modal, tx_cost, value,
 };
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::{self, ClearDisplay};
@@ -390,6 +390,32 @@ impl TxConfirmationWindow {
                               ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
                               for change in analysis.balance_diff.changes() {
                                  balance_change_row(ctx, theme, icons.clone(), change, ui);
+                              }
+                           });
+                     });
+                  });
+               }
+
+               // Approval changes (erc20 + permit)
+               if main_event.is_other() && !analysis.approval_diff.is_empty() {
+                  ui.label(RichText::new("Approval changes").size(theme.typography.large));
+                  let diff_size = vec2(ui.available_width() * 0.95, 0.0);
+                  ui.allocate_ui(diff_size, |ui| {
+                     frame.show(ui, |ui| {
+                        ScrollArea::vertical()
+                           .id_salt("approval_diff_scroll")
+                           .max_height(150.0)
+                           .show(ui, |ui| {
+                              ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+                              for change in analysis.approval_diff.sorted() {
+                                 approval_change_row(
+                                    ctx,
+                                    self.chain,
+                                    theme,
+                                    icons.clone(),
+                                    change,
+                                    ui,
+                                 );
                               }
                            });
                      });

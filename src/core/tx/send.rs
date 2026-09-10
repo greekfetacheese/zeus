@@ -7,6 +7,9 @@ use alloy_eips::eip7702::{Authorization, SignedAuthorization};
 use anyhow::anyhow;
 use std::time::Duration;
 
+use crate::core::tx::approval_diff::{
+   ApprovalChange, ApprovalDiff, ApprovalKind, collect_approval_candidates,
+};
 use crate::core::tx::balance_diff::{
    BalanceDiff, collect_token_candidates, native_change, token_change,
 };
@@ -23,8 +26,12 @@ use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256},
    alloy_rpc_types::{BlockId, TransactionReceipt, TransactionRequest},
    alloy_signer::SignerSync,
-   revm_utils::{ForkFactory, Host, new_evm, simulate::erc20_balance},
+   revm_utils::{
+      ForkFactory, Host, new_evm,
+      simulate::{erc20_allowance, erc20_balance, permit2_allowance},
+   },
    types::ChainId,
+   utils::address_book,
 };
 use zeus_wallet::SecureKey;
 
@@ -173,8 +180,21 @@ pub async fn send_transaction(
       });
 
       let portfolio_tokens = ctx.get_portfolio(chain.id(), from);
+      let known_erc20: Vec<(Address, Address)> = ctx
+         .approval_manager()
+         .get_token_approvals(chain.id(), from)
+         .into_iter()
+         .map(|p| (p.token.address, p.spender))
+         .collect();
+      let known_permit2: Vec<(Address, Address)> = ctx
+         .approval_manager()
+         .get_permits(chain.id(), from)
+         .into_iter()
+         .map(|p| (p.token.address(), p.spender))
+         .collect();
+      let permit2 = address_book::permit2_contract(chain.id()).ok();
 
-      let (sim_res, balance_after, logs, measured_tokens) = {
+      let (sim_res, balance_after, logs, measured_tokens, measured_approvals) = {
          let mut evm = new_evm(chain, Some(&block), fork_db);
 
          let time = std::time::Instant::now();
@@ -216,7 +236,63 @@ pub async fn send_transaction(
             }
          }
 
-         (sim_res, balance_after, logs, measured_tokens)
+         let approval_candidates = collect_approval_candidates(
+            from,
+            interact_to,
+            &call_data,
+            &logs,
+            known_erc20,
+            known_permit2,
+         );
+         let mut measured_approvals = Vec::new();
+         for cand in approval_candidates {
+            match cand.kind {
+               ApprovalKind::Erc20 => {
+                  let Ok(allow_before) =
+                     erc20_allowance(&mut before_evm, cand.token, from, cand.spender)
+                  else {
+                     continue;
+                  };
+                  let Ok(allow_after) = erc20_allowance(&mut evm, cand.token, from, cand.spender)
+                  else {
+                     continue;
+                  };
+                  if allow_before != allow_after {
+                     measured_approvals.push((cand, allow_before, allow_after, None));
+                  }
+               }
+               ApprovalKind::Permit2 => {
+                  let Some(permit2) = permit2 else {
+                     continue;
+                  };
+                  let Ok((allow_before, _)) = permit2_allowance(
+                     &mut before_evm,
+                     permit2,
+                     from,
+                     cand.token,
+                     cand.spender,
+                  ) else {
+                     continue;
+                  };
+                  let Ok((allow_after, expiration)) =
+                     permit2_allowance(&mut evm, permit2, from, cand.token, cand.spender)
+                  else {
+                     continue;
+                  };
+                  if allow_before != allow_after {
+                     measured_approvals.push((cand, allow_before, allow_after, Some(expiration)));
+                  }
+               }
+            }
+         }
+
+         (
+            sim_res,
+            balance_after,
+            logs,
+            measured_tokens,
+            measured_approvals,
+         )
       };
 
       let mut token_changes = Vec::new();
@@ -226,6 +302,23 @@ pub async fn send_transaction(
          };
          if let Some(change) = token_change(token, token_before, token_after) {
             token_changes.push(change);
+         }
+      }
+
+      let mut approval_changes = Vec::new();
+      for (cand, allow_before, allow_after, expiration_after) in measured_approvals {
+         let Ok(token) = ctx.get_token(chain.id(), cand.token).await else {
+            continue;
+         };
+         if let Some(change) = ApprovalChange::from_wei(
+            cand.kind,
+            token,
+            cand.spender,
+            allow_before,
+            allow_after,
+            expiration_after,
+         ) {
+            approval_changes.push(change);
          }
       }
 
@@ -251,6 +344,9 @@ pub async fn send_transaction(
       analysis.balance_diff = BalanceDiff {
          native: native_change(chain.id(), balance_before, balance_after),
          tokens: token_changes,
+      };
+      analysis.approval_diff = ApprovalDiff {
+         changes: approval_changes,
       };
       analysis
    };

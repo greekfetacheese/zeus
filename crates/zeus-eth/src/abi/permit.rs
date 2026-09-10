@@ -163,7 +163,10 @@ pub fn decode_permit2_revert(data: &[u8]) -> Option<String> {
       return Some("LengthMismatch()".to_string());
    }
    if let Ok(err) = Permit2::SignatureExpired::abi_decode(data) {
-      return Some(format!("SignatureExpired({})", err.signatureDeadline));
+      return Some(format!(
+         "SignatureExpired({})",
+         err.signatureDeadline
+      ));
    }
    if let Ok(err) = Permit2::InvalidAmount::abi_decode(data) {
       return Some(format!("InvalidAmount({})", err.maxAmount));
@@ -176,6 +179,23 @@ pub fn decode_permit2_revert(data: &[u8]) -> Option<String> {
    }
 
    None
+}
+
+pub fn encode_allowance(user: Address, token: Address, spender: Address) -> Bytes {
+   let c = Permit2::allowanceCall {
+      user,
+      token,
+      spender,
+   };
+   Bytes::from(c.abi_encode())
+}
+
+pub fn decode_allowance(bytes: &Bytes) -> Result<(U256, u64, u64), anyhow::Error> {
+   let r = Permit2::allowanceCall::abi_decode_returns(bytes)?;
+   let amount = U256::from(r.amount);
+   let expiration = u64::try_from(r.expiration).unwrap_or(0);
+   let nonce = u64::try_from(r.nonce).unwrap_or(0);
+   Ok((amount, expiration, nonce))
 }
 
 pub fn decode_permit_log(log: &LogData) -> Result<Permit2::Permit, anyhow::Error> {

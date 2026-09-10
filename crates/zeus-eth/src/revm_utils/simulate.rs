@@ -11,7 +11,11 @@ use crate::abi::{
 };
 
 /// Simulate the balance of function of the ERC20 contract
-pub fn erc20_balance<DB>(evm: &mut Evm2<DB>, token: Address, owner: Address) -> Result<U256, anyhow::Error>
+pub fn erc20_balance<DB>(
+   evm: &mut Evm2<DB>,
+   token: Address,
+   owner: Address,
+) -> Result<U256, anyhow::Error>
 where
    DB: Database,
 {
@@ -22,12 +26,58 @@ where
    evm.tx.value = U256::ZERO;
    evm.tx.kind = TxKind::Call(token);
 
-   let res = evm
-      .transact(evm.tx.clone())
-      .map_err(|e| anyhow!("{:?}", e))?;
+   let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
    let output = res.result.output().ok_or(anyhow!("Output not found"))?;
    let balance = abi::erc20::decode_balance_of(output)?;
    Ok(balance)
+}
+
+/// Simulate ERC-20 `allowance(owner, spender)` (does not commit).
+pub fn erc20_allowance<DB>(
+   evm: &mut Evm2<DB>,
+   token: Address,
+   owner: Address,
+   spender: Address,
+) -> Result<U256, anyhow::Error>
+where
+   DB: Database,
+{
+   let data = abi::erc20::encode_allowance(owner, spender);
+
+   evm.tx.chain_id = Some(evm.cfg.chain_id);
+   evm.tx.data = data;
+   evm.tx.value = U256::ZERO;
+   evm.tx.kind = TxKind::Call(token);
+
+   let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
+   let output = res.result.output().ok_or(anyhow!("Output not found"))?;
+   abi::erc20::decode_allowance(output)
+}
+
+/// Simulate Permit2 `allowance(user, token, spender)` (does not commit).
+///
+/// Returns `(amount, expiration)`.
+pub fn permit2_allowance<DB>(
+   evm: &mut Evm2<DB>,
+   permit2: Address,
+   owner: Address,
+   token: Address,
+   spender: Address,
+) -> Result<(U256, u64), anyhow::Error>
+where
+   DB: Database,
+{
+   let data = abi::permit::encode_allowance(owner, token, spender);
+
+   evm.tx.chain_id = Some(evm.cfg.chain_id);
+   evm.tx.data = data;
+   evm.tx.value = U256::ZERO;
+   evm.tx.kind = TxKind::Call(permit2);
+
+   let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
+   let output = res.result.output().ok_or(anyhow!("Output not found"))?;
+   let (amount, expiration, _nonce) = abi::permit::decode_allowance(output)?;
+   Ok((amount, expiration))
 }
 
 /// Simulate the transfer function in the ERC20 contract
@@ -51,12 +101,9 @@ where
    evm.tx.kind = TxKind::Call(token);
 
    let res = if commit {
-      evm.transact_commit(evm.tx.clone())
-         .map_err(|e| anyhow!("{:?}", e))?
+      evm.transact_commit(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?
    } else {
-      evm.transact(evm.tx.clone())
-         .map_err(|e| anyhow!("{:?}", e))?
-         .result
+      evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?.result
    };
 
    let output = res.output().ok_or(anyhow!("Output not found"))?;
@@ -88,9 +135,7 @@ where
    evm.tx.value = U256::ZERO;
    evm.tx.kind = TxKind::Call(token);
 
-   let res = evm
-      .transact_commit(evm.tx.clone())
-      .map_err(|e| anyhow!("{:?}", e))?;
+   let res = evm.transact_commit(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
    let output = res.output().ok_or(anyhow!("Output not found"))?;
 
    if !res.is_success() {
@@ -108,7 +153,13 @@ pub fn mint_position<DB>(
    caller: Address,
    contract: Address,
    commit: bool,
-) -> Result<(ExecutionResult, INonfungiblePositionManager::mintReturn), anyhow::Error>
+) -> Result<
+   (
+      ExecutionResult,
+      INonfungiblePositionManager::mintReturn,
+   ),
+   anyhow::Error,
+>
 where
    DB: Database + DatabaseCommit,
 {
@@ -121,12 +172,9 @@ where
    evm.tx.kind = TxKind::Call(contract);
 
    let res = if commit {
-      evm.transact_commit(evm.tx.clone())
-         .map_err(|e| anyhow!("{:?}", e))?
+      evm.transact_commit(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?
    } else {
-      evm.transact(evm.tx.clone())
-         .map_err(|e| anyhow!("{:?}", e))?
-         .result
+      evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?.result
    };
 
    let output = res.output().ok_or(anyhow!("Output not found"))?;
@@ -172,12 +220,9 @@ where
    evm.tx.kind = TxKind::Call(contract);
 
    let res = if commit {
-      evm.transact_commit(evm.tx.clone())
-         .map_err(|e| anyhow!("{:?}", e))?
+      evm.transact_commit(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?
    } else {
-      evm.transact(evm.tx.clone())
-         .map_err(|e| anyhow!("{:?}", e))?
-         .result
+      evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?.result
    };
 
    let output = res.output().ok_or(anyhow!("Output not found"))?;
@@ -187,7 +232,8 @@ where
       return Err(anyhow!("Call Reverted: {}", err));
    }
 
-   let (liquidity, amount0, amount1) = abi::uniswap::nft_position::decode_increase_liquidity_call(output)?;
+   let (liquidity, amount0, amount1) =
+      abi::uniswap::nft_position::decode_increase_liquidity_call(output)?;
    Ok((res, liquidity, amount0, amount1))
 }
 
@@ -211,12 +257,9 @@ where
    evm.tx.kind = TxKind::Call(contract);
 
    let res = if commit {
-      evm.transact_commit(evm.tx.clone())
-         .map_err(|e| anyhow!("{:?}", e))?
+      evm.transact_commit(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?
    } else {
-      evm.transact(evm.tx.clone())
-         .map_err(|e| anyhow!("{:?}", e))?
-         .result
+      evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?.result
    };
 
    let output = res.output().ok_or(anyhow!("Output not found"))?;
@@ -252,12 +295,9 @@ where
    evm.tx.kind = TxKind::Call(contract);
 
    let res = if commit {
-      evm.transact_commit(evm.tx.clone())
-         .map_err(|e| anyhow!("{:?}", e))?
+      evm.transact_commit(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?
    } else {
-      evm.transact(evm.tx.clone())
-         .map_err(|e| anyhow!("{:?}", e))?
-         .result
+      evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?.result
    };
 
    let output = res.output().ok_or(anyhow!("Output not found"))?;
