@@ -1198,6 +1198,11 @@ impl ZeusCtx {
       });
    }
 
+   pub fn get_eth_price(&self, chain: u64) -> NumericValue {
+      let token = ERC20Token::wrapped_native_token(chain);
+      self.get_token_price(&token)
+   }
+
    /// Get the USD price of an ERC20 token
    pub fn get_token_price(&self, token: &ERC20Token) -> NumericValue {
       self.read(|ctx| ctx.get_token_price(token))

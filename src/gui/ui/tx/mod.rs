@@ -213,7 +213,7 @@ pub fn eth_received(
 }
 
 pub fn balance_change_row(
-   ctx: &mut ZeusContext,
+   _ctx: &mut ZeusContext,
    theme: &Theme,
    icons: Arc<Icons>,
    change: &BalanceChange,
@@ -223,13 +223,16 @@ pub fn balance_change_row(
    let icon_size = vec2(24.0, 24.0);
    let icon = icons.currency_icon_x32(&change.currency, tint).fit_to_exact_size(icon_size);
    let sign = if change.is_increase() { "+" } else { "−" };
+
    let color = if change.is_increase() {
       theme.colors.success
    } else {
       theme.colors.error
    };
+
    let delta = change.abs_delta();
-   let usd = ctx.get_currency_value_for_amount(delta.f64(), &change.currency);
+   let value = change.price.f64() * delta.f64();
+   let usd_value = NumericValue::from_f64(value);
 
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -245,7 +248,7 @@ pub fn balance_change_row(
          ui.add(label);
       });
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         ui.label(RichText::new(format!("~ ${}", usd.abbreviated())).size(theme.typography.large));
+         ui.label(RichText::new(format!("~ ${}", usd_value.abbreviated())).size(theme.typography.large));
       });
    });
 }
@@ -263,7 +266,8 @@ pub fn approval_change_row(
    let icon = icons.currency_icon_x32(&change.token, tint).fit_to_exact_size(icon_size);
 
    let amount = change.after.abbreviated();
-   let usd = ctx.get_currency_value_for_amount(change.after.f64(), &change.token);
+   let value = change.price.f64() * change.after.f64();
+   let usd_value = NumericValue::from_f64(value);
    let color = if change.is_revoke() {
       theme.colors.success
    } else {
@@ -320,7 +324,7 @@ pub fn approval_change_row(
             ui.add(amount_label);
          } else {
             let usd_text =
-               RichText::new(format!("~ ${}", usd.abbreviated())).size(theme.typography.large);
+               RichText::new(format!("~ ${}", usd_value.abbreviated())).size(theme.typography.large);
             let usd_label = Label::new(usd_text, None).interactive(false);
             ui.add(MultiLabel::new(vec![amount_label, usd_label]));
          }

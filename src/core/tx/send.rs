@@ -311,6 +311,14 @@ pub async fn send_transaction(
    )
    .await?;
 
+   // ? Set the diffs again so they are visible in the TxHistory
+   // ? But in some cases this will display incorrect amounts
+   // ? For example a swap with a high slippage
+   new_tx_analysis.set_diffs(
+      tx_analysis.balance_diff.clone(),
+      tx_analysis.approval_diff.clone(),
+   );
+
    // Zeus-originated swaps already have a SwapToken main-event override.
    // Connector / inferred swaps do not — those keep the log heuristic.
    if tx_analysis.main_event_opt().is_some_and(|e| e.is_swap()) {

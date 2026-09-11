@@ -17,18 +17,22 @@ pub const MAX_TOKEN_CANDIDATES: usize = 64;
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BalanceChange {
    pub currency: Currency,
+   /// USD price of the currency at the time of the tx.
+   #[serde(default)]
+   pub price: NumericValue,
    pub before: NumericValue,
    pub after: NumericValue,
 }
 
 impl BalanceChange {
-   pub fn from_wei(currency: Currency, before: U256, after: U256) -> Option<Self> {
+   pub fn from_wei(currency: Currency, price: NumericValue, before: U256, after: U256) -> Option<Self> {
       if before == after {
          return None;
       }
       let decimals = currency.decimals();
       Some(Self {
          currency,
+         price,
          before: NumericValue::format_wei(before, decimals),
          after: NumericValue::format_wei(after, decimals),
       })
@@ -78,13 +82,13 @@ impl BalanceDiff {
    }
 }
 
-pub fn native_change(chain: u64, before: U256, after: U256) -> Option<BalanceChange> {
+pub fn native_change(chain: u64, price: NumericValue, before: U256, after: U256) -> Option<BalanceChange> {
    let currency = Currency::from(NativeCurrency::from(chain));
-   BalanceChange::from_wei(currency, before, after)
+   BalanceChange::from_wei(currency, price, before, after)
 }
 
-pub fn token_change(token: ERC20Token, before: U256, after: U256) -> Option<BalanceChange> {
-   BalanceChange::from_wei(Currency::from(token), before, after)
+pub fn token_change(token: ERC20Token, price: NumericValue, before: U256, after: U256) -> Option<BalanceChange> {
+   BalanceChange::from_wei(Currency::from(token), price, before, after)
 }
 
 /// Token contracts to `balanceOf` for the signer.
@@ -161,13 +165,14 @@ mod tests {
 
    #[test]
    fn native_equal_is_none() {
-      assert!(native_change(1, U256::from(1u64), U256::from(1u64)).is_none());
+      assert!(native_change(1, NumericValue::default(), U256::from(1u64), U256::from(1u64)).is_none());
    }
 
    #[test]
    fn native_receive() {
       let change = native_change(
          1,
+         NumericValue::default(),
          U256::ZERO,
          U256::from(10u64).pow(U256::from(18u64)),
       )
@@ -181,7 +186,7 @@ mod tests {
    fn token_burn_is_decrease() {
       let one = U256::from(10u64).pow(U256::from(18u64));
       let hundred = one * U256::from(100u64);
-      let change = token_change(wbtest(), hundred, U256::ZERO).unwrap();
+      let change = token_change(wbtest(), NumericValue::default(), hundred, U256::ZERO).unwrap();
       assert!(!change.is_increase());
       assert_eq!(change.abs_delta().f64(), 100.0);
       assert_eq!(change.currency.symbol(), "WBTEST");
@@ -191,14 +196,14 @@ mod tests {
    fn spoofed_mint_without_balance_change_is_omitted() {
       // Fake Airdrop: Transfer(0x0 → signer, 1e18) on a non-token does not
       // change balanceOf. Equal wei → no row, regardless of the log.
-      assert!(token_change(wbtest(), U256::ZERO, U256::ZERO).is_none());
+      assert!(token_change(wbtest(), NumericValue::default(), U256::ZERO, U256::ZERO).is_none());
    }
 
    #[test]
    fn empty_diff() {
       assert!(BalanceDiff::default().is_empty());
       let mut diff = BalanceDiff::default();
-      diff.tokens.push(token_change(wbtest(), U256::from(1u64), U256::ZERO).unwrap());
+      diff.tokens.push(token_change(wbtest(), NumericValue::default(), U256::from(1u64), U256::ZERO).unwrap());
       assert!(!diff.is_empty());
    }
 
@@ -215,9 +220,9 @@ mod tests {
 
    #[test]
    fn changes_native_first_outflows_before_inflows() {
-      let native = native_change(1, U256::from(2u64), U256::from(1u64)).unwrap();
-      let inflow = token_change(wbtest(), U256::ZERO, U256::from(5u64)).unwrap();
-      let outflow = token_change(token_b(), U256::from(9u64), U256::from(1u64)).unwrap();
+      let native = native_change(1, NumericValue::default(), U256::from(2u64), U256::from(1u64)).unwrap();
+      let inflow = token_change(wbtest(), NumericValue::default(), U256::ZERO, U256::from(5u64)).unwrap();
+      let outflow = token_change(token_b(), NumericValue::default(), U256::from(9u64), U256::from(1u64)).unwrap();
 
       let diff = BalanceDiff {
          native: Some(native.clone()),

@@ -2,8 +2,8 @@ use egui::{Id, Order, RichText, ScrollArea, Spinner, Ui, vec2};
 use egui_elements::{Button, Modal, Theme};
 
 use super::{
-   address, chain, clear_display_ui, eth_received, events::*, show_calldata_modal, tx_cost,
-   tx_hash, value,
+   address, chain, clear_display_ui, eth_received, events::*, show_approval_diff_rows,
+   show_balance_diff_rows, show_calldata_modal, show_tx_diffs_modal, tx_cost, tx_hash, value,
 };
 use crate::assets::icons::Icons;
 use crate::core::clear_signing;
@@ -21,6 +21,7 @@ pub struct TxWindow {
    decoded_events: DecodedEvents,
    tx: Option<TransactionRich>,
    show_calldata: bool,
+   show_diffs: bool,
    size: (f32, f32),
 }
 
@@ -32,6 +33,7 @@ impl TxWindow {
          decoded_events: DecodedEvents::new(),
          tx: None,
          show_calldata: false,
+         show_diffs: false,
          size: (550.0, 400.0),
       }
    }
@@ -44,11 +46,13 @@ impl TxWindow {
       self.open = false;
       self.tx = None;
       self.show_calldata = false;
+      self.show_diffs = false;
    }
 
    /// Show this [TxWindow]
    pub fn open(&mut self, tx: Option<TransactionRich>) {
       self.show_calldata = false;
+      self.show_diffs = false;
       self.tx = tx;
       self.open = true;
       self.maybe_fill_clear_display();
@@ -179,6 +183,17 @@ impl TxWindow {
                   ui,
                );
 
+               show_tx_diffs_modal(
+                  &mut self.show_diffs,
+                  theme,
+                  ctx,
+                  chain_id,
+                  icons.clone(),
+                  &tx.analysis.balance_diff,
+                  &tx.analysis.approval_diff,
+                  ui,
+               );
+
                let frame_size = vec2(ui.available_width() * 0.9, 45.0);
                let tx = self.tx.as_ref().unwrap();
                let main_event = &tx.main_event;
@@ -243,6 +258,38 @@ impl TxWindow {
                   );
                }
 
+               let should_show_balance_diff =
+                  main_event.is_other() && tx.analysis.balance_diff.len() == 1;
+               let should_show_approval_diff =
+                  main_event.is_other() && tx.analysis.approval_diff.changes.len() == 1;
+
+               if should_show_balance_diff {
+                  ui.allocate_ui(frame_size, |ui| {
+                     ui.label(RichText::new("Balance Changes").size(theme.typography.large));
+                     show_balance_diff_rows(
+                        ctx,
+                        theme,
+                        icons.clone(),
+                        &tx.analysis.balance_diff,
+                        ui,
+                     );
+                  });
+               }
+
+               if should_show_approval_diff {
+                  ui.allocate_ui(frame_size, |ui| {
+                     ui.label(RichText::new("Approval Changes").size(theme.typography.large));
+                     show_approval_diff_rows(
+                        ctx,
+                        chain_id,
+                        theme,
+                        icons.clone(),
+                        &tx.analysis.approval_diff,
+                        ui,
+                     );
+                  });
+               }
+
                ui.allocate_ui(frame_size, |ui| {
                   frame.show(ui, |ui| {
                      chain(chain_id, theme, icons.clone(), ui);
@@ -284,13 +331,22 @@ impl TxWindow {
                   });
                }
 
-               let ui_size = vec2(ui.available_width() * 0.6, 45.0);
+               let ui_size = vec2(ui.available_width() * 0.9, 45.0);
                ui.allocate_ui(ui_size, |ui| {
+                  ui.set_width(ui_size.x);
                   ui.horizontal(|ui| {
                      ui.spacing_mut().item_spacing.x = theme.spacing.sm;
-                     let button_size = vec2(150.0, 30.0);
+                     let has_diffs = !tx.analysis.balance_diff.is_empty()
+                        || !tx.analysis.approval_diff.is_empty();
 
-                     let text = RichText::new("Decoded events").size(theme.typography.large);
+                     let n = match has_diffs {
+                        true => 3.0,
+                        false => 2.0,
+                     };
+                     let gap = theme.spacing.sm * (n - 1.0);
+                     let button_size = vec2((ui.available_width() - gap) / n, 30.0);
+
+                     let text = RichText::new("Events").size(theme.typography.large);
                      let button =
                         Button::new(text).visuals(theme.button_visuals()).min_size(button_size);
                      if ui.add(button).clicked() {
@@ -301,6 +357,16 @@ impl TxWindow {
                      let button = Button::new(text).visuals(button_visuals).min_size(button_size);
                      if ui.add(button).clicked() {
                         self.show_calldata = true;
+                     }
+
+                     if has_diffs {
+                        let text =
+                           RichText::new("Balance & Approvals").size(theme.typography.large);
+                        let button =
+                           Button::new(text).visuals(button_visuals).min_size(button_size);
+                        if ui.add(button).clicked() {
+                           self.show_diffs = true;
+                        }
                      }
                   });
                });

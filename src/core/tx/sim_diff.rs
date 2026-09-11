@@ -306,7 +306,7 @@ async fn fetch_permit2_before(
    if pairs.is_empty() {
       return HashMap::new();
    }
-   
+
    let Some(permit2) = address_book::permit2_contract(chain).ok() else {
       return HashMap::new();
    };
@@ -386,7 +386,10 @@ pub async fn resolve_raw_diffs(
       let Ok(token) = ctx.get_token(chain, delta.token).await else {
          continue;
       };
-      if let Some(change) = token_change(token, delta.before, delta.after) {
+
+      let price = ctx.get_token_price(&token);
+
+      if let Some(change) = token_change(token, price, delta.before, delta.after) {
          token_changes.push(change);
       }
    }
@@ -396,12 +399,16 @@ pub async fn resolve_raw_diffs(
       let Ok(token) = ctx.get_token(chain, delta.cand.token).await else {
          continue;
       };
+
+      let price = ctx.get_token_price(&token);
+
       if let Some(change) = ApprovalChange::from_wei(
          delta.cand.kind,
          token,
          delta.cand.spender,
          delta.before,
          delta.after,
+         price,
          delta.expiration_before,
          delta.expiration_after,
       ) {
@@ -409,9 +416,11 @@ pub async fn resolve_raw_diffs(
       }
    }
 
+   let eth_price = ctx.get_eth_price(chain);
+
    (
       BalanceDiff {
-         native: native_change(chain, native_before, native_after),
+         native: native_change(chain, eth_price, native_before, native_after),
          tokens: token_changes,
       },
       ApprovalDiff {

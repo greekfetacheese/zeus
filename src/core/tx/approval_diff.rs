@@ -39,6 +39,9 @@ pub struct ApprovalChange {
    pub spender: Address,
    pub before: NumericValue,
    pub after: NumericValue,
+   /// USD price of the currency at the time of the tx.
+   #[serde(default)]
+   pub price: NumericValue,
    /// Permit2 expiration after the tx. `None` for ERC-20.
    #[serde(default)]
    pub expiration_after: Option<TimeStamp>,
@@ -51,6 +54,7 @@ impl ApprovalChange {
       spender: Address,
       before: U256,
       after: U256,
+      price: NumericValue,
       expiration_before: Option<u64>,
       expiration_after: Option<u64>,
    ) -> Option<Self> {
@@ -64,6 +68,7 @@ impl ApprovalChange {
          spender,
          before: NumericValue::format_wei(before, decimals),
          after: NumericValue::format_wei(after, decimals),
+         price,
          expiration_after: expiration_after.map(TimeStamp::Seconds),
       })
    }
@@ -359,6 +364,7 @@ mod tests {
             spender(),
             U256::from(1u64),
             U256::from(1u64),
+            NumericValue::default(),
             None,
             None
          )
@@ -374,6 +380,7 @@ mod tests {
          spender(),
          U256::MAX,
          U256::ZERO,
+         NumericValue::default(),
          None,
          None,
       )
@@ -388,6 +395,7 @@ mod tests {
          spender(),
          U256::ZERO,
          U256::MAX,
+         NumericValue::default(),
          None,
          None,
       )
@@ -416,6 +424,7 @@ mod tests {
          spender(),
          U256::from(1u64),
          U256::from(1u64),
+         NumericValue::default(),
          Some(100),
          Some(200),
       )
@@ -479,6 +488,7 @@ mod tests {
          spender(),
          U256::ZERO,
          U256::MAX,
+         NumericValue::default(),
          None,
          None,
       )
@@ -489,6 +499,7 @@ mod tests {
          other_owner(),
          U256::from(100u64),
          U256::from(50u64),
+         NumericValue::default(),
          None,
          None,
       )
@@ -499,6 +510,7 @@ mod tests {
          token(),
          U256::MAX,
          U256::ZERO,
+         NumericValue::default(),
          None,
          None,
       )

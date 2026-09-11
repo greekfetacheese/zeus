@@ -254,6 +254,14 @@ impl TransactionAnalysis {
       if let Some(main) = &mut self.main_event {
          main.refresh_usd(ctx);
       }
+
+      for change in &mut self.balance_diff.tokens {
+         change.price = ctx.get_token_price(&change.currency.to_erc20());
+      }
+
+      for change in &mut self.approval_diff.changes {
+         change.price = ctx.get_token_price(&change.token.to_erc20());
+      }
    }
 
    fn onchain_swap_output_currency(&self) -> Option<Currency> {
@@ -870,6 +878,7 @@ impl TransactionAnalysis {
 fn dummy_balance_and_approval_diffs() -> (BalanceDiff, ApprovalDiff) {
    let eth_before = NumericValue::parse_to_wei("2", 18).wei();
    let eth_after = NumericValue::parse_to_wei("1.95", 18).wei();
+   let eth_price = NumericValue::currency_price(2400.0);
 
    let weth = ERC20Token::weth();
    let dai = ERC20Token::dai();
@@ -880,10 +889,20 @@ fn dummy_balance_and_approval_diffs() -> (BalanceDiff, ApprovalDiff) {
    let usdc_allowance = NumericValue::parse_to_wei("250", usdc.decimals).wei();
 
    let mut tokens = Vec::new();
-   if let Some(change) = token_change(weth.clone(), one * U256::from(2u64), one) {
+   if let Some(change) = token_change(
+      weth.clone(),
+      eth_price.clone(),
+      one * U256::from(2u64),
+      one,
+   ) {
       tokens.push(change);
    }
-   if let Some(change) = token_change(dai.clone(), U256::ZERO, dai_out) {
+   if let Some(change) = token_change(
+      dai.clone(),
+      eth_price.clone(),
+      U256::ZERO,
+      dai_out,
+   ) {
       tokens.push(change);
    }
 
@@ -897,6 +916,7 @@ fn dummy_balance_and_approval_diffs() -> (BalanceDiff, ApprovalDiff) {
       router,
       U256::ZERO,
       U256::MAX,
+      NumericValue::default(),
       None,
       None,
    ) {
@@ -908,6 +928,7 @@ fn dummy_balance_and_approval_diffs() -> (BalanceDiff, ApprovalDiff) {
       router,
       U256::ZERO,
       usdc_allowance,
+      NumericValue::default(),
       None,
       Some(u64::MAX),
    ) {
@@ -919,6 +940,7 @@ fn dummy_balance_and_approval_diffs() -> (BalanceDiff, ApprovalDiff) {
       nft_manager,
       U256::MAX,
       U256::ZERO,
+      NumericValue::default(),
       None,
       None,
    ) {
@@ -927,7 +949,7 @@ fn dummy_balance_and_approval_diffs() -> (BalanceDiff, ApprovalDiff) {
 
    (
       BalanceDiff {
-         native: native_change(1, eth_before, eth_after),
+         native: native_change(1, eth_price, eth_before, eth_after),
          tokens,
       },
       ApprovalDiff { changes },
