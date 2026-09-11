@@ -51,9 +51,10 @@ impl ApprovalChange {
       spender: Address,
       before: U256,
       after: U256,
+      expiration_before: Option<u64>,
       expiration_after: Option<u64>,
    ) -> Option<Self> {
-      if before == after {
+      if before == after && expiration_before == expiration_after {
          return None;
       }
       let decimals = token.decimals;
@@ -204,7 +205,11 @@ pub fn collect_approval_candidates(
 #[cfg(test)]
 mod tests {
    use super::*;
-   use zeus_eth::alloy_primitives::address;
+   use zeus_eth::{
+      abi::permit::Permit2,
+      alloy_primitives::{Log, address, aliases::U48},
+      alloy_sol_types::SolEvent,
+   };
 
    fn token() -> Address {
       address!("0x1111111111111111111111111111111111111111")
@@ -231,6 +236,54 @@ mod tests {
 
    fn approve_calldata(spender: Address, amount: U256) -> Bytes {
       erc20::encode_approve(spender, amount)
+   }
+
+   fn other_owner() -> Address {
+      address!("0x4444444444444444444444444444444444444444")
+   }
+
+   fn erc20_approval_log(token: Address, owner: Address, spender: Address) -> Log {
+      let data = erc20::IERC20::Approval {
+         owner,
+         spender,
+         value: U256::MAX,
+      }
+      .encode_log_data();
+      Log {
+         address: token,
+         data,
+      }
+   }
+
+   fn permit2_permit_log(owner: Address, token: Address, spender: Address) -> Log {
+      let data = Permit2::Permit {
+         owner,
+         token,
+         spender,
+         amount: U160::from(1u64),
+         expiration: U48::from(100u64),
+         nonce: U48::from(0u64),
+      }
+      .encode_log_data();
+      Log {
+         address: Address::repeat_byte(0x99),
+         data,
+      }
+   }
+
+   fn permit2_approval_log(owner: Address, token: Address, spender: Address) -> Log {
+      let data = Permit2::Approval {
+         owner,
+         token,
+         spender,
+         amount: U160::from(1u64),
+         expiration: U48::from(100u64),
+      }
+      .encode_log_data();
+      Log {
+         address: Address::repeat_byte(0x99),
+         data,
+      }
    }
 
    #[test]
@@ -306,6 +359,7 @@ mod tests {
             spender(),
             U256::from(1u64),
             U256::from(1u64),
+            None,
             None
          )
          .is_none()
@@ -321,6 +375,7 @@ mod tests {
          U256::MAX,
          U256::ZERO,
          None,
+         None,
       )
       .unwrap();
       assert!(revoke.is_revoke());
@@ -333,6 +388,7 @@ mod tests {
          spender(),
          U256::ZERO,
          U256::MAX,
+         None,
          None,
       )
       .unwrap();
@@ -350,5 +406,114 @@ mod tests {
          ApprovalKind::Permit2,
          U256::MAX
       ));
+   }
+
+   #[test]
+   fn permit2_expiry_only_is_some() {
+      let change = ApprovalChange::from_wei(
+         ApprovalKind::Permit2,
+         wbtest(),
+         spender(),
+         U256::from(1u64),
+         U256::from(1u64),
+         Some(100),
+         Some(200),
+      )
+      .unwrap();
+      assert!(!change.is_increase());
+      assert!(!change.is_revoke());
+      assert_eq!(
+         change.expiration_after,
+         Some(TimeStamp::Seconds(200))
+      );
+   }
+
+   #[test]
+   fn erc20_approval_log_owner_only() {
+      let logs = [
+         erc20_approval_log(token(), owner(), spender()),
+         erc20_approval_log(token(), other_owner(), spender()),
+      ];
+      let got = collect_approval_candidates(owner(), token(), &Bytes::new(), &logs, [], []);
+      assert_eq!(
+         got,
+         vec![ApprovalCandidate {
+            kind: ApprovalKind::Erc20,
+            token: token(),
+            spender: spender(),
+         }]
+      );
+   }
+
+   #[test]
+   fn permit2_permit_and_approval_logs() {
+      let other_spender = address!("0x5555555555555555555555555555555555555555");
+      let logs = [
+         permit2_permit_log(owner(), token(), spender()),
+         permit2_approval_log(owner(), token(), other_spender),
+         permit2_permit_log(other_owner(), token(), spender()),
+      ];
+      let got = collect_approval_candidates(owner(), token(), &Bytes::new(), &logs, [], []);
+      assert_eq!(
+         got,
+         vec![
+            ApprovalCandidate {
+               kind: ApprovalKind::Permit2,
+               token: token(),
+               spender: spender(),
+            },
+            ApprovalCandidate {
+               kind: ApprovalKind::Permit2,
+               token: token(),
+               spender: other_spender,
+            },
+         ]
+      );
+   }
+
+   #[test]
+   fn approval_sorted_revokes_first() {
+      let grant = ApprovalChange::from_wei(
+         ApprovalKind::Erc20,
+         wbtest(),
+         spender(),
+         U256::ZERO,
+         U256::MAX,
+         None,
+         None,
+      )
+      .unwrap();
+      let decrease = ApprovalChange::from_wei(
+         ApprovalKind::Erc20,
+         wbtest(),
+         other_owner(),
+         U256::from(100u64),
+         U256::from(50u64),
+         None,
+         None,
+      )
+      .unwrap();
+      let revoke = ApprovalChange::from_wei(
+         ApprovalKind::Erc20,
+         wbtest(),
+         token(),
+         U256::MAX,
+         U256::ZERO,
+         None,
+         None,
+      )
+      .unwrap();
+
+      let diff = ApprovalDiff {
+         changes: vec![grant.clone(), decrease.clone(), revoke.clone()],
+      };
+      let sorted = diff.sorted();
+      assert!(sorted[0].is_revoke());
+      assert!(!sorted[1].is_revoke());
+      assert!(!sorted[1].is_increase());
+      assert!(sorted[2].is_increase());
+      assert_eq!(sorted[0].spender, revoke.spender);
+      assert_eq!(sorted[1].spender, decrease.spender);
+      assert_eq!(sorted[2].spender, grant.spender);
    }
 }

@@ -1,9 +1,8 @@
 //! Measure signer balance / approval diffs from a simulated tx.
 //!
-//! ERC-20 before-state comes from ZeusCtx / the approval manager. Permit2
-//! before-state is batched over Multicall3 (allowances can expire). After-state
-//! is probed on the post-sim EVM — amounts still come from `balanceOf` /
-//! `allowance`, not logs.
+//! Before-state is taken at the fork `block_id` (native from the pre-sim EVM,
+//! ERC-20 / Permit2 via RPC). After-state is probed on the post-sim EVM —
+//! amounts still come from `balanceOf` / `allowance`, not logs.
 
 use super::approval_diff::{
    ApprovalCandidate, ApprovalChange, ApprovalDiff, ApprovalKind, collect_approval_candidates,
@@ -33,6 +32,7 @@ const PERMIT2_PAIR_BATCH: usize = 20;
 pub struct SimulatedTx {
    pub sim_res: zeus_eth::revm_utils::ExecutionResult,
    pub logs: Vec<Log>,
+   pub balance_before: U256,
    pub balance_after: U256,
    pub contract_interact: bool,
    pub balance_diff: BalanceDiff,
@@ -49,6 +49,7 @@ struct ApprovalWei {
    cand: ApprovalCandidate,
    before: U256,
    after: U256,
+   expiration_before: Option<u64>,
    expiration_after: Option<u64>,
 }
 
@@ -65,6 +66,22 @@ struct BeforeState {
 }
 
 impl BeforeState {
+   fn empty() -> Self {
+      Self {
+         tokens: HashMap::new(),
+         erc20: HashMap::new(),
+         permit2: HashMap::new(),
+      }
+   }
+
+   fn is_empty_request(
+      tokens: &[Address],
+      erc20: &[(Address, Address)],
+      permit2: &[(Address, Address)],
+   ) -> bool {
+      tokens.is_empty() && erc20.is_empty() && permit2.is_empty()
+   }
+
    fn merge(&mut self, other: Self) {
       self.tokens.extend(other.tokens);
       self.erc20.extend(other.erc20);
@@ -88,40 +105,6 @@ fn split_approval_pairs(
 
 fn not_in<T: Copy + PartialEq>(full: &[T], pre: &[T]) -> Vec<T> {
    full.iter().copied().filter(|item| !pre.contains(item)).collect()
-}
-
-fn local_before_state(
-   ctx: &ZeusCtx,
-   chain: u64,
-   from: Address,
-   tokens: &[Address],
-   erc20_pairs: &[(Address, Address)],
-) -> BeforeState {
-   let manager = ctx.approval_manager();
-   let tokens = tokens
-      .iter()
-      .map(|&token| {
-         (
-            token,
-            ctx.get_token_balance(chain, from, token).wei(),
-         )
-      })
-      .collect();
-   let erc20 = erc20_pairs
-      .iter()
-      .map(|&(token, spender)| {
-         let amount = manager
-            .get_token_approval(chain, from, token, spender)
-            .map(|p| p.amount.wei())
-            .unwrap_or(U256::ZERO);
-         ((token, spender), amount)
-      })
-      .collect();
-   BeforeState {
-      tokens,
-      erc20,
-      permit2: HashMap::new(),
-   }
 }
 
 fn known_approvals(
@@ -224,26 +207,92 @@ fn combine_diffs(
       else {
          continue;
       };
-      let allow_before = match cand.kind {
-         ApprovalKind::Erc20 => before.erc20.get(&(cand.token, cand.spender)).copied(),
-         ApprovalKind::Permit2 => before.permit2.get(&(cand.token, cand.spender)).map(|(a, _)| *a),
+      let (allow_before, expiration_before) = match cand.kind {
+         ApprovalKind::Erc20 => {
+            let Some(amount) = before.erc20.get(&(cand.token, cand.spender)).copied() else {
+               continue;
+            };
+            (amount, None)
+         }
+         ApprovalKind::Permit2 => {
+            let Some(&(amount, exp)) = before.permit2.get(&(cand.token, cand.spender)) else {
+               continue;
+            };
+            (amount, Some(exp))
+         }
       };
-      let Some(allow_before) = allow_before else {
+      if allow_before == allow_after && expiration_before == expiration_after {
          continue;
-      };
-      if allow_before != allow_after {
-         approval_deltas.push(ApprovalWei {
-            cand: *cand,
-            before: allow_before,
-            after: allow_after,
-            expiration_after,
-         });
       }
+      approval_deltas.push(ApprovalWei {
+         cand: *cand,
+         before: allow_before,
+         after: allow_after,
+         expiration_before,
+         expiration_after,
+      });
    }
 
    RawSimDiffs {
       tokens: token_deltas,
       approvals: approval_deltas,
+   }
+}
+
+async fn fetch_token_before(
+   ctx: ZeusCtx,
+   chain: u64,
+   from: Address,
+   block_id: BlockId,
+   tokens: Vec<Address>,
+) -> HashMap<Address, U256> {
+   if tokens.is_empty() {
+      return HashMap::new();
+   }
+
+   let client = ctx.get_zeus_client();
+   match client
+      .request(chain, |client| {
+         let tokens = tokens.clone();
+         async move { batch::get_erc20_balances(client, chain, Some(block_id), from, tokens).await }
+      })
+      .await
+   {
+      Ok(rows) => rows.into_iter().map(|row| (row.token, row.balance)).collect(),
+      Err(e) => {
+         tracing::warn!("ERC-20 balances at block failed: {:?}", e);
+         HashMap::new()
+      }
+   }
+}
+
+async fn fetch_erc20_allowance_before(
+   ctx: ZeusCtx,
+   chain: u64,
+   from: Address,
+   block_id: BlockId,
+   pairs: Vec<(Address, Address)>,
+) -> HashMap<(Address, Address), U256> {
+   if pairs.is_empty() {
+      return HashMap::new();
+   }
+
+   let client = ctx.get_zeus_client();
+   match client
+      .request(chain, |client| {
+         let pairs = pairs.clone();
+         async move { batch::get_erc20_allowances(client, from, pairs, Some(block_id)).await }
+      })
+      .await
+   {
+      Ok(rows) => rows
+         .into_iter()
+         .map(|(token, spender, amount)| ((token, spender), amount))
+         .collect(),
+      Err(e) => {
+         tracing::warn!("ERC-20 allowances at block failed: {:?}", e);
+         HashMap::new()
+      }
    }
 }
 
@@ -257,15 +306,14 @@ async fn fetch_permit2_before(
    if pairs.is_empty() {
       return HashMap::new();
    }
+   
    let Some(permit2) = address_book::permit2_contract(chain).ok() else {
       return HashMap::new();
    };
 
    let client = ctx.get_zeus_client();
 
-   let time = Instant::now();
-
-   let map = match client
+   match client
       .request(chain, |client| {
          let pairs = pairs.clone();
          async move {
@@ -294,14 +342,36 @@ async fn fetch_permit2_before(
          tracing::warn!("Multicall3 Permit2 allowances failed: {:?}", e);
          HashMap::new()
       }
-   };
+   }
+}
+
+async fn fetch_before_state(
+   ctx: ZeusCtx,
+   chain: u64,
+   from: Address,
+   block_id: BlockId,
+   tokens: Vec<Address>,
+   erc20_pairs: Vec<(Address, Address)>,
+   permit2_pairs: Vec<(Address, Address)>,
+) -> BeforeState {
+   let time = Instant::now();
+
+   let tokens_fut = fetch_token_before(ctx.clone(), chain, from, block_id, tokens);
+   let erc20_fut = fetch_erc20_allowance_before(ctx.clone(), chain, from, block_id, erc20_pairs);
+   let permit2_fut = fetch_permit2_before(ctx, chain, from, block_id, permit2_pairs);
+
+   let (tokens, erc20, permit2) = tokio::join!(tokens_fut, erc20_fut, permit2_fut);
 
    tracing::info!(
-      "fetch_permit2_before took {} ms",
+      "fetch_before_state took {} ms",
       time.elapsed().as_millis()
    );
 
-   map
+   BeforeState {
+      tokens,
+      erc20,
+      permit2,
+   }
 }
 
 pub async fn resolve_raw_diffs(
@@ -332,6 +402,7 @@ pub async fn resolve_raw_diffs(
          delta.cand.spender,
          delta.before,
          delta.after,
+         delta.expiration_before,
          delta.expiration_after,
       ) {
          approval_changes.push(change);
@@ -358,7 +429,6 @@ pub async fn simulate_and_diff(
    call_data: Bytes,
    value: U256,
    authorization_list: Vec<SignedAuthorization>,
-   balance_before: U256,
 ) -> Result<SimulatedTx, anyhow::Error> {
    let client = ctx.get_zeus_client();
 
@@ -398,16 +468,16 @@ pub async fn simulate_and_diff(
       tracing::info!("ERC20 Pre {:?}", erc20_pre);
    }
 
-   let mut before = local_before_state(&ctx, chain.id(), from, &tokens_pre, &erc20_pre);
-
-   let before_handle = if permit2_pre.is_empty() {
+   let before_handle = if BeforeState::is_empty_request(&tokens_pre, &erc20_pre, &permit2_pre) {
       None
    } else {
-      Some(tokio::spawn(fetch_permit2_before(
+      Some(tokio::spawn(fetch_before_state(
          ctx.clone(),
          chain.id(),
          from,
          block_id,
+         tokens_pre.clone(),
+         erc20_pre.clone(),
          permit2_pre.clone(),
       )))
    };
@@ -447,6 +517,7 @@ pub async fn simulate_and_diff(
 
    let (
       sim_res,
+      balance_before,
       balance_after,
       logs,
       tokens,
@@ -456,6 +527,8 @@ pub async fn simulate_and_diff(
       extras_handle,
    ) = {
       let mut evm = new_evm(chain, Some(&block), fork_db);
+
+      let balance_before = evm.balance(from).map(|state| state.data).unwrap_or(U256::ZERO);
 
       let sim_res = simulate_transaction(
          &mut evm,
@@ -490,25 +563,20 @@ pub async fn simulate_and_diff(
       let extra_erc20 = not_in(&erc20_pairs, &erc20_pre);
       let extra_permit2 = not_in(&permit2_pairs, &permit2_pre);
 
-      before.merge(local_before_state(
-         &ctx,
-         chain.id(),
-         from,
-         &extra_tokens,
-         &extra_erc20,
-      ));
-
-      let extras_handle = if extra_permit2.is_empty() {
-         None
-      } else {
-         Some(tokio::spawn(fetch_permit2_before(
-            ctx.clone(),
-            chain.id(),
-            from,
-            block_id,
-            extra_permit2,
-         )))
-      };
+      let extras_handle =
+         if BeforeState::is_empty_request(&extra_tokens, &extra_erc20, &extra_permit2) {
+            None
+         } else {
+            Some(tokio::spawn(fetch_before_state(
+               ctx.clone(),
+               chain.id(),
+               from,
+               block_id,
+               extra_tokens,
+               extra_erc20,
+               extra_permit2,
+            )))
+         };
 
       let time = Instant::now();
       let after_tokens = measure_token_after(from, &tokens, &mut evm);
@@ -521,6 +589,7 @@ pub async fn simulate_and_diff(
 
       (
          sim_res,
+         balance_before,
          balance_after,
          logs,
          tokens,
@@ -531,14 +600,15 @@ pub async fn simulate_and_diff(
       )
    };
 
+   let mut before = BeforeState::empty();
    if let Some(handle) = before_handle {
-      let permit2 = handle.await.map_err(|e| anyhow!("permit2 before-state: {e}"))?;
-      before.permit2.extend(permit2);
+      let pre = handle.await.map_err(|e| anyhow!("before-state: {e}"))?;
+      before.merge(pre);
    }
 
    if let Some(handle) = extras_handle {
-      let extra = handle.await.map_err(|e| anyhow!("permit2 before extras: {e}"))?;
-      before.permit2.extend(extra);
+      let extra = handle.await.map_err(|e| anyhow!("before-state extras: {e}"))?;
+      before.merge(extra);
    }
 
    let raw = combine_diffs(
@@ -561,9 +631,162 @@ pub async fn simulate_and_diff(
    Ok(SimulatedTx {
       sim_res,
       logs,
+      balance_before,
       balance_after,
       contract_interact: !bytecode.is_empty(),
       balance_diff,
       approval_diff,
    })
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   fn addr(b: u8) -> Address {
+      Address::repeat_byte(b)
+   }
+
+   fn erc20_cand(token: Address, spender: Address) -> ApprovalCandidate {
+      ApprovalCandidate {
+         kind: ApprovalKind::Erc20,
+         token,
+         spender,
+      }
+   }
+
+   fn permit2_cand(token: Address, spender: Address) -> ApprovalCandidate {
+      ApprovalCandidate {
+         kind: ApprovalKind::Permit2,
+         token,
+         spender,
+      }
+   }
+
+   #[test]
+   fn token_delta_is_emitted() {
+      let token = addr(1);
+      let mut before = BeforeState::empty();
+      before.tokens.insert(token, U256::from(10u64));
+      let mut after = HashMap::new();
+      after.insert(token, U256::from(7u64));
+
+      let raw = combine_diffs(&[token], &[], before, after, HashMap::new());
+      assert_eq!(raw.tokens.len(), 1);
+      assert_eq!(raw.tokens[0].before, U256::from(10u64));
+      assert_eq!(raw.tokens[0].after, U256::from(7u64));
+   }
+
+   #[test]
+   fn equal_token_wei_is_omitted() {
+      let token = addr(1);
+      let mut before = BeforeState::empty();
+      before.tokens.insert(token, U256::from(5u64));
+      let mut after = HashMap::new();
+      after.insert(token, U256::from(5u64));
+
+      let raw = combine_diffs(&[token], &[], before, after, HashMap::new());
+      assert!(raw.tokens.is_empty());
+   }
+
+   #[test]
+   fn missing_before_or_after_is_omitted() {
+      let token = addr(1);
+      let mut after_only = HashMap::new();
+      after_only.insert(token, U256::from(1u64));
+      let raw = combine_diffs(
+         &[token],
+         &[],
+         BeforeState::empty(),
+         after_only,
+         HashMap::new(),
+      );
+      assert!(raw.tokens.is_empty());
+
+      let mut before = BeforeState::empty();
+      before.tokens.insert(token, U256::from(1u64));
+      let raw = combine_diffs(
+         &[token],
+         &[],
+         before,
+         HashMap::new(),
+         HashMap::new(),
+      );
+      assert!(raw.tokens.is_empty());
+   }
+
+   #[test]
+   fn erc20_allowance_change_is_emitted() {
+      let token = addr(1);
+      let spender = addr(2);
+      let cand = erc20_cand(token, spender);
+      let mut before = BeforeState::empty();
+      before.erc20.insert((token, spender), U256::ZERO);
+      let mut after = HashMap::new();
+      after.insert(
+         (ApprovalKind::Erc20, token, spender),
+         (U256::MAX, None),
+      );
+
+      let raw = combine_diffs(&[], &[cand], before, HashMap::new(), after);
+      assert_eq!(raw.approvals.len(), 1);
+      assert_eq!(raw.approvals[0].after, U256::MAX);
+      assert!(raw.approvals[0].expiration_after.is_none());
+   }
+
+   #[test]
+   fn permit2_amount_change_keeps_expiry() {
+      let token = addr(1);
+      let spender = addr(2);
+      let cand = permit2_cand(token, spender);
+      let mut before = BeforeState::empty();
+      before.permit2.insert((token, spender), (U256::from(1u64), 100));
+      let mut after = HashMap::new();
+      after.insert(
+         (ApprovalKind::Permit2, token, spender),
+         (U256::from(2u64), Some(200)),
+      );
+
+      let raw = combine_diffs(&[], &[cand], before, HashMap::new(), after);
+      assert_eq!(raw.approvals.len(), 1);
+      assert_eq!(raw.approvals[0].expiration_before, Some(100));
+      assert_eq!(raw.approvals[0].expiration_after, Some(200));
+   }
+
+   #[test]
+   fn permit2_expiry_only_is_emitted() {
+      let token = addr(1);
+      let spender = addr(2);
+      let cand = permit2_cand(token, spender);
+      let mut before = BeforeState::empty();
+      before.permit2.insert((token, spender), (U256::from(5u64), 100));
+      let mut after = HashMap::new();
+      after.insert(
+         (ApprovalKind::Permit2, token, spender),
+         (U256::from(5u64), Some(999)),
+      );
+
+      let raw = combine_diffs(&[], &[cand], before, HashMap::new(), after);
+      assert_eq!(raw.approvals.len(), 1);
+      assert_eq!(raw.approvals[0].before, U256::from(5u64));
+      assert_eq!(raw.approvals[0].after, U256::from(5u64));
+      assert_eq!(raw.approvals[0].expiration_after, Some(999));
+   }
+
+   #[test]
+   fn permit2_unchanged_amount_and_expiry_is_omitted() {
+      let token = addr(1);
+      let spender = addr(2);
+      let cand = permit2_cand(token, spender);
+      let mut before = BeforeState::empty();
+      before.permit2.insert((token, spender), (U256::from(5u64), 100));
+      let mut after = HashMap::new();
+      after.insert(
+         (ApprovalKind::Permit2, token, spender),
+         (U256::from(5u64), Some(100)),
+      );
+
+      let raw = combine_diffs(&[], &[cand], before, HashMap::new(), after);
+      assert!(raw.approvals.is_empty());
+   }
 }

@@ -118,16 +118,6 @@ pub async fn send_transaction(
       client.get_transaction_count(from).await.map_err(|e| anyhow!("{:?}", e))
    });
 
-   let balance_before = if let Some(analysis) = tx_analysis.as_ref() {
-      analysis.eth_balance_before
-   } else {
-      client
-         .request(chain.id(), |client| async move {
-            client.get_balance(from).await.map_err(|e| anyhow!("{:?}", e))
-         })
-         .await?
-   };
-
    SHARED_GUI.write(|gui| {
       gui.loading_window.open("Wait while magic happens");
       gui.request_repaint();
@@ -144,7 +134,6 @@ pub async fn send_transaction(
          call_data.clone(),
          value,
          authorization_list.clone(),
-         balance_before,
       )
       .await?;
 
@@ -158,7 +147,7 @@ pub async fn send_transaction(
          value,
          simulated.logs,
          simulated.sim_res.tx_gas_used(),
-         balance_before,
+         simulated.balance_before,
          simulated.balance_after,
          authorization_list.clone(),
       )
@@ -316,7 +305,7 @@ pub async fn send_transaction(
       tx_analysis.value,
       logs,
       receipt.gas_used,
-      balance_before,
+      tx_analysis.eth_balance_before,
       balance_after,
       authorization_list,
    )

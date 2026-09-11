@@ -61,6 +61,10 @@ impl BalanceDiff {
       self.native.is_none() && self.tokens.is_empty()
    }
 
+   pub fn len(&self) -> usize {
+      self.native.is_some() as usize + self.tokens.len()
+   }
+
    /// Native first, then token rows. Outflows before inflows within tokens.
    pub fn changes(&self) -> Vec<&BalanceChange> {
       let mut tokens: Vec<&BalanceChange> = self.tokens.iter().collect();
@@ -196,5 +200,35 @@ mod tests {
       let mut diff = BalanceDiff::default();
       diff.tokens.push(token_change(wbtest(), U256::from(1u64), U256::ZERO).unwrap());
       assert!(!diff.is_empty());
+   }
+
+   fn token_b() -> ERC20Token {
+      ERC20Token::from_components(
+         1,
+         address!("0x2222222222222222222222222222222222222222"),
+         "TB",
+         "Token B",
+         18,
+         U256::ZERO,
+      )
+   }
+
+   #[test]
+   fn changes_native_first_outflows_before_inflows() {
+      let native = native_change(1, U256::from(2u64), U256::from(1u64)).unwrap();
+      let inflow = token_change(wbtest(), U256::ZERO, U256::from(5u64)).unwrap();
+      let outflow = token_change(token_b(), U256::from(9u64), U256::from(1u64)).unwrap();
+
+      let diff = BalanceDiff {
+         native: Some(native.clone()),
+         tokens: vec![inflow.clone(), outflow.clone()],
+      };
+      let rows = diff.changes();
+      assert_eq!(rows.len(), 3);
+      assert_eq!(rows[0].currency.symbol(), "ETH");
+      assert!(!rows[1].is_increase());
+      assert_eq!(rows[1].currency.symbol(), "TB");
+      assert!(rows[2].is_increase());
+      assert_eq!(rows[2].currency.symbol(), "WBTEST");
    }
 }

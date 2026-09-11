@@ -221,6 +221,17 @@ impl TransactionAnalysis {
             currencies.push(params.token.clone().into());
          }
       }
+
+      if let Some(native) = &self.balance_diff.native {
+         currencies.push(native.currency.clone());
+      }
+      for change in &self.balance_diff.tokens {
+         currencies.push(change.currency.clone());
+      }
+      for change in &self.approval_diff.changes {
+         currencies.push(change.token.clone());
+      }
+
       currencies.dedup();
       currencies
    }
@@ -887,6 +898,7 @@ fn dummy_balance_and_approval_diffs() -> (BalanceDiff, ApprovalDiff) {
       U256::ZERO,
       U256::MAX,
       None,
+      None,
    ) {
       changes.push(change);
    }
@@ -896,6 +908,7 @@ fn dummy_balance_and_approval_diffs() -> (BalanceDiff, ApprovalDiff) {
       router,
       U256::ZERO,
       usdc_allowance,
+      None,
       Some(u64::MAX),
    ) {
       changes.push(change);
@@ -906,6 +919,7 @@ fn dummy_balance_and_approval_diffs() -> (BalanceDiff, ApprovalDiff) {
       nft_manager,
       U256::MAX,
       U256::ZERO,
+      None,
       None,
    ) {
       changes.push(change);
@@ -918,4 +932,20 @@ fn dummy_balance_and_approval_diffs() -> (BalanceDiff, ApprovalDiff) {
       },
       ApprovalDiff { changes },
    )
+}
+
+#[cfg(test)]
+mod involved_currency_tests {
+   use super::*;
+
+   #[test]
+   fn involved_currencies_includes_diff_tokens() {
+      let analysis = TransactionAnalysis::dummy_with_diffs();
+      let symbols: Vec<String> =
+         analysis.involved_currencies().iter().map(|c| c.symbol().to_string()).collect();
+      assert!(symbols.iter().any(|s| s == "DAI"));
+      assert!(symbols.iter().any(|s| s == "USDC"));
+      assert!(symbols.iter().any(|s| s == "WETH"));
+      assert!(symbols.iter().any(|s| s == "ETH"));
+   }
 }

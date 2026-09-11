@@ -2,8 +2,8 @@ use egui::{Align, Id, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2};
 use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme};
 
 use super::{
-   address, chain, clear_display_ui, eth_received, events::*, show_calldata_modal,
-   show_tx_diffs_modal, tx_cost, value,
+   address, chain, clear_display_ui, eth_received, events::*, show_approval_diff_rows,
+   show_balance_diff_rows, show_calldata_modal, show_tx_diffs_modal, tx_cost, value,
 };
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::{self, ClearDisplay};
@@ -389,6 +389,42 @@ impl TxConfirmationWindow {
                            .color(theme.colors.warning),
                      );
                   }
+               }
+
+               // For unkown txs we show the diffs right away only if the len is 1
+               // so we dont fuck up the UI with too many widgets
+               // ? Ideally need to be showwn right away in a scroll area
+               // ? but right now this is ugly
+               let should_show_balance_diff =
+                  main_event.is_other() && analysis.balance_diff.len() == 1;
+               let should_show_approval_diff =
+                  main_event.is_other() && analysis.approval_diff.changes.len() == 1;
+
+               if should_show_balance_diff {
+                  ui.allocate_ui(frame_size, |ui| {
+                     ui.label(RichText::new("Balance Changes").size(theme.typography.large));
+                     show_balance_diff_rows(
+                        ctx,
+                        theme,
+                        icons.clone(),
+                        &analysis.balance_diff,
+                        ui,
+                     );
+                  });
+               }
+
+               if should_show_approval_diff {
+                  ui.allocate_ui(frame_size, |ui| {
+                     ui.label(RichText::new("Approval Changes").size(theme.typography.large));
+                     show_approval_diff_rows(
+                        ctx,
+                        self.chain,
+                        theme,
+                        icons.clone(),
+                        &analysis.approval_diff,
+                        ui,
+                     );
+                  });
                }
 
                // Tx details
