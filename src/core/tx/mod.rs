@@ -13,4 +13,4 @@ pub use balance_diff::{BalanceChange, BalanceDiff};
 pub use events::DecodedEvent;
 pub use rich::TransactionRich;
 pub use send::{delegate_to, send_transaction, send_tx};
-pub use sim_diff::{resolve_raw_diffs, simulate_and_diff};
+pub use sim_diff::{diffs_from_receipt, resolve_raw_diffs, simulate_and_diff};

@@ -7,7 +7,7 @@ use alloy_eips::eip7702::{Authorization, SignedAuthorization};
 use anyhow::anyhow;
 use std::time::Duration;
 
-use crate::core::tx::simulate_and_diff;
+use crate::core::tx::{diffs_from_receipt, simulate_and_diff};
 use crate::gui::{SHARED_GUI, ui::NotificationType};
 use crate::utils::{RT, TimeStamp, estimate_tx_cost};
 use zeus_eth::{
@@ -303,7 +303,7 @@ pub async fn send_transaction(
       contract_interact,
       tx_analysis.call_data.clone(),
       tx_analysis.value,
-      logs,
+      logs.clone(),
       receipt.gas_used,
       tx_analysis.eth_balance_before,
       balance_after,
@@ -311,13 +311,31 @@ pub async fn send_transaction(
    )
    .await?;
 
-   // ? Set the diffs again so they are visible in the TxHistory
-   // ? But in some cases this will display incorrect amounts
-   // ? For example a swap with a high slippage
-   new_tx_analysis.set_diffs(
-      tx_analysis.balance_diff.clone(),
-      tx_analysis.approval_diff.clone(),
-   );
+   match diffs_from_receipt(
+      ctx.clone(),
+      chain.id(),
+      from,
+      interact_to,
+      &tx_analysis.call_data,
+      &logs,
+      tx_block,
+      balance_after,
+   )
+   .await
+   {
+      Ok((balance, approval)) if !balance.is_empty() || !approval.is_empty() => {
+         new_tx_analysis.set_diffs(balance, approval);
+      }
+      other => {
+         if let Err(e) = other {
+            tracing::warn!("receipt diffs failed: {:?}", e);
+         }
+         new_tx_analysis.set_diffs(
+            tx_analysis.balance_diff.clone(),
+            tx_analysis.approval_diff.clone(),
+         );
+      }
+   }
 
    // Zeus-originated swaps already have a SwapToken main-event override.
    // Connector / inferred swaps do not — those keep the log heuristic.
