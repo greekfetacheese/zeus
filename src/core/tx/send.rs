@@ -133,7 +133,7 @@ pub async fn send_transaction(
       gui.request_repaint();
    });
 
-   let tx_analysis = if let Some(analysis) = tx_analysis {
+   let mut tx_analysis = if let Some(analysis) = tx_analysis {
       analysis
    } else {
       let simulated = simulate_and_diff(
@@ -166,6 +166,31 @@ pub async fn send_transaction(
       analysis.set_diffs(simulated.balance_diff, simulated.approval_diff);
       analysis
    };
+
+   let involved_currencies = tx_analysis.involved_currencies();
+   let price_manager = ctx.price_manager();
+   let pool_manager = ctx.pool_manager();
+
+   let tokens = involved_currencies
+      .iter()
+      .map(|c| c.to_erc20().into_owned())
+      .collect::<Vec<_>>();
+
+   let time = std::time::Instant::now();
+
+   if let Err(e) = price_manager
+      .calculate_prices(ctx.clone(), chain.id(), pool_manager, tokens)
+      .await
+   {
+      tracing::error!("Error updating prices: {:?}", e);
+   }
+
+   tracing::info!(
+      "Updated prices in {} ms",
+      time.elapsed().as_millis()
+   );
+
+   tx_analysis.refresh_usd(&ctx);
 
    let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
    let sponsored = false;

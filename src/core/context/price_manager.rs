@@ -18,10 +18,11 @@ use zeus_eth::{
 use tokio::task::JoinHandle;
 
 /// Time in seconds to wait before updating the base token prices again
-pub const TOKEN_PRICE_UPDATE_INTERVAL: u64 = 600;
+pub const TOKEN_PRICE_UPDATE_INTERVAL: u64 = 300;
 
+// ? Tokens are volatile, maybe this could be also adjusted in the UI
 /// Time in seconds before we re-fetch Uniswap pool state used for ERC20 prices
-pub const POOL_STATE_UPDATE_INTERVAL: u64 = 600;
+pub const POOL_STATE_UPDATE_INTERVAL: u64 = 30;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PriceManagerHandle(Arc<RwLock<PriceManager>>);

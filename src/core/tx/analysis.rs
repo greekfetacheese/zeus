@@ -170,6 +170,90 @@ impl TransactionAnalysis {
       selector_str
    }
 
+   /// Returns all the currencies involved in the transaction
+   ///
+   /// Useful to update the price manager for those tokens
+   pub fn involved_currencies(&self) -> Vec<Currency> {
+      let mut currencies = Vec::new();
+      for event in &self.decoded_events {
+         if let DecodedEvent::Transfer(params) = event {
+            currencies.push(params.currency.clone());
+         }
+
+         if let DecodedEvent::TokenApprove(params) = event {
+            currencies.push(params.token.clone().into());
+         }
+
+         if let DecodedEvent::SwapToken(params) = event {
+            currencies.push(params.input_currency.clone());
+            currencies.push(params.output_currency.clone());
+         }
+
+         if let DecodedEvent::UniswapPositionOperation(params) = event {
+            currencies.push(params.currency0.clone());
+            currencies.push(params.currency1.clone());
+         }
+
+         if let DecodedEvent::Bridge(params) = event {
+            currencies.push(params.input_currency.clone());
+            currencies.push(params.output_currency.clone());
+         }
+
+         if let DecodedEvent::Shield(params) = event {
+            if let Some(token) = params.erc20.as_ref() {
+               currencies.push(token.clone().into());
+            }
+         }
+
+         if let DecodedEvent::Unshield(params) = event {
+            if let Some(token) = params.erc20.as_ref() {
+               currencies.push(token.clone().into());
+            }
+         }
+
+         if let DecodedEvent::PrivateTransfer(params) = event {
+            if let Some(token) = params.erc20.as_ref() {
+               currencies.push(token.clone().into());
+            }
+         }
+
+         if let DecodedEvent::Permit(params) = event {
+            currencies.push(params.token.clone().into());
+         }
+      }
+      currencies.dedup();
+      currencies
+   }
+
+   /// Recompute USD snapshots from the current price manager.
+   ///
+   /// Call after `calculate_prices` for involved tokens so confirm UI does not
+   /// show `$0` for tokens that were unknown at decode time.
+   pub fn refresh_usd(&mut self, ctx: &ZeusCtx) {
+      for event in &mut self.decoded_events {
+         event.refresh_usd(ctx);
+      }
+
+      let onchain_output = self.onchain_swap_output_currency();
+      if let (Some(onchain), Some(output)) = (&mut self.onchain_swap_received, onchain_output) {
+         onchain.amount_usd =
+            Some(ctx.get_currency_value_for_amount(onchain.amount.f64(), &output));
+      }
+
+      if let Some(main) = &mut self.main_event {
+         main.refresh_usd(ctx);
+      }
+   }
+
+   fn onchain_swap_output_currency(&self) -> Option<Currency> {
+      let last = self.decoded_events.iter().rev().find_map(|e| e.as_swap())?;
+      let output = last.output_currency.clone();
+      if output.is_native_wrapped() || output.is_native() {
+         return None;
+      }
+      Some(output)
+   }
+
    pub fn erc20_transfers_len(&self) -> usize {
       self.decoded_events.iter().filter(|t| t.is_erc20_transfer()).count()
    }
