@@ -33,7 +33,7 @@ use crate::{
    utils::{
       RT, TimeStamp, estimate_tx_cost,
       simulate::{
-         fetch_accounts_info, fetch_storage_for_railgun, railgun_common_accounts,
+         AccountPrefetch, fetch_accounts_info, fetch_storage_for_railgun, railgun_common_accounts,
          simulate_transaction,
       },
       state::get_base_fee,
@@ -321,13 +321,15 @@ async fn exec_private_transfer(
    let railgun_address = railgun_provider.railgun_address();
 
    let mut accounts = Vec::new();
-   accounts.push(from);
-   accounts.push(token.address);
-   accounts.push(fork_block.header.beneficiary);
-   accounts.push(railgun_address);
+   accounts.push(AccountPrefetch::eoa(from));
+   accounts.push(AccountPrefetch::contract(token.address));
+   accounts.push(AccountPrefetch::eoa(
+      fork_block.header.beneficiary,
+   ));
+   accounts.push(AccountPrefetch::contract(railgun_address));
 
    let common_accounts = railgun_common_accounts(chain.id());
-   accounts.extend(common_accounts);
+   accounts.extend(common_accounts.into_iter().map(AccountPrefetch::contract));
 
    let accounts_info_fut = fetch_accounts_info(ctx.clone(), chain.id(), fork_block_id, accounts);
 

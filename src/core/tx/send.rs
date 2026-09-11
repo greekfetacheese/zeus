@@ -7,17 +7,9 @@ use alloy_eips::eip7702::{Authorization, SignedAuthorization};
 use anyhow::anyhow;
 use std::time::Duration;
 
-use crate::core::tx::approval_diff::{
-   ApprovalChange, ApprovalDiff, ApprovalKind, collect_approval_candidates,
-};
-use crate::core::tx::balance_diff::{
-   BalanceDiff, collect_token_candidates, native_change, token_change,
-};
+use crate::core::tx::simulate_and_diff;
 use crate::gui::{SHARED_GUI, ui::NotificationType};
-use crate::utils::{
-   RT, TimeStamp, estimate_tx_cost,
-   simulate::{fetch_accounts_info, simulate_transaction},
-};
+use crate::utils::{RT, TimeStamp, estimate_tx_cost};
 use zeus_eth::{
    alloy_contract::private::Provider,
    alloy_network::{
@@ -26,12 +18,7 @@ use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256},
    alloy_rpc_types::{BlockId, TransactionReceipt, TransactionRequest},
    alloy_signer::SignerSync,
-   revm_utils::{
-      ForkFactory, Host, new_evm,
-      simulate::{erc20_allowance, erc20_balance, permit2_allowance},
-   },
    types::ChainId,
-   utils::address_book,
 };
 use zeus_wallet::SecureKey;
 
@@ -141,213 +128,42 @@ pub async fn send_transaction(
          .await?
    };
 
-   // If no tx analysis is provided, simulate the transaction
+   SHARED_GUI.write(|gui| {
+      gui.loading_window.open("Wait while magic happens");
+      gui.request_repaint();
+   });
+
    let tx_analysis = if let Some(analysis) = tx_analysis {
       analysis
    } else {
-      SHARED_GUI.write(|gui| {
-         gui.loading_window.open("Wait while magic happens");
-         gui.request_repaint();
-      });
-
-      let block = client
-         .request(chain.id(), |client| async move {
-            client.get_block(BlockId::latest()).await.map_err(|e| anyhow!("{:?}", e))
-         })
-         .await?;
-
-      let block =
-         block.ok_or_else(|| anyhow!("No block found, this is usally a provider issue"))?;
-
-      let block_id = BlockId::number(block.header.number);
-
-      let accounts = vec![from, interact_to, block.header.beneficiary];
-
-      let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), block_id, accounts).await;
-      let fork_client = ctx.get_client(chain.id()).await?;
-      let mut factory =
-         ForkFactory::new_sandbox_factory(fork_client, chain.id(), None, Some(block_id));
-
-      for info in accounts_info {
-         factory.insert_account_info(info.address, info.info);
-      }
-
-      let fork_before = factory.new_sandbox_fork();
-      let fork_db = factory.new_sandbox_fork();
-
-      let bytecode_fut = client.request(chain.id(), |client| async move {
-         client.get_code_at(interact_to).await.map_err(|e| anyhow!("{:?}", e))
-      });
-
-      let portfolio_tokens = ctx.get_portfolio(chain.id(), from);
-      let known_erc20: Vec<(Address, Address)> = ctx
-         .approval_manager()
-         .get_token_approvals(chain.id(), from)
-         .into_iter()
-         .map(|p| (p.token.address, p.spender))
-         .collect();
-      let known_permit2: Vec<(Address, Address)> = ctx
-         .approval_manager()
-         .get_permits(chain.id(), from)
-         .into_iter()
-         .map(|p| (p.token.address(), p.spender))
-         .collect();
-      let permit2 = address_book::permit2_contract(chain.id()).ok();
-
-      let (sim_res, balance_after, logs, measured_tokens, measured_approvals) = {
-         let mut evm = new_evm(chain, Some(&block), fork_db);
-
-         let time = std::time::Instant::now();
-         let sim_res = simulate_transaction(
-            &mut evm,
-            from,
-            interact_to,
-            call_data.clone(),
-            value,
-            authorization_list.clone(),
-         )?;
-
-         tracing::info!(
-            "Simulate Transaction took {} ms",
-            time.elapsed().as_millis()
-         );
-
-         let balance_after = evm.balance(from).map(|state| state.data).unwrap_or(U256::ZERO);
-         let logs = sim_res.clone().into_logs();
-
-         let candidates = collect_token_candidates(
-            portfolio_tokens.tokens().iter().map(|t| t.address),
-            interact_to,
-            logs.iter().map(|log| log.address),
-         );
-
-         let mut before_evm = new_evm(chain, Some(&block), fork_before);
-         before_evm.tx.caller = from;
-         let mut measured_tokens = Vec::new();
-         for token_addr in candidates {
-            let Ok(token_before) = erc20_balance(&mut before_evm, token_addr, from) else {
-               continue;
-            };
-            let Ok(token_after) = erc20_balance(&mut evm, token_addr, from) else {
-               continue;
-            };
-            if token_before != token_after {
-               measured_tokens.push((token_addr, token_before, token_after));
-            }
-         }
-
-         let approval_candidates = collect_approval_candidates(
-            from,
-            interact_to,
-            &call_data,
-            &logs,
-            known_erc20,
-            known_permit2,
-         );
-         let mut measured_approvals = Vec::new();
-         for cand in approval_candidates {
-            match cand.kind {
-               ApprovalKind::Erc20 => {
-                  let Ok(allow_before) =
-                     erc20_allowance(&mut before_evm, cand.token, from, cand.spender)
-                  else {
-                     continue;
-                  };
-                  let Ok(allow_after) = erc20_allowance(&mut evm, cand.token, from, cand.spender)
-                  else {
-                     continue;
-                  };
-                  if allow_before != allow_after {
-                     measured_approvals.push((cand, allow_before, allow_after, None));
-                  }
-               }
-               ApprovalKind::Permit2 => {
-                  let Some(permit2) = permit2 else {
-                     continue;
-                  };
-                  let Ok((allow_before, _)) = permit2_allowance(
-                     &mut before_evm,
-                     permit2,
-                     from,
-                     cand.token,
-                     cand.spender,
-                  ) else {
-                     continue;
-                  };
-                  let Ok((allow_after, expiration)) =
-                     permit2_allowance(&mut evm, permit2, from, cand.token, cand.spender)
-                  else {
-                     continue;
-                  };
-                  if allow_before != allow_after {
-                     measured_approvals.push((cand, allow_before, allow_after, Some(expiration)));
-                  }
-               }
-            }
-         }
-
-         (
-            sim_res,
-            balance_after,
-            logs,
-            measured_tokens,
-            measured_approvals,
-         )
-      };
-
-      let mut token_changes = Vec::new();
-      for (token_addr, token_before, token_after) in measured_tokens {
-         let Ok(token) = ctx.get_token(chain.id(), token_addr).await else {
-            continue;
-         };
-         if let Some(change) = token_change(token, token_before, token_after) {
-            token_changes.push(change);
-         }
-      }
-
-      let mut approval_changes = Vec::new();
-      for (cand, allow_before, allow_after, expiration_after) in measured_approvals {
-         let Ok(token) = ctx.get_token(chain.id(), cand.token).await else {
-            continue;
-         };
-         if let Some(change) = ApprovalChange::from_wei(
-            cand.kind,
-            token,
-            cand.spender,
-            allow_before,
-            allow_after,
-            expiration_after,
-         ) {
-            approval_changes.push(change);
-         }
-      }
-
-      let bytecode = bytecode_fut.await?;
-      let contract_interact = Some(!bytecode.is_empty());
+      let simulated = simulate_and_diff(
+         ctx.clone(),
+         chain,
+         from,
+         interact_to,
+         call_data.clone(),
+         value,
+         authorization_list.clone(),
+         balance_before,
+      )
+      .await?;
 
       let mut analysis = TransactionAnalysis::new(
          ctx.clone(),
          chain.id(),
          from,
          interact_to,
-         contract_interact,
+         Some(simulated.contract_interact),
          call_data.clone(),
          value,
-         logs,
-         sim_res.tx_gas_used(),
+         simulated.logs,
+         simulated.sim_res.tx_gas_used(),
          balance_before,
-         balance_after,
+         simulated.balance_after,
          authorization_list.clone(),
       )
       .await?;
-
-      analysis.balance_diff = BalanceDiff {
-         native: native_change(chain.id(), balance_before, balance_after),
-         tokens: token_changes,
-      };
-      analysis.approval_diff = ApprovalDiff {
-         changes: approval_changes,
-      };
+      analysis.set_diffs(simulated.balance_diff, simulated.approval_diff);
       analysis
    };
 

@@ -473,6 +473,30 @@ impl UiTesting {
                });
             }
 
+            let button = Button::new(
+               RichText::new("Unknown Tx With Balance & Approval Diffs").size(text_size),
+            )
+            .min_size(button_size);
+
+            if ui.add(button).clicked() {
+               RT.spawn_blocking(move || {
+                  let analysis = TransactionAnalysis::dummy_with_diffs();
+                  SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
+
+                     gui.tx_confirmation_window.open(
+                        ctx.clone(),
+                        "".to_string(),
+                        ctx.chain(),
+                        analysis,
+                        "1".to_string(),
+                        true,
+                        false,
+                     );
+                  });
+               });
+            }
+
             let button = Button::new(RichText::new("Clear Signed Tx").size(text_size))
                .min_size(button_size);
 

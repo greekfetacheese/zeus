@@ -1,11 +1,10 @@
-use crate::core::ZeusCtx;
+use crate::core::{ZeusClient, ZeusCtx};
 use crate::utils::RT;
 
 use alloy_eips::eip7702::SignedAuthorization;
 use either::Either;
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, KECCAK256_EMPTY, TxKind, U256, address, keccak256},
-   alloy_provider::Provider,
    alloy_rpc_types::BlockId,
    amm::uniswap::UniswapPool,
    revm_utils::{
@@ -16,9 +15,13 @@ use zeus_eth::{
 };
 
 use anyhow::anyhow;
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::{sync::Arc, time::Instant};
-use tokio::{sync::Mutex, task::JoinHandle};
+use tokio::{
+   sync::{Mutex, Semaphore},
+   task::JoinHandle,
+};
 use tracing::info;
 
 /// Max slots per StorageReader eth_call
@@ -304,81 +307,99 @@ pub fn railgun_smart_wallet_known_slots() -> Vec<U256> {
    ]
 }
 
+/// Max addresses per StateView / `eth_getCode` batch.
+const ACCOUNT_INFO_BATCH: usize = 20;
+/// Concurrent RPC batches (balances, codes, and nonce fetches).
+const ACCOUNT_INFO_CONCURRENCY: usize = 2;
+
+#[derive(Clone, Copy, Debug)]
+pub struct AccountPrefetch {
+   pub address: Address,
+   pub is_eoa: bool,
+}
+
+impl AccountPrefetch {
+   pub fn eoa(address: Address) -> Self {
+      Self {
+         address,
+         is_eoa: true,
+      }
+   }
+
+   pub fn contract(address: Address) -> Self {
+      Self {
+         address,
+         is_eoa: false,
+      }
+   }
+}
+
+fn dedupe_accounts(accounts: Vec<AccountPrefetch>) -> Vec<AccountPrefetch> {
+   let mut out: Vec<AccountPrefetch> = Vec::new();
+   for acc in accounts {
+      if acc.address.is_zero() {
+         continue;
+      }
+      if let Some(existing) = out.iter_mut().find(|a| a.address == acc.address) {
+         existing.is_eoa |= acc.is_eoa;
+         continue;
+      }
+      out.push(acc);
+   }
+   out
+}
+
 pub async fn fetch_accounts_info(
    ctx: ZeusCtx,
    chain: u64,
    block_id: BlockId,
-   addr: Vec<Address>,
+   accounts: Vec<AccountPrefetch>,
 ) -> Vec<AccountInfo2> {
-   let client = ctx.get_zeus_client();
+   let accounts = dedupe_accounts(accounts);
+   if accounts.is_empty() {
+      return Vec::new();
+   }
 
-   let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
-   let accounts = Arc::new(Mutex::new(Vec::new()));
    let time = Instant::now();
 
-   for addr in addr {
-      let client = client.clone();
-      let accounts = accounts.clone();
+   let client = ctx.get_zeus_client();
+   let addresses: Vec<Address> = accounts.iter().map(|a| a.address).collect();
+   let eoas: Vec<Address> = accounts.iter().filter(|a| a.is_eoa).map(|a| a.address).collect();
 
-      let task = RT.spawn(async move {
-         let balance = client.request(chain, |client| async move {
-            client
-               .get_balance(addr)
-               .block_id(block_id)
-               .await
-               .map_err(|e| anyhow!("{:?}", e))
-         });
+   let balances_fut =
+      fetch_eth_balances_batched(client.clone(), chain, block_id, addresses.clone());
+   let codes_fut = fetch_account_codes_batched(client.clone(), chain, block_id, addresses.clone());
+   let nonces_fut = fetch_eoa_nonces(client.clone(), chain, block_id, eoas);
 
-         let nonce = client.request(chain, |client| async move {
-            client
-               .get_transaction_count(addr)
-               .block_id(block_id)
-               .await
-               .map_err(|e| anyhow!("{:?}", e))
-         });
+   let (balances, codes, nonces) = tokio::join!(balances_fut, codes_fut, nonces_fut);
 
-         let code = client.request(chain, |client| async move {
-            client
-               .get_code_at(addr)
-               .block_id(block_id)
-               .await
-               .map_err(|e| anyhow!("{:?}", e))
-         });
+   let mut out = Vec::with_capacity(accounts.len());
 
-         let (balance, nonce, code) = tokio::try_join!(balance, nonce, code)?;
+   for acc in accounts {
+      let balance = balances.get(&acc.address).copied().unwrap_or(U256::ZERO);
+      let code = codes.get(&acc.address).cloned().unwrap_or_default();
+      let nonce = if acc.is_eoa {
+         nonces.get(&acc.address).copied().unwrap_or(0)
+      } else {
+         0
+      };
 
-         let (code, code_hash) = if !code.is_empty() {
-            (Some(code.clone()), keccak256(&code))
-         } else {
-            (Some(Bytes::default()), KECCAK256_EMPTY)
-         };
+      let (code, code_hash) = if !code.is_empty() {
+         (Some(code.clone()), keccak256(&code))
+      } else {
+         (Some(Bytes::default()), KECCAK256_EMPTY)
+      };
 
-         let info = AccountInfo {
+      out.push(AccountInfo2 {
+         address: acc.address,
+         info: AccountInfo {
             nonce,
             balance,
             code: code.map(|bytes| Bytecode::new_raw(bytes)),
             account_id: None,
             code_hash,
-         };
-
-         let acc_info = AccountInfo2 {
-            address: addr,
-            info,
-         };
-
-         accounts.lock().await.push(acc_info);
-         Ok(())
+         },
       });
-
-      tasks.push(task);
-   }
-
-   for task in tasks {
-      match task.await {
-         Ok(Ok(())) => {}
-         Ok(Err(e)) => tracing::error!("Fetch failed for address: {:?}", e),
-         Err(e) => tracing::error!("Join error: {:?}", e),
-      }
    }
 
    info!(
@@ -386,8 +407,159 @@ pub async fn fetch_accounts_info(
       time.elapsed().as_millis()
    );
 
-   let accounts = Arc::try_unwrap(accounts).unwrap().into_inner();
-   accounts
+   out
+}
+
+async fn fetch_eth_balances_batched(
+   client: ZeusClient,
+   chain: u64,
+   block_id: BlockId,
+   addresses: Vec<Address>,
+) -> HashMap<Address, U256> {
+   #[cfg(feature = "dev")]
+   let time = Instant::now();
+
+   let semaphore = Arc::new(Semaphore::new(ACCOUNT_INFO_CONCURRENCY));
+   let mut tasks = Vec::new();
+
+   for chunk in addresses.chunks(ACCOUNT_INFO_BATCH) {
+      let chunk = chunk.to_vec();
+      let client = client.clone();
+      let semaphore = semaphore.clone();
+      tasks.push(RT.spawn(async move {
+         let _permit = semaphore.acquire().await.unwrap();
+         client
+            .request(chain, |client| {
+               let chunk = chunk.clone();
+               async move { batch::get_eth_balances(client, chain, Some(block_id), chunk).await }
+            })
+            .await
+      }));
+   }
+
+   let mut out = HashMap::new();
+   for task in tasks {
+      match task.await {
+         Ok(Ok(rows)) => {
+            for row in rows {
+               out.insert(row.owner, row.balance);
+            }
+         }
+         Ok(Err(e)) => tracing::error!("ETH balance batch failed: {:?}", e),
+         Err(e) => tracing::error!("ETH balance batch join error: {:?}", e),
+      }
+   }
+
+   #[cfg(feature = "dev")]
+   tracing::info!(
+      "Fetched ETH balances in {} ms",
+      time.elapsed().as_millis()
+   );
+
+   out
+}
+
+async fn fetch_account_codes_batched(
+   client: ZeusClient,
+   chain: u64,
+   block_id: BlockId,
+   addresses: Vec<Address>,
+) -> HashMap<Address, Bytes> {
+   #[cfg(feature = "dev")]
+   let time = Instant::now();
+
+   let semaphore = Arc::new(Semaphore::new(ACCOUNT_INFO_CONCURRENCY));
+   let mut tasks = Vec::new();
+
+   for chunk in addresses.chunks(ACCOUNT_INFO_BATCH) {
+      let chunk = chunk.to_vec();
+      let client = client.clone();
+      let semaphore = semaphore.clone();
+      tasks.push(RT.spawn(async move {
+         let _permit = semaphore.acquire().await.unwrap();
+         client
+            .request(chain, |client| {
+               let chunk = chunk.clone();
+               async move { batch::get_account_codes(client, chunk, Some(block_id)).await }
+            })
+            .await
+            .map(|codes| (chunk, codes))
+      }));
+   }
+
+   let mut out = HashMap::new();
+   for task in tasks {
+      match task.await {
+         Ok(Ok((chunk, codes))) => {
+            for (addr, code) in chunk.into_iter().zip(codes) {
+               out.insert(addr, code);
+            }
+         }
+         Ok(Err(e)) => tracing::error!("account code batch failed: {:?}", e),
+         Err(e) => tracing::error!("account code batch join error: {:?}", e),
+      }
+   }
+
+   #[cfg(feature = "dev")]
+   tracing::info!(
+      "Fetched account codes in {} ms",
+      time.elapsed().as_millis()
+   );
+
+   out
+}
+
+async fn fetch_eoa_nonces(
+   client: ZeusClient,
+   chain: u64,
+   block_id: BlockId,
+   eoas: Vec<Address>,
+) -> HashMap<Address, u64> {
+   if eoas.is_empty() {
+      return HashMap::new();
+   }
+
+   #[cfg(feature = "dev")]
+   let time = Instant::now();
+
+   let semaphore = Arc::new(Semaphore::new(ACCOUNT_INFO_CONCURRENCY));
+   let mut tasks = Vec::new();
+   for chunk in eoas.chunks(ACCOUNT_INFO_BATCH) {
+      let chunk = chunk.to_vec();
+      let client = client.clone();
+      let semaphore = semaphore.clone();
+      tasks.push(RT.spawn(async move {
+         let _permit = semaphore.acquire().await.unwrap();
+         client
+            .request(chain, |client| {
+               let chunk = chunk.clone();
+               async move { batch::get_account_nonces(client, chunk, Some(block_id)).await }
+            })
+            .await
+            .map(|nonces| (chunk, nonces))
+      }));
+   }
+
+   let mut out = HashMap::new();
+   for task in tasks {
+      match task.await {
+         Ok(Ok((chunk, nonces))) => {
+            for (addr, nonce) in chunk.into_iter().zip(nonces) {
+               out.insert(addr, nonce);
+            }
+         }
+         Ok(Err(e)) => tracing::error!("EOA nonce batch failed: {:?}", e),
+         Err(e) => tracing::error!("EOA nonce batch join error: {:?}", e),
+      }
+   }
+
+   #[cfg(feature = "dev")]
+   tracing::info!(
+      "Fetched EOA nonces in {} ms",
+      time.elapsed().as_millis()
+   );
+
+   out
 }
 
 pub async fn fetch_storage_for_railgun(

@@ -1,15 +1,21 @@
 use alloy_contract::private::{Network, Provider};
 use alloy_network::TransactionBuilder;
-use alloy_primitives::{Address, Bytes, FixedBytes, U256, hex};
+use alloy_primitives::{Address, Bytes, FixedBytes, U64, U256, hex};
 use alloy_rpc_types::{BlockId, state::StateOverridesBuilder};
 use alloy_sol_types::{SolCall, sol};
 use std::sync::LazyLock;
 
 use super::address_book::zeus_stateview_v3;
 use crate::{
-   abi::zeus::ZeusStateViewV3::{self, *},
+   abi::{
+      erc20::IERC20,
+      permit::Permit2,
+      zeus::ZeusStateViewV3::{self, *},
+   },
    utils::address_book,
 };
+use alloy_provider::CallItem;
+use alloy_rpc_client::BatchRequest;
 
 /// Runtime bytecode of `StorageReader`.
 ///
@@ -23,9 +29,7 @@ const STORAGE_READER_BYTECODE: &str = "0x60806040526004361015610011575f80fd5b5f3
 const STORAGE_READER_CALL_GAS: u64 = 30_000_000;
 
 static STORAGE_READER_CODE: LazyLock<Bytes> = LazyLock::new(|| {
-   let hex_str = STORAGE_READER_BYTECODE
-      .strip_prefix("0x")
-      .unwrap_or(STORAGE_READER_BYTECODE);
+   let hex_str = STORAGE_READER_BYTECODE.strip_prefix("0x").unwrap_or(STORAGE_READER_BYTECODE);
    Bytes::from(hex::decode(hex_str).expect("STORAGE_READER_BYTECODE must be valid hex"))
 });
 
@@ -108,8 +112,9 @@ where
       .await
       .map_err(|e| anyhow::anyhow!("StorageReader eth_call failed for {address}: {e:?}"))?;
 
-   let values = StorageReader::readSlotsUintCall::abi_decode_returns(&raw)
-      .map_err(|e| anyhow::anyhow!("failed decoding StorageReader return for {address}: {e:?} (ret={raw})"))?;
+   let values = StorageReader::readSlotsUintCall::abi_decode_returns(&raw).map_err(|e| {
+      anyhow::anyhow!("failed decoding StorageReader return for {address}: {e:?} (ret={raw})")
+   })?;
 
    if values.len() != slots.len() {
       anyhow::bail!(
@@ -137,15 +142,86 @@ where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
+   if addresses.is_empty() {
+      return Ok(Vec::new());
+   }
    let block = block.unwrap_or(BlockId::latest());
    let address = zeus_stateview_v3(chain)?;
    let contract = ZeusStateViewV3::new(address, client);
-   let balance = contract
-      .getETHBalance(addresses)
-      .call()
-      .block(block)
-      .await?;
+   let balance = contract.getETHBalance(addresses).call().block(block).await?;
    Ok(balance)
+}
+
+/// `eth_getCode` for many accounts in one JSON-RPC batch.
+pub async fn get_account_codes<P, N>(
+   client: P,
+   accounts: Vec<Address>,
+   block: Option<BlockId>,
+) -> Result<Vec<Bytes>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   if accounts.is_empty() {
+      return Ok(Vec::new());
+   }
+
+   let block = block.unwrap_or(BlockId::latest());
+   let mut batch = BatchRequest::new(client.client());
+   let mut waiters = Vec::with_capacity(accounts.len());
+   for addr in &accounts {
+      let waiter = batch
+         .add_call::<_, Bytes>("eth_getCode", &(addr, block))
+         .map_err(|e| anyhow::anyhow!("eth_getCode batch serialize: {e:?}"))?;
+      waiters.push(waiter);
+   }
+
+   batch.send().await.map_err(|e| anyhow::anyhow!("eth_getCode batch: {e:?}"))?;
+
+   let mut out = Vec::with_capacity(waiters.len());
+
+   for waiter in waiters {
+      let code = waiter.await.map_err(|e| anyhow::anyhow!("eth_getCode: {e:?}"))?;
+      out.push(code);
+   }
+   Ok(out)
+}
+
+/// `eth_getTransactionCount` for many accounts in one JSON-RPC batch.
+pub async fn get_account_nonces<P, N>(
+   client: P,
+   accounts: Vec<Address>,
+   block: Option<BlockId>,
+) -> Result<Vec<u64>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   if accounts.is_empty() {
+      return Ok(Vec::new());
+   }
+
+   let block = block.unwrap_or(BlockId::latest());
+   let mut batch = BatchRequest::new(client.client());
+   let mut waiters = Vec::with_capacity(accounts.len());
+   for addr in &accounts {
+      let waiter = batch
+         .add_call::<_, U64>("eth_getTransactionCount", &(addr, block))
+         .map_err(|e| anyhow::anyhow!("eth_getTransactionCount batch serialize: {e:?}"))?;
+      waiters.push(waiter);
+   }
+
+   batch
+      .send()
+      .await
+      .map_err(|e| anyhow::anyhow!("eth_getTransactionCount batch: {e:?}"))?;
+
+   let mut out = Vec::with_capacity(waiters.len());
+   for waiter in waiters {
+      let nonce = waiter.await.map_err(|e| anyhow::anyhow!("eth_getTransactionCount: {e:?}"))?;
+      out.push(nonce.to::<u64>());
+   }
+   Ok(out)
 }
 
 /// Query the balance of multiple ERC20 tokens for the given owner
@@ -163,16 +239,16 @@ where
    let block = block.unwrap_or(BlockId::latest());
    let address = zeus_stateview_v3(chain)?;
    let contract = ZeusStateViewV3::new(address, client);
-   let balance = contract
-      .getERC20Balance(tokens, owner)
-      .call()
-      .block(block)
-      .await?;
+   let balance = contract.getERC20Balance(tokens, owner).call().block(block).await?;
    Ok(balance)
 }
 
 /// Query the ERC20 token info for the given token
-pub async fn get_erc20_info<P, N>(client: P, chain: u64, token: Address) -> Result<ERC20Info, anyhow::Error>
+pub async fn get_erc20_info<P, N>(
+   client: P,
+   chain: u64,
+   token: Address,
+) -> Result<ERC20Info, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
@@ -245,10 +321,8 @@ where
 {
    let address = zeus_stateview_v3(chain)?;
    let contract = ZeusStateViewV3::new(address, client);
-   let pools_state = contract
-      .getPoolsState(v2_pools, v3_pools, v4_pools, state_view)
-      .call()
-      .await?;
+   let pools_state =
+      contract.getPoolsState(v2_pools, v3_pools, v4_pools, state_view).call().await?;
    Ok(pools_state)
 }
 
@@ -266,10 +340,7 @@ where
 {
    let address = zeus_stateview_v3(chain)?;
    let contract = ZeusStateViewV3::new(address, client);
-   let pools = contract
-      .getV3Pools(factory, token_a, token_b)
-      .call()
-      .await?;
+   let pools = contract.getV3Pools(factory, token_a, token_b).call().await?;
    Ok(pools)
 }
 
@@ -307,7 +378,11 @@ where
 }
 
 /// Query the state of multiple V3 pools
-pub async fn get_v3_state<P, N>(client: P, chain: u64, pools: Vec<V3Pool>) -> Result<Vec<V3PoolData>, anyhow::Error>
+pub async fn get_v3_state<P, N>(
+   client: P,
+   chain: u64,
+   pools: Vec<V3Pool>,
+) -> Result<Vec<V3PoolData>, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
@@ -333,6 +408,101 @@ where
    let contract = ZeusStateViewV3::new(address, client);
    let state = contract.getV4PoolState(pools, stateview).call().await?;
    Ok(state)
+}
+
+/// Max `(token, spender)` pairs per Multicall3 aggregate so the eth_call stays under gas limits.
+const MULTICALL_PAIR_BATCH: usize = 20;
+
+/// ERC-20 `allowance(owner, spender)` for many `(token, spender)` pairs via Multicall3.
+///
+/// Failed calls (non-token, revert) are omitted.
+pub async fn get_erc20_allowances<P, N>(
+   client: P,
+   owner: Address,
+   pairs: Vec<(Address, Address)>,
+   block: Option<BlockId>,
+) -> Result<Vec<(Address, Address, U256)>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   if pairs.is_empty() {
+      return Ok(Vec::new());
+   }
+
+   let block = block.unwrap_or(BlockId::latest());
+   let mut out = Vec::new();
+   for chunk in pairs.chunks(MULTICALL_PAIR_BATCH) {
+      let mut builder = client.multicall().dynamic::<IERC20::allowanceCall>().block(block);
+      for (token, spender) in chunk {
+         let input = Bytes::from(
+            IERC20::allowanceCall {
+               owner,
+               spender: *spender,
+            }
+            .abi_encode(),
+         );
+         let call = CallItem::<IERC20::allowanceCall>::new(*token, input).allow_failure(true);
+         builder = builder.add_call_dynamic(call);
+      }
+
+      let results = builder.aggregate3().await?;
+      for (i, result) in results.into_iter().enumerate() {
+         if let Ok(amount) = result {
+            let (token, spender) = chunk[i];
+            out.push((token, spender, amount));
+         }
+      }
+   }
+   Ok(out)
+}
+
+/// Permit2 `allowance(user, token, spender)` for many `(token, spender)` pairs via Multicall3.
+pub async fn get_permit2_allowances<P, N>(
+   client: P,
+   permit2: Address,
+   owner: Address,
+   pairs: Vec<(Address, Address)>,
+   block: Option<BlockId>,
+) -> Result<Vec<(Address, Address, U256, u64)>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   if pairs.is_empty() {
+      return Ok(Vec::new());
+   }
+
+   let block = block.unwrap_or(BlockId::latest());
+   let mut builder = client.multicall().dynamic::<Permit2::allowanceCall>().block(block);
+   for (token, spender) in &pairs {
+      let input = Bytes::from(
+         Permit2::allowanceCall {
+            user: owner,
+            token: *token,
+            spender: *spender,
+         }
+         .abi_encode(),
+      );
+      let call = CallItem::<Permit2::allowanceCall>::new(permit2, input).allow_failure(true);
+      builder = builder.add_call_dynamic(call);
+   }
+
+   let results = builder.aggregate3().await?;
+   let mut out = Vec::new();
+   for (i, result) in results.into_iter().enumerate() {
+      if let Ok(decoded) = result {
+         let (token, spender) = pairs[i];
+         let expiration = u64::try_from(decoded.expiration).unwrap_or(0);
+         out.push((
+            token,
+            spender,
+            U256::from(decoded.amount),
+            expiration,
+         ));
+      }
+   }
+   Ok(out)
 }
 
 #[cfg(test)]

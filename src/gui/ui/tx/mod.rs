@@ -3,14 +3,19 @@
 //! - The TxConfirmationWindow contains as much information as possible about the transaction before the user confirms it.
 //! - The TxWindow is what we show to the user for a transaction that has been confirmed.
 
-use egui::{Align, FontId, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui, vec2};
-use egui_elements::{Label, Modal, Theme};
+use egui::{
+   Align, FontId, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui,
+   scroll_area::ScrollBarVisibility, vec2,
+};
+use egui_elements::{Label, Modal, MultiLabel, Theme};
+use egui_lucide::Lucide;
+use elegance::{Badge, BadgeTone};
 use zeus_eth::alloy_primitives::TxHash;
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::core::clear_signing::{ClearDisplay, FormattedValue};
-use crate::core::tx::{ApprovalChange, ApprovalKind, BalanceChange};
+use crate::core::tx::{ApprovalChange, ApprovalDiff, ApprovalKind, BalanceChange, BalanceDiff};
 use crate::gui::SHARED_GUI;
 use crate::utils::{RT, truncate_address, truncate_hash};
 use zeus_eth::{
@@ -257,17 +262,8 @@ pub fn approval_change_row(
    let icon_size = vec2(24.0, 24.0);
    let icon = icons.currency_icon_x32(&change.token, tint).fit_to_exact_size(icon_size);
 
-   let amount = if change.is_unlimited() {
-      "Unlimited".to_string()
-   } else if change.is_revoke() {
-      "0".to_string()
-   } else {
-      change.after.abbreviated()
-   };
-   let amount = match change.kind {
-      ApprovalKind::Permit2 => format!("{amount} (Permit2)"),
-      ApprovalKind::Erc20 => amount,
-   };
+   let amount = change.after.abbreviated();
+   let usd = ctx.get_currency_value_for_amount(change.after.f64(), &change.token);
    let color = if change.is_revoke() {
       theme.colors.success
    } else {
@@ -288,10 +284,16 @@ pub fn approval_change_row(
 
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         let text =
-            RichText::new(format!("{} → ", change.token.symbol())).size(theme.typography.large);
-         let label = Label::new(text, Some(icon)).spacing(3.0).interactive(false);
-         ui.add(label);
+         let token_text = RichText::new(change.token.symbol()).size(theme.typography.large);
+         let token_label = Label::new(token_text, Some(icon)).spacing(6.0).interactive(false);
+
+         let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
+         let arrow_label = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
+
+         ui.add(MultiLabel::new(vec![token_label, arrow_label]));
+
+         ui.add_space(6.0);
+
          ui.hyperlink_to(
             RichText::new(spender_name)
                .size(theme.typography.large)
@@ -300,9 +302,134 @@ pub fn approval_change_row(
          );
       });
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         ui.label(RichText::new(amount).size(theme.typography.large).color(color));
+         ui.spacing_mut().item_spacing.x = theme.spacing.xs;
+
+         if change.kind == ApprovalKind::Permit2 {
+            if let Some(expiration) = change.expiration_after {
+               let q_mark = RichText::new("?").size(theme.typography.normal);
+               let info_tip = Badge::new(q_mark, BadgeTone::Info);
+               let hover = format!("Expires {}", expiration.to_relative());
+               ui.add(info_tip).on_hover_text(hover);
+            }
+         }
+
+         let amount_text = RichText::new(amount).size(theme.typography.large).color(color);
+         let amount_label = Label::new(amount_text, None).interactive(false);
+
+         if change.is_unlimited() {
+            ui.add(amount_label);
+         } else {
+            let usd_text =
+               RichText::new(format!("~ ${}", usd.abbreviated())).size(theme.typography.large);
+            let usd_label = Label::new(usd_text, None).interactive(false);
+            ui.add(MultiLabel::new(vec![amount_label, usd_label]));
+         }
       });
    });
+}
+
+pub fn show_balance_diff_rows(
+   ctx: &mut ZeusContext,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   diff: &BalanceDiff,
+   ui: &mut Ui,
+) {
+   ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+   let frame = theme.frame2.outer_margin(Margin::ZERO);
+
+   for change in diff.changes() {
+      frame.show(ui, |ui| {
+         balance_change_row(ctx, theme, icons.clone(), change, ui);
+      });
+   }
+}
+
+pub fn show_approval_diff_rows(
+   ctx: &mut ZeusContext,
+   chain: ChainId,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   diff: &ApprovalDiff,
+   ui: &mut Ui,
+) {
+   ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+   let frame = theme.frame2.outer_margin(Margin::ZERO);
+
+   for change in diff.sorted() {
+      frame.show(ui, |ui| {
+         approval_change_row(ctx, chain, theme, icons.clone(), change, ui);
+      });
+   }
+}
+
+pub fn show_tx_diffs_modal(
+   open: &mut bool,
+   theme: &Theme,
+   ctx: &mut ZeusContext,
+   chain: ChainId,
+   icons: Arc<Icons>,
+   balance_diff: &BalanceDiff,
+   approval_diff: &ApprovalDiff,
+   ui: &mut Ui,
+) {
+   let heading = RichText::new("Balance & Approvals").size(theme.typography.heading);
+   let modal_frame = theme.window_frame.fill(theme.frame1.fill);
+   let modal_width = 720.0;
+
+   Modal::new("tx_diffs", open)
+      .backdrop_order(Order::Foreground)
+      .content_order(Order::Tooltip)
+      .heading(heading)
+      .center_header(true)
+      .frame(modal_frame)
+      .max_width(modal_width)
+      .show(ui.ctx(), |ui| {
+         ui.set_width(ui.available_width());
+         ui.spacing_mut().item_spacing.y = theme.spacing.md;
+
+         ScrollArea::vertical()
+            .id_salt("tx_diff_modal_scroll")
+            .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
+            .content_margin(5)
+            .show(ui, |ui| {
+               ui.set_min_height(350.0);
+               ui.set_min_width(ui.available_width());
+
+               let text = if balance_diff.is_empty() {
+                  "No balance changes"
+               } else {
+                  "Balance changes"
+               };
+
+               ui.label(RichText::new(text).size(theme.typography.large));
+
+               if !balance_diff.is_empty() {
+                  show_balance_diff_rows(ctx, theme, icons.clone(), balance_diff, ui);
+               }
+
+               ui.add_space(10.0);
+
+               let text = if approval_diff.is_empty() {
+                  "No approval changes"
+               } else {
+                  "Approval changes"
+               };
+
+               ui.label(RichText::new(text).size(theme.typography.large));
+
+               if !approval_diff.is_empty() {
+                  show_approval_diff_rows(
+                     ctx,
+                     chain,
+                     theme,
+                     icons.clone(),
+                     approval_diff,
+                     ui,
+                  );
+               }
+            });
+      });
 }
 
 pub fn clear_display_ui(
@@ -410,8 +537,8 @@ pub fn show_calldata_modal(
    let edit_height = 260.0;
 
    Modal::new("Calldata", open)
-      .backdrop_order(Order::Tooltip)
-      .content_order(Order::Debug)
+      .backdrop_order(Order::Foreground)
+      .content_order(Order::Tooltip)
       .heading(heading)
       .max_width(modal_width)
       .show(ui.ctx(), |ui| {

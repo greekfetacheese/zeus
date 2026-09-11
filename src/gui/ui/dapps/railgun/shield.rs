@@ -31,7 +31,7 @@ use crate::gui::{
       common::{AmountField, AmountFieldParams},
    },
 };
-use crate::utils::simulate::{fetch_accounts_info, fetch_storage_for_railgun};
+use crate::utils::simulate::{AccountPrefetch, fetch_accounts_info, fetch_storage_for_railgun};
 use egui_elements::{Button, Modal, SecureTextEdit, Theme};
 use egui_lucide::Lucide;
 use elegance::{Badge, BadgeTone};
@@ -1138,15 +1138,17 @@ async fn shield(
 
    // Prefetch accounts and storage for the sim
    let mut accounts = Vec::new();
-   accounts.push(from);
-   accounts.push(token.address);
-   accounts.push(railgun_address);
-   accounts.push(interact_to);
-   accounts.push(relay_adapt);
-   accounts.push(block.header.beneficiary);
+   accounts.push(AccountPrefetch::eoa(from));
+   accounts.push(AccountPrefetch::contract(token.address));
+   accounts.push(AccountPrefetch::contract(railgun_address));
+   accounts.push(AccountPrefetch::contract(interact_to));
+   accounts.push(AccountPrefetch::contract(relay_adapt));
+   accounts.push(AccountPrefetch::eoa(
+      block.header.beneficiary,
+   ));
 
    let common_accounts = railgun_common_accounts(chain.id());
-   accounts.extend(common_accounts);
+   accounts.extend(common_accounts.into_iter().map(AccountPrefetch::contract));
 
    let accounts_info_fut = fetch_accounts_info(ctx.clone(), chain.id(), block_id, accounts);
    let storage_info_fut =

@@ -9,7 +9,7 @@ use tokio::time::sleep;
 use alloy_consensus::TxType;
 use alloy_signer_local::PrivateKeySigner;
 use anyhow::anyhow;
-use tracing::{error, info};
+use tracing::error;
 use userop_kit::{
    bundler::PimlicoBundler,
    smart_account::simple_smart_account::{Call, SIMPLE_7702_ACCOUNT, SimpleSmartAccount},
@@ -40,7 +40,7 @@ use crate::{
    utils::{
       RT, TimeStamp, estimate_tx_cost, malloc_trim,
       simulate::{
-         fetch_accounts_info, fetch_storage_for_railgun, railgun_common_accounts,
+         AccountPrefetch, fetch_accounts_info, fetch_storage_for_railgun, railgun_common_accounts,
          simulate_transaction,
       },
       state::get_base_fee,
@@ -224,14 +224,16 @@ async fn unshield_self_broadcast(
 
    // Prefetch accounts and storage for the sim
    let mut accounts = Vec::new();
-   accounts.push(from);
-   accounts.push(recipient);
-   accounts.push(token.address);
-   accounts.push(fork_block.header.beneficiary);
-   accounts.push(railgun_address);
+   accounts.push(AccountPrefetch::eoa(from));
+   accounts.push(AccountPrefetch::eoa(recipient));
+   accounts.push(AccountPrefetch::contract(token.address));
+   accounts.push(AccountPrefetch::eoa(
+      fork_block.header.beneficiary,
+   ));
+   accounts.push(AccountPrefetch::contract(railgun_address));
 
    let common_accounts = railgun_common_accounts(chain.id());
-   accounts.extend(common_accounts);
+   accounts.extend(common_accounts.into_iter().map(AccountPrefetch::contract));
 
    let accounts_info_fut = fetch_accounts_info(ctx.clone(), chain.id(), fork_block_id, accounts);
 
@@ -662,24 +664,28 @@ async fn unshield_via_paymaster(
 
    // Prefetch accounts and storage for the sim
    let mut accounts = Vec::new();
-   accounts.push(from);
-   accounts.push(entry_point);
-   accounts.push(SIMPLE_7702_ACCOUNT);
-   accounts.push(fork_block.header.beneficiary);
+   accounts.push(AccountPrefetch::eoa(from));
+   accounts.push(AccountPrefetch::contract(entry_point));
+   accounts.push(AccountPrefetch::contract(SIMPLE_7702_ACCOUNT));
+   accounts.push(AccountPrefetch::eoa(
+      fork_block.header.beneficiary,
+   ));
 
    if let Some(pm) = chain_config.privacy_paymaster {
-      accounts.push(pm);
+      accounts.push(AccountPrefetch::contract(pm));
    }
 
    if let Some(adapter) = chain_config.railgun_fee_adapter {
-      accounts.push(adapter);
+      accounts.push(AccountPrefetch::contract(adapter));
    }
 
-   accounts.push(railgun_provider.railgun_address());
-   accounts.push(fee_token.address);
+   accounts.push(AccountPrefetch::contract(
+      railgun_provider.railgun_address(),
+   ));
+   accounts.push(AccountPrefetch::contract(fee_token.address));
 
    let common_accounts = railgun_common_accounts(chain.id());
-   accounts.extend(common_accounts);
+   accounts.extend(common_accounts.into_iter().map(AccountPrefetch::contract));
 
    let accounts_info_fut = fetch_accounts_info(ctx.clone(), chain.id(), fork_block_id, accounts);
 
@@ -807,9 +813,12 @@ async fn unshield_via_paymaster(
          });
       }
 
-      info!(
+      #[cfg(feature = "dev")]
+      tracing::info!(
          "Unwrap-to-ETH post-calls: withdraw {} wei WETH on SA {:?}, forward ETH to {:?}",
-         received, sa_addr, recipient
+         received,
+         sa_addr,
+         recipient
       );
 
       (tx, calls)

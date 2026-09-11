@@ -2,8 +2,8 @@ use egui::{Align, Id, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2};
 use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme};
 
 use super::{
-   address, approval_change_row, balance_change_row, chain, clear_display_ui, eth_received,
-   events::*, show_calldata_modal, tx_cost, value,
+   address, chain, clear_display_ui, eth_received, events::*, show_calldata_modal,
+   show_tx_diffs_modal, tx_cost, value,
 };
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::{self, ClearDisplay};
@@ -45,6 +45,7 @@ pub struct TxConfirmationWindow {
    tx_cost: NumericValue,
    tx_cost_usd: NumericValue,
    show_calldata: bool,
+   show_diffs: bool,
    clear_display: Option<ClearDisplay>,
    size: (f32, f32),
 }
@@ -70,6 +71,7 @@ impl TxConfirmationWindow {
          tx_cost: NumericValue::default(),
          tx_cost_usd: NumericValue::default(),
          show_calldata: false,
+         show_diffs: false,
          clear_display: None,
          size: (550.0, 400.0),
       }
@@ -286,7 +288,8 @@ impl TxConfirmationWindow {
                }
 
                let frame = theme.frame2;
-               let frame_size = vec2(ui.available_width() * 0.95, 45.0);
+               let avail_width_margin = 0.98;
+               let frame_size = vec2(ui.available_width() * avail_width_margin, 45.0);
 
                // Decoded events window
                self.decoded_events.show(
@@ -313,6 +316,17 @@ impl TxConfirmationWindow {
                   icons.clone(),
                   clear_display,
                   calldata,
+                  ui,
+               );
+
+               show_tx_diffs_modal(
+                  &mut self.show_diffs,
+                  theme,
+                  ctx,
+                  self.chain,
+                  icons.clone(),
+                  &analysis.balance_diff,
+                  &analysis.approval_diff,
                   ui,
                );
 
@@ -347,7 +361,7 @@ impl TxConfirmationWindow {
 
                // Clear display UI
                if main_event.is_other() {
-                  let frame_size = vec2(ui.available_width() * 0.95, 300.0);
+                  let frame_size = vec2(ui.available_width() * avail_width_margin, 300.0);
 
                   if let Some(display) = self.clear_display.clone() {
                      ui.allocate_ui(frame_size, |ui| {
@@ -368,58 +382,13 @@ impl TxConfirmationWindow {
                         });
                      });
                   } else {
-                     let text = "Review the decoded events and proceed with caution";
+                     let text = "Review the transaction details and proceed with caution";
                      ui.label(
                         RichText::new(text)
                            .size(theme.typography.large)
                            .color(theme.colors.warning),
                      );
                   }
-               }
-
-               // Balance changes (native + tokens)
-               if main_event.is_other() && !analysis.balance_diff.is_empty() {
-                  ui.label(RichText::new("Balance changes").size(theme.typography.large));
-                  let diff_size = vec2(ui.available_width() * 0.95, 0.0);
-                  ui.allocate_ui(diff_size, |ui| {
-                     frame.show(ui, |ui| {
-                        ScrollArea::vertical()
-                           .id_salt("balance_diff_scroll")
-                           .max_height(150.0)
-                           .show(ui, |ui| {
-                              ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
-                              for change in analysis.balance_diff.changes() {
-                                 balance_change_row(ctx, theme, icons.clone(), change, ui);
-                              }
-                           });
-                     });
-                  });
-               }
-
-               // Approval changes (erc20 + permit)
-               if main_event.is_other() && !analysis.approval_diff.is_empty() {
-                  ui.label(RichText::new("Approval changes").size(theme.typography.large));
-                  let diff_size = vec2(ui.available_width() * 0.95, 0.0);
-                  ui.allocate_ui(diff_size, |ui| {
-                     frame.show(ui, |ui| {
-                        ScrollArea::vertical()
-                           .id_salt("approval_diff_scroll")
-                           .max_height(150.0)
-                           .show(ui, |ui| {
-                              ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
-                              for change in analysis.approval_diff.sorted() {
-                                 approval_change_row(
-                                    ctx,
-                                    self.chain,
-                                    theme,
-                                    icons.clone(),
-                                    change,
-                                    ui,
-                                 );
-                              }
-                           });
-                     });
-                  });
                }
 
                // Tx details
@@ -483,27 +452,34 @@ impl TxConfirmationWindow {
                   });
                }
 
-               // Decoded Events / Show CallData - Buttons
-               let ui_size = vec2(ui.available_width() * 0.6, 45.0);
+               // Decoded Events / Calldata / Balance & Approvals
+               let ui_size = vec2(ui.available_width() * avail_width_margin, 45.0);
                ui.allocate_ui(ui_size, |ui| {
+                  ui.set_width(ui_size.x);
                   ui.horizontal(|ui| {
                      ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
-                     let button_size = vec2(150.0, 30.0);
+                     let n = 3.0;
+                     let gap = theme.spacing.sm * (n - 1.0);
+                     let button_size = vec2((ui.available_width() - gap) / n, 30.0);
 
-                     let text = RichText::new("Decoded events").size(theme.typography.large);
+                     let text = RichText::new("Events").size(theme.typography.large);
                      let button =
                         Button::new(text).visuals(theme.button_visuals()).min_size(button_size);
-                     let clicked = ui.add(button).clicked();
-                     if clicked {
+                     if ui.add(button).clicked() {
                         self.decoded_events.open();
                      }
 
                      let text = RichText::new("Calldata").size(theme.typography.large);
                      let button = Button::new(text).visuals(button_visuals).min_size(button_size);
-
                      if ui.add(button).clicked() {
                         self.show_calldata = true;
+                     }
+
+                     let text = RichText::new("Balance & Approvals").size(theme.typography.large);
+                     let button = Button::new(text).visuals(button_visuals).min_size(button_size);
+                     if ui.add(button).clicked() {
+                        self.show_diffs = true;
                      }
                   });
                });
@@ -512,8 +488,10 @@ impl TxConfirmationWindow {
                   self.sufficient_balance(ctx, analysis.value_sent().wei(), analysis.sender);
 
                let mut recalculate_tx_cost = false;
-
+               
                let size = vec2(ui.available_width() * 0.7, 45.0);
+
+               // Priority Fee / Gas Limit
                ui.allocate_ui(size, |ui| {
                   frame.show(ui, |ui| {
                      ui.set_width(size.x);
@@ -615,7 +593,7 @@ impl TxConfirmationWindow {
                }
 
                // Buttons
-               let size = vec2(ui.available_width() * 0.9, 45.0);
+               let size = vec2(ui.available_width() * avail_width_margin, 45.0);
                ui.allocate_ui(size, |ui| {
                   ui.horizontal(|ui| {
                      ui.spacing_mut().item_spacing.x = theme.spacing.xl;

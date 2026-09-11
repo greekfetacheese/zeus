@@ -1388,9 +1388,11 @@ pub async fn wrap_eth(
    let value = amount.wei();
 
    let mut accounts = Vec::new();
-   accounts.push(from);
-   accounts.push(interact_to);
-   accounts.push(block.header.beneficiary);
+   accounts.push(AccountPrefetch::eoa(from));
+   accounts.push(AccountPrefetch::contract(interact_to));
+   accounts.push(AccountPrefetch::contract(
+      block.header.beneficiary,
+   ));
 
    let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), block_id, accounts).await;
 
@@ -1562,9 +1564,11 @@ pub async fn unwrap_weth(
    let value = U256::ZERO;
 
    let mut accounts = Vec::new();
-   accounts.push(from);
-   accounts.push(interact_to);
-   accounts.push(block.header.beneficiary);
+   accounts.push(AccountPrefetch::eoa(from));
+   accounts.push(AccountPrefetch::contract(interact_to));
+   accounts.push(AccountPrefetch::contract(
+      block.header.beneficiary,
+   ));
 
    let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), block_id, accounts).await;
 
@@ -1855,35 +1859,41 @@ async fn swap_via_ur(
    let burn_addr = address!("0x0000000000000000000000000000000000000001");
 
    let mut accounts = Vec::new();
-   accounts.push(signer_address);
-   accounts.push(router_addr);
-   accounts.push(permit2_addr);
-   accounts.push(block.header.beneficiary);
+   accounts.push(AccountPrefetch::eoa(signer_address));
+   accounts.push(AccountPrefetch::contract(router_addr));
+   accounts.push(AccountPrefetch::contract(permit2_addr));
+   accounts.push(AccountPrefetch::eoa(
+      block.header.beneficiary,
+   ));
 
    if currency_in.is_erc20() {
-      accounts.push(currency_in.address());
+      accounts.push(AccountPrefetch::contract(currency_in.address()));
 
       if chain.is_base() || chain.is_optimism() {
-         accounts.push(burn_addr);
+         accounts.push(AccountPrefetch::contract(burn_addr));
       }
    }
 
    if currency_in.is_native() && !first_pool.dex_kind().is_v4() {
-      accounts.push(currency_in.to_erc20().address)
+      accounts.push(AccountPrefetch::contract(
+         currency_in.to_erc20().address,
+      ));
    }
 
    if currency_out.is_erc20() {
-      accounts.push(currency_out.address());
+      accounts.push(AccountPrefetch::contract(currency_out.address()));
    }
 
    if currency_out.is_native() && !last_pool.dex_kind().is_v4() {
-      accounts.push(currency_out.to_erc20().address)
+      accounts.push(AccountPrefetch::contract(
+         currency_out.to_erc20().address,
+      ));
    }
 
    let pools_addr = swap_steps.iter().map(|s| s.pool.address()).collect::<Vec<_>>();
    for pool in pools_addr {
       if !pool.is_zero() {
-         accounts.push(pool);
+         accounts.push(AccountPrefetch::contract(pool));
       }
    }
 

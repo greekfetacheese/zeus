@@ -6,7 +6,7 @@ use zeus_eth::{
    alloy_primitives::{Address, Bytes, Log, U256},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
-   currency::{Currency, NativeCurrency},
+   currency::{Currency, ERC20Token, NativeCurrency},
    utils::{
       NumericValue,
       address_book::{
@@ -16,8 +16,8 @@ use zeus_eth::{
    },
 };
 
-use super::approval_diff::ApprovalDiff;
-use super::balance_diff::BalanceDiff;
+use super::approval_diff::{ApprovalChange, ApprovalDiff, ApprovalKind};
+use super::balance_diff::{BalanceDiff, native_change, token_change};
 use super::events::decode::{DecodeCtx, decode_transaction};
 use super::events::*;
 
@@ -292,6 +292,11 @@ impl TransactionAnalysis {
 
    pub fn set_main_event(&mut self, event: DecodedEvent) {
       self.main_event = Some(event);
+   }
+
+   pub fn set_diffs(&mut self, balance: BalanceDiff, approval: ApprovalDiff) {
+      self.balance_diff = balance;
+      self.approval_diff = approval;
    }
 
    pub fn remove_main_event(&mut self) {
@@ -757,4 +762,76 @@ impl TransactionAnalysis {
          approval_diff: ApprovalDiff::default(),
       }
    }
+
+   /// Unknown tx with sample balance + approval diffs for DevUi.
+   pub fn dummy_with_diffs() -> Self {
+      let mut analysis = Self::unknown_tx_1();
+      let (balance_diff, approval_diff) = dummy_balance_and_approval_diffs();
+      analysis.set_diffs(balance_diff, approval_diff);
+      analysis
+   }
+}
+
+fn dummy_balance_and_approval_diffs() -> (BalanceDiff, ApprovalDiff) {
+   let eth_before = NumericValue::parse_to_wei("2", 18).wei();
+   let eth_after = NumericValue::parse_to_wei("1.95", 18).wei();
+
+   let weth = ERC20Token::weth();
+   let dai = ERC20Token::dai();
+   let usdc = ERC20Token::usdc();
+
+   let one = NumericValue::parse_to_wei("1", 18).wei();
+   let dai_out = NumericValue::parse_to_wei("1600", 18).wei();
+   let usdc_allowance = NumericValue::parse_to_wei("250", usdc.decimals).wei();
+
+   let mut tokens = Vec::new();
+   if let Some(change) = token_change(weth.clone(), one * U256::from(2u64), one) {
+      tokens.push(change);
+   }
+   if let Some(change) = token_change(dai.clone(), U256::ZERO, dai_out) {
+      tokens.push(change);
+   }
+
+   let router = universal_router_v2(1).unwrap();
+   let nft_manager = uniswap_v3_nft_position_manager(1).unwrap();
+
+   let mut changes = Vec::new();
+   if let Some(change) = ApprovalChange::from_wei(
+      ApprovalKind::Erc20,
+      weth,
+      router,
+      U256::ZERO,
+      U256::MAX,
+      None,
+   ) {
+      changes.push(change);
+   }
+   if let Some(change) = ApprovalChange::from_wei(
+      ApprovalKind::Permit2,
+      usdc,
+      router,
+      U256::ZERO,
+      usdc_allowance,
+      Some(u64::MAX),
+   ) {
+      changes.push(change);
+   }
+   if let Some(change) = ApprovalChange::from_wei(
+      ApprovalKind::Erc20,
+      dai,
+      nft_manager,
+      U256::MAX,
+      U256::ZERO,
+      None,
+   ) {
+      changes.push(change);
+   }
+
+   (
+      BalanceDiff {
+         native: native_change(1, eth_before, eth_after),
+         tokens,
+      },
+      ApprovalDiff { changes },
+   )
 }

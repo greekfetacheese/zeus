@@ -2,6 +2,7 @@
 //!
 //! Log `Approval` amounts are untrusted. Amounts here come from `allowance()`.
 
+use crate::utils::TimeStamp;
 use serde::{Deserialize, Serialize};
 use zeus_eth::{
    abi::{erc20, permit},
@@ -38,9 +39,9 @@ pub struct ApprovalChange {
    pub spender: Address,
    pub before: NumericValue,
    pub after: NumericValue,
-   /// Permit2 expiration after the tx (unix seconds). `None` for ERC-20.
+   /// Permit2 expiration after the tx. `None` for ERC-20.
    #[serde(default)]
-   pub expiration_after: Option<u64>,
+   pub expiration_after: Option<TimeStamp>,
 }
 
 impl ApprovalChange {
@@ -62,7 +63,7 @@ impl ApprovalChange {
          spender,
          before: NumericValue::format_wei(before, decimals),
          after: NumericValue::format_wei(after, decimals),
-         expiration_after,
+         expiration_after: expiration_after.map(TimeStamp::Seconds),
       })
    }
 
@@ -128,6 +129,10 @@ fn push_candidate(
 }
 
 /// `(token, spender)` pairs to probe for the signer.
+///
+/// Known in-app approvals are only included when `spender == interact_to`
+/// so we catch silent allowance spends on the contract being called without
+/// probing every saved spender (those are sequential RPC calls on the ForkDB so they are slow).
 pub fn collect_approval_candidates(
    owner: Address,
    interact_to: Address,
@@ -139,10 +144,14 @@ pub fn collect_approval_candidates(
    let mut out = Vec::new();
 
    for (token, spender) in known_erc20 {
-      push_candidate(&mut out, ApprovalKind::Erc20, token, spender);
+      if spender == interact_to {
+         push_candidate(&mut out, ApprovalKind::Erc20, token, spender);
+      }
    }
    for (token, spender) in known_permit2 {
-      push_candidate(&mut out, ApprovalKind::Permit2, token, spender);
+      if spender == interact_to {
+         push_candidate(&mut out, ApprovalKind::Permit2, token, spender);
+      }
    }
 
    if let Ok((spender, _amount)) = erc20::decode_approve_call(call_data) {
@@ -239,19 +248,31 @@ mod tests {
    }
 
    #[test]
-   fn known_pairs_are_included_and_deduped() {
-      let data = approve_calldata(spender(), U256::from(1u64));
+   fn known_pairs_matching_interact_to_are_included_and_deduped() {
       let got = collect_approval_candidates(
          owner(),
-         token(),
-         &data,
+         spender(),
+         &Bytes::new(),
          &[],
-         [(token(), spender())],
+         [(token(), spender()), (token(), spender())],
          [(token(), spender())],
       );
       assert_eq!(got.len(), 2);
       assert_eq!(got[0].kind, ApprovalKind::Erc20);
       assert_eq!(got[1].kind, ApprovalKind::Permit2);
+   }
+
+   #[test]
+   fn known_pairs_other_spender_are_skipped() {
+      let got = collect_approval_candidates(
+         owner(),
+         token(),
+         &Bytes::new(),
+         &[],
+         [(token(), spender())],
+         [(token(), spender())],
+      );
+      assert!(got.is_empty());
    }
 
    #[test]
@@ -270,22 +291,9 @@ mod tests {
 
    #[test]
    fn candidates_cap_at_max() {
-      let known: Vec<(Address, Address)> = (1u8..=80)
-         .map(|i| {
-            (
-               Address::repeat_byte(i),
-               Address::repeat_byte(i.saturating_add(1)),
-            )
-         })
-         .collect();
-      let got = collect_approval_candidates(
-         owner(),
-         Address::ZERO,
-         &Bytes::new(),
-         &[],
-         known,
-         [],
-      );
+      let known: Vec<(Address, Address)> =
+         (1u8..=80).map(|i| (Address::repeat_byte(i), spender())).collect();
+      let got = collect_approval_candidates(owner(), spender(), &Bytes::new(), &[], known, []);
       assert_eq!(got.len(), MAX_APPROVAL_CANDIDATES);
    }
 

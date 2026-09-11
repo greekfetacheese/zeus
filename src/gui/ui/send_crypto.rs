@@ -24,7 +24,7 @@ use crate::gui::{
       dapps::railgun::private_transfer,
    },
 };
-use crate::utils::simulate::fetch_accounts_info;
+use crate::utils::simulate::{AccountPrefetch, fetch_accounts_info};
 use egui_elements::{Button, SecureTextEdit, Theme};
 use egui_lucide::Lucide;
 
@@ -872,10 +872,12 @@ async fn send_token(
    let block_id = BlockId::number(block.number());
 
    let mut accounts = Vec::new();
-   accounts.push(from);
-   accounts.push(recipient);
-   accounts.push(token.address);
-   accounts.push(block.header.beneficiary);
+   accounts.push(AccountPrefetch::eoa(from));
+   accounts.push(AccountPrefetch::eoa(recipient));
+   accounts.push(AccountPrefetch::contract(token.address));
+   accounts.push(AccountPrefetch::eoa(
+      block.header.beneficiary,
+   ));
 
    let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), block_id, accounts).await;
 
