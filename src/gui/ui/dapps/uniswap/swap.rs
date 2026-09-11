@@ -1412,7 +1412,6 @@ pub async fn wrap_eth(
    {
       let mut evm = new_evm(chain, Some(&block), fork_db.clone());
 
-      let time = Instant::now();
       sim_res = simulate_transaction(
          &mut evm,
          from,
@@ -1421,10 +1420,6 @@ pub async fn wrap_eth(
          value,
          vec![],
       )?;
-      tracing::info!(
-         "Simulate Transaction took {} ms",
-         time.elapsed().as_millis()
-      );
 
       let state = evm.balance(from);
       eth_balance_after = if let Some(state) = state {
@@ -1587,7 +1582,6 @@ pub async fn unwrap_weth(
    {
       let mut evm = new_evm(chain, Some(&block), fork_db.clone());
 
-      let time = Instant::now();
       sim_res = simulate_transaction(
          &mut evm,
          from,
@@ -1596,11 +1590,6 @@ pub async fn unwrap_weth(
          value,
          vec![],
       )?;
-
-      tracing::info!(
-         "Simulate Transaction took {} ms",
-         time.elapsed().as_millis()
-      );
 
       let state = evm.balance(from);
       eth_balance_after = if let Some(state) = state {
@@ -1997,8 +1986,6 @@ async fn swap_via_ur(
    {
       let mut evm = new_evm(chain, Some(&block), fork_db);
 
-      let time = Instant::now();
-
       sim_res = simulate_transaction(
          &mut evm,
          signer_address,
@@ -2007,11 +1994,6 @@ async fn swap_via_ur(
          params.value,
          vec![],
       )?;
-
-      tracing::info!(
-         "Swap Simulation took {} ms",
-         time.elapsed().as_millis()
-      );
 
       let state = evm.balance(signer_address);
       eth_balance_after = if let Some(state) = state {

@@ -1,6 +1,6 @@
 //! Private (zk → zk) Railgun transfer execution
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::time::sleep;
 
 use anyhow::anyhow;
@@ -381,8 +381,6 @@ async fn exec_private_transfer(
       let mut evm = new_evm(chain, Some(&fork_block), fork_db.clone());
       evm.tx.gas_limit = 30_000_000;
 
-      let time = Instant::now();
-
       sim_res = match simulate_transaction(
          &mut evm,
          from,
@@ -413,13 +411,6 @@ async fn exec_private_transfer(
             return Err(anyhow!("Simulation failed: {:?}", e));
          }
       };
-
-      tracing::info!(
-         "Simulate Private Transfer took {} ms, gas={}, logs={}",
-         time.elapsed().as_millis(),
-         sim_res.tx_gas_used(),
-         sim_res.clone().into_logs().len()
-      );
 
       let state = evm.balance(from);
       eth_balance_after = if let Some(state) = state {

@@ -13,7 +13,7 @@ use std::{
 use crate::core::{
    DecodedEvent, TransactionAnalysis, TransferParams, ZeusContext, ZeusCtx, send_transaction,
 };
-use crate::utils::{RT, estimate_tx_cost};
+use crate::utils::{RT, estimate_tx_cost, simulate};
 
 use crate::assets::icons::Icons;
 use crate::gui::{
@@ -33,9 +33,9 @@ use zeus_eth::{
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
    currency::{Currency, ERC20Token, NativeCurrency},
-   revm_utils::{ForkFactory, Host, new_evm, simulate},
+   revm_utils::{ForkFactory, Host, new_evm, simulate as revm_simulate},
    types::ChainId,
-   utils::NumericValue,
+   utils::{NumericValue, batch},
 };
 
 use anyhow::anyhow;
@@ -795,11 +795,157 @@ async fn send_eth(
    let value = amount.wei();
    let call_data = Bytes::default();
    let auth_list = Vec::new();
+   let eth = NativeCurrency::from(chain.id());
+
+   let client = ctx.get_zeus_client();
+
+   let block_opt = client
+      .request(chain.id(), |client| async move {
+         client.get_block(BlockId::latest()).await.map_err(|e| anyhow!("{:?}", e))
+      })
+      .await?;
+
+   let Some(block) = block_opt else {
+      return Err(anyhow!(
+         "No block found, this is usally a provider issue"
+      ));
+   };
+
+   let accounts = vec![from, recipient];
+   let block_id = BlockId::number(block.number());
+
+   let eth_balance_before = client
+      .request(chain.id(), |client| {
+         let accounts2 = accounts.clone();
+         async move {
+            batch::get_eth_balances(
+               client,
+               chain.id(),
+               Some(block_id),
+               accounts2.clone(),
+            )
+            .await
+         }
+      })
+      .await?;
+
+   if eth_balance_before.len() != accounts.len() {
+      return Err(anyhow!(
+         "Failed to fetch ETH balances for accounts"
+      ));
+   }
+
+   let sender_eth_balance_before = &eth_balance_before[0].balance;
+   let recipient_eth_balance_before = &eth_balance_before[1].balance;
+
+   let mut prefetch_accounts = Vec::new();
+   prefetch_accounts.push(AccountPrefetch::eoa(from));
+   prefetch_accounts.push(AccountPrefetch::eoa(recipient));
+   prefetch_accounts.push(AccountPrefetch::eoa(block.header.beneficiary));
+
+   let accounts_info = fetch_accounts_info(
+      ctx.clone(),
+      chain.id(),
+      block_id,
+      prefetch_accounts,
+   )
+   .await;
+
+   let fork_client = ctx.get_client(chain.id()).await?;
+   let mut factory =
+      ForkFactory::new_sandbox_factory(fork_client, chain.id(), None, Some(block_id));
+
+   for info in accounts_info {
+      factory.insert_account_info(info.address, info.info);
+   }
+
+   let fork_db = factory.new_sandbox_fork();
+
+   let mut transfer_params = TransferParams {
+      currency: eth.clone().into(),
+      sender: from,
+      recipient,
+      ..Default::default()
+   };
+
+   let sender_eth_balance_after;
+   let _real_amount_sent;
+   let logs;
+   let gas_used;
+
+   {
+      let mut evm = new_evm(chain, Some(&block), fork_db);
+
+      let res = simulate::simulate_transaction(
+         &mut evm,
+         from,
+         recipient,
+         call_data.clone(),
+         value,
+         auth_list,
+      )?;
+
+      let state = evm.balance(recipient);
+      let recipient_eth_balance_after = if let Some(state) = state {
+         state.data
+      } else {
+         U256::ZERO
+      };
+
+      _real_amount_sent = if recipient_eth_balance_after > *recipient_eth_balance_before {
+         recipient_eth_balance_after - recipient_eth_balance_before
+      } else {
+         return Err(anyhow!(
+            "Simulation Error: Recipient did not receive any ETH after the transfer"
+         ));
+      };
+
+      let state = evm.balance(from);
+      sender_eth_balance_after = if let Some(state) = state {
+         state.data
+      } else {
+         U256::ZERO
+      };
+
+      gas_used = res.tx_gas_used();
+      logs = res.logs().to_vec();
+   }
+
+   let eth_cur = eth.clone().into();
+   let amount_usd = ctx.get_currency_value_for_amount(amount.f64(), &eth_cur);
+   // let real_amount_sent = NumericValue::format_wei(real_amount_sent, eth.decimals);
+   // let real_amount_send_usd = ctx.get_currency_value_for_amount(real_amount_sent.f64(), &eth_cur);
+
+   transfer_params.amount = amount;
+   transfer_params.amount_usd = Some(amount_usd);
+   // transfer_params.real_amount_sent = Some(real_amount_sent);
+   // transfer_params.real_amount_sent_usd = Some(real_amount_send_usd);
+
+   let contract_interact = Some(false);
+   let auth_list = Vec::new();
+
+   let mut tx_analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      from,
+      interact_to,
+      contract_interact,
+      call_data.clone(),
+      value,
+      logs,
+      gas_used,
+      *sender_eth_balance_before,
+      sender_eth_balance_after,
+      auth_list.clone(),
+   )
+   .await?;
+
+   tx_analysis.set_main_event(DecodedEvent::Transfer(transfer_params));
 
    let (_, _) = send_transaction(
       ctx.clone(),
       dapp,
-      None,
+      Some(tx_analysis),
       chain,
       mev_protect,
       from,
@@ -835,6 +981,7 @@ async fn send_token(
    let interact_to = token.address;
    let value = U256::ZERO;
    let call_data = token.encode_transfer(recipient, amount.wei());
+   let auth_list = Vec::new();
 
    let client = ctx.get_zeus_client();
 
@@ -875,9 +1022,7 @@ async fn send_token(
    accounts.push(AccountPrefetch::eoa(from));
    accounts.push(AccountPrefetch::eoa(recipient));
    accounts.push(AccountPrefetch::contract(token.address));
-   accounts.push(AccountPrefetch::eoa(
-      block.header.beneficiary,
-   ));
+   accounts.push(AccountPrefetch::eoa(block.header.beneficiary));
 
    let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), block_id, accounts).await;
 
@@ -906,17 +1051,17 @@ async fn send_token(
    {
       let mut evm = new_evm(chain, Some(&block), fork_db);
 
-      let res = simulate::transfer_token(
+      let res = simulate::simulate_transaction(
          &mut evm,
-         token.address,
          from,
-         recipient,
-         amount.wei(),
-         true,
+         interact_to,
+         call_data.clone(),
+         value,
+         auth_list,
       )?;
 
       let recipient_token_balance_after =
-         simulate::erc20_balance(&mut evm, token.address, recipient)?;
+         revm_simulate::erc20_balance(&mut evm, token.address, recipient)?;
 
       let real_amount = if recipient_token_balance_after > recipient_token_balance_before {
          recipient_token_balance_after - recipient_token_balance_before

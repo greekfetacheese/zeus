@@ -458,8 +458,13 @@ impl TxConfirmationWindow {
                   ui.set_width(ui_size.x);
                   ui.horizontal(|ui| {
                      ui.spacing_mut().item_spacing.x = theme.spacing.sm;
+                     let has_diffs =
+                        !analysis.balance_diff.is_empty() || !analysis.approval_diff.is_empty();
 
-                     let n = 3.0;
+                     let n = match has_diffs {
+                        true => 3.0,
+                        false => 2.0,
+                     };
                      let gap = theme.spacing.sm * (n - 1.0);
                      let button_size = vec2((ui.available_width() - gap) / n, 30.0);
 
@@ -476,10 +481,14 @@ impl TxConfirmationWindow {
                         self.show_calldata = true;
                      }
 
-                     let text = RichText::new("Balance & Approvals").size(theme.typography.large);
-                     let button = Button::new(text).visuals(button_visuals).min_size(button_size);
-                     if ui.add(button).clicked() {
-                        self.show_diffs = true;
+                     if has_diffs {
+                        let text =
+                           RichText::new("Balance & Approvals").size(theme.typography.large);
+                        let button =
+                           Button::new(text).visuals(button_visuals).min_size(button_size);
+                        if ui.add(button).clicked() {
+                           self.show_diffs = true;
+                        }
                      }
                   });
                });
@@ -488,7 +497,7 @@ impl TxConfirmationWindow {
                   self.sufficient_balance(ctx, analysis.value_sent().wei(), analysis.sender);
 
                let mut recalculate_tx_cost = false;
-               
+
                let size = vec2(ui.available_width() * 0.7, 45.0);
 
                // Priority Fee / Gas Limit

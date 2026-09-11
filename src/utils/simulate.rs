@@ -49,6 +49,8 @@ where
       evm.tx.tx_type = 4;
    }
 
+   let time = Instant::now();
+
    let sim_res = evm
       .transact_commit(evm.tx.clone())
       .map_err(|e| anyhow!("Simulation failed: {:?}", e))?;
@@ -64,6 +66,11 @@ where
       );
       return Err(anyhow!("Failed to simulate transaction: {}", err));
    }
+
+   tracing::info!(
+      "Simulate Transaction took {} ms",
+      time.elapsed().as_millis()
+   );
 
    Ok(sim_res)
 }

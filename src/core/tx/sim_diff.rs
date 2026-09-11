@@ -457,7 +457,6 @@ pub async fn simulate_and_diff(
    ) = {
       let mut evm = new_evm(chain, Some(&block), fork_db);
 
-      let time = Instant::now();
       let sim_res = simulate_transaction(
          &mut evm,
          from,
@@ -466,11 +465,6 @@ pub async fn simulate_and_diff(
          value,
          authorization_list,
       )?;
-
-      tracing::info!(
-         "simulate_transaction took {} ms",
-         time.elapsed().as_millis()
-      );
 
       let balance_after = evm.balance(from).map(|state| state.data).unwrap_or(U256::ZERO);
       let logs = sim_res.clone().into_logs();

@@ -1179,7 +1179,6 @@ async fn shield(
    {
       let mut evm = new_evm(chain, Some(&block), fork_db.clone());
 
-      let time = Instant::now();
       sim_res = simulate_transaction(
          &mut evm,
          from,
@@ -1188,10 +1187,6 @@ async fn shield(
          value,
          vec![],
       )?;
-      tracing::info!(
-         "Simulate Transaction took {} ms",
-         time.elapsed().as_millis()
-      );
 
       let state = evm.balance(from);
       eth_balance_after = if let Some(state) = state {

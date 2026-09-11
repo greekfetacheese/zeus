@@ -288,8 +288,6 @@ async fn unshield_self_broadcast(
       let mut evm = new_evm(chain, Some(&fork_block), fork_db.clone());
       evm.tx.gas_limit = 30_000_000;
 
-      let time = Instant::now();
-
       sim_res = match simulate_transaction(
          &mut evm,
          from,
@@ -322,13 +320,6 @@ async fn unshield_self_broadcast(
             return Err(anyhow!("Simulation failed: {:?}", e));
          }
       };
-
-      tracing::info!(
-         "Simulate Unshield took {} ms, gas={}, logs={}",
-         time.elapsed().as_millis(),
-         sim_res.tx_gas_used(),
-         sim_res.clone().into_logs().len()
-      );
 
       let state = evm.balance(from);
       eth_balance_after = if let Some(state) = state {
@@ -923,7 +914,6 @@ async fn unshield_via_paymaster(
       let mut evm = new_evm(chain, Some(&fork_block), fork_db.clone());
       evm.tx.gas_limit = 30_000_000;
 
-      let time = Instant::now();
       sim_res = match simulate_transaction(
          &mut evm,
          bundle_caller,
@@ -956,13 +946,6 @@ async fn unshield_via_paymaster(
             return Err(anyhow!("Simulation failed: {:?}", e));
          }
       };
-
-      tracing::info!(
-         "Simulate handleOps took {} ms, gas={}, logs={}",
-         time.elapsed().as_millis(),
-         sim_res.tx_gas_used(),
-         sim_res.clone().into_logs().len()
-      );
 
       let state = evm.balance(from);
       eth_balance_after = if let Some(state) = state {
