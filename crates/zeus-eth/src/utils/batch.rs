@@ -474,32 +474,34 @@ where
    }
 
    let block = block.unwrap_or(BlockId::latest());
-   let mut builder = client.multicall().dynamic::<Permit2::allowanceCall>().block(block);
-   for (token, spender) in &pairs {
-      let input = Bytes::from(
-         Permit2::allowanceCall {
-            user: owner,
-            token: *token,
-            spender: *spender,
-         }
-         .abi_encode(),
-      );
-      let call = CallItem::<Permit2::allowanceCall>::new(permit2, input).allow_failure(true);
-      builder = builder.add_call_dynamic(call);
-   }
-
-   let results = builder.aggregate3().await?;
    let mut out = Vec::new();
-   for (i, result) in results.into_iter().enumerate() {
-      if let Ok(decoded) = result {
-         let (token, spender) = pairs[i];
-         let expiration = u64::try_from(decoded.expiration).unwrap_or(0);
-         out.push((
-            token,
-            spender,
-            U256::from(decoded.amount),
-            expiration,
-         ));
+   for chunk in pairs.chunks(MULTICALL_PAIR_BATCH) {
+      let mut builder = client.multicall().dynamic::<Permit2::allowanceCall>().block(block);
+      for (token, spender) in chunk {
+         let input = Bytes::from(
+            Permit2::allowanceCall {
+               user: owner,
+               token: *token,
+               spender: *spender,
+            }
+            .abi_encode(),
+         );
+         let call = CallItem::<Permit2::allowanceCall>::new(permit2, input).allow_failure(true);
+         builder = builder.add_call_dynamic(call);
+      }
+
+      let results = builder.aggregate3().await?;
+      for (i, result) in results.into_iter().enumerate() {
+         if let Ok(decoded) = result {
+            let (token, spender) = chunk[i];
+            let expiration = u64::try_from(decoded.expiration).unwrap_or(0);
+            out.push((
+               token,
+               spender,
+               U256::from(decoded.amount),
+               expiration,
+            ));
+         }
       }
    }
    Ok(out)

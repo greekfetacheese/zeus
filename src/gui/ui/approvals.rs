@@ -2,10 +2,11 @@
 
 use crate::assets::icons::Icons;
 use crate::core::{
-   PermitParams, TokenApproveParams, WalletInfo, ZeusContext, send_transaction, signature,
+   DecodedEvent, PermitParams, TokenApproveParams, TransactionAnalysis, WalletInfo, ZeusContext,
+   ZeusCtx, send_transaction, signature,
 };
 use crate::gui::{SHARED_GUI, ui::show_with_fade};
-use crate::utils::{RT, TimeStamp, truncate_address};
+use crate::utils::{RT, TimeStamp, simulate::simulate_for_analysis, truncate_address};
 use egui::{
    Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, UiBuilder,
    vec2,
@@ -19,7 +20,7 @@ use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
    types::ChainId,
-   utils::{NumericValue, address_book},
+   utils::{NumericValue, address_book, batch},
 };
 
 const ZEUS_TIP: &str = "Zeus only shows approvals that have been been made in-app.\n
@@ -71,9 +72,6 @@ impl CacheKey {
    }
 }
 
-/// `(chain, owner, token, spender)`.
-type PermitInfoMap = HashMap<(u64, Address, Address, Address), signature::Permit2Info>;
-
 pub struct ApprovalsUi {
    open: bool,
    loading: bool,
@@ -81,7 +79,6 @@ pub struct ApprovalsUi {
    selected_chain: Option<ChainId>,
    cached_rows: Vec<ApprovalRow>,
    cache_key: CacheKey,
-   cached_permit_info: PermitInfoMap,
    current_page: usize,
    rows_per_page: usize,
 }
@@ -95,7 +92,6 @@ impl ApprovalsUi {
          selected_chain: None,
          cached_rows: Vec::new(),
          cache_key: CacheKey::default(),
-         cached_permit_info: HashMap::new(),
          current_page: 0,
          rows_per_page: DEFAULT_ROWS_PER_PAGE,
       }
@@ -126,7 +122,6 @@ impl ApprovalsUi {
       self.selected_chain = None;
       self.cached_rows = Vec::new();
       self.cache_key = CacheKey::default();
-      self.cached_permit_info = HashMap::new();
       self.current_page = 0;
    }
 
@@ -154,7 +149,6 @@ impl ApprovalsUi {
 
       let selected_wallet = self.selected_wallet.clone();
       let selected_chain = self.selected_chain;
-      let mut permit_info_cache = self.cached_permit_info.clone();
 
       RT.spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
@@ -189,6 +183,7 @@ impl ApprovalsUi {
             });
          }
 
+         let mut permit_groups: HashMap<(u64, Address), Vec<PermitParams>> = HashMap::new();
          for params in manager.get_all_active_permits() {
             if ctx.is_chain_disabled(params.chain) {
                continue;
@@ -206,45 +201,28 @@ impl ApprovalsUi {
                }
             }
 
-            // We actually need to call the permit info here to check if the amount
-            // has been already spent
+            permit_groups.entry((params.chain, params.owner)).or_default().push(params);
+         }
 
-            let key = (
-               params.chain,
-               params.owner,
-               params.token.address(),
-               params.spender,
-            );
+         let now = TimeStamp::now_as_secs().ok().map(|t| t.timestamp());
 
-            // Check cache first, if empty fetch from rpc
-            let info_opt = permit_info_cache.get(&key).cloned();
+         for ((chain, owner), permits) in permit_groups {
+            let pairs: Vec<(Address, Address)> =
+               permits.iter().map(|p| (p.token.address(), p.spender)).collect();
+            let onchain = live_permit2_allowances(ctx.clone(), chain, owner, pairs).await;
 
-            // TODO: Update the StateView contract so we can do batch calls here
+            for params in permits {
+               let key = (params.token.address(), params.spender);
+               let still_valid = match onchain.get(&key) {
+                  Some(&(amount, expiration)) => {
+                     let expired = now.map(|n| expiration < n).unwrap_or(false);
+                     amount >= params.amount.wei() && !expired
+                  }
+                  // RPC miss — keep the in-app row rather than hiding a live permit.
+                  None => true,
+               };
 
-            let permit_info = if let Some(info) = info_opt {
-               Some(info)
-            } else {
-               let info_res = signature::Permit2Info::new(
-                  ctx.clone(),
-                  params.chain,
-                  &params.token.to_erc20(),
-                  params.amount.wei(),
-                  params.owner,
-                  params.spender,
-               )
-               .await;
-
-               if let Ok(info) = info_res {
-                  permit_info_cache.insert(key, info.clone());
-                  Some(info)
-               } else {
-                  None
-               }
-            };
-
-            if let Some(info) = permit_info {
-               // If it doesnt need a new signature it means the permit is still valid
-               if !info.needs_new_signature {
+               if still_valid {
                   rows.push(ApprovalRow {
                      chain: params.chain,
                      owner: params.owner,
@@ -254,15 +232,6 @@ impl ApprovalsUi {
                      kind: ApprovalKind::Permit2(params),
                   });
                }
-            } else {
-               rows.push(ApprovalRow {
-                  chain: params.chain,
-                  owner: params.owner,
-                  token: params.token.clone(),
-                  spender: params.spender,
-                  amount: params.amount.clone(),
-                  kind: ApprovalKind::Permit2(params),
-               });
             }
          }
 
@@ -280,7 +249,6 @@ impl ApprovalsUi {
                gui.approvals.cached_rows = rows;
             }
             gui.approvals.loading = false;
-            gui.approvals.cached_permit_info = permit_info_cache;
             gui.request_repaint();
          });
       });
@@ -805,13 +773,49 @@ impl ApprovalsUi {
    }
 }
 
+async fn live_permit2_allowances(
+   ctx: ZeusCtx,
+   chain: u64,
+   owner: Address,
+   pairs: Vec<(Address, Address)>,
+) -> HashMap<(Address, Address), (U256, u64)> {
+   if pairs.is_empty() {
+      return HashMap::new();
+   }
+   let Ok(permit2) = address_book::permit2_contract(chain) else {
+      return HashMap::new();
+   };
+
+   let client = ctx.get_zeus_client();
+   match client
+      .request(chain, |client| {
+         let pairs = pairs.clone();
+         async move { batch::get_permit2_allowances(client, permit2, owner, pairs, None).await }
+      })
+      .await
+   {
+      Ok(rows) => rows
+         .into_iter()
+         .map(|(token, spender, amount, expiration)| ((token, spender), (amount, expiration)))
+         .collect(),
+      Err(e) => {
+         tracing::warn!("Permit2 allowances failed: {:?}", e);
+         HashMap::new()
+      }
+   }
+}
+
 async fn revoke_erc20_approval(
    chain_id: u64,
    token: ERC20Token,
    from: Address,
    spender: Address,
 ) -> Result<(), anyhow::Error> {
-   let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+   let ctx = SHARED_GUI.write(|gui| {
+      gui.loading_window.open("Wait while magic happens");
+      gui.request_repaint();
+      gui.ctx.clone()
+   });
    let chain: ChainId = chain_id.into();
 
    let calldata = token.encode_approve(spender, U256::ZERO);
@@ -821,10 +825,46 @@ async fn revoke_erc20_approval(
    let auth_list = vec![];
    let interact_to = token.address;
 
+   let simulated = simulate_for_analysis(
+      ctx.clone(),
+      chain,
+      from,
+      interact_to,
+      calldata.clone(),
+      value,
+      Vec::new(),
+   )
+   .await?;
+
+   let params = TokenApproveParams {
+      token: token.clone(),
+      amount: NumericValue::default(),
+      amount_usd: None,
+      owner: from,
+      spender,
+   };
+
+   let mut analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      from,
+      interact_to,
+      Some(true),
+      calldata.clone(),
+      value,
+      simulated.logs,
+      simulated.gas_used,
+      simulated.balance_before,
+      simulated.balance_after,
+      auth_list.clone(),
+   )
+   .await?;
+   analysis.set_main_event(DecodedEvent::TokenApprove(params));
+
    let (_, _) = send_transaction(
       ctx,
       dapp,
-      None,
+      Some(analysis),
       chain,
       mev_protect,
       from,
@@ -906,10 +946,49 @@ async fn revoke_permit2_approval(
       signature,
    );
 
+   let simulated = simulate_for_analysis(
+      ctx.clone(),
+      chain,
+      owner,
+      permit2,
+      calldata.clone(),
+      U256::ZERO,
+      Vec::new(),
+   )
+   .await?;
+
+   let params = PermitParams {
+      event_name: "Revoke Permit".to_string(),
+      chain: chain_id,
+      owner,
+      token,
+      spender,
+      amount: NumericValue::default(),
+      amount_usd: None,
+      expiration: TimeStamp::Seconds(0),
+   };
+
+   let mut analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      owner,
+      permit2,
+      Some(true),
+      calldata.clone(),
+      U256::ZERO,
+      simulated.logs,
+      simulated.gas_used,
+      simulated.balance_before,
+      simulated.balance_after,
+      vec![],
+   )
+   .await?;
+   analysis.set_main_event(DecodedEvent::Permit(params));
+
    let (_, _) = send_transaction(
       ctx,
       "".to_string(),
-      None,
+      Some(analysis),
       chain,
       false,
       owner,

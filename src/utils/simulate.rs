@@ -4,13 +4,16 @@ use crate::utils::RT;
 use alloy_eips::eip7702::SignedAuthorization;
 use either::Either;
 use zeus_eth::{
-   alloy_primitives::{Address, Bytes, KECCAK256_EMPTY, TxKind, U256, address, keccak256},
+   alloy_contract::private::Provider,
+   alloy_primitives::{Address, Bytes, KECCAK256_EMPTY, Log, TxKind, U256, address, keccak256},
    alloy_rpc_types::BlockId,
    amm::uniswap::UniswapPool,
    revm_utils::{
-      Database, DatabaseCommit, Evm2, ExecuteCommitEvm, ExecutionResult, revert_msg,
+      Database, DatabaseCommit, Evm2, ExecuteCommitEvm, ExecutionResult, ForkFactory, Host,
+      new_evm, revert_msg,
       revm::state::{AccountInfo, Bytecode},
    },
+   types::ChainId,
    utils::{address_book, batch},
 };
 
@@ -73,6 +76,87 @@ where
    );
 
    Ok(sim_res)
+}
+
+/// Fork-sim result used to build a first-party [`crate::core::TransactionAnalysis`].
+pub struct SimulatedCall {
+   pub logs: Vec<Log>,
+   pub gas_used: u64,
+   pub balance_before: U256,
+   pub balance_after: U256,
+}
+
+/// Prefetch, fork, and simulate a call. Native before/after are the same EVM snapshot.
+pub async fn simulate_for_analysis(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   from: Address,
+   interact_to: Address,
+   call_data: Bytes,
+   value: U256,
+   extra_prefetch: Vec<AccountPrefetch>,
+) -> Result<SimulatedCall, anyhow::Error> {
+   let client = ctx.get_zeus_client();
+
+   let block = client
+      .request(chain.id(), |client| async move {
+         client.get_block(BlockId::latest()).await.map_err(|e| anyhow!("{:?}", e))
+      })
+      .await?;
+
+   let block = block.ok_or_else(|| anyhow!("No block found, this is usally a provider issue"))?;
+   let block_id = BlockId::number(block.header.number);
+
+   let bytecode = client
+      .request(chain.id(), |client| async move {
+         client.get_code_at(interact_to).await.map_err(|e| anyhow!("{:?}", e))
+      })
+      .await?;
+
+   let interact_prefetch = if bytecode.is_empty() {
+      AccountPrefetch::eoa(interact_to)
+   } else {
+      AccountPrefetch::contract(interact_to)
+   };
+
+   let mut accounts = vec![
+      AccountPrefetch::eoa(from),
+      interact_prefetch,
+      AccountPrefetch::eoa(block.header.beneficiary),
+   ];
+   accounts.extend(extra_prefetch);
+
+   let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), block_id, accounts).await;
+   let fork_client = ctx.get_client(chain.id()).await?;
+   let mut factory =
+      ForkFactory::new_sandbox_factory(fork_client, chain.id(), None, Some(block_id));
+
+   for info in accounts_info {
+      factory.insert_account_info(info.address, info.info);
+   }
+
+   let fork_db = factory.new_sandbox_fork();
+   let mut evm = new_evm(chain, Some(&block), fork_db);
+
+   let balance_before = evm.balance(from).map(|state| state.data).unwrap_or(U256::ZERO);
+
+   let sim_res = simulate_transaction(
+      &mut evm,
+      from,
+      interact_to,
+      call_data,
+      value,
+      Vec::new(),
+   )?;
+
+   let balance_after = evm.balance(from).map(|state| state.data).unwrap_or(U256::ZERO);
+
+   Ok(SimulatedCall {
+      logs: sim_res.clone().into_logs(),
+      gas_used: sim_res.tx_gas_used(),
+      balance_before,
+      balance_after,
+   })
 }
 
 #[derive(Clone, Debug)]

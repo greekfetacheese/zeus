@@ -2,7 +2,10 @@
 
 use crate::assets::icons::Icons;
 use crate::core::persisted::{PersistedFile, file_path};
-use crate::core::{ZeusContext, ZeusCtx, send_transaction};
+use crate::core::{
+   BridgeParams, DecodedEvent, TransactionAnalysis, ZeusContext, ZeusCtx, send_transaction,
+   types::Dapp,
+};
 use crate::gui::{
    SHARED_GUI,
    ui::{
@@ -11,7 +14,7 @@ use crate::gui::{
       show_with_fade,
    },
 };
-use crate::utils::{RT, estimate_tx_cost, write_private};
+use crate::utils::{RT, estimate_tx_cost, simulate::simulate_for_analysis, write_private};
 use anyhow::anyhow;
 use egui::{
    Align, CornerRadius, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText, Slider,
@@ -955,7 +958,8 @@ impl AcrossBridge {
             recipient,
             transact_to,
             call_data,
-            input_amount.wei(),
+            input_amount,
+            output_amount,
          )
          .await
          {
@@ -1037,7 +1041,8 @@ async fn across_bridge(
    recipient: Address,
    interact_to: Address,
    call_data: Bytes,
-   value: U256,
+   input_amount: NumericValue,
+   output_amount: NumericValue,
 ) -> Result<(), anyhow::Error> {
    // Across protocol is very fast on filling the orders
    // So we get the latest block from the destination chain now so we dont miss it and the progress window stucks
@@ -1063,11 +1068,59 @@ async fn across_bridge(
 
    let mev_protect = false;
    let auth_list = Vec::new();
+   let value = input_amount.wei();
+
+   let simulated = simulate_for_analysis(
+      ctx.clone(),
+      chain,
+      from,
+      interact_to,
+      call_data.clone(),
+      value,
+      Vec::new(),
+   )
+   .await?;
+
+   let input_currency = Currency::from(NativeCurrency::from(chain.id()));
+   let output_currency = Currency::from(NativeCurrency::from(dest_chain.id()));
+   let amount_usd = ctx.get_currency_value_for_amount(input_amount.f64(), &input_currency);
+   let received_usd = ctx.get_currency_value_for_amount(output_amount.f64(), &output_currency);
+
+   let params = BridgeParams {
+      dapp: Dapp::Across,
+      origin_chain: chain.id(),
+      destination_chain: dest_chain.id(),
+      input_currency,
+      output_currency,
+      amount: input_amount,
+      amount_usd: Some(amount_usd),
+      received: output_amount,
+      received_usd: Some(received_usd),
+      depositor: from,
+      recipient,
+   };
+
+   let mut tx_analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      from,
+      interact_to,
+      Some(true),
+      call_data.clone(),
+      value,
+      simulated.logs,
+      simulated.gas_used,
+      simulated.balance_before,
+      simulated.balance_after,
+      auth_list.clone(),
+   )
+   .await?;
+   tx_analysis.set_main_event(DecodedEvent::Bridge(params));
 
    let (_, _) = send_transaction(
       ctx.clone(),
       "".to_string(),
-      None,
+      Some(tx_analysis),
       chain,
       mev_protect,
       from,
