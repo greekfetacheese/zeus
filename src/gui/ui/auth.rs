@@ -188,6 +188,7 @@ impl UnlockVault {
                ctx.load_currency_db();
                ctx.load_pool_manager();
                ctx.load_zeus_client();
+               ctx.load_price_manager();
                ctx.load_or_create_address_book();
 
                let bundler_url = match BundlerUrl::exists() {

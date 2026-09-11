@@ -83,7 +83,7 @@ persisted_files! {
    Providers => "providers.data",
    BundlerUrl => "bundler_url.data",
    AddressBook => "address_book.data",
-   PriceData => "price_data.json",
+   PriceData => "price_data.data",
    Theme => "theme.json",
    ServerPort => "server_port.json",
    DisabledChains => "disabled_chains.json",

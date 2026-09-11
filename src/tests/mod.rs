@@ -36,6 +36,7 @@ pub fn unlock_ctx() -> crate::core::ZeusCtx {
    ctx.load_currency_db();
    ctx.load_pool_manager();
    ctx.load_zeus_client();
+   ctx.load_price_manager();
 
    ctx
 }

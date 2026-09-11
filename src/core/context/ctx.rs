@@ -1045,19 +1045,10 @@ impl ZeusCtx {
          fresh_pools.read(|fresh| *manager = fresh.clone());
       });
 
-      match PriceManagerHandle::load_from_file() {
-         Ok(loaded) => {
-            self.price_manager().write(|manager| {
-               loaded.read(|fresh| *manager = fresh.clone());
-            });
-         }
-         Err(_) => {
-            let fresh = PriceManagerHandle::new();
-            self.price_manager().write(|manager| {
-               fresh.read(|f| *manager = f.clone());
-            });
-         }
-      }
+      let fresh_prices = PriceManagerHandle::new();
+      self.price_manager().write(|manager| {
+         fresh_prices.read(|fresh| *manager = fresh.clone());
+      });
 
       match DisabledChains::load_from_file() {
          Ok(chains) => self.write(|ctx| ctx.disabled_chains = chains),
@@ -1075,18 +1066,52 @@ impl ZeusCtx {
       self.load_currency_db();
       self.load_pool_manager();
       self.load_zeus_client();
+      self.load_price_manager();
       self.load_or_create_address_book();
 
       Ok((master_wallet, info.argon2))
    }
 
    pub fn save_price_manager(&self) {
-      let manager = self.price_manager();
-      match manager.save_to_file() {
-         Ok(_) => {
-            tracing::trace!("Price Manager saved");
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error saving Price Manager: {:?}", e);
+            return;
          }
+      };
+      let manager = self.price_manager();
+      match manager.save_to_file(&key) {
+         Ok(_) => tracing::trace!("Price Manager saved"),
          Err(e) => tracing::error!("Error saving Price Manager: {:?}", e),
+      }
+   }
+
+   /// Load sealed `price_data.data` into the live handle (no-op if the file is missing).
+   pub fn load_price_manager(&self) {
+      match PriceManagerHandle::exists() {
+         Ok(true) => {}
+         Ok(false) => {
+            tracing::warn!("Price Manager file missing, skipping load");
+            return;
+         }
+         Err(e) => {
+            tracing::error!("Error checking Price Manager: {:?}", e);
+            return;
+         }
+      }
+
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error loading Price Manager: {:?}", e);
+            return;
+         }
+      };
+
+      let manager = self.price_manager();
+      if let Err(e) = manager.load_from_file(&key) {
+         tracing::error!("Error loading Price Manager: {:?}", e);
       }
    }
 
@@ -1955,6 +1980,7 @@ fn tighten_existing_secret_files() {
       pool_data_dir().ok(),
       ZeusClient::dir().ok(),
       bundler_url_dir().ok(),
+      PriceManagerHandle::dir().ok(),
       persisted::file_path(PersistedFile::Connector).ok(),
    ];
 
@@ -1980,16 +2006,7 @@ impl ZeusContext {
 
       let pool_manager = PoolManagerHandle::default();
 
-      let price_manager = match PriceManagerHandle::load_from_file() {
-         Ok(manager) => manager,
-         Err(e) => {
-            tracing::error!(
-               "Failed to load price manager, falling back to default: {:?}",
-               e
-            );
-            PriceManagerHandle::new()
-         }
-      };
+      let price_manager = PriceManagerHandle::new();
 
       let delegated_wallets = DelegatedWallets::new();
 

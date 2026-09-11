@@ -5,9 +5,10 @@ use std::time::{Duration, Instant};
 
 use crate::core::persisted::{PersistedFile, file_path};
 use crate::core::{
-   PoolManagerHandle, ZeusCtx, context::DEFAULT_POOL_MINIMUM_LIQUIDITY, serde_hashmap,
+   PoolManagerHandle, WalletStateKey, ZeusCtx, context::DEFAULT_POOL_MINIMUM_LIQUIDITY,
+   serde_hashmap,
 };
-use crate::utils::{RT, write_private};
+use crate::utils::{RT, write_private_atomic};
 use zeus_eth::{
    alloy_primitives::{Address, B256},
    amm::uniswap::{AnyUniswapPool, UniswapPool},
@@ -23,6 +24,9 @@ pub const TOKEN_PRICE_UPDATE_INTERVAL: u64 = 300;
 // ? Tokens are volatile, maybe this could be also adjusted in the UI
 /// Time in seconds before we re-fetch Uniswap pool state used for ERC20 prices
 pub const POOL_STATE_UPDATE_INTERVAL: u64 = 30;
+
+/// Bound ciphertext to this logical slot (AAD).
+const PRICE_DATA_AAD: &[u8] = b"zeus-price-data-v1";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PriceManagerHandle(Arc<RwLock<PriceManager>>);
@@ -40,17 +44,25 @@ impl PriceManagerHandle {
       writer(&mut self.0.write().expect("PriceManagerHandle is poisoned"))
    }
 
-   pub fn load_from_file() -> Result<Self, anyhow::Error> {
-      let dir = file_path(PersistedFile::PriceData)?;
-      let data = std::fs::read(dir)?;
-      let manager = serde_json::from_slice(&data)?;
-      Ok(Self(Arc::new(RwLock::new(manager))))
+   pub fn dir() -> Result<std::path::PathBuf, anyhow::Error> {
+      file_path(PersistedFile::PriceData)
    }
 
-   pub fn save_to_file(&self) -> Result<(), anyhow::Error> {
-      let data = serde_json::to_string(&self.read(|manager| manager.clone()))?;
-      let dir = file_path(PersistedFile::PriceData)?;
-      write_private(&dir, data.as_bytes())?;
+   pub fn exists() -> Result<bool, anyhow::Error> {
+      Ok(Self::dir()?.exists())
+   }
+
+   pub fn load_from_file(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      let sealed = std::fs::read(Self::dir()?)?;
+      let manager: PriceManager = key.open_json(&sealed, PRICE_DATA_AAD)?;
+      self.write(|m| *m = manager);
+      Ok(())
+   }
+
+   pub fn save_to_file(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      let manager = self.read(|manager| manager.clone());
+      let sealed = key.seal_json(&manager, PRICE_DATA_AAD)?;
+      write_private_atomic(&Self::dir()?, &sealed)?;
       Ok(())
    }
 
@@ -561,5 +573,22 @@ mod tests {
 
       let price = price_manager.get_token_price(&link_token).unwrap();
       eprintln!("LINK Price: ${}", price.formatted());
+   }
+
+   #[test]
+   fn test_seal_open_roundtrip() {
+      let key = WalletStateKey::generate().unwrap();
+      let handle = PriceManagerHandle::new();
+      handle.write(|manager| {
+         manager.token_prices.insert(
+            (1, Address::ZERO),
+            NumericValue::currency_price(1.0),
+         );
+      });
+
+      let sealed = handle.read(|manager| key.seal_json(manager, PRICE_DATA_AAD)).unwrap();
+      let loaded: PriceManager = key.open_json(&sealed, PRICE_DATA_AAD).unwrap();
+      assert!(loaded.token_prices.contains_key(&(1, Address::ZERO)));
+      assert!(key.open_json::<PriceManager>(&sealed, b"wrong-aad").is_err());
    }
 }

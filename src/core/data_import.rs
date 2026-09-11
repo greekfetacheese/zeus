@@ -348,7 +348,7 @@ mod tests {
       let dest_data = dest.path().join("data");
       fs::create_dir(&dest_data).unwrap();
       fs::write(dest_data.join("theme.json"), b"old").unwrap();
-      fs::write(dest_data.join("price_data.json"), b"keep-me").unwrap();
+      fs::write(dest_data.join("price_data.data"), b"keep-me").unwrap();
 
       let mut imported = import_data_from_zip(&zip_path, &dest_data, credentials).unwrap();
       assert_eq!(imported.files_written, 4);
@@ -370,7 +370,7 @@ mod tests {
          b"db"
       );
       assert_eq!(
-         fs::read(dest_data.join("price_data.json")).unwrap(),
+         fs::read(dest_data.join("price_data.data")).unwrap(),
          b"keep-me"
       );
    }
