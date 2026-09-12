@@ -184,6 +184,7 @@ impl UnlockVault {
 
                ctx.set_vault(vault);
                ctx.set_wallet_state(wallet_state);
+               ctx.load_tx_db();
                ctx.build_wallet_info_cache();
                ctx.load_currency_db();
                ctx.load_pool_manager();
@@ -643,6 +644,7 @@ impl RecoverHDWallet {
                                  .show(&egui_ctx);
                               tracing::error!("Failed to save initial wallet state: {e}");
                            }
+                           ctx.load_tx_db();
                            ctx.build_wallet_info_cache();
                            ctx.load_or_create_address_book();
                         }

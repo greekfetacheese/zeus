@@ -207,24 +207,22 @@ pub fn cleanup_orphaned_wallet_data(ctx: ZeusCtx) {
       eth_removed,
       token_removed,
       portfolio_removed,
-      tx_removed,
       approval_token_removed,
       approval_permit_removed,
    ) = ctx.write_wallet_state(|ws| {
       let (eth_removed, token_removed) = ws.balance_manager.retain_wallets(&wallets);
       let portfolio_removed = ws.portfolio_db.retain_wallets(&wallets);
-      let tx_removed = ws.tx_db.retain_wallets(&wallets);
       let (approval_token_removed, approval_permit_removed) =
          ws.approval_manager.retain_wallets(&wallets);
       (
          eth_removed,
          token_removed,
          portfolio_removed,
-         tx_removed,
          approval_token_removed,
          approval_permit_removed,
       )
    });
+   let tx_removed = ctx.tx_db().retain_wallets(&wallets);
 
    let total = eth_removed
       + token_removed

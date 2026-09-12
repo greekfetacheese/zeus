@@ -78,6 +78,7 @@ macro_rules! persisted_trees {
 persisted_files! {
    Vault => "vault.data",
    WalletState => "wallet_state.data",
+   TxHistory => "tx_history.db",
    Tokens => "tokens.data",
    PoolData => "pool_data.data",
    Providers => "providers.data",
@@ -126,6 +127,7 @@ impl Persisted {
          Self::File(
             PersistedFile::Vault
             | PersistedFile::WalletState
+            | PersistedFile::TxHistory
             | PersistedFile::Tokens
             | PersistedFile::PoolData
             | PersistedFile::Providers

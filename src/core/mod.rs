@@ -9,6 +9,7 @@ pub mod types;
 pub mod vault;
 pub mod wallet;
 pub mod wallet_state;
+pub mod wallet_state_key;
 
 pub use context::*;
 pub use signature::{msg::SignMsgType, sign::sign_message};

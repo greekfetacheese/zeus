@@ -1012,6 +1012,7 @@ impl ZeusCtx {
       });
       self.set_vault(vault);
       self.set_wallet_state(wallet_state);
+      self.load_tx_db();
 
       self.address_book().replace_from(&AddressBookHandle::default());
 
@@ -1115,6 +1116,53 @@ impl ZeusCtx {
       }
    }
 
+   /// Open `tx_history.db`, migrate any txs still embedded in WalletState, then
+   /// clear that field and re-save wallet state so the old blob shrinks.
+   pub fn load_tx_db(&self) {
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error loading Tx history: {:?}", e);
+            return;
+         }
+      };
+
+      let tx_db = match TxDBHandle::open(&key) {
+         Ok(db) => db,
+         Err(e) => {
+            tracing::error!("Error opening Tx history db: {:?}", e);
+            let legacy = self.read_wallet_state(|ws| ws.tx_db.clone());
+            self.write(|ctx| ctx.tx_db = legacy);
+            return;
+         }
+      };
+
+      let legacy = self.read_wallet_state(|ws| ws.tx_db.clone());
+      match tx_db.import_legacy(&legacy) {
+         Ok(true) => {
+            self.write_wallet_state(|ws| {
+               ws.tx_db = TxDBHandle::new();
+            });
+            self.write(|ctx| ctx.tx_db = tx_db);
+            if let Err(e) = self.save_wallet_state() {
+               tracing::error!(
+                  "Error saving WalletState after tx db migration: {:?}",
+                  e
+               );
+            } else {
+               tracing::info!("Migrated transaction history to tx_history.db");
+            }
+         }
+         Ok(false) => {
+            self.write(|ctx| ctx.tx_db = tx_db);
+         }
+         Err(e) => {
+            tracing::error!("Error migrating Tx history to redb: {:?}", e);
+            self.write(|ctx| ctx.tx_db = legacy);
+         }
+      }
+   }
+
    /// Append a rich transaction.
    ///
    /// Also feeds ERC20 / Permit2 approvals into the approval manager.
@@ -1132,7 +1180,7 @@ impl ZeusCtx {
    }
 
    pub fn tx_db(&self) -> TxDBHandle {
-      self.read_wallet_state(|ws| ws.tx_db.clone())
+      self.read(|ctx| ctx.tx_db.clone())
    }
 
    pub fn approval_manager(&self) -> ApprovalManagerHandle {
@@ -1876,6 +1924,9 @@ pub struct ZeusContext {
    /// Sealed separately in `wallet_state.data` with [`Vault`]'s `wallet_state_key`.
    pub wallet_state: WalletState,
 
+   /// Transaction history (`tx_history.db`), sealed with [`Vault`]'s `wallet_state_key`.
+   pub tx_db: TxDBHandle,
+
    /// The Argon2 params used for the current vault
    pub argon_params: Argon2,
 
@@ -1973,6 +2024,7 @@ fn tighten_existing_secret_files() {
    let paths = [
       Vault::dir().ok(),
       WalletState::dir().ok(),
+      TxDBHandle::dir().ok(),
       CurrencyDB::dir().ok(),
       AddressBookHandle::dir().ok(),
       pool_data_dir().ok(),
@@ -2044,6 +2096,7 @@ impl ZeusContext {
          wallet_info_cache: HashMap::new(),
          vault: Arc::new(RwLock::new(Vault::default())),
          wallet_state: WalletState::default(),
+         tx_db: TxDBHandle::new(),
          argon_params: Argon2::balanced(),
          save_vault_in_progress: false,
          save_wallet_state_in_progress: false,

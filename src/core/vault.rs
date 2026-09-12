@@ -134,8 +134,9 @@ impl VaultData {
 
 /// User Vault — credentials, HD/imported keys, and AEAD keys for side stores.
 ///
-/// Frequently updated app state (contacts, balances, portfolios, txs, approvals,
-/// HD discovery) lives in [`crate::core::WalletState`]
+/// Frequently updated app state (contacts, balances, portfolios, approvals,
+/// HD discovery) lives in [`crate::core::WalletState`]. Transaction history
+/// lives in `tx_history.db`.
 #[derive(Clone)]
 pub struct Vault {
    /// Credentials used to decrypt the vault

@@ -141,6 +141,8 @@ impl ZeusApp {
                      tracing::error!("Failed to save vault: {:?}", e);
                   }
 
+                  ctx.balance_manager().remove_zero_balances();
+
                   if let Err(e) = ctx.save_wallet_state() {
                      tracing::error!("Failed to save wallet state: {:?}", e);
                   }

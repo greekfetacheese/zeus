@@ -11915,6 +11915,7 @@ dependencies = [
  "ncrypt-me",
  "rand 0.8.7",
  "rayon",
+ "redb",
  "reqwest",
  "rfd",
  "secure-types",

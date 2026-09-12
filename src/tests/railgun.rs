@@ -41,6 +41,7 @@ mod tests {
 
       ctx.set_vault(vault);
       ctx.set_wallet_state(ws);
+      ctx.load_tx_db();
    }
 
    #[test]

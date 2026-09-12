@@ -34,7 +34,7 @@ pub struct TxHistory {
    open: bool,
    /// Reserved for a future loading state
    loading: bool,
-   /// True once the history view is ready to read the vault tx cache
+   /// True once the history view is ready to read the tx db
    db_ready: bool,
    pub current_page: usize,
    pub txs_per_page: usize,
@@ -97,7 +97,7 @@ impl TxHistory {
       self.open
    }
 
-   /// Mark the view open. Tx history is already in the vault (loaded on unlock).
+   /// Mark the view open. Tx history is loaded with the vault (redb).
    pub fn open(&mut self) {
       if self.open {
          return;

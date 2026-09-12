@@ -32,6 +32,7 @@ pub fn unlock_ctx() -> crate::core::ZeusCtx {
 
    ctx.set_vault(vault);
    ctx.set_wallet_state(state);
+   ctx.load_tx_db();
    ctx.build_wallet_info_cache();
    ctx.load_currency_db();
    ctx.load_pool_manager();
