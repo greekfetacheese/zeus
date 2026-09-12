@@ -13,7 +13,9 @@ pub mod wallet_state_key;
 
 pub use context::*;
 pub use signature::{msg::SignMsgType, sign::sign_message};
-pub use tx::{analysis::*, approval_diff::*, balance_diff::*, events::*, rich::*, send::*};
+pub use tx::{
+   analysis::*, approval_diff::*, balance_diff::*, events::*, rich::*, send::*, send_calls::*,
+};
 pub use vault::*;
 pub use wallet::*;
 pub use wallet_state::{WalletState, WalletStateInner, WalletStateKey};

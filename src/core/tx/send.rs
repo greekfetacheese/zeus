@@ -22,6 +22,21 @@ use zeus_eth::{
 };
 use zeus_wallet::SecureKey;
 
+pub(crate) fn signed_7702_authorization(
+   signer: &SecureKey,
+   chain_id: u64,
+   delegate_to: Address,
+   auth_nonce: u64,
+) -> Result<SignedAuthorization, anyhow::Error> {
+   let auth = Authorization {
+      chain_id: U256::from(chain_id),
+      address: delegate_to,
+      nonce: auth_nonce,
+   };
+   let signature = signer.to_signer().sign_hash_sync(&auth.signature_hash())?;
+   Ok(auth.into_signed(signature))
+}
+
 #[derive(Clone)]
 pub struct TxParams {
    pub signer: SecureKey,
@@ -471,14 +486,8 @@ pub async fn delegate_to(
 
    let auth_nonce = nonce + 1;
 
-   let auth = Authorization {
-      chain_id: U256::from(chain.id()),
-      address: delegate_to,
-      nonce: auth_nonce,
-   };
-
-   let signature = wallet.to_signer().sign_hash_sync(&auth.signature_hash())?;
-   let signed_authorization = auth.into_signed(signature);
+   let signed_authorization =
+      signed_7702_authorization(&wallet, chain.id(), delegate_to, auth_nonce)?;
 
    send_transaction(
       ctx.clone(),

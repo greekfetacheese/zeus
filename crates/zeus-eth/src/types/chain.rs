@@ -43,7 +43,10 @@ impl ChainId {
          56 => ChainId::BinanceSmartChain,
          8453 => ChainId::Base,
          42161 => ChainId::Arbitrum,
-         _ => bail!(format!("Unsupported chain id: {}\n{}", id, ERR_MSG)),
+         _ => bail!(format!(
+            "Unsupported chain id: {}\n{}",
+            id, ERR_MSG
+         )),
       };
       Ok(chain)
    }
@@ -96,10 +99,7 @@ impl ChainId {
 
    /// Return all supported chains
    pub fn supported_chains() -> Vec<ChainId> {
-      SUPPORTED_CHAINS
-         .iter()
-         .map(|id| ChainId::new(*id).unwrap())
-         .collect()
+      SUPPORTED_CHAINS.iter().map(|id| ChainId::new(*id).unwrap()).collect()
    }
 
    pub fn is_supported(chain_id: u64) -> bool {
@@ -228,6 +228,11 @@ impl ChainId {
          ChainId::Base => true,
          ChainId::Arbitrum => true,
       }
+   }
+
+   /// EIP-7702 (type-4) authorizations. Same set as type-2 chains today.
+   pub fn supports_eip7702(&self) -> bool {
+      self.supports_type_2_tx()
    }
 
    pub fn is_testnet(&self) -> bool {

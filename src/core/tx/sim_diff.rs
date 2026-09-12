@@ -9,7 +9,9 @@ use super::approval_diff::{
 };
 use super::balance_diff::{BalanceDiff, collect_token_candidates, native_change, token_change};
 use crate::core::ZeusCtx;
-use crate::utils::simulate::{AccountPrefetch, fetch_accounts_info, simulate_transaction};
+use crate::utils::simulate::{
+   AccountPrefetch, eip7702_implementation, fetch_accounts_info, simulate_transaction,
+};
 use alloy_eips::eip7702::SignedAuthorization;
 use anyhow::anyhow;
 use std::collections::HashMap;
@@ -615,6 +617,14 @@ pub async fn simulate_and_diff(
       interact_prefetch,
       AccountPrefetch::eoa(block.header.beneficiary),
    ];
+
+   for auth in &authorization_list {
+      accounts.push(AccountPrefetch::contract(auth.address));
+   }
+   
+   if let Some(implementation) = eip7702_implementation(&bytecode) {
+      accounts.push(AccountPrefetch::contract(implementation));
+   }
 
    for token in portfolio.tokens() {
       accounts.push(AccountPrefetch::contract(token.address));

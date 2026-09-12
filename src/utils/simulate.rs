@@ -30,6 +30,15 @@ use tracing::info;
 /// Max slots per StorageReader eth_call
 const STORAGE_FETCH_CHUNK_SIZE: usize = 50;
 
+/// EIP-7702 designated code is `0xef0100 || implementation`.
+pub fn eip7702_implementation(code: &[u8]) -> Option<Address> {
+   if code.len() == 23 && code[0] == 0xef && code[1] == 0x01 && code[2] == 0x00 {
+      Some(Address::from_slice(&code[3..]))
+   } else {
+      None
+   }
+}
+
 pub fn simulate_transaction<DB>(
    evm: &mut Evm2<DB>,
    from: Address,
