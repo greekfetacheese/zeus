@@ -19,6 +19,15 @@ pub fn save_token_icon(chain_id: u64, address: Address, x32: &[u8]) -> Result<()
    Ok(())
 }
 
+/// Remove a downloaded token icon directory if it exists.
+pub fn delete_token_icon(chain_id: u64, address: Address) -> Result<(), anyhow::Error> {
+   let dir = icon_dir(chain_id, address)?;
+   if dir.exists() {
+      std::fs::remove_dir_all(&dir)?;
+   }
+   Ok(())
+}
+
 /// Load previously downloaded token icons from `data/token_icons/`.
 ///
 /// Baked-in icons are merged by the caller and take priority.

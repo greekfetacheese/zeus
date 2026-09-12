@@ -1,3 +1,4 @@
+pub mod erc165;
 pub mod erc20;
 pub mod permit;
 pub mod protocols;

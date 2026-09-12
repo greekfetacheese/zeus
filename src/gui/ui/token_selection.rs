@@ -10,7 +10,7 @@ use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::{RT, token_icon::spawn_fetch_token_icon, truncate_symbol_or_name};
 use elegance::{Menu, MenuItem};
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use zeus_eth::{
    alloy_primitives::Address,
@@ -19,6 +19,7 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
+use anyhow::anyhow;
 use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme, utils::frame as frame_fn};
 
 /// Currency direction for [`TokenSelectionWindow`].
@@ -336,6 +337,20 @@ impl TokenSelectionWindow {
                                           ui.ctx().copy_text(token_address.to_string());
                                        }
 
+                                       if !currency.is_base() {
+                                          if ui.add(MenuItem::new("Delete Token")).clicked() {
+                                             more_clicked = true;
+                                             if let Some(token) = currency.erc20_opt() {
+                                                delete_token(
+                                                   chain_id,
+                                                   owner,
+                                                   token.clone(),
+                                                   ctx.privacy_mode,
+                                                );
+                                             }
+                                          }
+                                       }
+
                                        if ui
                                           .add(
                                              MenuItem::new("See on Block Explorer").shortcut("⌘ S"),
@@ -475,6 +490,62 @@ impl TokenSelectionWindow {
    }
 }
 
+fn delete_token(chain_id: u64, owner: Address, token: ERC20Token, privacy_mode: bool) {
+   RT.spawn(async move {
+      SHARED_GUI.write(|gui| {
+         gui.confirm_window.open(format!("Delete {}?", token.name));
+         gui.request_repaint();
+      });
+
+      let confirmed = loop {
+         tokio::time::sleep(Duration::from_millis(50)).await;
+         let confirmed = SHARED_GUI.read(|gui| gui.confirm_window.get_confirm());
+         if let Some(confirmed) = confirmed {
+            SHARED_GUI.write(|gui| {
+               gui.confirm_window.reset();
+            });
+            break confirmed;
+         }
+      };
+
+      if !confirmed {
+         return;
+      }
+
+      RT.spawn_blocking(move || {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         ctx.write(|ctx| {
+            ctx.currency_db.remove_token(chain_id, token.address);
+         });
+
+         ctx.write_wallet_state(|ws| {
+            let mut portfolio = ws.portfolio_db.get(chain_id, owner);
+            portfolio.remove_token(&token);
+            ws.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
+         });
+
+         ctx.save_currency_db();
+
+         if let Err(e) = ctx.save_wallet_state() {
+            tracing::error!(
+               "Error saving wallet state after token delete: {:?}",
+               e
+            );
+         }
+
+         if let Err(e) = crate::assets::icons::delete_token_icon(chain_id, token.address) {
+            tracing::error!("Error deleting token icon: {:?}", e);
+         }
+
+         SHARED_GUI.write(|gui| {
+            gui.icons.tokens.remove_icon(token.address, chain_id);
+            gui.token_selection.process_currencies(privacy_mode, chain_id, owner);
+            gui.request_repaint();
+         });
+      });
+   });
+}
+
 async fn get_erc20_token(
    ctx: ZeusCtx,
    chain: u64,
@@ -485,12 +556,10 @@ async fn get_erc20_token(
    spawn_fetch_token_icon(chain, token_address);
 
    let z_client = ctx.get_zeus_client();
+   let rpc = z_client.get_best_rpc(chain).ok_or(anyhow!("No available RPC found"))?;
+   let client = z_client.connect_with_timeout(&rpc, 10).await?;
 
-   let token = z_client
-      .request(chain, |client| async move {
-         ERC20Token::new(client, token_address, chain).await
-      })
-      .await?;
+   let token = ERC20Token::new(client, token_address, chain).await?;
 
    let manager = ctx.balance_manager();
    manager
@@ -528,7 +597,7 @@ async fn get_erc20_token(
 
       let pool_manager = ctx_clone.pool_manager();
 
-      match pool_manager
+      if let Err(e) = pool_manager
          .discover_pools_for_tokens(
             ctx_clone.clone(),
             chain,
@@ -536,30 +605,14 @@ async fn get_erc20_token(
          )
          .await
       {
-         Ok(_) => {
-            tracing::info!("Synced Pools for {}", token_clone.symbol);
-         }
-         Err(e) => tracing::error!(
-            "Error syncing pools for {}: {:?}",
-            token_clone.symbol,
-            e
-         ),
+         tracing::error!("Error discovering pools {}", e);
       }
 
-      match pool_manager
+      if let Err(e) = pool_manager
          .update_for_currencies(ctx_clone.clone(), chain, vec![currency])
          .await
       {
-         Ok(_) => {
-            tracing::info!("Updated pool state for {}", token_clone.symbol);
-         }
-         Err(e) => {
-            tracing::error!(
-               "Error updating pool state for {}: {:?}",
-               token_clone.symbol,
-               e
-            );
-         }
+         tracing::error!("Error updating pool state {}", e);
       }
 
       RT.spawn_blocking(move || {

@@ -11,7 +11,7 @@ use zeus_eth::{
    alloy_dyn_abi::TypedData,
    alloy_primitives::{Address, U256},
    alloy_signer::{Signature, Signer},
-   currency::{Currency, ERC20Token},
+   currency::ERC20Token,
    utils::{NumericValue, address_book},
 };
 use zeus_wallet::SecureKey;
@@ -301,20 +301,7 @@ impl Permit2Details {
          message["details"]["token"].as_str().ok_or(anyhow!("Missing token address"))?;
       let token_addr = Address::from_str(token_address)?;
 
-      let z_client = ctx.get_zeus_client();
-      let cached = ctx.read(|ctx| ctx.currency_db.get_erc20_token(chain, token_addr));
-
-      let token = if let Some(token) = cached {
-         token
-      } else {
-         let token = z_client
-            .request(chain, |client| async move {
-               ERC20Token::new(client, token_addr, chain).await
-            })
-            .await?;
-         ctx.write(|ctx| ctx.currency_db.insert_currency(chain, Currency::from(token.clone())));
-         token
-      };
+      let token = ctx.get_token(chain, token_addr).await?;
 
       let amount = message["details"]["amount"].as_str().ok_or(anyhow!("Missing amount"))?;
       let amount = U256::from_str(amount)?;

@@ -1497,12 +1497,10 @@ impl ZeusCtx {
          return Ok(token);
       } else {
          let z_client = self.get_zeus_client();
+         let rpc = z_client.get_best_rpc(chain).ok_or(anyhow!("No available RPC found"))?;
+         let client = z_client.connect_with_timeout(&rpc, 10).await?;
 
-         let token = z_client
-            .request(chain, |client| async move {
-               ERC20Token::new(client, address, chain).await
-            })
-            .await?;
+         let token = ERC20Token::new(client, address, chain).await?;
 
          self.write(|ctx| ctx.currency_db.insert_currency(chain, Currency::from(token.clone())));
 

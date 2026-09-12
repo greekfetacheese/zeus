@@ -18,7 +18,7 @@ use zeus_eth::{alloy_primitives::Address, currency::Currency};
 use bincode_next::{config::standard, decode_from_slice};
 
 mod disk;
-pub(crate) use disk::save_token_icon;
+pub(crate) use disk::{delete_token_icon, save_token_icon};
 
 /// Icons used in the GUI
 pub struct Icons {
@@ -164,6 +164,12 @@ impl TokenIcons {
 
    pub fn insert_icon(&self, address: Address, chain_id: u64, x32: Vec<u8>) {
       self.icon_data.write().unwrap().insert((address, chain_id), x32);
+   }
+
+   pub fn remove_icon(&self, address: Address, chain_id: u64) {
+      let key = (address, chain_id);
+      self.icon_data.write().unwrap().remove(&key);
+      self.icons_x32.write().unwrap().remove(&key);
    }
 
    /// Mark a download as started. Returns false if we already have the icon,

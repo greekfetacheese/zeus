@@ -67,11 +67,20 @@ impl Default for ERC20Token {
 
 impl ERC20Token {
    /// Create a new ERC20Token by retrieving the token information from the blockchain
+   ///
+   /// Rejects ERC-721 / ERC-1155 contracts that expose the same `name()` / `symbol()`
+   /// selectors as ERC-20 (detected via ERC-165).
    pub async fn new<P, N>(client: P, token: Address, chain_id: u64) -> Result<Self, anyhow::Error>
    where
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
+      let is_nft = abi::erc165::is_erc721_or_erc1155(client.clone(), token).await;
+
+      if is_nft {
+         anyhow::bail!("address {token} is an NFT (ERC-721/1155), not an ERC20 token");
+      }
+
       let info = batch::get_erc20_info(client, chain_id, token).await?;
 
       Ok(Self {
@@ -84,7 +93,11 @@ impl ERC20Token {
       })
    }
 
-   pub async fn from_batch<P, N>(client: P, chain: u64, tokens_addr: Vec<Address>) -> Result<Vec<Self>, anyhow::Error>
+   pub async fn from_batch<P, N>(
+      client: P,
+      chain: u64,
+      tokens_addr: Vec<Address>,
+   ) -> Result<Vec<Self>, anyhow::Error>
    where
       P: Provider<N> + Clone + 'static,
       N: Network,
@@ -142,7 +155,12 @@ impl ERC20Token {
       Ok(balance)
    }
 
-   pub async fn allowance<P, N>(&self, client: P, owner: Address, spender: Address) -> Result<U256, anyhow::Error>
+   pub async fn allowance<P, N>(
+      &self,
+      client: P,
+      owner: Address,
+      spender: Address,
+   ) -> Result<U256, anyhow::Error>
    where
       P: Provider<N> + Clone + 'static,
       N: Network,
@@ -524,6 +542,7 @@ impl ERC20Token {
 #[cfg(test)]
 mod tests {
    use super::ERC20Token;
+   use alloy_primitives::address;
    use alloy_provider::ProviderBuilder;
    use url::Url;
 
@@ -534,9 +553,7 @@ mod tests {
 
       let weth = ERC20Token::weth();
 
-      let fetched_weth = ERC20Token::new(client, weth.address, weth.chain_id)
-         .await
-         .unwrap();
+      let fetched_weth = ERC20Token::new(client, weth.address, weth.chain_id).await.unwrap();
 
       assert_eq!(weth.symbol, fetched_weth.symbol);
       assert_eq!(weth.name, fetched_weth.name);
@@ -554,14 +571,29 @@ mod tests {
       let dai = ERC20Token::dai();
       let addr = vec![weth.address, usdc.address, usdt.address, dai.address];
 
-      let tokens_erc20 = ERC20Token::from_batch(client.clone(), 1, addr.clone())
-         .await
-         .unwrap();
+      let tokens_erc20 = ERC20Token::from_batch(client.clone(), 1, addr.clone()).await.unwrap();
 
       assert_eq!(tokens_erc20.len(), addr.len());
       assert_eq!(tokens_erc20[0], weth);
       assert_eq!(tokens_erc20[1], usdc);
       assert_eq!(tokens_erc20[2], usdt);
       assert_eq!(tokens_erc20[3], dai);
+   }
+
+   /// Walletbeat testing ERC721 — same name/symbol selectors as ERC-20.
+   #[tokio::test]
+   async fn rejects_erc721_as_erc20() {
+      let url = Url::parse("https://ethereum-rpc.publicnode.com").unwrap();
+      let client = ProviderBuilder::new().connect_http(url);
+
+      let nft = address!("0xBe0963c43903cA02Aa8f93d85668aBBC7bc95Df2");
+      let err = ERC20Token::new(client, nft, 1)
+         .await
+         .expect_err("ERC721 must not parse as ERC20");
+      let msg = err.to_string();
+      assert!(
+         msg.contains("NFT"),
+         "unexpected error for ERC721 fetch: {msg}"
+      );
    }
 }
