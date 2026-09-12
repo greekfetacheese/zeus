@@ -129,9 +129,11 @@ pub fn address(
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         // Empty/whitespace names (failed Sourcify/ERC-7730 inserts) must
+         // not hide the truncated address
          let address_name = match ctx.get_address_name(chain.id(), address) {
-            Some(name) => name.to_string(),
-            None => {
+            Some(name) if !name.trim().is_empty() => name.to_string(),
+            _ => {
                if !ctx.address_name_requested(chain.id(), address) {
                   request_address_name(chain.id(), address);
                }
@@ -248,7 +250,9 @@ pub fn balance_change_row(
          ui.add(label);
       });
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         ui.label(RichText::new(format!("~ ${}", usd_value.abbreviated())).size(theme.typography.large));
+         ui.label(
+            RichText::new(format!("~ ${:.10}", usd_value.abbreviated())).size(theme.typography.large),
+         );
       });
    });
 }
@@ -323,8 +327,8 @@ pub fn approval_change_row(
          if change.is_unlimited() {
             ui.add(amount_label);
          } else {
-            let usd_text =
-               RichText::new(format!("~ ${}", usd_value.abbreviated())).size(theme.typography.large);
+            let usd_text = RichText::new(format!("~ ${:.10}", usd_value.abbreviated()))
+               .size(theme.typography.large);
             let usd_label = Label::new(usd_text, None).interactive(false);
             ui.add(MultiLabel::new(vec![amount_label, usd_label]));
          }

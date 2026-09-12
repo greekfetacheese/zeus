@@ -254,8 +254,8 @@ fn timestamp_to_relative_time(timestamp: &TimeStamp) -> String {
          return format!("{} week(s) ago", elapsed / 604800);
       } else if elapsed < 29030400 {
          return format!("{} month(s) ago", elapsed / 2419200);
-      } else if elapsed < 31536000 {
-         return format!("{} year(s) ago", elapsed / 29030400);
+      } else {
+         return format!("{} year(s) ago", elapsed / 31536000);
       }
    }
 
@@ -272,8 +272,8 @@ fn timestamp_to_relative_time(timestamp: &TimeStamp) -> String {
          return format!("in {} week(s)", future_time / 604800);
       } else if future_time < 29030400 {
          return format!("in {} month(s)", future_time / 2419200);
-      } else if future_time < 31536000 {
-         return format!("in {} year(s)", future_time / 29030400);
+      } else {
+         return format!("in {} year(s)", future_time / 31536000);
       }
    }
 

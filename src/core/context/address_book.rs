@@ -104,7 +104,13 @@ impl AddressBookHandle {
       if address.is_zero() {
          return false;
       }
+
       let name = name.into();
+
+      if name.trim().is_empty() {
+         return false;
+      }
+      
       self.write(|book| {
          book.pending.remove(&(chain, address));
          if book.names.contains_key(&(chain, address)) {
@@ -345,5 +351,19 @@ mod tests {
       book.read(|inner| {
          assert!(!inner.names.contains_key(&(1, Address::ZERO)));
       });
+   }
+
+   #[test]
+   fn empty_contract_name_is_rejected() {
+      let book = AddressBookHandle::default();
+      let addr = Address::repeat_byte(0x44);
+      assert!(!book.insert_contract(1, addr, ""));
+      assert!(!book.insert_contract(1, addr, "   "));
+      assert_eq!(book.get(1, addr), None);
+      assert!(book.insert_contract(1, addr, "Walletbeat Test"));
+      assert_eq!(
+         book.get(1, addr).as_deref(),
+         Some("Walletbeat Test")
+      );
    }
 }

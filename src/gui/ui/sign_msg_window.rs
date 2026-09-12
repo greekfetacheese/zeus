@@ -111,13 +111,38 @@ impl SignMsgWindow {
                   let frame = theme.frame2;
                   let frame_size = vec2(ui.available_width(), 45.0);
 
-                  ui.label(RichText::new(msg.title()).size(theme.typography.heading));
+                  let mut heading = RichText::new(msg.title()).size(theme.typography.heading);
+
+                  let is_unlimited = if msg.is_permit2_single() {
+                     msg.permit2_details().is_unlimited()
+                  } else if msg.is_permit2612() {
+                     msg.permit2612_details().is_unlimited()
+                  } else {
+                     false
+                  };
+
+                  if is_unlimited {
+                     heading = heading.color(theme.colors.error);
+                  }
+
+                  ui.label(heading);
 
                   if msg.is_permit2_single() {
                      ui.allocate_ui(frame_size, |ui| {
                         frame.show(ui, |ui| {
                            permit2_single_approval(ctx, self.chain, &msg, theme, icons.clone(), ui);
                         });
+                     });
+                  }
+
+                  if msg.is_permit2612() {
+                     // Don't pin this card to 45px — EIP-2612 has more rows
+                     // than Permit2, and allocate_ui's max_rect was clipping
+                     // the last (Spender) hyperlink on Walletbeat prompts.
+                     ui.set_min_width(ui.available_width());
+                     frame.show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        permit2612_approval(ctx, self.chain, &msg, theme, icons.clone(), ui);
                      });
                   }
 
@@ -212,14 +237,19 @@ fn permit2_single_approval(
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let amount = details.amount();
-            let text = format!("{} {}", amount, details.token.symbol);
+            let text = format!("{:.10} {}", amount, details.token.symbol);
             let icon = icons.token_icon_x32(
                details.token.address,
                details.token.chain_id,
                tint,
             );
 
-            let text = RichText::new(text).size(theme.typography.large);
+            let mut text = RichText::new(text).size(theme.typography.large);
+
+            if details.is_unlimited() {
+               text = text.color(theme.colors.warning);
+            }
+
             let label = Label::new(text, Some(icon))
                .wrap()
                .visuals(theme.label_visuals())
@@ -269,6 +299,75 @@ fn permit2_single_approval(
          ui,
       );
    });
+}
+
+fn permit2612_approval(
+   ctx: &mut ZeusContext,
+   chain_id: ChainId,
+   msg: &SignMsgType,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   ui: &mut Ui,
+) {
+   let details = msg.permit2612_details();
+   let tint = theme.image_tint_recommended;
+
+   chain(chain_id, theme, icons.clone(), ui);
+
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.label(RichText::new("Approve Token").size(theme.typography.large));
+      });
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let text = format!("{} {}", details.amount(), details.token.symbol);
+         let icon = icons.token_icon_x32(
+            details.token.address,
+            details.token.chain_id,
+            tint,
+         );
+         let mut text = RichText::new(text).size(theme.typography.large);
+         if details.is_unlimited() {
+            text = text.color(theme.colors.warning);
+         }
+         let label = Label::new(text, Some(icon))
+            .wrap()
+            .visuals(theme.label_visuals())
+            .interactive(false);
+         ui.add(label);
+      });
+   });
+
+   if !details.amount.is_zero() {
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(RichText::new("Deadline").size(theme.typography.large));
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let text = RichText::new(details.deadline_label()).size(theme.typography.large);
+            ui.label(text);
+         });
+      });
+   }
+
+   address(
+      ctx,
+      chain_id,
+      "Token",
+      details.token.address,
+      theme,
+      ui,
+   );
+   address(ctx, chain_id, "Owner", details.owner, theme, ui);
+   address(
+      ctx,
+      chain_id,
+      "Spender",
+      details.spender,
+      theme,
+      ui,
+   );
 }
 
 fn clear_signed_ui(
@@ -321,9 +420,15 @@ fn clear_signed_ui(
                   } else {
                      amount.abbreviated()
                   };
-                  let text = format!("{} {}", amount_txt, token.symbol);
+
+                  let text = format!("{:.10} {}", amount_txt, token.symbol);
                   let icon = icons.token_icon_x32(token.address, token.chain_id, tint);
-                  let text = RichText::new(text).size(theme.typography.large);
+                  let mut text = RichText::new(text).size(theme.typography.large);
+
+                  if *unlimited {
+                     text = text.color(theme.colors.warning);
+                  }
+
                   let label = Label::new(text, Some(icon))
                      .wrap()
                      .visuals(theme.label_visuals())
@@ -385,20 +490,21 @@ fn _permit2_batch_approval_ui(
    // Tokens
    for ((token, amount), _amount_usd) in token_details {
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let amount = if amount.wei() == U256::MAX {
+         let amount_text = if amount.wei() == U256::MAX {
             "Unlimited".to_string()
          } else {
             amount.abbreviated()
          };
 
-         let text = format!("{} {}", amount, token.symbol);
+         let text = format!("{:.10} {}", amount_text, token.symbol);
          let icon = icons.token_icon_x32(token.address, token.chain_id, tint);
-         let label = Label::new(
-            RichText::new(text).size(theme.typography.normal),
-            Some(icon),
-         )
-         .wrap()
-         .interactive(false);
+         let mut text = RichText::new(text).size(theme.typography.normal);
+
+         if amount.wei() == U256::MAX {
+            text = text.color(theme.colors.warning);
+         }
+
+         let label = Label::new(text, Some(icon)).wrap().interactive(false);
          ui.add(label);
       });
    }
@@ -444,6 +550,10 @@ fn _permit2_batch_approval_ui(
 fn format_sign_data(msg: &SignMsgType, _chain: ChainId) -> String {
    if msg.is_permit2_single() {
       return format_permit2_single_approval(msg);
+   }
+
+   if msg.is_permit2612() {
+      return format_permit2612(msg);
    }
 
    if let Some(typed) = msg.typed_data() {
@@ -511,6 +621,46 @@ fn format_permit2_single_approval(msg: &SignMsgType) -> String {
    writeln!(
       formatted,
       "  Spender: {}",
+      details.spender.to_string()
+   )
+   .unwrap();
+
+   formatted
+}
+
+fn format_permit2612(msg: &SignMsgType) -> String {
+   let details = msg.permit2612_details();
+   let mut formatted = String::new();
+
+   writeln!(formatted, "{}", details.title()).unwrap();
+   writeln!(formatted, "===================").unwrap();
+   writeln!(formatted).unwrap();
+
+   writeln!(
+      formatted,
+      "Token: {} ({})",
+      details.token.symbol,
+      details.token.address.to_string()
+   )
+   .unwrap();
+   writeln!(
+      formatted,
+      "Amount: {}",
+      details.amount.wei().to_string()
+   )
+   .unwrap();
+   if !details.amount.is_zero() {
+      writeln!(
+         formatted,
+         "Deadline: {}",
+         details.deadline_label()
+      )
+      .unwrap();
+   }
+   writeln!(formatted, "Owner: {}", details.owner.to_string()).unwrap();
+   writeln!(
+      formatted,
+      "Spender: {}",
       details.spender.to_string()
    )
    .unwrap();

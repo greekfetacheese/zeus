@@ -1359,11 +1359,13 @@ impl ZeusCtx {
       if address.is_zero() {
          return false;
       }
+
       if self.get_address_name(chain, address).is_some() {
          return false;
       }
 
       let book = self.address_book();
+      
       if !book.mark_pending(chain, address) {
          return false;
       }
@@ -1386,9 +1388,14 @@ impl ZeusCtx {
          return false;
       };
 
+      if name.trim().is_empty() {
+         return false;
+      }
+
       if !book.insert_contract(chain, address, name.as_str()) {
          return false;
       }
+
       self.save_address_book();
       true
    }

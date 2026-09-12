@@ -744,6 +744,18 @@ impl UiTesting {
             }
 
             let button =
+               Button::new(RichText::new("Sign Permit").size(text_size)).min_size(button_size);
+
+            if ui.add(button).clicked() {
+               RT.spawn_blocking(move || {
+                  let msg = SignMsgType::dummy_permit2612();
+                  SHARED_GUI.write(|gui| {
+                     gui.sign_msg_window.open("beta.walletbeat.eth.limo".to_string(), 1, msg);
+                  });
+               });
+            }
+
+            let button =
                Button::new(RichText::new("Sign Clear Message").size(text_size)).min_size(button_size);
 
             if ui.add(button).clicked() {
