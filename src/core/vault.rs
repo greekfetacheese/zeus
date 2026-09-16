@@ -623,7 +623,6 @@ impl Vault {
       Ok(legacy)
    }
 
-   // TODO: Impl Eq on the Credentials and secure-types
    /// Returns true if the other credentials match the current ones
    pub fn credentials_match(&self, other: &Credentials) -> bool {
       let username_ok = self.credentials.username.unlock_str(|username| {

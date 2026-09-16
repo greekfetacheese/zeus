@@ -166,7 +166,7 @@ impl DeleteWalletUi {
                   ui.spacing_mut().item_spacing.x = theme.spacing.xl;
                   ui.label(
                      RichText::new(format!(
-                        "Public ${}",
+                        "Public ${:.10}",
                         value.for_mode(false).abbreviated()
                      ))
                      .size(theme.typography.normal)
@@ -174,7 +174,7 @@ impl DeleteWalletUi {
                   );
                   ui.label(
                      RichText::new(format!(
-                        "Railgun ${}",
+                        "Railgun ${:.10}",
                         value.for_mode(true).abbreviated()
                      ))
                      .size(theme.typography.normal)

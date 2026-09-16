@@ -538,7 +538,7 @@ impl DiscoverChildWallets {
                               ui.add(icon);
                            }
                            ui.label(
-                              RichText::new(format!("${}", value.abbreviated()))
+                              RichText::new(format!("${:.10}", value.abbreviated()))
                                  .color(theme.colors.text_muted)
                                  .size(theme.typography.small),
                            );

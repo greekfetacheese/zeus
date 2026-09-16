@@ -200,13 +200,13 @@ fn format_amount(
    if let Some(currency) = currency {
       let usd = ctx.get_currency_value_for_amount(amount.f64(), &currency);
       format!(
-         "{} {} ~ ${}",
+         "{:.10} {} ~ ${:.10}",
          amount.abbreviated(),
          symbol,
          usd.abbreviated()
       )
    } else {
-      format!("{} {}", amount.abbreviated(), symbol)
+      format!("{:.10} {}", amount.abbreviated(), symbol)
    }
 }
 

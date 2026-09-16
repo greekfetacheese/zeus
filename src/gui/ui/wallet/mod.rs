@@ -262,7 +262,7 @@ impl WalletUi {
 
                let value = self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
                let value_text =
-                  RichText::new(format!("${}", value.abbreviated())).size(theme.typography.small);
+                  RichText::new(format!("${:.10}", value.abbreviated())).size(theme.typography.small);
                let label = Label::new(value_text, None).interactive(false);
                ui.add(label);
 

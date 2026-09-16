@@ -109,7 +109,7 @@ pub fn value(
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let value_usd = ctx.get_currency_value_for_amount(value.f64(), &eth);
          let text = format!(
-            "{} {} ~ ${:4}",
+            "{:.12} {} ~ ${:5}",
             value.abbreviated(),
             eth.symbol(),
             value_usd.abbreviated()
@@ -206,7 +206,7 @@ pub fn eth_spent(
    let native = NativeCurrency::from(chain);
    let icon = icons.native_currency_icon(chain, tint).fit_to_exact_size(vec2(24.0, 24.0));
    let text = format!(
-      "{} {} ≈ {}",
+      "{:.10} {} ≈ {:.10}",
       eth_spent.abbreviated(),
       native.symbol,
       eth_spent_usd.abbreviated()
@@ -227,7 +227,7 @@ pub fn eth_received(
 ) {
    let native = NativeCurrency::from(chain);
    let text = format!(
-      "{text} {} {} ≈ ${}",
+      "{text} {:.10} {} ≈ ${:.10}",
       eth_received.abbreviated(),
       native.symbol,
       eth_received_usd.abbreviated()
@@ -292,7 +292,7 @@ pub fn approval_change_row(
    let icon_size = vec2(24.0, 24.0);
    let icon = icons.currency_icon_x32(&change.token, tint).fit_to_exact_size(icon_size);
 
-   let amount = change.after.abbreviated();
+   let amount = format!("{:.10}", change.after.abbreviated());
    let value = change.price.f64() * change.after.f64();
    let usd_value = NumericValue::from_f64(value);
    let color = if change.is_revoke() {
@@ -590,7 +590,7 @@ pub fn clear_display_ui(
                   } else {
                      amount.abbreviated()
                   };
-                  let text = format!("{} {}", amount_txt, token.symbol);
+                  let text = format!("{:.10} {}", amount_txt, token.symbol);
                   let icon = icons
                      .token_icon_x32(token.address, token.chain_id, tint)
                      .fit_to_exact_size(vec2(24.0, 24.0));

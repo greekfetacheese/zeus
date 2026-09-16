@@ -207,7 +207,6 @@ impl UniswapUi {
                ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
                ui.spacing_mut().button_padding = theme.button_padding;
 
-               // TODO: Add support for BSC, There is an issue with batch calls
                if ctx.chain.is_bsc() {
                   let text = RichText::new("Swap feature is not available on Binance Smart Chain")
                      .size(theme.typography.large)

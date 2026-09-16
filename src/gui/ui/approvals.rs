@@ -282,7 +282,7 @@ impl ApprovalsUi {
       if wei == U256::MAX || wei >= u160_max {
          "Unlimited".to_string()
       } else {
-         amount.abbreviated()
+         format!("{:.10}", amount.abbreviated())
       }
    }
 

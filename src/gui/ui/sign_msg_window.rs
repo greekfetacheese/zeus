@@ -567,9 +567,6 @@ fn _permit2_batch_approval_ui(
       theme,
       ui,
    );
-
-   // Protocol/Dapp
-   // TODO:
 }
 
 fn format_sign_data(msg: &SignMsgType, _chain: ChainId) -> String {

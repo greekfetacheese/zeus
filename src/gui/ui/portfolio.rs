@@ -170,7 +170,7 @@ impl PortfolioUi {
                               .size(theme.typography.very_large),
                         );
                         ui.label(
-                           RichText::new(format!("${}", portfolio_value.abbreviated()))
+                           RichText::new(format!("${:.10}", portfolio_value.abbreviated()))
                               .heading()
                               .size(theme.typography.heading + 4.0),
                         );
@@ -288,8 +288,8 @@ impl PortfolioUi {
                                  owner,
                                  &native_currency,
                               );
-                              let price_text = format!("${:.10}", price.formatted());
-                              let balance_text = format!("{:.10}", balance.formatted());
+                              let price_text = format!("${:.10}", price.abbreviated());
+                              let balance_text = format!("{:.10}", balance.abbreviated());
                               let value_text = format!("${:.10}", value.abbreviated());
                               let _ = Self::asset_row(
                                  ui,
@@ -314,9 +314,9 @@ impl PortfolioUi {
                               continue;
                            };
 
-                           let price_text = format!("${:.10}", price.formatted());
+                           let price_text = format!("${:.10}", price.abbreviated());
                            let balance_text = format!("{:.10}", balance.abbreviated());
-                           let value_text = format!("${:.10}", value.formatted());
+                           let value_text = format!("${:.10}", value.abbreviated());
                            if Self::asset_row(
                               ui,
                               theme,

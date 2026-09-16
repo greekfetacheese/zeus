@@ -220,7 +220,7 @@ impl AmountField {
                }
 
                ui.label(
-                  RichText::new(format!("${}", value.abbreviated())).size(theme.typography.normal),
+                  RichText::new(format!("${:.10}", value.abbreviated())).size(theme.typography.normal),
                );
             });
 
