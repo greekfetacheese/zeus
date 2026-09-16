@@ -882,14 +882,6 @@ impl SwapUi {
             &currency_out,
          );
 
-         if pools.is_empty() {
-            tracing::warn!(
-               "Can't get quote, No pools found for {}-{}",
-               currency_in.symbol(),
-               currency_out.symbol()
-            );
-         }
-
          let chain_id = ctx.chain().id();
          let manager = ctx.pool_manager();
 

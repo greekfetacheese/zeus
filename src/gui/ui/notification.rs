@@ -4,7 +4,7 @@ use crate::assets::Icons;
 use crate::core::{DecodedEvent, TransactionRich, ZeusContext, tx::events::*};
 use crate::gui::SHARED_GUI;
 use crate::utils::{RT, TimeStamp, truncate_address};
-use egui::{Align2, Order, ProgressBar, RichText, Spinner, Ui, Window, vec2};
+use egui::{Align2, Order, ProgressBar, RichText, Spinner, TextWrapMode, Ui, Window, vec2};
 use egui_elements::{Button, Label, MultiLabel, Theme};
 use egui_lucide::Lucide;
 
@@ -14,6 +14,7 @@ use zeus_eth::{
    alloy_primitives::U256,
    currency::{Currency, ERC20Token, NativeCurrency},
    types::ChainId,
+   utils::NumericValue,
 };
 
 #[derive(Clone)]
@@ -193,7 +194,7 @@ impl Notification {
          title: String::new(),
          notification: NotificationType::Other(String::new()),
          tx: None,
-         size: (350.0, 100.0),
+         size: (500.0, 100.0),
       }
    }
 
@@ -384,10 +385,10 @@ impl Notification {
 
       ui.vertical_centered(|ui| {
          let symbol_in = params.input_currency.symbol();
-         let amount_in = params.amount_in.abbreviated();
+         let amount_in = format_amount(&params.amount_in);
 
          let symbol_out = params.output_currency.symbol();
-         let amount_out = params.received.abbreviated();
+         let amount_out = format_amount(&params.received);
 
          let text_in = format!("{} {}", amount_in, symbol_in);
          let text_in = RichText::new(text_in).size(theme.typography.large);
@@ -403,9 +404,13 @@ impl Notification {
             .currency_icon_x32(&params.output_currency, tint)
             .fit_to_exact_size(icon_size);
 
-         let label_in = Label::new(text_in, Some(icon_in)).interactive(false);
+         let label_in = Label::new(text_in, Some(icon_in))
+            .wrap_mode(TextWrapMode::Extend)
+            .interactive(false);
          let label_arrow = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
-         let label_out = Label::new(text_out, Some(icon_out)).interactive(false);
+         let label_out = Label::new(text_out, Some(icon_out))
+            .wrap_mode(TextWrapMode::Extend)
+            .interactive(false);
 
          let multi_label = MultiLabel::new(vec![label_in, label_arrow, label_out]);
 
@@ -421,11 +426,11 @@ impl Notification {
       ui.vertical_centered(|ui| {
          let from_chain: ChainId = params.origin_chain.into();
          let symbol_in = params.input_currency.symbol();
-         let amount_in = params.amount.abbreviated();
+         let amount_in = format_amount(&params.amount);
 
          let to_chain: ChainId = params.destination_chain.into();
          let symbol_out = params.output_currency.symbol();
-         let amount_out = params.received.abbreviated();
+         let amount_out = format_amount(&params.received);
 
          let text_in = format!("{} {}", amount_in, symbol_in);
          let text_in = RichText::new(text_in).size(theme.typography.large);
@@ -441,23 +446,31 @@ impl Notification {
             .currency_icon_x32(&params.output_currency, tint)
             .fit_to_exact_size(icon_size);
 
-         let label_in = Label::new(text_in, Some(icon_in)).wrap().interactive(false);
+         let label_in = Label::new(text_in, Some(icon_in))
+            .wrap_mode(TextWrapMode::Extend)
+            .interactive(false);
          let label_arrow = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
-         let label_out = Label::new(text_out, Some(icon_out)).wrap().interactive(false);
+         let label_out = Label::new(text_out, Some(icon_out))
+            .wrap_mode(TextWrapMode::Extend)
+            .interactive(false);
 
          let multi_label = MultiLabel::new(vec![label_in, label_arrow, label_out]);
          ui.add(multi_label);
 
          let chain_in = RichText::new(from_chain.name()).size(theme.typography.large);
          let chain_in_icon = icons.chain_icon(from_chain.id(), tint);
-         let label1 = Label::new(chain_in, Some(chain_in_icon)).interactive(false);
+         let label1 = Label::new(chain_in, Some(chain_in_icon))
+            .wrap_mode(TextWrapMode::Extend)
+            .interactive(false);
 
          let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
          let label_arrow = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
 
          let chain_out = RichText::new(to_chain.name()).size(theme.typography.large);
          let chain_out_icon = icons.chain_icon(to_chain.id(), tint);
-         let label2 = Label::new(chain_out, Some(chain_out_icon)).interactive(false);
+         let label2 = Label::new(chain_out, Some(chain_out_icon))
+            .wrap_mode(TextWrapMode::Extend)
+            .interactive(false);
 
          let multi_label = MultiLabel::new(vec![label1, label_arrow, label2]);
          ui.add(multi_label);
@@ -472,13 +485,15 @@ impl Notification {
       ui.vertical_centered(|ui| {
          let native: Currency = NativeCurrency::from(params.chain).into();
          let weth: Currency = ERC20Token::wrapped_native_token(params.chain).into();
-         let eth_wrapped = params.eth_wrapped.abbreviated();
+         let eth_wrapped = format_amount(&params.eth_wrapped);
          let weth_received = eth_wrapped.clone();
 
          let text = format!("{} {}", eth_wrapped, native.symbol());
          let text_amount = RichText::new(text).size(theme.typography.large);
          let icon = icons.currency_icon_x32(&native, tint).fit_to_exact_size(icon_size);
-         let label1 = Label::new(text_amount, Some(icon)).interactive(false);
+         let label1 = Label::new(text_amount, Some(icon))
+            .wrap_mode(TextWrapMode::Extend)
+            .interactive(false);
 
          let arrow_icon = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
          let arrow_label = Label::new("", Some(arrow_icon)).spacing(0.0).interactive(false);
@@ -487,7 +502,9 @@ impl Notification {
          let text_amount = RichText::new(text).size(theme.typography.large);
          let icon = icons.currency_icon_x32(&weth, tint).fit_to_exact_size(icon_size);
 
-         let label2 = Label::new(text_amount, Some(icon)).interactive(false);
+         let label2 = Label::new(text_amount, Some(icon))
+            .wrap_mode(TextWrapMode::Extend)
+            .interactive(false);
 
          let multi_label = MultiLabel::new(vec![label1, arrow_label, label2]);
          ui.add(multi_label);
@@ -502,13 +519,15 @@ impl Notification {
       ui.vertical_centered(|ui| {
          let weth: Currency = ERC20Token::wrapped_native_token(params.chain).into();
          let native: Currency = NativeCurrency::from(params.chain).into();
-         let weth_unwrapped = params.weth_unwrapped.abbreviated();
-         let eth_received = params.eth_received.abbreviated();
+         let weth_unwrapped = format_amount(&params.weth_unwrapped);
+         let eth_received = format_amount(&params.eth_received);
 
          let text = format!("{} {}", weth_unwrapped, weth.symbol());
          let text_amount = RichText::new(text).size(theme.typography.large);
          let icon = icons.currency_icon_x32(&weth, tint).fit_to_exact_size(icon_size);
-         let label1 = Label::new(text_amount, Some(icon)).interactive(false);
+         let label1 = Label::new(text_amount, Some(icon))
+            .wrap_mode(TextWrapMode::Extend)
+            .interactive(false);
 
          let arrow_icon = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
          let arrow_label = Label::new("", Some(arrow_icon)).spacing(0.0).interactive(false);
@@ -517,7 +536,9 @@ impl Notification {
          let text_amount = RichText::new(text).size(theme.typography.large);
          let icon = icons.currency_icon_x32(&native, tint).fit_to_exact_size(icon_size);
 
-         let label2 = Label::new(text_amount, Some(icon)).interactive(false);
+         let label2 = Label::new(text_amount, Some(icon))
+            .wrap_mode(TextWrapMode::Extend)
+            .interactive(false);
          let multi_label = MultiLabel::new(vec![label1, arrow_label, label2]);
          ui.add(multi_label);
       });
@@ -538,16 +559,17 @@ impl Notification {
          let chain = params.currency.chain_id();
          let currency = &params.currency;
          let amount = if let Some(amount) = &params.real_amount_sent {
-            amount.abbreviated()
+            format_amount(amount)
          } else {
-            params.amount.abbreviated()
+            format_amount(&params.amount)
          };
 
          let text = format!("{} {}", amount, currency.symbol());
          let text = RichText::new(text).size(theme.typography.large);
          let icon = icons.currency_icon_x32(&currency, tint).fit_to_exact_size(icon_size);
 
-         let label = Label::new(text, Some(icon)).wrap().interactive(false);
+         let label =
+            Label::new(text, Some(icon)).wrap_mode(TextWrapMode::Extend).interactive(false);
          ui.add(label);
 
          let address_name = ctx.get_address_name(chain, params.sender);
@@ -558,7 +580,7 @@ impl Notification {
          };
 
          let text = RichText::new(address_name).size(theme.typography.normal);
-         let from_label = Label::new(text, None).interactive(false);
+         let from_label = Label::new(text, None).wrap_mode(TextWrapMode::Extend).interactive(false);
 
          let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
          let arrow_label = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
@@ -571,7 +593,7 @@ impl Notification {
          };
 
          let text = RichText::new(address_name).size(theme.typography.normal);
-         let to_label = Label::new(text, None).interactive(false);
+         let to_label = Label::new(text, None).wrap_mode(TextWrapMode::Extend).interactive(false);
 
          let multi_label = MultiLabel::new(vec![from_label, arrow_label, to_label]);
          ui.add(multi_label);
@@ -588,7 +610,7 @@ impl Notification {
          let amount = if is_unlimited {
             "Unlimited".to_string()
          } else {
-            params.amount.abbreviated()
+            format_amount(&params.amount)
          };
 
          let show_usd_value = !is_unlimited && params.amount_usd.is_some();
@@ -602,7 +624,7 @@ impl Notification {
                "{} {} ~ ${}",
                amount,
                params.token.symbol,
-               amount_usd.abbreviated()
+               format_amount(amount_usd)
             ))
             .size(theme.typography.normal)
          } else {
@@ -610,7 +632,8 @@ impl Notification {
                .size(theme.typography.normal)
          };
 
-         let label = Label::new(text, Some(icon)).interactive(false);
+         let label =
+            Label::new(text, Some(icon)).wrap_mode(TextWrapMode::Extend).interactive(false);
          ui.add(label);
       });
    }
@@ -633,21 +656,24 @@ impl Notification {
                let amount_usd = params.amount_usd.as_ref().unwrap();
                RichText::new(format!(
                   "{} {} ~ ${}",
-                  amount.abbreviated(),
+                  format_amount(amount),
                   token.symbol,
-                  amount_usd.abbreviated()
+                  format_amount(amount_usd)
                ))
                .size(theme.typography.normal)
             } else {
                RichText::new(format!(
                   "{} {}",
-                  amount.abbreviated(),
+                  format_amount(amount),
                   token.symbol
                ))
                .size(theme.typography.normal)
             };
 
-            let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+            let label = Label::new(text, Some(icon))
+               .image_on_left()
+               .wrap_mode(TextWrapMode::Extend)
+               .interactive(false);
             ui.add(label);
          }
       });
@@ -671,21 +697,24 @@ impl Notification {
                let amount_usd = params.amount_usd.as_ref().unwrap();
                RichText::new(format!(
                   "{} {} ~ ${}",
-                  amount.abbreviated(),
+                  format_amount(amount),
                   token.symbol,
-                  amount_usd.abbreviated()
+                  format_amount(amount_usd)
                ))
                .size(theme.typography.normal)
             } else {
                RichText::new(format!(
                   "{} {}",
-                  amount.abbreviated(),
+                  format_amount(amount),
                   token.symbol
                ))
                .size(theme.typography.normal)
             };
 
-            let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+            let label = Label::new(text, Some(icon))
+               .image_on_left()
+               .wrap_mode(TextWrapMode::Extend)
+               .interactive(false);
             ui.add(label);
          }
       });
@@ -704,23 +733,31 @@ impl Notification {
             let text = if let Some(amount_usd) = params.amount_usd.as_ref() {
                RichText::new(format!(
                   "{} {} ~ ${}",
-                  amount.abbreviated(),
+                  format_amount(amount),
                   token.symbol,
-                  amount_usd.abbreviated()
+                  format_amount(amount_usd)
                ))
                .size(theme.typography.normal)
             } else {
                RichText::new(format!(
                   "{} {}",
-                  amount.abbreviated(),
+                  format_amount(amount),
                   token.symbol
                ))
                .size(theme.typography.normal)
             };
 
-            let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+            let label = Label::new(text, Some(icon))
+               .image_on_left()
+               .wrap_mode(TextWrapMode::Extend)
+               .interactive(false);
             ui.add(label);
          }
       });
    }
+}
+
+/// Cap displayed amounts at 10 characters (same as AmountField / portfolio).
+fn format_amount(amount: &NumericValue) -> String {
+   format!("{:.10}", amount.abbreviated())
 }

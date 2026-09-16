@@ -116,12 +116,9 @@ impl MergeNotesWindow {
 
       let mut open = self.open;
 
-      // ? It doesnt actually dismiss despite closable set to tue, maybe i should switch to a Window
-
       Modal::new("Merge Private Notes", &mut open)
       .backdrop_order(Order::Background)
       .content_order(Order::Middle)
-      .closable(true)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_max_height(self.size.1);

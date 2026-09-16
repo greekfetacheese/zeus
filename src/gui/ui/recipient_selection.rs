@@ -8,7 +8,10 @@ use crate::core::{
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::{ContactsUi, WalletListByValue};
 use crate::utils::RT;
-use eframe::egui::{FontId, Id, Margin, Order, RichText, ScrollArea, Sense, Spinner, Ui, vec2};
+use eframe::egui::{
+   Align, FontId, Id, Layout, Margin, Order, RichText, ScrollArea, Sense, Spinner, TextWrapMode,
+   Ui, vec2,
+};
 use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme, utils::frame as frame_fn};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -66,7 +69,7 @@ impl RecipientSelectionWindow {
          wallet_value: HashMap::new(),
          wallet_chains: HashMap::new(),
          adding_contact: false,
-         size: (500.0, 550.0),
+         size: (560.0, 550.0),
       }
    }
 
@@ -442,7 +445,7 @@ impl RecipientSelectionWindow {
 
    fn show_wallets(
       &mut self,
-      _ctx: &mut ZeusContext,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       privacy_mode: bool,
       close_window: &mut bool,
@@ -458,7 +461,14 @@ impl RecipientSelectionWindow {
 
       for wallet in wallets {
          let valid_search = valid_wallet_search(wallet, privacy_mode, &self.search_query);
-         let value = self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
+
+         // Currently Railgun is only supported on mainnet and sepolia
+         let testnets = ctx.chain.is_testnet();
+         let value = ctx.get_total_value(wallet.address, testnets);
+         let private_value = value.for_mode(true).clone();
+
+         // Public value across all chains
+         let public_value = self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
 
          let address = match privacy_mode {
             false => wallet.address.to_string(),
@@ -470,22 +480,48 @@ impl RecipientSelectionWindow {
             true => wallet.zk_address(),
          };
 
+         let large = theme.typography.large;
+         let normal = theme.typography.normal;
+
          if valid_search {
             let res = frame_fn(&mut frame, visuals, ui, |ui| {
                ui.set_width(ui.available_width());
+               // Values take their intrinsic width on the right so they never wrap;
+               // the name truncates in whatever is left.
                ui.horizontal(|ui| {
-                  let text = RichText::new(wallet.name_with_source())
-                     .size(theme.typography.large)
-                     .color(theme.colors.text);
-                  let label = Label::new(text, None).interactive(false);
-                  ui.add(label);
+                  ui.spacing_mut().item_spacing.x = theme.spacing.sm;
+                  ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                     let text = RichText::new(format!(
+                        "Private ${:.10}",
+                        private_value.abbreviated()
+                     ))
+                     .size(normal);
+                     let label =
+                        Label::new(text, None).wrap_mode(TextWrapMode::Extend).interactive(false);
+                     ui.add(label);
 
-                  ui.add_space(10.0);
+                     ui.separator();
 
-                  let text = RichText::new(format!("${:.10}", value.abbreviated()))
-                     .size(theme.typography.normal);
-                  let label = Label::new(text, None).interactive(false);
-                  ui.add(label);
+                     let text = RichText::new(format!(
+                        "Public ${:.10}",
+                        public_value.abbreviated()
+                     ))
+                     .size(normal);
+                     let label =
+                        Label::new(text, None).wrap_mode(TextWrapMode::Extend).interactive(false);
+                     ui.add(label);
+
+                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        let text = RichText::new(wallet.name_with_source())
+                           .size(large)
+                           .color(theme.colors.text);
+                        let label = Label::new(text, None)
+                           .wrap_mode(TextWrapMode::Truncate)
+                           .fill_width(true)
+                           .interactive(false);
+                        ui.add(label);
+                     });
+                  });
                });
 
                ui.add_space(6.0);

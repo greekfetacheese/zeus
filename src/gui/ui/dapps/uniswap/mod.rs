@@ -1,13 +1,10 @@
-use egui::{Align, CornerRadius, CursorIcon, Frame, Layout, Order, RichText, Spinner, Ui, vec2};
-use zeus_eth::alloy_primitives::Address;
-use zeus_eth::currency::Currency;
-use zeus_eth::utils::NumericValue;
+use egui::{Align, CornerRadius, CursorIcon, Layout, Order, RichText, Spinner, Ui, vec2};
 
 use crate::assets::icons::Icons;
-use crate::core::{ZeusContext, ZeusCtx};
+use crate::core::ZeusContext;
 use crate::gui::ui::TokenSelectionWindow;
 use crate::gui::ui::show_with_fade;
-use egui_elements::{Button, Label, Modal, Theme, visuals::ButtonVisuals};
+use egui_elements::{Button, Modal, Theme, visuals::ButtonVisuals};
 use egui_lucide::Lucide;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -269,94 +266,4 @@ impl UniswapUi {
             });
          });
    }
-}
-
-pub fn currencies_amount_and_value(
-   ctx: ZeusCtx,
-   chain: u64,
-   owner: Address,
-   token0: &Currency,
-   token1: &Currency,
-   amount0: &NumericValue,
-   amount1: &NumericValue,
-   price0_usd: &NumericValue,
-   price1_usd: &NumericValue,
-   theme: &Theme,
-   icons: Arc<Icons>,
-   frame: Frame,
-   ui: &mut Ui,
-) {
-   let tint = theme.image_tint_recommended;
-
-   ui.vertical(|ui| {
-      // Currency 0
-      frame.show(ui, |ui| {
-         ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  let text = RichText::new(token0.symbol()).size(theme.typography.large);
-                  let icon = icons.currency_icon_x32(token0, tint);
-                  let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
-                  ui.add(label);
-               });
-
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  let balance = ctx.get_currency_balance(chain, owner, token0);
-                  let b_text = format!("(Balance: {})", balance.abbreviated());
-                  let text = RichText::new(b_text).size(theme.typography.normal);
-                  let label = Label::new(text, None).interactive(false);
-                  ui.add(label);
-               });
-            });
-
-            // Currency 0 Amount & Value
-            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               let value = NumericValue::value(amount0.f64(), price0_usd.f64());
-               let text = RichText::new(format!("(${})", value.abbreviated()))
-                  .size(theme.typography.normal);
-               ui.label(text);
-
-               ui.add_space(5.0);
-
-               let text = RichText::new(amount0.abbreviated()).size(theme.typography.normal);
-               ui.label(text);
-            });
-         });
-      });
-
-      // Currency 1
-      frame.show(ui, |ui| {
-         ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  let text = RichText::new(token1.symbol()).size(theme.typography.large);
-                  let icon = icons.currency_icon_x32(token1, tint);
-                  let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
-                  ui.add(label);
-               });
-
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  let balance = ctx.get_currency_balance(chain, owner, token1);
-                  let b_text = format!("(Balance: {})", balance.abbreviated());
-                  let text = RichText::new(b_text).size(theme.typography.normal);
-                  let label = Label::new(text, None).interactive(false);
-                  ui.add(label);
-               });
-            });
-
-            // Currency B Amount & Value
-            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               let value = NumericValue::value(amount1.f64(), price1_usd.f64());
-               let text = RichText::new(format!("(${})", value.abbreviated()))
-                  .size(theme.typography.normal);
-               ui.label(text);
-
-               ui.add_space(5.0);
-
-               let text = RichText::new(amount1.abbreviated()).size(theme.typography.normal);
-               ui.label(text);
-            });
-         });
-      });
-   });
 }
