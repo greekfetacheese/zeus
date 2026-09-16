@@ -7,7 +7,7 @@ use ui::settings;
 
 use crate::assets::icons::Icons;
 use crate::core::context::{ZeusContext, ZeusCtx, load_theme_kind};
-use egui_elements::{editor::ThemeEditor, overlay::OverlayManager, theme::*};
+use egui_elements::{editor::ThemeEditor, theme::*};
 use lazy_static::lazy_static;
 
 pub use crate::gui::ui::{
@@ -69,7 +69,6 @@ pub struct GUI {
    pub egui_ctx: Context,
    pub ctx: ZeusCtx,
    pub icons: Arc<Icons>,
-   pub overlay_manager: OverlayManager,
    pub theme: Theme,
    pub editor: ThemeEditor,
    pub shield_ui: ShieldUi,
@@ -105,7 +104,6 @@ pub struct GUI {
 impl GUI {
    pub fn new(icons: Arc<Icons>, theme: Theme, egui_ctx: Context) -> Self {
       let ctx = ZeusCtx::new();
-      let overlay_manager = theme.overlay_manager.clone();
 
       let token_selection = ui::TokenSelectionWindow::new();
       let recipient_selection = ui::RecipientSelectionWindow::new();
@@ -139,7 +137,6 @@ impl GUI {
       Self {
          egui_ctx,
          ctx: ctx.clone(),
-         overlay_manager,
          theme,
          editor: ThemeEditor::new(),
          icons,

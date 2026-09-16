@@ -10,7 +10,6 @@ use eframe::{
    CreationContext,
    egui::{self, Frame},
 };
-use egui_elements::overlay::OverlayManager;
 use elegance::{BadgeTone, Toast};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,7 +17,6 @@ use std::time::Duration;
 
 pub struct ZeusApp {
    pub style_has_been_set: bool,
-   pub overlay: OverlayManager,
    pub ctx: ZeusCtx,
    /// Once true, the next close request is allowed to proceed (after delayed cleanup).
    allow_close: Arc<AtomicBool>,
@@ -99,7 +97,6 @@ impl ZeusApp {
 
       Self {
          style_has_been_set: false,
-         overlay: theme.overlay_manager,
          ctx,
          allow_close: Arc::new(AtomicBool::new(false)),
          shutdown_started: false,
@@ -248,9 +245,6 @@ impl eframe::App for ZeusApp {
             };
 
             let left_frame = Frame::new().fill(left_frame_bg);
-
-            // Not used anymore
-            // self.overlay.paint_overlay(ui.ctx(), true);
 
             // Left panel first so it owns the full window height. Header + nav
             // then sit at the top-left; the top panel is only the message bar.
