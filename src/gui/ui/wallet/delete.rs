@@ -106,41 +106,7 @@ impl DeleteWalletUi {
          let password = self.credentials_form.password();
          let confirm_password = self.credentials_form.confirm_password();
          let credentials = Credentials::new(username, password, confirm_password);
-
-         RT.spawn_blocking(move || {
-            let ctx = SHARED_GUI.write(|gui| {
-               gui.loading_window.open("Decrypting vault...");
-               gui.request_repaint();
-               gui.ctx.clone()
-            });
-
-            let creds_match = ctx.read_vault(|vault| vault.credentials_match(&credentials));
-
-            // Verify the credentials by just decrypting the vault
-            match creds_match {
-               true => {
-                  SHARED_GUI.write(|gui| {
-                     // Mark the credentials as verified
-                     gui.wallet_ui.delete_wallet_ui.verified_credentials = true;
-                     // Close the verify credentials ui
-                     gui.wallet_ui.delete_wallet_ui.credentials_form.close();
-                     // Open the delete wallet ui
-                     gui.wallet_ui.delete_wallet_ui.open = true;
-                     // Erase the credentials form
-                     gui.wallet_ui.delete_wallet_ui.credentials_form.erase();
-                     gui.loading_window.reset();
-                     gui.request_repaint();
-                  });
-               }
-               false => {
-                  SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Credentials do not match");
-                     gui.loading_window.reset();
-                     gui.request_repaint();
-                  });
-               }
-            }
-         });
+         on_verify_credentials(credentials);
       }
 
       if !open {
@@ -265,61 +231,7 @@ impl DeleteWalletUi {
 
       if clicked {
          let is_current = ctx.is_current_wallet(wallet.address);
-
-         RT.spawn_blocking(move || {
-            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-            let mut new_vault = ctx.get_vault();
-            new_vault.remove_wallet(wallet.address);
-
-            // Set the master wallet as selected to avoid state inconsistencies
-            if is_current {
-               let master_wallet = new_vault.get_master_wallet();
-               ctx.write(|ctx| {
-                  ctx.current_wallet = master_wallet.clone();
-               });
-               SHARED_GUI.write(|gui| {
-                  gui.header.set_current_wallet(master_wallet);
-               });
-            }
-
-            SHARED_GUI.write(|gui| {
-               gui.loading_window.open("Encrypting vault...");
-               gui.request_repaint();
-            });
-
-            // Encrypt the vault
-            match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
-               Ok(_) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.loading_window.reset();
-                     gui.wallet_ui.delete_wallet_ui.wallet_to_delete = None;
-                     gui.wallet_ui.delete_wallet_ui.verified_credentials = false;
-                     gui.open_msg_window("Wallet Deleted");
-                     gui.request_repaint();
-                  });
-               }
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.loading_window.reset();
-                     gui.open_msg_window(format!(
-                        "Failed to encrypt vault: {}",
-                        e.to_string()
-                     ));
-                     gui.request_repaint();
-                  });
-                  return;
-               }
-            };
-
-            ctx.set_vault(new_vault);
-            ctx.build_wallet_info_cache();
-
-            // Recalculate the wallets
-            SHARED_GUI.write(|gui| {
-               gui.wallet_ui.calc_wallet_value();
-            });
-         });
-
+         on_delete_wallet(wallet, is_current);
          self.reset();
          return;
       }
@@ -328,4 +240,97 @@ impl DeleteWalletUi {
          self.reset();
       }
    }
+}
+
+fn on_verify_credentials(credentials: Credentials) {
+   RT.spawn_blocking(move || {
+      let ctx = SHARED_GUI.write(|gui| {
+         gui.loading_window.open("Decrypting vault...");
+         gui.request_repaint();
+         gui.ctx.clone()
+      });
+
+      let creds_match = ctx.read_vault(|vault| vault.credentials_match(&credentials));
+
+      // Verify the credentials by just decrypting the vault
+      match creds_match {
+         true => {
+            SHARED_GUI.write(|gui| {
+               // Mark the credentials as verified
+               gui.wallet_ui.delete_wallet_ui.verified_credentials = true;
+               // Close the verify credentials ui
+               gui.wallet_ui.delete_wallet_ui.credentials_form.close();
+               // Open the delete wallet ui
+               gui.wallet_ui.delete_wallet_ui.open = true;
+               // Erase the credentials form
+               gui.wallet_ui.delete_wallet_ui.credentials_form.erase();
+               gui.loading_window.reset();
+               gui.request_repaint();
+            });
+         }
+         false => {
+            SHARED_GUI.write(|gui| {
+               gui.open_msg_window("Credentials do not match");
+               gui.loading_window.reset();
+               gui.request_repaint();
+            });
+         }
+      }
+   });
+}
+
+fn on_delete_wallet(wallet: WalletInfo, is_current: bool) {
+   RT.spawn_blocking(move || {
+      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+      let mut new_vault = ctx.get_vault();
+      new_vault.remove_wallet(wallet.address);
+
+      // Set the master wallet as selected to avoid state inconsistencies
+      if is_current {
+         let master_wallet = new_vault.get_master_wallet();
+         ctx.write(|ctx| {
+            ctx.current_wallet = master_wallet.clone();
+         });
+         SHARED_GUI.write(|gui| {
+            gui.header.set_current_wallet(master_wallet);
+         });
+      }
+
+      SHARED_GUI.write(|gui| {
+         gui.loading_window.open("Encrypting vault...");
+         gui.request_repaint();
+      });
+
+      // Encrypt the vault
+      match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
+         Ok(_) => {
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.reset();
+               gui.wallet_ui.delete_wallet_ui.wallet_to_delete = None;
+               gui.wallet_ui.delete_wallet_ui.verified_credentials = false;
+               gui.open_msg_window("Wallet Deleted");
+               gui.request_repaint();
+            });
+         }
+         Err(e) => {
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.reset();
+               gui.open_msg_window(format!(
+                  "Failed to encrypt vault: {}",
+                  e.to_string()
+               ));
+               gui.request_repaint();
+            });
+            return;
+         }
+      };
+
+      ctx.set_vault(new_vault);
+      ctx.build_wallet_info_cache();
+
+      // Recalculate the wallets
+      SHARED_GUI.write(|gui| {
+         gui.wallet_ui.calc_wallet_value();
+      });
+   });
 }
