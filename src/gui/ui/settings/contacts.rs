@@ -94,73 +94,7 @@ impl AddContact {
       });
 
       if res.inner.clicked() {
-         let new_contact = self.contact.clone();
-
-         RT.spawn_blocking(move || {
-            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-            let _ = match Address::from_str(&new_contact.evm_address) {
-               Ok(address) => address,
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     let msg = format!("Address is not an Ethereum address: {}", e);
-                     gui.open_msg_window(msg);
-                     gui.request_repaint();
-                  });
-                  return;
-               }
-            };
-
-            if !new_contact.zk_address.is_empty() {
-               match RailgunAddress::from_zk_address(&new_contact.zk_address) {
-                  Ok(_) => {}
-                  Err(e) => {
-                     SHARED_GUI.write(|gui| {
-                        let msg = format!("Address is not a valid Railgun address: {}", e);
-                        gui.open_msg_window(msg);
-                        gui.request_repaint();
-                     });
-                     return;
-                  }
-               }
-            }
-
-            match ctx.add_contact(new_contact.clone()) {
-               Ok(_) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.settings.contacts_ui.add_contact.contact_added = true;
-                     if reset_on_success {
-                        gui.settings.contacts_ui.add_contact.reset();
-                        gui.settings.contacts_ui.view = ContactsPageView::List;
-                     }
-                  });
-               }
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.open_msg_window(format!(
-                        "Failed to add contact: {}",
-                        e.to_string()
-                     ));
-                     gui.request_repaint();
-                  });
-                  return;
-               }
-            }
-
-            match ctx.save_wallet_state() {
-               Ok(_) => {}
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     let error = format!(
-                        "Changes didn't take effect, encountered error: {}",
-                        e
-                     );
-                     gui.open_msg_window(error);
-                     gui.request_repaint();
-                  });
-                  ctx.remove_contact(&new_contact.evm_address);
-               }
-            }
-         });
+         on_add_contact(self.contact.clone(), reset_on_success);
       }
    }
 }
@@ -250,26 +184,7 @@ impl DeleteContact {
 
       match action {
          DeleteContactAction::Deleted => {
-            RT.spawn_blocking(move || {
-               let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-               ctx.remove_contact(&contact_to_delete.evm_address);
-
-               match ctx.save_wallet_state() {
-                  Ok(_) => {}
-                  Err(e) => {
-                     SHARED_GUI.write(|gui| {
-                        let error = format!(
-                           "Changes didn't take effect, encountered error: {}",
-                           e
-                        );
-                        gui.open_msg_window(error);
-                        gui.request_repaint();
-                     });
-                     let _res = ctx.add_contact(contact_to_delete);
-                  }
-               }
-            });
-
+            on_delete_contact(contact_to_delete);
             self.contact_to_delete = Contact::default();
             DeleteContactAction::Deleted
          }
@@ -347,80 +262,10 @@ impl EditContact {
       });
 
       if res.inner.clicked() {
-         let old_contact = self.old_contact.clone();
-         let edited_contact = self.contact_to_edit.clone();
-
-         RT.spawn_blocking(move || {
-            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-            let _ = match Address::from_str(&edited_contact.evm_address) {
-               Ok(address) => address,
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     let msg = format!("Address is not an Ethereum address: {}", e);
-                     gui.open_msg_window(msg);
-                     gui.request_repaint();
-                  });
-                  return;
-               }
-            };
-
-            if !edited_contact.zk_address.is_empty() {
-               match RailgunAddress::from_zk_address(&edited_contact.zk_address) {
-                  Ok(_) => {}
-                  Err(e) => {
-                     SHARED_GUI.write(|gui| {
-                        let msg = format!("Address is not a valid Railgun address: {}", e);
-                        gui.open_msg_window(msg);
-                        gui.request_repaint();
-                     });
-                     return;
-                  }
-               }
-            }
-
-            SHARED_GUI.write(|gui| {
-               gui.settings.contacts_ui.edit_contact.contact_to_edit = Contact::default();
-               gui.settings.contacts_ui.edit_contact.old_contact = Contact::default();
-               gui.settings.contacts_ui.view = ContactsPageView::List;
-            });
-
-            ctx.write_wallet_state(|ws| {
-               let new_contact =
-                  ws.contacts.iter_mut().find(|c| c.evm_address == old_contact.evm_address);
-               if let Some(new_contact) = new_contact {
-                  *new_contact = edited_contact.clone();
-               }
-            });
-
-            match ctx.save_wallet_state() {
-               Ok(_) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Contact saved");
-                     gui.request_repaint();
-                  });
-               }
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     let error = format!(
-                        "Changes didn't take effect, encountered error: {}",
-                        e
-                     );
-                     gui.open_msg_window(error);
-                     gui.request_repaint();
-                  });
-
-                  ctx.write_wallet_state(|ws| {
-                     let new_contact = ws
-                        .contacts
-                        .iter_mut()
-                        .find(|c| c.evm_address == edited_contact.evm_address);
-                     if let Some(new_contact) = new_contact {
-                        *new_contact = old_contact.clone();
-                     }
-                  });
-               }
-            }
-         });
+         on_edit_contact(
+            self.old_contact.clone(),
+            self.contact_to_edit.clone(),
+         );
       }
    }
 }
@@ -441,29 +286,8 @@ impl QrWindow {
    }
 
    fn open(&mut self, contact: Contact) {
-      let contact_clone = contact.clone();
-
-      RT.spawn_blocking(move || {
-         let data = contact.evm_address.clone();
-         let uri = format!("bytes://contact-{}.png", &contact.evm_address);
-         let evm_address_qr = QrImage::new(&data, uri);
-
-         let zk_address_qr = if !contact.zk_address.is_empty() {
-            let data = contact.zk_address.clone();
-            let uri = format!("bytes://contact-{}.png", &contact.zk_address);
-            QrImage::new(&data, uri)
-         } else {
-            QrImage::empty_with_error("No zkAddress available".to_string())
-         };
-
-         SHARED_GUI.write(|gui| {
-            gui.settings.contacts_ui.qr_window.evm_address_qr = evm_address_qr;
-            gui.settings.contacts_ui.qr_window.zk_address_qr = zk_address_qr;
-            gui.request_repaint();
-         });
-      });
-
-      self.contact = Some(contact_clone);
+      on_open_contact_qr(contact.clone());
+      self.contact = Some(contact);
    }
 
    fn reset(&mut self) {
@@ -795,4 +619,170 @@ fn valid_contact_search(contact: &Contact, query: &str) -> bool {
 
    contact.name.to_lowercase().contains(&query)
       || contact.evm_address.to_lowercase().contains(&query)
+}
+
+/// Parse EVM address and optional zk address. On failure, opens the msg window
+/// and returns false. Call only from a worker — not from the frame path.
+fn validate_contact_addresses(contact: &Contact) -> bool {
+   if let Err(e) = Address::from_str(&contact.evm_address) {
+      SHARED_GUI.write(|gui| {
+         let msg = format!("Address is not an Ethereum address: {}", e);
+         gui.open_msg_window(msg);
+         gui.request_repaint();
+      });
+      return false;
+   }
+
+   if !contact.zk_address.is_empty() {
+      if let Err(e) = RailgunAddress::from_zk_address(&contact.zk_address) {
+         SHARED_GUI.write(|gui| {
+            let msg = format!("Address is not a valid Railgun address: {}", e);
+            gui.open_msg_window(msg);
+            gui.request_repaint();
+         });
+         return false;
+      }
+   }
+
+   true
+}
+
+fn on_add_contact(new_contact: Contact, reset_on_success: bool) {
+   RT.spawn_blocking(move || {
+      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+      if !validate_contact_addresses(&new_contact) {
+         return;
+      }
+
+      match ctx.add_contact(new_contact.clone()) {
+         Ok(_) => {
+            SHARED_GUI.write(|gui| {
+               gui.settings.contacts_ui.add_contact.contact_added = true;
+               if reset_on_success {
+                  gui.settings.contacts_ui.add_contact.reset();
+                  gui.settings.contacts_ui.view = ContactsPageView::List;
+               }
+            });
+         }
+         Err(e) => {
+            SHARED_GUI.write(|gui| {
+               gui.open_msg_window(format!(
+                  "Failed to add contact: {}",
+                  e.to_string()
+               ));
+               gui.request_repaint();
+            });
+            return;
+         }
+      }
+
+      match ctx.save_wallet_state() {
+         Ok(_) => {}
+         Err(e) => {
+            SHARED_GUI.write(|gui| {
+               let error = format!(
+                  "Changes didn't take effect, encountered error: {}",
+                  e
+               );
+               gui.open_msg_window(error);
+               gui.request_repaint();
+            });
+            ctx.remove_contact(&new_contact.evm_address);
+         }
+      }
+   });
+}
+
+fn on_delete_contact(contact_to_delete: Contact) {
+   RT.spawn_blocking(move || {
+      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+      ctx.remove_contact(&contact_to_delete.evm_address);
+
+      match ctx.save_wallet_state() {
+         Ok(_) => {}
+         Err(e) => {
+            SHARED_GUI.write(|gui| {
+               let error = format!(
+                  "Changes didn't take effect, encountered error: {}",
+                  e
+               );
+               gui.open_msg_window(error);
+               gui.request_repaint();
+            });
+            let _res = ctx.add_contact(contact_to_delete);
+         }
+      }
+   });
+}
+
+fn on_edit_contact(old_contact: Contact, edited_contact: Contact) {
+   RT.spawn_blocking(move || {
+      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+      if !validate_contact_addresses(&edited_contact) {
+         return;
+      }
+
+      SHARED_GUI.write(|gui| {
+         gui.settings.contacts_ui.edit_contact.contact_to_edit = Contact::default();
+         gui.settings.contacts_ui.edit_contact.old_contact = Contact::default();
+         gui.settings.contacts_ui.view = ContactsPageView::List;
+      });
+
+      ctx.write_wallet_state(|ws| {
+         let new_contact =
+            ws.contacts.iter_mut().find(|c| c.evm_address == old_contact.evm_address);
+         if let Some(new_contact) = new_contact {
+            *new_contact = edited_contact.clone();
+         }
+      });
+
+      match ctx.save_wallet_state() {
+         Ok(_) => {
+            SHARED_GUI.write(|gui| {
+               gui.open_msg_window("Contact saved");
+               gui.request_repaint();
+            });
+         }
+         Err(e) => {
+            SHARED_GUI.write(|gui| {
+               let error = format!(
+                  "Changes didn't take effect, encountered error: {}",
+                  e
+               );
+               gui.open_msg_window(error);
+               gui.request_repaint();
+            });
+
+            ctx.write_wallet_state(|ws| {
+               let new_contact =
+                  ws.contacts.iter_mut().find(|c| c.evm_address == edited_contact.evm_address);
+               if let Some(new_contact) = new_contact {
+                  *new_contact = old_contact.clone();
+               }
+            });
+         }
+      }
+   });
+}
+
+fn on_open_contact_qr(contact: Contact) {
+   RT.spawn_blocking(move || {
+      let data = contact.evm_address.clone();
+      let uri = format!("bytes://contact-{}.png", &contact.evm_address);
+      let evm_address_qr = QrImage::new(&data, uri);
+
+      let zk_address_qr = if !contact.zk_address.is_empty() {
+         let data = contact.zk_address.clone();
+         let uri = format!("bytes://contact-{}.png", &contact.zk_address);
+         QrImage::new(&data, uri)
+      } else {
+         QrImage::empty_with_error("No zkAddress available".to_string())
+      };
+
+      SHARED_GUI.write(|gui| {
+         gui.settings.contacts_ui.qr_window.evm_address_qr = evm_address_qr;
+         gui.settings.contacts_ui.qr_window.zk_address_qr = zk_address_qr;
+         gui.request_repaint();
+      });
+   });
 }
