@@ -92,18 +92,7 @@ impl WalletUi {
 
    pub fn calc_wallet_value(&mut self) {
       self.loading = true;
-
-      RT.spawn_blocking(move || {
-         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-         let list = WalletListByValue::collect(&ctx);
-
-         SHARED_GUI.write(|gui| {
-            gui.wallet_ui.loading = false;
-            gui.wallet_ui.wallets = list.wallets;
-            gui.wallet_ui.wallet_value = list.values;
-            gui.wallet_ui.wallet_chains = list.chains;
-         });
-      });
+      on_calc_wallet_value();
    }
 
    pub fn close(&mut self) {
@@ -244,13 +233,7 @@ impl WalletUi {
                   }
 
                   if ui.add(MenuItem::new("Show QR Code")).clicked() {
-                     let wallet_clone = wallet.clone();
-                     RT.spawn_blocking(move || {
-                        SHARED_GUI.write(|gui| {
-                           gui.header.qrcode_window.open(wallet_clone);
-                           gui.request_repaint();
-                        });
-                     });
+                     on_show_wallet_qr(wallet.clone());
                   }
 
                   if ui.add_enabled(enabled, MenuItem::new("Delete")).clicked() {
@@ -351,112 +334,7 @@ impl WalletUi {
                let rename_button = Button::new(text).visuals(button_visuals).min_size(field_size);
 
                if ui.add(rename_button).clicked() {
-                  let new_wallet_name = self.new_wallet_name.clone();
-                  let old_wallet = old_wallet.clone();
-                  let old_wallet_addr = old_wallet.address();
-
-                  // On failure, revert the changes
-                  RT.spawn_blocking(move || {
-                     let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                     let old_vault = ctx.get_vault();
-
-                     if old_vault.wallet_name_exists(&new_wallet_name) {
-                        SHARED_GUI.write(|gui| {
-                           gui.open_msg_window(format!(
-                              "Wallet with name {} already exists",
-                              &new_wallet_name
-                           ));
-                           gui.request_repaint();
-                        });
-                        return;
-                     }
-
-                     if new_wallet_name.is_empty() {
-                        SHARED_GUI.write(|gui| {
-                           gui.open_msg_window("Wallet name cannot be empty");
-                           gui.request_repaint();
-                        });
-                        return;
-                     }
-
-                     let max_chars = old_vault.name_max_chars();
-
-                     if new_wallet_name.chars().count() > max_chars {
-                        SHARED_GUI.write(|gui| {
-                           gui.open_msg_window(format!(
-                              "Wallet name cannot be longer than {} characters",
-                              max_chars
-                           ));
-                           gui.request_repaint();
-                        });
-                        return;
-                     }
-
-                     let mut new_wallet = old_wallet.clone();
-                     new_wallet.name = new_wallet_name;
-
-                     let mut new_vault = old_vault.clone();
-
-                     for wallet in new_vault.all_wallets_mut() {
-                        if wallet.address() == old_wallet_addr {
-                           *wallet = new_wallet.clone();
-                        }
-                     }
-
-                     let is_current = ctx.is_current_wallet(new_wallet.address());
-
-                     if is_current {
-                        ctx.write(|ctx| {
-                           ctx.current_wallet = new_wallet.clone();
-                        });
-                     }
-
-                     SHARED_GUI.write(|gui| {
-                        gui.wallet_ui.rename_wallet = false;
-                     });
-
-                     // Don't open the loading window here so we don't block the
-                     // user from interacting with the UI. Toast when the save finishes.
-                     // Safety: The wallet is only updated if the op is successful
-                     match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
-                        Ok(_) => {
-                           SHARED_GUI.write(|gui| {
-                              // Update header
-                              if is_current {
-                                 gui.header.set_current_wallet(new_wallet);
-                              }
-
-                              // Reset state
-                              gui.wallet_ui.close_rename_wallet();
-
-                              Toast::new("Vault saved")
-                                 .tone(BadgeTone::Ok)
-                                 .description("Wallet renamed successfully")
-                                 .duration(Duration::from_secs(5))
-                                 .show(&gui.egui_ctx);
-                              gui.request_repaint();
-                           });
-                        }
-                        Err(e) => {
-                           SHARED_GUI.write(|gui| {
-                              gui.open_msg_window(format!(
-                                 "Failed to encrypt vault, changes reverted: {}",
-                                 e.to_string()
-                              ));
-                              gui.request_repaint();
-                           });
-                           return;
-                        }
-                     };
-
-                     ctx.set_vault(new_vault);
-                     ctx.build_wallet_info_cache();
-
-                     // Calculate the wallets again
-                     SHARED_GUI.write(|gui| {
-                        gui.wallet_ui.calc_wallet_value();
-                     });
-                  });
+                  on_rename_wallet(self.new_wallet_name.clone(), old_wallet.clone());
                }
             });
          });
@@ -465,4 +343,132 @@ impl WalletUi {
          self.close_rename_wallet();
       }
    }
+}
+
+fn on_calc_wallet_value() {
+   RT.spawn_blocking(move || {
+      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+      let list = WalletListByValue::collect(&ctx);
+
+      SHARED_GUI.write(|gui| {
+         gui.wallet_ui.loading = false;
+         gui.wallet_ui.wallets = list.wallets;
+         gui.wallet_ui.wallet_value = list.values;
+         gui.wallet_ui.wallet_chains = list.chains;
+      });
+   });
+}
+
+fn on_show_wallet_qr(wallet: WalletInfo) {
+   RT.spawn_blocking(move || {
+      SHARED_GUI.write(|gui| {
+         gui.header.qrcode_window.open(wallet);
+         gui.request_repaint();
+      });
+   });
+}
+
+fn on_rename_wallet(new_wallet_name: String, old_wallet: Wallet) {
+   RT.spawn_blocking(move || {
+      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+      let old_vault = ctx.get_vault();
+      let old_wallet_addr = old_wallet.address();
+
+      if old_vault.wallet_name_exists(&new_wallet_name) {
+         SHARED_GUI.write(|gui| {
+            gui.open_msg_window(format!(
+               "Wallet with name {} already exists",
+               &new_wallet_name
+            ));
+            gui.request_repaint();
+         });
+         return;
+      }
+
+      if new_wallet_name.is_empty() {
+         SHARED_GUI.write(|gui| {
+            gui.open_msg_window("Wallet name cannot be empty");
+            gui.request_repaint();
+         });
+         return;
+      }
+
+      let max_chars = old_vault.name_max_chars();
+
+      if new_wallet_name.chars().count() > max_chars {
+         SHARED_GUI.write(|gui| {
+            gui.open_msg_window(format!(
+               "Wallet name cannot be longer than {} characters",
+               max_chars
+            ));
+            gui.request_repaint();
+         });
+         return;
+      }
+
+      let mut new_wallet = old_wallet.clone();
+      new_wallet.name = new_wallet_name;
+
+      let mut new_vault = old_vault.clone();
+
+      for wallet in new_vault.all_wallets_mut() {
+         if wallet.address() == old_wallet_addr {
+            *wallet = new_wallet.clone();
+         }
+      }
+
+      let is_current = ctx.is_current_wallet(new_wallet.address());
+
+      if is_current {
+         ctx.write(|ctx| {
+            ctx.current_wallet = new_wallet.clone();
+         });
+      }
+
+      SHARED_GUI.write(|gui| {
+         gui.wallet_ui.rename_wallet = false;
+      });
+
+      // Don't open the loading window here so we don't block the
+      // user from interacting with the UI. Toast when the save finishes.
+      // Safety: The wallet is only updated if the op is successful
+      match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
+         Ok(_) => {
+            SHARED_GUI.write(|gui| {
+               // Update header
+               if is_current {
+                  gui.header.set_current_wallet(new_wallet);
+               }
+
+               // Reset state
+               gui.wallet_ui.close_rename_wallet();
+
+               Toast::new("Vault saved")
+                  .tone(BadgeTone::Ok)
+                  .description("Wallet renamed successfully")
+                  .duration(Duration::from_secs(5))
+                  .show(&gui.egui_ctx);
+               gui.request_repaint();
+            });
+         }
+         Err(e) => {
+            SHARED_GUI.write(|gui| {
+               gui.open_msg_window(format!(
+                  "Failed to encrypt vault, changes reverted: {}",
+                  e.to_string()
+               ));
+               gui.request_repaint();
+            });
+            return;
+         }
+      };
+
+      ctx.set_vault(new_vault);
+      ctx.build_wallet_info_cache();
+
+      // Calculate the wallets again
+      SHARED_GUI.write(|gui| {
+         gui.wallet_ui.calc_wallet_value();
+      });
+   });
 }
