@@ -147,7 +147,7 @@ pub fn permit_event_ui(
    let is_unlimited = params.is_unlimited();
 
    let amount = if is_unlimited {
-      "Unlimited".to_string()
+      "Unlimited"
    } else {
       params.amount.abbreviated()
    };
@@ -224,7 +224,7 @@ pub fn token_approval_event_ui(
       .unwrap_or_else(|| ctx.get_token_value_for_amount(params.amount.f64(), token));
 
    let amount = if is_unlimited {
-      "Unlimited".to_string()
+      "Unlimited"
    } else {
       params.amount.abbreviated()
    };
@@ -295,7 +295,8 @@ fn transfer_event_ui(
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let amount = params.amount_usd.clone().unwrap_or_default();
             ui.label(
-               RichText::new(format!("~ ${:.10}", amount.abbreviated())).size(theme.typography.large),
+               RichText::new(format!("~ ${:.10}", amount.abbreviated()))
+                  .size(theme.typography.large),
             );
          });
       });
@@ -902,7 +903,11 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
          let amount = amount.unwrap();
          let amount_usd = amount_usd.unwrap();
          let currency = &params.output_currency;
-         let amount_symbol = format!("{:.10} {}", amount.abbreviated(), currency.symbol());
+         let amount_symbol = format!(
+            "{:.10} {}",
+            amount.abbreviated(),
+            currency.symbol()
+         );
          let amount_usd = format!("~ ${:.10}", amount_usd.abbreviated());
          let text =
             RichText::new(format!("{} {}", amount_symbol, amount_usd)).size(theme.typography.large);
@@ -943,8 +948,11 @@ fn wrap_eth_event_ui(
       // USD Value
       let weth_received_usd = params.eth_wrapped_usd.clone().unwrap_or_default();
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let text = RichText::new(format!("~ ${:.10}", weth_received_usd.abbreviated()))
-            .size(theme.typography.large);
+         let text = RichText::new(format!(
+            "~ ${:.10}",
+            weth_received_usd.abbreviated()
+         ))
+         .size(theme.typography.large);
          ui.label(text);
       });
    });
@@ -989,8 +997,11 @@ fn unwrap_weth_event_ui(
       // USD Value
       let weth_unwrapped_usd = params.weth_unwrapped_usd.clone().unwrap_or_default();
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let text = RichText::new(format!("~ ${:.10}", weth_unwrapped_usd.abbreviated()))
-            .size(theme.typography.large);
+         let text = RichText::new(format!(
+            "~ ${:.10}",
+            weth_unwrapped_usd.abbreviated()
+         ))
+         .size(theme.typography.large);
          ui.label(text);
       });
    });
@@ -1025,7 +1036,11 @@ fn uniswap_position_op_event_ui(
    ui.horizontal(|ui| {
       let icon = icons.currency_icon_x32(currency0, tint).fit_to_exact_size(icon_size);
 
-      let text = format!("{:.10} {}", amount0.abbreviated(), currency0.symbol());
+      let text = format!(
+         "{:.10} {}",
+         amount0.abbreviated(),
+         currency0.symbol()
+      );
       let text = RichText::new(text).size(theme.typography.large);
 
       let label = Label::new(text, Some(icon)).interactive(false);
@@ -1043,7 +1058,11 @@ fn uniswap_position_op_event_ui(
    // Currency B and Amount & value
    ui.horizontal(|ui| {
       let icon = icons.currency_icon_x32(currency1, tint).fit_to_exact_size(icon_size);
-      let text = format!("{:.10} {}", amount1.abbreviated(), currency1.symbol());
+      let text = format!(
+         "{:.10} {}",
+         amount1.abbreviated(),
+         currency1.symbol()
+      );
 
       let text = RichText::new(text).size(theme.typography.large);
       let label = Label::new(text, Some(icon)).interactive(false);

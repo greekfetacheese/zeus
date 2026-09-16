@@ -11975,6 +11975,7 @@ dependencies = [
  "alloy-transport-ws",
  "alloy-tx-macros",
  "anyhow",
+ "criterion",
  "futures",
  "rand 0.8.7",
  "revm",

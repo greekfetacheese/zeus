@@ -1,4 +1,5 @@
 /target
+/crates/zeus-eth/target
 /data
 /token_data
 /pool_snapshots

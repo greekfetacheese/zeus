@@ -392,9 +392,9 @@ impl Permit2Details {
       })
    }
 
-   pub fn amount(&self) -> String {
+   pub fn amount(&self) -> &str {
       if self.amount.wei() == U256::MAX {
-         "Unlimited".to_string()
+         "Unlimited"
       } else {
          self.amount.abbreviated()
       }
@@ -582,9 +582,9 @@ impl Permit2612Details {
       })
    }
 
-   pub fn amount(&self) -> String {
+   pub fn amount(&self) -> &str {
       if self.is_unlimited() {
-         "Unlimited".to_string()
+         "Unlimited"
       } else {
          self.amount.abbreviated()
       }

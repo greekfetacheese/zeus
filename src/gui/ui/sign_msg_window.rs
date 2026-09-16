@@ -438,7 +438,7 @@ fn clear_signed_ui(
                });
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                   let amount_txt = if *unlimited {
-                     "Unlimited".to_string()
+                     "Unlimited"
                   } else {
                      amount.abbreviated()
                   };
@@ -516,7 +516,7 @@ fn _permit2_batch_approval_ui(
    for ((token, amount), _amount_usd) in token_details {
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let amount_text = if amount.wei() == U256::MAX {
-            "Unlimited".to_string()
+            "Unlimited"
          } else {
             amount.abbreviated()
          };

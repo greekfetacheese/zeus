@@ -586,7 +586,7 @@ pub fn clear_display_ui(
                });
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                   let amount_txt = if *unlimited {
-                     "Unlimited".to_string()
+                     "Unlimited"
                   } else {
                      amount.abbreviated()
                   };

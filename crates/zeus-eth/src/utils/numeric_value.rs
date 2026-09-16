@@ -4,42 +4,44 @@ use alloy_primitives::{
 };
 use serde::{Deserialize, Serialize};
 
-fn get_decimal_position(x: f64) -> usize {
-   let sci = format!("{:e}", x);
-   if let Some(exp_str) = sci.split('e').nth(1) {
-      if let Ok(exp) = exp_str.parse::<i32>() {
-         if exp < 0 {
-            return (-exp) as usize;
-         }
-      }
-   }
-   1
-}
-
+/// Number of zeros immediately after the decimal point, e.g. `0.001` → 2.
+///
+/// Fast path: values `>= 0.1` (the common price/balance case) need no float formatting.
 pub fn leading_zeros_after_decimal(x: f64) -> usize {
-   let position = get_decimal_position(x);
-   position.saturating_sub(1)
+   let mut n = x.abs();
+   if n == 0.0 || !n.is_finite() || n >= 0.1 {
+      return 0;
+   }
+
+   let mut zeros = 0usize;
+   while n < 0.1 && zeros < 16 {
+      n *= 10.0;
+      zeros += 1;
+   }
+   zeros
 }
 
 fn add_comma_separators(number: &str) -> String {
-   let mut parts = number.splitn(2, '.');
-   let integer_part = parts.next().unwrap_or("0");
-   let decimal_part = parts.next().unwrap_or("");
+   let (integer_part, decimal_part) = match number.split_once('.') {
+      Some((i, d)) => (i, d),
+      None => (number, ""),
+   };
 
-   let mut result = String::new();
-   let chars: Vec<char> = integer_part.chars().rev().collect();
-   for (i, c) in chars.iter().enumerate() {
-      if i > 0 && i % 3 == 0 {
-         result.insert(0, ',');
+   let extra_commas = integer_part.len().saturating_sub(1) / 3;
+   let mut result = String::with_capacity(number.len() + extra_commas);
+   let bytes = integer_part.as_bytes();
+   let len = bytes.len();
+   for (i, &b) in bytes.iter().enumerate() {
+      if i != 0 && (len - i) % 3 == 0 {
+         result.push(',');
       }
-      result.insert(0, *c);
+      result.push(char::from(b));
    }
 
    if !decimal_part.is_empty() {
       result.push('.');
       result.push_str(decimal_part);
    }
-
    result
 }
 
@@ -67,7 +69,9 @@ fn format_number(n: f64) -> String {
 
    // For very small number starting from 0.00
    if zeros > 1 {
-      let s = format_dynamic_precision(n, zeros);
+      // Same as `format_dynamic_precision(n, zeros)` without recomputing zeros.
+      let prec = (zeros.saturating_mul(2)).min(15);
+      let s = format!("{:.prec$}", n);
       remove_trailing_zeros(s)
 
       // From 10k start adding commas
@@ -79,27 +83,33 @@ fn format_number(n: f64) -> String {
    }
 }
 
-fn _format_abbreviated(n: f64) -> Option<String> {
+fn format_abbreviated(n: f64) -> Option<String> {
    if n < 1_000_000.0 {
       return None;
    }
 
-   let one_sextillion = 1_000_000_000_000_000_000_000.0;
+   const ONE_SEXTILLION: f64 = 1_000_000_000_000_000_000_000.0;
 
    // Just return unlimited for now, these numbers doesn't make sense anyway
-   if n > one_sextillion {
-      return Some(format!("Unlimited"));
+   if n > ONE_SEXTILLION {
+      return Some(String::from("Unlimited"));
    }
 
    // Up to sextillion 10^21
-   let suffixes = ["", "K", "M", "B", "T", "Q", "Q", "S"];
+   const SUFFIXES: [&str; 8] = ["", "K", "M", "B", "T", "Q", "Q", "S"];
    let magnitude = (n.log10() / 3.0).floor() as usize;
-   let magnitude = magnitude.min(suffixes.len() - 1);
-   let divisor = 1000.0f64.powi(magnitude as i32);
-   let scaled = n / divisor;
-   let formatted = format!("{:.2}", scaled).trim_end_matches('0').trim_end_matches('.').to_string();
-   let s = format!("{}{}", formatted, suffixes[magnitude]);
-   Some(s)
+   let magnitude = magnitude.min(SUFFIXES.len() - 1);
+   let scaled = n / 1000.0f64.powi(magnitude as i32);
+
+   let mut formatted = format!("{:.2}", scaled);
+   while formatted.ends_with('0') {
+      formatted.pop();
+   }
+   if formatted.ends_with('.') {
+      formatted.pop();
+   }
+   formatted.push_str(SUFFIXES[magnitude]);
+   Some(formatted)
 }
 
 /// Represents a numeric value in different formats
@@ -126,6 +136,21 @@ impl Default for NumericValue {
 // Builders
 
 impl NumericValue {
+   fn from_f64_parts(wei: Option<U256>, value: f64) -> Self {
+      Self {
+         wei,
+         f64: value,
+         formatted: format_number(value),
+         abbreviated: format_abbreviated(value),
+      }
+   }
+
+   fn from_wei(wei: U256, decimals: u8) -> Self {
+      let units = format_units(wei, decimals).unwrap_or_else(|_| String::from("0"));
+      let value = units.parse().unwrap_or(0.0);
+      Self::from_f64_parts(Some(wei), value)
+   }
+
    pub fn is_abbreviated_unlimited(&self) -> bool {
       self.abbreviated().eq_ignore_ascii_case("Unlimited")
    }
@@ -141,17 +166,7 @@ impl NumericValue {
    /// assert_eq!(value.f64(), 1.0);
    /// ```
    pub fn format_wei(wei: U256, decimals: u8) -> Self {
-      let units_formated = format_units(wei, decimals).unwrap_or("0".to_string());
-      let f64 = units_formated.parse().unwrap_or(0.0);
-      let formatted = format_number(f64);
-      let abbreviated = _format_abbreviated(f64);
-
-      Self {
-         wei: Some(wei),
-         f64,
-         formatted,
-         abbreviated,
-      }
+      Self::from_wei(wei, decimals)
    }
 
    /// Parse a value doing the 10^decimals conversion
@@ -171,18 +186,7 @@ impl NumericValue {
       } else {
          U256::ZERO
       };
-
-      let formatted = format_units(wei, currency_decimals).unwrap_or("0".to_string());
-      let f64 = formatted.parse().unwrap_or(0.0);
-      let formatted = format_number(f64);
-      let abbreviated = _format_abbreviated(f64);
-
-      Self {
-         wei: Some(wei),
-         f64,
-         formatted,
-         abbreviated,
-      }
+      Self::from_wei(wei, currency_decimals)
    }
 
    /// Format a wei value to gwei in a readable format
@@ -196,17 +200,7 @@ impl NumericValue {
    /// assert_eq!(value.f64, 1.0);
    /// ```
    pub fn format_to_gwei(amount: U256) -> Self {
-      let formatted = format_units(amount, 9).unwrap_or("0".to_string());
-      let f64 = formatted.parse().unwrap_or(0.0);
-      let formatted = format_number(f64);
-      let abbreviated = _format_abbreviated(f64);
-
-      Self {
-         wei: Some(amount),
-         f64,
-         formatted,
-         abbreviated,
-      }
+      Self::from_wei(amount, 9)
    }
 
    /// Parse a value doing the 10^9 conversion
@@ -226,18 +220,7 @@ impl NumericValue {
       } else {
          U256::ZERO
       };
-
-      let formatted = format_units(wei, 9).unwrap_or("0".to_string());
-      let f64 = formatted.parse().unwrap_or(0.0);
-      let formatted = format_number(f64);
-      let abbreviated = _format_abbreviated(f64);
-
-      Self {
-         wei: Some(wei),
-         f64,
-         formatted,
-         abbreviated,
-      }
+      Self::from_wei(wei, 9)
    }
 
    /// Computes the new amount by applying the given slippage percentage.
@@ -263,28 +246,12 @@ impl NumericValue {
 
    /// Create a new NumericValue to represent a currency balance
    pub fn currency_balance(balance: U256, currency_decimals: u8) -> Self {
-      let formatted = format_units(balance, currency_decimals).unwrap_or("0".to_string());
-      let f64 = formatted.parse().unwrap_or(0.0);
-      let formatted = format_number(f64);
-      let abbreviated = _format_abbreviated(f64);
-      Self {
-         wei: Some(balance),
-         f64,
-         formatted,
-         abbreviated,
-      }
+      Self::from_wei(balance, currency_decimals)
    }
 
    /// Create a new NumericValue to represent a currency price
    pub fn currency_price(price: f64) -> Self {
-      let formatted = format_number(price);
-      let abbreviated = _format_abbreviated(price);
-      Self {
-         wei: None,
-         f64: price,
-         formatted,
-         abbreviated,
-      }
+      Self::from_f64_parts(None, price)
    }
 
    /// Create a new NumericValue to represent a value
@@ -296,27 +263,11 @@ impl NumericValue {
       } else {
          amount * price
       };
-
-      let formatted = format_number(value);
-      let abbreviated = _format_abbreviated(value);
-
-      Self {
-         wei: None,
-         f64: value,
-         formatted,
-         abbreviated,
-      }
+      Self::from_f64_parts(None, value)
    }
 
    pub fn from_f64(float: f64) -> Self {
-      let formatted = format_number(float);
-      let abbreviated = _format_abbreviated(float);
-      Self {
-         wei: None,
-         f64: float,
-         formatted,
-         abbreviated,
-      }
+      Self::from_f64_parts(None, float)
    }
 
    pub fn is_zero(&self) -> bool {
@@ -342,15 +293,12 @@ impl NumericValue {
       string.replace(",", "")
    }
 
-   pub fn formatted(&self) -> String {
-      self.formatted.clone()
+   pub fn formatted(&self) -> &str {
+      &self.formatted
    }
 
-   pub fn abbreviated(&self) -> String {
-      match self.abbreviated {
-         Some(ref s) => s.clone(),
-         None => self.formatted(),
-      }
+   pub fn abbreviated(&self) -> &str {
+      self.abbreviated.as_deref().unwrap_or(&self.formatted)
    }
 }
 
@@ -524,5 +472,118 @@ mod tests {
       let value = NumericValue::currency_price(v);
       let value_formatted = value.formatted();
       assert_eq!(value_formatted, "100,000.00");
+   }
+
+   fn legacy_leading_zeros(x: f64) -> usize {
+      let sci = format!("{:e}", x);
+      let position = if let Some(exp_str) = sci.split('e').nth(1) {
+         if let Ok(exp) = exp_str.parse::<i32>() {
+            if exp < 0 { (-exp) as usize } else { 1 }
+         } else {
+            1
+         }
+      } else {
+         1
+      };
+      position.saturating_sub(1)
+   }
+
+   fn legacy_format_number(n: f64) -> String {
+      let zeros = legacy_leading_zeros(n);
+      if zeros > 1 {
+         let prec = (zeros + zeros).min(15);
+         let mut s = format!("{:.prec$}", n);
+         while s.ends_with('0') {
+            s.pop();
+         }
+         if s.ends_with('.') {
+            s.pop();
+         }
+         s
+      } else if n > 9999.0 {
+         let s = format!("{:.2}", n);
+         let mut parts = s.splitn(2, '.');
+         let integer_part = parts.next().unwrap_or("0");
+         let decimal_part = parts.next().unwrap_or("");
+         let mut result = String::new();
+         let chars: Vec<char> = integer_part.chars().rev().collect();
+         for (i, c) in chars.iter().enumerate() {
+            if i > 0 && i % 3 == 0 {
+               result.insert(0, ',');
+            }
+            result.insert(0, *c);
+         }
+         if !decimal_part.is_empty() {
+            result.push('.');
+            result.push_str(decimal_part);
+         }
+         result
+      } else {
+         format!("{:.2}", n)
+      }
+   }
+
+   fn legacy_format_abbreviated(n: f64) -> Option<String> {
+      if n < 1_000_000.0 {
+         return None;
+      }
+      let one_sextillion = 1_000_000_000_000_000_000_000.0;
+      if n > one_sextillion {
+         return Some(format!("Unlimited"));
+      }
+      let suffixes = ["", "K", "M", "B", "T", "Q", "Q", "S"];
+      let magnitude = (n.log10() / 3.0).floor() as usize;
+      let magnitude = magnitude.min(suffixes.len() - 1);
+      let divisor = 1000.0f64.powi(magnitude as i32);
+      let scaled = n / divisor;
+      let formatted =
+         format!("{:.2}", scaled).trim_end_matches('0').trim_end_matches('.').to_string();
+      Some(format!("{}{}", formatted, suffixes[magnitude]))
+   }
+
+   #[test]
+   fn format_matches_legacy_across_magnitudes() {
+      let mut samples = vec![
+         0.0,
+         0.1,
+         0.01,
+         0.001,
+         0.0001,
+         0.000001075424985484,
+         0.000001834247995202872,
+         0.003009581964807856,
+         1.0,
+         12.47,
+         9999.0,
+         9999.99,
+         10000.0,
+         10000.01,
+         100_000.0,
+         4304.34,
+         725_000_000.34,
+         725_230_000.0,
+         1_234.56,
+         12_345_678_900_000.0,
+         1_000_000_000_000_000.0,
+      ];
+      for e in -18..=8 {
+         let p = 10f64.powi(e);
+         samples.push(p);
+         samples.push(p * 1.23456789);
+         samples.push(p * 9.999);
+      }
+
+      for x in samples {
+         assert_eq!(
+            format_number(x),
+            legacy_format_number(x),
+            "formatted mismatch for {x:?}"
+         );
+         assert_eq!(
+            super::format_abbreviated(x),
+            legacy_format_abbreviated(x),
+            "abbreviated mismatch for {x:?}"
+         );
+      }
    }
 }

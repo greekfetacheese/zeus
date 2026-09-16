@@ -52,3 +52,8 @@ thiserror = "2"
 
 [dev-dependencies]
 rand = "0.8"
+criterion = "0.8.2"
+
+[[bench]]
+name = "numeric_value"
+harness = false
