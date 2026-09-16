@@ -257,58 +257,7 @@ impl ExportKeyUi {
          let password = self.credentials_form.password();
          let confirm_password = self.credentials_form.confirm_password();
          let credentials = Credentials::new(username, password, confirm_password);
-
-         RT.spawn_blocking(move || {
-            let ctx = SHARED_GUI.write(|gui| {
-               gui.loading_window.open("Checking credentials...");
-               gui.request_repaint();
-               gui.ctx.clone()
-            });
-
-            let creds_match = ctx.read_vault(|vault| vault.credentials_match(&credentials));
-
-            match creds_match {
-               true => {
-                  let key_data = SHARED_GUI.read(|gui| {
-                     gui.wallet_ui.export_key_ui.wallet_to_export.as_ref().map(|wallet| {
-                        (
-                           wallet.key_string(),
-                           format!(
-                              "bytes://key-{}.png",
-                              &wallet.address().to_string()
-                           ),
-                        )
-                     })
-                  });
-
-                  let qr_image = match key_data {
-                     Some((key_hex, uri)) => key_hex.unlock_str(|key| QrImage::new(key, uri)),
-                     None => QrImage::empty_with_error("No wallet found".to_string()),
-                  };
-
-                  SHARED_GUI.write(|gui| {
-                     gui.wallet_ui.export_key_ui.private_key_qr = qr_image;
-                     // Allow the user to export the key
-                     gui.wallet_ui.export_key_ui.show_key = true;
-                     // Mark the credentials as verified
-                     gui.wallet_ui.export_key_ui.verified_credentials = true;
-                     // Erase the credentials form
-                     gui.wallet_ui.export_key_ui.credentials_form.erase();
-                     // Close the credentials form
-                     gui.wallet_ui.export_key_ui.credentials_form.close();
-                     gui.loading_window.reset();
-                     gui.request_repaint();
-                  });
-               }
-               false => {
-                  SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Credentials do not match");
-                     gui.loading_window.reset();
-                     gui.request_repaint();
-                  });
-               }
-            }
-         });
+         on_verify_credentials(credentials);
       }
 
       if !open {
@@ -316,4 +265,58 @@ impl ExportKeyUi {
          self.credentials_form.erase();
       }
    }
+}
+
+fn on_verify_credentials(credentials: Credentials) {
+   RT.spawn_blocking(move || {
+      let ctx = SHARED_GUI.write(|gui| {
+         gui.loading_window.open("Checking credentials...");
+         gui.request_repaint();
+         gui.ctx.clone()
+      });
+
+      let creds_match = ctx.read_vault(|vault| vault.credentials_match(&credentials));
+
+      match creds_match {
+         true => {
+            let key_data = SHARED_GUI.read(|gui| {
+               gui.wallet_ui.export_key_ui.wallet_to_export.as_ref().map(|wallet| {
+                  (
+                     wallet.key_string(),
+                     format!(
+                        "bytes://key-{}.png",
+                        &wallet.address().to_string()
+                     ),
+                  )
+               })
+            });
+
+            let qr_image = match key_data {
+               Some((key_hex, uri)) => key_hex.unlock_str(|key| QrImage::new(key, uri)),
+               None => QrImage::empty_with_error("No wallet found".to_string()),
+            };
+
+            SHARED_GUI.write(|gui| {
+               gui.wallet_ui.export_key_ui.private_key_qr = qr_image;
+               // Allow the user to export the key
+               gui.wallet_ui.export_key_ui.show_key = true;
+               // Mark the credentials as verified
+               gui.wallet_ui.export_key_ui.verified_credentials = true;
+               // Erase the credentials form
+               gui.wallet_ui.export_key_ui.credentials_form.erase();
+               // Close the credentials form
+               gui.wallet_ui.export_key_ui.credentials_form.close();
+               gui.loading_window.reset();
+               gui.request_repaint();
+            });
+         }
+         false => {
+            SHARED_GUI.write(|gui| {
+               gui.open_msg_window("Credentials do not match");
+               gui.loading_window.reset();
+               gui.request_repaint();
+            });
+         }
+      }
+   });
 }
