@@ -2,7 +2,10 @@
 //!
 //! If the vault is not found, it will show the wallet recovery UI.
 
-use crate::core::{Vault, ZeusContext};
+use crate::core::{
+   Vault, ZeusContext,
+   types::{MiscConfig, RailgunConfig},
+};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::gui::ui::settings::ImportDataUi;
@@ -13,6 +16,7 @@ use elegance::{BadgeTone, Toast};
 use ncrypt_me::{Argon2, Credentials, zeroize::Zeroize};
 use std::time::Instant;
 use zeus_eth::types::ChainId;
+use zeus_wallet::Wallet;
 use zeus_wallet::wallet::M_COST;
 
 #[cfg(feature = "dev")]
@@ -88,7 +92,7 @@ impl UnlockVault {
                   let credentials = Credentials::new(username, password, confirm_password);
                   let mut vault = Vault::default();
                   vault.set_credentials(credentials);
-                  self.unlock_vault(vault);
+                  on_unlock_vault(vault);
                }
 
                #[cfg(feature = "dev")]
@@ -100,149 +104,10 @@ impl UnlockVault {
                   );
                   let mut vault = Vault::default();
                   vault.set_credentials(credentials);
-                  self.unlock_vault(vault);
+                  on_unlock_vault(vault);
                }
             });
          });
-   }
-
-   fn unlock_vault(&self, mut vault: Vault) {
-      RT.spawn_blocking(move || {
-         let ctx = SHARED_GUI.write(|gui| {
-            gui.loading_window.open("Unlocking vault...");
-            gui.request_repaint();
-            gui.ctx.clone()
-         });
-
-         // Decrypt the vault
-         let mut data = match vault.decrypt(None) {
-            Ok(data) => data,
-            Err(e) => {
-               SHARED_GUI.write(|gui| {
-                  gui.open_msg_window(e.to_string());
-                  gui.loading_window.reset();
-               });
-               return;
-            }
-         };
-
-         let info = match vault.encrypted_info() {
-            Ok(info) => info,
-            Err(e) => {
-               SHARED_GUI.write(|gui| {
-                  let msg = format!(
-                     "Error while reading encrypted info, corrupted vault?: {}",
-                     e.to_string()
-                  );
-                  gui.open_msg_window(msg);
-                  gui.loading_window.reset();
-               });
-               data.zeroize();
-               return;
-            }
-         };
-
-         // Load the vault
-         match vault.load(data) {
-            Ok(legacy_wallet_state) => {
-               // Ensure AEAD key for wallet_state.data (migrated vaults get one here).
-               let key_generated = match vault.ensure_wallet_state_key() {
-                  Ok(g) => g,
-                  Err(e) => {
-                     SHARED_GUI.write(|gui| {
-                        gui.open_msg_window(format!("Failed to init wallet state key: {e}"));
-                        gui.loading_window.reset();
-                     });
-                     return;
-                  }
-               };
-
-               let key = match vault.wallet_state_key() {
-                  Ok(k) => k,
-                  Err(e) => {
-                     SHARED_GUI.write(|gui| {
-                        gui.open_msg_window(format!("Wallet state key missing: {e}"));
-                        gui.loading_window.reset();
-                     });
-                     return;
-                  }
-               };
-
-               let (wallet_state, migrated) =
-                  match crate::core::WalletState::load_or_migrate(&key, legacy_wallet_state) {
-                     Ok(v) => v,
-                     Err(e) => {
-                        SHARED_GUI.write(|gui| {
-                           gui.open_msg_window(format!("Failed to load wallet state: {e}"));
-                           gui.loading_window.reset();
-                        });
-                        return;
-                     }
-                  };
-
-               let master_wallet = vault.get_master_wallet();
-
-               ctx.set_vault(vault);
-               ctx.set_wallet_state(wallet_state);
-               ctx.load_tx_db();
-               ctx.build_wallet_info_cache();
-               ctx.load_currency_db();
-               ctx.load_pool_manager();
-               ctx.load_zeus_client();
-               ctx.load_price_manager();
-               ctx.load_or_create_address_book();
-
-               let bundler_url = match BundlerUrl::exists() {
-                  Ok(true) => match BundlerUrl::load(&key) {
-                     Ok(url) => Some(url.url),
-                     Err(e) => {
-                        tracing::error!("Error loading Bundler URL: {:?}", e);
-                        None
-                     }
-                  },
-                  Ok(false) => None,
-                  Err(e) => {
-                     tracing::error!("Error checking Bundler URL: {:?}", e);
-                     None
-                  }
-               };
-
-               // Persist key
-               if key_generated || migrated {
-                  if let Err(e) = ctx.encrypt_and_save_vault(None, None) {
-                     tracing::error!("Failed to save vault after wallet state migration: {e}");
-                  }
-               }
-
-               SHARED_GUI.write(|gui| {
-                  gui.unlock_vault_ui.credentials_form.erase();
-                  gui.loading_window.reset();
-                  gui.settings.encryption.set_argon2(info.argon2.clone());
-                  gui.header.open();
-                  gui.header.set_current_wallet(master_wallet.clone());
-                  if let Some(url) = bundler_url {
-                     gui.shield_ui.set_bundler_url(url);
-                  }
-               });
-
-               ctx.write(|ctx| {
-                  ctx.argon_params = info.argon2;
-                  ctx.vault_unlocked = true;
-                  ctx.current_wallet = master_wallet;
-               });
-
-               SHARED_GUI.write(|gui| {
-                  gui.portofolio.open();
-               });
-            }
-            Err(e) => {
-               SHARED_GUI.write(|gui| {
-                  gui.open_msg_window(format!("Failed to load vault: {}", e.to_string()));
-                  gui.loading_window.reset();
-               });
-            }
-         }
-      });
    }
 }
 
@@ -276,21 +141,7 @@ impl SystemMemory {
       }
 
       self.refresh_in_progress = true;
-      RT.spawn_blocking(|| {
-         let mut sys = sysinfo::System::new();
-         sys.refresh_memory();
-         let total = sys.total_memory();
-         let available = sys.available_memory();
-
-         SHARED_GUI.write(|gui| {
-            let memory = &mut gui.recover_wallet_ui.memory;
-            memory.total = total;
-            memory.available = available;
-            memory.last_time_checked = Instant::now();
-            memory.refresh_in_progress = false;
-            gui.request_repaint();
-         });
-      });
+      on_refresh_system_memory();
    }
 
    fn total_gb(&self) -> f64 {
@@ -476,20 +327,7 @@ impl RecoverHDWallet {
                   let password = self.credentials_form.password();
                   let confirm_password = self.credentials_form.confirm_password();
                   let credentials = Credentials::new(username, password, confirm_password);
-
-                  RT.spawn_blocking(move || match credentials.is_valid() {
-                     Ok(_) => {
-                        SHARED_GUI.write(|gui| {
-                           gui.recover_wallet_ui.credentials_input = false;
-                           gui.recover_wallet_ui.show_recover_wallet = true;
-                        });
-                     }
-                     Err(e) => {
-                        SHARED_GUI.write(|gui| {
-                           gui.open_msg_window(e.to_string());
-                        });
-                     }
-                  });
+                  on_validate_recover_credentials(credentials);
                }
 
                if import_clicked {
@@ -543,123 +381,13 @@ impl RecoverHDWallet {
 
                if ui.add_enabled(!self.recover_button_clicked, recover_button).clicked() {
                   self.recover_button_clicked = true;
-                  let mut vault = Vault::default();
                   let name = self.wallet_name.clone();
 
                   let username = self.credentials_form.username();
                   let password = self.credentials_form.password();
                   let confirm_password = self.credentials_form.confirm_password();
                   let credentials = Credentials::new(username, password, confirm_password);
-
-                  RT.spawn_blocking(move || {
-                     let ctx = SHARED_GUI.write(|gui| {
-                        gui.loading_window.new_size((300.0, 150.0));
-                        gui.loading_window.open(
-                           "Recovering Wallet... (Grab a coffee this will take 10-15 minutes)",
-                        );
-                        gui.request_repaint();
-                        gui.ctx.clone()
-                     });
-
-                     vault.set_credentials(credentials);
-
-                     match vault.recover_hd_wallet(name) {
-                        Ok(_) => {
-                           SHARED_GUI.write(|gui| {
-                              gui.loading_window.reset();
-                           });
-                        }
-                        Err(e) => {
-                           SHARED_GUI.write(|gui| {
-                              gui.loading_window.reset();
-                              gui.open_msg_window(format!(
-                                 "Failed to recover wallet: {}",
-                                 e.to_string()
-                              ));
-                           });
-                           return;
-                        }
-                     };
-
-                     let params = if cfg!(feature = "dev") {
-                        Some(Argon2::very_fast())
-                     } else {
-                        Some(Argon2::balanced())
-                     };
-
-                     SHARED_GUI.write(|gui| {
-                        gui.loading_window.open("Encrypting Vault...");
-                     });
-
-                     let egui_ctx = SHARED_GUI.read(|gui| gui.egui_ctx.clone());
-
-                     if let Err(e) = vault.ensure_railgun_db_key() {
-                        let title = "Fatal Error";
-                        let err = format!("Failed to generate Railgun DB key: {e}");
-                        Toast::new(title)
-                           .description(err)
-                           .tone(BadgeTone::Danger)
-                           .persistent()
-                           .show(&egui_ctx);
-                        tracing::error!("Failed to generate Railgun DB key: {e}");
-                     }
-                     if let Err(e) = vault.ensure_wallet_state_key() {
-                        let title = "Fatal Error";
-                        let err = format!("Failed to generate WalletState key: {e}");
-                        Toast::new(title)
-                           .description(err)
-                           .tone(BadgeTone::Danger)
-                           .persistent()
-                           .show(&egui_ctx);
-                        tracing::error!("Failed to generate WalletState key: {e}");
-                     }
-
-                     // Encrypt the vault
-                     match ctx.encrypt_and_save_vault(Some(vault.clone()), params.clone()) {
-                        Ok(_) => {
-                           SHARED_GUI.write(|gui| {
-                              gui.recover_wallet_ui.show_recover_wallet = false;
-                              gui.recover_wallet_ui.show_onboarding = true;
-                              gui.recover_wallet_ui.onboarding_step = 0;
-                              gui.recover_wallet_ui.enable_railgun = false;
-                              gui.recover_wallet_ui.credentials_form.erase();
-
-                              gui.loading_window.reset();
-                           });
-
-                           ctx.write(|ctx| {
-                              ctx.current_wallet = vault.get_master_wallet();
-                           });
-
-                           ctx.set_vault(vault);
-
-                           // Fresh wallet state (empty), ensure sealed file exists.
-                           if let Err(e) = ctx.save_wallet_state() {
-                              let title = "Fatal Error";
-                              let err = format!("Failed to save wallet state: {e}");
-                              Toast::new(title)
-                                 .description(err)
-                                 .tone(BadgeTone::Danger)
-                                 .persistent()
-                                 .show(&egui_ctx);
-                              tracing::error!("Failed to save initial wallet state: {e}");
-                           }
-                           ctx.load_tx_db();
-                           ctx.build_wallet_info_cache();
-                           ctx.load_or_create_address_book();
-                        }
-                        Err(e) => {
-                           SHARED_GUI.write(|gui| {
-                              gui.open_msg_window(format!(
-                                 "Failed to create vault: {}",
-                                 e.to_string()
-                              ));
-                              gui.loading_window.reset();
-                           });
-                           return;
-                        }
-                     };
-                  });
+                  on_recover_hd_wallet(name, credentials);
                }
             });
          });
@@ -822,11 +550,7 @@ impl RecoverHDWallet {
                   ctx.railgun_config
                      .set_allow_circuit_download(allow_circuit_download);
                   let config = ctx.railgun_config.clone();
-                  RT.spawn_blocking(move || {
-                     if let Err(e) = config.save() {
-                        tracing::error!("Failed to save Railgun config: {e}");
-                     }
-                  });
+                  on_save_railgun_config(config);
                   self.onboarding_step = 2;
                }
             });
@@ -909,29 +633,326 @@ impl RecoverHDWallet {
                      .set_check_for_updates(self.check_for_updates);
                   let config = ctx.misc_config.clone();
                   let current_wallet = ctx.read_vault(|vault| vault.get_master_wallet());
-                  RT.spawn_blocking(move || {
-                     if let Err(e) = config.save() {
-                        tracing::error!("Failed to save misc config: {e}");
-                     }
-
-                     let ctx = SHARED_GUI.write(|gui| {
-                        gui.recover_wallet_ui.show_onboarding = false;
-                        gui.portofolio.open();
-                        gui.header.open();
-                        gui.header.set_current_wallet(current_wallet);
-                        gui.request_repaint();
-                        gui.ctx.clone()
-                     });
-
-                     ctx.write(|ctx| {
-                        ctx.vault_exists = true;
-                        ctx.vault_unlocked = true;
-                     });
-
-                     // Sync state will kickoff once the user enables at least 1 RPC
-                  });
+                  on_finish_onboarding(config, current_wallet);
                }
             });
          });
    }
+}
+
+fn on_unlock_vault(mut vault: Vault) {
+   RT.spawn_blocking(move || {
+      let ctx = SHARED_GUI.write(|gui| {
+         gui.loading_window.open("Unlocking vault...");
+         gui.request_repaint();
+         gui.ctx.clone()
+      });
+
+      // Decrypt the vault
+      let mut data = match vault.decrypt(None) {
+         Ok(data) => data,
+         Err(e) => {
+            SHARED_GUI.write(|gui| {
+               gui.open_msg_window(e.to_string());
+               gui.loading_window.reset();
+            });
+            return;
+         }
+      };
+
+      let info = match vault.encrypted_info() {
+         Ok(info) => info,
+         Err(e) => {
+            SHARED_GUI.write(|gui| {
+               let msg = format!(
+                  "Error while reading encrypted info, corrupted vault?: {}",
+                  e.to_string()
+               );
+               gui.open_msg_window(msg);
+               gui.loading_window.reset();
+            });
+            data.zeroize();
+            return;
+         }
+      };
+
+      // Load the vault
+      match vault.load(data) {
+         Ok(legacy_wallet_state) => {
+            // Ensure AEAD key for wallet_state.data (migrated vaults get one here).
+            let key_generated = match vault.ensure_wallet_state_key() {
+               Ok(g) => g,
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.open_msg_window(format!("Failed to init wallet state key: {e}"));
+                     gui.loading_window.reset();
+                  });
+                  return;
+               }
+            };
+
+            let key = match vault.wallet_state_key() {
+               Ok(k) => k,
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.open_msg_window(format!("Wallet state key missing: {e}"));
+                     gui.loading_window.reset();
+                  });
+                  return;
+               }
+            };
+
+            let (wallet_state, migrated) =
+               match crate::core::WalletState::load_or_migrate(&key, legacy_wallet_state) {
+                  Ok(v) => v,
+                  Err(e) => {
+                     SHARED_GUI.write(|gui| {
+                        gui.open_msg_window(format!("Failed to load wallet state: {e}"));
+                        gui.loading_window.reset();
+                     });
+                     return;
+                  }
+               };
+
+            let master_wallet = vault.get_master_wallet();
+
+            ctx.set_vault(vault);
+            ctx.set_wallet_state(wallet_state);
+            ctx.load_tx_db();
+            ctx.build_wallet_info_cache();
+            ctx.load_currency_db();
+            ctx.load_pool_manager();
+            ctx.load_zeus_client();
+            ctx.load_price_manager();
+            ctx.load_or_create_address_book();
+
+            let bundler_url = match BundlerUrl::exists() {
+               Ok(true) => match BundlerUrl::load(&key) {
+                  Ok(url) => Some(url.url),
+                  Err(e) => {
+                     tracing::error!("Error loading Bundler URL: {:?}", e);
+                     None
+                  }
+               },
+               Ok(false) => None,
+               Err(e) => {
+                  tracing::error!("Error checking Bundler URL: {:?}", e);
+                  None
+               }
+            };
+
+            // Persist key
+            if key_generated || migrated {
+               if let Err(e) = ctx.encrypt_and_save_vault(None, None) {
+                  tracing::error!("Failed to save vault after wallet state migration: {e}");
+               }
+            }
+
+            SHARED_GUI.write(|gui| {
+               gui.unlock_vault_ui.credentials_form.erase();
+               gui.loading_window.reset();
+               gui.settings.encryption.set_argon2(info.argon2.clone());
+               gui.header.open();
+               gui.header.set_current_wallet(master_wallet.clone());
+               if let Some(url) = bundler_url {
+                  gui.shield_ui.set_bundler_url(url);
+               }
+            });
+
+            ctx.write(|ctx| {
+               ctx.argon_params = info.argon2;
+               ctx.vault_unlocked = true;
+               ctx.current_wallet = master_wallet;
+            });
+
+            SHARED_GUI.write(|gui| {
+               gui.portofolio.open();
+            });
+         }
+         Err(e) => {
+            SHARED_GUI.write(|gui| {
+               gui.open_msg_window(format!("Failed to load vault: {}", e.to_string()));
+               gui.loading_window.reset();
+            });
+         }
+      }
+   });
+}
+
+fn on_refresh_system_memory() {
+   RT.spawn_blocking(|| {
+      let mut sys = sysinfo::System::new();
+      sys.refresh_memory();
+      let total = sys.total_memory();
+      let available = sys.available_memory();
+
+      SHARED_GUI.write(|gui| {
+         let memory = &mut gui.recover_wallet_ui.memory;
+         memory.total = total;
+         memory.available = available;
+         memory.last_time_checked = Instant::now();
+         memory.refresh_in_progress = false;
+         gui.request_repaint();
+      });
+   });
+}
+
+fn on_validate_recover_credentials(credentials: Credentials) {
+   RT.spawn_blocking(move || match credentials.is_valid() {
+      Ok(_) => {
+         SHARED_GUI.write(|gui| {
+            gui.recover_wallet_ui.credentials_input = false;
+            gui.recover_wallet_ui.show_recover_wallet = true;
+         });
+      }
+      Err(e) => {
+         SHARED_GUI.write(|gui| {
+            gui.open_msg_window(e.to_string());
+         });
+      }
+   });
+}
+
+fn on_recover_hd_wallet(name: String, credentials: Credentials) {
+   RT.spawn_blocking(move || {
+      let ctx = SHARED_GUI.write(|gui| {
+         gui.loading_window.new_size((300.0, 150.0));
+         gui.loading_window
+            .open("Recovering Wallet... (Grab a coffee this will take 10-15 minutes)");
+         gui.request_repaint();
+         gui.ctx.clone()
+      });
+
+      let mut vault = Vault::default();
+      vault.set_credentials(credentials);
+
+      match vault.recover_hd_wallet(name) {
+         Ok(_) => {
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.reset();
+            });
+         }
+         Err(e) => {
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.reset();
+               gui.open_msg_window(format!(
+                  "Failed to recover wallet: {}",
+                  e.to_string()
+               ));
+            });
+            return;
+         }
+      };
+
+      let params = if cfg!(feature = "dev") {
+         Some(Argon2::very_fast())
+      } else {
+         Some(Argon2::balanced())
+      };
+
+      SHARED_GUI.write(|gui| {
+         gui.loading_window.open("Encrypting Vault...");
+      });
+
+      let egui_ctx = SHARED_GUI.read(|gui| gui.egui_ctx.clone());
+
+      if let Err(e) = vault.ensure_railgun_db_key() {
+         let title = "Fatal Error";
+         let err = format!("Failed to generate Railgun DB key: {e}");
+         Toast::new(title)
+            .description(err)
+            .tone(BadgeTone::Danger)
+            .persistent()
+            .show(&egui_ctx);
+         tracing::error!("Failed to generate Railgun DB key: {e}");
+      }
+      if let Err(e) = vault.ensure_wallet_state_key() {
+         let title = "Fatal Error";
+         let err = format!("Failed to generate WalletState key: {e}");
+         Toast::new(title)
+            .description(err)
+            .tone(BadgeTone::Danger)
+            .persistent()
+            .show(&egui_ctx);
+         tracing::error!("Failed to generate WalletState key: {e}");
+      }
+
+      // Encrypt the vault
+      match ctx.encrypt_and_save_vault(Some(vault.clone()), params.clone()) {
+         Ok(_) => {
+            SHARED_GUI.write(|gui| {
+               gui.recover_wallet_ui.show_recover_wallet = false;
+               gui.recover_wallet_ui.show_onboarding = true;
+               gui.recover_wallet_ui.onboarding_step = 0;
+               gui.recover_wallet_ui.enable_railgun = false;
+               gui.recover_wallet_ui.credentials_form.erase();
+
+               gui.loading_window.reset();
+            });
+
+            ctx.write(|ctx| {
+               ctx.current_wallet = vault.get_master_wallet();
+            });
+
+            ctx.set_vault(vault);
+
+            // Fresh wallet state (empty), ensure sealed file exists.
+            if let Err(e) = ctx.save_wallet_state() {
+               let title = "Fatal Error";
+               let err = format!("Failed to save wallet state: {e}");
+               Toast::new(title)
+                  .description(err)
+                  .tone(BadgeTone::Danger)
+                  .persistent()
+                  .show(&egui_ctx);
+               tracing::error!("Failed to save initial wallet state: {e}");
+            }
+            ctx.load_tx_db();
+            ctx.build_wallet_info_cache();
+            ctx.load_or_create_address_book();
+         }
+         Err(e) => {
+            SHARED_GUI.write(|gui| {
+               gui.open_msg_window(format!(
+                  "Failed to create vault: {}",
+                  e.to_string()
+               ));
+               gui.loading_window.reset();
+            });
+            return;
+         }
+      };
+   });
+}
+
+fn on_save_railgun_config(config: RailgunConfig) {
+   RT.spawn_blocking(move || {
+      if let Err(e) = config.save() {
+         tracing::error!("Failed to save Railgun config: {e}");
+      }
+   });
+}
+
+fn on_finish_onboarding(config: MiscConfig, current_wallet: Wallet) {
+   RT.spawn_blocking(move || {
+      if let Err(e) = config.save() {
+         tracing::error!("Failed to save misc config: {e}");
+      }
+
+      let ctx = SHARED_GUI.write(|gui| {
+         gui.recover_wallet_ui.show_onboarding = false;
+         gui.portofolio.open();
+         gui.header.open();
+         gui.header.set_current_wallet(current_wallet);
+         gui.request_repaint();
+         gui.ctx.clone()
+      });
+
+      ctx.write(|ctx| {
+         ctx.vault_exists = true;
+         ctx.vault_unlocked = true;
+      });
+
+      // Sync state will kickoff once the user enables at least 1 RPC
+   });
 }
