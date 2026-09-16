@@ -4,6 +4,7 @@ use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{FontId, Id, Margin, Order, RichText, Ui, vec2};
 use egui_elements::{Button, Modal, SecureInputField, SecureTextEdit, Theme};
+use secure_types::SecureString;
 use zeus_eth::types::SUPPORTED_CHAINS;
 
 #[derive(PartialEq, Eq)]
@@ -123,107 +124,7 @@ impl ImportWallet {
          let name = self.wallet_name.clone();
          let key_or_phrase = self.input_field.text();
          let from_key = self.import_key_or_phrase == ImportWalletType::PrivateKey;
-
-         RT.spawn_blocking(move || {
-            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-            let mut new_vault = ctx.get_vault();
-
-            // Import the wallet
-            let new_wallet_address =
-               match new_vault.new_wallet_from_key_or_phrase(name, from_key, key_or_phrase) {
-                  Ok(address) => address,
-                  Err(e) => {
-                     SHARED_GUI.write(|gui| {
-                        gui.open_msg_window(format!(
-                           "Failed to import wallet: {}",
-                           e.to_string()
-                        ));
-                        gui.request_repaint();
-                     });
-                     return;
-                  }
-               };
-
-            SHARED_GUI.write(|gui| {
-               gui.loading_window.open("Encrypting account...");
-               gui.request_repaint();
-            });
-
-            // Encrypt the account
-            match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
-               Ok(_) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.loading_window.reset();
-                     gui.open_msg_window("Wallet imported successfully");
-                     gui.wallet_ui.add_wallet_ui.import_wallet.input_field.erase();
-                     gui.wallet_ui.add_wallet_ui.import_wallet.wallet_name.clear();
-                     gui.request_repaint();
-                  });
-               }
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.loading_window.reset();
-                     gui.open_msg_window(format!(
-                        "Failed to encrypt account: {}",
-                        e.to_string()
-                     ));
-                     gui.request_repaint();
-                  });
-                  return;
-               }
-            };
-
-            ctx.set_vault(new_vault);
-            ctx.build_wallet_info_cache();
-
-            let ctx_clone = ctx.clone();
-            RT.spawn(async move {
-               for chain in SUPPORTED_CHAINS {
-                  if let Err(e) = ctx_clone.register_railgun_signers(chain, false).await {
-                     tracing::error!("Error registering Railgun signers: {:?}", e);
-                  }
-
-                  if let Err(e) = ctx_clone.sync_railgun(chain, false).await {
-                     tracing::error!("Error syncing Railgun: {:?}", e);
-                  }
-
-                  ctx_clone.update_private_data(chain, new_wallet_address).await;
-               }
-            });
-
-            // Recalculate the wallets
-            SHARED_GUI.write(|gui| {
-               gui.wallet_ui.calc_wallet_value();
-            });
-
-            // Fetch the balance for the new wallet across all chains and add it to the portfolio db
-            RT.spawn(async move {
-               let manager = ctx.balance_manager();
-               for chain in SUPPORTED_CHAINS {
-                  if ctx.is_chain_disabled(chain) {
-                     continue;
-                  }
-
-                  match manager
-                     .update_eth_balance(
-                        ctx.clone(),
-                        chain,
-                        vec![new_wallet_address],
-                        false,
-                     )
-                     .await
-                  {
-                     Ok(_) => {}
-                     Err(e) => {
-                        tracing::error!("Failed to update ETH balance: {}", e);
-                     }
-                  }
-
-                  // Portfolio is created and saved here
-                  ctx.update_public_data(chain, new_wallet_address);
-               }
-            });
-         });
+         on_import_wallet(name, from_key, key_or_phrase);
       }
 
       if !is_open {
@@ -232,11 +133,118 @@ impl ImportWallet {
 
       if was_open && !self.open {
          self.input_field.erase();
-         RT.spawn_blocking(move || {
-            SHARED_GUI.write(|gui| {
-               gui.wallet_ui.add_wallet_ui.open();
-            });
-         });
+         on_reopen_add_wallet();
       }
    }
+}
+
+fn on_import_wallet(name: String, from_key: bool, key_or_phrase: SecureString) {
+   RT.spawn_blocking(move || {
+      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+      let mut new_vault = ctx.get_vault();
+
+      // Import the wallet
+      let new_wallet_address =
+         match new_vault.new_wallet_from_key_or_phrase(name, from_key, key_or_phrase) {
+            Ok(address) => address,
+            Err(e) => {
+               SHARED_GUI.write(|gui| {
+                  gui.open_msg_window(format!(
+                     "Failed to import wallet: {}",
+                     e.to_string()
+                  ));
+                  gui.request_repaint();
+               });
+               return;
+            }
+         };
+
+      SHARED_GUI.write(|gui| {
+         gui.loading_window.open("Encrypting account...");
+         gui.request_repaint();
+      });
+
+      // Encrypt the account
+      match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
+         Ok(_) => {
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.reset();
+               gui.open_msg_window("Wallet imported successfully");
+               gui.wallet_ui.add_wallet_ui.import_wallet.input_field.erase();
+               gui.wallet_ui.add_wallet_ui.import_wallet.wallet_name.clear();
+               gui.request_repaint();
+            });
+         }
+         Err(e) => {
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.reset();
+               gui.open_msg_window(format!(
+                  "Failed to encrypt account: {}",
+                  e.to_string()
+               ));
+               gui.request_repaint();
+            });
+            return;
+         }
+      };
+
+      ctx.set_vault(new_vault);
+      ctx.build_wallet_info_cache();
+
+      let ctx_clone = ctx.clone();
+      RT.spawn(async move {
+         for chain in SUPPORTED_CHAINS {
+            if let Err(e) = ctx_clone.register_railgun_signers(chain, false).await {
+               tracing::error!("Error registering Railgun signers: {:?}", e);
+            }
+
+            if let Err(e) = ctx_clone.sync_railgun(chain, false).await {
+               tracing::error!("Error syncing Railgun: {:?}", e);
+            }
+
+            ctx_clone.update_private_data(chain, new_wallet_address).await;
+         }
+      });
+
+      // Recalculate the wallets
+      SHARED_GUI.write(|gui| {
+         gui.wallet_ui.calc_wallet_value();
+      });
+
+      // Fetch the balance for the new wallet across all chains and add it to the portfolio db
+      RT.spawn(async move {
+         let manager = ctx.balance_manager();
+         for chain in SUPPORTED_CHAINS {
+            if ctx.is_chain_disabled(chain) {
+               continue;
+            }
+
+            match manager
+               .update_eth_balance(
+                  ctx.clone(),
+                  chain,
+                  vec![new_wallet_address],
+                  false,
+               )
+               .await
+            {
+               Ok(_) => {}
+               Err(e) => {
+                  tracing::error!("Failed to update ETH balance: {}", e);
+               }
+            }
+
+            // Portfolio is created and saved here
+            ctx.update_public_data(chain, new_wallet_address);
+         }
+      });
+   });
+}
+
+fn on_reopen_add_wallet() {
+   RT.spawn_blocking(move || {
+      SHARED_GUI.write(|gui| {
+         gui.wallet_ui.add_wallet_ui.open();
+      });
+   });
 }
