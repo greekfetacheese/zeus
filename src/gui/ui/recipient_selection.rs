@@ -2,7 +2,7 @@
 
 use crate::assets::icons::Icons;
 use crate::core::{
-   WalletInfo, ZeusContext, ZeusCtx,
+   WalletInfo, WalletValue, ZeusContext, ZeusCtx,
    types::{Contact, Recipient},
 };
 use crate::gui::SHARED_GUI;
@@ -16,7 +16,7 @@ use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme, utils::frame as
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use zeus_eth::{alloy_primitives::Address, utils::NumericValue};
+use zeus_eth::alloy_primitives::Address;
 use zeus_railgun::RailgunAddress;
 
 /// Validated address entered in the search bar that is not already a
@@ -44,7 +44,7 @@ pub struct RecipientSelectionWindow {
    parsing_unknown_recipient: bool,
    wallets: Vec<WalletInfo>,
    /// Wallet value by address
-   wallet_value: HashMap<Address, NumericValue>,
+   wallet_value: HashMap<Address, WalletValue>,
    /// Chains that the wallet has balance on
    wallet_chains: HashMap<Address, Vec<u64>>,
    /// Inline add-contact form inside this window (not a nested Window).
@@ -445,7 +445,7 @@ impl RecipientSelectionWindow {
 
    fn show_wallets(
       &mut self,
-      ctx: &mut ZeusContext,
+      _ctx: &mut ZeusContext,
       theme: &Theme,
       privacy_mode: bool,
       close_window: &mut bool,
@@ -462,13 +462,8 @@ impl RecipientSelectionWindow {
       for wallet in wallets {
          let valid_search = valid_wallet_search(wallet, privacy_mode, &self.search_query);
 
-         // Currently Railgun is only supported on mainnet and sepolia
-         let testnets = ctx.chain.is_testnet();
-         let value = ctx.get_total_value(wallet.address, testnets);
-         let private_value = value.for_mode(true).clone();
-
-         // Public value across all chains
-         let public_value = self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
+         // Wallet value across all chains
+         let value = self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
 
          let address = match privacy_mode {
             false => wallet.address.to_string(),
@@ -493,7 +488,7 @@ impl RecipientSelectionWindow {
                   ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                      let text = RichText::new(format!(
                         "Private ${:.10}",
-                        private_value.abbreviated()
+                        value.private.abbreviated()
                      ))
                      .size(normal);
                      let label =
@@ -504,7 +499,7 @@ impl RecipientSelectionWindow {
 
                      let text = RichText::new(format!(
                         "Public ${:.10}",
-                        public_value.abbreviated()
+                        value.public.abbreviated()
                      ))
                      .size(normal);
                      let label =

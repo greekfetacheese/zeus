@@ -1,5 +1,5 @@
 use crate::assets::icons::Icons;
-use crate::core::{WalletInfo, ZeusContext};
+use crate::core::{WalletInfo, WalletValue, ZeusContext};
 use crate::gui::{
    SHARED_GUI, dots_button,
    ui::{WalletListByValue, show_with_fade},
@@ -13,7 +13,7 @@ use egui_elements::{Button, Label, SecureTextEdit, Theme};
 use elegance::{BadgeTone, Menu, MenuItem, Toast};
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
-use zeus_eth::{alloy_primitives::Address, utils::NumericValue};
+use zeus_eth::alloy_primitives::Address;
 use zeus_wallet::Wallet;
 
 pub mod add;
@@ -39,7 +39,7 @@ pub struct WalletUi {
    delete_wallet_ui: DeleteWalletUi,
    wallets: Vec<WalletInfo>,
    /// Wallet value by address
-   wallet_value: HashMap<Address, NumericValue>,
+   wallet_value: HashMap<Address, WalletValue>,
    /// Chains that the wallet has balance on
    wallet_chains: HashMap<Address, Vec<u64>>,
    size: (f32, f32),
@@ -261,8 +261,15 @@ impl WalletUi {
                ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
                let value = self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
-               let value_text =
-                  RichText::new(format!("${:.10}", value.abbreviated())).size(theme.typography.small);
+
+               let value_fmt = if ctx.privacy_mode {
+                  format!("${:.10}", value.private.abbreviated())
+               } else {
+                  format!("${:.10}", value.public.abbreviated())
+               };
+
+               let value_text = RichText::new(value_fmt).size(theme.typography.small);
+
                let label = Label::new(value_text, None).interactive(false);
                ui.add(label);
 
