@@ -199,6 +199,7 @@ impl UtxoIndexer {
    ///
    /// Idempotent: registering an address that is already loaded is a no-op.
    pub async fn register(&mut self, signer: RailgunSigner) -> Result<(), UtxoIndexerError> {
+      let time = std::time::Instant::now();
       let addr = signer.address().clone();
       if self.accounts.iter().any(|a| a.address().address == addr.address) {
          return Ok(());
@@ -212,6 +213,9 @@ impl UtxoIndexer {
       self.accounts.push(account);
       self.ensure_trees_for_unspent().await?;
       self.compact_utxo_trees().await?;
+
+      tracing::debug!("Registered account in {} ms", time.elapsed().as_millis());
+
       Ok(())
    }
 

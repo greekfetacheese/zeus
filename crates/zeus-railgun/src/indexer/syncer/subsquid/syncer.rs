@@ -136,14 +136,9 @@ impl SubsquidSyncer {
          (Vec::new(), 0)
       };
 
-      let mut events: Vec<syncer::SyncEvent> = full_events
-         .iter()
-         .filter(|ev| {
-            let b = ev.block_number();
-            b >= from_block && b <= to_block
-         })
-         .cloned()
-         .collect();
+      let blob_len = full_events.len();
+      let mut events = SnapshotLoader::take_events_in_range(&mut full_events, from_block, to_block);
+      let blob_moved = full_events.is_empty() && blob_len > 0;
 
       let fetch_from = if events_block == 0 {
          from_block
@@ -174,15 +169,22 @@ impl SubsquidSyncer {
       events.extend(delta.iter().cloned());
 
       if let Some(loader) = &self.snapshot_loader {
-         full_events.extend(delta);
-         debug!("Full Events len {}", full_events.len());
-         let updated = EventsSnapshot {
-            events: full_events,
-            block_number: to_block,
-            coverage_start: 0,
-         };
-         if let Err(e) = loader.save(self.chain_id, updated).await {
-            error!("Failed to save event snapshot: {}", e);
+         if blob_moved {
+            debug!("Full Events len {}", events.len());
+            if let Err(e) = loader.save_parts(self.chain_id, &mut events, to_block, 0).await {
+               error!("Failed to save event snapshot: {}", e);
+            }
+         } else {
+            full_events.extend(delta);
+            debug!("Full Events len {}", full_events.len());
+            let updated = EventsSnapshot {
+               events: full_events,
+               block_number: to_block,
+               coverage_start: 0,
+            };
+            if let Err(e) = loader.save(self.chain_id, updated).await {
+               error!("Failed to save event snapshot: {}", e);
+            }
          }
       }
 

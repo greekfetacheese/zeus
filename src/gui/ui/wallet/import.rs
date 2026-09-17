@@ -1,7 +1,7 @@
 //! UI that allows the user to import a wallet from a private key or a seed phrase
 
 use crate::gui::SHARED_GUI;
-use crate::utils::RT;
+use crate::utils::{RT, malloc_trim};
 use eframe::egui::{FontId, Id, Margin, Order, RichText, Ui, vec2};
 use egui_elements::{Button, Modal, SecureInputField, SecureTextEdit, Theme};
 use secure_types::SecureString;
@@ -204,6 +204,9 @@ fn on_import_wallet(name: String, from_key: bool, key_or_phrase: SecureString) {
 
             ctx_clone.update_private_data(chain, new_wallet_address).await;
          }
+
+         // Free memory
+         malloc_trim();
       });
 
       // Recalculate the wallets

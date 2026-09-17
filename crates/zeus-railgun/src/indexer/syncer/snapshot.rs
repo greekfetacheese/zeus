@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::anyhow;
-use bincode_next::serde::{decode_from_slice, encode_to_vec};
+use bincode_next::serde::{decode_from_slice, decode_from_std_read, encode_to_vec};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, warn};
 
@@ -34,6 +34,16 @@ pub struct EventsSnapshot {
    /// treat the blob as usable for any `from_block <= block_number` (old behaviour).
    #[serde(default)]
    pub coverage_start: u64,
+}
+
+/// Same bincode layout as [`EventsSnapshot`], but `events` is borrowed so a
+/// historical resync can persist a tail without cloning the blob it still holds.
+#[derive(Serialize)]
+struct EventsSnapshotSer<'a> {
+   events: &'a [SyncEvent],
+   block_number: u64,
+   #[serde(default)]
+   coverage_start: u64,
 }
 
 /// Lightweight coverage watermark for the events snapshot.
@@ -94,6 +104,29 @@ impl SnapshotLoader {
    /// identify tree positions; ordering keeps decryption/account scans deterministic.
    pub fn sort_events(events: &mut [SyncEvent]) {
       events.sort_by_key(|ev| ev.block_number());
+   }
+
+   /// Events in `[from, to]` from a **block-sorted** `src`.
+   ///
+   /// If every stored event is in range this **moves** `src` (no clone). Otherwise
+   /// the overlap is cloned and `src` is left intact so the caller can still
+   /// persist the full blob.
+   pub fn take_events_in_range(src: &mut Vec<SyncEvent>, from: u64, to: u64) -> Vec<SyncEvent> {
+      if src.is_empty() || from > to {
+         return Vec::new();
+      }
+      let first = src[0].block_number();
+      let last = src[src.len() - 1].block_number();
+      if first >= from && last <= to {
+         return std::mem::take(src);
+      }
+      src.iter()
+         .filter(|ev| {
+            let b = ev.block_number();
+            b >= from && b <= to
+         })
+         .cloned()
+         .collect()
    }
 
    /// Returns the highest block the snapshot is known to cover.
@@ -181,26 +214,15 @@ impl SnapshotLoader {
          return Ok(EventsSnapshot::default());
       }
 
-      let data = match tokio::fs::read(&path).await {
-         Ok(d) => d,
-         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+      // Stream-decode so the 97 MB file buffer is not live next to the event Vec.
+      // Same bytes as `decode_from_slice`; we only skip the extra allocation.
+      let decoded = match decode_snapshot_file(&path) {
+         SnapshotFile::Missing | SnapshotFile::Empty => return Ok(EventsSnapshot::default()),
+         SnapshotFile::Io(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Ok(EventsSnapshot::default());
          }
-         Err(e) => return Err(SyncerError::new(e)),
-      };
-
-      if data.is_empty() {
-         return Ok(EventsSnapshot::default());
-      }
-
-      let mut snapshot = match decode_from_slice::<EventsSnapshot, _>(
-         &data,
-         bincode_next::config::standard(),
-      ) {
-         Ok((snapshot, _len)) => snapshot,
-         Err(e) => {
-            // Corrupt or incompatible snapshot (e.g. old format after code change).
-            // Delete it so we don't keep failing, and start fresh.
+         SnapshotFile::Io(e) => return Err(SyncerError::new(e)),
+         SnapshotFile::Corrupt(e) => {
             error!(
                "Event snapshot decode failed ({}). Deleting corrupt snapshot and starting fresh.",
                e
@@ -210,7 +232,10 @@ impl SnapshotLoader {
             let _ = tokio::fs::remove_file(&meta_path).await;
             return Ok(EventsSnapshot::default());
          }
+         SnapshotFile::Ok(snapshot) => snapshot,
       };
+
+      let mut snapshot = decoded;
 
       // Inconsistent empty blob with non-zero watermark → treat as empty.
       if snapshot.events.is_empty() && snapshot.block_number > 0 {
@@ -234,16 +259,40 @@ impl SnapshotLoader {
       chain_id: u64,
       mut snapshot: EventsSnapshot,
    ) -> Result<(), anyhow::Error> {
+      self
+         .save_parts(
+            chain_id,
+            &mut snapshot.events,
+            snapshot.block_number,
+            snapshot.coverage_start,
+         )
+         .await
+   }
+
+   /// Encode + persist without taking ownership of `events`.
+   ///
+   /// Wire format is identical to [`EventsSnapshot`] (`Vec` vs slice both serialize
+   /// as a sequence). Used when the historical path moved the blob into the
+   /// returned event list and still needs to append a tail to disk.
+   pub async fn save_parts(
+      &self,
+      chain_id: u64,
+      events: &mut [SyncEvent],
+      block_number: u64,
+      coverage_start: u64,
+   ) -> Result<(), anyhow::Error> {
       let dir = &self.cache_dir;
       tokio::fs::create_dir_all(dir).await?;
 
-      Self::sort_events(&mut snapshot.events);
+      Self::sort_events(events);
 
       let path = dir.join(self.filename(chain_id));
-      let block_number = snapshot.block_number;
-      let coverage_start = snapshot.coverage_start;
-
-      let bytes = encode_to_vec(&snapshot, bincode_next::config::standard())
+      let wire = EventsSnapshotSer {
+         events,
+         block_number,
+         coverage_start,
+      };
+      let bytes = encode_to_vec(&wire, bincode_next::config::standard())
          .map_err(|e| anyhow!("bincode encode error: {}", e))?;
 
       // Data first, then meta — readers that only see meta without data are cleared
@@ -298,6 +347,33 @@ async fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), anyhow::Error> {
    Ok(())
 }
 
+enum SnapshotFile {
+   Missing,
+   Empty,
+   Ok(EventsSnapshot),
+   Corrupt(String),
+   Io(std::io::Error),
+}
+
+fn decode_snapshot_file(path: &Path) -> SnapshotFile {
+   let file = match std::fs::File::open(path) {
+      Ok(f) => f,
+      Err(e) if e.kind() == std::io::ErrorKind::NotFound => return SnapshotFile::Missing,
+      Err(e) => return SnapshotFile::Io(e),
+   };
+   match file.metadata() {
+      Ok(m) if m.len() == 0 => return SnapshotFile::Empty,
+      Err(e) => return SnapshotFile::Io(e),
+      Ok(_) => {}
+   }
+   let mut reader = std::io::BufReader::new(file);
+   match decode_from_std_read::<EventsSnapshot, _, _>(&mut reader, bincode_next::config::standard())
+   {
+      Ok(snapshot) => SnapshotFile::Ok(snapshot),
+      Err(e) => SnapshotFile::Corrupt(e.to_string()),
+   }
+}
+
 #[cfg(test)]
 mod tip_sync_tests {
    use super::*;
@@ -326,5 +402,85 @@ mod tip_sync_tests {
       assert!(!SnapshotLoader::is_tip_sync(
          25_629_896, 14_693_013
       ));
+   }
+}
+
+#[cfg(test)]
+mod alloc_tests {
+   use super::*;
+   use crate::indexer::syncer::types::Nullified;
+
+   fn null_at(block: u64) -> SyncEvent {
+      SyncEvent::Nullified(
+         Nullified {
+            tree_number: 0,
+            nullifier: Default::default(),
+            timestamp: 0,
+            tx_hash: Default::default(),
+         },
+         block,
+      )
+   }
+
+   #[test]
+   fn take_range_moves_when_fully_covered() {
+      let mut src = vec![null_at(10), null_at(20), null_at(30)];
+      let out = SnapshotLoader::take_events_in_range(&mut src, 10, 30);
+      assert_eq!(out.len(), 3);
+      assert!(src.is_empty());
+   }
+
+   #[test]
+   fn take_range_clones_partial_and_keeps_blob() {
+      let mut src = vec![null_at(10), null_at(20), null_at(30)];
+      let out = SnapshotLoader::take_events_in_range(&mut src, 15, 25);
+      assert_eq!(out.len(), 1);
+      assert_eq!(out[0].block_number(), 20);
+      assert_eq!(src.len(), 3);
+   }
+
+   #[test]
+   fn borrowed_snapshot_encodes_like_owned() {
+      let snap = EventsSnapshot {
+         events: vec![null_at(1), null_at(2)],
+         block_number: 2,
+         coverage_start: 7,
+      };
+      let owned = encode_to_vec(&snap, bincode_next::config::standard()).unwrap();
+      let wire = EventsSnapshotSer {
+         events: snap.events.as_slice(),
+         block_number: 2,
+         coverage_start: 7,
+      };
+      let borrowed = encode_to_vec(&wire, bincode_next::config::standard()).unwrap();
+      assert_eq!(owned, borrowed);
+   }
+
+   #[test]
+   fn stream_decode_matches_slice_decode() {
+      let snap = EventsSnapshot {
+         events: vec![null_at(1)],
+         block_number: 1,
+         coverage_start: 0,
+      };
+      let bytes = encode_to_vec(&snap, bincode_next::config::standard()).unwrap();
+      let (from_slice, _) =
+         decode_from_slice::<EventsSnapshot, _>(&bytes, bincode_next::config::standard()).unwrap();
+      let mut cursor = std::io::Cursor::new(&bytes);
+      let from_reader = decode_from_std_read::<EventsSnapshot, _, _>(
+         &mut cursor,
+         bincode_next::config::standard(),
+      )
+      .unwrap();
+      assert_eq!(from_slice.block_number, from_reader.block_number);
+      assert_eq!(
+         from_slice.coverage_start,
+         from_reader.coverage_start
+      );
+      assert_eq!(from_slice.events.len(), from_reader.events.len());
+      assert_eq!(
+         from_slice.events[0].block_number(),
+         from_reader.events[0].block_number()
+      );
    }
 }

@@ -7,7 +7,7 @@ use crate::core::persisted::{self, PersistedFile};
 use crate::core::{TransactionRich, WalletState, WalletValue};
 use crate::core::{Vault, WalletInfo, client::Rpc, types::*};
 use crate::server::SERVER_PORT;
-use crate::utils::{TimeStamp, create_railgun_provider};
+use crate::utils::{TimeStamp, create_railgun_provider, malloc_trim};
 use anyhow::anyhow;
 use egui_elements::theme::ThemeKind;
 use ncrypt_me::Argon2;
@@ -319,6 +319,9 @@ impl ZeusCtx {
 
       if success {
          self.write(|ctx| ctx.railgun_resync_attempts.remove(&chain));
+
+         // Free memory
+         malloc_trim();
       } else {
          let new_attempts = attempts + 1;
          self.write(|ctx| {
@@ -331,6 +334,9 @@ impl ZeusCtx {
             "Railgun resync failed after {} attempts, even with complete resync",
             attempts
          );
+
+         // Free memory
+         malloc_trim();
       }
 
       self.write(|ctx| ctx.railgun_status.set_resync_in_progress(chain, false));

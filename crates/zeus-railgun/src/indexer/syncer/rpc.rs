@@ -353,7 +353,12 @@ impl RpcSyncer {
          }
       }
 
+      let prefix_len = events.len();
+      let mut blob_moved = false;
+
       // Slice blob for the overlap with the requested range.
+      // New-signer / full-range catch-up: move the vec (no clone). Partial overlap
+      // still clones so `full_events` remains available for persist.
       if events_block > 0 {
          let slice_from = if coverage_start > 0 {
             from_block.max(coverage_start)
@@ -364,15 +369,11 @@ impl RpcSyncer {
          let slice_to = to_block.min(events_block);
 
          if slice_from <= slice_to {
-            events.extend(
-               full_events
-                  .iter()
-                  .filter(|ev| {
-                     let b = ev.block_number();
-                     b >= slice_from && b <= slice_to
-                  })
-                  .cloned(),
-            );
+            let blob_len = full_events.len();
+            let mut ranged =
+               SnapshotLoader::take_events_in_range(&mut full_events, slice_from, slice_to);
+            blob_moved = full_events.is_empty() && blob_len > 0;
+            events.append(&mut ranged);
          }
       }
 
@@ -410,6 +411,9 @@ impl RpcSyncer {
                coverage_start,
                &mut full_events,
                &tail_delta,
+               &mut events,
+               prefix_len,
+               blob_moved,
             )
             .await
          {
@@ -430,24 +434,46 @@ impl RpcSyncer {
       coverage_start: u64,
       full_events: &mut Vec<SyncEvent>,
       tail_delta: &[SyncEvent],
+      events: &mut [SyncEvent],
+      prefix_len: usize,
+      blob_moved: bool,
    ) -> Result<(), anyhow::Error> {
       // Extending an existing contiguous blob with a successful tail fetch.
-      if events_block > 0 && !full_events.is_empty() {
+      // `blob_moved` means the blob now lives in `events[prefix_len..]` (plus tail).
+      if events_block > 0 && (blob_moved || !full_events.is_empty()) {
          if to_block > events_block {
             if !tail_delta.is_empty() {
-               full_events.extend(tail_delta.iter().cloned());
-               let updated = EventsSnapshot {
-                  events: std::mem::take(full_events),
-                  block_number: to_block,
-                  coverage_start,
-               };
-               debug!(
-                  "Full Events len {} (coverage_start={} .. {})",
-                  updated.events.len(),
-                  coverage_start,
-                  to_block
-               );
-               loader.save(self.chain_id, updated).await?;
+               if blob_moved {
+                  let snapshot_events = &mut events[prefix_len..];
+                  debug!(
+                     "Full Events len {} (coverage_start={} .. {})",
+                     snapshot_events.len(),
+                     coverage_start,
+                     to_block
+                  );
+                  loader
+                     .save_parts(
+                        self.chain_id,
+                        snapshot_events,
+                        to_block,
+                        coverage_start,
+                     )
+                     .await?;
+               } else {
+                  full_events.extend(tail_delta.iter().cloned());
+                  let updated = EventsSnapshot {
+                     events: std::mem::take(full_events),
+                     block_number: to_block,
+                     coverage_start,
+                  };
+                  debug!(
+                     "Full Events len {} (coverage_start={} .. {})",
+                     updated.events.len(),
+                     coverage_start,
+                     to_block
+                  );
+                  loader.save(self.chain_id, updated).await?;
+               }
             } else {
                // Empty tail after successful RPC: advance watermark only.
                loader.save_meta(self.chain_id, to_block, coverage_start).await?;

@@ -3,7 +3,7 @@
 use crate::assets::Icons;
 use crate::core::{DiscoveredWallets, WalletPortfolio, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
-use crate::utils::RT;
+use crate::utils::{RT, malloc_trim};
 use eframe::egui::{
    Align, Align2, FontId, Id, Layout, Margin, Order, RichText, ScrollArea, Sense, Spinner, Stroke,
    TextWrapMode, Ui, UiBuilder, vec2,
@@ -787,6 +787,9 @@ impl DiscoverChildWallets {
 
                            ctx.update_private_data(chain, address).await;
                         }
+
+                        // Free memory
+                        malloc_trim();
                      });
 
                      // Calculate the wallets again in the UI
