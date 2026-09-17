@@ -21,10 +21,18 @@ use zeus_eth::{
 };
 use zeus_wallet::SecureHDWallet;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::{sync::Semaphore, task::JoinHandle};
+
+const CHILD_VALUE_TTL: Duration = Duration::from_secs(1);
+
+struct ChildValueCache {
+   chains: Vec<u64>,
+   total_value: f64,
+   updated_at: Instant,
+}
 
 /// A UI for discovering and derive child wallets from a master wallet (BIP32 HD)
 ///
@@ -45,6 +53,7 @@ pub struct DiscoverChildWallets {
    pub current_page: usize,
    items_per_page: usize,
    size: (f32, f32),
+   child_value_cache: HashMap<Address, ChildValueCache>,
 }
 
 impl DiscoverChildWallets {
@@ -63,6 +72,7 @@ impl DiscoverChildWallets {
          current_page: 0,
          items_per_page: 10,
          size: (600.0, 450.0),
+         child_value_cache: HashMap::new(),
       }
    }
 
@@ -122,6 +132,7 @@ impl DiscoverChildWallets {
 
    pub fn set_discovered_wallets(&mut self, discovered_wallets: DiscoveredWallets) {
       self.discovered_wallets = discovered_wallets;
+      self.child_value_cache.clear();
    }
 
    pub fn set_hd_wallet(&mut self, hd_wallet: SecureHDWallet) {
@@ -442,6 +453,47 @@ impl DiscoverChildWallets {
       });
    }
 
+   fn cached_child_value(&mut self, ctx: &ZeusContext, address: Address) -> (Vec<u64>, f64) {
+      let now = Instant::now();
+      if let Some(cached) = self.child_value_cache.get(&address) {
+         if now.duration_since(cached.updated_at) < CHILD_VALUE_TTL {
+            return (cached.chains.clone(), cached.total_value);
+         }
+      }
+
+      let mut chains = Vec::with_capacity(SUPPORTED_CHAINS.len());
+      let mut total_value = 0.0;
+
+      for chain in SUPPORTED_CHAINS {
+         if ctx.is_chain_disabled(chain) {
+            continue;
+         }
+
+         let key = (chain, address);
+         if let Some(balance) = self.discovered_wallets.balances.get(&key) {
+            if !balance.is_zero() {
+               chains.push(chain);
+
+               let native = Currency::from(NativeCurrency::from(chain));
+               let balance = NumericValue::currency_balance(*balance, native.decimals());
+               let value = ctx.get_currency_value_for_amount(balance.f64(), &native);
+               total_value += value.f64();
+            }
+         }
+      }
+
+      self.child_value_cache.insert(
+         address,
+         ChildValueCache {
+            chains: chains.clone(),
+            total_value,
+            updated_at: now,
+         },
+      );
+
+      (chains, total_value)
+   }
+
    fn show_wallets(
       &mut self,
       ctx: &mut ZeusContext,
@@ -467,48 +519,28 @@ impl DiscoverChildWallets {
       ui.vertical_centered(|ui| {
          ui.spacing_mut().item_spacing.y = theme.spacing.sm;
 
-         let wallets = &self.discovered_wallets.wallets[start..end];
-         for child in wallets {
+         let current_chain = ctx.chain;
+         for i in start..end {
+            let child_address = self.discovered_wallets.wallets[i].address;
+            let child_index = self.discovered_wallets.wallets[i].index;
+            let path = self.discovered_wallets.wallets[i].path.derivation_string();
+
             // If child already exists it will displayed as disabled in the Ui
-            let exists = self.hd_wallet.contains_child(child.address);
-            let wallet_is_beign_added = self.adding_wallet.contains(&child.address);
-
-            let mut chains = Vec::new();
-            let mut total_value = 0.0;
-            let current_chain = ctx.chain;
-
-            // get the chains which the wallet has balance in
-            for chain in SUPPORTED_CHAINS {
-               if ctx.is_chain_disabled(chain) {
-                  continue;
-               }
-
-               let key = (chain, child.address);
-               if let Some(balance) = self.discovered_wallets.balances.get(&key) {
-                  if !balance.is_zero() {
-                     chains.push(chain);
-
-                     let native = Currency::from(NativeCurrency::from(chain));
-                     let balance = NumericValue::currency_balance(*balance, native.decimals());
-                     let value = ctx.get_currency_value_for_amount(balance.f64(), &native);
-                     total_value += value.f64();
-                  }
-               }
-            }
+            let exists = self.hd_wallet.contains_child(child_address);
+            let wallet_is_beign_added = self.adding_wallet.contains(&child_address);
+            let (chains, total_value) = self.cached_child_value(ctx, child_address);
 
             let value = if !exists {
                NumericValue::from_f64(total_value)
             } else {
                let include_testnets = ctx.chain.is_testnet();
-               ctx.get_total_value(child.address, include_testnets).public
+               ctx.get_total_value(child_address, include_testnets).public
             };
 
-            let path = child.path.derivation_string();
-            let address = child.address.to_string();
+            let address = child_address.to_string();
             let address_short = truncate_address(&address, 20);
             let explorer = current_chain.block_explorer();
             let link = format!("{}/address/{}", explorer, address);
-            let child_index = child.index;
 
             ui.allocate_ui(vec2(row_width, row_height + inner_y), |ui| {
                row_frame.show(ui, |ui| {
@@ -815,11 +847,9 @@ async fn sync_wallets_balance(
          }
 
          SHARED_GUI.write(|gui| {
-            gui.wallet_ui
-               .add_wallet_ui
-               .discover_child_wallets_ui
-               .discovered_wallets
-               .balances = balance_map;
+            let ui = &mut gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui;
+            ui.discovered_wallets.balances = balance_map;
+            ui.child_value_cache.clear();
          });
 
          Ok(())

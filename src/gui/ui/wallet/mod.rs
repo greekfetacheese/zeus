@@ -260,7 +260,8 @@ impl WalletUi {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
-               let value = self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
+               let empty = WalletValue::default();
+               let value = self.wallet_value.get(&wallet.address).unwrap_or_else(|| &empty);
 
                let value_fmt = if ctx.privacy_mode {
                   format!("${:.10}", value.private.abbreviated())
