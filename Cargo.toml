@@ -32,6 +32,7 @@ alloy-transport = "=2.4.2"
 alloy-transport-http = "=2.4.2"
 alloy-transport-ws = "=2.4.2"
 alloy-tx-macros = "=2.4.2"
+ruint = "=1.20.1"
 generic-array = { version = "=0.14.7", features = ["zeroize"] }
 
 [package]
@@ -147,6 +148,3 @@ dev = []
 
 [lints]
 clippy = { new_without_default = "allow", too_many_arguments = "allow", unnecessary_unwrap = "allow", needless_return = "allow", needless_borrow = "deny" }
-
-[patch.crates-io]
-ruint = { git = "https://github.com/Robert-MacWha/ruint" } # Adds ark-ff-06 support for ark 0.6

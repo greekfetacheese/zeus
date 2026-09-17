@@ -52,5 +52,4 @@ external-default-features = "allow"
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# [patch.crates-io] in the root Cargo.toml: ark-ff 0.6 support.
-allow-git = ["https://github.com/Robert-MacWha/ruint"]
+#allow-git = ["https://github.com/Robert-MacWha/ruint"]
