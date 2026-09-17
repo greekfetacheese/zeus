@@ -41,6 +41,7 @@ description = "A seedless, self-custodial Ethereum wallet that just works."
 version = "0.9.54"
 edition = "2024"
 default-run = "zeus"
+publish = false
 
 [dependencies]
 
