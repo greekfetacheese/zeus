@@ -141,18 +141,18 @@ impl SignMsgType {
       }
    }
 
-   pub async fn sign(&self, signer: &SecureKey) -> Result<Signature, anyhow::Error> {
+   pub async fn sign(&self, signer: SecureKey) -> Result<Signature, anyhow::Error> {
+      let signer = signer.to_signer();
       match self {
          Self::Permit2(_) | Self::Permit2Batch(_) | Self::Permit2612(_) | Self::ClearSigned(_) => {
             let typed = match self.typed_data() {
                Some(data) => data,
                None => return Err(anyhow!("No typed data found")),
             };
-            let sig = signer.to_signer().sign_dynamic_typed_data(&typed).await?;
+            let sig = signer.sign_dynamic_typed_data(&typed).await?;
             Ok(sig)
          }
          Self::PersonalSign(msg) => {
-            let signer = signer.to_signer();
             let sig = signer.sign_message(&msg.bytes).await?;
             Ok(sig)
          }
@@ -160,11 +160,10 @@ impl SignMsgType {
             let typed = self.typed_data();
             if typed.is_some() {
                let typed = typed.unwrap();
-               let sig = signer.to_signer().sign_dynamic_typed_data(&typed).await?;
+               let sig = signer.sign_dynamic_typed_data(&typed).await?;
                Ok(sig)
             } else {
                let msg = details.to_string();
-               let signer = signer.to_signer();
                let sig = signer.sign_message(msg.as_bytes()).await?;
                Ok(sig)
             }

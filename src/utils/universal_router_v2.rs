@@ -206,7 +206,7 @@ pub async fn encode_swap(
       };
 
       if permit_info.needs_new_signature {
-         let signature = permit_info.sign(&secure_signer).await?;
+         let signature = permit_info.sign(secure_signer).await?;
 
          let permit_input = encode_permit2_permit(
             token_in.address,

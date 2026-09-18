@@ -54,7 +54,7 @@ pub async fn sign_message(
    } else {
       ctx.get_current_wallet()
    };
-   let signature = msg_type.sign(&wallet.key).await?;
+   let signature = msg_type.sign(wallet.key).await?;
 
    SHARED_GUI.write(|gui| {
       gui.request_repaint();

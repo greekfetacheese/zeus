@@ -954,7 +954,7 @@ impl AcrossBridge {
          return Err(anyhow!("Output amount is zero"));
       }
 
-      let signer = ctx.current_wallet.key.clone();
+      let signer = ctx.get_current_wallet().key;
       let depositor = signer.address();
       let recipient = Address::from_str(&recipient)?;
 

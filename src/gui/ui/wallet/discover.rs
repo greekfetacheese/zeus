@@ -22,7 +22,7 @@ use zeus_eth::{
 use zeus_wallet::SecureHDWallet;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::{sync::Semaphore, task::JoinHandle};
 
@@ -40,9 +40,9 @@ struct ChildValueCache {
 /// updated in memory, it is written when the vault is saved (shutdown / vault ops).
 pub struct DiscoverChildWallets {
    open: bool,
-   hd_wallet: SecureHDWallet,
+   hd_wallet: Mutex<SecureHDWallet>,
    /// A clone of the HD Wallet just to discover wallets
-   discovery_wallet: SecureHDWallet,
+   discovery_wallet: Mutex<SecureHDWallet>,
    discovered_wallets: DiscoveredWallets,
    syncing: bool,
    adding_wallet: HashSet<Address>,
@@ -60,8 +60,8 @@ impl DiscoverChildWallets {
    pub fn new() -> Self {
       Self {
          open: false,
-         hd_wallet: SecureHDWallet::random(),
-         discovery_wallet: SecureHDWallet::random(),
+         hd_wallet: Mutex::new(SecureHDWallet::random()),
+         discovery_wallet: Mutex::new(SecureHDWallet::random()),
          discovered_wallets: DiscoveredWallets::new(),
          syncing: false,
          adding_wallet: HashSet::new(),
@@ -136,11 +136,11 @@ impl DiscoverChildWallets {
    }
 
    pub fn set_hd_wallet(&mut self, hd_wallet: SecureHDWallet) {
-      self.hd_wallet = hd_wallet;
+      *self.hd_wallet.lock().unwrap() = hd_wallet;
    }
 
    pub fn set_discovery_wallet(&mut self, discovery_wallet: SecureHDWallet) {
-      self.discovery_wallet = discovery_wallet;
+      *self.discovery_wallet.lock().unwrap() = discovery_wallet;
    }
 
    pub fn reset(&mut self) {
@@ -395,7 +395,7 @@ impl DiscoverChildWallets {
       self.syncing = true;
       let mut addresses = Vec::new();
       let concurrency = self.discovered_wallets.concurrency;
-      let discovery_wallet = self.discovery_wallet.clone();
+      let discovery_wallet = self.discovery_wallet.lock().unwrap().clone();
       let mut discovered_wallets = self.discovered_wallets.clone();
 
       RT.spawn(async move {
@@ -526,7 +526,7 @@ impl DiscoverChildWallets {
             let path = self.discovered_wallets.wallets[i].path.derivation_string();
 
             // If child already exists it will displayed as disabled in the Ui
-            let exists = self.hd_wallet.contains_child(child_address);
+            let exists = self.hd_wallet.lock().unwrap().contains_child(child_address);
             let wallet_is_beign_added = self.adding_wallet.contains(&child_address);
             let (chains, total_value) = self.cached_child_value(ctx, child_address);
 

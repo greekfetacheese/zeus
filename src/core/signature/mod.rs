@@ -113,14 +113,15 @@ impl Permit2Info {
       })
    }
 
-   pub async fn sign(&self, signer: &SecureKey) -> Result<Signature, anyhow::Error> {
+   pub async fn sign(&self, signer: SecureKey) -> Result<Signature, anyhow::Error> {
       let typed = if let Some(msg) = &self.msg {
          parse_typed_data(msg.clone())?
       } else {
          return Err(anyhow!("No message to sign"));
       };
 
-      let signature = signer.to_signer().sign_dynamic_typed_data(&typed).await?;
+      let signer = signer.to_signer();
+      let signature = signer.sign_dynamic_typed_data(&typed).await?;
       Ok(signature)
    }
 }

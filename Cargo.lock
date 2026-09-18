@@ -8748,14 +8748,13 @@ dependencies = [
 
 [[package]]
 name = "secure-types"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80db6767824864264c448288828a78e3ff61c201bf640d1c3823aa7f7d35e829"
+checksum = "d7de06a83f7a47937e446af73a6aa3b14de2820a9d42f29eaf35f9d727b3bcfe"
 dependencies = [
  "libc",
  "memsec",
  "serde",
- "thiserror 2.0.20",
  "zeroize",
 ]
 

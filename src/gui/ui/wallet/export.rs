@@ -1,6 +1,6 @@
 //! UI that allows the user to export a private key
 
-use crate::core::ZeusContext;
+use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{Context, Id, Order, RichText, Ui, vec2};
@@ -41,16 +41,18 @@ impl ExportKeyUi {
       }
    }
 
-   pub fn open(&mut self, wallet: Option<Wallet>) {
-      if let Some(wallet) = &wallet {
-         if wallet.is_master() {
-            self.show_warning = true;
-         }
-      }
+   pub fn open(&mut self, wallet: WalletInfo) {
+      RT.spawn_blocking(move || {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let wallet_full = ctx.get_wallet(wallet.address);
 
-      self.open = true;
-      self.credentials_form.open();
-      self.wallet_to_export = wallet;
+         SHARED_GUI.write(|gui| {
+            gui.wallet_ui.export_key_ui.wallet_to_export = wallet_full;
+            gui.wallet_ui.export_key_ui.show_warning = wallet.is_master();
+            gui.wallet_ui.export_key_ui.open = true;
+            gui.wallet_ui.export_key_ui.credentials_form.open();
+         });
+      });
    }
 
    pub fn close(&mut self) {

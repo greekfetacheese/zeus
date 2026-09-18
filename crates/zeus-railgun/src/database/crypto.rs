@@ -6,7 +6,8 @@ use chacha20poly1305::{
 };
 use rand::RngCore;
 use secure_types::{SecureArray, Zeroize};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::sync::Mutex;
 
 use super::DatabaseError;
 
@@ -16,8 +17,33 @@ pub const ENCRYPTED_ENVELOPE_VERSION: u32 = 4;
 const NONCE_LEN: usize = 24;
 
 /// 32-byte session key for AEAD of sensitive Railgun DB blobs.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct RailgunDbKey(SecureArray<u8, 32>);
+pub struct RailgunDbKey(Mutex<SecureArray<u8, 32>>);
+
+impl Clone for RailgunDbKey {
+   fn clone(&self) -> Self {
+      let inner = self.0.lock().expect("RailgunDbKey poisoned").clone();
+      Self(Mutex::new(inner))
+   }
+}
+
+impl Serialize for RailgunDbKey {
+   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+   where
+      S: Serializer,
+   {
+      self.0.lock().expect("RailgunDbKey poisoned").serialize(serializer)
+   }
+}
+
+impl<'de> Deserialize<'de> for RailgunDbKey {
+   fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+   where
+      D: Deserializer<'de>,
+   {
+      let inner = SecureArray::<u8, 32>::deserialize(deserializer)?;
+      Ok(Self(Mutex::new(inner)))
+   }
+}
 
 impl RailgunDbKey {
    /// Generate a fresh random key.
@@ -26,14 +52,18 @@ impl RailgunDbKey {
       rand::rng().fill_bytes(&mut bytes);
       let key = SecureArray::from_slice_mut(&mut bytes)
          .map_err(|e| DatabaseError::StorageError(format!("railgun db key: {e}")))?;
-      Ok(Self(key))
+      Ok(Self(Mutex::new(key)))
+   }
+
+   fn lock(&self) -> std::sync::MutexGuard<'_, SecureArray<u8, 32>> {
+      self.0.lock().expect("RailgunDbKey poisoned")
    }
 
    /// Seal plaintext: `nonce (24) || ciphertext+tag`.
    ///
    /// `aad` should be the storage key bytes so ciphertext is bound to the slot.
    pub fn seal(&self, plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, DatabaseError> {
-      self.0.unlock(|key_bytes| {
+      self.lock().unlock(|key_bytes| {
          let mut key_arr: [u8; 32] = key_bytes
             .try_into()
             .map_err(|_| DatabaseError::StorageError("railgun db key length".into()))?;
@@ -69,7 +99,7 @@ impl RailgunDbKey {
       let (nonce_bytes, ct) = sealed.split_at(NONCE_LEN);
       let nonce = XNonce::from_slice(nonce_bytes);
 
-      self.0.unlock(|key_bytes| {
+      self.lock().unlock(|key_bytes| {
          let mut key_arr: [u8; 32] = key_bytes
             .try_into()
             .map_err(|_| DatabaseError::StorageError("railgun db key length".into()))?;
@@ -87,7 +117,7 @@ impl RailgunDbKey {
 
    /// Zeroize key material (e.g. vault lock / shutdown).
    pub fn erase(&mut self) {
-      self.0.erase();
+      self.lock().erase();
    }
 }
 
