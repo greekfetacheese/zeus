@@ -67,10 +67,9 @@ impl WalletSelect {
          .show_ui(ui, |ui| {
             ui.spacing_mut().item_spacing.y = theme.spacing.md;
 
-            // TODO: Cache the wallets in order just like in the Vault
-            let wallets = ctx.get_all_wallets_info();
+            let wallets = ctx.all_wallets_info_ordered();
 
-            for wallet in wallets.values() {
+            for wallet in wallets {
                let is_selected = wallet.address == self.wallet.address;
                let text = RichText::new(wallet.name_with_id_short()).size(theme.typography.normal);
 

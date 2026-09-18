@@ -683,26 +683,29 @@ impl ZeusCtx {
    /// This should be called at the startup and whenever a wallet is added or removed.
    pub fn build_wallet_info_cache(&self) {
       let previous: HashSet<Address> =
-         self.read(|ctx| ctx.wallet_info_cache.keys().copied().collect());
+         self.read(|ctx| ctx.wallet_info_cache.map.keys().copied().collect());
 
-      let mut cache = HashMap::new();
+      let mut new_map = HashMap::new();
+      let mut new_ordered = Vec::new();
+
       let wallets = self.read_vault(|vault| vault.clone_all_wallets());
       for wallet in wallets {
          let info = WalletInfo::from_wallet(&wallet, true);
-         cache.insert(wallet.address(), info);
+         new_map.insert(wallet.address(), info.clone());
+         new_ordered.push(info);
       }
-
-      let wallets: Vec<WalletInfo> = cache.values().cloned().collect();
-
-      self.write(|ctx| {
-         ctx.wallet_info_cache = cache;
-      });
 
       let book = self.address_book();
       if book.is_persisted() {
-         book.apply_wallet_diff(&previous, &wallets);
+         book.apply_wallet_diff(&previous, &new_ordered);
          self.save_address_book();
       }
+
+      let new_wallet_info_cache = WalletInfoCache::new(new_map, new_ordered);
+
+      self.write(|ctx| {
+         ctx.wallet_info_cache = new_wallet_info_cache;
+      });
    }
 
    pub fn address_book(&self) -> AddressBookHandle {
@@ -711,15 +714,19 @@ impl ZeusCtx {
 
    pub fn wallet_with_zk_address_exists(&self, zk_address: &RailgunAddress) -> bool {
       self.read(|ctx| {
-         ctx.wallet_info_cache
-            .values()
-            .any(|wallet| wallet.zk_address() == zk_address.address)
+         for wallet in ctx.wallet_info_cache.ordered_slice() {
+            if wallet.zk_address_ref() == zk_address.address.as_str() {
+               return true;
+            }
+         }
+
+         false
       })
    }
 
    /// Get all wallets info without cloning the private key
    pub fn get_all_wallets_info(&self) -> Vec<WalletInfo> {
-      self.read(|ctx| ctx.wallet_info_cache.values().cloned().collect())
+      self.read(|ctx| ctx.wallet_info_cache.ordered_vec.clone())
    }
 
    pub fn contacts(&self) -> Vec<Contact> {
@@ -1023,11 +1030,17 @@ impl ZeusCtx {
       let (wallet_state, _) = WalletState::load_or_migrate(&key, None)?;
       let master_wallet = vault.get_master_wallet();
 
-      let mut new_wallet_info_cache = HashMap::new();
+      let mut new_wallet_info_map = HashMap::new();
+      let mut new_wallet_info_ordered = Vec::new();
+
       for wallet in vault.clone_all_wallets() {
          let info = WalletInfo::from_wallet(&wallet, true);
-         new_wallet_info_cache.insert(wallet.address(), info);
+         new_wallet_info_map.insert(wallet.address(), info.clone());
+         new_wallet_info_ordered.push(info);
       }
+
+      let new_wallet_info_cache =
+         WalletInfoCache::new(new_wallet_info_map, new_wallet_info_ordered);
 
       let master_info = new_wallet_info_cache
          .get(&master_wallet.address())
@@ -2113,7 +2126,7 @@ pub struct ZeusContext {
 
    /// Cached `WalletInfo` for quickly accessing & cloning any wallet
    /// without its private key.
-   pub wallet_info_cache: HashMap<Address, WalletInfo>,
+   pub wallet_info_cache: WalletInfoCache,
 
    /// Loaded Vault
    pub vault: Arc<Mutex<Vault>>,
@@ -2301,7 +2314,7 @@ impl ZeusContext {
          railgun_resync_attempts: HashMap::new(),
          railgun_provider: HashMap::new(),
          current_wallet: WalletInfo::default(),
-         wallet_info_cache: HashMap::new(),
+         wallet_info_cache: WalletInfoCache::default(),
          vault: Arc::new(Mutex::new(Vault::default())),
          wallet_state: WalletState::default(),
          tx_db: TxDBHandle::new(),
@@ -2459,11 +2472,12 @@ impl ZeusContext {
 
    /// Get the wallet info for the given zk address
    pub fn get_wallet_info_by_zk_address(&self, address: &str) -> Option<WalletInfo> {
-      self
-         .wallet_info_cache
-         .values()
-         .find(|wallet| wallet.zk_address_ref() == address)
-         .cloned()
+      for wallet in self.wallet_info_cache.ordered_slice() {
+         if wallet.zk_address_ref() == address {
+            return Some(wallet.clone());
+         }
+      }
+      None
    }
 
    /// Get the wallet name for the given address
@@ -2473,10 +2487,7 @@ impl ZeusContext {
    }
 
    pub fn current_wallet_info(&self) -> WalletInfo {
-      let w = self
-         .wallet_info_cache
-         .get(&self.current_wallet.address)
-         .cloned();
+      let w = self.wallet_info_cache.get(&self.current_wallet.address).cloned();
       w.expect("Current Wallet Info should be in cache")
    }
 
@@ -2497,8 +2508,12 @@ impl ZeusContext {
       w.expect("Current Wallet should be in cache")
    }
 
-   pub fn get_all_wallets_info(&self) -> &HashMap<Address, WalletInfo> {
-      &self.wallet_info_cache
+   /// Get all wallets info by this order:
+   /// - Master wallet
+   /// - Children wallets
+   /// - Imported wallets
+   pub fn all_wallets_info_ordered(&self) -> &[WalletInfo] {
+      &self.wallet_info_cache.ordered_slice()
    }
 
    /// Is this wallet selected as the current wallet

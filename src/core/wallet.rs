@@ -8,7 +8,7 @@ pub const DEV_T_COST: u32 = 16;
 pub const DEV_P_COST: u32 = 1;
 
 /// Helper struct to store info for a wallet (name, address, etc)
-#[derive(Default, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WalletInfo {
    pub address: Address,
    pub railgun_address: Option<RailgunAddress>,
@@ -16,6 +16,19 @@ pub struct WalletInfo {
    pub is_master: bool,
    pub is_child: bool,
    pub is_imported: bool,
+}
+
+impl Default for WalletInfo {
+   fn default() -> Self {
+      Self {
+         address: Address::ZERO,
+         railgun_address: None,
+         name: String::from("I should not be here"),
+         is_master: false,
+         is_child: false,
+         is_imported: false,
+      }
+   }
 }
 
 impl WalletInfo {

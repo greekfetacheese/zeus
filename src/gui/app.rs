@@ -205,6 +205,8 @@ impl ZeusApp {
          SHARED_GUI.write(|gui| {
             gui.ctx.write_vault(|vault| vault.erase());
             gui.ctx.write(|ctx| {
+               ctx.vault_unlocked = false;
+               ctx.wallet_info_cache.clear();
                ctx.current_wallet = WalletInfo::default();
             });
 
