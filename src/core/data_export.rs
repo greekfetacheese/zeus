@@ -285,12 +285,12 @@ mod tests {
          b"db",
       );
       write_file(
-         &dir.path().join("railgun").join("events-snapshot:1.data"),
+         &dir.path().join("railgun").join("events-snapshot:1.db"),
          b"snap",
       );
       write_file(
-         &dir.path().join("railgun").join("events-snapshot:1.meta"),
-         b"meta",
+         &dir.path().join("railgun").join("events-snapshot:1.data"),
+         b"old",
       );
       write_file(
          &dir.path().join("railgun").join("notes.txt"),
@@ -314,7 +314,7 @@ mod tests {
             .join("token_icons")
             .join("8453")
             .join("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-            .join("x24.png"),
+            .join("x32.png"),
          b"png",
       );
       write_file(
@@ -345,10 +345,9 @@ mod tests {
             "data/clear_signing/abababababababababababababababababababababababababababababababab.json"
                .to_string(),
             "data/clear_signing/index.calldata.json".to_string(),
-            "data/railgun/events-snapshot:1.data".to_string(),
-            "data/railgun/events-snapshot:1.meta".to_string(),
+            "data/railgun/events-snapshot:1.db".to_string(),
             "data/railgun/railgun:1.db".to_string(),
-            "data/token_icons/8453/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/x24.png".to_string(),
+            "data/token_icons/8453/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/x32.png".to_string(),
             "data/vault.data".to_string(),
          ]
       );

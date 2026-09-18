@@ -6,15 +6,12 @@ use anyhow::{Context, anyhow};
 use clap::{Parser, ValueEnum};
 use tracing::info;
 use url::Url;
-use zeus_railgun::{
-   ChainConfig, RpcSyncer, SnapshotLoader, SubsquidSyncer,
-   indexer::syncer::snapshot::EventsSnapshot,
-};
+use zeus_railgun::{ChainConfig, RpcSyncer, SnapshotLoader, SubsquidSyncer};
 
-/// Generate `events-snapshot:{chain}.data` / `.meta` for Zeus Railgun sync.
+/// Generate `events-snapshot:{chain}.db` for Zeus Railgun sync.
 ///
 /// Compiles independently of the Zeus GUI (`cargo build -p zeus-railgun-snapshot`).
-/// Resume-safe: an existing blob is extended from its covered tip.
+/// Resume-safe: an existing redb file is extended from its covered tip.
 #[derive(Parser, Debug)]
 #[command(name = "railgun-snapshot", version, about)]
 struct Args {
@@ -26,7 +23,7 @@ struct Args {
    #[arg(long, env = "ETH_RPC_URL")]
    rpc: Option<String>,
 
-   /// Directory for `events-snapshot:{chain}.data` and `.meta`
+   /// Directory for `events-snapshot:{chain}.db`
    #[arg(long, default_value = "data/railgun")]
    out: PathBuf,
 
@@ -92,11 +89,11 @@ async fn main() -> anyhow::Result<()> {
       .with_context(|| format!("create output dir {}", args.out.display()))?;
 
    let loader = SnapshotLoader::new(args.out.clone());
-   let existing = loader.load(chain.id).await?;
+   let existing = loader.coverage(chain.id).await?;
    if existing.block_number > 0 {
       info!(
          "Existing snapshot: {} events, coverage {}..{} in {}",
-         existing.events.len(),
+         existing.event_count(),
          existing.coverage_start,
          existing.block_number,
          args.out.display()
@@ -156,8 +153,7 @@ async fn main() -> anyhow::Result<()> {
       }
    }
 
-   let snapshot = loader.load(chain.id).await?;
-   summarize(&args.out, chain.id, &snapshot, started)?;
+   summarize(&loader, &args.out, chain.id, started).await?;
    Ok(())
 }
 
@@ -184,36 +180,30 @@ async fn resolve_to_block(args: &Args, chain: &ChainConfig) -> anyhow::Result<u6
    }
 }
 
-fn summarize(
+async fn summarize(
+   loader: &SnapshotLoader,
    out: &PathBuf,
    chain_id: u64,
-   snapshot: &EventsSnapshot,
    started: Instant,
 ) -> anyhow::Result<()> {
-   if snapshot.events.is_empty() || snapshot.block_number == 0 {
+   let meta = loader.coverage(chain_id).await?;
+   let event_count = meta.event_count();
+   if event_count == 0 || meta.block_number == 0 {
       return Err(anyhow!(
          "sync finished but snapshot is empty — check RPC/Subsquid coverage for this range"
       ));
    }
 
-   let data_path = out.join(format!("events-snapshot:{chain_id}.data"));
-   let meta_path = out.join(format!("events-snapshot:{chain_id}.meta"));
-   let data_len = std::fs::metadata(&data_path).map(|m| m.len()).unwrap_or(0);
-   let meta_len = std::fs::metadata(&meta_path).map(|m| m.len()).unwrap_or(0);
+   let db_path = out.join(loader.db_filename(chain_id));
+   let db_len = std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0);
 
    info!(
       "Wrote {} events, coverage {}..{}, {:.1}s",
-      snapshot.events.len(),
-      snapshot.coverage_start,
-      snapshot.block_number,
+      event_count,
+      meta.coverage_start,
+      meta.block_number,
       started.elapsed().as_secs_f64()
    );
-   info!(
-      "{} ({} bytes), {} ({} bytes)",
-      data_path.display(),
-      data_len,
-      meta_path.display(),
-      meta_len
-   );
+   info!("{} ({} bytes)", db_path.display(), db_len);
    Ok(())
 }

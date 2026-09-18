@@ -222,10 +222,12 @@ impl ZeusCtx {
       Ok(())
    }
 
-   /// Re-sync the [RailgunProvider] from scratch for the given chain
+   /// Re-sync the [RailgunProvider] from scratch for the given chain.
    ///
-   /// This will delete the railgun.db file and the events-snapshot.meta file
-   /// and re-sync the railgun indexer, it will still use the events-snapshot.data file
+   /// Attempt 0 deletes `railgun:{chain}.db` and replays from
+   /// `events-snapshot:{chain}.db`. Attempt 1 also deletes the events snapshot
+   /// (true from-scratch). Leftover `.data` / `.meta` blobs are dropped when the
+   /// snapshot loader opens.
    ///
    /// We do a best effort to make sure we have the only handle to the provider,
    /// if we don't the resynced db will not be found on disk and on next startup
@@ -295,14 +297,14 @@ impl ZeusCtx {
       let res = async {
          let railgun_dir = railgun_dir()?;
          let snapshot_loader = SnapshotLoader::new(railgun_dir.clone());
-         let filename = snapshot_loader.meta_filename(chain);
-         let meta_path = railgun_dir.join(filename);
-         let snapshot_path = snapshot_loader.filename(chain);
-
-         tokio::fs::remove_file(&meta_path).await?;
+         let snapshot_db = railgun_dir.join(snapshot_loader.db_filename(chain));
 
          if attempts > 0 {
-            tokio::fs::remove_file(&snapshot_path).await?;
+            if let Err(e) = tokio::fs::remove_file(&snapshot_db).await {
+               if e.kind() != std::io::ErrorKind::NotFound {
+                  return Err(e.into());
+               }
+            }
          }
 
          let db_file = railgun_db_file(chain)?;
@@ -501,8 +503,10 @@ impl ZeusCtx {
          {
             Ok(provider) => provider,
             Err(e) => {
-               let error_str = e.to_string();
-               if !error_str.contains("Database already open") {
+               // A live handle still holding a redb file (another provider mid-teardown)
+               // is not a real failure — this attempt will retry. Report anything else.
+               if !zeus_railgun::is_database_already_open(&e) {
+                  let error_str = e.to_string();
                   self.write(|ctx| {
                      ctx.railgun_status.set_sync_error(chain, error_str);
                   });

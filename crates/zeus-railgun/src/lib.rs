@@ -24,7 +24,7 @@ pub use circuit::remote_artifact_loader::{
    ARTIFACT_MAX_INPUTS, ARTIFACT_MAX_OUTPUTS, AvailableCircuits, EmbeddedCircuit, PrefetchReport,
    RemoteArtifactLoader, all_transact_circuit_names, transact_circuit_name,
 };
-pub use database::{RailgunDbKey, RedbDatabase};
+pub use database::{RailgunDbKey, RedbDatabase, is_database_already_open};
 pub use indexer::indexed_account::{
    PrivateHistoryEntry, PrivateHistoryKind, decode_history_memo, encode_history_memo,
 };

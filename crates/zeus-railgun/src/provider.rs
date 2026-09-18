@@ -27,6 +27,7 @@ use crate::{
    database::DatabaseError,
    indexer::{
       indexed_account::{PrivateHistoryEntry, SpentNote},
+      syncer::snapshot::SnapshotLoader,
       utxo_indexer::{UtxoIndexer, UtxoIndexerError},
    },
    note::{OutputNote, utxo::UtxoNote},
@@ -132,6 +133,7 @@ pub struct RailgunProvider<P: Provider<Ethereum>> {
    pub utxo_indexer: Arc<RwLock<UtxoIndexer>>,
    prover: Groth16Prover,
    poi_provider: Option<PoiProvider>,
+   snapshot_loader: SnapshotLoader,
    is_syncing: Arc<RwLock<bool>>,
    is_verifying: Arc<RwLock<bool>>,
 }
@@ -173,6 +175,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       utxo_indexer: UtxoIndexer,
       prover: Groth16Prover,
       poi_provider: Option<PoiProvider>,
+      snapshot_loader: SnapshotLoader,
    ) -> Result<Self, RailgunProviderError> {
       Ok(Self {
          chain,
@@ -180,6 +183,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
          utxo_indexer: Arc::new(RwLock::new(utxo_indexer)),
          prover,
          poi_provider,
+         snapshot_loader,
          is_syncing: Arc::new(RwLock::new(false)),
          is_verifying: Arc::new(RwLock::new(false)),
       })
@@ -352,6 +356,17 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
    /// Compact the db to save space
    pub async fn compact(&self) -> Result<bool, DatabaseError> {
       self.utxo_indexer.write().await.compact().await
+   }
+
+   /// Compact the events snapshot redb (`events-snapshot:{chain}.db`).
+   ///
+   /// Missing snapshot file is `Ok(false)` and does not create one.
+   pub async fn compact_events_snapshot(&self) -> Result<bool, DatabaseError> {
+      self
+         .snapshot_loader
+         .compact(self.chain.id)
+         .await
+         .map_err(|e| DatabaseError::StorageError(e.to_string()))
    }
 
    /// Save the db to disk

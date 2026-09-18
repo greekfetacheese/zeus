@@ -1,17 +1,16 @@
 # <p align="center">zeus-railgun-snapshot</p>
 
-## Standalone CLI that generates Railgun `events-snapshot` blobs for Zeus.
+## Standalone CLI that generates Railgun `events-snapshot` redb files for Zeus.
 
 ## Part of [Zeus](https://github.com/greekfetacheese/zeus).
 
-Compiles **without** the Zeus GUI. It reuses `RpcSyncer` / `SubsquidSyncer` + `SnapshotLoader` from `zeus-railgun` and writes the same files the wallet already loads:
+Compiles **without** the Zeus GUI. It reuses `RpcSyncer` / `SubsquidSyncer` + `SnapshotLoader` from `zeus-railgun` and writes the same file the wallet already loads:
 
 ```
-events-snapshot:{chain}.data
-events-snapshot:{chain}.meta
+events-snapshot:{chain}.db
 ```
 
-Resume-safe: if a blob already exists in `--out`, the syncer extends it from the covered tip instead of starting over.
+Resume-safe: if a redb file already exists in `--out`, the syncer appends from the covered tip instead of rewriting history. A sync that reaches *below* the covered range (e.g. `--from` earlier than `coverage_start`) extends the snapshot downward, so full-history coverage self-heals after one full sync.
 
 ---
 
@@ -54,7 +53,7 @@ railgun-snapshot [OPTIONS]
 
 `--rpc` is required for `--source rpc`. For Subsquid it is only needed if you omit `--to` and want the RPC tip (Subsquid can resolve the tip itself).
 
-Default `--out` is relative to the **current working directory**. Zeus loads snapshots from `data/railgun` next to the wallet binary, so run this from the Zeus folder (or pass that path) if you want the app to pick the files up.
+Default `--out` is relative to the **current working directory**. Zeus loads snapshots from `data/railgun` next to the wallet binary, so run this from the Zeus folder (or pass that path) if you want the app to pick the file up.
 
 ---
 
@@ -114,19 +113,20 @@ Defaults are conservative (`3000` blocks / `2` concurrent on mainnet, `30000` on
 On success you get something like:
 
 ```
-data/railgun/events-snapshot:1.data
-data/railgun/events-snapshot:1.meta
+data/railgun/events-snapshot:1.db
 ```
 
 Sepolia uses chain id `11155111` in the filename.
 
-Copy those two files into the Zeus `data/railgun/` directory (or generate them there with `--out data/railgun`). Zeus will replay the blob on a new-signer / historical sync and only RPC the tail after `block_number`.
+Generate it in the Zeus `data/railgun/` directory with `--out data/railgun`. Zeus will replay the snapshot on a new-signer / historical sync and only RPC the tail after `block_number`.
+
+There is **no** import of the old `events-snapshot:{chain}.data` / `.meta` pair. Opening a Zeus Railgun provider deletes leftover blobs.
 
 ---
 
 ## Notes
 
-- This tool does **not** write the Railgun redb (`railgun:{chain}.db`). It only builds the events cache.
-- Deleting the `.data` / `.meta` pair forces a full re-fetch on the next run.
+- This tool does **not** write the Railgun indexer redb (`railgun:{chain}.db`). It only builds the events cache.
+- Deleting `events-snapshot:{chain}.db` forces a full re-fetch on the next run.
 - Logs: `RUST_LOG=info,zeus_railgun=debug` (default filter is already close to that).
 - Supported chains today: Ethereum mainnet and Sepolia (`ChainConfig` in `zeus-railgun`).

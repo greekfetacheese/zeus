@@ -2,7 +2,7 @@
 name = "zeus-railgun-snapshot"
 version = "0.1.0"
 edition = "2024"
-description = "Standalone CLI to generate Railgun events-snapshot blobs without compiling the Zeus GUI"
+description = "Standalone CLI to generate Railgun events-snapshot redb files without compiling the Zeus GUI"
 publish = false
 
 [[bin]]

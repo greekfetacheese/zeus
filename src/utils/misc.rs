@@ -83,6 +83,22 @@ pub async fn create_railgun_provider(
       }
    };
 
+   // Acquire the redb lock on the events snapshot now instead of lazily on the
+   // first sync: redb allows a single open handle per file, and a stale provider
+   // may still hold it. Opening it here surfaces that contention so the caller's
+   // retry can wait it out. A non-lock failure (e.g. corrupt file) is logged and
+   // ignored — the sync path already degrades to a fresh snapshot.
+   if let Err(e) = snapshot_loader.acquire(chain) {
+      if zeus_railgun::is_database_already_open(&e) {
+         return Err(e.context(format!("events snapshot for chain {chain}")));
+      }
+      tracing::warn!(
+         "Failed to open events snapshot for chain {} (will start fresh): {}",
+         chain,
+         e
+      );
+   }
+
    let utxo_verifier = RootVerifier::new(client.clone(), chain_config.railgun_smart_wallet);
    let rpc_syncer = RpcSyncer::new(
       client.clone(),
@@ -93,7 +109,7 @@ pub async fn create_railgun_provider(
 
    let subsquid_syncer = Some(
       SubsquidSyncer::new(&chain_config.subsquid_endpoint, chain)
-         .with_snapshot_loader(snapshot_loader),
+         .with_snapshot_loader(snapshot_loader.clone()),
    );
 
    let db = RedbDatabase::new(db_file, db_key)?;
@@ -109,6 +125,7 @@ pub async fn create_railgun_provider(
       utxo_indexer,
       prover,
       None,
+      snapshot_loader,
    )
    .await?;
 

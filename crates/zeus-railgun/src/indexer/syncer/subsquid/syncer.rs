@@ -3,10 +3,7 @@ use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
 use super::types::*;
-use crate::indexer::syncer::{
-   self, SyncerError,
-   snapshot::{EventsSnapshot, SnapshotLoader},
-};
+use crate::indexer::syncer::{self, SyncerError, snapshot::SnapshotLoader};
 
 /// Subsquid UTXO & TXID syncer.
 ///
@@ -78,8 +75,7 @@ impl SubsquidSyncer {
          from_block, to_block
       );
 
-      // Snapshot coverage used only to split tip vs historical. Tip path does no
-      // snapshot I/O — see RpcSyncer for rationale.
+      // Snapshot coverage splits tip vs historical. Tip always appends (one chunk).
       let snapshot_block = if let Some(loader) = &self.snapshot_loader {
          match loader.load_meta(self.chain_id).await {
             Ok(b) => b,
@@ -107,12 +103,8 @@ impl SubsquidSyncer {
          debug!("Tip delta events len {}", delta.len());
 
          if let Some(loader) = &self.snapshot_loader {
-            if SnapshotLoader::should_refresh(snapshot_block, to_block) {
-               if let Err(e) =
-                  self.refresh_events_snapshot(loader, from_block, to_block, &delta).await
-               {
-                  warn!("Failed to refresh events snapshot: {}", e);
-               }
+            if let Err(e) = loader.append(self.chain_id, &delta, to_block, None).await {
+               warn!("Failed to append event snapshot: {}", e);
             }
          }
 
@@ -124,21 +116,34 @@ impl SubsquidSyncer {
          from_block, to_block, snapshot_block
       );
 
-      let (mut full_events, events_block) = if let Some(loader) = &self.snapshot_loader {
-         match loader.load(self.chain_id).await {
-            Ok(s) => (s.events, s.block_number),
+      let coverage = if let Some(loader) = &self.snapshot_loader {
+         match loader.coverage(self.chain_id).await {
+            Ok(c) => c,
             Err(e) => {
-               warn!("Failed to load event snapshot: {}", e);
-               (Vec::new(), 0)
+               warn!("Failed to load event snapshot coverage: {}", e);
+               Default::default()
             }
          }
       } else {
-         (Vec::new(), 0)
+         Default::default()
       };
+      let events_block = coverage.block_number;
 
-      let blob_len = full_events.len();
-      let mut events = SnapshotLoader::take_events_in_range(&mut full_events, from_block, to_block);
-      let blob_moved = full_events.is_empty() && blob_len > 0;
+      let mut events = if let Some(loader) = &self.snapshot_loader {
+         if events_block > 0 {
+            loader
+               .load_range(
+                  self.chain_id,
+                  from_block,
+                  to_block.min(events_block),
+               )
+               .await?
+         } else {
+            Vec::new()
+         }
+      } else {
+         Vec::new()
+      };
 
       let fetch_from = if events_block == 0 {
          from_block
@@ -163,28 +168,31 @@ impl SubsquidSyncer {
       debug!("Delta Events len {}", delta.len());
 
       if delta.is_empty() {
+         if let Some(loader) = &self.snapshot_loader {
+            if events_block > 0 && to_block > events_block {
+               if let Err(e) = loader.advance_meta(self.chain_id, to_block).await {
+                  warn!("Failed to advance event snapshot meta: {}", e);
+               }
+            }
+         }
          return Ok(events);
       }
 
       events.extend(delta.iter().cloned());
 
       if let Some(loader) = &self.snapshot_loader {
-         if blob_moved {
-            debug!("Full Events len {}", events.len());
-            if let Err(e) = loader.save_parts(self.chain_id, &mut events, to_block, 0).await {
-               error!("Failed to save event snapshot: {}", e);
-            }
+         // Subsquid is not used by the running app today, but the standalone
+         // `zeus-railgun-snapshot` CLI (`--source subsquid`) still exercises this
+         // path, so it stays functional. Seeding mirrors RpcSyncer
+         // (coverage_start = from_block) so a fresh snapshot never claims history
+         // it did not fetch; the previous blob format hardcoded 0 here.
+         let seed = if events_block == 0 {
+            Some(from_block)
          } else {
-            full_events.extend(delta);
-            debug!("Full Events len {}", full_events.len());
-            let updated = EventsSnapshot {
-               events: full_events,
-               block_number: to_block,
-               coverage_start: 0,
-            };
-            if let Err(e) = loader.save(self.chain_id, updated).await {
-               error!("Failed to save event snapshot: {}", e);
-            }
+            None
+         };
+         if let Err(e) = loader.append(self.chain_id, &delta, to_block, seed).await {
+            error!("Failed to save event snapshot: {}", e);
          }
       }
 
@@ -211,89 +219,6 @@ impl SubsquidSyncer {
 }
 
 impl SubsquidSyncer {
-   /// Extend the on-disk events snapshot up to `to_block` (full load + rewrite).
-   ///
-   /// See RpcSyncer::refresh_events_snapshot — same policy, Subsquid fetch.
-   async fn refresh_events_snapshot(
-      &self,
-      loader: &SnapshotLoader,
-      tip_from: u64,
-      to_block: u64,
-      tip_events: &[syncer::SyncEvent],
-   ) -> Result<(), anyhow::Error> {
-      let mut snapshot = loader
-         .load(self.chain_id)
-         .await
-         .map_err(|e| anyhow::anyhow!("load snapshot for refresh: {}", e))?;
-
-      let events_block = snapshot.block_number;
-
-      debug!(
-         "Refreshing events snapshot (subsquid): events_block={} tip_from={} to_block={} lag={}",
-         events_block,
-         tip_from,
-         to_block,
-         to_block.saturating_sub(events_block)
-      );
-
-      // Empty blob: do NOT tip-bootstrap a gappy snapshot.
-      if events_block == 0 || snapshot.events.is_empty() {
-         debug!(
-            "Skipping tip snapshot bootstrap with empty blob (avoid gappy coverage {}-{})",
-            tip_from, to_block
-         );
-         return Ok(());
-      }
-
-      let gap_from = events_block.saturating_add(1);
-      if gap_from > to_block {
-         debug!(
-            "Snapshot already covers to_block (events_block={})",
-            events_block
-         );
-         return Ok(());
-      }
-
-      let mut delta = Vec::new();
-
-      if tip_from > gap_from {
-         let early_to = tip_from - 1;
-         debug!(
-            "Snapshot refresh fetching prefix {}-{}",
-            gap_from, early_to
-         );
-         let mut commitments = self
-            .commitments(gap_from, early_to)
-            .await
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
-         delta.append(&mut commitments);
-         let mut nullifiers = self
-            .nullifiers(gap_from, early_to)
-            .await
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
-         delta.append(&mut nullifiers);
-      }
-
-      if tip_from >= gap_from {
-         delta.extend(tip_events.iter().cloned());
-      } else {
-         delta.extend(tip_events.iter().filter(|ev| ev.block_number() >= gap_from).cloned());
-      }
-
-      debug!(
-         "Snapshot refresh delta len {} (events_block {} -> {})",
-         delta.len(),
-         events_block,
-         to_block
-      );
-
-      snapshot.events.extend(delta);
-      snapshot.block_number = to_block;
-      loader.save(self.chain_id, snapshot).await?;
-      info!("Events snapshot refreshed to block {}", to_block);
-      Ok(())
-   }
-
    async fn fetch_latest_block(&self) -> Result<u64, SubsquidSyncerError> {
       if let Some(override_block) = self.latest_block_override {
          return Ok(override_block);

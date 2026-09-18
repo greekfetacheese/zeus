@@ -7,7 +7,7 @@ use tokio::{
    sync::{Mutex, Semaphore},
    task::JoinHandle,
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::{
    abi::{legacy::RailgunLegacy, railgun::RailgunSmartWallet},
@@ -15,10 +15,7 @@ use crate::{
       parse_legacy_commitment_batch, parse_legacy_generated_commitment_batch,
       parse_legacy_nullifiers, parse_legacy_shield, parse_legacy_transact, parse_legacy_unshield,
       parse_nullified, parse_shield, parse_transact,
-      syncer::{
-         SyncEvent, SyncerError,
-         snapshot::{EventsSnapshot, SnapshotLoader},
-      },
+      syncer::{SyncEvent, SyncerError, snapshot::SnapshotLoader},
    },
 };
 
@@ -285,7 +282,8 @@ impl RpcSyncer {
 
       debug!("Latest snapshot block {}", snapshot_block);
 
-      // Pure tip: from_block past snapshot coverage.
+      // Pure tip: from_block past snapshot coverage. Always append the delta
+      // (one open chunk) — no full rewrite, no 30k-block refresh lag.
       if SnapshotLoader::is_tip_sync(snapshot_block, from_block) {
          debug!(
             "Tip sync {}-{} (snapshot_block={})",
@@ -297,16 +295,8 @@ impl RpcSyncer {
          debug!("Tip delta events len {}", events.len());
 
          if let Some(loader) = &self.snapshot_loader {
-            if SnapshotLoader::should_refresh(snapshot_block, to_block) {
-               debug!(
-                  "Refreshing events snapshot from block {} to {}",
-                  snapshot_block, to_block
-               );
-               if let Err(e) =
-                  self.refresh_events_snapshot(loader, from_block, to_block, &events).await
-               {
-                  warn!("Failed to refresh events snapshot: {}", e);
-               }
+            if let Err(e) = loader.append(self.chain_id, &events, to_block, None).await {
+               warn!("Failed to append event snapshot: {}", e);
             }
          }
 
@@ -318,27 +308,27 @@ impl RpcSyncer {
          from_block, to_block, snapshot_block
       );
 
-      // Historical / catch-up / cold-start: blob slice + RPC for holes and tail.
-      let (mut full_events, events_block, coverage_start) =
-         if let Some(loader) = &self.snapshot_loader {
-            match loader.load(self.chain_id).await {
-               Ok(s) => (s.events, s.block_number, s.coverage_start),
-               Err(e) => {
-                  warn!(
-                     "Failed to load event snapshot (will start fresh): {}",
-                     e
-                  );
-                  (Vec::new(), 0, 0)
-               }
+      let coverage = if let Some(loader) = &self.snapshot_loader {
+         match loader.coverage(self.chain_id).await {
+            Ok(c) => c,
+            Err(e) => {
+               warn!(
+                  "Failed to load event snapshot coverage (will start fresh): {}",
+                  e
+               );
+               Default::default()
             }
-         } else {
-            (Vec::new(), 0, 0)
-         };
+         }
+      } else {
+         Default::default()
+      };
+      let events_block = coverage.block_number;
+      let coverage_start = coverage.coverage_start;
 
       let mut events: Vec<SyncEvent> = Vec::new();
 
       // Optional RPC prefix when the blob only covers [coverage_start, events_block]
-      // and the caller needs blocks before coverage_start (new field; legacy=0 skips).
+      // and the caller needs blocks before coverage_start (legacy=0 skips).
       if coverage_start > 0 && from_block < coverage_start && events_block > 0 {
          let prefix_to = coverage_start.saturating_sub(1).min(to_block);
          if from_block <= prefix_to {
@@ -353,31 +343,23 @@ impl RpcSyncer {
          }
       }
 
-      let prefix_len = events.len();
-      let mut blob_moved = false;
-
-      // Slice blob for the overlap with the requested range.
-      // New-signer / full-range catch-up: move the vec (no clone). Partial overlap
-      // still clones so `full_events` remains available for persist.
+      // Overlap with the requested range — load_range is the returned vec, no clone.
       if events_block > 0 {
          let slice_from = if coverage_start > 0 {
             from_block.max(coverage_start)
          } else {
             from_block
          };
-
          let slice_to = to_block.min(events_block);
-
          if slice_from <= slice_to {
-            let blob_len = full_events.len();
-            let mut ranged =
-               SnapshotLoader::take_events_in_range(&mut full_events, slice_from, slice_to);
-            blob_moved = full_events.is_empty() && blob_len > 0;
-            events.append(&mut ranged);
+            if let Some(loader) = &self.snapshot_loader {
+               let mut ranged = loader.load_range(self.chain_id, slice_from, slice_to).await?;
+               events.append(&mut ranged);
+            }
          }
       }
 
-      // Tail after blob tip (or full range when blob empty).
+      // Tail after snapshot tip (or full range when snapshot empty).
       let fetch_from = if events_block == 0 {
          from_block
       } else {
@@ -400,23 +382,36 @@ impl RpcSyncer {
 
       SnapshotLoader::sort_events(&mut events);
 
-      // Persist snapshot only when we can keep contiguous coverage honest.
       if let Some(loader) = &self.snapshot_loader {
-         if let Err(e) = self
-            .persist_historical_snapshot(
-               loader,
-               from_block,
-               to_block,
-               events_block,
-               coverage_start,
-               &mut full_events,
-               &tail_delta,
-               &mut events,
-               prefix_len,
-               blob_moved,
-            )
-            .await
-         {
+         // A sync that reached below the snapshot's coverage_start fetched the
+         // whole contiguous range [from_block, to_block] (prefix + snapshot
+         // slice + tail). When it also reaches the old tip we can extend the
+         // snapshot downward instead of discarding that freshly fetched prefix.
+         let extends_downward = coverage_start > 0
+            && from_block < coverage_start
+            && events_block > 0
+            && to_block >= events_block
+            && !events.is_empty();
+
+         let saved = if extends_downward {
+            debug!(
+               "Rewriting events snapshot to cover {}..{} (was {}..{})",
+               from_block, to_block, coverage_start, events_block
+            );
+            loader.rewrite(self.chain_id, &events, to_block, from_block).await
+         } else {
+            self
+               .persist_historical_snapshot(
+                  loader,
+                  from_block,
+                  to_block,
+                  events_block,
+                  &tail_delta,
+               )
+               .await
+         };
+
+         if let Err(e) = saved {
             warn!("Failed to save event snapshot: {}", e);
          }
       }
@@ -431,162 +426,37 @@ impl RpcSyncer {
       from_block: u64,
       to_block: u64,
       events_block: u64,
-      coverage_start: u64,
-      full_events: &mut Vec<SyncEvent>,
       tail_delta: &[SyncEvent],
-      events: &mut [SyncEvent],
-      prefix_len: usize,
-      blob_moved: bool,
    ) -> Result<(), anyhow::Error> {
-      // Extending an existing contiguous blob with a successful tail fetch.
-      // `blob_moved` means the blob now lives in `events[prefix_len..]` (plus tail).
-      if events_block > 0 && (blob_moved || !full_events.is_empty()) {
+      if events_block > 0 {
          if to_block > events_block {
             if !tail_delta.is_empty() {
-               if blob_moved {
-                  let snapshot_events = &mut events[prefix_len..];
-                  debug!(
-                     "Full Events len {} (coverage_start={} .. {})",
-                     snapshot_events.len(),
-                     coverage_start,
-                     to_block
-                  );
-                  loader
-                     .save_parts(
-                        self.chain_id,
-                        snapshot_events,
-                        to_block,
-                        coverage_start,
-                     )
-                     .await?;
-               } else {
-                  full_events.extend(tail_delta.iter().cloned());
-                  let updated = EventsSnapshot {
-                     events: std::mem::take(full_events),
-                     block_number: to_block,
-                     coverage_start,
-                  };
-                  debug!(
-                     "Full Events len {} (coverage_start={} .. {})",
-                     updated.events.len(),
-                     coverage_start,
-                     to_block
-                  );
-                  loader.save(self.chain_id, updated).await?;
-               }
+               loader.append(self.chain_id, tail_delta, to_block, None).await?;
             } else {
-               // Empty tail after successful RPC: advance watermark only.
-               loader.save_meta(self.chain_id, to_block, coverage_start).await?;
+               loader.advance_meta(self.chain_id, to_block).await?;
             }
          }
          return Ok(());
       }
 
-      // Fresh blob: seed with explicit coverage_start = from_block so later
-      // cold starts from deployment RPC any prefix below that. Never claim
-      // coverage starting at 0 unless we actually fetched from deployment.
-      if events_block == 0 && !tail_delta.is_empty() {
-         let updated = EventsSnapshot {
-            events: tail_delta.to_vec(),
-            block_number: to_block,
-            coverage_start: from_block,
-         };
+      // Fresh snapshot: seed with coverage_start = from_block. Never tip-bootstrap.
+      if !tail_delta.is_empty() {
          debug!(
             "Seeding events snapshot {}-{} ({} events)",
             from_block,
             to_block,
-            updated.events.len()
+            tail_delta.len()
          );
-         loader.save(self.chain_id, updated).await?;
+         loader
+            .append(
+               self.chain_id,
+               tail_delta,
+               to_block,
+               Some(from_block),
+            )
+            .await?;
       }
 
-      Ok(())
-   }
-
-   /// Extend the on-disk events snapshot up to `to_block` (full load + rewrite).
-   ///
-   /// Called rarely from the tip path when the snapshot lags by
-   /// [`super::snapshot::EVENTS_SNAPSHOT_REFRESH_BLOCK_INTERVAL`]. Reuses
-   /// `tip_events` already fetched for `tip_from..=to_block` so we only RPC the
-   /// missing prefix after the blob's last covered block.
-   ///
-   /// Never bootstraps a full-coverage snapshot from tip-only events — that
-   /// creates a hole below `tip_from` and poisons later historical resyncs.
-   async fn refresh_events_snapshot(
-      &self,
-      loader: &SnapshotLoader,
-      tip_from: u64,
-      to_block: u64,
-      tip_events: &[SyncEvent],
-   ) -> Result<(), anyhow::Error> {
-      let mut snapshot = loader
-         .load(self.chain_id)
-         .await
-         .map_err(|e| anyhow::anyhow!("load snapshot for refresh: {}", e))?;
-
-      let events_block = snapshot.block_number;
-
-      debug!(
-         "Refreshing events snapshot: events_block={} tip_from={} to_block={} lag={}",
-         events_block,
-         tip_from,
-         to_block,
-         to_block.saturating_sub(events_block)
-      );
-
-      // Empty blob: do NOT write tip-only data as if it covered history.
-      // Cold/historical path is responsible for seeding a complete blob.
-      if events_block == 0 || snapshot.events.is_empty() {
-         debug!(
-            "Skipping tip snapshot bootstrap with empty blob (avoid gappy coverage {}-{})",
-            tip_from, to_block
-         );
-         return Ok(());
-      }
-
-      let gap_from = events_block.saturating_add(1);
-      if gap_from > to_block {
-         debug!(
-            "Snapshot already covers to_block (events_block={})",
-            events_block
-         );
-         return Ok(());
-      }
-
-      let mut delta = Vec::new();
-
-      // Prefix between blob coverage and the tip fetch start.
-      if tip_from > gap_from {
-         let early_to = tip_from - 1;
-         debug!(
-            "Snapshot refresh fetching prefix {}-{}",
-            gap_from, early_to
-         );
-         let logs = self
-            .get_logs(gap_from, early_to)
-            .await
-            .map_err(|e| anyhow::anyhow!("fetch snapshot prefix: {}", e))?;
-         delta = Self::parse_logs(logs).map_err(|e| anyhow::anyhow!("{}", e))?;
-      }
-
-      if tip_from >= gap_from {
-         delta.extend(tip_events.iter().cloned());
-      } else {
-         delta.extend(tip_events.iter().filter(|ev| ev.block_number() >= gap_from).cloned());
-      }
-
-      debug!(
-         "Snapshot refresh delta len {} (events_block {} -> {})",
-         delta.len(),
-         events_block,
-         to_block
-      );
-
-      snapshot.events.extend(delta);
-      snapshot.block_number = to_block;
-      // Keep existing coverage_start (legacy 0 or real start).
-      loader.save(self.chain_id, snapshot).await?;
-      info!("Events snapshot refreshed to block {}", to_block);
       Ok(())
    }
 

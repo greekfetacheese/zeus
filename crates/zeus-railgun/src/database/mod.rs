@@ -61,3 +61,27 @@ pub enum DatabaseError {
    #[error("Missing Railgun DB crypto key")]
    MissingCryptoKey,
 }
+
+/// True when `err` (or any cause in its chain) is redb refusing to open a file
+/// that already has a live `Database` handle in this process.
+///
+/// redb takes an exclusive per-file lock, so a second open — e.g. a stale
+/// `RailgunProvider` still holding `railgun:{chain}.db` or
+/// `events-snapshot:{chain}.db` — fails this way. Callers use this to retry
+/// instead of matching on the error message text, which is not part of redb's
+/// API contract.
+///
+/// Both redb error flavours are checked: `RedbDatabase::new` surfaces
+/// [`redb::Error`], while the snapshot loader's `Database::create` surfaces
+/// [`redb::DatabaseError`].
+pub fn is_database_already_open(err: &anyhow::Error) -> bool {
+   err.chain().any(|cause| {
+      matches!(
+         cause.downcast_ref::<::redb::DatabaseError>(),
+         Some(::redb::DatabaseError::DatabaseAlreadyOpen)
+      ) || matches!(
+         cause.downcast_ref::<::redb::Error>(),
+         Some(::redb::Error::DatabaseAlreadyOpen)
+      )
+   })
+}

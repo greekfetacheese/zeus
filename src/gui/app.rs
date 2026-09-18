@@ -181,6 +181,22 @@ impl ZeusApp {
                            e
                         ),
                      }
+
+                     match provider.compact_events_snapshot().await {
+                        Ok(true) => tracing::info!(
+                           "Compacted Railgun events snapshot for chain {}",
+                           chain
+                        ),
+                        Ok(false) => tracing::info!(
+                           "Railgun events snapshot for chain {} does not need compact",
+                           chain
+                        ),
+                        Err(e) => tracing::error!(
+                           "Error compacting Railgun events snapshot for chain {}: {:?}",
+                           chain,
+                           e
+                        ),
+                     }
                   }
                }
             }

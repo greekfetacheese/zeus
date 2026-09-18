@@ -305,8 +305,7 @@ pub fn is_allowed_railgun_file(name: &str) -> bool {
       return rest.strip_suffix(".db").is_some_and(is_chain_id);
    }
    if let Some(rest) = name.strip_prefix("events-snapshot:") {
-      return rest.strip_suffix(".data").is_some_and(is_chain_id)
-         || rest.strip_suffix(".meta").is_some_and(is_chain_id);
+      return rest.strip_suffix(".db").is_some_and(is_chain_id);
    }
    false
 }
