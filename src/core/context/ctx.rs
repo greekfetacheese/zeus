@@ -476,8 +476,15 @@ impl ZeusCtx {
 
             if !is_syncing && !is_verifying {
                {
+                  let range = self.read(|ctx| ctx.railgun_config.rpc_syncer_block_range(chain));
+                  let concurrency = self.read(|ctx| ctx.railgun_config.rpc_syncer_concurrency());
+
                   let indexer = provider.utxo_indexer.write().await;
+
                   indexer.rpc_syncer.set_provider(client.clone().erased()).await;
+                  indexer.rpc_syncer.set_block_range(range).await;
+                  indexer.rpc_syncer.set_concurrency(concurrency).await;
+
                   indexer.utxo_verifier.set_provider(client.clone().erased()).await;
                }
             }

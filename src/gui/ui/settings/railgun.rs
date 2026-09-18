@@ -98,9 +98,12 @@ impl RailgunSettings {
       });
 
       let mut block_range = self.block_range();
+      let min = RailgunConfig::min_block_range();
+      let max = RailgunConfig::max_block_range();
+
       let changed = ui
          .allocate_ui(slider_size, |ui| {
-            ui.add(Slider::new(&mut block_range, 100..=30_000).desired_width(slider_size.x))
+            ui.add(Slider::new(&mut block_range, min..=max).desired_width(slider_size.x))
          })
          .inner
          .changed();
@@ -111,9 +114,12 @@ impl RailgunSettings {
       ui.label(RichText::new("RPC Syncer Concurrency").size(theme.typography.normal));
 
       let mut concurrency = self.concurrency();
+      let min = RailgunConfig::min_concurrency();
+      let max = RailgunConfig::max_concurrency();
+
       let changed = ui
          .allocate_ui(slider_size, |ui| {
-            ui.add(Slider::new(&mut concurrency, 1..=10).desired_width(slider_size.x))
+            ui.add(Slider::new(&mut concurrency, min..=max).desired_width(slider_size.x))
          })
          .inner
          .changed();
@@ -124,9 +130,12 @@ impl RailgunSettings {
       ui.label(RichText::new("State Update Interval (Minutes)").size(theme.typography.normal));
 
       let mut interval = self.state_update_interval();
+      let min = RailgunConfig::min_state_update_interval();
+      let max = RailgunConfig::max_state_update_interval();
+
       let changed = ui
          .allocate_ui(slider_size, |ui| {
-            ui.add(Slider::new(&mut interval, 1..=60).desired_width(slider_size.x))
+            ui.add(Slider::new(&mut interval, min..=max).desired_width(slider_size.x))
          })
          .inner
          .changed();

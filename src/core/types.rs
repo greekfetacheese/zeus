@@ -29,6 +29,15 @@ fn default_state_update_interval_minutes() -> u64 {
    DEFAULT_STATE_UPDATE_INTERVAL_MINUTES
 }
 
+const MIN_BLOCK_RANGE: u64 = 100;
+const MAX_BLOCK_RANGE: u64 = 30_000;
+
+const MIN_CONCURRENCY: usize = 1;
+const MAX_CONCURRENCY: usize = 10;
+
+const MIN_UPDATE_INTERVAL: u64 = 1;
+const MAX_UPDATE_INTERVAL: u64 = 60;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RailgunConfig {
    pub rpc_syncer_concurrency: usize,
@@ -44,6 +53,29 @@ pub struct RailgunConfig {
 }
 
 impl RailgunConfig {
+   pub fn min_block_range() -> u64 {
+      MIN_BLOCK_RANGE
+   }
+   pub fn max_block_range() -> u64 {
+      MAX_BLOCK_RANGE
+   }
+
+   pub fn min_concurrency() -> usize {
+      MIN_CONCURRENCY
+   }
+
+   pub fn max_concurrency() -> usize {
+      MAX_CONCURRENCY
+   }
+
+   pub fn min_state_update_interval() -> u64 {
+      MIN_UPDATE_INTERVAL
+   }
+
+   pub fn max_state_update_interval() -> u64 {
+      MAX_UPDATE_INTERVAL
+   }
+
    pub fn new() -> Self {
       let mut rpc_syncer_block_range = HashMap::new();
 
@@ -99,6 +131,15 @@ impl RailgunConfig {
 
    pub fn set_allow_circuit_download(&mut self, allow: bool) {
       self.allow_circuit_download = allow;
+   }
+
+   pub fn rpc_syncer_block_range(&self, chain: u64) -> u64 {
+      let range = self.rpc_syncer_block_range.get(&chain).cloned().unwrap_or_default();
+      range.clamp(MIN_BLOCK_RANGE, MAX_BLOCK_RANGE)
+   }
+
+   pub fn rpc_syncer_concurrency(&self) -> usize {
+      self.rpc_syncer_concurrency.clamp(MIN_CONCURRENCY, MAX_CONCURRENCY)
    }
 
    /// Railgun state-update interval in seconds (clamped to 1–60 minutes).

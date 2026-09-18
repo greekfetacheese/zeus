@@ -34,6 +34,48 @@ pub const SEPOLIA_BLOCK_RANGE: u64 = 30_000;
 
 pub const DEFAULT_CONCURRENCY: usize = 2;
 
+/// Max blocks applied/held per sync step (memory bound). Independent of get_logs size.
+pub const MAX_SYNC_WINDOW: u64 = 100_000;
+
+/// Mainnet block after which get_logs ranges should not stay at the sparse-era size.
+pub const MAINNET_DENSE_LOGS_BLOCK: u64 = 20_000_000;
+pub const DENSE_LOGS_BLOCK_RANGE: u64 = 5_000;
+
+pub const BLOCK_RANGE_DECREMENT: u64 = 500;
+pub const MIN_BLOCK_RANGE: u64 = 100;
+
+pub fn apply_dense_logs_cap(chain_id: u64, window_from: u64, block_range: u64) -> u64 {
+   if chain_id == 1 && window_from >= MAINNET_DENSE_LOGS_BLOCK {
+      block_range.min(DENSE_LOGS_BLOCK_RANGE)
+   } else {
+      block_range
+   }
+}
+
+/// `Ok(new_range)` to retry; `Err(())` to abort (already at min).
+pub fn shrink_block_range_on_invalid_root(block_range: u64) -> Result<u64, ()> {
+   if block_range <= MIN_BLOCK_RANGE {
+      return Err(());
+   }
+   Ok(block_range.saturating_sub(BLOCK_RANGE_DECREMENT).max(MIN_BLOCK_RANGE))
+}
+
+pub fn sync_window_end(window_from: u64, to_block: u64) -> u64 {
+   window_from.saturating_add(MAX_SYNC_WINDOW - 1).min(to_block)
+}
+
+/// Result of [`RpcSyncer::fetch`]: events to apply, plus the RPC-only delta for later persist.
+pub struct FetchedEvents {
+   pub events: Vec<SyncEvent>,
+   /// RPC-parsed events not already in the snapshot (prefix and/or tail).
+   /// Empty when the window is a pure snapshot slice.
+   pub rpc_delta: Vec<SyncEvent>,
+   pub fetch_from: u64,
+   pub fetch_to: u64,
+   /// Snapshot covered tip at fetch time (`0` if none).
+   pub events_block: u64,
+}
+
 /// Transient RPC failures (rate limits, timeouts, 5xx) are common on archive
 /// `eth_getLogs`. Retry per chunk so one flake doesn't abort the whole sync.
 const GET_LOGS_MAX_RETRIES: usize = 5;
@@ -86,6 +128,10 @@ impl RpcSyncer {
    pub fn with_snapshot_loader(mut self, snapshot_loader: SnapshotLoader) -> Self {
       self.snapshot_loader = Some(snapshot_loader);
       self
+   }
+
+   pub fn chain_id(&self) -> u64 {
+      self.chain_id
    }
 
    pub async fn set_provider(&self, provider: DynProvider<Ethereum>) {
@@ -235,34 +281,26 @@ impl RpcSyncer {
       Ok(latest)
    }
 
-   pub async fn sync(&self, from_block: u64, to_block: u64) -> Result<Vec<SyncEvent>, SyncerError> {
+   /// Fetch+parse only. Does not write the snapshot.
+   ///
+   /// Unlike [`RpcSyncer::sync`], this does not take the `is_syncing` flag — the
+   /// indexer serializes syncs itself.
+   pub async fn fetch(&self, from_block: u64, to_block: u64) -> Result<FetchedEvents, SyncerError> {
       if from_block > to_block {
-         return Ok(vec![]);
-      }
-
-      if self.is_syncing().await {
-         debug!("Syncer is already syncing");
-         return Ok(vec![]);
+         return Ok(FetchedEvents {
+            events: Vec::new(),
+            rpc_delta: Vec::new(),
+            fetch_from: from_block,
+            fetch_to: to_block,
+            events_block: 0,
+         });
       }
 
       debug!(
-         "Starting RPC sync from {} to {}",
+         "Starting RPC fetch from {} to {}",
          from_block, to_block
       );
 
-      self.set_syncing(true).await;
-      let result = self.sync_inner(from_block, to_block).await;
-      self.set_syncing(false).await;
-      result
-   }
-}
-
-impl RpcSyncer {
-   async fn sync_inner(
-      &self,
-      from_block: u64,
-      to_block: u64,
-   ) -> Result<Vec<SyncEvent>, SyncerError> {
       // Snapshot coverage decides tip delta (RPC only) vs historical (blob + optional RPC).
       // Tip syncs do not load the multi‑MB blob every tick — trees live in redb.
       let snapshot_block = if let Some(loader) = &self.snapshot_loader {
@@ -294,13 +332,13 @@ impl RpcSyncer {
          SnapshotLoader::sort_events(&mut events);
          debug!("Tip delta events len {}", events.len());
 
-         if let Some(loader) = &self.snapshot_loader {
-            if let Err(e) = loader.append(self.chain_id, &events, to_block, None).await {
-               warn!("Failed to append event snapshot: {}", e);
-            }
-         }
-
-         return Ok(events);
+         return Ok(FetchedEvents {
+            rpc_delta: events.clone(),
+            events,
+            fetch_from: from_block,
+            fetch_to: to_block,
+            events_block: snapshot_block,
+         });
       }
 
       debug!(
@@ -326,6 +364,7 @@ impl RpcSyncer {
       let coverage_start = coverage.coverage_start;
 
       let mut events: Vec<SyncEvent> = Vec::new();
+      let mut rpc_delta: Vec<SyncEvent> = Vec::new();
 
       // Optional RPC prefix when the blob only covers [coverage_start, events_block]
       // and the caller needs blocks before coverage_start (legacy=0 skips).
@@ -339,6 +378,7 @@ impl RpcSyncer {
             let logs = self.get_logs(from_block, prefix_to).await?;
             let mut prefix = Self::parse_logs(logs)?;
             SnapshotLoader::sort_events(&mut prefix);
+            rpc_delta.extend(prefix.iter().cloned());
             events.extend(prefix);
          }
       }
@@ -360,7 +400,7 @@ impl RpcSyncer {
       }
 
       // Tail after snapshot tip (or full range when snapshot empty).
-      let fetch_from = if events_block == 0 {
+      let tail_from = if events_block == 0 {
          from_block
       } else {
          events_block.saturating_add(1).max(from_block)
@@ -368,57 +408,104 @@ impl RpcSyncer {
 
       debug!(
          "Historical fetch delta from {} to {} (events_block={} coverage_start={})",
-         fetch_from, to_block, events_block, coverage_start
+         tail_from, to_block, events_block, coverage_start
       );
 
-      let mut tail_delta = Vec::new();
-      if fetch_from <= to_block {
-         let logs = self.get_logs(fetch_from, to_block).await?;
-         tail_delta = Self::parse_logs(logs)?;
+      if tail_from <= to_block {
+         let logs = self.get_logs(tail_from, to_block).await?;
+         let mut tail_delta = Self::parse_logs(logs)?;
          SnapshotLoader::sort_events(&mut tail_delta);
          debug!("Delta Events len {}", tail_delta.len());
-         events.extend(tail_delta.iter().cloned());
+         rpc_delta.extend(tail_delta.iter().cloned());
+         events.extend(tail_delta);
       }
 
       SnapshotLoader::sort_events(&mut events);
 
-      if let Some(loader) = &self.snapshot_loader {
-         // A sync that reached below the snapshot's coverage_start fetched the
-         // whole contiguous range [from_block, to_block] (prefix + snapshot
-         // slice + tail). When it also reaches the old tip we can extend the
-         // snapshot downward instead of discarding that freshly fetched prefix.
-         let extends_downward = coverage_start > 0
-            && from_block < coverage_start
-            && events_block > 0
-            && to_block >= events_block
-            && !events.is_empty();
-
-         let saved = if extends_downward {
-            debug!(
-               "Rewriting events snapshot to cover {}..{} (was {}..{})",
-               from_block, to_block, coverage_start, events_block
-            );
-            loader.rewrite(self.chain_id, &events, to_block, from_block).await
-         } else {
-            self
-               .persist_historical_snapshot(
-                  loader,
-                  from_block,
-                  to_block,
-                  events_block,
-                  &tail_delta,
-               )
-               .await
-         };
-
-         if let Err(e) = saved {
-            warn!("Failed to save event snapshot: {}", e);
-         }
-      }
-
-      Ok(events)
+      Ok(FetchedEvents {
+         events,
+         rpc_delta,
+         fetch_from: from_block,
+         fetch_to: to_block,
+         events_block,
+      })
    }
 
+   pub async fn sync(&self, from_block: u64, to_block: u64) -> Result<Vec<SyncEvent>, SyncerError> {
+      if from_block > to_block {
+         return Ok(vec![]);
+      }
+
+      if self.is_syncing().await {
+         debug!("Syncer is already syncing");
+         return Ok(vec![]);
+      }
+
+      debug!(
+         "Starting RPC sync from {} to {}",
+         from_block, to_block
+      );
+
+      self.set_syncing(true).await;
+      let result = async {
+         let fetched = self.fetch(from_block, to_block).await?;
+         if let Err(e) = self.persist_fetched(&fetched).await {
+            warn!("Failed to save event snapshot: {}", e);
+         }
+         Ok(fetched.events)
+      }
+      .await;
+      self.set_syncing(false).await;
+      result
+   }
+
+   /// Persist RPC-fetched events after the caller has verified the window.
+   ///
+   /// Seed/append only — never lowers `coverage_start` (no rewrite). Prefix
+   /// events below an existing snapshot are applied by the indexer but not
+   /// written. No-op when this syncer has no snapshot loader.
+   pub async fn persist_fetched(&self, fetched: &FetchedEvents) -> Result<(), anyhow::Error> {
+      let Some(loader) = &self.snapshot_loader else {
+         return Ok(());
+      };
+
+      if SnapshotLoader::is_tip_sync(fetched.events_block, fetched.fetch_from) {
+         return loader
+            .append(
+               self.chain_id,
+               &fetched.rpc_delta,
+               fetched.fetch_to,
+               None,
+            )
+            .await;
+      }
+
+      let tail_owned: Vec<SyncEvent>;
+      let tail = if fetched.events_block == 0 {
+         fetched.rpc_delta.as_slice()
+      } else {
+         tail_owned = fetched
+            .rpc_delta
+            .iter()
+            .filter(|e| e.block_number() > fetched.events_block)
+            .cloned()
+            .collect();
+         tail_owned.as_slice()
+      };
+
+      self
+         .persist_historical_snapshot(
+            loader,
+            fetched.fetch_from,
+            fetched.fetch_to,
+            fetched.events_block,
+            tail,
+         )
+         .await
+   }
+}
+
+impl RpcSyncer {
    /// Update on-disk snapshot after a historical sync without creating coverage holes.
    async fn persist_historical_snapshot(
       &self,
@@ -536,5 +623,58 @@ impl RpcSyncer {
       }
 
       Ok(events)
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn apply_dense_logs_cap_leaves_sparse_era_unchanged() {
+      assert_eq!(
+         apply_dense_logs_cap(1, 19_999_999, 30_000),
+         30_000
+      );
+   }
+
+   #[test]
+   fn apply_dense_logs_cap_caps_mainnet_at_20m() {
+      assert_eq!(apply_dense_logs_cap(1, 20_000_000, 30_000), 5_000);
+   }
+
+   #[test]
+   fn apply_dense_logs_cap_does_not_raise_smaller_range() {
+      assert_eq!(apply_dense_logs_cap(1, 20_000_000, 3_000), 3_000);
+   }
+
+   #[test]
+   fn apply_dense_logs_cap_skips_sepolia() {
+      assert_eq!(
+         apply_dense_logs_cap(11_155_111, 20_000_000, 30_000),
+         30_000
+      );
+   }
+
+   #[test]
+   fn shrink_block_range_on_invalid_root_decrements_then_floors() {
+      assert_eq!(
+         shrink_block_range_on_invalid_root(30_000),
+         Ok(29_500)
+      );
+      assert_eq!(shrink_block_range_on_invalid_root(600), Ok(100));
+      assert_eq!(shrink_block_range_on_invalid_root(100), Err(()));
+   }
+
+   #[test]
+   fn sync_window_end_is_inclusive_and_clamps() {
+      assert_eq!(
+         sync_window_end(14_693_013, 30_000_000),
+         14_793_012
+      );
+      assert_eq!(
+         sync_window_end(29_950_000, 30_000_000),
+         30_000_000
+      );
    }
 }

@@ -8,7 +8,7 @@ use alloy_rpc_types::BlockId;
 use alloy_sol_types::SolEvent;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::{
    abi::{legacy::RailgunLegacy, railgun::RailgunSmartWallet},
@@ -214,7 +214,10 @@ impl UtxoIndexer {
       self.ensure_trees_for_unspent().await?;
       self.compact_utxo_trees().await?;
 
-      tracing::debug!("Registered account in {} ms", time.elapsed().as_millis());
+      tracing::debug!(
+         "Registered account in {} ms",
+         time.elapsed().as_millis()
+      );
 
       Ok(())
    }
@@ -647,24 +650,114 @@ impl UtxoIndexer {
          return Ok(());
       }
 
-      let events = if use_subsquid {
-         self
-            .subsquid_syncer
-            .as_ref()
-            .expect("checked above")
-            .sync(from_block, to_block)
-            .await?
-      } else {
-         self.rpc_syncer.sync(from_block, to_block).await?
-      };
-      debug!("Fetched {} events from syncer", events.len());
+      let mut cursor = from_block;
+      while cursor <= to_block {
+         let step_to = syncer::rpc::sync_window_end(cursor, to_block);
+         debug!(
+            "UTXO sync window {}-{} (to_block={})",
+            cursor, step_to, to_block
+         );
 
+         if !use_subsquid {
+            let current = self.rpc_syncer.block_range().await;
+            let capped =
+               syncer::rpc::apply_dense_logs_cap(self.rpc_syncer.chain_id(), cursor, current);
+            if capped != current {
+               debug!(
+                  "Capping get_logs block_range to {} at block {}",
+                  capped, cursor
+               );
+               self.rpc_syncer.set_block_range(capped).await;
+            }
+         }
+
+         if use_subsquid {
+            let events = self
+               .subsquid_syncer
+               .as_ref()
+               .expect("checked above")
+               .sync(cursor, step_to)
+               .await?;
+            debug!(
+               "Fetched {} events from syncer for window {}-{}",
+               events.len(),
+               cursor,
+               step_to
+            );
+            let trees_mutated = self.apply_events(&events, global_synced).await?;
+            if trees_mutated {
+               self.verify_and_update_summaries().await?;
+            }
+            self.commit_window_progress(step_to, trees_mutated, tree_from).await?;
+         } else {
+            loop {
+               let fetched = self.rpc_syncer.fetch(cursor, step_to).await?;
+               debug!(
+                  "Fetched {} events from syncer for window {}-{}",
+                  fetched.events.len(),
+                  cursor,
+                  step_to
+               );
+               let trees_mutated = self.apply_events(&fetched.events, global_synced).await?;
+               if trees_mutated {
+                  match self.verify_and_update_summaries().await {
+                     Ok(()) => {}
+                     Err(UtxoIndexerError::InvalidRoot(tree, root)) => {
+                        warn!(
+                           "Invalid root for tree {} at window {}-{} (root={}); shrinking get_logs range",
+                           tree, cursor, step_to, root
+                        );
+                        self.rollback_uncommitted_step().await?;
+                        let current = self.rpc_syncer.block_range().await;
+                        match syncer::rpc::shrink_block_range_on_invalid_root(current) {
+                           Ok(next) => {
+                              debug!(
+                                 "Shrinking get_logs block_range {} -> {}",
+                                 current, next
+                              );
+                              self.rpc_syncer.set_block_range(next).await;
+                              continue;
+                           }
+                           Err(()) => {
+                              return Err(UtxoIndexerError::InvalidRoot(tree, root));
+                           }
+                        }
+                     }
+                     Err(e) => return Err(e),
+                  }
+               }
+
+               if let Err(e) = self.rpc_syncer.persist_fetched(&fetched).await {
+                  warn!("Failed to save event snapshot: {}", e);
+               }
+               self.commit_window_progress(step_to, trees_mutated, tree_from).await?;
+               break;
+            }
+         }
+
+         cursor = step_to + 1;
+      }
+
+      self.compact_utxo_trees().await?;
+
+      Ok(())
+   }
+
+   /// Apply a window of events: decrypt/nullify for accounts, batch-insert new leaves.
+   ///
+   /// `global_synced` is the watermark at the start of [`Self::sync_to`], not the
+   /// per-window `synced_block` — tree inserts must still apply for every event
+   /// after that original watermark.
+   async fn apply_events(
+      &mut self,
+      events: &[SyncEvent],
+      global_synced: u64,
+   ) -> Result<bool, UtxoIndexerError> {
       let mut tree_leaves: HashMap<u32, Vec<(u32, UtxoLeafHash)>> = HashMap::new();
       for (i, event) in events.iter().enumerate() {
          if i % 20000 == 0 {
             debug!("Processing event {}/{}", i, events.len());
          }
-         // Only mutate trees for blocks the global indexer has not applied yet.
          let apply_tree = event.block_number() > global_synced;
          self.handle_event(event, &mut tree_leaves, apply_tree)?;
       }
@@ -700,52 +793,101 @@ impl UtxoIndexer {
          }
       }
 
-      // Verify only trees that received new leaves. Sealed trees are immutable;
-      // account-only catch-up must not risk failing on an unrelated tree.
-      if trees_mutated {
-         self.warn_if_trees_not_sequentially_full();
-         debug!("Verifying UTXO trees");
-         let mutated: Vec<u32> = self.dirty_chunks.keys().copied().collect();
-         self.verify_trees(&mutated, None).await?;
-         let updates: Vec<(u32, UtxoTreeSummary)> = mutated
-            .iter()
-            .filter_map(|n| {
-               self.utxo_trees.get(n).map(|tree| {
-                  (
-                     *n,
-                     UtxoTreeSummary {
-                        leaf_count: tree.leaves_len(),
-                        root: tree.root(),
-                     },
-                  )
-               })
-            })
-            .collect();
-         for (n, summary) in updates {
-            self.tree_summaries.insert(n, summary);
-         }
-      }
+      Ok(trees_mutated)
+   }
 
+   async fn verify_and_update_summaries(&mut self) -> Result<(), UtxoIndexerError> {
+      self.warn_if_trees_not_sequentially_full();
+      debug!("Verifying UTXO trees");
+      let mutated: Vec<u32> = self.dirty_chunks.keys().copied().collect();
+      self.verify_trees(&mutated, None).await?;
+      let updates: Vec<(u32, UtxoTreeSummary)> = mutated
+         .iter()
+         .filter_map(|n| {
+            self.utxo_trees.get(n).map(|tree| {
+               (
+                  *n,
+                  UtxoTreeSummary {
+                     leaf_count: tree.leaves_len(),
+                     root: tree.root(),
+                  },
+               )
+            })
+         })
+         .collect();
+      for (n, summary) in updates {
+         self.tree_summaries.insert(n, summary);
+      }
+      Ok(())
+   }
+
+   async fn commit_window_progress(
+      &mut self,
+      step_to: u64,
+      trees_mutated: bool,
+      tree_from: u64,
+   ) -> Result<(), UtxoIndexerError> {
       debug!(
          "Synced to block {} (trees_mutated={})",
-         to_block, trees_mutated
+         step_to, trees_mutated
       );
 
-      if tree_from <= to_block {
-         self.synced_block = to_block;
+      if tree_from <= step_to {
+         self.synced_block = step_to;
       }
 
       for account in self.accounts.iter_mut() {
-         if account.synced_block() < to_block {
-            account.set_synced_block(to_block);
+         if account.synced_block() < step_to {
+            account.set_synced_block(step_to);
          }
       }
 
-      // Save trees only when mutated, accounts only when dirty.
       self.save(trees_mutated).await?;
-      self.compact_utxo_trees().await?;
+      Ok(())
+   }
 
-      // ! Dont call compact because it fucks up with mem usage
+   /// Drop in-memory mutations from a failed window and reload trees/accounts
+   /// from the last successful save. Snapshot is unchanged (persist happens after verify).
+   async fn rollback_uncommitted_step(&mut self) -> Result<(), UtxoIndexerError> {
+      let state = self.db.get_utxo_indexer().await?;
+      self.synced_block = state.synced_block;
+      self.known_trees = state.trees.iter().copied().collect();
+
+      let dirty: Vec<u32> = self.dirty_chunks.keys().copied().collect();
+      self.dirty_chunks.clear();
+
+      for n in &dirty {
+         self.legacy_trees.remove(n);
+         self.utxo_trees.remove(n);
+      }
+
+      self.utxo_trees.retain(|n, _| self.known_trees.contains(n));
+      self.tree_summaries.retain(|n, _| self.known_trees.contains(n));
+
+      for n in dirty {
+         if !self.known_trees.contains(&n) {
+            continue;
+         }
+         match self.db.get_utxo_tree_leaves(n).await? {
+            Some((leaves, from_legacy)) => {
+               if from_legacy {
+                  self.legacy_trees.insert(n);
+               }
+               let tree = UtxoMerkleTree::from_leaves(n, leaves);
+               self.capture_summary(n, &tree);
+               self.utxo_trees.insert(n, tree);
+            }
+            None => {
+               self.tree_summaries.remove(&n);
+               self.utxo_trees.remove(&n);
+            }
+         }
+      }
+
+      for account in self.accounts.iter_mut() {
+         let loaded = self.db.get_account(account.address()).await?;
+         account.restore_state(loaded);
+      }
 
       Ok(())
    }
@@ -1692,5 +1834,98 @@ mod tests {
          indexer.ensure_tree_loaded(9, false).await,
          Err(UtxoIndexerError::MissingTree(9))
       ));
+   }
+
+   /// Commit dummy tree + account, mutate like a truncated-logs window (wrong
+   /// root, extra tree, dirty account), then rollback to the last save.
+   #[tokio::test]
+   async fn rollback_uncommitted_step_restores_committed_trees_and_accounts() {
+      let db = RedbDatabase::in_memory(RailgunDbKey::generate().unwrap()).unwrap();
+      let signer = test_signer();
+      let note = make_note(&signer, 0, 0, 1_000);
+
+      let mut committed_leaves = vec![note.hash()];
+      committed_leaves.extend((1..8u64).map(dummy_leaf));
+      persist_tree_leaves(&db, 0, &committed_leaves).await;
+      db.set_utxo_indexer(&UtxoIndexerState {
+         synced_block: 1_000,
+         trees: vec![0],
+      })
+      .await
+      .unwrap();
+      db.set_account(
+         signer.address(),
+         &IndexedAccountState {
+            notes: vec![note_record(note.clone())],
+            synced_block: 1_000,
+            spent_notes: vec![],
+         },
+      )
+      .await
+      .unwrap();
+
+      let mut indexer = indexer_from_db(db).await;
+      indexer.register(signer.clone()).await.unwrap();
+      indexer.save(true).await.unwrap();
+
+      let committed_root = indexer.utxo_trees.get(&0).unwrap().root();
+      let committed_len = indexer.utxo_trees.get(&0).unwrap().leaves_len();
+      assert_eq!(committed_len, 8);
+      assert_eq!(indexer.global_synced_block(), 1_000);
+      assert_eq!(indexer.known_tree_numbers(), vec![0]);
+      assert_eq!(indexer.unspent(signer.address().clone()).len(), 1);
+
+      // Failed window: extra leaves change the root, a new tree appears, account
+      // watermark and notes advance — the shape of InvalidRoot before save.
+      indexer.insert_sorted_leaves(0, vec![(8, dummy_leaf(99)), (9, dummy_leaf(100))]);
+      indexer.insert_sorted_leaves(1, vec![(0, dummy_leaf(50_000))]);
+      indexer.synced_block = 2_000;
+      indexer.accounts[0].restore_state(IndexedAccountState {
+         notes: vec![
+            note_record(note.clone()),
+            note_record(make_note(&signer, 0, 8, 2_000)),
+         ],
+         synced_block: 2_000,
+         spent_notes: vec![],
+      });
+
+      assert_ne!(
+         indexer.utxo_trees.get(&0).unwrap().root(),
+         committed_root
+      );
+      assert_eq!(
+         indexer.utxo_trees.get(&0).unwrap().leaves_len(),
+         10
+      );
+      assert!(indexer.utxo_trees.contains_key(&1));
+      assert_eq!(indexer.known_tree_numbers(), vec![0, 1]);
+      assert!(!indexer.dirty_chunks.is_empty());
+      assert_eq!(indexer.unspent(signer.address().clone()).len(), 2);
+
+      indexer.rollback_uncommitted_step().await.unwrap();
+
+      assert_eq!(indexer.global_synced_block(), 1_000);
+      assert_eq!(indexer.known_tree_numbers(), vec![0]);
+      assert!(!indexer.utxo_trees.contains_key(&1));
+      assert!(indexer.dirty_chunks.is_empty());
+      let tree0 = indexer.utxo_trees.get(&0).expect("tree 0 reloaded");
+      assert_eq!(tree0.leaves_len(), committed_len);
+      assert_eq!(tree0.root(), committed_root);
+      assert_eq!(
+         indexer.tree_summary(0).unwrap().leaf_count,
+         committed_len
+      );
+      assert_eq!(
+         indexer.tree_summary(0).unwrap().root,
+         committed_root
+      );
+      assert_eq!(
+         indexer.account_synced_block(signer.address()),
+         Some(1_000)
+      );
+      let notes = indexer.unspent(signer.address().clone());
+      assert_eq!(notes.len(), 1);
+      assert_eq!(notes[0].hash(), note.hash());
+      assert!(!indexer.accounts[0].is_dirty());
    }
 }

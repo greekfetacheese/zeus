@@ -220,6 +220,14 @@ impl IndexedAccount {
       }
    }
 
+   /// Replace decrypted note state from DB (e.g. after a failed sync window).
+   ///
+   /// Clears the dirty flag so a later save does not rewrite the discarded window.
+   pub fn restore_state(&mut self, state: IndexedAccountState) {
+      self.inner = state;
+      self.dirty = false;
+   }
+
    pub fn state(&self) -> IndexedAccountState {
       self.inner.clone()
    }
