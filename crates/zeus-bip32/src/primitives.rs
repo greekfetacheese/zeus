@@ -89,22 +89,3 @@ impl PartialEq for XKeyInfo {
          && self.chain_code == other.chain_code
    }
 }
-
-impl XKeyInfo {
-   pub fn size_hint(&self) -> usize {
-      let mut size = 0;
-
-      // depth
-      size += 1;
-      // parent
-      size += 4;
-      // index
-      size += 4;
-      // Chain code
-      size += 32;
-      // Hint
-      size += 1;
-
-      size
-   }
-}

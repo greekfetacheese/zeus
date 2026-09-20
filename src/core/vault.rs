@@ -13,7 +13,9 @@ use brotli::{BrotliCompress, enc::BrotliEncoderParams};
 
 use ncrypt_me::{Argon2, Credentials, EncryptedInfo, decrypt_data, encrypt_data};
 
-use secure_types::{SecureBytes, SecureString, Zeroize};
+use secure_types::{
+   SecureBytes, SecureString, Zeroize, decode_slice, encode_into_vec, encoded_len,
+};
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
@@ -64,11 +66,16 @@ fn brotli_decompress(input: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
 
 /// Codec envelope (`2` || codec document). Not brotli-compressed.
 fn serialize_vault_data(data: &VaultData) -> Result<SecureBytes, anyhow::Error> {
-   let size = data.size_hint();
-   let mut out = Vec::with_capacity(size + 2048);
+   // Measured by the encoder itself, so the buffer below is sized exactly and
+   // never grows: a growing `Vec` abandons an allocation holding part of the
+   // document, and nothing wipes that one.
+   let len = encoded_len(data).map_err(|e| anyhow!("encode vault data: {e}"))?;
+
+   let mut out = Vec::with_capacity(1 + len);
    out.push(VAULT_PAYLOAD_CODEC);
 
-   secure_types::encode_into_vec(&mut out, data).map_err(|e| anyhow!("encode vault data: {e}"))?;
+   encode_into_vec(&mut out, data).map_err(|e| anyhow!("encode vault data: {e}"))?;
+   debug_assert_eq!(out.len(), 1 + len, "encoded_len != encoded len");
 
    SecureBytes::from_vec(out).map_err(|e| anyhow!("secure the vault payload: {e}"))
 }
@@ -98,8 +105,9 @@ fn parse_vault_data(data: &[u8]) -> Result<VaultData, anyhow::Error> {
          json.zeroize();
          parsed
       }
-      VAULT_PAYLOAD_CODEC => secure_types::decode_slice(payload)
-         .map_err(|e| anyhow!("Failed to parse vault data: {e:?}")),
+      VAULT_PAYLOAD_CODEC => {
+         decode_slice(payload).map_err(|e| anyhow!("Failed to parse vault data: {e:?}"))
+      }
       other => Err(anyhow!("unknown vault payload version: {other}")),
    }
 }
@@ -134,22 +142,6 @@ struct VaultData {
 }
 
 impl VaultData {
-   fn size_hint(&self) -> usize {
-      let mut size = 0;
-
-      size += self.hd_wallet.size_hint();
-
-      for wallet in &self.imported_wallets {
-         size += wallet.size_hint();
-      }
-
-      // Wallet state & Railgun keys
-      size += 32;
-      size += 32;
-
-      size
-   }
-
    fn take_legacy_wallet_state(&mut self) -> Option<WalletStateInner> {
       let has_legacy = !self.contacts.is_empty()
          || self.tx_db.is_some()
@@ -521,7 +513,7 @@ impl Vault {
       Ok(wallet_address)
    }
 
-   /// Encrypt this account and return the encrypted data
+   /// Encrypt this vault and return the encrypted data
    pub fn encrypt(&self, new_params: Option<Argon2>) -> Result<Vec<u8>, anyhow::Error> {
       // ! make sure we dont accidentally erased any of the wallet keys
       // ! this should actually never happen

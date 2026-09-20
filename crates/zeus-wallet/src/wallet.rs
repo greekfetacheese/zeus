@@ -70,26 +70,6 @@ impl PartialEq for Wallet {
 impl Eq for Wallet {}
 
 impl Wallet {
-   pub fn size_hint(&self) -> usize {
-      let mut size = 0;
-
-      size += self.name.len();
-
-      if let Some(seed) = &self.seed_phrase {
-         seed.unlock_str(|seed| {
-            size += seed.len();
-         });
-      }
-
-      size += 32;
-
-      if let Some(xkey_info) = &self.xkey_info {
-         size += xkey_info.size_hint();
-      }
-
-      size
-   }
-
    pub fn new(
       name: String,
       seed_phrase: Option<SecureString>,
@@ -321,21 +301,6 @@ pub struct SecureHDWallet {
 }
 
 impl SecureHDWallet {
-   pub fn size_hint(&self) -> usize {
-      let mut size = 0;
-
-      size += self.master_wallet.size_hint();
-
-      for child in &self.children {
-         size += child.size_hint();
-      }
-
-      // next_child_index
-      size += 4;
-
-      size
-   }
-
    pub fn random() -> Self {
       let mut bytes = [0u8; 64];
       rand::rngs::OsRng.fill_bytes(&mut bytes);
