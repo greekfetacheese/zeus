@@ -13,7 +13,7 @@ use crate::utils::RT;
 use egui::{Align, Align2, FontId, Layout, Margin, RichText, Ui, Window, vec2};
 use egui_elements::{Button, CredentialsForm, Label, SecureTextEdit, Theme};
 use elegance::{BadgeTone, Toast};
-use ncrypt_me::{Argon2, Credentials, zeroize::Zeroize};
+use ncrypt_me::{Argon2, Credentials};
 use std::time::Instant;
 use zeus_eth::types::ChainId;
 use zeus_wallet::wallet::M_COST;
@@ -648,7 +648,7 @@ fn on_unlock_vault(mut vault: Vault) {
       });
 
       // Decrypt the vault
-      let mut data = match vault.decrypt(None) {
+      let data = match vault.decrypt(None) {
          Ok(data) => data,
          Err(e) => {
             SHARED_GUI.write(|gui| {
@@ -670,7 +670,6 @@ fn on_unlock_vault(mut vault: Vault) {
                gui.open_msg_window(msg);
                gui.loading_window.reset();
             });
-            data.zeroize();
             return;
          }
       };

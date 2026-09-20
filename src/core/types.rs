@@ -288,6 +288,18 @@ pub struct Contact {
 }
 
 impl Contact {
+   pub fn size_hint(&self) -> usize {
+      let mut size = 0;
+
+      size += self.name.len();
+
+      size += self.evm_address.len();
+
+      size += self.zk_address.len();
+
+      size
+   }
+
    pub fn new(name: String, evm_address: String, zk_address: String) -> Self {
       Self {
          name,

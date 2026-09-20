@@ -6,13 +6,19 @@ use crate::core::persisted::{PersistedFile, file_path};
 use crate::core::wallet_state::{WalletStateInner, WalletStateKey};
 use crate::utils::write_private_atomic;
 use anyhow::anyhow;
-use brotli::{BrotliCompress, BrotliDecompress, enc::BrotliEncoderParams};
-use ncrypt_me::{
-   Argon2, Credentials, EncryptedInfo, decrypt::decrypt_data_unsecured, encrypt::encrypt_data_ref,
-};
-use secure_types::{SecureString, Zeroize};
+use brotli::BrotliDecompress;
+
+#[cfg(test)]
+use brotli::{BrotliCompress, enc::BrotliEncoderParams};
+
+use ncrypt_me::{Argon2, Credentials, EncryptedInfo, decrypt_data, encrypt_data};
+
+use secure_types::{SecureBytes, SecureString, Zeroize};
 use serde::{Deserialize, Serialize};
+
+#[cfg(test)]
 use std::io::Cursor;
+
 use std::path::PathBuf;
 use zeus_eth::alloy_primitives::Address;
 use zeus_railgun::RailgunAddress;
@@ -25,15 +31,21 @@ use zeus_wallet::{
 ///
 /// - `0` raw JSON
 /// - `1` brotli-compressed JSON
+/// - `2` `secure-types` codec document (`FORMAT_VERSION` is the first byte of
+///   the document itself, currently `1` — that is why Zeus keeps its own
+///   envelope byte)
 ///
-/// New saves always write version `1`. Load also accepts a legacy unversioned
+/// New saves always write version `2`. Load also accepts a legacy unversioned
 /// blob that starts with `{` (raw JSON from before this envelope existed).
 const VAULT_PAYLOAD_RAW_JSON: u8 = 0;
 const VAULT_PAYLOAD_BROTLI: u8 = 1;
+const VAULT_PAYLOAD_CODEC: u8 = 2;
 
 /// Mid-range quality: good ratio on JSON without max-level CPU cost on save.
+#[cfg(test)]
 const VAULT_BROTLI_QUALITY: i32 = 5;
 
+#[cfg(test)]
 fn brotli_compress(input: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
    let mut params = BrotliEncoderParams::default();
    params.quality = VAULT_BROTLI_QUALITY;
@@ -50,32 +62,44 @@ fn brotli_decompress(input: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
    Ok(out)
 }
 
-/// Build the encrypted plaintext: `[version][payload]`.
-fn encode_vault_payload(json: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-   let compressed = brotli_compress(json)?;
-   let mut out = Vec::with_capacity(1 + compressed.len());
-   out.push(VAULT_PAYLOAD_BROTLI);
-   out.extend_from_slice(&compressed);
-   Ok(out)
+/// Codec envelope (`2` || codec document). Not brotli-compressed.
+fn serialize_vault_data(data: &VaultData) -> Result<SecureBytes, anyhow::Error> {
+   let size = data.size_hint();
+   let mut out = Vec::with_capacity(size + 2048);
+   out.push(VAULT_PAYLOAD_CODEC);
+
+   secure_types::encode_into_vec(&mut out, data).map_err(|e| anyhow!("encode vault data: {e}"))?;
+
+   SecureBytes::from_vec(out).map_err(|e| anyhow!("secure the vault payload: {e}"))
 }
 
-/// Decode decrypted bytes into vault JSON bytes.
-fn decode_vault_payload(data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+/// Parse decrypted vault bytes: `{` / `0` / `1` as JSON, `2` as codec.
+fn parse_vault_data(data: &[u8]) -> Result<VaultData, anyhow::Error> {
    if data.is_empty() {
       return Err(anyhow!("vault payload is empty"));
    }
 
-   // Legacy: unversioned raw JSON (created after vault-in-JSON, before envelope)
    if data[0] == b'{' {
-      return Ok(data.to_vec());
+      return serde_json::from_slice(data)
+         .map_err(|e| anyhow!("Failed to parse vault data: {e:?}"));
    }
 
    let version = data[0];
    let payload = &data[1..];
 
    match version {
-      VAULT_PAYLOAD_RAW_JSON => Ok(payload.to_vec()),
-      VAULT_PAYLOAD_BROTLI => brotli_decompress(payload),
+      VAULT_PAYLOAD_RAW_JSON => {
+         serde_json::from_slice(payload).map_err(|e| anyhow!("Failed to parse vault data: {e:?}"))
+      }
+      VAULT_PAYLOAD_BROTLI => {
+         let mut json = brotli_decompress(payload)?;
+         let parsed =
+            serde_json::from_slice(&json).map_err(|e| anyhow!("Failed to parse vault data: {e:?}"));
+         json.zeroize();
+         parsed
+      }
+      VAULT_PAYLOAD_CODEC => secure_types::decode_slice(payload)
+         .map_err(|e| anyhow!("Failed to parse vault data: {e:?}")),
       other => Err(anyhow!("unknown vault payload version: {other}")),
    }
 }
@@ -110,6 +134,22 @@ struct VaultData {
 }
 
 impl VaultData {
+   fn size_hint(&self) -> usize {
+      let mut size = 0;
+
+      size += self.hd_wallet.size_hint();
+
+      for wallet in &self.imported_wallets {
+         size += wallet.size_hint();
+      }
+
+      // Wallet state & Railgun keys
+      size += 32;
+      size += 32;
+
+      size
+   }
+
    fn take_legacy_wallet_state(&mut self) -> Option<WalletStateInner> {
       let has_legacy = !self.contacts.is_empty()
          || self.tx_db.is_some()
@@ -506,16 +546,10 @@ impl Vault {
          discovered_wallets: None,
       };
 
-      let mut json = serde_json::to_vec(&data)?;
-      let mut vault_data = match encode_vault_payload(&json) {
+      let vault_data = match serialize_vault_data(&data) {
          Ok(data) => data,
-         Err(e) => {
-            json.zeroize();
-            return Err(e);
-         }
+         Err(e) => return Err(e),
       };
-
-      json.zeroize();
 
       let argon_params = match new_params {
          Some(params) => params,
@@ -523,7 +557,6 @@ impl Vault {
             let encrypted_info = match self.encrypted_info() {
                Ok(info) => info,
                Err(e) => {
-                  vault_data.zeroize();
                   return Err(anyhow!(
                      "EncryptedInfo is missing, corrupted vault?: {:?}",
                      e
@@ -534,19 +567,8 @@ impl Vault {
          }
       };
 
-      let encrypted_data = match encrypt_data_ref(
-         argon_params,
-         &vault_data,
-         self.credentials.clone(),
-      ) {
-         Ok(data) => data,
-         Err(e) => {
-            vault_data.zeroize();
-            return Err(anyhow!("Failed to encrypt vault data: {:?}", e));
-         }
-      };
-
-      vault_data.zeroize();
+      let encrypted_data = encrypt_data(argon_params, vault_data, self.credentials.clone())
+         .map_err(|e| anyhow!("Failed to encrypt vault data: {:?}", e))?;
 
       Ok(encrypted_data)
    }
@@ -562,7 +584,7 @@ impl Vault {
    }
 
    /// Decrypt this Vault and return the decrypted data
-   pub fn decrypt(&self, dir: Option<PathBuf>) -> Result<Vec<u8>, anyhow::Error> {
+   pub fn decrypt(&self, dir: Option<PathBuf>) -> Result<SecureBytes, anyhow::Error> {
       let dir = match dir {
          Some(dir) => dir,
          None => Vault::dir()?,
@@ -573,39 +595,23 @@ impl Vault {
    }
 
    /// Decrypt vault ciphertext already in memory (import / tests).
-   pub fn decrypt_bytes(&self, encrypted_data: Vec<u8>) -> Result<Vec<u8>, anyhow::Error> {
-      decrypt_data_unsecured(encrypted_data, self.credentials.clone())
+   pub fn decrypt_bytes(&self, encrypted_data: Vec<u8>) -> Result<SecureBytes, anyhow::Error> {
+      decrypt_data(encrypted_data, self.credentials.clone())
          .map_err(|e| anyhow!("Failed to unlock vault: {e}"))
    }
 
    /// Load the vault from the decrypted data.
    ///
-   /// Returns legacy wallet-state payload when the vault JSON still embeds
-   /// contacts/balances/… (pre-split). Caller should feed this into
+   /// The buffer is unlocked only for the parse and zeroized when it drops.
+   ///
+   /// Returns legacy wallet-state payload when the vault payload still embeds
+   /// contacts/balances/… (pre-split JSON). Caller should feed this into
    /// [`crate::core::WalletState::load_or_migrate`].
    pub fn load(
       &mut self,
-      mut decrypted_data: Vec<u8>,
+      decrypted_data: SecureBytes,
    ) -> Result<Option<WalletStateInner>, anyhow::Error> {
-      let mut json = match decode_vault_payload(&decrypted_data) {
-         Ok(json) => json,
-         Err(e) => {
-            decrypted_data.zeroize();
-            return Err(e);
-         }
-      };
-
-      decrypted_data.zeroize();
-
-      let mut data: VaultData = match serde_json::from_slice(&json) {
-         Ok(vault) => vault,
-         Err(e) => {
-            json.zeroize();
-            return Err(anyhow!("Failed to parse vault data: {:?}", e));
-         }
-      };
-
-      json.zeroize();
+      let mut data: VaultData = decrypted_data.unlock_slice(parse_vault_data)?;
 
       // Prefer sealed wallet_state.data when present; only surface legacy embed
       // when the side file does not exist yet (migration path).
@@ -695,109 +701,141 @@ mod tests {
       vault
    }
 
-   #[test]
-   fn vault_json_roundtrip() {
-      let vault = sample_vault();
-      let data = VaultData {
+   fn vault_data_from(vault: &Vault) -> VaultData {
+      VaultData {
          hd_wallet: vault.hd_wallet.clone(),
          imported_wallets: vault.imported_wallets.clone(),
-         railgun_db_key: None,
-         wallet_state_key: None,
+         railgun_db_key: vault.railgun_db_key.clone(),
+         wallet_state_key: vault.wallet_state_key.clone(),
          contacts: Vec::new(),
          balance_manager: BalanceManagerHandle::default(),
          portfolio_db: PortfolioDB::default(),
          tx_db: None,
          approval_manager: None,
          discovered_wallets: None,
-      };
-      let json = serde_json::to_vec(&data).expect("serialize vault");
-      let loaded: VaultData = serde_json::from_slice(&json).expect("deserialize vault");
+      }
+   }
 
+   fn assert_same_master(loaded: &VaultData, vault: &Vault) {
       assert_eq!(
          loaded.hd_wallet.master_wallet.address(),
          vault.master_wallet_address()
       );
+   }
+
+   #[test]
+   fn vault_json_roundtrip() {
+      let vault = sample_vault();
+      let json = serde_json::to_vec(&vault_data_from(&vault)).expect("serialize vault");
+      let loaded = parse_vault_data(&json).expect("deserialize vault");
+      assert_same_master(&loaded, &vault);
    }
 
    #[test]
    fn vault_payload_brotli_roundtrip() {
       let vault = sample_vault();
-      let data = VaultData {
-         hd_wallet: vault.hd_wallet.clone(),
-         imported_wallets: vault.imported_wallets.clone(),
-         railgun_db_key: None,
-         wallet_state_key: None,
-         contacts: Vec::new(),
-         balance_manager: BalanceManagerHandle::default(),
-         portfolio_db: PortfolioDB::default(),
-         tx_db: None,
-         approval_manager: None,
-         discovered_wallets: None,
-      };
-      let json = serde_json::to_vec(&data).unwrap();
-      let encoded = encode_vault_payload(&json).unwrap();
+      let json = serde_json::to_vec(&vault_data_from(&vault)).unwrap();
+      let mut encoded = Vec::new();
+      encoded.push(VAULT_PAYLOAD_BROTLI);
+      encoded.extend_from_slice(&brotli_compress(&json).unwrap());
       assert_eq!(encoded[0], VAULT_PAYLOAD_BROTLI);
 
-      let decoded = decode_vault_payload(&encoded).unwrap();
-      let loaded: VaultData = serde_json::from_slice(&decoded).unwrap();
-      assert_eq!(
-         loaded.hd_wallet.master_wallet.address(),
-         vault.master_wallet_address()
-      );
+      let loaded = parse_vault_data(&encoded).unwrap();
+      assert_same_master(&loaded, &vault);
    }
 
    #[test]
    fn vault_payload_raw_json_version() {
       let vault = sample_vault();
-      let data = VaultData {
-         hd_wallet: vault.hd_wallet.clone(),
-         imported_wallets: vault.imported_wallets.clone(),
-         railgun_db_key: None,
-         wallet_state_key: None,
-         contacts: Vec::new(),
-         balance_manager: BalanceManagerHandle::default(),
-         portfolio_db: PortfolioDB::default(),
-         tx_db: None,
-         approval_manager: None,
-         discovered_wallets: None,
-      };
-      let json = serde_json::to_vec(&data).unwrap();
+      let json = serde_json::to_vec(&vault_data_from(&vault)).unwrap();
       let mut encoded = Vec::with_capacity(1 + json.len());
       encoded.push(VAULT_PAYLOAD_RAW_JSON);
       encoded.extend_from_slice(&json);
 
-      let decoded = decode_vault_payload(&encoded).unwrap();
-      let loaded: VaultData = serde_json::from_slice(&decoded).unwrap();
-      assert_eq!(
-         loaded.hd_wallet.master_wallet.address(),
-         vault.master_wallet_address()
-      );
+      let loaded = parse_vault_data(&encoded).unwrap();
+      assert_same_master(&loaded, &vault);
    }
 
    #[test]
    fn vault_payload_legacy_unversioned_json() {
       let vault = sample_vault();
-      let data = VaultData {
-         hd_wallet: vault.hd_wallet.clone(),
-         imported_wallets: vault.imported_wallets.clone(),
-         railgun_db_key: None,
-         wallet_state_key: None,
-         contacts: Vec::new(),
-         balance_manager: BalanceManagerHandle::default(),
-         portfolio_db: PortfolioDB::default(),
-         tx_db: None,
-         approval_manager: None,
-         discovered_wallets: None,
-      };
-      let json = serde_json::to_vec(&data).unwrap();
+      let json = serde_json::to_vec(&vault_data_from(&vault)).unwrap();
       assert_eq!(json[0], b'{');
 
-      let decoded = decode_vault_payload(&json).unwrap();
-      let loaded: VaultData = serde_json::from_slice(&decoded).unwrap();
+      let loaded = parse_vault_data(&json).unwrap();
+      assert_same_master(&loaded, &vault);
+   }
+
+   #[test]
+   fn vault_codec_roundtrip() {
+      let vault = sample_vault();
+      let data = vault_data_from(&vault);
+      let encoded = secure_types::encode(&data).expect("codec encode");
+      let mut envelope = Vec::new();
+      envelope.push(VAULT_PAYLOAD_CODEC);
+      encoded.unlock_slice(|bytes| envelope.extend_from_slice(bytes));
+
+      let loaded = parse_vault_data(&envelope).expect("parse codec vault");
+      assert_same_master(&loaded, &vault);
+      loaded.hd_wallet.master_wallet.key.key().unlock(|key| {
+         vault.hd_wallet.master_wallet.key.key().unlock(|orig| {
+            assert_eq!(key, orig);
+         });
+      });
+
+      let serialized = serialize_vault_data(&data).expect("serialize codec vault");
+      serialized.unlock_slice(|data| {
+         assert_eq!(data[0], VAULT_PAYLOAD_CODEC);
+      });
+
+      let loaded = serialized.unlock_slice(parse_vault_data).expect("parse serialized codec vault");
+      assert_same_master(&loaded, &vault);
+   }
+
+   /// The whole path the codec migration touches: build the `2 || codec`
+   /// envelope, encrypt it, decrypt it back into locked memory, and load it.
+   ///
+   /// [`Vault::encrypt`] hands a `SecureBytes` to `ncrypt-me` and
+   /// [`Vault::decrypt_bytes`] hands one back, so this is the only test that
+   /// exercises the ownership chain between the two crates end to end.
+   #[test]
+   fn vault_encrypt_decrypt_load_roundtrip() {
+      let vault = sample_vault();
+
+      // A cheap KDF: this is about the payload round trip, not Argon2.
+      let ciphertext = vault.encrypt(Some(Argon2::new(256, 1, 1))).unwrap();
+
+      let mut loaded_vault = Vault::default();
+      loaded_vault.set_credentials(vault.credentials().clone());
+
+      let decrypted = loaded_vault.decrypt_bytes(ciphertext).unwrap();
+      loaded_vault.load(decrypted).unwrap();
+
       assert_eq!(
-         loaded.hd_wallet.master_wallet.address(),
+         loaded_vault.master_wallet_address(),
          vault.master_wallet_address()
       );
+   }
+
+   #[test]
+   fn vault_codec_unknown_version_is_rejected() {
+      let err = match parse_vault_data(&[99, 1, 2, 3]) {
+         Err(e) => e,
+         Ok(_) => panic!("expected unknown vault payload version"),
+      };
+      assert!(err.to_string().contains("unknown vault payload version"));
+   }
+
+   #[test]
+   fn vault_json_still_loads_after_codec_save_path_exists() {
+      // Envelope 1 must not be interpreted as codec (codec FORMAT_VERSION is also 1).
+      let vault = sample_vault();
+      let json = serde_json::to_vec(&vault_data_from(&vault)).unwrap();
+      let mut encoded = Vec::with_capacity(1 + json.len());
+      encoded.push(VAULT_PAYLOAD_BROTLI);
+      encoded.extend_from_slice(&brotli_compress(&json).unwrap());
+      let loaded = parse_vault_data(&encoded).unwrap();
+      assert_same_master(&loaded, &vault);
    }
 
    #[test]
@@ -815,34 +853,6 @@ mod tests {
          approval_manager: Some(ApprovalManagerHandle::new()),
          discovered_wallets: Some(DiscoveredWallets::new()),
       };
-      // Simulate decrypt → load path without wallet_state.data on disk.
-      let json = serde_json::to_vec(&{
-         // Force-include legacy fields by serializing a helper that does not skip them.
-         #[derive(Serialize)]
-         struct Legacy {
-            hd_wallet: SecureHDWallet,
-            imported_wallets: Vec<Wallet>,
-            contacts: Vec<Contact>,
-            balance_manager: BalanceManagerHandle,
-            portfolio_db: PortfolioDB,
-            tx_db: TxDBHandle,
-            approval_manager: ApprovalManagerHandle,
-            discovered_wallets: DiscoveredWallets,
-         }
-         Legacy {
-            hd_wallet: data.hd_wallet.clone(),
-            imported_wallets: data.imported_wallets.clone(),
-            contacts: data.contacts.clone(),
-            balance_manager: data.balance_manager.clone(),
-            portfolio_db: data.portfolio_db.clone(),
-            tx_db: data.tx_db.clone().unwrap(),
-            approval_manager: data.approval_manager.clone().unwrap(),
-            discovered_wallets: data.discovered_wallets.clone().unwrap(),
-         }
-      })
-      .unwrap();
-
-      let _payload = encode_vault_payload(&json).unwrap();
       // load() checks WalletState::exists() against real data_dir — may or may not
       // exist in unit tests. Exercise take_legacy directly here.
       let legacy = data.take_legacy_wallet_state().expect("legacy");

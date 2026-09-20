@@ -934,9 +934,9 @@ dependencies = [
 
 [[package]]
 name = "argon2-rs"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9aa47f96ca0c1800ddcd702d71da0a61b3a84c2472affbfe8b05716441e2c1b"
+checksum = "d0edfb280854fe6b4a7297dfd4c3602a6d4ae34d8e157955fffe623ab5b6d3cb"
 dependencies = [
  "argon2-sys",
  "zeroize",
@@ -3608,9 +3608,9 @@ dependencies = [
 
 [[package]]
 name = "egui-elements"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e91bd428d0a9901abb7fb3cf151345a81316191d8f77efd6b5c88e3738e1187"
+checksum = "9795367934de669c58eceebe4e69ddf3a82fea1ef577f8a5e3c35897d7aa21b9"
 dependencies = [
  "egui",
  "egui-elegance",
@@ -5967,14 +5967,13 @@ dependencies = [
 
 [[package]]
 name = "ncrypt-me"
-version = "0.3.1"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe6405fd89f4d79084ac1295b8a80fa2145bc191c8198719d55821fd6bbe35ff"
+checksum = "3766b6d898e6c54d242d04d988f5832f008cce2c3d73bd0b470c156142d9a4a7"
 dependencies = [
  "argon2-rs",
  "chacha20poly1305",
  "secure-types",
- "zeroize",
 ]
 
 [[package]]
@@ -8748,9 +8747,9 @@ dependencies = [
 
 [[package]]
 name = "secure-types"
-version = "0.3.1"
+version = "0.5.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7de06a83f7a47937e446af73a6aa3b14de2820a9d42f29eaf35f9d727b3bcfe"
+checksum = "096c93a8bafa00791f9a89164def9dcd9f96e1d9af1b46a273b51b8c6a4764ff"
 dependencies = [
  "libc",
  "memsec",
