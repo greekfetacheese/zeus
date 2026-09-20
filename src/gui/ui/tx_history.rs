@@ -329,7 +329,7 @@ impl TxHistory {
                let expansion = Some(6.0);
 
                // Wallet Filter
-               let wallets = ctx.get_all_wallets_info();
+               let wallets = ctx.all_wallets_info_ordered();
                let selected_wallet_name =
                   self.selected_wallet.clone().map_or("All Wallets".to_string(), |wallet| {
                      wallet.name_with_id_short()
@@ -364,7 +364,7 @@ impl TxHistory {
                         }
                      }
 
-                     for (_, wallet) in wallets {
+                     for wallet in wallets {
                         let text =
                            RichText::new(&wallet.name_with_source()).size(theme.typography.normal);
                         let label = Label::new(text, None)

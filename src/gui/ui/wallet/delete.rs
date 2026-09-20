@@ -288,11 +288,12 @@ fn on_delete_wallet(wallet: WalletInfo, is_current: bool) {
       // Set the master wallet as selected to avoid state inconsistencies
       if is_current {
          let master_wallet = new_vault.get_master_wallet();
+         let master_info = WalletInfo::from_wallet(&master_wallet, true);
          ctx.write(|ctx| {
-            ctx.current_wallet = master_wallet.clone();
+            ctx.current_wallet = master_info.clone();
          });
          SHARED_GUI.write(|gui| {
-            gui.header.set_current_wallet(master_wallet);
+            gui.header.set_current_wallet(master_info);
          });
       }
 

@@ -226,9 +226,11 @@ fn post_click(ctx: &mut ZeusContext, new_config: RailgunConfig) {
             .cloned()
             .unwrap_or(DEFAULT_BLOCK_RANGE);
 
-         let syncer = provider.utxo_indexer.read().await.rpc_syncer.clone();
-         syncer.set_block_range(block_range).await;
-         syncer.set_concurrency(concurrency).await;
+         {
+            let syncer = provider.utxo_indexer.lock().await.rpc_syncer.clone();
+            syncer.set_block_range(block_range).await;
+            syncer.set_concurrency(concurrency).await;
+         }
 
          if let Err(e) = ctx.sync_railgun(chain, false).await {
             tracing::error!("Error syncing Railgun: {:?}", e);

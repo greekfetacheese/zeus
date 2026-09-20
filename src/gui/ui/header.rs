@@ -25,8 +25,6 @@ use zeus_eth::{
    types::ChainId,
 };
 
-use zeus_wallet::Wallet;
-
 use egui_elements::{
    Button, CredentialsForm, Modal, QrImage, SecureTextEdit, Theme, visuals::ButtonVisuals,
 };
@@ -86,7 +84,6 @@ impl Header {
    }
 
    pub fn erase(&mut self) {
-      self.wallet_select.wallet.erase();
       self.credentials_form.erase();
    }
 
@@ -116,10 +113,9 @@ impl Header {
       self.wallet_info = wallet_info;
    }
 
-   pub fn set_current_wallet(&mut self, wallet: Wallet) {
-      let wallet_info = WalletInfo::from_wallet(&wallet, true);
-      self.wallet_select.wallet = wallet;
-      self.wallet_info = wallet_info;
+   pub fn set_current_wallet(&mut self, wallet: WalletInfo) {
+      self.wallet_select.wallet = wallet.clone();
+      self.wallet_info = wallet;
    }
 
    pub fn set_current_chain(&mut self, chain: ChainId) {

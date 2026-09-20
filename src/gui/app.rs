@@ -2,7 +2,7 @@ use egui::*;
 use zeus_eth::types::SUPPORTED_CHAINS;
 
 use crate::assets::{INTER_BOLD_18, icons::Icons};
-use crate::core::ZeusCtx;
+use crate::core::{WalletInfo, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::server::run_server;
 use crate::utils::{RT, TimeStamp, state::on_startup};
@@ -205,7 +205,9 @@ impl ZeusApp {
          SHARED_GUI.write(|gui| {
             gui.ctx.write_vault(|vault| vault.erase());
             gui.ctx.write(|ctx| {
-               ctx.current_wallet.erase();
+               ctx.vault_unlocked = false;
+               ctx.wallet_info_cache.clear();
+               ctx.current_wallet = WalletInfo::default();
             });
 
             gui.header.erase();

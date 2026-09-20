@@ -664,3 +664,31 @@ impl RailgunStatus {
       self.railgun_sync_error.remove(&chain);
    }
 }
+
+#[derive(Debug, Default, Clone)]
+pub struct WalletInfoCache {
+   /// Quickly access a wallet by its address
+   pub map: HashMap<Address, WalletInfo>,
+
+   /// Ordered list of wallets
+   pub ordered_vec: Vec<WalletInfo>,
+}
+
+impl WalletInfoCache {
+   pub fn new(map: HashMap<Address, WalletInfo>, ordered_vec: Vec<WalletInfo>) -> Self {
+      Self { map, ordered_vec }
+   }
+
+   pub fn clear(&mut self) {
+      self.map.clear();
+      self.ordered_vec.clear();
+   }
+
+   pub fn get(&self, address: &Address) -> Option<&WalletInfo> {
+      self.map.get(address)
+   }
+
+   pub fn ordered_slice(&self) -> &[WalletInfo] {
+      &self.ordered_vec
+   }
+}

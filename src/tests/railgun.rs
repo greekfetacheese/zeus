@@ -105,7 +105,7 @@ mod tests {
       railgun_provider.set_provider(client.clone());
 
       {
-         let indexer = railgun_provider.utxo_indexer.write().await;
+         let indexer = railgun_provider.utxo_indexer.lock().await;
          indexer.rpc_syncer.set_provider(client.clone().erased()).await;
          indexer.utxo_verifier.set_provider(client.clone().erased()).await;
       }
@@ -170,7 +170,7 @@ mod tests {
       eprintln!("Syncing Railgun provider");
       railgun_provider.sync().await?;
 
-      let synced_block = railgun_provider.utxo_indexer.read().await.global_synced_block();
+      let synced_block = railgun_provider.utxo_indexer.lock().await.global_synced_block();
       eprintln!("Account synced block: {}", synced_block);
 
       let fork_block = BlockId::number(synced_block);
@@ -240,7 +240,7 @@ mod tests {
 
       railgun_provider
          .utxo_indexer
-         .write()
+         .lock()
          .await
          .sync_from_logs(logs, to_block, timestamp)?;
 
@@ -291,7 +291,7 @@ mod tests {
       let logs = res.logs().to_vec();
       railgun_provider
          .utxo_indexer
-         .write()
+         .lock()
          .await
          .sync_from_logs(logs, synced_block, timestamp)?;
 

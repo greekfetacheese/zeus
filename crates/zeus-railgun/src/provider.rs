@@ -1,5 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 use alloy_primitives::{Address, B256, Bytes, Log, U256};
 use alloy_provider::{Provider, network::Ethereum};
@@ -130,7 +130,7 @@ impl SpentNoteEntry {
 pub struct RailgunProvider<P: Provider<Ethereum>> {
    chain: ChainConfig,
    provider: P,
-   pub utxo_indexer: Arc<RwLock<UtxoIndexer>>,
+   pub utxo_indexer: Arc<Mutex<UtxoIndexer>>,
    prover: Groth16Prover,
    poi_provider: Option<PoiProvider>,
    snapshot_loader: SnapshotLoader,
@@ -180,7 +180,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       Ok(Self {
          chain,
          provider,
-         utxo_indexer: Arc::new(RwLock::new(utxo_indexer)),
+         utxo_indexer: Arc::new(Mutex::new(utxo_indexer)),
          prover,
          poi_provider,
          snapshot_loader,
@@ -232,7 +232,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
    /// Register a signer with the provider. The provider will index and track
    /// UTXOs for the associated address.
    pub async fn register(&mut self, signer: RailgunSigner) -> Result<(), RailgunProviderError> {
-      self.utxo_indexer.write().await.register(signer).await?;
+      self.utxo_indexer.lock().await.register(signer).await?;
       Ok(())
    }
 
@@ -246,7 +246,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       keep_signers: &[RailgunSigner],
    ) -> Result<usize, RailgunProviderError> {
       let keep: Vec<RailgunAddress> = keep_signers.iter().map(|s| s.address().clone()).collect();
-      let removed = self.utxo_indexer.write().await.retain_accounts(&keep).await?;
+      let removed = self.utxo_indexer.lock().await.retain_accounts(&keep).await?;
       Ok(removed)
    }
 
@@ -262,22 +262,22 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
 
    /// Last minimum synced block for the registered accounts
    pub async fn min_account_synced_block(&self) -> u64 {
-      self.utxo_indexer.read().await.min_account_synced_block()
+      self.utxo_indexer.lock().await.min_account_synced_block()
    }
 
    /// Returns the number of registered accounts
    pub async fn accounts_count(&self) -> usize {
-      self.utxo_indexer.read().await.accounts_count()
+      self.utxo_indexer.lock().await.accounts_count()
    }
 
    /// Last synced block for the given account
    pub async fn account_synced_block(&self, address: &RailgunAddress) -> Option<u64> {
-      self.utxo_indexer.read().await.account_synced_block(address)
+      self.utxo_indexer.lock().await.account_synced_block(address)
    }
 
    /// Last global synced block
    pub async fn global_synced_block(&self) -> u64 {
-      self.utxo_indexer.read().await.global_synced_block()
+      self.utxo_indexer.lock().await.global_synced_block()
    }
 
    /// Syncs the provider to the latest block.
@@ -326,7 +326,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       let deployment_block = self.chain.deployment_block;
 
       {
-         let mut utxo_indexer = self.utxo_indexer.write().await;
+         let mut utxo_indexer = self.utxo_indexer.lock().await;
          utxo_indexer.sync_to(to_block, deployment_block, use_subsquid).await?;
       }
 
@@ -347,7 +347,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       synced_block: u64,
       timestamp: u64,
    ) -> Result<(), RailgunProviderError> {
-      let mut utxo_indexer = self.utxo_indexer.write().await;
+      let mut utxo_indexer = self.utxo_indexer.lock().await;
       utxo_indexer.sync_from_logs(logs, synced_block, timestamp)?;
 
       Ok(())
@@ -355,7 +355,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
 
    /// Compact the db to save space
    pub async fn compact(&self) -> Result<bool, DatabaseError> {
-      self.utxo_indexer.write().await.compact().await
+      self.utxo_indexer.lock().await.compact().await
    }
 
    /// Compact the events snapshot redb (`events-snapshot:{chain}.db`).
@@ -371,29 +371,29 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
 
    /// Save the db to disk
    pub async fn save(&self, trees_mutated: bool) -> Result<(), DatabaseError> {
-      self.utxo_indexer.write().await.save(trees_mutated).await
+      self.utxo_indexer.lock().await.save(trees_mutated).await
    }
 
    /// Unload sealed UTXO trees that no registered account still spends from.
    ///
    /// Leaves stay on disk; only the in-memory rebuild is dropped.
    pub async fn compact_utxo_trees(&self) -> Result<(), UtxoIndexerError> {
-      self.utxo_indexer.write().await.compact_utxo_trees().await
+      self.utxo_indexer.lock().await.compact_utxo_trees().await
    }
 
    /// Tree numbers currently rebuilt in RAM.
    pub async fn resident_utxo_trees(&self) -> Vec<u32> {
-      self.utxo_indexer.read().await.resident_trees()
+      self.utxo_indexer.lock().await.resident_trees()
    }
 
    /// All catalogued UTXO tree numbers, including sealed trees not in RAM.
    pub async fn known_utxo_trees(&self) -> Vec<u32> {
-      self.utxo_indexer.read().await.known_tree_numbers()
+      self.utxo_indexer.lock().await.known_tree_numbers()
    }
 
    /// Highest tree number (the only tree that still grows).
    pub async fn open_utxo_tree(&self) -> Option<u32> {
-      self.utxo_indexer.read().await.open_tree_number()
+      self.utxo_indexer.lock().await.open_tree_number()
    }
 
    /// Verify root withing the given `block_id`
@@ -405,7 +405,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
          *is_verifying = true;
       }
 
-      let utxo_indexer = self.utxo_indexer.read().await;
+      let utxo_indexer = self.utxo_indexer.lock().await;
       let res = utxo_indexer.verify(block_id).await;
 
       {
@@ -433,7 +433,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
    pub async fn spent_notes(&self, address: RailgunAddress) -> Vec<SpentNoteEntry> {
       self
          .utxo_indexer
-         .read()
+         .lock()
          .await
          .spent(address)
          .into_iter()
@@ -443,7 +443,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
 
    /// Grouped private spends: input UTXOs minus change that returned to this 0zk.
    pub async fn private_history(&self, address: RailgunAddress) -> Vec<PrivateHistoryEntry> {
-      self.utxo_indexer.read().await.private_history(address)
+      self.utxo_indexer.lock().await.private_history(address)
    }
 
    /// Returns the balance for the given address.
@@ -715,7 +715,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
    }
 
    async fn all_unspent(&mut self) -> Vec<(UtxoNote, Option<PoiStatus>)> {
-      let addresses = self.utxo_indexer.read().await.registered();
+      let addresses = self.utxo_indexer.lock().await.registered();
       let mut all_notes = Vec::new();
 
       for address in addresses {
@@ -726,7 +726,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
    }
 
    async fn unspent(&mut self, address: RailgunAddress) -> Vec<(UtxoNote, Option<PoiStatus>)> {
-      let notes = self.utxo_indexer.read().await.unspent(address);
+      let notes = self.utxo_indexer.lock().await.unspent(address);
 
       let Some(poi_provider) = &mut self.poi_provider else {
          return notes.into_iter().map(|note| (note, None)).collect();
@@ -784,7 +784,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       rng: &mut R,
    ) -> Result<Vec<ProvedOperation>, RailgunProviderError> {
       let witnesses = {
-         let mut utxo_indexer = self.utxo_indexer.write().await;
+         let mut utxo_indexer = self.utxo_indexer.lock().await;
          utxo_indexer.ensure_resident_for_notes(spendable_notes).await?;
          utxo_indexer.merkle_witnesses(spendable_notes)?
       };

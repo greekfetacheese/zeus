@@ -3,7 +3,7 @@
 //! If the vault is not found, it will show the wallet recovery UI.
 
 use crate::core::{
-   Vault, ZeusContext,
+   Vault, WalletInfo, ZeusContext,
    types::{MiscConfig, RailgunConfig},
 };
 use crate::gui::SHARED_GUI;
@@ -13,10 +13,9 @@ use crate::utils::RT;
 use egui::{Align, Align2, FontId, Layout, Margin, RichText, Ui, Window, vec2};
 use egui_elements::{Button, CredentialsForm, Label, SecureTextEdit, Theme};
 use elegance::{BadgeTone, Toast};
-use ncrypt_me::{Argon2, Credentials, zeroize::Zeroize};
+use ncrypt_me::{Argon2, Credentials};
 use std::time::Instant;
 use zeus_eth::types::ChainId;
-use zeus_wallet::Wallet;
 use zeus_wallet::wallet::M_COST;
 
 #[cfg(feature = "dev")]
@@ -632,7 +631,7 @@ impl RecoverHDWallet {
                   ctx.misc_config
                      .set_check_for_updates(self.check_for_updates);
                   let config = ctx.misc_config.clone();
-                  let current_wallet = ctx.read_vault(|vault| vault.get_master_wallet());
+                  let current_wallet = ctx.current_wallet_info();
                   on_finish_onboarding(config, current_wallet);
                }
             });
@@ -649,7 +648,7 @@ fn on_unlock_vault(mut vault: Vault) {
       });
 
       // Decrypt the vault
-      let mut data = match vault.decrypt(None) {
+      let data = match vault.decrypt(None) {
          Ok(data) => data,
          Err(e) => {
             SHARED_GUI.write(|gui| {
@@ -671,7 +670,6 @@ fn on_unlock_vault(mut vault: Vault) {
                gui.open_msg_window(msg);
                gui.loading_window.reset();
             });
-            data.zeroize();
             return;
          }
       };
@@ -715,6 +713,7 @@ fn on_unlock_vault(mut vault: Vault) {
                };
 
             let master_wallet = vault.get_master_wallet();
+            let master_addr = master_wallet.address();
 
             ctx.set_vault(vault);
             ctx.set_wallet_state(wallet_state);
@@ -748,12 +747,16 @@ fn on_unlock_vault(mut vault: Vault) {
                }
             }
 
+            let master_info = ctx
+               .read(|c| c.wallet_info_cache.get(&master_addr).cloned())
+               .unwrap_or_else(|| WalletInfo::from_wallet(&master_wallet, true));
+
             SHARED_GUI.write(|gui| {
                gui.unlock_vault_ui.credentials_form.erase();
                gui.loading_window.reset();
                gui.settings.encryption.set_argon2(info.argon2.clone());
                gui.header.open();
-               gui.header.set_current_wallet(master_wallet.clone());
+               gui.header.set_current_wallet(master_info.clone());
                if let Some(url) = bundler_url {
                   gui.shield_ui.set_bundler_url(url);
                }
@@ -762,7 +765,7 @@ fn on_unlock_vault(mut vault: Vault) {
             ctx.write(|ctx| {
                ctx.argon_params = info.argon2;
                ctx.vault_unlocked = true;
-               ctx.current_wallet = master_wallet;
+               ctx.current_wallet = master_info;
             });
 
             SHARED_GUI.write(|gui| {
@@ -891,7 +894,7 @@ fn on_recover_hd_wallet(name: String, credentials: Credentials) {
             });
 
             ctx.write(|ctx| {
-               ctx.current_wallet = vault.get_master_wallet();
+               ctx.current_wallet = WalletInfo::from_wallet(&vault.get_master_wallet(), true);
             });
 
             ctx.set_vault(vault);
@@ -933,7 +936,7 @@ fn on_save_railgun_config(config: RailgunConfig) {
    });
 }
 
-fn on_finish_onboarding(config: MiscConfig, current_wallet: Wallet) {
+fn on_finish_onboarding(config: MiscConfig, current_wallet: WalletInfo) {
    RT.spawn_blocking(move || {
       if let Err(e) = config.save() {
          tracing::error!("Failed to save misc config: {e}");

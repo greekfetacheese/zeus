@@ -3,6 +3,7 @@ use rand::Rng;
 use rand::distr::{Distribution, StandardUniform};
 use sha2::{Digest, Sha256, Sha512};
 use std::hash::Hash;
+use std::sync::Mutex;
 
 use alloy_primitives::U256;
 use ark_bn254::Fr;
@@ -55,20 +56,36 @@ pub struct NullifyingKey([u8; 32]);
 pub struct MasterPublicKey(pub [u8; 32]);
 
 /// Private key for signing transactions (BabyJubJub curve).
-#[derive(Clone)]
-pub struct SpendingKey(pub SecureArray<u8, 32>);
+pub struct SpendingKey(Mutex<SecureArray<u8, 32>>);
+
+impl Clone for SpendingKey {
+   fn clone(&self) -> Self {
+      let inner = self.0.lock().expect("SpendingKey poisoned").clone();
+      Self(Mutex::new(inner))
+   }
+}
 
 impl Eq for SpendingKey {}
 
 impl PartialEq for SpendingKey {
    fn eq(&self, other: &Self) -> bool {
-      self.0.unlock(|slice_1| other.0.unlock(|slice_2| slice_1 == slice_2))
+      let mut a = copy_key32(&self.0);
+      let mut b = copy_key32(&other.0);
+      let eq = a == b;
+      a.zeroize();
+      b.zeroize();
+      eq
    }
 }
 
 impl Ord for SpendingKey {
    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-      self.0.unlock(|slice_1| other.0.unlock(|slice_2| slice_1.cmp(slice_2)))
+      let mut a = copy_key32(&self.0);
+      let mut b = copy_key32(&other.0);
+      let ord = a.cmp(&b);
+      a.zeroize();
+      b.zeroize();
+      ord
    }
 }
 
@@ -80,28 +97,34 @@ impl PartialOrd for SpendingKey {
 
 impl Hash for SpendingKey {
    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-      self.0.unlock(|slice| state.write(slice))
+      let mut bytes = copy_key32(&self.0);
+      state.write(&bytes);
+      bytes.zeroize();
    }
 }
 
 impl SpendingKey {
    pub fn new(key: SecureArray<u8, 32>) -> Self {
-      Self(key)
+      Self(Mutex::new(key))
    }
 
    pub fn from_bytes(mut bytes: [u8; 32]) -> Self {
       let sec_array = SecureArray::from_slice_mut(&mut bytes).unwrap();
-      Self(sec_array)
+      Self(Mutex::new(sec_array))
    }
 
    pub fn derive(seed: &[u8], path: &str) -> Result<Self, anyhow::Error> {
       let key = derive_private_key(seed, path)?;
 
-      Ok(Self(key))
+      Ok(Self(Mutex::new(key)))
+   }
+
+   fn unlock<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+      self.0.lock().expect("SpendingKey poisoned").unlock(f)
    }
 
    pub fn public_key(&self) -> SpendingPublicKey {
-      let mut bytes = self.0.unlock(|slice| {
+      let mut bytes = self.unlock(|slice| {
          let mut arr = [0u8; 32];
          arr.copy_from_slice(slice);
          arr
@@ -124,7 +147,7 @@ impl SpendingKey {
    }
 
    pub fn sign(&self, message: U256) -> Result<SpendingSignature, anyhow::Error> {
-      let mut bytes = self.0.unlock(|slice| {
+      let mut bytes = self.unlock(|slice| {
          let mut arr = [0u8; 32];
          arr.copy_from_slice(slice);
          arr
@@ -143,8 +166,14 @@ impl SpendingKey {
 }
 
 /// Private key for viewing transactions and ECDH.
-#[derive(Clone)]
-pub struct ViewingKey(pub SecureArray<u8, 32>);
+pub struct ViewingKey(Mutex<SecureArray<u8, 32>>);
+
+impl Clone for ViewingKey {
+   fn clone(&self) -> Self {
+      let inner = self.0.lock().expect("ViewingKey poisoned").clone();
+      Self(Mutex::new(inner))
+   }
+}
 
 impl std::fmt::Debug for ViewingKey {
    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -156,13 +185,23 @@ impl Eq for ViewingKey {}
 
 impl PartialEq for ViewingKey {
    fn eq(&self, other: &Self) -> bool {
-      self.0.unlock(|slice_1| other.0.unlock(|slice_2| slice_1 == slice_2))
+      let mut a = copy_key32(&self.0);
+      let mut b = copy_key32(&other.0);
+      let eq = a == b;
+      a.zeroize();
+      b.zeroize();
+      eq
    }
 }
 
 impl Ord for ViewingKey {
    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-      self.0.unlock(|slice_1| other.0.unlock(|slice_2| slice_1.cmp(slice_2)))
+      let mut a = copy_key32(&self.0);
+      let mut b = copy_key32(&other.0);
+      let ord = a.cmp(&b);
+      a.zeroize();
+      b.zeroize();
+      ord
    }
 }
 
@@ -174,28 +213,34 @@ impl PartialOrd for ViewingKey {
 
 impl Hash for ViewingKey {
    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-      self.0.unlock(|slice| state.write(slice))
+      let mut bytes = copy_key32(&self.0);
+      state.write(&bytes);
+      bytes.zeroize();
    }
 }
 
 impl ViewingKey {
    pub fn new(key: SecureArray<u8, 32>) -> Self {
-      Self(key)
+      Self(Mutex::new(key))
    }
 
    pub fn derive(seed: &[u8], path: &str) -> Result<Self, anyhow::Error> {
       let key = derive_private_key(seed, path)?;
 
-      Ok(Self(key))
+      Ok(Self(Mutex::new(key)))
    }
 
    pub fn from_bytes(mut bytes: [u8; 32]) -> Self {
       let sec_array = SecureArray::from_slice_mut(&mut bytes).unwrap();
-      Self(sec_array)
+      Self(Mutex::new(sec_array))
+   }
+
+   fn unlock<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+      self.0.lock().expect("ViewingKey poisoned").unlock(f)
    }
 
    pub fn public_key(&self) -> ViewingPublicKey {
-      let mut bytes = self.0.unlock(|slice| {
+      let mut bytes = self.unlock(|slice| {
          let mut arr = [0u8; 32];
          arr.copy_from_slice(slice);
          arr
@@ -208,7 +253,7 @@ impl ViewingKey {
    }
 
    pub fn to_u256(&self) -> U256 {
-      let bytes = self.0.unlock(|slice| {
+      let bytes = self.unlock(|slice| {
          let mut arr = [0u8; 32];
          arr.copy_from_slice(slice);
          arr
@@ -242,7 +287,7 @@ impl ViewingKey {
    }
 
    pub fn encrypt_ctr(&self, plaintext: &[&[u8]], iv: &[u8; 16]) -> CiphertextCtr {
-      let mut bytes = self.0.unlock(|slice| {
+      let mut bytes = self.unlock(|slice| {
          let mut arr = [0u8; 32];
          arr.copy_from_slice(slice);
          arr
@@ -255,7 +300,7 @@ impl ViewingKey {
    }
 
    fn to_curve25519_scalar(&self) -> Scalar {
-      let hash = self.0.unlock(|slice| Sha512::digest(slice));
+      let hash = self.unlock(|slice| Sha512::digest(slice));
 
       let mut head = [0u8; 32];
       head.copy_from_slice(&hash[..32]);
@@ -438,7 +483,7 @@ impl Distribution<ViewingKey> for StandardUniform {
       let mut bytes: [u8; 32] = rng.random();
       bytes[0] &= 0x1F; // Mask for BN254 range (matching kohaku)
       let array = SecureArray::from_slice(&bytes).expect("32 byte array is valid");
-      ViewingKey(array)
+      ViewingKey::new(array)
    }
 }
 
@@ -447,8 +492,16 @@ impl Distribution<SpendingKey> for StandardUniform {
       let mut bytes: [u8; 32] = rng.random();
       bytes[0] &= 0x1F; // Mask for BN254 range (matching kohaku)
       let array = SecureArray::from_slice(&bytes).expect("32 byte array is valid");
-      SpendingKey(array)
+      SpendingKey::new(array)
    }
+}
+
+fn copy_key32(key: &Mutex<SecureArray<u8, 32>>) -> [u8; 32] {
+   key.lock().expect("secret mutex poisoned").unlock(|slice| {
+      let mut arr = [0u8; 32];
+      arr.copy_from_slice(slice);
+      arr
+   })
 }
 
 fn fr_to_be_bytes(f: Fr) -> [u8; 32] {

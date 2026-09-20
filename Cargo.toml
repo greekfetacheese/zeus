@@ -59,7 +59,7 @@ egui_extras = { version = "=0.36", features = ["image", "svg"] }
 image = "=0.25.10"
 egui-elegance = "=0.16"
 egui-lucide = "0.1"
-egui-elements = {version = "1.1", features = ["full"]}
+egui-elements = {version = "1.2", features = ["full"]}
 rfd = "=0.17.2"
 
 # Zeus Crates
@@ -85,11 +85,11 @@ sha2 = "0.10"
 
 
 # Encryption
-ncrypt-me = "0.3"
+ncrypt-me = "0.4"
 chacha20poly1305 = "=0.10"
 
 # Memory
-secure-types = "0.3"
+secure-types = { version = "0.5", features = ["codec"] }
 
 # Tracing
 tracing = "=0.1.41"

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use alloy_consensus::TxType;
 use anyhow::anyhow;
@@ -38,7 +38,7 @@ struct TxDBInner {
 }
 
 #[derive(Clone)]
-pub struct TxDBHandle(Arc<RwLock<TxDBInner>>);
+pub struct TxDBHandle(Arc<Mutex<TxDBInner>>);
 
 impl Default for TxDBHandle {
    fn default() -> Self {
@@ -61,7 +61,7 @@ impl<'de> Deserialize<'de> for TxDBHandle {
       D: Deserializer<'de>,
    {
       let db = TransactionsDB::deserialize(deserializer)?;
-      Ok(Self(Arc::new(RwLock::new(TxDBInner {
+      Ok(Self(Arc::new(Mutex::new(TxDBInner {
          db,
          store: None,
       }))))
@@ -70,7 +70,7 @@ impl<'de> Deserialize<'de> for TxDBHandle {
 
 impl TxDBHandle {
    pub fn new() -> Self {
-      Self(Arc::new(RwLock::new(TxDBInner {
+      Self(Arc::new(Mutex::new(TxDBInner {
          db: TransactionsDB::new(),
          store: None,
       })))
@@ -81,11 +81,11 @@ impl TxDBHandle {
    }
 
    pub fn read<R>(&self, reader: impl FnOnce(&TransactionsDB) -> R) -> R {
-      reader(&self.0.read().unwrap().db)
+      reader(&self.0.lock().unwrap().db)
    }
 
    pub fn write<R>(&self, writer: impl FnOnce(&mut TransactionsDB) -> R) -> R {
-      writer(&mut self.0.write().unwrap().db)
+      writer(&mut self.0.lock().unwrap().db)
    }
 
    /// Open `tx_history.db`, creating it if needed, and load every owner list.
@@ -119,7 +119,7 @@ impl TxDBHandle {
       };
       let db = load_all(&store)?;
 
-      Ok(Self(Arc::new(RwLock::new(TxDBInner {
+      Ok(Self(Arc::new(Mutex::new(TxDBInner {
          db,
          store: Some(store),
       }))))
@@ -132,7 +132,7 @@ impl TxDBHandle {
          return Ok(false);
       }
 
-      let mut guard = self.0.write().unwrap();
+      let mut guard = self.0.lock().unwrap();
       for ((chain, owner), txs) in legacy_map {
          let entry = guard.db.txs.entry((chain, owner)).or_default();
          merge_by_hash(entry, txs);
@@ -147,7 +147,7 @@ impl TxDBHandle {
       owner: Address,
       tx: TransactionRich,
    ) -> Result<(), anyhow::Error> {
-      let mut guard = self.0.write().unwrap();
+      let mut guard = self.0.lock().unwrap();
       guard.db.add_tx(chain, owner, tx)?;
       persist_owner(&guard, chain, owner)
    }
@@ -176,7 +176,7 @@ impl TxDBHandle {
 
    /// Drop tx histories whose owner is not in `wallets`. Returns how many entries were removed.
    pub fn retain_wallets(&self, wallets: &HashSet<Address>) -> usize {
-      let mut guard = self.0.write().unwrap();
+      let mut guard = self.0.lock().unwrap();
       let before_keys: Vec<(u64, Address)> = guard.db.txs.keys().copied().collect();
       let removed = guard.db.retain_wallets(wallets);
       if removed == 0 {

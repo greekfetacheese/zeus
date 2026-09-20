@@ -14,7 +14,6 @@ use elegance::{BadgeTone, Menu, MenuItem, Toast};
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::alloy_primitives::Address;
-use zeus_wallet::Wallet;
 
 pub mod add;
 pub mod delete;
@@ -32,7 +31,7 @@ pub struct WalletUi {
    loading: bool,
    rename_wallet: bool,
    new_wallet_name: String,
-   wallet_to_rename: Option<Wallet>,
+   wallet_to_rename: Option<WalletInfo>,
    pub add_wallet_ui: AddWalletUi,
    search_query: String,
    export_key_ui: ExportKeyUi,
@@ -74,7 +73,7 @@ impl WalletUi {
       self.open
    }
 
-   pub fn open_rename_wallet(&mut self, wallet: Option<Wallet>) {
+   pub fn open_rename_wallet(&mut self, wallet: Option<WalletInfo>) {
       self.rename_wallet = true;
       self.wallet_to_rename = wallet;
    }
@@ -223,13 +222,11 @@ impl WalletUi {
 
                Menu::new(id).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("Export")).clicked() {
-                     let wallet = ctx.get_wallet(wallet.address);
-                     self.export_key_ui.open(wallet);
+                     self.export_key_ui.open(wallet.clone());
                   }
 
                   if ui.add(MenuItem::new("Rename")).clicked() {
-                     let wallet_opt = ctx.get_wallet(wallet.address);
-                     self.open_rename_wallet(wallet_opt);
+                     self.open_rename_wallet(Some(wallet.clone()));
                   }
 
                   if ui.add(MenuItem::new("Show QR Code")).clicked() {
@@ -342,7 +339,7 @@ impl WalletUi {
                let rename_button = Button::new(text).visuals(button_visuals).min_size(field_size);
 
                if ui.add(rename_button).clicked() {
-                  on_rename_wallet(self.new_wallet_name.clone(), old_wallet.clone());
+                  on_rename_wallet(self.new_wallet_name.clone(), old_wallet.address);
                }
             });
          });
@@ -376,11 +373,10 @@ fn on_show_wallet_qr(wallet: WalletInfo) {
    });
 }
 
-fn on_rename_wallet(new_wallet_name: String, old_wallet: Wallet) {
+fn on_rename_wallet(new_wallet_name: String, old_wallet_addr: Address) {
    RT.spawn_blocking(move || {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
       let old_vault = ctx.get_vault();
-      let old_wallet_addr = old_wallet.address();
 
       if old_vault.wallet_name_exists(&new_wallet_name) {
          SHARED_GUI.write(|gui| {
@@ -414,7 +410,13 @@ fn on_rename_wallet(new_wallet_name: String, old_wallet: Wallet) {
          return;
       }
 
-      let mut new_wallet = old_wallet.clone();
+      let Some(mut new_wallet) = ctx.get_wallet(old_wallet_addr) else {
+         SHARED_GUI.write(|gui| {
+            gui.open_msg_window("Wallet not found");
+            gui.request_repaint();
+         });
+         return;
+      };
       new_wallet.name = new_wallet_name;
 
       let mut new_vault = old_vault.clone();
@@ -426,10 +428,11 @@ fn on_rename_wallet(new_wallet_name: String, old_wallet: Wallet) {
       }
 
       let is_current = ctx.is_current_wallet(new_wallet.address());
+      let current_info = WalletInfo::from_wallet(&new_wallet, true);
 
       if is_current {
          ctx.write(|ctx| {
-            ctx.current_wallet = new_wallet.clone();
+            ctx.current_wallet = current_info.clone();
          });
       }
 
@@ -445,7 +448,7 @@ fn on_rename_wallet(new_wallet_name: String, old_wallet: Wallet) {
             SHARED_GUI.write(|gui| {
                // Update header
                if is_current {
-                  gui.header.set_current_wallet(new_wallet);
+                  gui.header.set_current_wallet(current_info);
                }
 
                // Reset state
