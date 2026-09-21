@@ -133,7 +133,8 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          .show(&gui.egui_ctx);
    }
 
-   Toasts::new().anchor(Align2::RIGHT_TOP).render(ui.ctx());
+   let offset = vec2(12.0, 70.0);
+   Toasts::new().anchor(Align2::RIGHT_TOP).offset(offset).render(ui.ctx());
 }
 
 fn check_railgun(chain: u64) {

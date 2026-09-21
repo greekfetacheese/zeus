@@ -584,33 +584,51 @@ impl RecoverHDWallet {
                   ui.set_width(content_width);
                   ui.spacing_mut().item_spacing.y = theme.spacing.md;
 
-                  let paragraphs = [
-                     "Zeus can download token icons from tokens.smold.app so unknown tokens show an image instead of a placeholder.",
-                     "Zeus can also look up verified contract names on sourcify.dev when you sign a transaction or message.",
-                     "Zeus can check GitHub for a newer release on startup.",
-                     "These are optional and just do http calls to third-party servers. No telemetry or data collection involved.",
-                     "You can change this later in Settings/General."
-                  ];
-                  for paragraph in paragraphs {
-                     let text = RichText::new(paragraph).size(theme.typography.large);
-                     ui.add(
-                        Label::new(text, None)
-                           .wrap()
-                           .fill_width(true)
-                           .interactive(false),
-                     );
-                  }
+                  let large = theme.typography.large;
 
-                  let icons_text =
-                     RichText::new("Download Token Icons").size(theme.typography.large);
+                  // Smold.app paragraph
+                  let text1 = RichText::new("Zeus can download token icons from ").size(large);
+                  let text2 = RichText::new("tokens.smold.app ").size(large).underline();
+                  let text3 =
+                     RichText::new("so unknown tokens show an image instead of a placeholder.")
+                        .size(large);
+
+                  let label = Label::sections(vec![text1, text2, text3], None)
+                     .wrap()
+                     .fill_width(true)
+                     .interactive(false);
+                  ui.add(label);
+
+                  // Sourcify.dev paragraph
+                  let text1 =
+                     RichText::new("Zeus can also look up verified contract names on ").size(large);
+                  let text2 = RichText::new("sourcify.dev ").size(large).underline();
+                  let text3 = RichText::new("when you sign a transaction or message.").size(large);
+
+                  let label = Label::sections(vec![text1, text2, text3], None)
+                     .wrap()
+                     .fill_width(true)
+                     .interactive(false);
+                  ui.add(label);
+
+                  // GitHub paragraph
+                  let text1 = RichText::new("Zeus can check ").size(large);
+                  let text2 = RichText::new("GitHub.com ").size(large).underline();
+                  let text3 = RichText::new("for a newer release on startup.").size(large);
+
+                  let label = Label::sections(vec![text1, text2, text3], None)
+                     .wrap()
+                     .fill_width(true)
+                     .interactive(false);
+                  ui.add(label);
+
+                  let icons_text = RichText::new("Download Token Icons").size(large);
                   ui.checkbox(&mut self.fetch_token_icons, icons_text);
 
-                  let names_text =
-                     RichText::new("Fetch Contract Names").size(theme.typography.large);
+                  let names_text = RichText::new("Fetch Contract Names").size(large);
                   ui.checkbox(&mut self.fetch_contract_names, names_text);
 
-                  let updates_text =
-                     RichText::new("Check for Updates").size(theme.typography.large);
+                  let updates_text = RichText::new("Check for Updates").size(large);
                   ui.checkbox(&mut self.check_for_updates, updates_text);
                });
             });
@@ -619,17 +637,13 @@ impl RecoverHDWallet {
 
             ui.vertical_centered(|ui| {
                let text = RichText::new("Continue").size(theme.typography.large);
-               let continue_button = Button::new(text)
-                  .visuals(button_visuals)
-                  .min_size(vec2(content_width, 45.0));
+               let continue_button =
+                  Button::new(text).visuals(button_visuals).min_size(vec2(content_width, 45.0));
 
                if ui.add(continue_button).clicked() {
-                  ctx.misc_config
-                     .set_fetch_token_icons(self.fetch_token_icons);
-                  ctx.misc_config
-                     .set_fetch_contract_names(self.fetch_contract_names);
-                  ctx.misc_config
-                     .set_check_for_updates(self.check_for_updates);
+                  ctx.misc_config.set_fetch_token_icons(self.fetch_token_icons);
+                  ctx.misc_config.set_fetch_contract_names(self.fetch_contract_names);
+                  ctx.misc_config.set_check_for_updates(self.check_for_updates);
                   let config = ctx.misc_config.clone();
                   let current_wallet = ctx.current_wallet_info();
                   on_finish_onboarding(config, current_wallet);

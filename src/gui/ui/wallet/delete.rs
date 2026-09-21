@@ -172,6 +172,7 @@ impl DeleteWalletUi {
                      .size(theme.typography.normal)
                      .strong(),
                   );
+                  ui.separator();
                   ui.label(
                      RichText::new(format!(
                         "Railgun ${:.10}",
