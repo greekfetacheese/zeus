@@ -2,7 +2,7 @@
 mod tests {
    use crate::core::ZeusCtx;
 
-   use zeus_eth::utils::address_book::{uniswap_v4_stateview, zeus_stateview_v3};
+   use zeus_eth::utils::address_book::{uniswap_v4_stateview, zeus_stateview_v4};
    use zeus_eth::{abi::zeus::ZeusStateViewV3, amm::uniswap::UniswapPool};
    use zeus_eth::{
       alloy_primitives::{TxKind, U256},
@@ -137,7 +137,7 @@ mod tests {
       let ctx = ZeusCtx::new();
 
       let chain = 1;
-      let contract_address = zeus_stateview_v3(chain).unwrap();
+      let contract_address = zeus_stateview_v4(chain).unwrap();
       let pool_manager = ctx.pool_manager();
       let all_pools = pool_manager.get_v3_pools_for_chain(chain);
 
@@ -179,7 +179,7 @@ mod tests {
       let ctx = ZeusCtx::new();
 
       let chain = 1;
-      let contract_address = zeus_stateview_v3(chain).unwrap();
+      let contract_address = zeus_stateview_v4(chain).unwrap();
       let uni_stateview = uniswap_v4_stateview(chain).unwrap();
       let pool_manager = ctx.pool_manager();
       let all_pools = pool_manager.get_v4_pools_for_chain(chain);
@@ -223,7 +223,7 @@ mod tests {
       let ctx = ZeusCtx::new();
 
       let chain = 1;
-      let contract_address = zeus_stateview_v3(chain).unwrap();
+      let contract_address = zeus_stateview_v4(chain).unwrap();
       let uni_stateview = uniswap_v4_stateview(chain).unwrap();
       let pool_manager = ctx.pool_manager();
       let all_pools = pool_manager.get_pools_for_chain(chain);

@@ -11,6 +11,7 @@ use crate::utils::{
 
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -75,12 +76,6 @@ impl ERC20Token {
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
-      let is_nft = abi::erc165::is_erc721_or_erc1155(client.clone(), token).await;
-
-      if is_nft {
-         anyhow::bail!("address {token} is an NFT (ERC-721/1155), not an ERC20 token");
-      }
-
       let info = batch::get_erc20_info(client, chain_id, token).await?;
 
       Ok(Self {
@@ -104,21 +99,25 @@ impl ERC20Token {
    {
       let tokens_info = batch::get_erc20_tokens(client, chain, tokens_addr.clone()).await?;
 
-      let mut tokens_erc20 = Vec::new();
-      for token_addr in tokens_addr {
-         for token_info in &tokens_info {
-            if token_info.addr == token_addr {
-               tokens_erc20.push(Self {
-                  chain_id: chain,
-                  address: token_addr,
-                  symbol: token_info.symbol.clone().into(),
-                  name: token_info.name.clone().into(),
-                  decimals: token_info.decimals,
-                  total_supply: token_info.totalSupply,
-               });
-            }
-         }
-      }
+      let info_by_addr: HashMap<Address, _> =
+         tokens_info.into_iter().map(|info| (info.addr, info)).collect();
+
+      // Keep the requested order, dropping addresses the batch did not return
+      let tokens_erc20 = tokens_addr
+         .into_iter()
+         .filter_map(|token_addr| {
+            let token_info = info_by_addr.get(&token_addr)?;
+            Some(Self {
+               chain_id: chain,
+               address: token_addr,
+               symbol: token_info.symbol.clone().into(),
+               name: token_info.name.clone().into(),
+               decimals: token_info.decimals,
+               total_supply: token_info.totalSupply,
+            })
+         })
+         .collect();
+
       Ok(tokens_erc20)
    }
 

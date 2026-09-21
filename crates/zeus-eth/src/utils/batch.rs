@@ -5,7 +5,7 @@ use alloy_rpc_types::{BlockId, state::StateOverridesBuilder};
 use alloy_sol_types::{SolCall, sol};
 use std::sync::LazyLock;
 
-use super::address_book::zeus_stateview_v3;
+use super::address_book::zeus_stateview_v4;
 use crate::{
    abi::{
       erc20::IERC20,
@@ -146,7 +146,7 @@ where
       return Ok(Vec::new());
    }
    let block = block.unwrap_or(BlockId::latest());
-   let address = zeus_stateview_v3(chain)?;
+   let address = zeus_stateview_v4(chain)?;
    let contract = ZeusStateViewV3::new(address, client);
    let balance = contract.getETHBalance(addresses).call().block(block).await?;
    Ok(balance)
@@ -237,7 +237,7 @@ where
    N: Network,
 {
    let block = block.unwrap_or(BlockId::latest());
-   let address = zeus_stateview_v3(chain)?;
+   let address = zeus_stateview_v4(chain)?;
    let contract = ZeusStateViewV3::new(address, client);
    let balance = contract.getERC20Balance(tokens, owner).call().block(block).await?;
    Ok(balance)
@@ -253,7 +253,7 @@ where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   let address = zeus_stateview_v3(chain)?;
+   let address = zeus_stateview_v4(chain)?;
    let contract = ZeusStateViewV3::new(address, client);
    let info = contract.getERC20Info(token).call().await?;
    Ok(info)
@@ -269,7 +269,7 @@ where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   let address = zeus_stateview_v3(chain)?;
+   let address = zeus_stateview_v4(chain)?;
    let contract = ZeusStateViewV3::new(address, client);
    let info = contract.getERC20InfoBatch(tokens).call().await?;
    Ok(info)
@@ -290,7 +290,7 @@ where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   let address = zeus_stateview_v3(chain)?;
+   let address = zeus_stateview_v4(chain)?;
    let contract = ZeusStateViewV3::new(address, client);
    let pools = contract
       .getPools(
@@ -319,7 +319,7 @@ where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   let address = zeus_stateview_v3(chain)?;
+   let address = zeus_stateview_v4(chain)?;
    let contract = ZeusStateViewV3::new(address, client);
    let pools_state =
       contract.getPoolsState(v2_pools, v3_pools, v4_pools, state_view).call().await?;
@@ -338,7 +338,7 @@ where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   let address = zeus_stateview_v3(chain)?;
+   let address = zeus_stateview_v4(chain)?;
    let contract = ZeusStateViewV3::new(address, client);
    let pools = contract.getV3Pools(factory, token_a, token_b).call().await?;
    Ok(pools)
@@ -354,7 +354,7 @@ where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   let address = zeus_stateview_v3(chain)?;
+   let address = zeus_stateview_v4(chain)?;
    let stateview = address_book::uniswap_v4_stateview(chain)?;
    let contract = ZeusStateViewV3::new(address, client);
    let pools = contract.validateV4Pools(stateview, pools).call().await?;
@@ -371,7 +371,7 @@ where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   let address = zeus_stateview_v3(chain)?;
+   let address = zeus_stateview_v4(chain)?;
    let contract = ZeusStateViewV3::new(address, client);
    let reserves = contract.getV2Reserves(pools).call().await?;
    Ok(reserves)
@@ -387,7 +387,7 @@ where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   let address = zeus_stateview_v3(chain)?;
+   let address = zeus_stateview_v4(chain)?;
    let contract = ZeusStateViewV3::new(address, client);
    let state = contract.getV3PoolState(pools).call().await?;
    Ok(state)
@@ -403,7 +403,7 @@ where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   let address = zeus_stateview_v3(chain)?;
+   let address = zeus_stateview_v4(chain)?;
    let stateview = address_book::uniswap_v4_stateview(chain)?;
    let contract = ZeusStateViewV3::new(address, client);
    let state = contract.getV4PoolState(pools, stateview).call().await?;
