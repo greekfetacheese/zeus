@@ -30,6 +30,12 @@ use tracing::info;
 /// Max slots per StorageReader eth_call
 pub const STORAGE_FETCH_CHUNK_SIZE: usize = 50;
 
+/// Max addresses per StateView / `eth_getCode` batch.
+const ACCOUNT_INFO_BATCH: usize = 20;
+
+/// Concurrent RPC batches (balances, codes, and nonce fetches).
+const CONCURRENCY: usize = 1;
+
 /// EIP-7702 designated code is `0xef0100 || implementation`.
 pub fn eip7702_implementation(code: &[u8]) -> Option<Address> {
    if code.len() == 23 && code[0] == 0xef && code[1] == 0x01 && code[2] == 0x00 {
@@ -644,10 +650,6 @@ pub fn railgun_smart_wallet_known_slots() -> Vec<U256> {
    ]
 }
 
-/// Max addresses per StateView / `eth_getCode` batch.
-const ACCOUNT_INFO_BATCH: usize = 20;
-/// Concurrent RPC batches (balances, codes, and nonce fetches).
-const ACCOUNT_INFO_CONCURRENCY: usize = 2;
 
 #[derive(Clone, Copy, Debug)]
 pub struct AccountPrefetch {
@@ -756,7 +758,7 @@ async fn fetch_eth_balances_batched(
    #[cfg(feature = "dev")]
    let time = Instant::now();
 
-   let semaphore = Arc::new(Semaphore::new(ACCOUNT_INFO_CONCURRENCY));
+   let semaphore = Arc::new(Semaphore::new(CONCURRENCY));
    let mut tasks = Vec::new();
 
    for chunk in addresses.chunks(ACCOUNT_INFO_BATCH) {
@@ -805,7 +807,7 @@ async fn fetch_account_codes_batched(
    #[cfg(feature = "dev")]
    let time = Instant::now();
 
-   let semaphore = Arc::new(Semaphore::new(ACCOUNT_INFO_CONCURRENCY));
+   let semaphore = Arc::new(Semaphore::new(CONCURRENCY));
    let mut tasks = Vec::new();
 
    for chunk in addresses.chunks(ACCOUNT_INFO_BATCH) {
@@ -859,7 +861,7 @@ async fn fetch_eoa_nonces(
    #[cfg(feature = "dev")]
    let time = Instant::now();
 
-   let semaphore = Arc::new(Semaphore::new(ACCOUNT_INFO_CONCURRENCY));
+   let semaphore = Arc::new(Semaphore::new(CONCURRENCY));
    let mut tasks = Vec::new();
    for chunk in eoas.chunks(ACCOUNT_INFO_BATCH) {
       let chunk = chunk.to_vec();
@@ -945,11 +947,15 @@ pub async fn fetch_storage_for_pools(
       };
    }
 
+   let semaphore = Arc::new(Semaphore::new(CONCURRENCY));
+
    for acc in account_slots {
       let ctx = ctx.clone();
       let accounts = accounts.clone();
+      let semaphore = semaphore.clone();
 
       let task = RT.spawn(async move {
+         let _permit = semaphore.acquire().await.unwrap();
          let acc_info = fetch_storage(ctx.clone(), chain, block_id, acc).await;
 
          accounts.lock().await.extend(acc_info);
@@ -987,47 +993,39 @@ pub async fn fetch_storage(
       return Vec::new();
    }
 
-   let mut tasks: Vec<JoinHandle<Result<Vec<AccountStorage>, anyhow::Error>>> = Vec::new();
+   let mut out = Vec::new();
    let time = Instant::now();
 
    for chunk in chunks {
       let client = client.clone();
 
-      let task = RT.spawn(async move {
-         let read =
-               client
-                  .request(chain, |client| {
-                     let chunk = chunk.clone();
-                     async move {
-                        batch::get_account_storage(client, address, chunk, Some(block_id)).await
-                     }
-                  })
-                  .await?;
+      let read_res = client
+         .request(chain, |client| {
+            let chunk = chunk.clone();
+            async move { batch::get_account_storage(client, address, chunk, Some(block_id)).await }
+         })
+         .await;
 
-         let storage = read
-            .slots
-            .into_iter()
-            .zip(read.values)
-            .map(|(slot, value)| AccountStorage {
-               address: read.address,
-               slot,
-               value,
-            })
-            .collect::<Vec<_>>();
+      let read = match read_res {
+         Ok(read) => read,
+         Err(e) => {
+            tracing::error!("Failed to read storage for account {}: {:?}", address, e);
+            continue;
+         }
+      };
 
-         Ok(storage)
-      });
+      let storage = read
+         .slots
+         .into_iter()
+         .zip(read.values)
+         .map(|(slot, value)| AccountStorage {
+            address: read.address,
+            slot,
+            value,
+         })
+         .collect::<Vec<_>>();
 
-      tasks.push(task);
-   }
-
-   let mut out = Vec::new();
-   for task in tasks {
-      match task.await {
-         Ok(Ok(chunk)) => out.extend(chunk),
-         Ok(Err(e)) => tracing::error!("Storage fetch failed for {address}: {e:?}"),
-         Err(e) => tracing::error!("Join error: {e:?}"),
-      }
+      out.extend(storage);
    }
 
    info!(
