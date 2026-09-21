@@ -243,7 +243,7 @@ pub enum RemoteArtifactLoaderError {
 impl Default for RemoteArtifactLoader {
    fn default() -> Self {
       Self::new(
-         "https://github.com/Robert-MacWha/privacy-protocol-artifacts/raw/refs/heads/main/artifacts/",
+         "https://github.com/greekfetacheese/privacy-protocol-artifacts/tree/main/artifacts",
          None,
       )
    }
