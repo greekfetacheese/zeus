@@ -437,19 +437,19 @@ impl Default for PriorityFee {
    fn default() -> Self {
       let mut map = HashMap::with_capacity(SUPPORTED_CHAINS.len());
       // Eth
-      map.insert(1, NumericValue::parse_to_gwei("1"));
+      map.insert(1, NumericValue::parse_to_gwei("0.01"));
 
       // Optimism
-      map.insert(10, NumericValue::parse_to_gwei("0.002"));
+      map.insert(10, NumericValue::parse_to_gwei("0.001"));
 
       // BSC (Legacy Tx)
       map.insert(56, NumericValue::parse_to_gwei("0"));
 
       // Base
-      map.insert(8453, NumericValue::parse_to_gwei("0.002"));
+      map.insert(8453, NumericValue::parse_to_gwei("0.001"));
 
-      // Arbitrum (Legacy Tx)
-      map.insert(42161, NumericValue::parse_to_gwei("0"));
+      // Arbitrum
+      map.insert(42161, NumericValue::parse_to_gwei("0.001"));
 
       Self { fee: map }
    }

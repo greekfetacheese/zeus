@@ -609,9 +609,20 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
          })
          .await?;
 
-      let fee_value = NumericValue::format_to_gwei(U256::from(fee));
+      let mut fee_u256 = U256::from(fee);
 
-      if fee_value.is_zero() {
+      // Set a minimum fee for Ethereum so txs dont timeout
+      if chain.is_ethereum() {
+         let min = NumericValue::parse_to_gwei("0.01");
+
+         if fee_u256 < min.wei() {
+            fee_u256 = min.wei();
+         }
+      }
+
+      let fee_fmt = NumericValue::format_to_gwei(fee_u256);
+
+      if fee_fmt.is_zero() {
          return Err(anyhow!(
             "Rpc returned bad data, Fee (Wei) {} For Chain: {}",
             fee,
@@ -623,10 +634,10 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
       debug!(
          "Priority fee for chain {} is {}",
          chain.id(),
-         fee_value.formatted()
+         fee_fmt.formatted()
       );
 
-      ctx.update_priority_fee(chain.id(), fee_value);
+      ctx.update_priority_fee(chain.id(), fee_fmt);
    }
    Ok(())
 }
