@@ -148,6 +148,11 @@ impl DiscoverChildWallets {
       *self = Self::new();
    }
 
+   pub fn erase(&mut self) {
+      self.hd_wallet.lock().unwrap().erase();
+      self.discovery_wallet.lock().unwrap().erase();
+   }
+
    /// Fixed-size cell. The parent always advances by `width` even if a label
    /// wants more space — otherwise path/address shove later columns.
    fn row_cell(ui: &mut Ui, width: f32, height: f32, add_contents: impl FnOnce(&mut Ui)) {

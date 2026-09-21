@@ -47,16 +47,26 @@ impl ExportKeyUi {
          let wallet_full = ctx.get_wallet(wallet.address);
 
          SHARED_GUI.write(|gui| {
-            gui.wallet_ui.export_key_ui.wallet_to_export = wallet_full;
-            gui.wallet_ui.export_key_ui.show_warning = wallet.is_master();
-            gui.wallet_ui.export_key_ui.open = true;
-            gui.wallet_ui.export_key_ui.credentials_form.open();
+            let export_ui = &mut gui.wallet_ui.export_key_ui;
+            export_ui.erase_exported_wallet();
+            export_ui.wallet_to_export = wallet_full;
+            export_ui.show_warning = wallet.is_master();
+            export_ui.open = true;
+            export_ui.credentials_form.open();
          });
       });
    }
 
    pub fn close(&mut self) {
       self.open = false;
+      self.erase_exported_wallet();
+   }
+
+   fn erase_exported_wallet(&mut self) {
+      if let Some(ref mut wallet) = self.wallet_to_export {
+         wallet.erase();
+      }
+      self.wallet_to_export = None;
    }
 
    fn reset(&mut self) {
@@ -67,10 +77,7 @@ impl ExportKeyUi {
    pub fn erase(&mut self, ctx: &Context) {
       self.credentials_form.erase();
       self.private_key_qr.clear(ctx);
-
-      if let Some(ref mut wallet) = self.wallet_to_export {
-         wallet.erase();
-      }
+      self.erase_exported_wallet();
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {

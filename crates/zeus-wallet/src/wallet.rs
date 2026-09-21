@@ -134,8 +134,10 @@ impl Wallet {
                let mnemonic = Mnemonic::<English>::new_from_phrase(seed_str);
                mnemonic
             })
-            .map_err(|e| Error::Custom(e.to_string()))?;
-         let mut bytes = mnemonic.to_seed("".into()).map_err(|e| Error::Custom(e.to_string()))?;
+            .map_err(|_| Error::Custom("invalid seed phrase".to_string()))?;
+         let mut bytes = mnemonic
+            .to_seed("".into())
+            .map_err(|_| Error::Custom("failed to derive seed from phrase".to_string()))?;
          let sec_bytes = SecureArray::from_slice_mut(&mut bytes)?;
          return Ok(sec_bytes);
       }
@@ -499,5 +501,26 @@ mod tests {
             children.address()
          );
       }
+   }
+
+   #[test]
+   fn test_seed_error_does_not_echo_phrase() {
+      let phrase = "not a real mnemonic phrase zoo";
+      let wallet = Wallet {
+         name: "imported".to_string(),
+         seed_phrase: Some(SecureString::from(phrase)),
+         key: SecureKey::random(),
+         xkey_info: None,
+      };
+
+      let err = match wallet.seed() {
+         Ok(_) => panic!("expected invalid phrase to fail"),
+         Err(e) => e,
+      };
+      let msg = err.to_string();
+      assert!(
+         !msg.contains(phrase),
+         "error echoed the phrase: {msg}"
+      );
    }
 }

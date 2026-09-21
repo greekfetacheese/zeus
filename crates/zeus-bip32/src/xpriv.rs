@@ -21,7 +21,7 @@ fn hmac_and_split(
    mac.update(data);
    let mut result = mac.finalize().into_bytes();
 
-   let left = match k256::NonZeroScalar::try_from(&result[..32]) {
+   let mut left = match k256::NonZeroScalar::try_from(&result[..32]) {
       Ok(left) => left,
       Err(_) => {
          result.zeroize();
@@ -33,8 +33,13 @@ fn hmac_and_split(
    right.copy_from_slice(&result[32..]);
    result.zeroize();
 
-   let chain_code =
-      ChainCode::from_slice_mut(&mut right).map_err(|e| Bip32Error::Custom(e.to_string()))?;
+   let chain_code = match ChainCode::from_slice_mut(&mut right) {
+      Ok(chain_code) => chain_code,
+      Err(e) => {
+         left.zeroize();
+         return Err(Bip32Error::Custom(e.to_string()));
+      }
+   };
 
    Ok((left, chain_code))
 }

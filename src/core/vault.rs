@@ -74,7 +74,10 @@ fn serialize_vault_data(data: &VaultData) -> Result<SecureBytes, anyhow::Error> 
    let mut out = Vec::with_capacity(1 + len);
    out.push(VAULT_PAYLOAD_CODEC);
 
-   encode_into_vec(&mut out, data).map_err(|e| anyhow!("encode vault data: {e}"))?;
+   if let Err(e) = encode_into_vec(&mut out, data) {
+      out.zeroize();
+      return Err(anyhow!("encode vault data: {e}"));
+   }
    debug_assert_eq!(out.len(), 1 + len, "encoded_len != encoded len");
 
    SecureBytes::from_vec(out).map_err(|e| anyhow!("secure the vault payload: {e}"))

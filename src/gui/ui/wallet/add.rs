@@ -40,6 +40,7 @@ impl AddWalletUi {
 
    pub fn erase(&mut self) {
       self.import_wallet.erase();
+      self.discover_child_wallets_ui.erase();
    }
 
    pub fn is_open(&self) -> bool {
