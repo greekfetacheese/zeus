@@ -246,14 +246,13 @@ impl DeleteWalletUi {
 fn on_verify_credentials(credentials: Credentials) {
    RT.spawn_blocking(move || {
       let ctx = SHARED_GUI.write(|gui| {
-         gui.loading_window.open("Decrypting vault...");
+         gui.loading_window.open("Checking credentials...");
          gui.request_repaint();
          gui.ctx.clone()
       });
 
       let creds_match = ctx.read_vault(|vault| vault.credentials_match(&credentials));
 
-      // Verify the credentials by just decrypting the vault
       match creds_match {
          true => {
             SHARED_GUI.write(|gui| {

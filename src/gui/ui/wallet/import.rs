@@ -153,6 +153,7 @@ fn on_import_wallet(name: String, from_key: bool, key_or_phrase: SecureString) {
                      "Failed to import wallet: {}",
                      e.to_string()
                   ));
+                  gui.wallet_ui.add_wallet_ui.import_wallet.input_field.erase();
                   gui.request_repaint();
                });
                return;
@@ -182,6 +183,7 @@ fn on_import_wallet(name: String, from_key: bool, key_or_phrase: SecureString) {
                   "Failed to encrypt account: {}",
                   e.to_string()
                ));
+               gui.wallet_ui.add_wallet_ui.import_wallet.input_field.erase();
                gui.request_repaint();
             });
             return;

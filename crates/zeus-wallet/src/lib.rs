@@ -10,6 +10,7 @@ use k256::ecdsa::Error as EcdsaError;
 use secure_types::Error as SecureError;
 use zeus_bip32::error::Bip32Error;
 
+#[derive(Debug)]
 pub enum Error {
    SeedLengthTooShort(String),
    XKeyInfoIsMissing(String),
@@ -37,12 +38,6 @@ impl std::fmt::Display for Error {
          Error::EcdsaError(e) => write!(f, "{}", e),
          Error::Custom(s) => write!(f, "{}", s),
       }
-   }
-}
-
-impl std::fmt::Debug for Error {
-   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-      write!(f, "{:?}", self)
    }
 }
 
