@@ -1,6 +1,6 @@
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use k256::ecdsa::{SigningKey, VerifyingKey};
-use ripemd::{Digest, Ripemd160};
+use ripemd::Ripemd160;
 use secure_types::{SecureArray, Zeroize};
 use sha2::{Sha256, Sha512};
 
@@ -220,8 +220,8 @@ impl XPub {
    pub fn fingerprint(&self) -> KeyFingerprint {
       let compressed_pubkey = self.key.to_sec1_bytes();
 
-      let sha256_hash = Sha256::digest(&compressed_pubkey);
-      let ripemd160_hash = Ripemd160::digest(sha256_hash);
+      let sha256_hash = <Sha256 as sha2::Digest>::digest(&compressed_pubkey);
+      let ripemd160_hash = <Ripemd160 as ripemd::Digest>::digest(sha256_hash);
 
       let mut bytes = [0u8; 4];
       bytes.copy_from_slice(&ripemd160_hash[..4]);
