@@ -198,6 +198,17 @@ impl ExportKeyUi {
                   });
                });
 
+               ui.add_space(10.0);
+
+               // This does not erase the clipboard
+               // The key could still remain in cliboard history
+               let clear_size = vec2(content_width, 45.0);
+               let text = RichText::new("Clear Clipboard").size(theme.typography.normal);
+               let button = Button::new(text).min_size(clear_size);
+               if ui.add(button).clicked() {
+                  ui.ctx().copy_text(String::new());
+               }
+
                if self.show_key_qrcode {
                   if let Some(error) = self.private_key_qr.error() {
                      ui.label(RichText::new(error.to_string()).size(theme.typography.large));
