@@ -144,6 +144,7 @@ impl NetworkSettings {
                RT.spawn_blocking(move || {
                   let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                   ctx.save_disabled_chains();
+                  post_toggle_network(ctx, chain, disabled);
                });
             }
 
@@ -536,6 +537,17 @@ fn rpc_mev_indicator(rpc: &Rpc) -> Indicator {
       Indicator::new(IndicatorState::On).size(12.0)
    } else {
       Indicator::new(IndicatorState::Off).size(12.0)
+   }
+}
+
+fn post_toggle_network(ctx: ZeusCtx, chain: u64, was_disabled: bool) {
+   tracing::info!("Chain {} was disabled: {}", chain, was_disabled);
+
+   if was_disabled {
+      tracing::info!("Syncing state for chain {}", chain);
+      RT.spawn(async move {
+         state::sync_state(ctx.clone(), chain).await;
+      });
    }
 }
 
