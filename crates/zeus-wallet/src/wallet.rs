@@ -1,3 +1,4 @@
+use super::Deriver;
 use super::Error;
 use super::secure_key::SecureKey;
 use alloy_primitives::Address;
@@ -5,10 +6,8 @@ use alloy_signer_local::{
    LocalSignerError, MnemonicBuilder, PrivateKeySigner,
    coins_bip39::{English, Mnemonic},
 };
-use argon2_rs::Argon2;
 use rand::RngCore;
 use secure_types::{SecureArray, SecureString, SecureVec, Zeroize};
-use sha3::{Digest, Sha3_512};
 use std::str::FromStr;
 use zeus_bip32::{
    BIP32_HARDEN, DEFAULT_DERIVATION_PATH, DerivationPath, SecureXPriv, XKeyInfo, root_from_seed,
@@ -18,38 +17,6 @@ use zeus_bip32::{
 pub const M_COST: u32 = 8192_000;
 pub const T_COST: u32 = 96;
 pub const P_COST: u32 = 1;
-
-/// Derive the seed from the given username and password
-pub fn derive_seed(
-   username: &SecureString,
-   password: &SecureString,
-   m_cost: u32,
-   t_cost: u32,
-   p_cost: u32,
-) -> Result<SecureVec<u8>, Error> {
-   let mut hasher = Sha3_512::new();
-
-   username.unlock_str(|username| {
-      hasher.update(username.as_bytes());
-   });
-
-   let mut result = hasher.finalize();
-   let username_hash = result.to_vec();
-   result.zeroize();
-
-   let argon2 = Argon2::new(m_cost, t_cost, p_cost);
-
-   let seed = password.unlock_str(|password| argon2.hash_password(password, username_hash))?;
-   let secure_seed = SecureVec::from_vec(seed)?;
-
-   if secure_seed.len() != 64 {
-      return Err(Error::SeedLengthTooShort(format!(
-         "Seed is not 64 bytes long, this is a bug"
-      )));
-   }
-
-   Ok(secure_seed)
-}
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone)]
@@ -100,9 +67,7 @@ impl Wallet {
    /// Returns the private key + ChainCode as a 64-byte SecureArray
    pub fn full_key(&self) -> Result<SecureArray<u8, 64>, Error> {
       if self.xkey_info.is_none() {
-         return Err(Error::XKeyInfoIsMissing(
-            "XKeyInfo is missing".to_string(),
-         ));
+         return Err(Error::XKeyInfoIsMissing);
       }
 
       let info = self.xkey_info.as_ref().unwrap();
@@ -142,9 +107,7 @@ impl Wallet {
          return Ok(sec_bytes);
       }
 
-      Err(Error::WalletIsNotChildOrMaster(
-         "Could not derive seed, The wallet must be either Master/Child or imported from a seed phrase".to_string()
-         ))
+      Err(Error::WalletIsNotChildOrMaster)
    }
 
    pub fn name_with_id(&self) -> String {
@@ -336,27 +299,10 @@ impl SecureHDWallet {
       self.children.iter().find(|c| c.address() == address).is_some()
    }
 
-   /// Create a new `SecureHDWallet` from a seed
-   pub fn new_from_seed(name_opt: Option<String>, seed: SecureVec<u8>) -> Self {
-      let (key, key_info) = seed.unlock_slice(|slice| root_from_seed(slice, None).unwrap());
-
-      let name = match name_opt {
-         Some(name) => name,
-         None => "Master Wallet".to_string(),
-      };
-
-      let master_wallet = Wallet {
-         name,
-         seed_phrase: None,
-         key: key.into(),
-         xkey_info: Some(key_info),
-      };
-
-      Self {
-         master_wallet,
-         children: Vec::new(),
-         next_child_index: 0,
-      }
+   /// Create a new `SecureHDWallet` from the given deriver
+   pub fn new_from_deriver(name: Option<String>, deriver: Deriver) -> Result<Self, Error> {
+      let wallet = deriver.new_hd_wallet(name)?;
+      Ok(wallet)
    }
 
    fn master_to_xpriv(&self) -> SecureXPriv {
@@ -436,14 +382,37 @@ impl SecureHDWallet {
       };
 
       if self.children.contains(&wallet) {
-         return Err(Error::ChildAlreadyExists(format!(
-            "Wallet At {} with Address {} already exists",
-            child_path.derivation_string(),
-            wallet.address()
-         )));
+         return Err(Error::ChildAlreadyExists {
+            path: child_path,
+            address: wallet.address(),
+         });
       } else {
          self.children.push(wallet.clone());
          Ok(wallet)
+      }
+   }
+
+   /// Create a new `SecureHDWallet` from a seed
+   #[deprecated(since = "0.1.22", note = "Use new_from_deriver instead")]
+   pub fn new_from_seed(name_opt: Option<String>, seed: SecureVec<u8>) -> Self {
+      let (key, key_info) = seed.unlock_slice(|slice| root_from_seed(slice, None).unwrap());
+
+      let name = match name_opt {
+         Some(name) => name,
+         None => "Master Wallet".to_string(),
+      };
+
+      let master_wallet = Wallet {
+         name,
+         seed_phrase: None,
+         key: key.into(),
+         xkey_info: Some(key_info),
+      };
+
+      Self {
+         master_wallet,
+         children: Vec::new(),
+         next_child_index: 0,
       }
    }
 }
@@ -452,28 +421,26 @@ impl SecureHDWallet {
 mod tests {
 
    use super::*;
+   use crate::derive::{DeriveMethod, Version};
    use alloy_primitives::address;
+   use argon2_rs::Argon2;
    const TEST_M_COST: u32 = 16_000;
-   const TEST_T_COST: u32 = 5;
-   const TEST_P_COST: u32 = 4;
+   const TEST_T_COST: u32 = 8;
+   const TEST_P_COST: u32 = 1;
 
    #[test]
    fn test_hd_wallet_creation() {
-      let username = SecureString::from("username");
-      let password = SecureString::from("password");
+      let username = SecureString::from("zeus");
+      let password = SecureString::from("zeus");
 
-      let seed = derive_seed(
-         &username,
-         &password,
-         TEST_M_COST,
-         TEST_T_COST,
-         TEST_P_COST,
-      )
-      .unwrap();
+      let expected_master = address!("0x7c6B09491773800D80deb32d12616411c6238878");
 
-      let expected_master = address!("0xB2c65B7fC48d5f79776feA36c9874F6D578155E5");
+      let argon_params = Argon2::new(TEST_M_COST, TEST_T_COST, TEST_P_COST);
+      let version = Version::CUSTOM(argon_params);
+      let method = DeriveMethod::BIP32;
+      let deriver = Deriver::new(version, method, Some(username), Some(password));
 
-      let mut hd_wallet = SecureHDWallet::new_from_seed(None, seed);
+      let mut hd_wallet = SecureHDWallet::new_from_deriver(None, deriver).unwrap();
       eprintln!(
          "Master Wallet Address: {}",
          hd_wallet.master_wallet.address()

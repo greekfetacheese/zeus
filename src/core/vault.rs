@@ -25,7 +25,7 @@ use std::path::PathBuf;
 use zeus_eth::alloy_primitives::Address;
 use zeus_railgun::RailgunAddress;
 use zeus_wallet::{
-   SecureHDWallet, Wallet, derive_seed,
+   DeriveMethod, Deriver, SecureHDWallet, Version, Wallet,
    wallet::{M_COST, P_COST, T_COST},
 };
 
@@ -387,14 +387,27 @@ impl Vault {
          P_COST
       };
 
-      let username = &self.credentials.username;
-      let password = &self.credentials.password;
+      let username = self.credentials.username.clone();
+      let password = self.credentials.password.clone();
 
       let name = if name.is_empty() { None } else { Some(name) };
 
-      let seed = derive_seed(username, password, m_cost, t_cost, p_cost)?;
-      let hd_wallet = SecureHDWallet::new_from_seed(name, seed);
+      let argon2 = Argon2::new(m_cost, t_cost, p_cost);
+      let version = Version::CUSTOM(argon2);
+      let method = DeriveMethod::BIP32;
+      let deriver = Deriver::new(version, method, Some(username), Some(password));
+
+      if !cfg!(feature = "dev") {
+         if !deriver.matches_zeus_v1() {
+            return Err(anyhow!(
+               "Deriver does not match Zeus v1 parameters, this is a bug"
+            ));
+         }
+      }
+
+      let hd_wallet = deriver.new_hd_wallet(name)?;
       self.hd_wallet = hd_wallet;
+
       Ok(())
    }
 
