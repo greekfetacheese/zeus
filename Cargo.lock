@@ -11965,7 +11965,7 @@ dependencies = [
 
 [[package]]
 name = "zeus-bip32"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "hex",
  "hmac 0.13.0",
