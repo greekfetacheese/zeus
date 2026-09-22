@@ -13,11 +13,6 @@ use zeus_bip32::{
    BIP32_HARDEN, DEFAULT_DERIVATION_PATH, DerivationPath, SecureXPriv, XKeyInfo, root_from_seed,
 };
 
-// Zeus default Argon2 parameters
-pub const M_COST: u32 = 8192_000;
-pub const T_COST: u32 = 96;
-pub const P_COST: u32 = 1;
-
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone)]
 pub struct Wallet {
@@ -421,9 +416,8 @@ impl SecureHDWallet {
 mod tests {
 
    use super::*;
-   use crate::derive::{DeriveMethod, Version};
+   use crate::derive::{Argon2Params, DeriveMethod, DeriveVersion};
    use alloy_primitives::address;
-   use argon2_rs::Argon2;
    const TEST_M_COST: u32 = 16_000;
    const TEST_T_COST: u32 = 8;
    const TEST_P_COST: u32 = 1;
@@ -435,10 +429,10 @@ mod tests {
 
       let expected_master = address!("0x7c6B09491773800D80deb32d12616411c6238878");
 
-      let argon_params = Argon2::new(TEST_M_COST, TEST_T_COST, TEST_P_COST);
-      let version = Version::CUSTOM(argon_params);
+      let params = Argon2Params::new(TEST_M_COST, TEST_T_COST, TEST_P_COST);
       let method = DeriveMethod::BIP32;
-      let deriver = Deriver::new(version, method, Some(username), Some(password));
+      let version = DeriveVersion::Custom(params, method);
+      let deriver = Deriver::new(version, Some(username), Some(password));
 
       let mut hd_wallet = SecureHDWallet::new_from_deriver(None, deriver).unwrap();
       eprintln!(

@@ -16,7 +16,7 @@ use elegance::{BadgeTone, Toast};
 use ncrypt_me::{Argon2, Credentials};
 use std::time::Instant;
 use zeus_eth::types::ChainId;
-use zeus_wallet::wallet::M_COST;
+use zeus_wallet::derive::V1_M_COST;
 
 #[cfg(feature = "dev")]
 use secure_types::SecureString;
@@ -227,7 +227,7 @@ impl RecoverHDWallet {
          return;
       }
 
-      let m_cost_bytes = M_COST as u64 * 1024;
+      let m_cost_bytes = V1_M_COST as u64 * 1024;
       let m_cost_gb = m_cost_bytes as f64 / 1_000_000_000.0;
 
       // Maybe also consider swap as free memory?

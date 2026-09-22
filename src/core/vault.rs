@@ -25,8 +25,8 @@ use std::path::PathBuf;
 use zeus_eth::alloy_primitives::Address;
 use zeus_railgun::RailgunAddress;
 use zeus_wallet::{
-   DeriveMethod, Deriver, SecureHDWallet, Version, Wallet,
-   wallet::{M_COST, P_COST, T_COST},
+   Deriver, SecureHDWallet, Wallet,
+   derive::{Argon2Params, DeriveMethod, DeriveVersion},
 };
 
 /// Plaintext vault payload encoding (first byte of decrypted data).
@@ -369,22 +369,12 @@ impl Vault {
    pub fn recover_hd_wallet(&mut self, name: String) -> Result<(), anyhow::Error> {
       self.credentials.is_valid()?;
 
-      let m_cost = if cfg!(feature = "dev") {
-         DEV_M_COST
+      let version = if cfg!(feature = "dev") {
+         let params = Argon2Params::new(DEV_M_COST, DEV_T_COST, DEV_P_COST);
+         let method = DeriveMethod::BIP32;
+         DeriveVersion::Custom(params, method)
       } else {
-         M_COST
-      };
-
-      let t_cost = if cfg!(feature = "dev") {
-         DEV_T_COST
-      } else {
-         T_COST
-      };
-
-      let p_cost = if cfg!(feature = "dev") {
-         DEV_P_COST
-      } else {
-         P_COST
+         DeriveVersion::V1
       };
 
       let username = self.credentials.username.clone();
@@ -392,21 +382,9 @@ impl Vault {
 
       let name = if name.is_empty() { None } else { Some(name) };
 
-      let argon2 = Argon2::new(m_cost, t_cost, p_cost);
-      let version = Version::CUSTOM(argon2);
-      let method = DeriveMethod::BIP32;
-      let deriver = Deriver::new(version, method, Some(username), Some(password));
+      let deriver = Deriver::new(version, Some(username), Some(password));
 
-      if !cfg!(feature = "dev") {
-         if !deriver.matches_zeus_v1() {
-            return Err(anyhow!(
-               "Deriver does not match Zeus v1 parameters, this is a bug"
-            ));
-         }
-      }
-
-      let hd_wallet = deriver.new_hd_wallet(name)?;
-      self.hd_wallet = hd_wallet;
+      self.hd_wallet = deriver.new_hd_wallet(name)?;
 
       Ok(())
    }

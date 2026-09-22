@@ -259,10 +259,9 @@ mod test {
       let t_cost = 1;
       let p_cost = 4;
 
-      let argon2 = argon2_rs::Argon2::new(m_cost, t_cost, p_cost);
-      let version = Version::CUSTOM(argon2);
       let method = DeriveMethod::BIP32;
-      let deriver = Deriver::new(version, method, Some(username), Some(password));
+      let version = DeriveVersion::Custom(Argon2Params::new(m_cost, t_cost, p_cost), method);
+      let deriver = Deriver::new(version, Some(username), Some(password));
       let wallet = deriver.new_hd_wallet(None).unwrap();
 
       wallet

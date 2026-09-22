@@ -2,7 +2,7 @@ pub mod derive;
 pub mod secure_key;
 pub mod wallet;
 
-pub use derive::{DeriveMethod, Deriver, Version};
+pub use derive::{Argon2Params, DeriveMethod, DeriveVersion, Deriver};
 pub use secure_key::SecureKey;
 pub use wallet::{SecureHDWallet, Wallet};
 
