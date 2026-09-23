@@ -11,10 +11,9 @@
  
  
 ## Installation
-**You may need to install [Rust](https://www.rust-lang.org/tools/install)**
 
 1. Download the latest release from the [Releases](https://github.com/greekfetacheese/zeus/releases)
-2. Zeus is portable, you just need to extract the folder and run the `zeus` executable.
+2. Zeus is portable, you just need to extract the folder and run the `zeus-gui` executable.
 
 **Zeus saves and loads its data from the current directory it exists, so if you want to move it move it with the entire folder**
 
@@ -39,7 +38,7 @@
 Zeus is **seedless**, meaning that you don't need to have a seed phrase or a private key to access your wallet.
 
 The first time you run Zeus you will be prompted to enter a **username** and a **password**. This will be used to derive your
-master wallet **(Hierarchical Deterministic Wallet)** and you can generate as many wallets under it as you want.
+master wallet **(BIP-32 Hierarchical Deterministic Wallet)** and you can generate as many wallets under it as you want.
 
 You can also import an existing wallet by entering the mnemonic phrase or a private key, but these cannot be recovered
 if you lose your vault.
@@ -53,7 +52,7 @@ impossible.
 Given that **username** and **password** a hash is generated using [Argon2Id](https://github.com/P-H-C/phc-winner-argon2) 
 with the following parameters:
 - **Salt:** SHA512 of the username
-- **Memory cost:** 8192 MB
+- **Memory cost:** 8192_000 KiB
 - **Iterations:** 96
 - **Parallelism:** 1
 - **Byte length:** 64 bytes
@@ -77,7 +76,7 @@ It is possible to connect Zeus to dapps through the [wallet-connector](https://g
 Currently the extension is not listed in the Chrome Web Store, so you will need to install it manually.
 
 ## Installing the extension
-1. Download the wallet-connector.zip from the latest [release](https://github.com/greekfetacheese/zeus/releases)
+1. Download the **wallet-connector.zip** from the latest [release](https://github.com/greekfetacheese/zeus/releases)
 2. You can use this [guide](https://bashvlas.com/blog/install-chrome-extension-in-developer-mode) on how to install the extension in developer mode.
 
 
@@ -85,18 +84,18 @@ Currently the extension is not listed in the Chrome Web Store, so you will need 
 
 | Feature | Details |
 |--------|---------|
-| **Wallet management** | Create HD wallets under one master, import/export wallets |
+| **Wallet management** | Create unlimited wallets under one master, import/export wallets |
 | **Send** | ETH and ERC-20 transfers |
 | **Swaps** | Uniswap via the [Universal Router](https://docs.uniswap.org/contracts/v4/deployments) |
 | **Cross-chain bridge** | Bridge ETH across supported chains with [Across](https://across.to/) (**BNB not supported**) |
-| **Portfolio** | Simple public + private balance tracking |
-| **Tx simulation** | Local EVM sims with [revm](https://github.com/bluealloy/revm) before you confirm what you see is what you get |
-| **MEV protect** | MEV-vulnerable txs prefer mev-protect RPCs (**Ethereum mainnet only**) |
-| **Dapp connect** | Via the [wallet-connector](https://github.com/greekfetacheese/zeus/tree/main/wallet-connector) extension, still WIP some dapps work, some don't |
+| **Portfolio** | public + private balance (Railgun) |
+| **Tx simulation** | Local EVM sims with [revm](https://github.com/bluealloy/revm) + Balance & Approval diffs |
+| **MEV protect** | MEV-vulnerable txs prefer mev-protect RPCs |
+| **Dapp connect** | Via the [wallet-connector](https://github.com/greekfetacheese/zeus/tree/main/wallet-connector) extension |
 
 ### Railgun
 
-Railgun is integrated in Zeus. Private balances shown in the UI are **ERC-20 only**.
+Railgun is natively (no 3rd party) integrated in Zeus. Private balances shown in the UI are **ERC-20 only** (NFTs not supported yet).
 
 | Operation | Assets | Notes |
 |-----------|--------|--------|
@@ -113,6 +112,8 @@ Because of that it does **not** auto-index chain data (historical approvals, eve
 
 By default it uses free public RPCs from [Chainlist.org](https://chainlist.org/).
 When you start Zeus for the first time **no RPC calls are made**, you can either enable any of the default RPCs or bring your own.
+
+I have done my best to make Zeus as efficient as possible when making RPC calls so it can even work with crappy public endpoints, however not all will work properly, its still best to use a paid provider or self-host your own node.
 
 ---
 
