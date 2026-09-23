@@ -56,7 +56,7 @@ eframe = { version = "=0.36", default-features = false, features = [
 ] }
 egui = { version = "=0.36", features = ["serde"] }
 egui_extras = { version = "=0.36", features = ["image", "svg"] }
-image = "=0.25.10"
+image = {version = "=0.25.10", default-features = false, features = ["png"]}
 egui-elegance = "=0.16"
 egui-lucide = "0.1"
 egui-elements = {version = "1.2", features = ["full"]}
@@ -105,7 +105,7 @@ rustls = "=0.23.45"
 
 # Misc
 brotli = "=8.0.4"
-zip = "=6.0.0"
+zip = {version = "=6.0.0", default-features = false, features = ["deflate"]}
 tempfile = "=3.23.0"
 semver = "=1.0.27"
 self_update = { version = "1.2", default-features = false, features = [
@@ -136,13 +136,16 @@ split-debuginfo = "unpacked"
 
 [profile.prod]
 inherits = "release"
-codegen-units = 32
+codegen-units = 1
 incremental = true
 strip = true
 # Slightly smaller binary size than level 3
 opt-level = 2
 debug = false
 lto = "fat"
+
+#[profile.prod.package."*"]
+#opt-level = "z"
 
 [features]
 dev = []
