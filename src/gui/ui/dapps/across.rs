@@ -3,7 +3,8 @@
 use crate::assets::icons::Icons;
 use crate::core::persisted::{PersistedFile, file_path};
 use crate::core::{
-   BridgeParams, DecodedEvent, TransactionAnalysis, ZeusContext, ZeusCtx, send_transaction,
+   BridgeParams, DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, ZeusContext,
+   ZeusCtx, send_transaction,
 };
 use crate::gui::{
    SHARED_GUI,
@@ -1167,15 +1168,15 @@ async fn across_bridge(
    let (_, _) = send_transaction(
       ctx.clone(),
       source_is_zeus,
-      "".to_string(),
-      Some(tx_analysis),
-      chain,
-      mev_protect,
-      from,
-      interact_to,
-      call_data,
-      value,
-      auth_list,
+      SendTxRequest::new(chain, from, interact_to)
+         .call_data(call_data)
+         .value(value)
+         .authorization_list(auth_list)
+         .analysis(tx_analysis),
+      SendTxOptions {
+         mev_protect,
+         ..Default::default()
+      },
    )
    .await?;
 

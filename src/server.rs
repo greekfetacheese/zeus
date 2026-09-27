@@ -3,7 +3,8 @@ use crate::connector::{
    parse_dapp_origin, register_native_host, token_matches, write_connector_session,
 };
 use crate::core::{
-   TransactionRich, WalletCall, ZeusCtx, send_transaction, send_wallet_calls, sign_message,
+   SendTxOptions, SendTxRequest, TransactionRich, WalletCall, ZeusCtx, send_transaction,
+   send_wallet_calls, sign_message,
 };
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
@@ -1521,15 +1522,12 @@ async fn eth_send_transaction(
    let (receipt, tx_rich) = match send_transaction(
       ctx.clone(),
       source_is_zeus,
-      origin,
-      None,
-      chain,
-      true,
-      from,
-      transact_to,
-      call_data,
-      value,
-      Vec::new(),
+      SendTxRequest::new(chain, from, transact_to).call_data(call_data).value(value),
+      SendTxOptions {
+         dapp: origin,
+         mev_protect: true,
+         ..Default::default()
+      },
    )
    .await
    {

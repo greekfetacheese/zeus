@@ -1,7 +1,7 @@
 //! EIP-5792 `wallet_sendCalls` — single calls as a normal tx, batches via EIP-7702.
 
 use super::TransactionRich;
-use super::send::{send_transaction, signed_7702_authorization};
+use super::send::{SendTxOptions, SendTxRequest, send_transaction, signed_7702_authorization};
 use crate::core::ZeusCtx;
 use anyhow::anyhow;
 use userop_kit::smart_account::simple_smart_account::SIMPLE_7702_ACCOUNT;
@@ -68,15 +68,14 @@ pub async fn send_wallet_calls(
       return send_transaction(
          ctx,
          source_is_zeus,
-         dapp,
-         None,
-         chain,
-         true,
-         from,
-         call.to,
-         call.data.clone(),
-         call.value,
-         Vec::new(),
+         SendTxRequest::new(chain, from, call.to)
+            .call_data(call.data.clone())
+            .value(call.value),
+         SendTxOptions {
+            dapp,
+            mev_protect: true,
+            ..Default::default()
+         },
       )
       .await;
    }
@@ -93,15 +92,14 @@ pub async fn send_wallet_calls(
    let result = send_transaction(
       ctx.clone(),
       source_is_zeus,
-      dapp,
-      None,
-      chain,
-      true,
-      from,
-      from,
-      call_data,
-      U256::ZERO,
-      authorization_list.clone(),
+      SendTxRequest::new(chain, from, from)
+         .call_data(call_data)
+         .authorization_list(authorization_list.clone()),
+      SendTxOptions {
+         dapp,
+         mev_protect: true,
+         ..Default::default()
+      },
    )
    .await?;
 

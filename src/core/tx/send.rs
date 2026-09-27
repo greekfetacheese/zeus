@@ -38,48 +38,77 @@ pub(crate) fn signed_7702_authorization(
    Ok(auth.into_signed(signature))
 }
 
+/// A transaction that is ready to be signed and broadcast.
+///
+/// Built from a [`SendTxRequest`] once the confirmation window has produced the
+/// user's fee and gas edits. Several of these fields share a type, so they are
+/// set through named setters instead of one eleven-argument constructor.
 #[derive(Clone)]
 pub struct TxParams {
    pub signer: SecureKey,
-   pub transcact_to: Address,
+   /// The address the signed call is made to.
+   pub transact_to: Address,
    pub nonce: u64,
    pub value: U256,
    pub chain: ChainId,
+   /// The miner tip the user picked.
    pub miner_tip: U256,
+   /// The base fee of the next block.
    pub base_fee: u64,
    pub call_data: Bytes,
-   pub gas_used: u64,
    pub gas_limit: u64,
    pub authorization_list: Vec<SignedAuthorization>,
 }
 
 impl TxParams {
+   /// `signer` pays and signs for `transact_to` on `chain`, spending `nonce` and
+   /// moving `value` with `call_data`.
+   ///
+   /// Every argument has a distinct type, so the order cannot be got wrong by
+   /// accident. The fee and gas inputs come from the confirmation window and are
+   /// set separately — see [`Self::fees`] and [`Self::gas_limit`].
    pub fn new(
       signer: SecureKey,
-      transcact_to: Address,
+      chain: ChainId,
+      transact_to: Address,
       nonce: u64,
       value: U256,
-      chain: ChainId,
-      miner_tip: U256,
-      base_fee: u64,
       call_data: Bytes,
-      gas_used: u64,
-      gas_limit: u64,
-      authorization_list: Vec<SignedAuthorization>,
    ) -> Self {
       Self {
          signer,
-         transcact_to,
+         transact_to,
          nonce,
          value,
          chain,
-         miner_tip,
-         base_fee,
+         miner_tip: U256::ZERO,
+         base_fee: 0,
          call_data,
-         gas_used,
-         gas_limit,
-         authorization_list,
+         gas_limit: 0,
+         authorization_list: Vec::new(),
       }
+   }
+
+   /// The two fee inputs. Both are plain numbers that cannot be told apart once
+   /// they are in the struct, so they are set together and by name.
+   #[must_use]
+   pub fn fees(mut self, miner_tip: U256, base_fee: u64) -> Self {
+      self.miner_tip = miner_tip;
+      self.base_fee = base_fee;
+      self
+   }
+
+   /// The gas limit the user approved. Left at zero the RPC rejects the send.
+   #[must_use]
+   pub fn gas_limit(mut self, gas_limit: u64) -> Self {
+      self.gas_limit = gas_limit;
+      self
+   }
+
+   #[must_use]
+   pub fn authorization_list(mut self, authorization_list: Vec<SignedAuthorization>) -> Self {
+      self.authorization_list = authorization_list;
+      self
    }
 
    pub fn max_fee_per_gas(&self) -> U256 {
@@ -89,7 +118,87 @@ impl TxParams {
    }
 }
 
-/// Options for [`send_transaction_with`].
+/// What a flow asks Zeus to send: the transaction, plus the analysis the caller
+/// already built for it.
+///
+/// These used to be nine positional arguments — two of them addresses, two of
+/// them numbers — so a swapped pair still compiled. The fields a send cannot
+/// invent are required by [`SendTxRequest::new`] and there is deliberately no
+/// `Default` impl, so `from` and `interact_to` can never quietly become the zero
+/// address.
+///
+/// ```ignore
+/// let (receipt, tx_rich) = send_transaction(
+///    ctx,
+///    false,
+///    SendTxRequest::new(chain, from, router).call_data(call_data).value(value),
+///    SendTxOptions {
+///       dapp: origin,
+///       mev_protect: true,
+///       ..Default::default()
+///    },
+/// )
+/// .await?;
+/// ```
+#[derive(Clone)]
+pub struct SendTxRequest {
+   pub chain: ChainId,
+   /// The wallet that signs and pays.
+   pub from: Address,
+   /// The address the call is made to.
+   pub interact_to: Address,
+   pub call_data: Bytes,
+   pub value: U256,
+   pub authorization_list: Vec<SignedAuthorization>,
+   /// An analysis the caller already built. `None` makes the send simulate the
+   /// call on a fork and analyze the result before opening the confirm window.
+   pub analysis: Option<TransactionAnalysis>,
+}
+
+impl SendTxRequest {
+   /// A call from `from` to `interact_to` on `chain`, carrying no calldata, no
+   /// value, no authorization list and no analysis.
+   pub fn new(chain: ChainId, from: Address, interact_to: Address) -> Self {
+      Self {
+         chain,
+         from,
+         interact_to,
+         call_data: Bytes::default(),
+         value: U256::ZERO,
+         authorization_list: Vec::new(),
+         analysis: None,
+      }
+   }
+
+   #[must_use]
+   pub fn call_data(mut self, call_data: Bytes) -> Self {
+      self.call_data = call_data;
+      self
+   }
+
+   #[must_use]
+   pub fn value(mut self, value: U256) -> Self {
+      self.value = value;
+      self
+   }
+
+   #[must_use]
+   pub fn authorization_list(mut self, authorization_list: Vec<SignedAuthorization>) -> Self {
+      self.authorization_list = authorization_list;
+      self
+   }
+
+   /// Skip the pre-send simulation: the caller simulated this exact call and
+   /// built the analysis itself. Callers whose analysis is optional (the approve
+   /// helper) assign [`Self::analysis`] directly.
+   #[must_use]
+   pub fn analysis(mut self, analysis: TransactionAnalysis) -> Self {
+      self.analysis = Some(analysis);
+      self
+   }
+}
+
+/// Options for [`send_transaction`].
 #[derive(Default, Clone)]
 pub struct SendTxOptions {
    pub mev_protect: bool,
@@ -148,50 +257,28 @@ pub async fn confirm_tx(
    }))
 }
 
+/// Simulate the call unless the request already carries an analysis, ask the
+/// user to confirm, broadcast, and record the result.
+///
+/// Every flow that broadcasts through a normal RPC goes through here. The
+/// sponsored Railgun unshield submits to a bundler instead and confirms through
+/// [`confirm_tx`].
 pub async fn send_transaction(
    ctx: ZeusCtx,
    source_is_zeus: bool,
-   dapp: String,
-   tx_analysis: Option<TransactionAnalysis>,
-   chain: ChainId,
-   mev_protect: bool,
-   from: Address,
-   interact_to: Address,
-   call_data: Bytes,
-   value: U256,
-   authorization_list: Vec<SignedAuthorization>,
+   req: SendTxRequest,
+   opts: SendTxOptions,
 ) -> Result<(TransactionReceipt, TransactionRich), anyhow::Error> {
-   send_transaction_with(
-      ctx,
-      source_is_zeus,
-      SendTxOptions {
-         mev_protect,
-         dapp,
-         ..Default::default()
-      },
-      tx_analysis,
+   let SendTxRequest {
       chain,
       from,
       interact_to,
       call_data,
       value,
       authorization_list,
-   )
-   .await
-}
+      analysis,
+   } = req;
 
-pub async fn send_transaction_with(
-   ctx: ZeusCtx,
-   source_is_zeus: bool,
-   opts: SendTxOptions,
-   tx_analysis: Option<TransactionAnalysis>,
-   chain: ChainId,
-   from: Address,
-   interact_to: Address,
-   call_data: Bytes,
-   value: U256,
-   authorization_list: Vec<SignedAuthorization>,
-) -> Result<(TransactionReceipt, TransactionRich), anyhow::Error> {
    SHARED_GUI.write(|gui| {
       gui.loading_window.open("Wait while magic happens");
       gui.request_repaint();
@@ -204,7 +291,7 @@ pub async fn send_transaction_with(
       client.get_transaction_count(from).await.map_err(|e| anyhow!("{:?}", e))
    });
 
-   let mut tx_analysis = if let Some(analysis) = tx_analysis {
+   let mut tx_analysis = if let Some(analysis) = analysis {
       analysis
    } else {
       let simulated = simulate_and_diff(
@@ -278,10 +365,10 @@ pub async fn send_transaction_with(
       "Transaction in progress".to_string()
    };
 
-   let nofitification = NotificationType::from_main_event(main_event);
+   let notification = NotificationType::from_main_event(main_event);
 
    SHARED_GUI.write(|gui| {
-      gui.notification.open_with_spinner(main_event_name, nofitification);
+      gui.notification.open_with_spinner(main_event_name, notification);
       gui.request_repaint();
    });
 
@@ -294,21 +381,18 @@ pub async fn send_transaction_with(
    let base_fee = base_fee_fut.await?;
    let nonce = nonce_fut.await?;
    let signer = ctx.get_wallet(from).ok_or(anyhow!("Wallet not found"))?.key;
-   let gas_used = tx_analysis.gas_used;
 
    let tx_params = TxParams::new(
       signer,
+      chain,
       interact_to,
       nonce,
       value,
-      chain,
-      priority_fee.wei(),
-      base_fee.next,
       call_data.clone(),
-      gas_used,
-      confirmed.gas_limit,
-      authorization_list.clone(),
-   );
+   )
+   .fees(priority_fee.wei(), base_fee.next)
+   .gas_limit(confirmed.gas_limit)
+   .authorization_list(authorization_list.clone());
 
    let rpc = client.get_best_rpc(chain.id()).ok_or(anyhow!("No available RPC found"))?;
    let tx_client = client.connect_with_timeout(&rpc, CLIENT_TIMEOUT_FOR_SENDING_TX).await?;
@@ -471,15 +555,8 @@ pub async fn delegate_to(
    send_transaction(
       ctx.clone(),
       source_is_zeus,
-      String::new(),
-      None,
-      chain,
-      false,
-      from,
-      from,
-      Bytes::default(),
-      U256::ZERO,
-      vec![signed_authorization],
+      SendTxRequest::new(chain, from, from).authorization_list(vec![signed_authorization]),
+      SendTxOptions::default(),
    )
    .await?;
 
@@ -526,7 +603,7 @@ fn make_tx_request(params: &TxParams) -> TransactionRequest {
    if params.chain.supports_type_2_tx() {
       let mut tx = TransactionRequest::default()
          .with_from(params.signer.address())
-         .with_to(params.transcact_to)
+         .with_to(params.transact_to)
          .with_chain_id(params.chain.id())
          .with_value(params.value)
          .with_nonce(params.nonce)
@@ -543,7 +620,7 @@ fn make_tx_request(params: &TxParams) -> TransactionRequest {
    } else {
       TransactionRequest::default()
          .with_from(params.signer.address())
-         .with_to(params.transcact_to)
+         .with_to(params.transact_to)
          .with_value(params.value)
          .with_nonce(params.nonce)
          .with_input(params.call_data.clone())
@@ -565,5 +642,22 @@ mod tests {
       assert!(!opts.sponsored);
       assert!(!opts.keep_intent_event);
       assert!(opts.dapp.is_empty());
+   }
+
+   /// A freshly built request carries nothing the caller did not ask for, and
+   /// the defaults it does carry are the inert ones.
+   #[test]
+   fn new_request_is_inert() {
+      let req = SendTxRequest::new(
+         ChainId::Ethereum,
+         Address::from([1u8; 20]),
+         Address::from([2u8; 20]),
+      );
+
+      assert_eq!(req.chain.id(), 1);
+      assert!(req.call_data.is_empty());
+      assert_eq!(req.value, U256::ZERO);
+      assert!(req.authorization_list.is_empty());
+      assert!(req.analysis.is_none());
    }
 }

@@ -35,8 +35,8 @@ use crate::{
    core::tx::DiffProbe,
    core::{
       ApprovalDiff, BalanceDiff, DecodedEvent, MainEvent, MinedTx, RecordPolicy, SendTxOptions,
-      TransactionAnalysis, UnshieldParams, ZeusCtx, build_tx_outcome, confirm_tx,
-      record_and_notify, send_transaction_with, tx::diffs_from_receipt,
+      SendTxRequest, TransactionAnalysis, UnshieldParams, ZeusCtx, build_tx_outcome, confirm_tx,
+      record_and_notify, send_transaction, tx::diffs_from_receipt,
    },
    gui::SHARED_GUI,
    utils::{
@@ -301,17 +301,14 @@ async fn unshield_self_broadcast(
       ..Default::default()
    };
 
-   let (_, _) = send_transaction_with(
+   let (_, _) = send_transaction(
       ctx.clone(),
       true,
+      SendTxRequest::new(chain, from, interact_to)
+         .call_data(calldata)
+         .value(value)
+         .analysis(tx_analysis),
       tx_opt,
-      Some(tx_analysis),
-      chain,
-      from,
-      interact_to,
-      calldata,
-      value,
-      vec![],
    )
    .await?;
 

@@ -20,8 +20,7 @@ pub use finalize::{
 };
 pub use rich::TransactionRich;
 pub use send::{
-   ConfirmedTx, SendTxOptions, confirm_tx, delegate_to, send_transaction, send_transaction_with,
-   send_tx,
+   ConfirmedTx, SendTxOptions, SendTxRequest, confirm_tx, delegate_to, send_transaction, send_tx,
 };
 pub use send_calls::{WalletCall, encode_execute_batch, send_wallet_calls};
 pub use sim_diff::{

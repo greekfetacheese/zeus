@@ -15,8 +15,8 @@ use zeus_eth::alloy_rpc_types::Block;
 use zeus_eth::revm::context::ContextTr;
 
 use crate::core::{
-   ApproveSimulation, DecodedEvent, SwapParams, TransactionAnalysis, UnwrapWETHParams,
-   WrapETHParams, ZeusCtx, send_token_approve, send_transaction, sign_message,
+   ApproveSimulation, DecodedEvent, SendTxOptions, SendTxRequest, SwapParams, TransactionAnalysis,
+   UnwrapWETHParams, WrapETHParams, ZeusCtx, send_token_approve, send_transaction, sign_message,
    signature::Permit2Info, types::Dapp,
 };
 use crate::utils::{RT, simulate::*, swap_quoter::*, universal_router_v2::encode_swap};
@@ -1461,15 +1461,15 @@ pub async fn wrap_eth(
    let (_, _) = send_transaction(
       ctx.clone(),
       source_is_zeus,
-      "".to_string(),
-      Some(tx_analysis),
-      chain,
-      mev_protect,
-      from,
-      interact_to,
-      call_data,
-      value,
-      auth_list,
+      SendTxRequest::new(chain, from, interact_to)
+         .call_data(call_data)
+         .value(value)
+         .authorization_list(auth_list)
+         .analysis(tx_analysis),
+      SendTxOptions {
+         mev_protect,
+         ..Default::default()
+      },
    )
    .await?;
 
@@ -1600,15 +1600,15 @@ pub async fn unwrap_weth(
    let (_, _) = send_transaction(
       ctx.clone(),
       source_is_zeus,
-      "".to_string(),
-      Some(tx_analysis),
-      chain,
-      mev_protect,
-      from,
-      interact_to,
-      call_data,
-      value,
-      auth_list,
+      SendTxRequest::new(chain, from, interact_to)
+         .call_data(call_data)
+         .value(value)
+         .authorization_list(auth_list)
+         .analysis(tx_analysis),
+      SendTxOptions {
+         mev_protect,
+         ..Default::default()
+      },
    )
    .await?;
 
@@ -2020,15 +2020,16 @@ async fn swap_via_ur(
    let (_, _) = send_transaction(
       ctx.clone(),
       source_is_zeus,
-      dapp,
-      Some(swap_tx_analysis),
-      chain,
-      mev_protect,
-      signer_address,
-      router_addr,
-      call_data,
-      value,
-      auth_list,
+      SendTxRequest::new(chain, signer_address, router_addr)
+         .call_data(call_data)
+         .value(value)
+         .authorization_list(auth_list)
+         .analysis(swap_tx_analysis),
+      SendTxOptions {
+         dapp,
+         mev_protect,
+         ..Default::default()
+      },
    )
    .await?;
 

@@ -11,7 +11,8 @@ use std::{
 };
 
 use crate::core::{
-   DecodedEvent, TransactionAnalysis, TransferParams, ZeusContext, ZeusCtx, send_transaction,
+   DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, TransferParams, ZeusContext,
+   ZeusCtx, send_transaction,
 };
 use crate::utils::{RT, estimate_tx_cost, simulate};
 
@@ -936,15 +937,16 @@ async fn send_eth(
    let (_, _) = send_transaction(
       ctx.clone(),
       source_is_zeus,
-      dapp,
-      Some(tx_analysis),
-      chain,
-      mev_protect,
-      from,
-      interact_to,
-      call_data,
-      value,
-      auth_list,
+      SendTxRequest::new(chain, from, interact_to)
+         .call_data(call_data)
+         .value(value)
+         .authorization_list(auth_list)
+         .analysis(tx_analysis),
+      SendTxOptions {
+         dapp,
+         mev_protect,
+         ..Default::default()
+      },
    )
    .await?;
 
@@ -1087,15 +1089,16 @@ async fn send_token(
    let (_, _) = send_transaction(
       ctx.clone(),
       source_is_zeus,
-      dapp,
-      Some(tx_analysis),
-      chain,
-      mev_protect,
-      from,
-      interact_to,
-      call_data,
-      value,
-      auth_list,
+      SendTxRequest::new(chain, from, interact_to)
+         .call_data(call_data)
+         .value(value)
+         .authorization_list(auth_list)
+         .analysis(tx_analysis),
+      SendTxOptions {
+         dapp,
+         mev_protect,
+         ..Default::default()
+      },
    )
    .await?;
 

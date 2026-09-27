@@ -18,8 +18,8 @@ use zeus_railgun::{
 
 use crate::{
    core::{
-      DecodedEvent, PrivateTransferParams, SendTxOptions, TransactionAnalysis, ZeusCtx,
-      send_transaction_with,
+      DecodedEvent, PrivateTransferParams, SendTxOptions, SendTxRequest, TransactionAnalysis,
+      ZeusCtx, send_transaction,
    },
    gui::SHARED_GUI,
    utils::{
@@ -263,7 +263,7 @@ async fn exec_private_transfer(
       interact_to,
       value,
    } = call;
-   
+
    let ForkSim {
       sim_res,
       logs,
@@ -298,17 +298,14 @@ async fn exec_private_transfer(
       ..Default::default()
    };
 
-   let (_, _) = send_transaction_with(
+   let (_, _) = send_transaction(
       ctx.clone(),
       true,
+      SendTxRequest::new(chain, from, interact_to)
+         .call_data(calldata)
+         .value(value)
+         .analysis(tx_analysis),
       tx_opt,
-      Some(tx_analysis),
-      chain,
-      from,
-      interact_to,
-      calldata,
-      value,
-      vec![],
    )
    .await?;
 

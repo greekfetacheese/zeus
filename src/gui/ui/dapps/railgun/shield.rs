@@ -10,8 +10,8 @@ use std::{
 };
 
 use crate::core::{
-   DecodedEvent, SendTxOptions, ShieldParams, TransactionAnalysis, WalletStateKey, ZeusContext,
-   ZeusCtx, bundler_url_dir, ensure_allowance, send_transaction_with,
+   DecodedEvent, SendTxOptions, SendTxRequest, ShieldParams, TransactionAnalysis, WalletStateKey,
+   ZeusContext, ZeusCtx, bundler_url_dir, ensure_allowance, send_transaction,
 };
 use crate::{
    gui::ui::common::show_with_fade,
@@ -1132,7 +1132,7 @@ async fn shield(
       "More than one shield event found",
       || "No shield event found".to_string(),
    )?;
-   
+
    shield_params.recipient = Some(recipient.address.clone());
 
    let eth_balance_before = eth_balance_before_fut.await?;
@@ -1156,21 +1156,18 @@ async fn shield(
    // Transact logs are not public ERC-20 transfers, so record the intent.
    tx_analysis.set_main_event(DecodedEvent::Shield(shield_params));
 
-   let (_, _) = send_transaction_with(
+   let (_, _) = send_transaction(
       ctx.clone(),
       true,
+      SendTxRequest::new(chain, from, interact_to)
+         .call_data(calldata)
+         .value(value)
+         .analysis(tx_analysis),
       SendTxOptions {
          dapp: "Railgun".to_string(),
          keep_intent_event: true,
          ..Default::default()
       },
-      Some(tx_analysis),
-      chain,
-      from,
-      interact_to,
-      calldata,
-      value,
-      vec![],
    )
    .await?;
 

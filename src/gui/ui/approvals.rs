@@ -2,8 +2,8 @@
 
 use crate::assets::icons::Icons;
 use crate::core::{
-   DecodedEvent, PermitParams, TokenApproveParams, TransactionAnalysis, WalletInfo, ZeusContext,
-   ZeusCtx, send_transaction, signature,
+   DecodedEvent, PermitParams, SendTxOptions, SendTxRequest, TokenApproveParams,
+   TransactionAnalysis, WalletInfo, ZeusContext, ZeusCtx, send_transaction, signature,
 };
 use crate::gui::{SHARED_GUI, ui::show_with_fade};
 use crate::utils::{RT, TimeStamp, simulate::simulate_for_analysis, truncate_address};
@@ -877,15 +877,16 @@ async fn revoke_erc20_approval(
    let (_, _) = send_transaction(
       ctx,
       source_is_zeus,
-      dapp,
-      Some(analysis),
-      chain,
-      mev_protect,
-      from,
-      interact_to,
-      calldata,
-      value,
-      auth_list,
+      SendTxRequest::new(chain, from, interact_to)
+         .call_data(calldata)
+         .value(value)
+         .authorization_list(auth_list)
+         .analysis(analysis),
+      SendTxOptions {
+         dapp,
+         mev_protect,
+         ..Default::default()
+      },
    )
    .await?;
 
@@ -1005,15 +1006,8 @@ async fn revoke_permit2_approval(
    let (_, _) = send_transaction(
       ctx,
       source_is_zeus,
-      "".to_string(),
-      Some(analysis),
-      chain,
-      false,
-      owner,
-      permit2,
-      calldata,
-      U256::ZERO,
-      vec![],
+      SendTxRequest::new(chain, owner, permit2).call_data(calldata).analysis(analysis),
+      SendTxOptions::default(),
    )
    .await?;
 
