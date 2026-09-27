@@ -157,22 +157,59 @@ impl SwapType {
    }
 }
 
+/// Everything [`encode_swap`] needs that the calldata cannot imply.
+///
+/// This replaces thirteen positional arguments — `currency_in`/`currency_out`
+/// were adjacent [`Currency`]s and `amount_in`/`amount_out_min` adjacent
+/// [`U256`]s, so a swapped pair compiled and only the fork simulation could
+/// catch it. Every field is named at the call site instead.
+///
+/// There is deliberately no `Default` and no partial builder: the default
+/// [`Currency`] is native ETH, a defaulted `amount_out_min` is zero (the
+/// calldata would enforce no slippage floor while the confirm window still shows
+/// the one the quote produced) and a defaulted `recipient` is the zero address.
+/// Being able to omit any of those is the bug this type removes, so each field
+/// is required.
+pub struct SwapRequest<P: UniswapPool + Clone> {
+   pub chain_id: u64,
+   pub currency_in: Currency,
+   pub currency_out: Currency,
+   pub amount_in: U256,
+   /// The slippage floor the encoded calldata enforces. `U256::ZERO` only for
+   /// the pre-simulation encode, whose whole purpose is to learn the amount out.
+   pub amount_out_min: U256,
+   pub slippage: f64,
+   pub swap_type: SwapType,
+   pub steps: Vec<SwapStep<P>>,
+   pub signer: SecureKey,
+   /// Where the swap's proceeds are swept.
+   pub recipient: Address,
+   pub deadline_minutes: u64,
+   /// A Permit2 payload the caller already built — a signature, allowance or
+   /// nonce that must not be recomputed. `None` builds one.
+   pub permit2_info: Option<Permit2Info>,
+}
+
 /// Encode the calldata for a swap using the universal router
-pub async fn encode_swap(
+pub async fn encode_swap<P: UniswapPool + Clone>(
    ctx: ZeusCtx,
-   permit2_info: Option<Permit2Info>,
-   chain_id: u64,
-   swap_steps: Vec<SwapStep<impl UniswapPool + Clone>>,
-   swap_type: SwapType,
-   amount_in: U256,
-   amount_out_min: U256,
-   slippage: f64,
-   currency_in: Currency,
-   currency_out: Currency,
-   secure_signer: SecureKey,
-   recipient: Address,
-   deadline_in_minutes: u64,
+   req: SwapRequest<P>,
 ) -> Result<SwapExecuteParams, anyhow::Error> {
+   let SwapRequest {
+      chain_id,
+      currency_in,
+      currency_out,
+      amount_in,
+      amount_out_min,
+      slippage,
+      swap_type,
+      steps: swap_steps,
+      signer: secure_signer,
+      recipient,
+      deadline_minutes: deadline_in_minutes,
+      permit2_info,
+   } = req;
+
    if swap_steps.is_empty() {
       return Err(anyhow!("No swap steps provided"));
    }

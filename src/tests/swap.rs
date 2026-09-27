@@ -582,18 +582,20 @@ mod tests {
 
       let swap_params = encode_swap(
          ctx.clone(),
-         None,
-         chain,
-         swap_steps,
-         SwapType::ExactInput,
-         amount_in.wei(),
-         min_amount_out.wei(),
-         slippage,
-         currency_in.clone(),
-         currency_out.clone(),
-         signer.clone(),
-         alice.address,
-         5,
+         SwapRequest {
+            chain_id: chain,
+            currency_in: currency_in.clone(),
+            currency_out: currency_out.clone(),
+            amount_in: amount_in.wei(),
+            amount_out_min: min_amount_out.wei(),
+            slippage,
+            swap_type: SwapType::ExactInput,
+            steps: swap_steps,
+            signer: signer.clone(),
+            recipient: alice.address,
+            deadline_minutes: 5,
+            permit2_info: None,
+         },
       )
       .await?;
 

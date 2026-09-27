@@ -19,7 +19,12 @@ use crate::core::{
    UnwrapWETHParams, WrapETHParams, ZeusCtx, send_token_approve, send_transaction, sign_message,
    signature::Permit2Info, types::Dapp,
 };
-use crate::utils::{RT, simulate::*, swap_quoter::*, universal_router_v2::encode_swap};
+use crate::utils::{
+   RT,
+   simulate::*,
+   swap_quoter::*,
+   universal_router_v2::{SwapRequest, encode_swap},
+};
 
 use zeus_eth::{
    alloy_primitives::{Address, U256, address},
@@ -1862,18 +1867,22 @@ async fn swap_via_ur(
 
    let params = encode_swap(
       ctx.clone(),
-      permit2_info_opt.clone(),
-      chain.id(),
-      swap_steps.clone(),
-      SwapType::ExactInput,
-      amount_in.wei(),
-      U256::ZERO,
-      slippage,
-      currency_in.clone(),
-      currency_out.clone(),
-      signer.clone(),
-      signer_address,
-      deadline,
+      SwapRequest {
+         chain_id: chain.id(),
+         currency_in: currency_in.clone(),
+         currency_out: currency_out.clone(),
+         amount_in: amount_in.wei(),
+         // No floor yet: this encode is what the fork simulation below runs,
+         // its output is what the real `amount_out_min` is derived from.
+         amount_out_min: U256::ZERO,
+         slippage,
+         swap_type: SwapType::ExactInput,
+         steps: swap_steps.clone(),
+         signer: signer.clone(),
+         recipient: signer_address,
+         deadline_minutes: deadline,
+         permit2_info: permit2_info_opt.clone(),
+      },
    )
    .await?;
 
@@ -1954,18 +1963,20 @@ async fn swap_via_ur(
    // Build the call data again with the real_amount_out and slippage applied
    let execute_params = encode_swap(
       ctx.clone(),
-      permit2_info_opt,
-      chain.id(),
-      swap_steps.clone(),
-      SwapType::ExactInput,
-      amount_in.wei(),
-      amount_out_min.wei(),
-      slippage,
-      currency_in.clone(),
-      currency_out.clone(),
-      signer,
-      signer_address,
-      deadline,
+      SwapRequest {
+         chain_id: chain.id(),
+         currency_in: currency_in.clone(),
+         currency_out: currency_out.clone(),
+         amount_in: amount_in.wei(),
+         amount_out_min: amount_out_min.wei(),
+         slippage,
+         swap_type: SwapType::ExactInput,
+         steps: swap_steps.clone(),
+         signer,
+         recipient: signer_address,
+         deadline_minutes: deadline,
+         permit2_info: permit2_info_opt,
+      },
    )
    .await?;
 
