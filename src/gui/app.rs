@@ -210,7 +210,7 @@ impl ZeusApp {
                ctx.current_wallet = WalletInfo::default();
             });
 
-            gui.header.erase();
+            gui.account_panel.erase();
             gui.wallet_ui.erase(&egui_ctx);
             gui.unlock_vault_ui.erase();
             gui.recover_wallet_ui.erase();
@@ -264,7 +264,7 @@ impl eframe::App for ZeusApp {
 
             let left_frame = Frame::new().fill(left_frame_bg);
 
-            // Left panel first so it owns the full window height. Header + nav
+            // Left panel first so it owns the full window height. Account panel + nav
             // then sit at the top-left; the top panel is only the message bar.
             egui::Panel::left("left_panel")
                .min_size(260.0)

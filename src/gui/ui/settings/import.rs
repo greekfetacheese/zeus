@@ -240,8 +240,8 @@ impl ImportDataUi {
                SHARED_GUI.write(|gui| {
                   gui.settings.import.reset();
                   gui.settings.encryption.set_argon2(argon);
-                  gui.header.open();
-                  gui.header.set_current_wallet(master_wallet);
+                  gui.account_panel.open();
+                  gui.account_panel.set_current_wallet(master_wallet);
                   gui.portofolio.open();
                   if let Some(url) = bundler_url {
                      gui.shield_ui.set_bundler_url(url);

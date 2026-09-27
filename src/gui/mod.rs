@@ -11,7 +11,7 @@ use egui_elements::{editor::ThemeEditor, theme::*};
 use lazy_static::lazy_static;
 
 pub use crate::gui::ui::{
-   ApprovalsUi, ConfirmWindow, Header, LoadingWindow, MsgWindow, Notification, PortfolioUi,
+   AccountPanel, ApprovalsUi, ConfirmWindow, LoadingWindow, MsgWindow, Notification, PortfolioUi,
    RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, TokenSelectionWindow,
    TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
    common::dots_button,
@@ -75,7 +75,7 @@ pub struct GUI {
    pub uniswap: UniswapUi,
    pub across_bridge: AcrossBridge,
    pub approvals: ApprovalsUi,
-   pub header: Header,
+   pub account_panel: AccountPanel,
    pub token_selection: TokenSelectionWindow,
    pub recipient_selection: RecipientSelectionWindow,
    pub wallet_ui: WalletUi,
@@ -109,7 +109,7 @@ impl GUI {
       let recipient_selection = ui::RecipientSelectionWindow::new();
       let send_crypto = ui::SendCryptoUi::new();
       let across_bridge = ui::dapps::across::AcrossBridge::new();
-      let header = Header::new();
+      let account_panel = AccountPanel::new();
 
       let msg_window = ui::MsgWindow::new();
       let loading_window = ui::LoadingWindow::new();
@@ -140,7 +140,7 @@ impl GUI {
          theme,
          editor: ThemeEditor::new(),
          icons,
-         header,
+         account_panel,
          token_selection,
          recipient_selection,
          wallet_ui,

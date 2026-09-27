@@ -1474,7 +1474,7 @@ async fn apply_chain_switch(
    });
 
    SHARED_GUI.write(|gui| {
-      gui.header.set_current_chain(chain);
+      gui.account_panel.set_current_chain(chain);
       gui.request_repaint();
    });
 

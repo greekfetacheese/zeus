@@ -769,8 +769,8 @@ fn on_unlock_vault(mut vault: Vault) {
                gui.unlock_vault_ui.credentials_form.erase();
                gui.loading_window.reset();
                gui.settings.encryption.set_argon2(info.argon2.clone());
-               gui.header.open();
-               gui.header.set_current_wallet(master_info.clone());
+               gui.account_panel.open();
+               gui.account_panel.set_current_wallet(master_info.clone());
                if let Some(url) = bundler_url {
                   gui.shield_ui.set_bundler_url(url);
                }
@@ -959,8 +959,8 @@ fn on_finish_onboarding(config: MiscConfig, current_wallet: WalletInfo) {
       let ctx = SHARED_GUI.write(|gui| {
          gui.recover_wallet_ui.show_onboarding = false;
          gui.portofolio.open();
-         gui.header.open();
-         gui.header.set_current_wallet(current_wallet);
+         gui.account_panel.open();
+         gui.account_panel.set_current_wallet(current_wallet);
          gui.request_repaint();
          gui.ctx.clone()
       });

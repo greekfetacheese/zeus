@@ -1,9 +1,9 @@
+pub mod account;
 pub mod approvals;
 pub mod auth;
 pub mod common;
 pub mod dapps;
 pub mod dev;
-pub mod header;
 pub mod notification;
 pub mod panels;
 pub mod portfolio;
@@ -16,11 +16,11 @@ pub mod tx;
 pub mod tx_history;
 pub mod wallet;
 
+pub use account::AccountPanel;
 pub use approvals::ApprovalsUi;
 pub use auth::{RecoverHDWallet, UnlockVault};
 pub use common::*;
 pub use dapps::{across::AcrossBridge, uniswap::swap::SwapUi};
-pub use header::Header;
 pub use notification::{Notification, NotificationType};
 pub use portfolio::PortfolioUi;
 pub use recipient_selection::RecipientSelectionWindow;

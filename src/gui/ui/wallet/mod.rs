@@ -367,7 +367,7 @@ fn on_calc_wallet_value() {
 fn on_show_wallet_qr(wallet: WalletInfo) {
    RT.spawn_blocking(move || {
       SHARED_GUI.write(|gui| {
-         gui.header.qrcode_window.open(wallet);
+         gui.account_panel.qr_window.open(wallet);
          gui.request_repaint();
       });
    });
@@ -446,9 +446,9 @@ fn on_rename_wallet(new_wallet_name: String, old_wallet_addr: Address) {
       match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
          Ok(_) => {
             SHARED_GUI.write(|gui| {
-               // Update header
+               // Update the account panel
                if is_current {
-                  gui.header.set_current_wallet(current_info);
+                  gui.account_panel.set_current_wallet(current_info);
                }
 
                // Reset state

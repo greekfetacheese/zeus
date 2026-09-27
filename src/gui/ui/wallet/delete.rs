@@ -293,7 +293,7 @@ fn on_delete_wallet(wallet: WalletInfo, is_current: bool) {
             ctx.current_wallet = master_info.clone();
          });
          SHARED_GUI.write(|gui| {
-            gui.header.set_current_wallet(master_info);
+            gui.account_panel.set_current_wallet(master_info);
          });
       }
 

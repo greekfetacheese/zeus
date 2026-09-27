@@ -11,7 +11,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let icons = gui.icons.clone();
    let theme = &gui.theme;
 
-   gui.header.show(ctx, theme, icons, ui);
+   gui.account_panel.show(ctx, theme, icons, ui);
 
    ui.add_space(10.0);
 
