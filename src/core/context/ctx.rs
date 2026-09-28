@@ -31,7 +31,7 @@ use zeus_eth::{
    },
    currency::{Currency, NativeCurrency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
-   utils::{NumericValue, ens::ENS_CHAIN, client::RpcClient},
+   utils::{NumericValue, client::RpcClient, ens::ENS_CHAIN},
 };
 use zeus_railgun::{RailgunAddress, RailgunProvider, RailgunSigner, SnapshotLoader};
 
@@ -1465,11 +1465,7 @@ impl ZeusCtx {
       match zeus_eth::utils::ens::lookup_name(&client, &address).await {
          Ok(name) => name,
          Err(e) => {
-            tracing::debug!(
-               "ENS reverse lookup failed for {}: {:?}",
-               address,
-               e
-            );
+            tracing::error!("ENS reverse lookup failed {}", e);
             None
          }
       }

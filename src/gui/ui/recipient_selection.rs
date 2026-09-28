@@ -686,7 +686,7 @@ fn resolve_ens_recipient(ctx: &ZeusCtx, query: &str) -> Option<UnknownRecipient>
       Ok(Some(address)) => Some(UnknownRecipient::Ens { name, address }),
       Ok(None) => None,
       Err(e) => {
-         tracing::debug!("Could not resolve ENS name {}: {:?}", name, e);
+         tracing::error!("Could not resolve ENS {}", e);
          None
       }
    }
