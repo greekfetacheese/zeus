@@ -1,7 +1,7 @@
 //! UI that allows the user to send ETH or ERC20 tokens (public) or private
 //! Railgun (zk → zk) transfers when privacy mode is enabled.
 
-use eframe::egui::{CursorIcon, FontId, Frame, Margin, OpenUrl, RichText, Ui, vec2};
+use eframe::egui::{CursorIcon, FontId, Frame, Margin, OpenUrl, RichText, Sense, Ui, vec2};
 
 use std::{
    collections::HashMap,
@@ -281,8 +281,11 @@ impl SendCryptoUi {
                                  "{}/address/{}",
                                  block_explorer, recipient.evm_address
                               );
-                              let icon =
-                                 Lucide::ExternalLink.size(18.0).color(theme.colors.text).image();
+                              let icon = Lucide::ExternalLink
+                                 .size(18.0)
+                                 .color(theme.colors.text)
+                                 .image()
+                                 .sense(Sense::click());
 
                               let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
 

@@ -17,8 +17,8 @@ use crate::gui::{
 use crate::utils::{RT, estimate_tx_cost, simulate::simulate_for_analysis, write_private};
 use anyhow::anyhow;
 use egui::{
-   Align, CornerRadius, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText, Slider,
-   Spinner, Ui, vec2,
+   Align, CornerRadius, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText, Sense,
+   Slider, Spinner, Ui, vec2,
 };
 use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme, visuals::ButtonVisuals};
 use egui_lucide::Lucide;
@@ -376,8 +376,11 @@ impl AcrossBridge {
                               "{}/address/{}",
                               block_explorer, recipient.evm_address
                            );
-                           let icon =
-                              Lucide::ExternalLink.size(18.0).color(theme.colors.text).image();
+                           let icon = Lucide::ExternalLink
+                              .size(18.0)
+                              .color(theme.colors.text)
+                              .image()
+                              .sense(Sense::click());
 
                            let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
 

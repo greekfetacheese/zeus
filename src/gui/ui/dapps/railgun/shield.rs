@@ -1,5 +1,6 @@
 use eframe::egui::{
-   Align, Checkbox, CursorIcon, FontId, Id, Layout, Margin, OpenUrl, Order, RichText, Ui, vec2,
+   Align, Checkbox, CursorIcon, FontId, Id, Layout, Margin, OpenUrl, Order, RichText, Sense, Ui,
+   vec2,
 };
 
 use std::{
@@ -426,7 +427,11 @@ impl ShieldUi {
                                  "{}/address/{}",
                                  block_explorer, recipient.evm_address
                               );
-                              let icon = Lucide::ExternalLink.size(18.0).color(theme.colors.text).image();
+                              let icon = Lucide::ExternalLink
+                                 .size(18.0)
+                                 .color(theme.colors.text)
+                                 .image()
+                                 .sense(Sense::click());
 
                               let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
 
