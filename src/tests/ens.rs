@@ -1,0 +1,189 @@
+#[cfg(test)]
+mod tests {
+   use crate::core::ZeusCtx;
+   use std::sync::Arc;
+   use zeus_eth::alloy_primitives::{Address, address};
+   use zeus_eth::utils::{client::RpcClient, ens};
+
+   const VITALIK: Address = address!("d8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+   const NO_PRIMARY_NAME: Address = address!("000000000000000000000000000000000000dEaD");
+
+   /// A configured mainnet RPC that can actually answer an ENS call, plus a
+   /// connected client: `(url, client)`.
+   ///
+   /// The default RPC list contains endpoints that answer `eth_chainId` but refuse
+   /// `eth_call` ("rpc method is not whitelisted"). The app filters those out during
+   /// startup measurement, so a test has to find a usable one the same way — by
+   /// making the call.
+   async fn usable_mainnet_rpc(ctx: &ZeusCtx) -> (Arc<str>, RpcClient) {
+      let z_client = ctx.get_zeus_client();
+
+      for (url, rpc) in z_client.get_rpcs(ens::ENS_CHAIN) {
+         let Ok(client) = ctx.connect_to_rpc(&rpc).await else {
+            continue;
+         };
+
+         if ens::resolve_name(&client, "vitalik.eth").await.is_ok() {
+            return (url, client);
+         }
+      }
+
+      panic!("no configured mainnet rpc can resolve ENS names");
+   }
+
+   async fn mainnet_client(ctx: &ZeusCtx) -> RpcClient {
+      usable_mainnet_rpc(ctx).await.1
+   }
+
+   /// A context whose usable mainnet RPC is marked as measured, so the
+   /// `ZeusCtx::get_client` call inside `lookup_address_name` can pick it. The app
+   /// does this measurement at startup.
+   async fn ctx_with_measured_mainnet_rpc() -> ZeusCtx {
+      let ctx = ZeusCtx::new();
+      let z_client = ctx.get_zeus_client();
+      let (url, _client) = usable_mainnet_rpc(&ctx).await;
+
+      let mut rpcs = z_client.get_rpcs(ens::ENS_CHAIN);
+      let mut rpc = rpcs.remove(&url).expect("rpc is configured");
+
+      // Builtin RPCs are seeded *disabled*, and `get_best_rpc` only considers
+      // enabled, working endpoints — the app enables/measures them at startup.
+      rpc.enabled = true;
+      rpc.check.working = true;
+      rpc.check.fully_functional = true;
+      z_client.add_rpc(ens::ENS_CHAIN, rpc);
+
+      ctx
+   }
+
+   #[tokio::test]
+   async fn test_resolve_ens_name() {
+      let ctx = ZeusCtx::new();
+      let client = mainnet_client(&ctx).await;
+
+      assert_eq!(
+         ens::resolve_name(&client, "vitalik.eth").await.unwrap(),
+         Some(VITALIK)
+      );
+
+      // Our normalizer folds case and trims, so a name `alloy-ens` would hash raw
+      // (and "resolve" to the zero address) still lands on the same address.
+      assert_eq!(
+         ens::resolve_name(&client, "  Vitalik.ETH  ").await.unwrap(),
+         Some(VITALIK)
+      );
+      assert_eq!(
+         ens::resolve_name(&client, "VITALIK.ETH").await.unwrap(),
+         Some(VITALIK)
+      );
+   }
+
+   #[tokio::test]
+   async fn test_ens_name_without_address_record_is_none() {
+      let ctx = ZeusCtx::new();
+      let client = mainnet_client(&ctx).await;
+
+      // "ethereum.eth" has a resolver but no `addr` record. alloy-ens reports that as
+      // a *successful* lookup of the zero address, which must never become a recipient.
+      assert_eq!(
+         ens::resolve_name(&client, "ethereum.eth").await.unwrap(),
+         None
+      );
+   }
+
+   #[tokio::test]
+   async fn test_unknown_and_invalid_ens_names() {
+      let ctx = ZeusCtx::new();
+      let client = mainnet_client(&ctx).await;
+
+      // No such name (resolver not found).
+      assert!(
+         ens::resolve_name(&client, "not-registered-zzz-999.eth")
+            .await
+            .unwrap_or(None)
+            .is_none()
+      );
+
+      // Names the normalizer refuses are never hashed, so no request is made at all.
+      for invalid in [
+         "",
+         "vitalik..eth",
+         "-vitalik.eth",
+         "vitalik.eth.",
+         "vitalik eth",
+         "vital\u{456}k.eth",
+         "\u{1F4A9}.eth",
+      ] {
+         assert_eq!(
+            ens::resolve_name(&client, invalid).await.unwrap(),
+            None,
+            "{invalid:?} must not resolve"
+         );
+      }
+   }
+
+   #[tokio::test]
+   async fn test_offchain_names_are_refused() {
+      let ctx = ZeusCtx::new();
+      let client = mainnet_client(&ctx).await;
+
+      // ERC-3668 name that only an HTTP gateway can answer. With alloy-ens's default
+      // `shared_http_ccip_read_client` this returns an address; with our refusing
+      // gateway it has to fail. If this ever starts succeeding, a request left the
+      // RPC client.
+      assert!(
+         ens::resolve_name(&client, "1.offchainexample.eth").await.is_err(),
+         "offchain resolution must stay refused"
+      );
+   }
+
+   #[tokio::test]
+   async fn test_reverse_ens_lookup() {
+      let ctx = ZeusCtx::new();
+      let client = mainnet_client(&ctx).await;
+
+      assert_eq!(
+         ens::lookup_name(&client, &VITALIK).await.unwrap().as_deref(),
+         Some("vitalik.eth")
+      );
+
+      // The common case: an address with no primary name is `None`, not an error.
+      assert_eq!(
+         ens::lookup_name(&client, &NO_PRIMARY_NAME).await.unwrap(),
+         None
+      );
+   }
+
+   #[tokio::test]
+   async fn test_lookup_address_name_stores_ens_name() {
+      let ctx = ctx_with_measured_mainnet_rpc().await;
+
+      assert!(ctx.lookup_address_name(ens::ENS_CHAIN, VITALIK).await);
+      assert_eq!(
+         ctx.get_address_name(ens::ENS_CHAIN, VITALIK).as_deref(),
+         Some("vitalik.eth")
+      );
+
+      // Cached: an address that already has a name is never looked up again.
+      assert!(!ctx.lookup_address_name(ens::ENS_CHAIN, VITALIK).await);
+
+      // No primary name means nothing is stored, and no error is raised.
+      assert!(!ctx.lookup_address_name(ens::ENS_CHAIN, NO_PRIMARY_NAME).await);
+      assert!(ctx.get_address_name(ens::ENS_CHAIN, NO_PRIMARY_NAME).is_none());
+
+      // A name the user set explicitly (wallet / contact) wins over ENS: an address
+      // that already has a name is never looked up, so a reverse name can never
+      // replace it.
+      let owned = address!("1111111111111111111111111111111111111111");
+      ctx.address_book().insert_identity(owned, "My Wallet");
+
+      assert!(
+         !ctx.lookup_address_name(ens::ENS_CHAIN, owned).await,
+         "an explicitly named address must not be looked up"
+      );
+      assert_eq!(
+         ctx.get_address_name(ens::ENS_CHAIN, owned).as_deref(),
+         Some("My Wallet")
+      );
+   }
+}

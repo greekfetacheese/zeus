@@ -31,7 +31,7 @@ use zeus_eth::{
    },
    currency::{Currency, NativeCurrency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
-   utils::{NumericValue, client::RpcClient},
+   utils::{NumericValue, ens::ENS_CHAIN, client::RpcClient},
 };
 use zeus_railgun::{RailgunAddress, RailgunProvider, RailgunSigner, SnapshotLoader};
 
@@ -1393,7 +1393,7 @@ impl ZeusCtx {
       self.read(|ctx| ctx.get_address_name(chain, address))
    }
 
-   /// Off-frame ERC-7730 / Sourcify fill. No-op if already named or already attempted.
+   /// Off-frame ERC-7730 / Sourcify / ENS fill. No-op if already named or already attempted.
    ///
    /// Returns true if a new name was stored.
    pub async fn lookup_address_name(&self, chain: u64, address: Address) -> bool {
@@ -1425,6 +1425,15 @@ impl ZeusCtx {
          None
       };
 
+      // ENS reverse is the last resort, so a contract that already has a registry
+      // label keeps it. It is asked for on mainnet (ENS only exists there) and the
+      // name is stored through `insert_contract`, which refuses to overwrite the
+      // name of a wallet or contact the user has set explicitly.
+      let name = match name {
+         Some(name) => Some(name),
+         None => self.lookup_ens_name(address).await,
+      };
+
       let Some(name) = name else {
          return false;
       };
@@ -1439,6 +1448,31 @@ impl ZeusCtx {
 
       self.save_address_book();
       true
+   }
+
+   /// ENS reverse lookup for [`Self::lookup_address_name`].
+   ///
+   /// Onchain only (`zeus_eth::utils::ens` refuses offchain redirects) and mainnet
+   /// only. `None` covers every ordinary outcome: mainnet disabled, no RPC
+   /// reachable, or the address simply has no primary name — none of them errors.
+   async fn lookup_ens_name(&self, address: Address) -> Option<String> {
+      if self.is_chain_disabled(ENS_CHAIN) {
+         return None;
+      }
+
+      let client = self.get_client(ENS_CHAIN).await.ok()?;
+
+      match zeus_eth::utils::ens::lookup_name(&client, &address).await {
+         Ok(name) => name,
+         Err(e) => {
+            tracing::debug!(
+               "ENS reverse lookup failed for {}: {:?}",
+               address,
+               e
+            );
+            None
+         }
+      }
    }
 
    /// Get the V2 pool for the given address

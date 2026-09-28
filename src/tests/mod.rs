@@ -1,4 +1,5 @@
 mod connector;
+mod ens;
 mod permit2_revoke;
 mod railgun;
 pub mod stateview;

@@ -252,6 +252,16 @@ impl Recipient {
       }
    }
 
+   /// Recipient resolved from an ENS name. The address is what gets sent, the name
+   /// is display only.
+   pub fn from_ens_name(name: String, address: Address) -> Self {
+      Self {
+         name: Some(name),
+         evm_address: address.to_string(),
+         zk_address: String::new(),
+      }
+   }
+
    pub fn from_wallet_info(wallet_info: WalletInfo) -> Self {
       Self {
          name: Some(wallet_info.name_with_source()),

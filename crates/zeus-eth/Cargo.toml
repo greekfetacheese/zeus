@@ -20,6 +20,9 @@ alloy-rpc-types = { workspace = true }
 alloy-json-rpc = { workspace = true }
 alloy-contract = { workspace = true }
 alloy-network = { workspace = true }
+# `provider` is what exposes `ProviderEnsExt`. ENS lookups are onchain only, so no
+# TLS feature: see `utils::ens` (the HTTP CCIP gateway is never used).
+alloy-ens = { workspace = true, features = ["provider"] }
 alloy-provider = { workspace = true, features = ["ws"] }
 alloy-transport = { workspace = true, features = ["throttle"] }
 alloy-rpc-client = { workspace = true, features = ["reqwest"] }
@@ -41,6 +44,9 @@ revm = { version = "43.0.0", features = [
 tokio = {version = "1", features = ["rt-multi-thread"]}
 futures = "0.3"
 tower = "0.5"
+# `CcipReadGateway` is declared with `async_trait` in alloy-provider, so the
+# refusing gateway in `utils::ens` needs the same macro.
+async-trait = "0.1"
 
 # Misc
 tracing = "0.1"

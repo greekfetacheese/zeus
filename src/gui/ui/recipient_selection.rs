@@ -7,7 +7,7 @@ use crate::core::{
 };
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::{ContactsUi, WalletListByValue};
-use crate::utils::RT;
+use crate::utils::{RT, TimeStamp};
 use eframe::egui::{
    Align, FontId, Id, Layout, Margin, Order, RichText, ScrollArea, Sense, Spinner, TextWrapMode,
    Ui, vec2,
@@ -16,7 +16,10 @@ use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme, utils::frame as
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 use zeus_eth::alloy_primitives::Address;
+use zeus_eth::types::ETH;
+use zeus_eth::utils::ens;
 use zeus_railgun::RailgunAddress;
 
 /// Validated address entered in the search bar that is not already a
@@ -24,8 +27,19 @@ use zeus_railgun::RailgunAddress;
 #[derive(Clone, Debug)]
 enum UnknownRecipient {
    Evm(Address),
+   /// ENS name resolved to an address (mainnet, onchain only).
+   Ens {
+      name: String,
+      address: Address,
+   },
    Zk(String),
 }
+
+/// How long the search query must sit still before an ENS lookup is issued.
+///
+/// An address / 0zk parse is local and runs on every keystroke; an ENS lookup is an
+/// RPC round-trip, so it waits for the typing to stop.
+const ENS_LOOKUP_DEBOUNCE_MILLIS: u64 = 400;
 
 pub struct RecipientSelectionWindow {
    open: bool,
@@ -42,6 +56,9 @@ pub struct RecipientSelectionWindow {
    unknown_recipient_privacy: bool,
    /// True while a parse task is running for `unknown_recipient_query`.
    parsing_unknown_recipient: bool,
+   /// Millis timestamp at which an ENS lookup for `unknown_recipient_query` may run;
+   /// `0` when no lookup is waiting out the debounce window.
+   ens_lookup_due_at: u64,
    wallets: Vec<WalletInfo>,
    /// Wallet value by address
    wallet_value: HashMap<Address, WalletValue>,
@@ -65,6 +82,7 @@ impl RecipientSelectionWindow {
          unknown_recipient_query: String::new(),
          unknown_recipient_privacy: false,
          parsing_unknown_recipient: false,
+         ens_lookup_due_at: 0,
          wallets: Vec::new(),
          wallet_value: HashMap::new(),
          wallet_chains: HashMap::new(),
@@ -115,24 +133,50 @@ impl RecipientSelectionWindow {
       self.unknown_recipient = None;
       self.unknown_recipient_query.clear();
       self.parsing_unknown_recipient = false;
+      self.ens_lookup_due_at = 0;
    }
 
    /// Kick off (or skip) background parsing when the search query / privacy mode changes.
-   fn update_unknown_recipient_parse(&mut self, privacy_mode: bool) {
+   ///
+   /// Returns how long to wait before calling this again while an ENS lookup is
+   /// sitting out its debounce window; `None` when nothing is pending.
+   fn update_unknown_recipient_parse(&mut self, privacy_mode: bool) -> Option<Duration> {
       if self.search_query.is_empty() {
          self.clear_unknown_recipient_cache();
-         return;
+         return None;
       }
 
       let query_changed = self.unknown_recipient_query != self.search_query;
       let privacy_changed = self.unknown_recipient_privacy != privacy_mode;
-      if !query_changed && !privacy_changed {
-         return;
+
+      if query_changed || privacy_changed {
+         self.unknown_recipient = None;
+         self.unknown_recipient_query = self.search_query.clone();
+         self.unknown_recipient_privacy = privacy_mode;
+         self.parsing_unknown_recipient = false;
+         self.ens_lookup_due_at = 0;
+      } else if self.ens_lookup_due_at == 0 {
+         // Already parsed (or already parsing) this exact query.
+         return None;
       }
 
-      self.unknown_recipient = None;
-      self.unknown_recipient_query = self.search_query.clone();
-      self.unknown_recipient_privacy = privacy_mode;
+      // A name costs an RPC round-trip, so the lookup waits for the typing to stop.
+      // Address / 0zk parsing stays immediate — it is local.
+      if needs_ens_lookup(&self.search_query, privacy_mode) {
+         if self.ens_lookup_due_at == 0 {
+            self.ens_lookup_due_at = TimeStamp::now_as_millis().unwrap_or_default().timestamp()
+               + ENS_LOOKUP_DEBOUNCE_MILLIS;
+         }
+
+         let now = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
+         if now < self.ens_lookup_due_at {
+            return Some(Duration::from_millis(
+               self.ens_lookup_due_at - now,
+            ));
+         }
+      }
+
+      self.ens_lookup_due_at = 0;
       self.parsing_unknown_recipient = true;
 
       let query = self.search_query.clone();
@@ -150,6 +194,8 @@ impl RecipientSelectionWindow {
             }
          });
       });
+
+      None
    }
 
    pub fn get_recipient(&self) -> Recipient {
@@ -241,7 +287,7 @@ impl RecipientSelectionWindow {
                ui.add_space(15.0);
 
                // Search bar
-               let hint = RichText::new("Search contacts or enter an address")
+               let hint = RichText::new("Search contacts, ENS or enter an address")
                   .size(theme.typography.normal)
                   .color(theme.colors.text_muted);
 
@@ -291,13 +337,21 @@ impl RecipientSelectionWindow {
                   self.wallets_tab(ctx, theme, privacy_mode, &mut close_window, ui);
                }
 
-               // Address parse
-               self.update_unknown_recipient_parse(privacy_mode);
+               // Address / ENS parse
+               if let Some(repaint_in) = self.update_unknown_recipient_parse(privacy_mode) {
+                  // An ENS lookup is waiting for the typing to stop: keep repainting
+                  // until it is due, otherwise the debounce would only end on input.
+                  ui.ctx().request_repaint_after(repaint_in);
+               }
 
                if self.parsing_unknown_recipient {
                   ui.add(Spinner::new().size(17.0).color(theme.colors.text));
                } else if let Some(unknown) = self.unknown_recipient.clone() {
-                  ui.label(RichText::new("Unknown Address").size(theme.typography.large));
+                  let heading = match &unknown {
+                     UnknownRecipient::Ens { .. } => "ENS",
+                     _ => "Unknown Address",
+                  };
+                  ui.label(RichText::new(heading).size(theme.typography.large));
 
                   match unknown {
                      UnknownRecipient::Evm(address) => {
@@ -309,6 +363,29 @@ impl RecipientSelectionWindow {
                            self.recipient = Recipient::from_unknown_evm_address(address);
                            close_window = true;
                         }
+                     }
+                     UnknownRecipient::Ens { name, address } => {
+                        let name_text = RichText::new(&name).size(theme.typography.normal);
+                        let button = Button::new(name_text).visuals(button_visuals);
+
+                        if ui.add(button).clicked() {
+                           self.recipient = Recipient::from_ens_name(name, address);
+                           close_window = true;
+                        }
+
+                        // Show what the name resolves to: the address is what is sent.
+                        let block_explorer = ctx.chain.block_explorer();
+                        let link = format!(
+                           "{}/address/{}",
+                           block_explorer,
+                           address.to_string()
+                        );
+
+                        let text = RichText::new(address.to_string())
+                           .size(theme.typography.normal)
+                           .color(theme.colors.info);
+
+                        ui.hyperlink_to(text, link);
                      }
                      UnknownRecipient::Zk(zk_address) => {
                         let address_text = RichText::new(&zk_address).size(theme.typography.normal);
@@ -542,11 +619,11 @@ impl RecipientSelectionWindow {
    }
 }
 
-/// Parse the search bar as an address and return an "unknown recipient" suggestion
-/// when the address is valid but not already a wallet or contact.
+/// Parse the search bar and return an "unknown recipient" suggestion when what was
+/// entered is valid but not already a wallet or contact.
 ///
-/// Runs on a blocking worker thread — `RailgunAddress::from_zk_address` and
-/// `wallet_with_zk_address_exists` are too expensive for the GUI frame.
+/// Runs on a blocking worker thread — `RailgunAddress::from_zk_address`, the ENS
+/// lookup and `wallet_with_zk_address_exists` are all too expensive for the GUI frame.
 fn parse_unknown_recipient(
    ctx: ZeusCtx,
    query: &str,
@@ -557,19 +634,61 @@ fn parse_unknown_recipient(
    }
 
    if !privacy_mode {
-      let address = Address::from_str(query).ok()?;
-      if ctx.wallet_exists(address) || ctx.get_contact(&address.to_string()).is_some() {
-         return None;
+      if let Ok(address) = Address::from_str(query) {
+         if ctx.wallet_exists(address) || ctx.get_contact(&address.to_string()).is_some() {
+            return None;
+         }
+
+         return Some(UnknownRecipient::Evm(address));
       }
-      Some(UnknownRecipient::Evm(address))
-   } else {
-      let zk_address = RailgunAddress::from_zk_address(query).ok()?;
-      if ctx.wallet_with_zk_address_exists(&zk_address)
-         || ctx.get_contact_by_zk_address(&zk_address.address).is_some()
-      {
-         return None;
+
+      // Not an address: it may be an ENS name.
+      return resolve_ens_recipient(&ctx, query);
+   }
+
+   let zk_address = RailgunAddress::from_zk_address(query).ok()?;
+   if ctx.wallet_with_zk_address_exists(&zk_address)
+      || ctx.get_contact_by_zk_address(&zk_address.address).is_some()
+   {
+      return None;
+   }
+   Some(UnknownRecipient::Zk(zk_address.address))
+}
+
+/// Does `query` need an ENS round-trip?
+///
+/// Names are public-mode only: in privacy mode the recipient is a `0zk` address and
+/// ENS has nothing to say about it.
+fn needs_ens_lookup(query: &str, privacy_mode: bool) -> bool {
+   !privacy_mode && ens::looks_like_name(query)
+}
+
+/// Forward ENS resolution for the search bar.
+///
+/// Mainnet only and onchain only: [`ens::NoOffchainGateway`] refuses ERC-3668
+/// redirects, so a name that can only be answered offchain is reported as "not
+/// found" instead of reaching a third party. Every failure ends as `None`, exactly
+/// like "no such name" — the user is still typing, and a name that does not exist
+/// yet is not worth a dialog.
+fn resolve_ens_recipient(ctx: &ZeusCtx, query: &str) -> Option<UnknownRecipient> {
+   if !ens::looks_like_name(query) || ctx.is_chain_disabled(ETH) {
+      return None;
+   }
+
+   let name = ens::normalize_name(query).ok()?;
+
+   let resolved = RT.block_on(async {
+      let client = ctx.get_client(ETH).await?;
+      ens::resolve_name(&client, &name).await.map_err(|e| anyhow::anyhow!("{:?}", e))
+   });
+
+   match resolved {
+      Ok(Some(address)) => Some(UnknownRecipient::Ens { name, address }),
+      Ok(None) => None,
+      Err(e) => {
+         tracing::debug!("Could not resolve ENS name {}: {:?}", name, e);
+         None
       }
-      Some(UnknownRecipient::Zk(zk_address.address))
    }
 }
 

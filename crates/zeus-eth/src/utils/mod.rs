@@ -2,6 +2,7 @@ pub mod address_book;
 pub mod batch;
 pub mod block;
 pub mod client;
+pub mod ens;
 pub mod numeric_value;
 pub mod price_feed;
 

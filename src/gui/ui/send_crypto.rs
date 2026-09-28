@@ -300,7 +300,7 @@ impl SendCryptoUi {
                               .size(theme.typography.normal)
                               .color(theme.colors.text_muted)
                         } else {
-                           RichText::new("Search contacts or enter an address")
+                           RichText::new("Search contacts, ENS or enter an address")
                               .size(theme.typography.normal)
                               .color(theme.colors.text_muted)
                         };
