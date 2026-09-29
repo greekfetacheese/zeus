@@ -32,7 +32,7 @@ use crate::utils::simulate::{
    AccountPrefetch, ForkPrefetch, ForkSim, ForkSimRequest, StoragePrefetch, native_balance_at,
    pinned_head, railgun_common_accounts, simulate_on_fork,
 };
-use egui_elements::{Button, Modal, SecureTextEdit, Theme};
+use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme};
 use egui_lucide::Lucide;
 use elegance::{Badge, BadgeTone};
 
@@ -260,6 +260,44 @@ impl ShieldUi {
       });
    }
 
+   /// True when unshield is pointed at a bundler other than the chain default.
+   fn uses_custom_bundler(&self, chain_id: u64) -> bool {
+      !self.self_broadcast && self.bundler_url.trim() != default_bundler_url(chain_id).as_str()
+   }
+
+   /// The broadcaster relays the unshield from the user's IP address.
+   fn show_ip_warning(&self, theme: &Theme, chain_id: u64, ui: &mut Ui) {
+      if !self.mode.is_unshield() || self.self_broadcast {
+         return;
+      }
+
+      let (text, color) = if self.uses_custom_bundler(chain_id) {
+         (
+            "Using a custom bundler. Its operator sees your IP address and your unshields.",
+            theme.colors.info,
+         )
+      } else {
+         (
+            "Private broadcast keeps the origin of your funds anonymous, but the bundler still sees your IP address. Point Broadcast options at a bundler you run yourself to keep it private.",
+            theme.colors.text_muted,
+         )
+      };
+
+      let content_width = ui.available_width();
+      ui.vertical(|ui| {
+         ui.set_width(content_width);
+         ui.add(
+            Label::new(
+               RichText::new(text).size(theme.typography.small).color(color),
+               None,
+            )
+            .wrap()
+            .fill_width(true)
+            .interactive(false),
+         );
+      });
+   }
+
    pub fn show(
       &mut self,
       ctx: &mut ZeusContext,
@@ -342,6 +380,12 @@ impl ShieldUi {
                         }
                      }
                   }
+
+                  ui.add_space(theme.spacing.md);
+
+                  self.show_ip_warning(theme, chain.id(), ui);
+
+                  ui.add_space(theme.spacing.md);
 
                   let inner_frame = theme.frame2;
 
@@ -444,15 +488,14 @@ impl ShieldUi {
                      });
 
                      ui.horizontal(|ui| {
-                        let hint = if recipient_privacy_mode {
-                           RichText::new("Search contacts or enter a 0zk address")
-                              .size(theme.typography.normal)
-                              .color(theme.colors.text_muted)
-                        } else {
-                           RichText::new("Search contacts or enter a 0x address")
-                              .size(theme.typography.normal)
-                              .color(theme.colors.text_muted)
+                        let hint_text = match recipient_privacy_mode {
+                           false => "Search contacts, ENS or enter an address",
+                           true => "Search contacts or enter a 0zk address",
                         };
+
+                        let hint = RichText::new(hint_text)
+                           .size(theme.typography.normal)
+                           .color(theme.colors.text_muted);
 
                         let address_edit = if recipient_privacy_mode {
                            &mut recipient_selection.recipient.zk_address
@@ -502,7 +545,7 @@ impl ShieldUi {
                   }
 
                   if self.mode.is_unshield() {
-                     self.unshield_options(theme, chain.id(), ui);
+                     self.unshield_options(theme, ui);
                   }
 
                   let recipient_str = if self.mode.is_shield() {
@@ -511,17 +554,16 @@ impl ShieldUi {
                      recipient.evm_address
                   };
 
+                  ui.add_space(10.0);
+
                   self.action_button(ctx, theme, owner, recipient_str, ui);
                });
             });
       });
    }
 
-   fn unshield_options(&mut self, theme: &Theme, chain_id: u64, ui: &mut Ui) {
+   fn unshield_options(&mut self, theme: &Theme, ui: &mut Ui) {
       let inner_frame = theme.frame2;
-      let default_url = default_bundler_url(chain_id);
-      let bundler_overridden =
-         !self.self_broadcast && self.bundler_url.trim() != default_url.as_str();
 
       inner_frame.show(ui, |ui| {
          ui.set_width(ui.available_width());
@@ -556,17 +598,6 @@ impl ShieldUi {
                let tip_text = RichText::new(UNWRAP_TO_ETH_TIP).size(theme.typography.normal);
                ui.add(badge).on_hover_text(tip_text);
             });
-         }
-
-         ui.add_space(4.0);
-
-         if bundler_overridden {
-            ui.add_space(4.0);
-            ui.label(
-               RichText::new("WARNING: Custom bundler URL is set.")
-                  .size(theme.typography.normal)
-                  .color(theme.colors.warning),
-            );
          }
 
          let text = RichText::new("Broadcast options").size(theme.typography.normal);
@@ -616,7 +647,7 @@ impl ShieldUi {
 
                      ui.add_space(8.0);
 
-                     let res = ui.add(
+                     ui.add(
                         SecureTextEdit::singleline(&mut self.bundler_url)
                            .visuals(text_edit_visuals)
                            .hint_text(
@@ -628,19 +659,13 @@ impl ShieldUi {
                            .margin(Margin::same(6))
                            .font(FontId::proportional(theme.typography.small)),
                      );
-
-                     if res.changed() {
-                        let bundler_url = self.bundler_url.clone();
-                        RT.spawn_blocking(move || {
-                           persist_bundler_url(BundlerUrl::new(bundler_url));
-                        });
-                     }
                   });
                });
 
                ui.horizontal(|ui| {
                   let text = RichText::new("Reset to default").size(theme.typography.small);
                   let button = Button::new(text).visuals(theme.button_visuals());
+
                   if ui.add(button).clicked() {
                      self.bundler_url = default_bundler_url(chain_id);
                      let url = BundlerUrl::new(self.bundler_url.clone());
@@ -648,13 +673,38 @@ impl ShieldUi {
                         persist_bundler_url(url);
                      });
                   }
+
+                  ui.add_space(10.0);
+
+                  let text = RichText::new("Save").size(theme.typography.small);
+                  let button = Button::new(text).visuals(theme.button_visuals());
+
+                  if ui.add(button).clicked() {
+                     let url = BundlerUrl::new(self.bundler_url.clone());
+                     RT.spawn_blocking(move || {
+                        persist_bundler_url(url);
+                     });
+                  }
                });
 
-               ui.add_space(10.0);
+               ui.add_space(theme.spacing.md);
 
                let text = "Uses Railgun Privacy Paymaster.\nFee is paid from private WETH balance.\nPoint this at a self-hosted Alto for less reliance on public Pimlico.";
 
                ui.label(RichText::new(text).size(theme.typography.normal));
+
+               let note = "The bundler operator sees your IP address and your unshields. A VPN hides your IP address, a bundler you run yourself hides both.";
+               ui.add(
+                  Label::new(
+                     RichText::new(note)
+                        .size(theme.typography.small)
+                        .color(theme.colors.text_muted),
+                     None,
+                  )
+                  .wrap()
+                  .fill_width(true)
+                  .interactive(false),
+               );
             });
 
             if self.self_broadcast {

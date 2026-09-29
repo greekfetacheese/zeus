@@ -286,8 +286,13 @@ impl RecipientSelectionWindow {
 
                ui.add_space(15.0);
 
+               let hint_text = match privacy_mode {
+                  false => "Search contacts, ENS or enter an address",
+                  true => "Search contacts or enter a zk address",
+               };
+
                // Search bar
-               let hint = RichText::new("Search contacts, ENS or enter an address")
+               let hint = RichText::new(hint_text)
                   .size(theme.typography.normal)
                   .color(theme.colors.text_muted);
 
