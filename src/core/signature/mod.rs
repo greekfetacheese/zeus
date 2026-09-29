@@ -84,8 +84,9 @@ impl Permit2Info {
          );
       }
 
-      let expiration = U256::from(current_time + 30 * 24 * 60 * 60); // 30 days
-      let sig_deadline = U256::from(current_time + 30 * 60); // 30 minutes
+      let ten_minutes = 10 * 60;
+      let expiration = U256::from(current_time + ten_minutes);
+      let sig_deadline = U256::from(current_time + ten_minutes);
 
       let value = if needs_new_signature {
          let v = generate_permit2_json_value(
