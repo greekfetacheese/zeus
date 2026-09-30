@@ -155,13 +155,21 @@ mod tests {
    }
 
    #[tokio::test]
-   async fn test_lookup_address_name_stores_ens_name() {
+   async fn test_lookup_address_name_caches_ens_name_for_the_session() {
       let ctx = ctx_with_measured_mainnet_rpc().await;
 
       assert!(ctx.lookup_address_name(ens::ENS_CHAIN, VITALIK).await);
       assert_eq!(
          ctx.get_address_name(ens::ENS_CHAIN, VITALIK).as_deref(),
          Some("vitalik.eth")
+      );
+
+      // Session-only: a reverse name must never reach the persisted book, because a reverse record
+      // outlives the name it points at.
+      assert_eq!(
+         ctx.address_book().get(ens::ENS_CHAIN, VITALIK),
+         None,
+         "ENS names must not be persisted in the address book"
       );
 
       // Cached: an address that already has a name is never looked up again.
@@ -374,7 +382,7 @@ mod tests {
    /// chain-specific names there is no primary name at all, which is how the recipient used to end
    /// up displayed as a truncated address.
    #[tokio::test]
-   async fn test_remember_resolved_name_beats_the_reverse_lookup() {
+   async fn test_resolved_ens_name_is_cached_for_the_session_only() {
       let ctx = ctx_with_measured_mainnet_rpc().await;
       let client = usable_mainnet_rpc(&ctx).await.1;
 
@@ -388,15 +396,20 @@ mod tests {
       // Nothing is known about the address until the name we resolved is remembered.
       assert_eq!(ctx.get_address_name(chain, address), None);
 
-      assert!(ctx.remember_resolved_name(chain, address, "jefflau.eth"));
+      // What the recipient picker does when the user accepts `jefflau.eth@base`.
+      assert!(ctx.ens_cache().insert(chain, address, "jefflau.eth"));
       assert_eq!(
          ctx.get_address_name(chain, address).as_deref(),
          Some("jefflau.eth")
       );
 
+      // Session-only: nothing reaches the persisted book, so an expired or re-registered name
+      // cannot outlive the session it was resolved in.
+      assert_eq!(ctx.address_book().get(chain, address), None);
+
       // An existing name is never overwritten, and once one exists the reverse lookup is skipped
-      // outright — so it cannot replace the name the user actually entered with `jeff.eth`.
-      assert!(!ctx.remember_resolved_name(chain, address, "something.else"));
+      // outright — so it cannot replace the name the user entered with `jeff.eth`.
+      assert!(!ctx.ens_cache().insert(chain, address, "something.else"));
       assert!(!ctx.lookup_address_name(chain, address).await);
       assert_eq!(
          ctx.get_address_name(chain, address).as_deref(),

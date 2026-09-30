@@ -240,10 +240,13 @@ impl RecipientSelectionWindow {
       chain: u64,
    ) {
       if let Some(name) = name.as_deref() {
-         // In memory first: the display paths read this entry directly, so seeding it here means
-         // they never fall back to (and cannot race) the reverse lookup.
-         ctx.address_book.insert_contract(chain, address, name);
-         remember_recipient_name(chain, address, name.to_string());
+         // The display paths (`tx::address` → the confirm window, history, notifications) only ever
+         // see `(chain, address)`, and a chain-specific name cannot be re-derived from those: the
+         // address's primary name may be a different name (`jefflau.eth@base` resolves to an address
+         // whose primary name is `jeff.eth`), and most have none at all. Remembering it is what
+         // keeps the recipient from rendering as a truncated address. Session-only, like every
+         // other ENS name — see [`EnsCache`].
+         ctx.ens_cache.insert(chain, address, name);
       }
 
       self.recipient = Recipient::from_ens_name(name, address, Some(chain));
@@ -868,18 +871,6 @@ fn resolve_ens_recipient(ctx: &ZeusCtx, query: &str) -> Option<UnknownRecipient>
          None
       }
    }
-}
-
-/// Persist a name we resolved ourselves, off-frame.
-///
-/// The picker runs inside the `SHARED_GUI` write lock, so it cannot read it back here — the same
-/// reason `gui::ui::tx::request_address_name` spawns. The in-memory insert has already happened by
-/// the time this runs; this is only the durable half.
-fn remember_recipient_name(chain: u64, address: Address, name: String) {
-   RT.spawn(async move {
-      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-      ctx.remember_resolved_name(chain, address, &name);
-   });
 }
 
 /// Forward resolution for an ERC-7828 chain-specific name or address (`name.eth@base`).

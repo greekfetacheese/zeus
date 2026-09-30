@@ -2,6 +2,10 @@
 //!
 //! Token names stay in [`super::CurrencyDB`] — this map is wallets, contacts,
 //! well-known contracts, and names learned from ERC-7730 / Sourcify.
+//!
+//! ENS names deliberately do **not** live here: they expire, and a reverse record outlives the name
+//! it points at, so a persisted ENS label can outlive the name. They go to [`super::EnsCache`],
+//! which is never written to disk.
 
 use crate::core::persisted::{PersistedFile, file_path};
 use crate::core::types::Contact;
@@ -14,7 +18,7 @@ use std::sync::{Arc, RwLock};
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::address_book};
 use zeus_railgun::ChainConfig;
 
-const ADDRESS_BOOK_AAD: &[u8] = b"zeus-address-book-v1";
+const ADDRESS_BOOK_AAD: &[u8] = b"zeus-address-book-v2";
 
 type NameMap = HashMap<(u64, Address), Arc<str>>;
 
@@ -208,7 +212,7 @@ pub fn well_known_entries() -> Vec<((u64, Address), Arc<str>)> {
             Arc::from("Railgun Smart Wallet"),
          ));
       }
-      
+
       if let Some(config) = ChainConfig::from_chain_id(chain) {
          entries.push((
             (chain, config.relay_adapt_contract),

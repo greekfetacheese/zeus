@@ -1,6 +1,7 @@
 use super::{
-   AddressBookHandle, ApprovalManagerHandle, BalanceManagerHandle, CurrencyDB, PoolManagerHandle,
-   WalletPortfolio, ZeusClient, price_manager::PriceManagerHandle, tx::TxDBHandle,
+   AddressBookHandle, ApprovalManagerHandle, BalanceManagerHandle, CurrencyDB, EnsCache,
+   PoolManagerHandle, WalletPortfolio, ZeusClient, price_manager::PriceManagerHandle,
+   tx::TxDBHandle,
 };
 
 use crate::core::persisted::{self, PersistedFile};
@@ -712,6 +713,11 @@ impl ZeusCtx {
       self.read(|ctx| ctx.address_book.clone())
    }
 
+   /// The session-only ENS name cache. See [`EnsCache`].
+   pub fn ens_cache(&self) -> EnsCache {
+      self.read(|ctx| ctx.ens_cache.clone())
+   }
+
    pub fn wallet_with_zk_address_exists(&self, zk_address: &RailgunAddress) -> bool {
       self.read(|ctx| {
          for wallet in ctx.wallet_info_cache.ordered_slice() {
@@ -1055,6 +1061,7 @@ impl ZeusCtx {
       self.load_tx_db();
 
       self.address_book().replace_from(&AddressBookHandle::default());
+      self.ens_cache().clear();
 
       self.write(|ctx| {
          ctx.currency_db = CurrencyDB::default();
@@ -1415,7 +1422,7 @@ impl ZeusCtx {
          return false;
       }
 
-      let name = if let Some(name) =
+      let contract_name = if let Some(name) =
          crate::core::clear_signing::registry::resolve_contract_label(chain, address).await
       {
          Some(name)
@@ -1425,47 +1432,29 @@ impl ZeusCtx {
          None
       };
 
-      // ENS reverse is the last resort, so a contract that already has a registry
-      // label keeps it. It is asked for on mainnet (ENS only exists there) and the
-      // name is stored through `insert_contract`, which refuses to overwrite the
-      // name of a wallet or contact the user has set explicitly.
-      let name = match name {
-         Some(name) => Some(name),
-         None => self.lookup_ens_name(address).await,
-      };
+      // A contract label is durable, so it belongs in the address book. ENS is only asked for when
+      // there is no registry label, so a contract keeps the name it already has.
+      if let Some(name) = contract_name {
+         if name.trim().is_empty() {
+            return false;
+         }
 
-      let Some(name) = name else {
-         return false;
-      };
+         if !book.insert_contract(chain, address, name.as_str()) {
+            return false;
+         }
 
-      if name.trim().is_empty() {
-         return false;
-      }
-
-      if !book.insert_contract(chain, address, name.as_str()) {
-         return false;
-      }
-
-      self.save_address_book();
-      true
-   }
-
-   /// Remember a name we resolved *ourselves* against the address it resolved to.
-   ///
-   /// The counterpart to [`Self::lookup_address_name`] for chain-specific names. The display paths
-   /// (`gui::ui::tx::address` → the confirm window, tx history, notifications) only ever see
-   /// `(chain, address)`, and a chain-specific name cannot be re-derived from those: the address's
-   /// primary name may be a different name — `jefflau.eth@base` resolves to an address whose
-   /// primary name is `jeff.eth` — and most have none at all. That is why such a recipient used to
-   /// show up as a truncated address. Seeding the book here makes those paths show the name the
-   /// user actually entered. Refuses to overwrite an existing name; returns true if stored.
-   pub fn remember_resolved_name(&self, chain: u64, address: Address, name: &str) -> bool {
-      if self.address_book().insert_contract(chain, address, name) {
          self.save_address_book();
-         true
-      } else {
-         false
+         return true;
       }
+
+      // ENS reverse, asked for on mainnet (ENS only exists there). The name goes to the session
+      // cache rather than the book: ENS names expire and a reverse record outlives the name it
+      // points at, so a persisted label would outlive the name. See [`EnsCache`].
+      let Some(name) = self.lookup_ens_name(address).await else {
+         return false;
+      };
+
+      self.ens_cache().insert(chain, address, &name)
    }
 
    /// ENS reverse lookup for [`Self::lookup_address_name`].
@@ -2199,8 +2188,12 @@ pub struct ZeusContext {
 
    /// Fast address names (wallets, contacts, well-known + ERC-7730/Sourcify).
    ///
-   /// Token names stay in [`Self::currency_db`].
+   /// Token names stay in [`Self::currency_db`]. ENS names live in [`Self::ens_cache`] — they can
+   /// expire, so they are deliberately not persisted here.
    pub address_book: AddressBookHandle,
+
+   /// ENS names resolved this session. In memory only — see [`EnsCache`].
+   pub ens_cache: EnsCache,
 
    /// Holds all ERC20 tokens
    pub currency_db: CurrencyDB,
@@ -2372,6 +2365,7 @@ impl ZeusContext {
          vault_exists,
          vault_unlocked: false,
          address_book: AddressBookHandle::default(),
+         ens_cache: EnsCache::new(),
          currency_db,
          pool_manager,
          price_manager,
@@ -2506,13 +2500,19 @@ impl ZeusContext {
 
    /// Return the name of this address if its known.
    ///
-   /// Checks the address book, then token metadata. No list scans.
+   /// Checks the address book, then the session ENS cache, then token metadata. No list scans.
    /// The zero address is never named (ERC-7730 placeholders must not label burns).
+   ///
+   /// The book comes first on purpose: a wallet, contact or contract label the user set (or that
+   /// ERC-7730 gave us) outranks an ENS name resolved for the same address.
    pub fn get_address_name(&self, chain: u64, address: Address) -> Option<Arc<str>> {
       if address.is_zero() {
          return None;
       }
       if let Some(name) = self.address_book.get(chain, address) {
+         return Some(name);
+      }
+      if let Some(name) = self.ens_cache.get(chain, address) {
          return Some(name);
       }
       self.currency_db.get_token_name(chain, address)
