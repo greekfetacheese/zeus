@@ -10,6 +10,7 @@ pub const OPTIMISM: &str = "optimism";
 pub const BINANCE: &str = "binance";
 pub const BASE: &str = "base";
 pub const ARBITRUM: &str = "arbitrum";
+pub const ROBINHOOD_CHAIN: &str = "robinhoodchain";
 
 /// Chains included in the default Zeus token list (Trust Wallet asset dirs).
 /// Sepolia has no Trust Wallet assets tree and is not part of this list.
@@ -44,6 +45,7 @@ pub fn trustwallet_slug(chain: ChainId) -> Option<&'static str> {
       ChainId::BinanceSmartChain => Some(BINANCE),
       ChainId::Base => Some(BASE),
       ChainId::Arbitrum => Some(ARBITRUM),
+      ChainId::RobinHood => Some(ROBINHOOD_CHAIN),
       ChainId::EthereumSepolia => None,
    }
 }

@@ -27,6 +27,7 @@ pub fn zeus_stateview_v4(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Arbitrum => Ok(address!(
          "0x74921DE7fD31Bc1a0DADdba5a2154CB9F1439676"
       )),
+      ChainId::RobinHood => Ok(address!("0x443e22658d645C30629acf24552e80823fDb85e8")),
    }
 }
 
@@ -48,6 +49,7 @@ pub fn railgun_smart_wallet(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Arbitrum => Ok(address!(
          "0xFA7093CDD9EE6932B4eb2c9e1cde7CE00B1FA4b9"
       )),
+      ChainId::RobinHood => bail!("Railgun Smart Wallet is not available on Robinhood Chain"),
    }
 }
 
@@ -65,6 +67,7 @@ pub fn railgun_implementation(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::BinanceSmartChain => bail!("Railgun Implementation is not available on BSC"),
       ChainId::Base => bail!("Railgun Implementation is not available on Base"),
       ChainId::Arbitrum => bail!("Railgun Implementation is not available on Arbitrum"),
+      ChainId::RobinHood => bail!("Railgun Implementation is not available on Robinhood Chain"),
    }
 }
 
@@ -84,6 +87,9 @@ pub fn simple_7702_account(chain_id: u64) -> Result<Address, anyhow::Error> {
          "0xe6Cae83BdE06E4c305530e199D7217f42808555B"
       )),
       ChainId::Arbitrum => Ok(address!(
+         "0xe6Cae83BdE06E4c305530e199D7217f42808555B"
+      )),
+      ChainId::RobinHood => Ok(address!(
          "0xe6Cae83BdE06E4c305530e199D7217f42808555B"
       )),
       _ => bail!("Simple7702Account is not available on this chain"),
@@ -109,6 +115,9 @@ pub fn entry_point(chain_id: u64) -> Result<Address, anyhow::Error> {
          "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
       )),
       ChainId::Arbitrum => Ok(address!(
+         "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
+      )),
+      ChainId::RobinHood => Ok(address!(
          "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
       )),
    }
@@ -138,6 +147,9 @@ pub fn permit2_contract(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Arbitrum => Ok(address!(
          "0x000000000022D473030F116dDEE9F6B43aC78BA3"
       )),
+      ChainId::RobinHood => Ok(address!(
+         "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+      )),
    }
 }
 
@@ -162,6 +174,9 @@ pub fn eth_usd_price_feed(chain_id: u64) -> Result<Address, anyhow::Error> {
       )),
       ChainId::Arbitrum => Ok(address!(
          "639Fe6ab55C921f74e7fac1ee960C0B6293ba612"
+      )),
+      ChainId::RobinHood => Ok(address!(
+         "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9"
       )),
    }
 }
@@ -188,6 +203,7 @@ pub fn usdc_usd_price_feed(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Arbitrum => Ok(address!(
          "0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3"
       )),
+      ChainId::RobinHood => bail!("USDC/USD Price Feed is not available on Robinhood Chain"),
    }
 }
 
@@ -211,6 +227,7 @@ pub fn usdt_usd_price_feed(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Arbitrum => Ok(address!(
          "0x3f3f5dF88dC9F13eac63DF89EC16ef6e7E25DdE7"
       )),
+      ChainId::RobinHood => bail!("USDT/USD Price Feed is not available on Robinhood Chain"),
    }
 }
 
@@ -236,6 +253,18 @@ pub fn dai_usd_price_feed(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Arbitrum => Ok(address!(
          "0xc5C8E77B397E531B8EC06BFb0048328B30E9eCfB"
       )),
+      ChainId::RobinHood => bail!("DAI/USD Price Feed is not available on Robinhood Chain"),
+   }
+}
+
+/// USDG/USD Price Feed Chainlink
+pub fn usdg_usd_price_feed(chain_id: u64) -> Result<Address, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::RobinHood => Ok(address!(
+         "0x61B7e5650328764B076A108EFF5fa7282a1B9aD2"
+      )),
+      _ => bail!("USDG/USD Price Feed is not available on this chain"),
    }
 }
 
@@ -266,6 +295,19 @@ pub fn weth(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Arbitrum => Ok(address!(
          "82aF49447D8a07e3bd95BD0d56f35241523fBab1"
       )),
+      ChainId::RobinHood => Ok(address!(
+         "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73"
+      )),
+   }
+}
+
+pub fn usdg(chain_id: u64) -> Result<Address, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::RobinHood => Ok(address!(
+         "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
+      )),
+      _ => bail!("USDG is not available on this chain"),
    }
 }
 
@@ -301,6 +343,7 @@ pub fn usdc(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Arbitrum => Ok(address!(
          "af88d065e77c8cC2239327C5EDb3A432268e5831"
       )),
+      ChainId::RobinHood => bail!("USDC is not available on Robinhood Chain"),
    }
 }
 
@@ -322,6 +365,7 @@ pub fn usdt(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Arbitrum => Ok(address!(
          "Fd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9"
       )),
+      ChainId::RobinHood => bail!("USDT is not available on Robinhood Chain"),
    }
 }
 
@@ -347,6 +391,7 @@ pub fn dai(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Arbitrum => Ok(address!(
          "DA10009cBd5D07dd0CeCc66161FC93D7c9000da1"
       )),
+      ChainId::RobinHood => bail!("DAI is not available on Robinhood Chain"),
    }
 }
 
@@ -372,6 +417,7 @@ pub fn wbtc(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Arbitrum => Ok(address!(
          "2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f"
       )),
+      ChainId::RobinHood => bail!("WBTC is not available on Robinhood Chain"),
    }
 }
 
@@ -404,6 +450,9 @@ pub fn uniswap_v4_stateview(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Arbitrum => Ok(address!(
          "0x76Fd297e2D437cd7f76d50F01AfE6160f86e9990"
       )),
+      ChainId::RobinHood => Ok(address!(
+         "0xF3334192D15450CdD385c8B70e03f9A6bD9E673b"
+      )),
    }
 }
 
@@ -428,6 +477,9 @@ pub fn uniswap_v4_pool_manager(chain_id: u64) -> Result<Address, anyhow::Error> 
       )),
       ChainId::Arbitrum => Ok(address!(
          "0x360e68faccca8ca495c1b759fd9eee466db9fb32"
+      )),
+      ChainId::RobinHood => Ok(address!(
+         "0x8366a39CC670B4001A1121B8F6A443A643e40951"
       )),
    }
 }
@@ -454,6 +506,9 @@ pub fn universal_router_v2(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Arbitrum => Ok(address!(
          "0xa51afafe0263b40edaef0df8781ea9aa03e381a3"
       )),
+      ChainId::RobinHood => Ok(address!(
+         "0x06AfBA43Fd06227fA663b0DAecF536f6EaA6bf99"
+      )),
    }
 }
 
@@ -478,6 +533,9 @@ pub fn uniswap_v4_quoter(chain_id: u64) -> Result<Address, anyhow::Error> {
       )),
       ChainId::Arbitrum => Ok(address!(
          "0x76fd297e2d437cd7f76d50f01afe6160f86e9990"
+      )),
+      ChainId::RobinHood => Ok(address!(
+         "0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94"
       )),
    }
 }
@@ -504,6 +562,9 @@ pub fn uniswap_v4_nft_position_manager(chain_id: u64) -> Result<Address, anyhow:
       ChainId::Arbitrum => Ok(address!(
          "0xd88f38f930b7952f2db2432cb002e7abbf3dd869"
       )),
+      ChainId::RobinHood => Ok(address!(
+         "0x58daec3116aae6D93017bAAea7749052E8a04fA7"
+      )),
    }
 }
 
@@ -528,6 +589,9 @@ pub fn uniswap_v3_nft_position_manager(chain_id: u64) -> Result<Address, anyhow:
       )),
       ChainId::Arbitrum => Ok(address!(
          "C36442b4a4522E871399CD717aBDD847Ab11FE88"
+      )),
+      ChainId::RobinHood => Ok(address!(
+         "0x73991a25C818Bf1f1128dEAaB1492D45638DE0D3"
       )),
    }
 }
@@ -554,6 +618,9 @@ pub fn uniswap_v2_factory(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Arbitrum => Ok(address!(
          "f1D7CC64Fb4452F05c498126312eBE29f30Fbcf9"
       )),
+      ChainId::RobinHood => Ok(address!(
+         "0x8bcEaA40B9AcdfAedF85AdF4FF01F5Ad6517937f"
+      )),
    }
 }
 
@@ -578,6 +645,9 @@ pub fn uniswap_v2_router(chain_id: u64) -> Result<Address, anyhow::Error> {
       )),
       ChainId::Arbitrum => Ok(address!(
          "4752ba5dbc23f44d87826276bf6fd6b1c372ad24"
+      )),
+      ChainId::RobinHood => Ok(address!(
+         "0x89e5DB8B5aA49aA85AC63f691524311AEB649eba"
       )),
    }
 }
@@ -604,6 +674,9 @@ pub fn uniswap_v3_factory(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Arbitrum => Ok(address!(
          "1F98431c8aD98523631AE4a59f267346ea31F984"
       )),
+      ChainId::RobinHood => Ok(address!(
+         "0x1f7d7550B1b028f7571E69A784071F0205FD2EfA"
+      )),
    }
 }
 
@@ -625,6 +698,7 @@ pub fn pancakeswap_v2_factory(chain_id: u64) -> Result<Address, anyhow::Error> {
          "02a84c1b3BBD7401a5f7fa98a384EBC70bB5749E"
       )),
       ChainId::Optimism => bail!("PancakeSwap V2 is not available on Optimism"),
+      ChainId::RobinHood => bail!("PancakeSwap V2 is not available on Robinhood Chain"),
    }
 }
 
@@ -646,6 +720,7 @@ pub fn pancakeswap_v2_router(chain_id: u64) -> Result<Address, anyhow::Error> {
          "8cFe327CEc66d1C090Dd72bd0FF11d690C33a2Eb"
       )),
       ChainId::Optimism => bail!("PancakeSwap V2 is not available on Optimism"),
+      ChainId::RobinHood => bail!("PancakeSwap V2 is not available on Robinhood Chain"),
    }
 }
 
@@ -667,6 +742,9 @@ pub fn pancakeswap_v3_factory(chain_id: u64) -> Result<Address, anyhow::Error> {
          "0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865"
       )),
       ChainId::Optimism => bail!("PancakeSwap V3 is not available on Optimism"),
+      ChainId::RobinHood => Ok(address!(
+         "0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865"
+      )),
    }
 }
 
@@ -688,6 +766,9 @@ pub fn pancakeswap_v3_router(chain_id: u64) -> Result<Address, anyhow::Error> {
          "32226588378236Fd0c7c4053999F88aC0e5cAc77"
       )),
       ChainId::Optimism => bail!("PancakeSwap V3 is not available on Optimism"),
+      ChainId::RobinHood => Ok(address!(
+         "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4"
+      )),
    }
 }
 
@@ -709,5 +790,6 @@ pub fn across_spoke_pool_v2(chain_id: u64) -> Result<Address, anyhow::Error> {
          "e35e9842fceaca96570b734083f4a58e8f7c5f2a"
       )),
       ChainId::BinanceSmartChain => bail!("Across Protocol does not support BSC"),
+      ChainId::RobinHood => Ok(address!("0xD29C85F15DF544bA632C9E25829fd29d767d7978")),
    }
 }

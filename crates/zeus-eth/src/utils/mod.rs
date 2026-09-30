@@ -30,8 +30,9 @@ pub fn is_base_token(chain: u64, token: Address) -> bool {
    let usdc = address_book::usdc(chain).is_ok_and(|usdc| usdc == token);
    let usdt = address_book::usdt(chain).is_ok_and(|usdt| usdt == token);
    let dai = address_book::dai(chain).is_ok_and(|dai| dai == token);
+   let usdg = address_book::usdg(chain).is_ok_and(|usdg| usdg == token);
 
-   weth || wbnb || usdc || usdt || dai
+   weth || wbnb || usdc || usdt || dai || usdg
 }
 
 /// Get logs for a given target address and events

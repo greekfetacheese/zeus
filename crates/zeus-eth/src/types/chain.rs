@@ -6,10 +6,12 @@ pub const OPTIMISM: u64 = 10;
 pub const BSC: u64 = 56;
 pub const BASE: u64 = 8453;
 pub const ARBITRUM: u64 = 42161;
+pub const ROBIN_HOOD: u64 = 4663;
 
-pub const SUPPORTED_CHAINS: [u64; 6] = [ETH, ETH_SEPOLIA, OPTIMISM, BSC, BASE, ARBITRUM];
+pub const SUPPORTED_CHAINS: [u64; 7] =
+   [ETH, ETH_SEPOLIA, OPTIMISM, BSC, BASE, ARBITRUM, ROBIN_HOOD];
 
-const ERR_MSG: &str = "Supported chains are: Ethereum(1), Ethereum Sepolia(11155111), Optimism(10), Binance Smart Chain(56), Base(8453), Arbitrum(42161)";
+const ERR_MSG: &str = "Supported chains are: Ethereum(1), Ethereum Sepolia(11155111), Optimism(10), Binance Smart Chain(56), Base(8453), Arbitrum(42161), RobinHood(4663)";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u64)]
@@ -20,6 +22,7 @@ pub enum ChainId {
    BinanceSmartChain = 56,
    Base = 8453,
    Arbitrum = 42161,
+   RobinHood = 4663,
 }
 
 impl Default for ChainId {
@@ -43,6 +46,7 @@ impl ChainId {
          56 => ChainId::BinanceSmartChain,
          8453 => ChainId::Base,
          42161 => ChainId::Arbitrum,
+         4663 => ChainId::RobinHood,
          _ => bail!(format!(
             "Unsupported chain id: {}\n{}",
             id, ERR_MSG
@@ -75,6 +79,10 @@ impl ChainId {
       ChainId::Arbitrum
    }
 
+   pub fn robinhood() -> Self {
+      ChainId::RobinHood
+   }
+
    pub fn is_ethereum(&self) -> bool {
       matches!(self, ChainId::Ethereum)
    }
@@ -90,11 +98,17 @@ impl ChainId {
    pub fn is_base(&self) -> bool {
       matches!(self, ChainId::Base)
    }
+
    pub fn is_arbitrum(&self) -> bool {
       matches!(self, ChainId::Arbitrum)
    }
+
    pub fn is_bsc(&self) -> bool {
       matches!(self, ChainId::BinanceSmartChain)
+   }
+
+   pub fn is_robinhood(&self) -> bool {
+      matches!(self, ChainId::RobinHood)
    }
 
    /// Return all supported chains
@@ -121,6 +135,7 @@ impl ChainId {
          ChainId::BinanceSmartChain => 56,
          ChainId::Base => 8453,
          ChainId::Arbitrum => 42161,
+         ChainId::RobinHood => 4663,
       }
    }
 
@@ -136,6 +151,7 @@ impl ChainId {
          ChainId::BinanceSmartChain => "Binance Smart Chain",
          ChainId::Base => "Base",
          ChainId::Arbitrum => "Arbitrum",
+         ChainId::RobinHood => "Robinhood",
       }
    }
 
@@ -149,6 +165,7 @@ impl ChainId {
          ChainId::Base => 2000,
          // Arbitrum doesnt have a fixed block time but lets assume on average its 250ms (based on arbscan)
          ChainId::Arbitrum => 250,
+         ChainId::RobinHood => 100,
       }
    }
 
@@ -166,6 +183,7 @@ impl ChainId {
          ChainId::BinanceSmartChain => 140_000_000,
          ChainId::Base => 264_000_000,
          ChainId::Arbitrum => 32_000_000,
+         ChainId::RobinHood => 32_000_000,
       }
    }
 
@@ -178,6 +196,7 @@ impl ChainId {
          ChainId::BinanceSmartChain => "https://bscscan.com",
          ChainId::Base => "https://basescan.org",
          ChainId::Arbitrum => "https://arbiscan.io",
+         ChainId::RobinHood => "https://robin.etherscan.io/",
       }
    }
 
@@ -190,6 +209,7 @@ impl ChainId {
          ChainId::BinanceSmartChain => 21_000,
          ChainId::Base => 21_000,
          ChainId::Arbitrum => 97_818,
+         ChainId::RobinHood => 97_818,
       }
    }
 
@@ -202,6 +222,7 @@ impl ChainId {
          ChainId::BinanceSmartChain => 21_000,
          ChainId::Base => 21_000,
          ChainId::Arbitrum => 97_818,
+         ChainId::RobinHood => 97_818,
       }
    }
 
@@ -216,6 +237,7 @@ impl ChainId {
          ChainId::BinanceSmartChain => 50_000,
          ChainId::Base => 50_000,
          ChainId::Arbitrum => 97_818,
+         ChainId::RobinHood => 97_818,
       }
    }
 
@@ -227,6 +249,7 @@ impl ChainId {
          ChainId::BinanceSmartChain => false,
          ChainId::Base => true,
          ChainId::Arbitrum => true,
+         ChainId::RobinHood => true,
       }
    }
 
@@ -243,6 +266,7 @@ impl ChainId {
          ChainId::BinanceSmartChain => false,
          ChainId::Base => false,
          ChainId::Arbitrum => false,
+         ChainId::RobinHood => false,
       }
    }
 }

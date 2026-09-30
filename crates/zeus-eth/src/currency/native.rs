@@ -1,4 +1,4 @@
-use crate::types::{ARBITRUM, BASE, BSC, ChainId, ETH, ETH_SEPOLIA, OPTIMISM};
+use crate::types::{ARBITRUM, BASE, BSC, ChainId, ETH, ETH_SEPOLIA, OPTIMISM, ROBIN_HOOD};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -52,6 +52,7 @@ impl NativeCurrency {
          ChainId::Optimism => Ok(Self::eth_optimism()),
          ChainId::Base => Ok(Self::eth_base()),
          ChainId::Arbitrum => Ok(Self::eth_arbitrum()),
+         ChainId::RobinHood => Ok(Self::eth_robinhood()),
          ChainId::BinanceSmartChain => Ok(Self::bnb()),
       }
    }
@@ -74,6 +75,10 @@ impl NativeCurrency {
 
    pub fn eth_arbitrum() -> Self {
       Self::new(ARBITRUM, "ETH", "Ethereum", 18)
+   }
+
+   pub fn eth_robinhood() -> Self {
+      Self::new(ROBIN_HOOD, "ETH", "Ethereum", 18)
    }
 
    pub fn bnb() -> Self {

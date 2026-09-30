@@ -34,6 +34,7 @@ where
       ChainId::Optimism => super::address_book::eth_usd_price_feed(chain_id)?,
       ChainId::Base => super::address_book::eth_usd_price_feed(chain_id)?,
       ChainId::Arbitrum => super::address_book::eth_usd_price_feed(chain_id)?,
+      ChainId::RobinHood => super::address_book::eth_usd_price_feed(chain_id)?,
       ChainId::BinanceSmartChain => bail!("ETH-USD price feed not available on BSC"),
    };
 
@@ -105,7 +106,8 @@ where
    let is_usdc = usdc(chain_id).is_ok_and(|usdc| usdc == token);
    let is_usdt = usdt(chain_id).is_ok_and(|usdt| usdt == token);
    let is_dai = dai(chain_id).is_ok_and(|dai| dai == token);
-   let is_stable = is_usdc || is_usdt || is_dai;
+   let is_usdg = usdg(chain_id).is_ok_and(|usdg| usdg == token);
+   let is_stable = is_usdc || is_usdt || is_dai || is_usdg;
 
    if !is_stable {
       return Err(anyhow::anyhow!(
@@ -121,6 +123,8 @@ where
       usdt_usd_price_feed(chain_id)?
    } else if is_dai {
       dai_usd_price_feed(chain_id)?
+   } else if is_usdg {
+      usdg_usd_price_feed(chain_id)?
    } else {
       bail!(
          "Token is not a stablecoin, token: {} chain: {}",

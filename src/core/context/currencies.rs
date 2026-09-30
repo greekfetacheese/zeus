@@ -52,7 +52,8 @@ impl CurrencyDB {
    pub fn load_from_file(key: &WalletStateKey) -> Result<Self, anyhow::Error> {
       let dir = Self::dir()?;
       let sealed = std::fs::read(&dir)?;
-      let db: CurrencyDB = key.open_json(&sealed, CURRENCY_DB_AAD)?;
+      let mut db: CurrencyDB = key.open_json(&sealed, CURRENCY_DB_AAD)?;
+      db.load_necessary_tokens();
       Ok(db)
    }
 
@@ -131,7 +132,6 @@ impl CurrencyDB {
 
       let weth = ERC20Token::weth();
       let dai = ERC20Token::dai();
-      let wbnb = ERC20Token::wbnb();
 
       for token in default_tokens {
          if token.address == weth.address {
@@ -144,6 +144,16 @@ impl CurrencyDB {
 
          self.insert_token(token.chain_id, token);
       }
+
+      self.load_necessary_tokens();
+
+      Ok(())
+   }
+
+   fn load_necessary_tokens(&mut self) {
+      let weth = ERC20Token::weth();
+      let dai = ERC20Token::dai();
+      let wbnb = ERC20Token::wbnb();
 
       self.insert_token(BSC, wbnb);
 
@@ -162,7 +172,13 @@ impl CurrencyDB {
       self.insert_token(ETH_SEPOLIA, sepolia_dai);
       self.insert_token(ETH_SEPOLIA, sepolia_usdc);
 
-      Ok(())
+      // USDG on Robinhood Chain
+      let usdg = ERC20Token::usdg_robinhood();
+      self.insert_token(usdg.chain_id, usdg);
+
+      // WETH on Robinhood Chain
+      let robin_weth = ERC20Token::weth_robinhood();
+      self.insert_token(robin_weth.chain_id, robin_weth);
    }
 }
 
