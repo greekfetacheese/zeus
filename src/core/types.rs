@@ -233,6 +233,9 @@ pub struct Recipient {
    pub name: Option<String>,
    pub evm_address: String,
    pub zk_address: String,
+   /// The chain an ERC-7828 name resolved for (`vitalik.eth@base` → `8453`). `None` when the
+   /// recipient is chain-agnostic — a plain address, contact, wallet or plain ENS name.
+   pub chain: Option<u64>,
 }
 
 impl Recipient {
@@ -241,6 +244,7 @@ impl Recipient {
          name: None,
          evm_address: address.to_string(),
          zk_address: String::new(),
+         chain: None,
       }
    }
 
@@ -249,16 +253,22 @@ impl Recipient {
          name: None,
          evm_address: String::new(),
          zk_address: address,
+         chain: None,
       }
    }
 
    /// Recipient resolved from an ENS name. The address is what gets sent, the name
    /// is display only.
-   pub fn from_ens_name(name: String, address: Address) -> Self {
+   ///
+   /// `chain` is `Some` only when the name was chain-specific (`name@chain`, ERC-7828), which is
+   /// what makes the send path refuse to go out on a different chain; `name` is `None` for a
+   /// chain-specific *raw address* (`0x…@eip155:1`).
+   pub fn from_ens_name(name: Option<String>, address: Address, chain: Option<u64>) -> Self {
       Self {
-         name: Some(name),
+         name,
          evm_address: address.to_string(),
          zk_address: String::new(),
+         chain,
       }
    }
 
@@ -267,6 +277,7 @@ impl Recipient {
          name: Some(wallet_info.name_with_source()),
          evm_address: wallet_info.address.to_string(),
          zk_address: wallet_info.zk_address(),
+         chain: None,
       }
    }
 
@@ -275,6 +286,7 @@ impl Recipient {
          name: Some(contact.name),
          evm_address: contact.evm_address,
          zk_address: contact.zk_address,
+         chain: None,
       }
    }
 

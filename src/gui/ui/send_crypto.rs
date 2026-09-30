@@ -241,11 +241,15 @@ impl SendCryptoUi {
                      self.sync_balance(owner, privacy_mode);
                   }
 
+                  // Hoisted: `show` takes `ctx` mutably, so read the chain before the call.
+                  let send_chain = ctx.chain.id();
+
                   recipient_selection.show(
                      ctx,
                      theme,
                      icons.clone(),
                      recipient_privacy_mode,
+                     send_chain,
                      contacts_ui,
                      ui,
                   );
@@ -355,6 +359,10 @@ impl SendCryptoUi {
                      });
                   }
 
+                  // A recipient resolved from an ERC-7828 name carries the chain it resolved
+                  // for. Read it before the address fields are moved out of `recipient`.
+                  let recipient_chain = recipient.chain;
+
                   let recipient_str = if recipient_privacy_mode {
                      recipient.zk_address
                   } else {
@@ -367,6 +375,7 @@ impl SendCryptoUi {
                      owner,
                      owner_zk,
                      recipient_str,
+                     recipient_chain,
                      privacy_mode,
                      ui,
                   );
@@ -396,6 +405,7 @@ impl SendCryptoUi {
       owner: Address,
       owner_zk: String,
       recipient: String,
+      recipient_chain: Option<u64>,
       privacy_mode: bool,
       ui: &mut Ui,
    ) {
@@ -414,6 +424,16 @@ impl SendCryptoUi {
          true
       };
 
+      // A chain-specific recipient may only be sent to on the chain it resolved for. The picker
+      // asks before switching, so reaching here means the active chain moved (or the address was
+      // edited) afterwards — refuse instead of sending on a chain the user did not pick.
+      //
+      // Public sends only: a private transfer goes to a `0zk` address, which has no chain.
+      let wrong_chain = match privacy_mode {
+         true => None,
+         false => recipient_chain.filter(|chain| *chain != ctx.chain.id()),
+      };
+
       let valid_inputs = valid_recipient
          && !recipient_is_sender
          && has_balance
@@ -421,6 +441,7 @@ impl SendCryptoUi {
          && valid_amount
          && valid_token
          && has_entered_recipient
+         && wrong_chain.is_none()
          && !sending_tx;
 
       let mut button_text = "Send".to_string();
@@ -443,6 +464,15 @@ impl SendCryptoUi {
 
       if privacy_mode && !valid_token {
          button_text = "Invalid Token".to_string();
+      }
+
+      // Last, so it wins: on the wrong chain every balance figure above is for the wrong chain,
+      // and sending there is the mistake worth blocking.
+      if let Some(chain) = wrong_chain {
+         button_text = match ChainId::new(chain) {
+            Ok(chain) => format!("Switch to {} to send", chain.name()),
+            Err(_) => "Unsupported chain".to_string(),
+         };
       }
 
       let text = RichText::new(button_text).size(theme.typography.large);

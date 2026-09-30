@@ -22,10 +22,7 @@ use crate::gui::{
 use crate::utils::RT;
 use egui::{Align, CursorIcon, Layout, Margin, OpenUrl, RichText, Ui, vec2};
 use std::sync::Arc;
-use zeus_eth::{
-   currency::{Currency, NativeCurrency},
-   types::ChainId,
-};
+use zeus_eth::types::ChainId;
 
 use egui_elements::{Button, Theme, visuals::ButtonVisuals};
 use egui_lucide::Lucide;
@@ -380,32 +377,7 @@ impl AccountPanel {
       ui.vertical(|ui| {
          let clicked = self.chain_select.show(ctx, &[0], theme, icons.clone(), ui);
          if clicked {
-            let new_chain = self.chain_select.chain;
-
-            ctx.chain = new_chain;
-
-            // Update the state on chain change
-            RT.spawn(async move {
-               let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-               let owner = ctx.current_wallet_info().address;
-               let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
-
-               SHARED_GUI.write(|gui| {
-                  let currency: Currency = NativeCurrency::from(new_chain.id()).into();
-                  gui.send_crypto.set_currency(currency.clone());
-
-                  if gui.token_selection.is_open() {
-                     gui.token_selection.process_currencies(privacy_mode, new_chain.id(), owner);
-                  }
-
-                  gui.uniswap.swap_ui.default_currency_in(new_chain.id());
-                  gui.uniswap.swap_ui.default_currency_out(new_chain.id());
-                  gui.send_crypto.default_currency(privacy_mode, new_chain.id());
-                  gui.shield_ui.default_currency(new_chain.id());
-                  gui.wallet_ui.calc_wallet_value();
-                  gui.recipient_selection.calc_wallet_value();
-               });
-            });
+            switch_chain(ctx, self.chain_select.chain);
          }
       });
    }

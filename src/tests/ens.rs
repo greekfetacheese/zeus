@@ -3,7 +3,7 @@ mod tests {
    use crate::core::ZeusCtx;
    use std::sync::Arc;
    use zeus_eth::alloy_primitives::{Address, address};
-   use zeus_eth::utils::{client::RpcClient, ens};
+   use zeus_eth::utils::{client::RpcClient, ens, interoperable_name};
 
    const VITALIK: Address = address!("d8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
    const NO_PRIMARY_NAME: Address = address!("000000000000000000000000000000000000dEaD");
@@ -185,5 +185,186 @@ mod tests {
          ctx.get_address_name(ens::ENS_CHAIN, owned).as_deref(),
          Some("My Wallet")
       );
+   }
+
+   #[tokio::test]
+   async fn test_resolve_chain_labels() {
+      let ctx = ZeusCtx::new();
+      let client = mainnet_client(&ctx).await;
+
+      // The live `on.eth` registry. Resolution has to go through the Universal Resolver:
+      // the `on.eth` resolver is wildcard-only (ENSIP-10) and reverts on a direct call.
+      assert_eq!(
+         ens::resolve_chain_label(&client, "ethereum").await.unwrap(),
+         Some(1)
+      );
+      assert_eq!(
+         ens::resolve_chain_label(&client, "optimism").await.unwrap(),
+         Some(10)
+      );
+      // An alias: `op.on.eth` and `optimism.on.eth` are the same chain.
+      assert_eq!(
+         ens::resolve_chain_label(&client, "op").await.unwrap(),
+         Some(10)
+      );
+      assert_eq!(
+         ens::resolve_chain_label(&client, "base").await.unwrap(),
+         Some(8453)
+      );
+      assert_eq!(
+         ens::resolve_chain_label(&client, "arbitrum").await.unwrap(),
+         Some(42161)
+      );
+
+      // Labels are normalized like names.
+      assert_eq!(
+         ens::resolve_chain_label(&client, "  BASE  ").await.unwrap(),
+         Some(8453)
+      );
+
+      // Not registered under `on.eth`.
+      assert_eq!(
+         ens::resolve_chain_label(&client, "polygon").await.unwrap(),
+         None
+      );
+      assert_eq!(
+         ens::resolve_chain_label(&client, "not-a-real-chain").await.unwrap(),
+         None
+      );
+
+      // A label, not a name: `base.on.eth` must not become `base.on.eth.on.eth`.
+      assert_eq!(
+         ens::resolve_chain_label(&client, "base.on.eth").await.unwrap(),
+         None
+      );
+
+      // Labels the normalizer refuses are never hashed, so no request is made at all.
+      for invalid in ["", "-base", "base-", "b\u{456}se", "base eth"] {
+         assert_eq!(
+            ens::resolve_chain_label(&client, invalid).await.unwrap(),
+            None,
+            "{invalid:?} must not resolve"
+         );
+      }
+   }
+
+   #[tokio::test]
+   async fn test_resolve_name_for_chain() {
+      let ctx = ZeusCtx::new();
+      let client = mainnet_client(&ctx).await;
+
+      // Chain 1 uses coin type 60 — the same record the plain path reads.
+      assert_eq!(
+         ens::resolve_name_for_chain(&client, "vitalik.eth", ens::ENS_CHAIN)
+            .await
+            .unwrap()
+            .map(|chain_address| chain_address.address),
+         Some(VITALIK)
+      );
+
+      // A name with a record explicitly set for Base.
+      let base = ens::resolve_name_for_chain(&client, "jefflau.eth", 8453)
+         .await
+         .unwrap()
+         .expect("jefflau.eth has an explicit Base record");
+      assert!(!base.from_default_evm_record);
+
+      // The point of the whole feature: a name with no Base record and no default-EVM
+      // record yields nothing — *not* mainnet's address. The mainnet record must never
+      // leak across chains.
+      assert_eq!(
+         ens::resolve_name_for_chain(&client, "vitalik.eth", 8453).await.unwrap(),
+         None
+      );
+
+      // A name whose only EVM record is the ENSIP-19 default one still resolves, flagged.
+      let default = ens::resolve_name_for_chain(&client, "brantly.eth", 8453)
+         .await
+         .unwrap()
+         .expect("brantly.eth has a default EVM chain record");
+      assert!(default.from_default_evm_record);
+
+      // Chain ids ENSIP-11 reserves for nothing: no request is made.
+      assert_eq!(
+         ens::resolve_name_for_chain(&client, "vitalik.eth", 0x8000_0000).await.unwrap(),
+         None
+      );
+   }
+
+   #[tokio::test]
+   async fn test_resolve_interoperable_names() {
+      let ctx = ZeusCtx::new();
+      let client = mainnet_client(&ctx).await;
+
+      // Label form: `on.eth` supplies the chain, the name supplies the address.
+      let resolved = interoperable_name::resolve(&client, "jefflau.eth@base")
+         .await
+         .unwrap()
+         .expect("jefflau.eth has a Base record");
+      assert_eq!(resolved.chain_id, 8453);
+      assert_eq!(resolved.name.as_deref(), Some("jefflau.eth"));
+      assert!(!resolved.from_default_evm_record);
+
+      // The CAIP-2 form of the same identity resolves identically.
+      assert_eq!(
+         interoperable_name::resolve(&client, "jefflau.eth@eip155:8453").await.unwrap(),
+         Some(resolved)
+      );
+
+      // A raw address with a CAIP-2 chain part costs no lookup at all, and the checksum is
+      // checked against the ERC-7930 fields.
+      let raw = interoperable_name::resolve(
+         &client,
+         "0xFe89cc7aBB2C4183683ab71653C4cdc9B02D44b7@eip155:1#80B12379",
+      )
+      .await
+      .unwrap()
+      .expect("a raw address needs no lookup");
+      assert_eq!(
+         raw.address,
+         address!("Fe89cc7aBB2C4183683ab71653C4cdc9B02D44b7")
+      );
+      assert_eq!(raw.chain_id, 1);
+      assert_eq!(raw.name, None);
+
+      // The `ethereum` label form of the same raw address, checksum included.
+      assert_eq!(
+         interoperable_name::resolve(
+            &client,
+            "0xFe89cc7aBB2C4183683ab71653C4cdc9B02D44b7@ethereum#80B12379",
+         )
+         .await
+         .unwrap(),
+         Some(raw)
+      );
+
+      // A checksum that does not match is refused, not silently accepted.
+      assert!(matches!(
+         interoperable_name::resolve(
+            &client,
+            "0xFe89cc7aBB2C4183683ab71653C4cdc9B02D44b7@eip155:1#DEADBEEF",
+         )
+         .await,
+         Err(interoperable_name::InteroperableNameError::ChecksumMismatch { .. })
+      ));
+
+      // An unknown chain label is "nothing to offer" rather than an error.
+      assert!(
+         interoperable_name::resolve(&client, "vitalik.eth@polygon")
+            .await
+            .unwrap()
+            .is_none()
+      );
+
+      // A name with no address for that chain is also "nothing to offer".
+      assert!(
+         interoperable_name::resolve(&client, "vitalik.eth@base")
+            .await
+            .unwrap()
+            .is_none()
+      );
+
+      // Not an Interoperable Name at all.
+      assert!(interoperable_name::resolve(&client, "vitalik.eth").await.is_err());
    }
 }

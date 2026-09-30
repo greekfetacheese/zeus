@@ -2,6 +2,7 @@
 
 pub mod amount_field;
 pub mod chain_select;
+pub mod chain_switch;
 pub mod fade;
 pub mod wallet_list;
 pub mod wallet_select;
@@ -10,6 +11,7 @@ pub mod windows;
 
 pub use amount_field::{AmountField, AmountFieldParams};
 pub use chain_select::ChainSelect;
+pub use chain_switch::switch_chain;
 pub use fade::{panel_fade, show_with_fade};
 pub use wallet_list::WalletListByValue;
 pub use wallet_select::WalletSelect;

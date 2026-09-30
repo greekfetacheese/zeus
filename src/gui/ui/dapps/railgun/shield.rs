@@ -432,11 +432,15 @@ impl ShieldUi {
                      self.sync_balance(owner);
                   }
 
+                  // Hoisted: `show` takes `ctx` mutably, so read the chain before the call.
+                  let send_chain = ctx.chain.id();
+
                   recipient_selection.show(
                      ctx,
                      theme,
                      icons.clone(),
                      recipient_privacy_mode,
+                     send_chain,
                      contacts_ui,
                      ui,
                   );
@@ -548,6 +552,9 @@ impl ShieldUi {
                      self.unshield_options(theme, ui);
                   }
 
+                  // Read before the address fields are moved out of `recipient`.
+                  let recipient_chain = recipient.chain;
+
                   let recipient_str = if self.mode.is_shield() {
                      recipient.zk_address
                   } else {
@@ -556,7 +563,7 @@ impl ShieldUi {
 
                   ui.add_space(10.0);
 
-                  self.action_button(ctx, theme, owner, recipient_str, ui);
+                  self.action_button(ctx, theme, owner, recipient_str, recipient_chain, ui);
                });
             });
       });
@@ -749,6 +756,7 @@ impl ShieldUi {
       theme: &Theme,
       owner: Address,
       recipient: String,
+      recipient_chain: Option<u64>,
       ui: &mut Ui,
    ) {
       let is_synced = ctx.railgun_status().synced(ctx.chain.id());
@@ -765,12 +773,20 @@ impl ShieldUi {
          true
       };
 
+      // An unshield pays out to a public address on the active chain, so a chain-specific
+      // recipient has to agree with it. A shield sends to a `0zk` address, which has no chain.
+      let wrong_chain = match self.mode.is_unshield() {
+         true => recipient_chain.filter(|chain| *chain != ctx.chain.id()),
+         false => None,
+      };
+
       let valid_inputs = has_balance
          && has_entered_amount
          && valid_amount
          && valid_token
          && has_recipient
          && valid_recipient
+         && wrong_chain.is_none()
          && !sending_tx
          && is_synced;
 
@@ -807,6 +823,15 @@ impl ShieldUi {
 
       if !is_synced {
          button_text = "Railgun is not synced".to_string();
+      }
+
+      // Last, so it wins: sending to a recipient resolved for another chain is the mistake worth
+      // blocking, and the picker has already asked before switching.
+      if let Some(chain) = wrong_chain {
+         button_text = match ChainId::new(chain) {
+            Ok(chain) => format!("Switch to {} to unshield", chain.name()),
+            Err(_) => "Unsupported chain".to_string(),
+         };
       }
 
       let text = RichText::new(button_text).size(theme.typography.large);

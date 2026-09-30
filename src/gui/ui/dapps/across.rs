@@ -254,7 +254,19 @@ impl AcrossBridge {
             return;
          }
 
-         recipient_selection.show(ctx, theme, icons.clone(), false, contacts_ui, ui);
+         // The recipient lands on the bridge's *destination* chain, not the active one, so a
+         // chain-specific recipient has to agree with `to_chain`.
+         let send_chain = self.to_chain.chain.id();
+
+         recipient_selection.show(
+            ctx,
+            theme,
+            icons.clone(),
+            false,
+            send_chain,
+            contacts_ui,
+            ui,
+         );
          let recipient = recipient_selection.get_recipient();
 
          ui.vertical_centered(|ui| {
@@ -491,7 +503,17 @@ impl AcrossBridge {
 
                   ui.add_space(10.0);
 
-                  self.bridge_button(ctx, theme, depositor, recipient.evm_address, ui);
+                  // Read before the address field is moved out of `recipient`.
+                  let recipient_chain = recipient.chain;
+
+                  self.bridge_button(
+                     ctx,
+                     theme,
+                     depositor,
+                     recipient.evm_address,
+                     recipient_chain,
+                     ui,
+                  );
                });
             });
          });
@@ -504,6 +526,7 @@ impl AcrossBridge {
       theme: &Theme,
       depositor: Address,
       recipient: String,
+      recipient_chain: Option<u64>,
       ui: &mut Ui,
    ) {
       let sending_tx = self.sending_tx;
@@ -511,7 +534,14 @@ impl AcrossBridge {
       let valid_amount = self.valid_amount();
       let has_balance = self.sufficient_balance(ctx, depositor);
       let has_entered_amount = !self.amount_field.amount.is_empty();
-      let valid_inputs = valid_amount && valid_recipient && has_balance && !sending_tx;
+
+      // A chain-specific recipient lands on the bridge's *destination* chain, so it has to agree
+      // with `to_chain`. This window owns that selector, so unlike a send it can offer the fix
+      // instead of only refusing.
+      let wrong_chain = recipient_chain.filter(|chain| *chain != self.to_chain.chain.id());
+
+      let valid_inputs =
+         valid_amount && valid_recipient && has_balance && wrong_chain.is_none() && !sending_tx;
 
       let mut button_text = "Bridge".to_string();
 
@@ -529,6 +559,14 @@ impl AcrossBridge {
 
       if !has_balance {
          button_text = format!("Insufficient {} Balance", self.currency.symbol());
+      }
+
+      // Last, so it wins: the recipient was resolved for another chain.
+      if let Some(chain) = wrong_chain {
+         button_text = match ChainId::new(chain) {
+            Ok(chain) => format!("Recipient is on {}", chain.name()),
+            Err(_) => "Unsupported chain".to_string(),
+         };
       }
 
       let visuals = theme.button_visuals();
@@ -554,6 +592,22 @@ impl AcrossBridge {
                   });
                });
             }
+         }
+      }
+
+      // The bridge can fix this itself: point the destination at the recipient's chain. The quote
+      // cache is refreshed every frame, so setting the selector is all that is needed.
+      if let Some(chain) = wrong_chain
+         && let Ok(chain) = ChainId::new(chain)
+      {
+         ui.add_space(6.0);
+
+         let text = RichText::new(format!("Set destination to {}", chain.name()))
+            .size(theme.typography.normal);
+         let button = Button::new(text).visuals(visuals);
+
+         if ui.add(button).clicked() {
+            self.to_chain.chain = chain;
          }
       }
    }

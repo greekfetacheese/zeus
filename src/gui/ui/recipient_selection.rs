@@ -6,6 +6,7 @@ use crate::core::{
    types::{Contact, Recipient},
 };
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::common::switch_chain;
 use crate::gui::ui::{ContactsUi, WalletListByValue};
 use crate::utils::{RT, TimeStamp};
 use eframe::egui::{
@@ -18,8 +19,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use zeus_eth::alloy_primitives::Address;
-use zeus_eth::types::ETH;
-use zeus_eth::utils::ens;
+use zeus_eth::types::{ChainId, ETH};
+use zeus_eth::utils::{ens, interoperable_name};
 use zeus_railgun::RailgunAddress;
 
 /// Validated address entered in the search bar that is not already a
@@ -31,6 +32,23 @@ enum UnknownRecipient {
    Ens {
       name: String,
       address: Address,
+   },
+   /// An ERC-7828 `<address>@<chain>`. The chain is part of what the user typed, so it is
+   /// carried through to the send path instead of being assumed from the active chain.
+   Interoperable {
+      /// `None` for a chain-specific *raw* address (`0x…@eip155:1`).
+      name: Option<String>,
+      address: Address,
+      chain: u64,
+      /// The address came from the name's ENSIP-19 *default EVM chain* record rather than a
+      /// record set for this exact chain — a weaker claim, shown as such.
+      from_default_evm_record: bool,
+   },
+   /// An ERC-7828 name whose `#<checksum>` did not match the address and chain. Shown as a
+   /// warning and never selectable: the checksum is the one thing the user asked Zeus to check.
+   ChecksumMismatch {
+      expected: String,
+      found: String,
    },
    Zk(String),
 }
@@ -59,6 +77,9 @@ pub struct RecipientSelectionWindow {
    /// Millis timestamp at which an ENS lookup for `unknown_recipient_query` may run;
    /// `0` when no lookup is waiting out the debounce window.
    ens_lookup_due_at: u64,
+   /// Chain id an ERC-7828 suggestion resolved for that differs from the active chain, awaiting
+   /// an explicit "switch and use" confirmation. `None` when no switch is pending.
+   pending_chain_switch: Option<u64>,
    wallets: Vec<WalletInfo>,
    /// Wallet value by address
    wallet_value: HashMap<Address, WalletValue>,
@@ -83,6 +104,7 @@ impl RecipientSelectionWindow {
          unknown_recipient_privacy: false,
          parsing_unknown_recipient: false,
          ens_lookup_due_at: 0,
+         pending_chain_switch: None,
          wallets: Vec::new(),
          wallet_value: HashMap::new(),
          wallet_chains: HashMap::new(),
@@ -134,6 +156,7 @@ impl RecipientSelectionWindow {
       self.unknown_recipient_query.clear();
       self.parsing_unknown_recipient = false;
       self.ens_lookup_due_at = 0;
+      self.pending_chain_switch = None;
    }
 
    /// Kick off (or skip) background parsing when the search query / privacy mode changes.
@@ -155,6 +178,7 @@ impl RecipientSelectionWindow {
          self.unknown_recipient_privacy = privacy_mode;
          self.parsing_unknown_recipient = false;
          self.ens_lookup_due_at = 0;
+         self.pending_chain_switch = None;
       } else if self.ens_lookup_due_at == 0 {
          // Already parsed (or already parsing) this exact query.
          return None;
@@ -162,7 +186,7 @@ impl RecipientSelectionWindow {
 
       // A name costs an RPC round-trip, so the lookup waits for the typing to stop.
       // Address / 0zk parsing stays immediate — it is local.
-      if needs_ens_lookup(&self.search_query, privacy_mode) {
+      if needs_name_lookup(&self.search_query, privacy_mode) {
          if self.ens_lookup_due_at == 0 {
             self.ens_lookup_due_at = TimeStamp::now_as_millis().unwrap_or_default().timestamp()
                + ENS_LOOKUP_DEBOUNCE_MILLIS;
@@ -202,12 +226,16 @@ impl RecipientSelectionWindow {
       self.recipient.clone()
    }
 
+   /// `send_chain` is the chain this flow will actually send the recipient to: the active chain
+   /// for send / unshield, and the destination chain for a bridge. A chain-specific name
+   /// (`name@chain`) that disagrees with it is never sent silently.
    pub fn show(
       &mut self,
       ctx: &mut ZeusContext,
       theme: &Theme,
       _icons: Arc<Icons>,
       privacy_mode: bool,
+      send_chain: u64,
       contacts_ui: &mut ContactsUi,
       ui: &mut Ui,
    ) {
@@ -354,6 +382,8 @@ impl RecipientSelectionWindow {
                } else if let Some(unknown) = self.unknown_recipient.clone() {
                   let heading = match &unknown {
                      UnknownRecipient::Ens { .. } => "ENS",
+                     UnknownRecipient::Interoperable { .. } => "Chain-specific address",
+                     UnknownRecipient::ChecksumMismatch { .. } => "Checksum mismatch",
                      _ => "Unknown Address",
                   };
                   ui.label(RichText::new(heading).size(theme.typography.large));
@@ -374,7 +404,9 @@ impl RecipientSelectionWindow {
                         let button = Button::new(name_text).visuals(button_visuals);
 
                         if ui.add(button).clicked() {
-                           self.recipient = Recipient::from_ens_name(name, address);
+                           // A plain name is chain-agnostic: `chain` stays `None`, so the send
+                           // path keeps behaving exactly as it does today.
+                           self.recipient = Recipient::from_ens_name(Some(name), address, None);
                            close_window = true;
                         }
 
@@ -391,6 +423,119 @@ impl RecipientSelectionWindow {
                            .color(theme.colors.info);
 
                         ui.hyperlink_to(text, link);
+                     }
+                     UnknownRecipient::Interoperable {
+                        name,
+                        address,
+                        chain,
+                        from_default_evm_record,
+                     } => {
+                        // `None` when the chain is not one Zeus can send to.
+                        let chain_id = ChainId::new(chain).ok();
+
+                        let label = match (&name, chain_id) {
+                           (Some(name), Some(chain_id)) => {
+                              format!("{} @ {}", name, chain_id.name())
+                           }
+                           (None, Some(chain_id)) => {
+                              format!("{} on {}", address, chain_id.name())
+                           }
+                           (Some(name), None) => format!("{} @ chain {}", name, chain),
+                           (None, None) => address.to_string(),
+                        };
+
+                        let button =
+                           Button::new(RichText::new(label).size(theme.typography.normal))
+                              .visuals(button_visuals);
+
+                        // Where this flow sends. Switching the *active* chain only fixes a
+                        // mismatch when the flow sends on the active chain — a bridge sends on
+                        // its own destination chain, which this window cannot change.
+                        let can_switch_active_chain = send_chain == ctx.chain.id();
+
+                        if ui.add_enabled(chain_id.is_some(), button).clicked() {
+                           if chain == send_chain {
+                              self.recipient =
+                                 Recipient::from_ens_name(name.clone(), address, Some(chain));
+                              close_window = true;
+                           } else if can_switch_active_chain {
+                              // The chain in the name is authoritative for resolution, but
+                              // changing the active chain is the user's call: a recipient on
+                              // another chain is never sent silently.
+                              self.pending_chain_switch = Some(chain);
+                           } else {
+                              // Select it with its chain and let the flow offer the fix; the
+                              // flow's own guard keeps it from being sent on the wrong chain.
+                              self.recipient =
+                                 Recipient::from_ens_name(name.clone(), address, Some(chain));
+                              close_window = true;
+                           }
+                        }
+
+                        match chain_id {
+                           Some(chain_id) => {
+                              let link = format!(
+                                 "{}/address/{}",
+                                 chain_id.block_explorer(),
+                                 address
+                              );
+
+                              let text = RichText::new(address.to_string())
+                                 .size(theme.typography.normal)
+                                 .color(theme.colors.info);
+
+                              ui.hyperlink_to(text, link);
+
+                              if from_default_evm_record {
+                                 let note = RichText::new(format!(
+                                    "{} has no {} address — using its default EVM address",
+                                    name.as_deref().unwrap_or("this name"),
+                                    chain_id.name()
+                                 ))
+                                 .size(theme.typography.normal)
+                                 .color(theme.colors.text_muted);
+
+                                 ui.label(note);
+                              }
+
+                              if self.pending_chain_switch == Some(chain) {
+                                 let text = RichText::new(format!(
+                                    "Switch to {} and use this recipient",
+                                    chain_id.name()
+                                 ))
+                                 .size(theme.typography.normal);
+
+                                 let button = Button::new(text).visuals(button_visuals);
+
+                                 if ui.add(button).clicked() {
+                                    switch_chain(ctx, chain_id);
+                                    self.recipient =
+                                       Recipient::from_ens_name(name.clone(), address, Some(chain));
+                                    close_window = true;
+                                 }
+                              }
+                           }
+                           None => {
+                              let note = RichText::new(format!(
+                                 "Chain {} is not supported by Zeus",
+                                 chain
+                              ))
+                              .size(theme.typography.normal)
+                              .color(theme.colors.warning);
+
+                              ui.label(note);
+                           }
+                        }
+                     }
+                     UnknownRecipient::ChecksumMismatch { expected, found } => {
+                        let text = RichText::new(format!(
+                           "The name claims #{} but the address and chain hash to #{}",
+                           found, expected
+                        ))
+                        .size(theme.typography.normal)
+                        .color(theme.colors.error);
+
+                        ui.label(text);
                      }
                      UnknownRecipient::Zk(zk_address) => {
                         let address_text = RichText::new(&zk_address).size(theme.typography.normal);
@@ -647,6 +792,13 @@ fn parse_unknown_recipient(
          return Some(UnknownRecipient::Evm(address));
       }
 
+      // `<address>@<chain>` (ERC-7828) is checked before the plain-name path: the `@` means a
+      // name lookup would reject it anyway, and a chain-specific *raw* address would otherwise
+      // never be checksum-verified.
+      if interoperable_name::looks_like_interoperable_name(query) {
+         return resolve_interoperable_recipient(&ctx, query);
+      }
+
       // Not an address: it may be an ENS name.
       return resolve_ens_recipient(&ctx, query);
    }
@@ -660,12 +812,13 @@ fn parse_unknown_recipient(
    Some(UnknownRecipient::Zk(zk_address.address))
 }
 
-/// Does `query` need an ENS round-trip?
+/// Does `query` need a name round-trip?
 ///
-/// Names are public-mode only: in privacy mode the recipient is a `0zk` address and
-/// ENS has nothing to say about it.
-fn needs_ens_lookup(query: &str, privacy_mode: bool) -> bool {
-   !privacy_mode && ens::looks_like_name(query)
+/// Covers both the plain ENS path and ERC-7828 chain-specific names. Names are public-mode only:
+/// in privacy mode the recipient is a `0zk` address and ENS has nothing to say about it.
+fn needs_name_lookup(query: &str, privacy_mode: bool) -> bool {
+   !privacy_mode
+      && (ens::looks_like_name(query) || interoperable_name::looks_like_interoperable_name(query))
 }
 
 /// Forward ENS resolution for the search bar.
@@ -692,6 +845,54 @@ fn resolve_ens_recipient(ctx: &ZeusCtx, query: &str) -> Option<UnknownRecipient>
       Ok(None) => None,
       Err(e) => {
          tracing::error!("Could not resolve ENS {}", e);
+         None
+      }
+   }
+}
+
+/// Forward resolution for an ERC-7828 chain-specific name or address (`name.eth@base`).
+///
+/// Mainnet only and onchain only, exactly like [`resolve_ens_recipient`]: the `on.eth` chain
+/// registry and the name's per-chain records are both read through the mainnet client, and
+/// [`interoperable_name::resolve`] never follows an offchain gateway.
+///
+/// Every failure ends as `None` — the user is still typing — except a checksum mismatch, which is
+/// surfaced: the checksum is the one thing the user explicitly asked Zeus to verify.
+fn resolve_interoperable_recipient(ctx: &ZeusCtx, query: &str) -> Option<UnknownRecipient> {
+   if !interoperable_name::looks_like_interoperable_name(query) || ctx.is_chain_disabled(ETH) {
+      return None;
+   }
+
+   let resolved = RT.block_on(async {
+      let client = ctx.get_client(ETH).await?;
+      interoperable_name::resolve(&client, query).await.map_err(anyhow::Error::new)
+   });
+
+   match resolved {
+      Ok(Some(resolved)) => Some(UnknownRecipient::Interoperable {
+         name: resolved.name,
+         address: resolved.address,
+         chain: resolved.chain_id,
+         from_default_evm_record: resolved.from_default_evm_record,
+      }),
+      Ok(None) => None,
+      Err(e) => {
+         if let Some(interoperable_name::InteroperableNameError::ChecksumMismatch {
+            expected,
+            found,
+         }) = e.downcast_ref::<interoperable_name::InteroperableNameError>()
+         {
+            return Some(UnknownRecipient::ChecksumMismatch {
+               expected: interoperable_name::format_checksum(expected),
+               found: interoperable_name::format_checksum(found),
+            });
+         }
+
+         tracing::error!(
+            "Could not resolve Interoperable Name {}: {}",
+            query,
+            e
+         );
          None
       }
    }
