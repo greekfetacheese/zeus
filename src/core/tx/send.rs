@@ -621,6 +621,7 @@ fn make_tx_request(params: &TxParams) -> TransactionRequest {
       TransactionRequest::default()
          .with_from(params.signer.address())
          .with_to(params.transact_to)
+         .with_chain_id(params.chain.id())
          .with_value(params.value)
          .with_nonce(params.nonce)
          .with_input(params.call_data.clone())
