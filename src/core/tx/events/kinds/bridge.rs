@@ -62,6 +62,13 @@ impl BridgeParams {
       let decoded = decode_log.unwrap();
       let dest_chain = u64::from_str(&decoded.destination_chain_id.to_string())?;
 
+      // Make sure dest chain is supported by Zeus
+      if !ctx.is_chain_supported(dest_chain) {
+         return Err(anyhow!(
+            "Destination chain is not supported by Zeus"
+         ));
+      }
+
       let input_token = ctx.get_token(origin_chain, decoded.input_token).await?;
       let output_token = ctx.get_token(dest_chain, decoded.output_token).await?;
 

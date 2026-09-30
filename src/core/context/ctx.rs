@@ -173,6 +173,10 @@ impl ZeusCtx {
       railgun_supported(chain)
    }
 
+   pub fn is_chain_supported(&self, chain: u64) -> bool {
+      SUPPORTED_CHAINS.contains(&chain)
+   }
+
    pub fn is_railgun_enabled(&self, chain: u64) -> bool {
       self.read(|ctx| ctx.is_railgun_enabled(chain))
    }

@@ -796,10 +796,13 @@ fn bridge_event_ui(
       ui,
    );
 
+   // Safety: BridgeParams is only constructed for supported chains
+   let dest_chain = ChainId::from(params.destination_chain);
+
    // Recipient
    address(
       ctx,
-      chain,
+      dest_chain,
       "Recipient",
       params.recipient,
       theme,
