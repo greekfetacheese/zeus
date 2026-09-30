@@ -226,6 +226,29 @@ impl RecipientSelectionWindow {
       self.recipient.clone()
    }
 
+   /// Accept a chain-specific recipient, remembering the name we resolved against the address it
+   /// resolved to.
+   ///
+   /// The confirm window and tx history only ever see `(chain, address)`, and a chain-specific name
+   /// cannot be re-derived from those — the address's primary name may be a different name, and
+   /// most have none at all. Without this the recipient shows up as a truncated address.
+   fn accept_interoperable(
+      &mut self,
+      ctx: &mut ZeusContext,
+      name: Option<String>,
+      address: Address,
+      chain: u64,
+   ) {
+      if let Some(name) = name.as_deref() {
+         // In memory first: the display paths read this entry directly, so seeding it here means
+         // they never fall back to (and cannot race) the reverse lookup.
+         ctx.address_book.insert_contract(chain, address, name);
+         remember_recipient_name(chain, address, name.to_string());
+      }
+
+      self.recipient = Recipient::from_ens_name(name, address, Some(chain));
+   }
+
    /// `send_chain` is the chain this flow will actually send the recipient to: the active chain
    /// for send / unshield, and the destination chain for a bridge. A chain-specific name
    /// (`name@chain`) that disagrees with it is never sent silently.
@@ -455,8 +478,7 @@ impl RecipientSelectionWindow {
 
                         if ui.add_enabled(chain_id.is_some(), button).clicked() {
                            if chain == send_chain {
-                              self.recipient =
-                                 Recipient::from_ens_name(name.clone(), address, Some(chain));
+                              self.accept_interoperable(ctx, name.clone(), address, chain);
                               close_window = true;
                            } else if can_switch_active_chain {
                               // The chain in the name is authoritative for resolution, but
@@ -466,8 +488,7 @@ impl RecipientSelectionWindow {
                            } else {
                               // Select it with its chain and let the flow offer the fix; the
                               // flow's own guard keeps it from being sent on the wrong chain.
-                              self.recipient =
-                                 Recipient::from_ens_name(name.clone(), address, Some(chain));
+                              self.accept_interoperable(ctx, name.clone(), address, chain);
                               close_window = true;
                            }
                         }
@@ -509,8 +530,7 @@ impl RecipientSelectionWindow {
 
                                  if ui.add(button).clicked() {
                                     switch_chain(ctx, chain_id);
-                                    self.recipient =
-                                       Recipient::from_ens_name(name.clone(), address, Some(chain));
+                                    self.accept_interoperable(ctx, name.clone(), address, chain);
                                     close_window = true;
                                  }
                               }
@@ -848,6 +868,18 @@ fn resolve_ens_recipient(ctx: &ZeusCtx, query: &str) -> Option<UnknownRecipient>
          None
       }
    }
+}
+
+/// Persist a name we resolved ourselves, off-frame.
+///
+/// The picker runs inside the `SHARED_GUI` write lock, so it cannot read it back here — the same
+/// reason `gui::ui::tx::request_address_name` spawns. The in-memory insert has already happened by
+/// the time this runs; this is only the durable half.
+fn remember_recipient_name(chain: u64, address: Address, name: String) {
+   RT.spawn(async move {
+      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+      ctx.remember_resolved_name(chain, address, &name);
+   });
 }
 
 /// Forward resolution for an ERC-7828 chain-specific name or address (`name.eth@base`).

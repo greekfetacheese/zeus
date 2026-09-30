@@ -1450,6 +1450,24 @@ impl ZeusCtx {
       true
    }
 
+   /// Remember a name we resolved *ourselves* against the address it resolved to.
+   ///
+   /// The counterpart to [`Self::lookup_address_name`] for chain-specific names. The display paths
+   /// (`gui::ui::tx::address` → the confirm window, tx history, notifications) only ever see
+   /// `(chain, address)`, and a chain-specific name cannot be re-derived from those: the address's
+   /// primary name may be a different name — `jefflau.eth@base` resolves to an address whose
+   /// primary name is `jeff.eth` — and most have none at all. That is why such a recipient used to
+   /// show up as a truncated address. Seeding the book here makes those paths show the name the
+   /// user actually entered. Refuses to overwrite an existing name; returns true if stored.
+   pub fn remember_resolved_name(&self, chain: u64, address: Address, name: &str) -> bool {
+      if self.address_book().insert_contract(chain, address, name) {
+         self.save_address_book();
+         true
+      } else {
+         false
+      }
+   }
+
    /// ENS reverse lookup for [`Self::lookup_address_name`].
    ///
    /// Onchain only (`zeus_eth::utils::ens` refuses offchain redirects) and mainnet

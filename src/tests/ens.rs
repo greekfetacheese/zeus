@@ -367,4 +367,43 @@ mod tests {
       // Not an Interoperable Name at all.
       assert!(interoperable_name::resolve(&client, "vitalik.eth").await.is_err());
    }
+
+   /// A chain-specific name has to survive into the display paths, which only ever see
+   /// `(chain, address)`. `jefflau.eth@base` resolves to an address whose *primary* name is
+   /// `jeff.eth`, so a label re-derived from the address is a different name — and for most
+   /// chain-specific names there is no primary name at all, which is how the recipient used to end
+   /// up displayed as a truncated address.
+   #[tokio::test]
+   async fn test_remember_resolved_name_beats_the_reverse_lookup() {
+      let ctx = ctx_with_measured_mainnet_rpc().await;
+      let client = usable_mainnet_rpc(&ctx).await.1;
+
+      let resolved = interoperable_name::resolve(&client, "jefflau.eth@base")
+         .await
+         .unwrap()
+         .expect("jefflau.eth has a Base record");
+      let (address, chain) = (resolved.address, resolved.chain_id);
+      assert_eq!(chain, 8453);
+
+      // Nothing is known about the address until the name we resolved is remembered.
+      assert_eq!(ctx.get_address_name(chain, address), None);
+
+      assert!(ctx.remember_resolved_name(chain, address, "jefflau.eth"));
+      assert_eq!(
+         ctx.get_address_name(chain, address).as_deref(),
+         Some("jefflau.eth")
+      );
+
+      // An existing name is never overwritten, and once one exists the reverse lookup is skipped
+      // outright — so it cannot replace the name the user actually entered with `jeff.eth`.
+      assert!(!ctx.remember_resolved_name(chain, address, "something.else"));
+      assert!(!ctx.lookup_address_name(chain, address).await);
+      assert_eq!(
+         ctx.get_address_name(chain, address).as_deref(),
+         Some("jefflau.eth")
+      );
+
+      // It stays chain-specific: resolving for Base must not label the address on mainnet.
+      assert_eq!(ctx.get_address_name(1, address), None);
+   }
 }
