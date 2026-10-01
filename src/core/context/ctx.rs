@@ -1676,12 +1676,18 @@ impl ZeusCtx {
       self.read_wallet_state(|ws| ws.dapp_accounts.get(origin))
    }
 
+   /// Every account `origin` has been given, oldest first.
+   pub fn dapp_seen_accounts(&self, origin: &str) -> Vec<Address> {
+      self.read_wallet_state(|ws| ws.dapp_accounts.seen(origin).to_vec())
+   }
+
    /// Remember `address` as the account exposed to `origin` and persist it.
    ///
-   /// Disconnecting an app does not clear this, so reconnecting offers the same
-   /// account instead of whichever one is active.
+   /// Disconnecting an app does not clear this, and the accounts the app was
+   /// given before are kept too, so reconnecting offers the same account and the
+   /// prompt can still mark the earlier ones.
    pub fn set_dapp_account(&self, origin: &str, address: Address) -> Result<(), anyhow::Error> {
-      self.write_wallet_state(|ws| ws.dapp_accounts.set(origin, address));
+      self.write_wallet_state(|ws| ws.dapp_accounts.record(origin, address));
       self.save_wallet_state()
    }
 

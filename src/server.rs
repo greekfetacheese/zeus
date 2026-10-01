@@ -732,10 +732,11 @@ async fn connect(
    method: RequestMethod,
 ) -> Result<JsonRpcResponse, Infallible> {
    let remembered = ctx.dapp_account(&origin);
+   let seen = ctx.dapp_seen_accounts(&origin);
    let wallets = ctx.get_all_wallets_info();
 
    SHARED_GUI.write(|gui| {
-      gui.connect_dapp_window.open(origin.clone(), remembered, wallets);
+      gui.connect_dapp_window.open(origin.clone(), remembered, seen, wallets);
       gui.bring_to_front();
    });
 

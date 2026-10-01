@@ -43,6 +43,9 @@ pub struct ConnectDappWindow {
    use_new_account: bool,
    wallets: Vec<WalletInfo>,
    selected: Option<Address>,
+   /// Every account this app has been given. Each one is marked in the list, so
+   /// the user can see which wallets the app already knows about.
+   seen_accounts: Vec<Address>,
    pub result: Option<DappConnectResult>,
    /// When the prompt became visible. Drives the Confirm-style delay so a
    /// focus-steal click cannot approve the connection.
@@ -58,6 +61,7 @@ impl ConnectDappWindow {
          use_new_account: true,
          wallets: Vec::new(),
          selected: None,
+         seen_accounts: Vec::new(),
          result: None,
          opened_at: None,
          size: (460.0, 620.0),
@@ -70,13 +74,22 @@ impl ConnectDappWindow {
 
    /// Open the prompt for `origin`.
    ///
-   /// `remembered` is the account this app was last connected with. New apps
-   /// default to a fresh app-specific account; known apps default to the
-   /// remembered one so the app keeps seeing the same account.
-   pub fn open(&mut self, origin: String, remembered: Option<Address>, wallets: Vec<WalletInfo>) {
+   /// `remembered` is the account this app was last connected with; new apps
+   /// default to a fresh app-specific account, known apps default to the
+   /// remembered one so the app keeps seeing the same account. `seen` is every
+   /// account the app has been given, marked in the list because the app still
+   /// knows those accounts.
+   pub fn open(
+      &mut self,
+      origin: String,
+      remembered: Option<Address>,
+      seen: Vec<Address>,
+      wallets: Vec<WalletInfo>,
+   ) {
       self.open = true;
       self.use_new_account = remembered.is_none();
       self.selected = remembered.or_else(|| wallets.first().map(|w| w.address));
+      self.seen_accounts = seen;
       self.origin = origin;
       self.wallets = wallets;
       self.result = None;
@@ -96,6 +109,7 @@ impl ConnectDappWindow {
       self.origin.clear();
       self.wallets.clear();
       self.selected = None;
+      self.seen_accounts.clear();
       self.use_new_account = true;
       self.result = None;
       self.opened_at = None;
@@ -204,9 +218,25 @@ impl ConnectDappWindow {
                            frame2.show(ui, |ui| {
                               for wallet in &self.wallets {
                                  let is_selected = self.selected == Some(wallet.address);
-                                 let text = RichText::new(wallet.name_with_id_short()).size(normal);
 
-                                 let row = Label::new(text, None)
+                                 let mut parts =
+                                    vec![RichText::new(wallet.name_with_id_short()).size(normal)];
+
+                                 // Explains why this row is the one already selected, and tells
+                                 // the user the app already knows this account.
+                                 if self.seen_accounts.contains(&wallet.address) {
+                                    let muted = theme.colors.text_muted;
+                                    let small = theme.typography.small;
+
+                                    parts.push(RichText::new(" · ").size(small).color(muted));
+                                    parts.push(
+                                       RichText::new("Previously connected")
+                                          .size(small)
+                                          .color(muted),
+                                    );
+                                 }
+
+                                 let row = Label::sections(parts, None)
                                     .fill_width(true)
                                     .interactive(true)
                                     .selected(is_selected)
@@ -272,5 +302,63 @@ impl ConnectDappWindow {
                });
             });
          });
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   fn address(byte: u8) -> Address {
+      Address::from([byte; 20])
+   }
+
+   fn wallet(address: Address) -> WalletInfo {
+      let mut wallet = WalletInfo::default();
+      wallet.address = address;
+      wallet
+   }
+
+   /// A known app defaults to the account it was last connected with, and every
+   /// account it has been given is marked — not only that one.
+   #[test]
+   fn known_app_preselects_last_account_and_marks_every_seen_one() {
+      let (last_used, earlier, untouched) = (address(1), address(2), address(3));
+
+      let mut window = ConnectDappWindow::new();
+      window.open(
+         "https://app.example".to_string(),
+         Some(last_used),
+         vec![earlier, last_used],
+         vec![wallet(last_used), wallet(earlier), wallet(untouched)],
+      );
+
+      assert!(!window.use_new_account);
+      assert_eq!(window.selected, Some(last_used));
+      assert_eq!(window.seen_accounts, vec![earlier, last_used]);
+      assert!(!window.seen_accounts.contains(&untouched));
+
+      window.reset();
+      assert!(window.seen_accounts.is_empty());
+   }
+
+   /// A new app marks nothing as previously connected; the list's preselection
+   /// must not leak into the default choice.
+   #[test]
+   fn new_app_marks_nothing_previously_connected() {
+      let first = address(1);
+
+      let mut window = ConnectDappWindow::new();
+      window.open(
+         "https://app.example".to_string(),
+         None,
+         Vec::new(),
+         vec![wallet(first)],
+      );
+
+      assert!(window.use_new_account);
+      assert!(window.seen_accounts.is_empty());
+      // Selected only so the "use an existing account" branch opens on a row.
+      assert_eq!(window.selected, Some(first));
    }
 }

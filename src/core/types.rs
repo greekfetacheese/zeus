@@ -520,24 +520,79 @@ impl ConnectedDapps {
    }
 }
 
-/// The account Zeus exposed to each app, keyed by the app origin.
+/// One app's accounts: the one it currently sees, plus every one it has been
+/// given before.
 ///
 /// An app is given a dedicated account so it cannot correlate the user's
-/// activity with apps connected to other accounts. The mapping outlives a
-/// disconnect: reconnecting an app should offer the account it had before
-/// rather than whichever account happens to be selected at the time.
+/// activity with apps connected to other accounts. Every account the app was
+/// given is kept, not just the latest, because the app still knows the earlier
+/// ones — the connect prompt has to be able to say "this wallet has been
+/// connected to this app before" for each of them, not only for the last.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DappConnection {
+   /// The account handed out the next time this app connects.
+   current: Address,
+   /// Every account this app has been given, in the order they were given.
+   seen: Vec<Address>,
+}
+
+impl DappConnection {
+   fn new(address: Address) -> Self {
+      Self {
+         current: address,
+         seen: vec![address],
+      }
+   }
+
+   /// Make `address` the account the app currently sees, remembering it if the
+   /// app has not been given it before.
+   fn record(&mut self, address: Address) {
+      self.current = address;
+
+      if !self.seen.contains(&address) {
+         self.seen.push(address);
+      }
+   }
+
+   pub fn current(&self) -> Address {
+      self.current
+   }
+
+   /// Every account this app has been given, oldest first.
+   pub fn seen(&self) -> &[Address] {
+      &self.seen
+   }
+}
+
+/// The accounts Zeus exposed to each app, keyed by the app origin.
+///
+/// The mapping outlives a disconnect: reconnecting an app should offer the
+/// account it had before rather than whichever account happens to be selected
+/// at the time.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DappAccounts {
-   pub accounts: HashMap<String, Address>,
+   pub accounts: HashMap<String, DappConnection>,
 }
 
 impl DappAccounts {
+   /// The account `origin` currently sees.
    pub fn get(&self, origin: &str) -> Option<Address> {
-      self.accounts.get(origin).copied()
+      self.accounts.get(origin).map(DappConnection::current)
    }
 
-   pub fn set(&mut self, origin: &str, address: Address) {
-      self.accounts.insert(origin.to_string(), address);
+   /// Every account `origin` has been given, oldest first.
+   pub fn seen(&self, origin: &str) -> &[Address] {
+      self.accounts.get(origin).map_or(&[], DappConnection::seen)
+   }
+
+   /// Record that `origin` was connected with `address`, making it the account
+   /// the app sees from now on and adding it to the ones the app was given.
+   pub fn record(&mut self, origin: &str, address: Address) {
+      self
+         .accounts
+         .entry(origin.to_string())
+         .and_modify(|connection| connection.record(address))
+         .or_insert_with(|| DappConnection::new(address));
    }
 }
 
