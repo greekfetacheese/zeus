@@ -5,7 +5,7 @@ use crate::gui::{
    ui::{common::wallet_identity, dapps::railgun::RailgunMode},
 };
 use eframe::egui::{Id, Order, RichText, ScrollArea, Ui, vec2};
-use egui::{FontId, Margin, Shadow, Stroke};
+use egui::{Align, FontId, Layout, Margin, Shadow, Stroke};
 use egui_elements::{Button, Frame as Frame2, Label, Modal, SecureTextEdit, Theme};
 use egui_lucide::Lucide;
 use std::sync::Arc;
@@ -345,7 +345,7 @@ impl ConnectedDappsUi {
    pub fn new() -> Self {
       Self {
          open: false,
-         size: (300.0, 400.0),
+         size: (450.0, 400.0),
       }
    }
 
@@ -366,8 +366,6 @@ impl ConnectedDappsUi {
       }
 
       let mut open = self.open;
-      let button_visuals = theme.button_visuals();
-      let text_edit_visuals = theme.text_edit_visuals();
       let chain_id = ctx.chain.id();
 
       let title = RichText::new("Connected Dapps").size(theme.typography.heading);
@@ -390,24 +388,27 @@ impl ConnectedDappsUi {
             let dapps = ctx.connected_dapps();
             let dapps_are_empty = dapps.is_empty();
 
+            let small = theme.typography.small;
+            let normal = theme.typography.normal;
+
             ui.scope(|ui| {
                ui.vertical_centered(|ui| {
                   if dapps_are_empty {
-                     ui.label(RichText::new("No connected dapps").size(theme.typography.normal));
+                     ui.label(RichText::new("No connected dapps").size(normal));
                      return;
                   }
                });
             });
 
             if !dapps_are_empty {
-               let text = RichText::new("Disconnect all").size(theme.typography.normal);
-               let button = Button::new(text).visuals(button_visuals);
+               let text = RichText::new("Disconnect all").size(normal);
+               let button = Button::new(text);
                if ui.add(button).clicked() {
                   ctx.disconnect_all_dapps();
                }
             }
 
-            ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+            ScrollArea::vertical().content_margin(5).auto_shrink([false; 2]).show(ui, |ui| {
                for dapp in dapps.iter() {
                   let account = ctx.dapp_account(dapp);
 
@@ -416,20 +417,31 @@ impl ConnectedDappsUi {
                      ui.spacing_mut().item_spacing.y = theme.spacing.sm;
 
                      ui.horizontal(|ui| {
-                        let mut origin = dapp.clone();
-                        let edit = SecureTextEdit::singleline(&mut origin)
-                           .visuals(text_edit_visuals)
-                           .min_size(vec2(ui.available_width() * 0.55, 25.0))
-                           .margin(Margin::same(10))
-                           .font(FontId::proportional(theme.typography.normal));
-                        ui.add(edit);
+                        // Disconnect goes first in a right-to-left pass so the origin
+                        // field takes exactly the width left over. Sizing the field
+                        // from the row instead of its own content is what keeps a long
+                        // origin from widening the card — and with it the modal, whose
+                        // centered title is measured against the intended width.
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                           let text = RichText::new("Disconnect").size(normal);
+                           let button = Button::new(text);
+                           if ui.add(button).clicked() {
+                              ctx.disconnect_dapp(dapp);
+                           }
 
-                        let text = RichText::new("Disconnect").size(theme.typography.normal);
-                        let button =
-                           Button::new(text).visuals(button_visuals).min_size(vec2(50.0, 25.0));
-                        if ui.add(button).clicked() {
-                           ctx.disconnect_dapp(dapp);
-                        }
+                           let edit_margin = Margin::same(10);
+                           let inner = (ui.available_width() - edit_margin.sum().x).max(24.0);
+
+                           let mut origin = dapp.clone();
+                           let edit = SecureTextEdit::singleline(&mut origin)
+                              .desired_width(inner)
+                              // Without this the field grows with its text.
+                              .clip_text(true)
+                              .margin(edit_margin)
+                              .font(FontId::proportional(normal));
+
+                           ui.add(edit).on_hover_text(RichText::new(dapp).size(small));
+                        });
                      });
 
                      // The account this app was given. Without it there is no way
