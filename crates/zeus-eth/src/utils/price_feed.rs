@@ -1,6 +1,6 @@
 use super::address_book::*;
-use crate::types::ChainId;
-use alloy_primitives::{Address, U256, utils::format_units};
+use crate::{ERC20Token, types::ChainId};
+use alloy_primitives::{U256, utils::format_units};
 use alloy_rpc_types::BlockId;
 use alloy_sol_types::sol;
 use anyhow::bail;
@@ -70,66 +70,60 @@ where
 /// Get the USD price of a base token
 pub async fn get_base_token_price<P, N>(
    client: P,
-   chain_id: u64,
-   token: Address,
+   token: ERC20Token,
    block: Option<BlockId>,
 ) -> Result<f64, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   let chain = ChainId::new(chain_id)?;
+   let chain = ChainId::new(token.chain_id)?;
 
    if chain == ChainId::BinanceSmartChain {
-      if token == wbnb(chain_id)? {
+      if token.is_wbnb() {
          get_bnb_price(client, block).await
       } else {
-         get_stablecoin_price(client, chain_id, token, block).await
+         get_stablecoin_price(client, token, block).await
       }
-   } else if token == weth(chain_id)? {
-      get_eth_price(client, chain_id, block).await
+   } else if token.is_weth() {
+      get_eth_price(client, token.chain_id, block).await
    } else {
-      get_stablecoin_price(client, chain_id, token, block).await
+      get_stablecoin_price(client, token, block).await
    }
 }
 
 pub async fn get_stablecoin_price<P, N>(
    client: P,
-   chain_id: u64,
-   token: Address,
+   token: ERC20Token,
    block: Option<BlockId>,
 ) -> Result<f64, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   let is_usdc = usdc(chain_id).is_ok_and(|usdc| usdc == token);
-   let is_usdt = usdt(chain_id).is_ok_and(|usdt| usdt == token);
-   let is_dai = dai(chain_id).is_ok_and(|dai| dai == token);
-   let is_usdg = usdg(chain_id).is_ok_and(|usdg| usdg == token);
-   let is_stable = is_usdc || is_usdt || is_dai || is_usdg;
+   let is_stable = token.is_stablecoin();
 
    if !is_stable {
       return Err(anyhow::anyhow!(
          "Token is not a stablecoin, token: {} chain: {}",
-         token,
-         chain_id
+         token.address,
+         token.chain_id
       ));
    }
 
-   let price_feed = if is_usdc {
-      usdc_usd_price_feed(chain_id)?
-   } else if is_usdt {
-      usdt_usd_price_feed(chain_id)?
-   } else if is_dai {
-      dai_usd_price_feed(chain_id)?
-   } else if is_usdg {
-      usdg_usd_price_feed(chain_id)?
+   let price_feed = if token.is_usdc() {
+      usdc_usd_price_feed(token.chain_id)?
+   } else if token.is_usdt() {
+      usdt_usd_price_feed(token.chain_id)?
+   } else if token.is_dai() {
+      dai_usd_price_feed(token.chain_id)?
+   } else if token.is_usdg() {
+      usdg_usd_price_feed(token.chain_id)?
    } else {
       bail!(
          "Token is not a stablecoin, token: {} chain: {}",
-         token,
-         chain_id
+         token.address,
+         token.chain_id
       );
    };
 
@@ -159,7 +153,8 @@ mod tests {
    async fn test_get_usdc_price() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
       let client = ProviderBuilder::new().connect_http(url);
-      let price = get_stablecoin_price(client, 1, usdc(1).unwrap(), None).await.unwrap();
+      let token = ERC20Token::usdc();
+      let price = get_stablecoin_price(client, token, None).await.unwrap();
       eprintln!("USDC Price: {}", price);
    }
 
@@ -167,7 +162,8 @@ mod tests {
    async fn test_get_usdt_price() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
       let client = ProviderBuilder::new().connect_http(url);
-      let price = get_stablecoin_price(client, 1, usdt(1).unwrap(), None).await.unwrap();
+      let token = ERC20Token::usdt();
+      let price = get_stablecoin_price(client, token, None).await.unwrap();
       eprintln!("USDT Price: {}", price);
    }
 
@@ -175,7 +171,8 @@ mod tests {
    async fn test_get_dai_price() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
       let client = ProviderBuilder::new().connect_http(url);
-      let price = get_stablecoin_price(client, 1, dai(1).unwrap(), None).await.unwrap();
+      let token = ERC20Token::dai();
+      let price = get_stablecoin_price(client, token, None).await.unwrap();
       eprintln!("DAI Price: {}", price);
    }
 }

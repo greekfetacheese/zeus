@@ -448,16 +448,13 @@ impl UniswapPool for UniswapV3Pool {
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
-      let chain_id = self.chain_id;
-
       if !self.base_currency_exists() {
          bail!("Base token not found in the pool");
       }
 
       let base_price = get_base_token_price(
          client.clone(),
-         chain_id,
-         self.base_token().address,
+         self.base_token().into_owned(),
          block,
       )
       .await?;

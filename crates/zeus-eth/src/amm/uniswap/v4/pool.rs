@@ -573,14 +573,12 @@ impl UniswapPool for UniswapV4Pool {
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
-      let chain_id = self.chain_id;
-
       if !self.base_currency_exists() {
          bail!("Base token not found in the pool");
       }
 
       let base = self.base_currency().to_erc20();
-      let base_price = get_base_token_price(client.clone(), chain_id, base.address, block).await?;
+      let base_price = get_base_token_price(client.clone(), base.into_owned(), block).await?;
       let quote_price = self.quote_price(base_price)?;
       Ok((base_price, quote_price))
    }

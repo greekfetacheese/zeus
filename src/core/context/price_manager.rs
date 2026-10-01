@@ -446,8 +446,9 @@ impl PriceManagerHandle {
 
          let task = RT.spawn(async move {
             let price = client
-               .request(chain, |client| async move {
-                  get_base_token_price(client, chain, token.address, None).await
+               .request(chain, |client| {
+                  let token = token.clone();
+                  async move { get_base_token_price(client, token, None).await }
                })
                .await?;
             Ok((token.address, price))

@@ -5,8 +5,8 @@ use eframe::egui::{
    ColorImage, Context, Image, ImageSource, Sense, TextureHandle, Vec2,
    epaint::textures::TextureOptions,
 };
-use zeus_eth::ERC20Token;
 use std::borrow::Cow;
+use zeus_eth::{ERC20Token, types::ChainId};
 
 use crate::core::context::currencies::TokenData;
 use crate::embedded::TOKEN_DATA;
@@ -120,8 +120,14 @@ impl TokenIcons {
       let weth_x32 = include_bytes!("currency/resized/weth.png");
       let weth_token = ERC20Token::weth_robinhood();
 
-      icon_bytes.insert((usdg_token.address, usdg_token.chain_id), usdg_x32.to_vec());
-      icon_bytes.insert((weth_token.address, weth_token.chain_id), weth_x32.to_vec());
+      icon_bytes.insert(
+         (usdg_token.address, usdg_token.chain_id),
+         usdg_x32.to_vec(),
+      );
+      icon_bytes.insert(
+         (weth_token.address, weth_token.chain_id),
+         weth_x32.to_vec(),
+      );
 
       Ok(Self {
          icons_x32: RwLock::new(HashMap::new()),
@@ -245,6 +251,17 @@ impl ChainIcons {
          ),
       }
    }
+
+   pub fn for_chain(&self, chain: ChainId) -> ImageSource<'static> {
+      match chain {
+         ChainId::Ethereum | ChainId::EthereumSepolia => self.eth.clone(),
+         ChainId::Optimism => self.op.clone(),
+         ChainId::BinanceSmartChain => self.bsc.clone(),
+         ChainId::Base => self.base.clone(),
+         ChainId::Arbitrum => self.arbitrum.clone(),
+         ChainId::RobinHood => self.robinhood.clone(),
+      }
+   }
 }
 
 pub struct CurrencyIcons {
@@ -303,22 +320,16 @@ impl Icons {
    }
 
    /// Return the chain icon based on the chain_id
+   ///
+   /// Unsupported chain ids fall back to Ethereum.
    pub fn chain_icon(&self, id: u64, tint: bool) -> Image<'static> {
-      let source = match id {
-         1 => self.chain.eth.clone(),
-         10 => self.chain.op.clone(),
-         56 => self.chain.bsc.clone(),
-         8453 => self.chain.base.clone(),
-         42161 => self.chain.arbitrum.clone(),
-         4663 => self.chain.robinhood.clone(),
-         _ => self.chain.eth.clone(),
-      };
+      let chain = ChainId::new(id).unwrap_or_default();
 
-      let mut img = Image::new(source)
+      let mut img = Image::new(self.chain.for_chain(chain))
          .fit_to_exact_size(Vec2::splat(24.0))
          .show_loading_spinner(false);
 
-      if id == 4663 {
+      if matches!(chain, ChainId::RobinHood) {
          img = img.corner_radius(10);
       }
 
@@ -330,9 +341,14 @@ impl Icons {
    }
 
    pub fn native_currency_icon(&self, chain: u64, tint: bool) -> Image<'static> {
-      let mut img = match chain {
-         56 => Image::new(&self.currency.bnb),
-         _ => Image::new(&self.currency.eth),
+      let mut img = match ChainId::new(chain).unwrap_or_default() {
+         ChainId::BinanceSmartChain => Image::new(&self.currency.bnb),
+         ChainId::Ethereum
+         | ChainId::EthereumSepolia
+         | ChainId::Optimism
+         | ChainId::Base
+         | ChainId::Arbitrum
+         | ChainId::RobinHood => Image::new(&self.currency.eth),
       };
 
       if tint {
@@ -373,9 +389,14 @@ impl Icons {
 
    /// Return a placeholder icon for a token
    pub fn token_placeholder_x32(&self, id: u64, tint: bool) -> Image<'static> {
-      let mut img = match id {
-         56 => Image::new(&self.tokens.bep20_x32),
-         _ => Image::new(&self.tokens.erc20_x32),
+      let mut img = match ChainId::new(id).unwrap_or_default() {
+         ChainId::BinanceSmartChain => Image::new(&self.tokens.bep20_x32),
+         ChainId::Ethereum
+         | ChainId::EthereumSepolia
+         | ChainId::Optimism
+         | ChainId::Base
+         | ChainId::Arbitrum
+         | ChainId::RobinHood => Image::new(&self.tokens.erc20_x32),
       };
 
       if tint {
