@@ -2624,6 +2624,11 @@ impl ZeusContext {
       self.connected_dapps.connected_dapps()
    }
 
+   /// The account an app was connected with, if it has connected before.
+   pub fn dapp_account(&self, origin: &str) -> Option<Address> {
+      self.wallet_state.read(|ws| ws.dapp_accounts.get(origin))
+   }
+
    pub fn connect_dapp(&mut self, dapp: String) {
       self.connected_dapps.connect_dapp(dapp);
    }

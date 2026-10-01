@@ -1,9 +1,14 @@
+use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
-use crate::gui::{GUI, ui::dapps::railgun::RailgunMode};
+use crate::gui::{
+   GUI,
+   ui::{common::wallet_identity, dapps::railgun::RailgunMode},
+};
 use eframe::egui::{Id, Order, RichText, ScrollArea, Ui, vec2};
 use egui::{FontId, Margin, Shadow, Stroke};
 use egui_elements::{Button, Frame as Frame2, Label, Modal, SecureTextEdit, Theme};
 use egui_lucide::Lucide;
+use std::sync::Arc;
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let privacy_mode = ctx.privacy_mode;
@@ -355,7 +360,7 @@ impl ConnectedDappsUi {
       self.open
    }
 
-   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -363,6 +368,7 @@ impl ConnectedDappsUi {
       let mut open = self.open;
       let button_visuals = theme.button_visuals();
       let text_edit_visuals = theme.text_edit_visuals();
+      let chain_id = ctx.chain.id();
 
       let title = RichText::new("Connected Dapps").size(theme.typography.heading);
       let id = Id::new("connected_dapps_window");
@@ -381,7 +387,7 @@ impl ConnectedDappsUi {
             ui.set_max_width(self.size.0);
             ui.set_max_height(self.size.1);
 
-            let mut dapps = ctx.connected_dapps();
+            let dapps = ctx.connected_dapps();
             let dapps_are_empty = dapps.is_empty();
 
             ui.scope(|ui| {
@@ -402,20 +408,41 @@ impl ConnectedDappsUi {
             }
 
             ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
-               for dapp in dapps.iter_mut() {
-                  ui.horizontal(|ui| {
-                     let edit = SecureTextEdit::singleline(dapp)
-                        .visuals(text_edit_visuals)
-                        .min_size(vec2(ui.available_width() * 0.10, 25.0))
-                        .margin(Margin::same(10))
-                        .font(FontId::proportional(theme.typography.normal));
-                     ui.add(edit);
+               for dapp in dapps.iter() {
+                  let account = ctx.dapp_account(dapp);
 
-                     let text = RichText::new("Disconnect").size(theme.typography.normal);
-                     let button =
-                        Button::new(text).visuals(button_visuals).min_size(vec2(50.0, 25.0));
-                     if ui.add(button).clicked() {
-                        ctx.disconnect_dapp(&dapp);
+                  theme.frame2.show(ui, |ui| {
+                     ui.set_min_width(ui.available_width());
+                     ui.spacing_mut().item_spacing.y = theme.spacing.sm;
+
+                     ui.horizontal(|ui| {
+                        let mut origin = dapp.clone();
+                        let edit = SecureTextEdit::singleline(&mut origin)
+                           .visuals(text_edit_visuals)
+                           .min_size(vec2(ui.available_width() * 0.55, 25.0))
+                           .margin(Margin::same(10))
+                           .font(FontId::proportional(theme.typography.normal));
+                        ui.add(edit);
+
+                        let text = RichText::new("Disconnect").size(theme.typography.normal);
+                        let button =
+                           Button::new(text).visuals(button_visuals).min_size(vec2(50.0, 25.0));
+                        if ui.add(button).clicked() {
+                           ctx.disconnect_dapp(dapp);
+                        }
+                     });
+
+                     // The account this app was given. Without it there is no way
+                     // to tell which account belongs to which app once the app's
+                     // account is no longer the selected one.
+                     if let Some(account) = account {
+                        ui.add(wallet_identity(
+                           ctx,
+                           chain_id,
+                           account,
+                           theme,
+                           icons.clone(),
+                        ));
                      }
                   });
                }

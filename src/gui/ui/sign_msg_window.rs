@@ -8,9 +8,8 @@ use egui_elements::{Button, Label, Modal, Theme};
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::FormattedValue;
 use crate::core::{SignMsgType, ZeusContext};
-use crate::gui::ui::common::delayed_action_label;
+use crate::gui::ui::common::{delayed_action_label, wallet_identity};
 use crate::gui::ui::tx::{address, chain};
-use crate::utils::truncate_address;
 
 use serde_json::{Value, to_string_pretty};
 use std::fmt::Write;
@@ -133,7 +132,7 @@ impl SignMsgWindow {
                      // an identity line under the origin rather than a labelled data
                      // row: it belongs with "who is asking", not with the message
                      // fields, and the address stays verifiable next to the name.
-                     ui.add(signer_identity(
+                     ui.add(wallet_identity(
                         ctx,
                         self.chain.id(),
                         self.account,
@@ -248,40 +247,6 @@ impl SignMsgWindow {
             });
          });
    }
-}
-
-/// `[icon] Wallet 2 · 0x1a2b…c3d4` — the account this signature will come from.
-///
-/// One mixed-style [`Label`], so the name and the muted address share a single
-/// galley and the line centers as a unit under the app origin.
-fn signer_identity(
-   ctx: &ZeusContext,
-   chain_id: u64,
-   account: Address,
-   theme: &Theme,
-   icons: Arc<Icons>,
-) -> Label {
-   let normal = theme.typography.normal;
-   let muted = theme.colors.text_muted;
-
-   let name = ctx
-      .get_address_name(chain_id, account)
-      .map(|name| name.to_string())
-      .filter(|name| !name.trim().is_empty());
-
-   let mut parts = Vec::new();
-
-   if let Some(name) = name {
-      parts.push(RichText::new(name).size(normal));
-      parts.push(RichText::new(" · ").size(normal).color(muted));
-   }
-
-   let address = truncate_address(account.to_string());
-   parts.push(RichText::new(address).size(normal).color(muted));
-
-   Label::sections(parts, Some(icons.wallet_main_x24()))
-      .image_on_left()
-      .interactive(false)
 }
 
 fn permit2_single_approval(

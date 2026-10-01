@@ -73,7 +73,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    }
    gui.merge_notes_window.show(ctx, theme, ui);
 
-   gui.connected_dapps.show(ctx, theme, ui);
+   gui.connected_dapps.show(ctx, theme, icons.clone(), ui);
 
    gui.wallet_ui.show(ctx, theme, icons.clone(), ui);
    gui.tx_history.show(ctx, theme, ui);
