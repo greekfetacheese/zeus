@@ -421,6 +421,7 @@ impl PortfolioUi {
 
       // if token was fetched from the blockchain, we don't need to sync the pools or the balance
       if token_fetched {
+         #[cfg(feature = "dev")]
          tracing::info!(
             "Token {} was fetched from the blockchain, no need to sync pools or balance",
             token.symbol
