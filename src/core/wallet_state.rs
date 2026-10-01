@@ -12,7 +12,7 @@ use crate::core::context::{
    ApprovalManagerHandle, BalanceManagerHandle, DiscoveredWallets, PortfolioDB, TxDBHandle,
 };
 use crate::core::persisted::{PersistedFile, file_path};
-use crate::core::types::Contact;
+use crate::core::types::{Contact, DappAccounts};
 use crate::utils::write_private_atomic;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -49,6 +49,9 @@ pub struct WalletStateInner {
 
    #[serde(default)]
    pub discovered_wallets: DiscoveredWallets,
+
+   #[serde(default)]
+   pub dapp_accounts: DappAccounts,
 }
 
 impl Default for WalletStateInner {
@@ -60,6 +63,7 @@ impl Default for WalletStateInner {
          tx_db: TxDBHandle::new(),
          approval_manager: ApprovalManagerHandle::new(),
          discovered_wallets: DiscoveredWallets::new(),
+         dapp_accounts: DappAccounts::default(),
       }
    }
 }
@@ -184,6 +188,20 @@ mod tests {
       let loaded: WalletStateInner = key.open_json(&sealed, WALLET_STATE_AAD).unwrap();
       assert!(loaded.contacts.is_empty());
       assert!(key.open_json::<WalletStateInner>(&sealed, b"wrong-aad").is_err());
+   }
+
+   #[test]
+   fn dapp_accounts_survive_a_roundtrip() {
+      let key = WalletStateKey::generate().unwrap();
+      let origin = "https://app.uniswap.org";
+      let address = zeus_eth::alloy_primitives::Address::from([0x11u8; 20]);
+
+      let mut inner = WalletStateInner::default();
+      inner.dapp_accounts.set(origin, address);
+
+      let sealed = key.seal_json(&inner, WALLET_STATE_AAD).unwrap();
+      let loaded: WalletStateInner = key.open_json(&sealed, WALLET_STATE_AAD).unwrap();
+      assert_eq!(loaded.dapp_accounts.get(origin), Some(address));
    }
 
    #[test]

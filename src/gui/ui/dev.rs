@@ -752,7 +752,9 @@ impl UiTesting {
                RT.spawn_blocking(move || {
                   let msg = SignMsgType::dummy_permit2();
                   SHARED_GUI.write(|gui| {
-                     gui.sign_msg_window.open("app.uniswap.org".to_string(), 8453, msg);
+                     let account = gui.ctx.current_wallet_info().address;
+                     gui.sign_msg_window
+                        .open("app.uniswap.org".to_string(), 8453, msg, account);
                   });
                });
             }
@@ -764,7 +766,9 @@ impl UiTesting {
                RT.spawn_blocking(move || {
                   let msg = SignMsgType::dummy_permit2612();
                   SHARED_GUI.write(|gui| {
-                     gui.sign_msg_window.open("beta.walletbeat.eth.limo".to_string(), 1, msg);
+                     let account = gui.ctx.current_wallet_info().address;
+                     gui.sign_msg_window
+                        .open("beta.walletbeat.eth.limo".to_string(), 1, msg, account);
                   });
                });
             }
@@ -776,7 +780,9 @@ impl UiTesting {
                RT.spawn_blocking(move || {
                   let msg = SignMsgType::dummy_clear_signed();
                   SHARED_GUI.write(|gui| {
-                     gui.sign_msg_window.open("app.example.org".to_string(), 8453, msg);
+                     let account = gui.ctx.current_wallet_info().address;
+                     gui.sign_msg_window
+                        .open("app.example.org".to_string(), 8453, msg, account);
                   });
                });
             }

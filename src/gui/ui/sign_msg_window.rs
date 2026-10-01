@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use zeus_eth::{
    alloy_dyn_abi::{Eip712Types, TypedData},
-   alloy_primitives::U256,
+   alloy_primitives::{Address, U256},
    types::ChainId,
 };
 
@@ -25,6 +25,8 @@ pub struct SignMsgWindow {
    open: bool,
    dapp: String,
    chain: ChainId,
+   /// Account that will produce the signature.
+   account: Address,
    msg: Option<SignMsgType>,
    formatted_msg: Option<String>,
    signed: Option<bool>,
@@ -38,6 +40,7 @@ impl SignMsgWindow {
          open: false,
          dapp: String::new(),
          chain: ChainId::default(),
+         account: Address::ZERO,
          msg: None,
          formatted_msg: None,
          signed: None,
@@ -50,9 +53,10 @@ impl SignMsgWindow {
       self.open
    }
 
-   pub fn open(&mut self, dapp: String, chain: u64, msg: SignMsgType) {
+   pub fn open(&mut self, dapp: String, chain: u64, msg: SignMsgType, account: Address) {
       self.dapp = dapp;
       self.chain = chain.into();
+      self.account = account;
       self.open = true;
       self.msg = Some(msg);
       self.formatted_msg = None;
@@ -112,6 +116,17 @@ impl SignMsgWindow {
                   let msg = msg.unwrap();
 
                   ui.label(RichText::new(&self.dapp).size(theme.typography.large));
+
+                  // The signing account may differ from the active one (apps get
+                  // their own account), so always show which account signs.
+                  address(
+                     ctx,
+                     self.chain,
+                     "Account",
+                     self.account,
+                     theme,
+                     ui,
+                  );
 
                   let frame = theme.frame2;
                   let frame_size = vec2(ui.available_width(), 45.0);

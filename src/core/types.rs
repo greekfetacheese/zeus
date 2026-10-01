@@ -520,6 +520,27 @@ impl ConnectedDapps {
    }
 }
 
+/// The account Zeus exposed to each app, keyed by the app origin.
+///
+/// An app is given a dedicated account so it cannot correlate the user's
+/// activity with apps connected to other accounts. The mapping outlives a
+/// disconnect: reconnecting an app should offer the account it had before
+/// rather than whichever account happens to be selected at the time.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DappAccounts {
+   pub accounts: HashMap<String, Address>,
+}
+
+impl DappAccounts {
+   pub fn get(&self, origin: &str) -> Option<Address> {
+      self.accounts.get(origin).copied()
+   }
+
+   pub fn set(&mut self, origin: &str, address: Address) {
+      self.accounts.insert(origin.to_string(), address);
+   }
+}
+
 /// Holds addresses that are delegated to a smart contract
 #[derive(Debug, Clone)]
 pub struct DelegatedWallets {
