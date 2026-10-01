@@ -117,6 +117,35 @@ sol! {
             uint128 amountInMaximum;
         }
 
+        #[derive(Debug, Default, PartialEq, Eq)]
+        /// @notice `ExactInputSingleParams` as the current Universal Router generation decodes it
+        ///
+        /// The 2025+ generation inserts `uint256 minHopPriceX36` between `amountOutMinimum` and
+        /// `hookData`. Given a legacy-shaped struct it reads the hookData *offset* word as
+        /// `minHopPriceX36` and the hookData *length* word as the hookData offset — which points
+        /// back at the struct start, so with a token `currency0` the calldata slice is out of
+        /// bounds and the router reverts with **empty data** (a native pool has `currency0 == 0`
+        /// and hides it). Verified against the deployed router on Robinhood Chain.
+        struct ExactInputSingleParamsMinHopPrice {
+            PoolKey poolKey;
+            bool zeroForOne;
+            uint128 amountIn;
+            uint128 amountOutMinimum;
+            uint256 minHopPriceX36;
+            bytes hookData;
+        }
+
+        #[derive(Debug, Default, PartialEq, Eq)]
+        /// @notice `ExactOutputSingleParams` as the current Universal Router generation decodes it
+        struct ExactOutputSingleParamsMinHopPrice {
+            PoolKey poolKey;
+            bool zeroForOne;
+            uint128 amountOut;
+            uint128 amountInMaximum;
+            uint256 minHopPriceX36;
+            bytes hookData;
+        }
+
     #[derive(Debug, Default, PartialEq, Eq)]
     struct SwapExactOutSingleParams {
         PoolKey poolKey;

@@ -35,6 +35,10 @@ sol! {
         bytes path;
          // Whether the funds should come from msg.sender or are already in the router
         bool permit2;
+        // Per-hop minimum swap price (1e36 precision), one entry per hop; empty disables the check.
+        // Word 5 of the params. The current router generation decodes it, the previous one reads
+        // words 0..4 only and ignores trailing data, so emitting it is safe on both.
+        uint256[] minHopPriceX36;
     }
 
    #[derive(Debug, Default, PartialEq, Eq)]
@@ -49,6 +53,10 @@ sol! {
         bytes path;
         // Whether the funds should come from msg.sender or are already in the router
         bool permit2;
+        // Per-hop minimum swap price (1e36 precision), one entry per hop; empty disables the check.
+        // Word 5 of the params. The current router generation decodes it, the previous one reads
+        // words 0..4 only and ignores trailing data, so emitting it is safe on both.
+        uint256[] minHopPriceX36;
     }
 
     /// Grants router permission to operate on a user’s v3 NFT
@@ -101,6 +109,10 @@ sol! {
         address[] path;
         // whether the funds should come from msg.sender or are already in the router
         bool permit2;
+        // Per-hop minimum swap price (1e36 precision), one entry per hop; empty disables the check.
+        // Word 5 of the params. The current router generation decodes it, the previous one reads
+        // words 0..4 only and ignores trailing data, so emitting it is safe on both.
+        uint256[] minHopPriceX36;
     }
 
     #[derive(Debug, Default, PartialEq, Eq)]
@@ -115,6 +127,10 @@ sol! {
         address[] path;
         // whether the funds should come from msg.sender or are already in the router
         bool permit2;
+        // Per-hop minimum swap price (1e36 precision), one entry per hop; empty disables the check.
+        // Word 5 of the params. The current router generation decodes it, the previous one reads
+        // words 0..4 only and ignores trailing data, so emitting it is safe on both.
+        uint256[] minHopPriceX36;
     }
 
     #[derive(Debug, Default, PartialEq, Eq)]
@@ -267,6 +283,7 @@ pub fn encode_v3_swap_exact_in(
       amountOutMinimum: amount_out_minimum,
       path,
       permit2: payer_is_user,
+      minHopPriceX36: Vec::new(),
    }
    .abi_encode_params()
    .into();
@@ -306,6 +323,7 @@ pub fn encode_v2_swap_exact_in(
       amountOutMinimum: amount_out_minimum,
       path,
       permit2: payer_is_user,
+      minHopPriceX36: Vec::new(),
    }
    .abi_encode_params()
    .into();

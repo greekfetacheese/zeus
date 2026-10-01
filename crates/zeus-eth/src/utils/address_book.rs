@@ -27,7 +27,9 @@ pub fn zeus_stateview_v4(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Arbitrum => Ok(address!(
          "0x74921DE7fD31Bc1a0DADdba5a2154CB9F1439676"
       )),
-      ChainId::RobinHood => Ok(address!("0x443e22658d645C30629acf24552e80823fDb85e8")),
+      ChainId::RobinHood => Ok(address!(
+         "0x443e22658d645C30629acf24552e80823fDb85e8"
+      )),
    }
 }
 
@@ -512,6 +514,47 @@ pub fn universal_router_v2(chain_id: u64) -> Result<Address, anyhow::Error> {
    }
 }
 
+/// Which Universal Router generation is deployed on a chain.
+///
+/// The current generation changed two wire formats, both verified by replaying calldata against
+/// each deployed router:
+///
+/// * V3/V2 swap inputs carry a trailing `uint256[] minHopPriceX36` (word 5, empty = no per-hop
+///   price guard). The previous generation reads words 0..4 and ignores the tail, so Zeus always
+///   emits it — see [`crate::abi::uniswap::universal_router_v2`].
+/// * `ExactInputSingleParams` / `ExactOutputSingleParams` gained a `uint256 minHopPriceX36` word
+///   between `amountOutMinimum` and `hookData`. No single layout satisfies both generations, so
+///   the V4 swap params must be encoded per chain — see
+///   [`crate::abi::uniswap::v4::actions::ExactInputSingleParamsMinHopPrice`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UniversalRouterVersion {
+   /// The 2024 `universal-router` (V2/V3/V4 commands) deployments still live on the supported
+   /// Ethereum-family chains. Their V3/V2 decoders ignore a trailing `minHopPriceX36` array and
+   /// their V4 swap structs have no `minHopPriceX36` field.
+   Legacy,
+
+   /// The 2025+ generation, which enforces per-hop minimum prices. Deployed on Robinhood Chain
+   /// (4663); its V3/V2 decoders read word 5 and its V4 swap structs expect the extra word.
+   MinHopPriceX36,
+}
+
+/// The Universal Router generation deployed on the given chain.
+///
+/// Probed with `cast call --trace` against each router: Robinhood rejects the legacy 5-word V3/V2
+/// input with `SliceOutOfBounds()`, the other six accept both forms.
+pub fn universal_router_version(chain_id: u64) -> Result<UniversalRouterVersion, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::Ethereum
+      | ChainId::EthereumSepolia
+      | ChainId::Optimism
+      | ChainId::BinanceSmartChain
+      | ChainId::Base
+      | ChainId::Arbitrum => Ok(UniversalRouterVersion::Legacy),
+      ChainId::RobinHood => Ok(UniversalRouterVersion::MinHopPriceX36),
+   }
+}
+
 /// Return the address of the UniswapV4 Quoter contract on the given chain id.
 pub fn uniswap_v4_quoter(chain_id: u64) -> Result<Address, anyhow::Error> {
    let chain = ChainId::new(chain_id)?;
@@ -790,6 +833,8 @@ pub fn across_spoke_pool_v2(chain_id: u64) -> Result<Address, anyhow::Error> {
          "e35e9842fceaca96570b734083f4a58e8f7c5f2a"
       )),
       ChainId::BinanceSmartChain => bail!("Across Protocol does not support BSC"),
-      ChainId::RobinHood => Ok(address!("0xD29C85F15DF544bA632C9E25829fd29d767d7978")),
+      ChainId::RobinHood => Ok(address!(
+         "0xD29C85F15DF544bA632C9E25829fd29d767d7978"
+      )),
    }
 }
