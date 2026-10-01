@@ -1,14 +1,15 @@
 use anyhow::anyhow;
 use serde_json::Value;
 
-use super::{misc::TimeStamp, swap_quoter::SwapStep};
+use super::{misc::TimeStamp, simulate::AccountPrefetch, swap_quoter::SwapStep};
 use crate::core::{ZeusCtx, signature::Permit2Info};
 use zeus_eth::{
    abi::uniswap::{universal_router_v2::*, v4::actions::*},
-   alloy_primitives::{Address, Bytes, U256},
+   alloy_primitives::{Address, Bytes, U256, address},
    alloy_sol_types::SolValue,
    amm::uniswap::{UniswapPool, v4::Actions},
    currency::Currency,
+   types::ChainId,
    utils::{NumericValue, address_book},
 };
 use zeus_wallet::SecureKey;
@@ -22,6 +23,12 @@ use tracing::debug;
 /// Intermediate hops must use it: a quoted amount that is even 1 wei above the
 /// previous hop's actual output makes UR `safeTransfer` revert `TRANSFER_FAILED`.
 const CONTRACT_BALANCE: U256 = U256::from_limbs([0, 0, 0, 0x8000_0000_0000_0000]);
+
+/// Universal Router / V4 `ActionConstants.OPEN_DELTA` (0).
+///
+/// In V4 actions it means "the open delta": for a swap, the credit the payer already holds on the
+/// PoolManager; for a settle, the debt the swap left; for a take, the full credit.
+const OPEN_DELTA: U256 = U256::ZERO;
 
 /// True when this hop spends the user's trade input (or its wrapped native).
 ///
@@ -467,6 +474,7 @@ fn encode_swap_plan(
             step_amount_out_min,
             router_addr,
             payer_is_user,
+            amount_is_trade_input,
          )?;
          commands.push(Commands::V4_SWAP as u8);
          inputs.push(input);
@@ -527,26 +535,58 @@ fn encode_v4_internal_actions(
    amount_out_min: U256,
    router_addr: Address,
    payer_is_user: bool,
+   amount_is_trade_input: bool,
 ) -> Result<Bytes, anyhow::Error> {
+   // A hop fed by an earlier hop cannot put its input in wei into the calldata: the quote is an
+   // estimate, and a multi-tick V3 hop lands below it. V4 actions work on PoolManager deltas rather
+   // than balances, so the UR's `CONTRACT_BALANCE` is what makes such a hop independent of the quote:
+   // settle the router's whole balance of the input token (which is exactly what the previous hop
+   // delivered), then swap the credit that settle just created (`OPEN_DELTA`). Settling the quoted
+   // amount instead asks the pool for more than the router holds — `TRANSFER_FAILED`.
+   //
+   // `CONTRACT_BALANCE` means "everything of this token this router holds", the same caveat the
+   // V2/V3 rule accepts: correct as long as nothing else of that token is already sitting in the
+   // router, which is why the trade input (and its wrapped form, shared across split slices) is
+   // settled by amount instead.
+   let from_router_balance = swap_type.is_exact_input() && !amount_is_trade_input;
+
+   // OPEN_DELTA for both: spend the settled credit, take whatever the swap produced.
+   let swap_amount_in = if from_router_balance {
+      OPEN_DELTA
+   } else {
+      amount_in
+   };
+   let swap_amount_out_min = if from_router_balance {
+      OPEN_DELTA
+   } else {
+      amount_out_min
+   };
+
    let (swap_command, swap_input) = encode_v4_swap_single_command_input(
       router_version,
       pool,
       swap_type,
       currency_in,
-      amount_in,
-      amount_out_min,
+      swap_amount_in,
+      swap_amount_out_min,
    )?;
 
    // Settle tells the V4 contract how to receive the input tokens
    let settle = SettleParams {
       currency: currency_in.address(),
-      amount: amount_in,
-      payerIsUser: payer_is_user,
+      amount: if from_router_balance {
+         CONTRACT_BALANCE
+      } else {
+         amount_in
+      },
+      payerIsUser: payer_is_user && !from_router_balance,
    };
 
    let settle_action = Actions::SETTLE(settle);
    let settle_input = settle_action.abi_encode();
 
+   // A zero take amount is `OPEN_DELTA`: take the whole credit, whatever the pool produced. The
+   // user's floor is the sweep's `amountMin`, not a per-hop minimum.
    let take_params = TakeParams {
       currency: currency_out.address(),
       recipient: router_addr,
@@ -556,8 +596,19 @@ fn encode_v4_internal_actions(
    let take_action = Actions::TAKE(take_params);
    let take_input = take_action.abi_encode();
 
-   let v4_commands = vec![swap_command, settle_action.command(), take_action.command()];
-   let v4_action_params = vec![swap_input, settle_input, take_input];
+   // A balance-fed hop settles *before* it swaps: the settle is what gives the router the credit the
+   // swap then spends. Every other shape swaps first and settles the amount it consumed.
+   let (v4_commands, v4_action_params) = if from_router_balance {
+      (
+         vec![settle_action.command(), swap_command, take_action.command()],
+         vec![settle_input, swap_input, take_input],
+      )
+   } else {
+      (
+         vec![swap_command, settle_action.command(), take_action.command()],
+         vec![swap_input, settle_input, take_input],
+      )
+   };
 
    encode_v4_router_command_input(v4_commands, v4_action_params)
 }
@@ -647,6 +698,65 @@ fn encode_v4_router_command_input(
    Ok(params.into())
 }
 
+/// Accounts a Universal Router swap touches: the signer, the router stack, the traded tokens, the
+/// burn address Base/Optimism require, and every hop pool.
+///
+/// Shared with the swap regressions in `src/tests/swap.rs` so a test prefetches exactly what the app
+/// prefetches: an account missing here is an RPC call in the middle of the simulation.
+pub fn swap_prefetch_accounts<P: UniswapPool>(
+   chain: ChainId,
+   signer_address: Address,
+   router_addr: Address,
+   permit2_addr: Address,
+   beneficiary: Address,
+   currency_in: &Currency,
+   currency_out: &Currency,
+   swap_steps: &[SwapStep<P>],
+) -> Vec<AccountPrefetch> {
+   let first_pool = &swap_steps.first().unwrap().pool;
+   let last_pool = &swap_steps.last().unwrap().pool;
+   let burn_addr = address!("0000000000000000000000000000000000000001");
+
+   let mut accounts = Vec::new();
+   accounts.push(AccountPrefetch::eoa(signer_address));
+   accounts.push(AccountPrefetch::contract(router_addr));
+   accounts.push(AccountPrefetch::contract(permit2_addr));
+   accounts.push(AccountPrefetch::eoa(beneficiary));
+
+   if currency_in.is_erc20() {
+      accounts.push(AccountPrefetch::contract(currency_in.address()));
+
+      if chain.is_base() || chain.is_optimism() {
+         accounts.push(AccountPrefetch::contract(burn_addr));
+      }
+   }
+
+   if currency_in.is_native() && !first_pool.dex_kind().is_v4() {
+      accounts.push(AccountPrefetch::contract(
+         currency_in.to_erc20().address,
+      ));
+   }
+
+   if currency_out.is_erc20() {
+      accounts.push(AccountPrefetch::contract(currency_out.address()));
+   }
+
+   if currency_out.is_native() && !last_pool.dex_kind().is_v4() {
+      accounts.push(AccountPrefetch::contract(
+         currency_out.to_erc20().address,
+      ));
+   }
+
+   let pools_addr = swap_steps.iter().map(|s| s.pool.address()).collect::<Vec<_>>();
+   for pool in pools_addr {
+      if !pool.is_zero() {
+         accounts.push(AccountPrefetch::contract(pool));
+      }
+   }
+
+   accounts
+}
+
 #[cfg(test)]
 mod tests {
    use super::*;
@@ -698,6 +808,17 @@ mod tests {
          1,
          weth(),
          usdc(),
+         FeeAmount::LOW,
+         DexKind::UniswapV4,
+         Address::ZERO,
+      )
+   }
+
+   fn v4_usdc_usdt() -> UniswapV4Pool {
+      UniswapV4Pool::from_components(
+         1,
+         usdc(),
+         usdt(),
          FeeAmount::LOW,
          DexKind::UniswapV4,
          Address::ZERO,
@@ -1032,6 +1153,111 @@ mod tests {
          nth_input(&legacy, Commands::V4_SWAP, 0).len() + 32,
          "the current generation inserts `minHopPriceX36` before the hookData offset"
       );
+   }
+
+   /// A hop whose input is an earlier hop's output cannot put that amount in wei into the calldata:
+   /// the quote is an estimate and a multi-tick V3 hop lands below it. V4 actions work on PoolManager
+   /// deltas, so the hop has to settle the router's balance (`CONTRACT_BALANCE`) *first* and then swap
+   /// the credit that settle created (`OPEN_DELTA`) — settling the quoted amount instead asks the pool
+   /// for more USDC than the router holds, which is the `TRANSFER_FAILED` this shape used to revert.
+   #[test]
+   fn v4_hop_fed_by_an_earlier_hop_settles_the_router_balance_first() {
+      let amount_in = wei("1", 18);
+      let quote_out = wei("2500", 6);
+      let got = plan(
+         eth(),
+         usdt(),
+         amount_in.wei(),
+         vec![
+            step(
+               v3_weth_usdc(),
+               weth(),
+               usdc(),
+               amount_in.clone(),
+               quote_out.clone(),
+            ),
+            step(
+               v4_usdc_usdt(),
+               usdc(),
+               usdt(),
+               quote_out.clone(),
+               quote_out,
+            ),
+         ],
+      );
+
+      assert_commands(
+         &got,
+         &[
+            Commands::WRAP_ETH,
+            Commands::V3_SWAP_EXACT_IN,
+            Commands::V4_SWAP,
+            Commands::SWEEP,
+         ],
+      );
+
+      let v4 = ActionsParams::abi_decode_params(nth_input(&got, Commands::V4_SWAP, 0)).unwrap();
+      // SETTLE (0x0b), SWAP_EXACT_IN_SINGLE (0x06), TAKE (0x0e)
+      assert_eq!(
+         v4.actions.to_vec(),
+         vec![0x0b, 0x06, 0x0e],
+         "the settle comes first: it is what credits the router"
+      );
+
+      let settle = SettleParams::abi_decode_params(&v4.params[0]).unwrap();
+      assert_eq!(settle.currency, usdc().address());
+      assert_eq!(settle.amount, CONTRACT_BALANCE);
+      assert!(
+         !settle.payerIsUser,
+         "the router pays out of its own balance"
+      );
+
+      // `hookData` makes the swap struct dynamic, so its params carry a leading struct offset (the
+      // offset the router's `CalldataDecoder` reads); the static settle/take params do not.
+      let swap = ExactInputSingleParams::abi_decode(&v4.params[1]).unwrap();
+      assert_eq!(
+         swap.amountIn, 0,
+         "OPEN_DELTA: spend the settled credit"
+      );
+
+      let take = TakeParams::abi_decode_params(&v4.params[2]).unwrap();
+      assert_eq!(
+         take.amount, 0,
+         "OPEN_DELTA: take the whole credit"
+      );
+      assert_eq!(
+         take.recipient,
+         address_book::universal_router_v2(1).unwrap()
+      );
+   }
+
+   /// A hop that spends the trade input knows its amount, so it keeps the quoted settle and the
+   /// swap-first order the router's own examples use.
+   #[test]
+   fn v4_hop_that_spends_the_trade_input_keeps_the_quoted_settle() {
+      let amount_in = wei("1", 18);
+      let got = plan(
+         eth(),
+         usdc(),
+         amount_in.wei(),
+         vec![step(
+            UniswapV4Pool::eth_usdc(),
+            eth(),
+            usdc(),
+            amount_in.clone(),
+            wei("2500", 6),
+         )],
+      );
+
+      let v4 = ActionsParams::abi_decode_params(nth_input(&got, Commands::V4_SWAP, 0)).unwrap();
+      // SWAP_EXACT_IN_SINGLE (0x06), SETTLE (0x0b), TAKE (0x0e)
+      assert_eq!(v4.actions.to_vec(), vec![0x06, 0x0b, 0x0e]);
+
+      let swap = ExactInputSingleParams::abi_decode(&v4.params[0]).unwrap();
+      assert_eq!(U256::from(swap.amountIn), amount_in.wei());
+
+      let settle = SettleParams::abi_decode_params(&v4.params[1]).unwrap();
+      assert_eq!(settle.amount, amount_in.wei());
    }
 
    #[test]
