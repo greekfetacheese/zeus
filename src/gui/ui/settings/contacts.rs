@@ -7,11 +7,13 @@ use crate::utils::RT;
 use egui::{
    Align, FontId, Frame, Layout, Margin, OpenUrl, RichText, ScrollArea, Spinner, Ui, vec2,
 };
-use egui_elements::{Button, Label, QrImage, SecureTextEdit, Theme};
+use egui_elements::{Button, Label, QrImage, SecureTextEdit, Theme, components::QrEncoding};
 use elegance::{Menu, MenuItem};
 use std::str::FromStr;
 use zeus_eth::alloy_primitives::Address;
 use zeus_railgun::RailgunAddress;
+
+const QR_IMAGE_SIZE: u32 = 250;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ContactsPageView {
@@ -352,10 +354,12 @@ impl QrWindow {
       ui.add_space(10.0);
 
       if !privacy_mode {
-         let image = self.evm_address_qr.image().fit_to_exact_size(vec2(250.0, 250.0));
+         let size = self.evm_address_qr.image_size_pt(ui.ctx().pixels_per_point());
+         let image = self.evm_address_qr.image().fit_to_exact_size(size);
          ui.add(image);
       } else {
-         let image = self.zk_address_qr.image().fit_to_exact_size(vec2(250.0, 250.0));
+         let size = self.zk_address_qr.image_size_pt(ui.ctx().pixels_per_point());
+         let image = self.zk_address_qr.image().fit_to_exact_size(size);
          ui.add(image);
       }
    }
@@ -767,14 +771,19 @@ fn on_edit_contact(old_contact: Contact, edited_contact: Contact) {
 
 fn on_open_contact_qr(contact: Contact) {
    RT.spawn_blocking(move || {
+      let encoding = QrEncoding {
+         target_px: QR_IMAGE_SIZE,
+         ..Default::default()
+      };
+
       let data = contact.evm_address.clone();
       let uri = format!("bytes://contact-{}.png", &contact.evm_address);
-      let evm_address_qr = QrImage::new(&data, uri);
+      let evm_address_qr = QrImage::with_encoding(&data, uri, encoding);
 
       let zk_address_qr = if !contact.zk_address.is_empty() {
          let data = contact.zk_address.clone();
          let uri = format!("bytes://contact-{}.png", &contact.zk_address);
-         QrImage::new(&data, uri)
+         QrImage::with_encoding(&data, uri, encoding)
       } else {
          QrImage::empty_with_error("No zkAddress available".to_string())
       };

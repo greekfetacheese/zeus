@@ -7,7 +7,9 @@ use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use egui::{Order, RichText, Spinner, Ui, vec2};
-use egui_elements::{Button, Modal, QrImage, Theme};
+use egui_elements::{Button, Modal, QrImage, Theme, components::QrEncoding};
+
+const QR_IMAGE_SIZE: u32 = 250;
 
 pub struct QrWindow {
    open: bool,
@@ -36,14 +38,19 @@ impl QrWindow {
       let wallet_clone = wallet.clone();
 
       RT.spawn_blocking(move || {
+         let encoding = QrEncoding {
+            target_px: QR_IMAGE_SIZE,
+            ..Default::default()
+         };
+
          let data = wallet.address.to_string();
          let uri = format!("bytes://receive-{}.png", &wallet.address);
-         let evm_address_qr = QrImage::new(&data, uri);
+         let evm_address_qr = QrImage::with_encoding(&data, uri, encoding);
 
          let zk_address_qr = if let Some(railgun_address) = &wallet.railgun_address {
             let data = railgun_address.address.to_string();
             let uri = format!("bytes://receive-{}.png", &railgun_address.address);
-            QrImage::new(&data, uri)
+            QrImage::with_encoding(&data, uri, encoding)
          } else {
             QrImage::empty_with_error("No zkAddress available".to_string())
          };
@@ -146,10 +153,12 @@ impl QrWindow {
 
                // QR Code
                if !privacy_mode {
-                  let image = self.evm_address_qr.image().fit_to_exact_size(vec2(250.0, 250.0));
+                  let size = self.evm_address_qr.image_size_pt(ui.ctx().pixels_per_point());
+                  let image = self.evm_address_qr.image().fit_to_exact_size(size);
                   ui.add(image);
                } else {
-                  let image = self.zk_address_qr.image().fit_to_exact_size(vec2(250.0, 250.0));
+                  let size = self.zk_address_qr.image_size_pt(ui.ctx().pixels_per_point());
+                  let image = self.zk_address_qr.image().fit_to_exact_size(size);
                   ui.add(image);
                }
 

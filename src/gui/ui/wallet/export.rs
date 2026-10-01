@@ -4,12 +4,14 @@ use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{Context, Id, Order, RichText, Ui, vec2};
-use egui_elements::{Button, CredentialsForm, Modal, QrImage, Theme};
+use egui_elements::{Button, CredentialsForm, Modal, QrImage, Theme, components::QrEncoding};
 use ncrypt_me::Credentials;
 use zeus_wallet::Wallet;
 
 const MASTER_WALLET_WARNING: &str = "This is your master wallet, if this key gets exposed any child wallet you generated with this key will be compromised\n
 You don't have to export this key unless something broke in Zeus and you cannot move your funds to other wallets";
+
+const QR_IMAGE_SIZE: u32 = 250;
 
 pub struct ExportKeyUi {
    open: bool,
@@ -214,7 +216,8 @@ impl ExportKeyUi {
                      ui.label(RichText::new(error.to_string()).size(theme.typography.large));
                   }
 
-                  let image = self.private_key_qr.image().fit_to_exact_size(vec2(250.0, 250.0));
+                  let size = self.private_key_qr.image_size_pt(ui.ctx().pixels_per_point());
+                  let image = self.private_key_qr.image().fit_to_exact_size(size);
                   ui.add(image);
                }
             });
@@ -311,9 +314,15 @@ fn on_verify_credentials(credentials: Credentials) {
                })
             });
 
-            let qr_image = match key_data {
-               Some((key_hex, uri)) => key_hex.unlock_str(|key| QrImage::new(key, uri)),
-               None => QrImage::empty_with_error("No wallet found".to_string()),
+            let encoding = QrEncoding {
+               target_px: QR_IMAGE_SIZE,
+               ..Default::default()
+            };
+
+            let qr_image = if let Some((key_data, uri)) = key_data {
+               key_data.unlock_str(|key| QrImage::with_encoding(key, uri, encoding))
+            } else {
+               QrImage::empty_with_error("No wallet found".to_string())
             };
 
             SHARED_GUI.write(|gui| {
