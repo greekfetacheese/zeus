@@ -458,20 +458,20 @@ impl PriorityFee {
 impl Default for PriorityFee {
    fn default() -> Self {
       let mut map = HashMap::with_capacity(SUPPORTED_CHAINS.len());
-      // Eth
-      map.insert(1, NumericValue::parse_to_gwei("0.01"));
 
-      // Optimism
-      map.insert(10, NumericValue::parse_to_gwei("0.001"));
+      let chains = ChainId::supported_chains();
 
-      // BSC (Legacy Tx)
-      map.insert(56, NumericValue::parse_to_gwei("0"));
-
-      // Base
-      map.insert(8453, NumericValue::parse_to_gwei("0.001"));
-
-      // Arbitrum
-      map.insert(42161, NumericValue::parse_to_gwei("0.001"));
+      for chain in chains {
+         match chain {
+            ChainId::Ethereum => map.insert(chain.id(), NumericValue::parse_to_gwei("0.01")),
+            ChainId::EthereumSepolia => map.insert(chain.id(), NumericValue::parse_to_gwei("0.01")),
+            ChainId::Optimism => map.insert(chain.id(), NumericValue::parse_to_gwei("0.001")),
+            ChainId::BinanceSmartChain => map.insert(chain.id(), NumericValue::parse_to_gwei("0")),
+            ChainId::Base => map.insert(chain.id(), NumericValue::parse_to_gwei("0.001")),
+            ChainId::Arbitrum => map.insert(chain.id(), NumericValue::parse_to_gwei("0.001")),
+            ChainId::RobinHood => map.insert(chain.id(), NumericValue::parse_to_gwei("0.01")),
+         };
+      }
 
       Self { fee: map }
    }
