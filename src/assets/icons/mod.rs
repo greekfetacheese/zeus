@@ -318,6 +318,10 @@ impl Icons {
          .fit_to_exact_size(Vec2::splat(24.0))
          .show_loading_spinner(false);
 
+      if id == 4663 {
+         img = img.corner_radius(10);
+      }
+
       if tint {
          img = img.tint(TINT_1);
       }
