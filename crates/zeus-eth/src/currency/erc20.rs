@@ -3,9 +3,9 @@ use alloy_primitives::{Address, Bytes, U256, address};
 use alloy_rpc_types::BlockId;
 
 use crate::abi;
-use crate::types::{ARBITRUM, BASE, BSC, ChainId, ETH, ETH_SEPOLIA, OPTIMISM};
+use crate::types::{ARBITRUM, BASE, BSC, ChainId, ETH, ETH_SEPOLIA, OPTIMISM, ROBIN_HOOD};
 use crate::utils::{
-   address_book::{dai, usdc, usdt, wbnb, weth},
+   address_book::{dai, usdc, usdt, usdg, wbnb, weth},
    batch,
 };
 
@@ -224,6 +224,7 @@ impl ERC20Token {
          ChainId::Optimism => ERC20Token::weth_optimism(),
          ChainId::Base => ERC20Token::weth_base(),
          ChainId::Arbitrum => ERC20Token::weth_arbitrum(),
+         ChainId::RobinHood => ERC20Token::weth_robinhood(),
          ChainId::BinanceSmartChain => ERC20Token::wbnb(),
       }
    }
@@ -278,6 +279,7 @@ impl ERC20Token {
             ERC20Token::usdt_bsc(),
             ERC20Token::dai_bsc(),
          ],
+         ChainId::RobinHood => vec![ERC20Token::weth_robinhood(), ERC20Token::usdg_robinhood()],
       }
    }
 
@@ -359,6 +361,14 @@ impl ERC20Token {
       let mut weth_token = ERC20Token::default();
       weth_token.address = weth(ARBITRUM).unwrap();
       weth_token.chain_id = ARBITRUM;
+      weth_token
+   }
+
+   /// WETH (Robinhood Chain)
+   pub fn weth_robinhood() -> ERC20Token {
+      let mut weth_token = ERC20Token::default();
+      weth_token.address = weth(ROBIN_HOOD).unwrap();
+      weth_token.chain_id = ROBIN_HOOD;
       weth_token
    }
 
@@ -501,6 +511,18 @@ impl ERC20Token {
       token.address = dai(ARBITRUM).unwrap();
       token
    }
+
+   /// USDG (Robihood) - US stablecoin
+   pub fn usdg_robinhood() -> ERC20Token {
+      ERC20Token {
+         chain_id: ROBIN_HOOD,
+         name: "Global Dollar".into(),
+         symbol: "USDG".into(),
+         address: usdg(ROBIN_HOOD).unwrap(),
+         decimals: 6,
+         total_supply: U256::ZERO,
+      }
+   }
 }
 
 // ** Helpers
@@ -525,8 +547,12 @@ impl ERC20Token {
       self.address == wbnb(self.chain_id).unwrap_or_default()
    }
 
+   pub fn is_usdg(&self) -> bool {
+      self.address == usdg(self.chain_id).unwrap_or_default()
+   }
+
    pub fn is_stablecoin(&self) -> bool {
-      self.is_usdc() || self.is_usdt() || self.is_dai()
+      self.is_usdc() || self.is_usdt() || self.is_dai() || self.is_usdg()
    }
 
    pub fn is_native_wrapped(&self) -> bool {

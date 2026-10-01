@@ -23,11 +23,11 @@ use crate::utils::{
    RT,
    simulate::*,
    swap_quoter::*,
-   universal_router_v2::{SwapRequest, encode_swap},
+   universal_router_v2::{SwapRequest, encode_swap, swap_prefetch_accounts},
 };
 
 use zeus_eth::{
-   alloy_primitives::{Address, U256, address},
+   alloy_primitives::{Address, U256},
    alloy_rpc_types::BlockId,
    amm::uniswap::{AnyUniswapPool, UniswapPool},
    currency::{Currency, erc20::ERC20Token, native::NativeCurrency},
@@ -1712,62 +1712,6 @@ async fn handle_approve(
    }
 
    Ok(new_fork_db)
-}
-
-/// Accounts a Universal Router swap touches: the signer, the router stack, the
-/// traded tokens, the burn address Base/Optimism require, and every hop pool.
-fn swap_prefetch_accounts<P: UniswapPool>(
-   chain: ChainId,
-   signer_address: Address,
-   router_addr: Address,
-   permit2_addr: Address,
-   beneficiary: Address,
-   currency_in: &Currency,
-   currency_out: &Currency,
-   swap_steps: &[SwapStep<P>],
-) -> Vec<AccountPrefetch> {
-   let first_pool = &swap_steps.first().unwrap().pool;
-   let last_pool = &swap_steps.last().unwrap().pool;
-   let burn_addr = address!("0x0000000000000000000000000000000000000001");
-
-   let mut accounts = Vec::new();
-   accounts.push(AccountPrefetch::eoa(signer_address));
-   accounts.push(AccountPrefetch::contract(router_addr));
-   accounts.push(AccountPrefetch::contract(permit2_addr));
-   accounts.push(AccountPrefetch::eoa(beneficiary));
-
-   if currency_in.is_erc20() {
-      accounts.push(AccountPrefetch::contract(currency_in.address()));
-
-      if chain.is_base() || chain.is_optimism() {
-         accounts.push(AccountPrefetch::contract(burn_addr));
-      }
-   }
-
-   if currency_in.is_native() && !first_pool.dex_kind().is_v4() {
-      accounts.push(AccountPrefetch::contract(
-         currency_in.to_erc20().address,
-      ));
-   }
-
-   if currency_out.is_erc20() {
-      accounts.push(AccountPrefetch::contract(currency_out.address()));
-   }
-
-   if currency_out.is_native() && !last_pool.dex_kind().is_v4() {
-      accounts.push(AccountPrefetch::contract(
-         currency_out.to_erc20().address,
-      ));
-   }
-
-   let pools_addr = swap_steps.iter().map(|s| s.pool.address()).collect::<Vec<_>>();
-   for pool in pools_addr {
-      if !pool.is_zero() {
-         accounts.push(AccountPrefetch::contract(pool));
-      }
-   }
-
-   accounts
 }
 
 /// Execute a swap through the Universal Router

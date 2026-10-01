@@ -5,6 +5,7 @@ use eframe::egui::{
    ColorImage, Context, Image, ImageSource, Sense, TextureHandle, Vec2,
    epaint::textures::TextureOptions,
 };
+use zeus_eth::ERC20Token;
 use std::borrow::Cow;
 
 use crate::core::context::currencies::TokenData;
@@ -111,6 +112,17 @@ impl TokenIcons {
       let erc20_x32 = ctx.load_texture("erc20_x32", erc20_x32, texture_options);
       let bep20_x32 = ctx.load_texture("bep20_x32", bep20_x32, texture_options);
 
+      // Robinhood USDG
+      let usdg_x32 = include_bytes!("currency/resized/USDG.png");
+      let usdg_token = ERC20Token::usdg_robinhood();
+
+      // Robinhood WETH
+      let weth_x32 = include_bytes!("currency/resized/weth.png");
+      let weth_token = ERC20Token::weth_robinhood();
+
+      icon_bytes.insert((usdg_token.address, usdg_token.chain_id), usdg_x32.to_vec());
+      icon_bytes.insert((weth_token.address, weth_token.chain_id), weth_x32.to_vec());
+
       Ok(Self {
          icons_x32: RwLock::new(HashMap::new()),
          icon_data: RwLock::new(icon_bytes),
@@ -201,6 +213,7 @@ pub struct ChainIcons {
    pub bsc: ImageSource<'static>,
    pub base: ImageSource<'static>,
    pub arbitrum: ImageSource<'static>,
+   pub robinhood: ImageSource<'static>,
 }
 
 impl ChainIcons {
@@ -225,6 +238,10 @@ impl ChainIcons {
          arbitrum: static_bytes_source(
             "bytes://chain/arbitrum.svg",
             include_bytes!("chain/arbitrum.svg"),
+         ),
+         robinhood: static_bytes_source(
+            "bytes://chain/robinhood.png",
+            include_bytes!("chain/robinhood.png"),
          ),
       }
    }
@@ -293,6 +310,7 @@ impl Icons {
          56 => self.chain.bsc.clone(),
          8453 => self.chain.base.clone(),
          42161 => self.chain.arbitrum.clone(),
+         4663 => self.chain.robinhood.clone(),
          _ => self.chain.eth.clone(),
       };
 

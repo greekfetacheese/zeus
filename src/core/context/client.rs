@@ -433,6 +433,17 @@ impl Default for ZeusClient {
          &[],
       );
 
+      insert_chain_rpcs(
+         &mut rpc_map_by_chain,
+         4663,
+         &[
+            "https://rpc.mainnet.chain.robinhood.com/",
+            "https://robinhood-rpc.publicnode.com",
+            "https://robinhood.drpc.org",
+         ],
+         &[],
+      );
+
       Self {
          rpcs: Arc::new(RwLock::new(rpc_map_by_chain)),
       }

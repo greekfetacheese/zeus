@@ -153,6 +153,7 @@ impl DexKind {
          ChainId::Base => vec![DexKind::UniswapV2, DexKind::UniswapV3, DexKind::UniswapV4],
          ChainId::Optimism => vec![DexKind::UniswapV3, DexKind::UniswapV4],
          ChainId::Arbitrum => vec![DexKind::UniswapV3, DexKind::UniswapV4],
+         ChainId::RobinHood => vec![DexKind::UniswapV2, DexKind::UniswapV3, DexKind::UniswapV4],
       }
    }
 
@@ -192,6 +193,7 @@ impl DexKind {
             DexKind::UniswapV3,
             DexKind::PancakeSwapV3,
          ],
+         ChainId::RobinHood => vec![DexKind::UniswapV2, DexKind::UniswapV3, DexKind::UniswapV4],
       }
    }
 
@@ -861,6 +863,7 @@ pub fn v3_nft_position_manager_creation_block(chain: u64) -> Result<u64, anyhow:
       ChainId::BinanceSmartChain => Ok(26324045),
       ChainId::Base => Ok(1371714),
       ChainId::Arbitrum => Ok(173),
+      ChainId::RobinHood => Ok(9069),
    }
 }
 
@@ -873,6 +876,7 @@ fn uniswap_v2_factory_creation_block(chain: u64) -> Result<u64, anyhow::Error> {
       ChainId::BinanceSmartChain => Ok(33496018),
       ChainId::Base => Ok(6601915),
       ChainId::Arbitrum => Ok(150442611),
+      ChainId::RobinHood => Ok(8928),
    }
 }
 
@@ -885,6 +889,7 @@ fn uniswap_v3_factory_creation_block(chain: u64) -> Result<u64, anyhow::Error> {
       ChainId::BinanceSmartChain => Ok(26324014),
       ChainId::Base => Ok(1371680),
       ChainId::Arbitrum => Ok(165),
+      ChainId::RobinHood => Ok(8930),
    }
 }
 
@@ -897,6 +902,7 @@ fn uniswap_v4_pool_manager_creation_block(chain: u64) -> Result<u64, anyhow::Err
       ChainId::BinanceSmartChain => Ok(45970610),
       ChainId::Base => Ok(25350988),
       ChainId::Arbitrum => Ok(297842872),
+      ChainId::RobinHood => Ok(9070),
    }
 }
 
@@ -909,6 +915,7 @@ fn pancakeswap_v2_factory_creation_block(chain: u64) -> Result<u64, anyhow::Erro
       ChainId::BinanceSmartChain => Ok(6809737),
       ChainId::Base => Ok(2910387),
       ChainId::Arbitrum => Ok(101022992),
+      ChainId::RobinHood => bail!("PancakeSwap V2 is not available on Robinhood Chain"),
    }
 }
 
@@ -921,5 +928,6 @@ fn pancakeswap_v3_factory_creation_block(chain: u64) -> Result<u64, anyhow::Erro
       ChainId::BinanceSmartChain => Ok(26956207),
       ChainId::Base => Ok(2912007),
       ChainId::Arbitrum => Ok(101028949),
+      ChainId::RobinHood => Ok(535378),
    }
 }

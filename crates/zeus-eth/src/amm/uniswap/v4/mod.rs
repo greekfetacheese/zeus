@@ -208,19 +208,25 @@ pub const fn has_donate_permissions(address: Address) -> bool {
 #[cfg(test)]
 mod tests {
    use super::*;
-   use crate::abi::uniswap::v4::actions::{ExactInputSingleParams, PoolKey};
+   use crate::abi::uniswap::v4::actions::{
+      ExactInputSingleParams, ExactInputSingleParamsMinHopPrice, PoolKey,
+   };
    use alloy_primitives::{U256, address};
+
+   fn weth_usdc_key() -> PoolKey {
+      PoolKey {
+         currency0: address!("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"),
+         currency1: address!("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"),
+         fee: 500.try_into().unwrap(),
+         tickSpacing: 10.try_into().unwrap(),
+         hooks: Address::ZERO,
+      }
+   }
 
    #[test]
    fn swap_exact_in_single_encoding_starts_with_struct_offset() {
       let params = ExactInputSingleParams {
-         poolKey: PoolKey {
-            currency0: address!("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"),
-            currency1: address!("0xdAC17F958D2ee523a2206206994597C13D831ec7"),
-            fee: 10.try_into().unwrap(),
-            tickSpacing: 1.try_into().unwrap(),
-            hooks: Address::ZERO,
-         },
+         poolKey: weth_usdc_key(),
          zeroForOne: true,
          amountIn: 1_000_000,
          amountOutMinimum: 0,
@@ -233,5 +239,56 @@ mod tests {
          U256::from(32u64),
          "CalldataDecoder reads the first word as the struct offset"
       );
+   }
+
+   /// The current router generation inserts `uint256 minHopPriceX36` between `amountOutMinimum`
+   /// and `hookData`. Encoding the legacy struct against it makes the router read the hookData
+   /// offset word as `minHopPriceX36` and the hookData length word as the hookData offset — a
+   /// calldata slice that starts at the struct itself.
+   #[test]
+   fn swap_exact_in_single_min_hop_price_word_precedes_hook_data() {
+      let legacy = ExactInputSingleParams {
+         poolKey: weth_usdc_key(),
+         zeroForOne: true,
+         amountIn: 1_000_000,
+         amountOutMinimum: 0,
+         hookData: Bytes::default(),
+      }
+      .abi_encode();
+
+      let current = ExactInputSingleParamsMinHopPrice {
+         poolKey: weth_usdc_key(),
+         zeroForOne: true,
+         amountIn: 1_000_000,
+         amountOutMinimum: 0,
+         minHopPriceX36: U256::ZERO,
+         hookData: Bytes::default(),
+      }
+      .abi_encode();
+
+      assert_eq!(current.len(), legacy.len() + 32, "one extra word");
+      assert_eq!(
+         U256::from_be_slice(&current[..32]),
+         U256::from(32u64)
+      );
+
+      let struct_start = 32;
+      let field = |index: usize| {
+         let from = struct_start + index * 32;
+         U256::from_be_slice(&current[from..from + 32])
+      };
+
+      // 5 poolKey words, zeroForOne, amountIn, amountOutMinimum, minHopPriceX36, hookData offset
+      assert_eq!(
+         field(8),
+         U256::ZERO,
+         "minHopPriceX36 = 0 disables the per-hop price guard"
+      );
+      assert_eq!(
+         field(9),
+         U256::from(10 * 32u64),
+         "hookData offset shifted one word past the struct head"
+      );
+      assert_eq!(field(10), U256::ZERO, "empty hookData");
    }
 }

@@ -1315,10 +1315,10 @@ async fn wait_for_fill(
    }
 
    let from_block = block.unwrap();
-   let mut block_time_ms = dest_chain.block_time_millis();
-   if dest_chain.is_arbitrum() {
-      // give more time so we dont spam the rpc
-      block_time_ms *= 3;
+   let mut sleep_ms = dest_chain.block_time_millis();
+   if dest_chain.is_arbitrum() || dest_chain.is_robinhood() {
+      // set sleep time to 1 second so we don't spam the rpc
+      sleep_ms = 1000;
    }
 
    let now = std::time::Instant::now();
@@ -1343,9 +1343,7 @@ async fn wait_for_fill(
 
       for log in logs {
          if let Ok(decoded) = decode_filled_relay_log(log.data()) {
-            tracing::debug!("Filled Relay Log Decoded: {:#?}", decoded);
             if decoded.recipient == recipient {
-               tracing::info!("Funds received");
                funds_received = true;
                break;
             }
@@ -1356,7 +1354,7 @@ async fn wait_for_fill(
          break;
       }
 
-      tokio::time::sleep(Duration::from_millis(block_time_ms)).await;
+      tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
    }
 
    // I dont expect this to happen
