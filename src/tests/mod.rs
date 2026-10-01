@@ -1,3 +1,4 @@
+mod bridge;
 mod connector;
 mod ens;
 mod permit2_revoke;
@@ -39,6 +40,38 @@ pub fn unlock_ctx() -> crate::core::ZeusCtx {
    ctx.load_pool_manager();
    ctx.load_zeus_client();
    ctx.load_price_manager();
+
+   ctx
+}
+
+/// A test context with a **usable** endpoint for `chain`.
+///
+/// `unlock_ctx` loads this machine's `data/` — including its RPC list — and the builtin endpoints it
+/// seeds are left disabled and unmeasured, while `Rpc::get_best_rpc` needs one that is enabled *and*
+/// working. Mark one usable, preferring a builtin so a test never depends on an endpoint that was
+/// added by hand. Shared by the swap and bridge regressions.
+#[cfg(test)]
+pub fn test_ctx(chain: u64) -> crate::core::ZeusCtx {
+   let ctx = unlock_ctx();
+   let client = ctx.get_zeus_client();
+   let rpcs = client.get_rpcs(chain);
+
+   assert!(
+      !rpcs.is_empty(),
+      "no endpoint for chain {chain}: open the app on that chain once, or add one in settings"
+   );
+
+   if !rpcs.values().any(|r| r.enabled && r.check.working) {
+      let mut rpc = rpcs
+         .values()
+         .find(|r| r.default)
+         .or_else(|| rpcs.values().next())
+         .cloned()
+         .unwrap();
+      rpc.enabled = true;
+      rpc.check.working = true;
+      client.add_rpc(chain, rpc);
+   }
 
    ctx
 }

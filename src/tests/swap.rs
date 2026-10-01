@@ -2,9 +2,9 @@
 mod tests {
    use std::time::Instant;
 
-   use crate::core::{ZeusCtx, types::BaseFee};
+   use crate::core::types::BaseFee;
    use crate::gui::ui::dapps::uniswap::swap::get_relevant_pools;
-   use crate::tests::unlock_ctx;
+   use crate::tests::test_ctx;
 
    use crate::utils::{simulate::*, swap_quoter::*, universal_router_v2::*};
    use zeus_wallet::SecureKey;
@@ -32,37 +32,6 @@ mod tests {
    /// The slippage every case trades at. Wide enough that the quoter's gas accounting — it converts
    /// gas into output-token terms with a live ETH price — cannot move the floor past the real output.
    const SLIPPAGE: f64 = 0.5;
-
-   // ---------------------------------------------------------------------- context
-
-   /// `unlock_ctx` loads this machine's `data/` — including its RPC list — and the builtin endpoints
-   /// it seeds are disabled and unmeasured, while `Rpc::get_best_rpc` needs one that is enabled *and*
-   /// working. Mark one usable, preferring a builtin so a test never depends on an endpoint that was
-   /// added by hand.
-   fn test_ctx(chain: u64) -> ZeusCtx {
-      let ctx = unlock_ctx();
-      let client = ctx.get_zeus_client();
-      let rpcs = client.get_rpcs(chain);
-
-      assert!(
-         !rpcs.is_empty(),
-         "no endpoint for chain {chain}: open the app on that chain once, or add one in settings"
-      );
-
-      if !rpcs.values().any(|r| r.enabled && r.check.working) {
-         let mut rpc = rpcs
-            .values()
-            .find(|r| r.default)
-            .or_else(|| rpcs.values().next())
-            .cloned()
-            .unwrap();
-         rpc.enabled = true;
-         rpc.check.working = true;
-         client.add_rpc(chain, rpc);
-      }
-
-      ctx
-   }
 
    // ---------------------------------------------------------------------- harness
 
