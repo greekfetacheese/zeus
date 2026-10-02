@@ -21,14 +21,15 @@ use crate::gui::{
 };
 use crate::utils::RT;
 use egui::{
-   Align, CursorIcon, Layout, Margin, OpenUrl, RichText, ScrollArea, TextWrapMode, Ui, vec2,
+   Align, CursorIcon, FontId, Layout, Margin, OpenUrl, RichText, ScrollArea, Shadow, Stroke,
+   TextWrapMode, Ui, vec2,
 };
 use std::sync::Arc;
 use zeus_eth::types::ChainId;
 
-use egui_elements::{Button, Label, Theme, visuals::ButtonVisuals};
+use egui_elements::{Button, Label, Theme};
 use egui_lucide::Lucide;
-use elegance::{Badge, BadgeTone, Indicator, IndicatorState, Menu, MenuItem, TabBar};
+use elegance::{Indicator, IndicatorState, Menu, MenuItem, TabBar};
 
 const DELEGATE_TIP1: &str = "This wallet has been temporarily upgraded to a smart contract";
 const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
@@ -118,7 +119,6 @@ impl AccountPanel {
 
       let chain = ctx.chain;
       let privacy_mode = ctx.privacy_mode;
-      let button_visuals = theme.button_visuals();
 
       let evm_addr = self.wallet_info.address;
 
@@ -142,15 +142,7 @@ impl AccountPanel {
             ui.add_space(5.0);
 
             match self.tab {
-               0 => self.show_overview(
-                  ctx,
-                  theme,
-                  &icons,
-                  &button_visuals,
-                  privacy_mode,
-                  chain,
-                  ui,
-               ),
+               0 => self.show_overview(ctx, theme, &icons, privacy_mode, chain, ui),
                1 => self.show_services(ctx, theme, ui),
                _ => {}
             }
@@ -164,7 +156,6 @@ impl AccountPanel {
       ctx: &mut ZeusContext,
       theme: &Theme,
       icons: &Arc<Icons>,
-      button_visuals: &ButtonVisuals,
       privacy_mode: bool,
       chain: ChainId,
       ui: &mut Ui,
@@ -180,89 +171,159 @@ impl AccountPanel {
       let wallet = &self.wallet_info;
       let icon_color = theme.colors.text;
 
+      let mut btn_visuals = theme.button_visuals();
+      btn_visuals.shadow = Shadow::NONE;
+      btn_visuals.border_hover = Stroke::NONE;
+
+      let normal = theme.typography.normal;
+
+      let frame2 = theme.frame2.inner_margin(5);
+
+      // `set_width` sizes the frame's *content* box, and the frame paints its inner
+      // margin outside of it, so a row has to ask for one `inner_margin` less than
+      // `PANEL_ROW_WIDTH` (the selectors' total width) to line up with its siblings.
+      let row_width = PANEL_ROW_WIDTH - frame2.inner_margin.sum().x;
+
       // Wallet address, on click copy it to the clipboard
-      ui.horizontal(|ui| {
-         let address = match privacy_mode {
-            false => wallet.evm_address_truncated(),
-            true => wallet.zk_address_truncated(),
-         };
+      frame2.show(ui, |ui| {
+         ui.set_width(row_width);
 
-         let full_address = match privacy_mode {
-            false => wallet.address.to_string(),
-            true => wallet.zk_address(),
-         };
+         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = theme.spacing.xs;
 
-         let address_text = RichText::new(address).size(theme.typography.normal);
-         let label = Button::selectable(false, address_text).visuals(button_visuals.clone());
+            let address = match privacy_mode {
+               false => wallet.evm_address_truncated(),
+               true => wallet.zk_address_truncated(),
+            };
 
-         if ui.add(label).clicked() {
-            ui.ctx().copy_text(full_address);
-         }
+            let full_address = match privacy_mode {
+               false => wallet.address.to_string(),
+               true => wallet.zk_address(),
+            };
 
-         ui.add_space(7.0);
+            // Privacy mode on a wallet we cannot derive a zk address for: the row is
+            // a muted note. The copy / QR / explorer actions would act on the note
+            // instead of an address, so they are hidden.
+            if privacy_mode && !wallet.has_zk_address() {
+               let text = RichText::new(address).size(normal).color(theme.colors.text_muted);
 
-         let icon = Lucide::QrCode.size(16.0).color(icon_color).image();
+               // Keep the clickable label's height so hiding the actions does not
+               // shift the rows below.
+               let text_height =
+                  ui.ctx().fonts_mut(|f| f.row_height(&FontId::proportional(normal)));
+               let height = (text_height + 2.0 * ui.spacing().button_padding.y)
+                  .max(ui.spacing().interact_size.y);
 
-         let button = Button::image(icon);
-         let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+               ui.allocate_ui_with_layout(
+                  vec2(ui.available_width(), height),
+                  Layout::left_to_right(Align::Center),
+                  |ui| {
+                     // Same inset as the clickable label's button padding.
+                     ui.add_space(ui.spacing().button_padding.x);
+                     ui.add(Label::new(text, None).interactive(false));
+                  },
+               );
 
-         // QR Code Window
-         if res.clicked() {
-            self.qr_window.open(wallet.clone());
-         }
+               return;
+            }
 
-         ui.add_space(10.0);
+            let address_text = RichText::new(address).size(normal);
+            let label = Button::selectable(false, address_text);
 
-         // Block explorer link
-         let block_explorer = chain.block_explorer();
-         let link = format!("{}/address/{}", block_explorer, wallet.address);
-         let icon = Lucide::ExternalLink.size(16.0).color(icon_color).image();
+            if ui.add(label).clicked() {
+               ui.ctx().copy_text(full_address);
+            }
 
-         let button = Button::image(icon);
-         let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+            // The QR / block-explorer actions, and the separators before them, are
+            // anchored to the row's right edge: laid out after the text they would
+            // follow its width, and the zk address is shorter than the evm one, so
+            // they would slide out of line with the rows below. Right-to-left, so
+            // they are added rightmost first.
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+               // Block explorer link
+               let block_explorer = chain.block_explorer();
+               let link = format!("{}/address/{}", block_explorer, wallet.address);
+               let icon = Lucide::ExternalLink.size(18.0).color(icon_color).image();
 
-         if res.clicked() {
-            let url = OpenUrl::new_tab(link);
-            ui.ctx().open_url(url);
-         }
+               let button = Button::image(icon).visuals(btn_visuals).small();
+               let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+
+               if res.clicked() {
+                  let url = OpenUrl::new_tab(link);
+                  ui.ctx().open_url(url);
+               }
+
+               ui.separator();
+
+               let icon = Lucide::QrCode.size(18.0).color(icon_color).image();
+
+               let button = Button::image(icon).visuals(btn_visuals).small();
+               let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+
+               // QR Code Window
+               if res.clicked() {
+                  self.qr_window.open(wallet.clone());
+               }
+
+               ui.separator();
+            });
+         });
       });
 
       // Wallet delegated status
-      let deleg_addr = ctx.delegated_wallets.get(chain.id(), wallet.address);
-      ui.horizontal(|ui| {
-         let text = match deleg_addr.is_some() {
-            true => RichText::new("Delegated").size(theme.typography.normal),
-            false => RichText::new("Not Delegated").size(theme.typography.normal),
-         };
+      frame2.show(ui, |ui| {
+         ui.set_width(row_width);
 
-         let tip = if deleg_addr.is_some() {
-            DELEGATE_TIP1
-         } else {
-            DELEGATE_TIP2
-         };
+         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
-         let tip_text = RichText::new(tip).size(theme.typography.normal);
+            let deleg_addr = ctx.delegated_wallets.get(chain.id(), wallet.address);
 
-         let tone = match deleg_addr.is_some() {
-            true => BadgeTone::Warning,
-            false => BadgeTone::Ok,
-         };
+            let text = match deleg_addr.is_some() {
+               true => RichText::new("Delegated").size(normal),
+               false => RichText::new("Not Delegated").size(normal),
+            };
 
-         let badge = Badge::new(text, tone);
-         ui.add(badge).on_hover_text(tip_text);
+            let label = Label::new(text, None).interactive(false);
 
-         ui.add_space(10.0);
+            let tip = if deleg_addr.is_some() {
+               DELEGATE_TIP1
+            } else {
+               DELEGATE_TIP2
+            };
 
-         let more = dots_button(theme, ui);
+            let tip_text = RichText::new(tip).size(normal);
 
-         if more.clicked() {
-            if !self.delegate.is_open() {
-               self.delegate.open();
+            let state = match deleg_addr.is_some() {
+               true => IndicatorState::Off,
+               false => IndicatorState::On,
+            };
+
+            let indicator = Indicator::new(state).size(12.0);
+
+            ui.add(indicator);
+            ui.add(label).on_hover_text(tip_text);
+
+            // Align this separator with the one above it.
+            ui.add_space(1.2);
+
+            ui.separator();
+
+            let size = vec2(24.0, 12.0);
+            let more = dots_button(theme, size, ui);
+
+            if more.clicked() {
+               if !self.delegate.is_open() {
+                  self.delegate.open();
+               }
             }
-         }
+         });
       });
 
-      privacy_mode_switch(ctx, theme, ui);
+      frame2.show(ui, |ui| {
+         ui.set_width(row_width);
+         privacy_mode_switch(ctx, theme, ui);
+      });
 
       // The apps this account is exposed to, last so it never pushes the fixed
       // rows around. A dedicated account stops being self-explanatory once it is
@@ -355,7 +416,8 @@ impl AccountPanel {
             });
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-               let more = dots_button(theme, ui);
+               let size = vec2(28.0, 20.0);
+               let more = dots_button(theme, size, ui);
                Menu::new(("svc_menu", "railgun_id")).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("View last error")).clicked() {
                      let error_opt = ctx.railgun_status().sync_error(chain.id());
@@ -407,7 +469,8 @@ impl AccountPanel {
             ui.label(label);
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-               let more = dots_button(theme, ui);
+               let size = vec2(28.0, 20.0);
+               let more = dots_button(theme, size, ui);
                Menu::new(("svc_menu", "wallet_connector_id")).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("Settings")).clicked() {
                      RT.spawn_blocking(move || {

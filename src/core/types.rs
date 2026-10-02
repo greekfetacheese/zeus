@@ -8,7 +8,7 @@ use zeus_eth::{
 };
 
 use crate::core::{
-   WalletInfo,
+   WalletInfo, ZK_ADDRESS_UNAVAILABLE,
    context::{
       DELEGATE_WALLET_CHECK_TIMEOUT, disabled_chains_dir, misc_config_dir, railgun_config_dir,
    },
@@ -327,7 +327,7 @@ impl Contact {
 
       match &zk_address {
          Some(address) => format!("{}...{}", &address[..6], &address[121..]),
-         None => "zkAddress not available".to_string(),
+         None => ZK_ADDRESS_UNAVAILABLE.to_string(),
       }
    }
 }

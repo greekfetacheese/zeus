@@ -556,7 +556,8 @@ impl ContactsUi {
             });
 
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               let more = dots_button(theme, ui);
+               let size = vec2(28.0, 20.0);
+               let more = dots_button(theme, size, ui);
                let id = format!("{}_more_options", contact.evm_address);
 
                Menu::new(id).show_below(&more, |ui| {

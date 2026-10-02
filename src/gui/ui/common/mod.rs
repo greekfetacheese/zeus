@@ -23,7 +23,7 @@ pub use windows::{ConfirmWindow, LoadingWindow, MsgWindow, UpdateWindow};
 use crate::core::ZeusContext;
 use crate::gui::{SHARED_GUI, ui::dapps::railgun::RailgunMode};
 use crate::utils::RT;
-use egui::{Align, Layout, Response, RichText, Ui, pos2, vec2};
+use egui::{Align, Layout, Response, RichText, Ui, pos2, Vec2, vec2};
 use egui_elements::{Button, Theme};
 use egui_lucide::Lucide;
 use elegance::{Accent, Switch};
@@ -96,9 +96,9 @@ pub fn privacy_mode_switch(ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
    }
 }
 
-pub fn dots_button(theme: &Theme, ui: &mut Ui) -> Response {
+pub fn dots_button(theme: &Theme, size: Vec2, ui: &mut Ui) -> Response {
    let visuals = theme.button_visuals();
-   let btn = Button::new("").small().min_size(vec2(28.0, 20.0)).visuals(visuals);
+   let btn = Button::new("").small().min_size(size).visuals(visuals);
 
    let resp = ui.add(btn);
 

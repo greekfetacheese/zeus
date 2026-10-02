@@ -31,6 +31,11 @@ impl Default for WalletInfo {
    }
 }
 
+/// Shown wherever a wallet's zk address goes, for wallets we cannot derive one
+/// for. Keep it short: the account panel's address row is only as wide as the
+/// truncated address.
+pub const ZK_ADDRESS_UNAVAILABLE: &str = "No zkAddress";
+
 impl WalletInfo {
    pub fn from_wallet(wallet: &Wallet, generate_railgun_address: bool) -> Self {
       let mut railgun_address = None;
@@ -103,6 +108,12 @@ impl WalletInfo {
       )
    }
 
+   /// Whether there is a derived zk address to show. False for wallets we cannot
+   /// derive one for (imported / watch-only).
+   pub fn has_zk_address(&self) -> bool {
+      self.railgun_address.is_some()
+   }
+
    pub fn zk_address_truncated(&self) -> String {
       match &self.railgun_address {
          Some(railgun_address) => format!(
@@ -110,21 +121,21 @@ impl WalletInfo {
             &railgun_address.address[..6],
             &railgun_address.address[121..]
          ),
-         None => "zkAddress not available".to_string(),
+         None => ZK_ADDRESS_UNAVAILABLE.to_string(),
       }
    }
 
    pub fn zk_address(&self) -> String {
       match &self.railgun_address {
          Some(railgun_address) => railgun_address.address.clone(),
-         None => "zkAddress not available".to_string(),
+         None => ZK_ADDRESS_UNAVAILABLE.to_string(),
       }
    }
 
    pub fn zk_address_ref(&self) -> &str {
       match &self.railgun_address {
          Some(railgun_address) => &railgun_address.address,
-         None => "zkAddress not available",
+         None => ZK_ADDRESS_UNAVAILABLE,
       }
    }
 }

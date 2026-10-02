@@ -323,7 +323,8 @@ impl TokenSelectionWindow {
                                  ui.set_width(ui.available_width() * 0.6);
 
                                  if let Some(token_address) = token_address {
-                                    let more = dots_button(theme, ui);
+                                    let size = vec2(28.0, 20.0);
+                                    let more = dots_button(theme, size, ui);
                                     if more.clicked() {
                                        more_clicked = true;
                                     }

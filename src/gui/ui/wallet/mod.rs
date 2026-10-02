@@ -217,7 +217,8 @@ impl WalletUi {
          ui.horizontal(|ui| {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                let id = format!("{}_more_options", wallet.address);
-               let more = dots_button(theme, ui);
+               let size = vec2(28.0, 20.0);
+               let more = dots_button(theme, size, ui);
                let enabled = !wallet.is_master();
 
                Menu::new(id).show_below(&more, |ui| {
