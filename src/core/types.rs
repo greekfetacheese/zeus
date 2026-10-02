@@ -575,7 +575,11 @@ impl DappConnection {
       }
 
       if !wallets.contains(&self.current) {
-         self.current = *self.seen.last().expect("seen is not empty");
+         if let Some(last_seen) = self.seen.last() {
+            self.current = *last_seen
+         } else {
+            tracing::warn!("Last seen is empty")
+         }
       }
 
       true
