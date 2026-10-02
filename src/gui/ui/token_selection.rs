@@ -10,13 +10,17 @@ use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::{RT, token_icon::spawn_fetch_token_icon, truncate_symbol_or_name};
 use elegance::{Menu, MenuItem};
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use zeus_eth::{
-   alloy_primitives::Address,
+   alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
+   nft::NftToken,
    types::ChainId,
-   utils::NumericValue,
+   utils::{
+      NumericValue,
+      batch::{NftRef, get_erc1155_balances},
+   },
 };
 
 use anyhow::anyhow;
@@ -77,6 +81,18 @@ pub struct TokenSelectionWindow {
    ///
    /// (Currency, Balance, Value)
    processed_currencies: Vec<(Currency, NumericValue, NumericValue)>,
+
+   /// The NFT list: `(token, balance)`.
+   ///
+   /// The union of what the user tracks (`NftDB`) and what the wallet holds (its portfolio). ERC-721
+   /// has no amount — holding one is a 1 — so only ERC-1155 entries carry a real quantity.
+   processed_nfts: Vec<(NftToken, u64)>,
+   /// Is the NFT list being fetched? Kept apart from `loading`, which is the ERC-20 balance fetch and
+   /// hides the mode switch while it runs.
+   nfts_loading: bool,
+   /// Did that fetch finish? An empty list is a legitimate result, so `processed_nfts.is_empty()`
+   /// cannot stand in for "never fetched".
+   nfts_loaded: bool,
 }
 
 impl TokenSelectionWindow {
@@ -93,6 +109,9 @@ impl TokenSelectionWindow {
          currency_direction: InOrOut::In,
          mode: PickerMode::Fungible,
          processed_currencies: Vec::new(),
+         processed_nfts: Vec::new(),
+         nfts_loading: false,
+         nfts_loaded: false,
       }
    }
 
@@ -109,6 +128,8 @@ impl TokenSelectionWindow {
       // Always open on the ERC-20 list, so the existing flows see exactly what they saw before; a
       // caller that wants NFTs opts in with `set_mode`.
       self.mode = PickerMode::Fungible;
+      // Both the tracked tokens and the wallet's holdings can have moved since last time.
+      self.clear_processed_nfts();
       self.process_currencies(privacy_mode, chain_id, owner);
    }
 
@@ -121,6 +142,7 @@ impl TokenSelectionWindow {
       self.currency_direction = InOrOut::In;
       self.mode = PickerMode::Fungible;
       self.processed_currencies = Vec::new();
+      self.clear_processed_nfts();
    }
 
    pub fn close(&mut self) {
@@ -179,6 +201,38 @@ impl TokenSelectionWindow {
       self.processed_currencies.shrink_to_fit();
    }
 
+   pub fn clear_processed_nfts(&mut self) {
+      self.processed_nfts.clear();
+      self.processed_nfts.shrink_to_fit();
+      self.nfts_loading = false;
+      self.nfts_loaded = false;
+   }
+
+   /// Kick off the NFT list fetch, at most once per opening.
+   ///
+   /// Spawned, never inline: it reads the wallet's ERC-1155 balances over the network, and this is
+   /// the frame path.
+   fn load_nfts(&mut self, chain_id: u64, owner: Address) {
+      if self.nfts_loaded || self.nfts_loading {
+         return;
+      }
+
+      self.nfts_loading = true;
+
+      RT.spawn(async move {
+         // Read on a worker: the handle is only reachable once the frame has dropped `SHARED_GUI`.
+         let ctx = SHARED_GUI.write(|gui| gui.ctx.clone());
+         let nfts = process_nfts(ctx, chain_id, owner).await;
+
+         SHARED_GUI.write(|gui| {
+            gui.token_selection.processed_nfts = nfts;
+            gui.token_selection.nfts_loading = false;
+            gui.token_selection.nfts_loaded = true;
+            gui.request_repaint();
+         });
+      });
+   }
+
    pub fn set_currency_direction(&mut self, currency_direction: InOrOut) {
       self.currency_direction = currency_direction;
    }
@@ -214,6 +268,11 @@ impl TokenSelectionWindow {
 
       if !open {
          return;
+      }
+
+      // Entering NFT mode loads the list once per opening; the switch row itself only flips `mode`.
+      if self.mode == PickerMode::Nft {
+         self.load_nfts(chain_id, owner);
       }
 
       let mut close_window = false;
@@ -441,6 +500,7 @@ impl TokenSelectionWindow {
       if close_window || !open {
          self.close();
          self.clear_processed_currencies();
+         self.clear_processed_nfts();
       }
    }
 
@@ -476,17 +536,25 @@ impl TokenSelectionWindow {
       ui.add_space(theme.spacing.sm);
    }
 
-   /// What NFT mode shows until the list lands.
+   /// What NFT mode shows for now: the state of its list.
    ///
-   /// An empty state rather than a half-wired list: the picker does not read `NftDB` or the
-   /// portfolio's NFTs yet, so there is nothing truthful to render. Saying so beats a blank pane
-   /// that reads as a bug.
+   /// Row rendering (thumbnail, `name #id`, the `dots_button` menu) is the next task; until then
+   /// this reports what the loader actually found, so the mode is truthful instead of empty.
    fn show_nft_body(&self, theme: &Theme, ui: &mut Ui) {
       ui.add_space(theme.spacing.xl);
 
-      let note = RichText::new("No NFTs to show yet")
-         .size(theme.typography.normal)
-         .color(theme.colors.text_muted);
+      if self.nfts_loading {
+         ui.add(Spinner::new().size(25.0).color(theme.colors.text));
+         return;
+      }
+
+      let text = match self.processed_nfts.len() {
+         0 => "No NFTs to show yet".to_string(),
+         1 => "1 NFT".to_string(),
+         count => format!("{count} NFTs"),
+      };
+
+      let note = RichText::new(text).size(theme.typography.normal).color(theme.colors.text_muted);
 
       ui.label(note);
    }
@@ -760,9 +828,127 @@ async fn sync_balances(ctx: ZeusCtx, chain: u64, owner: Address) {
    );
 }
 
+/// The NFT list for one wallet: what the user tracks (`NftDB`) unioned with what the wallet holds
+/// (its portfolio), each with a balance.
+///
+/// Neither source is authoritative alone — a tracked token may have been transferred away, and a
+/// held token is not in the catalog until someone adds it. ERC-721 spends no call (holding one is a
+/// 1); ERC-1155 amounts exist nowhere off-chain, so they take one batched Multicall3 round.
+async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<(NftToken, u64)> {
+   let tracked = ctx.read(|ctx| ctx.nft_db.get_nfts(chain_id));
+   let held = ctx.get_portfolio(chain_id, owner).nfts().clone();
+   let merged = merge_nft_sources(tracked, held);
+
+   let refs: Vec<NftRef> = merged
+      .iter()
+      .filter(|token| token.is_erc1155())
+      .map(|token| (token.collection, token.token_id))
+      .collect();
+
+   let amounts = fetch_erc1155_amounts(&ctx, chain_id, owner, refs).await;
+
+   attach_balances(merged, &amounts)
+}
+
+/// Batched ERC-1155 amounts, keyed by `(collection, token id)`.
+///
+/// An empty map on failure: the list is still worth showing without amounts, so a transport error
+/// degrades the quantities rather than making the whole mode unavailable.
+async fn fetch_erc1155_amounts(
+   ctx: &ZeusCtx,
+   chain_id: u64,
+   owner: Address,
+   refs: Vec<NftRef>,
+) -> HashMap<(Address, U256), u64> {
+   if refs.is_empty() {
+      return HashMap::new();
+   }
+
+   let client = match ctx.get_client(chain_id).await {
+      Ok(client) => client,
+      Err(e) => {
+         tracing::error!("Failed to get client for chain {chain_id}: {e:?}");
+         return HashMap::new();
+      }
+   };
+
+   match get_erc1155_balances(client, owner, refs, None).await {
+      Ok(rows) => rows
+         .into_iter()
+         .map(|(collection, token_id, amount)| ((collection, token_id), to_u64(amount)))
+         .collect(),
+      Err(e) => {
+         tracing::error!("Failed to read ERC-1155 balances: {e:?}");
+         HashMap::new()
+      }
+   }
+}
+
+/// A `balanceOf` returns `uint256` whatever the contract feels like, so saturate instead of
+/// panicking on a hostile value.
+fn to_u64(amount: U256) -> u64 {
+   u64::try_from(amount).unwrap_or(u64::MAX)
+}
+
+/// Union of the tracked and held lists, deduped by token identity.
+///
+/// The tracked entry wins a tie: it is the one that may carry a cached `metadata_uri`, and dropping
+/// it would cost an on-chain `tokenURI` read later. Sorted by identity so the list does not reshuffle
+/// between loads.
+fn merge_nft_sources(tracked: Vec<NftToken>, held: Vec<NftToken>) -> Vec<NftToken> {
+   let mut merged: Vec<NftToken> = Vec::with_capacity(tracked.len() + held.len());
+
+   for token in tracked.into_iter().chain(held) {
+      match merged.iter_mut().find(|existing| **existing == token) {
+         Some(existing) => {
+            if existing.standard != token.standard {
+               // Identity deliberately excludes the standard, so a disagreement means one of the two
+               // detections was wrong. Keep the tracked one (deterministic) but say so: both the
+               // badge and the transfer encoding depend on this field.
+               tracing::warn!(
+                  "NFT standard mismatch for {} #{}: tracked {:?}, held {:?}",
+                  existing.collection,
+                  existing.token_id,
+                  existing.standard,
+                  token.standard
+               );
+            }
+
+            if existing.metadata_uri.is_none() {
+               existing.metadata_uri = token.metadata_uri;
+            }
+         }
+         None => merged.push(token),
+      }
+   }
+
+   merged.sort();
+   merged
+}
+
+/// Pair each token with its balance: 1 for ERC-721 (holding one is a 1), the reported amount for
+/// ERC-1155, and 0 when the chain did not answer for that id.
+fn attach_balances(
+   tokens: Vec<NftToken>,
+   amounts: &HashMap<(Address, U256), u64>,
+) -> Vec<(NftToken, u64)> {
+   tokens
+      .into_iter()
+      .map(|token| {
+         let balance = match token.is_erc1155() {
+            true => amounts.get(&(token.collection, token.token_id)).copied().unwrap_or(0),
+            false => 1,
+         };
+
+         (token, balance)
+      })
+      .collect()
+}
+
 #[cfg(test)]
 mod tests {
    use super::*;
+   use zeus_eth::nft::NftStandard;
 
    /// The picker still opens on the ERC-20 list, and the mode only ever changes when something asks
    /// for it — that is the "no breaking change" part of adding NFT mode.
@@ -783,5 +969,109 @@ mod tests {
          PickerMode::Fungible,
          "a closed and reopened picker must not come back in NFT mode"
       );
+   }
+
+   fn nft(token_id: u64, standard: NftStandard) -> NftToken {
+      NftToken {
+         chain_id: 1,
+         collection: Address::from([0xbc; 20]),
+         token_id: U256::from(token_id),
+         standard,
+         metadata_uri: None,
+      }
+   }
+
+   /// Both stores are real sources: a held token that was never added, and a tracked token, both
+   /// belong in the list — with the token they share collapsed into one entry.
+   #[test]
+   fn the_tracked_and_held_lists_are_unioned_and_deduped() {
+      let tracked = vec![nft(1, NftStandard::Erc721)];
+      let held = vec![nft(1, NftStandard::Erc721), nft(2, NftStandard::Erc721)];
+
+      let merged = merge_nft_sources(tracked, held);
+
+      assert_eq!(merged.len(), 2, "the shared token is one entry");
+      assert!(merged.contains(&nft(1, NftStandard::Erc721)));
+      assert!(merged.contains(&nft(2, NftStandard::Erc721)));
+   }
+
+   /// Order comes from the token identity, not from the order the two stores happened to hand things
+   /// over, so the list does not reshuffle between loads.
+   #[test]
+   fn the_merged_list_is_ordered_by_identity() {
+      let tracked = vec![nft(9, NftStandard::Erc721)];
+      let held = vec![nft(2, NftStandard::Erc721), nft(5, NftStandard::Erc721)];
+
+      let ids: Vec<U256> =
+         merge_nft_sources(tracked, held).iter().map(|token| token.token_id).collect();
+
+      assert_eq!(
+         ids,
+         vec![U256::from(2), U256::from(5), U256::from(9)]
+      );
+   }
+
+   /// A cached `metadata_uri` must survive the union from either side: losing it costs an on-chain
+   /// `tokenURI` read.
+   #[test]
+   fn a_cached_metadata_uri_survives_the_union() {
+      let mut tracked = nft(1, NftStandard::Erc721);
+      tracked.metadata_uri = Some("ipfs://QmTracked/1".to_string());
+
+      let merged = merge_nft_sources(vec![tracked], vec![nft(1, NftStandard::Erc721)]);
+
+      assert_eq!(
+         merged[0].metadata_uri.as_deref(),
+         Some("ipfs://QmTracked/1"),
+         "the tracked entry's URI survives the portfolio's copy"
+      );
+
+      // ...and the other direction: an entry that never fetched one takes it from the other side.
+      let mut held = nft(1, NftStandard::Erc721);
+      held.metadata_uri = Some("ipfs://QmHeld/1".to_string());
+
+      let merged = merge_nft_sources(vec![nft(1, NftStandard::Erc721)], vec![held]);
+
+      assert_eq!(
+         merged[0].metadata_uri.as_deref(),
+         Some("ipfs://QmHeld/1")
+      );
+   }
+
+   /// Holding an ERC-721 is a 1 — no call spent on it, not even a map lookup — while an ERC-1155
+   /// takes the amount the batched `balanceOf` reported.
+   #[test]
+   fn erc721_is_one_and_erc1155_takes_its_amount() {
+      let tokens = vec![nft(1, NftStandard::Erc721), nft(2, NftStandard::Erc1155)];
+
+      let mut amounts = HashMap::new();
+      amounts.insert((Address::from([0xbc; 20]), U256::from(2)), 7u64);
+
+      let with_balances = attach_balances(tokens, &amounts);
+
+      assert_eq!(
+         with_balances[0].1, 1,
+         "an owned 721 is a single token"
+      );
+      assert_eq!(
+         with_balances[1].1, 7,
+         "the 1155 amount comes from the chain"
+      );
+   }
+
+   /// An ERC-1155 the chain did not answer for is listed at 0 rather than dropped: a failed
+   /// `balanceOf` is not the same event as the token being removed from the catalog.
+   #[test]
+   fn an_erc1155_the_chain_did_not_answer_for_is_zero_not_dropped() {
+      let tokens = vec![nft(1, NftStandard::Erc1155)];
+
+      let with_balances = attach_balances(tokens, &HashMap::new());
+
+      assert_eq!(
+         with_balances.len(),
+         1,
+         "the entry is still listed"
+      );
+      assert_eq!(with_balances[0].1, 0);
    }
 }
