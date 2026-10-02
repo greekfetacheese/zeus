@@ -1302,22 +1302,27 @@ fn attach_balances(
       .collect()
 }
 
-/// The `(name, symbol)` a row shows for a token's collection.
+/// The name a row shows for a collection: the cached one, or the address.
 ///
 /// Collection metadata is cached when a token is added, so a missing name means the collection was
 /// never fetched — a token that arrived from the portfolio instead of the catalog. Falling back to
-/// the address keeps the row identifiable instead of blank, and an address is what the user would
-/// paste into an explorer anyway. A blank string counts as missing, since a contract can return `""`.
+/// the address keeps a row identifiable instead of blank, and an address is what the user would paste
+/// into an explorer anyway. A blank string counts as missing, since a contract can return `""`.
+pub(crate) fn nft_collection_name(collection: Option<&NftCollection>, address: Address) -> String {
+   collection
+      .and_then(|collection| collection.name.clone())
+      .filter(|name| !name.trim().is_empty())
+      .unwrap_or_else(|| truncate_address(address.to_string()))
+}
+
+/// The `(name, symbol)` a row shows for a token's collection.
 fn collection_label(
    token: &NftToken,
    collections: &HashMap<Address, NftCollection>,
 ) -> (String, String) {
    let collection = collections.get(&token.collection);
 
-   let name = collection
-      .and_then(|collection| collection.name.clone())
-      .filter(|name| !name.trim().is_empty())
-      .unwrap_or_else(|| truncate_address(token.collection.to_string()));
+   let name = nft_collection_name(collection, token.collection);
 
    let symbol = collection
       .and_then(|collection| collection.symbol.clone())
