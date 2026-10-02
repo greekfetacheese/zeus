@@ -11,6 +11,7 @@
 //! There is no `image` field here either — images are cached on disk and in
 //! `assets::icons`, exactly like ERC-20 token icons. See the NFT icon store (task 4.2).
 
+use crate::abi::erc165::Erc165Support;
 use crate::abi::{erc165, erc721, erc1155};
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{Address, Bytes, U256};
@@ -76,7 +77,23 @@ impl NftCollection {
       N: Network,
    {
       let support = erc165::probe(client.clone(), address).await;
+      Self::with_support(client, chain_id, address, support).await
+   }
 
+   /// The body of [`fetch`], taking an ERC-165 sweep the caller has already paid for.
+   ///
+   /// [`collections_of`] has to probe a contract to learn it is enumerable; without this it would
+   /// sweep every discovered collection a second time.
+   async fn with_support<P, N>(
+      client: P,
+      chain_id: u64,
+      address: Address,
+      support: Erc165Support,
+   ) -> Result<Self, anyhow::Error>
+   where
+      P: Provider<N> + Clone + 'static,
+      N: Network,
+   {
       let standard = if support.is_erc721() {
          NftStandard::Erc721
       } else if support.is_erc1155() {
@@ -224,6 +241,137 @@ pub fn expand_id_placeholder(uri: &str, token_id: U256) -> String {
    uri.replace("{id}", &hex).replace("{ID}", &hex)
 }
 
+/// One collection the owner holds tokens in, as found by enumeration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionHolding {
+   pub collection: NftCollection,
+   /// Owned token ids, from `tokenOfOwnerByIndex`.
+   pub token_ids: Vec<U256>,
+}
+
+/// Ceiling on how many ids we will enumerate for one collection.
+///
+/// `balanceOf` is contract-controlled: a hostile or buggy contract can answer with an enormous
+/// number, and sizing an allocation from it would abort the process. Real wallets hold tens.
+const MAX_ENUMERATED_TOKENS: u64 = 1_000;
+
+/// What `owner` holds in `candidates`, via the ERC-721 Enumerable path.
+///
+/// `candidates` is required because Zeus has no indexer: nothing on-chain answers "which
+/// collections has this address ever touched". Only collections implementing ERC-721
+/// **Enumerable** can turn an owner into a token list, so non-enumerable collections and all
+/// ERC-1155s are skipped here — for those, ask about a specific token id with
+/// [`verify_ownership`]. Collections the owner holds nothing in are omitted.
+///
+/// Two steps on purpose: one `balanceOf` filters candidates the owner holds nothing in (the common
+/// case) for a single round trip, and only a collection with a non-zero balance pays for the
+/// ERC-165 sweep.
+pub async fn collections_of<P, N>(
+   client: P,
+   chain_id: u64,
+   owner: Address,
+   candidates: &[Address],
+) -> Result<Vec<CollectionHolding>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let mut holdings = Vec::new();
+
+   for &candidate in candidates {
+      // The core ERC-721 selector. ERC-1155 and ERC-20 contracts do not answer it, so they fall
+      // out here for the price of one call instead of a full sweep.
+      let Ok(balance) = erc721::balance_of(candidate, owner, client.clone(), None).await else {
+         continue;
+      };
+
+      if balance.is_zero() {
+         continue;
+      }
+
+      // Without Enumerable there is no way to get from a count to ids.
+      let support = erc165::probe(client.clone(), candidate).await;
+      if !support.is_erc721_enumerable() {
+         continue;
+      }
+
+      let collection =
+         NftCollection::with_support(client.clone(), chain_id, candidate, support).await?;
+
+      let wanted = balance.min(U256::from(MAX_ENUMERATED_TOKENS)).to::<u64>() as usize;
+      let mut token_ids = Vec::with_capacity(wanted);
+
+      for index in 0..wanted {
+         // A revert mid-scan (the collection mutated under us, or an index past the end) ends this
+         // collection's enumeration rather than failing the whole call.
+         match erc721::token_of_owner_by_index(
+            candidate,
+            owner,
+            U256::from(index),
+            client.clone(),
+         )
+         .await
+         {
+            Ok(token_id) => token_ids.push(token_id),
+            Err(_) => break,
+         }
+      }
+
+      if !token_ids.is_empty() {
+         holdings.push(CollectionHolding {
+            collection,
+            token_ids,
+         });
+      }
+   }
+
+   Ok(holdings)
+}
+
+/// Whether `owner` currently holds `token_id`.
+///
+/// Works for both standards and needs no ERC-165 answer and no Enumerable support — this is the
+/// path for an id the user pasted by hand. A **revert** reads as `false`: for ERC-721 the token
+/// does not exist, for ERC-1155 the address is not that standard. A transport failure stays an
+/// error, so an RPC outage can never be reported to the user as "you do not own this".
+pub async fn verify_ownership<P, N>(
+   client: P,
+   collection: &NftCollection,
+   token_id: U256,
+   owner: Address,
+) -> Result<bool, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   match collection.standard {
+      NftStandard::Erc721 => {
+         let contract = erc721::IERC721::new(collection.address, client);
+         match contract.ownerOf(token_id).call().await {
+            Ok(current) => Ok(current == owner),
+            Err(err) if is_revert(&err) => Ok(false),
+            Err(err) => Err(err.into()),
+         }
+      }
+      NftStandard::Erc1155 => {
+         let contract = erc1155::IERC1155::new(collection.address, client);
+         match contract.balanceOf(owner, token_id).call().await {
+            Ok(balance) => Ok(!balance.is_zero()),
+            Err(err) if is_revert(&err) => Ok(false),
+            Err(err) => Err(err.into()),
+         }
+      }
+   }
+}
+
+/// Whether a contract call failed by *reverting* rather than by failing to reach the node.
+///
+/// A revert carries data; a transport failure does not. That is the whole distinction behind
+/// [`verify_ownership`]'s "not owned" versus "cannot tell".
+fn is_revert(err: &alloy_contract::Error) -> bool {
+   err.as_revert_data().is_some()
+}
+
 #[cfg(test)]
 mod tests {
    use super::*;
@@ -358,6 +506,125 @@ mod tests {
       assert!(
          NftCollection::fetch(client, 1, weth).await.is_err(),
          "an ERC-20 must be rejected as a collection"
+      );
+   }
+
+   /// Live check of the discovery helpers. Ignored by default — see `crate::test_utils`.
+   #[tokio::test]
+   #[ignore = "needs an RPC that serves eth_call"]
+   async fn discovers_and_verifies_against_mainnet() {
+      use alloy_provider::ProviderBuilder;
+
+      let client = ProviderBuilder::new().connect_http(crate::test_utils::rpc_url());
+
+      let bayc = address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D");
+      let storefront = address!("495f947276749Ce646f68AC8c248420045cb7b5e");
+      let weth = address!("C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2");
+      // Holds exactly one BAYC (token #1). Also offered WETH — an ERC-20 that answers
+      // balanceOf(address), so it must be rejected — and the ERC-1155 storefront, which does not
+      // answer that selector at all. This owner has no WETH, so both exit at the cheap balance
+      // filter; the non-zero-balance path is covered at the end.
+      let holder = address!("46efbaedc92067e6d60e84ed6395099723252496");
+
+      let started = std::time::Instant::now();
+      let holdings = collections_of(
+         client.clone(),
+         1,
+         holder,
+         &[bayc, storefront, weth],
+      )
+      .await
+      .unwrap();
+      eprintln!(
+         "collections_of over 3 candidates took {:?}",
+         started.elapsed()
+      );
+
+      assert_eq!(holdings.len(), 1, "only BAYC should enumerate");
+      assert_eq!(holdings[0].collection.address, bayc);
+      assert_eq!(
+         holdings[0].collection.standard,
+         NftStandard::Erc721
+      );
+      assert_eq!(
+         holdings[0].collection.symbol.as_deref(),
+         Some("BAYC")
+      );
+      assert_eq!(holdings[0].token_ids, vec![U256::from(1)]);
+
+      let collection = &holdings[0].collection;
+
+      // Owner of #1 holds it.
+      assert!(
+         verify_ownership(client.clone(), collection, U256::from(1), holder)
+            .await
+            .unwrap()
+      );
+      // The owner of #9999 does not hold #1 — a plain false, no revert involved.
+      let someone_else = address!("37f11f9d0749a053dfe6243a4c1d294ea293ec12");
+      assert!(
+         !verify_ownership(
+            client.clone(),
+            collection,
+            U256::from(1),
+            someone_else
+         )
+         .await
+         .unwrap()
+      );
+      // A nonexistent token reverts ("owner query for nonexistent token") and must read as false
+      // rather than surfacing an error the UI would have to explain.
+      assert!(
+         !verify_ownership(
+            client.clone(),
+            collection,
+            U256::from(1_000_000_000),
+            holder
+         )
+         .await
+         .unwrap()
+      );
+
+      // ERC-1155 arm, cross-checked against the same balance read through the batch helper: two
+      // independent paths to the same chain state must agree.
+      let vitalik = address!("d8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+      let storefront_collection = NftCollection {
+         chain_id: 1,
+         address: storefront,
+         standard: NftStandard::Erc1155,
+         name: None,
+         symbol: None,
+      };
+      let via_batch = crate::utils::batch::get_erc1155_balances(
+         client.clone(),
+         vitalik,
+         vec![(storefront, U256::from(1))],
+         None,
+      )
+      .await
+      .unwrap();
+      let via_verify = verify_ownership(
+         client.clone(),
+         &storefront_collection,
+         U256::from(1),
+         vitalik,
+      )
+      .await
+      .unwrap();
+
+      assert_eq!(
+         via_verify,
+         !via_batch[0].2.is_zero(),
+         "verify_ownership must agree with balanceOf"
+      );
+
+      // An ERC-20 the owner *does* hold must still not be discovered as a collection: a non-zero
+      // balance carries the candidate past the cheap filter and into the ERC-165 sweep, which is
+      // what has to reject it. Vitalik holds WETH, unlike the `holder` above.
+      let erc20_only = collections_of(client, 1, vitalik, &[weth]).await.unwrap();
+      assert!(
+         erc20_only.is_empty(),
+         "an ERC-20 must never be discovered as a collection"
       );
    }
 }
