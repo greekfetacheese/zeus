@@ -219,7 +219,10 @@ fn looks_like_json(bytes: &[u8]) -> bool {
 ///
 /// One decode for two sizes: decoding a multi-megabyte picture twice, once for the grid and once
 /// for the detail view, is the expensive part.
-pub fn render_two_sizes(bytes: &[u8]) -> Result<NftIconData, anyhow::Error> {
+///
+/// Not public on purpose: [`prepare_image_data`] is the entry point, so nobody can bypass the
+/// vector-art check and hand an SVG to a decoder that cannot read it.
+fn render_two_sizes(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), anyhow::Error> {
    let image = image::load_from_memory(bytes)?;
 
    let render = |edge: u32| -> Result<Vec<u8>, anyhow::Error> {
@@ -239,10 +242,36 @@ pub fn render_two_sizes(bytes: &[u8]) -> Result<NftIconData, anyhow::Error> {
       Ok(buf)
    };
 
-   Ok(NftIconData {
-      x64: render(THUMB_EDGE)?,
-      x250: render(LARGE_EDGE)?,
-   })
+   Ok((render(THUMB_EDGE)?, render(LARGE_EDGE)?))
+}
+
+/// Whether these bytes are vector art.
+///
+/// Sniffed from the content rather than from the URI or a mime type: the same collection serves SVG
+/// from a `data:` URI and from gateways that label it `application/octet-stream`. Anything
+/// mislabelled would otherwise be handed to a decoder that cannot read it.
+fn is_svg(bytes: &[u8]) -> bool {
+   // A UTF-8 BOM and leading whitespace are both legal ahead of the root element.
+   let head = &bytes[..bytes.len().min(1024)];
+   let head = head.strip_prefix(&[0xEF, 0xBB, 0xBF][..]).unwrap_or(head);
+   let start: Vec<u8> =
+      head.iter().copied().skip_while(|b| b.is_ascii_whitespace()).take(4).collect();
+
+   start.starts_with(b"<svg") || start.starts_with(b"<?xm")
+}
+
+/// Decide what to store for a piece of art.
+///
+/// Vector art keeps its source: egui rasterises SVG at whatever size a view asks for, so
+/// pre-rendering it would only lose detail and cost disk. Everything else is decoded once here and
+/// stored as two renderings.
+pub fn prepare_image_data(bytes: &[u8]) -> Result<NftIconData, anyhow::Error> {
+   if is_svg(bytes) {
+      return Ok(NftIconData::Svg(bytes.to_vec()));
+   }
+
+   let (x64, x250) = render_two_sizes(bytes)?;
+   Ok(NftIconData::Raster { x64, x250 })
 }
 
 /// GET with a size cap.
@@ -310,20 +339,23 @@ async fn fetch_resolved(uri: ResolvedUri) -> Result<Option<Vec<u8>>, anyhow::Err
    }
 }
 
-/// Download an NFT's art and derive both renderings.
+/// Download an NFT's art and prepare it for storage.
 ///
 /// `Ok(None)` means there is nothing to show: no metadata, metadata without a usable `image`, an
-/// unfetchable URI, or bytes we cannot decode. That is the normal outcome for a good share of
-/// tokens, and the caller shows the placeholder. `Err` means "cannot tell right now" — throttling
-/// or a timeout — and is the only outcome worth retrying.
+/// unfetchable URI, or bytes in a format we cannot decode. That is the normal outcome for a good
+/// share of tokens, and the caller shows the placeholder. `Err` means "cannot tell right now" —
+/// throttling or a timeout — and is the only outcome worth retrying.
 ///
-/// # Known gaps (both degrade to the placeholder, neither is silent)
+/// # Formats
 ///
-/// - **SVG** art (`data:image/svg+xml`, or a `.svg` from a gateway) does not decode with the
-///   `image` crate and lands in `Ok(None)`. egui already renders SVG for the chain icons, so the
-///   fix is to keep raw SVG bytes and hand them to `ImageSource::Bytes` instead of rasterising.
-/// - **JPEG / GIF / WebP** depend on the `image` crate features: Zeus currently enables `png`
-///   only, so those land in `Ok(None)` too. Detected-format logging below makes that visible.
+/// Raster art is decoded by the `image` crate, and the formats Zeus relies on (`png`, `jpeg`,
+/// `webp`, `gif`) are declared in `Cargo.toml` rather than inherited from whichever other crate in
+/// the graph happens to enable them. `decodes_the_art_formats_that_appear_on_chain` fails if one
+/// of them goes missing.
+///
+/// **SVG** is not decoded at all: it is kept as vector art (see [`prepare_image_data`]), which is
+/// both faithful and cheaper. Art in a format that is not enabled lands in `Ok(None)` with its
+/// detected format logged, so a placeholder is diagnosable rather than mysterious.
 pub async fn fetch_nft_icon(
    metadata_uri: &str,
    token_id: U256,
@@ -359,7 +391,7 @@ pub async fn fetch_nft_icon(
       bytes
    };
 
-   match render_two_sizes(&image_bytes) {
+   match prepare_image_data(&image_bytes) {
       Ok(data) => Ok(Some(data)),
       Err(e) => {
          // Not retryable: an undecodable picture will not become decodable. Log the format so a
@@ -589,17 +621,46 @@ mod tests {
       assert!(!looks_like_json(&[0x89, b'P', b'N', b'G']));
    }
 
+   /// The two raster renderings, for the tests that are about raster art specifically.
+   fn raster_renderings(data: &NftIconData) -> (&[u8], &[u8]) {
+      match data {
+         NftIconData::Raster { x64, x250 } => (x64, x250),
+         NftIconData::Svg(_) => panic!("expected raster art, got vector"),
+      }
+   }
+
+   /// Formats the grid must actually be able to show. Each fixture is a real file, so this fails
+   /// loudly when a decoder is missing from the dependency features instead of silently turning
+   /// every JPEG/WebP/GIF token into a placeholder.
+   #[test]
+   fn decodes_the_art_formats_that_appear_on_chain() {
+      let cases: [(&str, &[u8]); 3] = [
+         ("jpeg", include_bytes!("testdata/tiny.jpg")),
+         ("webp", include_bytes!("testdata/tiny.webp")),
+         ("gif", include_bytes!("testdata/tiny.gif")),
+      ];
+
+      for (name, bytes) in cases {
+         let data = prepare_image_data(bytes)
+            .unwrap_or_else(|e| panic!("{name} art must decode, got: {e}"));
+         let (x64, _) = raster_renderings(&data);
+
+         assert_eq!(decoded_edge(x64), (8, 8), "{name} thumbnail");
+      }
+   }
+
    #[test]
    fn renders_both_sizes_and_never_upscales() {
       let data = parse_data_uri(PNG_URI).unwrap();
-      let rendered = render_two_sizes(&data).unwrap();
+      let prepared = prepare_image_data(&data).unwrap();
+      let (x64, x250) = raster_renderings(&prepared);
 
       // The source is 8×8, smaller than both edges: both renderings must keep the original size.
-      assert_eq!(decoded_edge(&rendered.x64), (8, 8));
-      assert_eq!(decoded_edge(&rendered.x250), (8, 8));
+      assert_eq!(decoded_edge(x64), (8, 8));
+      assert_eq!(decoded_edge(x250), (8, 8));
       // ...and so they are legitimately the same bytes. Nothing is upscaled, so the "thumbnail"
       // and the "detail" copy are the same picture here; they only differ when there is shrinkage.
-      assert_eq!(rendered.x64, rendered.x250);
+      assert_eq!(x64, x250);
    }
 
    #[test]
@@ -614,16 +675,17 @@ mod tests {
          )
          .unwrap();
 
-      let rendered = render_two_sizes(&bytes).unwrap();
+      let prepared = prepare_image_data(&bytes).unwrap();
+      let (x64, x250) = raster_renderings(&prepared);
 
-      let (w64, h64) = decoded_edge(&rendered.x64);
+      let (w64, h64) = decoded_edge(x64);
       assert_eq!(
          (w64, h64),
          (64, 16),
          "aspect ratio is preserved, not cropped"
       );
 
-      let (w250, h250) = decoded_edge(&rendered.x250);
+      let (w250, h250) = decoded_edge(x250);
       assert_eq!(w250, 250);
       assert!(
          h250 == 62 || h250 == 63,
@@ -632,7 +694,7 @@ mod tests {
 
       // Two clearly different sizes, so the two renderings must be different pictures.
       assert_ne!(
-         rendered.x64, rendered.x250,
+         x64, x250,
          "a thumbnail and a detail copy must not be the same bytes when they are different sizes"
       );
    }
@@ -645,8 +707,9 @@ mod tests {
          .unwrap()
          .expect("an inline document with an inline image must resolve");
 
-      assert_eq!(decoded_edge(&data.x64), (8, 8));
-      assert_eq!(decoded_edge(&data.x250), (8, 8));
+      let (x64, x250) = raster_renderings(&data);
+      assert_eq!(decoded_edge(x64), (8, 8));
+      assert_eq!(decoded_edge(x250), (8, 8));
    }
 
    /// A URI that already *is* the picture needs no metadata hop.
@@ -676,15 +739,47 @@ mod tests {
       }
    }
 
-   /// The known SVG gap, pinned so it is visible if it ever changes: SVG does not decode with the
-   /// `image` crate, so it is reported as "no image" rather than an error.
+   /// SVG art is kept as its source rather than rasterised: egui renders it at whatever size a view
+   /// asks for, so it stays crisp in both the grid and the detail view.
    #[tokio::test]
-   async fn svg_art_currently_falls_back_to_the_placeholder() {
-      let result = fetch_nft_icon(SVG_URI, U256::from(1)).await.unwrap();
+   async fn svg_art_is_kept_as_vector() {
+      let data = fetch_nft_icon(SVG_URI, U256::from(1))
+         .await
+         .unwrap()
+         .expect("SVG must be kept, not dropped as undecodable");
+
+      match data {
+         NftIconData::Svg(svg) => assert!(is_svg(&svg)),
+         NftIconData::Raster { .. } => panic!("SVG must not be rasterised"),
+      }
+   }
+
+   /// The sniff has to survive the shapes SVG actually arrives in, and must never claim a raster
+   /// picture: a false positive would hand a PNG to egui's SVG renderer.
+   #[test]
+   fn recognises_vector_art_from_its_content() {
+      assert!(is_svg(
+         b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"
+      ));
       assert!(
-         result.is_none(),
-         "SVG is not decodable today; if this now returns Some, the gap is closed — update the docs"
+         is_svg(b"  \n\t<svg/>"),
+         "leading whitespace is legal"
       );
+      assert!(is_svg(b"<?xml version=\"1.0\"?>\n<svg/>"));
+      assert!(
+         is_svg(&[&[0xEF, 0xBB, 0xBF][..], b"<svg/>"].concat()),
+         "a UTF-8 BOM is legal"
+      );
+
+      assert!(
+         !is_svg(b"\x89PNG\r\n\x1a\n"),
+         "PNG must not be taken for vector art"
+      );
+      assert!(
+         !is_svg(b"{\"image\":\"ipfs://x\"}"),
+         "JSON metadata is not art"
+      );
+      assert!(!is_svg(b""));
    }
 
    /// `{id}` is expanded before resolving, because ERC-1155 `uri` bodies are templates.
@@ -713,8 +808,9 @@ mod tests {
          .unwrap()
          .expect("BAYC #1 must resolve to art on IPFS");
 
-      let (thumb_w, thumb_h) = decoded_edge(&data.x64);
-      let (large_w, large_h) = decoded_edge(&data.x250);
+      let (x64, x250) = raster_renderings(&data);
+      let (thumb_w, thumb_h) = decoded_edge(x64);
+      let (large_w, large_h) = decoded_edge(x250);
 
       eprintln!("BAYC #1: thumbnail {thumb_w}x{thumb_h}, detail {large_w}x{large_h}");
 

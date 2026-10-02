@@ -1,5 +1,5 @@
 use crate::core::persisted::{
-   NFT_ICON_X64, NFT_ICON_X250, PersistedTree, TOKEN_ICON_X32, tree_dir,
+   NFT_ICON_X64, NFT_ICON_X250, NFT_IMAGE_SVG, PersistedTree, TOKEN_ICON_X32, tree_dir,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -114,8 +114,9 @@ fn nft_icon_dir(
       .join(token_id.to_string()))
 }
 
-/// Write both renderings of an NFT image, so the grid and the detail view never go back to the
-/// network for a picture we already have. Empty renderings are skipped rather than written blank.
+/// Write an NFT's art: two raster renderings, or the vector source. Empty renderings are skipped
+/// rather than written blank, and the other form is removed first so a token directory never holds
+/// both (a stale pair would otherwise shadow newly stored vector art).
 pub fn save_nft_icon(
    chain_id: u64,
    collection: Address,
@@ -125,14 +126,37 @@ pub fn save_nft_icon(
    let dir = nft_icon_dir(chain_id, collection, token_id)?;
    std::fs::create_dir_all(&dir)?;
 
-   if !data.x64.is_empty() {
-      std::fs::write(dir.join(NFT_ICON_X64), &data.x64)?;
-   }
-   if !data.x250.is_empty() {
-      std::fs::write(dir.join(NFT_ICON_X250), &data.x250)?;
+   match data {
+      NftIconData::Raster { x64, x250 } => {
+         remove_file_if_present(&dir, NFT_IMAGE_SVG);
+
+         if !x64.is_empty() {
+            std::fs::write(dir.join(NFT_ICON_X64), x64)?;
+         }
+         if !x250.is_empty() {
+            std::fs::write(dir.join(NFT_ICON_X250), x250)?;
+         }
+      }
+      NftIconData::Svg(svg) => {
+         remove_file_if_present(&dir, NFT_ICON_X64);
+         remove_file_if_present(&dir, NFT_ICON_X250);
+
+         if !svg.is_empty() {
+            std::fs::write(dir.join(NFT_IMAGE_SVG), svg)?;
+         }
+      }
    }
 
    Ok(())
+}
+
+fn remove_file_if_present(dir: &std::path::Path, name: &str) {
+   let path = dir.join(name);
+   if path.exists() {
+      if let Err(e) = std::fs::remove_file(path) {
+         tracing::warn!("Failed to remove {name}: {e}");
+      }
+   }
 }
 
 /// Remove a downloaded NFT image directory if it exists.
@@ -150,8 +174,8 @@ pub fn delete_nft_icon(
 
 /// Load previously downloaded NFT images from `data/nft_icons/`.
 ///
-/// A token directory is kept only if at least one rendering is present and non-empty, so a
-/// half-written directory does not surface as an icon with a blank picture.
+/// A token directory is kept only if it holds something non-empty — a rendering or the vector
+/// source — so a half-written directory does not surface as an icon with a blank picture.
 pub fn load_downloaded_nft_icons() -> HashMap<NftKey, NftIconData> {
    let mut map = HashMap::new();
 
@@ -204,9 +228,15 @@ pub fn load_downloaded_nft_icons() -> HashMap<NftKey, NftIconData> {
             };
 
             let read = |name: &str| std::fs::read(token_entry.path().join(name)).ok();
-            let data = NftIconData {
-               x64: read(NFT_ICON_X64).unwrap_or_default(),
-               x250: read(NFT_ICON_X250).unwrap_or_default(),
+
+            // Vector art wins when both are present, and a directory holding neither is skipped so a
+            // half-written one does not surface as an icon with a blank picture.
+            let data = match read(NFT_IMAGE_SVG).filter(|svg| !svg.is_empty()) {
+               Some(svg) => NftIconData::Svg(svg),
+               None => NftIconData::Raster {
+                  x64: read(NFT_ICON_X64).unwrap_or_default(),
+                  x250: read(NFT_ICON_X250).unwrap_or_default(),
+               },
             };
 
             if data.is_empty() {
@@ -225,4 +255,112 @@ pub fn load_downloaded_nft_icons() -> HashMap<NftKey, NftIconData> {
    );
 
    map
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use crate::core::persisted::{NFT_ICON_X64, NFT_ICON_X250, NFT_IMAGE_SVG};
+
+   fn raster(x64: Vec<u8>, x250: Vec<u8>) -> NftIconData {
+      NftIconData::Raster { x64, x250 }
+   }
+
+   /// Round-trips both storage forms through the real filesystem, including the cleanup that stops a
+   /// re-downloaded token from serving its previous art.
+   ///
+   /// Ignored by default: the persisted tree is resolved from the process working directory
+   /// (`data/nft_icons/…`, see `persisted::data_dir`), so this moves the process into a scratch
+   /// directory for the duration. **Run it on its own** — any test running concurrently would
+   /// follow it there.
+   #[test]
+   #[ignore = "moves the process working directory; run alone"]
+   fn nft_icons_round_trip_through_the_disk() {
+      let previous = std::env::current_dir().unwrap();
+      let scratch = std::env::temp_dir().join(format!("zeus_nft_icons_{}", std::process::id()));
+      let _ = std::fs::remove_dir_all(&scratch);
+      std::fs::create_dir_all(&scratch).unwrap();
+      std::env::set_current_dir(&scratch).unwrap();
+
+      // Everything below runs inside `scratch`. The outcome is caught so the working directory is
+      // restored even when an assertion fires, rather than leaving the rest of the run pointing
+      // into a temp path that is about to be deleted.
+      let outcome = std::panic::catch_unwind(|| {
+         let collection = Address::from([0xbc; 20]);
+         let token = U256::from(7);
+         let key = (collection, 1, token);
+
+         assert!(
+            load_downloaded_nft_icons().is_empty(),
+            "nothing saved yet"
+         );
+
+         save_nft_icon(1, collection, token, &raster(vec![1, 2], vec![3])).unwrap();
+         let dir = nft_icon_dir(1, collection, token).unwrap();
+
+         assert!(
+            dir.join(NFT_ICON_X64).exists(),
+            "thumbnail written"
+         );
+         assert!(
+            dir.join(NFT_ICON_X250).exists(),
+            "detail copy written"
+         );
+         assert_eq!(
+            load_downloaded_nft_icons().get(&key),
+            Some(&raster(vec![1, 2], vec![3])),
+            "both renderings come back"
+         );
+
+         // The same token re-downloaded as vector art must not leave the renderings behind: the
+         // loader prefers the SVG, so they would be invisible dead weight.
+         let svg = b"<svg/>".to_vec();
+         save_nft_icon(
+            1,
+            collection,
+            token,
+            &NftIconData::Svg(svg.clone()),
+         )
+         .unwrap();
+
+         assert!(
+            !dir.join(NFT_ICON_X64).exists(),
+            "stale thumbnail removed"
+         );
+         assert!(
+            !dir.join(NFT_ICON_X250).exists(),
+            "stale detail copy removed"
+         );
+         assert!(
+            dir.join(NFT_IMAGE_SVG).exists(),
+            "vector art written"
+         );
+         assert_eq!(
+            load_downloaded_nft_icons().get(&key),
+            Some(&NftIconData::Svg(svg))
+         );
+
+         // ...and back again, so neither direction can leave the other form behind.
+         save_nft_icon(1, collection, token, &raster(vec![9], vec![8])).unwrap();
+
+         assert!(
+            !dir.join(NFT_IMAGE_SVG).exists(),
+            "stale vector art removed"
+         );
+         assert_eq!(
+            load_downloaded_nft_icons().get(&key),
+            Some(&raster(vec![9], vec![8]))
+         );
+
+         delete_nft_icon(1, collection, token).unwrap();
+         assert!(load_downloaded_nft_icons().get(&key).is_none());
+      });
+
+      std::env::set_current_dir(previous).unwrap();
+      let _ = std::fs::remove_dir_all(&scratch);
+
+      if let Err(panic) = outcome {
+         std::panic::resume_unwind(panic);
+      }
+   }
 }

@@ -221,20 +221,27 @@ impl TokenIcons {
 /// Key for one NFT's images: `(collection, chain id, token id)`.
 pub type NftKey = (Address, u64, U256);
 
-/// The two renderings kept for a single NFT image.
+/// Stored art for one NFT.
 ///
-/// Both are derived once at download time, so a view never has to scale a texture or re-fetch.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct NftIconData {
-   /// List thumbnail, at most 64×64.
-   pub x64: Vec<u8>,
-   /// Detail-view copy, at most 250×250.
-   pub x250: Vec<u8>,
+/// Two forms because the two kinds of art want opposite treatment: raster art is pre-rendered
+/// (a grid and a detail view ask for different sizes, and decoding once beats decoding per view),
+/// while vector art is kept as its source because egui rasterises SVG at whatever size it is asked
+/// for — pre-rendering it would only lose quality and cost disk.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NftIconData {
+   /// Pre-rendered raster art: a list thumbnail and a detail-view copy.
+   Raster { x64: Vec<u8>, x250: Vec<u8> },
+   /// The SVG source, verbatim.
+   Svg(Vec<u8>),
 }
 
 impl NftIconData {
+   /// Whether this holds anything worth showing — a half-written directory holds nothing.
    pub fn is_empty(&self) -> bool {
-      self.x64.is_empty() && self.x250.is_empty()
+      match self {
+         Self::Raster { x64, x250 } => x64.is_empty() && x250.is_empty(),
+         Self::Svg(svg) => svg.is_empty(),
+      }
    }
 }
 
@@ -287,11 +294,11 @@ impl NftIcons {
       })
    }
 
-   /// Get or lazily build the texture for one rendering of an NFT image.
+   /// The raster texture for one rendering, if the stored art is raster.
    ///
    /// Falls back to the other rendering rather than to the placeholder: a 250px copy shown in a
    /// 64px row is still the right picture.
-   fn get_or_load(&self, key: &NftKey, large: bool) -> Option<TextureHandle> {
+   fn raster_texture(&self, key: &NftKey, large: bool) -> Option<TextureHandle> {
       let cache = if large {
          &self.icons_x250
       } else {
@@ -304,12 +311,11 @@ impl NftIcons {
 
       let bytes = {
          let icon_data = self.icon_data.read().unwrap();
-         let entry = icon_data.get(key)?;
-         let (preferred, other) = if large {
-            (&entry.x250, &entry.x64)
-         } else {
-            (&entry.x64, &entry.x250)
+         // Vector art has no raster renderings to build a texture from.
+         let NftIconData::Raster { x64, x250 } = icon_data.get(key)? else {
+            return None;
          };
+         let (preferred, other) = if large { (x250, x64) } else { (x64, x250) };
          if preferred.is_empty() {
             other.clone()
          } else {
@@ -338,6 +344,16 @@ impl NftIcons {
 
    pub fn has_icon(&self, key: &NftKey) -> bool {
       self.icon_data.read().unwrap().get(key).is_some_and(|data| !data.is_empty())
+   }
+
+   /// The vector source for this token, if the stored art is an SVG.
+   ///
+   /// egui rasterises it at the size a view asks for, so there is nothing to cache as a texture.
+   fn svg_source(&self, key: &NftKey) -> Option<Vec<u8>> {
+      match self.icon_data.read().unwrap().get(key)? {
+         NftIconData::Svg(svg) => Some(svg.clone()),
+         NftIconData::Raster { .. } => None,
+      }
    }
 
    pub fn insert_icon(&self, key: NftKey, data: NftIconData) {
@@ -499,7 +515,7 @@ impl Icons {
    }
 
    pub fn native_currency_icon(&self, chain: u64, tint: bool) -> Image<'static> {
-      let mut img = match ChainId::new(chain).unwrap_or_default() {
+      let img = match ChainId::new(chain).unwrap_or_default() {
          ChainId::BinanceSmartChain => Image::new(&self.currency.bnb),
          ChainId::Ethereum
          | ChainId::EthereumSepolia
@@ -509,11 +525,7 @@ impl Icons {
          | ChainId::RobinHood => Image::new(&self.currency.eth),
       };
 
-      if tint {
-         img = img.tint(TINT_1);
-      }
-
-      img
+      tinted(img, tint)
    }
 
    /// Return the currency icon based on the currency
@@ -536,10 +548,7 @@ impl Icons {
    pub fn token_icon_x32(&self, address: Address, chain_id: u64, tint: bool) -> Image<'static> {
       let key = &(address, chain_id);
       if let Some(icon) = self.tokens.get_or_load_x32(key) {
-         match tint {
-            true => Image::new(&icon).tint(TINT_1),
-            false => Image::new(&icon),
-         }
+         tinted(Image::new(&icon), tint)
       } else {
          self.token_placeholder_x32(chain_id, tint)
       }
@@ -547,7 +556,7 @@ impl Icons {
 
    /// Return a placeholder icon for a token
    pub fn token_placeholder_x32(&self, id: u64, tint: bool) -> Image<'static> {
-      let mut img = match ChainId::new(id).unwrap_or_default() {
+      let img = match ChainId::new(id).unwrap_or_default() {
          ChainId::BinanceSmartChain => Image::new(&self.tokens.bep20_x32),
          ChainId::Ethereum
          | ChainId::EthereumSepolia
@@ -557,11 +566,7 @@ impl Icons {
          | ChainId::RobinHood => Image::new(&self.tokens.erc20_x32),
       };
 
-      if tint {
-         img = img.tint(TINT_1);
-      }
-
-      img
+      tinted(img, tint)
    }
 
    /// Return the NFT image for a list row (thumbnail), or the placeholder when there is none.
@@ -596,11 +601,24 @@ impl Icons {
    ) -> Image<'static> {
       let key = (collection, chain_id, token_id);
 
-      match self.nfts.get_or_load(&key, large) {
-         Some(icon) => match tint {
-            true => Image::new(&icon).tint(TINT_1),
-            false => Image::new(&icon),
-         },
+      // Vector art first: egui rasterises SVG at the size the view asks for, so there is no stored
+      // texture to look up. The URI must keep its `.svg` extension — that is what tells egui's
+      // bytes loader which decoder to use.
+      if let Some(svg) = self.nfts.svg_source(&key) {
+         let size = if large { 250 } else { 64 };
+         let uri = format!("bytes://nft/{size}/{collection}/{chain_id}/{token_id}.svg");
+
+         return tinted(
+            Image::new(ImageSource::Bytes {
+               uri: uri.into(),
+               bytes: svg.into(),
+            }),
+            tint,
+         );
+      }
+
+      match self.nfts.raster_texture(&key, large) {
+         Some(icon) => tinted(Image::new(&icon), tint),
          None => self.nft_placeholder(tint),
       }
    }
@@ -610,17 +628,19 @@ impl Icons {
    /// The same texture serves both sizes: it is a flat graphic, so scaling it costs nothing worth
    /// a second asset.
    pub fn nft_placeholder(&self, tint: bool) -> Image<'static> {
-      let mut img = Image::new(&self.nfts.placeholder);
-
-      if tint {
-         img = img.tint(TINT_1);
-      }
-
-      img
+      tinted(Image::new(&self.nfts.placeholder), tint)
    }
 
    pub fn wallet_main_x24(&self) -> Image<'static> {
       Image::new(&self.misc.wallet_main_x24).sense(Sense::click())
+   }
+}
+
+/// Apply the muted-tint treatment shared by icons that are shown as fallbacks.
+fn tinted(image: Image<'static>, tint: bool) -> Image<'static> {
+   match tint {
+      true => image.tint(TINT_1),
+      false => image,
    }
 }
 
@@ -656,16 +676,22 @@ mod tests {
       assert_eq!((image.width(), image.height()), (250, 250));
    }
 
+   /// Shorthand for a raster entry. There is no `Default`, because an empty entry is not something
+   /// to build by accident.
+   fn raster(x64: Vec<u8>, x250: Vec<u8>) -> NftIconData {
+      NftIconData::Raster { x64, x250 }
+   }
+
    #[test]
    fn nft_icon_data_knows_when_it_is_empty() {
-      assert!(NftIconData::default().is_empty());
+      assert!(raster(Vec::new(), Vec::new()).is_empty());
       assert!(
-         !NftIconData {
-            x64: vec![1],
-            x250: Vec::new(),
-         }
-         .is_empty()
+         !raster(vec![1], Vec::new()).is_empty(),
+         "one rendering is enough to show"
       );
+
+      assert!(!NftIconData::Svg(PLACEHOLDER.to_vec()).is_empty());
+      assert!(NftIconData::Svg(Vec::new()).is_empty());
    }
 
    /// The dedupe contract the fetch path relies on: one download per token, and a miss is not
@@ -692,10 +718,7 @@ mod tests {
 
       icons.insert_icon(
          key,
-         NftIconData {
-            x64: PLACEHOLDER.to_vec(),
-            x250: PLACEHOLDER.to_vec(),
-         },
+         raster(PLACEHOLDER.to_vec(), PLACEHOLDER.to_vec()),
       );
       assert!(icons.has_icon(&key));
       assert!(
@@ -719,22 +742,39 @@ mod tests {
       let large_only = (Address::from([0xbc; 20]), 1, U256::from(9));
       icons.insert_icon(
          large_only,
-         NftIconData {
-            x64: Vec::new(),
-            x250: PLACEHOLDER.to_vec(),
-         },
+         raster(Vec::new(), PLACEHOLDER.to_vec()),
       );
       assert!(
-         icons.get_or_load(&large_only, false).is_some(),
+         icons.raster_texture(&large_only, false).is_some(),
          "a thumbnail request must still get the 250px copy"
       );
-      assert!(icons.get_or_load(&large_only, true).is_some());
+      assert!(icons.raster_texture(&large_only, true).is_some());
 
       // Empty data is not an icon: the caller must be told to show the placeholder.
       let empty = (Address::from([0xbc; 20]), 1, U256::from(10));
-      icons.insert_icon(empty, NftIconData::default());
-      assert!(icons.get_or_load(&empty, false).is_none());
-      assert!(icons.get_or_load(&empty, true).is_none());
+      icons.insert_icon(empty, raster(Vec::new(), Vec::new()));
+      assert!(icons.raster_texture(&empty, false).is_none());
+      assert!(icons.raster_texture(&empty, true).is_none());
       assert!(!icons.has_icon(&empty));
+   }
+
+   /// Vector art has no raster renderings to build a texture from, so the texture path must report
+   /// "nothing" instead of panicking — the view checks the SVG path first, and this is what stops a
+   /// future refactor from silently reordering those two checks.
+   #[test]
+   fn vector_art_is_served_as_source_not_as_a_texture() {
+      let icons = NftIcons::default();
+      let key = (Address::from([0xbc; 20]), 1, U256::from(11));
+      let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"8\"/>";
+
+      icons.insert_icon(key, NftIconData::Svg(svg.to_vec()));
+
+      assert!(icons.raster_texture(&key, false).is_none());
+      assert!(icons.raster_texture(&key, true).is_none());
+      assert_eq!(icons.svg_source(&key).as_deref(), Some(&svg[..]));
+      assert!(
+         icons.has_icon(&key),
+         "vector art counts as an image we have"
+      );
    }
 }

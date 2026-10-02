@@ -23,11 +23,13 @@ pub const TOKEN_ICON_X24: &str = "x24.png";
 
 /// Downloaded NFT-image basenames under [`PersistedTree::NftIcons`].
 ///
-/// Two renderings of the same picture, written together: a list thumbnail and a larger copy for
-/// inspecting one NFT. Keeping both on disk means switching between the grid and the detail view
-/// never goes back to the network.
+/// Raster art is written as two renderings of the same picture, so switching between the grid and
+/// the detail view never goes back to the network. Vector art is written as its source instead —
+/// egui rasterises SVG at whatever size a view asks for, so pre-rendering it would only cost
+/// quality and disk. A token directory holds one form or the other, never both.
 pub const NFT_ICON_X64: &str = "x64.png";
 pub const NFT_ICON_X250: &str = "x250.png";
+pub const NFT_IMAGE_SVG: &str = "image.svg";
 
 macro_rules! persisted_files {
    ($($variant:ident => $name:literal),* $(,)?) => {
@@ -440,7 +442,7 @@ fn is_nft_token_id_dir(s: &str) -> bool {
 }
 
 fn is_nft_icon_file(name: &str) -> bool {
-   name == NFT_ICON_X64 || name == NFT_ICON_X250
+   name == NFT_ICON_X64 || name == NFT_ICON_X250 || name == NFT_IMAGE_SVG
 }
 
 #[cfg(test)]
@@ -504,6 +506,10 @@ mod tests {
 
       assert!(good(&format!("1/{bayc}/1/x64.png")));
       assert!(good(&format!("1/{bayc}/1/x250.png")));
+      assert!(
+         good(&format!("1/{bayc}/1/image.svg")),
+         "vector art is stored too"
+      );
       assert!(
          good(&format!("137/{bayc}/0/x64.png")),
          "token id 0 is valid"
