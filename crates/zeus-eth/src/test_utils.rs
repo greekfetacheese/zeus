@@ -9,6 +9,13 @@
 //! ```text
 //! ZEUS_ETH_RPC=<keyed url> cargo test -p zeus-eth --lib -- --ignored
 //! ```
+//!
+//! The repo's `.env` holds it for local runs (gitignored — never commit the key). Nothing loads that
+//! file automatically, so source it first:
+//!
+//! ```text
+//! set -a; . ./.env; set +a; cargo test -p zeus-eth --lib -- --ignored
+//! ```
 
 use url::Url;
 

@@ -492,6 +492,14 @@ impl DecodedEvent {
       }
    }
 
+   /// Get the NFT transfer params
+   pub fn nft_transfer_params(&self) -> &NftTransferParams {
+      match self {
+         Self::NftTransfer(params) => params,
+         _ => panic!("Action is not an NFT transfer"),
+      }
+   }
+
    /// Get the token approval params
    ///
    /// Panics if the action is not a token approval

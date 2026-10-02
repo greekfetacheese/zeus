@@ -5,7 +5,9 @@ use egui_elements::{Label, Modal, MultiLabel, Theme};
 
 use crate::assets::icons::Icons;
 use crate::core::{TransactionAnalysis, ZeusContext, tx::events::*};
+use crate::gui::ui::token_selection::nft_collection_name;
 use zeus_eth::{
+   alloy_primitives::U256,
    currency::{Currency, ERC20Token, NativeCurrency},
    types::ChainId,
 };
@@ -347,6 +349,99 @@ fn transfer_event_ui(
          });
       });
    }
+}
+
+fn nft_transfer_event_ui(
+   ctx: &mut ZeusContext,
+   chain: ChainId,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   params: &NftTransferParams,
+   ui: &mut Ui,
+) {
+   let size = vec2(ui.available_width(), 30.0);
+   let tint = theme.image_tint_recommended;
+   let icon_size = vec2(24.0, 24.0);
+   let chain_id = chain.id();
+
+   let collection = nft_collection_name(
+      ctx.nft_db.get_collection(chain_id, params.collection).as_ref(),
+      params.collection,
+   );
+
+   ui.allocate_ui(size, |ui| {
+      ui.horizontal(|ui| {
+         // The token itself, named the same way the picker names it.
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            let subject = match params.token_id {
+               Some(token_id) => format!("{} #{}", collection, token_id),
+               None => collection.clone(),
+            };
+
+            // An ERC-1155 moves N units; an ERC-721 moves the token, and `1 ×` in front of an id is
+            // noise. An approval moves nothing at all.
+            let text = match params.approval {
+               Some(_) => subject,
+               None if params.amount > U256::from(1) => format!("{} × {}", params.amount, subject),
+               None => subject,
+            };
+
+            let icon = icons
+               .nft_icon_x64(
+                  chain_id,
+                  params.collection,
+                  params.token_id.unwrap_or(U256::ZERO),
+                  tint,
+               )
+               .fit_to_exact_size(icon_size);
+
+            let label = Label::new(
+               RichText::new(text).size(theme.typography.large),
+               Some(icon),
+            )
+            .spacing(3.0)
+            .interactive(false);
+            ui.add(label);
+         });
+
+         // What is actually happening to it. A mint or a burn is a transfer the user did not ask for in
+         // so many words, so it is worth naming.
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let action = match params.approval {
+               Some(true) => Some("Approve"),
+               Some(false) => Some("Revoke"),
+               None if params.is_mint => Some("Mint"),
+               None if params.is_burn => Some("Burn"),
+               None => None,
+            };
+
+            if let Some(action) = action {
+               ui.label(RichText::new(action).size(theme.typography.large));
+            }
+         });
+      });
+   });
+
+   ui.horizontal(|ui| {
+      ui.label(RichText::new("Standard").size(theme.typography.large));
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         ui.label(RichText::new(params.standard.to_string()).size(theme.typography.large));
+      });
+   });
+
+   // An approval is the owner handing over rights to an operator, and calling those two "sender" and
+   // "recipient" would describe a transfer that never happened.
+   let (from_label, to_label) = match params.approval {
+      Some(_) => ("Owner", "Operator"),
+      None => ("Sender", "Recipient"),
+   };
+
+   address(ctx, chain, from_label, params.from, theme, ui);
+
+   ui.allocate_ui(size, |ui| {
+      address(ctx, chain, to_label, params.to, theme, ui);
+   });
 }
 
 fn shield_event_ui(
@@ -1219,5 +1314,10 @@ pub fn show_event(
    if event.is_private_transfer() {
       let params = event.private_transfer_params();
       private_transfer_event_ui(ctx, chain, theme, icons.clone(), params, ui);
+   }
+
+   if event.is_nft_transfer() {
+      let params = event.nft_transfer_params();
+      nft_transfer_event_ui(ctx, chain, theme, icons.clone(), params, ui);
    }
 }

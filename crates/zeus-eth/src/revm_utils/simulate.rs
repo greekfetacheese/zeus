@@ -359,3 +359,83 @@ where
    let (amount0, amount1) = abi::uniswap::nft_position::decode_collect(output)?;
    Ok((res, amount0, amount1))
 }
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use crate::{
+      abi::{erc721::IERC721, erc1155::IERC1155},
+      revm_utils::{ForkFactory, new_evm},
+      test_utils::rpc_url,
+      types::ChainId,
+   };
+   use alloy_primitives::address;
+   use alloy_provider::{Provider, ProviderBuilder};
+   use alloy_rpc_types::BlockId;
+
+   /// The reads the NFT send path's transfer check makes, executed on a real fork and compared with the
+   /// node's own answer **at the same block**.
+   ///
+   /// The two paths are independent — revm executing against forked state, and the node answering a
+   /// plain `eth_call` — so agreement is what proves the helpers. They need live contracts, which is
+   /// exactly why a mock would be worthless here: it could only hand my own encoding back to me.
+   ///
+   /// Ignored by default — see [`crate::test_utils`].
+   ///
+   /// The fork backend blocks on its own thread, which the current-thread runtime cannot serve — hence
+   /// the multi-threaded flavour.
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "needs an RPC that serves eth_call and eth_getCode"]
+   async fn fork_reads_match_a_direct_call_at_the_same_block() {
+      let client = ProviderBuilder::new().connect_http(rpc_url());
+
+      let block_id = BlockId::latest();
+      let block = client.get_block(block_id).await.unwrap().unwrap();
+      let chain = ChainId::eth();
+
+      // BAYC, whose #1 is owned by `holder`, and the OpenSea storefront, a live ERC-1155.
+      let bayc = address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D");
+      let storefront = address!("495f947276749Ce646f68AC8c248420045cb7b5e");
+      let holder = address!("46efbaedc92067e6d60e84ed6395099723252496");
+
+      let factory =
+         ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, Some(block_id));
+      let fork_db = factory.new_sandbox_fork();
+      let mut evm = new_evm(chain, Some(&block), fork_db);
+
+      // ERC-721 `ownerOf`.
+      let from_fork = erc721_owner_of(&mut evm, bayc, U256::from(1)).unwrap();
+      let from_node = IERC721::new(bayc, client.clone())
+         .ownerOf(U256::from(1))
+         .block(block_id)
+         .call()
+         .await
+         .unwrap();
+
+      assert_eq!(
+         from_fork, from_node,
+         "the fork and the node must agree"
+      );
+      assert_eq!(
+         from_fork, holder,
+         "BAYC #1's owner is a known fact"
+      );
+
+      // ERC-1155 `balanceOf`. Ids the holder owns none of are included on purpose: zero is the common
+      // answer and must not be confusable with a failed read.
+      for id in [U256::ZERO, U256::from(1), U256::from(2)] {
+         let from_fork = erc1155_balance_of(&mut evm, storefront, holder, id).unwrap();
+         let from_node = IERC1155::new(storefront, client.clone())
+            .balanceOf(holder, id)
+            .block(block_id)
+            .call()
+            .await
+            .unwrap();
+
+         assert_eq!(
+            from_fork, from_node,
+            "storefront balance of id {id}"
+         );
+      }
+   }
+}

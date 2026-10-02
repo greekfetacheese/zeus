@@ -471,7 +471,7 @@ impl TransactionsDB {
 #[cfg(test)]
 mod tests {
    use super::*;
-   use zeus_eth::alloy_primitives::{Address, TxHash};
+   use zeus_eth::alloy_primitives::{Address, TxHash, U256};
 
    fn dummy_tx(hash_byte: u8, block: u64) -> TransactionRich {
       let mut tx = TransactionRich::dummy_clear_signed();
@@ -496,6 +496,49 @@ mod tests {
       assert_eq!(got.len(), 1);
       assert_eq!(got[0].hash, TxHash::repeat_byte(2));
       assert_eq!(got[0].block, 10);
+   }
+
+   /// The tx history is persisted, so every event kind that can become a main event has to survive the
+   /// round trip through the sealed DB. An NFT send's main event is new; a serde failure here would
+   /// surface at the moment a user's history is written, which is the worst possible place to find one.
+   #[test]
+   fn an_nft_main_event_survives_the_redb_roundtrip() {
+      use crate::core::tx::events::{DecodedEvent, NftTransferParams};
+      use zeus_eth::{alloy_primitives::address, nft::NftStandard};
+
+      let dir = tempfile::tempdir().unwrap();
+      let path = dir.path().join("tx_history.db");
+      let key = WalletStateKey::generate().unwrap();
+      let owner = Address::repeat_byte(4);
+      let collection = address!("495f947276749Ce646f68AC8c248420045cb7b5e");
+
+      let mut tx = dummy_tx(9, 21);
+      tx.main_event = DecodedEvent::NftTransfer(NftTransferParams {
+         chain: 1,
+         standard: NftStandard::Erc1155,
+         collection,
+         token_id: Some(U256::from(42)),
+         amount: U256::from(3),
+         from: owner,
+         to: Address::repeat_byte(5),
+         is_mint: false,
+         is_burn: false,
+         approval: None,
+      });
+
+      let db = TxDBHandle::open_at(&path, &key).unwrap();
+      db.add_tx(1, owner, tx).unwrap();
+      drop(db);
+
+      let loaded = TxDBHandle::open_at(&path, &key).unwrap();
+      let got = loaded.get_txs(1, owner).unwrap();
+      assert_eq!(got.len(), 1);
+
+      let params = got[0].main_event.nft_transfer_params();
+      assert_eq!(params.token_id, Some(U256::from(42)));
+      assert_eq!(params.amount, U256::from(3));
+      assert_eq!(params.standard, NftStandard::Erc1155);
+      assert_eq!(params.collection, collection);
    }
 
    #[test]
