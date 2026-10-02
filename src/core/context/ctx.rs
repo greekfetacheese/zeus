@@ -1,5 +1,5 @@
 use super::{
-   AddressBookHandle, ApprovalManagerHandle, BalanceManagerHandle, CurrencyDB, EnsCache,
+   AddressBookHandle, ApprovalManagerHandle, BalanceManagerHandle, CurrencyDB, EnsCache, NftDB,
    PoolManagerHandle, WalletPortfolio, ZeusClient, price_manager::PriceManagerHandle,
    tx::TxDBHandle,
 };
@@ -894,6 +894,49 @@ impl ZeusCtx {
       }
    }
 
+   pub fn save_nft_db(&self) {
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error saving NftDB: {:?}", e);
+            return;
+         }
+      };
+      let db = self.read(|ctx| ctx.nft_db.clone());
+      match db.save(&key) {
+         Ok(_) => tracing::trace!("NftDB saved"),
+         Err(e) => tracing::error!("Error saving NftDB: {:?}", e),
+      }
+   }
+
+   /// Load sealed `nft_db.data` into the live context (no-op if the file is missing).
+   pub fn load_nft_db(&self) {
+      match NftDB::exists() {
+         Ok(true) => {}
+         Ok(false) => {
+            tracing::warn!("NFT data file missing, skipping load");
+            return;
+         }
+         Err(e) => {
+            tracing::error!("Error checking NftDB: {:?}", e);
+            return;
+         }
+      }
+
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error loading NftDB: {:?}", e);
+            return;
+         }
+      };
+
+      match NftDB::load_from_file(&key) {
+         Ok(db) => self.write(|ctx| ctx.nft_db = db),
+         Err(e) => tracing::error!("Error loading NftDB: {:?}", e),
+      }
+   }
+
    pub fn save_address_book(&self) {
       let key = match self.read_vault(|vault| vault.wallet_state_key()) {
          Ok(k) => k,
@@ -1069,6 +1112,7 @@ impl ZeusCtx {
 
       self.write(|ctx| {
          ctx.currency_db = CurrencyDB::default();
+         ctx.nft_db = NftDB::default();
          ctx.delegated_wallets = DelegatedWallets::new();
          ctx.railgun_provider.clear();
          ctx.railgun_status = RailgunStatus::new();
@@ -1118,6 +1162,7 @@ impl ZeusCtx {
       }
 
       self.load_currency_db();
+      self.load_nft_db();
       self.load_pool_manager();
       self.load_zeus_client();
       self.load_price_manager();
@@ -2236,6 +2281,9 @@ pub struct ZeusContext {
    /// Holds all ERC20 tokens
    pub currency_db: CurrencyDB,
 
+   /// Holds the NFTs the user tracks, plus cached collection metadata
+   pub nft_db: NftDB,
+
    /// Pool manager used for the Uniswap UI
    /// and price manager
    pub pool_manager: PoolManagerHandle,
@@ -2352,6 +2400,8 @@ impl ZeusContext {
 
       let currency_db = CurrencyDB::default();
 
+      let nft_db = NftDB::default();
+
       let vault_exists = Vault::exists().is_ok_and(|p| p);
 
       let pool_manager = PoolManagerHandle::default();
@@ -2405,6 +2455,7 @@ impl ZeusContext {
          address_book: AddressBookHandle::default(),
          ens_cache: EnsCache::new(),
          currency_db,
+         nft_db,
          pool_manager,
          price_manager,
          data_syncing: false,

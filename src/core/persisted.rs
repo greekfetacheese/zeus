@@ -80,6 +80,7 @@ persisted_files! {
    WalletState => "wallet_state.data",
    TxHistory => "tx_history.db",
    Tokens => "tokens.data",
+   NftDb => "nft_db.data",
    PoolData => "pool_data.data",
    Providers => "providers.data",
    BundlerUrl => "bundler_url.data",
@@ -129,6 +130,7 @@ impl Persisted {
             | PersistedFile::WalletState
             | PersistedFile::TxHistory
             | PersistedFile::Tokens
+            | PersistedFile::NftDb
             | PersistedFile::PoolData
             | PersistedFile::Providers
             | PersistedFile::BundlerUrl
@@ -428,6 +430,25 @@ mod tests {
       assert!(names.contains(&"wallet_state.data"));
       assert!(names.contains(&"misc_config.json"));
       assert!(!names.contains(&"connector.json"));
+   }
+
+   /// The NFT catalog is user data: it must travel with an export exactly as `tokens.data` does.
+   /// A newly added store that nobody classified would silently drop out of every backup.
+   #[test]
+   fn nft_db_is_a_core_exported_file() {
+      assert_eq!(PersistedFile::NftDb.name(), "nft_db.data");
+      assert_eq!(
+         PersistedFile::NftDb.export_policy(),
+         ExportPolicy::Core
+      );
+      assert!(
+         is_allowed_rel_parts(&["nft_db.data".to_string()]),
+         "an export zip must accept nft_db.data"
+      );
+      assert!(
+         !is_allowed_rel_parts(&["nft_db.data.bak".to_string()]),
+         "only the exact file name is a known path"
+      );
    }
 
    #[test]
