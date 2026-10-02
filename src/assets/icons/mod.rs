@@ -14,7 +14,10 @@ use egui_elements::utils::TINT_1;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::RwLock;
-use zeus_eth::{alloy_primitives::Address, currency::Currency};
+use zeus_eth::{
+   alloy_primitives::{Address, U256},
+   currency::Currency,
+};
 
 use bincode_next::{config::standard, decode_from_slice};
 
@@ -26,6 +29,7 @@ pub struct Icons {
    pub chain: ChainIcons,
    pub currency: CurrencyIcons,
    pub tokens: TokenIcons,
+   pub nfts: NftIcons,
    pub misc: MiscIcons,
 }
 
@@ -40,6 +44,7 @@ impl Default for Icons {
          chain: chain_icons,
          currency: currency_icons,
          tokens: TokenIcons::default(),
+         nfts: NftIcons::default(),
          misc: misc_icons,
       }
    }
@@ -213,6 +218,158 @@ impl TokenIcons {
    }
 }
 
+/// Key for one NFT's images: `(collection, chain id, token id)`.
+pub type NftKey = (Address, u64, U256);
+
+/// The two renderings kept for a single NFT image.
+///
+/// Both are derived once at download time, so a view never has to scale a texture or re-fetch.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NftIconData {
+   /// List thumbnail, at most 64×64.
+   pub x64: Vec<u8>,
+   /// Detail-view copy, at most 250×250.
+   pub x250: Vec<u8>,
+}
+
+impl NftIconData {
+   pub fn is_empty(&self) -> bool {
+      self.x64.is_empty() && self.x250.is_empty()
+   }
+}
+
+/// Downloaded NFT images.
+///
+/// Keyed by collection **and** token id, because one collection holds many tokens — an address
+/// alone would give every token in a collection the first token's picture. Unlike token icons there
+/// is no baked-in set: every NFT image comes from the chain or not at all.
+pub struct NftIcons {
+   icons_x64: RwLock<HashMap<NftKey, TextureHandle>>,
+   icons_x250: RwLock<HashMap<NftKey, TextureHandle>>,
+   /// Raw PNG bytes. Kept so textures are decompressed and uploaded only when a view asks.
+   icon_data: RwLock<HashMap<NftKey, NftIconData>>,
+   /// In-flight downloads, so two views asking at once do not fetch twice.
+   in_flight: RwLock<HashSet<NftKey>>,
+   /// Tokens whose image was missing this session — don't retry until restart.
+   failed: RwLock<HashSet<NftKey>>,
+   egui_ctx: Context,
+   /// Shown when a token has no image, or its download has not finished yet.
+   pub placeholder: TextureHandle,
+}
+
+impl Default for NftIcons {
+   fn default() -> Self {
+      let egui_ctx = Context::default();
+      Self::new(&egui_ctx).unwrap()
+   }
+}
+
+impl NftIcons {
+   pub fn new(ctx: &Context) -> Result<Self, anyhow::Error> {
+      let placeholder = load_image(include_bytes!("nft/placeholder.png"))?;
+      let placeholder = ctx.load_texture(
+         "nft_placeholder",
+         placeholder,
+         TextureOptions::default(),
+      );
+
+      // Images downloaded in previous sessions.
+      let icon_data: HashMap<NftKey, NftIconData> = disk::load_downloaded_nft_icons();
+
+      Ok(Self {
+         icons_x64: RwLock::new(HashMap::new()),
+         icons_x250: RwLock::new(HashMap::new()),
+         icon_data: RwLock::new(icon_data),
+         in_flight: RwLock::new(HashSet::new()),
+         failed: RwLock::new(HashSet::new()),
+         egui_ctx: ctx.clone(),
+         placeholder,
+      })
+   }
+
+   /// Get or lazily build the texture for one rendering of an NFT image.
+   ///
+   /// Falls back to the other rendering rather than to the placeholder: a 250px copy shown in a
+   /// 64px row is still the right picture.
+   fn get_or_load(&self, key: &NftKey, large: bool) -> Option<TextureHandle> {
+      let cache = if large {
+         &self.icons_x250
+      } else {
+         &self.icons_x64
+      };
+
+      if let Some(handle) = cache.read().unwrap().get(key) {
+         return Some(handle.clone());
+      }
+
+      let bytes = {
+         let icon_data = self.icon_data.read().unwrap();
+         let entry = icon_data.get(key)?;
+         let (preferred, other) = if large {
+            (&entry.x250, &entry.x64)
+         } else {
+            (&entry.x64, &entry.x250)
+         };
+         if preferred.is_empty() {
+            other.clone()
+         } else {
+            preferred.clone()
+         }
+      };
+
+      if bytes.is_empty() {
+         return None;
+      }
+
+      match load_image(&bytes) {
+         Ok(image) => {
+            let size = if large { 250 } else { 64 };
+            let name = format!("nft{}_{}_{}_{}", size, key.0, key.1, key.2);
+            let handle = self.egui_ctx.load_texture(name, image, TextureOptions::default());
+            cache.write().unwrap().insert(*key, handle.clone());
+            Some(handle)
+         }
+         Err(e) => {
+            tracing::warn!("Failed to decode NFT image for {}: {}", key.0, e);
+            None
+         }
+      }
+   }
+
+   pub fn has_icon(&self, key: &NftKey) -> bool {
+      self.icon_data.read().unwrap().get(key).is_some_and(|data| !data.is_empty())
+   }
+
+   pub fn insert_icon(&self, key: NftKey, data: NftIconData) {
+      self.icon_data.write().unwrap().insert(key, data);
+   }
+
+   pub fn remove_icon(&self, key: &NftKey) {
+      self.icon_data.write().unwrap().remove(key);
+      self.icons_x64.write().unwrap().remove(key);
+      self.icons_x250.write().unwrap().remove(key);
+   }
+
+   /// Mark a download as started. Returns false when we already have the image, one is in flight,
+   /// or it came back missing this session.
+   pub fn try_begin_fetch(&self, key: &NftKey) -> bool {
+      if self.has_icon(key) {
+         return false;
+      }
+      if self.failed.read().unwrap().contains(key) {
+         return false;
+      }
+      self.in_flight.write().unwrap().insert(*key)
+   }
+
+   pub fn finish_fetch(&self, key: &NftKey, not_found: bool) {
+      self.in_flight.write().unwrap().remove(key);
+      if not_found {
+         self.failed.write().unwrap().insert(*key);
+      }
+   }
+}
+
 pub struct ChainIcons {
    pub eth: ImageSource<'static>,
    pub op: ImageSource<'static>,
@@ -315,6 +472,7 @@ impl Icons {
          chain: chain_icons,
          currency: currency_icons,
          tokens: TokenIcons::new(ctx)?,
+         nfts: NftIcons::new(ctx)?,
          misc: misc_icons,
       })
    }
@@ -406,6 +564,61 @@ impl Icons {
       img
    }
 
+   /// Return the NFT image for a list row (thumbnail), or the placeholder when there is none.
+   pub fn nft_icon_x64(
+      &self,
+      chain_id: u64,
+      collection: Address,
+      token_id: U256,
+      tint: bool,
+   ) -> Image<'static> {
+      self.nft_icon(collection, chain_id, token_id, false, tint)
+   }
+
+   /// Return the NFT image for inspecting a single NFT, or the placeholder when there is none.
+   pub fn nft_icon_x250(
+      &self,
+      chain_id: u64,
+      collection: Address,
+      token_id: U256,
+      tint: bool,
+   ) -> Image<'static> {
+      self.nft_icon(collection, chain_id, token_id, true, tint)
+   }
+
+   fn nft_icon(
+      &self,
+      collection: Address,
+      chain_id: u64,
+      token_id: U256,
+      large: bool,
+      tint: bool,
+   ) -> Image<'static> {
+      let key = (collection, chain_id, token_id);
+
+      match self.nfts.get_or_load(&key, large) {
+         Some(icon) => match tint {
+            true => Image::new(&icon).tint(TINT_1),
+            false => Image::new(&icon),
+         },
+         None => self.nft_placeholder(tint),
+      }
+   }
+
+   /// Placeholder shown for an NFT whose image is unknown, or still downloading.
+   ///
+   /// The same texture serves both sizes: it is a flat graphic, so scaling it costs nothing worth
+   /// a second asset.
+   pub fn nft_placeholder(&self, tint: bool) -> Image<'static> {
+      let mut img = Image::new(&self.nfts.placeholder);
+
+      if tint {
+         img = img.tint(TINT_1);
+      }
+
+      img
+   }
+
    pub fn wallet_main_x24(&self) -> Image<'static> {
       Image::new(&self.misc.wallet_main_x24).sense(Sense::click())
    }
@@ -427,4 +640,101 @@ fn load_image(image_data: &[u8]) -> Result<ColorImage, image::ImageError> {
       size,
       pixels.as_slice(),
    ))
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   const PLACEHOLDER: &[u8] = include_bytes!("nft/placeholder.png");
+
+   /// The placeholder is a binary asset. A corrupt or mis-encoded PNG would otherwise only show up
+   /// as a panic at GUI startup, so decode it here.
+   #[test]
+   fn nft_placeholder_asset_decodes() {
+      let image = image::load_from_memory(PLACEHOLDER).expect("placeholder must be a valid image");
+      assert_eq!((image.width(), image.height()), (250, 250));
+   }
+
+   #[test]
+   fn nft_icon_data_knows_when_it_is_empty() {
+      assert!(NftIconData::default().is_empty());
+      assert!(
+         !NftIconData {
+            x64: vec![1],
+            x250: Vec::new(),
+         }
+         .is_empty()
+      );
+   }
+
+   /// The dedupe contract the fetch path relies on: one download per token, and a miss is not
+   /// retried for the rest of the session.
+   #[test]
+   fn fetch_dedupe_lifecycle() {
+      let icons = NftIcons::default();
+      let key = (Address::from([0xbc; 20]), 1, U256::from(1));
+
+      assert!(
+         icons.try_begin_fetch(&key),
+         "the first ask starts a fetch"
+      );
+      assert!(
+         !icons.try_begin_fetch(&key),
+         "a second ask while one is in flight must be refused"
+      );
+
+      icons.finish_fetch(&key, true);
+      assert!(
+         !icons.try_begin_fetch(&key),
+         "a miss must not be retried this session"
+      );
+
+      icons.insert_icon(
+         key,
+         NftIconData {
+            x64: PLACEHOLDER.to_vec(),
+            x250: PLACEHOLDER.to_vec(),
+         },
+      );
+      assert!(icons.has_icon(&key));
+      assert!(
+         !icons.try_begin_fetch(&key),
+         "an image we already have needs no fetch"
+      );
+
+      // The token id is part of the key: a sibling token in the same collection is independent.
+      let sibling = (key.0, 1, U256::from(2));
+      assert!(icons.try_begin_fetch(&sibling));
+
+      icons.remove_icon(&key);
+      assert!(!icons.has_icon(&key));
+   }
+
+   /// A missing rendering falls back to the other one instead of dropping to the placeholder.
+   #[test]
+   fn a_missing_rendering_falls_back_to_the_other() {
+      let icons = NftIcons::default();
+
+      let large_only = (Address::from([0xbc; 20]), 1, U256::from(9));
+      icons.insert_icon(
+         large_only,
+         NftIconData {
+            x64: Vec::new(),
+            x250: PLACEHOLDER.to_vec(),
+         },
+      );
+      assert!(
+         icons.get_or_load(&large_only, false).is_some(),
+         "a thumbnail request must still get the 250px copy"
+      );
+      assert!(icons.get_or_load(&large_only, true).is_some());
+
+      // Empty data is not an icon: the caller must be told to show the placeholder.
+      let empty = (Address::from([0xbc; 20]), 1, U256::from(10));
+      icons.insert_icon(empty, NftIconData::default());
+      assert!(icons.get_or_load(&empty, false).is_none());
+      assert!(icons.get_or_load(&empty, true).is_none());
+      assert!(!icons.has_icon(&empty));
+   }
 }
