@@ -42,6 +42,17 @@ impl InOrOut {
    }
 }
 
+/// What the picker is listing.
+///
+/// An enum rather than the two `bool`s `recipient_selection.rs` uses for its tabs: a mode is exactly
+/// one of these, so "neither" and "both" cannot be represented. `Fungible` is the default and what
+/// `open` restores, which is what keeps the ERC-20 path unchanged.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PickerMode {
+   Fungible,
+   Nft,
+}
+
 /// A simple window that allows the user to select a token
 ///
 /// We can also use the search bar to search for a specific token either by its name or symbol.
@@ -59,6 +70,8 @@ pub struct TokenSelectionWindow {
    pub token_fetched: bool,
    /// Currency direction, this only applies if we try to select a token from a SwapUi
    pub currency_direction: InOrOut,
+   /// What the picker is listing: ERC-20 tokens or NFTs.
+   mode: PickerMode,
 
    /// Cached and sorted list of currencies with their balances.
    ///
@@ -78,6 +91,7 @@ impl TokenSelectionWindow {
          selected_currency: None,
          token_fetched: false,
          currency_direction: InOrOut::In,
+         mode: PickerMode::Fungible,
          processed_currencies: Vec::new(),
       }
    }
@@ -92,6 +106,9 @@ impl TokenSelectionWindow {
 
    pub fn open(&mut self, privacy_mode: bool, chain_id: u64, owner: Address) {
       self.open = true;
+      // Always open on the ERC-20 list, so the existing flows see exactly what they saw before; a
+      // caller that wants NFTs opts in with `set_mode`.
+      self.mode = PickerMode::Fungible;
       self.process_currencies(privacy_mode, chain_id, owner);
    }
 
@@ -102,6 +119,7 @@ impl TokenSelectionWindow {
       self.selected_currency = None;
       self.token_fetched = false;
       self.currency_direction = InOrOut::In;
+      self.mode = PickerMode::Fungible;
       self.processed_currencies = Vec::new();
    }
 
@@ -169,6 +187,19 @@ impl TokenSelectionWindow {
       &self.currency_direction
    }
 
+   /// What this picker is listing.
+   pub fn get_mode(&self) -> PickerMode {
+      self.mode
+   }
+
+   /// What this picker lists.
+   ///
+   /// Callers that open the picker for a specific asset kind (sending an NFT, say) set this in the
+   /// same breath as `open`; the user can still switch mode from inside.
+   pub fn set_mode(&mut self, mode: PickerMode) {
+      self.mode = mode;
+   }
+
    /// Show This [TokenSelectionWindow]
    pub fn show(
       &mut self,
@@ -210,6 +241,14 @@ impl TokenSelectionWindow {
 
                if self.loading {
                   ui.add(Spinner::new().size(25.0).color(theme.colors.text));
+                  return;
+               }
+
+               self.show_mode_switch(theme, ui);
+
+               // NFT mode renders its own body below; nothing after this point in the closure is
+               // about NFTs.
+               if self.mode == PickerMode::Nft {
                   return;
                }
 
@@ -270,6 +309,14 @@ impl TokenSelectionWindow {
                );
                ui.add_space(10.0);
             });
+
+            if self.mode == PickerMode::Nft {
+               ui.vertical_centered(|ui| {
+                  self.show_nft_body(theme, ui);
+               });
+
+               return;
+            }
 
             ui.vertical_centered(|ui| {
                self.get_token_on_valid_address(ctx, theme, chain_id, owner, &mut close_window, ui);
@@ -395,6 +442,53 @@ impl TokenSelectionWindow {
          self.close();
          self.clear_processed_currencies();
       }
+   }
+
+   /// The Tokens / NFTs switch.
+   ///
+   /// Two `Button::selectable`s sharing `theme.button_visuals()`, matching the two-mode switch in
+   /// `recipient_selection.rs` — this picker is a selection modal of the same shape, so it takes
+   /// that pattern rather than a `TabBar`.
+   fn show_mode_switch(&mut self, theme: &Theme, ui: &mut Ui) {
+      let button_visuals = theme.button_visuals();
+
+      ui.horizontal(|ui| {
+         let tokens_text = RichText::new("Tokens").size(theme.typography.large);
+         let nfts_text = RichText::new("NFTs").size(theme.typography.large);
+
+         let tokens_button = Button::selectable(self.mode == PickerMode::Fungible, tokens_text)
+            .visuals(button_visuals);
+
+         if ui.add(tokens_button).clicked() {
+            self.mode = PickerMode::Fungible;
+         }
+
+         ui.add_space(theme.spacing.sm);
+
+         let nfts_button =
+            Button::selectable(self.mode == PickerMode::Nft, nfts_text).visuals(button_visuals);
+
+         if ui.add(nfts_button).clicked() {
+            self.mode = PickerMode::Nft;
+         }
+      });
+
+      ui.add_space(theme.spacing.sm);
+   }
+
+   /// What NFT mode shows until the list lands.
+   ///
+   /// An empty state rather than a half-wired list: the picker does not read `NftDB` or the
+   /// portfolio's NFTs yet, so there is nothing truthful to render. Saying so beats a blank pane
+   /// that reads as a bug.
+   fn show_nft_body(&self, theme: &Theme, ui: &mut Ui) {
+      ui.add_space(theme.spacing.xl);
+
+      let note = RichText::new("No NFTs to show yet")
+         .size(theme.typography.normal)
+         .color(theme.colors.text_muted);
+
+      ui.label(note);
    }
 
    fn get_token_on_valid_address(
@@ -664,4 +758,30 @@ async fn sync_balances(ctx: ZeusCtx, chain: u64, owner: Address) {
       eth_removed,
       token_removed
    );
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// The picker still opens on the ERC-20 list, and the mode only ever changes when something asks
+   /// for it — that is the "no breaking change" part of adding NFT mode.
+   ///
+   /// `open` is not exercised here: it spawns the balance fetch through `RT` + `SHARED_GUI`, which a
+   /// unit test cannot drive. Its mode reset is the same single assignment `reset` uses.
+   #[test]
+   fn the_picker_opens_on_tokens_and_reset_restores_it() {
+      let mut picker = TokenSelectionWindow::new();
+      assert_eq!(picker.get_mode(), PickerMode::Fungible);
+
+      picker.set_mode(PickerMode::Nft);
+      assert_eq!(picker.get_mode(), PickerMode::Nft);
+
+      picker.reset();
+      assert_eq!(
+         picker.get_mode(),
+         PickerMode::Fungible,
+         "a closed and reopened picker must not come back in NFT mode"
+      );
+   }
 }
