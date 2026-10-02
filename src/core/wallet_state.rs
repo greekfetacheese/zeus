@@ -205,6 +205,47 @@ mod tests {
       assert_eq!(loaded.dapp_accounts.seen(origin), [address]);
    }
 
+   /// NFTs are tracked in the vault beside tokens, so they have to survive the real encrypted round
+   /// trip — plain serde is not the path that matters.
+   #[test]
+   fn portfolio_nfts_survive_the_sealed_roundtrip() {
+      use crate::core::context::WalletPortfolio;
+      use zeus_eth::{
+         alloy_primitives::{Address, U256},
+         nft::{NftStandard, NftToken},
+      };
+
+      let key = WalletStateKey::generate().unwrap();
+      let owner = Address::from([0x11u8; 20]);
+      let collection = Address::from([0xbcu8; 20]);
+
+      let mut portfolio = WalletPortfolio::new(owner, 1);
+      portfolio.add_nft(NftToken {
+         chain_id: 1,
+         collection,
+         token_id: U256::from(7),
+         standard: NftStandard::Erc1155,
+         metadata_uri: Some("ipfs://QmExample/{id}".to_string()),
+      });
+
+      let mut inner = WalletStateInner::default();
+      inner.portfolio_db.insert_portfolio(1, owner, portfolio);
+
+      let sealed = key.seal_json(&inner, WALLET_STATE_AAD).unwrap();
+      let loaded: WalletStateInner = key.open_json(&sealed, WALLET_STATE_AAD).unwrap();
+
+      let nfts = loaded.portfolio_db.get_nfts(1, owner);
+
+      assert_eq!(nfts.len(), 1);
+      assert_eq!(nfts[0].collection, collection);
+      assert_eq!(nfts[0].token_id, U256::from(7));
+      assert_eq!(nfts[0].standard, NftStandard::Erc1155);
+      assert_eq!(
+         nfts[0].metadata_uri.as_deref(),
+         Some("ipfs://QmExample/{id}")
+      );
+   }
+
    /// An app keeps every account it was given, so a later connection does not
    /// erase the earlier ones the app already knows about.
    #[test]

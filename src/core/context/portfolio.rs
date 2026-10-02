@@ -6,6 +6,7 @@ use tracing::{debug, error};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
+   nft::NftToken,
    utils::NumericValue,
 };
 use zeus_railgun::{RailgunSigner, caip::AssetId};
@@ -76,6 +77,12 @@ impl PortfolioDB {
       portfolio.tokens.clone()
    }
 
+   /// Get all NFTs for the given chain and owner
+   pub fn get_nfts(&self, chain_id: u64, owner: Address) -> Vec<NftToken> {
+      let portfolio = self.get(chain_id, owner);
+      portfolio.nfts
+   }
+
    /// Drop portfolios whose owner is not in `wallets`. Returns how many entries were removed.
    pub fn retain_wallets(&mut self, wallets: &HashSet<Address>) -> usize {
       let before = self.portfolios.len();
@@ -91,6 +98,13 @@ pub struct WalletPortfolio {
    /// All the tokens in the wallet
    #[serde(default)]
    tokens: Vec<ERC20Token>,
+   /// NFTs (ERC-721 / ERC-1155) tracked for this wallet.
+   ///
+   /// Kept beside `tokens` rather than inside a `TokenList`: a `TokenList` entry is
+   /// `(ERC20Token, balance, value, price)`, and an NFT has none of those — no `decimals` to format
+   /// an amount with, and no pool price to value it by.
+   #[serde(default)]
+   nfts: Vec<NftToken>,
    /// Chain ID
    #[serde(default)]
    chain_id: u64,
@@ -115,6 +129,7 @@ impl WalletPortfolio {
    pub fn new(owner: Address, chain_id: u64) -> Self {
       Self {
          tokens: Vec::new(),
+         nfts: Vec::new(),
          chain_id,
          owner,
          public_value: NumericValue::default(),
@@ -126,6 +141,10 @@ impl WalletPortfolio {
 
    pub fn tokens(&self) -> &Vec<ERC20Token> {
       &self.tokens
+   }
+
+   pub fn nfts(&self) -> &Vec<NftToken> {
+      &self.nfts
    }
 
    pub fn public_tokens(&self) -> &TokenList {
@@ -185,6 +204,30 @@ impl WalletPortfolio {
 
    pub fn remove_token(&mut self, token: &ERC20Token) {
       self.tokens.retain(|t| t != token);
+   }
+
+   /// Track an NFT for this wallet.
+   ///
+   /// Identity is `(chain, collection, token id)`, so re-adding a token we already track is not a
+   /// duplicate — but it does refresh the cached metadata URI, so a token added before its URI was
+   /// known picks it up instead of making us read `tokenURI` from the chain again.
+   pub fn add_nft(&mut self, nft: NftToken) {
+      match self.nfts.iter().position(|tracked| tracked == &nft) {
+         Some(index) => {
+            if nft.metadata_uri.is_some() {
+               self.nfts[index].metadata_uri = nft.metadata_uri;
+            }
+         }
+         None => self.nfts.push(nft),
+      }
+   }
+
+   pub fn has_nft(&self, nft: &NftToken) -> bool {
+      self.nfts.contains(nft)
+   }
+
+   pub fn remove_nft(&mut self, nft: &NftToken) {
+      self.nfts.retain(|tracked| tracked != nft);
    }
 
    /// Update the public data for the portfolio
@@ -330,4 +373,180 @@ async fn process_private_tokens(
       .sort_by(|a, b| b.2.f64().partial_cmp(&a.2.f64()).unwrap_or(std::cmp::Ordering::Equal));
 
    Ok(token_list)
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use zeus_eth::nft::NftStandard;
+
+   fn owner() -> Address {
+      Address::from([0x11; 20])
+   }
+
+   fn nft(token_id: u64) -> NftToken {
+      NftToken {
+         chain_id: 1,
+         collection: Address::from([0xbc; 20]),
+         token_id: U256::from(token_id),
+         standard: NftStandard::Erc721,
+         metadata_uri: None,
+      }
+   }
+
+   #[test]
+   fn nfts_are_added_looked_up_and_removed_by_identity() {
+      let mut portfolio = WalletPortfolio::new(owner(), 1);
+
+      portfolio.add_nft(nft(1));
+      portfolio.add_nft(nft(2));
+
+      assert_eq!(portfolio.nfts().len(), 2);
+      assert!(portfolio.has_nft(&nft(1)));
+      assert!(!portfolio.has_nft(&nft(3)));
+
+      portfolio.remove_nft(&nft(1));
+
+      assert!(!portfolio.has_nft(&nft(1)));
+      assert!(
+         portfolio.has_nft(&nft(2)),
+         "only the named token goes"
+      );
+      assert_eq!(portfolio.nfts().len(), 1);
+   }
+
+   /// Sibling tokens in one collection are separate entries, and token id 0 is a real token rather
+   /// than an "empty" value that gets skipped.
+   #[test]
+   fn sibling_tokens_and_token_id_zero_are_distinct_entries() {
+      let mut portfolio = WalletPortfolio::new(owner(), 1);
+
+      portfolio.add_nft(nft(0));
+      portfolio.add_nft(nft(1));
+
+      assert_eq!(portfolio.nfts().len(), 2);
+      assert!(portfolio.has_nft(&nft(0)));
+   }
+
+   /// Identity carries the chain, so removing a token on one chain leaves the same collection and
+   /// token id on another chain alone.
+   #[test]
+   fn identity_includes_the_chain() {
+      let mut other_chain = nft(1);
+      other_chain.chain_id = 137;
+
+      let mut portfolio = WalletPortfolio::new(owner(), 1);
+      portfolio.add_nft(nft(1));
+      portfolio.add_nft(other_chain.clone());
+
+      assert_eq!(
+         portfolio.nfts().len(),
+         2,
+         "the same collection and token id on another chain is a different NFT"
+      );
+
+      portfolio.remove_nft(&other_chain);
+
+      assert!(
+         portfolio.has_nft(&nft(1)),
+         "the chain-1 entry survives"
+      );
+      assert!(!portfolio.has_nft(&other_chain));
+   }
+
+   /// Metadata is not part of identity: a refresh must not create a second entry, it must actually
+   /// take (so the icon pipeline need not re-read `tokenURI`), and it must not be wiped by a later
+   /// add that carries no URI.
+   #[test]
+   fn re_adding_a_token_refreshes_its_metadata_instead_of_duplicating() {
+      let mut portfolio = WalletPortfolio::new(owner(), 1);
+      portfolio.add_nft(nft(1));
+
+      let mut refreshed = nft(1);
+      refreshed.metadata_uri = Some("ipfs://QmExample/1".to_string());
+      portfolio.add_nft(refreshed);
+
+      assert_eq!(
+         portfolio.nfts().len(),
+         1,
+         "identity is (chain, collection, token id)"
+      );
+      assert_eq!(
+         portfolio.nfts()[0].metadata_uri.as_deref(),
+         Some("ipfs://QmExample/1"),
+         "a newly known URI is kept"
+      );
+
+      portfolio.add_nft(nft(1));
+
+      assert_eq!(
+         portfolio.nfts()[0].metadata_uri.as_deref(),
+         Some("ipfs://QmExample/1"),
+         "a later add without a URI must not clear the one we have"
+      );
+   }
+
+   #[test]
+   fn nfts_are_scoped_to_the_chain_and_owner() {
+      let mut db = PortfolioDB::new();
+
+      let mut chain_one = WalletPortfolio::new(owner(), 1);
+      chain_one.add_nft(nft(1));
+      db.insert_portfolio(1, owner(), chain_one);
+
+      let mut chain_ten = WalletPortfolio::new(owner(), 10);
+      chain_ten.add_nft(nft(2));
+      db.insert_portfolio(10, owner(), chain_ten);
+
+      assert_eq!(db.get_nfts(1, owner())[0].token_id, U256::from(1));
+      assert_eq!(
+         db.get_nfts(10, owner())[0].token_id,
+         U256::from(2)
+      );
+      assert!(
+         db.get_nfts(1, Address::from([0x22; 20])).is_empty(),
+         "another owner is an empty portfolio, not a leak from this one"
+      );
+   }
+
+   /// Dropping a wallet drops its NFTs with it — no orphaned entries left behind.
+   #[test]
+   fn removing_a_wallet_drops_its_nfts() {
+      let mut db = PortfolioDB::new();
+
+      let mut portfolio = WalletPortfolio::new(owner(), 1);
+      portfolio.add_nft(nft(1));
+      db.insert_portfolio(1, owner(), portfolio);
+
+      assert_eq!(db.retain_wallets(&HashSet::new()), 1);
+      assert!(db.get_nfts(1, owner()).is_empty());
+   }
+
+   /// A vault written before NFTs existed has no `nfts` key at all, and must still open — the field
+   /// is `#[serde(default)]`.
+   #[test]
+   fn a_portfolio_saved_before_nfts_existed_still_loads() {
+      let mut value = serde_json::to_value(WalletPortfolio::new(owner(), 1)).unwrap();
+
+      assert!(
+         value.as_object_mut().unwrap().remove("nfts").is_some(),
+         "the field is serialized, so removing it really does simulate an older payload"
+      );
+
+      let loaded: WalletPortfolio = serde_json::from_value(value).unwrap();
+
+      assert!(loaded.nfts().is_empty());
+   }
+
+   #[test]
+   fn nfts_survive_a_round_trip() {
+      let mut portfolio = WalletPortfolio::new(owner(), 1);
+      portfolio.add_nft(nft(1));
+      portfolio.add_nft(nft(2));
+
+      let json = serde_json::to_vec(&portfolio).unwrap();
+      let loaded: WalletPortfolio = serde_json::from_slice(&json).unwrap();
+
+      assert_eq!(loaded.nfts(), portfolio.nfts());
+   }
 }
