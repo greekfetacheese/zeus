@@ -11,7 +11,7 @@ const SOURCIFY_TIP: &str = "Allow Zeus to look up verified contract names on sou
 const UPDATES_TIP: &str = "Allow Zeus to check GitHub for a newer Zeus release";
 
 pub struct GeneralSettings {
-   fetch_token_icons: bool,
+   fetch_asset_images: bool,
    fetch_contract_names: bool,
    check_for_updates: bool,
    concurrency_for_syncing_balances: usize,
@@ -23,7 +23,7 @@ pub struct GeneralSettings {
 impl GeneralSettings {
    pub fn new(ctx: &mut ZeusContext) -> Self {
       let mut this = Self {
-         fetch_token_icons: false,
+         fetch_asset_images: false,
          fetch_contract_names: false,
          check_for_updates: false,
          concurrency_for_syncing_balances: 1,
@@ -47,7 +47,7 @@ impl GeneralSettings {
    pub fn sync_from_ctx(&mut self, ctx: &mut ZeusContext) {
       let pool_manager = ctx.pool_manager.clone();
       let balance_manager = ctx.read_wallet_state(|ws| ws.balance_manager.clone());
-      self.fetch_token_icons = ctx.misc_config.fetch_token_icons();
+      self.fetch_asset_images = ctx.misc_config.fetch_asset_images();
       self.fetch_contract_names = ctx.misc_config.fetch_contract_names();
       self.check_for_updates = ctx.misc_config.check_for_updates();
       self.concurrency_for_syncing_balances = balance_manager.concurrency();
@@ -79,14 +79,15 @@ impl GeneralSettings {
       let qmark = Badge::new(q_mark_text.clone(), BadgeTone::Info);
 
       let ui_size = vec2(ui.available_width() * 0.3, 30.0);
-      let icons_text = RichText::new("Download Token Icons").size(theme.typography.normal);
+      let icons_text =
+         RichText::new("Download Token Icons & NFT Images").size(theme.typography.normal);
 
       ui.allocate_ui_with_layout(
          ui_size,
          Layout::left_to_right(Align::Center),
          |ui| {
-            if ui.checkbox(&mut self.fetch_token_icons, icons_text).changed() {
-               ctx.misc_config.set_fetch_token_icons(self.fetch_token_icons);
+            if ui.checkbox(&mut self.fetch_asset_images, icons_text).changed() {
+               ctx.misc_config.set_fetch_asset_images(self.fetch_asset_images);
                Self::persist_misc(ctx);
             }
 
@@ -181,8 +182,8 @@ impl GeneralSettings {
 
    pub fn save_settings(&self, ctx: &mut ZeusContext) {
       let mut save_misc = false;
-      if self.fetch_token_icons != ctx.misc_config.fetch_token_icons() {
-         ctx.misc_config.set_fetch_token_icons(self.fetch_token_icons);
+      if self.fetch_asset_images != ctx.misc_config.fetch_asset_images() {
+         ctx.misc_config.set_fetch_asset_images(self.fetch_asset_images);
          save_misc = true;
       }
       if self.fetch_contract_names != ctx.misc_config.fetch_contract_names() {

@@ -163,7 +163,7 @@ pub struct RecoverHDWallet {
    onboarding_step: u8,
    enable_railgun: bool,
    allow_circuit_download: bool,
-   fetch_token_icons: bool,
+   fetch_asset_images: bool,
    fetch_contract_names: bool,
    check_for_updates: bool,
    memory: SystemMemory,
@@ -189,7 +189,7 @@ impl RecoverHDWallet {
          onboarding_step: 0,
          enable_railgun: false,
          allow_circuit_download: false,
-         fetch_token_icons: false,
+         fetch_asset_images: false,
          fetch_contract_names: false,
          check_for_updates: false,
          memory: SystemMemory::new(),
@@ -622,8 +622,8 @@ impl RecoverHDWallet {
                      .interactive(false);
                   ui.add(label);
 
-                  let icons_text = RichText::new("Download Token Icons").size(large);
-                  ui.checkbox(&mut self.fetch_token_icons, icons_text);
+                  let icons_text = RichText::new("Download Token Icons & NFT Images").size(large);
+                  ui.checkbox(&mut self.fetch_asset_images, icons_text);
 
                   let names_text = RichText::new("Fetch Contract Names").size(large);
                   ui.checkbox(&mut self.fetch_contract_names, names_text);
@@ -641,7 +641,7 @@ impl RecoverHDWallet {
                   Button::new(text).visuals(button_visuals).min_size(vec2(content_width, 45.0));
 
                if ui.add(continue_button).clicked() {
-                  ctx.misc_config.set_fetch_token_icons(self.fetch_token_icons);
+                  ctx.misc_config.set_fetch_asset_images(self.fetch_asset_images);
                   ctx.misc_config.set_fetch_contract_names(self.fetch_contract_names);
                   ctx.misc_config.set_check_for_updates(self.check_for_updates);
                   let config = ctx.misc_config.clone();

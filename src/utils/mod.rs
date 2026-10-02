@@ -1,5 +1,6 @@
 pub mod fs;
 pub mod misc;
+pub mod nft_icon;
 pub mod self_update;
 pub mod simulate;
 pub mod state;

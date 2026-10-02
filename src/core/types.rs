@@ -162,9 +162,13 @@ impl Default for RailgunConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MiscConfig {
-   /// When true, unknown ERC-20 icons may be downloaded from SmolDapp.
-   #[serde(default)]
-   pub fetch_token_icons: bool,
+   /// When true, unknown ERC-20 icons and NFT images may be downloaded from the network —
+   /// SmolDapp for tokens, the collection's own metadata URI for NFTs.
+   ///
+   /// `alias` keeps the choice of anyone who opted in before this flag was widened: without it the
+   /// rename would silently reset their setting back to "off".
+   #[serde(default, alias = "fetch_token_icons")]
+   pub fetch_asset_images: bool,
    /// When true, unknown contract names may be fetched from Sourcify.
    #[serde(default)]
    pub fetch_contract_names: bool,
@@ -176,7 +180,7 @@ pub struct MiscConfig {
 impl MiscConfig {
    pub fn new() -> Self {
       Self {
-         fetch_token_icons: false,
+         fetch_asset_images: false,
          fetch_contract_names: false,
          check_for_updates: false,
       }
@@ -197,12 +201,12 @@ impl MiscConfig {
       Ok(())
    }
 
-   pub fn fetch_token_icons(&self) -> bool {
-      self.fetch_token_icons
+   pub fn fetch_asset_images(&self) -> bool {
+      self.fetch_asset_images
    }
 
-   pub fn set_fetch_token_icons(&mut self, allow: bool) {
-      self.fetch_token_icons = allow;
+   pub fn set_fetch_asset_images(&mut self, allow: bool) {
+      self.fetch_asset_images = allow;
    }
 
    pub fn fetch_contract_names(&self) -> bool {

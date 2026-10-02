@@ -22,7 +22,7 @@ use zeus_eth::{
 use bincode_next::{config::standard, decode_from_slice};
 
 mod disk;
-pub(crate) use disk::{delete_token_icon, save_token_icon};
+pub(crate) use disk::{delete_token_icon, save_nft_icon, save_token_icon};
 
 /// Icons used in the GUI
 pub struct Icons {

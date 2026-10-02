@@ -91,7 +91,7 @@ pub fn spawn_fetch_token_icon(chain_id: u64, address: Address) {
    let (icons, allowed) = SHARED_GUI.read(|gui| {
       (
          gui.icons.clone(),
-         gui.ctx.read(|ctx| ctx.misc_config.fetch_token_icons()),
+         gui.ctx.read(|ctx| ctx.misc_config.fetch_asset_images()),
       )
    });
    if !allowed {
