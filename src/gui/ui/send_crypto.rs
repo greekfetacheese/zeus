@@ -39,13 +39,13 @@ use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256},
    alloy_rpc_types::BlockId,
    currency::{Currency, ERC20Token, NativeCurrency},
-   nft::{NftStandard, NftToken},
+   nft::{NftCollection, NftStandard, NftToken, verify_ownership},
    revm_utils::{ForkFactory, Host, new_evm, simulate as revm_simulate},
    types::ChainId,
    utils::{NumericValue, batch},
 };
 
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 
 const POOL_UPDATE_TIMEOUT: u64 = 60;
 
@@ -1573,6 +1573,19 @@ async fn send_nft(
    {
       let mut evm = new_evm(chain, Some(&block), fork_db);
 
+      // The pre-state comes from the same fork the simulation runs on, and `transact` does not commit,
+      // so this read leaves it untouched. ERC-721 needs no pre-read: `ownerOf` after the transfer says
+      // everything, and a sender who was not the owner never gets past the simulation.
+      let received_before = match nft.standard {
+         NftStandard::Erc1155 => Some(revm_simulate::erc1155_balance_of(
+            &mut evm,
+            interact_to,
+            recipient,
+            nft.token_id,
+         )?),
+         NftStandard::Erc721 => None,
+      };
+
       // A revert here (not the owner, not approved, not enough copies) is what refuses the send before
       // the user ever sees a confirm window.
       let res = simulate::simulate_transaction(
@@ -1583,6 +1596,33 @@ async fn send_nft(
          value,
          auth_list,
       )?;
+
+      // A call that *succeeds* while moving nothing is what a broken or hostile collection does, and
+      // the simulation is the only place to catch it before the user pays for it. `send_token` reads
+      // the recipient's balance for the same reason; here the collection itself has to report the new
+      // state — the logs cannot be trusted, a fake `Transfer` is one `emit` away.
+      let moved = match nft.standard {
+         NftStandard::Erc721 => {
+            let owner = revm_simulate::erc721_owner_of(&mut evm, interact_to, nft.token_id)
+               .map_err(|e| anyhow!("Could not verify the transfer: {}", e))?;
+
+            owner == recipient
+         }
+         NftStandard::Erc1155 => {
+            let received_after =
+               revm_simulate::erc1155_balance_of(&mut evm, interact_to, recipient, nft.token_id)
+                  .map_err(|e| anyhow!("Could not verify the transfer: {}", e))?;
+
+            received_after.saturating_sub(received_before.unwrap_or_default()) >= amount
+         }
+      };
+
+      if !moved {
+         bail!(
+            "Simulation Error: the transfer did not move token #{} — the collection may be broken or malicious",
+            nft.token_id
+         );
+      }
 
       let state = evm.balance(from);
       eth_balance_after = if let Some(state) = state {
@@ -1631,13 +1671,75 @@ async fn send_nft(
    )
    .await?;
 
-   // What the transfer changed is the public side of both wallets. The NFT's own record (catalog and
-   // portfolio) is refreshed by the send view's NFT sync.
+   // What the transfer changed is the public side of both wallets, and possibly this wallet's own
+   // record of the NFT.
    if ctx.wallet_exists(recipient) {
       ctx.update_public_data(chain.id(), recipient);
    }
 
    ctx.update_public_data(chain.id(), from);
+
+   match update_nft(ctx.clone(), chain.id(), from, nft).await {
+      Ok(_) => {}
+      Err(e) => {
+         tracing::error!("Error refreshing the NFT after send: {:?}", e);
+      }
+   }
+
+   Ok(())
+}
+
+/// Re-read one NFT after a send, and make both stores agree with the chain.
+///
+/// Ownership is the chain's answer, never ours: `NftToken` carries no owner on purpose, and a
+/// portfolio entry is only a claim about what this wallet holds. So the question is asked over RPC
+/// rather than assumed from having just sent it.
+///
+/// When the wallet no longer holds it, the token leaves both the portfolio and the tracked catalog —
+/// the picker's ERC-721 balance is a constant 1 with no chain call, so a left-behind entry would keep
+/// offering a token that cannot be sent. The cached art stays: if the token comes back, it comes back
+/// with its picture.
+///
+/// A transport failure changes nothing and is logged by the caller: dropping a token from the wallet
+/// because an RPC hiccuped would be far worse than a stale row.
+async fn update_nft(
+   ctx: ZeusCtx,
+   chain_id: u64,
+   owner: Address,
+   nft: NftToken,
+) -> Result<(), anyhow::Error> {
+   let client = ctx.get_client(chain_id).await?;
+
+   // The cached collection when we have it (the usual case — a token the picker listed), otherwise
+   // one ERC-165 sweep to learn the standard `verify_ownership` needs.
+   let collection = match ctx.read(|ctx| ctx.nft_db.get_collection(chain_id, nft.collection)) {
+      Some(collection) => collection,
+      None => NftCollection::fetch(client.clone(), chain_id, nft.collection).await?,
+   };
+
+   if verify_ownership(client, &collection, nft.token_id, owner).await? {
+      return Ok(());
+   }
+
+   ctx.write(|ctx| {
+      ctx.nft_db.remove_nft(chain_id, nft.collection, nft.token_id);
+   });
+
+   ctx.write_wallet_state(|ws| {
+      let mut portfolio = ws.portfolio_db.get(chain_id, owner);
+      portfolio.remove_nft(&nft);
+      ws.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
+   });
+
+   // Logs internally.
+   ctx.save_nft_db();
+
+   if let Err(e) = ctx.save_wallet_state() {
+      tracing::error!(
+         "Error saving wallet state after an NFT send: {:?}",
+         e
+      );
+   }
 
    Ok(())
 }

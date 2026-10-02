@@ -381,4 +381,23 @@ mod tests {
          (from, to, token_id)
       );
    }
+
+   /// The read the NFT send path checks ownership with, from both ends: the id is the only argument,
+   /// and `ownerOf` answers a 32-byte word whose **low 20 bytes** are the address. Reading the high
+   /// bytes instead would name a wrong owner and refuse a valid transfer.
+   #[test]
+   fn owner_of_encodes_the_id_and_decodes_the_low_twenty_bytes() {
+      let call = encode_owner_of(U256::from(1));
+      assert_eq!(&call[..4], &IERC721::ownerOfCall::SELECTOR);
+      assert_eq!(call.len(), 4 + 32);
+      assert_eq!(U256::from_be_slice(&call[4..36]), U256::from(1));
+
+      let mut word = [0u8; 32];
+      word[12..].copy_from_slice(&[0xab; 20]);
+
+      assert_eq!(
+         decode_owner_of(&Bytes::from(word.to_vec())).unwrap(),
+         Address::from([0xab; 20])
+      );
+   }
 }

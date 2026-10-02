@@ -456,4 +456,30 @@ mod tests {
       assert_eq!((id, amount), (U256::from(7), U256::from(3)));
       assert!(payload.is_empty());
    }
+
+   /// The read the NFT send path checks a received amount with. Argument order is the bug this
+   /// guards: `balanceOf(address account, uint256 id)` puts the account in the first word and the id
+   /// in the second, and swapping them asks about a garbage account.
+   #[test]
+   fn balance_of_encodes_the_account_then_the_id() {
+      let account = Address::repeat_byte(0x11);
+      let call = encode_balance_of(account, U256::from(7));
+
+      assert_eq!(&call[..4], &IERC1155::balanceOfCall::SELECTOR);
+      assert_eq!(call.len(), 4 + 32 * 2);
+
+      let mut word = [0u8; 32];
+      word[12..].copy_from_slice(account.as_slice());
+
+      assert_eq!(
+         &call[4..36],
+         &word,
+         "the account is the first word"
+      );
+      assert_eq!(
+         U256::from_be_slice(&call[36..68]),
+         U256::from(7),
+         "the id is the second"
+      );
+   }
 }

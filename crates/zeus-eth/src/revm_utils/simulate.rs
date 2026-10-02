@@ -10,6 +10,55 @@ use crate::abi::{
    uniswap::nft_position::{INonfungiblePositionManager, encode_decrease_liquidity},
 };
 
+/// Simulate ERC-721 `ownerOf(tokenId)` (does not commit).
+///
+/// The read half of a "did the transfer actually move it" check: called after
+/// `simulate_transaction` the fork already reflects the transfer, called before it reports the
+/// pre-state.
+pub fn erc721_owner_of<DB>(
+   evm: &mut Evm2<DB>,
+   collection: Address,
+   token_id: U256,
+) -> Result<Address, anyhow::Error>
+where
+   DB: Database,
+{
+   let data = abi::erc721::encode_owner_of(token_id);
+
+   evm.tx.chain_id = Some(evm.cfg.chain_id);
+   evm.tx.data = data;
+   evm.tx.value = U256::ZERO;
+   evm.tx.kind = TxKind::Call(collection);
+
+   let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
+   let output = res.result.output().ok_or(anyhow!("Output not found"))?;
+   let owner = abi::erc721::decode_owner_of(output)?;
+   Ok(owner)
+}
+
+/// Simulate ERC-1155 `balanceOf(account, id)` (does not commit).
+pub fn erc1155_balance_of<DB>(
+   evm: &mut Evm2<DB>,
+   collection: Address,
+   account: Address,
+   id: U256,
+) -> Result<U256, anyhow::Error>
+where
+   DB: Database,
+{
+   let data = abi::erc1155::encode_balance_of(account, id);
+
+   evm.tx.chain_id = Some(evm.cfg.chain_id);
+   evm.tx.data = data;
+   evm.tx.value = U256::ZERO;
+   evm.tx.kind = TxKind::Call(collection);
+
+   let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
+   let output = res.result.output().ok_or(anyhow!("Output not found"))?;
+   let balance = abi::erc1155::decode_balance_of(output)?;
+   Ok(balance)
+}
+
 /// Simulate the balance of function of the ERC20 contract
 pub fn erc20_balance<DB>(
    evm: &mut Evm2<DB>,
