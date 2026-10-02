@@ -168,7 +168,6 @@ mod tests {
    use alloy_primitives::address;
    use alloy_provider::ProviderBuilder;
    use alloy_sol_types::SolCall;
-   use url::Url;
 
    #[test]
    fn interface_ids_match_the_published_values() {
@@ -259,10 +258,7 @@ mod tests {
    #[tokio::test]
    #[ignore = "needs an RPC that serves eth_call"]
    async fn probes_real_mainnet_contracts() {
-      let rpc = std::env::var("ZEUS_ETH_RPC")
-         .unwrap_or_else(|_| "https://ethereum-rpc.publicnode.com".to_string());
-      let url = Url::parse(&rpc).unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
+      let client = ProviderBuilder::new().connect_http(crate::test_utils::rpc_url());
 
       // BAYC — ERC-721 plus both optional interfaces.
       let bayc = address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D");

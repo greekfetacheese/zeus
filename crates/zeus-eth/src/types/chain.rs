@@ -275,8 +275,14 @@ impl ChainId {
 mod tests {
    use super::*;
 
+   /// An unsupported chain id must not resolve. `ChainId::new` keeps its own id → variant match and
+   /// `supported_chains()` unwraps it, so a missing arm is a startup panic rather than an error —
+   /// this guards that contract.
    #[test]
    fn chain_new_err() {
-      let _chain = ChainId::new(1000).unwrap();
+      assert!(
+         ChainId::new(1000).is_err(),
+         "an unsupported chain id must not resolve to a ChainId"
+      );
    }
 }
