@@ -9,6 +9,8 @@ use super::address_book::zeus_stateview_v4;
 use crate::{
    abi::{
       erc20::IERC20,
+      erc721::{IERC721, IERC721Metadata},
+      erc1155::IERC1155,
       permit::Permit2,
       zeus::ZeusStateViewV3::{self, *},
    },
@@ -510,14 +512,198 @@ where
    Ok(out)
 }
 
+/// One NFT to look up: the collection contract and a token id.
+pub type NftRef = (Address, U256);
+
+/// Batched ERC-721 lookup result, aligned with the request order.
+#[derive(Clone, Debug)]
+pub struct Erc721Lookup {
+   /// `ownerOf(tokenId)`. `None` when the call failed (nonexistent/burned token, or not a 721).
+   pub owner: Option<Address>,
+   /// `tokenURI(tokenId)`. `None` when the call failed or returned an empty string.
+   pub token_uri: Option<String>,
+}
+
+/// Batched ERC-721 `ownerOf` + `tokenURI`, in **two** Multicall3 aggregates.
+///
+/// Two rounds rather than one because the two calls decode to different types and a
+/// `MulticallBuilder` decodes an entire aggregate as a single type. Results stay aligned with
+/// `refs` — a failed call yields `None` in its own slot instead of being dropped, so a caller can
+/// trust the index. A length mismatch is an error rather than silent truncation.
+///
+/// Needs Multicall3 (`0xcA11bde05977b3631167028862bE2a173976CA11`) deployed on the chain. Once the
+/// Zeus StateView grows NFT getters (task 2.2) this is the path that gets replaced; until then it
+/// is the only one.
+pub async fn get_erc721_owners_and_uris<P, N>(
+   client: P,
+   refs: Vec<NftRef>,
+   block: Option<BlockId>,
+) -> Result<Vec<Erc721Lookup>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   if refs.is_empty() {
+      return Ok(Vec::new());
+   }
+
+   let block = block.unwrap_or(BlockId::latest());
+
+   let mut owners_builder = client.multicall().dynamic::<IERC721::ownerOfCall>().block(block);
+   for (collection, token_id) in &refs {
+      let input = Bytes::from(IERC721::ownerOfCall { tokenId: *token_id }.abi_encode());
+      let call = CallItem::<IERC721::ownerOfCall>::new(*collection, input).allow_failure(true);
+      owners_builder = owners_builder.add_call_dynamic(call);
+   }
+   let owners = owners_builder.aggregate3().await?;
+
+   let mut uris_builder =
+      client.multicall().dynamic::<IERC721Metadata::tokenURICall>().block(block);
+   for (collection, token_id) in &refs {
+      let input = Bytes::from(IERC721Metadata::tokenURICall { tokenId: *token_id }.abi_encode());
+      let call =
+         CallItem::<IERC721Metadata::tokenURICall>::new(*collection, input).allow_failure(true);
+      uris_builder = uris_builder.add_call_dynamic(call);
+   }
+   let uris = uris_builder.aggregate3().await?;
+
+   if owners.len() != refs.len() || uris.len() != refs.len() {
+      anyhow::bail!(
+         "multicall returned {} owners and {} uris for {} refs",
+         owners.len(),
+         uris.len(),
+         refs.len()
+      );
+   }
+
+   let lookups = owners
+      .into_iter()
+      .zip(uris)
+      .map(|(owner, uri)| Erc721Lookup {
+         owner: owner.ok(),
+         token_uri: uri.ok().filter(|uri| !uri.trim().is_empty()),
+      })
+      .collect();
+
+   Ok(lookups)
+}
+
+/// Batched ERC-1155 `balanceOf(owner, id)` in one Multicall3 aggregate.
+///
+/// Returns `(collection, id, balance)` for the calls that succeeded, in request order. An
+/// ERC-1155 contract answers even for an id the owner holds none of, so a *failed* call means the
+/// address is not ERC-1155 (or the contract rejected the call) and the entry is omitted — the same
+/// convention as [`get_erc20_allowances`]. A returned `0` is a real zero balance.
+pub async fn get_erc1155_balances<P, N>(
+   client: P,
+   owner: Address,
+   refs: Vec<NftRef>,
+   block: Option<BlockId>,
+) -> Result<Vec<(Address, U256, U256)>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   if refs.is_empty() {
+      return Ok(Vec::new());
+   }
+
+   let block = block.unwrap_or(BlockId::latest());
+
+   let mut builder = client.multicall().dynamic::<IERC1155::balanceOfCall>().block(block);
+   for (collection, id) in &refs {
+      let input = Bytes::from(
+         IERC1155::balanceOfCall {
+            account: owner,
+            id: *id,
+         }
+         .abi_encode(),
+      );
+      let call = CallItem::<IERC1155::balanceOfCall>::new(*collection, input).allow_failure(true);
+      builder = builder.add_call_dynamic(call);
+   }
+
+   let results = builder.aggregate3().await?;
+   let mut out = Vec::with_capacity(results.len());
+
+   for (i, result) in results.into_iter().enumerate() {
+      if let Ok(balance) = result {
+         let (collection, id) = refs[i];
+         out.push((collection, id, balance));
+      }
+   }
+
+   Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
    use super::*;
    use alloy_primitives::address;
    use alloy_provider::ProviderBuilder;
 
+   /// Live check of the batched NFT helpers. Ignored by default — see `crate::test_utils`.
+   #[tokio::test]
+   #[ignore = "needs an RPC that serves eth_call"]
+   async fn batched_nft_lookups_against_mainnet() {
+      let client = ProviderBuilder::new().connect_http(crate::test_utils::rpc_url());
+      let bayc = address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D");
+
+      // Two real tokens and one nonexistent: a revert must land as `None` in its own slot rather
+      // than shifting or dropping the neighbours.
+      let refs = vec![
+         (bayc, U256::from(1)),
+         (bayc, U256::from(9999)),
+         (bayc, U256::from(1_000_000_000)),
+      ];
+      let lookups = get_erc721_owners_and_uris(client.clone(), refs, None).await.unwrap();
+
+      assert_eq!(
+         lookups.len(),
+         3,
+         "results must stay aligned with the request"
+      );
+      assert_eq!(
+         lookups[0].owner,
+         Some(address!(
+            "46efbaedc92067e6d60e84ed6395099723252496"
+         ))
+      );
+      assert_eq!(
+         lookups[1].owner,
+         Some(address!(
+            "37f11f9d0749a053dfe6243a4c1d294ea293ec12"
+         ))
+      );
+      assert_eq!(
+         lookups[2].owner, None,
+         "a nonexistent token must be None"
+      );
+      assert!(
+         lookups[0].token_uri.as_deref().is_some_and(|uri| uri.starts_with("ipfs://")),
+         "tokenURI(1) should resolve to ipfs"
+      );
+
+      // ERC-1155: an owner holding none still gets an entry with a real zero, not an omission.
+      let storefront = address!("495f947276749Ce646f68AC8c248420045cb7b5e");
+      let vitalik = address!("d8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+      let balances = get_erc1155_balances(
+         client,
+         vitalik,
+         vec![(storefront, U256::from(1))],
+         None,
+      )
+      .await
+      .unwrap();
+      assert_eq!(
+         balances,
+         vec![(storefront, U256::from(1), U256::ZERO)]
+      );
+   }
+
    /// Requires a local anvil: `anvil --port 8545`
    #[tokio::test]
+   #[ignore = "needs a local anvil on 127.0.0.1:8545"]
    async fn storage_reader_override_roundtrip() {
       let url = "http://127.0.0.1:8545";
       let client = ProviderBuilder::new().connect_http(url.parse().unwrap());

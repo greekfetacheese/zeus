@@ -518,12 +518,11 @@ impl UniswapV3Pool {
 mod tests {
    use super::*;
    use alloy_provider::ProviderBuilder;
-   use url::Url;
 
    #[tokio::test]
+   #[ignore = "needs an RPC that serves eth_call"]
    async fn swap_result() {
-      let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
+      let client = ProviderBuilder::new().connect_http(crate::test_utils::rpc_url());
 
       let mut pool = UniswapV3Pool::usdt_uni();
       pool.update_state(client.clone(), None).await.unwrap();
@@ -555,9 +554,9 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "needs an RPC that serves eth_call"]
    async fn price_calculation() {
-      let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
+      let client = ProviderBuilder::new().connect_http(crate::test_utils::rpc_url());
 
       let mut pool = UniswapV3Pool::usdt_uni();
       pool.update_state(client.clone(), None).await.unwrap();

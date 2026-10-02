@@ -139,38 +139,37 @@ where
 mod tests {
    use super::*;
    use alloy_provider::ProviderBuilder;
-   use url::Url;
 
    #[tokio::test]
+   #[ignore = "needs an RPC that serves eth_call"]
    async fn test_get_eth_price() {
-      let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
+      let client = ProviderBuilder::new().connect_http(crate::test_utils::rpc_url());
       let price = get_eth_price(client, 1, None).await.unwrap();
       eprintln!("ETH Price: {}", price);
    }
 
    #[tokio::test]
+   #[ignore = "needs an RPC that serves eth_call"]
    async fn test_get_usdc_price() {
-      let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
+      let client = ProviderBuilder::new().connect_http(crate::test_utils::rpc_url());
       let token = ERC20Token::usdc();
       let price = get_stablecoin_price(client, token, None).await.unwrap();
       eprintln!("USDC Price: {}", price);
    }
 
    #[tokio::test]
+   #[ignore = "needs an RPC that serves eth_call"]
    async fn test_get_usdt_price() {
-      let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
+      let client = ProviderBuilder::new().connect_http(crate::test_utils::rpc_url());
       let token = ERC20Token::usdt();
       let price = get_stablecoin_price(client, token, None).await.unwrap();
       eprintln!("USDT Price: {}", price);
    }
 
    #[tokio::test]
+   #[ignore = "needs an RPC that serves eth_call"]
    async fn test_get_dai_price() {
-      let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
+      let client = ProviderBuilder::new().connect_http(crate::test_utils::rpc_url());
       let token = ERC20Token::dai();
       let price = get_stablecoin_price(client, token, None).await.unwrap();
       eprintln!("DAI Price: {}", price);
