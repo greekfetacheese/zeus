@@ -520,6 +520,108 @@ impl ConnectedDapps {
    }
 }
 
+/// One app's accounts: the one it currently sees, plus every one it has been
+/// given before.
+///
+/// An app is given a dedicated account so it cannot correlate the user's
+/// activity with apps connected to other accounts. Every account the app was
+/// given is kept, not just the latest, because the app still knows the earlier
+/// ones — the connect prompt has to be able to say "this wallet has been
+/// connected to this app before" for each of them, not only for the last.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DappConnection {
+   /// The account handed out the next time this app connects.
+   current: Address,
+   /// Every account this app has been given, in the order they were given.
+   seen: Vec<Address>,
+}
+
+impl DappConnection {
+   fn new(address: Address) -> Self {
+      Self {
+         current: address,
+         seen: vec![address],
+      }
+   }
+
+   /// Make `address` the account the app currently sees, remembering it if the
+   /// app has not been given it before.
+   fn record(&mut self, address: Address) {
+      self.current = address;
+
+      if !self.seen.contains(&address) {
+         self.seen.push(address);
+      }
+   }
+
+   pub fn current(&self) -> Address {
+      self.current
+   }
+
+   /// Every account this app has been given, oldest first.
+   pub fn seen(&self) -> &[Address] {
+      &self.seen
+   }
+
+   /// Drop accounts that are no longer wallets, and answer whether any are left.
+   ///
+   /// The account the app currently sees moves to the most recent one it still
+   /// has, so an app is never remembered against a deleted wallet.
+   fn retain_wallets(&mut self, wallets: &HashSet<Address>) -> bool {
+      self.seen.retain(|address| wallets.contains(address));
+
+      if self.seen.is_empty() {
+         return false;
+      }
+
+      if !wallets.contains(&self.current) {
+         self.current = *self.seen.last().expect("seen is not empty");
+      }
+
+      true
+   }
+}
+
+/// The accounts Zeus exposed to each app, keyed by the app origin.
+///
+/// The mapping outlives a disconnect: reconnecting an app should offer the
+/// account it had before rather than whichever account happens to be selected
+/// at the time.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DappAccounts {
+   pub accounts: HashMap<String, DappConnection>,
+}
+
+impl DappAccounts {
+   /// The account `origin` currently sees.
+   pub fn get(&self, origin: &str) -> Option<Address> {
+      self.accounts.get(origin).map(DappConnection::current)
+   }
+
+   /// Every account `origin` has been given, oldest first.
+   pub fn seen(&self, origin: &str) -> &[Address] {
+      self.accounts.get(origin).map_or(&[], DappConnection::seen)
+   }
+
+   /// Record that `origin` was connected with `address`, making it the account
+   /// the app sees from now on and adding it to the ones the app was given.
+   pub fn record(&mut self, origin: &str, address: Address) {
+      self
+         .accounts
+         .entry(origin.to_string())
+         .and_modify(|connection| connection.record(address))
+         .or_insert_with(|| DappConnection::new(address));
+   }
+
+   /// Forget every account that is no longer a wallet, dropping origins left
+   /// with none. Returns the number of origins forgotten.
+   pub fn retain_wallets(&mut self, wallets: &HashSet<Address>) -> usize {
+      let before = self.accounts.len();
+      self.accounts.retain(|_, connection| connection.retain_wallets(wallets));
+      before - self.accounts.len()
+   }
+}
+
 /// Holds addresses that are delegated to a smart contract
 #[derive(Debug, Clone)]
 pub struct DelegatedWallets {

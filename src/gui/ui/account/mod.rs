@@ -20,16 +20,31 @@ use crate::gui::{
    ui::{ChainSelect, WalletSelect, common::*},
 };
 use crate::utils::RT;
-use egui::{Align, CursorIcon, Layout, Margin, OpenUrl, RichText, Ui, vec2};
+use egui::{
+   Align, CursorIcon, Layout, Margin, OpenUrl, RichText, ScrollArea, TextWrapMode, Ui, vec2,
+};
 use std::sync::Arc;
 use zeus_eth::types::ChainId;
 
-use egui_elements::{Button, Theme, visuals::ButtonVisuals};
+use egui_elements::{Button, Label, Theme, visuals::ButtonVisuals};
 use egui_lucide::Lucide;
 use elegance::{Badge, BadgeTone, Indicator, IndicatorState, Menu, MenuItem, TabBar};
 
 const DELEGATE_TIP1: &str = "This wallet has been temporarily upgraded to a smart contract";
 const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
+
+/// `https://app.uniswap.org` → `app.uniswap.org`; the account panel is narrow.
+fn short_origin(origin: &str) -> &str {
+   let host = origin.split_once("://").map_or(origin, |(_, host)| host);
+   host.trim_end_matches('/')
+}
+
+/// Width of the panel's rows. The selectors set it; everything else matches it so
+/// no row can stretch the panel past the sidebar.
+const PANEL_ROW_WIDTH: f32 = 220.0;
+
+/// Tallest the app list grows before it scrolls; it shrinks to fit a short list.
+const DAPP_LIST_MAX_HEIGHT: f32 = 40.0;
 
 /// The account panel, shown at the top of the left sidebar
 ///
@@ -57,8 +72,8 @@ impl AccountPanel {
    pub fn new() -> Self {
       let overview_size = (260.0, 250.0);
 
-      let chain_select = ChainSelect::new("main_chain_select", 1).size(vec2(220.0, 20.0));
-      let wallet_select = WalletSelect::new("main_wallet_select").size(vec2(220.0, 20.0));
+      let chain_select = ChainSelect::new("main_chain_select", 1).size(vec2(PANEL_ROW_WIDTH, 20.0));
+      let wallet_select = WalletSelect::new("main_wallet_select").size(vec2(PANEL_ROW_WIDTH, 20.0));
 
       Self {
          open: false,
@@ -248,6 +263,47 @@ impl AccountPanel {
       });
 
       privacy_mode_switch(ctx, theme, ui);
+
+      // The apps this account is exposed to, last so it never pushes the fixed
+      // rows around. A dedicated account stops being self-explanatory once it is
+      // no longer the selected one, and the panel is narrow, so the list scrolls
+      // rather than growing the panel.
+      let used_by: Vec<String> = ctx
+         .connected_dapps()
+         .into_iter()
+         .filter(|origin| ctx.dapp_account(origin) == Some(wallet.address))
+         .collect();
+
+      if !used_by.is_empty() {
+         // Box width must match the panel's other rows: filling the panel's max
+         // width instead widens the frame past the sidebar.
+         let list_size = vec2(PANEL_ROW_WIDTH, DAPP_LIST_MAX_HEIGHT);
+
+         ui.allocate_ui(list_size, |ui| {
+            let text = RichText::new("Connected dApps (Public Mode)").size(theme.typography.small);
+            ui.label(text);
+
+            ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
+               ui.spacing_mut().item_spacing.y = theme.spacing.xs;
+
+               for origin in &used_by {
+                  let text = RichText::new(short_origin(origin))
+                     .size(theme.typography.small)
+                     .color(theme.colors.text_muted);
+                  let icon = Lucide::Link.size(14.0).color(theme.colors.text_muted).image();
+
+                  // Truncate rather than wrap: a long domain must not widen the row.
+                  ui.add(
+                     Label::new(text, Some(icon))
+                        .image_on_left()
+                        .wrap_mode(TextWrapMode::Truncate)
+                        .interactive(false),
+                  )
+                  .on_hover_text(RichText::new(origin).size(theme.typography.small));
+               }
+            });
+         });
+      }
    }
 
    /// Services tab

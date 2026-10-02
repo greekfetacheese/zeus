@@ -1,9 +1,14 @@
+use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
-use crate::gui::{GUI, ui::dapps::railgun::RailgunMode};
+use crate::gui::{
+   GUI,
+   ui::{common::wallet_identity, dapps::railgun::RailgunMode},
+};
 use eframe::egui::{Id, Order, RichText, ScrollArea, Ui, vec2};
-use egui::{FontId, Margin, Shadow, Stroke};
+use egui::{Align, FontId, Layout, Margin, Shadow, Stroke};
 use egui_elements::{Button, Frame as Frame2, Label, Modal, SecureTextEdit, Theme};
 use egui_lucide::Lucide;
+use std::sync::Arc;
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let privacy_mode = ctx.privacy_mode;
@@ -340,7 +345,7 @@ impl ConnectedDappsUi {
    pub fn new() -> Self {
       Self {
          open: false,
-         size: (300.0, 400.0),
+         size: (450.0, 400.0),
       }
    }
 
@@ -355,14 +360,13 @@ impl ConnectedDappsUi {
       self.open
    }
 
-   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
 
       let mut open = self.open;
-      let button_visuals = theme.button_visuals();
-      let text_edit_visuals = theme.text_edit_visuals();
+      let chain_id = ctx.chain.id();
 
       let title = RichText::new("Connected Dapps").size(theme.typography.heading);
       let id = Id::new("connected_dapps_window");
@@ -381,41 +385,76 @@ impl ConnectedDappsUi {
             ui.set_max_width(self.size.0);
             ui.set_max_height(self.size.1);
 
-            let mut dapps = ctx.connected_dapps();
+            let dapps = ctx.connected_dapps();
             let dapps_are_empty = dapps.is_empty();
+
+            let small = theme.typography.small;
+            let normal = theme.typography.normal;
 
             ui.scope(|ui| {
                ui.vertical_centered(|ui| {
                   if dapps_are_empty {
-                     ui.label(RichText::new("No connected dapps").size(theme.typography.normal));
+                     ui.label(RichText::new("No connected dapps").size(normal));
                      return;
                   }
                });
             });
 
             if !dapps_are_empty {
-               let text = RichText::new("Disconnect all").size(theme.typography.normal);
-               let button = Button::new(text).visuals(button_visuals);
+               let text = RichText::new("Disconnect all").size(normal);
+               let button = Button::new(text);
                if ui.add(button).clicked() {
                   ctx.disconnect_all_dapps();
                }
             }
 
-            ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
-               for dapp in dapps.iter_mut() {
-                  ui.horizontal(|ui| {
-                     let edit = SecureTextEdit::singleline(dapp)
-                        .visuals(text_edit_visuals)
-                        .min_size(vec2(ui.available_width() * 0.10, 25.0))
-                        .margin(Margin::same(10))
-                        .font(FontId::proportional(theme.typography.normal));
-                     ui.add(edit);
+            ScrollArea::vertical().content_margin(5).auto_shrink([false; 2]).show(ui, |ui| {
+               for dapp in dapps.iter() {
+                  let account = ctx.dapp_account(dapp);
 
-                     let text = RichText::new("Disconnect").size(theme.typography.normal);
-                     let button =
-                        Button::new(text).visuals(button_visuals).min_size(vec2(50.0, 25.0));
-                     if ui.add(button).clicked() {
-                        ctx.disconnect_dapp(&dapp);
+                  theme.frame2.show(ui, |ui| {
+                     ui.set_min_width(ui.available_width());
+                     ui.spacing_mut().item_spacing.y = theme.spacing.sm;
+
+                     ui.horizontal(|ui| {
+                        // Disconnect goes first in a right-to-left pass so the origin
+                        // field takes exactly the width left over. Sizing the field
+                        // from the row instead of its own content is what keeps a long
+                        // origin from widening the card — and with it the modal, whose
+                        // centered title is measured against the intended width.
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                           let text = RichText::new("Disconnect").size(normal);
+                           let button = Button::new(text);
+                           if ui.add(button).clicked() {
+                              ctx.disconnect_dapp(dapp);
+                           }
+
+                           let edit_margin = Margin::same(10);
+                           let inner = (ui.available_width() - edit_margin.sum().x).max(24.0);
+
+                           let mut origin = dapp.clone();
+                           let edit = SecureTextEdit::singleline(&mut origin)
+                              .desired_width(inner)
+                              // Without this the field grows with its text.
+                              .clip_text(true)
+                              .margin(edit_margin)
+                              .font(FontId::proportional(normal));
+
+                           ui.add(edit).on_hover_text(RichText::new(dapp).size(small));
+                        });
+                     });
+
+                     // The account this app was given. Without it there is no way
+                     // to tell which account belongs to which app once the app's
+                     // account is no longer the selected one.
+                     if let Some(account) = account {
+                        ui.add(wallet_identity(
+                           ctx,
+                           chain_id,
+                           account,
+                           theme,
+                           icons.clone(),
+                        ));
                      }
                   });
                }

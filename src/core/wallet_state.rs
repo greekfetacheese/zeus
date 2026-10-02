@@ -12,7 +12,7 @@ use crate::core::context::{
    ApprovalManagerHandle, BalanceManagerHandle, DiscoveredWallets, PortfolioDB, TxDBHandle,
 };
 use crate::core::persisted::{PersistedFile, file_path};
-use crate::core::types::Contact;
+use crate::core::types::{Contact, DappAccounts};
 use crate::utils::write_private_atomic;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -49,6 +49,9 @@ pub struct WalletStateInner {
 
    #[serde(default)]
    pub discovered_wallets: DiscoveredWallets,
+
+   #[serde(default)]
+   pub dapp_accounts: DappAccounts,
 }
 
 impl Default for WalletStateInner {
@@ -60,6 +63,7 @@ impl Default for WalletStateInner {
          tx_db: TxDBHandle::new(),
          approval_manager: ApprovalManagerHandle::new(),
          discovered_wallets: DiscoveredWallets::new(),
+         dapp_accounts: DappAccounts::default(),
       }
    }
 }
@@ -184,6 +188,74 @@ mod tests {
       let loaded: WalletStateInner = key.open_json(&sealed, WALLET_STATE_AAD).unwrap();
       assert!(loaded.contacts.is_empty());
       assert!(key.open_json::<WalletStateInner>(&sealed, b"wrong-aad").is_err());
+   }
+
+   #[test]
+   fn dapp_accounts_survive_a_roundtrip() {
+      let key = WalletStateKey::generate().unwrap();
+      let origin = "https://app.uniswap.org";
+      let address = zeus_eth::alloy_primitives::Address::from([0x11u8; 20]);
+
+      let mut inner = WalletStateInner::default();
+      inner.dapp_accounts.record(origin, address);
+
+      let sealed = key.seal_json(&inner, WALLET_STATE_AAD).unwrap();
+      let loaded: WalletStateInner = key.open_json(&sealed, WALLET_STATE_AAD).unwrap();
+      assert_eq!(loaded.dapp_accounts.get(origin), Some(address));
+      assert_eq!(loaded.dapp_accounts.seen(origin), [address]);
+   }
+
+   /// An app keeps every account it was given, so a later connection does not
+   /// erase the earlier ones the app already knows about.
+   #[test]
+   fn dapp_accounts_keep_every_account_an_app_was_given() {
+      let origin = "https://app.uniswap.org";
+      let (first, second) = (
+         zeus_eth::alloy_primitives::Address::from([0x11u8; 20]),
+         zeus_eth::alloy_primitives::Address::from([0x22u8; 20]),
+      );
+
+      let mut accounts = DappAccounts::default();
+      assert!(accounts.seen(origin).is_empty());
+
+      accounts.record(origin, first);
+      accounts.record(origin, second);
+      assert_eq!(accounts.get(origin), Some(second));
+      assert_eq!(accounts.seen(origin), [first, second]);
+
+      // Switching back to the first: last used wins, history does not grow.
+      accounts.record(origin, first);
+      assert_eq!(accounts.get(origin), Some(first));
+      assert_eq!(accounts.seen(origin), [first, second]);
+   }
+
+   /// A deleted wallet is forgotten, and an origin that loses every account is
+   /// dropped so a reconnect is offered a fresh account instead of a dead one.
+   #[test]
+   fn dapp_accounts_forget_deleted_wallets() {
+      let origin = "https://app.uniswap.org";
+      let (live, deleted) = (
+         zeus_eth::alloy_primitives::Address::from([0x11u8; 20]),
+         zeus_eth::alloy_primitives::Address::from([0x22u8; 20]),
+      );
+
+      let mut accounts = DappAccounts::default();
+      accounts.record(origin, live);
+      accounts.record(origin, deleted);
+      assert_eq!(accounts.get(origin), Some(deleted));
+
+      // The deleted account is dropped; the still-live one is remembered again.
+      let wallets = std::collections::HashSet::from([live]);
+      assert_eq!(accounts.retain_wallets(&wallets), 0);
+      assert_eq!(accounts.get(origin), Some(live));
+      assert_eq!(accounts.seen(origin), [live]);
+
+      // No accounts left -> the origin is forgotten entirely.
+      assert_eq!(
+         accounts.retain_wallets(&std::collections::HashSet::new()),
+         1
+      );
+      assert!(accounts.get(origin).is_none());
    }
 
    #[test]

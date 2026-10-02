@@ -8,7 +8,7 @@ use egui_elements::{Button, Label, Modal, Theme};
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::FormattedValue;
 use crate::core::{SignMsgType, ZeusContext};
-use crate::gui::ui::common::delayed_action_label;
+use crate::gui::ui::common::{delayed_action_label, wallet_identity};
 use crate::gui::ui::tx::{address, chain};
 
 use serde_json::{Value, to_string_pretty};
@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use zeus_eth::{
    alloy_dyn_abi::{Eip712Types, TypedData},
-   alloy_primitives::U256,
+   alloy_primitives::{Address, U256},
    types::ChainId,
 };
 
@@ -25,6 +25,8 @@ pub struct SignMsgWindow {
    open: bool,
    dapp: String,
    chain: ChainId,
+   /// Account that will produce the signature.
+   account: Address,
    msg: Option<SignMsgType>,
    formatted_msg: Option<String>,
    signed: Option<bool>,
@@ -38,6 +40,7 @@ impl SignMsgWindow {
          open: false,
          dapp: String::new(),
          chain: ChainId::default(),
+         account: Address::ZERO,
          msg: None,
          formatted_msg: None,
          signed: None,
@@ -50,9 +53,10 @@ impl SignMsgWindow {
       self.open
    }
 
-   pub fn open(&mut self, dapp: String, chain: u64, msg: SignMsgType) {
+   pub fn open(&mut self, dapp: String, chain: u64, msg: SignMsgType, account: Address) {
       self.dapp = dapp;
       self.chain = chain.into();
+      self.account = account;
       self.open = true;
       self.msg = Some(msg);
       self.formatted_msg = None;
@@ -95,7 +99,14 @@ impl SignMsgWindow {
             ui.set_width(self.size.0);
             ui.set_max_height(self.size.1);
 
-            let button_visuals = theme.button_visuals();
+            let frame2 = theme.frame2;
+
+            let normal = theme.typography.normal;
+            let large = theme.typography.large;
+            let heading = theme.typography.heading;
+
+            let warning = theme.colors.warning;
+            let error = theme.colors.error;
 
             Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
                ui.vertical_centered(|ui| {
@@ -111,12 +122,29 @@ impl SignMsgWindow {
 
                   let msg = msg.unwrap();
 
-                  ui.label(RichText::new(&self.dapp).size(theme.typography.large));
+                  frame2.show(ui, |ui| {
+                     ui.label(RichText::new(&self.dapp).size(large));
+
+                     ui.separator();
+
+                     // The signing account may differ from the active one (apps get
+                     // their own account), so always show which account signs. This is
+                     // an identity line under the origin rather than a labelled data
+                     // row: it belongs with "who is asking", not with the message
+                     // fields, and the address stays verifiable next to the name.
+                     ui.add(wallet_identity(
+                        ctx,
+                        self.chain.id(),
+                        self.account,
+                        theme,
+                        icons.clone(),
+                     ));
+                  });
 
                   let frame = theme.frame2;
                   let frame_size = vec2(ui.available_width(), 45.0);
 
-                  let mut heading = RichText::new(msg.title()).size(theme.typography.heading);
+                  let mut heading = RichText::new(msg.title()).size(heading);
 
                   let is_unlimited = if msg.is_permit2_single() {
                      msg.permit2_details().is_unlimited()
@@ -127,15 +155,14 @@ impl SignMsgWindow {
                   };
 
                   if is_unlimited {
-                     heading = heading.color(theme.colors.error);
+                     heading = heading.color(error);
                   }
 
                   ui.label(heading);
 
                   if msg.is_other() {
                      let p = "Unknown message, review the details below carefully.";
-                     let text =
-                        RichText::new(p).size(theme.typography.normal).color(theme.colors.warning);
+                     let text = RichText::new(p).size(normal).color(warning);
                      ui.label(text);
                   }
 
@@ -174,11 +201,11 @@ impl SignMsgWindow {
                   // Show the msg
                   if let Some(mut formatted) = self.formatted_msg.clone() {
                      let text_edit = TextEdit::multiline(&mut formatted)
-                        .font(FontId::proportional(theme.typography.normal))
+                        .font(FontId::proportional(normal))
                         .margin(Margin::same(10))
                         .desired_width(ui.available_width() * 0.95);
 
-                     ui.label(RichText::new("Message").size(theme.typography.large));
+                     ui.label(RichText::new("Message").size(large));
 
                      let height = if msg.is_known() { 300.0 } else { 450.0 };
                      ScrollArea::vertical().max_height(height).content_margin(5).show(ui, |ui| {
@@ -198,18 +225,17 @@ impl SignMsgWindow {
                         if !sign_ready {
                            ui.ctx().request_repaint_after(Duration::from_millis(100));
                         }
-                        let text = RichText::new(sign_label).size(theme.typography.normal);
-                        let ok_btn =
-                           Button::new(text).min_size(button_size).visuals(button_visuals);
+
+                        let text = RichText::new(sign_label).size(normal);
+                        let ok_btn = Button::new(text).min_size(button_size);
 
                         if ui.add_enabled(sign_ready, ok_btn).clicked() {
                            self.signed = Some(true);
                            self.close();
                         }
 
-                        let text = RichText::new("Cancel").size(theme.typography.normal);
-                        let cancel_btn =
-                           Button::new(text).min_size(button_size).visuals(button_visuals);
+                        let text = RichText::new("Cancel").size(normal);
+                        let cancel_btn = Button::new(text).min_size(button_size);
 
                         if ui.add(cancel_btn).clicked() {
                            self.reset();

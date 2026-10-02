@@ -17,6 +17,7 @@ pub use crate::gui::ui::{
    common::dots_button,
    dapps::{
       across::AcrossBridge,
+      connect::{ConnectDappWindow, DappAccountChoice, DappConnectResult},
       railgun::{MergeNotesWindow, ShieldUi},
       uniswap::UniswapUi,
    },
@@ -89,6 +90,7 @@ pub struct GUI {
    pub tx_history: TxHistory,
    pub data_inspection: bool,
    pub confirm_window: ConfirmWindow,
+   pub connect_dapp_window: ConnectDappWindow,
    pub tx_confirmation_window: TxConfirmationWindow,
    pub tx_window: TxWindow,
    pub spent_note_window: SpentNoteWindow,
@@ -114,6 +116,7 @@ impl GUI {
       let msg_window = ui::MsgWindow::new();
       let loading_window = ui::LoadingWindow::new();
       let confirm_window = ui::common::ConfirmWindow::new();
+      let connect_dapp_window = ConnectDappWindow::new();
       let tx_confirmation_window = TxConfirmationWindow::new();
       let tx_window = TxWindow::new();
       let spent_note_window = SpentNoteWindow::new();
@@ -158,6 +161,7 @@ impl GUI {
          tx_history,
          data_inspection: false,
          confirm_window,
+         connect_dapp_window,
          tx_confirmation_window,
          tx_window,
          spent_note_window,
@@ -202,6 +206,7 @@ impl GUI {
       self.msg_window.show(theme, ui);
       self.loading_window.show(theme, ui);
       self.confirm_window.show(theme, ui);
+      self.connect_dapp_window.show(theme, ui);
       self.update_window.show(theme, ui);
    }
 

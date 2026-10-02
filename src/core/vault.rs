@@ -163,6 +163,7 @@ impl VaultData {
          tx_db: self.tx_db.take().unwrap_or_else(TxDBHandle::new),
          approval_manager: self.approval_manager.take().unwrap_or_else(ApprovalManagerHandle::new),
          discovered_wallets: self.discovered_wallets.take().unwrap_or_else(DiscoveredWallets::new),
+         dapp_accounts: Default::default(),
       })
    }
 }

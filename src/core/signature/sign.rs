@@ -18,11 +18,13 @@ pub async fn sign_message(
    msg_bytes: Option<Vec<u8>>,
    signer: Option<Address>,
 ) -> Result<Signature, anyhow::Error> {
+   let signer_address = signer.unwrap_or_else(|| ctx.current_wallet_info().address);
+
    let msg_type = SignMsgType::new(ctx.clone(), chain.id(), msg_value, msg_bytes).await?;
 
    SHARED_GUI.write(|gui| {
       gui.loading_window.reset();
-      gui.sign_msg_window.open(dapp, chain.id(), msg_type.clone());
+      gui.sign_msg_window.open(dapp, chain.id(), msg_type.clone(), signer_address);
       gui.bring_to_front();
    });
 
@@ -49,11 +51,7 @@ pub async fn sign_message(
       ));
    }
 
-   let wallet = if let Some(address) = signer {
-      ctx.get_wallet(address).ok_or(anyhow::anyhow!("Wallet not found"))?
-   } else {
-      ctx.get_current_wallet()
-   };
+   let wallet = ctx.get_wallet(signer_address).ok_or(anyhow::anyhow!("Wallet not found"))?;
    let signature = msg_type.sign(wallet.key).await?;
 
    SHARED_GUI.write(|gui| {

@@ -209,17 +209,20 @@ pub fn cleanup_orphaned_wallet_data(ctx: ZeusCtx) {
       portfolio_removed,
       approval_token_removed,
       approval_permit_removed,
+      dapp_accounts_removed,
    ) = ctx.write_wallet_state(|ws| {
       let (eth_removed, token_removed) = ws.balance_manager.retain_wallets(&wallets);
       let portfolio_removed = ws.portfolio_db.retain_wallets(&wallets);
       let (approval_token_removed, approval_permit_removed) =
          ws.approval_manager.retain_wallets(&wallets);
+      let dapp_accounts_removed = ws.dapp_accounts.retain_wallets(&wallets);
       (
          eth_removed,
          token_removed,
          portfolio_removed,
          approval_token_removed,
          approval_permit_removed,
+         dapp_accounts_removed,
       )
    });
    let tx_removed = ctx.tx_db().retain_wallets(&wallets);
@@ -229,16 +232,18 @@ pub fn cleanup_orphaned_wallet_data(ctx: ZeusCtx) {
       + portfolio_removed
       + tx_removed
       + approval_token_removed
-      + approval_permit_removed;
+      + approval_permit_removed
+      + dapp_accounts_removed;
    if total > 0 {
       info!(
-         "Cleaned orphaned wallet data: {} eth balances, {} token balances, {} portfolios, {} tx histories, {} token approvals, {} permits",
+         "Cleaned orphaned wallet data: {} eth balances, {} token balances, {} portfolios, {} tx histories, {} token approvals, {} permits, {} dapp accounts",
          eth_removed,
          token_removed,
          portfolio_removed,
          tx_removed,
          approval_token_removed,
-         approval_permit_removed
+         approval_permit_removed,
+         dapp_accounts_removed
       );
    } else {
       debug!("No orphaned wallet data to clean");

@@ -6,7 +6,7 @@ use crate::core::{
    SendTxOptions, SendTxRequest, TransactionRich, WalletCall, ZeusCtx, send_transaction,
    send_wallet_calls, sign_message,
 };
-use crate::gui::SHARED_GUI;
+use crate::gui::{DappAccountChoice, DappConnectResult, SHARED_GUI};
 use crate::utils::RT;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -77,12 +77,14 @@ pub const UNAUTHORIZED: i32 = 4100;
 pub const UNSUPPORTED_METHOD: i32 = 4200;
 pub const DISCONNECTED: i32 = 4900;
 pub const CHAIN_DISCONNECTED: i32 = 4901;
-/// EIP-1193 / MetaMask: unknown chain on wallet_switchEthereumChain
+/// unknown chain on wallet_switchEthereumChain
 pub const UNRECOGNIZED_CHAIN: i32 = 4902;
 
 // JSON-RPC Error Codes
 pub const INVALID_PARAMS: i32 = -32602;
 pub const INTERNAL_ERROR: i32 = -32603;
+/// another request is already pending (e.g. a connect prompt).
+pub const RESOURCE_UNAVAILABLE: i32 = -32002;
 
 /// Type of a request we expect to receive from the extension/dapp
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -274,6 +276,7 @@ impl JsonRpcError {
          UNRECOGNIZED_CHAIN => Self::unrecognized_chain(),
          INVALID_PARAMS => Self::invalid_params(),
          INTERNAL_ERROR => Self::internal_error(),
+         RESOURCE_UNAVAILABLE => Self::resource_unavailable(),
          _ => Self::internal_error(),
       }
    }
@@ -282,6 +285,14 @@ impl JsonRpcError {
       Self {
          code: INVALID_PARAMS,
          message: "Invalid Params".to_string(),
+         data: None,
+      }
+   }
+
+   pub fn resource_unavailable() -> Self {
+      Self {
+         code: RESOURCE_UNAVAILABLE,
+         message: "Resource Unavailable".to_string(),
          data: None,
       }
    }
@@ -591,20 +602,33 @@ async fn wait_for_user_confirm() -> bool {
    }
 }
 
+/// The payload of `GET /status`.
+///
+/// Carries no accounts on purpose: an app's account is resolved per-origin, so
+/// the global active account must never appear here (see `dapp_account`).
+fn status_payload(chain_hex: String, connected_origins: Vec<String>) -> Value {
+   json!({
+       "status": true,
+       "chainId": chain_hex,
+       "connectedOrigins": connected_origins,
+   })
+}
+
 // Handler for GET /status
 async fn status_handler(ctx: ZeusCtx) -> Result<impl warp::Reply, Infallible> {
-   let chain = ctx.chain().id_as_hex();
-   let accounts = vec![ctx.current_wallet_info().address.to_string()];
-   let connected_origins = ctx.get_connected_dapps();
-
-   let res = json!({
-       "status": true,
-       "accounts": accounts,
-       "chainId": chain,
-       "connectedOrigins": connected_origins,
-   });
-
+   let res = status_payload(ctx.chain().id_as_hex(), ctx.get_connected_dapps());
    Ok(warp::reply::json(&res))
+}
+
+/// The account a connected app may see and transact with.
+///
+/// Each app is given its own account, so the answer is the one Zeus recorded
+/// when the app connected — not whichever account happens to be selected in the
+/// UI. A connection is only recorded once that account is persisted, so a
+/// connected origin always has one; the active-account fallback only covers an
+/// origin that has not connected (e.g. the default `from` of `eth_call`).
+fn dapp_account(ctx: &ZeusCtx, origin: &str) -> Address {
+   ctx.dapp_account(origin).unwrap_or_else(|| ctx.current_wallet_info().address)
 }
 
 fn request_accounts(
@@ -612,9 +636,8 @@ fn request_accounts(
    origin: &str,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let current_wallet = ctx.current_wallet_info().address;
    let result = if ctx.is_dapp_connected(origin) {
-      json!(vec![current_wallet.to_string()])
+      json!(vec![dapp_account(&ctx, origin).to_string()])
    } else {
       json!([])
    };
@@ -626,13 +649,13 @@ fn get_permissions(
    origin: &str,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let current_wallet = ctx.current_wallet_info().address.to_string();
    let result = if ctx.is_dapp_connected(origin) {
+      let account = dapp_account(&ctx, origin).to_string();
       json!([{
           "parentCapability": "eth_accounts",
           "caveats": [{
               "type": "restrictReturnedAccounts",
-              "value": [current_wallet]
+              "value": [account]
           }]
       }])
    } else {
@@ -722,30 +745,112 @@ async fn connect(
    payload: JsonRpcRequest,
    method: RequestMethod,
 ) -> Result<JsonRpcResponse, Infallible> {
-   SHARED_GUI.write(|gui| {
-      gui.confirm_window.open_from_dapp("Connect to Dapp");
-      gui.confirm_window.set_msg2(origin.clone());
+   let remembered = ctx.dapp_account(&origin);
+   let seen = ctx.dapp_seen_accounts(&origin);
+   let wallets = ctx.get_all_wallets_info();
+
+   // One prompt at a time: a second request would overwrite the first one's
+   // origin and chosen account, so refuse it while a decision is pending.
+   let busy = SHARED_GUI.write(|gui| {
+      if gui.connect_dapp_window.is_busy() {
+         return true;
+      }
+      gui.connect_dapp_window.open(origin.clone(), remembered, seen, wallets);
       gui.bring_to_front();
+      false
    });
 
-   if !wait_for_user_confirm().await {
+   if busy {
+      info!(
+         "Dapp {} asked to connect while another request is pending",
+         origin
+      );
       return Ok(JsonRpcResponse::error(
-         USER_REJECTED_REQUEST,
+         RESOURCE_UNAVAILABLE,
          payload.id,
       ));
    }
 
+   let mut decision = None;
+   loop {
+      tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+      SHARED_GUI.read(|gui| decision = gui.connect_dapp_window.get_result());
+      if decision.is_some() {
+         break;
+      }
+   }
+
+   SHARED_GUI.write(|gui| gui.connect_dapp_window.reset());
+
+   let choice = match decision {
+      Some(DappConnectResult::Approved(choice)) => choice,
+      _ => {
+         return Ok(JsonRpcResponse::error(
+            USER_REJECTED_REQUEST,
+            payload.id,
+         ));
+      }
+   };
+
+   let address = match choice {
+      DappAccountChoice::Existing(address) => address,
+      DappAccountChoice::NewAccount => {
+         SHARED_GUI.write(|gui| {
+            gui.loading_window.open("Creating a new account for this app");
+            gui.request_repaint();
+         });
+
+         let ctx_for_create = ctx.clone();
+         let created =
+            tokio::task::spawn_blocking(move || ctx_for_create.create_app_account()).await;
+
+         SHARED_GUI.write(|gui| {
+            gui.loading_window.reset();
+            gui.request_repaint();
+         });
+
+         match created {
+            Ok(Ok(address)) => address,
+            Ok(Err(e)) => {
+               error!("Failed to create app account: {:?}", e);
+               SHARED_GUI.write(|gui| {
+                  gui.msg_window.open(format!("Failed to create a new account: {}", e));
+                  gui.request_repaint();
+               });
+               return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
+            }
+            Err(e) => {
+               error!("Failed to create app account: {:?}", e);
+               return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
+            }
+         }
+      }
+   };
+
+   // Record the account before connecting: if it cannot be persisted, the app
+   // would be connected with no account and fall back to the active wallet.
+   if let Err(e) = ctx.set_dapp_account(&origin, address) {
+      SHARED_GUI.write(|gui| {
+         gui.msg_window.open(format!(
+            "Failed to save the account for this app: {}",
+            e
+         ));
+         gui.request_repaint();
+      });
+      return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
+   }
+
    ctx.connect_dapp(origin.clone());
 
-   let current_wallet = ctx.current_wallet_info().address.to_string();
+   let account = address.to_string();
 
    let result = match method {
-      RequestMethod::RequestAccounts => Some(json!(vec![current_wallet])),
+      RequestMethod::RequestAccounts => Some(json!(vec![account])),
       RequestMethod::WalletRequestPermissions => Some(json!([{
           "parentCapability": "eth_accounts",
           "caveats": [{
               "type": "restrictReturnedAccounts",
-              "value": [current_wallet]
+              "value": [account]
           }]
       }])),
       _ => Some(json!([])),
@@ -1128,7 +1233,11 @@ async fn eth_get_block_by_hash(
    Ok(JsonRpcResponse::ok(result, payload.id))
 }
 
-async fn eth_call(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcResponse, Infallible> {
+async fn eth_call(
+   ctx: ZeusCtx,
+   origin: &str,
+   payload: JsonRpcRequest,
+) -> Result<JsonRpcResponse, Infallible> {
    let params_object = match rpc_params_object(&payload.params, "eth_call") {
       Ok(object) => object,
       Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
@@ -1136,7 +1245,7 @@ async fn eth_call(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcRespon
 
    let call = match parse_rpc_tx_call(
       params_object,
-      ctx.current_wallet_info().address,
+      dapp_account(&ctx, origin),
       "eth_call",
    ) {
       Ok(call) => call,
@@ -1199,6 +1308,7 @@ async fn max_priority_fee_per_gas(
 
 async fn estimate_gas(
    ctx: ZeusCtx,
+   origin: &str,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
    let object = match rpc_params_object(&payload.params, "eth_estimateGas") {
@@ -1208,7 +1318,7 @@ async fn estimate_gas(
 
    let call = match parse_rpc_tx_call(
       object,
-      ctx.current_wallet_info().address,
+      dapp_account(&ctx, origin),
       "eth_estimateGas",
    ) {
       Ok(call) => call,
@@ -1251,14 +1361,18 @@ async fn eth_sign_typed_data_v4(
       }
    };
 
-   // The requested signer must be the connected account.
-   if let Some(Value::String(signer_str)) = payload.params.get(0) {
-      if let Ok(signer) = Address::from_str(signer_str) {
-         let current = ctx.current_wallet_info().address;
-         if signer != current {
-            return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id));
-         }
-      }
+   // The requested signer must be the account the app is connected to. The
+   // parameter is optional (some dapps omit it), but when present it has to
+   // name that account — signing uses it either way.
+   let expected = dapp_account(&ctx, &origin);
+   match payload.params.get(0) {
+      None => {}
+      Some(Value::String(signer_str)) => match Address::from_str(signer_str) {
+         Ok(signer) if signer == expected => {}
+         Ok(_) => return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id)),
+         Err(_) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
+      },
+      Some(_) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    }
 
    let chain = ctx.chain();
@@ -1268,7 +1382,7 @@ async fn eth_sign_typed_data_v4(
       chain,
       Some(typed_data_value),
       None,
-      None,
+      Some(expected),
    )
    .await
    {
@@ -1336,9 +1450,9 @@ async fn personal_sign(
       }
    };
 
-   // Ensure the address matches the current wallet
-   let current_wallet = ctx.current_wallet_info().address;
-   if address != current_wallet {
+   // The dapp may only sign with the account it is connected to.
+   let expected = dapp_account(&ctx, &origin);
+   if address != expected {
       return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id)); // Or a specific error like 4100
    }
 
@@ -1359,7 +1473,7 @@ async fn personal_sign(
       chain,
       None,
       Some(message_bytes),
-      None,
+      Some(expected),
    )
    .await
    {
@@ -1492,23 +1606,20 @@ async fn eth_send_transaction(
       Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
+   let expected = dapp_account(&ctx, &origin);
+
    let RpcTxCall {
       from,
       to: transact_to,
       data: call_data,
       value,
-   } = match parse_rpc_tx_call(
-      object,
-      ctx.current_wallet_info().address,
-      "eth_sendTransaction",
-   ) {
+   } = match parse_rpc_tx_call(object, expected, "eth_sendTransaction") {
       Ok(call) => call,
       Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
    // The dapp may only send from the account it is connected to.
-   let current = ctx.current_wallet_info().address;
-   if from != current {
+   if from != expected {
       return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id));
    }
 
@@ -1709,9 +1820,9 @@ fn parse_wallet_call(
 fn parse_wallet_send_calls(
    ctx: &ZeusCtx,
    params: &Value,
+   default_from: Address,
 ) -> Result<(Address, ChainId, Vec<WalletCall>), ()> {
    let object = rpc_params_object(params, "wallet_sendCalls")?;
-   let default_from = ctx.current_wallet_info().address;
    let from = match rpc_opt_string(object, "from") {
       Some(from_str) => parse_rpc_address(from_str, "wallet_sendCalls")?,
       None => default_from,
@@ -1765,14 +1876,15 @@ async fn wallet_send_calls(
    origin: String,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let (from, chain, calls) = match parse_wallet_send_calls(&ctx, &payload.params) {
+   let expected = dapp_account(&ctx, &origin);
+
+   let (from, chain, calls) = match parse_wallet_send_calls(&ctx, &payload.params, expected) {
       Ok(parsed) => parsed,
       Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
    // The dapp may only send from the account it is connected to.
-   let current = ctx.current_wallet_info().address;
-   if from != current {
+   if from != expected {
       return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id));
    }
 
@@ -2022,8 +2134,8 @@ async fn handle_request(
       RequestMethod::EthGasPrice => get_gas_price(ctx, payload),
       RequestMethod::EthMaxPriorityFeePerGas => max_priority_fee_per_gas(ctx, payload).await,
       RequestMethod::GetBalance => get_balance(ctx, payload),
-      RequestMethod::EthCall => eth_call(ctx, payload).await,
-      RequestMethod::EstimateGas => estimate_gas(ctx, payload).await,
+      RequestMethod::EthCall => eth_call(ctx, &origin, payload).await,
+      RequestMethod::EstimateGas => estimate_gas(ctx, &origin, payload).await,
       RequestMethod::EthAccounts | RequestMethod::RequestAccounts => {
          request_accounts(ctx, &origin, payload)
       }
@@ -2211,6 +2323,23 @@ mod connector_auth_tests {
          "You cancelled the signing process"
       )));
       assert!(!is_user_rejected(&anyhow!("RPC timeout")));
+   }
+
+   /// The extension polls `/status` for every tab; an account there would be
+   /// broadcast to all of them, so the payload must never carry one.
+   #[test]
+   fn status_never_advertises_an_account() {
+      let payload = status_payload(
+         "0x1".to_string(),
+         vec!["https://app.uniswap.org".to_string()],
+      );
+
+      assert!(payload.get("accounts").is_none());
+      assert_eq!(payload["chainId"], json!("0x1"));
+      assert_eq!(
+         payload["connectedOrigins"],
+         json!(["https://app.uniswap.org"])
+      );
    }
 
    #[test]
