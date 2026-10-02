@@ -105,11 +105,17 @@ impl NftDB {
       }
    }
 
-   pub fn contains_nft(&self, chain_id: u64, collection: Address, token_id: U256) -> bool {
+   /// One tracked token. Distinct from [`Self::contains_nft`]: the collection can be cached while the
+   /// individual token is not.
+   pub fn get_nft(&self, chain_id: u64, collection: Address, token_id: U256) -> Option<NftToken> {
       self
          .get_nfts_of_collection(chain_id, collection)
-         .iter()
-         .any(|token| token.token_id == token_id)
+         .into_iter()
+         .find(|token| token.token_id == token_id)
+   }
+
+   pub fn contains_nft(&self, chain_id: u64, collection: Address, token_id: U256) -> bool {
+      self.get_nft(chain_id, collection, token_id).is_some()
    }
 
    /// Tracked NFTs on `chain_id`, in insertion order.

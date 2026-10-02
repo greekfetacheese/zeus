@@ -31,6 +31,7 @@ use zeus_eth::{
       UniswapV4Pool,
    },
    currency::{Currency, NativeCurrency, erc20::ERC20Token},
+   nft::{NftCollection, NftToken},
    types::{ChainId, SUPPORTED_CHAINS},
    utils::{NumericValue, client::RpcClient, ens::ENS_CHAIN},
 };
@@ -1688,6 +1689,36 @@ impl ZeusCtx {
 
          return Ok(token);
       };
+   }
+
+   /// Get an NFT
+   ///
+   /// If it is not cached, the collection is resolved first — the standard costs an ERC-165 sweep and
+   /// cannot differ per token — and then the token itself. Both are stored in `nft_db`.
+   pub async fn get_nft(
+      &self,
+      chain: u64,
+      collection: Address,
+      token_id: U256,
+   ) -> Result<NftToken, anyhow::Error> {
+      if let Some(nft) = self.read(|ctx| ctx.nft_db.get_nft(chain, collection, token_id)) {
+         return Ok(nft);
+      }
+
+      let z_client = self.get_zeus_client();
+      let rpc = z_client.get_best_rpc(chain).ok_or(anyhow!("No available RPC found"))?;
+      let client = z_client.connect_with_timeout(&rpc, 10).await?;
+
+      let collection = NftCollection::fetch(client.clone(), chain, collection).await?;
+      let nft = NftToken::fetch(client, &collection, token_id).await?;
+
+      self.write(|ctx| {
+         ctx.nft_db.insert_collection(chain, collection);
+         ctx.nft_db.insert_nft(nft.clone());
+      });
+      self.save_nft_db();
+
+      Ok(nft)
    }
 
    pub fn get_connected_dapps(&self) -> Vec<String> {

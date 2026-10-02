@@ -444,6 +444,7 @@ mod tests {
             tokenSubID: U256::ZERO,
          },
          erc20: Some(token.clone()),
+         nft: None,
          amount_wei,
          amount: Some(amount),
          amount_usd: None,
