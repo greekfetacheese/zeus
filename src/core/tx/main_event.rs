@@ -48,6 +48,15 @@ impl TransactionAnalysis {
          return DecodedEvent::Transfer(self.erc20_transfers()[0].clone());
       }
 
+      // NFT transfer / mint / burn / approval. Like the fungible transfer above it is a simple
+      // transaction with nothing to compose, and without a case here it ranks as `Other` — which is
+      // what "Unknown Interaction" is. An ERC-1155 batch decodes to one event per id: the first is the
+      // main one, and the confirm window lists the rest.
+      let nft_transfers = self.nft_transfers();
+      if let Some(first) = nft_transfers.first() {
+         return DecodedEvent::NftTransfer(first.clone());
+      }
+
       if self.decoded_events() == 1 && self.token_approvals_len() == 1 {
          return DecodedEvent::TokenApprove(self.token_approvals()[0].clone());
       }
@@ -255,6 +264,7 @@ fn enrich_swap_received_from_transfers(
 #[cfg(test)]
 mod tests {
    use super::*;
+   use crate::core::tx::events::NftTransferParams;
    use zeus_eth::{
       alloy_primitives::{Address, U256, address},
       alloy_signer_local::PrivateKeySigner,
@@ -521,6 +531,39 @@ mod tests {
          params.broadcaster_fee.as_ref().map(|v| v.wei()),
          known.broadcaster_fee.as_ref().map(|v| v.wei())
       );
+   }
+
+   /// An NFT send has no swap to compose and no ERC-20 transfer to fold, so without a case in the
+   /// priority table it ranks as `Other` — "Unknown Interaction" — even though the decoder produced a
+   /// perfectly good event. This is the link between the two halves.
+   #[test]
+   fn an_nft_transfer_is_the_main_event() {
+      use zeus_eth::nft::NftStandard;
+
+      let user = PrivateKeySigner::random().address();
+
+      let params = NftTransferParams {
+         chain: 1,
+         standard: NftStandard::Erc721,
+         collection: address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D"),
+         token_id: Some(U256::from(1)),
+         amount: U256::from(1),
+         from: user,
+         to: PrivateKeySigner::random().address(),
+         is_mint: false,
+         is_burn: false,
+         approval: None,
+      };
+
+      let analysis = analysis(user, vec![DecodedEvent::NftTransfer(params)]);
+      let main = analysis.infer_main_event(ZeusCtx::new(), 1);
+
+      assert!(
+         main.is_nft_transfer(),
+         "ranked as {}",
+         main.name()
+      );
+      assert_eq!(main.name(), "NFT Transfer");
    }
 
    /// Unwrap-to-ETH rewrites the UX recipient; on-chain Unshield.to is the SA.

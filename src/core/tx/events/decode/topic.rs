@@ -6,8 +6,9 @@
 
 use super::{DecodeCtx, DecodeOutcome};
 use crate::core::tx::events::{
-   BridgeParams, DecodedEvent, PermitParams, ShieldParams, SwapParams, TokenApproveParams,
-   TransferParams, UniswapPositionParams, UnshieldParams, UnwrapWETHParams, WrapETHParams,
+   BridgeParams, DecodedEvent, NftTransferParams, PermitParams, ShieldParams, SwapParams,
+   TokenApproveParams, TransferParams, UniswapPositionParams, UnshieldParams, UnwrapWETHParams,
+   WrapETHParams,
 };
 use zeus_eth::alloy_primitives::Log;
 
@@ -48,6 +49,20 @@ pub async fn decode_log(dctx: &DecodeCtx, log: &Log) -> DecodeOutcome {
       return DecodeOutcome::One {
          event: DecodedEvent::Transfer(params),
          counts_as_known,
+      };
+   }
+
+   // NFT transfer / mint / burn / approval.
+   //
+   // Deliberately *after* the fungible attempt above: ERC-721's `Transfer` shares its topic0 with
+   // ERC-20's `Transfer` and only the topic count tells them apart, so the fungible decoder gets first
+   // refusal and an ERC-20 transfer can never be reported as an NFT one.
+   if let Ok(params) = NftTransferParams::from_log(dctx.ctx.clone(), dctx.chain, log).await {
+      let events = params.into_iter().map(DecodedEvent::NftTransfer).collect::<Vec<_>>();
+
+      return DecodeOutcome::Many {
+         events,
+         counts_as_known: true,
       };
    }
 

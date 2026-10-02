@@ -3,6 +3,7 @@
 use crate::assets::Icons;
 use crate::core::{DecodedEvent, TransactionRich, ZeusContext, tx::events::*};
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::token_selection::nft_collection_name;
 use crate::utils::{RT, TimeStamp, truncate_address};
 use egui::{Align2, Order, ProgressBar, RichText, Spinner, TextWrapMode, Ui, Window, vec2};
 use egui_elements::{Button, Label, MultiLabel, Theme};
@@ -11,11 +12,26 @@ use egui_lucide::Lucide;
 use std::sync::Arc;
 
 use zeus_eth::{
-   alloy_primitives::U256,
+   alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token, NativeCurrency},
    types::ChainId,
    utils::NumericValue,
 };
+
+/// A known name for an address, or the truncated address when nothing knows it.
+fn address_text(ctx: &ZeusContext, chain: u64, address: Address, theme: &Theme) -> Label {
+   let name = match ctx.get_address_name(chain, address) {
+      Some(name) => name.to_string(),
+      None => truncate_address(address.to_string()),
+   };
+
+   Label::new(
+      RichText::new(name).size(theme.typography.normal),
+      None,
+   )
+   .wrap_mode(TextWrapMode::Extend)
+   .interactive(false)
+}
 
 #[derive(Clone)]
 pub enum NotificationType {
@@ -28,6 +44,9 @@ pub enum NotificationType {
    UnwrapWETH(UnwrapWETHParams),
 
    Transfer(TransferParams),
+
+   /// NFT transfer / mint / burn / approval
+   NftTransfer(NftTransferParams),
 
    TokenApproval(TokenApproveParams),
 
@@ -46,6 +65,7 @@ impl NotificationType {
          DecodedEvent::Bridge(params) => Self::Bridge(params),
          DecodedEvent::SwapToken(params) => Self::Swap(params),
          DecodedEvent::Transfer(params) => Self::Transfer(params),
+         DecodedEvent::NftTransfer(params) => Self::NftTransfer(params),
          DecodedEvent::TokenApprove(params) => Self::TokenApproval(params),
          DecodedEvent::WrapETH(params) => Self::WrapETH(params),
          DecodedEvent::UnwrapWETH(params) => Self::UnwrapWETH(params),
@@ -77,6 +97,10 @@ impl NotificationType {
 
    pub fn is_transfer(&self) -> bool {
       matches!(self, NotificationType::Transfer { .. })
+   }
+
+   pub fn is_nft_transfer(&self) -> bool {
+      matches!(self, NotificationType::NftTransfer { .. })
    }
 
    pub fn is_token_approval(&self) -> bool {
@@ -138,6 +162,13 @@ impl NotificationType {
       match self {
          NotificationType::TokenApproval(params) => params,
          _ => panic!("NotificationType is not a token approval"),
+      }
+   }
+
+   pub fn nft_transfer_params(&self) -> &NftTransferParams {
+      match self {
+         NotificationType::NftTransfer(params) => params,
+         _ => panic!("NotificationType is not an NFT transfer"),
       }
    }
 
@@ -279,6 +310,9 @@ impl Notification {
          }
          NotificationType::Transfer(_) => {
             self.show_transfer_notification(ctx, theme, icons, ui);
+         }
+         NotificationType::NftTransfer(_) => {
+            self.show_nft_transfer_notification(ctx, theme, icons, ui);
          }
          NotificationType::TokenApproval(_) => {
             self.show_token_approval_notification(theme, icons, ui);
@@ -597,6 +631,79 @@ impl Notification {
 
          let multi_label = MultiLabel::new(vec![from_label, arrow_label, to_label]);
          ui.add(multi_label);
+      });
+   }
+
+   /// The body of an NFT transfer, mint, burn or approval: the token, then the same `from → to` line
+   /// the fungible transfer notification shows.
+   fn show_nft_transfer_notification(
+      &self,
+      ctx: &ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
+      let params = self.notification.nft_transfer_params();
+      let tint = theme.image_tint_recommended;
+      let icon_size = vec2(24.0, 24.0);
+
+      let collection = nft_collection_name(
+         ctx.nft_db.get_collection(params.chain, params.collection).as_ref(),
+         params.collection,
+      );
+
+      // An approval has no token id — the collection is the whole subject there.
+      let subject = match params.token_id {
+         Some(token_id) => format!("{} #{}", collection, token_id),
+         None => collection,
+      };
+
+      let text = match params.approval {
+         Some(true) => format!("Approve {}", subject),
+         Some(false) => format!("Revoke {}", subject),
+         None => {
+            // No `1 ×` prefix for an ERC-721: the id *is* the thing, and "1 ×" next to it is noise.
+            let units = if params.amount > U256::from(1) {
+               format!("{} × ", params.amount)
+            } else {
+               String::new()
+            };
+
+            format!("{}{}", units, subject)
+         }
+      };
+
+      // An approval is collection-wide, so it has no id to render — `0` finds the placeholder, which
+      // is the right picture for "the whole collection".
+      let icon = icons
+         .nft_icon_x64(
+            params.chain,
+            params.collection,
+            params.token_id.unwrap_or(U256::ZERO),
+            tint,
+         )
+         .fit_to_exact_size(icon_size);
+
+      ui.vertical_centered(|ui| {
+         let label = Label::new(
+            RichText::new(text).size(theme.typography.normal),
+            Some(icon),
+         )
+         .wrap_mode(TextWrapMode::Extend)
+         .interactive(false);
+         ui.add(label);
+
+         let from_label = address_text(ctx, params.chain, params.from, theme);
+         let to_label = address_text(ctx, params.chain, params.to, theme);
+
+         let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
+         let arrow_label = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
+
+         ui.add(MultiLabel::new(vec![
+            from_label,
+            arrow_label,
+            to_label,
+         ]));
       });
    }
 

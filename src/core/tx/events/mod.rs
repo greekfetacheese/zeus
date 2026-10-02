@@ -38,6 +38,9 @@ pub enum DecodedEvent {
    /// ETH or ERC20 transfer
    Transfer(TransferParams),
 
+   /// NFT (ERC-721 / ERC-1155) transfer, mint, burn or approval
+   NftTransfer(NftTransferParams),
+
    /// Wrap ETH
    WrapETH(WrapETHParams),
 
@@ -356,6 +359,7 @@ impl DecodedEvent {
    pub fn name(&self) -> String {
       match self {
          Self::Transfer(p) => p.name(),
+         Self::NftTransfer(p) => p.name(),
          Self::WrapETH(_) => "Wrap ETH".to_string(),
          Self::UnwrapWETH(_) => "Unwrap WETH".to_string(),
          Self::Bridge(_) => "Bridge".to_string(),
@@ -451,6 +455,9 @@ impl DecodedEvent {
                p.amount_usd = Some(ctx.get_token_value_for_amount(amount.f64(), token));
             }
          }
+         // Nothing to price and nothing to refresh: an NFT has no pool, and this app keeps no USD
+         // value for one.
+         Self::NftTransfer(_) => {}
          Self::EOADelegate(_) | Self::Other => {}
       }
    }
@@ -578,6 +585,13 @@ impl DecodedEvent {
       }
    }
 
+   pub fn as_nft_transfer(&self) -> Option<&NftTransferParams> {
+      match self {
+         Self::NftTransfer(p) => Some(p),
+         _ => None,
+      }
+   }
+
    pub fn as_token_approve(&self) -> Option<&TokenApproveParams> {
       match self {
          Self::TokenApprove(p) => Some(p),
@@ -669,6 +683,10 @@ impl DecodedEvent {
 
    pub fn is_token_approval(&self) -> bool {
       matches!(self, Self::TokenApprove(_))
+   }
+
+   pub fn is_nft_transfer(&self) -> bool {
+      matches!(self, Self::NftTransfer(_))
    }
 
    pub fn is_wrap_eth(&self) -> bool {
