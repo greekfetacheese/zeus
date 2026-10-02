@@ -21,8 +21,8 @@ use crate::gui::{
 };
 use crate::utils::RT;
 use egui::{
-   Align, CursorIcon, FontId, Layout, Margin, OpenUrl, RichText, ScrollArea, Shadow, Stroke,
-   TextWrapMode, Ui, vec2,
+   Align, CursorIcon, FontId, Layout, Margin, OpenUrl, Rect, RichText, ScrollArea, Shadow, Stroke,
+   TextWrapMode, Ui, pos2, vec2,
 };
 use std::sync::Arc;
 use zeus_eth::types::ChainId;
@@ -44,8 +44,15 @@ fn short_origin(origin: &str) -> &str {
 /// no row can stretch the panel past the sidebar.
 const PANEL_ROW_WIDTH: f32 = 220.0;
 
-/// Tallest the app list grows before it scrolls; it shrinks to fit a short list.
+/// The app list's slot. It is capped *and* floored at this height: capped so a long
+/// list scrolls instead of growing the panel, floored because egui's default
+/// `min_scrolled_height` (64) would otherwise win and make the list taller than the
+/// panel's budget. A shorter list still shrinks to fit.
 const DAPP_LIST_MAX_HEIGHT: f32 = 40.0;
+
+/// Slack under the height clip for the card's shadow, so the clip never bites into the
+/// panel once the animation has settled on the body's measured height.
+const PANEL_CLIP_SLACK: f32 = 8.0;
 
 /// The account panel, shown at the top of the left sidebar
 ///
@@ -59,6 +66,8 @@ const DAPP_LIST_MAX_HEIGHT: f32 = 40.0;
 /// - check the status of the background services (Railgun, wallet connector)
 pub struct AccountPanel {
    open: bool,
+   /// Maximum size of the panel body. The body itself hugs its content; the space up to
+   /// this height is what keeps the nav below the panel in one place.
    overview_size: (f32, f32),
    chain_select: ChainSelect,
    wallet_select: WalletSelect,
@@ -67,11 +76,14 @@ pub struct AccountPanel {
    pub delegate: DelegateUi,
    /// Active tab: 0 = Overview, 1 = Services.
    tab: usize,
+   /// Natural body height of each tab (indexed by `tab`), measured while it is laid out.
+   /// The height animation slides towards it; a tab that has never been shown has none.
+   body_heights: [f32; 2],
 }
 
 impl AccountPanel {
    pub fn new() -> Self {
-      let overview_size = (260.0, 250.0);
+      let overview_size = (260.0, 336.0);
 
       let chain_select = ChainSelect::new("main_chain_select", 1).size(vec2(PANEL_ROW_WIDTH, 20.0));
       let wallet_select = WalletSelect::new("main_wallet_select").size(vec2(PANEL_ROW_WIDTH, 20.0));
@@ -85,6 +97,7 @@ impl AccountPanel {
          qr_window: QrWindow::new(),
          delegate: DelegateUi::new(),
          tab: 0,
+         body_heights: [0.0; 2],
       }
    }
 
@@ -128,9 +141,47 @@ impl AccountPanel {
 
       let frame2 = theme.frame2.outer_margin(Margin::same(10));
 
+      // The panel body hugs its content, but the space it may occupy is fixed: whatever
+      // is left below its tallest state stays as gap, so the nav beneath the panel never
+      // moves as apps connect or as the tab changes.
+      let frame_margins = frame2.inner_margin.sum().y + frame2.outer_margin.sum().y;
+      let footprint = self.overview_size.1 + frame_margins + ui.spacing().item_spacing.y;
+      let panel_top = ui.cursor().top();
+
+      // Slide to the tab's height instead of jumping. A tab that has not been laid out
+      // yet has no height to slide to, so the first visit renders naturally.
+      let target = self.body_heights[self.tab];
+      let animate = target > 0.0;
+      let height = if animate {
+         ui.ctx().animate_value_with_time(
+            ui.id().with("panel_body_height"),
+            target,
+            ui.style().animation_time,
+         )
+      } else {
+         0.0
+      };
+
+      // While it moves, force the layout to the animated height and clip the painted
+      // output to it: the forced height is what keeps a body that *shrinks* from
+      // snapping, the clip is what keeps a body that *grows* from running ahead of the
+      // animation (egui never clips a child on its own).
+      let clip = ui.clip_rect();
+      if animate {
+         let bottom = (panel_top + height + frame_margins + PANEL_CLIP_SLACK).min(clip.max.y);
+         ui.set_clip_rect(Rect::from_min_max(
+            clip.min,
+            pos2(clip.max.x, bottom),
+         ));
+      }
+
+      let mut measured = 0.0;
+
       frame2.show(ui, |ui| {
          ui.set_max_width(self.overview_size.0);
-         ui.set_height(self.overview_size.1);
+         if animate {
+            ui.set_min_height(height);
+         }
 
          ui.vertical(|ui| {
             // Tab strip: Overview (wallet/chain) and Diagnostics.
@@ -146,8 +197,22 @@ impl AccountPanel {
                1 => self.show_services(ctx, theme, ui),
                _ => {}
             }
+
+            // Where this tab's body naturally ends, for the animation to slide towards.
+            measured = ui.min_rect().height();
          });
       });
+
+      if animate {
+         ui.set_clip_rect(clip);
+      }
+
+      self.body_heights[self.tab] = measured;
+
+      // Additional margin we can take
+      let margin = 20.0;
+      let spent = ui.cursor().top() - (panel_top - margin);
+      ui.add_space((footprint - spent).max(0.0));
    }
 
    /// Overview tab
@@ -344,7 +409,14 @@ impl AccountPanel {
             let text = RichText::new("Connected dApps (Public Mode)").size(theme.typography.small);
             ui.label(text);
 
-            ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
+            // Capped and floored at the slot height, so the body's height cannot depend
+            // on how many apps are connected.
+            let list = ScrollArea::vertical()
+               .auto_shrink([false, true])
+               .max_height(DAPP_LIST_MAX_HEIGHT)
+               .min_scrolled_height(DAPP_LIST_MAX_HEIGHT);
+
+            list.show(ui, |ui| {
                ui.spacing_mut().item_spacing.y = theme.spacing.xs;
 
                for origin in &used_by {

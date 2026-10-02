@@ -18,8 +18,6 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
    gui.account_panel.show(ctx, theme, icons, ui);
 
-   ui.add_space(10.0);
-
    ui.vertical(|ui| {
       ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.xs);
 
