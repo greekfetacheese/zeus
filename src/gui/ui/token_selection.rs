@@ -16,18 +16,20 @@ use elegance::{Menu, MenuItem};
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use zeus_eth::{
+   abi::erc165,
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
-   nft::{NftCollection, NftStandard, NftToken},
+   nft::{NftCollection, NftStandard, NftToken, collections_of},
    types::ChainId,
    utils::{
       NumericValue,
-      batch::{NftRef, get_erc1155_balances},
+      batch::{NftRef, get_erc721_owners_and_uris, get_erc1155_balances},
    },
 };
 
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme, utils::frame as frame_fn};
+use elegance::{BadgeTone, Toast};
 
 /// How many NFT art downloads one list load starts.
 ///
@@ -365,13 +367,8 @@ impl TokenSelectionWindow {
 
                self.show_mode_switch(theme, ui);
 
-               // NFT mode renders its own body below; nothing after this point in the closure is
-               // about NFTs.
-               if self.mode == PickerMode::Nft {
-                  return;
-               }
-
-               if !ctx.privacy_mode {
+               // The balance sync is ERC-20 only; the search bar below serves both modes.
+               if self.mode == PickerMode::Fungible && !ctx.privacy_mode {
                   let text = RichText::new("Sync balances").size(theme.typography.normal);
                   let button = Button::new(text).min_size(vec2(70.0, 25.0));
 
@@ -414,7 +411,12 @@ impl TokenSelectionWindow {
                   ui.add_space(10.0);
                }
 
-               let hint = RichText::new("Search tokens or enter an address")
+               let hint_text = match self.mode {
+                  PickerMode::Fungible => "Search tokens or enter an address",
+                  PickerMode::Nft => "Search NFTs or paste a collection address",
+               };
+
+               let hint = RichText::new(hint_text)
                   .size(theme.typography.normal)
                   .color(theme.colors.text_muted);
 
@@ -430,9 +432,21 @@ impl TokenSelectionWindow {
             });
 
             if self.mode == PickerMode::Nft {
-               // Loading and "nothing tracked" are single-line states; a populated list owns its own
-               // scroll area, like the token list below.
-               if self.nfts_loading || self.processed_nfts.is_empty() {
+               // The address-paste flow sits where the token list has its "Add Token" button: above
+               // the list, and only once the query parses as an address.
+               ui.vertical_centered(|ui| {
+                  self.get_collection_on_valid_address(theme, chain_id, owner, ui);
+               });
+
+               // Loading, nothing tracked, and no search match are single-line states; a populated
+               // list owns its own scroll area, like the token list below.
+               let matches = self
+                  .processed_nfts
+                  .iter()
+                  .filter(|row| self.valid_nft_search(row, &self.search_query))
+                  .count();
+
+               if self.nfts_loading || matches == 0 {
                   ui.vertical_centered(|ui| {
                      self.show_nft_body(theme, ui);
                   });
@@ -618,9 +632,13 @@ impl TokenSelectionWindow {
          return;
       }
 
-      let note = RichText::new("No NFTs to show yet")
-         .size(theme.typography.normal)
-         .color(theme.colors.text_muted);
+      let text = match self.processed_nfts.is_empty() {
+         true => "No NFTs to show yet",
+         // The list is populated, so an empty one here is the search's doing.
+         false => "No matches",
+      };
+
+      let note = RichText::new(text).size(theme.typography.normal).color(theme.colors.text_muted);
 
       ui.label(note);
    }
@@ -644,7 +662,11 @@ impl TokenSelectionWindow {
    ) {
       // Borrow the rows up front (as the token list does with its filtered list) so the closure can
       // still write `selected_nft`: it captures that field, not the whole of `self`.
-      let rows: Vec<&NftRow> = self.processed_nfts.iter().collect();
+      let rows: Vec<&NftRow> = self
+         .processed_nfts
+         .iter()
+         .filter(|row| self.valid_nft_search(row, &self.search_query))
+         .collect();
       let num_rows = rows.len();
       let row_height = 80.0;
       let tint = theme.image_tint_recommended;
@@ -804,6 +826,98 @@ impl TokenSelectionWindow {
             *close_window = true;
          }
       }
+   }
+
+   /// Does this NFT row match the query?
+   ///
+   /// Token id, collection name and collection symbol, plus an exact collection address — the NFT
+   /// counterpart of [`TokenSelectionWindow::valid_search`], which matches an ERC-20 address the same
+   /// NFT mode's address-paste flow: a pasted collection address becomes the wallet's tokens.
+   ///
+   /// Mirrors [`TokenSelectionWindow::get_token_on_valid_address`] — the button only appears once the
+   /// query parses, and the chain work happens on the click, so typing an address is not a request per
+   /// character. No store lookup here: adding twice is harmless (both stores dedupe by token
+   /// identity), and it picks up ids acquired since the last time.
+   fn get_collection_on_valid_address(
+      &mut self,
+      theme: &Theme,
+      chain_id: u64,
+      owner: Address,
+      ui: &mut Ui,
+   ) {
+      let Ok(address) = Address::from_str(self.search_query.trim()) else {
+         return;
+      };
+
+      ui.add_space(20.0);
+      let size = vec2(ui.available_width() * 0.7, 40.0);
+      let button_visuals = theme.button_visuals();
+
+      let text = RichText::new("Add Collection").size(theme.typography.large);
+      let button = Button::new(text).min_size(size).visuals(button_visuals);
+
+      if !ui.add(button).clicked() {
+         return;
+      }
+
+      RT.spawn(async move {
+         let ctx = SHARED_GUI.write(|gui| {
+            gui.loading_window.open("Reading collection...");
+            gui.request_repaint();
+            gui.ctx.clone()
+         });
+
+         let outcome = add_nft_collection(ctx, chain_id, owner, address).await;
+
+         SHARED_GUI.write(|gui| {
+            gui.loading_window.reset();
+
+            match outcome {
+               // A collection Zeus cannot enumerate is not a success: the user has to read why.
+               Ok(add) if add.is_error() => gui.open_msg_window(add.message()),
+               Ok(add) => Toast::new("Collection")
+                  .description(add.message())
+                  .tone(BadgeTone::Ok)
+                  .show(&gui.egui_ctx),
+               Err(e) => gui.open_msg_window(format!("Failed to add collection: {e}")),
+            }
+
+            // The list is rebuilt from the stores on the next frame.
+            gui.token_selection.clear_processed_nfts();
+            gui.request_repaint();
+         });
+      });
+   }
+
+   /// Does this NFT row match the query?
+   ///
+   /// Token id, collection name and collection symbol, plus an exact collection address — the NFT
+   /// counterpart of [`TokenSelectionWindow::valid_search`]. A pasted address that is *not* tracked
+   /// matches nothing here; the add flow above owns that case.
+   fn valid_nft_search(&self, row: &NftRow, query: &str) -> bool {
+      let query = query.trim().to_lowercase();
+
+      if query.is_empty() {
+         return true;
+      }
+
+      if row.token.token_id.to_string().contains(&query) {
+         return true;
+      }
+
+      if row.name.to_lowercase().contains(&query) {
+         return true;
+      }
+
+      if row.symbol.to_lowercase().contains(&query) {
+         return true;
+      }
+
+      if let Ok(address) = Address::from_str(&query) {
+         return row.token.collection == address;
+      }
+
+      false
    }
 
    fn valid_search(&self, currency: &Currency, query: &str) -> bool {
@@ -1213,6 +1327,145 @@ fn collection_label(
    (name, symbol)
 }
 
+/// What a pasted collection address turned into.
+enum CollectionAdd {
+   /// Its owned ids are now tracked.
+   Tracked { name: String, count: usize },
+   /// Enumerable, but this wallet holds none of its tokens.
+   NoTokens { name: String },
+   /// No on-chain way to learn which ids the wallet holds: an ERC-1155, or an ERC-721 without the
+   /// Enumerable extension. Zeus has no indexer, so this is where it stops — and it says so rather
+   /// than showing an empty list.
+   NotEnumerable { name: String, standard: NftStandard },
+}
+
+impl CollectionAdd {
+   /// The notice the user is shown.
+   fn message(&self) -> String {
+      match self {
+         Self::Tracked { name, count } => {
+            let plural = if *count == 1 { "" } else { "s" };
+            format!("Added {count} token{plural} from {name}")
+         }
+         Self::NoTokens { name } => format!("This wallet holds no tokens of {name}"),
+         Self::NotEnumerable { name, standard } => {
+            let kind = match standard {
+               NftStandard::Erc1155 => "ERC-1155 collections",
+               NftStandard::Erc721 => "ERC-721 collections without the Enumerable extension",
+            };
+
+            format!("{name} cannot be listed: {kind} do not expose an owner's token ids")
+         }
+      }
+   }
+
+   /// Whether the user has to read this (a window) rather than just being told it worked (a toast).
+   fn is_error(&self) -> bool {
+      matches!(self, Self::NotEnumerable { .. })
+   }
+}
+
+/// Resolve a pasted collection address into the wallet's owned tokens, and track them.
+///
+/// The NFT counterpart of `get_erc20_token`: a collection in, its owned ids out — cached collection
+/// metadata plus one `NftToken` per id (carrying the `tokenURI` the art pipeline needs), written to
+/// the catalog and to this wallet's portfolio. Both writes are needed: the catalog is what the picker
+/// lists, the portfolio is what the wallet holds.
+///
+/// Enumerable ERC-721 only. For an ERC-1155 or a plain ERC-721 there is no on-chain way to learn which
+/// ids a wallet holds, and Zeus deliberately has no indexer — guessing a range would invent tokens.
+async fn add_nft_collection(
+   ctx: ZeusCtx,
+   chain_id: u64,
+   owner: Address,
+   address: Address,
+) -> Result<CollectionAdd, anyhow::Error> {
+   let client = ctx.get_client(chain_id).await?;
+
+   let support = erc165::probe(client.clone(), address).await;
+
+   if !support.is_nft() {
+      bail!("{address} is not an NFT contract");
+   }
+
+   let collection = NftCollection::fetch(client.clone(), chain_id, address).await?;
+   let name = collection
+      .name
+      .clone()
+      .filter(|name| !name.trim().is_empty())
+      .unwrap_or_else(|| truncate_address(address.to_string()));
+
+   // `NftCollection::fetch` probes ERC-165 as well; the enumerable bit is not part of the collection,
+   // so this costs one extra sweep — paid once, on an explicit click.
+   if !support.is_erc721_enumerable() {
+      let standard = match support.is_erc1155() {
+         true => NftStandard::Erc1155,
+         false => NftStandard::Erc721,
+      };
+
+      return Ok(CollectionAdd::NotEnumerable { name, standard });
+   }
+
+   let token_ids = match collections_of(client.clone(), chain_id, owner, &[address])
+      .await?
+      .into_iter()
+      .next()
+   {
+      Some(holding) => holding.token_ids,
+      // Enumerable, and the wallet holds none: a real answer, not a failure.
+      None => return Ok(CollectionAdd::NoTokens { name }),
+   };
+
+   // Two aggregates for every id's `tokenURI`, instead of one call per token.
+   let refs: Vec<NftRef> = token_ids.iter().map(|id| (address, *id)).collect();
+   let lookups = get_erc721_owners_and_uris(client, refs, None).await?;
+
+   let tokens: Vec<NftToken> = token_ids
+      .into_iter()
+      .zip(lookups)
+      .map(|(token_id, lookup)| NftToken {
+         chain_id,
+         collection: address,
+         token_id,
+         standard: NftStandard::Erc721,
+         metadata_uri: lookup.token_uri,
+      })
+      .collect();
+
+   let count = tokens.len();
+   let for_portfolio = tokens.clone();
+
+   ctx.write(|ctx| {
+      ctx.nft_db.insert_collection(chain_id, collection);
+
+      for token in tokens {
+         ctx.nft_db.insert_nft(token);
+      }
+   });
+
+   ctx.write_wallet_state(|ws| {
+      let mut portfolio = ws.portfolio_db.get(chain_id, owner);
+
+      for token in for_portfolio {
+         portfolio.add_nft(token);
+      }
+
+      ws.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
+   });
+
+   // Logs internally.
+   ctx.save_nft_db();
+
+   if let Err(e) = ctx.save_wallet_state() {
+      tracing::error!(
+         "Error saving wallet state after adding a collection: {:?}",
+         e
+      );
+   }
+
+   Ok(CollectionAdd::Tracked { name, count })
+}
+
 /// Delete an NFT: untrack it, drop it from the wallet's portfolio, and forget its cached art.
 ///
 /// Mirrors [`delete_token`], including clearing both stores — the row would come back from whichever
@@ -1312,6 +1565,105 @@ mod tests {
          token_id: U256::from(token_id),
          standard,
          metadata_uri: None,
+      }
+   }
+
+   fn row(token_id: u64, name: &str, symbol: &str) -> NftRow {
+      NftRow {
+         token: nft(token_id, NftStandard::Erc721),
+         balance: 1,
+         name: name.to_string(),
+         symbol: symbol.to_string(),
+      }
+   }
+
+   /// Search matches what the plan listed — token id, collection name, collection symbol — plus the
+   /// exact collection address, the same way the token search matches an ERC-20 address.
+   #[test]
+   fn nft_search_matches_id_name_symbol_and_collection_address() {
+      let picker = TokenSelectionWindow::new();
+      let bayc = row(1234, "BoredApeYachtClub", "BAYC");
+
+      assert!(
+         picker.valid_nft_search(&bayc, ""),
+         "an empty query shows everything"
+      );
+      assert!(
+         picker.valid_nft_search(&bayc, "1234"),
+         "the token id"
+      );
+      assert!(
+         picker.valid_nft_search(&bayc, "23"),
+         "part of a token id"
+      );
+      assert!(
+         picker.valid_nft_search(&bayc, "Bored"),
+         "name, case-insensitively"
+      );
+      assert!(picker.valid_nft_search(&bayc, "bayc"), "symbol");
+      assert!(
+         picker.valid_nft_search(&bayc, "  bayc  "),
+         "a padded query"
+      );
+      assert!(
+         picker.valid_nft_search(&bayc, &bayc.token.collection.to_string()),
+         "the collection address"
+      );
+
+      assert!(
+         !picker.valid_nft_search(&bayc, "punk"),
+         "no match at all"
+      );
+      assert!(
+         !picker.valid_nft_search(&bayc, &Address::from([0xee; 20]).to_string()),
+         "another collection's address"
+      );
+   }
+
+   /// The three answers an address paste can give have to read differently: "cannot be listed" is not
+   /// "you own none", and neither is the silent empty list this replaced.
+   #[test]
+   fn the_collection_add_outcomes_are_distinguishable() {
+      let one = CollectionAdd::Tracked {
+         name: "BAYC".to_string(),
+         count: 1,
+      };
+      assert_eq!(one.message(), "Added 1 token from BAYC");
+      assert!(
+         !one.is_error(),
+         "a successful add is a toast, not a window"
+      );
+
+      let many = CollectionAdd::Tracked {
+         name: "BAYC".to_string(),
+         count: 4,
+      };
+      assert_eq!(many.message(), "Added 4 tokens from BAYC");
+
+      let none = CollectionAdd::NoTokens {
+         name: "BAYC".to_string(),
+      };
+      assert!(
+         none.message().contains("holds no tokens"),
+         "{}",
+         none.message()
+      );
+      assert!(
+         !none.is_error(),
+         "owning none is an answer, not a failure"
+      );
+
+      for standard in [NftStandard::Erc1155, NftStandard::Erc721] {
+         let unlistable = CollectionAdd::NotEnumerable {
+            name: "BAYC".to_string(),
+            standard,
+         };
+         assert!(
+            unlistable.is_error(),
+            "{standard:?} needs a window"
+         );
+         assert!(unlistable.message().contains("BAYC"));
+         assert!(unlistable.message().contains("cannot be listed"));
       }
    }
 
