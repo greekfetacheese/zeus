@@ -9,9 +9,11 @@
 
 pub mod delegate;
 pub mod qr_window;
+pub mod vitals;
 
 pub use delegate::DelegateUi;
 pub use qr_window::QrWindow;
+pub use vitals::SystemVitals;
 
 use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, ZeusContext};
@@ -79,6 +81,8 @@ pub struct AccountPanel {
    /// Natural body height of each tab (indexed by `tab`), measured while it is laid out.
    /// The height animation slides towards it; a tab that has never been shown has none.
    body_heights: [f32; 2],
+   /// Machine vitals for the Diagnostics tab, refreshed off the frame path.
+   vitals: SystemVitals,
 }
 
 impl AccountPanel {
@@ -98,6 +102,7 @@ impl AccountPanel {
          delegate: DelegateUi::new(),
          tab: 0,
          body_heights: [0.0; 2],
+         vitals: SystemVitals::default(),
       }
    }
 
@@ -488,7 +493,7 @@ impl AccountPanel {
             });
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-               let size = vec2(28.0, 20.0);
+               let size = vec2(24.0, 12.0);
                let more = dots_button(theme, size, ui);
                Menu::new(("svc_menu", "railgun_id")).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("View last error")).clicked() {
@@ -541,7 +546,7 @@ impl AccountPanel {
             ui.label(label);
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-               let size = vec2(28.0, 20.0);
+               let size = vec2(24.0, 12.0);
                let more = dots_button(theme, size, ui);
                Menu::new(("svc_menu", "wallet_connector_id")).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("Settings")).clicked() {
@@ -556,6 +561,10 @@ impl AccountPanel {
             });
          });
       });
+
+      // Local vitals
+      self.vitals.refresh_if_stale();
+      vitals::card(theme, ui, &self.vitals);
    }
 
    fn show_chain_select(
