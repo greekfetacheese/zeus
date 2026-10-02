@@ -22,7 +22,7 @@ use zeus_eth::{
 use bincode_next::{config::standard, decode_from_slice};
 
 mod disk;
-pub(crate) use disk::{delete_token_icon, save_nft_icon, save_token_icon};
+pub(crate) use disk::{delete_nft_icon, delete_token_icon, save_nft_icon, save_token_icon};
 
 /// Icons used in the GUI
 pub struct Icons {
@@ -344,6 +344,17 @@ impl NftIcons {
 
    pub fn has_icon(&self, key: &NftKey) -> bool {
       self.icon_data.read().unwrap().get(key).is_some_and(|data| !data.is_empty())
+   }
+
+   /// Whether this token still needs a download attempt.
+   ///
+   /// A read-only probe of the same three conditions [`NftIcons::try_begin_fetch`] enforces, for
+   /// callers that have to *count* the fetches they start: a list that downloads art for its first N
+   /// rows per load must skip the ones already tried, or the tail of a long list is never reached.
+   pub fn needs_fetch(&self, key: &NftKey) -> bool {
+      !self.has_icon(key)
+         && !self.in_flight.read().unwrap().contains(key)
+         && !self.failed.read().unwrap().contains(key)
    }
 
    /// The vector source for this token, if the stored art is an SVG.
@@ -756,6 +767,44 @@ mod tests {
       assert!(icons.raster_texture(&empty, false).is_none());
       assert!(icons.raster_texture(&empty, true).is_none());
       assert!(!icons.has_icon(&empty));
+   }
+
+   /// `needs_fetch` is the read-only twin of `try_begin_fetch`, used to *count* the downloads a list
+   /// load starts. It must report false for art we have, for a download in flight, and for a token
+   /// that already missed this session — otherwise a capped loader spends its whole budget re-asking
+   /// about the same rows and never reaches the tail of a long list.
+   #[test]
+   fn needs_fetch_mirrors_try_begin_fetch_without_claiming() {
+      let icons = NftIcons::default();
+      let key = (Address::from([0xbc; 20]), 1, U256::from(21));
+
+      assert!(
+         icons.needs_fetch(&key),
+         "nothing known: a fetch is wanted"
+      );
+      assert!(
+         icons.needs_fetch(&key),
+         "probing must not claim it"
+      );
+
+      assert!(icons.try_begin_fetch(&key));
+      assert!(
+         !icons.needs_fetch(&key),
+         "one is already in flight"
+      );
+
+      icons.finish_fetch(&key, true);
+      assert!(!icons.needs_fetch(&key), "it missed this session");
+
+      let with_art = (Address::from([0xbc; 20]), 1, U256::from(22));
+      icons.insert_icon(
+         with_art,
+         raster(PLACEHOLDER.to_vec(), PLACEHOLDER.to_vec()),
+      );
+      assert!(
+         !icons.needs_fetch(&with_art),
+         "we already have it"
+      );
    }
 
    /// Vector art has no raster renderings to build a texture from, so the texture path must report

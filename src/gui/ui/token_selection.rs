@@ -8,14 +8,17 @@ use eframe::egui::{
 use crate::assets::icons::Icons;
 use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::{SHARED_GUI, dots_button};
-use crate::utils::{RT, token_icon::spawn_fetch_token_icon, truncate_symbol_or_name};
+use crate::utils::{
+   RT, nft_icon::spawn_fetch_nft_icon, token_icon::spawn_fetch_token_icon, truncate_address,
+   truncate_symbol_or_name,
+};
 use elegance::{Menu, MenuItem};
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
-   nft::NftToken,
+   nft::{NftCollection, NftStandard, NftToken},
    types::ChainId,
    utils::{
       NumericValue,
@@ -25,6 +28,14 @@ use zeus_eth::{
 
 use anyhow::anyhow;
 use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme, utils::frame as frame_fn};
+
+/// How many NFT art downloads one list load starts.
+///
+/// The cap is what keeps a wallet tracking hundreds of ids from firing hundreds of concurrent
+/// gateway requests at once (the throttle that follows marks tokens failed for the session, so the
+/// art would never appear). Tokens already tried are skipped, so successive loads work through a long
+/// list instead of retrying the first few forever.
+const NFT_ART_FETCH_PER_LOAD: usize = 24;
 
 /// Currency direction for [`TokenSelectionWindow`].
 ///
@@ -57,6 +68,41 @@ pub enum PickerMode {
    Nft,
 }
 
+/// One row of the NFT list.
+///
+/// The label data is resolved by the loader, not by the row: a row runs every frame for every visible
+/// entry, and a collection lookup clones its `name`/`symbol` strings each time.
+#[derive(Clone, Debug)]
+struct NftRow {
+   token: NftToken,
+   /// 1 for ERC-721; the owned amount for an ERC-1155.
+   balance: u64,
+   /// Collection name, or the truncated collection address when no metadata was ever cached.
+   name: String,
+   /// Collection symbol, empty when the contract has none.
+   symbol: String,
+}
+
+impl NftRow {
+   /// `"<collection> #<token id>"`.
+   fn label(&self) -> String {
+      format!("{} #{}", self.name, self.token.token_id)
+   }
+
+   /// The second line: the symbol and the standard, e.g. `BAYC · ERC-721`.
+   fn subtitle(&self) -> String {
+      let standard = match self.token.standard {
+         NftStandard::Erc721 => "ERC-721",
+         NftStandard::Erc1155 => "ERC-1155",
+      };
+
+      match self.symbol.is_empty() {
+         true => standard.to_string(),
+         false => format!("{} · {standard}", self.symbol),
+      }
+   }
+}
+
 /// A simple window that allows the user to select a token
 ///
 /// We can also use the search bar to search for a specific token either by its name or symbol.
@@ -70,6 +116,11 @@ pub struct TokenSelectionWindow {
    pub size: (f32, f32),
    pub search_query: String,
    pub selected_currency: Option<Currency>,
+   /// The NFT the user picked, if any.
+   ///
+   /// Its own field rather than a second meaning for `selected_currency`: they are different asset
+   /// kinds, and the send flow reads them apart.
+   pub selected_nft: Option<NftToken>,
    /// Did we fetched this token from the blockchain?
    pub token_fetched: bool,
    /// Currency direction, this only applies if we try to select a token from a SwapUi
@@ -82,11 +133,11 @@ pub struct TokenSelectionWindow {
    /// (Currency, Balance, Value)
    processed_currencies: Vec<(Currency, NumericValue, NumericValue)>,
 
-   /// The NFT list: `(token, balance)`.
+   /// The NFT rows: what the user tracks (`NftDB`) unioned with what the wallet holds (its portfolio),
+   /// each with its balance and its collection label already resolved.
    ///
-   /// The union of what the user tracks (`NftDB`) and what the wallet holds (its portfolio). ERC-721
-   /// has no amount — holding one is a 1 — so only ERC-1155 entries carry a real quantity.
-   processed_nfts: Vec<(NftToken, u64)>,
+   /// ERC-721 has no amount — holding one is a 1 — so only ERC-1155 rows carry a real quantity.
+   processed_nfts: Vec<NftRow>,
    /// Is the NFT list being fetched? Kept apart from `loading`, which is the ERC-20 balance fetch and
    /// hides the mode switch while it runs.
    nfts_loading: bool,
@@ -105,6 +156,7 @@ impl TokenSelectionWindow {
          size: (550.0, 500.0),
          search_query: String::new(),
          selected_currency: None,
+         selected_nft: None,
          token_fetched: false,
          currency_direction: InOrOut::In,
          mode: PickerMode::Fungible,
@@ -138,6 +190,7 @@ impl TokenSelectionWindow {
       self.title = "Select Token".to_string();
       self.search_query.clear();
       self.selected_currency = None;
+      self.selected_nft = None;
       self.token_fetched = false;
       self.currency_direction = InOrOut::In;
       self.mode = PickerMode::Fungible;
@@ -167,6 +220,11 @@ impl TokenSelectionWindow {
    /// Get the selected currency if any
    pub fn get_selected_currency(&self) -> Option<&Currency> {
       self.selected_currency.as_ref()
+   }
+
+   /// Get the selected NFT if any
+   pub fn get_selected_nft(&self) -> Option<&NftToken> {
+      self.selected_nft.as_ref()
    }
 
    pub fn process_currencies(&mut self, privacy_mode: bool, chain_id: u64, owner: Address) {
@@ -223,6 +281,8 @@ impl TokenSelectionWindow {
          // Read on a worker: the handle is only reachable once the frame has dropped `SHARED_GUI`.
          let ctx = SHARED_GUI.write(|gui| gui.ctx.clone());
          let nfts = process_nfts(ctx, chain_id, owner).await;
+
+         start_nft_art_downloads(chain_id, &nfts);
 
          SHARED_GUI.write(|gui| {
             gui.token_selection.processed_nfts = nfts;
@@ -370,9 +430,22 @@ impl TokenSelectionWindow {
             });
 
             if self.mode == PickerMode::Nft {
-               ui.vertical_centered(|ui| {
-                  self.show_nft_body(theme, ui);
-               });
+               // Loading and "nothing tracked" are single-line states; a populated list owns its own
+               // scroll area, like the token list below.
+               if self.nfts_loading || self.processed_nfts.is_empty() {
+                  ui.vertical_centered(|ui| {
+                     self.show_nft_body(theme, ui);
+                  });
+               } else {
+                  self.show_nft_list(
+                     theme,
+                     icons.clone(),
+                     chain_id,
+                     owner,
+                     &mut close_window,
+                     ui,
+                  );
+               }
 
                return;
             }
@@ -536,10 +609,7 @@ impl TokenSelectionWindow {
       ui.add_space(theme.spacing.sm);
    }
 
-   /// What NFT mode shows for now: the state of its list.
-   ///
-   /// Row rendering (thumbnail, `name #id`, the `dots_button` menu) is the next task; until then
-   /// this reports what the loader actually found, so the mode is truthful instead of empty.
+   /// NFT mode's two single-line states: still loading, or nothing tracked.
    fn show_nft_body(&self, theme: &Theme, ui: &mut Ui) {
       ui.add_space(theme.spacing.xl);
 
@@ -548,15 +618,132 @@ impl TokenSelectionWindow {
          return;
       }
 
-      let text = match self.processed_nfts.len() {
-         0 => "No NFTs to show yet".to_string(),
-         1 => "1 NFT".to_string(),
-         count => format!("{count} NFTs"),
-      };
-
-      let note = RichText::new(text).size(theme.typography.normal).color(theme.colors.text_muted);
+      let note = RichText::new("No NFTs to show yet")
+         .size(theme.typography.normal)
+         .color(theme.colors.text_muted);
 
       ui.label(note);
+   }
+
+   /// The NFT rows.
+   ///
+   /// The same shape as the token rows below — a `frame2` card per entry, art and label on the left,
+   /// the `dots_button` menu and the amount on the right — and virtualized the same way, because one
+   /// tracked collection can hold hundreds of ids.
+   ///
+   /// The thumbnail is the 64px rendering: the 250px copy exists to inspect a single token, not for
+   /// a list.
+   fn show_nft_list(
+      &mut self,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      chain_id: u64,
+      owner: Address,
+      close_window: &mut bool,
+      ui: &mut Ui,
+   ) {
+      // Borrow the rows up front (as the token list does with its filtered list) so the closure can
+      // still write `selected_nft`: it captures that field, not the whole of `self`.
+      let rows: Vec<&NftRow> = self.processed_nfts.iter().collect();
+      let num_rows = rows.len();
+      let row_height = 80.0;
+      let tint = theme.image_tint_recommended;
+      let chain = ChainId::from(chain_id);
+      let mut frame = theme.frame2.outer_margin(Margin::same(5));
+      let frame_visuals = theme.visuals.frame2_visuals;
+
+      ScrollArea::vertical().auto_shrink(Vec2b::new(false, false)).show_rows(
+         ui,
+         row_height,
+         num_rows,
+         |ui, row_range| {
+            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+
+            for row_index in row_range {
+               let Some(row) = rows.get(row_index) else {
+                  continue;
+               };
+
+               let token = &row.token;
+               let icon = icons.nft_icon_x64(
+                  token.chain_id,
+                  token.collection,
+                  token.token_id,
+                  tint,
+               );
+               let text = format!("{}\n{}", row.label(), row.subtitle());
+               let rich_text = RichText::new(text).size(theme.typography.normal);
+               let label =
+                  Label::new(rich_text, Some(icon)).interactive(false).wrap().image_on_left();
+
+               let mut more_clicked = false;
+               let collection = token.collection;
+               let token_id = token.token_id;
+
+               let res = frame_fn(&mut frame, frame_visuals, ui, |ui| {
+                  ui.horizontal(|ui| {
+                     ui.set_width(ui.available_width());
+
+                     ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                        ui.set_width(ui.available_width() * 0.4);
+                        ui.set_height(50.0);
+                        ui.add(label);
+                     });
+
+                     ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                        ui.set_width(ui.available_width() * 0.6);
+
+                        let more = dots_button(theme, vec2(28.0, 20.0), ui);
+                        if more.clicked() {
+                           more_clicked = true;
+                        }
+
+                        let menu_id = format!("{collection}_{token_id}_nft_more_options");
+                        Menu::new(menu_id).show_below(&more, |ui| {
+                           if ui.add(MenuItem::new("Copy Collection")).clicked() {
+                              ui.ctx().copy_text(collection.to_string());
+                           }
+
+                           if ui.add(MenuItem::new("Copy Token ID")).clicked() {
+                              ui.ctx().copy_text(token_id.to_string());
+                           }
+
+                           if ui.add(MenuItem::new("See on Block Explorer")).clicked() {
+                              let url = chain.nft_url(collection, token_id);
+                              ui.ctx().open_url(OpenUrl::new_tab(url));
+                           }
+
+                           if ui.add(MenuItem::new("Delete NFT")).clicked() {
+                              more_clicked = true;
+                              delete_nft(
+                                 chain_id,
+                                 owner,
+                                 row.token.clone(),
+                                 row.name.clone(),
+                              );
+                           }
+                        });
+
+                        ui.add_space(8.0);
+
+                        // An ERC-721 is one token by definition, so a "1" would be noise; only an
+                        // ERC-1155 can be held in quantity.
+                        if row.balance > 1 {
+                           let amount = RichText::new(format!("x{}", row.balance))
+                              .size(theme.typography.normal);
+                           ui.label(amount);
+                        }
+                     });
+                  });
+               });
+
+               if !more_clicked && res.interact(Sense::click()).clicked() {
+                  self.selected_nft = Some(row.token.clone());
+                  *close_window = true;
+               }
+            }
+         },
+      );
    }
 
    fn get_token_on_valid_address(
@@ -828,13 +1015,49 @@ async fn sync_balances(ctx: ZeusCtx, chain: u64, owner: Address) {
    );
 }
 
+/// Start the art downloads for a freshly loaded list.
+///
+/// Called from the loader's worker and **never** from the row loop: [`spawn_fetch_nft_icon`] reads
+/// `SHARED_GUI` itself to check the opt-in and reach the icon store, and the frame path holds that
+/// lock write-locked — asking it per visible row would deadlock the app rather than fetch anything.
+fn start_nft_art_downloads(chain_id: u64, nfts: &[NftRow]) {
+   let icons = SHARED_GUI.read(|gui| gui.icons.clone());
+   let mut started = 0;
+
+   for row in nfts {
+      if started >= NFT_ART_FETCH_PER_LOAD {
+         break;
+      }
+
+      // Nothing to fetch without a URI: the loader cannot invent one, and reading `tokenURI` for
+      // every row would be a chain call per token.
+      let Some(uri) = row.token.metadata_uri.clone() else {
+         continue;
+      };
+
+      let key = (row.token.collection, chain_id, row.token.token_id);
+      if !icons.nfts.needs_fetch(&key) {
+         continue;
+      }
+
+      // Fire and forget: the row shows the placeholder until this lands.
+      spawn_fetch_nft_icon(
+         chain_id,
+         row.token.collection,
+         row.token.token_id,
+         uri,
+      );
+      started += 1;
+   }
+}
+
 /// The NFT list for one wallet: what the user tracks (`NftDB`) unioned with what the wallet holds
-/// (its portfolio), each with a balance.
+/// (its portfolio), each with a balance and its collection label resolved.
 ///
 /// Neither source is authoritative alone — a tracked token may have been transferred away, and a
 /// held token is not in the catalog until someone adds it. ERC-721 spends no call (holding one is a
 /// 1); ERC-1155 amounts exist nowhere off-chain, so they take one batched Multicall3 round.
-async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<(NftToken, u64)> {
+async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<NftRow> {
    let tracked = ctx.read(|ctx| ctx.nft_db.get_nfts(chain_id));
    let held = ctx.get_portfolio(chain_id, owner).nfts().clone();
    let merged = merge_nft_sources(tracked, held);
@@ -847,7 +1070,27 @@ async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<(NftTo
 
    let amounts = fetch_erc1155_amounts(&ctx, chain_id, owner, refs).await;
 
+   // Resolve the labels here rather than in the row: the row runs every frame for every visible
+   // entry, and a collection lookup clones its `name`/`symbol` strings each time.
+   let collections: HashMap<Address, NftCollection> = ctx
+      .read(|ctx| ctx.nft_db.get_collections(chain_id))
+      .into_iter()
+      .map(|collection| (collection.address, collection))
+      .collect();
+
    attach_balances(merged, &amounts)
+      .into_iter()
+      .map(|(token, balance)| {
+         let (name, symbol) = collection_label(&token, &collections);
+
+         NftRow {
+            token,
+            balance,
+            name,
+            symbol,
+         }
+      })
+      .collect()
 }
 
 /// Batched ERC-1155 amounts, keyed by `(collection, token id)`.
@@ -943,6 +1186,97 @@ fn attach_balances(
          (token, balance)
       })
       .collect()
+}
+
+/// The `(name, symbol)` a row shows for a token's collection.
+///
+/// Collection metadata is cached when a token is added, so a missing name means the collection was
+/// never fetched — a token that arrived from the portfolio instead of the catalog. Falling back to
+/// the address keeps the row identifiable instead of blank, and an address is what the user would
+/// paste into an explorer anyway. A blank string counts as missing, since a contract can return `""`.
+fn collection_label(
+   token: &NftToken,
+   collections: &HashMap<Address, NftCollection>,
+) -> (String, String) {
+   let collection = collections.get(&token.collection);
+
+   let name = collection
+      .and_then(|collection| collection.name.clone())
+      .filter(|name| !name.trim().is_empty())
+      .unwrap_or_else(|| truncate_address(token.collection.to_string()));
+
+   let symbol = collection
+      .and_then(|collection| collection.symbol.clone())
+      .filter(|symbol| !symbol.trim().is_empty())
+      .unwrap_or_default();
+
+   (name, symbol)
+}
+
+/// Delete an NFT: untrack it, drop it from the wallet's portfolio, and forget its cached art.
+///
+/// Mirrors [`delete_token`], including clearing both stores — the row would come back from whichever
+/// one still lists the token. The list is not rebuilt here: clearing it makes the picker's own loader
+/// refetch on the next frame.
+fn delete_nft(chain_id: u64, owner: Address, token: NftToken, name: String) {
+   RT.spawn(async move {
+      SHARED_GUI.write(|gui| {
+         gui.confirm_window.open(format!("Delete {name} #{}?", token.token_id));
+         gui.request_repaint();
+      });
+
+      let confirmed = loop {
+         tokio::time::sleep(Duration::from_millis(50)).await;
+         let confirmed = SHARED_GUI.read(|gui| gui.confirm_window.get_confirm());
+         if let Some(confirmed) = confirmed {
+            SHARED_GUI.write(|gui| {
+               gui.confirm_window.reset();
+            });
+            break confirmed;
+         }
+      };
+
+      if !confirmed {
+         return;
+      }
+
+      let collection = token.collection;
+      let token_id = token.token_id;
+
+      RT.spawn_blocking(move || {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+
+         ctx.write(|ctx| {
+            ctx.nft_db.remove_nft(chain_id, collection, token_id);
+         });
+
+         ctx.write_wallet_state(|ws| {
+            let mut portfolio = ws.portfolio_db.get(chain_id, owner);
+            portfolio.remove_nft(&token);
+            ws.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
+         });
+
+         // Logs internally.
+         ctx.save_nft_db();
+
+         if let Err(e) = ctx.save_wallet_state() {
+            tracing::error!(
+               "Error saving wallet state after NFT delete: {:?}",
+               e
+            );
+         }
+
+         if let Err(e) = crate::assets::icons::delete_nft_icon(chain_id, collection, token_id) {
+            tracing::error!("Error deleting NFT icon: {:?}", e);
+         }
+
+         SHARED_GUI.write(|gui| {
+            gui.icons.nfts.remove_icon(&(collection, chain_id, token_id));
+            gui.token_selection.clear_processed_nfts();
+            gui.request_repaint();
+         });
+      });
+   });
 }
 
 #[cfg(test)]
@@ -1073,5 +1407,75 @@ mod tests {
          "the entry is still listed"
       );
       assert_eq!(with_balances[0].1, 0);
+   }
+
+   fn collection(name: Option<&str>, symbol: Option<&str>) -> NftCollection {
+      NftCollection {
+         chain_id: 1,
+         address: Address::from([0xbc; 20]),
+         standard: NftStandard::Erc721,
+         name: name.map(str::to_string),
+         symbol: symbol.map(str::to_string),
+      }
+   }
+
+   /// A collection with no cached metadata still yields an identifiable row: the address is what the
+   /// user would paste into an explorer anyway.
+   #[test]
+   fn a_collection_without_cached_metadata_falls_back_to_its_address() {
+      let (fallback, symbol) = collection_label(&nft(1, NftStandard::Erc721), &HashMap::new());
+
+      assert!(fallback.starts_with("0x"), "{fallback}");
+      assert!(symbol.is_empty(), "there is no symbol to show");
+
+      // ...and cached metadata wins over the fallback.
+      let mut collections = HashMap::new();
+      collections.insert(
+         Address::from([0xbc; 20]),
+         collection(Some("BoredApeYachtClub"), Some("BAYC")),
+      );
+
+      let (name, symbol) = collection_label(&nft(1, NftStandard::Erc721), &collections);
+
+      assert_eq!(name, "BoredApeYachtClub");
+      assert_eq!(symbol, "BAYC");
+   }
+
+   /// A contract that answers `""` is the same as one that never implemented `name()`: a blank row
+   /// would be unusable, so both fall back.
+   #[test]
+   fn a_blank_collection_name_is_treated_as_missing() {
+      let mut collections = HashMap::new();
+      collections.insert(
+         Address::from([0xbc; 20]),
+         collection(Some("   "), Some("")),
+      );
+
+      let (name, symbol) = collection_label(&nft(1, NftStandard::Erc721), &collections);
+
+      assert!(name.starts_with("0x"), "{name}");
+      assert!(symbol.is_empty());
+   }
+
+   /// The row reads as `<collection> #<id>` over `<symbol> · <standard>`, and drops the separator when
+   /// the collection has no symbol to show.
+   #[test]
+   fn the_row_reads_as_name_id_then_symbol_and_standard() {
+      let row = NftRow {
+         token: nft(7, NftStandard::Erc1155),
+         balance: 3,
+         name: "BoredApeYachtClub".to_string(),
+         symbol: "BAYC".to_string(),
+      };
+
+      assert_eq!(row.label(), "BoredApeYachtClub #7");
+      assert_eq!(row.subtitle(), "BAYC · ERC-1155");
+
+      let without_symbol = NftRow {
+         symbol: String::new(),
+         ..row.clone()
+      };
+
+      assert_eq!(without_symbol.subtitle(), "ERC-1155");
    }
 }

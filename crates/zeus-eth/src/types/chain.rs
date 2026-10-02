@@ -1,3 +1,4 @@
+use alloy_primitives::{Address, U256};
 use anyhow::bail;
 
 pub const ETH: u64 = 1;
@@ -200,6 +201,18 @@ impl ChainId {
       }
    }
 
+   /// Block explorer URL for one NFT.
+   ///
+   /// Every supported chain is Etherscan-family, where an NFT lives at `/nft/{contract}/{tokenId}`
+   /// (the older `/token/{contract}?a={tokenId}` is the same page on Etherscan). `block_explorer`
+   /// carries a trailing slash for RobinHood, so it is trimmed rather than emitting `//nft/…`.
+   pub fn nft_url(&self, collection: Address, token_id: U256) -> String {
+      format!(
+         "{}/nft/{collection}/{token_id}",
+         self.block_explorer().trim_end_matches('/')
+      )
+   }
+
    /// Minimum gas usage for a transaction
    pub fn min_gas(&self) -> u64 {
       match self {
@@ -283,6 +296,28 @@ mod tests {
       assert!(
          ChainId::new(1000).is_err(),
          "an unsupported chain id must not resolve to a ChainId"
+      );
+   }
+
+   /// Every supported chain is Etherscan-family, where one NFT lives at `/nft/{contract}/{tokenId}`.
+   /// Checked for **all** of them because `block_explorer` is hand-written per chain: RobinHood's
+   /// base URL carries a trailing slash, which must not turn into `//nft`.
+   #[test]
+   fn nft_url_points_at_the_explorer_nft_page() {
+      let collection = Address::from([0xbc; 20]);
+
+      for id in SUPPORTED_CHAINS {
+         let url = ChainId::new(id).unwrap().nft_url(collection, U256::from(1));
+
+         assert!(url.starts_with("https://"), "{url}");
+         assert!(!url.contains("//nft"), "doubled slash in {url}");
+         assert!(url.ends_with("/1"), "{url}");
+         assert!(url.contains(&collection.to_string()), "{url}");
+      }
+
+      assert_eq!(
+         ChainId::Ethereum.nft_url(collection, U256::from(7)),
+         format!("https://etherscan.io/nft/{collection}/7")
       );
    }
 }
