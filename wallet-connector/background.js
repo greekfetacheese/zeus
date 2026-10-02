@@ -8,7 +8,6 @@ const SESSION_RETRY_MS = 5000;
 let cachedSession = null;
 let sessionLoadFailedAt = 0;
 
-let lastKnownAccounts = null;
 let lastKnownChainId = null;
 let isFirstPoll = true;
 let lastKnownConnectedOrigins = JSON.stringify([]);
@@ -119,6 +118,34 @@ async function authorizedFetch(url, options, origin) {
     return response;
 }
 
+/**
+ * Push a tab its own account.
+ *
+ * Accounts are per-app, so they are resolved with the tab's origin — exactly
+ * like the page's own eth_accounts call. The active account is never pushed:
+ * it belongs to no app in particular.
+ */
+function pushTabAccounts(tabId, origin) {
+    authorizedFetch('/api', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 'status-' + Date.now(),
+            method: 'eth_accounts',
+            params: [],
+        }),
+    }, origin)
+        .then(response => response.ok ? response.json() : null)
+        .then(data => {
+            const accounts = data && Array.isArray(data.result) ? data.result : [];
+            chrome.tabs.sendMessage(tabId, { type: 'accountsChanged', payload: accounts });
+        })
+        .catch(error => {
+            console.error("Background: Error resolving tab accounts:", error);
+        });
+}
+
 async function pollServerStatus() {
     if (pollInFlight) return;
     pollInFlight = true;
@@ -127,21 +154,16 @@ async function pollServerStatus() {
         if (!response.ok) return;
         const currentState = await response.json();
 
-        const currentAccounts = currentState.accounts || [];
         const currentChainId = currentState.chainId || null;
         const currentOrigins = (currentState.connectedOrigins || []).slice().sort();
         const originsJson = JSON.stringify(currentOrigins);
 
-        const accountsJson = JSON.stringify(currentAccounts.slice().sort());
         const previousOriginsJson = lastKnownConnectedOrigins;
-        const previousAccounts = lastKnownAccounts;
         const previousChainId = lastKnownChainId;
         const chainIdChanged = previousChainId !== currentChainId;
-        const accountsChanged = previousAccounts !== accountsJson;
         const originsChanged = previousOriginsJson !== originsJson;
 
         lastKnownChainId = currentChainId;
-        lastKnownAccounts = accountsJson;
         lastKnownConnectedOrigins = originsJson;
 
         if (isFirstPoll) {
@@ -149,30 +171,28 @@ async function pollServerStatus() {
             return;
         }
 
-        if (chainIdChanged || accountsChanged || originsChanged) {
-            chrome.tabs.query({ url: ["http://*/*", "https://*/*"] }, (tabs) => {
-                tabs.forEach(tab => {
-                    const tabOrigin = new URL(tab.url).origin;
-                    const wasConnected = JSON.parse(previousOriginsJson).includes(tabOrigin);
-                    const isConnected = currentOrigins.includes(tabOrigin);
+        if (!chainIdChanged && !originsChanged) return;
 
-                    if (originsChanged) {
-                        if (!isConnected && wasConnected) {
-                            chrome.tabs.sendMessage(tab.id, { type: 'accountsChanged', payload: [] });
-                        } else if (isConnected && !wasConnected) {
-                            chrome.tabs.sendMessage(tab.id, { type: 'accountsChanged', payload: currentAccounts });
-                        }
-                    }
+        chrome.tabs.query({ url: ["http://*/*", "https://*/*"] }, (tabs) => {
+            tabs.forEach(tab => {
+                const tabOrigin = new URL(tab.url).origin;
+                const wasConnected = JSON.parse(previousOriginsJson).includes(tabOrigin);
+                const isConnected = currentOrigins.includes(tabOrigin);
 
-                    if (isConnected && (chainIdChanged || accountsChanged)) {
-                        if (chainIdChanged) chrome.tabs.sendMessage(tab.id, { type: 'chainChanged', payload: currentChainId });
-                        if (accountsChanged) chrome.tabs.sendMessage(tab.id, { type: 'accountsChanged', payload: currentAccounts });
+                if (originsChanged) {
+                    if (!isConnected && wasConnected) {
+                        chrome.tabs.sendMessage(tab.id, { type: 'accountsChanged', payload: [] });
+                    } else if (isConnected && !wasConnected) {
+                        pushTabAccounts(tab.id, tabOrigin);
                     }
-                });
+                }
+
+                if (chainIdChanged && isConnected) {
+                    chrome.tabs.sendMessage(tab.id, { type: 'chainChanged', payload: currentChainId });
+                }
             });
-        }
+        });
     } catch (error) {
-        lastKnownAccounts = JSON.stringify([]);
         lastKnownChainId = null;
         chrome.tabs.query({ url: ["http://*/*", "https://*/*"] }, (tabs) => {
             tabs.forEach(tab => {

@@ -229,6 +229,35 @@ mod tests {
       assert_eq!(accounts.seen(origin), [first, second]);
    }
 
+   /// A deleted wallet is forgotten, and an origin that loses every account is
+   /// dropped so a reconnect is offered a fresh account instead of a dead one.
+   #[test]
+   fn dapp_accounts_forget_deleted_wallets() {
+      let origin = "https://app.uniswap.org";
+      let (live, deleted) = (
+         zeus_eth::alloy_primitives::Address::from([0x11u8; 20]),
+         zeus_eth::alloy_primitives::Address::from([0x22u8; 20]),
+      );
+
+      let mut accounts = DappAccounts::default();
+      accounts.record(origin, live);
+      accounts.record(origin, deleted);
+      assert_eq!(accounts.get(origin), Some(deleted));
+
+      // The deleted account is dropped; the still-live one is remembered again.
+      let wallets = std::collections::HashSet::from([live]);
+      assert_eq!(accounts.retain_wallets(&wallets), 0);
+      assert_eq!(accounts.get(origin), Some(live));
+      assert_eq!(accounts.seen(origin), [live]);
+
+      // No accounts left -> the origin is forgotten entirely.
+      assert_eq!(
+         accounts.retain_wallets(&std::collections::HashSet::new()),
+         1
+      );
+      assert!(accounts.get(origin).is_none());
+   }
+
    #[test]
    fn wallet_state_json_roundtrip() {
       let mut inner = WalletStateInner::default();

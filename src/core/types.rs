@@ -562,6 +562,24 @@ impl DappConnection {
    pub fn seen(&self) -> &[Address] {
       &self.seen
    }
+
+   /// Drop accounts that are no longer wallets, and answer whether any are left.
+   ///
+   /// The account the app currently sees moves to the most recent one it still
+   /// has, so an app is never remembered against a deleted wallet.
+   fn retain_wallets(&mut self, wallets: &HashSet<Address>) -> bool {
+      self.seen.retain(|address| wallets.contains(address));
+
+      if self.seen.is_empty() {
+         return false;
+      }
+
+      if !wallets.contains(&self.current) {
+         self.current = *self.seen.last().expect("seen is not empty");
+      }
+
+      true
+   }
 }
 
 /// The accounts Zeus exposed to each app, keyed by the app origin.
@@ -593,6 +611,14 @@ impl DappAccounts {
          .entry(origin.to_string())
          .and_modify(|connection| connection.record(address))
          .or_insert_with(|| DappConnection::new(address));
+   }
+
+   /// Forget every account that is no longer a wallet, dropping origins left
+   /// with none. Returns the number of origins forgotten.
+   pub fn retain_wallets(&mut self, wallets: &HashSet<Address>) -> usize {
+      let before = self.accounts.len();
+      self.accounts.retain(|_, connection| connection.retain_wallets(wallets));
+      before - self.accounts.len()
    }
 }
 

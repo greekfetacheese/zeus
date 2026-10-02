@@ -72,6 +72,15 @@ impl ConnectDappWindow {
       self.open
    }
 
+   /// `true` while a connection is being decided: the prompt is visible, or a
+   /// decision is waiting for the server to collect it.
+   ///
+   /// The server refuses a second connect request while busy — one shared
+   /// prompt cannot belong to two origins at once.
+   pub fn is_busy(&self) -> bool {
+      self.open || self.result.is_some()
+   }
+
    /// Open the prompt for `origin`.
    ///
    /// `remembered` is the account this app was last connected with; new apps
@@ -360,5 +369,30 @@ mod tests {
       assert!(window.seen_accounts.is_empty());
       // Selected only so the "use an existing account" branch opens on a row.
       assert_eq!(window.selected, Some(first));
+   }
+
+   /// A prompt is busy while it is visible and until its decision is collected,
+   /// so a second connect request cannot overwrite it.
+   #[test]
+   fn prompt_is_busy_from_open_until_reset() {
+      let mut window = ConnectDappWindow::new();
+      assert!(!window.is_busy());
+
+      window.open(
+         "https://app.example".to_string(),
+         None,
+         Vec::new(),
+         Vec::new(),
+      );
+      assert!(window.is_busy());
+
+      // A decision was taken but the server has not collected it yet: the
+      // prompt is closed, still busy.
+      window.result = Some(DappConnectResult::Rejected);
+      window.close();
+      assert!(window.is_busy());
+
+      window.reset();
+      assert!(!window.is_busy());
    }
 }
