@@ -786,6 +786,21 @@ impl UiTesting {
                   });
                });
             }
+
+            let button =
+               Button::new(RichText::new("Sign-In With Ethereum").size(text_size))
+                  .min_size(button_size);
+
+            if ui.add(button).clicked() {
+               RT.spawn_blocking(move || {
+                  let msg = SignMsgType::dummy_siwe();
+                  SHARED_GUI.write(|gui| {
+                     let account = gui.ctx.current_wallet_info().address;
+                     gui.sign_msg_window
+                        .open("beta.walletbeat.eth.limo".to_string(), 1, msg, account);
+                  });
+               });
+            }
          });
       });
    }

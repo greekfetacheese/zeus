@@ -83,7 +83,16 @@ impl SignMsgWindow {
       }
 
       let mut open = self.open;
-      let title = RichText::new("Sign Message").size(theme.typography.heading);
+
+      // The heading names what is actually being signed (permit, sign-in,
+      // plain message, …), so it is the only title — the body does not repeat it.
+      let mut title = RichText::new(self.msg.as_ref().map_or("Sign Message", |msg| msg.title()))
+         .size(theme.typography.heading);
+
+      if self.msg.as_ref().is_some_and(|msg| msg.is_unlimited()) {
+         title = title.color(theme.colors.error);
+      }
+
       let id = Id::new("sign_msg_window");
       let frame = theme.window_frame.fill(theme.frame1.fill);
 
@@ -103,10 +112,8 @@ impl SignMsgWindow {
 
             let normal = theme.typography.normal;
             let large = theme.typography.large;
-            let heading = theme.typography.heading;
 
             let warning = theme.colors.warning;
-            let error = theme.colors.error;
 
             Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
                ui.vertical_centered(|ui| {
@@ -143,22 +150,6 @@ impl SignMsgWindow {
 
                   let frame = theme.frame2;
                   let frame_size = vec2(ui.available_width(), 45.0);
-
-                  let mut heading = RichText::new(msg.title()).size(heading);
-
-                  let is_unlimited = if msg.is_permit2_single() {
-                     msg.permit2_details().is_unlimited()
-                  } else if msg.is_permit2612() {
-                     msg.permit2612_details().is_unlimited()
-                  } else {
-                     false
-                  };
-
-                  if is_unlimited {
-                     heading = heading.color(error);
-                  }
-
-                  ui.label(heading);
 
                   if msg.is_other() {
                      let p = "Unknown message, review the details below carefully.";

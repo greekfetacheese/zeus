@@ -15,6 +15,7 @@ use zeus_wallet::SecureKey;
 
 pub mod msg;
 pub mod sign;
+pub mod siwe;
 
 /// Info for a token approval through the Permit2 contract
 #[derive(Clone)]

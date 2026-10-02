@@ -1,4 +1,4 @@
-use super::parse_typed_data;
+use super::{parse_typed_data, siwe};
 use crate::core::clear_signing::{
    self, ClearDisplay, ClearSource, DisplayField, FormattedValue, Intent,
 };
@@ -25,14 +25,18 @@ pub enum SignMsgType {
    Permit2Batch(Permit2BatchDetails),
    Permit2612(Permit2612Details),
    ClearSigned(ClearSignedDetails),
-   PersonalSign(PersonalSignData),
+   SignMessage(SignMessageData),
+   /// EIP-4361 Sign-In With Ethereum: an EIP-191 message that authenticates
+   /// the account to a given domain. Signed exactly like `SignMessage`; the
+   /// variant exists so the prompt can name what is being signed.
+   Siwe(SignMessageData),
    Other(Value),
 }
 
-/// EIP-191 personal message. The display string is a lossy UTF-8 rendering;
-/// signing always uses the raw bytes exactly as the dapp sent them.
+/// EIP-191 `personal_sign` message. The display string is a lossy UTF-8
+/// rendering; signing always uses the raw bytes exactly as the dapp sent them.
 #[derive(Debug, Clone)]
-pub struct PersonalSignData {
+pub struct SignMessageData {
    pub display: String,
    pub bytes: Vec<u8>,
 }
@@ -56,6 +60,26 @@ impl SignMsgType {
       Self::ClearSigned(ClearSignedDetails::dummy())
    }
 
+   pub fn dummy_siwe() -> Self {
+      let account = Address::from_str("0x6ff5693b99212da76ad316178a184ab56d299b43").unwrap();
+      let display = format!(
+         "https://beta.walletbeat.eth.limo wants you to sign in with your Ethereum account:\n\
+          {}\n\n\
+          Sign in to authenticate your wallet. This is a test SIWE message.\n\n\
+          URI: https://beta.walletbeat.eth.limo/\n\
+          Version: 1\n\
+          Chain ID: 1\n\
+          Nonce: s6y3xys06pc\n\
+          Issued At: 2026-10-02T04:16:56.083Z",
+         account.to_checksum(None)
+      );
+
+      Self::Siwe(SignMessageData {
+         bytes: display.as_bytes().to_vec(),
+         display,
+      })
+   }
+
    pub async fn new(
       ctx: ZeusCtx,
       chain: u64,
@@ -63,10 +87,14 @@ impl SignMsgType {
       msg_bytes: Option<Vec<u8>>,
    ) -> Result<Self, anyhow::Error> {
       if let Some(bytes) = msg_bytes {
-         return Ok(Self::PersonalSign(PersonalSignData {
-            display: String::from_utf8_lossy(&bytes).into_owned(),
-            bytes,
-         }));
+         let display = String::from_utf8_lossy(&bytes).into_owned();
+         let data = SignMessageData { display, bytes };
+
+         if siwe::is_siwe(&data.display) {
+            return Ok(Self::Siwe(data));
+         }
+
+         return Ok(Self::SignMessage(data));
       }
 
       if let Some(value) = msg_value {
@@ -119,13 +147,23 @@ impl SignMsgType {
       matches!(self, Self::Other(_))
    }
 
-   pub fn is_personal_sign(&self) -> bool {
-      matches!(self, Self::PersonalSign(_))
+   pub fn is_sign_message(&self) -> bool {
+      matches!(self, Self::SignMessage(_))
+   }
+
+   /// Whether signing this message grants an unlimited allowance. Only the
+   /// permit variants can.
+   pub fn is_unlimited(&self) -> bool {
+      match self {
+         Self::Permit2(details) => details.is_unlimited(),
+         Self::Permit2612(details) => details.is_unlimited(),
+         _ => false,
+      }
    }
 
    pub fn msg_string(&self) -> Option<String> {
       match self {
-         Self::PersonalSign(msg) => Some(msg.display.clone()),
+         Self::SignMessage(msg) | Self::Siwe(msg) => Some(msg.display.clone()),
          _ => None,
       }
    }
@@ -136,7 +174,7 @@ impl SignMsgType {
          Self::Permit2Batch(details) => parse_typed_data(details.msg_value.clone()).ok(),
          Self::Permit2612(details) => parse_typed_data(details.raw_msg.clone()).ok(),
          Self::ClearSigned(details) => parse_typed_data(details.raw.clone()).ok(),
-         Self::PersonalSign(_) => None,
+         Self::SignMessage(_) | Self::Siwe(_) => None,
          Self::Other(details) => parse_typed_data(details.clone()).ok(),
       }
    }
@@ -152,7 +190,7 @@ impl SignMsgType {
             let sig = signer.sign_dynamic_typed_data(&typed).await?;
             Ok(sig)
          }
-         Self::PersonalSign(msg) => {
+         Self::SignMessage(msg) | Self::Siwe(msg) => {
             let sig = signer.sign_message(&msg.bytes).await?;
             Ok(sig)
          }
@@ -177,7 +215,7 @@ impl SignMsgType {
          Self::Permit2Batch(details) => details.msg_value.clone(),
          Self::Permit2612(details) => details.msg_value.clone(),
          Self::ClearSigned(details) => details.raw.clone(),
-         Self::PersonalSign(msg) => json!(msg.display),
+         Self::SignMessage(msg) | Self::Siwe(msg) => json!(msg.display),
          Self::Other(details) => details.clone(),
       }
    }
@@ -188,7 +226,8 @@ impl SignMsgType {
          Self::Permit2Batch(_) => "Permit2 Batch Token Approval",
          Self::Permit2612(p) => p.title(),
          Self::ClearSigned(details) => details.display.heading.as_str(),
-         Self::PersonalSign(_) => "Personal Sign",
+         Self::SignMessage(_) => "Sign Message",
+         Self::Siwe(_) => "Sign-In With Ethereum",
          Self::Other(_) => "Unknown Message",
       }
    }
@@ -835,5 +874,26 @@ mod tests {
       assert!(msg.is_permit2612());
       assert!(msg.is_known());
       assert_eq!(msg.title(), "Token Permit");
+   }
+
+   #[tokio::test]
+   async fn classifies_siwe_from_personal_sign_bytes() {
+      let SignMsgType::Siwe(dummy) = SignMsgType::dummy_siwe() else {
+         panic!("dummy_siwe must be a SIWE message");
+      };
+
+      let msg = SignMsgType::new(ZeusCtx::new(), 1, None, Some(dummy.bytes)).await.unwrap();
+
+      assert!(matches!(msg, SignMsgType::Siwe(_)));
+      assert_eq!(msg.title(), "Sign-In With Ethereum");
+   }
+
+   #[tokio::test]
+   async fn classifies_plain_message() {
+      let bytes = b"Sign in to prove you own this wallet.".to_vec();
+      let msg = SignMsgType::new(ZeusCtx::new(), 1, None, Some(bytes)).await.unwrap();
+
+      assert!(msg.is_sign_message());
+      assert_eq!(msg.title(), "Sign Message");
    }
 }
