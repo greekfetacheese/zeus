@@ -1452,6 +1452,10 @@ impl ZeusCtx {
 
    /// Off-frame ERC-7730 / Sourcify / ENS fill. No-op if already named or already attempted.
    ///
+   /// A token or an NFT collection Zeus already has cached is named by [`Self::get_address_name`],
+   /// which the UI reads first, so this never runs for one — it is the names that need a registry,
+   /// Sourcify or ENS to learn.
+   ///
    /// Returns true if a new name was stored.
    pub async fn lookup_address_name(&self, chain: u64, address: Address) -> bool {
       if address.is_zero() {
@@ -2629,13 +2633,31 @@ impl ZeusContext {
       if address.is_zero() {
          return None;
       }
+
       if let Some(name) = self.address_book.get(chain, address) {
          return Some(name);
       }
+
       if let Some(name) = self.ens_cache.get(chain, address) {
          return Some(name);
       }
-      self.currency_db.get_token_name(chain, address)
+      
+      if let Some(name) = self.currency_db.get_token_name(chain, address) {
+         return Some(name);
+      }
+
+      // An NFT collection names itself: on-chain metadata, cached by the time a token of it was
+      // discovered or added, so this needs no registry or Sourcify round trip. Last, because it is
+      // self-reported and a book or ENS name outranks it. The confirmation window's "Contract
+      // interaction" row reads this for the collection being called.
+      let name = self.nft_db.get_collection(chain, address)?.name?;
+      let name = name.trim();
+
+      if name.is_empty() {
+         return None;
+      }
+
+      Some(Arc::from(name))
    }
 
    /// Get the wallet info for the given zk address
@@ -2886,6 +2908,64 @@ mod tests {
    async fn test_must_panic_if_no_mev_protect_client() {
       let ctx = ZeusCtx::new();
       let _r = ctx.get_mev_protect_client(1).await.unwrap();
+   }
+
+   /// A collection names itself, and the confirmation window's "Contract interaction" row reads this to
+   /// label the contract being called. The name is cached by discovery, so it has to come out with no
+   /// registry or Sourcify round trip — and a curated label still outranks it.
+   #[test]
+   fn get_address_name_resolves_a_cached_nft_collection() {
+      use zeus_eth::nft::{NftCollection, NftStandard};
+
+      let ctx = ZeusCtx::new();
+      let collection = Address::from([0x3e; 20]);
+
+      assert_eq!(ctx.get_address_name(1, collection), None);
+
+      ctx.write(|ctx| {
+         ctx.nft_db.insert_collection(
+            1,
+            NftCollection {
+               chain_id: 1,
+               address: collection,
+               standard: NftStandard::Erc721,
+               name: Some("Zeus Test Collection".to_string()),
+               symbol: Some("ZTC".to_string()),
+            },
+         );
+      });
+
+      assert_eq!(
+         ctx.get_address_name(1, collection).as_deref(),
+         Some("Zeus Test Collection")
+      );
+
+      // The same address on another chain, where nothing is cached.
+      assert_eq!(ctx.get_address_name(10, collection), None);
+
+      // A curated address-book label outranks a contract's self-reported name.
+      ctx.address_book().insert_contract(1, collection, "Curated");
+      assert_eq!(
+         ctx.get_address_name(1, collection).as_deref(),
+         Some("Curated")
+      );
+
+      // A collection whose `name()` returned nothing names nothing.
+      let unnamed = Address::from([0x4f; 20]);
+      ctx.write(|ctx| {
+         ctx.nft_db.insert_collection(
+            1,
+            NftCollection {
+               chain_id: 1,
+               address: unnamed,
+               standard: NftStandard::Erc721,
+               name: None,
+               symbol: None,
+            },
+         );
+      });
+
+      assert_eq!(ctx.get_address_name(1, unnamed), None);
    }
 
    #[tokio::test]
