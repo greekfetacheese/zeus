@@ -95,12 +95,12 @@ Currently the extension is not listed in the Chrome Web Store, so you will need 
 
 ### Railgun
 
-Railgun is natively (no 3rd party) integrated in Zeus. Private balances shown in the UI are **ERC-20 only** (NFTs not supported yet).
+Railgun is natively (no 3rd party) integrated in Zeus. Private balances shown in the UI cover **ERC-20 and ERC-721** (including shielded NFTs in privacy mode); **ERC-1155 is not supported yet**.
 
 | Operation | Assets | Notes |
 |-----------|--------|--------|
-| **Shield** | ERC-20 | Move public funds into the private pool |
-| **Unshield** | ERC-20 | Default: private broadcaster (paymaster). Optional **self-broadcast** for emergency withdrawals (breaks anonymity). Optional unwrap WETH → ETH to fund new empty wallets |
+| **Shield** | ERC-20, ERC-721 | Move public funds into the private pool |
+| **Unshield** | ERC-20, ERC-721 | Default: private broadcaster (paymaster). Optional **self-broadcast** for emergency withdrawals (breaks anonymity). Optional unwrap WETH → ETH to fund new empty wallets (ERC-20 only) |
 | **Private transfer** | ERC-20 only | Send privately to a `0zk` address |
 | **Merge notes** | ERC-20 only | Consolidate UTXO notes for an asset |
 

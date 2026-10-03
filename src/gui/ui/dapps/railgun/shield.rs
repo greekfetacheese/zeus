@@ -467,14 +467,10 @@ impl ShieldUi {
                   });
 
                   if let Some(nft) = token_selection.get_selected_nft().cloned() {
-                     // Shield only, for now: an NFT *unshield* needs its own note handling, so accepting
-                     // the pick here would set an asset the unshield path cannot act on. The picker's
-                     // privacy mode lists shielded NFTs for the step that adds it.
-                     if self.mode.is_shield() {
-                        self.nft = Some(nft);
-                        self.sync_balance(owner);
-                     }
+                     // An NFT and a fungible token are exclusive: picking one clears the other.
+                     self.nft = Some(nft);
                      token_selection.reset();
+                     self.sync_balance(owner);
                   } else if let Some(currency) = token_selection.get_selected_currency() {
                      self.currency = currency.clone();
                      self.nft = None;
@@ -812,13 +808,16 @@ impl ShieldUi {
       let is_synced = ctx.railgun_status().synced(ctx.chain.id());
       let button_visuals = theme.button_visuals();
       let sending_tx = self.sending_tx;
-      let valid_amount = self.valid_amount();
-      let has_balance = self.sufficient_balance(ctx, owner);
-      let has_entered_amount = !self.amount_field.amount.is_empty();
+      // An NFT is held or it is not: there is no amount to enter, no decimals to parse one with, and the
+      // picker only lists tokens the wallet actually has.
+      let nft_selected = self.nft.is_some();
+      let valid_amount = nft_selected || self.valid_amount();
+      let has_balance = nft_selected || self.sufficient_balance(ctx, owner);
+      let has_entered_amount = nft_selected || !self.amount_field.amount.is_empty();
       let has_recipient = !recipient.trim().is_empty();
       let valid_recipient = self.valid_recipient(&recipient);
       let valid_token = if self.mode == RailgunMode::Unshield {
-         self.currency.is_erc20()
+         nft_selected || self.currency.is_erc20()
       } else {
          true
       };
@@ -898,7 +897,6 @@ impl ShieldUi {
    fn send_transaction(&mut self, ctx: &mut ZeusContext, recipient: String) {
       let chain = ctx.chain;
       let from = ctx.current_wallet_info().address;
-      let currency = self.currency.clone();
 
       // The two are exclusive: an NFT wins when one is selected, and it fixes its own value at 1.
       let asset = match &self.nft {
@@ -948,7 +946,8 @@ impl ShieldUi {
          });
       } else {
          let self_broadcast = self.self_broadcast;
-         let unwrap_to_eth = self.unwrap_to_eth;
+         // Unwrapping WETH to ETH is a fungible-only call: there is nothing to unwrap for an NFT.
+         let unwrap_to_eth = self.unwrap_to_eth && self.nft.is_none();
          let bundler_url = self.bundler_url.clone();
          let memo = self.memo.clone();
          // Unshield futures are not `Send` (`PimlicoBundler` / `&dyn Signer` across awaits).
@@ -966,7 +965,7 @@ impl ShieldUi {
             let result = RT.block_on(unshield(
                ctx.clone(),
                chain,
-               currency,
+               asset,
                amount,
                from,
                recipient,
