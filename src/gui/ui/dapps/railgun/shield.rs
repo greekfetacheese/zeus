@@ -12,20 +12,22 @@ use std::{
 
 use crate::core::{
    DecodedEvent, SendTxOptions, SendTxRequest, ShieldParams, TransactionAnalysis, WalletStateKey,
-   ZeusContext, ZeusCtx, bundler_url_dir, ensure_allowance, send_transaction,
+   ZeusContext, ZeusCtx, bundler_url_dir, ensure_allowance, ensure_approval_for_all,
+   send_transaction,
 };
 use crate::{
    gui::ui::common::show_with_fade,
    utils::{RT, write_private_atomic},
 };
 
-use super::{expect_single_event, railgun_ready, settle_railgun_op};
+use super::{RailgunAsset, expect_single_event, railgun_ready, settle_railgun_op};
 use crate::assets::icons::Icons;
 use crate::gui::{
    SHARED_GUI,
    ui::{
       ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
       common::{AmountField, AmountFieldParams},
+      token_selection::nft_collection_name,
    },
 };
 use crate::utils::simulate::{
@@ -40,11 +42,12 @@ use zeus_eth::{
    alloy_primitives::Address,
    alloy_rpc_types::BlockId,
    currency::{Currency, ERC20Token, NativeCurrency},
+   nft::NftToken,
    types::ChainId,
    utils::NumericValue,
 };
 
-use zeus_railgun::{RailgunAddress, caip::AssetId, rand::SeedableRng, rand_chacha::ChaCha12Rng};
+use zeus_railgun::{RailgunAddress, rand::SeedableRng, rand_chacha::ChaCha12Rng};
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -122,6 +125,9 @@ pub struct ShieldUi {
    open: bool,
    mode: RailgunMode,
    currency: Currency,
+   /// The NFT being shielded, when one is. `None` means the fungible `currency` is the asset: the two are
+   /// exclusive, and picking either clears the other.
+   nft: Option<NftToken>,
    amount_field: AmountField,
    recipient: String,
    recipient_name: Option<String>,
@@ -151,6 +157,7 @@ impl ShieldUi {
          open: false,
          mode: RailgunMode::Shield,
          currency: Currency::from(NativeCurrency::from_chain_id(1).unwrap()),
+         nft: None,
          amount_field: AmountField::new(),
          recipient: String::new(),
          recipient_name: None,
@@ -397,7 +404,11 @@ impl ShieldUi {
                   let currency = self.currency.clone();
                   let data_syncing = self.price_syncing || self.syncing_balance;
                   let should_calculate_price = self.should_calculate_price(&currency);
-                  let value = value(ctx, currency, amount, should_calculate_price);
+                  // An NFT has no pool price, so there is nothing to value it by.
+                  let value = match &self.nft {
+                     Some(_) => NumericValue::default(),
+                     None => value(ctx, currency, amount, should_calculate_price),
+                  };
 
                   // Token list: public tokens for shield, private notes for unshield.
                   let token_privacy_mode = self.mode.is_unshield();
@@ -406,28 +417,67 @@ impl ShieldUi {
 
                   inner_frame.show(ui, |ui| {
                      ui.set_width(ui.available_width());
-                     self.amount_field.show(
-                        AmountFieldParams::new(
-                           theme,
-                           icons.clone(),
-                           &self.currency,
-                           owner,
-                           chain.id(),
+
+                     // An NFT has no amount to enter — it is one token, and `RailgunAsset` fixes its value
+                     // at 1 — so the field is replaced by what is being moved.
+                     if let Some(nft) = &self.nft {
+                        let collection = nft_collection_name(
+                           ctx.nft_db.get_collection(chain.id(), nft.collection).as_ref(),
+                           nft.collection,
+                        );
+
+                        let icon = icons
+                           .nft_icon_x64(
+                              chain.id(),
+                              nft.collection,
+                              nft.token_id,
+                              theme.image_tint_recommended,
+                           )
+                           .fit_to_exact_size(vec2(24.0, 24.0));
+
+                        let label = Label::new(
+                           RichText::new(format!("{} #{}", collection, nft.token_id))
+                              .size(theme.typography.large),
+                           Some(icon),
                         )
-                        .privacy_mode(token_privacy_mode)
-                        .balance(balance)
-                        .max_amount(max_amount)
-                        .value(value)
-                        .label("Amount")
-                        .token_selection(token_selection, None)
-                        .loading(data_syncing)
-                        .show_slider(true),
-                        ui,
-                     );
+                        .spacing(3.0)
+                        .interactive(false);
+
+                        ui.add(label);
+                     } else {
+                        self.amount_field.show(
+                           AmountFieldParams::new(
+                              theme,
+                              icons.clone(),
+                              &self.currency,
+                              owner,
+                              chain.id(),
+                           )
+                           .privacy_mode(token_privacy_mode)
+                           .balance(balance)
+                           .max_amount(max_amount)
+                           .value(value)
+                           .label("Amount")
+                           .token_selection(token_selection, None)
+                           .loading(data_syncing)
+                           .show_slider(true),
+                           ui,
+                        );
+                     }
                   });
 
-                  if let Some(currency) = token_selection.get_selected_currency() {
+                  if let Some(nft) = token_selection.get_selected_nft().cloned() {
+                     // Shield only, for now: an NFT *unshield* needs its own note handling, so accepting
+                     // the pick here would set an asset the unshield path cannot act on. The picker's
+                     // privacy mode lists shielded NFTs for the step that adds it.
+                     if self.mode.is_shield() {
+                        self.nft = Some(nft);
+                        self.sync_balance(owner);
+                     }
+                     token_selection.reset();
+                  } else if let Some(currency) = token_selection.get_selected_currency() {
                      self.currency = currency.clone();
+                     self.nft = None;
                      token_selection.reset();
                      self.sync_balance(owner);
                   }
@@ -849,10 +899,21 @@ impl ShieldUi {
       let chain = ctx.chain;
       let from = ctx.current_wallet_info().address;
       let currency = self.currency.clone();
-      let amount = NumericValue::parse_to_wei(
-         &self.amount_field.amount,
-         self.currency.decimals(),
-      );
+
+      // The two are exclusive: an NFT wins when one is selected, and it fixes its own value at 1.
+      let asset = match &self.nft {
+         Some(nft) => RailgunAsset::Nft(nft.clone()),
+         None => RailgunAsset::Fungible(self.currency.clone()),
+      };
+
+      let amount = match &self.nft {
+         // An NFT has no decimals to parse a quantity with, and nothing to parse — the field is not shown.
+         Some(_) => NumericValue::default(),
+         None => NumericValue::parse_to_wei(
+            &self.amount_field.amount,
+            self.currency.decimals(),
+         ),
+      };
 
       ctx.railgun_status.set_op_in_progress(chain.id(), true);
 
@@ -864,16 +925,7 @@ impl ShieldUi {
                gui.ctx.clone()
             });
 
-            match shield(
-               ctx.clone(),
-               chain,
-               currency,
-               amount,
-               from,
-               recipient,
-            )
-            .await
-            {
+            match shield(ctx.clone(), chain, asset, amount, from, recipient).await {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
                      gui.shield_ui.sending_tx = false;
@@ -1091,7 +1143,7 @@ fn value(
 async fn shield(
    ctx: ZeusCtx,
    chain: ChainId,
-   currency: Currency,
+   asset: RailgunAsset,
    amount: NumericValue,
    from: Address,
    recipient: String,
@@ -1105,25 +1157,44 @@ async fn shield(
       }
    };
 
-   let token = currency.to_erc20().into_owned();
    let railgun_address = railgun_provider.railgun_address();
    let relay_adapt = railgun_provider.chain_config().relay_adapt_contract;
-   let is_native = currency.is_native();
+   let is_native = asset.is_native();
 
-   // ERC-20 still needs an on-chain approval of RailgunSmartWallet before shield.
+   // ERC-20 still needs an on-chain approval of RailgunSmartWallet before shield, and an NFT collection
+   // needs `setApprovalForAll` — one approval that covers every token in it.
    // Native ETH uses RelayAdapt wrap+shield in one self-broadcast tx (no approval).
    if !is_native {
-      ensure_allowance(
-         ctx.clone(),
-         chain,
-         from,
-         &token,
-         railgun_address,
-         amount.wei(),
-         "Railgun",
-         "Token approval required to shield",
-      )
-      .await?;
+      match &asset {
+         RailgunAsset::Fungible(currency) => {
+            let token = currency.to_erc20().into_owned();
+
+            ensure_allowance(
+               ctx.clone(),
+               chain,
+               from,
+               &token,
+               railgun_address,
+               amount.wei(),
+               "Railgun",
+               "Token approval required to shield",
+            )
+            .await?;
+         }
+         RailgunAsset::Nft(nft) => {
+            ensure_approval_for_all(
+               ctx.clone(),
+               chain,
+               from,
+               nft.collection,
+               nft.standard,
+               railgun_address,
+               "Railgun",
+               "Collection approval required to shield",
+            )
+            .await?;
+         }
+      }
    }
 
    SHARED_GUI.write(|gui| {
@@ -1131,7 +1202,8 @@ async fn shield(
       gui.request_repaint();
    });
 
-   let amount_u128: u128 = amount.wei().try_into()?;
+   // An ERC-721 moves exactly one: the token id is the asset, so the amount the UI holds is not consulted.
+   let amount_u128: u128 = asset.value(amount.wei()).try_into()?;
 
    let shield_tx = {
       let mut rng = ChaCha12Rng::from_os_rng();
@@ -1139,11 +1211,7 @@ async fn shield(
       let builder = if is_native {
          builder.shield_native(recipient.clone(), amount_u128)
       } else {
-         builder.shield(
-            recipient.clone(),
-            AssetId::Erc20(token.address),
-            amount_u128,
-         )
+         builder.shield(recipient.clone(), asset.asset_id(), amount_u128)
       };
       builder.build(&mut rng)?
    };
@@ -1164,7 +1232,9 @@ async fn shield(
    // Prefetch accounts and storage for the sim
    let mut accounts = Vec::new();
    accounts.push(AccountPrefetch::eoa(from));
-   accounts.push(AccountPrefetch::contract(token.address));
+   accounts.push(AccountPrefetch::contract(
+      asset.asset_id().address(),
+   ));
    accounts.push(AccountPrefetch::contract(railgun_address));
    accounts.push(AccountPrefetch::contract(interact_to));
    accounts.push(AccountPrefetch::contract(relay_adapt));
@@ -1255,7 +1325,11 @@ async fn shield(
       ctx,
       chain,
       from,
-      (!is_native).then_some(token),
+      match &asset {
+         // An NFT has no ERC-20 balance to refresh after the fact; it shows up through the private scan.
+         RailgunAsset::Fungible(currency) if !is_native => Some(currency.to_erc20().into_owned()),
+         _ => None,
+      },
    ));
 
    Ok(())

@@ -6,12 +6,14 @@ use tokio::time::sleep;
 use anyhow::anyhow;
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256},
-   currency::ERC20Token,
+   currency::{Currency, ERC20Token},
+   nft::NftToken,
    types::ChainId,
    utils::client::RpcClient,
 };
 use zeus_railgun::{
-   RailgunProvider, rand::SeedableRng, rand_chacha::ChaCha12Rng, transact::TransactionBuilder,
+   RailgunProvider, caip::AssetId, rand::SeedableRng, rand_chacha::ChaCha12Rng,
+   transact::TransactionBuilder,
 };
 
 use crate::core::ZeusCtx;
@@ -30,11 +32,106 @@ pub use shield::{BundlerUrl, RailgunMode, ShieldUi};
 pub use transfer::{private_merge_notes, private_transfer};
 pub use unshield::default_bundler_url;
 
+/// What the user is moving into or out of Railgun.
+///
+/// An enum rather than a `Currency` because an NFT never enters `Currency` (D1), and rather than two
+/// optional parameters so that "neither" and "both" cannot be represented.
+///
+/// The amount question is answered here too: a fungible token has a quantity the user picks, while an
+/// ERC-721 is exactly one — the token id *is* the asset — so the builders take what this derives rather
+/// than a number each call site invents.
+pub enum RailgunAsset {
+   Fungible(Currency),
+   Nft(NftToken),
+}
+
+impl RailgunAsset {
+   /// The asset id the Railgun builders take.
+   pub fn asset_id(&self) -> AssetId {
+      match self {
+         Self::Fungible(currency) => AssetId::Erc20(currency.to_erc20().address),
+         Self::Nft(nft) => AssetId::Erc721(nft.collection, nft.token_id),
+      }
+   }
+
+   /// The value to move, in the asset's own units.
+   pub fn value(&self, amount: U256) -> U256 {
+      match self {
+         Self::Fungible(_) => amount,
+         Self::Nft(_) => U256::from(1),
+      }
+   }
+
+   /// Native ETH shields through `shield_native`, which wraps and shields in one call.
+   pub fn is_native(&self) -> bool {
+      matches!(self, Self::Fungible(currency) if currency.is_native())
+   }
+}
+
 /// A proved Railgun transaction, reduced to the call that gets broadcast.
 pub struct ProvedCall {
    pub calldata: Bytes,
    pub interact_to: Address,
    pub value: U256,
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use zeus_eth::{alloy_primitives::address, nft::NftStandard};
+
+   const BAYC: Address = address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D");
+
+   fn nft(token_id: u64) -> NftToken {
+      NftToken {
+         chain_id: 1,
+         collection: BAYC,
+         token_id: U256::from(token_id),
+         standard: NftStandard::Erc721,
+         metadata_uri: None,
+      }
+   }
+
+   /// A fungible asset is the currency it wraps, and the amount is whatever the user typed.
+   #[test]
+   fn a_fungible_asset_keeps_its_currency_and_amount() {
+      let weth = Currency::from(ERC20Token::weth());
+      let asset = RailgunAsset::Fungible(weth.clone());
+
+      assert_eq!(
+         asset.asset_id(),
+         AssetId::Erc20(weth.to_erc20().address)
+      );
+      assert_eq!(asset.value(U256::from(1500)), U256::from(1500));
+      assert!(!asset.is_native());
+   }
+
+   /// An NFT is its collection and its id, and it is worth exactly one — there is no quantity to ask the
+   /// user for, so whatever number reaches `value` cannot change what moves.
+   #[test]
+   fn an_nft_asset_is_its_id_and_always_worth_one() {
+      let asset = RailgunAsset::Nft(nft(7));
+
+      assert_eq!(
+         asset.asset_id(),
+         AssetId::Erc721(BAYC, U256::from(7))
+      );
+      assert_eq!(asset.value(U256::ZERO), U256::from(1));
+      assert_eq!(
+         asset.value(U256::MAX),
+         U256::from(1),
+         "the amount is not consulted"
+      );
+      assert!(!asset.is_native());
+   }
+
+   /// Native ETH is the one asset that shields through `shield_native`, so the flag has to be right for
+   /// it — and wrong for everything else.
+   #[test]
+   fn only_native_currency_is_native() {
+      assert!(RailgunAsset::Fungible(Currency::native(1)).is_native());
+      assert!(!RailgunAsset::Fungible(Currency::from(ERC20Token::weth())).is_native());
+   }
 }
 
 /// Prove `tx` and reduce it to its call.

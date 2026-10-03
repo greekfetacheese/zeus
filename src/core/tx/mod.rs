@@ -12,7 +12,10 @@ pub mod sim_diff;
 
 pub use analysis::TransactionAnalysis;
 pub use approval_diff::{ApprovalChange, ApprovalDiff, ApprovalKind};
-pub use approve::{ApproveSimulation, ensure_allowance, send_token_approve};
+pub use approve::{
+   ApproveSimulation, ensure_allowance, ensure_approval_for_all, send_nft_approve,
+   send_token_approve,
+};
 pub use balance_diff::{BalanceChange, BalanceDiff};
 pub use events::DecodedEvent;
 pub use finalize::{

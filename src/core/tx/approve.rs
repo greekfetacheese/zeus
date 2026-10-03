@@ -7,9 +7,11 @@ use crate::core::{DecodedEvent, TokenApproveParams, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use zeus_eth::{
+   abi::{erc721, erc1155},
    alloy_primitives::{Address, Log, U256},
    alloy_rpc_types::TransactionReceipt,
    currency::ERC20Token,
+   nft::NftStandard,
    types::ChainId,
    utils::NumericValue,
 };
@@ -113,6 +115,91 @@ pub async fn send_token_approve(
    .await?;
 
    Ok(receipt)
+}
+
+/// Send `setApprovalForAll(operator, true)` for an NFT collection.
+///
+/// One approval covers every token in the collection, so unlike an ERC-20 allowance there is no amount to
+/// compare against — the operator is either approved or it is not.
+///
+/// No bespoke confirm params: the call emits `ApprovalForAll`, and the decoder already turns that into an
+/// NFT approval event, which is a better description of what is happening than anything built by hand.
+pub async fn send_nft_approve(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   owner: Address,
+   collection: Address,
+   standard: NftStandard,
+   operator: Address,
+   dapp: &str,
+) -> Result<TransactionReceipt, anyhow::Error> {
+   let interact_to = collection;
+   let call_data = match standard {
+      NftStandard::Erc721 => erc721::encode_set_approval_for_all(operator, true),
+      NftStandard::Erc1155 => erc1155::encode_set_approval_for_all(operator, true),
+   };
+
+   let mut req = SendTxRequest::new(chain, owner, interact_to)
+      .call_data(call_data)
+      .value(U256::ZERO)
+      .authorization_list(Vec::new());
+
+   req.analysis = None;
+
+   let (receipt, _) = send_transaction(
+      ctx,
+      true,
+      req,
+      SendTxOptions {
+         dapp: dapp.to_string(),
+         ..Default::default()
+      },
+   )
+   .await?;
+
+   Ok(receipt)
+}
+
+/// Ensure `operator` may move every token of `collection` held by `owner`, sending a
+/// `setApprovalForAll` when it may not.
+///
+/// Returns whether a transaction had to be sent.
+pub async fn ensure_approval_for_all(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   owner: Address,
+   collection: Address,
+   standard: NftStandard,
+   operator: Address,
+   dapp: &str,
+   loading_msg: &str,
+) -> Result<bool, anyhow::Error> {
+   let client = ctx.get_client(chain.id()).await?;
+
+   let approved = match standard {
+      NftStandard::Erc721 => {
+         erc721::is_approved_for_all(collection, owner, operator, client).await?
+      }
+      NftStandard::Erc1155 => {
+         erc1155::is_approved_for_all(collection, owner, operator, client).await?
+      }
+   };
+
+   if approved {
+      return Ok(false);
+   }
+
+   SHARED_GUI.write(|gui| {
+      gui.loading_window.open(loading_msg);
+      gui.request_repaint();
+   });
+
+   send_nft_approve(
+      ctx, chain, owner, collection, standard, operator, dapp,
+   )
+   .await?;
+
+   Ok(true)
 }
 
 /// Ensure `owner` has at least `required` allowance of `token` for `spender`,
