@@ -17,6 +17,7 @@ use zeus_eth::{
    types::ChainId,
    utils::NumericValue,
 };
+use zeus_railgun::{abi::railgun::TokenType, caip::AssetId};
 
 /// A known name for an address, or the truncated address when nothing knows it.
 fn address_text(ctx: &ZeusContext, chain: u64, address: Address, theme: &Theme) -> Label {
@@ -324,10 +325,10 @@ impl Notification {
             self.show_unwrap_weth_notification(theme, icons.clone(), ui);
          }
          NotificationType::Shield(_) => {
-            self.show_shield_notification(theme, icons.clone(), ui);
+            self.show_shield_notification(ctx, theme, icons.clone(), ui);
          }
          NotificationType::Unshield(_) => {
-            self.show_unshield_notification(theme, icons.clone(), ui);
+            self.show_unshield_notification(ctx, theme, icons.clone(), ui);
          }
          NotificationType::PrivateTransfer(_) => {
             self.show_private_transfer_notification(theme, icons.clone(), ui);
@@ -745,7 +746,13 @@ impl Notification {
       });
    }
 
-   fn show_shield_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn show_shield_notification(
+      &self,
+      ctx: &ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
       let params = self.notification.shield_params();
       let tint = theme.image_tint_recommended;
       let icon_size = vec2(24.0, 24.0);
@@ -782,11 +789,37 @@ impl Notification {
                .wrap_mode(TextWrapMode::Extend)
                .interactive(false);
             ui.add(label);
+         } else if let AssetId::Erc721(collection, token_id) = &params.asset {
+            // An NFT shield is reported the same way the fungible one is: the collection's name and art,
+            // with the id, instead of leaving the notification with only its title.
+            let name = nft_collection_name(
+               ctx.nft_db.get_collection(params.chain, *collection).as_ref(),
+               *collection,
+            );
+
+            let icon = icons
+               .nft_icon_x64(params.chain, *collection, *token_id, tint)
+               .fit_to_exact_size(icon_size);
+
+            let text =
+               RichText::new(format!("{} #{}", name, token_id)).size(theme.typography.normal);
+
+            let label = Label::new(text, Some(icon))
+               .image_on_left()
+               .wrap_mode(TextWrapMode::Extend)
+               .interactive(false);
+            ui.add(label);
          }
       });
    }
 
-   fn show_unshield_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn show_unshield_notification(
+      &self,
+      ctx: &ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
       let params = self.notification.unshield_params();
       let tint = theme.image_tint_recommended;
       let icon_size = vec2(24.0, 24.0);
@@ -817,6 +850,33 @@ impl Notification {
                ))
                .size(theme.typography.normal)
             };
+
+            let label = Label::new(text, Some(icon))
+               .image_on_left()
+               .wrap_mode(TextWrapMode::Extend)
+               .interactive(false);
+            ui.add(label);
+         } else if params.token_data.tokenType == TokenType::ERC721 {
+            // Same as the shield: name the NFT, don't leave the notification with only its title.
+            let name = nft_collection_name(
+               ctx.nft_db.get_collection(params.chain, params.token_data.tokenAddress).as_ref(),
+               params.token_data.tokenAddress,
+            );
+
+            let icon = icons
+               .nft_icon_x64(
+                  params.chain,
+                  params.token_data.tokenAddress,
+                  params.token_data.tokenSubID,
+                  tint,
+               )
+               .fit_to_exact_size(icon_size);
+
+            let text = RichText::new(format!(
+               "{} #{}",
+               name, params.token_data.tokenSubID
+            ))
+            .size(theme.typography.normal);
 
             let label = Label::new(text, Some(icon))
                .image_on_left()

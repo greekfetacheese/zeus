@@ -346,6 +346,22 @@ impl NftIcons {
       self.icon_data.read().unwrap().get(key).is_some_and(|data| !data.is_empty())
    }
 
+   /// A token id of `collection` that has art cached, if any. Lowest id wins, so the choice is stable
+   /// across frames rather than whatever the map happens to iterate first.
+   ///
+   /// For rows that are about a collection rather than one token — an approval log carries no token id —
+   /// where asking for a fixed id (0, say) can land on a token whose art was never fetched.
+   fn cached_id_for_collection(&self, chain_id: u64, collection: Address) -> Option<U256> {
+      self
+         .icon_data
+         .read()
+         .unwrap()
+         .iter()
+         .filter(|(key, data)| key.0 == collection && key.1 == chain_id && !data.is_empty())
+         .map(|(key, _)| key.2)
+         .min()
+   }
+
    /// Whether this token still needs a download attempt.
    ///
    /// A read-only probe of the same three conditions [`NftIcons::try_begin_fetch`] enforces, for
@@ -602,6 +618,23 @@ impl Icons {
       self.nft_icon(collection, chain_id, token_id, true, tint)
    }
 
+   /// Return the thumbnail for a collection rather than for one of its tokens, or the placeholder when
+   /// none of its art is cached.
+   ///
+   /// An approval is collection-wide: its log carries no token id, and asking for a fixed one lands on
+   /// whatever art *that* token has — usually none — which is how an approval row ended up showing the
+   /// placeholder. Any of the collection's cached pictures says what the row is about.
+   pub fn nft_collection_icon_x64(
+      &self,
+      chain_id: u64,
+      collection: Address,
+      tint: bool,
+   ) -> Image<'static> {
+      let token_id = self.nfts.cached_id_for_collection(chain_id, collection).unwrap_or(U256::ZERO);
+
+      self.nft_icon(collection, chain_id, token_id, false, tint)
+   }
+
    fn nft_icon(
       &self,
       collection: Address,
@@ -683,6 +716,37 @@ mod tests {
    use super::*;
 
    const PLACEHOLDER: &[u8] = include_bytes!("nft/placeholder.png");
+
+   /// A collection-wide row — an approval — takes its art from whichever of the collection's tokens has
+   /// some cached. Asking for a fixed id, id 0, showed the placeholder whenever that particular token
+   /// had never been fetched, which is exactly what an NFT approval looked like.
+   #[test]
+   fn a_collection_icon_comes_from_any_cached_token() {
+      let ctx = Context::default();
+      let icons = Icons::new(&ctx).expect("the bundled icons load");
+
+      let collection = Address::from([0xbc; 20]);
+
+      // Nothing cached: the placeholder, which is a texture and so carries no URI of its own.
+      assert!(icons.nft_collection_icon_x64(1, collection, false).uri().is_none());
+
+      // Art cached under a token id that is not 0.
+      let key = (collection, 1, U256::from(7));
+      icons.nfts.insert_icon(key, NftIconData::Svg(b"<svg/>".to_vec()));
+
+      let uri = icons
+         .nft_collection_icon_x64(1, collection, false)
+         .uri()
+         .map(str::to_string)
+         .expect("the cached token's art is an SVG source");
+      assert!(
+         uri.contains("/7.svg"),
+         "expected the collection's cached art, got {uri}"
+      );
+
+      // Another chain does not see it: the art is keyed per chain.
+      assert!(icons.nft_collection_icon_x64(10, collection, false).uri().is_none());
+   }
 
    /// The placeholder is a binary asset. A corrupt or mis-encoded PNG would otherwise only show up
    /// as a panic at GUI startup, so decode it here.

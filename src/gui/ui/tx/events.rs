@@ -7,10 +7,11 @@ use crate::assets::icons::Icons;
 use crate::core::{TransactionAnalysis, ZeusContext, tx::events::*};
 use crate::gui::ui::token_selection::nft_collection_name;
 use zeus_eth::{
-   alloy_primitives::U256,
+   alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token, NativeCurrency},
    types::ChainId,
 };
+use zeus_railgun::{abi::railgun::TokenType, caip::AssetId};
 
 use std::sync::Arc;
 
@@ -386,14 +387,15 @@ fn nft_transfer_event_ui(
                None => subject,
             };
 
-            let icon = icons
-               .nft_icon_x64(
-                  chain_id,
-                  params.collection,
-                  params.token_id.unwrap_or(U256::ZERO),
-                  tint,
-               )
-               .fit_to_exact_size(icon_size);
+            // An approval is collection-wide and its log carries no token id, so there is nothing
+            // specific to ask for — a fixed id (0) showed the placeholder whenever that particular
+            // token's art had never been fetched. Any of the collection's cached art says what the row
+            // is about.
+            let icon = match params.token_id {
+               Some(token_id) => icons.nft_icon_x64(chain_id, params.collection, token_id, tint),
+               None => icons.nft_collection_icon_x64(chain_id, params.collection, tint),
+            }
+            .fit_to_exact_size(icon_size);
 
             let label = Label::new(
                RichText::new(text).size(theme.typography.large),
@@ -444,6 +446,47 @@ fn nft_transfer_event_ui(
    });
 }
 
+/// The NFT a Railgun operation moves, drawn inside a row's `ui.horizontal`: the action on the left, the
+/// token on the right.
+///
+/// An NFT shield has no ERC-20 to show — `erc20` is `None` and the asset is an `Erc721` — so without
+/// this the confirmation window listed the recipient, the fee and the cost but never what was being
+/// moved. Callers pass the collection and the id rather than a resolved `NftToken`: the event's asset
+/// always carries both, while resolving the metadata is allowed to fail and would silently blank the
+/// row again.
+fn railgun_nft_row(
+   ctx: &mut ZeusContext,
+   chain: ChainId,
+   theme: &Theme,
+   icons: &Icons,
+   action: &str,
+   collection: Address,
+   token_id: U256,
+   ui: &mut Ui,
+) {
+   let chain_id = chain.id();
+   let tint = theme.image_tint_recommended;
+
+   ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+      let text = RichText::new(action).size(theme.typography.large);
+      ui.add(Label::new(text, None).interactive(false));
+   });
+
+   ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+      let name = nft_collection_name(
+         ctx.nft_db.get_collection(chain_id, collection).as_ref(),
+         collection,
+      );
+
+      let icon = icons
+         .nft_icon_x64(chain_id, collection, token_id, tint)
+         .fit_to_exact_size(vec2(24.0, 24.0));
+
+      let text = RichText::new(format!("{} #{}", name, token_id)).size(theme.typography.large);
+      ui.add(Label::new(text, Some(icon)).spacing(3.0).interactive(false));
+   });
+}
+
 fn shield_event_ui(
    ctx: &mut ZeusContext,
    chain: ChainId,
@@ -491,6 +534,17 @@ fn shield_event_ui(
                let multi_label = MultiLabel::new(vec![label1, label2]);
                ui.add(multi_label);
             });
+         } else if let AssetId::Erc721(collection, token_id) = &params.asset {
+            railgun_nft_row(
+               ctx,
+               chain,
+               theme,
+               &icons,
+               "Shield",
+               *collection,
+               *token_id,
+               ui,
+            );
          }
       });
    });
@@ -624,6 +678,17 @@ fn unshield_event_ui(
                let multi_label = MultiLabel::new(vec![label1, label2]);
                ui.add(multi_label);
             });
+         } else if params.token_data.tokenType == TokenType::ERC721 {
+            railgun_nft_row(
+               ctx,
+               chain,
+               theme,
+               &icons,
+               "Receive",
+               params.token_data.tokenAddress,
+               params.token_data.tokenSubID,
+               ui,
+            );
          }
       });
    });
