@@ -27,7 +27,7 @@ use crate::gui::{
    ui::{
       ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
       common::{AmountField, AmountFieldParams},
-      token_selection::nft_collection_name,
+      token_selection::{PickerMode, nft_collection_name},
    },
 };
 use crate::utils::simulate::{
@@ -305,6 +305,34 @@ impl ShieldUi {
       });
    }
 
+   /// The "Select NFT" / "Change" button: opens the picker on its NFT list.
+   ///
+   /// The same affordance SendCrypto's NFT selector has. The picker opens listing what this mode moves
+   /// — shielded tokens for an unshield, public ones for a shield — and on its NFT tab; the picker's
+   /// own Tokens/NFTs switch is still there, which is the way back to a fungible token.
+   fn nft_select_button(
+      theme: &Theme,
+      nft_selected: bool,
+      privacy_mode: bool,
+      token_selection: &mut TokenSelectionWindow,
+      chain_id: u64,
+      owner: Address,
+      ui: &mut Ui,
+   ) {
+      let text = RichText::new(match nft_selected {
+         true => "Change",
+         false => "Select NFT",
+      })
+      .size(theme.typography.normal);
+
+      let button = Button::new(text).min_size(vec2(90.0, 25.0)).visuals(theme.button_visuals());
+
+      if ui.add(button).clicked() {
+         token_selection.open(privacy_mode, chain_id, owner);
+         token_selection.set_mode(PickerMode::Nft);
+      }
+   }
+
    pub fn show(
       &mut self,
       ctx: &mut ZeusContext,
@@ -419,7 +447,9 @@ impl ShieldUi {
                      ui.set_width(ui.available_width());
 
                      // An NFT has no amount to enter — it is one token, and `RailgunAsset` fixes its value
-                     // at 1 — so the field is replaced by what is being moved.
+                     // at 1 — so the field is replaced by what is being moved. Either way there is a way
+                     // to change the choice: picking an NFT used to be a one-way door until the window
+                     // was reopened.
                      if let Some(nft) = &self.nft {
                         let collection = nft_collection_name(
                            ctx.nft_db.get_collection(chain.id(), nft.collection).as_ref(),
@@ -443,7 +473,25 @@ impl ShieldUi {
                         .spacing(3.0)
                         .interactive(false);
 
-                        ui.add(label);
+                        // The shape SendCrypto's NFT selector uses: what is being moved on the left, a
+                        // way to change it on the right.
+                        ui.horizontal(|ui| {
+                           ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                              ui.add(label);
+                           });
+
+                           ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                              Self::nft_select_button(
+                                 theme,
+                                 self.nft.is_some(),
+                                 token_privacy_mode,
+                                 token_selection,
+                                 chain.id(),
+                                 owner,
+                                 ui,
+                              );
+                           });
+                        });
                      } else {
                         self.amount_field.show(
                            AmountFieldParams::new(
