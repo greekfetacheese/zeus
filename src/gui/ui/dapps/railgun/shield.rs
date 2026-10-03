@@ -39,10 +39,10 @@ use egui_lucide::Lucide;
 use elegance::{Badge, BadgeTone};
 
 use zeus_eth::{
-   alloy_primitives::Address,
+   alloy_primitives::{Address, U256},
    alloy_rpc_types::BlockId,
    currency::{Currency, ERC20Token, NativeCurrency},
-   nft::NftToken,
+   nft::{NftStandard, NftToken},
    types::ChainId,
    utils::NumericValue,
 };
@@ -128,6 +128,11 @@ pub struct ShieldUi {
    /// The NFT being shielded, when one is. `None` means the fungible `currency` is the asset: the two are
    /// exclusive, and picking either clears the other.
    nft: Option<NftToken>,
+   /// The quantity of the selected ERC-1155, as typed.
+   ///
+   /// An ERC-721 moves exactly one and never reads this — there is no field for it. An ERC-1155 is a
+   /// quantity of an id, so the number is what moves, counted in whole units.
+   nft_amount: String,
    amount_field: AmountField,
    recipient: String,
    recipient_name: Option<String>,
@@ -158,6 +163,7 @@ impl ShieldUi {
          mode: RailgunMode::Shield,
          currency: Currency::from(NativeCurrency::from_chain_id(1).unwrap()),
          nft: None,
+         nft_amount: String::new(),
          amount_field: AmountField::new(),
          recipient: String::new(),
          recipient_name: None,
@@ -492,6 +498,28 @@ impl ShieldUi {
                               );
                            });
                         });
+
+                        // An ERC-1155 moves a quantity of an id, so it needs a number; an ERC-721 is one
+                        // token and has nothing to ask for.
+                        if nft.standard == NftStandard::Erc1155 {
+                           let max = Self::nft_max(nft, self.mode, ctx, owner);
+
+                           ui.horizontal(|ui| {
+                              ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                                 ui.add(
+                                    Label::new(
+                                       RichText::new("Amount").size(theme.typography.large),
+                                       None,
+                                    )
+                                    .interactive(false),
+                                 );
+                              });
+
+                              ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                 Self::nft_amount_input(&mut self.nft_amount, theme, max, ui);
+                              });
+                           });
+                        }
                      } else {
                         self.amount_field.show(
                            AmountFieldParams::new(
@@ -515,13 +543,16 @@ impl ShieldUi {
                   });
 
                   if let Some(nft) = token_selection.get_selected_nft().cloned() {
-                     // An NFT and a fungible token are exclusive: picking one clears the other.
+                     // An NFT and a fungible token are exclusive: picking one clears the other. A newly
+                     // picked token starts with no quantity, rather than inheriting the last one's.
                      self.nft = Some(nft);
+                     self.nft_amount.clear();
                      token_selection.reset();
                      self.sync_balance(owner);
                   } else if let Some(currency) = token_selection.get_selected_currency() {
                      self.currency = currency.clone();
                      self.nft = None;
+                     self.nft_amount.clear();
                      token_selection.reset();
                      self.sync_balance(owner);
                   }
@@ -856,12 +887,31 @@ impl ShieldUi {
       let is_synced = ctx.railgun_status().synced(ctx.chain.id());
       let button_visuals = theme.button_visuals();
       let sending_tx = self.sending_tx;
-      // An NFT is held or it is not: there is no amount to enter, no decimals to parse one with, and the
-      // picker only lists tokens the wallet actually has.
+      // What the selected NFT moves, if one is selected at all: one for an ERC-721, whatever was typed for
+      // an ERC-1155 — and `None` inside the `Some` means the field does not hold a usable count yet.
+      let nft_quantity = self.nft.as_ref().map(|nft| nft_quantity(nft, &self.nft_amount));
       let nft_selected = self.nft.is_some();
-      let valid_amount = nft_selected || self.valid_amount();
-      let has_balance = nft_selected || self.sufficient_balance(ctx, owner);
-      let has_entered_amount = nft_selected || !self.amount_field.amount.is_empty();
+
+      let valid_amount = match nft_quantity {
+         Some(quantity) => quantity.is_some(),
+         None => self.valid_amount(),
+      };
+      let has_balance = match nft_quantity {
+         Some(quantity) => {
+            let max = self.nft.as_ref().and_then(|nft| Self::nft_max(nft, self.mode, ctx, owner));
+
+            // An unknown ceiling is not a refusal: only a chain that has spoken can say «not enough».
+            quantity.map_or(false, |quantity| {
+               max.map_or(true, |max| quantity <= max)
+            })
+         }
+         None => self.sufficient_balance(ctx, owner),
+      };
+      let has_entered_amount = match &self.nft {
+         // An ERC-721 has no field to have entered anything in; an ERC-1155 needs one filled.
+         Some(nft) => nft.standard == NftStandard::Erc721 || !self.nft_amount.trim().is_empty(),
+         None => !self.amount_field.amount.is_empty(),
+      };
       let has_recipient = !recipient.trim().is_empty();
       let valid_recipient = self.valid_recipient(&recipient);
       let valid_token = if self.mode == RailgunMode::Unshield {
@@ -953,8 +1003,13 @@ impl ShieldUi {
       };
 
       let amount = match &self.nft {
-         // An NFT has no decimals to parse a quantity with, and nothing to parse — the field is not shown.
-         Some(_) => NumericValue::default(),
+         // An ERC-1155 moves the count that was typed — whole units, so there are no decimals to scale it
+         // by. An ERC-721 moves exactly one and has no field: `value()` answers one for it whatever arrives
+         // here, but the quantity is still what the validation agreed on.
+         Some(nft) => match nft_quantity(nft, &self.nft_amount) {
+            Some(quantity) => NumericValue::format_wei(U256::from(quantity), 0),
+            None => NumericValue::default(),
+         },
          None => NumericValue::parse_to_wei(
             &self.amount_field.amount,
             self.currency.decimals(),
@@ -1105,6 +1160,62 @@ impl ShieldUi {
       });
    }
 
+   /// How much of the selected NFT the wallet can move, from the side this mode reads.
+   ///
+   /// A shield moves what is owned publicly, which the balance manager asks the chain for — `None` there
+   /// means nobody has asked, not that there is none. An unshield moves what is shielded, and only the
+   /// private scan's notes know that, so a token their map does not mention has nothing to spend.
+   fn nft_max(
+      nft: &NftToken,
+      mode: RailgunMode,
+      ctx: &mut ZeusContext,
+      owner: Address,
+   ) -> Option<u64> {
+      let chain = ctx.chain.id();
+
+      match mode.is_unshield() {
+         true => Some(ctx.read_wallet_state(|ws| {
+            ws.portfolio_db
+               .get(chain, owner)
+               .private_nft_amounts()
+               .get(&(nft.collection, nft.token_id))
+               .copied()
+               .unwrap_or(0)
+         })),
+         false => ctx.get_nft_balance(chain, owner, nft.collection, nft.token_id),
+      }
+   }
+
+   /// The ERC-1155 quantity input: whole numbers, with what the wallet can move as the ceiling.
+   ///
+   /// Call inside a right-to-left layout. The hint is added first so that it lands to the *right* of the
+   /// box, reading as «[ 3 ] of 5».
+   fn nft_amount_input(nft_amount: &mut String, theme: &Theme, max: Option<u64>, ui: &mut Ui) {
+      if let Some(max) = max {
+         ui.add(
+            Label::new(
+               RichText::new(format!("of {max}"))
+                  .size(theme.typography.normal)
+                  .color(theme.colors.text_muted),
+               None,
+            )
+            .interactive(false),
+         );
+         ui.add_space(6.0);
+      }
+
+      let hint = RichText::new("0").color(theme.colors.text_muted).size(theme.typography.large);
+
+      let input = SecureTextEdit::singleline(nft_amount)
+         .visuals(theme.text_edit_visuals())
+         .font(FontId::proportional(theme.typography.large))
+         .hint_text(hint)
+         .margin(Margin::same(8))
+         .desired_width(110.0);
+
+      ui.add(input);
+   }
+
    fn valid_amount(&self) -> bool {
       let amount = self.amount_field.amount.parse().unwrap_or(0.0);
       amount > 0.0
@@ -1134,6 +1245,22 @@ impl ShieldUi {
          self.currency.decimals(),
       );
       balance.wei() >= amount.wei()
+   }
+}
+
+/// The quantity a selected NFT moves, from the field the user typed in.
+///
+/// An ERC-721 moves exactly one and has no field, so it is always `Some(1)`. An ERC-1155 moves what was
+/// typed, in whole units — there are no decimals to scale a count by — and anything that is not a usable
+/// positive number is `None`. Both the button's validation and the value that gets sent read this one
+/// answer, so they cannot disagree about what is about to move.
+fn nft_quantity(nft: &NftToken, typed: &str) -> Option<u64> {
+   match nft.standard {
+      NftStandard::Erc721 => Some(1),
+      NftStandard::Erc1155 => match typed.trim().parse::<u64>() {
+         Ok(amount) if amount > 0 => Some(amount),
+         _ => None,
+      },
    }
 }
 
@@ -1399,6 +1526,46 @@ fn persist_bundler_url(url: BundlerUrl) {
 #[cfg(test)]
 mod tests {
    use super::*;
+
+   fn nft(standard: NftStandard) -> NftToken {
+      NftToken {
+         chain_id: 1,
+         collection: Address::from([0xbc; 20]),
+         token_id: U256::from(1),
+         standard,
+         metadata_uri: None,
+      }
+   }
+
+   /// An ERC-721 moves exactly one and has no field, so whatever `nft_amount` happens to hold cannot
+   /// change what it moves. An ERC-1155 moves a whole number the user typed — and only a usable positive
+   /// one: an empty field, a zero, a decimal or words are all «nothing to move», which is what the button
+   /// reads to stay disabled.
+   #[test]
+   fn an_erc721_moves_one_and_an_erc1155_moves_what_was_typed() {
+      let erc721 = nft(NftStandard::Erc721);
+      assert_eq!(nft_quantity(&erc721, ""), Some(1));
+      assert_eq!(
+         nft_quantity(&erc721, "0"),
+         Some(1),
+         "the field is never read"
+      );
+      assert_eq!(nft_quantity(&erc721, "not a number"), Some(1));
+
+      let erc1155 = nft(NftStandard::Erc1155);
+      assert_eq!(nft_quantity(&erc1155, "3"), Some(3));
+      assert_eq!(
+         nft_quantity(&erc1155, " 3 "),
+         Some(3),
+         "surrounding space is fine"
+      );
+
+      assert_eq!(nft_quantity(&erc1155, ""), None);
+      assert_eq!(nft_quantity(&erc1155, "0"), None);
+      assert_eq!(nft_quantity(&erc1155, "1.5"), None);
+      assert_eq!(nft_quantity(&erc1155, "-1"), None);
+      assert_eq!(nft_quantity(&erc1155, "three"), None);
+   }
 
    #[test]
    fn test_bundler_url_seal_open_roundtrip() {

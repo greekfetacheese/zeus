@@ -18,13 +18,14 @@ use eframe::egui::{
    Align, CornerRadius, CursorIcon, Frame, Image, Layout, Margin, Order, RichText, ScrollArea,
    Spinner, TextWrapMode, Ui, vec2,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use egui_elements::{Button, Label, Modal, Theme, visuals::ButtonVisuals};
 use egui_lucide::Lucide;
 use elegance::TabBar;
 use zeus_eth::{
-   alloy_primitives::Address,
+   alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
    nft::{NftCollection, NftStandard, NftToken},
 };
@@ -401,6 +402,7 @@ impl PortfolioUi {
                      chain_id,
                      owner,
                      privacy_mode,
+                     portfolio.private_nft_amounts(),
                      tint,
                      ui,
                   );
@@ -559,8 +561,9 @@ impl PortfolioUi {
    /// Virtualized like the token list, but with no column header: there is one column that means
    /// anything here, and «Price / Balance / Value» would have nothing underneath them.
    ///
-   /// `privacy_mode` picks which side of `self.holdings` the rows read: the badges must agree with the
-   /// list they are beside, and the two sides answer differently.
+   /// `privacy_mode` picks which side of the holdings the rows read: the badges must agree with the list
+   /// they are beside, and the two sides answer differently. `private_amounts` is that side's counts —
+   /// the notes' quantities, which the balance manager cannot know.
    fn show_nft_list(
       &mut self,
       ctx: &mut ZeusContext,
@@ -570,6 +573,7 @@ impl PortfolioUi {
       chain_id: u64,
       owner: Address,
       privacy_mode: bool,
+      private_amounts: &HashMap<(Address, U256), u64>,
       tint: bool,
       ui: &mut Ui,
    ) {
@@ -623,9 +627,14 @@ impl PortfolioUi {
                   );
                   let subtitle = Self::nft_subtitle(collection, token.standard);
                   // Public ownership is the balance manager's, the same store the token rows read; the
-                  // private side is «in `private_nfts` ⇒ held», which is what the list itself means.
+                  // private side is «in `private_nfts` ⇒ held», with the count its note carried.
                   let holding = match privacy_mode {
-                     true => Some(1u64),
+                     true => Some(
+                        private_amounts
+                           .get(&(token.collection, token.token_id))
+                           .copied()
+                           .unwrap_or(1),
+                     ),
                      false => {
                         ctx.get_nft_balance(chain_id, owner, token.collection, token.token_id)
                      }

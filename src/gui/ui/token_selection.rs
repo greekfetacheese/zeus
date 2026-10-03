@@ -326,6 +326,7 @@ impl TokenSelectionWindow {
             private_nft_rows(
                portfolio.private_nfts(),
                &cached_collections(ctx.read(|ctx| ctx.nft_db.get_collections(chain_id))),
+               portfolio.private_nft_amounts(),
             )
          } else {
             process_nfts(ctx, chain_id, owner).await
@@ -1280,6 +1281,7 @@ async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<NftRow
 fn private_nft_rows(
    nfts: &[NftToken],
    collections: &HashMap<Address, NftCollection>,
+   amounts: &HashMap<NftRef, u64>,
 ) -> Vec<NftRow> {
    nfts
       .iter()
@@ -1288,7 +1290,10 @@ fn private_nft_rows(
 
          NftRow {
             token: token.clone(),
-            balance: 1,
+            // What the notes say: a quantity for an ERC-1155, one for an ERC-721. A token the scan recorded
+            // no amount for falls back to one, not to zero — the list *is* the shielded set, so nothing in
+            // it is absent.
+            balance: amounts.get(&(token.collection, token.token_id)).copied().unwrap_or(1),
             owned: Some(true),
             name,
             symbol,
@@ -1700,7 +1705,7 @@ mod tests {
          metadata_uri: None,
       };
 
-      let rows = private_nft_rows(&[known, uncached], &collections);
+      let rows = private_nft_rows(&[known, uncached], &collections, &HashMap::new());
 
       assert_eq!(rows.len(), 2);
       assert_eq!(rows[0].label(), "BoredApeYachtClub #1");
@@ -1718,6 +1723,35 @@ mod tests {
          )
       );
       assert_eq!(rows[1].subtitle(), "ERC-721", "no symbol to show");
+   }
+
+   /// An ERC-1155 is a quantity, and the only place a *private* quantity exists is the note the scan read:
+   /// the row has to carry it, so an unshield knows how much it may spend.
+   #[test]
+   fn a_private_erc1155_row_carries_its_note_count() {
+      let collection = Address::from([0xbc; 20]);
+      let batch = NftToken {
+         chain_id: 1,
+         collection,
+         token_id: U256::from(3),
+         standard: NftStandard::Erc1155,
+         metadata_uri: None,
+      };
+
+      let amounts: HashMap<NftRef, u64> =
+         [((collection, U256::from(3)), 3u64)].into_iter().collect();
+
+      let rows = private_nft_rows(&[batch], &HashMap::new(), &amounts);
+
+      assert_eq!(rows.len(), 1);
+      assert_eq!(
+         rows[0].balance, 3,
+         "the note's count, not a floor of one"
+      );
+      assert!(
+         rows[0].owned == Some(true),
+         "shielded is held, by definition"
+      );
    }
 
    /// The picker still opens on the ERC-20 list, and the mode only ever changes when something asks

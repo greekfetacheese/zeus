@@ -112,6 +112,17 @@ pub struct WalletPortfolio {
    /// only a shielded NFT can be unshielded or privately transferred.
    #[serde(default)]
    private_nfts: Vec<NftToken>,
+   /// How much of each shielded token id the wallet holds, by `(collection, id)`.
+   ///
+   /// Beside `private_nfts` rather than a field on `NftToken`: the same token is a catalog entry, a picker
+   /// row and a portfolio item, and a count only means something in this one context. A private count has
+   /// no other source either — the chain is never asked about shielded holdings — while the *public* count
+   /// lives in the balance manager, which can ask.
+   ///
+   /// `serde_hashmap` because the key is a tuple: the vault stores JSON, which cannot key an object by
+   /// anything but a string (`eth_balances` needs it for the same reason).
+   #[serde(default, with = "crate::core::serde_hashmap")]
+   private_nft_amounts: HashMap<(Address, U256), u64>,
    /// Chain ID
    #[serde(default)]
    chain_id: u64,
@@ -138,6 +149,7 @@ impl WalletPortfolio {
          tokens: Vec::new(),
          nfts: Vec::new(),
          private_nfts: Vec::new(),
+         private_nft_amounts: HashMap::new(),
          chain_id,
          owner,
          public_value: NumericValue::default(),
@@ -158,6 +170,11 @@ impl WalletPortfolio {
    /// NFTs held in Railgun custody, per the last private balance scan.
    pub fn private_nfts(&self) -> &Vec<NftToken> {
       &self.private_nfts
+   }
+
+   /// How much of each shielded token id the wallet holds, per the last private balance scan.
+   pub fn private_nft_amounts(&self) -> &HashMap<(Address, U256), u64> {
+      &self.private_nft_amounts
    }
 
    pub fn public_tokens(&self) -> &TokenList {
@@ -293,6 +310,7 @@ impl WalletPortfolio {
             PrivateHoldings {
                tokens: private_tokens,
                nfts: self.private_nfts.clone(),
+               nft_amounts: self.private_nft_amounts.clone(),
             }
          }
       };
@@ -307,6 +325,7 @@ impl WalletPortfolio {
       }
 
       self.private_nfts = updated_holdings.nfts;
+      self.private_nft_amounts = updated_holdings.nft_amounts;
 
       let mut value = 0.0;
 
@@ -348,9 +367,18 @@ fn process_public_tokens(
 /// The two sides are asymmetric on purpose: a private ERC-20 has a balance and a price, so it is valued
 /// and sorted, while an NFT has neither — it is either held or it is not — so it comes back as a plain
 /// list.
+/// What one private balance scan found.
+#[derive(Default)]
 struct PrivateHoldings {
    tokens: TokenList,
    nfts: Vec<NftToken>,
+   /// How much of each shielded token id the wallet holds, by `(collection, id)`.
+   ///
+   /// The notes are the only place this is knowable: the chain is never asked about shielded holdings, so
+   /// unlike the public side (whose counts the balance manager reads on-chain) a private count comes from
+   /// the scan or from nowhere. It matters for ERC-1155, where an id is a quantity, and is 1 for an
+   /// ERC-721, which is always exactly one.
+   nft_amounts: HashMap<(Address, U256), u64>,
 }
 
 /// The NFT an `AssetId` names, with no lookup at all.
@@ -378,12 +406,10 @@ async fn process_private_tokens(
 ) -> Result<PrivateHoldings, anyhow::Error> {
    let mut token_list: TokenList = Vec::new();
    let mut nft_list: Vec<NftToken> = Vec::new();
+   let mut nft_amounts: HashMap<(Address, U256), u64> = HashMap::new();
 
    if !ctx.railgun_is_supported(chain_id.into()) || !ctx.is_railgun_enabled(chain_id) {
-      return Ok(PrivateHoldings {
-         tokens: token_list,
-         nfts: nft_list,
-      });
+      return Ok(PrivateHoldings::default());
    }
 
    let mut provider = ctx.get_railgun_provider(chain_id, false).await?;
@@ -391,10 +417,7 @@ async fn process_private_tokens(
    let Some(wallet) = ctx.get_wallet(owner) else {
       #[cfg(feature = "dev")]
       error!("Wallet not found for address {}", owner);
-      return Ok(PrivateHoldings {
-         tokens: token_list,
-         nfts: nft_list,
-      });
+      return Ok(PrivateHoldings::default());
    };
 
    if !wallet.can_derive_zk_address() {
@@ -402,10 +425,7 @@ async fn process_private_tokens(
          "Wallet {} cannot derive a zkAddress",
          wallet.name_with_id()
       );
-      return Ok(PrivateHoldings {
-         tokens: token_list,
-         nfts: nft_list,
-      });
+      return Ok(PrivateHoldings::default());
    }
 
    let seed = wallet.seed()?;
@@ -434,6 +454,10 @@ async fn process_private_tokens(
                continue;
             };
 
+            // The note's own identity, kept before the token is moved: it is the asset, so it is what the
+            // amount below is keyed by whether or not the metadata lookup resolves.
+            let key = (fallback.collection, fallback.token_id);
+
             // A privately held NFT is real whatever the metadata call says, so a failed lookup costs the
             // name and the art and nothing else — the placeholder stands in until something resolves it.
             let token = match ctx.get_nft(chain_id, fallback.collection, fallback.token_id).await {
@@ -450,6 +474,14 @@ async fn process_private_tokens(
             if !nft_list.contains(&token) {
                nft_list.push(token);
             }
+
+            // How much of it: an ERC-1155 is a quantity of an id and its note carries the number, an
+            // ERC-721's note is always one. Nothing else knows this — the chain is never asked about
+            // shielded holdings — so the scan is the only source for a private count.
+            nft_amounts.insert(
+               key,
+               u64::try_from(U256::from(entry.amount)).unwrap_or(u64::MAX),
+            );
          }
       }
    }
@@ -460,6 +492,7 @@ async fn process_private_tokens(
    Ok(PrivateHoldings {
       tokens: token_list,
       nfts: nft_list,
+      nft_amounts,
    })
 }
 
@@ -502,6 +535,34 @@ mod tests {
 
       let restored: WalletPortfolio = serde_json::from_value(stored).unwrap();
       assert_eq!(restored.private_nfts(), &vec![nft(1)]);
+   }
+
+   /// The private counts ride with the private list and are optional like it: a portfolio stored before
+   /// they existed restores empty, and one stored with them keeps them. A count is the *only* record of a
+   /// shielded ERC-1155 quantity, so losing it would quietly make a shielded token unspendable.
+   #[test]
+   fn private_nft_amounts_are_persisted_and_optional() {
+      let collection = Address::from([0xbc; 20]);
+      let id = U256::from(3);
+      let portfolio = WalletPortfolio::new(owner(), 1);
+
+      let mut stored = serde_json::to_value(&portfolio).unwrap();
+      stored.as_object_mut().unwrap().remove("private_nft_amounts");
+
+      let restored: WalletPortfolio = serde_json::from_value(stored).unwrap();
+      assert!(restored.private_nft_amounts().is_empty());
+
+      // Set through the field itself, so this exercises the field's own serde: a tuple-keyed map needs the
+      // `serde_hashmap` helper to reach JSON at all, and that is exactly what is being pinned here.
+      let mut portfolio = WalletPortfolio::new(owner(), 1);
+      portfolio.private_nft_amounts.insert((collection, id), 3);
+
+      let restored: WalletPortfolio =
+         serde_json::from_value(serde_json::to_value(&portfolio).unwrap()).unwrap();
+      assert_eq!(
+         restored.private_nft_amounts().get(&(collection, id)),
+         Some(&3)
+      );
    }
 
    /// Tracking an NFT is not the same as holding it privately. `nfts` is everything the wallet is known
