@@ -20,7 +20,7 @@ use crate::{
    utils::{RT, write_private_atomic},
 };
 
-use super::{RailgunAsset, expect_single_event, railgun_ready, settle_railgun_op};
+use super::{RailgunAsset, SettledOp, expect_single_event, railgun_ready, settle_railgun_op};
 use crate::assets::icons::Icons;
 use crate::gui::{
    SHARED_GUI,
@@ -1499,10 +1499,14 @@ async fn shield(
       ctx,
       chain,
       from,
+      // Which half waits on the chain is the operation's business: only an NFT shield moves public
+      // ownership, and only a fungible one has a token balance to re-read.
       match &asset {
-         // An NFT has no ERC-20 balance to refresh after the fact; it shows up through the private scan.
-         RailgunAsset::Fungible(currency) if !is_native => Some(currency.to_erc20().into_owned()),
-         _ => None,
+         RailgunAsset::Fungible(currency) => {
+            // Always do to_erc20, there is no native balance on railgun
+            SettledOp::Fungible(Some(currency.to_erc20().into_owned()))
+         }
+         RailgunAsset::Nft(_) => SettledOp::Nft,
       },
    ));
 

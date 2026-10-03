@@ -4,7 +4,7 @@ use tracing::debug;
 
 use crate::{
    account::{address::RailgunAddress, signer::RailgunSigner},
-   caip::AssetId,
+   caip::{AssetId, TokenRegistry},
    indexer::syncer,
    note::utxo::{NoteError, UtxoNote},
    poi::types::BlindedCommitmentType,
@@ -322,8 +322,9 @@ impl IndexedAccount {
       &mut self,
       event: &syncer::Transact,
       created_block: u64,
+      known_tokens: &TokenRegistry,
    ) -> Result<(), NoteError> {
-      let note = UtxoNote::decrypt_transact(&self.signer, &event);
+      let note = UtxoNote::decrypt_transact(&self.signer, event, known_tokens);
 
       let note = match note {
          Err(NoteError::Aes(_)) => {
@@ -644,7 +645,7 @@ mod tests {
          tx_hash: B256::from([7u8; 32]),
       };
 
-      account.handle_transact_event(&event, 20).unwrap();
+      account.handle_transact_event(&event, 20, &TokenRegistry::default()).unwrap();
       let notes = account.unspent();
       assert_eq!(notes.len(), 2);
 
@@ -697,7 +698,7 @@ mod tests {
       assert_eq!(account.spent().len(), 1);
 
       // Replaying the spent transact must not resurrect it as unspent
-      account.handle_transact_event(&event, 20).unwrap();
+      account.handle_transact_event(&event, 20, &TokenRegistry::default()).unwrap();
       assert_eq!(account.unspent().len(), 1);
       assert_eq!(account.spent().len(), 1);
    }
@@ -798,6 +799,7 @@ mod tests {
                tx_hash: spend_tx,
             },
             20,
+            &TokenRegistry::default(),
          )
          .unwrap();
 

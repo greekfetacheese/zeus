@@ -13,6 +13,7 @@ use tracing::{debug, warn};
 use crate::{
    abi::{legacy::RailgunLegacy, railgun::RailgunSmartWallet},
    account::{address::RailgunAddress, signer::RailgunSigner},
+   caip::TokenRegistry,
    database::{
       DatabaseError, RailgunDbKey, RedbDatabase, WriteBatch, WriteDurability,
       railgun_db::{
@@ -57,6 +58,11 @@ pub struct UtxoIndexer {
    /// Trees loaded from legacy monolithic blobs, next save migrates fully to chunks.
    legacy_trees: BTreeSet<u32>,
 
+   /// `tokenHash -> AssetId` for every asset seen in the clear. A transact note carries only the hash, so
+   /// this is what lets it be recognized for what it holds instead of misread as an ERC-20 — and a wrong
+   /// asset makes the note unprovable. See [`TokenRegistry`].
+   token_registry: TokenRegistry,
+
    db: RedbDatabase,
    /// AEAD key for sealing account note state in the DB.
    db_key: RailgunDbKey,
@@ -69,6 +75,9 @@ pub struct UtxoIndexer {
 pub struct UtxoIndexerState {
    pub synced_block: u64,
    pub trees: Vec<u32>,
+   /// See [`TokenRegistry`]. Read through [`RedbDatabase::get_utxo_indexer`], which also knows how to load a
+   /// payload written before the field existed.
+   pub token_registry: TokenRegistry,
 }
 
 #[derive(Debug, Error)]
@@ -155,6 +164,7 @@ impl UtxoIndexer {
          accounts: vec![],
          dirty_chunks: HashMap::new(),
          legacy_trees,
+         token_registry: state.token_registry,
          db,
          db_key,
          rpc_syncer,
@@ -1040,6 +1050,11 @@ impl UtxoIndexer {
             .push((event.leaf_index, event.hash()));
       }
 
+      // The event carries its `TokenData` as a plaintext preimage, whichever wallet shielded it. Recording
+      // it here — before any account decrypts, and before any later transact in this window does — is what
+      // makes an asset recognizable later: a transact note keeps only `asset.hash()`.
+      self.token_registry.insert(event.token.hash(), event.token);
+
       for account in self.accounts.iter_mut() {
          if block > account.synced_block() {
             account.handle_shield_event(event, block)?;
@@ -1065,7 +1080,7 @@ impl UtxoIndexer {
 
       for account in self.accounts.iter_mut() {
          if block > account.synced_block() {
-            account.handle_transact_event(event, block)?;
+            account.handle_transact_event(event, block, &self.token_registry)?;
          }
       }
 
@@ -1241,6 +1256,7 @@ impl UtxoIndexer {
       let state = UtxoIndexerState {
          synced_block: self.synced_block,
          trees: self.known_trees.iter().copied().collect(),
+         token_registry: self.token_registry.clone(),
       };
       put_utxo_indexer(&mut batch, &state)?;
 
@@ -1383,6 +1399,7 @@ mod tests {
       db.set_utxo_indexer(&UtxoIndexerState {
          synced_block: 99,
          trees: vec![0, 1, 2],
+         ..Default::default()
       })
       .await
       .unwrap();
@@ -1428,6 +1445,7 @@ mod tests {
       db.set_utxo_indexer(&UtxoIndexerState {
          synced_block: 99,
          trees: vec![0, 1, 2],
+         ..Default::default()
       })
       .await
       .unwrap();
@@ -1526,6 +1544,7 @@ mod tests {
       db.set_utxo_indexer(&UtxoIndexerState {
          synced_block: 25_924_250,
          trees: vec![0, 1, 2, 3, 4],
+         ..Default::default()
       })
       .await
       .unwrap();
@@ -1783,6 +1802,7 @@ mod tests {
       db.set_utxo_indexer(&UtxoIndexerState {
          synced_block: 1,
          trees: vec![0, 1],
+         ..Default::default()
       })
       .await
       .unwrap();
@@ -1811,6 +1831,7 @@ mod tests {
       db.set_utxo_indexer(&UtxoIndexerState {
          synced_block: 1,
          trees: vec![0],
+         ..Default::default()
       })
       .await
       .unwrap();
@@ -1850,6 +1871,7 @@ mod tests {
       db.set_utxo_indexer(&UtxoIndexerState {
          synced_block: 1_000,
          trees: vec![0],
+         ..Default::default()
       })
       .await
       .unwrap();

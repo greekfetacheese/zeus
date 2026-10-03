@@ -147,6 +147,9 @@ pub struct PrivateTransferParams {
    pub recipient: String,
    pub asset: AssetId,
    pub erc20: Option<ERC20Token>,
+   /// The token itself for an NFT transfer, resolved on the shield side's terms. `None` for an ERC-20.
+   #[serde(default)]
+   pub nft: Option<NftToken>,
    pub amount_wei: U256,
    pub amount: Option<NumericValue>,
    pub amount_usd: Option<NumericValue>,
@@ -383,6 +386,31 @@ mod tests {
 
       assert!(restored.nft.is_none());
       assert_eq!(restored.token_data.tokenType, TokenType::ERC20);
+   }
+
+   /// The same guarantee for a private transfer: these params ride in the sealed history too, so a
+   /// payload written before `nft` existed has to keep loading.
+   #[test]
+   fn a_private_transfer_payload_without_an_nft_field_still_loads() {
+      let params = PrivateTransferParams {
+         chain: 1,
+         recipient: "0zk".to_string(),
+         asset: AssetId::Erc1155(OPENSEA_STOREFRONT, U256::from(3u64)),
+         erc20: None,
+         nft: None,
+         amount_wei: U256::from(3u64),
+         amount: Some(NumericValue::format_wei(U256::from(3u64), 0)),
+         amount_usd: None,
+      };
+
+      let mut stored = serde_json::to_value(&params).unwrap();
+      stored.as_object_mut().unwrap().remove("nft");
+
+      let restored: PrivateTransferParams = serde_json::from_value(stored).unwrap();
+
+      assert!(restored.nft.is_none());
+      assert_eq!(restored.asset, params.asset);
+      assert_eq!(restored.amount_wei, U256::from(3u64));
    }
 
    /// The NFT the params carry has to survive the round trip too — an `NftToken` is a collection, an id

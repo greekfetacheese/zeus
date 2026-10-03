@@ -2,7 +2,7 @@ use crate::core::ZeusCtx;
 use crate::core::serde_hashmap;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
@@ -365,9 +365,8 @@ fn process_public_tokens(
 /// What one private balance scan yields.
 ///
 /// The two sides are asymmetric on purpose: a private ERC-20 has a balance and a price, so it is valued
-/// and sorted, while an NFT has neither — it is either held or it is not — so it comes back as a plain
-/// list.
-/// What one private balance scan found.
+/// and sorted, while an NFT is held or it is not — its count is what its note says, not a market figure —
+/// so it comes back as a plain list beside a `(collection, id) -> amount` map.
 #[derive(Default)]
 struct PrivateHoldings {
    tokens: TokenList,
@@ -384,19 +383,23 @@ struct PrivateHoldings {
 /// The NFT an `AssetId` names, with no lookup at all.
 ///
 /// Everything but the display name and the art is already known from the balance scan: the collection
-/// and the id are the asset, and the standard is the variant itself.
+/// and the id are the asset, and the standard is the variant itself. Both standards are here — an
+/// ERC-1155 note is as real as an ERC-721 one, and the amount it stands for is recorded separately.
 fn private_nft(chain_id: u64, asset: &AssetId) -> Option<NftToken> {
-   match asset {
-      AssetId::Erc721(collection, token_id) => Some(NftToken {
-         chain_id,
-         collection: *collection,
-         token_id: *token_id,
-         standard: NftStandard::Erc721,
-         metadata_uri: None,
-      }),
-      // An ERC-1155 balance is a quantity of an id, so it stays out of scope for now (D6).
-      _ => None,
-   }
+   let (collection, token_id, standard) = match asset {
+      AssetId::Erc721(collection, token_id) => (*collection, *token_id, NftStandard::Erc721),
+      AssetId::Erc1155(collection, token_id) => (*collection, *token_id, NftStandard::Erc1155),
+      // Anything else — including whatever the protocol grows next — has no token to describe here.
+      _ => return None,
+   };
+
+   Some(NftToken {
+      chain_id,
+      collection,
+      token_id,
+      standard,
+      metadata_uri: None,
+   })
 }
 
 async fn process_private_tokens(
@@ -435,15 +438,32 @@ async fn process_private_tokens(
    let private_balances = provider.balance(railgun_address).await;
 
    #[cfg(feature = "dev")]
-   debug!(
-      "Found {} private balances",
-      private_balances.len()
+   tracing::info!(
+      "Private scan for {} on chain {}: {} balance entries [{}]",
+      owner,
+      chain_id,
+      private_balances.len(),
+      private_balances
+         .iter()
+         .map(|entry| entry.asset.to_string())
+         .collect::<Vec<_>>()
+         .join(", ")
    );
 
    for entry in private_balances {
       match &entry.asset {
          AssetId::Erc20(address) => {
-            let erc20 = ctx.get_token(chain_id, *address).await?;
+            let erc20 = match ctx.get_token(chain_id, *address).await {
+               Ok(erc20) => erc20,
+               Err(_e) => {
+                  #[cfg(feature = "dev")]
+                  tracing::warn!(
+                     "Skipping privately held token {address} on chain {chain_id}: {_e}"
+                  );
+                  continue;
+               }
+            };
+
             let balance = NumericValue::format_wei(U256::from(entry.amount), erc20.decimals);
             let price = ctx.get_token_price(&erc20);
             let value = NumericValue::value(balance.f64(), price.f64());
@@ -462,10 +482,13 @@ async fn process_private_tokens(
             // name and the art and nothing else — the placeholder stands in until something resolves it.
             let token = match ctx.get_nft(chain_id, fallback.collection, fallback.token_id).await {
                Ok(token) => token,
-               Err(e) => {
-                  warn!(
+               Err(_e) => {
+                  #[cfg(feature = "dev")]
+                  tracing::warn!(
                      "Could not resolve privately held NFT {} #{}: {}",
-                     fallback.collection, fallback.token_id, e
+                     fallback.collection,
+                     fallback.token_id,
+                     _e
                   );
                   fallback
                }
@@ -597,14 +620,18 @@ mod tests {
       );
    }
 
-   /// ERC-1155 stays out of scope (D6): a private 1155 balance is a *quantity* of an id, and this list has
-   /// nowhere to record an amount — the NFT list treats a token as held or not.
+   /// ERC-1155 is in scope (D6 revised): a private 1155 balance is a *quantity* of an id, and the amount
+   /// has somewhere to live now — `PrivateHoldings::nft_amounts`, read from the note itself. An ERC-20
+   /// balance is not an NFT at all, since it is described on its own terms.
    #[test]
-   fn private_erc20_and_erc1155_balances_are_not_nfts() {
+   fn a_private_erc1155_balance_is_an_nft_and_an_erc20_balance_is_not() {
       let erc1155 = AssetId::Erc1155(Address::from([0x11; 20]), U256::from(1));
       let erc20 = AssetId::Erc20(Address::from([0x22; 20]));
 
-      assert!(private_nft(1, &erc1155).is_none());
+      let nft = private_nft(1, &erc1155).expect("a shielded 1155 is held, like any other NFT");
+      assert_eq!(nft.standard, NftStandard::Erc1155);
+      assert_eq!(nft.token_id, U256::from(1));
+
       assert!(private_nft(1, &erc20).is_none());
    }
 

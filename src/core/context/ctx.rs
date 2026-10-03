@@ -197,7 +197,7 @@ impl ZeusCtx {
 
       for wallet in wallets {
          if let Ok(seed) = wallet.seed() {
-            let signer = RailgunSigner::from_seed(&seed, 0, 1)?;
+            let signer = RailgunSigner::from_seed(&seed, 0, chain)?;
             self.register_railgun_signer(signer, chain.into(), ignore_resync).await?;
          }
       }

@@ -262,6 +262,21 @@ pub async fn railgun_ready(
    Ok(provider)
 }
 
+/// What a settled Railgun operation moved, which is what decides how long its receipts are waited on.
+///
+/// The NFT half of the refresh only has something to wait for when *ownership* is what moved. A fungible
+/// operation — and a private zk → zk transfer above all — leaves public NFT ownership exactly where it
+/// was, so retrying until it changes spends the whole retry budget to learn nothing and logs «Max retries
+/// reached» for a refresh that was never going to differ.
+pub enum SettledOp {
+   /// A fungible operation, with the token to re-read when the caller has one.
+   Fungible(Option<ERC20Token>),
+   /// An NFT shield or unshield: the wallet gains or loses public ownership of it.
+   Nft,
+   /// A private (zk → zk) transfer: the *note* moved and nothing public did.
+   Private,
+}
+
 /// Refresh public and private state after a Railgun op.
 ///
 /// Every op leaves the sender's public balances stale and moves private notes, so
@@ -270,17 +285,19 @@ pub async fn railgun_ready(
 ///
 /// Order matters — `sync_railgun` has to land before `update_private_data`, or the
 /// refresh reports the state the chain has already moved past.
-pub async fn settle_railgun_op(
-   ctx: ZeusCtx,
-   chain: ChainId,
-   from: Address,
-   token: Option<ERC20Token>,
-) {
+pub async fn settle_railgun_op(ctx: ZeusCtx, chain: ChainId, from: Address, op: SettledOp) {
    ctx.write(|ctx| {
       ctx.railgun_status.set_op_in_progress(chain.id(), true);
    });
 
    let manager = ctx.balance_manager();
+
+   // Read before the move: which half waits on the chain is decided by the operation, not by the answer.
+   let retry_nft_balances = matches!(op, SettledOp::Nft);
+   let token = match op {
+      SettledOp::Fungible(token) => token,
+      _ => None,
+   };
 
    if let Some(token) = token {
       if let Err(e) = manager
@@ -293,12 +310,22 @@ pub async fn settle_railgun_op(
 
    // The NFT half of the same refresh. An NFT has no balance, only an owner, so what moves here is
    // ownership — which the balance manager holds for the public side, exactly like the token balances
-   // above. `retry_if_unchanged`, because a shield takes the token out of the wallet and an unshield
-   // puts it back: an answer that has not moved yet is the chain lagging, not a settled one. The private
-   // side needs nothing — the scan below is what maintains it.
+   // above. `retry_if_unchanged` only for an NFT operation: a shield takes the token out of the wallet
+   // and an unshield puts it back, so an answer that has not moved yet is the chain lagging, not a
+   // settled one. For anything else nothing public moved — the private side needs no wait either, since
+   // the scan below is what maintains it.
    let nfts = ctx.get_portfolio(chain.id(), from).nfts().clone();
    if !nfts.is_empty() {
-      if let Err(e) = manager.update_nft_balances(ctx.clone(), chain.id(), from, nfts, true).await {
+      if let Err(e) = manager
+         .update_nft_balances(
+            ctx.clone(),
+            chain.id(),
+            from,
+            nfts,
+            retry_nft_balances,
+         )
+         .await
+      {
          tracing::error!("Error updating NFT balances: {:?}", e);
       }
    }

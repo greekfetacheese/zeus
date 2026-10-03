@@ -850,6 +850,30 @@ fn private_transfer_event_ui(
                let multi_label = MultiLabel::new(vec![label1, label2]);
                ui.add(multi_label);
             });
+         } else if let AssetId::Erc721(collection, token_id)
+         | AssetId::Erc1155(collection, token_id) = &params.asset
+         {
+            // An NFT transfer is its own row: the collection names it, its art stands in for a token icon,
+            // and there is no price to put beside it. A quantity appears only for the standard that has
+            // more than one — an ERC-721's «1» would be noise.
+            let quantity = match &params.asset {
+               AssetId::Erc1155(..) => {
+                  params.amount.as_ref().map(|amount| amount.abbreviated().to_string())
+               }
+               _ => None,
+            };
+
+            railgun_nft_row(
+               ctx,
+               chain,
+               theme,
+               &icons,
+               "Send",
+               *collection,
+               *token_id,
+               quantity,
+               ui,
+            );
          }
       });
    });

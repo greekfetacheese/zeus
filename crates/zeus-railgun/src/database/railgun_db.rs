@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
    account::address::RailgunAddress,
+   caip::TokenRegistry,
    database::{
       DatabaseError, RailgunDbKey, RedbDatabase, WriteBatch, WriteDurability,
       crypto::ENCRYPTED_ENVELOPE_VERSION,
@@ -34,12 +35,27 @@ impl RedbDatabase {
          return Ok(Default::default());
       };
 
-      deserialize_versioned(&bytes)
+      if let Ok(state) = deserialize_versioned::<UtxoIndexerState>(&bytes) {
+         return Ok(state);
+      }
+
+      // The state grew a `token_registry` field. Bincode is not self-describing — nothing in the payload
+      // says how many fields follow — so an earlier blob has to be read back as the shorter shape it really
+      // is. The registry then starts empty: the next sync that replays shields fills it, which is exactly
+      // what a resync does.
+      match deserialize_versioned::<LegacyUtxoIndexerState>(&bytes) {
+         Ok(old) => Ok(UtxoIndexerState {
+            synced_block: old.synced_block,
+            trees: old.trees,
+            token_registry: TokenRegistry::new(),
+         }),
+         Err(_) => deserialize_versioned(&bytes),
+      }
    }
 
    pub async fn set_utxo_indexer(&self, state: &UtxoIndexerState) -> Result<(), DatabaseError> {
       let mut batch = WriteBatch::new();
-      put_envelope(&mut batch, &utxo_indexer_key(), 2, state)?;
+      put_envelope(&mut batch, &utxo_indexer_key(), 3, state)?;
       self.apply_batch(batch, WriteDurability::Immediate).await
    }
 
@@ -326,7 +342,7 @@ pub fn put_utxo_indexer(
    batch: &mut WriteBatch,
    state: &UtxoIndexerState,
 ) -> Result<(), DatabaseError> {
-   put_envelope(batch, &utxo_indexer_key(), 2, state)
+   put_envelope(batch, &utxo_indexer_key(), 3, state)
 }
 
 pub fn put_utxo_note_proof(
@@ -519,6 +535,14 @@ pub fn all_chunk_indices(leaf_count: usize) -> BTreeSet<u32> {
 struct JsonEnvelope {
    pub v: u32,
    pub data: serde_json::Value,
+}
+
+/// [`UtxoIndexerState`] as it was written before it grew a `token_registry`: what a payload from an older
+/// build decodes into.
+#[derive(Deserialize)]
+struct LegacyUtxoIndexerState {
+   synced_block: u64,
+   trees: Vec<u32>,
 }
 
 #[derive(Serialize, Deserialize)]

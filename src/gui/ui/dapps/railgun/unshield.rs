@@ -50,8 +50,8 @@ use crate::{
 };
 
 use super::{
-   ProvedCall, RailgunAsset, expect_single_event, prove, railgun_ready, resync_railgun_later,
-   settle_railgun_op, simulate_proved,
+   ProvedCall, RailgunAsset, SettledOp, expect_single_event, prove, railgun_ready,
+   resync_railgun_later, settle_railgun_op, simulate_proved,
 };
 
 /// Default public Pimlico bundler RPC for a chain.
@@ -320,9 +320,10 @@ async fn unshield_self_broadcast(
       chain,
       from,
       match asset {
-         // An NFT has no ERC-20 balance to refresh; it shows up through the private scan.
-         RailgunAsset::Fungible(currency) => Some(currency.to_erc20().into_owned()),
-         RailgunAsset::Nft(_) => None,
+         RailgunAsset::Fungible(currency) => {
+            SettledOp::Fungible(Some(currency.to_erc20().into_owned()))
+         }
+         RailgunAsset::Nft(_) => SettledOp::Nft,
       },
    ));
 
@@ -949,13 +950,17 @@ async fn unshield_via_paymaster(
 
    record_and_notify(ctx.clone(), chain, from, &outcome)?;
 
-   // An NFT has no ERC-20 balance to refresh; it shows up through the private scan.
-   let refresh_token = match asset {
-      RailgunAsset::Fungible(currency) if !unwrap_to_eth => Some(currency.to_erc20().into_owned()),
-      _ => None,
+   // Which half waits on the chain is the operation's business: an unshield of an NFT hands public
+   // ownership back, a fungible one moves a token balance.
+   let settled_op = match asset {
+      RailgunAsset::Fungible(currency) if !unwrap_to_eth => {
+         SettledOp::Fungible(Some(currency.to_erc20().into_owned()))
+      }
+      RailgunAsset::Fungible(_) => SettledOp::Fungible(None),
+      RailgunAsset::Nft(_) => SettledOp::Nft,
    };
 
-   RT.spawn(settle_railgun_op(ctx, chain, from, refresh_token));
+   RT.spawn(settle_railgun_op(ctx, chain, from, settled_op));
 
    Ok(())
 }

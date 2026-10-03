@@ -331,7 +331,7 @@ impl Notification {
             self.show_unshield_notification(ctx, theme, icons.clone(), ui);
          }
          NotificationType::PrivateTransfer(_) => {
-            self.show_private_transfer_notification(theme, icons.clone(), ui);
+            self.show_private_transfer_notification(ctx, theme, icons.clone(), ui);
          }
 
          NotificationType::Other(_) => {
@@ -887,7 +887,13 @@ impl Notification {
       });
    }
 
-   fn show_private_transfer_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn show_private_transfer_notification(
+      &self,
+      ctx: &ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
       let params = self.notification.private_transfer_params();
       let tint = theme.image_tint_recommended;
       let icon_size = vec2(24.0, 24.0);
@@ -918,6 +924,35 @@ impl Notification {
                .image_on_left()
                .wrap_mode(TextWrapMode::Extend)
                .interactive(false);
+            ui.add(label);
+         } else if let AssetId::Erc721(collection, token_id)
+         | AssetId::Erc1155(collection, token_id) = &params.asset
+         {
+            // The same row shape the confirmation uses: the collection names it and its art stands in for
+            // a token icon — plus a count, but only for the standard that has one.
+            let name = nft_collection_name(
+               ctx.nft_db.get_collection(params.chain, *collection).as_ref(),
+               *collection,
+            );
+
+            let icon = icons
+               .nft_icon_x64(params.chain, *collection, *token_id, tint)
+               .fit_to_exact_size(icon_size);
+
+            let mut text = format!("{} #{}", name, token_id);
+            if matches!(params.asset, AssetId::Erc1155(..)) {
+               if let Some(amount) = params.amount.as_ref() {
+                  text.push_str(&format!(" × {}", amount.abbreviated()));
+               }
+            }
+
+            let label = Label::new(
+               RichText::new(text).size(theme.typography.normal),
+               Some(icon),
+            )
+            .image_on_left()
+            .wrap_mode(TextWrapMode::Extend)
+            .interactive(false);
             ui.add(label);
          }
       });
