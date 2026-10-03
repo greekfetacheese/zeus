@@ -1689,16 +1689,16 @@ async fn send_nft(
    Ok(())
 }
 
-/// Re-read one NFT after a send, and make both stores agree with the chain.
+/// Re-read one NFT after a send, and make the portfolio agree with the chain.
 ///
 /// Ownership is the chain's answer, never ours: `NftToken` carries no owner on purpose, and a
 /// portfolio entry is only a claim about what this wallet holds. So the question is asked over RPC
 /// rather than assumed from having just sent it.
 ///
-/// When the wallet no longer holds it, the token leaves both the portfolio and the tracked catalog —
-/// the picker's ERC-721 balance is a constant 1 with no chain call, so a left-behind entry would keep
-/// offering a token that cannot be sent. The cached art stays: if the token comes back, it comes back
-/// with its picture.
+/// When the wallet no longer holds it, the token leaves the portfolio — that list is what this wallet
+/// holds. It stays in the tracked catalog, which is the record of what Zeus has discovered: the picker
+/// goes on listing it, marked as not owned, so a token that comes back is already there to be sent
+/// again. The cached art stays for the same reason.
 ///
 /// A transport failure changes nothing and is logged by the caller: dropping a token from the wallet
 /// because an RPC hiccuped would be far worse than a stale row.
@@ -1721,18 +1721,11 @@ async fn update_nft(
       return Ok(());
    }
 
-   ctx.write(|ctx| {
-      ctx.nft_db.remove_nft(chain_id, nft.collection, nft.token_id);
-   });
-
    ctx.write_wallet_state(|ws| {
       let mut portfolio = ws.portfolio_db.get(chain_id, owner);
       portfolio.remove_nft(&nft);
       ws.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
    });
-
-   // Logs internally.
-   ctx.save_nft_db();
 
    if let Err(e) = ctx.save_wallet_state() {
       tracing::error!(

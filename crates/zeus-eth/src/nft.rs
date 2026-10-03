@@ -13,10 +13,12 @@
 
 use crate::abi::erc165::Erc165Support;
 use crate::abi::{erc165, erc721, erc1155};
+use crate::utils::batch::{NftRef, get_erc721_owners, get_erc1155_balances};
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{Address, Bytes, U256};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
@@ -372,6 +374,83 @@ fn is_revert(err: &alloy_contract::Error) -> bool {
    err.as_revert_data().is_some()
 }
 
+/// What this wallet holds of each of `tokens`, as `(collection, id) -> amount`.
+///
+/// A `0` (or a missing entry) means the wallet does not hold that token; `None` means the chain
+/// could not be asked at all. The two are deliberately different: callers list tokens the wallet may
+/// or may not hold, and an RPC hiccup must not be rendered as "not owned".
+///
+/// One Multicall3 aggregate per standard, because a multicall decodes to a single type — `ownerOf`
+/// for the ERC-721 ids and `balanceOf(owner, id)` for the ERC-1155 ones. This is what lets a row
+/// show ownership without paying a chain call per row.
+pub async fn verify_ownership_batch<P, N>(
+   client: P,
+   owner: Address,
+   tokens: &[NftToken],
+) -> Option<HashMap<(Address, U256), u64>>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let refs = |standard: NftStandard| -> Vec<NftRef> {
+      tokens
+         .iter()
+         .filter(|token| token.standard == standard)
+         .map(|token| (token.collection, token.token_id))
+         .collect()
+   };
+
+   let owners = match get_erc721_owners(client.clone(), refs(NftStandard::Erc721), None).await {
+      Ok(owners) => owners,
+      Err(e) => {
+         tracing::error!("Failed to read ERC-721 owners: {e:?}");
+         return None;
+      }
+   };
+
+   let balances = match get_erc1155_balances(client, owner, refs(NftStandard::Erc1155), None).await
+   {
+      Ok(balances) => balances,
+      Err(e) => {
+         tracing::error!("Failed to read ERC-1155 balances: {e:?}");
+         return None;
+      }
+   };
+
+   Some(holdings_from(owners, balances, owner))
+}
+
+/// Fold the two multicall answers into one `(collection, id) -> amount` map.
+///
+/// A reverted `ownerOf` — a burned or never-minted id — is a real zero: the contract answered.
+/// An ERC-1155 ref with no entry is also a zero, since `get_erc1155_balances` drops only calls that
+/// failed, which for a genuine ERC-1155 means the id is simply not held.
+fn holdings_from(
+   owners: Vec<(Address, U256, Option<Address>)>,
+   balances: Vec<(Address, U256, U256)>,
+   owner: Address,
+) -> HashMap<(Address, U256), u64> {
+   let mut holdings = HashMap::new();
+
+   for (collection, token_id, current_owner) in owners {
+      holdings.insert(
+         (collection, token_id),
+         u64::from(current_owner == Some(owner)),
+      );
+   }
+
+   for (collection, token_id, amount) in balances {
+      holdings.insert((collection, token_id), to_u64(amount));
+   }
+
+   holdings
+}
+
+/// `balanceOf` returns whatever `uint256` it likes, so saturate instead of wrapping.
+fn to_u64(amount: U256) -> u64 {
+   amount.try_into().unwrap_or(u64::MAX)
+}
+
 #[cfg(test)]
 mod tests {
    use super::*;
@@ -385,6 +464,36 @@ mod tests {
          standard,
          metadata_uri: metadata_uri.map(|s| s.to_string()),
       }
+   }
+
+   /// Ownership is "the chain says this wallet", and a reverted `ownerOf` is a real no rather than an
+   /// unknown. Amounts survive for ERC-1155, where owning is a quantity, and collapse to 1 for
+   /// ERC-721, where it is a flag.
+   #[test]
+   fn holdings_fold_both_standards() {
+      let me = address!("8054f96990662150be89d559Ef249A15809567a9");
+      let someone_else = address!("d8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+      let erc721 = address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D");
+      let erc1155 = address!("3E6F909dDBD068c6299ee2A47AD9FE44760D61E0");
+
+      let owners = vec![
+         (erc721, U256::from(1), Some(me)),
+         (erc721, U256::from(2), Some(someone_else)),
+         // Reverted: burned or never minted. The contract answered, so this is a no, not an unknown.
+         (erc721, U256::from(3), None),
+      ];
+      let balances = vec![
+         (erc1155, U256::from(1), U256::from(3)),
+         (erc1155, U256::from(2), U256::ZERO),
+      ];
+
+      let holdings = holdings_from(owners, balances, me);
+
+      assert_eq!(holdings[&(erc721, U256::from(1))], 1);
+      assert_eq!(holdings[&(erc721, U256::from(2))], 0);
+      assert_eq!(holdings[&(erc721, U256::from(3))], 0);
+      assert_eq!(holdings[&(erc1155, U256::from(1))], 3);
+      assert_eq!(holdings[&(erc1155, U256::from(2))], 0);
    }
 
    /// The exact placeholder form the OpenSea shared storefront returns for `uri(1)`.

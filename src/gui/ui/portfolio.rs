@@ -9,7 +9,7 @@ use crate::gui::{
    ui::{
       common::show_with_fade,
       token_selection::{
-         PickerMode, TokenSelectionWindow, cached_collections, nft_collection_name,
+         PickerMode, TokenSelectionWindow, cached_collections, nft_collection_name, ownership_badge,
       },
    },
 };
@@ -18,6 +18,7 @@ use eframe::egui::{
    Align, CornerRadius, CursorIcon, Frame, Image, Layout, Margin, Order, RichText, ScrollArea,
    Spinner, TextWrapMode, Ui, vec2,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use egui_elements::{Button, Label, Modal, Theme, visuals::ButtonVisuals};
@@ -26,8 +27,11 @@ use elegance::TabBar;
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, ERC20Token},
-   nft::{NftCollection, NftStandard, NftToken},
+   nft::{NftCollection, NftStandard, NftToken, verify_ownership_batch},
+   utils::batch::NftRef,
 };
+
+const NFT_PREVIEW_WIDTH: f32 = 450.0;
 
 /// Which asset class the portfolio is showing.
 ///
@@ -47,6 +51,48 @@ struct NftRowAction {
    remove: bool,
 }
 
+/// What the portfolio knows about NFT ownership, and whose NFTs it asked about.
+///
+/// Ownership is a fact about one (chain, wallet) pair, so the answer has to be held with the pair it
+/// belongs to: a wallet or chain switch must re-ask rather than put the previous wallet's badges on
+/// these rows. `Loading` is a real state for the same reason in reverse — the frame must not start a
+/// second load while the first is in flight.
+enum NftHoldings {
+   /// Nothing asked yet.
+   Unknown,
+   /// A load is in flight for this (chain, wallet).
+   Loading(u64, Address),
+   /// The answer for this (chain, wallet). The map is `(collection, id) -> amount`, where `0` means
+   /// "not held"; `None` means the chain could not be asked, so no row claims anything — the pair
+   /// still counts as covered, or the frame would re-ask it forever.
+   Ready(u64, Address, Option<HashMap<NftRef, u64>>),
+}
+
+impl NftHoldings {
+   /// Has this (chain, wallet) been asked? An in-flight load counts, so it is not started twice.
+   fn covers(&self, chain_id: u64, owner: Address) -> bool {
+      match self {
+         NftHoldings::Unknown => false,
+         NftHoldings::Loading(chain, wallet) | NftHoldings::Ready(chain, wallet, _) => {
+            *chain == chain_id && *wallet == owner
+         }
+      }
+   }
+
+   /// How many of `token` this (chain, wallet) holds, when that is what the answer is about. `None`
+   /// when it is not — an unanswered question shows no ownership claim rather than a wrong one.
+   fn amount(&self, chain_id: u64, owner: Address, token: &NftToken) -> Option<u64> {
+      match self {
+         NftHoldings::Ready(chain, wallet, holdings) if *chain == chain_id && *wallet == owner => {
+            holdings.as_ref().map(|holdings| {
+               holdings.get(&(token.collection, token.token_id)).copied().unwrap_or(0)
+            })
+         }
+         _ => None,
+      }
+   }
+}
+
 pub struct PortfolioUi {
    open: bool,
    _loading: bool,
@@ -54,6 +100,9 @@ pub struct PortfolioUi {
    mode: PortfolioMode,
    /// The NFT whose artwork the user opened at inspection size, if any.
    preview: Option<NftToken>,
+   /// What the chain says about the NFTs in the portfolio list, for the (chain, wallet) it was asked
+   /// about. Absent or not about this pair: a row shows no ownership claim rather than a wrong one.
+   holdings: NftHoldings,
 }
 
 impl PortfolioUi {
@@ -64,6 +113,7 @@ impl PortfolioUi {
          show_spinner: false,
          mode: PortfolioMode::Tokens,
          preview: None,
+         holdings: NftHoldings::Unknown,
       }
    }
 
@@ -178,6 +228,8 @@ impl PortfolioUi {
       icon: Image<'static>,
       title: &str,
       subtitle: &str,
+      owned: Option<bool>,
+      amount: u64,
    ) -> NftRowAction {
       let label_visuals = theme.label_visuals();
       let row_frame = theme.frame1.outer_margin(Margin::ZERO);
@@ -194,14 +246,28 @@ impl PortfolioUi {
                });
 
                Self::row_cell(ui, column_widths[1], row_height, |ui| {
-                  let text = RichText::new(format!("{title}\n{subtitle}"))
-                     .size(theme.typography.normal)
-                     .color(theme.colors.text);
-                  let label = Label::new(text, None)
-                     .wrap_mode(TextWrapMode::Truncate)
-                     .visuals(label_visuals)
-                     .interactive(false);
-                  ui.add(label).on_hover_text(title);
+                  // Two labels rather than one with a newline: `TextWrapMode::Truncate` keeps a label to
+                  // a single line, so the second line of a two-line label would never be drawn.
+                  ui.vertical(|ui| {
+                     ui.spacing_mut().item_spacing.y = theme.spacing.xs;
+
+                     let title_text =
+                        RichText::new(title).size(theme.typography.normal).color(theme.colors.text);
+                     let title_label = Label::new(title_text, None)
+                        .wrap_mode(TextWrapMode::Truncate)
+                        .visuals(label_visuals)
+                        .interactive(false);
+                     ui.add(title_label).on_hover_text(title);
+
+                     let subtitle_text = RichText::new(subtitle)
+                        .size(theme.typography.small)
+                        .color(theme.colors.text_muted);
+                     let subtitle_label = Label::new(subtitle_text, None)
+                        .wrap_mode(TextWrapMode::Truncate)
+                        .visuals(label_visuals)
+                        .interactive(false);
+                     ui.add(subtitle_label);
+                  });
                });
 
                Self::row_cell(ui, column_widths[2], row_height, |ui| {
@@ -215,6 +281,10 @@ impl PortfolioUi {
                      let remove = Button::new(RichText::new("X").size(theme.typography.normal))
                         .visuals(visual);
                      action.remove = ui.add(remove).clicked();
+
+                     // Left of the two buttons: whether this wallet really holds the token. The
+                     // portfolio is a claim about what it holds, and the chain is what settles it.
+                     ownership_badge(ui, owned, amount);
                   });
                });
             });
@@ -268,12 +338,6 @@ impl PortfolioUi {
 
                      if picked != mode {
                         self.mode = picked;
-
-                        // The tokens are stored locally, so switching mode never touches the network.
-                        // Only the NFT artwork has to be fetched, and only once.
-                        if picked == PortfolioMode::Nfts {
-                           self.load_nft_art(chain_id, owner);
-                        }
                      }
                   });
 
@@ -325,6 +389,10 @@ impl PortfolioUi {
 
                            if res.clicked() {
                               self.refresh(owner);
+
+                              // Drop the ownership answers so the NFT list re-reads them: this is how a
+                              // token that has just left — or one that has come back — updates.
+                              self.holdings = NftHoldings::Unknown;
                            }
                         } else {
                            ui.add(Spinner::new().size(17.0).color(theme.colors.text));
@@ -349,6 +417,13 @@ impl PortfolioUi {
                }
 
                let tint = theme.image_tint_recommended;
+
+               // Ownership is a fact about one (chain, wallet) pair, so ask once for this pair. Entering
+               // the mode, a refresh, a wallet or chain switch and adding a token all land here.
+               if self.mode == PortfolioMode::Nfts && !self.holdings.covers(chain_id, owner) {
+                  self.holdings = NftHoldings::Loading(chain_id, owner);
+                  Self::load_nft_list(chain_id, owner);
+               }
 
                if self.mode == PortfolioMode::Nfts {
                   let nfts = if privacy_mode {
@@ -497,7 +572,11 @@ impl PortfolioUi {
 
                if let Some(nft) = picked_nft {
                   token_selection.reset();
-                  self.add_nft(ctx, owner, nft);
+                  Self::add_nft(ctx, owner, nft);
+
+                  // The new token's ownership is not in the answers yet, so drop them: the next frame's
+                  // load re-reads them.
+                  self.holdings = NftHoldings::Unknown;
                }
 
                // The artwork at inspection size, if a row asked for it.
@@ -544,6 +623,9 @@ impl PortfolioUi {
          return;
       }
 
+      let mut preview_request: Option<NftToken> = None;
+      let mut remove_request: Option<NftToken> = None;
+
       ui.spacing_mut().item_spacing.y = theme.spacing.sm;
       ScrollArea::vertical().auto_shrink([false; 2]).content_margin(5).show_rows(
          ui,
@@ -560,8 +642,15 @@ impl PortfolioUi {
                   };
 
                   let collection = collections.get(&token.collection);
-                  let title = nft_collection_name(collection, token.collection);
+                  // The id is part of the title, not an afterthought: a collection is many tokens, and
+                  // which one this row is is the first thing to read.
+                  let title = format!(
+                     "{} #{}",
+                     nft_collection_name(collection, token.collection),
+                     token.token_id
+                  );
                   let subtitle = Self::nft_subtitle(collection, token.standard);
+                  let holding = self.holdings.amount(chain_id, owner, token);
 
                   let icon = icons.nft_icon_x64(
                      token.chain_id,
@@ -580,19 +669,31 @@ impl PortfolioUi {
                      icon,
                      &title,
                      &subtitle,
+                     holding.map(|amount| amount > 0),
+                     holding.unwrap_or(0),
                   );
 
                   if action.view {
-                     self.preview = Some(token.clone());
+                     preview_request = Some(token.clone());
                   }
 
                   if action.remove {
-                     self.remove_nft(ctx, owner, token);
+                     remove_request = Some(token.clone());
                   }
                }
             });
          },
       );
+
+      // Applied after the list: a removal rewrites the portfolio, and doing that from inside the row
+      // loop would change the list it is iterating.
+      if let Some(nft) = preview_request {
+         self.preview = Some(nft);
+      }
+
+      if let Some(nft) = remove_request {
+         Self::remove_nft(ctx, owner, &nft);
+      }
    }
 
    /// The artwork at inspection size, opened from a row.
@@ -635,7 +736,7 @@ impl PortfolioUi {
          .closable(true)
          .frame(frame)
          .show(ui.ctx(), |ui| {
-            ui.set_width(300.0);
+            ui.set_width(NFT_PREVIEW_WIDTH);
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = theme.spacing.md;
 
@@ -666,30 +767,52 @@ impl PortfolioUi {
       }
    }
 
-   /// Start the artwork downloads for the NFTs this wallet holds.
+   /// Load the NFT list: which of these tokens the wallet still holds, and the artwork to show for them.
    ///
-   /// A worker, never the frame path: [`start_nft_art_downloads`] reads `SHARED_GUI`, which the frame
-   /// holds write-locked. Nothing else is fetched — the portfolio itself is local.
-   fn load_nft_art(&self, chain_id: u64, owner: Address) {
+   /// A worker, never the frame path — it reads and writes `SHARED_GUI`, which the frame holds
+   /// write-locked. The list itself needs no fetching: it is the portfolio, and that is local. What
+   /// does need the chain is ownership, because the catalog goes on listing a token after it has left
+   /// the wallet, and the row has to be able to say so.
+   fn load_nft_list(chain_id: u64, owner: Address) {
       RT.spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let portfolio = ctx.get_portfolio(chain_id, owner);
+         let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
 
-         let nfts = match ctx.read(|ctx| ctx.privacy_mode) {
+         let tokens = match privacy_mode {
             true => portfolio.private_nfts(),
             false => portfolio.nfts(),
          };
 
-         start_nft_art_downloads(chain_id, nfts.iter());
+         // Shielded tokens are held in Railgun custody, so a balance read against this address would
+         // call them unowned. The private scan already established them: record them as held.
+         let holdings = match privacy_mode {
+            true => {
+               Some(tokens.iter().map(|token| ((token.collection, token.token_id), 1)).collect())
+            }
+            false => match ctx.get_client(chain_id).await {
+               Ok(client) => verify_ownership_batch(client, owner, tokens).await,
+               Err(e) => {
+                  tracing::error!("Failed to get client for chain {chain_id}: {e:?}");
+                  None
+               }
+            },
+         };
+
+         start_nft_art_downloads(chain_id, tokens.iter());
+
+         SHARED_GUI.write(|gui| {
+            gui.portofolio.holdings = NftHoldings::Ready(chain_id, owner, holdings);
+            gui.request_repaint();
+         });
       });
    }
 
    /// Add an NFT to the wallet's portfolio.
    ///
    /// The catalog already holds it — discovery and the picker both write `nft_db` — so this only writes
-   /// the user's own list. The artwork is fetched from here rather than from the row, which runs on the
-   /// frame.
-   fn add_nft(&mut self, ctx: &mut ZeusContext, owner: Address, nft: NftToken) {
+   /// the user's own list.
+   fn add_nft(ctx: &mut ZeusContext, owner: Address, nft: NftToken) {
       let chain_id = ctx.chain.id();
 
       let mut portfolio = ctx.read_wallet_state(|ws| ws.portfolio_db.get(chain_id, owner));
@@ -699,14 +822,12 @@ impl PortfolioUi {
       });
 
       Self::save_wallet_state();
-
-      self.load_nft_art(chain_id, owner);
    }
 
    /// Drop an NFT from the wallet's portfolio.
    ///
-   /// The catalog keeps it, so the picker still lists it and it can be added back.
-   fn remove_nft(&mut self, ctx: &mut ZeusContext, owner: Address, nft: &NftToken) {
+   /// The catalog keeps it, so the picker still lists it, marked as not owned, and it can be added back.
+   fn remove_nft(ctx: &mut ZeusContext, owner: Address, nft: &NftToken) {
       let chain_id = ctx.chain.id();
 
       let mut portfolio = ctx.read_wallet_state(|ws| ws.portfolio_db.get(chain_id, owner));

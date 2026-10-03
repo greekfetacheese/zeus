@@ -24,17 +24,17 @@ use zeus_eth::{
    abi::erc165,
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
-   nft::{NftCollection, NftStandard, NftToken, collections_of},
+   nft::{NftCollection, NftStandard, NftToken, collections_of, verify_ownership_batch},
    types::ChainId,
    utils::{
       NumericValue,
-      batch::{NftRef, get_erc721_owners_and_uris, get_erc1155_balances},
+      batch::{NftRef, get_erc721_owners_and_uris},
    },
 };
 
 use anyhow::{anyhow, bail};
 use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme, utils::frame as frame_fn};
-use elegance::{BadgeTone, Toast};
+use elegance::{Badge, BadgeTone, Toast};
 
 /// Currency direction for [`TokenSelectionWindow`].
 ///
@@ -76,6 +76,12 @@ struct NftRow {
    token: NftToken,
    /// 1 for ERC-721; the owned amount for an ERC-1155.
    balance: u64,
+   /// Whether the wallet holds it, as the chain answered.
+   ///
+   /// `None` when the chain could not be asked at all, so the row claims nothing rather than claiming
+   /// "not owned". The catalog deliberately keeps listing a token that has left the wallet — that is
+   /// what it is for — so this flag is the only thing separating "tracked" from "held".
+   owned: Option<bool>,
    /// Collection name, or the truncated collection address when no metadata was ever cached.
    name: String,
    /// Collection symbol, empty when the contract has none.
@@ -102,6 +108,35 @@ impl NftRow {
          true => standard.to_string(),
          false => format!("{} · {standard}", self.symbol),
       }
+   }
+
+   /// Whether the wallet holds this token, as a badge.
+   fn ownership_badge(&self, ui: &mut Ui) {
+      ownership_badge(ui, self.owned, self.balance);
+   }
+}
+
+/// The ownership badge's text and tone, or `None` when nothing should be drawn.
+///
+/// `owned` is `None` when the chain could not be asked, and an absent badge is the honest answer
+/// there: "not owned" is a claim, and a wrong one would invite the user to believe a token they hold
+/// has gone. An ERC-1155's ownership is a quantity, so say how many; an ERC-721's is a flag.
+fn ownership_label(owned: Option<bool>, amount: u64) -> Option<(String, BadgeTone)> {
+   match (owned, amount) {
+      (None, _) => None,
+      (Some(true), amount) if amount > 1 => Some((format!("Owned ×{amount}"), BadgeTone::Ok)),
+      (Some(true), _) => Some(("Owned".to_string(), BadgeTone::Ok)),
+      (Some(false), _) => Some(("Not owned".to_string(), BadgeTone::Neutral)),
+   }
+}
+
+/// Draw the ownership badge for a token, if we know the answer.
+///
+/// Shared with the portfolio: both lists mix tokens the wallet holds with tokens it only tracks, and
+/// both have to say which is which.
+pub(crate) fn ownership_badge(ui: &mut Ui, owned: Option<bool>, amount: u64) {
+   if let Some((text, tone)) = ownership_label(owned, amount) {
+      ui.add(Badge::new(text, tone));
    }
 }
 
@@ -739,6 +774,12 @@ impl TokenSelectionWindow {
                            more_clicked = true;
                         }
 
+                        ui.add_space(theme.spacing.sm);
+
+                        // Left of the menu button. The catalog goes on listing a token the wallet no
+                        // longer holds, so this is what tells the two apart.
+                        row.ownership_badge(ui);
+
                         let menu_id = format!("{collection}_{token_id}_nft_more_options");
                         Menu::new(menu_id).show_below(&more, |ui| {
                            if ui.add(MenuItem::new("Copy Collection")).clicked() {
@@ -781,16 +822,6 @@ impl TokenSelectionWindow {
                               );
                            }
                         });
-
-                        ui.add_space(8.0);
-
-                        // An ERC-721 is one token by definition, so a "1" would be noise; only an
-                        // ERC-1155 can be held in quantity.
-                        if row.balance > 1 {
-                           let amount = RichText::new(format!("x{}", row.balance))
-                              .size(theme.typography.normal);
-                           ui.label(amount);
-                        }
                      });
                   });
                });
@@ -1166,11 +1197,14 @@ async fn sync_balances(ctx: ZeusCtx, chain: u64, owner: Address) {
 }
 
 /// The NFT list for one wallet: what the user tracks (`NftDB`) unioned with what the wallet holds
-/// (its portfolio), each with a balance and its collection label resolved.
+/// (its portfolio), each with its collection label and its ownership resolved.
 ///
-/// Neither source is authoritative alone — a tracked token may have been transferred away, and a
-/// held token is not in the catalog until someone adds it. ERC-721 spends no call (holding one is a
-/// 1); ERC-1155 amounts exist nowhere off-chain, so they take one batched Multicall3 round.
+/// Neither source is authoritative alone — a tracked token may have been transferred away, and a held
+/// token is not in the catalog until someone adds it. Ownership is therefore asked of the chain rather
+/// than inferred from either list: the whole point of the catalog is to keep listing a token after it
+/// has left the wallet, and the row has to be able to say so.
+///
+/// One Multicall3 round per standard answers it: `ownerOf` per ERC-721 id, `balanceOf` per ERC-1155 id.
 async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<NftRow> {
    let tracked = ctx.read(|ctx| ctx.nft_db.get_nfts(chain_id));
    let held = ctx.get_portfolio(chain_id, owner).nfts().clone();
@@ -1182,17 +1216,20 @@ async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<NftRow
 
    let merged = merge_nft_sources(tracked, held);
 
-   let refs: Vec<NftRef> = merged
-      .iter()
-      .filter(|token| token.is_erc1155())
-      .map(|token| (token.collection, token.token_id))
-      .collect();
-
-   let amounts = fetch_erc1155_amounts(&ctx, chain_id, owner, refs).await;
+   let holdings = match ctx.get_client(chain_id).await {
+      Ok(client) => verify_ownership_batch(client, owner, &merged).await,
+      Err(e) => {
+         tracing::error!("Failed to get client for chain {chain_id}: {e:?}");
+         None
+      }
+   };
 
    // Resolve the labels here rather than in the row: the row runs every frame for every visible
    // entry, and a collection lookup clones its `name`/`symbol` strings each time.
    let collections = cached_collections(ctx.read(|ctx| ctx.nft_db.get_collections(chain_id)));
+
+   // An empty map on failure: the list is still worth showing, and every row then claims nothing.
+   let amounts = holdings.clone().unwrap_or_default();
 
    attach_balances(merged, &amounts)
       .into_iter()
@@ -1200,9 +1237,16 @@ async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<NftRow
          let (name, symbol) = collection_label(&token, &collections);
          let in_portfolio = portfolio.contains(&(token.collection, token.token_id));
 
+         // `None` when the chain could not be asked, so the row shows no ownership claim rather than a
+         // wrong one. A missing entry is a real zero: every ref got an answer.
+         let owned = holdings.as_ref().map(|holdings| {
+            holdings.get(&(token.collection, token.token_id)).copied().unwrap_or(0) > 0
+         });
+
          NftRow {
             token,
             balance,
+            owned,
             name,
             symbol,
             in_portfolio,
@@ -1217,7 +1261,8 @@ async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<NftRow
 /// that can be unshielded or privately transferred — and this is pure on purpose: there is no network
 /// involved, because the portfolio's private balance scan already resolved them.
 ///
-/// An ERC-721 has no balance to read — it is held or it is not — so every row is one token.
+/// An ERC-721 has no balance to read — it is held or it is not — so every row is one token. Every row
+/// is held by construction, too: these came out of the portfolio's own private scan.
 fn private_nft_rows(
    nfts: &[NftToken],
    collections: &HashMap<Address, NftCollection>,
@@ -1230,6 +1275,7 @@ fn private_nft_rows(
          NftRow {
             token: token.clone(),
             balance: 1,
+            owned: Some(true),
             name,
             symbol,
             // These came from the portfolio's own private scan, so they are in it by construction.
@@ -1248,46 +1294,6 @@ pub(crate) fn cached_collections(
       .into_iter()
       .map(|collection| (collection.address, collection))
       .collect()
-}
-
-/// Batched ERC-1155 amounts, keyed by `(collection, token id)`.
-///
-/// An empty map on failure: the list is still worth showing without amounts, so a transport error
-/// degrades the quantities rather than making the whole mode unavailable.
-async fn fetch_erc1155_amounts(
-   ctx: &ZeusCtx,
-   chain_id: u64,
-   owner: Address,
-   refs: Vec<NftRef>,
-) -> HashMap<(Address, U256), u64> {
-   if refs.is_empty() {
-      return HashMap::new();
-   }
-
-   let client = match ctx.get_client(chain_id).await {
-      Ok(client) => client,
-      Err(e) => {
-         tracing::error!("Failed to get client for chain {chain_id}: {e:?}");
-         return HashMap::new();
-      }
-   };
-
-   match get_erc1155_balances(client, owner, refs, None).await {
-      Ok(rows) => rows
-         .into_iter()
-         .map(|(collection, token_id, amount)| ((collection, token_id), to_u64(amount)))
-         .collect(),
-      Err(e) => {
-         tracing::error!("Failed to read ERC-1155 balances: {e:?}");
-         HashMap::new()
-      }
-   }
-}
-
-/// A `balanceOf` returns `uint256` whatever the contract feels like, so saturate instead of
-/// panicking on a hostile value.
-fn to_u64(amount: U256) -> u64 {
-   u64::try_from(amount).unwrap_or(u64::MAX)
 }
 
 /// Union of the tracked and held lists, deduped by token identity.
@@ -1622,6 +1628,33 @@ mod tests {
    use super::*;
    use zeus_eth::nft::NftStandard;
 
+   /// The ownership badge: an unanswered question draws nothing, a held ERC-1155 says how many, and a
+   /// token the chain says is gone reads "not owned" rather than blank — the catalog goes on listing it
+   /// on purpose, so the row has to say which is which.
+   #[test]
+   fn ownership_badge_text_and_tone() {
+      assert!(ownership_label(None, 0).is_none());
+
+      assert_eq!(
+         ownership_label(Some(true), 1),
+         Some(("Owned".to_string(), BadgeTone::Ok))
+      );
+      assert_eq!(
+         ownership_label(Some(true), 3),
+         Some(("Owned ×3".to_string(), BadgeTone::Ok))
+      );
+      assert_eq!(
+         ownership_label(Some(false), 0),
+         Some(("Not owned".to_string(), BadgeTone::Neutral))
+      );
+
+      // A not-owned row must never advertise a quantity, whatever the balance field happens to hold.
+      assert_eq!(
+         ownership_label(Some(false), 7),
+         Some(("Not owned".to_string(), BadgeTone::Neutral))
+      );
+   }
+
    /// Privacy mode's rows come from the portfolio's private holdings — no network involved — with the
    /// collection's cached name and symbol where there is one, and the address where there is not, so a
    /// shielded token is never a blank row.
@@ -1708,9 +1741,11 @@ mod tests {
       NftRow {
          token: nft(token_id, NftStandard::Erc721),
          balance: 1,
+         // A freshly discovered token: in the catalog, not yet in the portfolio, and not asked of the
+         // chain here — the search filter under test does not read ownership.
+         owned: None,
          name: name.to_string(),
          symbol: symbol.to_string(),
-         // A freshly discovered token: in the catalog, not yet in the portfolio.
          in_portfolio: false,
       }
    }
@@ -1954,6 +1989,7 @@ mod tests {
       let row = NftRow {
          token: nft(7, NftStandard::Erc1155),
          balance: 3,
+         owned: Some(true),
          name: "BoredApeYachtClub".to_string(),
          symbol: "BAYC".to_string(),
          in_portfolio: false,

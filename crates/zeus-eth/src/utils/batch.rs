@@ -524,6 +524,50 @@ pub struct Erc721Lookup {
    pub token_uri: Option<String>,
 }
 
+/// Batched ERC-721 `ownerOf(id)` in one Multicall3 aggregate, owners only.
+///
+/// Returns `(collection, id, owner)` aligned with `refs`, where `None` in the owner slot means the
+/// call reverted — a burned or never-minted id, which is the contract answering "no owner" rather
+/// than a transport failure. Use this instead of [`get_erc721_owners_and_uris`] when only ownership
+/// is wanted: the URI leg is a second aggregate and can carry base64 artwork.
+pub async fn get_erc721_owners<P, N>(
+   client: P,
+   refs: Vec<NftRef>,
+   block: Option<BlockId>,
+) -> Result<Vec<(Address, U256, Option<Address>)>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   if refs.is_empty() {
+      return Ok(Vec::new());
+   }
+
+   let block = block.unwrap_or(BlockId::latest());
+
+   let mut builder = client.multicall().dynamic::<IERC721::ownerOfCall>().block(block);
+   for (collection, token_id) in &refs {
+      let input = Bytes::from(IERC721::ownerOfCall { tokenId: *token_id }.abi_encode());
+      let call = CallItem::<IERC721::ownerOfCall>::new(*collection, input).allow_failure(true);
+      builder = builder.add_call_dynamic(call);
+   }
+   let owners = builder.aggregate3().await?;
+
+   if owners.len() != refs.len() {
+      anyhow::bail!(
+         "multicall returned {} owners for {} refs",
+         owners.len(),
+         refs.len()
+      );
+   }
+
+   Ok(refs
+      .into_iter()
+      .zip(owners)
+      .map(|((collection, token_id), owner)| (collection, token_id, owner.ok()))
+      .collect())
+}
+
 /// Batched ERC-721 `ownerOf` + `tokenURI`, in **two** Multicall3 aggregates.
 ///
 /// Two rounds rather than one because the two calls decode to different types and a
