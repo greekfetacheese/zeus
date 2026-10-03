@@ -3,7 +3,7 @@
 use super::analysis::TransactionAnalysis;
 use super::approval_diff::ApprovalDiff;
 use super::balance_diff::BalanceDiff;
-use super::events::DecodedEvent;
+use super::events::{DecodedEvent, NftTransferParams};
 use super::rich::TransactionRich;
 use crate::core::ZeusCtx;
 use crate::core::clear_signing::{self, ClearDisplay};
@@ -135,6 +135,17 @@ pub async fn build_tx_outcome(
    )
    .await?;
 
+   // NFTs that arrived in this transaction join the catalog — the same way a newly seen ERC-20 lands
+   // in the currency DB — so the picker can offer them without the user pasting a collection first.
+   if analysis.nft_transfers_len() > 0 {
+      let transfers = analysis.nft_transfers().clone();
+      let ctx2 = ctx.clone();
+
+      RT.spawn(async move {
+         discover_nfts(ctx2, chain.id(), from, &transfers).await;
+      });
+   }
+
    if let Some((balance, approval)) = policy.diffs {
       analysis.set_diffs(balance, approval);
    }
@@ -221,6 +232,43 @@ pub async fn build_tx_outcome(
    })
 }
 
+/// Track the NFTs that arrived at `owner` in a transaction.
+///
+/// This is the NFT half of what the currency DB does for ERC-20s: discovery feeds a catalog, and the
+/// catalog is what the picker lists. The portfolio is deliberately not written — being in the catalog
+/// is enough to see and select a token, and whether it belongs in the portfolio is the user's own
+/// call.
+///
+/// Best-effort: this resolves metadata over the network, and failing to reach it must not fail the
+/// transaction record, which is the part the user actually needs.
+async fn discover_nfts(ctx: ZeusCtx, chain: u64, owner: Address, transfers: &[NftTransferParams]) {
+   for (collection, token_id) in arrived_tokens(owner, transfers) {
+      // Already-cached tokens cost no network: `get_nft` answers from the db.
+      if let Err(e) = ctx.get_nft(chain, collection, token_id).await {
+         tracing::warn!(
+            "Failed to track NFT {} #{} from the transaction: {:?}",
+            collection,
+            token_id,
+            e
+         );
+      }
+   }
+}
+
+/// The tokens a transaction brought *into* `owner`'s wallet: one entry per moved token, so an
+/// ERC-1155 `TransferBatch` contributes every id it carries.
+///
+/// An approval changes no ownership and a burn takes the token away, so neither is a discovery, and a
+/// transfer to anybody else is not ours to track. A collection-wide `ApprovalForAll` carries no id at
+/// all, which the `token_id` filter drops.
+fn arrived_tokens(owner: Address, transfers: &[NftTransferParams]) -> Vec<(Address, U256)> {
+   transfers
+      .iter()
+      .filter(|params| params.approval.is_none() && !params.is_burn && params.to == owner)
+      .filter_map(|params| params.token_id.map(|token_id| (params.collection, token_id)))
+      .collect()
+}
+
 /// Persist `outcome` and open its progress-bar notification.
 ///
 /// The transaction is recorded even when it failed, and that failure is then
@@ -257,4 +305,78 @@ pub fn record_and_notify(
    });
 
    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use zeus_eth::{alloy_primitives::address, nft::NftStandard};
+
+   const ME: Address = address!("0x1111111111111111111111111111111111111111");
+   const OTHER: Address = address!("0x2222222222222222222222222222222222222222");
+   const COLLECTION: Address = address!("0x3333333333333333333333333333333333333333");
+
+   /// A transfer of `token_id` to `to`, as the decoder hands them over.
+   fn transfer(to: Address, token_id: Option<u64>) -> NftTransferParams {
+      NftTransferParams {
+         chain: 1,
+         standard: NftStandard::Erc721,
+         collection: COLLECTION,
+         token_id: token_id.map(U256::from),
+         amount: U256::ONE,
+         from: OTHER,
+         to,
+         is_mint: false,
+         is_burn: false,
+         approval: None,
+      }
+   }
+
+   /// What a transaction brings in is what gets tracked.
+   #[test]
+   fn a_transfer_to_this_wallet_is_tracked() {
+      let arrived = arrived_tokens(ME, &[transfer(ME, Some(7))]);
+
+      assert_eq!(arrived, vec![(COLLECTION, U256::from(7))]);
+   }
+
+   /// Everything that is not a token arriving here: a transfer to somebody else, a burn, an approval
+   /// of one token, and a collection-wide `ApprovalForAll` that carries no id at all.
+   #[test]
+   fn nothing_else_is_tracked() {
+      let mut burned = transfer(ME, Some(7));
+      burned.is_burn = true;
+
+      let mut approved = transfer(ME, Some(7));
+      approved.approval = Some(true);
+
+      let transfers = [
+         transfer(OTHER, Some(7)),
+         burned,
+         approved,
+         transfer(ME, None),
+      ];
+
+      let arrived = arrived_tokens(ME, &transfers);
+
+      assert!(arrived.is_empty(), "{arrived:?}");
+   }
+
+   /// An ERC-1155 batch is one log carrying many tokens, so every id has to come through — including
+   /// the ones that follow an entry that was skipped.
+   #[test]
+   fn a_batch_contributes_every_id() {
+      let mut first = transfer(ME, Some(1));
+      first.standard = NftStandard::Erc1155;
+
+      let mut second = transfer(ME, Some(2));
+      second.standard = NftStandard::Erc1155;
+
+      let arrived = arrived_tokens(ME, &[first, transfer(OTHER, Some(3)), second]);
+
+      assert_eq!(
+         arrived,
+         vec![(COLLECTION, U256::from(1)), (COLLECTION, U256::from(2))]
+      );
+   }
 }

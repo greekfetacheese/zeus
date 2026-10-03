@@ -13,7 +13,12 @@ use crate::utils::{
    truncate_symbol_or_name,
 };
 use elegance::{Menu, MenuItem};
-use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
+use std::{
+   collections::{HashMap, HashSet},
+   str::FromStr,
+   sync::Arc,
+   time::Duration,
+};
 
 use zeus_eth::{
    abi::erc165,
@@ -83,6 +88,9 @@ struct NftRow {
    name: String,
    /// Collection symbol, empty when the contract has none.
    symbol: String,
+   /// Whether the wallet's portfolio lists this token. The picker lists the catalog, so a row is
+   /// often a token that was discovered but never added — the row menu offers to change that.
+   in_portfolio: bool,
 }
 
 impl NftRow {
@@ -754,6 +762,23 @@ impl TokenSelectionWindow {
                               ui.ctx().open_url(OpenUrl::new_tab(url));
                            }
 
+                           // The catalog is what the picker lists; the portfolio is the user's own
+                           // list. This is where that decision gets made.
+                           let portfolio_item = match row.in_portfolio {
+                              true => "Remove from Portfolio",
+                              false => "Add to Portfolio",
+                           };
+
+                           if ui.add(MenuItem::new(portfolio_item)).clicked() {
+                              more_clicked = true;
+                              set_nft_in_portfolio(
+                                 chain_id,
+                                 owner,
+                                 row.token.clone(),
+                                 !row.in_portfolio,
+                              );
+                           }
+
                            if ui.add(MenuItem::new("Delete NFT")).clicked() {
                               more_clicked = true;
                               delete_nft(
@@ -1193,6 +1218,12 @@ fn start_nft_art_downloads(chain_id: u64, nfts: &[NftRow]) {
 async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<NftRow> {
    let tracked = ctx.read(|ctx| ctx.nft_db.get_nfts(chain_id));
    let held = ctx.get_portfolio(chain_id, owner).nfts().clone();
+
+   // The portfolio's identities, so a row can say whether it is in there. Keyed by collection and id
+   // rather than by whole token: the two lists can disagree about metadata and still be one token.
+   let portfolio: HashSet<NftRef> =
+      held.iter().map(|token| (token.collection, token.token_id)).collect();
+
    let merged = merge_nft_sources(tracked, held);
 
    let refs: Vec<NftRef> = merged
@@ -1211,12 +1242,14 @@ async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<NftRow
       .into_iter()
       .map(|(token, balance)| {
          let (name, symbol) = collection_label(&token, &collections);
+         let in_portfolio = portfolio.contains(&(token.collection, token.token_id));
 
          NftRow {
             token,
             balance,
             name,
             symbol,
+            in_portfolio,
          }
       })
       .collect()
@@ -1243,6 +1276,8 @@ fn private_nft_rows(
             balance: 1,
             name,
             symbol,
+            // These came from the portfolio's own private scan, so they are in it by construction.
+            in_portfolio: true,
          }
       })
       .collect()
@@ -1521,6 +1556,43 @@ async fn add_nft_collection(
    Ok(CollectionAdd::Tracked { name, count })
 }
 
+/// Add an NFT to the wallet's portfolio, or take it back out.
+///
+/// Two stores hold NFTs and they answer different questions: the catalog (`nft_db`) is everything ever
+/// discovered and is what the picker lists, while the portfolio is the wallet's own list, shown in the
+/// portfolio UI and refreshed by the private scan. Discovery fills the catalog by itself; this is the
+/// user deciding what to keep, so the two writes stay separate.
+fn set_nft_in_portfolio(chain_id: u64, owner: Address, token: NftToken, add: bool) {
+   RT.spawn_blocking(move || {
+      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+
+      ctx.write_wallet_state(|ws| {
+         let mut portfolio = ws.portfolio_db.get(chain_id, owner);
+
+         match add {
+            true => portfolio.add_nft(token),
+            false => portfolio.remove_nft(&token),
+         }
+
+         ws.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
+      });
+
+      if let Err(e) = ctx.save_wallet_state() {
+         tracing::error!(
+            "Error saving wallet state after an NFT portfolio update: {:?}",
+            e
+         );
+      }
+
+      // Drop the picker's rows so its own loader rebuilds them with the new state on the next frame,
+      // the same way `delete_nft` does.
+      SHARED_GUI.write(|gui| {
+         gui.token_selection.clear_processed_nfts();
+         gui.request_repaint();
+      });
+   });
+}
+
 /// Delete an NFT: untrack it, drop it from the wallet's portfolio, and forget its cached art.
 ///
 /// Mirrors [`delete_token`], including clearing both stores — the row would come back from whichever
@@ -1680,6 +1752,8 @@ mod tests {
          balance: 1,
          name: name.to_string(),
          symbol: symbol.to_string(),
+         // A freshly discovered token: in the catalog, not yet in the portfolio.
+         in_portfolio: false,
       }
    }
 
@@ -1924,6 +1998,7 @@ mod tests {
          balance: 3,
          name: "BoredApeYachtClub".to_string(),
          symbol: "BAYC".to_string(),
+         in_portfolio: false,
       };
 
       assert_eq!(row.label(), "BoredApeYachtClub #7");
