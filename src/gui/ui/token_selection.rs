@@ -9,7 +9,7 @@ use crate::assets::icons::Icons;
 use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::{
-   RT, nft_icon::spawn_fetch_nft_icon, token_icon::spawn_fetch_token_icon, truncate_address,
+   RT, nft_icon::start_nft_art_downloads, token_icon::spawn_fetch_token_icon, truncate_address,
    truncate_symbol_or_name,
 };
 use elegance::{Menu, MenuItem};
@@ -35,14 +35,6 @@ use zeus_eth::{
 use anyhow::{anyhow, bail};
 use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme, utils::frame as frame_fn};
 use elegance::{BadgeTone, Toast};
-
-/// How many NFT art downloads one list load starts.
-///
-/// The cap is what keeps a wallet tracking hundreds of ids from firing hundreds of concurrent
-/// gateway requests at once (the throttle that follows marks tokens failed for the session, so the
-/// art would never appear). Tokens already tried are skipped, so successive loads work through a long
-/// list instead of retrying the first few forever.
-const NFT_ART_FETCH_PER_LOAD: usize = 24;
 
 /// Currency direction for [`TokenSelectionWindow`].
 ///
@@ -298,7 +290,7 @@ impl TokenSelectionWindow {
             let portfolio = ctx.get_portfolio(chain_id, owner);
             private_nft_rows(
                portfolio.private_nfts(),
-               &cached_collections(&ctx, chain_id),
+               &cached_collections(ctx.read(|ctx| ctx.nft_db.get_collections(chain_id))),
             )
          } else {
             process_nfts(ctx, chain_id, owner).await
@@ -306,7 +298,7 @@ impl TokenSelectionWindow {
 
          // Art is fetched from the list's own metadata URIs, and this reads `SHARED_GUI`, so it belongs
          // here on the worker — never in the row loop, which runs inside the frame.
-         start_nft_art_downloads(chain_id, &nfts);
+         start_nft_art_downloads(chain_id, nfts.iter().map(|row| &row.token));
 
          SHARED_GUI.write(|gui| {
             gui.token_selection.processed_nfts = nfts;
@@ -1173,42 +1165,6 @@ async fn sync_balances(ctx: ZeusCtx, chain: u64, owner: Address) {
    );
 }
 
-/// Start the art downloads for a freshly loaded list.
-///
-/// Called from the loader's worker and **never** from the row loop: [`spawn_fetch_nft_icon`] reads
-/// `SHARED_GUI` itself to check the opt-in and reach the icon store, and the frame path holds that
-/// lock write-locked — asking it per visible row would deadlock the app rather than fetch anything.
-fn start_nft_art_downloads(chain_id: u64, nfts: &[NftRow]) {
-   let icons = SHARED_GUI.read(|gui| gui.icons.clone());
-   let mut started = 0;
-
-   for row in nfts {
-      if started >= NFT_ART_FETCH_PER_LOAD {
-         break;
-      }
-
-      // Nothing to fetch without a URI: the loader cannot invent one, and reading `tokenURI` for
-      // every row would be a chain call per token.
-      let Some(uri) = row.token.metadata_uri.clone() else {
-         continue;
-      };
-
-      let key = (row.token.collection, chain_id, row.token.token_id);
-      if !icons.nfts.needs_fetch(&key) {
-         continue;
-      }
-
-      // Fire and forget: the row shows the placeholder until this lands.
-      spawn_fetch_nft_icon(
-         chain_id,
-         row.token.collection,
-         row.token.token_id,
-         uri,
-      );
-      started += 1;
-   }
-}
-
 /// The NFT list for one wallet: what the user tracks (`NftDB`) unioned with what the wallet holds
 /// (its portfolio), each with a balance and its collection label resolved.
 ///
@@ -1236,7 +1192,7 @@ async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<NftRow
 
    // Resolve the labels here rather than in the row: the row runs every frame for every visible
    // entry, and a collection lookup clones its `name`/`symbol` strings each time.
-   let collections = cached_collections(&ctx, chain_id);
+   let collections = cached_collections(ctx.read(|ctx| ctx.nft_db.get_collections(chain_id)));
 
    attach_balances(merged, &amounts)
       .into_iter()
@@ -1285,8 +1241,10 @@ fn private_nft_rows(
 
 /// Collection metadata cached for this chain, keyed by collection address, so a row builder can resolve
 /// a name and a symbol without touching the network.
-fn cached_collections(ctx: &ZeusCtx, chain_id: u64) -> HashMap<Address, NftCollection> {
-   ctx.read(|ctx| ctx.nft_db.get_collections(chain_id))
+pub(crate) fn cached_collections(
+   collections: Vec<NftCollection>,
+) -> HashMap<Address, NftCollection> {
+   collections
       .into_iter()
       .map(|collection| (collection.address, collection))
       .collect()

@@ -18,7 +18,7 @@ use std::io::Cursor;
 use std::sync::OnceLock;
 use std::time::Duration;
 use zeus_eth::alloy_primitives::{Address, U256};
-use zeus_eth::nft::expand_id_placeholder;
+use zeus_eth::nft::{NftToken, expand_id_placeholder};
 
 /// Edge of the list thumbnail. Larger pictures are shrunk to fit inside this.
 const THUMB_EDGE: u32 = 64;
@@ -30,6 +30,14 @@ const LARGE_EDGE: u32 = 250;
 /// before it is handed to the decoder.
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// How many art downloads one list load starts.
+///
+/// The cap is what keeps a wallet tracking hundreds of ids from firing hundreds of concurrent
+/// gateway requests at once (the throttle that follows marks tokens failed for the session, so the
+/// art would never appear). Tokens already tried are skipped, so successive loads work through a long
+/// list instead of retrying the first few forever.
+const NFT_ART_FETCH_PER_LOAD: usize = 24;
 
 /// IPFS gateways, tried in order.
 ///
@@ -403,6 +411,36 @@ pub async fn fetch_nft_icon(
          tracing::debug!("NFT image not decodable ({format}): {e}");
          Ok(None)
       }
+   }
+}
+
+/// Start the art downloads for `tokens`, at most [`NFT_ART_FETCH_PER_LOAD`] per load.
+///
+/// Call this off the frame path (a loader worker or a click): it reads `SHARED_GUI`, and the frame
+/// holds that write-locked. Tokens already cached, in flight, or failed for the session are skipped,
+/// and a token with no metadata URI needs no fetch — reading `tokenURI` for every row would be a
+/// chain call per token.
+pub fn start_nft_art_downloads<'a>(chain_id: u64, tokens: impl Iterator<Item = &'a NftToken>) {
+   let icons = SHARED_GUI.read(|gui| gui.icons.clone());
+   let mut started = 0;
+
+   for token in tokens {
+      if started >= NFT_ART_FETCH_PER_LOAD {
+         break;
+      }
+
+      let Some(uri) = token.metadata_uri.clone() else {
+         continue;
+      };
+
+      let key = (token.collection, chain_id, token.token_id);
+      if !icons.nfts.needs_fetch(&key) {
+         continue;
+      }
+
+      // Fire and forget: the row shows the placeholder until this lands.
+      spawn_fetch_nft_icon(chain_id, token.collection, token.token_id, uri);
+      started += 1;
    }
 }
 

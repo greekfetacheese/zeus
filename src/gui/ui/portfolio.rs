@@ -6,26 +6,54 @@ use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::gui::{
    SHARED_GUI,
-   ui::{TokenSelectionWindow, common::show_with_fade},
+   ui::{
+      common::show_with_fade,
+      token_selection::{
+         PickerMode, TokenSelectionWindow, cached_collections, nft_collection_name,
+      },
+   },
 };
-use crate::utils::RT;
+use crate::utils::{RT, nft_icon::start_nft_art_downloads};
 use eframe::egui::{
-   Align, CornerRadius, CursorIcon, Frame, Image, Layout, Margin, RichText, ScrollArea, Spinner,
-   Ui, vec2,
+   Align, CornerRadius, CursorIcon, Frame, Image, Layout, Margin, Order, RichText, ScrollArea,
+   Spinner, TextWrapMode, Ui, vec2,
 };
 use std::sync::Arc;
 
-use egui_elements::{Button, Label, Theme, visuals::ButtonVisuals};
+use egui_elements::{Button, Label, Modal, Theme, visuals::ButtonVisuals};
 use egui_lucide::Lucide;
+use elegance::TabBar;
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, ERC20Token},
+   nft::{NftCollection, NftStandard, NftToken},
 };
+
+/// Which asset class the portfolio is showing.
+///
+/// An NFT has no price, no balance and no value, so the two lists share nothing but their shape.
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum PortfolioMode {
+   Tokens,
+   Nfts,
+}
+
+/// What an NFT row's buttons asked for.
+#[derive(Default)]
+struct NftRowAction {
+   /// Open the artwork at inspection size.
+   view: bool,
+   /// Drop the NFT from the portfolio.
+   remove: bool,
+}
 
 pub struct PortfolioUi {
    open: bool,
    _loading: bool,
    pub show_spinner: bool,
+   mode: PortfolioMode,
+   /// The NFT whose artwork the user opened at inspection size, if any.
+   preview: Option<NftToken>,
 }
 
 impl PortfolioUi {
@@ -34,6 +62,8 @@ impl PortfolioUi {
          open: false,
          _loading: false,
          show_spinner: false,
+         mode: PortfolioMode::Tokens,
+         preview: None,
       }
    }
 
@@ -133,6 +163,67 @@ impl PortfolioUi {
       remove_clicked
    }
 
+   /// One framed row of the NFT list: the artwork, what it is, and what can be done with it.
+   ///
+   /// No price, balance or value cells — an NFT has none of those, so those columns exist only for
+   /// tokens. The artwork cell is the thumbnail the icon store keeps for lists; the picture at
+   /// inspection size lives in the preview modal.
+   fn nft_row(
+      ui: &mut Ui,
+      theme: &Theme,
+      column_widths: [f32; 3],
+      col_spacing: f32,
+      row_width: f32,
+      row_height: f32,
+      icon: Image<'static>,
+      title: &str,
+      subtitle: &str,
+   ) -> NftRowAction {
+      let label_visuals = theme.label_visuals();
+      let row_frame = theme.frame1.outer_margin(Margin::ZERO);
+      let mut action = NftRowAction::default();
+
+      ui.allocate_ui(vec2(row_width, row_height + 16.0), |ui| {
+         row_frame.show(ui, |ui| {
+            ui.set_width(row_width);
+            ui.spacing_mut().item_spacing.x = col_spacing;
+
+            ui.horizontal(|ui| {
+               Self::row_cell(ui, column_widths[0], row_height, |ui| {
+                  ui.add(icon);
+               });
+
+               Self::row_cell(ui, column_widths[1], row_height, |ui| {
+                  let text = RichText::new(format!("{title}\n{subtitle}"))
+                     .size(theme.typography.normal)
+                     .color(theme.colors.text);
+                  let label = Label::new(text, None)
+                     .wrap_mode(TextWrapMode::Truncate)
+                     .visuals(label_visuals)
+                     .interactive(false);
+                  ui.add(label).on_hover_text(title);
+               });
+
+               Self::row_cell(ui, column_widths[2], row_height, |ui| {
+                  ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                     let visual = theme.button_visuals();
+
+                     let view = Button::new(RichText::new("View").size(theme.typography.normal))
+                        .visuals(visual);
+                     action.view = ui.add(view).clicked();
+
+                     let remove = Button::new(RichText::new("X").size(theme.typography.normal))
+                        .visuals(visual);
+                     action.remove = ui.add(remove).clicked();
+                  });
+               });
+            });
+         });
+      });
+
+      action
+   }
+
    pub fn show(
       &mut self,
       ctx: &mut ZeusContext,
@@ -162,6 +253,30 @@ impl PortfolioUi {
                let frame = theme.frame1;
 
                frame.show(ui, |ui| {
+                  // Mode switch, on top of the wallet identity: what is being listed, before whose
+                  // wallet it is.
+                  ui.horizontal(|ui| {
+                     let mode = self.mode;
+                     let mut tab = usize::from(mode == PortfolioMode::Nfts);
+
+                     ui.add(TabBar::new(&mut tab, ["Tokens", "NFTs"]));
+
+                     let picked = match tab {
+                        0 => PortfolioMode::Tokens,
+                        _ => PortfolioMode::Nfts,
+                     };
+
+                     if picked != mode {
+                        self.mode = picked;
+
+                        // The tokens are stored locally, so switching mode never touches the network.
+                        // Only the NFT artwork has to be fetched, and only once.
+                        if picked == PortfolioMode::Nfts {
+                           self.load_nft_art(chain_id, owner);
+                        }
+                     }
+                  });
+
                   ui.horizontal(|ui| {
                      // Wallet Name - Total Value (centered)
                      ui.vertical_centered(|ui| {
@@ -181,11 +296,22 @@ impl PortfolioUi {
                         ui.spacing_mut().button_padding = theme.button_padding;
 
                         let button_visuals = theme.button_visuals();
-                        let text = RichText::new("Add Token").size(theme.typography.normal);
+                        let (label, nft_mode) = match self.mode {
+                           PortfolioMode::Tokens => ("Add Token", false),
+                           PortfolioMode::Nfts => ("Add NFT", true),
+                        };
+                        let text = RichText::new(label).size(theme.typography.normal);
                         let add_token = Button::new(text).visuals(button_visuals);
 
                         if ui.add(add_token).clicked() {
                            token_selection.open(privacy_mode, chain_id, owner);
+
+                           // The picker is the one place that lists discovered-but-untracked tokens,
+                           // so picking one there is how it joins the portfolio. It opens on the
+                           // ERC-20 list, which is what the token mode wants anyway.
+                           if nft_mode {
+                              token_selection.set_mode(PickerMode::Nft);
+                           }
                         }
 
                         let icon = Lucide::RefreshCw.size(20.0).color(theme.colors.text).image();
@@ -222,121 +348,135 @@ impl PortfolioUi {
                   );
                }
 
-               // Token List
-               let row_height = 40.0;
-               let col_spacing = 20.0;
-               let column_widths = [
-                  ui.available_width() * 0.22, // Asset
-                  ui.available_width() * 0.18, // Price
-                  ui.available_width() * 0.18, // Balance
-                  ui.available_width() * 0.18, // Value
-                  ui.available_width() * 0.10, // Remove
-               ];
-               let row_width: f32 = column_widths.iter().sum::<f32>()
-                  + col_spacing * (column_widths.len() as f32 - 1.0);
-               let row_height_sans_spacing = row_height + 16.0;
                let tint = theme.image_tint_recommended;
 
-               // --- Header (same widths as body cells; not inside a frame) ---
-               ui.horizontal(|ui| {
-                  ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0);
-                  ui.spacing_mut().item_spacing.x = col_spacing;
-                  for (i, header) in
-                     ["Asset", "Price", "Balance", "Value", ""].into_iter().enumerate()
-                  {
-                     Self::row_cell(ui, column_widths[i], 28.0, |ui| {
-                        if !header.is_empty() {
-                           ui.label(
-                              RichText::new(header)
-                                 .strong()
-                                 .size(theme.typography.large)
-                                 .color(theme.colors.text),
-                           );
-                        }
-                     });
-                  }
-               });
+               if self.mode == PortfolioMode::Nfts {
+                  let nfts = if privacy_mode {
+                     portfolio.private_nfts()
+                  } else {
+                     portfolio.nfts()
+                  };
 
-               ui.add_space(8.0);
-
-               let token_list = if privacy_mode {
-                  portfolio.private_tokens()
+                  self.show_nft_list(
+                     ctx, theme, &icons, nfts, chain_id, owner, tint, ui,
+                  );
                } else {
-                  portfolio.public_tokens()
-               };
-               let show_native = !privacy_mode;
-               let num_rows = token_list.len() + usize::from(show_native);
+                  // Token List
+                  let row_height = 40.0;
+                  let col_spacing = 20.0;
+                  let column_widths = [
+                     ui.available_width() * 0.22, // Asset
+                     ui.available_width() * 0.18, // Price
+                     ui.available_width() * 0.18, // Balance
+                     ui.available_width() * 0.18, // Value
+                     ui.available_width() * 0.10, // Remove
+                  ];
+                  let row_width: f32 = column_widths.iter().sum::<f32>()
+                     + col_spacing * (column_widths.len() as f32 - 1.0);
+                  let row_height_sans_spacing = row_height + 16.0;
 
-               ui.spacing_mut().item_spacing.y = theme.spacing.sm;
-               ScrollArea::vertical().auto_shrink([false; 2]).content_margin(5).show_rows(
-                  ui,
-                  row_height_sans_spacing,
-                  num_rows,
-                  |ui, row_range| {
-                     ui.vertical_centered(|ui| {
-                        ui.spacing_mut().item_spacing.y = theme.spacing.md;
-                        ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
-
-                        for row_index in row_range {
-                           if show_native && row_index == 0 {
-                              let native_currency = Currency::native(chain_id);
-                              let price = ctx.get_currency_price(&native_currency);
-                              let balance =
-                                 ctx.get_currency_balance(chain_id, owner, &native_currency);
-                              let value = ctx.get_currency_value_for_owner(
-                                 chain_id,
-                                 owner,
-                                 &native_currency,
+                  // --- Header (same widths as body cells; not inside a frame) ---
+                  ui.horizontal(|ui| {
+                     ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0);
+                     ui.spacing_mut().item_spacing.x = col_spacing;
+                     for (i, header) in
+                        ["Asset", "Price", "Balance", "Value", ""].into_iter().enumerate()
+                     {
+                        Self::row_cell(ui, column_widths[i], 28.0, |ui| {
+                           if !header.is_empty() {
+                              ui.label(
+                                 RichText::new(header)
+                                    .strong()
+                                    .size(theme.typography.large)
+                                    .color(theme.colors.text),
                               );
+                           }
+                        });
+                     }
+                  });
+
+                  ui.add_space(8.0);
+
+                  let token_list = if privacy_mode {
+                     portfolio.private_tokens()
+                  } else {
+                     portfolio.public_tokens()
+                  };
+                  let show_native = !privacy_mode;
+                  let num_rows = token_list.len() + usize::from(show_native);
+
+                  ui.spacing_mut().item_spacing.y = theme.spacing.sm;
+                  ScrollArea::vertical().auto_shrink([false; 2]).content_margin(5).show_rows(
+                     ui,
+                     row_height_sans_spacing,
+                     num_rows,
+                     |ui, row_range| {
+                        ui.vertical_centered(|ui| {
+                           ui.spacing_mut().item_spacing.y = theme.spacing.md;
+                           ui.spacing_mut().button_padding =
+                              vec2(theme.spacing.sm, theme.spacing.xs);
+
+                           for row_index in row_range {
+                              if show_native && row_index == 0 {
+                                 let native_currency = Currency::native(chain_id);
+                                 let price = ctx.get_currency_price(&native_currency);
+                                 let balance =
+                                    ctx.get_currency_balance(chain_id, owner, &native_currency);
+                                 let value = ctx.get_currency_value_for_owner(
+                                    chain_id,
+                                    owner,
+                                    &native_currency,
+                                 );
+                                 let price_text = format!("${:.10}", price.abbreviated());
+                                 let balance_text = format!("{:.10}", balance.abbreviated());
+                                 let value_text = format!("${:.10}", value.abbreviated());
+                                 let _ = Self::asset_row(
+                                    ui,
+                                    theme,
+                                    column_widths,
+                                    row_width,
+                                    row_height,
+                                    icons.currency_icon_x32(&native_currency, tint),
+                                    native_currency.symbol(),
+                                    native_currency.name(),
+                                    &price_text,
+                                    &balance_text,
+                                    &value_text,
+                                    false,
+                                 );
+                                 continue;
+                              }
+
+                              let token_idx = row_index - usize::from(show_native);
+                              let Some((token, balance, value, price)) = token_list.get(token_idx)
+                              else {
+                                 continue;
+                              };
+
                               let price_text = format!("${:.10}", price.abbreviated());
                               let balance_text = format!("{:.10}", balance.abbreviated());
                               let value_text = format!("${:.10}", value.abbreviated());
-                              let _ = Self::asset_row(
+                              if Self::asset_row(
                                  ui,
                                  theme,
                                  column_widths,
                                  row_width,
                                  row_height,
-                                 icons.currency_icon_x32(&native_currency, tint),
-                                 native_currency.symbol(),
-                                 native_currency.name(),
+                                 icons.token_icon_x32(token.address, token.chain_id, tint),
+                                 &token.symbol,
+                                 &token.name,
                                  &price_text,
                                  &balance_text,
                                  &value_text,
-                                 false,
-                              );
-                              continue;
+                                 true,
+                              ) {
+                                 self.remove_token(ctx, owner, token);
+                              }
                            }
-
-                           let token_idx = row_index - usize::from(show_native);
-                           let Some((token, balance, value, price)) = token_list.get(token_idx)
-                           else {
-                              continue;
-                           };
-
-                           let price_text = format!("${:.10}", price.abbreviated());
-                           let balance_text = format!("{:.10}", balance.abbreviated());
-                           let value_text = format!("${:.10}", value.abbreviated());
-                           if Self::asset_row(
-                              ui,
-                              theme,
-                              column_widths,
-                              row_width,
-                              row_height,
-                              icons.token_icon_x32(token.address, token.chain_id, tint),
-                              &token.symbol,
-                              &token.name,
-                              &price_text,
-                              &balance_text,
-                              &value_text,
-                              true,
-                           ) {
-                              self.remove_token(ctx, owner, token);
-                           }
-                        }
-                     });
-                  },
-               );
+                        });
+                     },
+                  );
+               }
 
                let currency = token_selection.get_selected_currency();
 
@@ -346,8 +486,265 @@ impl PortfolioUi {
                   token_selection.reset();
                   self.add_currency(ctx, owner, token_fetched, currency);
                }
+
+               // An NFT picked in the picker joins the portfolio the same way a token does — but only
+               // while the picker is on its NFT list, so a token picked from the ERC-20 list is never
+               // mistaken for one.
+               let picked_nft = match token_selection.get_mode() {
+                  PickerMode::Nft => token_selection.get_selected_nft().cloned(),
+                  PickerMode::Fungible => None,
+               };
+
+               if let Some(nft) = picked_nft {
+                  token_selection.reset();
+                  self.add_nft(ctx, owner, nft);
+               }
+
+               // The artwork at inspection size, if a row asked for it.
+               self.show_nft_preview(ctx, theme, &icons, ui);
             });
          });
+      });
+   }
+
+   /// The NFT list: the wallet's own NFTs, or the shielded ones in privacy mode.
+   ///
+   /// Virtualized like the token list, but with no column header: there is one column that means
+   /// anything here, and «Price / Balance / Value» would have nothing underneath them.
+   fn show_nft_list(
+      &mut self,
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      icons: &Icons,
+      nfts: &[NftToken],
+      chain_id: u64,
+      owner: Address,
+      tint: bool,
+      ui: &mut Ui,
+   ) {
+      let collections = cached_collections(ctx.nft_db.get_collections(chain_id));
+
+      let col_spacing = 20.0;
+      let row_height = 64.0;
+      let row_height_sans_spacing = row_height + 16.0;
+      let row_width = ui.available_width();
+      let column_widths = [
+         row_height,       // the artwork, thumbnail-sized
+         row_width * 0.62, // what it is
+         row_width * 0.18, // inspect / remove
+      ];
+
+      if nfts.is_empty() {
+         ui.add_space(theme.spacing.md);
+         ui.label(
+            RichText::new("Nothing here yet. Add NFT picks from the ones Zeus has found.")
+               .size(theme.typography.normal)
+               .color(theme.colors.text_muted),
+         );
+         return;
+      }
+
+      ui.spacing_mut().item_spacing.y = theme.spacing.sm;
+      ScrollArea::vertical().auto_shrink([false; 2]).content_margin(5).show_rows(
+         ui,
+         row_height_sans_spacing,
+         nfts.len(),
+         |ui, row_range| {
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing.y = theme.spacing.md;
+               ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
+
+               for row_index in row_range {
+                  let Some(token) = nfts.get(row_index) else {
+                     continue;
+                  };
+
+                  let collection = collections.get(&token.collection);
+                  let title = nft_collection_name(collection, token.collection);
+                  let subtitle = Self::nft_subtitle(collection, token.standard);
+
+                  let icon = icons.nft_icon_x64(
+                     token.chain_id,
+                     token.collection,
+                     token.token_id,
+                     tint,
+                  );
+
+                  let action = Self::nft_row(
+                     ui,
+                     theme,
+                     column_widths,
+                     col_spacing,
+                     row_width,
+                     row_height,
+                     icon,
+                     &title,
+                     &subtitle,
+                  );
+
+                  if action.view {
+                     self.preview = Some(token.clone());
+                  }
+
+                  if action.remove {
+                     self.remove_nft(ctx, owner, token);
+                  }
+               }
+            });
+         },
+      );
+   }
+
+   /// The artwork at inspection size, opened from a row.
+   fn show_nft_preview(
+      &mut self,
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      icons: &Icons,
+      ui: &mut Ui,
+   ) {
+      let Some(token) = self.preview.clone() else {
+         return;
+      };
+
+      // The collection is looked up rather than kept alongside the preview: the catalog is the one
+      // place that knows the name, and the modal is opened by a click, not by a frame.
+      let collection = ctx
+         .nft_db
+         .get_collections(token.chain_id)
+         .into_iter()
+         .find(|collection| collection.address == token.collection);
+
+      let heading = RichText::new(format!(
+         "{} #{}",
+         nft_collection_name(collection.as_ref(), token.collection),
+         token.token_id
+      ))
+      .size(theme.typography.heading);
+      let subtitle = Self::nft_subtitle(collection.as_ref(), token.standard);
+      let frame = theme.window_frame.fill(theme.frame1.fill);
+
+      let mut open = true;
+
+      Modal::new("nft_preview", &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .heading(heading)
+         .header_separator(false)
+         .center_header(true)
+         .closable(true)
+         .frame(frame)
+         .show(ui.ctx(), |ui| {
+            ui.set_width(300.0);
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing.y = theme.spacing.md;
+
+               ui.add(icons.nft_icon_x250(
+                  token.chain_id,
+                  token.collection,
+                  token.token_id,
+                  theme.image_tint_recommended,
+               ));
+
+               ui.label(
+                  RichText::new(subtitle)
+                     .size(theme.typography.normal)
+                     .color(theme.colors.text_muted),
+               );
+               ui.label(
+                  RichText::new(token.collection.to_string())
+                     .size(theme.typography.small)
+                     .color(theme.colors.text_muted)
+                     .monospace(),
+               );
+            });
+         });
+
+      // Closing it is the user's decision to make, not ours: X, Escape and the backdrop all land here.
+      if !open {
+         self.preview = None;
+      }
+   }
+
+   /// Start the artwork downloads for the NFTs this wallet holds.
+   ///
+   /// A worker, never the frame path: [`start_nft_art_downloads`] reads `SHARED_GUI`, which the frame
+   /// holds write-locked. Nothing else is fetched — the portfolio itself is local.
+   fn load_nft_art(&self, chain_id: u64, owner: Address) {
+      RT.spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let portfolio = ctx.get_portfolio(chain_id, owner);
+
+         let nfts = match ctx.read(|ctx| ctx.privacy_mode) {
+            true => portfolio.private_nfts(),
+            false => portfolio.nfts(),
+         };
+
+         start_nft_art_downloads(chain_id, nfts.iter());
+      });
+   }
+
+   /// Add an NFT to the wallet's portfolio.
+   ///
+   /// The catalog already holds it — discovery and the picker both write `nft_db` — so this only writes
+   /// the user's own list. The artwork is fetched from here rather than from the row, which runs on the
+   /// frame.
+   fn add_nft(&mut self, ctx: &mut ZeusContext, owner: Address, nft: NftToken) {
+      let chain_id = ctx.chain.id();
+
+      let mut portfolio = ctx.read_wallet_state(|ws| ws.portfolio_db.get(chain_id, owner));
+      portfolio.add_nft(nft);
+      ctx.write_wallet_state(|ws| {
+         ws.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
+      });
+
+      Self::save_wallet_state();
+
+      self.load_nft_art(chain_id, owner);
+   }
+
+   /// Drop an NFT from the wallet's portfolio.
+   ///
+   /// The catalog keeps it, so the picker still lists it and it can be added back.
+   fn remove_nft(&mut self, ctx: &mut ZeusContext, owner: Address, nft: &NftToken) {
+      let chain_id = ctx.chain.id();
+
+      let mut portfolio = ctx.read_wallet_state(|ws| ws.portfolio_db.get(chain_id, owner));
+      portfolio.remove_nft(nft);
+      ctx.write_wallet_state(|ws| {
+         ws.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
+      });
+
+      Self::save_wallet_state();
+   }
+
+   /// The second line of an NFT row or preview: the collection symbol and the standard.
+   fn nft_subtitle(collection: Option<&NftCollection>, standard: NftStandard) -> String {
+      let standard = match standard {
+         NftStandard::Erc721 => "ERC-721",
+         NftStandard::Erc1155 => "ERC-1155",
+      };
+
+      match collection.and_then(|collection| collection.symbol.as_deref()) {
+         Some(symbol) if !symbol.is_empty() => format!("{symbol} · {standard}"),
+         _ => standard.to_string(),
+      }
+   }
+
+   /// Persist the wallet state after the portfolio changed.
+   ///
+   /// Off the frame path: `save_wallet_state` lives on the `ZeusCtx` handle, which is only reachable
+   /// through `SHARED_GUI` — and the frame holds that write-locked.
+   fn save_wallet_state() {
+      RT.spawn_blocking(|| {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+
+         if let Err(e) = ctx.save_wallet_state() {
+            tracing::error!(
+               "Error saving wallet state after the portfolio changed: {:?}",
+               e
+            );
+         }
       });
    }
 
