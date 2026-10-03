@@ -2568,6 +2568,23 @@ impl ZeusContext {
          .read(|ws| ws.balance_manager.get_token_balance(chain, owner, token))
    }
 
+   /// How many of this NFT the wallet holds, or `None` when the balance manager has never been asked.
+   ///
+   /// A row must read `None` as "no claim" and `Some(0)` as `NOT OWNED`, which is why this is not the
+   /// `NumericValue` the token getters return: for a token the two cases can be the same thing, for an
+   /// NFT they cannot.
+   pub fn get_nft_balance(
+      &self,
+      chain: u64,
+      owner: Address,
+      collection: Address,
+      token_id: U256,
+   ) -> Option<u64> {
+      self
+         .wallet_state
+         .read(|ws| ws.balance_manager.get_nft_balance(chain, owner, collection, token_id))
+   }
+
    pub fn get_base_fee(&self, chain: u64) -> Option<BaseFee> {
       self.base_fee.get(&chain).cloned()
    }
@@ -2641,7 +2658,7 @@ impl ZeusContext {
       if let Some(name) = self.ens_cache.get(chain, address) {
          return Some(name);
       }
-      
+
       if let Some(name) = self.currency_db.get_token_name(chain, address) {
          return Some(name);
       }

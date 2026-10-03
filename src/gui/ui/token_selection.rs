@@ -24,7 +24,7 @@ use zeus_eth::{
    abi::erc165,
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
-   nft::{NftCollection, NftStandard, NftToken, collections_of, verify_ownership_batch},
+   nft::{NftCollection, NftStandard, NftToken, collections_of},
    types::ChainId,
    utils::{
       NumericValue,
@@ -1216,20 +1216,36 @@ async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<NftRow
 
    let merged = merge_nft_sources(tracked, held);
 
-   let holdings = match ctx.get_client(chain_id).await {
-      Ok(client) => verify_ownership_batch(client, owner, &merged).await,
-      Err(e) => {
-         tracing::error!("Failed to get client for chain {chain_id}: {e:?}");
-         None
-      }
-   };
+   // Ownership lives in the balance manager now — the same store the ERC-20 rows read — so refresh it
+   // for what this list shows and then read it. A failure is not fatal: the rows then claim nothing.
+   let manager = ctx.balance_manager();
+   if let Err(e) = manager
+      .update_nft_balances(
+         ctx.clone(),
+         chain_id,
+         owner,
+         merged.clone(),
+         false,
+      )
+      .await
+   {
+      tracing::error!("Error updating NFT balances: {e:?}");
+   }
 
    // Resolve the labels here rather than in the row: the row runs every frame for every visible
    // entry, and a collection lookup clones its `name`/`symbol` strings each time.
    let collections = cached_collections(ctx.read(|ctx| ctx.nft_db.get_collections(chain_id)));
 
-   // An empty map on failure: the list is still worth showing, and every row then claims nothing.
-   let amounts = holdings.clone().unwrap_or_default();
+   // The manager's answers, for the entries it has one for. An id it never answered is left out, and
+   // its row then claims nothing rather than claiming zero.
+   let amounts: HashMap<NftRef, u64> = merged
+      .iter()
+      .filter_map(|token| {
+         manager
+            .get_nft_balance(chain_id, owner, token.collection, token.token_id)
+            .map(|amount| ((token.collection, token.token_id), amount))
+      })
+      .collect();
 
    attach_balances(merged, &amounts)
       .into_iter()
@@ -1237,11 +1253,9 @@ async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<NftRow
          let (name, symbol) = collection_label(&token, &collections);
          let in_portfolio = portfolio.contains(&(token.collection, token.token_id));
 
-         // `None` when the chain could not be asked, so the row shows no ownership claim rather than a
-         // wrong one. A missing entry is a real zero: every ref got an answer.
-         let owned = holdings.as_ref().map(|holdings| {
-            holdings.get(&(token.collection, token.token_id)).copied().unwrap_or(0) > 0
-         });
+         // `None` when there is no answer to read — never asked, or the chain could not be reached — so
+         // the row shows no ownership claim rather than a wrong one. `Some(0)` is a real answer.
+         let owned = amounts.get(&(token.collection, token.token_id)).map(|amount| *amount > 0);
 
          NftRow {
             token,

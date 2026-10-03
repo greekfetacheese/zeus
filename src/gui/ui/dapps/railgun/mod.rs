@@ -262,6 +262,18 @@ pub async fn settle_railgun_op(
       }
    }
 
+   // The NFT half of the same refresh. An NFT has no balance, only an owner, so what moves here is
+   // ownership — which the balance manager holds for the public side, exactly like the token balances
+   // above. `retry_if_unchanged`, because a shield takes the token out of the wallet and an unshield
+   // puts it back: an answer that has not moved yet is the chain lagging, not a settled one. The private
+   // side needs nothing — the scan below is what maintains it.
+   let nfts = ctx.get_portfolio(chain.id(), from).nfts().clone();
+   if !nfts.is_empty() {
+      if let Err(e) = manager.update_nft_balances(ctx.clone(), chain.id(), from, nfts, true).await {
+         tracing::error!("Error updating NFT balances: {:?}", e);
+      }
+   }
+
    if let Err(e) = manager.update_eth_balance(ctx.clone(), chain.id(), vec![from], true).await {
       tracing::error!("Error updating eth balance: {:?}", e);
    }

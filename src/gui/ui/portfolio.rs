@@ -18,7 +18,6 @@ use eframe::egui::{
    Align, CornerRadius, CursorIcon, Frame, Image, Layout, Margin, Order, RichText, ScrollArea,
    Spinner, TextWrapMode, Ui, vec2,
 };
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use egui_elements::{Button, Label, Modal, Theme, visuals::ButtonVisuals};
@@ -27,8 +26,7 @@ use elegance::TabBar;
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, ERC20Token},
-   nft::{NftCollection, NftStandard, NftToken, verify_ownership_batch},
-   utils::batch::NftRef,
+   nft::{NftCollection, NftStandard, NftToken},
 };
 
 const NFT_PREVIEW_WIDTH: f32 = 450.0;
@@ -51,48 +49,6 @@ struct NftRowAction {
    remove: bool,
 }
 
-/// What the portfolio knows about NFT ownership, and whose NFTs it asked about.
-///
-/// Ownership is a fact about one (chain, wallet) pair, so the answer has to be held with the pair it
-/// belongs to: a wallet or chain switch must re-ask rather than put the previous wallet's badges on
-/// these rows. `Loading` is a real state for the same reason in reverse — the frame must not start a
-/// second load while the first is in flight.
-enum NftHoldings {
-   /// Nothing asked yet.
-   Unknown,
-   /// A load is in flight for this (chain, wallet).
-   Loading(u64, Address),
-   /// The answer for this (chain, wallet). The map is `(collection, id) -> amount`, where `0` means
-   /// "not held"; `None` means the chain could not be asked, so no row claims anything — the pair
-   /// still counts as covered, or the frame would re-ask it forever.
-   Ready(u64, Address, Option<HashMap<NftRef, u64>>),
-}
-
-impl NftHoldings {
-   /// Has this (chain, wallet) been asked? An in-flight load counts, so it is not started twice.
-   fn covers(&self, chain_id: u64, owner: Address) -> bool {
-      match self {
-         NftHoldings::Unknown => false,
-         NftHoldings::Loading(chain, wallet) | NftHoldings::Ready(chain, wallet, _) => {
-            *chain == chain_id && *wallet == owner
-         }
-      }
-   }
-
-   /// How many of `token` this (chain, wallet) holds, when that is what the answer is about. `None`
-   /// when it is not — an unanswered question shows no ownership claim rather than a wrong one.
-   fn amount(&self, chain_id: u64, owner: Address, token: &NftToken) -> Option<u64> {
-      match self {
-         NftHoldings::Ready(chain, wallet, holdings) if *chain == chain_id && *wallet == owner => {
-            holdings.as_ref().map(|holdings| {
-               holdings.get(&(token.collection, token.token_id)).copied().unwrap_or(0)
-            })
-         }
-         _ => None,
-      }
-   }
-}
-
 pub struct PortfolioUi {
    open: bool,
    _loading: bool,
@@ -100,9 +56,11 @@ pub struct PortfolioUi {
    mode: PortfolioMode,
    /// The NFT whose artwork the user opened at inspection size, if any.
    preview: Option<NftToken>,
-   /// What the chain says about the NFTs in the portfolio list, for the (chain, wallet) it was asked
-   /// about. Absent or not about this pair: a row shows no ownership claim rather than a wrong one.
-   holdings: NftHoldings,
+   /// Which (chain, wallet) the NFT list has been kicked off for.
+   ///
+   /// A marker that the ask went out, not an answer — the answers live in the balance manager, beside the
+   /// token balances. It is here so that opening the list starts one refresh rather than one per frame.
+   nft_list_asked_for: Option<(u64, Address)>,
 }
 
 impl PortfolioUi {
@@ -113,7 +71,7 @@ impl PortfolioUi {
          show_spinner: false,
          mode: PortfolioMode::Tokens,
          preview: None,
-         holdings: NftHoldings::Unknown,
+         nft_list_asked_for: None,
       }
    }
 
@@ -390,9 +348,9 @@ impl PortfolioUi {
                            if res.clicked() {
                               self.refresh(owner);
 
-                              // Drop the ownership answers so the NFT list re-reads them: this is how a
-                              // token that has just left — or one that has come back — updates.
-                              self.holdings = NftHoldings::Unknown;
+                              // Let the NFT list be asked for again: this is how a token that has just
+                              // left — or one that has come back — updates its badge.
+                              self.nft_list_asked_for = None;
                            }
                         } else {
                            ui.add(Spinner::new().size(17.0).color(theme.colors.text));
@@ -418,10 +376,13 @@ impl PortfolioUi {
 
                let tint = theme.image_tint_recommended;
 
-               // Ownership is a fact about one (chain, wallet) pair, so ask once for this pair. Entering
-               // the mode, a refresh, a wallet or chain switch and adding a token all land here.
-               if self.mode == PortfolioMode::Nfts && !self.holdings.covers(chain_id, owner) {
-                  self.holdings = NftHoldings::Loading(chain_id, owner);
+               // One refresh per (chain, wallet): the answers themselves are the balance manager's, and
+               // this marker only keeps the ask from going out every frame. Entering the mode, a refresh,
+               // a wallet or chain switch and adding a token all land here.
+               if self.mode == PortfolioMode::Nfts
+                  && self.nft_list_asked_for != Some((chain_id, owner))
+               {
+                  self.nft_list_asked_for = Some((chain_id, owner));
                   Self::load_nft_list(chain_id, owner);
                }
 
@@ -433,7 +394,15 @@ impl PortfolioUi {
                   };
 
                   self.show_nft_list(
-                     ctx, theme, &icons, nfts, chain_id, owner, tint, ui,
+                     ctx,
+                     theme,
+                     &icons,
+                     nfts,
+                     chain_id,
+                     owner,
+                     privacy_mode,
+                     tint,
+                     ui,
                   );
                } else {
                   // Token List
@@ -574,9 +543,8 @@ impl PortfolioUi {
                   token_selection.reset();
                   Self::add_nft(ctx, owner, nft);
 
-                  // The new token's ownership is not in the answers yet, so drop them: the next frame's
-                  // load re-reads them.
-                  self.holdings = NftHoldings::Unknown;
+                  // The new token has not been asked about yet, so let the next frame's load ask.
+                  self.nft_list_asked_for = None;
                }
 
                // The artwork at inspection size, if a row asked for it.
@@ -590,6 +558,9 @@ impl PortfolioUi {
    ///
    /// Virtualized like the token list, but with no column header: there is one column that means
    /// anything here, and «Price / Balance / Value» would have nothing underneath them.
+   ///
+   /// `privacy_mode` picks which side of `self.holdings` the rows read: the badges must agree with the
+   /// list they are beside, and the two sides answer differently.
    fn show_nft_list(
       &mut self,
       ctx: &mut ZeusContext,
@@ -598,6 +569,7 @@ impl PortfolioUi {
       nfts: &[NftToken],
       chain_id: u64,
       owner: Address,
+      privacy_mode: bool,
       tint: bool,
       ui: &mut Ui,
    ) {
@@ -650,7 +622,14 @@ impl PortfolioUi {
                      token.token_id
                   );
                   let subtitle = Self::nft_subtitle(collection, token.standard);
-                  let holding = self.holdings.amount(chain_id, owner, token);
+                  // Public ownership is the balance manager's, the same store the token rows read; the
+                  // private side is «in `private_nfts` ⇒ held», which is what the list itself means.
+                  let holding = match privacy_mode {
+                     true => Some(1u64),
+                     false => {
+                        ctx.get_nft_balance(chain_id, owner, token.collection, token.token_id)
+                     }
+                  };
 
                   let icon = icons.nft_icon_x64(
                      token.chain_id,
@@ -767,44 +746,40 @@ impl PortfolioUi {
       }
    }
 
-   /// Load the NFT list: which of these tokens the wallet still holds, and the artwork to show for them.
+   /// Kick off the NFT side of a portfolio load: ask the balance manager to refresh this wallet's public
+   /// ownership, and fetch the artwork to draw.
    ///
    /// A worker, never the frame path — it reads and writes `SHARED_GUI`, which the frame holds
-   /// write-locked. The list itself needs no fetching: it is the portfolio, and that is local. What
-   /// does need the chain is ownership, because the catalog goes on listing a token after it has left
-   /// the wallet, and the row has to be able to say so.
+   /// write-locked. It keeps no answers: those are the manager's, like the token balances. The private
+   /// side needs no refresh either, because it is the shielded set that the railgun scan maintains.
    fn load_nft_list(chain_id: u64, owner: Address) {
       RT.spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let portfolio = ctx.get_portfolio(chain_id, owner);
-         let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
 
-         let tokens = match privacy_mode {
-            true => portfolio.private_nfts(),
-            false => portfolio.nfts(),
-         };
-
-         // Shielded tokens are held in Railgun custody, so a balance read against this address would
-         // call them unowned. The private scan already established them: record them as held.
-         let holdings = match privacy_mode {
-            true => {
-               Some(tokens.iter().map(|token| ((token.collection, token.token_id), 1)).collect())
+         if !portfolio.nfts().is_empty() {
+            let manager = ctx.balance_manager();
+            if let Err(e) = manager
+               .update_nft_balances(
+                  ctx.clone(),
+                  chain_id,
+                  owner,
+                  portfolio.nfts().clone(),
+                  false,
+               )
+               .await
+            {
+               tracing::error!("Error updating NFT balances: {e:?}");
             }
-            false => match ctx.get_client(chain_id).await {
-               Ok(client) => verify_ownership_batch(client, owner, tokens).await,
-               Err(e) => {
-                  tracing::error!("Failed to get client for chain {chain_id}: {e:?}");
-                  None
-               }
-            },
-         };
+         }
 
-         start_nft_art_downloads(chain_id, tokens.iter());
+         // Both sides' artwork: which list is on screen is the user's toggle, not ours to guess.
+         start_nft_art_downloads(
+            chain_id,
+            portfolio.nfts().iter().chain(portfolio.private_nfts().iter()),
+         );
 
-         SHARED_GUI.write(|gui| {
-            gui.portofolio.holdings = NftHoldings::Ready(chain_id, owner, holdings);
-            gui.request_repaint();
-         });
+         SHARED_GUI.write(|gui| gui.request_repaint());
       });
    }
 
