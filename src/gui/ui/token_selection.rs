@@ -272,7 +272,7 @@ impl TokenSelectionWindow {
    ///
    /// Spawned, never inline: it reads the wallet's ERC-1155 balances over the network, and this is
    /// the frame path.
-   fn load_nfts(&mut self, chain_id: u64, owner: Address) {
+   fn load_nfts(&mut self, chain_id: u64, owner: Address, privacy_mode: bool) {
       if self.nfts_loaded || self.nfts_loading {
          return;
       }
@@ -282,8 +282,22 @@ impl TokenSelectionWindow {
       RT.spawn(async move {
          // Read on a worker: the handle is only reachable once the frame has dropped `SHARED_GUI`.
          let ctx = SHARED_GUI.write(|gui| gui.ctx.clone());
-         let nfts = process_nfts(ctx, chain_id, owner).await;
 
+         // Privacy mode lists only what is actually shielded, exactly like the ERC-20 list, because only a
+         // shielded NFT can be unshielded or privately transferred. There is nothing to fetch either way:
+         // the portfolio already ran the private balance scan.
+         let nfts = if privacy_mode {
+            let portfolio = ctx.get_portfolio(chain_id, owner);
+            private_nft_rows(
+               portfolio.private_nfts(),
+               &cached_collections(&ctx, chain_id),
+            )
+         } else {
+            process_nfts(ctx, chain_id, owner).await
+         };
+
+         // Art is fetched from the list's own metadata URIs, and this reads `SHARED_GUI`, so it belongs
+         // here on the worker — never in the row loop, which runs inside the frame.
          start_nft_art_downloads(chain_id, &nfts);
 
          SHARED_GUI.write(|gui| {
@@ -334,7 +348,7 @@ impl TokenSelectionWindow {
 
       // Entering NFT mode loads the list once per opening; the switch row itself only flips `mode`.
       if self.mode == PickerMode::Nft {
-         self.load_nfts(chain_id, owner);
+         self.load_nfts(chain_id, owner, ctx.privacy_mode);
       }
 
       let mut close_window = false;
@@ -413,6 +427,8 @@ impl TokenSelectionWindow {
 
                let hint_text = match self.mode {
                   PickerMode::Fungible => "Search tokens or enter an address",
+                  // Privacy mode lists shielded NFTs, and no pasted address can add one.
+                  PickerMode::Nft if ctx.privacy_mode => "Search shielded NFTs",
                   PickerMode::Nft => "Search NFTs or paste a collection address",
                };
 
@@ -433,10 +449,13 @@ impl TokenSelectionWindow {
 
             if self.mode == PickerMode::Nft {
                // The address-paste flow sits where the token list has its "Add Token" button: above
-               // the list, and only once the query parses as an address.
-               ui.vertical_centered(|ui| {
-                  self.get_collection_on_valid_address(theme, chain_id, owner, ui);
-               });
+               // the list, and only once the query parses as an address. Privacy mode lists shielded
+               // tokens, and no pasted address can put one there.
+               if !ctx.privacy_mode {
+                  ui.vertical_centered(|ui| {
+                     self.get_collection_on_valid_address(theme, chain_id, owner, ui);
+                  });
+               }
 
                // Loading, nothing tracked, and no search match are single-line states; a populated
                // list owns its own scroll area, like the token list below.
@@ -1186,11 +1205,7 @@ async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<NftRow
 
    // Resolve the labels here rather than in the row: the row runs every frame for every visible
    // entry, and a collection lookup clones its `name`/`symbol` strings each time.
-   let collections: HashMap<Address, NftCollection> = ctx
-      .read(|ctx| ctx.nft_db.get_collections(chain_id))
-      .into_iter()
-      .map(|collection| (collection.address, collection))
-      .collect();
+   let collections = cached_collections(&ctx, chain_id);
 
    attach_balances(merged, &amounts)
       .into_iter()
@@ -1204,6 +1219,41 @@ async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<NftRow
             symbol,
          }
       })
+      .collect()
+}
+
+/// Build the picker's rows for the NFTs the wallet holds **privately**.
+///
+/// Privacy mode must list what is shielded rather than what is owned on-chain — those are the only tokens
+/// that can be unshielded or privately transferred — and this is pure on purpose: there is no network
+/// involved, because the portfolio's private balance scan already resolved them.
+///
+/// An ERC-721 has no balance to read — it is held or it is not — so every row is one token.
+fn private_nft_rows(
+   nfts: &[NftToken],
+   collections: &HashMap<Address, NftCollection>,
+) -> Vec<NftRow> {
+   nfts
+      .iter()
+      .map(|token| {
+         let (name, symbol) = collection_label(token, collections);
+
+         NftRow {
+            token: token.clone(),
+            balance: 1,
+            name,
+            symbol,
+         }
+      })
+      .collect()
+}
+
+/// Collection metadata cached for this chain, keyed by collection address, so a row builder can resolve
+/// a name and a symbol without touching the network.
+fn cached_collections(ctx: &ZeusCtx, chain_id: u64) -> HashMap<Address, NftCollection> {
+   ctx.read(|ctx| ctx.nft_db.get_collections(chain_id))
+      .into_iter()
+      .map(|collection| (collection.address, collection))
       .collect()
 }
 
@@ -1541,6 +1591,57 @@ fn delete_nft(chain_id: u64, owner: Address, token: NftToken, name: String) {
 mod tests {
    use super::*;
    use zeus_eth::nft::NftStandard;
+
+   /// Privacy mode's rows come from the portfolio's private holdings — no network involved — with the
+   /// collection's cached name and symbol where there is one, and the address where there is not, so a
+   /// shielded token is never a blank row.
+   #[test]
+   fn private_nft_rows_are_built_from_the_private_holdings() {
+      let collection = NftCollection {
+         chain_id: 1,
+         address: Address::from([0xbc; 20]),
+         standard: NftStandard::Erc721,
+         name: Some("BoredApeYachtClub".to_string()),
+         symbol: Some("BAYC".to_string()),
+      };
+
+      let collections: HashMap<Address, NftCollection> =
+         [(collection.address, collection)].into_iter().collect();
+
+      let known = NftToken {
+         chain_id: 1,
+         collection: Address::from([0xbc; 20]),
+         token_id: U256::from(1),
+         standard: NftStandard::Erc721,
+         metadata_uri: None,
+      };
+      let uncached = NftToken {
+         chain_id: 1,
+         collection: Address::from([0xdd; 20]),
+         token_id: U256::from(2),
+         standard: NftStandard::Erc721,
+         metadata_uri: None,
+      };
+
+      let rows = private_nft_rows(&[known, uncached], &collections);
+
+      assert_eq!(rows.len(), 2);
+      assert_eq!(rows[0].label(), "BoredApeYachtClub #1");
+      assert_eq!(rows[0].subtitle(), "BAYC · ERC-721");
+      assert_eq!(
+         rows[0].balance, 1,
+         "an ERC-721 is held or it is not"
+      );
+
+      assert_eq!(
+         rows[1].label(),
+         format!(
+            "{} #2",
+            truncate_address(Address::from([0xdd; 20]).to_string())
+         )
+      );
+      assert_eq!(rows[1].subtitle(), "ERC-721", "no symbol to show");
+   }
 
    /// The picker still opens on the ERC-20 list, and the mode only ever changes when something asks
    /// for it — that is the "no breaking change" part of adding NFT mode.

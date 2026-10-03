@@ -105,6 +105,13 @@ pub struct WalletPortfolio {
    /// an amount with, and no pool price to value it by.
    #[serde(default)]
    nfts: Vec<NftToken>,
+   /// The subset of `nfts` that the last private balance scan found in Railgun custody.
+   ///
+   /// Replaced wholesale by every scan, like `private_tokens` and unlike `nfts`: the private side is the
+   /// one place where a scan **is** the whole truth. This is what the privacy-mode picker lists, because
+   /// only a shielded NFT can be unshielded or privately transferred.
+   #[serde(default)]
+   private_nfts: Vec<NftToken>,
    /// Chain ID
    #[serde(default)]
    chain_id: u64,
@@ -130,6 +137,7 @@ impl WalletPortfolio {
       Self {
          tokens: Vec::new(),
          nfts: Vec::new(),
+         private_nfts: Vec::new(),
          chain_id,
          owner,
          public_value: NumericValue::default(),
@@ -145,6 +153,11 @@ impl WalletPortfolio {
 
    pub fn nfts(&self) -> &Vec<NftToken> {
       &self.nfts
+   }
+
+   /// NFTs held in Railgun custody, per the last private balance scan.
+   pub fn private_nfts(&self) -> &Vec<NftToken> {
+      &self.private_nfts
    }
 
    pub fn public_tokens(&self) -> &TokenList {
@@ -275,23 +288,25 @@ impl WalletPortfolio {
       let updated_holdings = match process_private_tokens(ctx.clone(), chain_id, owner).await {
          Ok(holdings) => holdings,
          Err(e) => {
+            // Leave both lists alone: a transport failure is not evidence of an empty wallet.
             error!("Error calculating private tokens: {:?}", e);
             PrivateHoldings {
                tokens: private_tokens,
-               nfts: Vec::new(),
+               nfts: self.private_nfts.clone(),
             }
          }
       };
 
       private_tokens = updated_holdings.tokens;
 
-      // Private NFTs join the portfolio's list. A **union, not a replacement**: this scan knows nothing
-      // about what the wallet holds publicly, and a token that left private custody is dropped by
-      // whoever moved it — a send, an unshield — never by the next scan, which cannot tell "gone" apart
-      // from "not mine to see".
-      for nft in updated_holdings.nfts {
-         self.add_nft(nft);
+      // Private NFTs join the portfolio's list. A **union, not a replacement**: that list also holds what
+      // the wallet owns publicly, and a scan cannot tell "no longer held" apart from "not mine to see".
+      // The private list is the opposite — replaced, because this scan *is* the whole truth for it.
+      for nft in &updated_holdings.nfts {
+         self.add_nft(nft.clone());
       }
+
+      self.private_nfts = updated_holdings.nfts;
 
       let mut value = 0.0;
 
@@ -465,6 +480,40 @@ mod tests {
          standard: NftStandard::Erc721,
          metadata_uri: None,
       }
+   }
+
+   /// The private list is persisted with the portfolio. An older payload has no key at all and must keep
+   /// loading, and one that carries a private NFT must keep it — this list is what privacy mode lists.
+   #[test]
+   fn private_nfts_are_persisted_and_optional() {
+      let portfolio = WalletPortfolio::new(owner(), 1);
+
+      let mut stored = serde_json::to_value(&portfolio).unwrap();
+      stored.as_object_mut().unwrap().remove("private_nfts");
+
+      let restored: WalletPortfolio = serde_json::from_value(stored).unwrap();
+      assert!(restored.private_nfts().is_empty());
+
+      let mut stored = serde_json::to_value(&portfolio).unwrap();
+      stored.as_object_mut().unwrap().insert(
+         "private_nfts".to_string(),
+         serde_json::to_value(vec![nft(1)]).unwrap(),
+      );
+
+      let restored: WalletPortfolio = serde_json::from_value(stored).unwrap();
+      assert_eq!(restored.private_nfts(), &vec![nft(1)]);
+   }
+
+   /// Tracking an NFT is not the same as holding it privately. `nfts` is everything the wallet is known
+   /// to hold, `private_nfts` is what a Railgun balance scan found, and only privacy mode reads the
+   /// latter — a token in the wrong one of those two lists is a token offered for the wrong action.
+   #[test]
+   fn tracking_an_nft_does_not_make_it_private() {
+      let mut portfolio = WalletPortfolio::new(owner(), 1);
+      portfolio.add_nft(nft(1));
+
+      assert!(portfolio.has_nft(&nft(1)));
+      assert!(portfolio.private_nfts().is_empty());
    }
 
    /// The balance scan already knows the collection and the id — the asset *is* the pair — so an NFT it
