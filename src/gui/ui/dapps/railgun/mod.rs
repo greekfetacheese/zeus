@@ -7,7 +7,7 @@ use anyhow::anyhow;
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256},
    currency::{Currency, ERC20Token},
-   nft::NftToken,
+   nft::{NftStandard, NftToken},
    types::ChainId,
    utils::client::RpcClient,
 };
@@ -47,18 +47,31 @@ pub enum RailgunAsset {
 
 impl RailgunAsset {
    /// The asset id the Railgun builders take.
+   ///
+   /// The standard decides it, not the fact that it is an NFT: Railgun tracks a collection's ids as two
+   /// different asset types, so the same collection and id mean different things in each.
    pub fn asset_id(&self) -> AssetId {
       match self {
          Self::Fungible(currency) => AssetId::Erc20(currency.to_erc20().address),
-         Self::Nft(nft) => AssetId::Erc721(nft.collection, nft.token_id),
+         Self::Nft(nft) => match nft.standard {
+            NftStandard::Erc721 => AssetId::Erc721(nft.collection, nft.token_id),
+            NftStandard::Erc1155 => AssetId::Erc1155(nft.collection, nft.token_id),
+         },
       }
    }
 
    /// The value to move, in the asset's own units.
+   ///
+   /// An ERC-721 is indivisible: the token id *is* the asset, so it moves exactly one and the amount is
+   /// not consulted. An ERC-1155 is a quantity of an id — divisible, and the same kind of asset as an
+   /// ERC-20 as far as Railgun is concerned — so its value **is** the amount, counted in whole units.
    pub fn value(&self, amount: U256) -> U256 {
       match self {
          Self::Fungible(_) => amount,
-         Self::Nft(_) => U256::from(1),
+         Self::Nft(nft) => match nft.standard {
+            NftStandard::Erc721 => U256::from(1),
+            NftStandard::Erc1155 => amount,
+         },
       }
    }
 
@@ -82,12 +95,12 @@ mod tests {
 
    const BAYC: Address = address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D");
 
-   fn nft(token_id: u64) -> NftToken {
+   fn nft(token_id: u64, standard: NftStandard) -> NftToken {
       NftToken {
          chain_id: 1,
          collection: BAYC,
          token_id: U256::from(token_id),
-         standard: NftStandard::Erc721,
+         standard,
          metadata_uri: None,
       }
    }
@@ -106,11 +119,11 @@ mod tests {
       assert!(!asset.is_native());
    }
 
-   /// An NFT is its collection and its id, and it is worth exactly one — there is no quantity to ask the
-   /// user for, so whatever number reaches `value` cannot change what moves.
+   /// An ERC-721 is its collection and its id, and it is worth exactly one — there is no quantity to ask
+   /// the user for, so whatever number reaches `value` cannot change what moves.
    #[test]
-   fn an_nft_asset_is_its_id_and_always_worth_one() {
-      let asset = RailgunAsset::Nft(nft(7));
+   fn an_erc721_asset_is_its_id_and_always_worth_one() {
+      let asset = RailgunAsset::Nft(nft(7, NftStandard::Erc721));
 
       assert_eq!(
          asset.asset_id(),
@@ -122,6 +135,22 @@ mod tests {
          U256::from(1),
          "the amount is not consulted"
       );
+      assert!(!asset.is_native());
+   }
+
+   /// An ERC-1155 is the same collection and id under a **different asset type**, and it is a quantity of
+   /// that id: the value is the amount the user asks for, counted in whole units, with nothing
+   /// substituted for it.
+   #[test]
+   fn an_erc1155_asset_is_its_id_under_its_own_type_and_worth_its_amount() {
+      let asset = RailgunAsset::Nft(nft(7, NftStandard::Erc1155));
+
+      assert_eq!(
+         asset.asset_id(),
+         AssetId::Erc1155(BAYC, U256::from(7))
+      );
+      assert_eq!(asset.value(U256::from(1)), U256::from(1));
+      assert_eq!(asset.value(U256::from(3)), U256::from(3));
       assert!(!asset.is_native());
    }
 

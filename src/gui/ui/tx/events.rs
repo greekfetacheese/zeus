@@ -449,11 +449,14 @@ fn nft_transfer_event_ui(
 /// The NFT a Railgun operation moves, drawn inside a row's `ui.horizontal`: the action on the left, the
 /// token on the right.
 ///
-/// An NFT shield has no ERC-20 to show — `erc20` is `None` and the asset is an `Erc721` — so without
-/// this the confirmation window listed the recipient, the fee and the cost but never what was being
-/// moved. Callers pass the collection and the id rather than a resolved `NftToken`: the event's asset
-/// always carries both, while resolving the metadata is allowed to fail and would silently blank the
-/// row again.
+/// An NFT shield has no ERC-20 to show — `erc20` is `None` and the asset is an `Erc721` or an `Erc1155`
+/// — so without this the confirmation window listed the recipient, the fee and the cost but never what
+/// was being moved. Callers pass the collection and the id rather than a resolved `NftToken`: the
+/// event's asset always carries both, while resolving the metadata is allowed to fail and would silently
+/// blank the row again.
+///
+/// `quantity` is the count for an ERC-1155, which moves a number of an id and so has to say which
+/// number; an ERC-721 moves exactly one and passes `None`.
 fn railgun_nft_row(
    ctx: &mut ZeusContext,
    chain: ChainId,
@@ -462,6 +465,7 @@ fn railgun_nft_row(
    action: &str,
    collection: Address,
    token_id: U256,
+   quantity: Option<String>,
    ui: &mut Ui,
 ) {
    let chain_id = chain.id();
@@ -482,7 +486,12 @@ fn railgun_nft_row(
          .nft_icon_x64(chain_id, collection, token_id, tint)
          .fit_to_exact_size(vec2(24.0, 24.0));
 
-      let text = RichText::new(format!("{} #{}", name, token_id)).size(theme.typography.large);
+      let subject = match quantity {
+         Some(quantity) => format!("{} #{} × {}", name, token_id, quantity),
+         None => format!("{} #{}", name, token_id),
+      };
+
+      let text = RichText::new(subject).size(theme.typography.large);
       ui.add(Label::new(text, Some(icon)).spacing(3.0).interactive(false));
    });
 }
@@ -534,7 +543,17 @@ fn shield_event_ui(
                let multi_label = MultiLabel::new(vec![label1, label2]);
                ui.add(multi_label);
             });
-         } else if let AssetId::Erc721(collection, token_id) = &params.asset {
+         } else if let AssetId::Erc721(collection, token_id)
+         | AssetId::Erc1155(collection, token_id) = &params.asset
+         {
+            // An ERC-1155 moves a quantity of an id, so the row says how many; an ERC-721 moves one.
+            let quantity = match params.asset {
+               AssetId::Erc1155(..) => {
+                  params.amount.as_ref().map(|amount| amount.abbreviated().to_string())
+               }
+               _ => None,
+            };
+
             railgun_nft_row(
                ctx,
                chain,
@@ -543,6 +562,7 @@ fn shield_event_ui(
                "Shield",
                *collection,
                *token_id,
+               quantity,
                ui,
             );
          }
@@ -678,7 +698,19 @@ fn unshield_event_ui(
                let multi_label = MultiLabel::new(vec![label1, label2]);
                ui.add(multi_label);
             });
-         } else if params.token_data.tokenType == TokenType::ERC721 {
+         } else if matches!(
+            params.token_data.tokenType,
+            TokenType::ERC721 | TokenType::ERC1155
+         ) {
+            // Same as the shield: an ERC-1155 says how many of the id arrived, an ERC-721 has nothing to
+            // add.
+            let quantity = match params.token_data.tokenType {
+               TokenType::ERC1155 => {
+                  params.amount.as_ref().map(|amount| amount.abbreviated().to_string())
+               }
+               _ => None,
+            };
+
             railgun_nft_row(
                ctx,
                chain,
@@ -687,6 +719,7 @@ fn unshield_event_ui(
                "Receive",
                params.token_data.tokenAddress,
                params.token_data.tokenSubID,
+               quantity,
                ui,
             );
          }

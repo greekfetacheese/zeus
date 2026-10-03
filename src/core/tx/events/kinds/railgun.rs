@@ -81,17 +81,11 @@ impl ShieldParams {
                erc20 = Some(token);
             }
 
-            // ERC-721. An ERC-1155 is a *quantity* of an id, so it needs its own amount handling and a
-            // different note model — still out of scope (D6).
-            if let AssetId::Erc721(collection, token_id) = &asset {
-               // Shield fees are taken in the shielded asset, and an indivisible token cannot pay one:
-               // a non-zero fee here would mean the event was misread, not that a fee was charged.
-               if !fee_wei.is_zero() {
-                  tracing::warn!("Non-zero fee {} on an ERC-721 shield", fee_wei);
-               }
-
-               // A failed lookup costs the name and the art, never the event: the asset already carries
-               // the collection and the token id, so the UI can always name it.
+            // An NFT shield, either standard: the asset already carries the collection and the token id,
+            // and a failed lookup costs the name and the art, never the event.
+            if let AssetId::Erc721(collection, token_id) | AssetId::Erc1155(collection, token_id) =
+               &asset
+            {
                match ctx.get_nft(chain, *collection, *token_id).await {
                   Ok(token) => nft = Some(token),
                   Err(e) => tracing::warn!(
@@ -101,6 +95,24 @@ impl ShieldParams {
                      e
                   ),
                }
+            }
+
+            // Shield fees are taken in the shielded asset, so what a fee means depends on the standard.
+            // An ERC-721 is indivisible and cannot pay one — a non-zero fee would mean the event was
+            // misread, not that a fee was charged. An ERC-1155 is a quantity of an id, divisible like an
+            // ERC-20, so it does pay its own fee; both numbers are counted in whole units, and neither
+            // has a pool price to value it by.
+            match &asset {
+               AssetId::Erc721(..) => {
+                  if !fee_wei.is_zero() {
+                     tracing::warn!("Non-zero fee {} on an ERC-721 shield", fee_wei);
+                  }
+               }
+               AssetId::Erc1155(..) => {
+                  amount_fmt_opt = Some(NumericValue::format_wei(amount_wei, 0));
+                  fee_fmt_opt = Some(NumericValue::format_wei(fee_wei, 0));
+               }
+               AssetId::Erc20(_) => {}
             }
 
             let event = ShieldParams {
@@ -166,7 +178,6 @@ pub struct UnshieldParams {
 impl UnshieldParams {
    pub async fn from_log(ctx: ZeusCtx, chain: u64, log: &Log) -> Result<Self, anyhow::Error> {
       if let Ok(decoded) = <RailgunSmartWallet::Unshield as SolEvent>::decode_log(&log) {
-         // TODO: Add support for ERC721 and ERC1155
          if decoded.token.tokenType == TokenType::ERC20 {
             let erc20 = ctx.get_token(chain, decoded.token.tokenAddress).await?;
             let amount = NumericValue::format_wei(decoded.amount, erc20.decimals);
@@ -192,11 +203,15 @@ impl UnshieldParams {
             });
          }
 
-         // ERC-721. ERC-1155 stays out of scope (D6) and falls through to the raw params below.
-         if decoded.token.tokenType == TokenType::ERC721 {
+         // An NFT unshield, either standard: both take the same metadata path, where a failed lookup
+         // costs the name and the art and never the event.
+         if matches!(
+            decoded.token.tokenType,
+            TokenType::ERC721 | TokenType::ERC1155
+         ) {
             let asset: AssetId = decoded.token.clone().into();
             let nft = match asset {
-               AssetId::Erc721(collection, token_id) => {
+               AssetId::Erc721(collection, token_id) | AssetId::Erc1155(collection, token_id) => {
                   match ctx.get_nft(chain, collection, token_id).await {
                      Ok(token) => Some(token),
                      Err(e) => {
@@ -213,6 +228,17 @@ impl UnshieldParams {
                _ => None,
             };
 
+            // An ERC-1155 is a quantity of an id: its value is the amount and it pays its own fee, both
+            // counted in whole units and neither with a pool price to value it by. An ERC-721 is
+            // indivisible — one token, and it cannot pay a fee at all.
+            let (amount, fee) = match asset {
+               AssetId::Erc1155(..) => (
+                  Some(NumericValue::format_wei(decoded.amount, 0)),
+                  Some(NumericValue::format_wei(decoded.fee, 0)),
+               ),
+               _ => (None, None),
+            };
+
             return Ok(Self {
                chain,
                recipient: decoded.to,
@@ -220,11 +246,9 @@ impl UnshieldParams {
                amount_wei: decoded.amount,
                erc20: None,
                nft,
-               amount: None,
+               amount,
                amount_usd: None,
-               // Unshield fees are charged in the asset's own units and an indivisible token cannot
-               // pay one, so the protocol takes none.
-               fee: None,
+               fee,
                fee_usd: None,
                is_self_broadcast: false,
                fee_token: None,
@@ -268,10 +292,11 @@ mod tests {
    const BAYC: Address = address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D");
    const WETH: Address = address!("C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2");
    const RAILGUN: Address = address!("FA7093CDD9EE6932B4eb2c9e1cde7CE00B1FA4b9");
+   const OPENSEA_STOREFRONT: Address = address!("495f947276749Ce646f68AC8c248420045cb7b5e");
 
    /// A `Shield` log carrying one commitment. `fees` is parallel to `commitments` in the real event, so
    /// both are single-element.
-   fn shield_log(token: TokenData, value: u64) -> Log {
+   fn shield_log(token: TokenData, value: u64, fee: U256) -> Log {
       Log {
          address: RAILGUN,
          data: RailgunSmartWallet::Shield {
@@ -286,7 +311,21 @@ mod tests {
                encryptedBundle: [B256::ZERO; 3],
                shieldKey: B256::ZERO,
             }],
-            fees: vec![U256::ZERO],
+            fees: vec![fee],
+         }
+         .encode_log_data(),
+      }
+   }
+
+   /// An unshield of the same shape, so both NFT branches can be driven from a log.
+   fn unshield_log(token: TokenData, amount: U256, fee: U256) -> Log {
+      Log {
+         address: RAILGUN,
+         data: RailgunSmartWallet::Unshield {
+            to: Address::from([0x11; 20]),
+            token,
+            amount,
+            fee,
          }
          .encode_log_data(),
       }
@@ -297,6 +336,16 @@ mod tests {
          tokenType: TokenType::ERC721,
          tokenAddress: BAYC,
          tokenSubID: U256::from(1),
+      }
+   }
+
+   /// The OpenSea storefront: mainnet's busiest ERC-1155, so the branch is driven against a contract that
+   /// really is one. Its metadata is its own business — the assertions are about the asset and the numbers.
+   fn erc1155_token_data() -> TokenData {
+      TokenData {
+         tokenType: TokenType::ERC1155,
+         tokenAddress: OPENSEA_STOREFRONT,
+         tokenSubID: U256::from(1099511627776u64),
       }
    }
 
@@ -412,7 +461,7 @@ mod tests {
                let logs = ShieldParams::from_log(
                   ctx.clone(),
                   1,
-                  &shield_log(erc721_token_data(), 1),
+                  &shield_log(erc721_token_data(), 1, U256::ZERO),
                )
                .await
                .unwrap();
@@ -434,6 +483,37 @@ mod tests {
                // An indivisible token has no decimals to format against, so nothing is formatted.
                assert!(params.amount.is_none() && params.fee.is_none());
 
+               // ERC-1155: the same collection and id under its own asset type, but a *quantity* — so the
+               // value is the amount and it pays its own fee, both counted in whole units.
+               let logs = ShieldParams::from_log(
+                  ctx.clone(),
+                  1,
+                  &shield_log(erc1155_token_data(), 3, U256::from(1)),
+               )
+               .await
+               .unwrap();
+
+               let params = &logs[0];
+               assert!(params.erc20.is_none(), "an NFT is not an ERC-20");
+               assert_eq!(
+                  params.asset,
+                  AssetId::Erc1155(OPENSEA_STOREFRONT, U256::from(1099511627776u64))
+               );
+               assert_eq!(
+                  params.amount_wei,
+                  U256::from(3),
+                  "the value is the amount"
+               );
+               assert_eq!(
+                  params.amount.as_ref().unwrap().wei(),
+                  U256::from(3)
+               );
+               assert_eq!(
+                  params.fee.as_ref().unwrap().wei(),
+                  U256::from(1),
+                  "a divisible token pays its own fee"
+               );
+
                // ERC-20, on the same code path, must be untouched by the new arm.
                let logs = ShieldParams::from_log(
                   ctx,
@@ -445,6 +525,7 @@ mod tests {
                         tokenSubID: U256::ZERO,
                      },
                      1_000_000_000_000_000_000,
+                     U256::ZERO,
                   ),
                )
                .await
@@ -461,5 +542,68 @@ mod tests {
 
       std::env::set_current_dir(previous).unwrap();
       assert!(result.is_ok(), "the shield decode failed");
+   }
+
+   /// The two NFT unshield arms, driven from an `Unshield` log: an ERC-721 moves exactly one and cannot
+   /// pay a fee, an ERC-1155 moves the amount and pays its own — and neither is mistaken for a fungible
+   /// asset.
+   ///
+   /// Like the shield test above, it moves the process working directory, so run it alone.
+   #[test]
+   #[ignore = "needs ZEUS_ETH_RPC; moves the process working directory, run alone"]
+   fn an_unshield_of_either_nft_standard_resolves_its_amount() {
+      let previous = std::env::current_dir().unwrap();
+      let dir = tempfile::tempdir().unwrap();
+      std::env::set_current_dir(dir.path()).unwrap();
+
+      let result = std::panic::catch_unwind(|| {
+         tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+               let ctx = ctx_with_keyed_mainnet_rpc();
+
+               // ERC-721: one token, and an indivisible asset has nothing to format.
+               let params = UnshieldParams::from_log(
+                  ctx.clone(),
+                  1,
+                  &unshield_log(erc721_token_data(), U256::from(1), U256::ZERO),
+               )
+               .await
+               .unwrap();
+
+               assert_eq!(params.token_data.tokenType, TokenType::ERC721);
+               assert_eq!(params.amount_wei, U256::from(1));
+               assert!(params.amount.is_none() && params.fee.is_none());
+               let nft = params.nft.as_ref().expect("BAYC #1 must resolve");
+               assert_eq!(nft.standard, NftStandard::Erc721);
+
+               // ERC-1155: the value is the amount, and the fee is the asset's own business.
+               let params = UnshieldParams::from_log(
+                  ctx,
+                  1,
+                  &unshield_log(erc1155_token_data(), U256::from(3), U256::from(1)),
+               )
+               .await
+               .unwrap();
+
+               assert_eq!(params.token_data.tokenType, TokenType::ERC1155);
+               assert_eq!(
+                  params.amount_wei,
+                  U256::from(3),
+                  "the value is the amount"
+               );
+               assert_eq!(
+                  params.amount.as_ref().unwrap().wei(),
+                  U256::from(3)
+               );
+               assert_eq!(params.fee.as_ref().unwrap().wei(), U256::from(1));
+            });
+      });
+
+      std::env::set_current_dir(previous).unwrap();
+      assert!(result.is_ok(), "the unshield decode failed");
    }
 }
