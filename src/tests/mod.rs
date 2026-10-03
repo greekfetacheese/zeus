@@ -1,6 +1,7 @@
 mod bridge;
 mod connector;
 mod ens;
+mod nft;
 mod permit2_revoke;
 mod swap;
 

@@ -85,7 +85,8 @@ Currently the extension is not listed in the Chrome Web Store, so you will need 
 | Feature | Details |
 |--------|---------|
 | **Wallet management** | Create unlimited wallets under one master, import/export wallets |
-| **Send** | ETH and ERC-20 transfers |
+| **Send** | ETH, ERC-20 and NFT (ERC-721 / ERC-1155) transfers |
+| **NFTs** | Track, view, send and receive ERC-721 / ERC-1155 collectibles; art is fetched on demand and cached on disk (opt-in, off by default) |
 | **Swaps** | Uniswap via the [Universal Router](https://docs.uniswap.org/contracts/v4/deployments) |
 | **Cross-chain bridge** | Bridge ETH across supported chains with [Across](https://across.to/) (**BNB not supported**) |
 | **Portfolio** | public + private balance (Railgun) |

@@ -33,6 +33,24 @@ pub async fn decode_log(dctx: &DecodeCtx, log: &Log) -> DecodeOutcome {
       };
    }
 
+   // NFT transfer / mint / burn / approval.
+   //
+   // Deliberately *before* the fungible attempt below, which is the opposite of what the plan assumed.
+   // `TransferParams::new` is not a fungible decoder: it accepts an ERC-721 `Transfer` too and reports
+   // `is_erc20_transfer() == false` for it, so placing this after it means this branch is never reached
+   // for an ERC-721 — the transaction decodes as a `Transfer` that is neither ERC-20 nor native, and
+   // renders as nothing. Placing it here is safe because this decoder is strict: an ERC-721 `Transfer`
+   // needs the token id as a fourth topic, which an ERC-20 `Transfer` never has, and the ERC-1155 events
+   // have topic0s of their own. `an_erc20_transfer_is_not_an_nft_transfer` pins exactly that.
+   if let Ok(params) = NftTransferParams::from_log(dctx.ctx.clone(), dctx.chain, log).await {
+      let events = params.into_iter().map(DecodedEvent::NftTransfer).collect::<Vec<_>>();
+
+      return DecodeOutcome::Many {
+         events,
+         counts_as_known: true,
+      };
+   }
+
    // ERC-20 / native transfer (native path rarely hits from a log)
    if let Ok(params) = TransferParams::new(
       dctx.ctx.clone(),
@@ -49,20 +67,6 @@ pub async fn decode_log(dctx: &DecodeCtx, log: &Log) -> DecodeOutcome {
       return DecodeOutcome::One {
          event: DecodedEvent::Transfer(params),
          counts_as_known,
-      };
-   }
-
-   // NFT transfer / mint / burn / approval.
-   //
-   // Deliberately *after* the fungible attempt above: ERC-721's `Transfer` shares its topic0 with
-   // ERC-20's `Transfer` and only the topic count tells them apart, so the fungible decoder gets first
-   // refusal and an ERC-20 transfer can never be reported as an NFT one.
-   if let Ok(params) = NftTransferParams::from_log(dctx.ctx.clone(), dctx.chain, log).await {
-      let events = params.into_iter().map(DecodedEvent::NftTransfer).collect::<Vec<_>>();
-
-      return DecodeOutcome::Many {
-         events,
-         counts_as_known: true,
       };
    }
 
