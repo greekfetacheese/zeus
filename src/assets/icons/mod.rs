@@ -611,27 +611,32 @@ impl Icons {
       tint: bool,
    ) -> Image<'static> {
       let key = (collection, chain_id, token_id);
+      let size = if large { 250 } else { 64 };
 
-      // Vector art first: egui rasterises SVG at the size the view asks for, so there is no stored
-      // texture to look up. The URI must keep its `.svg` extension — that is what tells egui's
-      // bytes loader which decoder to use.
-      if let Some(svg) = self.nfts.svg_source(&key) {
-         let size = if large { 250 } else { 64 };
+      let image = if let Some(svg) = self.nfts.svg_source(&key) {
+         // Vector art first: egui rasterises SVG at the size the view asks for, so there is no stored
+         // texture to look up. The URI must keep its `.svg` extension — that is what tells egui's
+         // bytes loader which decoder to use.
          let uri = format!("bytes://nft/{size}/{collection}/{chain_id}/{token_id}.svg");
 
-         return tinted(
-            Image::new(ImageSource::Bytes {
-               uri: uri.into(),
-               bytes: svg.into(),
-            }),
-            tint,
-         );
-      }
+         Image::new(ImageSource::Bytes {
+            uri: uri.into(),
+            bytes: svg.into(),
+         })
+      } else {
+         match self.nfts.raster_texture(&key, large) {
+            Some(icon) => Image::new(&icon),
+            // Untinted: the tint is applied once below, for every branch.
+            None => self.nft_placeholder(false),
+         }
+      };
 
-      match self.nfts.raster_texture(&key, large) {
-         Some(icon) => tinted(Image::new(&icon), tint),
-         None => self.nft_placeholder(tint),
-      }
+      // Bounded to the size this variant exists to render at, and that bound is load-bearing: an
+      // `Image` left unbounded takes `ImageFit::Fraction([1, 1])` of whatever space it is offered, so
+      // in a row it grows to fill the cell and starves the label beside it. The on-chain art is the
+      // worst case — an SVG with only a `viewBox` has no intrinsic size at all, so the offer decides
+      // how large it is rasterised, and it ends up taking the whole cell.
+      tinted(image.max_size(Vec2::splat(size as f32)), tint)
    }
 
    /// Placeholder shown for an NFT whose image is unknown, or still downloading.
@@ -685,6 +690,35 @@ mod tests {
    fn nft_placeholder_asset_decodes() {
       let image = image::load_from_memory(PLACEHOLDER).expect("placeholder must be a valid image");
       assert_eq!((image.width(), image.height()), (250, 250));
+   }
+
+   /// An artwork is bounded by the size its variant promises, not by the space it is offered.
+   ///
+   /// Nothing else holds it in check: `egui_elements::Label` sizes its image from the room available
+   /// to it, and egui's own default fit is `ImageFit::Fraction([1, 1])`, so an unbounded thumbnail
+   /// grows to fill a wide cell and squeezes the text of the row it sits in to one character per line.
+   #[test]
+   fn an_nft_icon_is_bounded_by_its_variant() {
+      let ctx = Context::default();
+      let icons = Icons::new(&ctx).expect("the bundled icons load");
+
+      // Nothing on disk for this collection, so this is the placeholder branch: what a row shows
+      // while the artwork is still being fetched.
+      let icon = icons.nft_icon_x64(1, Address::from([0xbb; 20]), U256::from(1), false);
+
+      let mut size = Vec2::ZERO;
+      let mut output = ctx.run_ui(eframe::egui::RawInput::default(), |ui| {
+         // Far more room than a row leaves a thumbnail, which shares its cell with a label.
+         ui.set_max_width(1000.0);
+         ui.set_max_height(400.0);
+         size = ui.add(icon.clone()).rect.size();
+      });
+      output.textures_delta.clear();
+
+      assert!(
+         size.x <= 64.0 && size.y <= 64.0,
+         "an x64 artwork was rendered at {size:?}"
+      );
    }
 
    /// Shorthand for a raster entry. There is no `Default`, because an empty entry is not something
