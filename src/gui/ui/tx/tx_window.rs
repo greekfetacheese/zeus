@@ -262,13 +262,14 @@ impl TxWindow {
                let should_show_balance_diff =
                   main_event.is_other() && tx.analysis.balance_diff.len() == 1;
                let should_show_approval_diff =
-                  main_event.is_other() && tx.analysis.approval_diff.changes.len() == 1;
+                  main_event.is_other() && tx.analysis.approval_diff.len() == 1;
 
                if should_show_balance_diff {
                   ui.allocate_ui(frame_size, |ui| {
                      ui.label(RichText::new("Balance Changes").size(theme.typography.large));
                      show_balance_diff_rows(
                         ctx,
+                        chain_id,
                         theme,
                         icons.clone(),
                         &tx.analysis.balance_diff,

@@ -282,7 +282,7 @@ impl TransactionAnalysis {
    }
 
    pub fn has_approval_diff(&self) -> bool {
-      self.approval_diff.changes.len() > 0
+      self.approval_diff.len() > 0
    }
 
    pub fn erc20_transfers_len(&self) -> usize {
@@ -1031,5 +1031,36 @@ mod involved_currency_tests {
       assert!(symbols.iter().any(|s| s == "USDC"));
       assert!(symbols.iter().any(|s| s == "WETH"));
       assert!(symbols.iter().any(|s| s == "ETH"));
+   }
+
+   /// A diff made only of NFT rows is still a diff: the `len()` behind `has_*` counts both vectors.
+   #[test]
+   fn nft_rows_alone_are_a_diff() {
+      let mut analysis = TransactionAnalysis::unknown_tx_1();
+      let (mut balance, mut approvals) = dummy_balance_and_approval_diffs();
+      balance.native = None;
+      balance.tokens.clear();
+      approvals.changes.clear();
+
+      assert!(!balance.nfts.is_empty());
+      assert!(!approvals.nft_changes.is_empty());
+
+      analysis.set_diffs(balance, approvals);
+      assert!(analysis.has_balance_diff());
+      assert!(analysis.has_approval_diff());
+   }
+
+   /// An NFT row has no `Currency` and no price, so it must stay out of the involvement path — and
+   /// out of `refresh_usd`, which walks the same two fungible vectors.
+   #[test]
+   fn nft_rows_stay_out_of_involved_currencies() {
+      let analysis = TransactionAnalysis::dummy_with_diffs();
+      let collection = analysis.balance_diff.nfts[0].collection;
+
+      let involved = analysis.involved_currencies();
+      assert!(involved.iter().all(|currency| currency.address() != collection));
+      // The NFT rows are still there to render — being excluded from pricing is not being dropped.
+      assert!(!analysis.balance_diff.nfts.is_empty());
+      assert!(!analysis.approval_diff.nft_changes.is_empty());
    }
 }

@@ -17,12 +17,15 @@ use zeus_eth::alloy_primitives::TxHash;
 
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::{ClearDisplay, FormattedValue};
-use crate::core::tx::{ApprovalChange, ApprovalDiff, ApprovalKind, BalanceChange, BalanceDiff};
+use crate::core::tx::{
+   ApprovalChange, ApprovalDiff, ApprovalKind, BalanceChange, BalanceDiff, NftApprovalChange,
+   NftApprovalTarget, NftApprovalValue, NftBalanceChange,
+};
 use crate::core::{TransactionAnalysis, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::{RT, truncate_address, truncate_hash};
 use zeus_eth::{
-   alloy_primitives::Address,
+   alloy_primitives::{Address, U256},
    currency::{Currency, NativeCurrency},
    types::ChainId,
    utils::NumericValue,
@@ -301,15 +304,7 @@ pub fn approval_change_row(
       theme.colors.warning
    };
 
-   let spender_name = match ctx.get_address_name(chain.id(), change.spender) {
-      Some(name) => name.to_string(),
-      None => {
-         if !ctx.address_name_requested(chain.id(), change.spender) {
-            request_address_name(chain.id(), change.spender);
-         }
-         truncate_address(change.spender.to_string())
-      }
-   };
+   let spender_name = address_label(ctx, chain, change.spender);
    let explorer = chain.block_explorer();
    let spender_link = format!("{}/address/{}", explorer, change.spender);
 
@@ -359,8 +354,165 @@ pub fn approval_change_row(
    });
 }
 
+/// One NFT whose signer ownership moved across the tx.
+///
+/// Not a [`balance_change_row`]: an NFT has no USD value to put in the right column, so the row
+/// spends its width on what actually moved — which id, of which collection.
+pub fn nft_balance_change_row(
+   ctx: &mut ZeusContext,
+   chain: ChainId,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   change: &NftBalanceChange,
+   ui: &mut Ui,
+) {
+   let tint = theme.image_tint_recommended;
+   let icon = icons
+      .nft_icon_x64(
+         chain.id(),
+         change.collection,
+         change.token_id,
+         tint,
+      )
+      .fit_to_exact_size(vec2(24.0, 24.0));
+
+   let sign = if change.is_received() { "+" } else { "−" };
+   let color = if change.is_received() {
+      theme.colors.success
+   } else {
+      theme.colors.error
+   };
+
+   // ERC-721 ownership moves one id at a time, so only an ERC-1155 count can be more than one.
+   let delta = change.abs_delta();
+   let count = if delta > U256::from(1) {
+      format!(" × {delta}")
+   } else {
+      String::new()
+   };
+
+   let name = address_label(ctx, chain, change.collection);
+
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         let text = RichText::new(format!(
+            "{} #{}{} {}",
+            sign, change.token_id, count, name
+         ))
+         .size(theme.typography.large)
+         .color(color);
+         let label = Label::new(text, Some(icon)).spacing(3.0).interactive(false);
+         ui.add(label).on_hover_text(format!("{}\n{}", name, change.collection));
+      });
+   });
+}
+
+/// One NFT approval whose state moved across the tx.
+pub fn nft_approval_change_row(
+   ctx: &mut ZeusContext,
+   chain: ChainId,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   change: &NftApprovalChange,
+   ui: &mut Ui,
+) {
+   let tint = theme.image_tint_recommended;
+
+   let token_id = match change.target {
+      NftApprovalTarget::Token(id) | NftApprovalTarget::Allowance(id) => Some(id),
+      NftApprovalTarget::ForAll => None,
+   };
+
+   // A collection-wide approval has no id, so it is identified by whatever art of the collection is
+   // cached — asking for a fixed id usually lands on art that was never fetched.
+   let icon = match token_id {
+      Some(id) => icons.nft_icon_x64(chain.id(), change.collection, id, tint),
+      None => icons.nft_collection_icon_x64(chain.id(), change.collection, tint),
+   }
+   .fit_to_exact_size(vec2(24.0, 24.0));
+
+   let scope = match token_id {
+      Some(id) => format!("#{id}"),
+      None => "All tokens".to_string(),
+   };
+
+   let name = address_label(ctx, chain, change.collection);
+   let title = format!("{name} {scope}");
+
+   // The channel the ERC-20 approval row uses: taking access away is the good outcome, granting it
+   // is the one worth noticing.
+   let color = if change.is_revoke() {
+      theme.colors.success
+   } else {
+      theme.colors.warning
+   };
+
+   let operator_name = address_label(ctx, chain, change.operator);
+   let operator_link = format!(
+      "{}/address/{}",
+      chain.block_explorer(),
+      change.operator
+   );
+
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         let asset_text = RichText::new(title).size(theme.typography.large);
+         let asset_label = Label::new(asset_text, Some(icon)).spacing(6.0).interactive(false);
+
+         let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
+         let arrow_label = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
+
+         ui.add(MultiLabel::new(vec![asset_label, arrow_label]))
+            .on_hover_text(format!("{}\n{}", name, change.collection));
+
+         ui.add_space(6.0);
+
+         ui.hyperlink_to(
+            RichText::new(operator_name)
+               .size(theme.typography.large)
+               .color(theme.colors.info),
+            operator_link,
+         );
+      });
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let text = RichText::new(nft_approval_amount(change))
+            .size(theme.typography.large)
+            .color(color);
+         ui.add(Label::new(text, None).interactive(false));
+      });
+   });
+}
+
+/// What the amount column of an NFT approval row says.
+///
+/// The operator has a column of its own, so what is left to report is the state the shape grants:
+/// "approved" is not a number, and only ERC-5216 has one to show.
+fn nft_approval_amount(change: &NftApprovalChange) -> String {
+   match change.after {
+      NftApprovalValue::Approved(address) => match address.is_zero() {
+         true => "Revoked".to_string(),
+         false => "Approved".to_string(),
+      },
+      NftApprovalValue::ForAll(approved) => match approved {
+         true => "Approved".to_string(),
+         false => "Revoked".to_string(),
+      },
+      NftApprovalValue::Allowance(amount) => {
+         if amount == U256::MAX {
+            "Unlimited".to_string()
+         } else if amount.is_zero() {
+            "Revoked".to_string()
+         } else {
+            amount.to_string()
+         }
+      }
+   }
+}
+
 pub fn show_balance_diff_rows(
    ctx: &mut ZeusContext,
+   chain: ChainId,
    theme: &Theme,
    icons: Arc<Icons>,
    diff: &BalanceDiff,
@@ -372,6 +524,13 @@ pub fn show_balance_diff_rows(
    for change in diff.changes() {
       frame.show(ui, |ui| {
          balance_change_row(ctx, theme, icons.clone(), change, ui);
+      });
+   }
+
+   // NFT rows after the fungible ones, the way they list everywhere else in Zeus.
+   for change in &diff.nfts {
+      frame.show(ui, |ui| {
+         nft_balance_change_row(ctx, chain, theme, icons.clone(), change, ui);
       });
    }
 }
@@ -390,6 +549,13 @@ pub fn show_approval_diff_rows(
    for change in diff.sorted() {
       frame.show(ui, |ui| {
          approval_change_row(ctx, chain, theme, icons.clone(), change, ui);
+      });
+   }
+
+   // `nft_sorted` puts revokes first, the order the fungible rows use and for the same reason.
+   for change in diff.nft_sorted() {
+      frame.show(ui, |ui| {
+         nft_approval_change_row(ctx, chain, theme, icons.clone(), change, ui);
       });
    }
 }
@@ -457,7 +623,7 @@ pub fn show_analysis_buttons(
          clicked.calldata = ui.add(button).clicked();
 
          if has_diffs {
-            let diff_count = analysis.balance_diff.len() + analysis.approval_diff.changes.len();
+            let diff_count = analysis.balance_diff.len() + analysis.approval_diff.len();
 
             let text = RichText::new(diff_count.to_string()).size(theme.typography.very_small);
             let badge = CornerBadge::new(text).corner(BadgeCorner::TopRight);
@@ -515,7 +681,7 @@ pub fn show_tx_diffs_modal(
                ui.label(RichText::new(text).size(theme.typography.large));
 
                if !balance_diff.is_empty() {
-                  show_balance_diff_rows(ctx, theme, icons.clone(), balance_diff, ui);
+                  show_balance_diff_rows(ctx, chain, theme, icons.clone(), balance_diff, ui);
                }
 
                ui.add_space(10.0);
@@ -683,6 +849,23 @@ pub fn show_calldata_modal(
                });
          });
       });
+}
+
+/// A display name for an address, requesting it if Zeus has not cached one yet.
+///
+/// The fallback is the truncated address: a diff row can be the first place the user meets a contract,
+/// and an address beats a blank cell. The request is what fills the name in on a later frame — the
+/// spender of an approval and the collection behind an NFT are the same question.
+fn address_label(ctx: &mut ZeusContext, chain: ChainId, address: Address) -> String {
+   match ctx.get_address_name(chain.id(), address) {
+      Some(name) => name.to_string(),
+      None => {
+         if !ctx.address_name_requested(chain.id(), address) {
+            request_address_name(chain.id(), address);
+         }
+         truncate_address(address.to_string())
+      }
+   }
 }
 
 fn request_address_name(chain: u64, address: Address) {

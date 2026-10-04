@@ -378,7 +378,7 @@ impl TxConfirmationWindow {
 
                let completly_unknown = main_event.is_other() && self.clear_display.is_none();
                let has_more_than_one_diff =
-                  analysis.balance_diff.len() > 1 || analysis.approval_diff.changes.len() > 1;
+                  analysis.balance_diff.len() > 1 || analysis.approval_diff.len() > 1;
                let show_extra_warning =
                   main_event.is_other_or_eoa_delegate() && has_more_than_one_diff;
 
@@ -442,14 +442,15 @@ impl TxConfirmationWindow {
                let should_show_balance_diff =
                   main_event.is_other_or_eoa_delegate() && analysis.balance_diff.len() == 1;
 
-               let should_show_approval_diff = main_event.is_other_or_eoa_delegate()
-                  && analysis.approval_diff.changes.len() == 1;
+               let should_show_approval_diff =
+                  main_event.is_other_or_eoa_delegate() && analysis.approval_diff.len() == 1;
 
                if should_show_balance_diff {
                   ui.allocate_ui(frame_size, |ui| {
                      ui.label(RichText::new("Balance Changes").size(theme.typography.large));
                      show_balance_diff_rows(
                         ctx,
+                        self.chain,
                         theme,
                         icons.clone(),
                         &analysis.balance_diff,
