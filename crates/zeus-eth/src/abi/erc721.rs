@@ -287,6 +287,18 @@ pub fn decode_is_approved_for_all(bytes: &Bytes) -> Result<bool, anyhow::Error> 
    Ok(a)
 }
 
+/// Decode an `approve(address, uint256)` **calldata** payload into `(approved, tokenId)`.
+pub fn decode_approve_call(bytes: &Bytes) -> Result<(Address, U256), anyhow::Error> {
+   let c = IERC721::approveCall::abi_decode(bytes)?;
+   Ok((c.to, c.tokenId))
+}
+
+/// Decode a `setApprovalForAll(address, bool)` **calldata** payload into `(operator, approved)`.
+pub fn decode_set_approval_for_all_call(bytes: &Bytes) -> Result<(Address, bool), anyhow::Error> {
+   let c = IERC721::setApprovalForAllCall::abi_decode(bytes)?;
+   Ok((c.operator, c.approved))
+}
+
 pub fn decode_token_uri(bytes: &Bytes) -> Result<String, anyhow::Error> {
    let u = IERC721Metadata::tokenURICall::abi_decode_returns(bytes)?;
    Ok(u)

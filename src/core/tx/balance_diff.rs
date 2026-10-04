@@ -5,14 +5,21 @@
 
 use serde::{Deserialize, Serialize};
 use zeus_eth::{
-   alloy_primitives::{Address, U256},
+   abi::{erc721, erc1155},
+   alloy_primitives::{Address, Log, U256},
    currency::{Currency, ERC20Token, NativeCurrency},
    nft::NftStandard,
-   utils::NumericValue,
+   utils::{NumericValue, batch::NftRef},
 };
 
 /// Max token contracts to probe per tx (portfolio + interact_to + log addresses).
 pub const MAX_TOKEN_CANDIDATES: usize = 64;
+
+/// Max NFT candidates per tx, shared by the balance and approval collectors.
+///
+/// One cap for both because a `TransferBatch` can name many ids in a single log: the limit has to be
+/// applied *while expanding*, not per log, or one log could blow past any per-log budget.
+pub const MAX_NFT_CANDIDATES: usize = 64;
 
 /// One asset whose signer balance changed across the simulated tx.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -197,10 +204,83 @@ pub fn collect_token_candidates(
    out
 }
 
+/// `(collection, id)` pairs to probe the signer's ownership of.
+///
+/// The signer's side of a transfer log is what names them: `Transfer` (ERC-721), `TransferSingle`
+/// and every id of a `TransferBatch` — a batch carries all of its ids in one log, so the cap is
+/// applied while expanding. Mints and burns come along for free, since the signer is on one side of
+/// those too.
+///
+/// The ids the signer already holds are appended, the same way [`collect_token_candidates`] appends
+/// the portfolio: they cost one batched call between them, and they are what still reports a loss
+/// when the simulation yielded no usable logs.
+///
+/// The log shapes cannot be confused with an ERC-20's: ERC-721 indexes `tokenId`, so its `Transfer`
+/// carries four topics where an ERC-20 `Transfer` carries three, and the ERC-1155 events have topics
+/// of their own. Only a collection that emitted the right event becomes a candidate at all.
+pub fn collect_nft_balance_candidates(
+   owner: Address,
+   logs: &[Log],
+   held: impl IntoIterator<Item = NftRef>,
+) -> Vec<NftRef> {
+   let mut out: Vec<NftRef> = Vec::new();
+
+   for log in logs {
+      // ERC-721 `Transfer(from, to, tokenId)`. The three shapes cannot decode into each other — their
+      // topics and their data lengths differ — so one log can only be one of them.
+      if let Ok(transfer) = erc721::decode_transfer_log(log) {
+         if transfer.from == owner || transfer.to == owner {
+            push_nft_candidate(&mut out, log.address, transfer.tokenId);
+         }
+         continue;
+      }
+
+      if let Ok(single) = erc1155::decode_transfer_single_log(log) {
+         if single.from == owner || single.to == owner {
+            push_nft_candidate(&mut out, log.address, single.id);
+         }
+         continue;
+      }
+
+      if let Ok(batch) = erc1155::decode_transfer_batch_log(log) {
+         if batch.from == owner || batch.to == owner {
+            for id in batch.ids {
+               push_nft_candidate(&mut out, log.address, id);
+            }
+         }
+      }
+   }
+
+   for (collection, token_id) in held {
+      push_nft_candidate(&mut out, collection, token_id);
+   }
+
+   out
+}
+
+fn push_nft_candidate(out: &mut Vec<NftRef>, collection: Address, token_id: U256) {
+   if collection.is_zero() {
+      return;
+   }
+   let candidate = (collection, token_id);
+   // A zero id is a real token id (ERC-721 #0 exists), so only the collection is vetted.
+   if out.contains(&candidate) {
+      return;
+   }
+   if out.len() >= MAX_NFT_CANDIDATES {
+      return;
+   }
+   out.push(candidate);
+}
+
 #[cfg(test)]
 mod tests {
    use super::*;
-   use zeus_eth::alloy_primitives::address;
+   use zeus_eth::{
+      abi::{erc721::IERC721, erc1155::IERC1155},
+      alloy_primitives::address,
+      alloy_sol_types::SolEvent,
+   };
 
    fn wbtest() -> ERC20Token {
       ERC20Token::from_components(
@@ -469,6 +549,160 @@ mod tests {
       assert!(
          loaded.native.is_some(),
          "the rest of the row survives"
+      );
+   }
+
+   fn owner() -> Address {
+      address!("0x1111111111111111111111111111111111111111")
+   }
+
+   fn stranger() -> Address {
+      address!("0x2222222222222222222222222222222222222222")
+   }
+
+   fn erc721_log(collection: Address, from: Address, to: Address, token_id: u64) -> Log {
+      Log {
+         address: collection,
+         data: IERC721::Transfer {
+            from,
+            to,
+            tokenId: U256::from(token_id),
+         }
+         .encode_log_data(),
+      }
+   }
+
+   fn erc1155_single_log(collection: Address, from: Address, to: Address, id: u64) -> Log {
+      Log {
+         address: collection,
+         data: IERC1155::TransferSingle {
+            operator: stranger(),
+            from,
+            to,
+            id: U256::from(id),
+            value: U256::from(1),
+         }
+         .encode_log_data(),
+      }
+   }
+
+   fn erc1155_batch_log(collection: Address, from: Address, to: Address, ids: &[u64]) -> Log {
+      let ids: Vec<U256> = ids.iter().map(|id| U256::from(*id)).collect();
+      let values = vec![U256::from(1); ids.len()];
+
+      Log {
+         address: collection,
+         data: IERC1155::TransferBatch {
+            operator: stranger(),
+            from,
+            to,
+            ids,
+            values,
+         }
+         .encode_log_data(),
+      }
+   }
+
+   /// Only the signer's side of a transfer names a candidate.
+   #[test]
+   fn transfer_logs_name_the_signer_side() {
+      let logs = [
+         erc721_log(collection(), stranger(), owner(), 7),
+         erc721_log(collection(), owner(), stranger(), 8),
+         erc721_log(collection(), stranger(), stranger(), 9),
+      ];
+
+      let got = collect_nft_balance_candidates(owner(), &logs, []);
+      assert_eq!(
+         got,
+         vec![(collection(), U256::from(7)), (collection(), U256::from(8))]
+      );
+   }
+
+   /// A mint and a burn put the signer on one side too, so they need no special case.
+   #[test]
+   fn mints_and_burns_are_candidates() {
+      let logs = [
+         erc721_log(collection(), Address::ZERO, owner(), 7),
+         erc721_log(collection(), owner(), Address::ZERO, 8),
+      ];
+
+      assert_eq!(
+         collect_nft_balance_candidates(owner(), &logs, []).len(),
+         2
+      );
+   }
+
+   /// A batch names every id in one log, so all of them are candidates.
+   #[test]
+   fn a_batch_expands_every_id() {
+      let logs = [erc1155_batch_log(
+         collection(),
+         owner(),
+         stranger(),
+         &[1, 2, 3],
+      )];
+
+      let got = collect_nft_balance_candidates(owner(), &logs, []);
+      assert_eq!(got.len(), 3);
+      assert_eq!(got[2], (collection(), U256::from(3)));
+   }
+
+   #[test]
+   fn single_1155_transfers_are_candidates() {
+      let logs = [
+         erc1155_single_log(collection(), owner(), stranger(), 5),
+         erc1155_single_log(collection(), stranger(), stranger(), 6),
+      ];
+
+      assert_eq!(
+         collect_nft_balance_candidates(owner(), &logs, []),
+         vec![(collection(), U256::from(5))]
+      );
+   }
+
+   /// Held ids are appended after the logs and deduped against them.
+   #[test]
+   fn held_ids_are_appended_and_deduped() {
+      let logs = [erc721_log(collection(), stranger(), owner(), 7)];
+      let held = [(collection(), U256::from(7)), (stranger(), U256::from(9))];
+
+      let got = collect_nft_balance_candidates(owner(), &logs, held);
+      assert_eq!(
+         got,
+         vec![(collection(), U256::from(7)), (stranger(), U256::from(9))]
+      );
+   }
+
+   /// The cap is applied while the batch expands, so one big log cannot blow past it.
+   #[test]
+   fn the_cap_holds_while_a_batch_expands() {
+      let ids: Vec<u64> = (1..=100).collect();
+      let logs = [erc1155_batch_log(collection(), owner(), stranger(), &ids)];
+      let held = [(stranger(), U256::from(1_000))];
+
+      let got = collect_nft_balance_candidates(owner(), &logs, held);
+      assert_eq!(got.len(), MAX_NFT_CANDIDATES);
+   }
+
+   /// An ERC-20 `Transfer` carries three topics where the ERC-721 one carries four (its `tokenId` is
+   /// indexed), so a fungible transfer is not an NFT candidate — the two never decode into each
+   /// other, and a fungible transfer of any size is simply not this candidate's business.
+   #[test]
+   fn an_erc20_transfer_is_not_a_candidate() {
+      let log = Log {
+         address: stranger(),
+         data: zeus_eth::abi::erc20::IERC20::Transfer {
+            from: stranger(),
+            to: owner(),
+            value: U256::from(1_000),
+         }
+         .encode_log_data(),
+      };
+
+      assert!(
+         collect_nft_balance_candidates(owner(), &[log], []).is_empty(),
+         "a three-topic Transfer is not an ERC-721 one"
       );
    }
 }

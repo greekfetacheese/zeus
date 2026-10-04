@@ -422,6 +422,13 @@ pub fn decode_allowance(bytes: &Bytes) -> Result<U256, anyhow::Error> {
    Ok(a)
 }
 
+/// Decode an ERC-5216 `approve(address, uint256, uint256)` **calldata** payload into
+/// `(operator, id, amount)`. The three-argument `approve` is what separates it from an ERC-20 one.
+pub fn decode_approve_call(bytes: &Bytes) -> Result<(Address, U256, U256), anyhow::Error> {
+   let c = IERC5216::approveCall::abi_decode(bytes)?;
+   Ok((c.operator, c.id, c.amount))
+}
+
 pub fn decode_nonces(bytes: &Bytes) -> Result<U256, anyhow::Error> {
    let n = IERC1155Permit::noncesCall::abi_decode_returns(bytes)?;
    Ok(n)
