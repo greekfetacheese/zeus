@@ -271,6 +271,12 @@ pub fn decode_owner_of(bytes: &Bytes) -> Result<Address, anyhow::Error> {
    Ok(o)
 }
 
+/// `getApproved(tokenId)` returns the approved address, the zero address when there is none.
+pub fn decode_get_approved(bytes: &Bytes) -> Result<Address, anyhow::Error> {
+   let a = IERC721::getApprovedCall::abi_decode_returns(bytes)?;
+   Ok(a)
+}
+
 pub fn decode_balance_of(bytes: &Bytes) -> Result<U256, anyhow::Error> {
    let b = IERC721::balanceOfCall::abi_decode_returns(bytes)?;
    Ok(b)

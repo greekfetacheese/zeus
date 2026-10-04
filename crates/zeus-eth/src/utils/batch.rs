@@ -10,7 +10,7 @@ use crate::{
    abi::{
       erc20::IERC20,
       erc721::{IERC721, IERC721Metadata},
-      erc1155::IERC1155,
+      erc1155::{IERC1155, IERC5216},
       permit::Permit2,
       zeus::ZeusStateViewV3::{self, *},
    },
@@ -680,6 +680,151 @@ where
    Ok(out)
 }
 
+/// Batched ERC-721 `getApproved(id)` in one Multicall3 aggregate.
+///
+/// Returns `(collection, id, approved)` aligned with `refs`, where `None` is the call reverting —
+/// a burned or never-minted id, the contract answering "no such token" rather than a transport
+/// failure. Same convention as [`get_erc721_owners`], and for the same reason: a dropped slot would
+/// silently shift the neighbours.
+pub async fn get_erc721_approved<P, N>(
+   client: P,
+   refs: Vec<NftRef>,
+   block: Option<BlockId>,
+) -> Result<Vec<(Address, U256, Option<Address>)>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   if refs.is_empty() {
+      return Ok(Vec::new());
+   }
+
+   let block = block.unwrap_or(BlockId::latest());
+
+   let mut builder = client.multicall().dynamic::<IERC721::getApprovedCall>().block(block);
+   for (collection, token_id) in &refs {
+      let input = Bytes::from(IERC721::getApprovedCall { tokenId: *token_id }.abi_encode());
+      let call = CallItem::<IERC721::getApprovedCall>::new(*collection, input).allow_failure(true);
+      builder = builder.add_call_dynamic(call);
+   }
+   let approved = builder.aggregate3().await?;
+
+   if approved.len() != refs.len() {
+      anyhow::bail!(
+         "multicall returned {} approvals for {} refs",
+         approved.len(),
+         refs.len()
+      );
+   }
+
+   Ok(refs
+      .into_iter()
+      .zip(approved)
+      .map(|((collection, token_id), approved)| (collection, token_id, approved.ok()))
+      .collect())
+}
+
+/// Batched `isApprovedForAll(owner, operator)` in one Multicall3 aggregate.
+///
+/// `targets` are `(collection, operator)` pairs — the same call answers it for ERC-721 and
+/// ERC-1155 collections alike, so the standard is not part of the request. Aligned with `targets`;
+/// `None` in the flag slot is a failed call (most likely not a collection that implements it).
+pub async fn get_erc721_is_approved_for_all<P, N>(
+   client: P,
+   owner: Address,
+   targets: Vec<(Address, Address)>,
+   block: Option<BlockId>,
+) -> Result<Vec<(Address, Address, Option<bool>)>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   if targets.is_empty() {
+      return Ok(Vec::new());
+   }
+
+   let block = block.unwrap_or(BlockId::latest());
+
+   let mut builder = client.multicall().dynamic::<IERC721::isApprovedForAllCall>().block(block);
+   for (collection, operator) in &targets {
+      let input = Bytes::from(
+         IERC721::isApprovedForAllCall {
+            owner,
+            operator: *operator,
+         }
+         .abi_encode(),
+      );
+      let call =
+         CallItem::<IERC721::isApprovedForAllCall>::new(*collection, input).allow_failure(true);
+      builder = builder.add_call_dynamic(call);
+   }
+   let approved = builder.aggregate3().await?;
+
+   if approved.len() != targets.len() {
+      anyhow::bail!(
+         "multicall returned {} flags for {} targets",
+         approved.len(),
+         targets.len()
+      );
+   }
+
+   Ok(targets
+      .into_iter()
+      .zip(approved)
+      .map(|((collection, operator), approved)| (collection, operator, approved.ok()))
+      .collect())
+}
+
+/// Batched ERC-5216 `allowance(owner, operator, id)` in one Multicall3 aggregate.
+///
+/// `refs` are `(collection, operator, id)` triples. Aligned with `refs`, `None` for a failed call —
+/// which is the expected answer from a contract that does not implement ERC-5216 at all.
+pub async fn get_erc1155_allowances<P, N>(
+   client: P,
+   owner: Address,
+   refs: Vec<(Address, Address, U256)>,
+   block: Option<BlockId>,
+) -> Result<Vec<(Address, Address, U256, Option<U256>)>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   if refs.is_empty() {
+      return Ok(Vec::new());
+   }
+
+   let block = block.unwrap_or(BlockId::latest());
+
+   let mut builder = client.multicall().dynamic::<IERC5216::allowanceCall>().block(block);
+   for (collection, operator, id) in &refs {
+      let input = Bytes::from(
+         IERC5216::allowanceCall {
+            account: owner,
+            operator: *operator,
+            id: *id,
+         }
+         .abi_encode(),
+      );
+      let call = CallItem::<IERC5216::allowanceCall>::new(*collection, input).allow_failure(true);
+      builder = builder.add_call_dynamic(call);
+   }
+   let allowances = builder.aggregate3().await?;
+
+   if allowances.len() != refs.len() {
+      anyhow::bail!(
+         "multicall returned {} allowances for {} refs",
+         allowances.len(),
+         refs.len()
+      );
+   }
+
+   Ok(refs
+      .into_iter()
+      .zip(allowances)
+      .map(|((collection, operator, id), allowance)| (collection, operator, id, allowance.ok()))
+      .collect())
+}
+
 #[cfg(test)]
 mod tests {
    use super::*;
@@ -732,7 +877,7 @@ mod tests {
       let storefront = address!("495f947276749Ce646f68AC8c248420045cb7b5e");
       let vitalik = address!("d8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
       let balances = get_erc1155_balances(
-         client,
+         client.clone(),
          vitalik,
          vec![(storefront, U256::from(1))],
          None,
@@ -742,6 +887,58 @@ mod tests {
       assert_eq!(
          balances,
          vec![(storefront, U256::from(1), U256::ZERO)]
+      );
+
+      // ERC-721 `getApproved`: a real token and a nonexistent one, so the revert lands as `None` in
+      // its own slot exactly like `ownerOf` does.
+      let approved = get_erc721_approved(
+         client.clone(),
+         vec![(bayc, U256::from(1)), (bayc, U256::from(1_000_000_000))],
+         None,
+      )
+      .await
+      .unwrap();
+
+      assert_eq!(approved.len(), 2);
+      assert_eq!(approved[0].0, bayc);
+      assert_eq!(
+         approved[1].2, None,
+         "a nonexistent id must be None, not shifted"
+      );
+
+      // `isApprovedForAll` on a real operator: a bool either way, and `None` for an address that is
+      // not a collection at all.
+      let seaport = address!("00000000000000ADc04C56Bf30aC9d3c0aAF14dC");
+      let flags = get_erc721_is_approved_for_all(
+         client.clone(),
+         vitalik,
+         vec![(bayc, seaport), (vitalik, seaport)],
+         None,
+      )
+      .await
+      .unwrap();
+
+      assert_eq!(flags.len(), 2);
+      assert!(
+         flags[0].2.is_some(),
+         "a real ERC-721 must answer with a flag"
+      );
+
+      // ERC-5216 `allowance`: `None` from a collection that does not implement it — the call fails,
+      // and the diff reads that as "no ERC-5216 state to compare" rather than as a zero allowance.
+      let allowances = get_erc1155_allowances(
+         client,
+         vitalik,
+         vec![(storefront, seaport, U256::from(1))],
+         None,
+      )
+      .await
+      .unwrap();
+
+      assert_eq!(allowances.len(), 1);
+      assert_eq!(
+         allowances[0].3, None,
+         "no ERC-5216 on mainnet: the call must fail rather than answer zero"
       );
    }
 

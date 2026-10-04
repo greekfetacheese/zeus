@@ -36,6 +36,81 @@ where
    Ok(owner)
 }
 
+/// Simulate ERC-721 `getApproved(tokenId)` (does not commit).
+///
+/// The per-token approval slot — and the *single* slot that approving, switching and revoking all
+/// write, so a revoke reads back as the zero address rather than as a missing value.
+pub fn erc721_get_approved<DB>(
+   evm: &mut Evm2<DB>,
+   collection: Address,
+   token_id: U256,
+) -> Result<Address, anyhow::Error>
+where
+   DB: Database,
+{
+   let data = abi::erc721::encode_get_approved(token_id);
+
+   evm.tx.chain_id = Some(evm.cfg.chain_id);
+   evm.tx.data = data;
+   evm.tx.value = U256::ZERO;
+   evm.tx.kind = TxKind::Call(collection);
+
+   let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
+   let output = res.result.output().ok_or(anyhow!("Output not found"))?;
+   abi::erc721::decode_get_approved(output)
+}
+
+/// Simulate `isApprovedForAll(owner, operator)` (does not commit).
+///
+/// One helper for both standards on purpose: the function and its answer are byte-identical between
+/// ERC-721 and ERC-1155, so which one a collection is never enters into the read.
+pub fn erc721_is_approved_for_all<DB>(
+   evm: &mut Evm2<DB>,
+   collection: Address,
+   owner: Address,
+   operator: Address,
+) -> Result<bool, anyhow::Error>
+where
+   DB: Database,
+{
+   let data = abi::erc721::encode_is_approved_for_all(owner, operator);
+
+   evm.tx.chain_id = Some(evm.cfg.chain_id);
+   evm.tx.data = data;
+   evm.tx.value = U256::ZERO;
+   evm.tx.kind = TxKind::Call(collection);
+
+   let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
+   let output = res.result.output().ok_or(anyhow!("Output not found"))?;
+   abi::erc721::decode_is_approved_for_all(output)
+}
+
+/// Simulate the ERC-5216 `allowance(account, operator, id)` (does not commit).
+///
+/// ERC-5216's allowance, not ERC-1155's `balanceOf`: it is the per-id, per-operator approval an
+/// ERC-1155 can grant, and it is the third of the three shapes an NFT approval takes.
+pub fn erc1155_allowance<DB>(
+   evm: &mut Evm2<DB>,
+   collection: Address,
+   account: Address,
+   operator: Address,
+   id: U256,
+) -> Result<U256, anyhow::Error>
+where
+   DB: Database,
+{
+   let data = abi::erc1155::encode_allowance(account, operator, id);
+
+   evm.tx.chain_id = Some(evm.cfg.chain_id);
+   evm.tx.data = data;
+   evm.tx.value = U256::ZERO;
+   evm.tx.kind = TxKind::Call(collection);
+
+   let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
+   let output = res.result.output().ok_or(anyhow!("Output not found"))?;
+   abi::erc1155::decode_allowance(output)
+}
+
 /// Simulate ERC-1155 `balanceOf(account, id)` (does not commit).
 pub fn erc1155_balance_of<DB>(
    evm: &mut Evm2<DB>,
@@ -437,5 +512,55 @@ mod tests {
             "storefront balance of id {id}"
          );
       }
+
+      // ERC-721 `getApproved` — the per-token approval slot, which the diff probes before and after.
+      for id in [U256::from(1), U256::from(9999)] {
+         let from_fork = erc721_get_approved(&mut evm, bayc, id).unwrap();
+         let from_node = IERC721::new(bayc, client.clone())
+            .getApproved(id)
+            .block(block_id)
+            .call()
+            .await
+            .unwrap();
+
+         assert_eq!(
+            from_fork, from_node,
+            "BAYC #{id} approved address"
+         );
+      }
+
+      // `isApprovedForAll`, on a real operator. Its own answer is irrelevant here — the two paths
+      // agreeing is the assertion, and a `false` is as good a proof as a `true`.
+      let seaport = address!("00000000000000ADc04C56Bf30aC9d3c0aAF14dC");
+
+      for (collection, owner) in [(bayc, holder), (storefront, holder)] {
+         let from_fork = erc721_is_approved_for_all(&mut evm, collection, owner, seaport).unwrap();
+         let from_node = IERC721::new(collection, client.clone())
+            .isApprovedForAll(owner, seaport)
+            .block(block_id)
+            .call()
+            .await
+            .unwrap();
+
+         assert_eq!(
+            from_fork, from_node,
+            "isApprovedForAll({collection})"
+         );
+      }
+
+      // ERC-5216 `allowance`: nothing on mainnet implements it, and this is the assertion worth
+      // pinning — a collection that does not implement it **reverts**, so the probe must surface an
+      // error rather than hand back a zero that would read as "not approved" in the diff.
+      assert!(
+         erc1155_allowance(
+            &mut evm,
+            storefront,
+            holder,
+            seaport,
+            U256::from(1)
+         )
+         .is_err(),
+         "a collection without ERC-5216 must revert, not answer zero"
+      );
    }
 }
