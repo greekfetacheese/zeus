@@ -246,9 +246,7 @@ async fn discover_nfts(ctx: ZeusCtx, chain: u64, owner: Address, transfers: &[Nf
       // Already-cached tokens cost no network: `get_nft` answers from the db.
       if let Err(e) = ctx.get_nft(chain, collection, token_id).await {
          tracing::warn!(
-            "Failed to track NFT {} #{} from the transaction: {:?}",
-            collection,
-            token_id,
+            "Failed to track NFT from the transaction: {:?}",
             e
          );
       }
