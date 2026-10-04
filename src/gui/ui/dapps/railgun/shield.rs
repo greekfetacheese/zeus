@@ -51,7 +51,7 @@ use zeus_railgun::{RailgunAddress, rand::SeedableRng, rand_chacha::ChaCha12Rng};
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use tracing::{error, warn};
 
 use super::unshield::{default_bundler_url, unshield};
 
@@ -309,6 +309,27 @@ impl ShieldUi {
             .interactive(false),
          );
       });
+   }
+
+   /// Whether the form is pointed at something Zeus refuses to shield.
+   fn erc1155_shield_blocked(&self) -> bool {
+      self.mode.is_shield()
+         && self.nft.as_ref().is_some_and(|nft| nft.standard == NftStandard::Erc1155)
+   }
+
+   /// The notice at the shield button, when an ERC-1155 is selected.
+   fn show_erc1155_block(&self, theme: &Theme, ui: &mut Ui) {
+      let text = "Shielding ERC-1155 is disabled: Railgun does not support it yet, and Zeus will enable \
+                  it only after verifying that support.";
+      ui.add(
+         Label::new(
+            RichText::new(text).size(theme.typography.small).color(theme.colors.info),
+            None,
+         )
+         .wrap()
+         .fill_width(true)
+         .interactive(false),
+      );
    }
 
    /// The "Select NFT" / "Change" button: opens the picker on its NFT list.
@@ -688,6 +709,12 @@ impl ShieldUi {
 
                   ui.add_space(10.0);
 
+                  // The refusal is explained where it happens: right above the button it disables.
+                  if self.erc1155_shield_blocked() {
+                     self.show_erc1155_block(theme, ui);
+                     ui.add_space(theme.spacing.sm);
+                  }
+
                   self.action_button(ctx, theme, owner, recipient_str, recipient_chain, ui);
                });
             });
@@ -914,6 +941,7 @@ impl ShieldUi {
       };
       let has_recipient = !recipient.trim().is_empty();
       let valid_recipient = self.valid_recipient(&recipient);
+      let erc1155_blocked = self.erc1155_shield_blocked();
       let valid_token = if self.mode == RailgunMode::Unshield {
          nft_selected || self.currency.is_erc20()
       } else {
@@ -935,7 +963,8 @@ impl ShieldUi {
          && valid_recipient
          && wrong_chain.is_none()
          && !sending_tx
-         && is_synced;
+         && is_synced
+         && !erc1155_blocked;
 
       let mut button_text = match self.mode {
          RailgunMode::Shield => "Shield".to_string(),
@@ -972,6 +1001,13 @@ impl ShieldUi {
          button_text = "Railgun is not synced".to_string();
       }
 
+      // A refusal outranks everything above it: the asset itself cannot be shielded, so a transient
+      // reason (or anything typed in the amount field) is beside the point. The notice above the button
+      // carries the why.
+      if erc1155_blocked {
+         button_text = "ERC-1155 not supported".to_string();
+      }
+
       // Last, so it wins: sending to a recipient resolved for another chain is the mistake worth
       // blocking, and the picker has already asked before switching.
       if let Some(chain) = wrong_chain {
@@ -993,6 +1029,14 @@ impl ShieldUi {
    }
 
    fn send_transaction(&mut self, ctx: &mut ZeusContext, recipient: String) {
+      // Belt and braces: the button is disabled for this, but no path may put an ERC-1155 on chain as a
+      // shield while Railgun's support for it is unverified.
+      if self.erc1155_shield_blocked() {
+         warn!("Refusing to shield an ERC-1155: Railgun's support for it is not verified");
+         self.sending_tx = false;
+         return;
+      }
+
       let chain = ctx.chain;
       let from = ctx.current_wallet_info().address;
 
@@ -1569,6 +1613,28 @@ mod tests {
       assert_eq!(nft_quantity(&erc1155, "1.5"), None);
       assert_eq!(nft_quantity(&erc1155, "-1"), None);
       assert_eq!(nft_quantity(&erc1155, "three"), None);
+   }
+
+   /// Shielding an ERC-1155 is refused until Railgun's support for it has been verified — and only the
+   /// shield side: unshielding a note that is already private is a different path with its own guard.
+   #[test]
+   fn an_erc1155_cannot_be_shielded() {
+      let mut ui = ShieldUi::new();
+      ui.set_mode(RailgunMode::Shield);
+
+      ui.nft = Some(nft(NftStandard::Erc1155));
+      assert!(ui.erc1155_shield_blocked());
+
+      // An ERC-721 and the fungible form are untouched.
+      ui.nft = Some(nft(NftStandard::Erc721));
+      assert!(!ui.erc1155_shield_blocked());
+      ui.nft = None;
+      assert!(!ui.erc1155_shield_blocked());
+
+      // Same token, other mode: this guard says nothing about it.
+      ui.nft = Some(nft(NftStandard::Erc1155));
+      ui.set_mode(RailgunMode::Unshield);
+      assert!(!ui.erc1155_shield_blocked());
    }
 
    #[test]
