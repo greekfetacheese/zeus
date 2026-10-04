@@ -9,7 +9,7 @@ use zeus_eth::{
    alloy_primitives::{Address, Log, U256},
    currency::{Currency, ERC20Token, NativeCurrency},
    nft::NftStandard,
-   utils::{NumericValue, batch::NftRef},
+   utils::NumericValue,
 };
 
 /// Max token contracts to probe per tx (portfolio + interact_to + log addresses).
@@ -204,7 +204,19 @@ pub fn collect_token_candidates(
    out
 }
 
-/// `(collection, id)` pairs to probe the signer's ownership of.
+/// One NFT to probe the signer's ownership of.
+///
+/// The standard travels with the candidate because it is the log (or the held token's own metadata)
+/// that knows it: `Transfer` is ERC-721's, `TransferSingle`/`TransferBatch` are ERC-1155's. Without
+/// it the probe would have to be guessed or doubled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NftCandidate {
+   pub collection: Address,
+   pub token_id: U256,
+   pub standard: NftStandard,
+}
+
+/// The NFT ownership candidates a `(call_data, logs)` pair implies.
 ///
 /// The signer's side of a transfer log is what names them: `Transfer` (ERC-721), `TransferSingle`
 /// and every id of a `TransferBatch` — a batch carries all of its ids in one log, so the cap is
@@ -221,23 +233,37 @@ pub fn collect_token_candidates(
 pub fn collect_nft_balance_candidates(
    owner: Address,
    logs: &[Log],
-   held: impl IntoIterator<Item = NftRef>,
-) -> Vec<NftRef> {
-   let mut out: Vec<NftRef> = Vec::new();
+   held: impl IntoIterator<Item = NftCandidate>,
+) -> Vec<NftCandidate> {
+   let mut out: Vec<NftCandidate> = Vec::new();
 
    for log in logs {
       // ERC-721 `Transfer(from, to, tokenId)`. The three shapes cannot decode into each other — their
       // topics and their data lengths differ — so one log can only be one of them.
       if let Ok(transfer) = erc721::decode_transfer_log(log) {
          if transfer.from == owner || transfer.to == owner {
-            push_nft_candidate(&mut out, log.address, transfer.tokenId);
+            push_nft_candidate(
+               &mut out,
+               NftCandidate {
+                  collection: log.address,
+                  token_id: transfer.tokenId,
+                  standard: NftStandard::Erc721,
+               },
+            );
          }
          continue;
       }
 
       if let Ok(single) = erc1155::decode_transfer_single_log(log) {
          if single.from == owner || single.to == owner {
-            push_nft_candidate(&mut out, log.address, single.id);
+            push_nft_candidate(
+               &mut out,
+               NftCandidate {
+                  collection: log.address,
+                  token_id: single.id,
+                  standard: NftStandard::Erc1155,
+               },
+            );
          }
          continue;
       }
@@ -245,25 +271,30 @@ pub fn collect_nft_balance_candidates(
       if let Ok(batch) = erc1155::decode_transfer_batch_log(log) {
          if batch.from == owner || batch.to == owner {
             for id in batch.ids {
-               push_nft_candidate(&mut out, log.address, id);
+               push_nft_candidate(
+                  &mut out,
+                  NftCandidate {
+                     collection: log.address,
+                     token_id: id,
+                     standard: NftStandard::Erc1155,
+                  },
+               );
             }
          }
       }
    }
 
-   for (collection, token_id) in held {
-      push_nft_candidate(&mut out, collection, token_id);
+   for candidate in held {
+      push_nft_candidate(&mut out, candidate);
    }
 
    out
 }
 
-fn push_nft_candidate(out: &mut Vec<NftRef>, collection: Address, token_id: U256) {
-   if collection.is_zero() {
+fn push_nft_candidate(out: &mut Vec<NftCandidate>, candidate: NftCandidate) {
+   if candidate.collection.is_zero() {
       return;
    }
-   let candidate = (collection, token_id);
-   // A zero id is a real token id (ERC-721 #0 exists), so only the collection is vetted.
    if out.contains(&candidate) {
       return;
    }
@@ -603,7 +634,24 @@ mod tests {
       }
    }
 
-   /// Only the signer's side of a transfer names a candidate.
+   fn erc721_candidate(collection: Address, token_id: u64) -> NftCandidate {
+      NftCandidate {
+         collection,
+         token_id: U256::from(token_id),
+         standard: NftStandard::Erc721,
+      }
+   }
+
+   fn erc1155_candidate(collection: Address, token_id: u64) -> NftCandidate {
+      NftCandidate {
+         collection,
+         token_id: U256::from(token_id),
+         standard: NftStandard::Erc1155,
+      }
+   }
+
+   /// Only the signer's side of a transfer names a candidate, and the log's own shape names the
+   /// standard.
    #[test]
    fn transfer_logs_name_the_signer_side() {
       let logs = [
@@ -615,7 +663,10 @@ mod tests {
       let got = collect_nft_balance_candidates(owner(), &logs, []);
       assert_eq!(
          got,
-         vec![(collection(), U256::from(7)), (collection(), U256::from(8))]
+         vec![
+            erc721_candidate(collection(), 7),
+            erc721_candidate(collection(), 8)
+         ]
       );
    }
 
@@ -645,7 +696,7 @@ mod tests {
 
       let got = collect_nft_balance_candidates(owner(), &logs, []);
       assert_eq!(got.len(), 3);
-      assert_eq!(got[2], (collection(), U256::from(3)));
+      assert_eq!(got[2], erc1155_candidate(collection(), 3));
    }
 
    #[test]
@@ -657,7 +708,7 @@ mod tests {
 
       assert_eq!(
          collect_nft_balance_candidates(owner(), &logs, []),
-         vec![(collection(), U256::from(5))]
+         vec![erc1155_candidate(collection(), 5)]
       );
    }
 
@@ -665,12 +716,18 @@ mod tests {
    #[test]
    fn held_ids_are_appended_and_deduped() {
       let logs = [erc721_log(collection(), stranger(), owner(), 7)];
-      let held = [(collection(), U256::from(7)), (stranger(), U256::from(9))];
+      let held = [
+         erc721_candidate(collection(), 7),
+         erc1155_candidate(stranger(), 9),
+      ];
 
       let got = collect_nft_balance_candidates(owner(), &logs, held);
       assert_eq!(
          got,
-         vec![(collection(), U256::from(7)), (stranger(), U256::from(9))]
+         vec![
+            erc721_candidate(collection(), 7),
+            erc1155_candidate(stranger(), 9)
+         ]
       );
    }
 
@@ -679,7 +736,7 @@ mod tests {
    fn the_cap_holds_while_a_batch_expands() {
       let ids: Vec<u64> = (1..=100).collect();
       let logs = [erc1155_batch_log(collection(), owner(), stranger(), &ids)];
-      let held = [(stranger(), U256::from(1_000))];
+      let held = [erc721_candidate(stranger(), 1_000)];
 
       let got = collect_nft_balance_candidates(owner(), &logs, held);
       assert_eq!(got.len(), MAX_NFT_CANDIDATES);
