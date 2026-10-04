@@ -192,7 +192,7 @@ impl ApprovalManager {
       match event {
          DecodedEvent::TokenApprove(params) => self.insert_token_approval(chain, params.clone()),
          DecodedEvent::Permit(params) => self.insert_permit(params.clone()),
-         DecodedEvent::NftApprove(params) => self.insert_nft_approval(params.clone()),
+         DecodedEvent::NftApprove(params) => self.insert_nft_approval(chain, params.clone()),
          _ => {}
       }
    }
@@ -219,17 +219,36 @@ impl ApprovalManager {
       self.permits.insert(key, params);
    }
 
-   fn insert_nft_approval(&mut self, params: NftApproveParams) {
+   fn insert_nft_approval(&mut self, chain: u64, params: NftApproveParams) {
+      // The chain comes from the transaction, not from the params' own field — the same way the
+      // ERC-20 approval store reads it, and the reason a misfiled row cannot happen if the two ever
+      // disagree.
       let key = (
-         params.chain,
+         chain,
          params.owner,
          params.collection,
          params.token_id,
          params.operator,
       );
-      // Always keep the latest event for this key, **revocations included**: the revoke is what
-      // makes the entry inactive, so dropping it would leave the earlier grant looking live. A
-      // collection-wide approval lands on its own key (`token_id == None`) beside any per-token one.
+
+      // An ERC-721 token can be approved to **one** address at a time: `approve` overwrites the
+      // previous one, and a revoke sets the zero address. The operator is therefore that record's
+      // *value*, not part of its identity — and without clearing the previous entry first, a revoke
+      // would land on a key of its own (the zero address) and leave the very grant it revoked still
+      // looking active.
+      //
+      // The other two shapes are the opposite: ERC-5216 and `ApprovalForAll` give every operator its
+      // own independent grant for the same collection / id, so their operator stays part of the key
+      // and nothing is cleared here.
+      if params.is_erc721_per_token() {
+         let (owner, collection, token_id) = (params.owner, params.collection, params.token_id);
+         self.nft_approvals.retain(|(c, o, col, id, _), _| {
+            !(*c == chain && *o == owner && *col == collection && *id == token_id)
+         });
+      }
+
+      // Always keep the latest event for this key, **revocations included**: the revoke is what makes
+      // the entry inactive, so dropping it would leave the earlier grant looking live.
       self.nft_approvals.insert(key, params);
    }
 
@@ -399,4 +418,341 @@ fn permit_expired(expiration: &TimeStamp, now: TimeStamp) -> bool {
       TimeStamp::Millis(m) => m / 1000,
    };
    exp_secs < now_secs
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use crate::core::TransactionRich;
+   use alloy_sol_types::SolEvent;
+   use zeus_eth::{
+      abi::{erc721::IERC721, erc1155::IERC5216},
+      alloy_primitives::{Log, address},
+      nft::NftStandard,
+   };
+
+   const OWNER: Address = address!("1111111111111111111111111111111111111111");
+   const OTHER_OWNER: Address = address!("2222222222222222222222222222222222222222");
+   const COLLECTION: Address = address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D");
+   const OPERATOR: Address = address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266");
+
+   /// These go through the real decoders, so the tests consume what the ladder emits rather than
+   /// hand-built lookalikes — a key that disagrees with the decoder's output would otherwise go
+   /// unnoticed here and only surface as a missing row in the UI.
+
+   fn per_token(owner: Address, token_id: u64, approved: Address) -> NftApproveParams {
+      let log = Log {
+         address: COLLECTION,
+         data: IERC721::Approval {
+            owner,
+            approved,
+            tokenId: U256::from(token_id),
+         }
+         .encode_log_data(),
+      };
+      NftApproveParams::from_erc721_approval(1, &log).unwrap()
+   }
+
+   fn collection_wide(owner: Address, approved: bool) -> NftApproveParams {
+      let log = Log {
+         address: COLLECTION,
+         data: IERC721::ApprovalForAll {
+            owner,
+            operator: OPERATOR,
+            approved,
+         }
+         .encode_log_data(),
+      };
+      NftApproveParams::from_approval_for_all(1, &log).unwrap()
+   }
+
+   fn allowance(owner: Address, id: u64, amount: u64) -> NftApproveParams {
+      let log = Log {
+         address: COLLECTION,
+         data: IERC5216::Approval {
+            account: owner,
+            operator: OPERATOR,
+            id: U256::from(id),
+            amount: U256::from(amount),
+         }
+         .encode_log_data(),
+      };
+      NftApproveParams::from_erc1155_approval(1, &log).unwrap()
+   }
+
+   /// A transaction carrying `events`, of which the first is also the main event — the split
+   /// `add_from_tx` has to read, since `main_event` is stored apart from `analysis.decoded_events`.
+   fn tx(events: Vec<DecodedEvent>) -> TransactionRich {
+      let mut tx = TransactionRich::dummy_clear_signed();
+      tx.chain = 1;
+      tx.success = true;
+      tx.main_event = events[0].clone();
+      tx.analysis.decoded_events = events;
+      tx
+   }
+
+   fn approved(events: Vec<NftApproveParams>) -> TransactionRich {
+      tx(events.into_iter().map(DecodedEvent::NftApprove).collect())
+   }
+
+   /// Each shape is filed under a key that reads back what was put in.
+   #[test]
+   fn each_shape_is_stored_under_its_own_key() {
+      let mut manager = ApprovalManager::new();
+      manager.add_from_tx(&approved(vec![
+         per_token(OWNER, 7, OPERATOR),
+         collection_wide(OWNER, true),
+         allowance(OWNER, 9, 5),
+      ]));
+
+      let token = manager
+         .get_nft_approval(
+            1,
+            OWNER,
+            COLLECTION,
+            Some(U256::from(7)),
+            OPERATOR,
+         )
+         .expect("the per-token approval");
+      assert_eq!(token.standard, NftStandard::Erc721);
+      assert_eq!(token.token_id, Some(U256::from(7)));
+      assert_eq!(token.operator, OPERATOR);
+
+      let collection = manager
+         .get_nft_approval(1, OWNER, COLLECTION, None, OPERATOR)
+         .expect("the collection-wide approval");
+      assert!(collection.is_collection_wide());
+      assert_eq!(collection.approved, Some(true));
+
+      let erc5216 = manager
+         .get_nft_approval(
+            1,
+            OWNER,
+            COLLECTION,
+            Some(U256::from(9)),
+            OPERATOR,
+         )
+         .expect("the ERC-5216 allowance");
+      assert_eq!(erc5216.standard, NftStandard::Erc1155);
+      assert_eq!(erc5216.amount, Some(U256::from(5)));
+
+      assert_eq!(manager.get_all_active_nft_approvals().len(), 3);
+   }
+
+   /// A reverted transaction approved nothing, so it must record nothing.
+   #[test]
+   fn a_failed_transaction_stores_nothing() {
+      let mut failed = approved(vec![per_token(OWNER, 7, OPERATOR)]);
+      failed.success = false;
+
+      let mut manager = ApprovalManager::new();
+      manager.add_from_tx(&failed);
+
+      assert!(manager.get_nft_approvals(1, OWNER).is_empty());
+      assert!(manager.get_all_active_nft_approvals().is_empty());
+   }
+
+   /// An ERC-721 approval is cleared by the **zero address**, so the revoke carries a different
+   /// operator than the grant did. It still has to replace that grant: a revocation that left the
+   /// grant behind would tell the user they had approved someone they had just un-approved.
+   #[test]
+   fn a_zero_address_revoke_replaces_the_grant_it_revokes() {
+      let mut manager = ApprovalManager::new();
+      manager.add_from_tx(&approved(vec![per_token(OWNER, 7, OPERATOR)]));
+      assert_eq!(manager.get_all_active_nft_approvals().len(), 1);
+
+      manager.add_from_tx(&approved(vec![per_token(
+         OWNER,
+         7,
+         Address::ZERO,
+      )]));
+
+      assert_eq!(
+         manager.get_nft_approvals(1, OWNER).len(),
+         1,
+         "the revoke replaces the grant, it does not sit beside it"
+      );
+      assert!(
+         manager.get_all_active_nft_approvals().is_empty(),
+         "nothing is approved after a revoke"
+      );
+   }
+
+   /// Approving a *different* operator for the same token also replaces the previous one — an
+   /// ERC-721 token has one approved address at a time.
+   #[test]
+   fn approving_another_operator_replaces_the_previous_one() {
+      let mut manager = ApprovalManager::new();
+      manager.add_from_tx(&approved(vec![per_token(OWNER, 7, OPERATOR)]));
+      manager.add_from_tx(&approved(vec![per_token(OWNER, 7, OTHER_OWNER)]));
+
+      assert_eq!(manager.get_nft_approvals(1, OWNER).len(), 1);
+
+      let active = manager.get_all_active_nft_approvals();
+      assert_eq!(active.len(), 1);
+      assert_eq!(active[0].operator, OTHER_OWNER);
+   }
+
+   /// `ApprovalForAll` and a per-token grant for the same operator are two entries: they are granted
+   /// and revoked independently, so folding them together would lose one of them.
+   #[test]
+   fn a_collection_wide_approval_and_a_per_token_one_coexist() {
+      let mut manager = ApprovalManager::new();
+      manager.add_from_tx(&approved(vec![
+         collection_wide(OWNER, true),
+         per_token(OWNER, 7, OPERATOR),
+      ]));
+
+      assert_eq!(manager.get_nft_approvals(1, OWNER).len(), 2);
+
+      // Revoking the collection-wide one leaves the per-token grant standing.
+      manager.add_from_tx(&approved(vec![collection_wide(OWNER, false)]));
+
+      let active = manager.get_all_active_nft_approvals();
+      assert_eq!(active.len(), 1);
+      assert!(
+         !active[0].is_collection_wide(),
+         "the survivor is the per-token grant"
+      );
+      assert_eq!(
+         manager.get_nft_approvals(1, OWNER).len(),
+         2,
+         "the revoked collection row is kept, just inactive"
+      );
+   }
+
+   /// Two tokens of one collection, and every operator, are separate records.
+   ///
+   /// The ERC-5216 id is deliberately a *different* id from the ERC-721 token id: a collection is one
+   /// standard, never both, but the key does not carry the standard (Zeus stores one per collection),
+   /// so reusing the id here would assert on an unrepresentable state.
+   #[test]
+   fn tokens_and_operators_are_separate_entries() {
+      let mut manager = ApprovalManager::new();
+      manager.add_from_tx(&approved(vec![
+         per_token(OWNER, 7, OPERATOR),
+         per_token(OWNER, 8, OPERATOR),
+         allowance(OWNER, 9, 5),
+      ]));
+
+      assert_eq!(manager.get_nft_approvals(1, OWNER).len(), 3);
+
+      // Revoking token 7 leaves token 8 and the allowance alone.
+      manager.add_from_tx(&approved(vec![per_token(
+         OWNER,
+         7,
+         Address::ZERO,
+      )]));
+
+      let active = manager.get_all_active_nft_approvals();
+      assert_eq!(active.len(), 2);
+      assert!(active.iter().all(|a| a.token_id != Some(U256::from(7))));
+   }
+
+   /// An ERC-5216 allowance is per `(id, operator)`, so revoking one operator's allowance leaves
+   /// another's untouched — this is where the key must *not* drop the operator.
+   #[test]
+   fn erc5216_allowances_are_per_operator() {
+      let mut manager = ApprovalManager::new();
+      manager.add_from_tx(&approved(vec![allowance(OWNER, 9, 5)]));
+      assert_eq!(manager.get_all_active_nft_approvals().len(), 1);
+
+      // A zero allowance is ERC-5216's revocation, and it keeps the same operator in the key.
+      manager.add_from_tx(&approved(vec![allowance(OWNER, 9, 0)]));
+
+      assert_eq!(manager.get_nft_approvals(1, OWNER).len(), 1);
+      assert!(manager.get_all_active_nft_approvals().is_empty());
+   }
+
+   /// Another wallet's approvals are not this wallet's, on either axis.
+   #[test]
+   fn approvals_are_scoped_to_chain_and_owner() {
+      let mut manager = ApprovalManager::new();
+      manager.add_from_tx(&approved(vec![per_token(OWNER, 7, OPERATOR)]));
+
+      assert!(manager.get_nft_approvals(1, OTHER_OWNER).is_empty());
+      assert!(manager.get_nft_approvals(2, OWNER).is_empty());
+
+      let mut other_chain = approved(vec![per_token(OWNER, 7, OPERATOR)]);
+      other_chain.chain = 2;
+      manager.add_from_tx(&other_chain);
+
+      assert_eq!(manager.get_nft_approvals(1, OWNER).len(), 1);
+      assert_eq!(manager.get_nft_approvals(2, OWNER).len(), 1);
+      assert_eq!(manager.get_all_active_nft_approvals().len(), 2);
+   }
+
+   /// Removing a wallet takes its NFT approvals with it, and the counts come back.
+   #[test]
+   fn retain_wallets_drops_nft_approvals_and_counts_them() {
+      let mut manager = ApprovalManager::new();
+      manager.add_from_tx(&approved(vec![
+         per_token(OWNER, 7, OPERATOR),
+         collection_wide(OWNER, true),
+      ]));
+
+      let stranger = approved(vec![per_token(OTHER_OWNER, 7, OPERATOR)]);
+      manager.add_from_tx(&stranger);
+
+      assert_eq!(manager.get_all_active_nft_approvals().len(), 3);
+
+      let (tokens, permits, nfts) = manager.retain_wallets(&HashSet::from([OWNER]));
+
+      assert_eq!(
+         (tokens, permits, nfts),
+         (0, 0, 1),
+         "only the stranger's row goes"
+      );
+      assert_eq!(manager.get_all_active_nft_approvals().len(), 2);
+      assert!(manager.get_nft_approvals(1, OTHER_OWNER).is_empty());
+   }
+
+   /// The map is persisted inside the vault, and its key is a 5-tuple — which cannot key a JSON
+   /// object, so `serde_hashmap` stringifies it. A round trip is the only thing that proves the key
+   /// survives that, since the failure mode is a load-time error rather than a wrong row.
+   #[test]
+   fn nft_approvals_survive_a_serde_round_trip() {
+      let mut manager = ApprovalManager::new();
+      manager.add_from_tx(&approved(vec![
+         per_token(OWNER, 7, OPERATOR),
+         collection_wide(OWNER, true),
+         allowance(OWNER, 9, 5),
+      ]));
+
+      let json = serde_json::to_string(&manager).unwrap();
+      let loaded: ApprovalManager = serde_json::from_str(&json).unwrap();
+
+      assert_eq!(loaded.get_all_active_nft_approvals().len(), 3);
+      assert!(
+         loaded
+            .get_nft_approval(
+               1,
+               OWNER,
+               COLLECTION,
+               Some(U256::from(7)),
+               OPERATOR
+            )
+            .is_some()
+      );
+      assert!(loaded.get_nft_approval(1, OWNER, COLLECTION, None, OPERATOR).is_some());
+   }
+
+   /// A vault written before NFT approvals existed has no `nft_approvals` key at all, and must still
+   /// load — with everything else it did have.
+   #[test]
+   fn a_payload_written_before_nft_approvals_still_loads() {
+      let mut manager = ApprovalManager::new();
+      manager.add_from_tx(&approved(vec![per_token(OWNER, 7, OPERATOR)]));
+
+      let mut json = serde_json::to_value(&manager).unwrap();
+      json.as_object_mut().expect("an object").remove("nft_approvals");
+
+      let loaded: ApprovalManager =
+         serde_json::from_value(json).expect("an older payload still loads");
+
+      assert!(
+         loaded.get_all_active_nft_approvals().is_empty(),
+         "the missing field defaults to empty"
+      );
+   }
 }

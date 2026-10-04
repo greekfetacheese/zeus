@@ -62,6 +62,14 @@ impl NftApproveParams {
       self.token_id.is_none()
    }
 
+   /// Whether this is the ERC-721 per-token shape, where a token has at most one operator at a time.
+   ///
+   /// `ApprovalForAll` is the only other ERC-721 approval and it has no token id, so an ERC-721
+   /// approval that names a token *is* this shape.
+   pub fn is_erc721_per_token(&self) -> bool {
+      self.standard.is_erc721() && self.token_id.is_some()
+   }
+
    pub fn name(&self) -> &str {
       if self.is_revoke() {
          "Revoke NFT Approval"
