@@ -7,6 +7,7 @@ use zeus_eth::{
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
    currency::{Currency, ERC20Token, NativeCurrency},
+   nft::NftStandard,
    utils::{
       NumericValue,
       address_book::{
@@ -16,8 +17,11 @@ use zeus_eth::{
    },
 };
 
-use super::approval_diff::{ApprovalChange, ApprovalDiff, ApprovalKind};
-use super::balance_diff::{BalanceDiff, native_change, token_change};
+use super::approval_diff::{
+   ApprovalChange, ApprovalDiff, ApprovalKind, NftApprovalChange, NftApprovalTarget,
+   NftApprovalValue,
+};
+use super::balance_diff::{BalanceDiff, NftBalanceChange, native_change, token_change};
 use super::events::decode::{DecodeCtx, decode_transaction};
 use super::events::*;
 
@@ -977,12 +981,40 @@ fn dummy_balance_and_approval_diffs() -> (BalanceDiff, ApprovalDiff) {
       changes.push(change);
    }
 
+   // An NFT arriving and an NFT approval being granted, so the dev windows exercise those rows too.
+   let collection = Address::from_str("0xaf5aa7b670ef209e23d3f7b39a8f42f84bd002ac").unwrap();
+
+   let nfts = NftBalanceChange::new(
+      collection,
+      U256::from(1071),
+      NftStandard::Erc721,
+      U256::ZERO,
+      U256::from(1),
+   )
+   .into_iter()
+   .collect();
+
+   let nft_changes = NftApprovalChange::from_state(
+      collection,
+      nft_manager,
+      NftApprovalTarget::ForAll,
+      NftStandard::Erc721,
+      NftApprovalValue::ForAll(false),
+      NftApprovalValue::ForAll(true),
+   )
+   .into_iter()
+   .collect();
+
    (
       BalanceDiff {
          native: native_change(1, eth_price, eth_before, eth_after),
          tokens,
+         nfts,
       },
-      ApprovalDiff { changes },
+      ApprovalDiff {
+         changes,
+         nft_changes,
+      },
    )
 }
 

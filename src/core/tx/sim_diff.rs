@@ -444,9 +444,11 @@ pub async fn resolve_raw_diffs(
       BalanceDiff {
          native: native_change(chain, eth_price, native_before, native_after),
          tokens: token_changes,
+         nfts: Vec::new(),
       },
       ApprovalDiff {
          changes: approval_changes,
+         nft_changes: Vec::new(),
       },
    )
 }

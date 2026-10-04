@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token, NativeCurrency},
+   nft::NftStandard,
    utils::NumericValue,
 };
 
@@ -58,20 +59,77 @@ impl BalanceChange {
    }
 }
 
+/// One NFT whose signer ownership changed across the simulated tx.
+///
+/// Not a [`BalanceChange`], and not a `Currency`: an NFT has no decimals and no USD price, and what
+/// moved is ownership of a *specific* id rather than an amount of a fungible thing. `before`/`after`
+/// are therefore the shape's own quantity — `0`/`1` for ERC-721 (whether the signer owns it) and a
+/// count for ERC-1155.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NftBalanceChange {
+   pub collection: Address,
+   pub token_id: U256,
+   pub standard: NftStandard,
+   pub before: U256,
+   pub after: U256,
+}
+
+impl NftBalanceChange {
+   /// Build a change, or `None` when ownership did not move — the same "no row for no delta"
+   /// contract [`BalanceChange::from_wei`] has.
+   pub fn new(
+      collection: Address,
+      token_id: U256,
+      standard: NftStandard,
+      before: U256,
+      after: U256,
+   ) -> Option<Self> {
+      if before == after {
+         return None;
+      }
+      Some(Self {
+         collection,
+         token_id,
+         standard,
+         before,
+         after,
+      })
+   }
+
+   /// Whether the signer came out of this holding it — a mint, a receive, or a batch that grew.
+   pub fn is_received(&self) -> bool {
+      self.after > self.before
+   }
+
+   /// How many moved. Always at least 1 for ERC-721.
+   pub fn abs_delta(&self) -> U256 {
+      if self.after > self.before {
+         self.after - self.before
+      } else {
+         self.before - self.after
+      }
+   }
+}
+
 /// Signer-side balance outcome of a simulated transaction.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BalanceDiff {
    pub native: Option<BalanceChange>,
    pub tokens: Vec<BalanceChange>,
+   /// NFT ownership changes, kept apart from `tokens` because a row here is a collection + an id
+   /// rather than a currency + an amount. `serde(default)` so an analysis stored before NFT rows
+   /// existed still loads.
+   #[serde(default)]
+   pub nfts: Vec<NftBalanceChange>,
 }
 
 impl BalanceDiff {
    pub fn is_empty(&self) -> bool {
-      self.native.is_none() && self.tokens.is_empty()
+      self.native.is_none() && self.tokens.is_empty() && self.nfts.is_empty()
    }
 
    pub fn len(&self) -> usize {
-      self.native.is_some() as usize + self.tokens.len()
+      self.native.is_some() as usize + self.tokens.len() + self.nfts.len()
    }
 
    /// Native first, then token rows. Outflows before inflows within tokens.
@@ -84,6 +142,14 @@ impl BalanceDiff {
       }
       out.extend(tokens);
       out
+   }
+
+   /// NFT rows, sent before received — the same "outflows first" convention [`Self::changes`] uses
+   /// for tokens, so a row you are losing is never below one you are gaining.
+   pub fn nft_changes(&self) -> Vec<&NftBalanceChange> {
+      let mut rows: Vec<&NftBalanceChange> = self.nfts.iter().collect();
+      rows.sort_by_key(|c| c.is_received());
+      rows
    }
 }
 
@@ -290,6 +356,7 @@ mod tests {
       let diff = BalanceDiff {
          native: Some(native.clone()),
          tokens: vec![inflow.clone(), outflow.clone()],
+         nfts: Vec::new(),
       };
       let rows = diff.changes();
       assert_eq!(rows.len(), 3);
@@ -298,5 +365,110 @@ mod tests {
       assert_eq!(rows[1].currency.symbol(), "TB");
       assert!(rows[2].is_increase());
       assert_eq!(rows[2].currency.symbol(), "WBTEST");
+   }
+
+   fn collection() -> Address {
+      address!("0x3E6F909dDBD068c6299ee2A47AD9FE44760D61E0")
+   }
+
+   #[test]
+   fn an_nft_row_needs_a_real_delta() {
+      assert!(
+         NftBalanceChange::new(
+            collection(),
+            U256::from(7),
+            NftStandard::Erc721,
+            U256::from(1),
+            U256::from(1)
+         )
+         .is_none(),
+         "an unchanged id is not a row"
+      );
+
+      let received = NftBalanceChange::new(
+         collection(),
+         U256::from(7),
+         NftStandard::Erc721,
+         U256::ZERO,
+         U256::from(1),
+      )
+      .unwrap();
+      assert!(received.is_received());
+      assert_eq!(received.abs_delta(), U256::from(1));
+
+      // ERC-1155 counts: a batch send of 3 of an id the signer held 5 of.
+      let sent = NftBalanceChange::new(
+         collection(),
+         U256::from(9),
+         NftStandard::Erc1155,
+         U256::from(5),
+         U256::from(2),
+      )
+      .unwrap();
+      assert!(!sent.is_received());
+      assert_eq!(sent.abs_delta(), U256::from(3));
+   }
+
+   #[test]
+   fn nft_rows_are_counted_and_ordered_outflows_first() {
+      let sent = NftBalanceChange::new(
+         collection(),
+         U256::from(7),
+         NftStandard::Erc721,
+         U256::from(1),
+         U256::ZERO,
+      )
+      .unwrap();
+      let received = NftBalanceChange::new(
+         collection(),
+         U256::from(8),
+         NftStandard::Erc721,
+         U256::ZERO,
+         U256::from(1),
+      )
+      .unwrap();
+
+      let diff = BalanceDiff {
+         native: None,
+         tokens: Vec::new(),
+         nfts: vec![received.clone(), sent.clone()],
+      };
+
+      assert!(!diff.is_empty());
+      assert_eq!(diff.len(), 2);
+      assert!(
+         diff.changes().is_empty(),
+         "NFT rows are not fungible rows"
+      );
+
+      let rows = diff.nft_changes();
+      assert_eq!(rows[0].token_id, U256::from(7));
+      assert_eq!(rows[1].token_id, U256::from(8));
+   }
+
+   /// A payload stored before NFT rows existed has no `nfts` key, and must still load with the rest
+   /// of its rows intact.
+   #[test]
+   fn a_payload_written_before_nft_rows_still_loads() {
+      let diff = BalanceDiff {
+         native: native_change(
+            1,
+            NumericValue::default(),
+            U256::from(2u64),
+            U256::from(1u64),
+         ),
+         tokens: Vec::new(),
+         nfts: Vec::new(),
+      };
+
+      let mut json = serde_json::to_value(&diff).unwrap();
+      json.as_object_mut().expect("an object").remove("nfts");
+
+      let loaded: BalanceDiff = serde_json::from_value(json).expect("an older payload loads");
+      assert!(loaded.nfts.is_empty());
+      assert!(
+         loaded.native.is_some(),
+         "the rest of the row survives"
+      );
    }
 }
