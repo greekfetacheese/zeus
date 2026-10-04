@@ -748,6 +748,39 @@ mod tests {
       assert!(icons.nft_collection_icon_x64(10, collection, false).uri().is_none());
    }
 
+   /// A row that names a token never borrows its collection's art.
+   ///
+   /// A mint names an id that does not exist yet, so the placeholder is right there — and showing the art
+   /// of a *sibling* token under this row's id would be showing a different NFT. Only the rows about a
+   /// collection as a whole (an approval log, which carries no id) take any cached art of it.
+   #[test]
+   fn a_tokens_row_does_not_borrow_the_collections_art() {
+      let ctx = Context::default();
+      let icons = Icons::new(&ctx).expect("the bundled icons load");
+
+      let collection = Address::from([0xaf; 20]);
+      let chain_id = 11155111;
+
+      // Art cached for a token of the collection that is not the one being drawn.
+      icons.nfts.insert_icon(
+         (collection, chain_id, U256::from(500)),
+         NftIconData::Svg(b"<svg/>".to_vec()),
+      );
+
+      assert!(
+         icons
+            .nft_icon_x64(chain_id, collection, U256::from(1521), false)
+            .uri()
+            .is_none(),
+         "a token's row must not show another token's art"
+      );
+
+      assert!(
+         icons.nft_collection_icon_x64(chain_id, collection, false).uri().is_some(),
+         "the id-less row is the one that takes the collection's art"
+      );
+   }
+
    /// The placeholder is a binary asset. A corrupt or mis-encoded PNG would otherwise only show up
    /// as a panic at GUI startup, so decode it here.
    #[test]

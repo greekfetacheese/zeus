@@ -388,6 +388,11 @@ fn nft_transfer_event_ui(
 
             // A transfer always names a token, so there is always something specific to ask for; the
             // collection fallback covers a stored event whose id never made it into the cache.
+            //
+            // A **mint** keeps the placeholder on purpose: it names a token that does not exist yet, so
+            // it can have no art of its own — and the collection's cached art would be a *different*
+            // NFT shown under this row's id. The collection fallback is for rows that are about a
+            // collection as a whole, not for one that names a token.
             let icon = match params.token_id {
                Some(token_id) => icons.nft_icon_x64(chain_id, params.collection, token_id, tint),
                None => icons.nft_collection_icon_x64(chain_id, params.collection, tint),
