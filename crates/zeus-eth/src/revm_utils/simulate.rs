@@ -1,5 +1,5 @@
 use super::{ExecutionResult, revert_msg};
-use alloy_primitives::{Address, TxKind, U256};
+use alloy_primitives::{Address, Bytes, TxKind, U256};
 
 use super::Evm2;
 use anyhow::anyhow;
@@ -9,6 +9,27 @@ use crate::abi::{
    self,
    uniswap::nft_position::{INonfungiblePositionManager, encode_decrease_liquidity},
 };
+
+/// The output of a call that **had to succeed**, or the revert it actually produced.
+///
+/// Reading a revert as a value is the trap this closes. `ExecutionResult::output` returns `Some`
+/// for a revert as well as a success, and the generated decoders are *non-validating*, so a
+/// reverted call's payload is read as an answer: OpenZeppelin's `ERC721NonexistentToken(uint256)`
+/// reverts with 36 bytes — a selector and one word — and `ownerOf` on a burned token therefore
+/// came back as a plausible-looking owner address instead of an error.
+///
+/// A caller that only wants a measurement gets none, which is the honest answer; anything that
+/// needs to tell "the token does not exist" from "the read failed" has to distinguish it at the
+/// call site.
+fn ok_output<'a>(result: &'a ExecutionResult, call: &str) -> Result<&'a Bytes, anyhow::Error> {
+   let output = result.output().ok_or_else(|| anyhow!("{call} produced no output"))?;
+
+   if !result.is_success() {
+      return Err(anyhow!("{call} reverted: {}", revert_msg(output)));
+   }
+
+   Ok(output)
+}
 
 /// Simulate ERC-721 `ownerOf(tokenId)` (does not commit).
 ///
@@ -31,7 +52,7 @@ where
    evm.tx.kind = TxKind::Call(collection);
 
    let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
-   let output = res.result.output().ok_or(anyhow!("Output not found"))?;
+   let output = ok_output(&res.result, "ownerOf")?;
    let owner = abi::erc721::decode_owner_of(output)?;
    Ok(owner)
 }
@@ -56,7 +77,7 @@ where
    evm.tx.kind = TxKind::Call(collection);
 
    let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
-   let output = res.result.output().ok_or(anyhow!("Output not found"))?;
+   let output = ok_output(&res.result, "getApproved")?;
    abi::erc721::decode_get_approved(output)
 }
 
@@ -81,7 +102,7 @@ where
    evm.tx.kind = TxKind::Call(collection);
 
    let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
-   let output = res.result.output().ok_or(anyhow!("Output not found"))?;
+   let output = ok_output(&res.result, "isApprovedForAll")?;
    abi::erc721::decode_is_approved_for_all(output)
 }
 
@@ -107,7 +128,7 @@ where
    evm.tx.kind = TxKind::Call(collection);
 
    let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
-   let output = res.result.output().ok_or(anyhow!("Output not found"))?;
+   let output = ok_output(&res.result, "ERC-5216 allowance")?;
    abi::erc1155::decode_allowance(output)
 }
 
@@ -129,7 +150,7 @@ where
    evm.tx.kind = TxKind::Call(collection);
 
    let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
-   let output = res.result.output().ok_or(anyhow!("Output not found"))?;
+   let output = ok_output(&res.result, "ERC-1155 balanceOf")?;
    let balance = abi::erc1155::decode_balance_of(output)?;
    Ok(balance)
 }
@@ -440,13 +461,14 @@ mod tests {
    use super::*;
    use crate::{
       abi::{erc721::IERC721, erc1155::IERC1155},
-      revm_utils::{ForkFactory, new_evm},
+      revm_utils::{ForkFactory, Output, new_evm},
       test_utils::rpc_url,
       types::ChainId,
    };
    use alloy_primitives::address;
    use alloy_provider::{Provider, ProviderBuilder};
    use alloy_rpc_types::BlockId;
+   use revm::context_interface::result::{ResultGas, SuccessReason};
 
    /// The reads the NFT send path's transfer check makes, executed on a real fork and compared with the
    /// node's own answer **at the same block**.
@@ -561,6 +583,57 @@ mod tests {
          )
          .is_err(),
          "a collection without ERC-5216 must revert, not answer zero"
+      );
+   }
+
+   /// A revert must never be read as an answer, however decodable its payload looks.
+   ///
+   /// `ExecutionResult::output` returns `Some` for a revert too, and the generated decoders are
+   /// non-validating, so before the guard a burned token's `ownerOf` — which reverts with
+   /// OpenZeppelin's `ERC721NonexistentToken(uint256)`, a selector and one word — came back as a
+   /// plausible owner address. That the payload *does* decode is what gives the guard its point.
+   #[test]
+   fn a_revert_is_never_read_as_a_value() {
+      // Selector + one word: the 36 bytes an OZ custom error reverts with.
+      let mut payload = vec![0x7e, 0x27, 0x30, 0xff];
+      payload.extend_from_slice(&[0xab; 32]);
+      let output = Bytes::from(payload);
+
+      assert_eq!(
+         abi::erc721::decode_owner_of(&output).unwrap(),
+         Address::from([0xab; 20]),
+         "the payload decodes as an owner — that is the trap, not a hypothetical"
+      );
+
+      let reverted = ExecutionResult::Revert {
+         gas: ResultGas::default(),
+         logs: Vec::new(),
+         output,
+      };
+      assert!(
+         ok_output(&reverted, "ownerOf").is_err(),
+         "a revert is an error, not a decoded owner"
+      );
+   }
+
+   /// A successful call still yields its output, so the guard is not a blanket refusal.
+   #[test]
+   fn a_successful_call_still_yields_its_output() {
+      let mut word = vec![0u8; 12];
+      word.extend_from_slice(&[0xcd; 20]);
+      let word = Bytes::from(word);
+
+      let success = ExecutionResult::Success {
+         reason: SuccessReason::Stop,
+         gas: ResultGas::default(),
+         logs: Vec::new(),
+         output: Output::Call(word.clone()),
+      };
+
+      assert_eq!(
+         ok_output(&success, "ownerOf").unwrap(),
+         &word,
+         "a success must pass its output through"
       );
    }
 }
