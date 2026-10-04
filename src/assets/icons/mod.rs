@@ -221,27 +221,24 @@ impl TokenIcons {
 /// Key for one NFT's images: `(collection, chain id, token id)`.
 pub type NftKey = (Address, u64, U256);
 
-/// Stored art for one NFT.
+/// Stored art for one NFT: the two raster renderings a view asks for.
 ///
-/// Two forms because the two kinds of art want opposite treatment: raster art is pre-rendered
-/// (a grid and a detail view ask for different sizes, and decoding once beats decoding per view),
-/// while vector art is kept as its source because egui rasterises SVG at whatever size it is asked
-/// for — pre-rendering it would only lose quality and cost disk.
+/// One shape for every kind of art. A grid and a detail view ask for different sizes, so the
+/// renderings are produced once at ingest — art is never kept as source, because a renderer handed
+/// source resolves `href` against the filesystem, which turns a collection's `tokenURI` into a
+/// local file read. See [`crate::utils::nft_icon`].
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum NftIconData {
-   /// Pre-rendered raster art: a list thumbnail and a detail-view copy.
-   Raster { x64: Vec<u8>, x250: Vec<u8> },
-   /// The SVG source, verbatim.
-   Svg(Vec<u8>),
+pub struct NftIconData {
+   /// The list thumbnail.
+   pub x64: Vec<u8>,
+   /// The copy kept for inspecting a single NFT.
+   pub x250: Vec<u8>,
 }
 
 impl NftIconData {
    /// Whether this holds anything worth showing — a half-written directory holds nothing.
    pub fn is_empty(&self) -> bool {
-      match self {
-         Self::Raster { x64, x250 } => x64.is_empty() && x250.is_empty(),
-         Self::Svg(svg) => svg.is_empty(),
-      }
+      self.x64.is_empty() && self.x250.is_empty()
    }
 }
 
@@ -311,11 +308,12 @@ impl NftIcons {
 
       let bytes = {
          let icon_data = self.icon_data.read().unwrap();
-         // Vector art has no raster renderings to build a texture from.
-         let NftIconData::Raster { x64, x250 } = icon_data.get(key)? else {
-            return None;
+         let data = icon_data.get(key)?;
+         let (preferred, other) = if large {
+            (&data.x250, &data.x64)
+         } else {
+            (&data.x64, &data.x250)
          };
-         let (preferred, other) = if large { (x250, x64) } else { (x64, x250) };
          if preferred.is_empty() {
             other.clone()
          } else {
@@ -371,16 +369,6 @@ impl NftIcons {
       !self.has_icon(key)
          && !self.in_flight.read().unwrap().contains(key)
          && !self.failed.read().unwrap().contains(key)
-   }
-
-   /// The vector source for this token, if the stored art is an SVG.
-   ///
-   /// egui rasterises it at the size a view asks for, so there is nothing to cache as a texture.
-   fn svg_source(&self, key: &NftKey) -> Option<Vec<u8>> {
-      match self.icon_data.read().unwrap().get(key)? {
-         NftIconData::Svg(svg) => Some(svg.clone()),
-         NftIconData::Raster { .. } => None,
-      }
    }
 
    pub fn insert_icon(&self, key: NftKey, data: NftIconData) {
@@ -646,29 +634,15 @@ impl Icons {
       let key = (collection, chain_id, token_id);
       let size = if large { 250 } else { 64 };
 
-      let image = if let Some(svg) = self.nfts.svg_source(&key) {
-         // Vector art first: egui rasterises SVG at the size the view asks for, so there is no stored
-         // texture to look up. The URI must keep its `.svg` extension — that is what tells egui's
-         // bytes loader which decoder to use.
-         let uri = format!("bytes://nft/{size}/{collection}/{chain_id}/{token_id}.svg");
-
-         Image::new(ImageSource::Bytes {
-            uri: uri.into(),
-            bytes: svg.into(),
-         })
-      } else {
-         match self.nfts.raster_texture(&key, large) {
-            Some(icon) => Image::new(&icon),
-            // Untinted: the tint is applied once below, for every branch.
-            None => self.nft_placeholder(false),
-         }
+      let image = match self.nfts.raster_texture(&key, large) {
+         Some(icon) => Image::new(&icon),
+         // Untinted: the tint is applied once below.
+         None => self.nft_placeholder(false),
       };
 
       // Bounded to the size this variant exists to render at, and that bound is load-bearing: an
       // `Image` left unbounded takes `ImageFit::Fraction([1, 1])` of whatever space it is offered, so
-      // in a row it grows to fill the cell and starves the label beside it. The on-chain art is the
-      // worst case — an SVG with only a `viewBox` has no intrinsic size at all, so the offer decides
-      // how large it is rasterised, and it ends up taking the whole cell.
+      // in a row it grows to fill the cell and starves the label beside it.
       tinted(image.max_size(Vec2::splat(size as f32)), tint)
    }
 
@@ -727,25 +701,32 @@ mod tests {
 
       let collection = Address::from([0xbc; 20]);
 
-      // Nothing cached: the placeholder, which is a texture and so carries no URI of its own.
-      assert!(icons.nft_collection_icon_x64(1, collection, false).uri().is_none());
+      // Nothing cached: no token of this collection has art to lend.
+      assert_eq!(
+         icons.nfts.cached_id_for_collection(1, collection),
+         None,
+         "nothing cached yet"
+      );
 
       // Art cached under a token id that is not 0.
       let key = (collection, 1, U256::from(7));
-      icons.nfts.insert_icon(key, NftIconData::Svg(b"<svg/>".to_vec()));
+      icons.nfts.insert_icon(key, raster(vec![1], vec![2]));
 
-      let uri = icons
-         .nft_collection_icon_x64(1, collection, false)
-         .uri()
-         .map(str::to_string)
-         .expect("the cached token's art is an SVG source");
+      assert_eq!(
+         icons.nfts.cached_id_for_collection(1, collection),
+         Some(U256::from(7)),
+         "the id-less row takes whichever token is cached, not a fixed id"
+      );
       assert!(
-         uri.contains("/7.svg"),
-         "expected the collection's cached art, got {uri}"
+         icons.nfts.raster_texture(&key, false).is_some(),
+         "and that art is what the row then shows"
       );
 
       // Another chain does not see it: the art is keyed per chain.
-      assert!(icons.nft_collection_icon_x64(10, collection, false).uri().is_none());
+      assert_eq!(
+         icons.nfts.cached_id_for_collection(10, collection),
+         None
+      );
    }
 
    /// A row that names a token never borrows its collection's art.
@@ -762,21 +743,19 @@ mod tests {
       let chain_id = 11155111;
 
       // Art cached for a token of the collection that is not the one being drawn.
-      icons.nfts.insert_icon(
-         (collection, chain_id, U256::from(500)),
-         NftIconData::Svg(b"<svg/>".to_vec()),
-      );
+      let cached = (collection, chain_id, U256::from(500));
+      icons.nfts.insert_icon(cached, raster(vec![1], vec![2]));
 
       assert!(
          icons
-            .nft_icon_x64(chain_id, collection, U256::from(1521), false)
-            .uri()
+            .nfts
+            .raster_texture(&(collection, chain_id, U256::from(1521)), false)
             .is_none(),
          "a token's row must not show another token's art"
       );
 
       assert!(
-         icons.nft_collection_icon_x64(chain_id, collection, false).uri().is_some(),
+         icons.nfts.raster_texture(&cached, false).is_some(),
          "the id-less row is the one that takes the collection's art"
       );
    }
@@ -818,10 +797,10 @@ mod tests {
       );
    }
 
-   /// Shorthand for a raster entry. There is no `Default`, because an empty entry is not something
-   /// to build by accident.
+   /// Shorthand for an entry with both renderings. There is no `Default`, because an empty entry is
+   /// not something to build by accident.
    fn raster(x64: Vec<u8>, x250: Vec<u8>) -> NftIconData {
-      NftIconData::Raster { x64, x250 }
+      NftIconData { x64, x250 }
    }
 
    #[test]
@@ -831,9 +810,10 @@ mod tests {
          !raster(vec![1], Vec::new()).is_empty(),
          "one rendering is enough to show"
       );
-
-      assert!(!NftIconData::Svg(PLACEHOLDER.to_vec()).is_empty());
-      assert!(NftIconData::Svg(Vec::new()).is_empty());
+      assert!(
+         !raster(Vec::new(), vec![2]).is_empty(),
+         "either rendering is enough to show"
+      );
    }
 
    /// The dedupe contract the fetch path relies on: one download per token, and a miss is not
@@ -935,26 +915,6 @@ mod tests {
       assert!(
          !icons.needs_fetch(&with_art),
          "we already have it"
-      );
-   }
-
-   /// Vector art has no raster renderings to build a texture from, so the texture path must report
-   /// "nothing" instead of panicking — the view checks the SVG path first, and this is what stops a
-   /// future refactor from silently reordering those two checks.
-   #[test]
-   fn vector_art_is_served_as_source_not_as_a_texture() {
-      let icons = NftIcons::default();
-      let key = (Address::from([0xbc; 20]), 1, U256::from(11));
-      let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"8\"/>";
-
-      icons.insert_icon(key, NftIconData::Svg(svg.to_vec()));
-
-      assert!(icons.raster_texture(&key, false).is_none());
-      assert!(icons.raster_texture(&key, true).is_none());
-      assert_eq!(icons.svg_source(&key).as_deref(), Some(&svg[..]));
-      assert!(
-         icons.has_icon(&key),
-         "vector art counts as an image we have"
       );
    }
 }

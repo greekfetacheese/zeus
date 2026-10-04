@@ -14,6 +14,8 @@ use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use anyhow::anyhow;
 use image::imageops::FilterType;
+use resvg::tiny_skia::{Pixmap, Transform};
+use resvg::usvg;
 use std::io::Cursor;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -253,6 +255,57 @@ fn render_two_sizes(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), anyhow::Error> {
    Ok((render(THUMB_EDGE)?, render(LARGE_EDGE)?))
 }
 
+/// `usvg` options that cannot reach the machine.
+///
+/// `resolve_string` is the one hook with filesystem reach: usvg's default treats a non-`data:`
+/// `href` as a **path** and `std::fs::read`s it (usvg-0.45.1 `parser/image.rs`), so a collection
+/// whose art says `<image href="/etc/passwd"/>` — or names a device file that never ends — would
+/// have Zeus open it, and a referenced SVG is *drawn*, so the picture would appear as the token's
+/// art. Refusing every string reference removes that reach.
+///
+/// The `data:` half stays at the default because it is already closed: usvg parses a nested
+/// document with `None` resolvers of its own (`load_sub_svg`), so an embedded SVG cannot name a
+/// path either — and keeping it lets art that embeds an image inline still render.
+fn svg_options() -> usvg::Options<'static> {
+   let mut options = usvg::Options::default();
+   options.image_href_resolver = usvg::ImageHrefResolver {
+      resolve_data: usvg::ImageHrefResolver::default_data_resolver(),
+      resolve_string: Box::new(|_, _| None),
+   };
+   options
+}
+
+/// Rasterise vector art into the two renderings a view asks for.
+///
+/// Only ever shrinks, matching [`render_two_sizes`]: a small picture is never upscaled.
+fn render_svg(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), anyhow::Error> {
+   let tree = usvg::Tree::from_data(bytes, &svg_options())?;
+   Ok((
+      render_svg_edge(&tree, THUMB_EDGE)?,
+      render_svg_edge(&tree, LARGE_EDGE)?,
+   ))
+}
+
+/// One rendering of `tree`, scaled to fit inside `edge`.
+fn render_svg_edge(tree: &usvg::Tree, edge: u32) -> Result<Vec<u8>, anyhow::Error> {
+   let size = tree.size();
+   // `.min(1.0)` before the multiply, so a document with no intrinsic size cannot produce a NaN
+   // scale below: the pixmap is clamped to at least 1x1 either way.
+   let scale = (edge as f32 / size.width()).min(edge as f32 / size.height()).min(1.0);
+   let width = (size.width() * scale).round().max(1.0) as u32;
+   let height = (size.height() * scale).round().max(1.0) as u32;
+
+   let mut pixmap = Pixmap::new(width, height)
+      .ok_or_else(|| anyhow!("{width}x{height} is not a renderable size"))?;
+   resvg::render(
+      tree,
+      Transform::from_scale(scale, scale),
+      &mut pixmap.as_mut(),
+   );
+
+   Ok(pixmap.encode_png()?)
+}
+
 /// Whether these bytes are vector art.
 ///
 /// Sniffed from the content rather than from the URI or a mime type: the same collection serves SVG
@@ -268,18 +321,21 @@ fn is_svg(bytes: &[u8]) -> bool {
    start.starts_with(b"<svg") || start.starts_with(b"<?xm")
 }
 
-/// Decide what to store for a piece of art.
+/// Decide what to store for a piece of art: two raster renderings, whichever way it arrived.
 ///
-/// Vector art keeps its source: egui rasterises SVG at whatever size a view asks for, so
-/// pre-rendering it would only lose detail and cost disk. Everything else is decoded once here and
-/// stored as two renderings.
+/// Vector art is rasterised here instead of being kept as source. A renderer handed SVG source
+/// resolves `href` against the filesystem, which turns a collection's art into a local file read
+/// and, for a referenced SVG, into a picture of a file on disk. Rendering it ourselves, under
+/// [`svg_options`], keeps that reach out of the picture entirely. The two sizes are the only ones
+/// the views ask for, so neither the grid nor the detail view loses anything.
 pub fn prepare_image_data(bytes: &[u8]) -> Result<NftIconData, anyhow::Error> {
-   if is_svg(bytes) {
-      return Ok(NftIconData::Svg(bytes.to_vec()));
-   }
+   let (x64, x250) = if is_svg(bytes) {
+      render_svg(bytes)?
+   } else {
+      render_two_sizes(bytes)?
+   };
 
-   let (x64, x250) = render_two_sizes(bytes)?;
-   Ok(NftIconData::Raster { x64, x250 })
+   Ok(NftIconData { x64, x250 })
 }
 
 /// GET with a size cap.
@@ -361,9 +417,10 @@ async fn fetch_resolved(uri: ResolvedUri) -> Result<Option<Vec<u8>>, anyhow::Err
 /// the graph happens to enable them. `decodes_the_art_formats_that_appear_on_chain` fails if one
 /// of them goes missing.
 ///
-/// **SVG** is not decoded at all: it is kept as vector art (see [`prepare_image_data`]), which is
-/// both faithful and cheaper. Art in a format that is not enabled lands in `Ok(None)` with its
-/// detected format logged, so a placeholder is diagnosable rather than mysterious.
+/// **SVG** is rasterised here, at the two sizes the views ask for, and never handed on as source: a
+/// renderer given source resolves `href` against the filesystem (see [`svg_options`]). Art in a
+/// format that is not enabled lands in `Ok(None)` with its detected format logged, so a placeholder
+/// is diagnosable rather than mysterious.
 pub async fn fetch_nft_icon(
    metadata_uri: &str,
    token_id: U256,
@@ -506,7 +563,9 @@ mod tests {
    /// prove we never upscale.
    const PNG_URI: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAGklEQVR42mPQiFrw/wQQ46IZ8EmCaIZhYQIAW1icQe9Ao+YAAAAASUVORK5CYII=";
 
-   const SVG_URI: &str = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMCAxMCIvPg==";
+   /// A 10x10 SVG with a red square, at an explicit size so the rendered sizes are exact. The red
+   /// square is also what the href test looks for the absence of.
+   const RED_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10"><rect width="10" height="10" fill="#ff0000"/></svg>"##;
 
    /// A metadata document in the shape OpenSea uses. Built by `format!` rather than pasted as one
    /// blob so the image URI stays reviewable.
@@ -659,12 +718,24 @@ mod tests {
       assert!(!looks_like_json(&[0x89, b'P', b'N', b'G']));
    }
 
-   /// The two raster renderings, for the tests that are about raster art specifically.
+   /// The two renderings, which is all art has been since vector art stopped being stored as source.
    fn raster_renderings(data: &NftIconData) -> (&[u8], &[u8]) {
-      match data {
-         NftIconData::Raster { x64, x250 } => (x64, x250),
-         NftIconData::Svg(_) => panic!("expected raster art, got vector"),
-      }
+      (&data.x64, &data.x250)
+   }
+
+   /// The red-square document as a `data:` URI, so the fetch path needs no network.
+   fn red_svg_uri() -> String {
+      format!("data:image/svg+xml,{RED_SVG}")
+   }
+
+   /// One rendering's pixels.
+   fn pixels(png: &[u8]) -> image::RgbaImage {
+      image::load_from_memory(png).expect("a rendering is a PNG").to_rgba8()
+   }
+
+   /// Whether a rendering drew anything at all.
+   fn draws_anything(png: &[u8]) -> bool {
+      pixels(png).pixels().any(|pixel| pixel.0[3] != 0)
    }
 
    /// Formats the grid must actually be able to show. Each fixture is a real file, so this fails
@@ -777,19 +848,83 @@ mod tests {
       }
    }
 
-   /// SVG art is kept as its source rather than rasterised: egui renders it at whatever size a view
-   /// asks for, so it stays crisp in both the grid and the detail view.
+   /// SVG art is rasterised here, at the two sizes the views ask for, rather than kept as source.
    #[tokio::test]
-   async fn svg_art_is_kept_as_vector() {
-      let data = fetch_nft_icon(SVG_URI, U256::from(1))
+   async fn svg_art_is_rasterised_at_the_views_sizes() {
+      let data = fetch_nft_icon(&red_svg_uri(), U256::from(1))
          .await
          .unwrap()
-         .expect("SVG must be kept, not dropped as undecodable");
+         .expect("SVG must render, not be dropped as undecodable");
 
-      match data {
-         NftIconData::Svg(svg) => assert!(is_svg(&svg)),
-         NftIconData::Raster { .. } => panic!("SVG must not be rasterised"),
-      }
+      let (x64, x250) = raster_renderings(&data);
+      assert_eq!(
+         decoded_edge(x64),
+         (10, 10),
+         "a 10x10 source is never upscaled"
+      );
+      assert_eq!(decoded_edge(x250), (10, 10));
+      assert!(
+         draws_anything(x64),
+         "the red square must survive the round trip"
+      );
+   }
+
+   /// A vector document is shrunk to fit each edge, exactly as raster art is.
+   #[test]
+   fn a_large_svg_is_shrunk_to_fit_each_edge() {
+      // An 800x200 source: aspect ratio is preserved, so the thumbnail is 64x16.
+      let wide = r##"<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200"><rect width="800" height="200" fill="#ff0000"/></svg>"##;
+
+      let prepared = prepare_image_data(wide.as_bytes()).unwrap();
+      let (x64, x250) = raster_renderings(&prepared);
+
+      assert_eq!(
+         decoded_edge(x64),
+         (64, 16),
+         "aspect ratio is preserved, not cropped"
+      );
+
+      let (large_w, large_h) = decoded_edge(x250);
+      assert_eq!(large_w, 250);
+      assert!(
+         large_h == 62 || large_h == 63,
+         "the 250-wide rendering keeps the aspect ratio, got {large_h} (200/800 x 250 = 62.5)"
+      );
+   }
+
+   /// Vector art cannot reach the filesystem.
+   ///
+   /// usvg's default href resolver treats a non-`data:` reference as a **path** and
+   /// `std::fs::read`s it, and a referenced *SVG* is drawn — so without [`svg_options`] a
+   /// collection's art would put a file from the user's disk on screen. The reference must be
+   /// refused, and the renderer must still work for everything else.
+   #[test]
+   fn svg_art_cannot_reference_a_file() {
+      let dir = std::env::temp_dir().join("zeus_nft_icon_href");
+      std::fs::create_dir_all(&dir).unwrap();
+      let target = dir.join("referenced.svg");
+      std::fs::write(&target, RED_SVG).unwrap();
+
+      let referencing = format!(
+         r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><image href="{}" x="0" y="0" width="10" height="10"/></svg>"##,
+         target.display()
+      );
+
+      let prepared = prepare_image_data(referencing.as_bytes()).expect("the document renders");
+      let (x64, _) = raster_renderings(&prepared);
+      assert!(
+         !draws_anything(x64),
+         "a referenced file must not be read, let alone drawn"
+      );
+
+      // The control: the same red square inline does draw, so the assertion above is about the
+      // href and not about the renderer being broken.
+      let prepared = prepare_image_data(RED_SVG.as_bytes()).expect("the document renders");
+      let (x64, _) = raster_renderings(&prepared);
+      assert!(
+         draws_anything(x64),
+         "an inline document must still render"
+      );
    }
 
    /// The sniff has to survive the shapes SVG actually arrives in, and must never claim a raster

@@ -11910,6 +11910,7 @@ dependencies = [
  "rayon",
  "redb",
  "reqwest",
+ "resvg",
  "rfd",
  "rustls",
  "secure-types",
