@@ -1,6 +1,6 @@
 use alloy_primitives::{B256, U256};
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::{
    account::{address::RailgunAddress, signer::RailgunSigner},
@@ -340,6 +340,21 @@ impl IndexedAccount {
          Ok(n) => n,
       };
 
+      // Reading the ciphertext only proves *we* can read it; the commitment proves the note is the one that
+      // leaf holds. The two disagree when the asset could not be resolved and a 32-byte hash was read as an
+      // ERC-20 instead (`resolve_transact_asset`): the guess is part of `note_hash`, so storing it stores a
+      // note the tree will never witness again — shown as a balance, never provable, never spendable, and
+      // never reprocessed, because `knows_note` short-circuits every later pass. Skipping costs the note
+      // until the registry knows the asset; storing it costs the note for good.
+      let commitment: U256 = note.hash().into();
+      if commitment != event.hash {
+         warn!(
+            "Skipped Transact note at tree {}, leaf {}: commitment {} does not match the event's {}",
+            note.tree_number, note.leaf_index, commitment, event.hash
+         );
+         return Ok(());
+      }
+
       if self.knows_note(note.tree_number, note.leaf_index) {
          return Ok(());
       }
@@ -545,6 +560,78 @@ mod tests {
       caip::AssetId,
       note::{encrypt::encrypt_shield, transfer::TransferNote},
    };
+
+   /// A note whose asset the wallet cannot recognize is not stored at all.
+   ///
+   /// A transact note's ciphertext kept only `asset.hash()`, and an unrecognized hash is read as an ERC-20
+   /// at the hash's low 20 bytes — a *guess*, and the guess is part of the note's commitment. Stored, it is
+   /// a note the tree can never witness: shown as a balance, never provable, never spendable, and never
+   /// reprocessed because `knows_note` short-circuits every later pass. The commitment check turns that
+   /// permanent corruption into a skip that a later pass — one with the asset in the registry — undoes.
+   #[test]
+   fn a_transact_note_whose_asset_is_unrecognized_is_skipped_not_stored() {
+      let seed: [u8; 64] = random();
+      let sec_array = SecureArray::from_slice(&seed).unwrap();
+      let sender = RailgunSigner::from_seed(&sec_array, 0, 1).unwrap();
+
+      let seed: [u8; 64] = random();
+      let sec_array = SecureArray::from_slice(&seed).unwrap();
+      let recipient = RailgunSigner::from_seed(&sec_array, 0, 1).unwrap();
+
+      // An NFT: the unrecognized reading is then provably not the asset the sender used.
+      let asset = AssetId::Erc721(
+         address!("0xaf5aa7b670ef209e23d3f7b39a8f42f84bd002ac"),
+         U256::from(1071),
+      );
+
+      let rng = &mut rand::rng();
+      let transfer = TransferNote::new(
+         sender.keys().viewing_private_key.clone(),
+         recipient.address().clone(),
+         asset,
+         1u128,
+         random(),
+         "",
+      );
+      let ciphertext = transfer.encrypt(rng).unwrap();
+      let event = syncer::Transact {
+         tree_number: 1,
+         leaf_index: 0,
+         hash: transfer.hash().into(),
+         ciphertext: ciphertext.clone().into(),
+         blinded_sender_viewing_key: *ciphertext.blindedSenderViewingKey,
+         blinded_receiver_viewing_key: *ciphertext.blindedReceiverViewingKey,
+         annotation_data: ciphertext.annotationData.to_vec(),
+         timestamp: 0,
+         tx_hash: B256::ZERO,
+      };
+
+      let mut account = IndexedAccount {
+         signer: recipient.clone(),
+         inner: Default::default(),
+         dirty: false,
+      };
+
+      // Nothing has been seen shielded, so the asset cannot be recognized: skip rather than store a guess.
+      account.handle_transact_event(&event, 10, &TokenRegistry::new()).unwrap();
+      assert!(
+         account.unspent().is_empty(),
+         "a note whose commitment does not match its event must not be stored"
+      );
+
+      // With the asset known — what replaying the shields gives a wallet — the same event stores the note
+      // it really is.
+      let mut known = TokenRegistry::new();
+      known.insert(asset.hash(), asset);
+      account.handle_transact_event(&event, 10, &known).unwrap();
+
+      let notes = account.unspent();
+      assert_eq!(notes.len(), 1);
+      assert_eq!(notes[0].asset, asset);
+
+      let stored: U256 = notes[0].hash().into();
+      assert_eq!(stored, event.hash);
+   }
 
    #[test]
    fn test_event_handling() {
