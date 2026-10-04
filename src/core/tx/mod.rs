@@ -16,8 +16,8 @@ pub use approval_diff::{
    NftApprovalTarget, NftApprovalValue,
 };
 pub use approve::{
-   ApproveSimulation, ensure_allowance, ensure_approval_for_all, send_nft_approve,
-   send_token_approve,
+   ApproveSimulation, ensure_allowance, ensure_approval_for_all, ensure_erc721_approve,
+   send_nft_approve, send_token_approve,
 };
 pub use balance_diff::{BalanceChange, BalanceDiff, NftBalanceChange, NftCandidate};
 pub use events::DecodedEvent;

@@ -13,7 +13,7 @@ use std::{
 use crate::core::{
    DecodedEvent, SendTxOptions, SendTxRequest, ShieldParams, TransactionAnalysis, WalletStateKey,
    ZeusContext, ZeusCtx, bundler_url_dir, ensure_allowance, ensure_approval_for_all,
-   send_transaction,
+   ensure_erc721_approve, send_transaction,
 };
 use crate::{
    gui::ui::common::show_with_fade,
@@ -1379,8 +1379,11 @@ async fn shield(
    let relay_adapt = railgun_provider.chain_config().relay_adapt_contract;
    let is_native = asset.is_native();
 
-   // ERC-20 still needs an on-chain approval of RailgunSmartWallet before shield, and an NFT collection
-   // needs `setApprovalForAll` — one approval that covers every token in it.
+   // ERC-20 still needs an on-chain approval of RailgunSmartWallet before shield. An NFT does too, but
+   // only for the token being moved: `RailgunLogic.transferTokenIn` calls `transferFrom` for an ERC-721,
+   // which accepts a per-token `approve`, so nothing grants the wallet a right over the rest of the
+   // collection. ERC-1155 has no per-token approval to give — and the protocol reverts on it outright
+   // ("RailgunLogic: ERC1155 not yet supported"), which is why shielding one is refused in the UI.
    // Native ETH uses RelayAdapt wrap+shield in one self-broadcast tx (no approval).
    if !is_native {
       match &asset {
@@ -1399,19 +1402,34 @@ async fn shield(
             )
             .await?;
          }
-         RailgunAsset::Nft(nft) => {
-            ensure_approval_for_all(
-               ctx.clone(),
-               chain,
-               from,
-               nft.collection,
-               nft.standard,
-               railgun_address,
-               "Railgun",
-               "Collection approval required to shield",
-            )
-            .await?;
-         }
+         RailgunAsset::Nft(nft) => match nft.standard {
+            NftStandard::Erc721 => {
+               ensure_erc721_approve(
+                  ctx.clone(),
+                  chain,
+                  from,
+                  nft.collection,
+                  nft.token_id,
+                  railgun_address,
+                  "Railgun",
+                  "Approval required to shield this token",
+               )
+               .await?;
+            }
+            NftStandard::Erc1155 => {
+               ensure_approval_for_all(
+                  ctx.clone(),
+                  chain,
+                  from,
+                  nft.collection,
+                  nft.standard,
+                  railgun_address,
+                  "Railgun",
+                  "Collection approval required to shield",
+               )
+               .await?;
+            }
+         },
       }
    }
 
