@@ -78,7 +78,7 @@ impl NftCollection {
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
-      let support = erc165::probe(client.clone(), address).await;
+      let support = erc165::probe(client.clone(), address).await?;
       Self::with_support(client, chain_id, address, support).await
    }
 
@@ -291,8 +291,10 @@ where
          continue;
       }
 
-      // Without Enumerable there is no way to get from a count to ids.
-      let support = erc165::probe(client.clone(), candidate).await;
+      // Without Enumerable there is no way to get from a count to ids. A collection the node could not
+      // be asked about fails the call instead of being skipped: an outage must not read as "this one
+      // has no enumerable tokens", or a whole tab of holdings would quietly empty itself.
+      let support = erc165::probe(client.clone(), candidate).await?;
       if !support.is_erc721_enumerable() {
          continue;
       }

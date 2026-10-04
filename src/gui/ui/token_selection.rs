@@ -1568,7 +1568,7 @@ async fn add_nft_collection(
 ) -> Result<CollectionAdd, anyhow::Error> {
    let client = ctx.get_client(chain_id).await?;
 
-   let support = erc165::probe(client.clone(), address).await;
+   let support = erc165::probe(client.clone(), address).await?;
 
    if !support.is_nft() {
       bail!("{address} is not an NFT contract");

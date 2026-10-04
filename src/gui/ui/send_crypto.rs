@@ -144,9 +144,15 @@ impl SendCryptoUi {
    ///
    /// Sets the mode too: a selection that leaves the view on the fungible path is not a state any
    /// caller wants, so there is no way to get it.
+   ///
+   /// The typed quantity goes with the previous selection. `nft_amount` belongs to the *selection*, and
+   /// carrying it over would offer a number the user never entered for this token: type 8 for one
+   /// ERC-1155, pick another, and the button would offer 8 of the new one. (The shield picker clears it
+   /// for the same reason.)
    pub fn set_nft(&mut self, nft: NftToken) {
       self.mode = SendMode::Nft;
       self.selected_nft = Some(nft);
+      self.nft_amount.clear();
    }
 
    /// Back to the fungible path, forgetting the NFT.
@@ -2036,6 +2042,36 @@ mod tests {
       send.set_nft(nft(7, NftStandard::Erc721));
       assert_eq!(send.get_mode(), SendMode::Nft);
       assert!(send.selected_nft.is_some());
+   }
+
+   /// Picking an NFT never inherits the previous selection's quantity.
+   ///
+   /// `nft_amount` is typed *for* a token, so it is cleared with the selection that it was typed for:
+   /// otherwise `nft_transfer_amount` reads a stale string and the button offers a count the user never
+   /// entered for the token now selected.
+   #[test]
+   fn picking_another_nft_does_not_inherit_the_typed_quantity() {
+      let mut send = SendCryptoUi::new();
+      send.set_nft(nft(7, NftStandard::Erc1155));
+      send.nft_amount = "8".to_string();
+      assert_eq!(
+         send.nft_transfer_amount(),
+         Some(U256::from(8)),
+         "as typed"
+      );
+
+      send.set_nft(nft(9, NftStandard::Erc1155));
+
+      assert_eq!(
+         send.selected_nft.as_ref().map(|n| n.token_id),
+         Some(U256::from(9)),
+         "the new selection is the one that is held"
+      );
+      assert_eq!(
+         send.nft_transfer_amount(),
+         None,
+         "and it starts with no quantity of its own"
+      );
    }
 
    /// Every hook that means "the token for this chain changed" drops the NFT and returns to the

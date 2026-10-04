@@ -524,12 +524,25 @@ pub struct Erc721Lookup {
    pub token_uri: Option<String>,
 }
 
-/// Batched ERC-721 `ownerOf(id)` in one Multicall3 aggregate, owners only.
+/// How many `ownerOf` / `balanceOf` calls go into one Multicall3 aggregate.
+///
+/// Sized so an aggregate stays a small fraction of a block: a few hundred sub-calls at a few thousand
+/// gas each is a couple of million, comfortably inside the `eth_call` caps nodes advertise, where
+/// thousands in one call is where aggregates start reverting whole.
+const MULTICALL_CHUNK: usize = 50;
+
+/// Batched ERC-721 `ownerOf(id)` in Multicall3 aggregates, owners only.
 ///
 /// Returns `(collection, id, owner)` aligned with `refs`, where `None` in the owner slot means the
 /// call reverted — a burned or never-minted id, which is the contract answering "no owner" rather
 /// than a transport failure. Use this instead of [`get_erc721_owners_and_uris`] when only ownership
 /// is wanted: the URI leg is a second aggregate and can carry base64 artwork.
+///
+/// The refs are split across aggregates of [`MULTICALL_CHUNK`]: a portfolio can hold thousands of
+/// NFTs, and one `eth_call` carrying all of them can exceed the node's call gas cap and revert
+/// *whole* — which reads as nobody owning anything. A failed chunk is still an error for the call
+/// (an outage must never be answered as "no owner"), but a chunk that runs out of gas costs only its
+/// own rows, and within a chunk a reverted sub-call keeps its own slot.
 pub async fn get_erc721_owners<P, N>(
    client: P,
    refs: Vec<NftRef>,
@@ -544,36 +557,46 @@ where
    }
 
    let block = block.unwrap_or(BlockId::latest());
+   let mut out = Vec::with_capacity(refs.len());
 
-   let mut builder = client.multicall().dynamic::<IERC721::ownerOfCall>().block(block);
-   for (collection, token_id) in &refs {
-      let input = Bytes::from(IERC721::ownerOfCall { tokenId: *token_id }.abi_encode());
-      let call = CallItem::<IERC721::ownerOfCall>::new(*collection, input).allow_failure(true);
-      builder = builder.add_call_dynamic(call);
-   }
-   let owners = builder.aggregate3().await?;
+   for chunk in refs.chunks(MULTICALL_CHUNK) {
+      let mut builder = client.multicall().dynamic::<IERC721::ownerOfCall>().block(block);
+      for (collection, token_id) in chunk {
+         let input = Bytes::from(IERC721::ownerOfCall { tokenId: *token_id }.abi_encode());
+         let call = CallItem::<IERC721::ownerOfCall>::new(*collection, input).allow_failure(true);
+         builder = builder.add_call_dynamic(call);
+      }
+      let owners = builder.aggregate3().await?;
 
-   if owners.len() != refs.len() {
-      anyhow::bail!(
-         "multicall returned {} owners for {} refs",
-         owners.len(),
-         refs.len()
+      if owners.len() != chunk.len() {
+         anyhow::bail!(
+            "multicall returned {} owners for {} refs",
+            owners.len(),
+            chunk.len()
+         );
+      }
+
+      out.extend(
+         chunk
+            .iter()
+            .zip(owners)
+            .map(|((collection, token_id), owner)| (*collection, *token_id, owner.ok())),
       );
    }
 
-   Ok(refs
-      .into_iter()
-      .zip(owners)
-      .map(|((collection, token_id), owner)| (collection, token_id, owner.ok()))
-      .collect())
+   Ok(out)
 }
 
-/// Batched ERC-721 `ownerOf` + `tokenURI`, in **two** Multicall3 aggregates.
+/// Batched ERC-721 `ownerOf` + `tokenURI`, in **two** Multicall3 aggregates per chunk.
 ///
-/// Two rounds rather than one because the two calls decode to different types and a
-/// `MulticallBuilder` decodes an entire aggregate as a single type. Results stay aligned with
-/// `refs` — a failed call yields `None` in its own slot instead of being dropped, so a caller can
-/// trust the index. A length mismatch is an error rather than silent truncation.
+/// Two rounds — and two rounds *per chunk*, see [`MULTICALL_CHUNK`] — because the two calls decode to
+/// different types and a `MulticallBuilder` decodes an entire aggregate as a single type. Results stay
+/// aligned with `refs` — a failed call yields `None` in its own slot instead of being dropped, so a
+/// caller can trust the index. A length mismatch is an error rather than silent truncation.
+///
+/// Chunked because enumeration can legitimately ask about a thousand ids of one collection
+/// (`MAX_ENUMERATED_TOKENS`), and a thousand `tokenURI` calls in a single `eth_call` is exactly the
+/// aggregate that reverts whole.
 ///
 /// Needs Multicall3 (`0xcA11bde05977b3631167028862bE2a173976CA11`) deployed on the chain. Once the
 /// Zeus StateView grows NFT getters (task 2.2) this is the path that gets replaced; until then it
@@ -592,52 +615,58 @@ where
    }
 
    let block = block.unwrap_or(BlockId::latest());
+   let mut lookups = Vec::with_capacity(refs.len());
 
-   let mut owners_builder = client.multicall().dynamic::<IERC721::ownerOfCall>().block(block);
-   for (collection, token_id) in &refs {
-      let input = Bytes::from(IERC721::ownerOfCall { tokenId: *token_id }.abi_encode());
-      let call = CallItem::<IERC721::ownerOfCall>::new(*collection, input).allow_failure(true);
-      owners_builder = owners_builder.add_call_dynamic(call);
-   }
-   let owners = owners_builder.aggregate3().await?;
+   for chunk in refs.chunks(MULTICALL_CHUNK) {
+      let mut owners_builder = client.multicall().dynamic::<IERC721::ownerOfCall>().block(block);
+      for (collection, token_id) in chunk {
+         let input = Bytes::from(IERC721::ownerOfCall { tokenId: *token_id }.abi_encode());
+         let call = CallItem::<IERC721::ownerOfCall>::new(*collection, input).allow_failure(true);
+         owners_builder = owners_builder.add_call_dynamic(call);
+      }
+      let owners = owners_builder.aggregate3().await?;
 
-   let mut uris_builder =
-      client.multicall().dynamic::<IERC721Metadata::tokenURICall>().block(block);
-   for (collection, token_id) in &refs {
-      let input = Bytes::from(IERC721Metadata::tokenURICall { tokenId: *token_id }.abi_encode());
-      let call =
-         CallItem::<IERC721Metadata::tokenURICall>::new(*collection, input).allow_failure(true);
-      uris_builder = uris_builder.add_call_dynamic(call);
-   }
-   let uris = uris_builder.aggregate3().await?;
+      let mut uris_builder =
+         client.multicall().dynamic::<IERC721Metadata::tokenURICall>().block(block);
+      for (collection, token_id) in chunk {
+         let input = Bytes::from(IERC721Metadata::tokenURICall { tokenId: *token_id }.abi_encode());
+         let call =
+            CallItem::<IERC721Metadata::tokenURICall>::new(*collection, input).allow_failure(true);
+         uris_builder = uris_builder.add_call_dynamic(call);
+      }
+      let uris = uris_builder.aggregate3().await?;
 
-   if owners.len() != refs.len() || uris.len() != refs.len() {
-      anyhow::bail!(
-         "multicall returned {} owners and {} uris for {} refs",
-         owners.len(),
-         uris.len(),
-         refs.len()
+      if owners.len() != chunk.len() || uris.len() != chunk.len() {
+         anyhow::bail!(
+            "multicall returned {} owners and {} uris for {} refs",
+            owners.len(),
+            uris.len(),
+            chunk.len()
+         );
+      }
+
+      lookups.extend(
+         owners.into_iter().zip(uris).map(|(owner, uri)| Erc721Lookup {
+            owner: owner.ok(),
+            token_uri: uri.ok().filter(|uri| !uri.trim().is_empty()),
+         }),
       );
    }
-
-   let lookups = owners
-      .into_iter()
-      .zip(uris)
-      .map(|(owner, uri)| Erc721Lookup {
-         owner: owner.ok(),
-         token_uri: uri.ok().filter(|uri| !uri.trim().is_empty()),
-      })
-      .collect();
 
    Ok(lookups)
 }
 
-/// Batched ERC-1155 `balanceOf(owner, id)` in one Multicall3 aggregate.
+/// Batched ERC-1155 `balanceOf(owner, id)` in Multicall3 aggregates.
 ///
 /// Returns `(collection, id, balance)` for the calls that succeeded, in request order. An
 /// ERC-1155 contract answers even for an id the owner holds none of, so a *failed* call means the
 /// address is not ERC-1155 (or the contract rejected the call) and the entry is omitted — the same
 /// convention as [`get_erc20_allowances`]. A returned `0` is a real zero balance.
+///
+/// Chunked by [`MULTICALL_CHUNK`] for the reason spelled out on [`get_erc721_owners`]: one aggregate
+/// over a whole portfolio can exceed the call gas cap and revert, losing every balance at once. A
+/// length mismatch inside a chunk is an error rather than truncated results, matching
+/// [`get_erc721_owners`].
 pub async fn get_erc1155_balances<P, N>(
    client: P,
    owner: Address,
@@ -653,27 +682,38 @@ where
    }
 
    let block = block.unwrap_or(BlockId::latest());
+   let mut out = Vec::with_capacity(refs.len());
 
-   let mut builder = client.multicall().dynamic::<IERC1155::balanceOfCall>().block(block);
-   for (collection, id) in &refs {
-      let input = Bytes::from(
-         IERC1155::balanceOfCall {
-            account: owner,
-            id: *id,
+   for chunk in refs.chunks(MULTICALL_CHUNK) {
+      let mut builder = client.multicall().dynamic::<IERC1155::balanceOfCall>().block(block);
+      for (collection, id) in chunk {
+         let input = Bytes::from(
+            IERC1155::balanceOfCall {
+               account: owner,
+               id: *id,
+            }
+            .abi_encode(),
+         );
+         let call =
+            CallItem::<IERC1155::balanceOfCall>::new(*collection, input).allow_failure(true);
+         builder = builder.add_call_dynamic(call);
+      }
+
+      let results = builder.aggregate3().await?;
+
+      if results.len() != chunk.len() {
+         anyhow::bail!(
+            "multicall returned {} balances for {} refs",
+            results.len(),
+            chunk.len()
+         );
+      }
+
+      for (i, result) in results.into_iter().enumerate() {
+         if let Ok(balance) = result {
+            let (collection, id) = chunk[i];
+            out.push((collection, id, balance));
          }
-         .abi_encode(),
-      );
-      let call = CallItem::<IERC1155::balanceOfCall>::new(*collection, input).allow_failure(true);
-      builder = builder.add_call_dynamic(call);
-   }
-
-   let results = builder.aggregate3().await?;
-   let mut out = Vec::with_capacity(results.len());
-
-   for (i, result) in results.into_iter().enumerate() {
-      if let Ok(balance) = result {
-         let (collection, id) = refs[i];
-         out.push((collection, id, balance));
       }
    }
 
@@ -830,6 +870,11 @@ mod tests {
    use super::*;
    use alloy_primitives::address;
    use alloy_provider::ProviderBuilder;
+   use alloy_sol_types::SolValue;
+   use std::io::{Read, Write};
+   use std::net::{TcpListener, TcpStream};
+   use std::sync::Arc;
+   use std::sync::atomic::{AtomicUsize, Ordering};
 
    /// Live check of the batched NFT helpers. Ignored by default — see `crate::test_utils`.
    #[tokio::test]
@@ -981,5 +1026,144 @@ mod tests {
 
       assert_eq!(read.values[0], value);
       assert_eq!(read.values[1], U256::ZERO);
+   }
+
+   /// A local node that answers every Multicall3 aggregate with the sub-call count the request
+   /// carried, and counts the aggregates it was asked for.
+   ///
+   /// Each sub-call answers a zero address: the batched lookups only need *a* decodable answer, and what
+   /// the test is about is how one call is split across aggregates and how the answers come back
+   /// together. One HTTP request per aggregate, so the counter *is* the number of `eth_call`s.
+   fn counting_node() -> (String, Arc<AtomicUsize>) {
+      let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
+      let url = format!("http://{}", listener.local_addr().unwrap());
+      let requests = Arc::new(AtomicUsize::new(0));
+
+      let counter = Arc::clone(&requests);
+      std::thread::spawn(move || {
+         for stream in listener.incoming().flatten() {
+            let counter = Arc::clone(&counter);
+            std::thread::spawn(move || serve(stream, counter));
+         }
+      });
+
+      (url, requests)
+   }
+
+   fn serve(mut stream: TcpStream, counter: Arc<AtomicUsize>) {
+      while let Some(body) = read_request(&mut stream) {
+         counter.fetch_add(1, Ordering::SeqCst);
+
+         let payload = vec![(true, Bytes::from(Address::ZERO.abi_encode())); entries_in(&body)];
+         let result = format!(
+            "0x{}",
+            alloy_primitives::hex::encode(payload.abi_encode())
+         );
+         let json = format!(
+            r#"{{"jsonrpc":"2.0","id":{},"result":"{}"}}"#,
+            jsonrpc_id(&body),
+            result
+         );
+         let reply = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            json.len(),
+            json
+         );
+
+         if stream.write_all(reply.as_bytes()).is_err() {
+            return;
+         }
+      }
+   }
+
+   /// One HTTP request: the headers, then exactly `Content-Length` bytes of body.
+   fn read_request(stream: &mut TcpStream) -> Option<String> {
+      let mut raw = Vec::new();
+      let mut buf = [0u8; 8192];
+
+      let body_at = loop {
+         if let Some(end) = raw.windows(4).position(|window| window == b"\r\n\r\n") {
+            break end + 4;
+         }
+         let read = stream.read(&mut buf).ok()?;
+         if read == 0 {
+            return None;
+         }
+         raw.extend_from_slice(&buf[..read]);
+      };
+
+      let headers = String::from_utf8_lossy(&raw[..body_at]).to_lowercase();
+      let length: usize = headers
+         .split("content-length:")
+         .nth(1)
+         .and_then(|rest| rest.split("\r\n").next())
+         .and_then(|value| value.trim().parse().ok())?;
+
+      while raw.len() < body_at + length {
+         let read = stream.read(&mut buf).ok()?;
+         if read == 0 {
+            break;
+         }
+         raw.extend_from_slice(&buf[..read]);
+      }
+
+      Some(String::from_utf8_lossy(&raw[body_at..]).into_owned())
+   }
+
+   /// How many sub-calls the aggregate in `body` carries, read out of its calldata: `aggregate3` takes a
+   /// single dynamic array argument, so the array length sits at the head of that argument (`0x24`).
+   fn entries_in(body: &str) -> usize {
+      let calldata = ["\"input\":\"0x", "\"data\":\"0x"]
+         .iter()
+         .find_map(|key| body.split(key).nth(1))
+         .and_then(|rest| rest.split('"').next())
+         .and_then(|hex| alloy_primitives::hex::decode(hex).ok())
+         .expect("the call carries calldata");
+
+      U256::from_be_slice(&calldata[36..68]).to::<usize>()
+   }
+
+   /// The request's JSON-RPC id, echoed back so the provider matches the answer to its own call.
+   fn jsonrpc_id(body: &str) -> String {
+      body
+         .rsplit("\"id\":")
+         .next()
+         .and_then(|rest| rest.split([',', '}']).next())
+         .unwrap_or("1")
+         .trim()
+         .to_owned()
+   }
+
+   /// A call with more refs than one aggregate can carry is split, and the answers stay aligned.
+   ///
+   /// The failure this guards against is the one the chunking exists for: a single `eth_call` carrying a
+   /// whole portfolio's worth of `ownerOf`s runs out of gas at the node and reverts **whole**, so the
+   /// wallet reads "nobody owns anything". Three aggregates — the last one short — must still come back
+   /// as every row in request order, with nothing dropped or shifted.
+   #[tokio::test]
+   async fn a_lookup_larger_than_one_aggregate_is_split_and_stays_aligned() {
+      let (url, requests) = counting_node();
+      let client = ProviderBuilder::new().connect_http(url.parse().unwrap());
+
+      let collection = address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D");
+      let refs: Vec<NftRef> =
+         (0..MULTICALL_CHUNK * 2 + 7).map(|id| (collection, U256::from(id))).collect();
+
+      let owners = get_erc721_owners(client, refs.clone(), None).await.expect("owners");
+
+      assert_eq!(
+         requests.load(Ordering::SeqCst),
+         3,
+         "{} refs have to go out as three aggregates of {MULTICALL_CHUNK}",
+         refs.len()
+      );
+      assert_eq!(
+         owners,
+         refs
+            .iter()
+            .map(|(collection, id)| (*collection, *id, Some(Address::ZERO)))
+            .collect::<Vec<_>>(),
+         "every row in request order, none dropped or shifted"
+      );
    }
 }

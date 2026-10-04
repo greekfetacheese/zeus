@@ -180,9 +180,16 @@ impl NftApproveParams {
          return NftStandard::Erc721;
       };
 
-      match erc165::probe(client, collection).await.is_erc1155() {
-         true => NftStandard::Erc1155,
-         false => NftStandard::Erc721,
+      match erc165::probe(client, collection).await {
+         Ok(support) if support.is_erc1155() => NftStandard::Erc1155,
+         Ok(_) => NftStandard::Erc721,
+         // The node could not be asked. Falling back to the standard this function already falls back
+         // to (`Erc721`) keeps the approval visible, and the warning is what says the answer was a
+         // guess rather than an observation.
+         Err(err) => {
+            tracing::warn!("Could not read the standard of {collection}: {err}");
+            NftStandard::Erc721
+         }
       }
    }
 }

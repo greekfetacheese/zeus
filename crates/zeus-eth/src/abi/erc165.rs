@@ -61,20 +61,26 @@ pub const IERC1155_PERMIT_ID: FixedBytes<4> = fixed_bytes!("7409106d");
 /// Must return false on a spec-compliant ERC-165 contract.
 pub const INVALID_INTERFACE_ID: FixedBytes<4> = fixed_bytes!("ffffffff");
 
-/// One `supportsInterface` call. A revert (or any transport error) reads as `false`.
+/// One `supportsInterface` call.
+///
+/// A **revert** reads as `false`: a contract that does not implement ERC-165 reverts here (or answers
+/// `false`), and either way it does not support the interface. A transport failure is *not* an answer
+/// and stays an error — the same distinction [`crate::nft::verify_ownership`] draws, and for the same
+/// reason: an RPC outage must never be reported to the user as "this is not an NFT".
 pub async fn supports_interface<P, N>(
    client: P,
    token: Address,
    interface_id: FixedBytes<4>,
-) -> bool
+) -> Result<bool, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let contract = IERC165::new(token, client);
    match contract.supportsInterface(interface_id).call().await {
-      Ok(supported) => supported,
-      Err(_) => false,
+      Ok(supported) => Ok(supported),
+      Err(err) if err.as_revert_data().is_some() => Ok(false),
+      Err(err) => Err(err.into()),
    }
 }
 
@@ -158,22 +164,27 @@ impl Erc165Support {
 ///
 /// The calls run sequentially on purpose: this crate has no `tokio` dependency, and the sweeps
 /// are short enough that the extra round trips do not matter next to the RPC latency.
-pub async fn probe<P, N>(client: P, token: Address) -> Erc165Support
+///
+/// `Err` means the contract could not be *asked* — never that it answered "no". A caller that wants to
+/// treat an unreachable node as "not an NFT" has to say so itself, which is what keeps a hiccup from
+/// being shown to the user as a verdict about the contract.
+pub async fn probe<P, N>(client: P, token: Address) -> Result<Erc165Support, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   let erc165 = supports_interface(client.clone(), token, IERC165_ID).await;
-   let invalid_id_supported = supports_interface(client.clone(), token, INVALID_INTERFACE_ID).await;
-   let erc721 = supports_interface(client.clone(), token, IERC721_ID).await;
-   let erc721_metadata = supports_interface(client.clone(), token, IERC721_METADATA_ID).await;
-   let erc721_enumerable = supports_interface(client.clone(), token, IERC721_ENUMERABLE_ID).await;
-   let erc1155 = supports_interface(client.clone(), token, IERC1155_ID).await;
-   let erc1155_metadata = supports_interface(client.clone(), token, IERC1155_METADATA_ID).await;
-   let erc5216 = supports_interface(client.clone(), token, IERC5216_ID).await;
-   let erc1155_permit = supports_interface(client, token, IERC1155_PERMIT_ID).await;
+   let erc165 = supports_interface(client.clone(), token, IERC165_ID).await?;
+   let invalid_id_supported =
+      supports_interface(client.clone(), token, INVALID_INTERFACE_ID).await?;
+   let erc721 = supports_interface(client.clone(), token, IERC721_ID).await?;
+   let erc721_metadata = supports_interface(client.clone(), token, IERC721_METADATA_ID).await?;
+   let erc721_enumerable = supports_interface(client.clone(), token, IERC721_ENUMERABLE_ID).await?;
+   let erc1155 = supports_interface(client.clone(), token, IERC1155_ID).await?;
+   let erc1155_metadata = supports_interface(client.clone(), token, IERC1155_METADATA_ID).await?;
+   let erc5216 = supports_interface(client.clone(), token, IERC5216_ID).await?;
+   let erc1155_permit = supports_interface(client, token, IERC1155_PERMIT_ID).await?;
 
-   Erc165Support {
+   Ok(Erc165Support {
       erc165,
       invalid_id_supported,
       erc721,
@@ -183,18 +194,19 @@ where
       erc1155_metadata,
       erc5216,
       erc1155_permit,
-   }
+   })
 }
 
-/// Returns `true` if `token` is an ERC-721 or ERC-1155 contract.
+/// Whether `token` is an ERC-721 or ERC-1155 contract.
 ///
-/// Convenience wrapper around [`probe`] for callers that only need the yes/no answer.
-pub async fn is_erc721_or_erc1155<P, N>(client: P, token: Address) -> bool
+/// Convenience wrapper around [`probe`] for callers that only need the yes/no answer — with the same
+/// meaning for `Err`: the contract could not be asked, which is not the same as "no".
+pub async fn is_erc721_or_erc1155<P, N>(client: P, token: Address) -> Result<bool, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   probe(client, token).await.is_nft()
+   Ok(probe(client, token).await?.is_nft())
 }
 
 #[cfg(test)]
@@ -374,7 +386,7 @@ mod tests {
 
       // BAYC — ERC-721 plus both optional interfaces.
       let bayc = address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D");
-      let s = probe(client.clone(), bayc).await;
+      let s = probe(client.clone(), bayc).await.expect("the sweep reached the node");
       assert!(
          s.is_compliant(),
          "BAYC should be ERC-165 compliant"
@@ -386,14 +398,14 @@ mod tests {
 
       // OpenSea shared storefront — ERC-1155, and not ERC-721.
       let storefront = address!("495f947276749Ce646f68AC8c248420045cb7b5e");
-      let s = probe(client.clone(), storefront).await;
+      let s = probe(client.clone(), storefront).await.expect("the sweep reached the node");
       assert!(s.is_nft(), "storefront is an NFT contract");
       assert!(s.is_erc1155(), "storefront is ERC-1155");
       assert!(!s.is_erc721(), "storefront is not ERC-721");
 
       // WETH — a plain ERC-20: answers `false` to everything and is not an NFT.
       let weth = address!("C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2");
-      let s = probe(client.clone(), weth).await;
+      let s = probe(client.clone(), weth).await.expect("the sweep reached the node");
       assert!(!s.is_erc165(), "WETH implements no ERC-165");
       assert!(
          !s.is_nft(),
@@ -402,11 +414,35 @@ mod tests {
 
       // CryptoPunks — reverts on every probe, so it reads as "not an NFT" rather than erroring.
       let punks = address!("b47e3cd837dDF8e4c57F05d70Ab865de6e193BBB");
-      let s = probe(client, punks).await;
+      let s = probe(client, punks).await.expect("the sweep reached the node");
       assert!(
          !s.is_compliant(),
          "Punks does not implement ERC-165"
       );
       assert!(!s.is_nft(), "Punks must not be treated as an NFT");
+   }
+
+   /// A probe that cannot reach a node is an **error**, never a "no".
+   ///
+   /// At an unreachable host every `supportsInterface` call fails to arrive; reading that as `false`
+   /// would make the sweep report every contract as "not an NFT", which is how a pasted collection
+   /// becomes "… is not an NFT contract" during an RPC hiccup. `.invalid` is a reserved TLD that never
+   /// resolves ([RFC 2606](https://www.rfc-editor.org/rfc/rfc2606)), so this fails by transport rather
+   /// than by a contract reverting — the case the sweep must not swallow.
+   #[tokio::test]
+   async fn an_unreachable_node_is_an_error_not_a_false_answer() {
+      let client =
+         ProviderBuilder::new().connect_http("http://zeus.invalid:8545".parse().expect("a url"));
+
+      let result = probe(
+         client,
+         address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D"),
+      )
+      .await;
+
+      assert!(
+         result.is_err(),
+         "an unreachable node is not an answer about the contract: {result:?}"
+      );
    }
 }

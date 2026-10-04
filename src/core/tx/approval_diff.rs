@@ -346,9 +346,26 @@ fn push_nft_approval_candidate(
    if candidate.collection.is_zero() {
       return;
    }
-   if out.contains(&candidate) {
+
+   // Deduped on what the *row* is about, not on the candidate's fields. A per-token approval's row takes
+   // its operator from the measured state (`getApproved(id)`), so the operator is that record's *value*
+   // and not part of its identity — the same rule the store keys by (`approval_manager.rs`) — which means
+   // the same id reached from the known store (operator A) and from a revoke log (operator 0x0) is one
+   // row, probed once. The other two shapes are per operator by construction: an ERC-5216 allowance and an
+   // `ApprovalForAll` each belong to their own operator, so those keep it in the key.
+   let known = out.iter().any(|existing| {
+      existing.collection == candidate.collection
+         && existing.target == candidate.target
+         && match candidate.target {
+            NftApprovalTarget::Token(_) => true,
+            _ => existing.operator == candidate.operator,
+         }
+   });
+
+   if known {
       return;
    }
+
    if out.len() >= MAX_NFT_CANDIDATES {
       return;
    }
@@ -965,13 +982,18 @@ mod tests {
       }
    }
 
-   /// Every shape the tx emits becomes a candidate, including a per-token revoke — which logs the
-   /// zero address and is kept rather than treated as a missing operator.
+   /// Every shape the tx emits becomes a candidate, and a per-token revoke — which logs the zero address —
+   /// is kept rather than treated as a missing operator.
+   ///
+   /// The two per-token logs name the *same* id, so they are one candidate: the row is built from
+   /// `getApproved(7)` and takes its operator from there, which makes the operator the row's value rather
+   /// than part of its identity. Whichever log is seen first is the one that survives — the other would be
+   /// the same probe and the same row.
    #[test]
    fn approval_logs_name_the_three_shapes() {
       let logs = [
-         erc721_approval_log(collection(), owner(), spender()),
          erc721_approval_log(collection(), owner(), Address::ZERO),
+         erc721_approval_log(collection(), owner(), spender()),
          approval_for_all_log(collection(), owner(), spender()),
          erc5216_approval_log(collection(), owner(), spender()),
       ];
@@ -980,11 +1002,6 @@ mod tests {
       assert_eq!(
          got,
          vec![
-            NftApprovalCandidate {
-               collection: collection(),
-               operator: spender(),
-               target: NftApprovalTarget::Token(U256::from(7)),
-            },
             NftApprovalCandidate {
                collection: collection(),
                operator: Address::ZERO,
@@ -1002,6 +1019,48 @@ mod tests {
             },
          ]
       );
+   }
+
+   /// The reported case: an approval the store knows about, and the revoke the same transaction logs for
+   /// it, are one row — not two.
+   ///
+   /// The store's entry carries the operator the approval *had*; the log names the zero address. Both probe
+   /// `getApproved(7)` and both draw "… #7 → A Revoked", so probing both would put the row on screen twice.
+   #[test]
+   fn a_token_approval_the_store_knows_and_the_log_revokes_is_one_candidate() {
+      let id = U256::from(7);
+
+      // `token()` is the contract being called, which is what lets a stored approval through at all.
+      let known = [NftApprovalCandidate {
+         collection: collection(),
+         operator: token(),
+         target: NftApprovalTarget::Token(id),
+      }];
+      let revoke = erc721_approval_log(collection(), owner(), Address::ZERO);
+
+      let got = collect_nft_approval_candidates(owner(), token(), &Bytes::new(), &[revoke], known);
+
+      assert_eq!(got.len(), 1, "one id, one row: {got:?}");
+      assert_eq!(got[0].target, NftApprovalTarget::Token(id));
+   }
+
+   /// The per-operator shapes keep the operator in the key: the same collection and id granted to two
+   /// operators is two rows, because each grant belongs to its own operator.
+   #[test]
+   fn a_per_operator_shape_is_one_candidate_per_operator() {
+      let logs = [
+         erc5216_approval_log(collection(), owner(), token()),
+         erc5216_approval_log(collection(), owner(), spender()),
+      ];
+
+      let got = collect_nft_approval_candidates(owner(), token(), &Bytes::new(), &logs, []);
+
+      assert_eq!(
+         got.len(),
+         2,
+         "an ERC-5216 allowance belongs to (owner, operator, id): {got:?}"
+      );
+      assert_ne!(got[0].operator, got[1].operator);
    }
 
    #[test]
