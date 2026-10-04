@@ -5,13 +5,27 @@
 //! [`IERC1155Metadata`] holds `uri(uint256)`, which is a *separate* interface id
 //! (`0x0e89341c`) and must be probed via `abi::erc165` — not every collection implements it.
 //!
-//! Two encoding traps worth knowing before decoding logs from an unknown address:
+//! Two optional extensions live here too, because each *extends* ERC-1155 rather than
+//! replacing it:
+//!
+//! - [`IERC5216`] — the allowance extension: per-`id` approvals by amount, the ERC-1155
+//!   answer to ERC-20 `approve`. Its `Approval(address,address,uint256,uint256)` event has
+//!   its **own** topic0, so unlike `ApprovalForAll` it is unambiguous from the log alone.
+//! - [`IERC1155Permit`] — ERC-7604, the `permit` extension (draft, not live as of 2026-10).
+//!   It emits the ERC-5216 `Approval` event, so a permit transaction is already fully
+//!   observable through [`IERC5216`] — what the interface adds is only the ability to
+//!   *create* an approval from a signature, which is a sending path.
+//!
+//! Three encoding traps worth knowing before decoding logs from an unknown address:
 //!
 //! 1. `ApprovalForAll(address,address,bool)` is **byte-for-byte identical** to ERC-721's
 //!    `ApprovalForAll` — same topic0, same 2 indexed + `bool` layout. The log alone cannot
 //!    tell you which standard emitted it; only the emitting contract's ERC-165 can.
 //! 2. `URI(string,uint256)` indexes the id and puts the string in data, so the id is a topic
 //!    while the URI needs full ABI string decoding.
+//! 3. The ERC-5216 `Approval` does **not** index its `id`: the third topic slot that ERC-721
+//!    `Approval(owner,approved,tokenId)` uses for the id is absent here, so these two are
+//!    told apart by topic count (3 vs 4) *and* by topic0.
 
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{Address, Bytes, LogData, U256};
@@ -66,6 +80,55 @@ sol! {
     #[sol(rpc)]
     contract IERC1155Metadata {
         function uri(uint256 id) external view returns (string memory);
+    }
+}
+
+// ERC-5216, the ERC-1155 allowance extension.
+//
+// Declared standalone rather than `is IERC1155` (the `sol!` macro has no inheritance), which
+// is all a decoder needs: the members below are the ones ERC-1155 does not already have.
+//
+// The interface id is `0x1be07d74` — the XOR of `approve(address,uint256,uint256)` and
+// `allowance(address,address,uint256)`, which a test derives rather than trusting this note.
+//
+// (`//` rather than `///`: `sol!` expands to items, so a doc comment here attaches to nothing
+// and the compiler warns.)
+sol! {
+    #[sol(rpc)]
+    contract IERC5216 {
+        // `id` is deliberately **not** indexed, unlike ERC-721's per-token `Approval`.
+        event Approval(address indexed account, address indexed operator, uint256 id, uint256 amount);
+
+        function approve(address operator, uint256 id, uint256 amount) external;
+        function allowance(
+            address account,
+            address operator,
+            uint256 id
+        ) external view returns (uint256);
+    }
+}
+
+// ERC-7604, the ERC-1155 `permit` extension (**draft** — not live as of 2026-10).
+//
+// Kept as a placeholder so the day it ships the shape is already here: the permit itself
+// emits the ERC-5216 `Approval` event, so reading approvals needs nothing from this
+// interface. Only *creating* an approval from a signature would call `permit`.
+//
+// `nonces` is keyed by `(owner, tokenId)` — per token id, not per owner, which is where this
+// parts company with both ERC-2612 and ERC-4494.
+sol! {
+    #[sol(rpc)]
+    contract IERC1155Permit {
+        function permit(
+            address owner,
+            address operator,
+            uint256 tokenId,
+            uint256 value,
+            uint256 deadline,
+            bytes calldata sig
+        ) external;
+        function nonces(address owner, uint256 tokenId) external view returns (uint256);
+        function DOMAIN_SEPARATOR() external view returns (bytes32);
     }
 }
 
@@ -134,6 +197,57 @@ where
    Ok(u)
 }
 
+/// ERC-5216 `allowance(address,address,uint256)` — how many units of `id` `operator` may move
+/// for `account`.
+///
+/// A contract that does not implement ERC-5216 reverts or returns garbage here; gate on
+/// [`crate::abi::erc165::Erc165Support::is_erc5216`] first.
+pub async fn allowance<P, N>(
+   token: Address,
+   account: Address,
+   operator: Address,
+   id: U256,
+   client: P,
+) -> Result<U256, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let contract = IERC5216::new(token, client);
+   let a = contract.allowance(account, operator, id).call().await?;
+   Ok(a)
+}
+
+/// ERC-7604 `nonces(address,uint256)` — the signed-permit counter for one token id.
+pub async fn nonces<P, N>(
+   token: Address,
+   owner: Address,
+   token_id: U256,
+   client: P,
+) -> Result<U256, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let contract = IERC1155Permit::new(token, client);
+   let n = contract.nonces(owner, token_id).call().await?;
+   Ok(n)
+}
+
+/// ERC-7604 `DOMAIN_SEPARATOR()`.
+pub async fn domain_separator<P, N>(
+   token: Address,
+   client: P,
+) -> Result<alloy_primitives::B256, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let contract = IERC1155Permit::new(token, client);
+   let d = contract.DOMAIN_SEPARATOR().call().await?;
+   Ok(d)
+}
+
 // ** ABI Encode Functions
 
 pub fn encode_balance_of(account: Address, id: U256) -> Bytes {
@@ -195,6 +309,59 @@ pub fn encode_uri(id: U256) -> Bytes {
    Bytes::from(c.abi_encode())
 }
 
+/// ERC-5216 `approve(address,uint256,uint256)` — the per-`id` allowance grant. `amount == 0`
+/// revokes.
+pub fn encode_approve(operator: Address, id: U256, amount: U256) -> Bytes {
+   let c = IERC5216::approveCall {
+      operator,
+      id,
+      amount,
+   };
+   Bytes::from(c.abi_encode())
+}
+
+pub fn encode_allowance(account: Address, operator: Address, id: U256) -> Bytes {
+   let c = IERC5216::allowanceCall {
+      account,
+      operator,
+      id,
+   };
+   Bytes::from(c.abi_encode())
+}
+
+/// ERC-7604 `permit(...)`. Signature (`sig`) is the raw 65-byte `r||s||v` (or an EIP-2098
+/// compact form) — this ERC takes a `bytes` array rather than splitting into `v,r,s`.
+pub fn encode_permit(
+   owner: Address,
+   operator: Address,
+   token_id: U256,
+   value: U256,
+   deadline: U256,
+   sig: Bytes,
+) -> Bytes {
+   let c = IERC1155Permit::permitCall {
+      owner,
+      operator,
+      tokenId: token_id,
+      value,
+      deadline,
+      sig,
+   };
+   Bytes::from(c.abi_encode())
+}
+
+pub fn encode_nonces(owner: Address, token_id: U256) -> Bytes {
+   let c = IERC1155Permit::noncesCall {
+      owner,
+      tokenId: token_id,
+   };
+   Bytes::from(c.abi_encode())
+}
+
+pub fn encode_domain_separator() -> Bytes {
+   Bytes::from(IERC1155Permit::DOMAIN_SEPARATORCall {}.abi_encode())
+}
+
 // ** ABI Decode Functions
 
 pub fn decode_transfer_single_log(
@@ -239,6 +406,30 @@ pub fn decode_is_approved_for_all(bytes: &Bytes) -> Result<bool, anyhow::Error> 
 pub fn decode_uri(bytes: &Bytes) -> Result<String, anyhow::Error> {
    let u = IERC1155Metadata::uriCall::abi_decode_returns(bytes)?;
    Ok(u)
+}
+
+/// ERC-5216 `Approval(address indexed account, address indexed operator, uint256 id, uint256 amount)`.
+///
+/// `id` is **not** indexed here (unlike ERC-721's per-token `Approval`), so it arrives in the
+/// data as the first word with `amount` right after it.
+pub fn decode_approval_log(log: &LogData) -> Result<IERC5216::Approval, anyhow::Error> {
+   let b = IERC5216::Approval::decode_raw_log(log.topics(), &log.data)?;
+   Ok(b)
+}
+
+pub fn decode_allowance(bytes: &Bytes) -> Result<U256, anyhow::Error> {
+   let a = IERC5216::allowanceCall::abi_decode_returns(bytes)?;
+   Ok(a)
+}
+
+pub fn decode_nonces(bytes: &Bytes) -> Result<U256, anyhow::Error> {
+   let n = IERC1155Permit::noncesCall::abi_decode_returns(bytes)?;
+   Ok(n)
+}
+
+pub fn decode_domain_separator(bytes: &Bytes) -> Result<alloy_primitives::B256, anyhow::Error> {
+   let d = IERC1155Permit::DOMAIN_SEPARATORCall::abi_decode_returns(bytes)?;
+   Ok(d)
 }
 
 /// Decode a `safeTransferFrom` **calldata** payload into
@@ -437,6 +628,160 @@ mod tests {
          IERC1155::URI::SIGNATURE_HASH,
          hex!("6bb7ff708619ba0610cba295a58592e0451dee2622938c8755667688daf3529b")
       );
+   }
+
+   /// The ERC-5216 selectors, from `cast sig`. `approve` and `allowance` are names ERC-1155
+   /// itself does not have, so these are the extension's own.
+   #[test]
+   fn selectors_match_erc5216_and_erc7604() {
+      assert_eq!(
+         IERC5216::approveCall::SELECTOR,
+         [0x42, 0x6a, 0x84, 0x93]
+      );
+      assert_eq!(
+         IERC5216::allowanceCall::SELECTOR,
+         [0x59, 0x8a, 0xf9, 0xe7]
+      );
+
+      assert_eq!(
+         IERC1155Permit::permitCall::SELECTOR,
+         [0x4f, 0x6b, 0xe2, 0xb7]
+      );
+      assert_eq!(
+         IERC1155Permit::noncesCall::SELECTOR,
+         [0x50, 0x2e, 0x1a, 0x16]
+      );
+      assert_eq!(
+         IERC1155Permit::DOMAIN_SEPARATORCall::SELECTOR,
+         [0x36, 0x44, 0xe5, 0x15]
+      );
+   }
+
+   /// The ERC-5216 `Approval` has its **own** topic0 — the whole reason it can be decoded from
+   /// the log alone, without asking the contract which standard it is. Pinned as a literal so a
+   /// future rename or signature edit cannot quietly make it collide with the ERC-721
+   /// per-token `Approval` (which shares only the *name*, not the signature).
+   #[test]
+   fn erc5216_approval_topic0_is_its_own() {
+      assert_eq!(
+         IERC5216::Approval::SIGNATURE_HASH,
+         hex!("b3fd5071835887567a0671151121894ddccc2842f1d10bedad13e0d17cace9a7")
+      );
+
+      use crate::abi::erc721::IERC721;
+      assert_ne!(
+         IERC5216::Approval::SIGNATURE_HASH,
+         IERC721::Approval::SIGNATURE_HASH
+      );
+      assert_ne!(
+         IERC5216::Approval::SIGNATURE_HASH,
+         IERC1155::ApprovalForAll::SIGNATURE_HASH
+      );
+   }
+
+   /// Decodes the ERC-5216 `Approval` from its real layout: **3** topics (`account`, `operator`)
+   /// with `(id, amount)` in the data — the id is not indexed.
+   #[test]
+   fn decodes_erc5216_approval_log() {
+      let log = log_data(
+         vec![
+            IERC5216::Approval::SIGNATURE_HASH,
+            topic_addr(FROM),
+            topic_addr(OPERATOR),
+         ],
+         Bytes::from(hex!(
+            "000000000000000000000000000000000000000000000000000000000000002a\
+             0000000000000000000000000000000000000000000000000000000000000007"
+         )),
+      );
+
+      let decoded = decode_approval_log(&log).unwrap();
+      assert_eq!(decoded.account, addr(FROM));
+      assert_eq!(decoded.operator, addr(OPERATOR));
+      assert_eq!(decoded.id, U256::from(42));
+      assert_eq!(decoded.amount, U256::from(7));
+   }
+
+   /// The disambiguation that the whole NFT-approval decode ladder rests on: an ERC-5216 log
+   /// (3 topics) and an ERC-721 per-token `Approval` (4 topics, empty data) must each be
+   /// refused by the other's decoder. Without this, one silently decodes as the other and a
+   /// per-token approval turns into an allowance of whatever the words happen to say.
+   #[test]
+   fn erc5216_and_erc721_approvals_are_not_interchangeable() {
+      use crate::abi::erc721::IERC721;
+
+      let erc5216 = log_data(
+         vec![
+            IERC5216::Approval::SIGNATURE_HASH,
+            topic_addr(FROM),
+            topic_addr(OPERATOR),
+         ],
+         Bytes::from(hex!(
+            "000000000000000000000000000000000000000000000000000000000000002a\
+             0000000000000000000000000000000000000000000000000000000000000007"
+         )),
+      );
+
+      let erc721 = log_data(
+         vec![
+            IERC721::Approval::SIGNATURE_HASH,
+            topic_addr(FROM),
+            topic_addr(OPERATOR),
+            B256::from(U256::from(42).to_be_bytes::<32>()),
+         ],
+         Bytes::new(),
+      );
+
+      assert!(decode_approval_log(&erc5216).is_ok());
+      assert!(crate::abi::erc721::decode_approval_log(&erc721).is_ok());
+
+      // Each must fail on the other's shape.
+      assert!(decode_approval_log(&erc721).is_err());
+      assert!(crate::abi::erc721::decode_approval_log(&erc5216).is_err());
+   }
+
+   /// The ERC-5216 interface id is derivable — XOR of the two function selectors — which is a
+   /// stronger check than trusting the constant copied from the ERC text.
+   #[test]
+   fn erc5216_interface_id_is_the_selector_xor() {
+      let a = u32::from_be_bytes(IERC5216::approveCall::SELECTOR);
+      let b = u32::from_be_bytes(IERC5216::allowanceCall::SELECTOR);
+      assert_eq!(a ^ b, 0x1be0_7d74);
+   }
+
+   #[test]
+   fn erc5216_approve_encodes_operator_id_then_amount() {
+      let operator = Address::repeat_byte(0x11);
+      let call = encode_approve(operator, U256::from(7), U256::from(3));
+
+      assert_eq!(&call[..4], &IERC5216::approveCall::SELECTOR);
+      assert_eq!(call.len(), 4 + 32 * 3);
+
+      let mut word = [0u8; 32];
+      word[12..].copy_from_slice(operator.as_slice());
+      assert_eq!(
+         &call[4..36],
+         &word,
+         "the operator is the first word"
+      );
+      assert_eq!(U256::from_be_slice(&call[36..68]), U256::from(7));
+      assert_eq!(U256::from_be_slice(&call[68..100]), U256::from(3));
+   }
+
+   /// `nonces` is keyed by `(owner, tokenId)` in ERC-7604 — per token id, unlike ERC-2612 and
+   /// ERC-4494 where a nonce belongs to the owner alone.
+   #[test]
+   fn erc7604_nonces_takes_the_token_id() {
+      let owner = Address::repeat_byte(0x22);
+      let call = encode_nonces(owner, U256::from(9));
+
+      assert_eq!(&call[..4], &IERC1155Permit::noncesCall::SELECTOR);
+      assert_eq!(call.len(), 4 + 32 * 2);
+
+      let mut word = [0u8; 32];
+      word[12..].copy_from_slice(owner.as_slice());
+      assert_eq!(&call[4..36], &word);
+      assert_eq!(U256::from_be_slice(&call[36..68]), U256::from(9));
    }
 
    #[test]

@@ -43,6 +43,21 @@ pub const IERC1155_ID: FixedBytes<4> = fixed_bytes!("d9b67a26");
 /// without advertising the interface: the OpenSea shared storefront returns a real URI for
 /// `uri(1)` while answering `false` here. Prefer calling `uri()` and tolerating a revert.
 pub const IERC1155_METADATA_ID: FixedBytes<4> = fixed_bytes!("0e89341c");
+/// ERC-5216, the ERC-1155 allowance extension (`approve` / `allowance` by `id` and amount).
+///
+/// Equal to the XOR of `approve(address,uint256,uint256)` and
+/// `allowance(address,address,uint256)` — see the test below, which derives it rather than
+/// trusting this line.
+pub const IERC5216_ID: FixedBytes<4> = fixed_bytes!("1be07d74");
+/// ERC-7604, the ERC-1155 `permit` extension — a **draft**, not live as of 2026-10.
+///
+/// The value is the one the ERC *declares* contracts must answer with. It is deliberately not
+/// derived: the XOR of the three selectors the ERC lists
+/// (`permit`/`nonces`/`DOMAIN_SEPARATOR`) is `0x29011db4`, which does **not** match the
+/// declared id — the draft is internally inconsistent. Since a future implementing contract
+/// would register the declared value, that is the one to probe with; a derivation test
+/// pins the discrepancy so nobody "fixes" it into disagreement with real contracts.
+pub const IERC1155_PERMIT_ID: FixedBytes<4> = fixed_bytes!("7409106d");
 /// Must return false on a spec-compliant ERC-165 contract.
 pub const INVALID_INTERFACE_ID: FixedBytes<4> = fixed_bytes!("ffffffff");
 
@@ -75,6 +90,10 @@ pub struct Erc165Support {
    pub erc721_enumerable: bool,
    pub erc1155: bool,
    pub erc1155_metadata: bool,
+   /// ERC-5216 allowance extension on an ERC-1155 collection.
+   pub erc5216: bool,
+   /// ERC-7604 permit extension — a draft, so expect `false` everywhere for now.
+   pub erc1155_permit: bool,
 }
 
 impl Erc165Support {
@@ -121,6 +140,18 @@ impl Erc165Support {
    pub fn is_erc1155_metadata(&self) -> bool {
       self.is_erc1155() && self.erc1155_metadata
    }
+
+   /// ERC-5216 allowance extension: `allowance(account, operator, id)` is safe to call, so a
+   /// per-`id` approval can be read rather than inferred from an event.
+   pub fn is_erc5216(&self) -> bool {
+      self.is_erc1155() && self.erc5216
+   }
+
+   /// ERC-7604 permit extension. Advisory, and expected to be `false` until the draft ships —
+   /// reading approvals never needs it, since a permit emits the ERC-5216 `Approval` event.
+   pub fn is_erc1155_permit(&self) -> bool {
+      self.is_erc1155() && self.erc1155_permit
+   }
 }
 
 /// Probe every interface id we care about for `token`.
@@ -138,7 +169,9 @@ where
    let erc721_metadata = supports_interface(client.clone(), token, IERC721_METADATA_ID).await;
    let erc721_enumerable = supports_interface(client.clone(), token, IERC721_ENUMERABLE_ID).await;
    let erc1155 = supports_interface(client.clone(), token, IERC1155_ID).await;
-   let erc1155_metadata = supports_interface(client, token, IERC1155_METADATA_ID).await;
+   let erc1155_metadata = supports_interface(client.clone(), token, IERC1155_METADATA_ID).await;
+   let erc5216 = supports_interface(client.clone(), token, IERC5216_ID).await;
+   let erc1155_permit = supports_interface(client, token, IERC1155_PERMIT_ID).await;
 
    Erc165Support {
       erc165,
@@ -148,6 +181,8 @@ where
       erc721_enumerable,
       erc1155,
       erc1155_metadata,
+      erc5216,
+      erc1155_permit,
    }
 }
 
@@ -177,6 +212,83 @@ mod tests {
       assert_eq!(IERC721_ENUMERABLE_ID.0, [0x78, 0x0e, 0x9d, 0x63]);
       assert_eq!(IERC1155_ID.0, [0xd9, 0xb6, 0x7a, 0x26]);
       assert_eq!(IERC1155_METADATA_ID.0, [0x0e, 0x89, 0x34, 0x1c]);
+      assert_eq!(IERC5216_ID.0, [0x1b, 0xe0, 0x7d, 0x74]);
+      assert_eq!(IERC1155_PERMIT_ID.0, [0x74, 0x09, 0x10, 0x6d]);
+   }
+
+   /// An ERC-165 interface id is the XOR of the selectors of its functions. Deriving
+   /// `IERC5216_ID` from the generated selectors checks the constant against the ABI we
+   /// actually decode with — a copied hex string cannot drift from the declarations.
+   #[test]
+   fn erc5216_id_is_derivable_from_its_selectors() {
+      use crate::abi::erc1155::IERC5216;
+      use alloy_sol_types::SolCall;
+
+      let approve = u32::from_be_bytes(IERC5216::approveCall::SELECTOR);
+      let allowance = u32::from_be_bytes(IERC5216::allowanceCall::SELECTOR);
+
+      assert_eq!(
+         FixedBytes::<4>::from((approve ^ allowance).to_be_bytes()),
+         IERC5216_ID
+      );
+   }
+
+   /// ERC-7604 is a **draft, and its declared interface id does not match its own functions**:
+   /// XOR-ing the three selectors it lists gives `0x29011db4`, not the `0x7409106d` it tells
+   /// contracts to register.
+   ///
+   /// This test pins both values. The declared one is what we probe with (a real contract
+   /// answers what the ERC told it to register), and the mismatch is recorded so a future
+   /// reader does not "correct" the constant into disagreeing with every implementing
+   /// contract. If the ERC is ever fixed, this test fails loudly — which is the point.
+   #[test]
+   fn erc7604_declared_id_does_not_match_its_own_selectors() {
+      use crate::abi::erc1155::IERC1155Permit;
+      use alloy_sol_types::SolCall;
+
+      let permit = u32::from_be_bytes(IERC1155Permit::permitCall::SELECTOR);
+      let nonces = u32::from_be_bytes(IERC1155Permit::noncesCall::SELECTOR);
+      let domain = u32::from_be_bytes(IERC1155Permit::DOMAIN_SEPARATORCall::SELECTOR);
+
+      let derived = permit ^ nonces ^ domain;
+      assert_eq!(
+         derived, 0x2901_1db4,
+         "the selectors the ERC-7604 text lists"
+      );
+
+      assert_ne!(
+         FixedBytes::<4>::from(derived.to_be_bytes()),
+         IERC1155_PERMIT_ID,
+         "if these now agree, the draft was corrected upstream — re-read ERC-7604 and update"
+      );
+      assert_eq!(IERC1155_PERMIT_ID.0, [0x74, 0x09, 0x10, 0x6d]);
+   }
+
+   /// The extensions must only ever be trusted on an ERC-1155 that is itself trustworthy:
+   /// a non-compliant contract claiming ERC-5216 or ERC-7604 is not an NFT at all.
+   #[test]
+   fn extensions_require_a_compliant_erc1155() {
+      let mut support = Erc165Support {
+         erc165: true,
+         erc1155: true,
+         erc5216: true,
+         erc1155_permit: true,
+         ..Default::default()
+      };
+      assert!(support.is_erc5216());
+      assert!(support.is_erc1155_permit());
+
+      // Claims the invalid id — nothing it says can be trusted.
+      support.invalid_id_supported = true;
+      assert!(!support.is_erc5216());
+      assert!(!support.is_erc1155_permit());
+
+      // An ERC-721 answering `erc5216` (garbage, but possible) is not an allowance extension.
+      support.invalid_id_supported = false;
+      support.erc1155 = false;
+      support.erc721 = true;
+      assert!(!support.is_erc5216());
+      assert!(!support.is_erc1155_permit());
    }
 
    /// Two of these ids are *defined* as selectors: ERC-165 is the `supportsInterface(bytes4)`
