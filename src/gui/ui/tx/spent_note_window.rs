@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
-use egui::{Align, Frame, Id, Layout, Margin, Order, RichText, Ui, vec2};
+use egui::{Align, Id, Layout, Order, RichText, TextWrapMode, Ui, vec2};
 use egui_elements::{Button, Modal, Theme};
-use zeus_eth::{alloy_primitives::U256, currency::Currency, types::ChainId, utils::NumericValue};
+use zeus_eth::types::ChainId;
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::gui::ui::tx::chain;
+use crate::gui::ui::tx_history::private_asset_display;
 use crate::utils::TimeStamp;
 use zeus_eth::alloy_primitives::Address;
 use zeus_railgun::{PrivateHistoryEntry, PrivateHistoryKind};
@@ -70,102 +71,99 @@ impl SpentNoteWindow {
          .center_header(true)
          .closable(false)
          .frame(frame)
+         .max_width(self.size.0)
          .show(ui.ctx(), |ui| {
             ui.set_max_width(self.size.0);
             ui.set_max_height(self.size.1);
 
-            Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
-               ui.vertical_centered(|ui| {
-                  ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
-                  ui.spacing_mut().button_padding = theme.button_padding;
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
+               ui.spacing_mut().button_padding = theme.button_padding;
 
-                  let button_visuals = theme.button_visuals();
-
-                  let Some(row) = self.row.as_ref() else {
-                     ui.label(RichText::new("Spent note not found").size(theme.typography.large));
-                     let size = vec2(ui.available_width() * 0.8, 45.0);
-                     let text = RichText::new("Close").size(theme.typography.normal);
-                     let close_button = Button::new(text).min_size(size).visuals(button_visuals);
-                     if ui.add(close_button).clicked() {
-                        self.close();
-                     }
-                     return;
-                  };
-
-                  let chain_id: ChainId = row.chain.into();
-                  let frame = theme.frame2;
-                  let frame_size = vec2(ui.available_width() * 0.9, 45.0);
-
-                  ui.label(
-                     RichText::new(match row.entry.kind {
-                        PrivateHistoryKind::Merge => "Merged Notes",
-                        PrivateHistoryKind::Unshield => "Unshield",
-                        PrivateHistoryKind::Send => "Private Transfer",
-                        PrivateHistoryKind::Spend => "Private Spend",
-                     })
-                     .size(theme.typography.very_large)
-                     .strong(),
-                  );
-
-                  ui.allocate_ui(frame_size, |ui| {
-                     frame.show(ui, |ui| {
-                        chain(chain_id, theme, icons.clone(), ui);
-
-                        kv_row(
-                           "Wallet",
-                           &wallet_label(ctx, row.wallet),
-                           theme,
-                           ui,
-                        );
-
-                        kv_row("Amount", &amount_label(ctx, row), theme, ui);
-
-                        if row.entry.change_amount > 0 {
-                           kv_row(
-                              "Change returned",
-                              &format_amount(
-                                 ctx,
-                                 row.chain,
-                                 row.entry.asset,
-                                 row.entry.change_amount,
-                              ),
-                              theme,
-                              ui,
-                           );
-                        }
-
-                        kv_row(
-                           "Notes spent",
-                           &row.entry.input_count.to_string(),
-                           theme,
-                           ui,
-                        );
-
-                        if !row.entry.memo.is_empty() {
-                           kv_row("Memo", &row.entry.memo, theme, ui);
-                        }
-
-                        kv_row("Age", &spent_age(ctx, row), theme, ui);
-
-                        kv_row(
-                           "Spent block",
-                           &row.spent_block.to_string(),
-                           theme,
-                           ui,
-                        );
-                     });
-                  });
-
-                  ui.add_space(10.0);
-
+               let Some(row) = self.row.as_ref() else {
+                  ui.label(RichText::new("Spent note not found").size(theme.typography.large));
                   let size = vec2(ui.available_width() * 0.8, 45.0);
                   let text = RichText::new("Close").size(theme.typography.normal);
-                  let close_button = Button::new(text).min_size(size).visuals(button_visuals);
-
+                  let close_button = Button::new(text).min_size(size);
                   if ui.add(close_button).clicked() {
                      self.close();
                   }
+                  return;
+               };
+
+               let chain_id: ChainId = row.chain.into();
+               let frame = theme.frame2;
+               let frame_size = vec2(ui.available_width() * 0.9, 45.0);
+
+               ui.label(
+                  RichText::new(match row.entry.kind {
+                     PrivateHistoryKind::Merge => "Merged Notes",
+                     PrivateHistoryKind::Unshield => "Unshield",
+                     PrivateHistoryKind::Send => "Private Transfer",
+                     PrivateHistoryKind::Spend => "Private Spend",
+                  })
+                  .size(theme.typography.very_large)
+                  .strong(),
+               );
+
+               ui.allocate_ui(frame_size, |ui| {
+                  frame.show(ui, |ui| {
+                     chain(chain_id, theme, icons.clone(), ui);
+
+                     kv_row(
+                        "Wallet",
+                        &wallet_label(ctx, row.wallet),
+                        theme,
+                        ui,
+                     );
+
+                     kv_row("Amount", &amount_label(ctx, row), theme, ui);
+
+                     if row.entry.change_amount > 0 {
+                        kv_row(
+                           "Change returned",
+                           &format_amount(
+                              ctx,
+                              row.chain,
+                              row.entry.asset,
+                              row.entry.change_amount,
+                           ),
+                           theme,
+                           ui,
+                        );
+                     }
+
+                     kv_row(
+                        "Notes spent",
+                        &row.entry.input_count.to_string(),
+                        theme,
+                        ui,
+                     );
+
+                     if !row.entry.memo.is_empty() {
+                        kv_row("Memo", &row.entry.memo, theme, ui);
+                     }
+
+                     kv_row("Age", &spent_age(ctx, row), theme, ui);
+
+                     kv_row(
+                        "Spent block",
+                        &row.spent_block.to_string(),
+                        theme,
+                        ui,
+                     );
+                  });
                });
+
+               ui.add_space(10.0);
+
+               let size = vec2(ui.available_width() * 0.8, 45.0);
+               let text = RichText::new("Close").size(theme.typography.normal);
+               let close_button = Button::new(text).min_size(size);
+
+               if ui.add(close_button).clicked() {
+                  self.close();
+               }
             });
          });
    }
@@ -185,28 +183,21 @@ fn format_amount(
    asset: zeus_railgun::caip::AssetId,
    amount: u128,
 ) -> String {
-   let (symbol, decimals) = match asset.erc20_address() {
-      Some(addr) => ctx
-         .currency_db
-         .get_erc20_token(chain, addr)
-         .map(|t| (t.symbol.to_string(), t.decimals))
-         .unwrap_or_else(|| (addr.to_string(), 18)),
-      None => (asset.to_string(), 18),
-   };
-   let amount = NumericValue::format_wei(U256::from(amount), decimals);
-   let currency = asset
-      .erc20_address()
-      .and_then(|addr| ctx.currency_db.get_erc20_token(chain, addr).map(Currency::from));
-   if let Some(currency) = currency {
-      let usd = ctx.get_currency_value_for_amount(amount.f64(), &currency);
-      format!(
-         "{:.10} {} ~ ${:.10}",
-         amount.abbreviated(),
-         symbol,
-         usd.abbreviated()
-      )
-   } else {
-      format!("{:.10} {}", amount.abbreviated(), symbol)
+   // Named and scaled by the same helper the history table uses: an NFT is not in `CurrencyDB`, so the
+   // old fallback here showed the note's raw asset (`erc721:0xaf5aa…/1071`) formatted as if it were wei.
+   let display = private_asset_display(ctx, chain, asset);
+   let text = display.amount_text(amount, 10);
+
+   match (display.value(amount), display.currency()) {
+      (Some(value), Some(currency)) => {
+         let usd = ctx.get_currency_value_for_amount(value.f64(), currency);
+         format!(
+            "{text} {} ~ ${:.10}",
+            display.symbol(),
+            usd.abbreviated()
+         )
+      }
+      _ => format!("{text} {}", display.symbol()),
    }
 }
 
@@ -224,7 +215,13 @@ fn kv_row(label: &str, value: &str, theme: &Theme, ui: &mut Ui) {
          ui.label(RichText::new(label).size(theme.typography.large));
       });
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         ui.label(RichText::new(value).size(theme.typography.large).color(theme.colors.text));
+         // The value is this row's variable half — an NFT's collection, a wallet name, a memo — and a
+         // label in a horizontal layout takes as much width as its text needs, so it truncates to the
+         // room the row has left with the whole value on hover. Otherwise a long one overflows the card
+         // instead of the card overflowing the window.
+         let text = RichText::new(value).size(theme.typography.large).color(theme.colors.text);
+         ui.add(egui::Label::new(text).wrap_mode(TextWrapMode::Truncate))
+            .on_hover_text(value);
       });
    });
 }
