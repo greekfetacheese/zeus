@@ -258,13 +258,13 @@ async fn discover_nfts(ctx: ZeusCtx, chain: u64, owner: Address, transfers: &[Nf
 /// The tokens a transaction brought *into* `owner`'s wallet: one entry per moved token, so an
 /// ERC-1155 `TransferBatch` contributes every id it carries.
 ///
-/// An approval changes no ownership and a burn takes the token away, so neither is a discovery, and a
-/// transfer to anybody else is not ours to track. A collection-wide `ApprovalForAll` carries no id at
-/// all, which the `token_id` filter drops.
+/// A burn takes the token away and a transfer to anybody else is not ours to track. An approval is
+/// not here at all: it does not arrive as an [`NftTransferParams`], because it changes no ownership
+/// — see `NftApproveParams`.
 fn arrived_tokens(owner: Address, transfers: &[NftTransferParams]) -> Vec<(Address, U256)> {
    transfers
       .iter()
-      .filter(|params| params.approval.is_none() && !params.is_burn && params.to == owner)
+      .filter(|params| !params.is_burn && params.to == owner)
       .filter_map(|params| params.token_id.map(|token_id| (params.collection, token_id)))
       .collect()
 }
@@ -328,7 +328,6 @@ mod tests {
          to,
          is_mint: false,
          is_burn: false,
-         approval: None,
       }
    }
 
@@ -340,22 +339,16 @@ mod tests {
       assert_eq!(arrived, vec![(COLLECTION, U256::from(7))]);
    }
 
-   /// Everything that is not a token arriving here: a transfer to somebody else, a burn, an approval
-   /// of one token, and a collection-wide `ApprovalForAll` that carries no id at all.
+   /// Everything that is not a token arriving here: a transfer to somebody else, and a burn.
+   ///
+   /// An approval used to be on this list, and no longer needs to be: it cannot reach this function
+   /// at all, since only transfers are handed to it.
    #[test]
    fn nothing_else_is_tracked() {
       let mut burned = transfer(ME, Some(7));
       burned.is_burn = true;
 
-      let mut approved = transfer(ME, Some(7));
-      approved.approval = Some(true);
-
-      let transfers = [
-         transfer(OTHER, Some(7)),
-         burned,
-         approved,
-         transfer(ME, None),
-      ];
+      let transfers = [transfer(OTHER, Some(7)), burned];
 
       let arrived = arrived_tokens(ME, &transfers);
 

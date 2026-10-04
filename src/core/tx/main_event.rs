@@ -48,13 +48,20 @@ impl TransactionAnalysis {
          return DecodedEvent::Transfer(self.erc20_transfers()[0].clone());
       }
 
-      // NFT transfer / mint / burn / approval. Like the fungible transfer above it is a simple
+      // NFT transfer / mint / burn. Like the fungible transfer above it is a simple
       // transaction with nothing to compose, and without a case here it ranks as `Other` — which is
       // what "Unknown Interaction" is. An ERC-1155 batch decodes to one event per id: the first is the
       // main one, and the confirm window lists the rest.
       let nft_transfers = self.nft_transfers();
       if let Some(first) = nft_transfers.first() {
          return DecodedEvent::NftTransfer(first.clone());
+      }
+
+      // NFT approval, per token or collection-wide. Guarded like its ERC-20 counterpart below: an
+      // approval is only the headline of a transaction that does nothing else, so a shield that
+      // happens to include a `setApprovalForAll` stays a shield.
+      if self.decoded_events() == 1 && self.nft_approvals_len() == 1 {
+         return DecodedEvent::NftApprove(self.nft_approvals()[0].clone());
       }
 
       if self.decoded_events() == 1 && self.token_approvals_len() == 1 {
@@ -553,7 +560,6 @@ mod tests {
          to: PrivateKeySigner::random().address(),
          is_mint: false,
          is_burn: false,
-         approval: None,
       };
 
       let analysis = analysis(user, vec![DecodedEvent::NftTransfer(params)]);

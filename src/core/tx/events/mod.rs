@@ -38,8 +38,11 @@ pub enum DecodedEvent {
    /// ETH or ERC20 transfer
    Transfer(TransferParams),
 
-   /// NFT (ERC-721 / ERC-1155) transfer, mint, burn or approval
+   /// NFT (ERC-721 / ERC-1155) transfer, mint or burn
    NftTransfer(NftTransferParams),
+
+   /// NFT (ERC-721 / ERC-1155) approval — per token or collection-wide
+   NftApprove(NftApproveParams),
 
    /// Wrap ETH
    WrapETH(WrapETHParams),
@@ -362,6 +365,7 @@ impl DecodedEvent {
       match self {
          Self::Transfer(p) => p.name(),
          Self::NftTransfer(p) => p.name(),
+         Self::NftApprove(p) => p.name().to_string(),
          Self::WrapETH(_) => "Wrap ETH".to_string(),
          Self::UnwrapWETH(_) => "Unwrap WETH".to_string(),
          Self::Bridge(_) => "Bridge".to_string(),
@@ -458,8 +462,8 @@ impl DecodedEvent {
             }
          }
          // Nothing to price and nothing to refresh: an NFT has no pool, and this app keeps no USD
-         // value for one.
-         Self::NftTransfer(_) => {}
+         // value for one. That goes for an approval of one too.
+         Self::NftTransfer(_) | Self::NftApprove(_) => {}
          Self::EOADelegate(_) | Self::Other => {}
       }
    }
@@ -499,6 +503,16 @@ impl DecodedEvent {
       match self {
          Self::NftTransfer(params) => params,
          _ => panic!("Action is not an NFT transfer"),
+      }
+   }
+
+   /// Get the NFT approval params
+   ///
+   /// Panics if the action is not an NFT approval
+   pub fn nft_approve_params(&self) -> &NftApproveParams {
+      match self {
+         Self::NftApprove(params) => params,
+         _ => panic!("Action is not an NFT approval"),
       }
    }
 
@@ -602,6 +616,13 @@ impl DecodedEvent {
       }
    }
 
+   pub fn as_nft_approve(&self) -> Option<&NftApproveParams> {
+      match self {
+         Self::NftApprove(p) => Some(p),
+         _ => None,
+      }
+   }
+
    pub fn as_token_approve(&self) -> Option<&TokenApproveParams> {
       match self {
          Self::TokenApprove(p) => Some(p),
@@ -697,6 +718,10 @@ impl DecodedEvent {
 
    pub fn is_nft_transfer(&self) -> bool {
       matches!(self, Self::NftTransfer(_))
+   }
+
+   pub fn is_nft_approval(&self) -> bool {
+      matches!(self, Self::NftApprove(_))
    }
 
    pub fn is_wrap_eth(&self) -> bool {

@@ -46,7 +46,7 @@ pub enum NotificationType {
 
    Transfer(TransferParams),
 
-   /// NFT transfer / mint / burn / approval
+   /// NFT transfer / mint / burn
    NftTransfer(NftTransferParams),
 
    TokenApproval(TokenApproveParams),
@@ -73,6 +73,7 @@ impl NotificationType {
          DecodedEvent::UniswapPositionOperation(_params) => Self::Other(String::new()),
          DecodedEvent::EOADelegate(_params) => Self::Other(String::new()),
          DecodedEvent::Permit(_params) => Self::Other(String::new()),
+         DecodedEvent::NftApprove(_params) => Self::Other("NFT Approval".to_string()),
          DecodedEvent::Shield(params) => Self::Shield(params),
          DecodedEvent::Unshield(params) => Self::Unshield(params),
          DecodedEvent::PrivateTransfer(params) => Self::PrivateTransfer(params),
@@ -653,29 +654,22 @@ impl Notification {
          params.collection,
       );
 
-      // An approval has no token id — the collection is the whole subject there.
       let subject = match params.token_id {
          Some(token_id) => format!("{} #{}", collection, token_id),
          None => collection,
       };
 
-      let text = match params.approval {
-         Some(true) => format!("Approve {}", subject),
-         Some(false) => format!("Revoke {}", subject),
-         None => {
-            // No `1 ×` prefix for an ERC-721: the id *is* the thing, and "1 ×" next to it is noise.
-            let units = if params.amount > U256::from(1) {
-               format!("{} × ", params.amount)
-            } else {
-               String::new()
-            };
-
-            format!("{}{}", units, subject)
-         }
+      // No `1 ×` prefix for an ERC-721: the id *is* the thing, and "1 ×" next to it is noise.
+      let units = if params.amount > U256::from(1) {
+         format!("{} × ", params.amount)
+      } else {
+         String::new()
       };
 
-      // An approval is collection-wide, so it has no id to render — `0` finds the placeholder, which
-      // is the right picture for "the whole collection".
+      let text = format!("{}{}", units, subject);
+
+      // A transfer always names a token; the fallback id only covers a stored event whose id never
+      // made it into the art cache.
       let icon = icons
          .nft_icon_x64(
             params.chain,

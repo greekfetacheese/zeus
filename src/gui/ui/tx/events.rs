@@ -380,17 +380,14 @@ fn nft_transfer_event_ui(
             };
 
             // An ERC-1155 moves N units; an ERC-721 moves the token, and `1 ×` in front of an id is
-            // noise. An approval moves nothing at all.
-            let text = match params.approval {
-               Some(_) => subject,
-               None if params.amount > U256::from(1) => format!("{} × {}", params.amount, subject),
-               None => subject,
+            // noise.
+            let text = match params.amount > U256::from(1) {
+               true => format!("{} × {}", params.amount, subject),
+               false => subject,
             };
 
-            // An approval is collection-wide and its log carries no token id, so there is nothing
-            // specific to ask for — a fixed id (0) showed the placeholder whenever that particular
-            // token's art had never been fetched. Any of the collection's cached art says what the row
-            // is about.
+            // A transfer always names a token, so there is always something specific to ask for; the
+            // collection fallback covers a stored event whose id never made it into the cache.
             let icon = match params.token_id {
                Some(token_id) => icons.nft_icon_x64(chain_id, params.collection, token_id, tint),
                None => icons.nft_collection_icon_x64(chain_id, params.collection, tint),
@@ -406,15 +403,15 @@ fn nft_transfer_event_ui(
             ui.add(label);
          });
 
-         // What is actually happening to it. A mint or a burn is a transfer the user did not ask for in
-         // so many words, so it is worth naming.
+         // A mint or a burn is a transfer the user did not ask for in so many words, so it is
+         // worth naming.
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let action = match params.approval {
-               Some(true) => Some("Approve"),
-               Some(false) => Some("Revoke"),
-               None if params.is_mint => Some("Mint"),
-               None if params.is_burn => Some("Burn"),
-               None => None,
+            let action = if params.is_mint {
+               Some("Mint")
+            } else if params.is_burn {
+               Some("Burn")
+            } else {
+               None
             };
 
             if let Some(action) = action {
@@ -432,17 +429,93 @@ fn nft_transfer_event_ui(
       });
    });
 
-   // An approval is the owner handing over rights to an operator, and calling those two "sender" and
-   // "recipient" would describe a transfer that never happened.
-   let (from_label, to_label) = match params.approval {
-      Some(_) => ("Owner", "Operator"),
-      None => ("Sender", "Recipient"),
-   };
-
-   address(ctx, chain, from_label, params.from, theme, ui);
+   address(ctx, chain, "Sender", params.from, theme, ui);
 
    ui.allocate_ui(size, |ui| {
-      address(ctx, chain, to_label, params.to, theme, ui);
+      address(ctx, chain, "Recipient", params.to, theme, ui);
+   });
+}
+
+/// An NFT approval row: what is being granted, on which token or collection, and to whom.
+///
+/// Separate from [`nft_transfer_event_ui`] because an approval moves nothing — calling the two
+/// parties "sender" and "recipient", or the action a "transfer", would describe something that never
+/// happened.
+fn nft_approve_event_ui(
+   ctx: &mut ZeusContext,
+   chain: ChainId,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   params: &NftApproveParams,
+   ui: &mut Ui,
+) {
+   let size = vec2(ui.available_width(), 30.0);
+   let tint = theme.image_tint_recommended;
+   let icon_size = vec2(24.0, 24.0);
+   let chain_id = chain.id();
+
+   let collection = nft_collection_name(
+      ctx.nft_db.get_collection(chain_id, params.collection).as_ref(),
+      params.collection,
+   );
+
+   ui.allocate_ui(size, |ui| {
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            // A collection-wide approval has no token id, so the collection is the whole subject.
+            let subject = match params.token_id {
+               Some(token_id) => format!("{} #{}", collection, token_id),
+               None => collection.clone(),
+            };
+
+            // Only ERC-5216 carries a number worth showing, and `1 ×` in front of a token is noise.
+            let text = match &params.amount {
+               Some(amount) if *amount > U256::from(1) => format!("{} × {}", amount, subject),
+               _ => subject,
+            };
+
+            // A collection-wide approval has no id to ask about, and a fixed id (0) showed the
+            // placeholder whenever that token's art had never been fetched. Any of the collection's
+            // cached art says what the row is about.
+            let icon = match params.token_id {
+               Some(token_id) => icons.nft_icon_x64(chain_id, params.collection, token_id, tint),
+               None => icons.nft_collection_icon_x64(chain_id, params.collection, tint),
+            }
+            .fit_to_exact_size(icon_size);
+
+            let label = Label::new(
+               RichText::new(text).size(theme.typography.large),
+               Some(icon),
+            )
+            .spacing(3.0)
+            .interactive(false);
+            ui.add(label);
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let action = match params.is_revoke() {
+               true => "Revoke",
+               false => "Approve",
+            };
+            ui.label(RichText::new(action).size(theme.typography.large));
+         });
+      });
+   });
+
+   ui.horizontal(|ui| {
+      ui.label(RichText::new("Standard").size(theme.typography.large));
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         ui.label(RichText::new(params.standard.to_string()).size(theme.typography.large));
+      });
+   });
+
+   // An approval hands rights to an operator, and calling those two "sender" and "recipient" would
+   // describe a transfer that never happened.
+   address(ctx, chain, "Owner", params.owner, theme, ui);
+
+   ui.allocate_ui(size, |ui| {
+      address(ctx, chain, "Operator", params.operator, theme, ui);
    });
 }
 
@@ -1436,6 +1509,11 @@ pub fn show_event(
    if event.is_private_transfer() {
       let params = event.private_transfer_params();
       private_transfer_event_ui(ctx, chain, theme, icons.clone(), params, ui);
+   }
+
+   if event.is_nft_approval() {
+      let params = event.nft_approve_params();
+      nft_approve_event_ui(ctx, chain, theme, icons.clone(), params, ui);
    }
 
    if event.is_nft_transfer() {

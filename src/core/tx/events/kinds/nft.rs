@@ -1,56 +1,55 @@
-use crate::core::ZeusCtx;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use zeus_eth::{
-   abi::{erc165, erc721, erc1155},
+   abi::{erc721, erc1155},
    alloy_primitives::{Address, Log, U256},
    nft::NftStandard,
 };
 
-/// An NFT transfer, mint, burn or approval, decoded from one log.
+/// An NFT transfer, mint or burn, decoded from one log.
 ///
 /// One params per moved token: an ERC-1155 `TransferBatch` is a single log carrying N transfers, and
 /// the decode pipeline's `DecodeOutcome::Many` already carries what one log cannot.
+///
+/// Approvals are **not** here — see [`super::NftApproveParams`]. A transfer moves a token and an
+/// approval grants an operator, so folding both into one struct meant every consumer had to ask
+/// which of the two it was holding.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NftTransferParams {
    pub chain: u64,
    pub standard: NftStandard,
    /// The collection that emitted the log — for an NFT there is no other contract involved.
    pub collection: Address,
-   /// The token this concerns. `None` for a collection-wide approval (`ApprovalForAll`), which has no
-   /// token id: a zero id would read as a real token in the UI.
+   /// The token this concerns.
+   ///
+   /// A transfer always names one, so this is always `Some` — the `Option` is kept because the
+   /// struct is persisted inside `TransactionAnalysis`, and narrowing the field would change the
+   /// serde shape and stop every already-stored event from loading.
    pub token_id: Option<U256>,
-   /// How many units moved: `1` for every ERC-721 transfer (the id *is* the thing), the event's value
-   /// for ERC-1155, and zero for an approval.
+   /// How many units moved: `1` for every ERC-721 transfer (the id *is* the thing), the event's
+   /// value for ERC-1155.
    pub amount: U256,
    pub from: Address,
-   /// The recipient, or the operator for an approval.
    pub to: Address,
    pub is_mint: bool,
    pub is_burn: bool,
-   /// `None` for a transfer, `Some(approved)` for an approval — a **revoked** approval
-   /// (`approved == false`) is still an approval, which a plain `bool` could not express.
-   pub approval: Option<bool>,
 }
 
 impl NftTransferParams {
    pub fn name(&self) -> String {
       match self {
-         Self {
-            approval: Some(_), ..
-         } => "NFT Approval".to_string(),
          Self { is_mint: true, .. } => "NFT Mint".to_string(),
          Self { is_burn: true, .. } => "NFT Burn".to_string(),
          _ => "NFT Transfer".to_string(),
       }
    }
 
-   /// Decode any NFT log, filling in whatever the log alone cannot say.
+   /// Decode any NFT transfer log.
    ///
-   /// The per-standard halves are separate and pure so they can be tested without a context. Only
-   /// `ApprovalForAll` needs one: ERC-721 and ERC-1155 emit a **byte-identical** log for it, so the
-   /// standard has to be asked of the contract itself.
-   pub async fn from_log(ctx: ZeusCtx, chain: u64, log: &Log) -> Result<Vec<Self>, anyhow::Error> {
+   /// The per-standard halves are separate and pure, so this needs nothing but the log: every
+   /// transfer shape identifies its own standard, unlike `ApprovalForAll` which ERC-721 and
+   /// ERC-1155 emit identically (that one is decoded by [`super::NftApproveParams`]).
+   pub fn from_log(chain: u64, log: &Log) -> Result<Vec<Self>, anyhow::Error> {
       if let Some(params) = Self::from_erc721_transfer(chain, log) {
          return Ok(vec![params]);
       }
@@ -59,12 +58,7 @@ impl NftTransferParams {
          return Ok(params);
       }
 
-      if let Some(mut params) = Self::from_approval_for_all(chain, log) {
-         params.standard = Self::standard_of(ctx, chain, log.address).await;
-         return Ok(vec![params]);
-      }
-
-      Err(anyhow!("Not an NFT log"))
+      Err(anyhow!("Not an NFT transfer log"))
    }
 
    /// ERC-721 `Transfer(address indexed from, address indexed to, uint256 indexed tokenId)`.
@@ -86,7 +80,6 @@ impl NftTransferParams {
          to: decoded.to,
          is_mint: decoded.from.is_zero(),
          is_burn: decoded.to.is_zero(),
-         approval: None,
       })
    }
 
@@ -137,48 +130,6 @@ impl NftTransferParams {
          to,
          is_mint: from.is_zero(),
          is_burn: to.is_zero(),
-         approval: None,
-      }
-   }
-
-   /// `ApprovalForAll(address indexed owner, address indexed operator, bool approved)`.
-   ///
-   /// The struct is built with ERC-721 and corrected by the caller — the log carries no standard.
-   fn from_approval_for_all(chain: u64, log: &Log) -> Option<Self> {
-      let decoded = erc721::decode_approval_for_all_log(log).ok()?;
-
-      Some(Self {
-         chain,
-         standard: NftStandard::Erc721,
-         collection: log.address,
-         token_id: None,
-         amount: U256::ZERO,
-         from: decoded.owner,
-         to: decoded.operator,
-         is_mint: false,
-         is_burn: false,
-         approval: Some(decoded.approved),
-      })
-   }
-
-   /// Which standard emitted an `ApprovalForAll`: the cached collection first (no call), then the
-   /// contract's own ERC-165 answer.
-   ///
-   /// A contract that answers neither leaves the label as ERC-721 — that costs a label, not the event,
-   /// and losing an approval from the history would cost the user the one thing approvals are worth
-   /// showing for.
-   async fn standard_of(ctx: ZeusCtx, chain: u64, collection: Address) -> NftStandard {
-      if let Some(collection) = ctx.read(|ctx| ctx.nft_db.get_collection(chain, collection)) {
-         return collection.standard;
-      }
-
-      let Ok(client) = ctx.get_client(chain).await else {
-         return NftStandard::Erc721;
-      };
-
-      match erc165::probe(client, collection).await.is_erc1155() {
-         true => NftStandard::Erc1155,
-         false => NftStandard::Erc721,
       }
    }
 }
@@ -292,7 +243,6 @@ mod tests {
          "an ERC-721 transfer moves exactly one"
       );
       assert_eq!((params.from, params.to), (addr(FROM), addr(TO)));
-      assert_eq!(params.approval, None);
       assert_eq!(params.name(), "NFT Transfer");
    }
 
@@ -339,43 +289,5 @@ mod tests {
       assert_eq!(params[1].token_id, Some(U256::from(2)));
       assert_eq!(params[1].amount, U256::from(4));
       assert!(params.iter().all(|p| p.from == addr(FROM) && p.to == addr(TO)));
-   }
-
-   fn approval_log(approved: bool) -> Log {
-      Log {
-         address: collection(),
-         data: IERC721::ApprovalForAll {
-            owner: addr(OPERATOR),
-            operator: addr(TO),
-            approved,
-         }
-         .encode_log_data(),
-      }
-   }
-
-   /// An approval has no token and keeps the flag: a **revoked** approval is an approval too, which is
-   /// exactly why the flag is an `Option<bool>` and not a `bool`.
-   #[test]
-   fn an_approval_has_no_token_and_keeps_its_flag() {
-      let granted = NftTransferParams::from_approval_for_all(1, &approval_log(true)).unwrap();
-      assert_eq!(granted.approval, Some(true));
-      assert_eq!(
-         granted.token_id, None,
-         "an ApprovalForAll has no token id"
-      );
-      assert_eq!(granted.amount, U256::ZERO);
-      assert_eq!(
-         (granted.from, granted.to),
-         (addr(OPERATOR), addr(TO))
-      );
-      assert_eq!(granted.name(), "NFT Approval");
-
-      let revoked = NftTransferParams::from_approval_for_all(1, &approval_log(false)).unwrap();
-      assert_eq!(revoked.approval, Some(false));
-      assert_eq!(
-         revoked.name(),
-         "NFT Approval",
-         "revoking is still an approval"
-      );
    }
 }

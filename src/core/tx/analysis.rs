@@ -306,6 +306,15 @@ impl TransactionAnalysis {
          .collect()
    }
 
+   pub fn nft_approvals_len(&self) -> usize {
+      self.decoded_events.iter().filter(|e| e.is_nft_approval()).count()
+   }
+
+   /// The NFT approvals of this transaction, in log order.
+   pub fn nft_approvals(&self) -> Vec<NftApproveParams> {
+      self.decoded_events.iter().filter_map(|e| e.as_nft_approve().cloned()).collect()
+   }
+
    pub fn token_approvals_len(&self) -> usize {
       self.decoded_events.iter().filter(|t| t.is_token_approval()).count()
    }

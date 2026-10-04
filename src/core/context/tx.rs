@@ -523,7 +523,6 @@ mod tests {
          to: Address::repeat_byte(5),
          is_mint: false,
          is_burn: false,
-         approval: None,
       });
 
       let db = TxDBHandle::open_at(&path, &key).unwrap();
