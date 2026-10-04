@@ -172,7 +172,7 @@ where
    evm.tx.kind = TxKind::Call(token);
 
    let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
-   let output = res.result.output().ok_or(anyhow!("Output not found"))?;
+   let output = ok_output(&res.result, "ERC-20 balanceOf")?;
    let balance = abi::erc20::decode_balance_of(output)?;
    Ok(balance)
 }
@@ -195,7 +195,7 @@ where
    evm.tx.kind = TxKind::Call(token);
 
    let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
-   let output = res.result.output().ok_or(anyhow!("Output not found"))?;
+   let output = ok_output(&res.result, "ERC-20 allowance")?;
    abi::erc20::decode_allowance(output)
 }
 
@@ -220,7 +220,7 @@ where
    evm.tx.kind = TxKind::Call(permit2);
 
    let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
-   let output = res.result.output().ok_or(anyhow!("Output not found"))?;
+   let output = ok_output(&res.result, "Permit2 allowance")?;
    let (amount, expiration, _nonce) = abi::permit::decode_allowance(output)?;
    Ok((amount, expiration))
 }

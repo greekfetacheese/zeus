@@ -30,6 +30,11 @@ pub const TOKEN_ICON_X24: &str = "x24.png";
 pub const NFT_ICON_X64: &str = "x64.png";
 pub const NFT_ICON_X250: &str = "x250.png";
 pub const NFT_IMAGE_SVG: &str = "image.svg";
+/// The metadata URI a token's cached art was read from, beside its renderings.
+///
+/// Kept so a collection that changes its `tokenURI` (a reveal, an upgrade) can be noticed: the cache is
+/// keyed by `(collection, token id)`, which cannot tell the difference on its own.
+pub const NFT_ICON_SOURCE: &str = "source_uri";
 
 macro_rules! persisted_files {
    ($($variant:ident => $name:literal),* $(,)?) => {

@@ -474,7 +474,12 @@ pub fn prepare_image_data(bytes: &[u8]) -> Result<NftIconData, anyhow::Error> {
       render_two_sizes(bytes)?
    };
 
-   Ok(NftIconData { x64, x250 })
+   Ok(NftIconData {
+      x64,
+      x250,
+      // Filled in by the caller that knows which URI the art was read from — see `fetch_nft_icon`.
+      source_uri: None,
+   })
 }
 
 /// GET with a size cap, from a host the wallet is allowed to reach.
@@ -553,6 +558,13 @@ async fn fetch_ipfs(path: &str) -> Result<Option<Vec<u8>>, anyhow::Error> {
 
 async fn fetch_resolved(uri: ResolvedUri) -> Result<Option<Vec<u8>>, anyhow::Error> {
    match uri {
+      // A `data:` URI arrives inline, so nothing is transferred — but the cap is about what gets decoded
+      // and held, not about the transfer. Without this, a `tokenURI` that is itself a `data:` document
+      // would be the one URI class that skips [`MAX_BYTES`] entirely.
+      ResolvedUri::Data(bytes) if bytes.len() > MAX_BYTES => Err(anyhow!(
+         "inline data: URI carries {} bytes, over the {MAX_BYTES} limit",
+         bytes.len()
+      )),
       ResolvedUri::Data(bytes) => Ok(Some(bytes)),
       ResolvedUri::Http(url) => get_with_cap(&url, MAX_BYTES).await,
       ResolvedUri::Ipfs(path) => fetch_ipfs(&path).await,
@@ -614,7 +626,14 @@ pub async fn fetch_nft_icon(
    };
 
    match prepare_image_data(&image_bytes) {
-      Ok(data) => Ok(Some(data)),
+      // The URI is stored with the art so a later change to it can be noticed at all: the cache is keyed
+      // by `(collection, token id)`, which cannot tell on its own. What is recorded is the *metadata* URI
+      // the fetch was asked for — the same string the caller compares against next time — and a change to
+      // the document's contents behind an unchanged URI stays undetectable, by nature.
+      Ok(mut data) => {
+         data.source_uri = Some(uri);
+         Ok(Some(data))
+      }
       Err(e) => {
          // Not retryable: an undecodable picture will not become decodable. Log the format so a
          // placeholder is diagnosable instead of mysterious.
@@ -648,6 +667,12 @@ pub fn start_nft_art_downloads<'a>(chain_id: u64, tokens: impl Iterator<Item = &
       };
 
       let key = (token.collection, chain_id, token.token_id);
+
+      // Before deciding whether this token needs a fetch, check what is cached against the URI the
+      // contract reports now: without this a reveal or an upgrade would keep showing the old picture for
+      // good, because the cache is keyed by `(collection, token id)` rather than by URI.
+      icons.nfts.reconcile_art(&key, Some(uri.as_str()));
+
       if !icons.nfts.needs_fetch(&key) {
          continue;
       }
@@ -782,6 +807,27 @@ mod tests {
       );
       assert_eq!(resolve_uri("ftp://example.invalid/a"), None);
       assert_eq!(resolve_uri("ipfs://"), None);
+   }
+
+   /// An inline `data:` payload is capped like every fetched URI.
+   ///
+   /// Nothing is transferred for a `data:` URI, but [`MAX_BYTES`] bounds what gets decoded and held —
+   /// and a `tokenURI` that is itself a `data:` document is exactly the case the enclosing fetch cannot
+   /// bound, because it only bounds the fetch.
+   #[tokio::test]
+   async fn an_oversized_data_uri_is_refused() {
+      let over = ResolvedUri::Data(vec![0u8; MAX_BYTES + 1]);
+      assert!(
+         fetch_resolved(over).await.is_err(),
+         "over the cap must be refused rather than decoded"
+      );
+
+      let under = ResolvedUri::Data(vec![0u8; 16]);
+      assert_eq!(
+         fetch_resolved(under).await.expect("under the cap"),
+         Some(vec![0u8; 16]),
+         "and an ordinary inline payload still comes through"
+      );
    }
 
    /// A URI is fetched over `https` from a public host, or not at all.

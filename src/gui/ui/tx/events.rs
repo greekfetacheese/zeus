@@ -6,6 +6,7 @@ use egui_elements::{Label, Modal, MultiLabel, Theme};
 use crate::assets::icons::Icons;
 use crate::core::{TransactionAnalysis, ZeusContext, tx::events::*};
 use crate::gui::ui::token_selection::nft_collection_name;
+use crate::utils::truncate_address;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token, NativeCurrency},
@@ -671,9 +672,11 @@ fn shield_event_ui(
                   .color(theme.colors.info);
                (rich, Some(contact.evm_address))
             } else {
-               let truncated = format!("{}...{}", &recipient[..6], &recipient[121..]);
-               let rich =
-                  RichText::new(truncated).size(theme.typography.large).color(theme.colors.info);
+               // Anything too short to shorten comes back whole from the helper: the slice offsets are
+               // safe only because it has already checked the length.
+               let rich = RichText::new(truncate_address(recipient.clone()))
+                  .size(theme.typography.large)
+                  .color(theme.colors.info);
                (rich, None)
             };
 
@@ -979,17 +982,8 @@ fn private_transfer_event_ui(
                .size(theme.typography.large)
                .color(theme.colors.info);
             (rich, Some(contact.evm_address))
-         } else if recipient.len() > 12 {
-            let truncated = format!(
-               "{}...{}",
-               &recipient[..6],
-               &recipient[recipient.len() - 6..]
-            );
-            let rich =
-               RichText::new(truncated).size(theme.typography.large).color(theme.colors.info);
-            (rich, None)
          } else {
-            let rich = RichText::new(recipient.clone())
+            let rich = RichText::new(truncate_address(recipient.clone()))
                .size(theme.typography.large)
                .color(theme.colors.info);
             (rich, None)

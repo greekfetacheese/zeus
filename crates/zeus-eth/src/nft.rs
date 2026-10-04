@@ -232,15 +232,21 @@ impl NftToken {
 
 /// Expand an EIP-1155 `{id}` placeholder in a metadata URI.
 ///
-/// The id is substituted as lowercase hex, zero-padded to 64 characters. Matching is
-/// case-insensitive because contracts emit `{id}` and `{ID}` both, and clients are expected to
-/// handle either.
+/// The id is substituted as lowercase hex, zero-padded to 64 characters. Every spelling of the
+/// placeholder is expanded, not only the two the EIP prints: it shows `{id}` and `{ID}`, clients are
+/// expected to treat it case-insensitively, and "id" has exactly four spellings.
 pub fn expand_id_placeholder(uri: &str, token_id: U256) -> String {
    if !uri.contains('{') {
       return uri.to_string();
    }
+
    let hex = format!("{token_id:064x}");
-   uri.replace("{id}", &hex).replace("{ID}", &hex)
+   let mut out = uri.to_string();
+   for placeholder in ["{id}", "{ID}", "{Id}", "{iD}"] {
+      out = out.replace(placeholder, &hex);
+   }
+
+   out
 }
 
 /// One collection the owner holds tokens in, as found by enumeration.
@@ -448,9 +454,21 @@ fn holdings_from(
    holdings
 }
 
-/// `balanceOf` returns whatever `uint256` it likes, so saturate instead of wrapping.
+/// `balanceOf` returns whatever `uint256` it likes, so clamp instead of wrapping — and say so, because a
+/// clamped count is a wrong number rather than a rejection.
+///
+/// A truth above `u64::MAX` needs a supply of 1.8e19 of one id, which no real collection has. If one ever
+/// answers with it, the warning is what tells us the displayed count is not the chain's.
 fn to_u64(amount: U256) -> u64 {
-   amount.try_into().unwrap_or(u64::MAX)
+   match u64::try_from(amount) {
+      Ok(value) => value,
+      Err(_) => {
+         tracing::warn!(
+            "ERC-1155 balance {amount} does not fit in u64, showing the maximum instead"
+         );
+         u64::MAX
+      }
+   }
 }
 
 #[cfg(test)]
@@ -511,11 +529,19 @@ mod tests {
    }
 
    #[test]
-   fn expands_uppercase_and_leaves_plain_uris_alone() {
-      assert_eq!(
-         expand_id_placeholder("ipfs://cid/{ID}.json", U256::from(0x2a)),
-         format!("ipfs://cid/{:064x}.json", 0x2a)
-      );
+   fn expands_every_spelling_and_leaves_plain_uris_alone() {
+      let hex = format!("{:064x}", 0x2a);
+      for template in [
+         "ipfs://cid/{id}.json",
+         "ipfs://cid/{ID}.json",
+         "ipfs://cid/{Id}.json",
+         "ipfs://cid/{iD}.json",
+      ] {
+         assert_eq!(
+            expand_id_placeholder(template, U256::from(0x2a)),
+            format!("ipfs://cid/{hex}.json")
+         );
+      }
 
       let plain = "ipfs://QmeSjSinHpPnmXmspMjwiXyN6zS4E9zccariGR3jxcaWtq/1";
       assert_eq!(expand_id_placeholder(plain, U256::from(1)), plain);

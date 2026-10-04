@@ -69,8 +69,10 @@ impl Default for ERC20Token {
 impl ERC20Token {
    /// Create a new ERC20Token by retrieving the token information from the blockchain
    ///
-   /// Rejects ERC-721 / ERC-1155 contracts that expose the same `name()` / `symbol()`
-   /// selectors as ERC-20 (detected via ERC-165).
+   /// The gate is the deployed `ZeusStateViewV4.getERC20Info`: it answers with
+   /// `name()` / `symbol()` / `decimals()` / `totalSupply()` for an ERC-20, and reverts with a custom
+   /// error for an ERC-721 or ERC-1155 that exposes the same `name()` / `symbol()` selectors. Nothing
+   /// here probes ERC-165.
    pub async fn new<P, N>(client: P, token: Address, chain_id: u64) -> Result<Self, anyhow::Error>
    where
       P: Provider<N> + Clone + 'static,

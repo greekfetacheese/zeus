@@ -11,7 +11,7 @@ use zeus_eth::{ERC20Token, types::ChainId};
 use crate::core::context::currencies::TokenData;
 use crate::embedded::TOKEN_DATA;
 use egui_elements::utils::TINT_1;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::str::FromStr;
 use std::sync::RwLock;
 use zeus_eth::{
@@ -233,6 +233,11 @@ pub struct NftIconData {
    pub x64: Vec<u8>,
    /// The copy kept for inspecting a single NFT.
    pub x250: Vec<u8>,
+   /// The metadata URI this art was read from, when it is known.
+   ///
+   /// The cache key is `(collection, token id)`, so this is the only way to notice that the URI behind
+   /// the art changed — a reveal, an upgrade. See [`NftIcons::reconcile_art`].
+   pub source_uri: Option<String>,
 }
 
 impl NftIconData {
@@ -241,6 +246,22 @@ impl NftIconData {
       self.x64.is_empty() && self.x250.is_empty()
    }
 }
+
+/// The bytes held by an in-memory art map, both renderings per entry.
+fn art_bytes(cache: &HashMap<NftKey, NftIconData>) -> usize {
+   cache.values().map(|data| data.x64.len() + data.x250.len()).sum()
+}
+
+/// How many tokens' art is held in memory.
+///
+/// The in-memory copy is the hot one and the disk copy is the durable one
+/// ([`disk::MAX_DISK_BYTES`]), so these two bounds are backstops against pathological growth rather
+/// than a working-set limit: past them art is dropped from memory and read back from disk when it is
+/// next asked for, which is never a re-download.
+const MAX_ART_ENTRIES: usize = 512;
+
+/// The byte budget for that in-memory copy.
+const MAX_ART_BYTES: usize = 64 * 1024 * 1024;
 
 /// Downloaded NFT images.
 ///
@@ -252,6 +273,11 @@ pub struct NftIcons {
    icons_x250: RwLock<HashMap<NftKey, TextureHandle>>,
    /// Raw PNG bytes. Kept so textures are decompressed and uploaded only when a view asks.
    icon_data: RwLock<HashMap<NftKey, NftIconData>>,
+   /// The same keys, oldest touched first, so [`NftIcons::evict_art`] knows what to drop.
+   ///
+   /// Touched on insert rather than on every read: art is fetched in the order it is looked at, so the
+   /// two orders agree without taking a write lock on the frame path.
+   art_order: RwLock<VecDeque<NftKey>>,
    /// In-flight downloads, so two views asking at once do not fetch twice.
    in_flight: RwLock<HashSet<NftKey>>,
    /// Tokens whose image was missing this session — don't retry until restart.
@@ -277,13 +303,21 @@ impl NftIcons {
          TextureOptions::default(),
       );
 
-      // Images downloaded in previous sessions.
-      let icon_data: HashMap<NftKey, NftIconData> = disk::load_downloaded_nft_icons();
+      // Images downloaded in previous sessions — the newest [`MAX_ART_ENTRIES`] of them; the rest stay
+      // on disk and are read back when a view asks.
+      let loaded = disk::load_downloaded_nft_icons(MAX_ART_ENTRIES);
+      let mut art_order: VecDeque<NftKey> = VecDeque::with_capacity(loaded.len());
+      let mut icon_data: HashMap<NftKey, NftIconData> = HashMap::with_capacity(loaded.len());
+      for (key, data) in loaded {
+         art_order.push_back(key);
+         icon_data.insert(key, data);
+      }
 
       Ok(Self {
          icons_x64: RwLock::new(HashMap::new()),
          icons_x250: RwLock::new(HashMap::new()),
          icon_data: RwLock::new(icon_data),
+         art_order: RwLock::new(art_order),
          in_flight: RwLock::new(HashSet::new()),
          failed: RwLock::new(HashSet::new()),
          egui_ctx: ctx.clone(),
@@ -362,17 +396,118 @@ impl NftIcons {
 
    /// Whether this token still needs a download attempt.
    ///
-   /// A read-only probe of the same three conditions [`NftIcons::try_begin_fetch`] enforces, for
-   /// callers that have to *count* the fetches they start: a list that downloads art for its first N
-   /// rows per load must skip the ones already tried, or the tail of a long list is never reached.
+   /// Not quite read-only: art that is on disk but was evicted from the bounded in-memory copy is read
+   /// back here, so a caller counting the fetches it starts does not spend a slot on one that has
+   /// nothing left to do. Both callers are off the frame path.
    pub fn needs_fetch(&self, key: &NftKey) -> bool {
-      !self.has_icon(key)
+      !self.hydrate(key)
          && !self.in_flight.read().unwrap().contains(key)
          && !self.failed.read().unwrap().contains(key)
    }
 
    pub fn insert_icon(&self, key: NftKey, data: NftIconData) {
       self.icon_data.write().unwrap().insert(key, data);
+      self.touch(&key);
+      self.evict_art();
+   }
+
+   /// Record `key` as the most recently touched, without duplicating it in the order list.
+   fn touch(&self, key: &NftKey) {
+      let mut order = self.art_order.write().unwrap();
+      if let Some(at) = order.iter().position(|existing| existing == key) {
+         order.remove(at);
+      }
+      order.push_back(*key);
+   }
+
+   /// Keep the in-memory copy inside its budget, dropping the least recently touched art first.
+   ///
+   /// Only the memory copy: the disk copy is the durable one, and [`NftIcons::hydrate`] reads it back, so
+   /// an eviction costs a file read rather than a download. A stale purge or a failed fetch may already
+   /// have removed a key from the map, in which case its place in the order list is simply skipped.
+   fn evict_art(&self) {
+      let mut order = self.art_order.write().unwrap();
+      let mut cache = self.icon_data.write().unwrap();
+
+      while cache.len() > MAX_ART_ENTRIES || art_bytes(&cache) > MAX_ART_BYTES {
+         let Some(oldest) = order.pop_front() else {
+            break;
+         };
+         if cache.remove(&oldest).is_some() {
+            self.icons_x64.write().unwrap().remove(&oldest);
+            self.icons_x250.write().unwrap().remove(&oldest);
+         }
+      }
+   }
+
+   /// Bring art that is on disk but not in memory back into memory. `true` when there is art now.
+   fn hydrate(&self, key: &NftKey) -> bool {
+      if self.has_icon(key) {
+         return true;
+      }
+
+      let Some(data) = disk::load_nft_icon(key.1, key.0, key.2) else {
+         return false;
+      };
+
+      self.insert_icon(*key, data);
+      true
+   }
+
+   /// Bring the cache's record of `key`'s art in line with the URI the token reports now.
+   ///
+   /// The cache is keyed by `(collection, token id)`, so without this a collection that changes its
+   /// `tokenURI` — a reveal, an upgrade — would keep showing the old picture for good. Three cases:
+   ///
+   /// - Both URIs are known and differ: the art is dropped, from memory and from disk, so the next fetch
+   ///   reads the new one.
+   /// - The stored URI is unknown — art cached by a version that recorded none: the current URI becomes
+   ///   the baseline. Its bytes cannot be checked retroactively, and re-downloading every user's art on
+   ///   upgrade to buy nothing would be worse than starting to compare from here.
+   /// - The current URI is unknown (the contract exposes no metadata, or the token has no art cached):
+   ///   nothing to compare, so nothing happens. Art for a token whose metadata went away is still that
+   ///   token's art.
+   pub fn reconcile_art(&self, key: &NftKey, current: Option<&str>) {
+      let Some(current) = current else {
+         return;
+      };
+
+      let stored = {
+         let cache = self.icon_data.read().unwrap();
+         match cache.get(key) {
+            Some(data) => data.source_uri.clone(),
+            None => return,
+         }
+      };
+
+      match stored {
+         Some(stored) if stored == current => {}
+         Some(_) => {
+            tracing::debug!(
+               "NFT art for {} is from an older metadata URI, refetching",
+               key.0
+            );
+            self.remove_icon(key);
+            if let Err(e) = disk::delete_nft_icon(key.1, key.0, key.2) {
+               tracing::warn!("Failed to drop stale NFT art for {}: {e}", key.0);
+            }
+            // The re-fetch is a real download, so it starts from a clean slate rather than the session's
+            // "already tried and missing" set.
+            self.failed.write().unwrap().remove(key);
+         }
+         None => {
+            if let Err(e) = disk::save_nft_icon_source(key.1, key.0, key.2, current) {
+               tracing::debug!(
+                  "Failed to record the source URI for {}: {e}",
+                  key.0
+               );
+               return;
+            }
+            if let Some(data) = self.icon_data.write().unwrap().get_mut(key) {
+               data.source_uri = Some(current.to_string());
+            }
+         }
+      }
    }
 
    pub fn remove_icon(&self, key: &NftKey) {
@@ -381,10 +516,13 @@ impl NftIcons {
       self.icons_x250.write().unwrap().remove(key);
    }
 
-   /// Mark a download as started. Returns false when we already have the image, one is in flight,
-   /// or it came back missing this session.
+   /// Mark a download as started. Returns false when we already have the image, one is in flight, or it
+   /// came back missing this session.
+   ///
+   /// "Already have" includes art that is on disk but was evicted from memory: that is read back rather
+   /// than downloaded again.
    pub fn try_begin_fetch(&self, key: &NftKey) -> bool {
-      if self.has_icon(key) {
+      if self.hydrate(key) {
          return false;
       }
       if self.failed.read().unwrap().contains(key) {
@@ -813,7 +951,107 @@ mod tests {
    /// Shorthand for an entry with both renderings. There is no `Default`, because an empty entry is
    /// not something to build by accident.
    fn raster(x64: Vec<u8>, x250: Vec<u8>) -> NftIconData {
-      NftIconData { x64, x250 }
+      NftIconData {
+         x64,
+         x250,
+         source_uri: None,
+      }
+   }
+
+   /// Art whose metadata URI changed is dropped, so the next fetch reads the new one.
+   ///
+   /// A reveal is exactly this: the same collection and token id with a different `tokenURI`. The cache is
+   /// keyed by that pair, so without the check the old picture outlives the reveal — for good.
+   #[test]
+   fn art_from_an_older_metadata_uri_is_dropped() {
+      let ctx = Context::default();
+      let icons = Icons::new(&ctx).expect("the bundled icons load");
+      let key = (Address::from([0x22; 20]), 1, U256::from(3));
+
+      let mut data = raster(vec![1, 2], vec![3, 4]);
+      data.source_uri = Some("ipfs://cid/3.json".to_string());
+      icons.nfts.insert_icon(key, data);
+      assert!(icons.nfts.has_icon(&key), "cached");
+
+      // The same URI: nothing to do.
+      icons.nfts.reconcile_art(&key, Some("ipfs://cid/3.json"));
+      assert!(
+         icons.nfts.has_icon(&key),
+         "an unchanged URI keeps the art"
+      );
+
+      // A different one: the art goes, and the fetch path now has something to do.
+      icons.nfts.reconcile_art(&key, Some("https://revealed.example/3.json"));
+      assert!(
+         !icons.nfts.has_icon(&key),
+         "art from an older metadata URI must not outlive the reveal"
+      );
+      assert!(
+         icons.nfts.needs_fetch(&key),
+         "and the token is back to needing a fetch"
+      );
+   }
+
+   /// Art cached before the URI was recorded adopts the current one instead of being re-downloaded.
+   ///
+   /// Those bytes cannot be compared against anything retroactively, and throwing them away would
+   /// re-download every user's art on upgrade to buy nothing. The current URI becomes the baseline a
+   /// later change is measured from.
+   #[test]
+   fn art_without_a_recorded_uri_adopts_the_current_one() {
+      let ctx = Context::default();
+      let icons = Icons::new(&ctx).expect("the bundled icons load");
+      let key = (Address::from([0x33; 20]), 1, U256::from(4));
+
+      icons.nfts.insert_icon(key, raster(vec![1], vec![2]));
+
+      icons.nfts.reconcile_art(&key, Some("ipfs://cid/4.json"));
+
+      assert!(
+         icons.nfts.has_icon(&key),
+         "the art is kept, not re-fetched"
+      );
+      assert_eq!(
+         icons.nfts.icon_data.read().unwrap().get(&key).unwrap().source_uri,
+         Some("ipfs://cid/4.json".to_string()),
+         "with the current URI recorded as the baseline"
+      );
+
+      // The adopt writes a sidecar into the real data directory; leave it as it was found.
+      let _ = disk::delete_nft_icon(key.1, key.0, key.2);
+   }
+
+   /// The in-memory copy is bounded, and the art it drops is the oldest touched.
+   ///
+   /// The bound is what keeps a wallet's art from being "as much memory as the user has looked at", and it
+   /// is safe to hit because the disk copy is the durable one: what is dropped here is read back from disk
+   /// when it is next asked for, not downloaded again.
+   #[test]
+   fn the_in_memory_art_cache_drops_the_oldest_past_its_bound() {
+      let ctx = Context::default();
+      let icons = Icons::new(&ctx).expect("the bundled icons load");
+      let collection = Address::from([0x11; 20]);
+
+      let keys: Vec<NftKey> = (0..MAX_ART_ENTRIES as u64 + 3)
+         .map(|id| (collection, 1, U256::from(id)))
+         .collect();
+
+      for key in &keys {
+         icons.nfts.insert_icon(*key, raster(vec![1, 2, 3, 4], vec![5, 6]));
+      }
+
+      assert!(
+         icons.nfts.icon_data.read().unwrap().len() <= MAX_ART_ENTRIES,
+         "the map stays inside its entry bound"
+      );
+      assert!(
+         !icons.nfts.has_icon(&keys[0]) && !icons.nfts.has_icon(&keys[2]),
+         "the oldest art is what went"
+      );
+      assert!(
+         icons.nfts.has_icon(&keys[keys.len() - 1]),
+         "and the newest survives"
+      );
    }
 
    #[test]

@@ -501,10 +501,18 @@ async fn process_private_tokens(
             // How much of it: an ERC-1155 is a quantity of an id and its note carries the number, an
             // ERC-721's note is always one. Nothing else knows this — the chain is never asked about
             // shielded holdings — so the scan is the only source for a private count.
-            nft_amounts.insert(
-               key,
-               u64::try_from(U256::from(entry.amount)).unwrap_or(u64::MAX),
-            );
+            // A note's amount is whatever the sender shielded, so anything past `u64::MAX` is a clamp and
+            // a wrong number: log it rather than showing it as the count.
+            let amount = match u64::try_from(U256::from(entry.amount)) {
+               Ok(amount) => amount,
+               Err(_) => {
+                  tracing::warn!(
+                     "Shielded NFT amount does not fit in u64, showing the maximum instead"
+                  );
+                  u64::MAX
+               }
+            };
+            nft_amounts.insert(key, amount);
          }
       }
    }
