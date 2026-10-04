@@ -207,7 +207,22 @@ impl ShieldUi {
       self.mode = mode;
    }
 
+   /// Forget the selected NFT and the quantity typed for it.
+   ///
+   /// Called from the hook that means "the token for this chain changed" (`default_currency`). A
+   /// selection names a collection on the chain that was active when it was picked, while
+   /// `send_transaction` pairs it with the chain active *now* (`ctx.chain`) — keeping it builds a
+   /// transfer of a foreign contract's token. The *mode* is deliberately left alone, unlike the send
+   /// view's: here it picks shield or unshield, not fungible-or-NFT, and re-defaulting the token says
+   /// nothing about which direction the user is going.
+   fn clear_nft(&mut self) {
+      self.nft = None;
+      self.nft_amount.clear();
+   }
+
    pub fn default_currency(&mut self, chain_id: u64) {
+      self.clear_nft();
+
       let currency = match self.mode {
          RailgunMode::Shield => Currency::from(NativeCurrency::from(chain_id)),
          RailgunMode::Unshield => Currency::from(ERC20Token::wrapped_native_token(chain_id)),
@@ -1663,5 +1678,32 @@ mod tests {
       let loaded: BundlerUrl = key.open_json(&sealed, BUNDLER_URL_AAD).unwrap();
       assert_eq!(loaded.url, url.url);
       assert!(key.open_json::<BundlerUrl>(&sealed, b"wrong-aad").is_err());
+   }
+
+   /// A chain switch forgets the NFT, because the send path pairs the selection with the chain active at
+   /// send time rather than the one it was picked on.
+   ///
+   /// The mode survives — it says which direction the user is going, not which asset moves.
+   #[test]
+   fn a_chain_switch_forgets_the_nft() {
+      let mut ui = ShieldUi::new();
+      ui.set_mode(RailgunMode::Unshield);
+      ui.nft = Some(nft(NftStandard::Erc1155));
+      ui.nft_amount = "3".to_string();
+
+      ui.default_currency(8453);
+
+      assert!(
+         ui.nft.is_none(),
+         "the previous chain's NFT cannot be sent from this one"
+      );
+      assert!(
+         ui.nft_amount.is_empty(),
+         "nor the quantity typed for it"
+      );
+      assert!(
+         ui.mode.is_unshield(),
+         "only the asset is forgotten, not the mode"
+      );
    }
 }

@@ -710,15 +710,22 @@ mod tests {
 
       // Art cached under a token id that is not 0.
       let key = (collection, 1, U256::from(7));
-      icons.nfts.insert_icon(key, raster(vec![1], vec![2]));
+      icons.nfts.insert_icon(
+         key,
+         raster(PLACEHOLDER.to_vec(), PLACEHOLDER.to_vec()),
+      );
 
       assert_eq!(
          icons.nfts.cached_id_for_collection(1, collection),
          Some(U256::from(7)),
          "the id-less row takes whichever token is cached, not a fixed id"
       );
+
+      // Drawing that row uploads the art under the cached token's key. `.uri()` used to be what said
+      // which art a row got; a texture has no URI of its own to read instead, so read the cache.
+      let _ = icons.nft_collection_icon_x64(1, collection, false);
       assert!(
-         icons.nfts.raster_texture(&key, false).is_some(),
+         icons.nfts.icons_x64.read().unwrap().get(&key).is_some(),
          "and that art is what the row then shows"
       );
 
@@ -744,18 +751,24 @@ mod tests {
 
       // Art cached for a token of the collection that is not the one being drawn.
       let cached = (collection, chain_id, U256::from(500));
-      icons.nfts.insert_icon(cached, raster(vec![1], vec![2]));
+      icons.nfts.insert_icon(
+         cached,
+         raster(PLACEHOLDER.to_vec(), PLACEHOLDER.to_vec()),
+      );
 
+      // A row for another token of the collection: it falls to the placeholder, and no art of the
+      // sibling's is left cached under its own key.
+      let other = (collection, chain_id, U256::from(1521));
+      let _ = icons.nft_icon_x64(chain_id, collection, other.2, false);
       assert!(
-         icons
-            .nfts
-            .raster_texture(&(collection, chain_id, U256::from(1521)), false)
-            .is_none(),
+         icons.nfts.icons_x64.read().unwrap().get(&other).is_none(),
          "a token's row must not show another token's art"
       );
 
+      // The collection's own row — the id-less one — is where that cached art shows up.
+      let _ = icons.nft_collection_icon_x64(chain_id, collection, false);
       assert!(
-         icons.nfts.raster_texture(&cached, false).is_some(),
+         icons.nfts.icons_x64.read().unwrap().get(&cached).is_some(),
          "the id-less row is the one that takes the collection's art"
       );
    }
