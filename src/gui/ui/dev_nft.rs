@@ -1,27 +1,36 @@
-//! Dev-only: mint Zeus's Sepolia NFT test contracts from the DevUI.
+//! Dev-only: NFT actions against Zeus's Sepolia test contracts, from the DevUI.
 //!
-//! The contracts live in the `zeus-contracts` repo (`NftTest721.sol`, `NftTest1155.sol`) and pick
-//! their art by token id, so one button per branch covers a different path of Zeus's image
+//! Minting: the contracts live in the `zeus-contracts` repo (`NftTest721.sol`, `NftTest1155.sol`) and
+//! pick their art by token id, so one button per branch covers a different path of Zeus's image
 //! pipeline: an on-chain `data:` URI with inline SVG, an `ipfs://` image that goes through the
 //! gateway fallback list, a plain HTTPS image, and metadata with no image at all (the placeholder).
 //! See that repo's `NFT_TESTNET.md` for the id ranges and the deployed addresses.
 //!
-//! Everything here mints **on Sepolia, to the active wallet**, and goes through the normal
-//! `send_transaction` pipeline — so a mint shows the real confirm window and needs Sepolia ETH for
-//! gas in the wallet you are testing with, rather than being a quiet background write.
+//! Approving: two buttons that hand the Railgun smart wallet access to one NFT the portfolio holds.
+//! No built-in flow approves an NFT, and a dapp that does is not always at hand, so these are what
+//! give the State Changes approval diff a live trigger. They pick the two different on-chain shapes
+//! on purpose — ERC-721 approves a single id, ERC-1155 approves the whole collection.
+//!
+//! Everything here runs **on Sepolia, against the active wallet**, and goes through the normal
+//! `send_transaction` pipeline — so it shows the real confirm window and needs Sepolia ETH for gas in
+//! the wallet you are testing with, rather than being a quiet background write.
 
+use anyhow::anyhow;
 use eframe::egui::{RichText, ScrollArea, Ui, Vec2, vec2};
 use egui_elements::{Button, Theme};
 use elegance::{BadgeTone, Toast};
 use zeus_eth::{
+   abi::{erc721, erc1155},
    alloy_primitives::{Address, Bytes, U256, address},
    alloy_sol_types::SolCall,
+   nft::{NftStandard, NftToken},
    types::ChainId,
+   utils::address_book,
 };
 
 use crate::core::{SendTxOptions, SendTxRequest, ZeusCtx, send_transaction};
 use crate::gui::SHARED_GUI;
-use crate::utils::RT;
+use crate::utils::{RT, truncate_address};
 
 /// `NftTest721` on Sepolia — ERC-721 + Metadata + Enumerable.
 const NFT_TEST_721: Address = address!("0xaf5aa7b670ef209e23d3f7b39a8f42f84bd002ac");
@@ -334,6 +343,155 @@ fn spawn_mint_1155(branch: Branch1155) {
    });
 }
 
+/// Approve the Railgun smart wallet on one ERC-721 that the Sepolia portfolio holds.
+///
+/// `approve(operator, tokenId)` — the per-token shape only ERC-721 has.
+pub fn spawn_approve_erc721() {
+   spawn_approve(NftStandard::Erc721);
+}
+
+/// Approve the Railgun smart wallet on one ERC-1155 that the Sepolia portfolio holds.
+///
+/// `setApprovalForAll(operator, true)` — ERC-1155 has no per-token approval.
+pub fn spawn_approve_erc1155() {
+   spawn_approve(NftStandard::Erc1155);
+}
+
+fn spawn_approve(standard: NftStandard) {
+   RT.spawn(async move {
+      let ctx = SHARED_GUI.write(|gui| gui.ctx.clone());
+      let result = approve_nft(ctx, standard).await;
+
+      dev_toast(
+         result,
+         "Approved",
+         "Approval failed".to_string(),
+         "Sepolia · operator: the Railgun smart wallet",
+      );
+   });
+}
+
+/// Approve the operator on one NFT of `standard` that the Sepolia portfolio holds.
+///
+/// The token comes from the **portfolio**, not the catalog: the catalog lists what the user tracks and
+/// can hold tokens that were transferred away, while the portfolio is what the wallet actually holds —
+/// and only the owner can approve. Any of them will do, so this takes the first of the standard.
+async fn approve_nft(ctx: ZeusCtx, standard: NftStandard) -> Result<String, anyhow::Error> {
+   let chain = ChainId::EthereumSepolia;
+   let owner = ctx.current_wallet_info().address;
+   let operator = railgun_operator()?;
+
+   let token = token_to_approve(&ctx, chain, owner, standard).await?;
+
+   let call_data = approve_call(standard, operator, token.token_id);
+
+   let mut req = SendTxRequest::new(chain, owner, token.collection)
+      .call_data(call_data)
+      .value(U256::ZERO)
+      .authorization_list(Vec::new());
+
+   // No pre-built analysis: let the send simulate the call, which is what produces the diff.
+   req.analysis = None;
+
+   send_transaction(
+      ctx,
+      true,
+      req,
+      SendTxOptions {
+         dapp: "Zeus Dev UI".to_string(),
+         ..Default::default()
+      },
+   )
+   .await?;
+
+   Ok(format!(
+      "{standard} {} #{}",
+      truncate_address(token.collection.to_string()),
+      token.token_id
+   ))
+}
+
+/// The token the button acts on.
+///
+/// The portfolio records what the wallet has **seen**, not what it holds: a token shielded into Railgun
+/// is owned by the smart wallet, and one transferred away or burned can still be listed. That is what a
+/// per-token `approve` runs into — it reverts `NotAuthorized()` unless the caller owns the id — so for
+/// ERC-721 the candidates are checked on-chain and the first one the wallet really owns wins.
+///
+/// ERC-1155 needs no such check: `setApprovalForAll` is a statement about the whole collection and
+/// cannot fail for ownership, so any listed token already names a collection worth approving.
+async fn token_to_approve(
+   ctx: &ZeusCtx,
+   chain: ChainId,
+   owner: Address,
+   standard: NftStandard,
+) -> Result<NftToken, anyhow::Error> {
+   let candidates: Vec<NftToken> = ctx
+      .get_portfolio(chain.id(), owner)
+      .nfts()
+      .iter()
+      .filter(|token| token.standard == standard)
+      .cloned()
+      .collect();
+
+   let Some(first) = candidates.first().cloned() else {
+      return Err(anyhow!(
+         "no {standard} in the portfolio on Sepolia — mint one first"
+      ));
+   };
+
+   let NftStandard::Erc721 = standard else {
+      return Ok(first);
+   };
+
+   let client = ctx.get_client(chain.id()).await?;
+
+   for token in &candidates {
+      if let Ok(token_owner) =
+         erc721::owner_of(token.collection, token.token_id, client.clone()).await
+      {
+         if token_owner == owner {
+            return Ok(token.clone());
+         }
+      }
+   }
+
+   // Nothing is owned. Name the first one and who holds it: a shielded token and one sent to another
+   // wallet look identical in the portfolio, but they need different fixes.
+   let holder = erc721::owner_of(first.collection, first.token_id, client)
+      .await
+      .map(|holder| holder.to_string())
+      .unwrap_or_else(|_| "an address that does not answer".to_string());
+
+   Err(anyhow!(
+      "no ERC-721 in the Sepolia portfolio belongs to this wallet — {} is held by {holder}",
+      format!(
+         "{} #{}",
+         truncate_address(first.collection.to_string()),
+         first.token_id
+      )
+   ))
+}
+
+/// The approval call the two buttons send.
+///
+/// The standards do not approve the same thing: ERC-721 hands over one id, ERC-1155 hands over the
+/// whole collection in one call. Between them they cover both shapes the approval diff knows.
+fn approve_call(standard: NftStandard, operator: Address, token_id: U256) -> Bytes {
+   match standard {
+      NftStandard::Erc721 => erc721::encode_approve(operator, token_id),
+      NftStandard::Erc1155 => erc1155::encode_set_approval_for_all(operator, true),
+   }
+}
+
+/// The operator both buttons hand access to: the Railgun smart wallet on Sepolia.
+///
+/// Shield and unshield are what actually need an NFT allowance, so the address a user would approve in
+/// production is the one these buttons name.
+fn railgun_operator() -> Result<Address, anyhow::Error> {
+   address_book::railgun_smart_wallet(ChainId::EthereumSepolia.id())
+}
+
 /// Send one mint on Sepolia, through the normal pipeline (simulate, confirm, broadcast).
 async fn mint(ctx: ZeusCtx, contract: Address, call_data: Bytes) -> Result<(), anyhow::Error> {
    let owner = ctx.current_wallet_info().address;
@@ -360,19 +518,27 @@ async fn mint(ctx: ZeusCtx, contract: Address, call_data: Bytes) -> Result<(), a
    Ok(())
 }
 
-/// Report a mint's outcome where the rest of the DevUI reports: a toast.
-fn mint_toast(result: Result<(), anyhow::Error>, label: &str) {
+/// Report a dev NFT action's outcome where the rest of the DevUI reports: a toast.
+///
+/// `result` carries a label for what was acted on, since only the action knows which mint branch or
+/// which NFT it used; `err_title` names the operation that failed.
+fn dev_toast(
+   result: Result<String, anyhow::Error>,
+   verb: &str,
+   err_title: String,
+   description: &str,
+) {
    SHARED_GUI.write(|gui| {
       match result {
-         Ok(()) => {
-            Toast::new(format!("Minted — {label}"))
-               .description("Sepolia, to the active wallet")
+         Ok(label) => {
+            Toast::new(format!("{verb} — {label}"))
+               .description(description)
                .tone(BadgeTone::Ok)
                .show(&gui.egui_ctx);
          }
          Err(e) => {
-            Toast::new("Mint failed")
-               .description(format!("{label}: {e}"))
+            Toast::new(err_title)
+               .description(e.to_string())
                .tone(BadgeTone::Danger)
                .show(&gui.egui_ctx);
          }
@@ -383,10 +549,58 @@ fn mint_toast(result: Result<(), anyhow::Error>, label: &str) {
    });
 }
 
+/// Report a mint's outcome. `mint()` reports no label itself, so the caller passes the branch.
+fn mint_toast(result: Result<(), anyhow::Error>, label: &str) {
+   dev_toast(
+      result.map(|_| label.to_string()),
+      "Minted",
+      format!("Mint failed — {label}"),
+      "Sepolia, to the active wallet",
+   );
+}
+
 /// Seconds since the epoch, used to pick an id inside a branch's range.
 fn secs() -> u64 {
    std::time::SystemTime::now()
       .duration_since(std::time::UNIX_EPOCH)
       .map(|d| d.as_secs())
       .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// The two buttons must emit the calls the approval diff decodes, or the diff they exist to
+   /// trigger would have nothing to see. Both decoders are the ones
+   /// `approval_diff::collect_nft_approval_candidates` uses on calldata.
+   #[test]
+   fn dev_approvals_emit_the_calls_the_diff_decodes() {
+      let operator = railgun_operator().unwrap();
+
+      let approve = approve_call(NftStandard::Erc721, operator, U256::from(1071));
+      assert_eq!(
+         erc721::decode_approve_call(&approve).unwrap(),
+         (operator, U256::from(1071))
+      );
+
+      let for_all = approve_call(NftStandard::Erc1155, operator, U256::ZERO);
+      assert_eq!(
+         erc721::decode_set_approval_for_all_call(&for_all).unwrap(),
+         (operator, true)
+      );
+   }
+
+   /// A per-token approve must not decode as a collection-wide one, and the two must not collide on
+   /// the selectors the candidate collector tries in turn.
+   #[test]
+   fn the_two_shapes_stay_distinct() {
+      let operator = railgun_operator().unwrap();
+
+      let approve = approve_call(NftStandard::Erc721, operator, U256::from(1));
+      assert!(erc721::decode_set_approval_for_all_call(&approve).is_err());
+
+      let for_all = approve_call(NftStandard::Erc1155, operator, U256::ZERO);
+      assert!(erc721::decode_approve_call(&for_all).is_err());
+   }
 }

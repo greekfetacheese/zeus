@@ -3,7 +3,7 @@ use eframe::egui::{Align2, Frame, Order, RichText, ScrollArea, Ui, Window, vec2}
 use crate::assets::Icons;
 use crate::core::clear_signing::ClearDisplay;
 use crate::core::{DecodedEvent, SignMsgType, TransactionAnalysis, TransactionRich, ZeusContext};
-use crate::gui::ui::dev_nft::NftMinting;
+use crate::gui::ui::dev_nft::{NftMinting, spawn_approve_erc721, spawn_approve_erc1155};
 use crate::gui::{SHARED_GUI, ui::notification::NotificationType};
 use crate::utils::self_update::UpdateInfo;
 use crate::utils::{RT, TimeStamp};
@@ -76,6 +76,37 @@ impl DevUi {
 
          if ui.add(button).clicked() {
             self.nft_minting.open();
+         }
+
+         // Live triggers for the State Changes approval diff. No built-in flow approves an NFT, and a
+         // dapp that does is not always at hand — each of these picks the first NFT of its standard
+         // out of the Sepolia portfolio and hands the Railgun smart wallet access to it.
+         let button =
+            Button::new(RichText::new("Approve ERC-721").size(text_size)).min_size(button_size);
+
+         if ui
+            .add(button)
+            .on_hover_text(
+               "approve(railgun, tokenId) on an ERC-721 in the Sepolia portfolio — the per-token \
+                approval shape",
+            )
+            .clicked()
+         {
+            spawn_approve_erc721();
+         }
+
+         let button =
+            Button::new(RichText::new("Approve ERC-1155").size(text_size)).min_size(button_size);
+
+         if ui
+            .add(button)
+            .on_hover_text(
+               "setApprovalForAll(railgun, true) on an ERC-1155 in the Sepolia portfolio — approves \
+                the whole collection",
+            )
+            .clicked()
+         {
+            spawn_approve_erc1155();
          }
 
          // The next two used to be entries in the left panel. They are dev-only windows, so they
