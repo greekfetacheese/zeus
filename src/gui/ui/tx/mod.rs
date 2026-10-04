@@ -4,8 +4,8 @@
 //! - The TxWindow is what we show to the user for a transaction that has been confirmed.
 
 use egui::{
-   Align, FontId, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui,
-   scroll_area::ScrollBarVisibility, vec2,
+   Align, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Sense,
+   TextEdit, TextWrapMode, Ui, scroll_area::ScrollBarVisibility, vec2,
 };
 use egui_elements::{
    Button, Label, Modal, MultiLabel, Theme,
@@ -354,6 +354,61 @@ pub fn approval_change_row(
    });
 }
 
+/// The thumbnail every diff row draws, and the height of the slot it is given.
+const ROW_ICON_SIZE: f32 = 24.0;
+
+/// The arrow that points from an asset to its operator.
+///
+/// Its size is also the slot the row must reserve for it: a label that has already wrapped inside its
+/// box leaves no room for whatever follows it, which is what kept a "fixed" row overflowing.
+const ROW_ARROW_SIZE: f32 = 20.0;
+
+/// How much of a row's left side an operator name may take.
+///
+/// A cap is what keeps an absurd operator from starving the asset it acts on: past it the name is
+/// truncated, with the full one on hover.
+const OPERATOR_WIDTH_SHARE: f32 = 0.4;
+
+/// How a diff row divides its width.
+struct RowBudget {
+   /// The slot for the asset label, which wraps inside it.
+   label: f32,
+   /// The slot for the operator, which truncates inside it.
+   link: f32,
+}
+
+/// Split `row_width` between a row's variable parts.
+///
+/// A `Label` in a horizontal layout **extends** rather than wraps (egui's wrap mode there is `Extend`)
+/// and an egui hyperlink cannot wrap at all, so every part that varies in length needs an explicit
+/// slot or one long collection or operator name widens the row past the modal it sits in. Measured on
+/// the real rows: a 63-character collection name overflowed a 651px row by 197px, a 43-character
+/// operator name by 94px.
+///
+/// Pure, so "the row cannot overflow" is a unit test rather than a hope.
+fn row_budget(row_width: f32, gap: f32, amount_width: f32, operator_width: f32) -> RowBudget {
+   let left = (row_width - amount_width - gap).max(0.0);
+   let link = operator_width.min(left * OPERATOR_WIDTH_SHARE);
+   let asset = (left - link - gap).max(0.0);
+   let label = (asset - ROW_ARROW_SIZE - gap).max(0.0);
+
+   RowBudget { label, link }
+}
+
+/// The width `text` renders at, unwrapped — what a row has to reserve for it.
+fn text_width(ui: &Ui, text: &str, size: f32) -> f32 {
+   ui.ctx().fonts_mut(|fonts| {
+      fonts
+         .layout_no_wrap(
+            text.to_string(),
+            FontId::proportional(size),
+            egui::Color32::PLACEHOLDER,
+         )
+         .size()
+         .x
+   })
+}
+
 /// One NFT whose signer ownership moved across the tx.
 ///
 /// Not a [`balance_change_row`]: an NFT has no USD value to put in the right column, so the row
@@ -374,7 +429,7 @@ pub fn nft_balance_change_row(
          change.token_id,
          tint,
       )
-      .fit_to_exact_size(vec2(24.0, 24.0));
+      .fit_to_exact_size(vec2(ROW_ICON_SIZE, ROW_ICON_SIZE));
 
    let sign = if change.is_received() { "+" } else { "−" };
    let color = if change.is_received() {
@@ -392,6 +447,7 @@ pub fn nft_balance_change_row(
    };
 
    let name = address_label(ctx, chain, change.collection);
+   let hover = format!("{}\n{}", name, change.collection);
 
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -401,8 +457,11 @@ pub fn nft_balance_change_row(
          ))
          .size(theme.typography.large)
          .color(color);
-         let label = Label::new(text, Some(icon)).spacing(3.0).interactive(false);
-         ui.add(label).on_hover_text(format!("{}\n{}", name, change.collection));
+         // `.wrap()` is the whole guard for this row: the label is its only content, and a wrapped
+         // label fits the width it is offered instead of extending past it (a horizontal layout's wrap
+         // mode is `Extend`). Nothing follows it, so no slot has to be reserved.
+         let label = Label::new(text, Some(icon)).spacing(3.0).interactive(false).wrap();
+         ui.add(label).on_hover_text(hover);
       });
    });
 }
@@ -429,7 +488,7 @@ pub fn nft_approval_change_row(
       Some(id) => icons.nft_icon_x64(chain.id(), change.collection, id, tint),
       None => icons.nft_collection_icon_x64(chain.id(), change.collection, tint),
    }
-   .fit_to_exact_size(vec2(24.0, 24.0));
+   .fit_to_exact_size(vec2(ROW_ICON_SIZE, ROW_ICON_SIZE));
 
    let scope = match token_id {
       Some(id) => format!("#{id}"),
@@ -438,6 +497,7 @@ pub fn nft_approval_change_row(
 
    let name = address_label(ctx, chain, change.collection);
    let title = format!("{name} {scope}");
+   let asset_hover = format!("{}\n{}", name, change.collection);
 
    // The channel the ERC-20 approval row uses: taking access away is the good outcome, granting it
    // is the one worth noticing.
@@ -448,37 +508,74 @@ pub fn nft_approval_change_row(
    };
 
    let operator_name = address_label(ctx, chain, change.operator);
+   let operator_hover = format!("{operator_name}\n{}", change.operator);
    let operator_link = format!(
       "{}/address/{}",
       chain.block_explorer(),
       change.operator
    );
+   let amount = nft_approval_amount(change);
+
+   // Every part that varies in length gets an explicit slot, or one long collection or operator name
+   // widens the row past this modal. See [`row_budget`].
+   let gap = theme.spacing.xs;
+   let budget = row_budget(
+      ui.available_width(),
+      gap,
+      text_width(ui, &amount, theme.typography.large),
+      text_width(ui, &operator_name, theme.typography.large),
+   );
 
    ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         let asset_text = RichText::new(title).size(theme.typography.large);
-         let asset_label = Label::new(asset_text, Some(icon)).spacing(6.0).interactive(false);
+      ui.spacing_mut().item_spacing.x = gap;
 
-         let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
-         let arrow_label = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
+      ui.allocate_ui_with_layout(
+         vec2(budget.label, ROW_ICON_SIZE),
+         Layout::left_to_right(Align::Min),
+         |ui| {
+            ui.set_max_width(budget.label);
+            let asset_text = RichText::new(title).size(theme.typography.large);
+            let asset_label =
+               Label::new(asset_text, Some(icon)).spacing(6.0).interactive(false).wrap();
+            ui.add(asset_label).on_hover_text(asset_hover);
+         },
+      );
 
-         ui.add(MultiLabel::new(vec![asset_label, arrow_label]))
-            .on_hover_text(format!("{}\n{}", name, change.collection));
+      // Its own widget, and its own reserved slot in the budget: a label that has wrapped inside its
+      // box leaves no room for what follows it.
+      let arrow = Lucide::ArrowRight.size(ROW_ARROW_SIZE).color(theme.colors.text).image();
+      ui.add(Label::new("", Some(arrow)).spacing(0.0).interactive(false));
 
-         ui.add_space(6.0);
-
-         ui.hyperlink_to(
-            RichText::new(operator_name)
+      // `ui.hyperlink_to` extends whatever width it is offered, so the operator is a clickable label
+      // that truncates inside its slot — the same treatment a long dapp origin gets in the sidebar,
+      // with the full name and address on hover.
+      let link = ui.allocate_ui_with_layout(
+         vec2(budget.link, ROW_ICON_SIZE),
+         Layout::left_to_right(Align::Min),
+         |ui| {
+            ui.set_max_width(budget.link);
+            let operator_text = RichText::new(operator_name)
                .size(theme.typography.large)
-               .color(theme.colors.info),
-            operator_link,
-         );
-      });
+               .color(theme.colors.info);
+            ui.add(
+               Label::new(operator_text, None)
+                  .sense(Sense::click())
+                  .wrap_mode(TextWrapMode::Truncate),
+            )
+         },
+      );
+
+      if link.inner.clicked() {
+         ui.ctx().open_url(OpenUrl::new_tab(operator_link));
+      }
+
+      link
+         .inner
+         .on_hover_text(operator_hover)
+         .on_hover_cursor(CursorIcon::PointingHand);
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let text = RichText::new(nft_approval_amount(change))
-            .size(theme.typography.large)
-            .color(color);
+         let text = RichText::new(amount).size(theme.typography.large).color(color);
          ui.add(Label::new(text, None).interactive(false));
       });
    });
@@ -877,4 +974,59 @@ fn request_address_name(chain: u64, address: Address) {
          });
       }
    });
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// A row's slots can never add up to more than the row, whatever the strings measure, and the
+   /// operator is never widened past its own text.
+   ///
+   /// This is the contract the shipped rows broke: a `Label` in a horizontal layout **extends** rather
+   /// than wraps (egui's wrap mode there is `Extend`) and a hyperlink cannot wrap at all, so a
+   /// 63-character collection name widened a 651px row by 197px and pushed the amount column out of the
+   /// modal. The order below is the order the row lays its children out, gaps included.
+   #[test]
+   fn a_row_budget_cannot_overflow() {
+      let gap = 4.0;
+
+      for row in [320.0, 651.0, 720.0] {
+         for amount in [69.0, 78.0, 120.0] {
+            for operator in [0.0, 167.0, 554.0, 2000.0] {
+               let budget = row_budget(row, gap, amount, operator);
+
+               // label · arrow · operator · amount, with a gap at each boundary.
+               let used = budget.label + gap + ROW_ARROW_SIZE + gap + budget.link + gap + amount;
+
+               assert!(
+                  used <= row + 0.01,
+                  "a {row}px row with a {amount}px amount and a {operator}px operator needs {used}px"
+               );
+               assert!(
+                  budget.link <= operator,
+                  "the operator is never widened"
+               );
+               assert!(budget.label >= 0.0 && budget.link >= 0.0);
+            }
+         }
+      }
+   }
+
+   /// The cap only bites when it has to: a short operator keeps its whole width, and the asset keeps
+   /// the larger share of the row either way.
+   #[test]
+   fn a_row_budget_only_caps_what_is_long() {
+      let budget = row_budget(651.0, 4.0, 69.0, 167.0);
+
+      assert_eq!(budget.link, 167.0);
+      assert!(budget.label > budget.link);
+
+      // An operator that cannot fit its share is cut to it, never given more.
+      let long = row_budget(651.0, 4.0, 69.0, 900.0);
+      assert_eq!(
+         long.link,
+         (651.0 - 69.0 - 4.0) * OPERATOR_WIDTH_SHARE
+      );
+   }
 }
