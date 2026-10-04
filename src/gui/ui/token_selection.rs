@@ -1,8 +1,8 @@
 //! A Window that allows the user to select a token
 
 use eframe::egui::{
-   Align, FontId, Id, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Sense, Spinner, Ui,
-   emath::Vec2b, vec2,
+   Align, Color32, FontId, Id, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Sense,
+   Spinner, Ui, emath::Vec2b, vec2,
 };
 
 use crate::assets::icons::Icons;
@@ -183,6 +183,42 @@ pub struct TokenSelectionWindow {
    nfts_loaded: bool,
 }
 
+/// How wide the Tokens / NFTs pair renders, so the row that holds it can centre it.
+///
+/// A framed `egui_elements::Button` is `max(min_size, label + 2 * button_padding.x)`, and its default
+/// `min_size` is zero, so measuring the two labels is enough. The gap between the buttons is
+/// `theme.spacing.sm` **plus the row's `item_spacing.x` once**: egui advances by the item spacing after
+/// each *widget*, and `add_space` is not one (it moves the cursor by its own amount and nothing more).
+/// (The picker zeroes `item_spacing.x`, so in the real row the second term disappears — but the
+/// arithmetic has to hold wherever the row is laid out.)
+///
+/// The measurement is needed because a `ui.horizontal` inside `vertical_centered` is a full-width
+/// region whose children start at its left edge: nothing else will centre the pair.
+fn mode_switch_width(theme: &Theme, ui: &Ui) -> f32 {
+   const LABELS: [&str; 2] = ["Tokens", "NFTs"];
+
+   let text = ui.ctx().fonts_mut(|fonts| {
+      LABELS
+         .iter()
+         .map(|label| {
+            fonts
+               .layout_no_wrap(
+                  (*label).to_owned(),
+                  FontId::proportional(theme.typography.large),
+                  Color32::PLACEHOLDER,
+               )
+               .size()
+               .x
+         })
+         .sum::<f32>()
+   });
+
+   text
+      + (LABELS.len() as f32 * 2.0 * ui.spacing().button_padding.x)
+      + theme.spacing.sm
+      + ui.spacing().item_spacing.x
+}
+
 impl TokenSelectionWindow {
    pub fn new() -> Self {
       Self {
@@ -321,7 +357,7 @@ impl TokenSelectionWindow {
          // Privacy mode lists only what is actually shielded, exactly like the ERC-20 list, because only a
          // shielded NFT can be unshielded or privately transferred. There is nothing to fetch either way:
          // the portfolio already ran the private balance scan.
-         let nfts = if privacy_mode {
+         let mut nfts = if privacy_mode {
             let portfolio = ctx.get_portfolio(chain_id, owner);
             private_nft_rows(
                portfolio.private_nfts(),
@@ -331,6 +367,8 @@ impl TokenSelectionWindow {
          } else {
             process_nfts(ctx, chain_id, owner).await
          };
+
+         sort_owned_first(&mut nfts);
 
          // Art is fetched from the list's own metadata URIs, and this reads `SHARED_GUI`, so it belongs
          // here on the worker — never in the row loop, which runs inside the frame.
@@ -417,8 +455,9 @@ impl TokenSelectionWindow {
 
                self.show_mode_switch(theme, ui);
 
-               // The balance sync is ERC-20 only; the search bar below serves both modes.
-               if self.mode == PickerMode::Fungible && !ctx.privacy_mode {
+               // Both modes can sync; privacy mode lists what is already shielded, and there is nothing
+               // on chain to check it against. The search bar below serves both modes.
+               if !ctx.privacy_mode {
                   let text = RichText::new("Sync balances").size(theme.typography.normal);
                   let button = Button::new(text).min_size(vec2(70.0, 25.0));
 
@@ -441,19 +480,41 @@ impl TokenSelectionWindow {
                      self.syncing_balances = true;
                      let chain = ctx.chain;
                      let owner = ctx.current_wallet_info().address;
+                     let mode = self.mode;
                      RT.spawn(async move {
                         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                        sync_balances(ctx.clone(), chain.id(), owner).await;
+
+                        match mode {
+                           PickerMode::Fungible => {
+                              sync_balances(ctx.clone(), chain.id(), owner).await;
+                           }
+                           PickerMode::Nft => {
+                              sync_nft_balances(ctx.clone(), chain.id(), owner).await;
+                           }
+                        }
 
                         let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
 
                         SHARED_GUI.write(|gui| {
                            gui.token_selection.syncing_balances = false;
-                           // Reopen the window if we are still in public mode
-                           // so the balances are updated
-                           if !privacy_mode {
-                              gui.token_selection.open(privacy_mode, chain.id(), owner);
+
+                           if privacy_mode {
+                              return;
                            }
+
+                           match mode {
+                              // Reopening re-reads the balances, which is what refreshes this list.
+                              PickerMode::Fungible => {
+                                 gui.token_selection.open(privacy_mode, chain.id(), owner);
+                              }
+                              // The whole NFT list is rebuilt, ownership included: the loader runs
+                              // again on the next frame because the rows are gone.
+                              PickerMode::Nft => {
+                                 gui.token_selection.clear_processed_nfts();
+                              }
+                           }
+
+                           gui.request_repaint();
                         });
                      });
                   }
@@ -653,8 +714,13 @@ impl TokenSelectionWindow {
    /// that pattern rather than a `TabBar`.
    fn show_mode_switch(&mut self, theme: &Theme, ui: &mut Ui) {
       let button_visuals = theme.button_visuals();
+      let switch_width = mode_switch_width(theme, ui);
 
       ui.horizontal(|ui| {
+         // A `ui.horizontal` here is a full-width region whose children start at its left edge, so the
+         // pair only ends up centred if the row is padded by half of what is left over.
+         ui.add_space(((ui.available_width() - switch_width) * 0.5).max(0.0));
+
          let tokens_text = RichText::new("Tokens").size(theme.typography.large);
          let nfts_text = RichText::new("NFTs").size(theme.typography.large);
 
@@ -1207,7 +1273,6 @@ async fn sync_balances(ctx: ZeusCtx, chain: u64, owner: Address) {
 ///
 /// One Multicall3 round per standard answers it: `ownerOf` per ERC-721 id, `balanceOf` per ERC-1155 id.
 async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<NftRow> {
-   let tracked = ctx.read(|ctx| ctx.nft_db.get_nfts(chain_id));
    let held = ctx.get_portfolio(chain_id, owner).nfts().clone();
 
    // The portfolio's identities, so a row can say whether it is in there. Keyed by collection and id
@@ -1215,7 +1280,7 @@ async fn process_nfts(ctx: ZeusCtx, chain_id: u64, owner: Address) -> Vec<NftRow
    let portfolio: HashSet<NftRef> =
       held.iter().map(|token| (token.collection, token.token_id)).collect();
 
-   let merged = merge_nft_sources(tracked, held);
+   let merged = nft_candidates(&ctx, chain_id, held);
 
    // Ownership lives in the balance manager now — the same store the ERC-20 rows read — so refresh it
    // for what this list shows and then read it. A failure is not fatal: the rows then claim nothing.
@@ -1302,6 +1367,54 @@ fn private_nft_rows(
          }
       })
       .collect()
+}
+
+/// Force the ownership check for every NFT the picker can list — the NFT counterpart of
+/// [`sync_balances`].
+///
+/// The ERC-20 sync re-reads balances and then drops what is gone; an NFT's answer is kept even when it
+/// is zero, because `0` is what makes a row say "not owned" instead of claiming nothing (see
+/// `BalanceManager::remove_zero_balances`). So this re-asks the chain and leaves the store alone.
+///
+/// It reads the sources rather than the window's rows, so it checks the same tokens whether or not the
+/// list has finished loading.
+async fn sync_nft_balances(ctx: ZeusCtx, chain_id: u64, owner: Address) {
+   let held = ctx.get_portfolio(chain_id, owner).nfts().clone();
+   let nfts = nft_candidates(&ctx, chain_id, held);
+
+   // Ownership is not expected to move here — that is the count a `awaiting_change` retry would wait
+   // on — so this is a plain read, exactly as the list loader does it.
+   match ctx
+      .balance_manager()
+      .update_nft_balances(ctx.clone(), chain_id, owner, nfts, false)
+      .await
+   {
+      Ok(()) => tracing::info!("Synced NFT ownership for chain {chain_id}"),
+      Err(e) => tracing::error!("Error syncing NFT ownership for chain {chain_id}: {e:?}"),
+   }
+}
+
+/// Every NFT the picker can list for a wallet: what the user tracks (`NftDB`) unioned with what the
+/// wallet holds (its portfolio), deduped by identity.
+///
+/// `held` is passed in because the caller either already has the portfolio (the list loader needs it
+/// for `in_portfolio`) or has just read it (the sync); this never reads it a second time.
+fn nft_candidates(ctx: &ZeusCtx, chain_id: u64, held: Vec<NftToken>) -> Vec<NftToken> {
+   let tracked = ctx.read(|ctx| ctx.nft_db.get_nfts(chain_id));
+
+   merge_nft_sources(tracked, held)
+}
+
+/// Owned rows first, everything else in the order the merge produced (identity, so the tie order is
+/// deterministic and does not reshuffle between loads).
+///
+/// The catalog keeps listing a token after it has left the wallet — that is what it is for — so on a
+/// fresh install the list is mostly other people's tokens. What a picker is *for* is the token the
+/// wallet holds, so those come first. Everything else keeps its identity order: a row with no answer
+/// (`None`, the chain could not be asked) makes no claim either way, so it is not sorted as if it were
+/// known to be absent.
+fn sort_owned_first(rows: &mut [NftRow]) {
+   rows.sort_by_key(|row| row.owned != Some(true));
 }
 
 /// Collection metadata cached for this chain, keyed by collection address, so a row builder can resolve
@@ -1645,6 +1758,8 @@ fn delete_nft(chain_id: u64, owner: Address, token: NftToken, name: String) {
 #[cfg(test)]
 mod tests {
    use super::*;
+   use eframe::egui::{CentralPanel, Context, Pos2, RawInput, Rect};
+   use egui_elements::ThemeKind;
    use zeus_eth::nft::NftStandard;
 
    /// The ownership badge: an unanswered question draws nothing, a held ERC-1155 says how many, and a
@@ -2052,5 +2167,110 @@ mod tests {
       };
 
       assert_eq!(without_symbol.subtitle(), "ERC-1155");
+   }
+
+   /// A row builder for the ordering test: the same token, with ownership answered or not.
+   fn owned(token_id: u64, owned: Option<bool>) -> NftRow {
+      NftRow {
+         owned,
+         ..row(token_id, "Zeus Test", "ZEUS")
+      }
+   }
+
+   /// Owned rows come first; everything else keeps the identity order the merge produced. The catalog
+   /// goes on listing tokens the wallet has lost, so without this the picker leads with tokens the user
+   /// cannot do anything with.
+   #[test]
+   fn the_owned_nfts_are_listed_first() {
+      let mut rows = vec![
+         owned(1, Some(false)),
+         owned(2, Some(true)),
+         owned(3, None),
+         owned(4, Some(true)),
+      ];
+
+      sort_owned_first(&mut rows);
+
+      let order: Vec<u64> = rows.iter().map(|row| row.token.token_id.to::<u64>()).collect();
+
+      // The two held ones, then the unanswered and the known-absent ones in the order they arrived: a
+      // `None` makes no claim, so it is not sorted as though it were known to be absent.
+      assert_eq!(order, vec![2, 4, 1, 3]);
+   }
+
+   /// The mode switch is centred by padding its row with half of the leftover width, so that width has
+   /// to be the width the two buttons actually render — `egui_elements::Button` is
+   /// `label + 2 * button_padding.x`, and every theme's typography changes the number. Padding by a
+   /// guess leaves the pair visibly off centre (or overflowing), so this pins the measurement against
+   /// the real widgets in every theme.
+   #[test]
+   fn the_mode_switch_width_matches_what_the_buttons_render() {
+      for kind in [
+         ThemeKind::TokyoNight,
+         ThemeKind::TokyoNightLight,
+         ThemeKind::McLaren650Gts,
+         ThemeKind::Reverie,
+         ThemeKind::ShadeSanctuary,
+         ThemeKind::Wasp,
+         ThemeKind::WaspLight,
+      ] {
+         let ctx = Context::default();
+         let mut theme = Theme::new(kind.clone());
+         theme.install(&ctx);
+
+         let mut measured = 0.0f32;
+         let mut rendered = 0.0f32;
+
+         let mut out = ctx.run_ui(
+            RawInput {
+               screen_rect: Some(Rect::from_min_size(
+                  Pos2::ZERO,
+                  vec2(600.0, 200.0),
+               )),
+               ..Default::default()
+            },
+            |ctx| {
+               CentralPanel::default().show(ctx, |ui| {
+                  measured = mode_switch_width(&theme, ui);
+
+                  let visuals = theme.button_visuals();
+                  let mut left = 0.0;
+                  let mut right = 0.0;
+
+                  ui.horizontal(|ui| {
+                     let tokens = ui.add(
+                        Button::selectable(
+                           true,
+                           RichText::new("Tokens").size(theme.typography.large),
+                        )
+                        .visuals(visuals),
+                     );
+                     left = tokens.rect.min.x;
+
+                     ui.add_space(theme.spacing.sm);
+
+                     let nfts = ui.add(
+                        Button::selectable(
+                           false,
+                           RichText::new("NFTs").size(theme.typography.large),
+                        )
+                        .visuals(visuals),
+                     );
+                     right = nfts.rect.max.x;
+                  });
+
+                  rendered = right - left;
+               });
+            },
+         );
+
+         // Dropping the output with unapplied texture deltas panics the test.
+         out.textures_delta.clear();
+
+         assert!(
+            (measured - rendered).abs() < 0.5,
+            "{kind:?}: padded by {measured}, the buttons render {rendered}"
+         );
+      }
    }
 }
