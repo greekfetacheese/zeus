@@ -33,8 +33,29 @@ It cannot track approvals made from other wallets.";
 
 const DEFAULT_ROWS_PER_PAGE: usize = 10;
 
+/// Row height for a fungible approval, sized for its 32 px token icon.
+const ROW_HEIGHT: f32 = 40.0;
+
+/// Row height for an NFT approval.
+///
+/// Its thumbnail is 64 px — the icon store's list size, which is what an NFT row draws — so a row
+/// shorter than that lets the art spill out over the card, which is exactly what a 40 px row did.
+const NFT_ROW_HEIGHT: f32 = 64.0;
+
 /// Max `(token, spender)` allowance pairs per Multicall3 aggregate so the eth_call stays under gas limits.
 const ALLOWANCE_PAIR_BATCH: usize = 20;
+
+/// What the approvals table is listing.
+///
+/// An enum rather than a `bool` for the same reason the token picker's `PickerMode` is one: a mode is
+/// exactly one of these, so "neither" and "both" cannot be represented. `Fungible` is the default and
+/// what `open` restores, which keeps the ERC-20 view the one the page lands on.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+enum ApprovalMode {
+   #[default]
+   Fungible,
+   Nft,
+}
 
 #[derive(Debug, Clone)]
 enum ApprovalKind {
@@ -102,6 +123,18 @@ impl ApprovalAsset {
          Self::Nft { collection, .. } => collection.to_string(),
       }
    }
+
+   /// The width of the thumbnail this row draws.
+   ///
+   /// The label beside it has to leave room for exactly this much — an NFT's art is 64 px where a
+   /// token's icon is 32, so a cap sized for the smaller one lets a long collection name run over the
+   /// icon and out of the cell.
+   fn icon_width(&self) -> f32 {
+      match self {
+         Self::Token { .. } => 32.0,
+         Self::Nft { .. } => 64.0,
+      }
+   }
 }
 
 #[derive(Debug, Clone)]
@@ -114,10 +147,26 @@ struct ApprovalRow {
    kind: ApprovalKind,
 }
 
+impl ApprovalRow {
+   /// Tall enough for this row's thumbnail — see [`NFT_ROW_HEIGHT`].
+   ///
+   /// The mode switch means a table holds one kind of row or the other, so the two heights never
+   /// interleave; a NFT-mode page is uniformly tall and a token-mode page uniformly compact.
+   fn height(&self) -> f32 {
+      match self.asset {
+         ApprovalAsset::Token { .. } => ROW_HEIGHT,
+         ApprovalAsset::Nft { .. } => NFT_ROW_HEIGHT,
+      }
+   }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct CacheKey {
    wallet: Option<Address>,
    chain: Option<u64>,
+   /// Part of the key because the two modes show different rows: without it, switching mode would
+   /// find the key unchanged and keep serving the other mode's cache.
+   mode: ApprovalMode,
 }
 
 impl CacheKey {
@@ -125,6 +174,7 @@ impl CacheKey {
       Self {
          wallet: None,
          chain: Some(u64::MAX),
+         mode: ApprovalMode::default(),
       }
    }
 }
@@ -134,6 +184,7 @@ pub struct ApprovalsUi {
    loading: bool,
    selected_wallet: Option<WalletInfo>,
    selected_chain: Option<ChainId>,
+   mode: ApprovalMode,
    cached_rows: Vec<ApprovalRow>,
    cache_key: CacheKey,
    current_page: usize,
@@ -147,6 +198,7 @@ impl ApprovalsUi {
          loading: false,
          selected_wallet: None,
          selected_chain: None,
+         mode: ApprovalMode::default(),
          cached_rows: Vec::new(),
          cache_key: CacheKey::default(),
          current_page: 0,
@@ -164,6 +216,7 @@ impl ApprovalsUi {
       }
 
       self.open = true;
+      self.mode = ApprovalMode::default();
       self.cached_rows.clear();
       self.cache_key = CacheKey::invalid();
       self.current_page = 0;
@@ -182,10 +235,28 @@ impl ApprovalsUi {
       self.current_page = 0;
    }
 
+   /// Switch which kind of approval the table lists.
+   ///
+   /// Only flips the mode and drops what is shown: the cache key carries the mode, so the next frame
+   /// rebuilds — and a rebuild is what reads the manager for the other kind. Clearing here (rather
+   /// than leaving the old rows up) is what shows the spinner instead of the previous mode's rows for
+   /// the frames the rebuild takes.
+   fn set_mode(&mut self, mode: ApprovalMode) {
+      if self.mode == mode {
+         return;
+      }
+
+      self.mode = mode;
+      self.cached_rows.clear();
+      self.loading = true;
+      self.current_page = 0;
+   }
+
    fn current_cache_key(&self) -> CacheKey {
       CacheKey {
          wallet: self.selected_wallet.as_ref().map(|w| w.address),
          chain: self.selected_chain.map(|c| c.id()),
+         mode: self.mode,
       }
    }
 
@@ -206,6 +277,7 @@ impl ApprovalsUi {
 
       let selected_wallet = self.selected_wallet.clone();
       let selected_chain = self.selected_chain;
+      let mode = self.mode;
 
       RT.spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
@@ -213,118 +285,125 @@ impl ApprovalsUi {
 
          let mut rows = Vec::new();
 
-         for (chain, params) in manager.get_all_active_token_approvals() {
-            if ctx.is_chain_disabled(chain) {
-               continue;
-            }
-
-            if let Some(chain_filter) = selected_chain {
-               if chain_filter.id() != chain {
+         // Each mode builds only its own rows. For the ERC-20 side that also means the Permit2
+         // allowance calls below do not run at all while the NFT table is up.
+         if mode == ApprovalMode::Fungible {
+            for (chain, params) in manager.get_all_active_token_approvals() {
+               if ctx.is_chain_disabled(chain) {
                   continue;
                }
+
+               if let Some(chain_filter) = selected_chain {
+                  if chain_filter.id() != chain {
+                     continue;
+                  }
+               }
+
+               if let Some(wallet) = &selected_wallet {
+                  if wallet.address != params.owner {
+                     continue;
+                  }
+               }
+
+               rows.push(ApprovalRow {
+                  chain,
+                  owner: params.owner,
+                  asset: ApprovalAsset::Token {
+                     currency: Currency::from(params.token.clone()),
+                     amount: params.amount.clone(),
+                  },
+                  spender: params.spender,
+                  kind: ApprovalKind::Erc20(params),
+               });
             }
 
-            if let Some(wallet) = &selected_wallet {
-               if wallet.address != params.owner {
+            let mut permit_groups: HashMap<(u64, Address), Vec<PermitParams>> = HashMap::new();
+            for params in manager.get_all_active_permits() {
+               if ctx.is_chain_disabled(params.chain) {
                   continue;
                }
+
+               if let Some(chain_filter) = selected_chain {
+                  if chain_filter.id() != params.chain {
+                     continue;
+                  }
+               }
+
+               if let Some(wallet) = &selected_wallet {
+                  if wallet.address != params.owner {
+                     continue;
+                  }
+               }
+
+               permit_groups.entry((params.chain, params.owner)).or_default().push(params);
             }
 
-            rows.push(ApprovalRow {
-               chain,
-               owner: params.owner,
-               asset: ApprovalAsset::Token {
-                  currency: Currency::from(params.token.clone()),
-                  amount: params.amount.clone(),
-               },
-               spender: params.spender,
-               kind: ApprovalKind::Erc20(params),
-            });
+            let now = TimeStamp::now_as_secs().ok().map(|t| t.timestamp());
+
+            for ((chain, owner), permits) in permit_groups {
+               let pairs: Vec<(Address, Address)> =
+                  permits.iter().map(|p| (p.token.address(), p.spender)).collect();
+               let onchain = live_permit2_allowances(ctx.clone(), chain, owner, pairs).await;
+
+               for params in permits {
+                  let key = (params.token.address(), params.spender);
+                  let still_valid = match onchain.get(&key) {
+                     Some(&(amount, expiration)) => {
+                        let expired = now.map(|n| expiration < n).unwrap_or(false);
+                        amount >= params.amount.wei() && !expired
+                     }
+                     // RPC miss — keep the in-app row rather than hiding a live permit.
+                     None => true,
+                  };
+
+                  if still_valid {
+                     rows.push(ApprovalRow {
+                        chain: params.chain,
+                        owner: params.owner,
+                        asset: ApprovalAsset::Token {
+                           currency: params.token.clone(),
+                           amount: params.amount.clone(),
+                        },
+                        spender: params.spender,
+                        kind: ApprovalKind::Permit2(params),
+                     });
+                  }
+               }
+            }
          }
 
          // NFT approvals. The manager already holds them per shape; the row keeps the collection and
-         // the id, and the revoke builds the calldata the shape needs.
-         for params in manager.get_all_active_nft_approvals() {
-            if ctx.is_chain_disabled(params.chain) {
-               continue;
-            }
-
-            if let Some(chain_filter) = selected_chain {
-               if chain_filter.id() != params.chain {
+         // the id, and the revoke builds the calldata the shape needs. Nothing here touches the
+         // network — the manager has it all — so this mode's rebuild is immediate.
+         if mode == ApprovalMode::Nft {
+            for params in manager.get_all_active_nft_approvals() {
+               if ctx.is_chain_disabled(params.chain) {
                   continue;
                }
-            }
 
-            if let Some(wallet) = &selected_wallet {
-               if wallet.address != params.owner {
-                  continue;
-               }
-            }
-
-            rows.push(ApprovalRow {
-               chain: params.chain,
-               owner: params.owner,
-               asset: ApprovalAsset::Nft {
-                  collection: params.collection,
-                  token_id: params.token_id,
-                  amount: params.amount,
-               },
-               spender: params.operator,
-               kind: ApprovalKind::Nft(params),
-            });
-         }
-
-         let mut permit_groups: HashMap<(u64, Address), Vec<PermitParams>> = HashMap::new();
-         for params in manager.get_all_active_permits() {
-            if ctx.is_chain_disabled(params.chain) {
-               continue;
-            }
-
-            if let Some(chain_filter) = selected_chain {
-               if chain_filter.id() != params.chain {
-                  continue;
-               }
-            }
-
-            if let Some(wallet) = &selected_wallet {
-               if wallet.address != params.owner {
-                  continue;
-               }
-            }
-
-            permit_groups.entry((params.chain, params.owner)).or_default().push(params);
-         }
-
-         let now = TimeStamp::now_as_secs().ok().map(|t| t.timestamp());
-
-         for ((chain, owner), permits) in permit_groups {
-            let pairs: Vec<(Address, Address)> =
-               permits.iter().map(|p| (p.token.address(), p.spender)).collect();
-            let onchain = live_permit2_allowances(ctx.clone(), chain, owner, pairs).await;
-
-            for params in permits {
-               let key = (params.token.address(), params.spender);
-               let still_valid = match onchain.get(&key) {
-                  Some(&(amount, expiration)) => {
-                     let expired = now.map(|n| expiration < n).unwrap_or(false);
-                     amount >= params.amount.wei() && !expired
+               if let Some(chain_filter) = selected_chain {
+                  if chain_filter.id() != params.chain {
+                     continue;
                   }
-                  // RPC miss — keep the in-app row rather than hiding a live permit.
-                  None => true,
-               };
-
-               if still_valid {
-                  rows.push(ApprovalRow {
-                     chain: params.chain,
-                     owner: params.owner,
-                     asset: ApprovalAsset::Token {
-                        currency: params.token.clone(),
-                        amount: params.amount.clone(),
-                     },
-                     spender: params.spender,
-                     kind: ApprovalKind::Permit2(params),
-                  });
                }
+
+               if let Some(wallet) = &selected_wallet {
+                  if wallet.address != params.owner {
+                     continue;
+                  }
+               }
+
+               rows.push(ApprovalRow {
+                  chain: params.chain,
+                  owner: params.owner,
+                  asset: ApprovalAsset::Nft {
+                     collection: params.collection,
+                     token_id: params.token_id,
+                     amount: params.amount,
+                  },
+                  spender: params.operator,
+                  kind: ApprovalKind::Nft(params),
+               });
             }
          }
 
@@ -374,6 +453,30 @@ impl ApprovalsUi {
       ctx.get_address_name(chain, collection)
          .map(|s| s.to_string())
          .unwrap_or_else(|| truncate_address(collection.to_string()))
+   }
+
+   /// The Tokens / NFTs switch.
+   ///
+   /// Two `Button::selectable`s sharing `theme.button_visuals()`, matching the switch in the token
+   /// picker (`token_selection.rs`) — the same two-mode choice, so it takes the same shape.
+   fn mode_switch(&mut self, theme: &Theme, ui: &mut Ui) {
+      let button_visuals = theme.button_visuals();
+
+      let tokens_text = RichText::new("Tokens").size(theme.typography.large);
+      let tokens_button = Button::selectable(self.mode == ApprovalMode::Fungible, tokens_text)
+         .visuals(button_visuals);
+
+      if ui.add(tokens_button).clicked() {
+         self.set_mode(ApprovalMode::Fungible);
+      }
+
+      let nfts_text = RichText::new("NFTs").size(theme.typography.large);
+      let nfts_button =
+         Button::selectable(self.mode == ApprovalMode::Nft, nfts_text).visuals(button_visuals);
+
+      if ui.add(nfts_button).clicked() {
+         self.set_mode(ApprovalMode::Nft);
+      }
    }
 
    fn amount_label(amount: &NumericValue) -> String {
@@ -461,6 +564,12 @@ impl ApprovalsUi {
                let combo_visuals = theme.combo_box_visuals();
                let label_visuals = theme.label_visuals();
                let expansion = Some(6.0);
+
+               // Tokens / NFTs — first, because it decides what the rest of the page is about.
+               ui.scope(|ui| {
+                  ui.spacing_mut().item_spacing.x = theme.spacing.sm;
+                  self.mode_switch(theme, ui);
+               });
 
                // Wallet filter
                let wallets = ctx.all_wallets_info_ordered();
@@ -671,7 +780,6 @@ impl ApprovalsUi {
                   // padding) so header cells line up with body cells and the
                   // row actually fills the card — leftover used to live after
                   // Revoke because body spacing/padding did not match the header.
-                  let row_height = 40.0;
                   let col_spacing = 20.0;
                   let n_cols = 7.0;
                   let row_frame = theme.frame1.outer_margin(Margin::ZERO);
@@ -695,14 +803,21 @@ impl ApprovalsUi {
                   ];
 
                   // --- Header (same widths + left inset as body cells) ---
+                  // The trusted-address column is "Operator" in NFT mode: it is the same slot, but an
+                  // NFT approval grants an operator, which is the word the rest of the UI uses for it.
+                  let headers = match self.mode {
+                     ApprovalMode::Fungible => {
+                        ["Asset", "Chain", "Wallet", "Spender", "Amount", "Type", ""]
+                     }
+                     ApprovalMode::Nft => {
+                        ["Asset", "Chain", "Wallet", "Operator", "Amount", "Type", ""]
+                     }
+                  };
+
                   ui.horizontal(|ui| {
                      ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0 + inner_left);
                      ui.spacing_mut().item_spacing.x = col_spacing;
-                     for (i, header) in
-                        ["Asset", "Chain", "Wallet", "Spender", "Amount", "Type", ""]
-                           .into_iter()
-                           .enumerate()
-                     {
+                     for (i, header) in headers.into_iter().enumerate() {
                         // Shorter header row — no need for full body height.
                         Self::row_cell(ui, column_widths[i], 28.0, |ui| {
                            if !header.is_empty() {
@@ -734,6 +849,10 @@ impl ApprovalsUi {
                      ui.spacing_mut().item_spacing.y = theme.spacing.md;
 
                      for row in rows {
+                        // An NFT row is as tall as its 64 px thumbnail; a fungible row keeps the
+                        // height its 32 px icon was laid out for.
+                        let row_height = row.height();
+
                         ui.allocate_ui(vec2(row_width, row_height + inner_y), |ui| {
                            row_frame.show(ui, |ui| {
                               ui.set_width(inner_width);
@@ -742,6 +861,7 @@ impl ApprovalsUi {
                               ui.horizontal(|ui| {
                                  // Asset — a token's symbol, or the collection an NFT approval is over.
                                  Self::row_cell(ui, column_widths[0], row_height, |ui| {
+                                    let icon_width = row.asset.icon_width();
                                     let (icon, title, hover) = match &row.asset {
                                        ApprovalAsset::Token { currency, .. } => (
                                           icons.currency_icon_x32(currency, tint),
@@ -784,7 +904,10 @@ impl ApprovalsUi {
                                     let label =
                                        Label::new(text, None).wrap().visuals(label_visuals);
                                     ui.scope(|ui| {
-                                       ui.set_max_width(column_widths[0] - 40.0);
+                                       ui.set_max_width(
+                                          (column_widths[0] - icon_width - theme.spacing.xs)
+                                             .max(0.0),
+                                       );
                                        ui.add(label).on_hover_text(hover);
                                     });
                                  });
