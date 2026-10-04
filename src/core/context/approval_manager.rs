@@ -1,10 +1,12 @@
 use crate::core::serde_hashmap;
-use crate::core::{DecodedEvent, PermitParams, TokenApproveParams, TransactionRich};
+use crate::core::{
+   DecodedEvent, NftApproveParams, PermitParams, TokenApproveParams, TransactionRich,
+};
 use crate::utils::TimeStamp;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
-use zeus_eth::alloy_primitives::Address;
+use zeus_eth::alloy_primitives::{Address, U256};
 use zeus_eth::utils::NumericValue;
 
 /// Latest ERC20 allowance for `(chain, owner, token, spender)`.
@@ -12,6 +14,13 @@ pub type TokenApprovals = HashMap<(u64, Address, Address, Address), TokenApprove
 
 /// Latest Permit2 allowance for `(chain, owner, token, spender)`.
 pub type PermitApprovals = HashMap<(u64, Address, Address, Address), PermitParams>;
+
+/// Latest NFT approval for `(chain, owner, collection, token_id, operator)`.
+///
+/// `token_id` is `None` for a collection-wide `ApprovalForAll`, which is a **different key** from any
+/// single token's approval: granting an operator the whole collection must not overwrite — or hide
+/// behind — a grant on one token, since the two are revoked independently.
+pub type NftApprovals = HashMap<(u64, Address, Address, Option<U256>, Address), NftApproveParams>;
 
 #[derive(Clone)]
 pub struct ApprovalManagerHandle(Arc<RwLock<ApprovalManager>>);
@@ -105,10 +114,30 @@ impl ApprovalManagerHandle {
       self.read(|db| db.get_all_active_permits())
    }
 
+   pub fn get_nft_approval(
+      &self,
+      chain: u64,
+      owner: Address,
+      collection: Address,
+      token_id: Option<U256>,
+      operator: Address,
+   ) -> Option<NftApproveParams> {
+      self.read(|db| db.get_nft_approval(chain, owner, collection, token_id, operator).cloned())
+   }
+
+   pub fn get_nft_approvals(&self, chain: u64, owner: Address) -> Vec<NftApproveParams> {
+      self.read(|db| db.get_nft_approvals(chain, owner))
+   }
+
+   /// All NFT approvals that still grant something — revocations are kept but not returned.
+   pub fn get_all_active_nft_approvals(&self) -> Vec<NftApproveParams> {
+      self.read(|db| db.get_all_active_nft_approvals())
+   }
+
    /// Drop approval entries whose owner is not in `wallets`.
    ///
-   /// Returns `(token_approvals_removed, permits_removed)`.
-   pub fn retain_wallets(&self, wallets: &HashSet<Address>) -> (usize, usize) {
+   /// Returns `(token_approvals_removed, permits_removed, nft_approvals_removed)`.
+   pub fn retain_wallets(&self, wallets: &HashSet<Address>) -> (usize, usize, usize) {
       self.write(|db| db.retain_wallets(wallets))
    }
 }
@@ -126,6 +155,14 @@ pub struct ApprovalManager {
    /// Latest Permit2 `Permit` / `Approval` per chain / owner / token / spender.
    #[serde(default, with = "serde_hashmap")]
    permits: PermitApprovals,
+
+   /// Latest NFT `Approval` / `ApprovalForAll` per chain / owner / collection / token / operator.
+   ///
+   /// Kept in its own map rather than folded into `token_approvals`: an NFT is identified by a
+   /// collection *and* a token id, and an approval can cover a whole collection, so there is no
+   /// address that could stand in for either.
+   #[serde(default, with = "serde_hashmap")]
+   nft_approvals: NftApprovals,
 }
 
 impl ApprovalManager {
@@ -133,6 +170,7 @@ impl ApprovalManager {
       Self {
          token_approvals: HashMap::new(),
          permits: HashMap::new(),
+         nft_approvals: HashMap::new(),
       }
    }
 
@@ -154,6 +192,7 @@ impl ApprovalManager {
       match event {
          DecodedEvent::TokenApprove(params) => self.insert_token_approval(chain, params.clone()),
          DecodedEvent::Permit(params) => self.insert_permit(params.clone()),
+         DecodedEvent::NftApprove(params) => self.insert_nft_approval(params.clone()),
          _ => {}
       }
    }
@@ -178,6 +217,20 @@ impl ApprovalManager {
       );
       // Latest Permit2 allowance / expiration wins for this key.
       self.permits.insert(key, params);
+   }
+
+   fn insert_nft_approval(&mut self, params: NftApproveParams) {
+      let key = (
+         params.chain,
+         params.owner,
+         params.collection,
+         params.token_id,
+         params.operator,
+      );
+      // Always keep the latest event for this key, **revocations included**: the revoke is what
+      // makes the entry inactive, so dropping it would leave the earlier grant looking live. A
+      // collection-wide approval lands on its own key (`token_id == None`) beside any per-token one.
+      self.nft_approvals.insert(key, params);
    }
 
    pub fn get_token_approval(
@@ -272,7 +325,40 @@ impl ApprovalManager {
          .collect()
    }
 
-   pub fn retain_wallets(&mut self, wallets: &HashSet<Address>) -> (usize, usize) {
+   pub fn get_nft_approval(
+      &self,
+      chain: u64,
+      owner: Address,
+      collection: Address,
+      token_id: Option<U256>,
+      operator: Address,
+   ) -> Option<&NftApproveParams> {
+      self.nft_approvals.get(&(chain, owner, collection, token_id, operator))
+   }
+
+   pub fn get_nft_approvals(&self, chain: u64, owner: Address) -> Vec<NftApproveParams> {
+      self
+         .nft_approvals
+         .iter()
+         .filter_map(|((c, o, _, _, _), v)| {
+            if *c == chain && *o == owner {
+               Some(v.clone())
+            } else {
+               None
+            }
+         })
+         .collect()
+   }
+
+   /// Every NFT approval that still grants something.
+   ///
+   /// Revocations stay in the map — they are what makes an entry inactive — so they are filtered here
+   /// rather than deleted, exactly as a zero ERC-20 allowance is.
+   pub fn get_all_active_nft_approvals(&self) -> Vec<NftApproveParams> {
+      self.nft_approvals.values().filter(|v| !v.is_revoke()).cloned().collect()
+   }
+
+   pub fn retain_wallets(&mut self, wallets: &HashSet<Address>) -> (usize, usize, usize) {
       let token_before = self.token_approvals.len();
       self
          .token_approvals
@@ -287,7 +373,14 @@ impl ApprovalManager {
       self.permits.shrink_to_fit();
       let permit_removed = permit_before.saturating_sub(self.permits.len());
 
-      (token_removed, permit_removed)
+      let nft_before = self.nft_approvals.len();
+      self
+         .nft_approvals
+         .retain(|(_chain, owner, _collection, _token_id, _operator), _| wallets.contains(owner));
+      self.nft_approvals.shrink_to_fit();
+      let nft_removed = nft_before.saturating_sub(self.nft_approvals.len());
+
+      (token_removed, permit_removed, nft_removed)
    }
 }
 

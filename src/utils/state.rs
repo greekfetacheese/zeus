@@ -210,11 +210,12 @@ pub fn cleanup_orphaned_wallet_data(ctx: ZeusCtx) {
       portfolio_removed,
       approval_token_removed,
       approval_permit_removed,
+      approval_nft_removed,
       dapp_accounts_removed,
    ) = ctx.write_wallet_state(|ws| {
       let (eth_removed, token_removed, nft_removed) = ws.balance_manager.retain_wallets(&wallets);
       let portfolio_removed = ws.portfolio_db.retain_wallets(&wallets);
-      let (approval_token_removed, approval_permit_removed) =
+      let (approval_token_removed, approval_permit_removed, approval_nft_removed) =
          ws.approval_manager.retain_wallets(&wallets);
       let dapp_accounts_removed = ws.dapp_accounts.retain_wallets(&wallets);
       (
@@ -224,6 +225,7 @@ pub fn cleanup_orphaned_wallet_data(ctx: ZeusCtx) {
          portfolio_removed,
          approval_token_removed,
          approval_permit_removed,
+         approval_nft_removed,
          dapp_accounts_removed,
       )
    });
@@ -236,10 +238,11 @@ pub fn cleanup_orphaned_wallet_data(ctx: ZeusCtx) {
       + tx_removed
       + approval_token_removed
       + approval_permit_removed
+      + approval_nft_removed
       + dapp_accounts_removed;
    if total > 0 {
       info!(
-         "Cleaned orphaned wallet data: {} eth balances, {} token balances, {} nft holdings, {} portfolios, {} tx histories, {} token approvals, {} permits, {} dapp accounts",
+         "Cleaned orphaned wallet data: {} eth balances, {} token balances, {} nft holdings, {} portfolios, {} tx histories, {} token approvals, {} permits, {} nft approvals, {} dapp accounts",
          eth_removed,
          token_removed,
          nft_removed,
@@ -247,6 +250,7 @@ pub fn cleanup_orphaned_wallet_data(ctx: ZeusCtx) {
          tx_removed,
          approval_token_removed,
          approval_permit_removed,
+         approval_nft_removed,
          dapp_accounts_removed
       );
    } else {
