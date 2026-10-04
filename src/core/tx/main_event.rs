@@ -48,6 +48,16 @@ impl TransactionAnalysis {
          return DecodedEvent::Transfer(self.erc20_transfers()[0].clone());
       }
 
+      // A Uniswap V3 position op outranks the NFT transfer that always accompanies it: `mint` and
+      // `burn` on the position manager emit the position NFT's `Transfer` *plus*
+      // `IncreaseLiquidity`/`DecreaseLiquidity`, so the two events are one intent — and the intent
+      // worth showing is the liquidity change, not the minting of the receipt token. The guard is
+      // deliberately the op alone: `decoded_events() == 1` here is exactly what would push every
+      // add/remove liquidity into `Other`.
+      if self.positions_ops_len() == 1 {
+         return DecodedEvent::UniswapPositionOperation(self.positions_ops()[0].clone());
+      }
+
       // NFT transfer / mint / burn. Like the fungible transfer above it is a simple
       // transaction with nothing to compose, and without a case here it ranks as `Other` — which is
       // what "Unknown Interaction" is. An ERC-1155 batch decodes to one event per id: the first is the
@@ -78,10 +88,6 @@ impl TransactionAnalysis {
 
       if self.decoded_events() == 1 && self.weth_unwraps_len() == 1 {
          return DecodedEvent::UnwrapWETH(self.weth_unwraps()[0].clone());
-      }
-
-      if self.decoded_events() == 1 && self.positions_ops_len() == 1 {
-         return DecodedEvent::UniswapPositionOperation(self.positions_ops()[0].clone());
       }
 
       if self.bridges_len() == 1 {
@@ -272,10 +278,12 @@ fn enrich_swap_received_from_transfers(
 mod tests {
    use super::*;
    use crate::core::tx::events::NftTransferParams;
+   use crate::tests::test_ctx;
    use zeus_eth::{
       alloy_primitives::{Address, U256, address},
       alloy_signer_local::PrivateKeySigner,
       currency::{Currency, ERC20Token},
+      nft::NftStandard,
       utils::NumericValue,
    };
 
@@ -340,6 +348,45 @@ mod tests {
       analysis.decoded_events = events;
       analysis.remove_main_event();
       analysis
+   }
+
+   /// A Uniswap V3 mint arrives as the position manager's `Transfer` of the position NFT **and**
+   /// `IncreaseLiquidity`. That is one intent, and the one worth showing is the liquidity change —
+   /// ranking it as the NFT is what the confirm window, the history row and the notification would
+   /// all have claimed.
+   ///
+   /// The NFT is a *mint* because that is the shape a position is created in, and `is_mint` is why the
+   /// wrong answer read "NFT Mint" rather than "NFT Transfer".
+   #[test]
+   fn a_v3_mint_ranks_as_the_position_op_not_as_the_nft_it_mints() {
+      let minted_position = DecodedEvent::NftTransfer(NftTransferParams {
+         chain: 1,
+         standard: NftStandard::Erc721,
+         collection: Address::from([0xbc; 20]),
+         token_id: Some(U256::from(1)),
+         amount: U256::from(1),
+         from: Address::ZERO,
+         to: Address::ZERO,
+         is_mint: true,
+         is_burn: false,
+      });
+
+      let analysis = analysis(
+         Address::ZERO,
+         vec![
+            minted_position,
+            DecodedEvent::dummy_uniswap_position_operation(),
+         ],
+      );
+
+      let main_event = analysis.infer_main_event(test_ctx(1), 1);
+
+      assert!(
+         main_event.is_uniswap_position_op(),
+         "ranked as {}",
+         main_event.name()
+      );
+      assert_eq!(main_event.name(), "Add Liquidity");
    }
 
    /// ETH → taxed token. The first output-token transfer is the tax

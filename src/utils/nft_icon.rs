@@ -8,6 +8,11 @@
 //! Failures are deliberately quiet: a token whose art cannot be fetched or decoded shows the
 //! placeholder and is not retried for the rest of the session, so a broken collection cannot turn
 //! into a request on every repaint.
+//!
+//! Where a URI may point is bounded by [`ensure_fetchable`]: art is fetched over `https` only, and
+//! never from a host that is — or resolves to — a loopback, private, link-local or otherwise
+//! non-public address. A metadata URI comes from a contract, so "fetch this" is really "make the
+//! user's machine send a GET there", and that is the whole of the attack.
 
 use crate::assets::icons::{NftIconData, save_nft_icon};
 use crate::gui::SHARED_GUI;
@@ -17,6 +22,7 @@ use image::imageops::FilterType;
 use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg;
 use std::io::Cursor;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::OnceLock;
 use std::time::Duration;
 use zeus_eth::alloy_primitives::{Address, U256};
@@ -56,12 +62,145 @@ const IPFS_GATEWAYS: &[&str] = &[
 
 const ARWEAVE_GATEWAY: &str = "https://arweave.net";
 
+/// Whether an address is one a collection's URI has no business pointing the wallet at.
+///
+/// Loopback and the private ranges are how art becomes a probe of whatever else is listening on the
+/// user's machine — the wallet's own dapp server included — and `169.254.169.254` is the cloud
+/// metadata address, which is worth a request only to whoever put the URI on chain.
+fn is_public_ip(ip: IpAddr) -> bool {
+   match ip {
+      IpAddr::V4(v4) => is_public_v4(v4),
+      IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+         // `::ffff:127.0.0.1` is the same address wearing a different hat.
+         Some(v4) => is_public_v4(v4),
+         None => {
+            !(v6.is_loopback()
+               || v6.is_unspecified()
+               || v6.is_multicast()
+               || v6.is_unique_local()
+               || v6.is_unicast_link_local())
+         }
+      },
+   }
+}
+
+fn is_public_v4(v4: Ipv4Addr) -> bool {
+   let [a, b, _, _] = v4.octets();
+
+   !(v4.is_loopback()                                   // 127/8
+      || v4.is_private()                                // 10/8, 172.16/12, 192.168/16
+      || v4.is_link_local()                             // 169.254/16 — cloud metadata
+      || v4.is_broadcast()
+      || v4.is_documentation()
+      || v4.is_unspecified()
+      || v4.is_multicast()
+      || a == 0                                         // "this network"
+      || (a == 100 && (64..128).contains(&b))           // 100.64/10, carrier-grade NAT
+      || (a == 198 && (b == 18 || b == 19))             // 198.18/15, benchmarking
+      || a >= 240) // 240/4, reserved
+}
+
+/// Whether a host name is one to refuse before even resolving it.
+///
+/// A resolution check alone would catch most of these, but not the ones that fail to resolve at all
+/// (`.local` is mDNS, not DNS) — and a name that cannot be checked must not be fetchable.
+fn is_blocked_hostname(host: &str) -> bool {
+   let host = host.trim_end_matches('.').to_ascii_lowercase();
+
+   host == "localhost"
+      || host.ends_with(".localhost")
+      || host.ends_with(".local")
+      || host.ends_with(".internal")
+      || host.ends_with(".home.arpa")
+}
+
+/// A host as an address, brackets and all: `[::1]` and `127.0.0.1` both parse.
+fn host_ip(host: &str) -> Option<IpAddr> {
+   host.trim_start_matches('[').trim_end_matches(']').parse().ok()
+}
+
+/// The verdict on a URL, without resolving anything.
+///
+/// Synchronous because the redirect policy cannot await, and a redirect is the second way in: a
+/// harmless-looking public name only has to answer `302` with a private address to get the request
+/// the URI itself was refused.
+fn url_is_fetchable(url: &reqwest::Url) -> bool {
+   if url.scheme() != "https" {
+      return false;
+   }
+
+   match url.host_str() {
+      Some(host) => match host_ip(host) {
+         Some(ip) => is_public_ip(ip),
+         None => !is_blocked_hostname(host),
+      },
+      None => false,
+   }
+}
+
+/// Before the wallet is pointed at a URL: `https`, a host that is not obviously local, and — because
+/// a name can mean anything — no address it resolves to may be local either.
+///
+/// The lookup here is a check, not a pin: the connection resolves the name again, so a name whose
+/// answer changes in between is not caught. Everything that does not depend on that race is.
+async fn ensure_fetchable(url: &reqwest::Url) -> Result<(), anyhow::Error> {
+   if !url_is_fetchable(url) {
+      return Err(anyhow!("refusing to fetch {url}"));
+   }
+
+   let Some(host) = url.host_str() else {
+      return Err(anyhow!("{url} has no host"));
+   };
+
+   // A literal address has nothing left to resolve.
+   if host_ip(host).is_some() {
+      return Ok(());
+   }
+
+   let port = url.port_or_known_default().unwrap_or(443);
+   let addrs: Vec<IpAddr> = tokio::net::lookup_host((host, port))
+      .await
+      .map_err(|e| anyhow!("cannot resolve {host}: {e}"))?
+      .map(|addr| addr.ip())
+      .collect();
+
+   if addrs.is_empty() {
+      return Err(anyhow!("{host} did not resolve"));
+   }
+
+   if let Some(local) = addrs.iter().find(|ip| !is_public_ip(**ip)) {
+      return Err(anyhow!(
+         "refusing to fetch {url}: {host} is {local}"
+      ));
+   }
+
+   Ok(())
+}
+
+/// GET client, shared because a client per fetch would redo TLS setup every time.
+///
+/// Redirects are still followed — a gateway may answer a CID with a `Location` — but every hop is
+/// put through [`url_is_fetchable`], which is the check a URI cannot dodge by answering `302`.
 fn http_client() -> &'static reqwest::Client {
    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
    CLIENT.get_or_init(|| {
       reqwest::Client::builder()
          .user_agent("zeus-wallet")
          .timeout(FETCH_TIMEOUT)
+         .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            // Ten is reqwest's own default; the scheme and address checks are the addition.
+            if attempt.previous().len() >= 10 {
+               return attempt.error(anyhow!("too many redirects"));
+            }
+
+            let url = attempt.url().clone();
+
+            if !url_is_fetchable(&url) {
+               return attempt.error(anyhow!("refusing to follow {url}"));
+            }
+
+            attempt.follow()
+         }))
          .build()
          .unwrap_or_else(|_| reqwest::Client::new())
    })
@@ -106,10 +245,10 @@ pub fn resolve_uri(uri: &str) -> Option<ResolvedUri> {
       return parse_data_uri(uri).map(ResolvedUri::Data);
    }
 
-   let http =
-      strip_prefix_ci(uri, "https://").is_some() || strip_prefix_ci(uri, "http://").is_some();
-
-   http.then(|| ResolvedUri::Http(uri.to_string()))
+   // Only `https`: a contract's `http://` URI would be fetched in the clear (an observer learns which
+   // token is being looked at, and a MITM chooses the art), and it is the one scheme that lets a
+   // redirect reach a plaintext local server. Every gateway Zeus trusts is https.
+   strip_prefix_ci(uri, "https://").map(|_| ResolvedUri::Http(uri.to_string()))
 }
 
 fn strip_prefix_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
@@ -338,12 +477,15 @@ pub fn prepare_image_data(bytes: &[u8]) -> Result<NftIconData, anyhow::Error> {
    Ok(NftIconData { x64, x250 })
 }
 
-/// GET with a size cap.
+/// GET with a size cap, from a host the wallet is allowed to reach.
 ///
 /// `Ok(None)` is a definitive miss (404/410 or an empty body) — the caller stops asking. `Err` is
-/// "cannot tell right now" (throttled, timed out, too large).
+/// "cannot tell right now" (throttled, timed out, refused, too large).
 async fn get_with_cap(url: &str, max: usize) -> Result<Option<Vec<u8>>, anyhow::Error> {
-   let response = http_client().get(url).send().await?;
+   let url = reqwest::Url::parse(url).map_err(|e| anyhow!("{url} is not a usable url: {e}"))?;
+   ensure_fetchable(&url).await?;
+
+   let mut response = http_client().get(url.clone()).send().await?;
 
    match response.status() {
       reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE => return Ok(None),
@@ -351,26 +493,41 @@ async fn get_with_cap(url: &str, max: usize) -> Result<Option<Vec<u8>>, anyhow::
       _ => {}
    }
 
+   // A declared length is a hint, not the cap: a chunked response declares none, and a hostile one
+   // can lie. The early exit is worth taking, but [`read_body`] is what enforces the limit.
    if let Some(len) = response.content_length() {
       if len as usize > max {
          return Err(anyhow!("{url} is too large ({len} bytes)"));
       }
    }
 
-   let bytes = response.bytes().await?;
+   read_body(&mut response, max, url.as_str()).await
+}
 
-   if bytes.is_empty() {
-      return Ok(None);
+/// Read a body chunk by chunk, refusing to hold more than `max`.
+///
+/// This *is* the cap. `Response::bytes` would buffer whatever the server sends — bounded only by the
+/// timeout, which at line rate is hundreds of megabytes per fetch, times the number of fetches one
+/// list load starts — so the body is accumulated here and refused the moment it passes the limit,
+/// declared length or not. The allocation grows to `max` at the very worst, whatever the response.
+///
+/// `Ok(None)` is an empty body, which the callers treat as a miss.
+async fn read_body(
+   response: &mut reqwest::Response,
+   max: usize,
+   url: &str,
+) -> Result<Option<Vec<u8>>, anyhow::Error> {
+   let mut body = Vec::new();
+
+   while let Some(chunk) = response.chunk().await? {
+      if body.len() + chunk.len() > max {
+         return Err(anyhow!("{url} is larger than {max} bytes"));
+      }
+
+      body.extend_from_slice(&chunk);
    }
 
-   if bytes.len() > max {
-      return Err(anyhow!(
-         "{url} is too large ({} bytes)",
-         bytes.len()
-      ));
-   }
-
-   Ok(Some(bytes.to_vec()))
+   Ok((!body.is_empty()).then_some(body))
 }
 
 /// Fetch an IPFS path, trying every gateway before giving up.
@@ -625,6 +782,138 @@ mod tests {
       );
       assert_eq!(resolve_uri("ftp://example.invalid/a"), None);
       assert_eq!(resolve_uri("ipfs://"), None);
+   }
+
+   /// A URI is fetched over `https` from a public host, or not at all.
+   ///
+   /// The host half is the one that matters: the URI comes from a contract, so "fetch this" means
+   /// "send a GET there from the user's machine" — and a private address turns art into a probe of
+   /// whatever else is listening locally. The v4 spellings that the URL spec itself normalises
+   /// (`0x7f000001`, `2130706433`) are in the list because a filter that reads the text would miss
+   /// them while the connection would not.
+   #[test]
+   fn only_public_https_hosts_are_fetchable() {
+      assert_eq!(
+         resolve_uri("http://example.invalid/a.json"),
+         None,
+         "plaintext is not fetched at all"
+      );
+      assert!(resolve_uri("https://example.invalid/a.json").is_some());
+
+      let fetchable = |host: &str| {
+         let url = reqwest::Url::parse(&format!("https://{host}/a.json")).expect("a url");
+         url_is_fetchable(&url)
+      };
+
+      for host in [
+         "127.0.0.1",
+         "0x7f000001",
+         "2130706433",
+         "10.0.0.5",
+         "172.16.9.9",
+         "192.168.1.1",
+         "169.254.169.254",
+         "0.0.0.0",
+         "100.64.0.1",
+         "198.18.0.1",
+         "240.0.0.1",
+         "localhost",
+         "foo.local",
+         "box.internal",
+         "service.home.arpa",
+      ] {
+         assert!(!fetchable(host), "{host} must not be fetchable");
+      }
+
+      // The v6 spellings, including one that is really v4.
+      for host in [
+         "[::1]",
+         "[::]",
+         "[fd00::1]",
+         "[fe80::1]",
+         "[::ffff:127.0.0.1]",
+      ] {
+         assert!(!fetchable(host), "{host} must not be fetchable");
+      }
+
+      // The ordinary internet is untouched.
+      for host in [
+         "1.1.1.1",
+         "8.8.8.8",
+         "[2606:4700:4700::1111]",
+         "example.invalid",
+      ] {
+         assert!(fetchable(host), "{host} must stay fetchable");
+      }
+   }
+
+   /// The gate `get_with_cap` actually calls, which is the same verdict — a literal address needs no
+   /// lookup, so this stays offline.
+   #[tokio::test]
+   async fn a_private_or_plaintext_url_is_refused_before_the_request() {
+      let private = reqwest::Url::parse("https://127.0.0.1:8545/a.json").expect("a url");
+      assert!(ensure_fetchable(&private).await.is_err());
+
+      let plaintext = reqwest::Url::parse("http://example.invalid/a.json").expect("a url");
+      assert!(ensure_fetchable(&plaintext).await.is_err());
+   }
+
+   /// The cap has to bite *mid-stream*.
+   ///
+   /// With no `Content-Length` — chunked, or anything else a hostile server feels like sending — the
+   /// only bound `Response::bytes` left was the timeout, so a fetch could hold hundreds of megabytes
+   /// before it was refused. The server here writes well past the cap and then holds the connection
+   /// open: nothing but the cap can end the read, so a buffering reader hangs until the clock below
+   /// fires instead of returning.
+   #[tokio::test]
+   async fn a_body_that_passes_the_cap_ends_the_read() {
+      use tokio::io::AsyncWriteExt;
+
+      // A bare client, deliberately: this is `read_body`, and the guard that would refuse
+      // `http://127.0.0.1` is not what is under test here.
+      let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+      let addr = listener.local_addr().unwrap();
+
+      let server = tokio::spawn(async move {
+         let (mut socket, _) = listener.accept().await.unwrap();
+         let head =
+            b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nTransfer-Encoding: chunked\r\n\r\n";
+         socket.write_all(head).await.unwrap();
+
+         let chunk = vec![b'a'; 32 * 1024];
+         for _ in 0..12 {
+            let header = format!("{:x}\r\n", chunk.len());
+            let wrote = async {
+               socket.write_all(header.as_bytes()).await?;
+               socket.write_all(&chunk).await?;
+               socket.write_all(b"\r\n").await
+            };
+
+            if wrote.await.is_err() {
+               return;
+            }
+         }
+
+         // The point of the test: the connection stays open, so only the cap can stop the reader.
+         tokio::time::sleep(Duration::from_secs(60)).await;
+      });
+
+      let mut response = reqwest::Client::new()
+         .get(format!("http://{addr}/art.png"))
+         .send()
+         .await
+         .unwrap();
+
+      let read = tokio::time::timeout(
+         Duration::from_secs(5),
+         read_body(&mut response, 128 * 1024, "http://large/art.png"),
+      )
+      .await
+      .expect("the cap has to end the read, not the clock");
+
+      assert!(read.is_err(), "a body past the cap is an error");
+
+      server.abort();
    }
 
    #[test]
