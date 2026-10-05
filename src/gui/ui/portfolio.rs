@@ -50,13 +50,24 @@ struct NftRowAction {
    remove: bool,
 }
 
+/// The artwork modal's contents: the token, and the collection it belongs to.
+///
+/// The collection is resolved when the preview *opens* rather than in the modal's body: the modal is
+/// drawn on every frame it is up, and looking the collection up there read the whole catalog each time
+/// to find one name.
+#[derive(Clone)]
+struct NftPreview {
+   token: NftToken,
+   collection: Option<NftCollection>,
+}
+
 pub struct PortfolioUi {
    open: bool,
    _loading: bool,
    pub show_spinner: bool,
    mode: PortfolioMode,
-   /// The NFT whose artwork the user opened at inspection size, if any.
-   preview: Option<NftToken>,
+   /// What the artwork modal is showing, if it is open.
+   preview: Option<NftPreview>,
    /// Which (chain, wallet) the NFT list has been kicked off for.
    ///
    /// A marker that the ask went out, not an answer — the answers live in the balance manager, beside the
@@ -565,7 +576,7 @@ impl PortfolioUi {
                }
 
                // The artwork at inspection size, if a row asked for it.
-               self.show_nft_preview(ctx, theme, &icons, ui);
+               self.show_nft_preview(theme, &icons, ui);
             });
          });
       });
@@ -691,7 +702,12 @@ impl PortfolioUi {
       // Applied after the list: a removal rewrites the portfolio, and doing that from inside the row
       // loop would change the list it is iterating.
       if let Some(nft) = preview_request {
-         self.preview = Some(nft);
+         // The collection comes from the map the list already built: the modal draws every frame, so the
+         // lookup cannot live in its body.
+         self.preview = Some(NftPreview {
+            collection: collections.get(&nft.collection).cloned(),
+            token: nft,
+         });
       }
 
       if let Some(nft) = remove_request {
@@ -700,32 +716,19 @@ impl PortfolioUi {
    }
 
    /// The artwork at inspection size, opened from a row.
-   fn show_nft_preview(
-      &mut self,
-      ctx: &mut ZeusContext,
-      theme: &Theme,
-      icons: &Icons,
-      ui: &mut Ui,
-   ) {
-      let Some(token) = self.preview.clone() else {
+   fn show_nft_preview(&mut self, theme: &Theme, icons: &Icons, ui: &mut Ui) {
+      let Some(NftPreview { token, collection }) = self.preview.clone() else {
          return;
       };
-
-      // The collection is looked up rather than kept alongside the preview: the catalog is the one
-      // place that knows the name, and the modal is opened by a click, not by a frame.
-      let collection = ctx
-         .nft_db
-         .get_collections(token.chain_id)
-         .into_iter()
-         .find(|collection| collection.address == token.collection);
+      let collection = collection.as_ref();
 
       let heading = RichText::new(format!(
          "{} #{}",
-         nft_collection_name(collection.as_ref(), token.collection),
+         nft_collection_name(collection, token.collection),
          token.token_id
       ))
       .size(theme.typography.heading);
-      let subtitle = Self::nft_subtitle(collection.as_ref(), token.standard);
+      let subtitle = Self::nft_subtitle(collection, token.standard);
       let frame = theme.window_frame.fill(theme.frame1.fill);
 
       let mut open = true;
