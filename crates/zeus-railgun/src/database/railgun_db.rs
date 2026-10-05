@@ -49,9 +49,16 @@ impl RedbDatabase {
       //
       // So the upgrade is a one-time resync rather than a silent no-op: the watermark goes back to the
       // chain's first block, and the stored UTXO trees go with it, because a tree rebuilt on top of the
-      // old one would hold every leaf twice. The next sync replays from `deployment_block`, rebuilds the
-      // trees and fills the registry on the way through. Notes are not lost — they live on the accounts,
-      // which keep their own watermark, and a note that is already known is never stored a second time.
+      // old one would hold every leaf twice. The next sync replays from `deployment_block`, rebuilding the
+      // trees and filling the registry on the way through.
+      //
+      // The accounts go too. The replay visits an account only for blocks *after* its own watermark
+      // (`handle_transact`, gated by `block > account.synced_block()`), and a note already stored is never
+      // re-decoded at all (`IndexedAccount::knows_note` keys on `(tree, leaf)`). So a note written before
+      // the registry existed — against `TokenData::from_hash`'s guess of an ERC-20 address inside a hash it
+      // could not invert — would keep that wrong asset, and the commitment that goes with it, through the
+      // very replay that now knows the real one. A deleted account loads as its default (empty notes,
+      // watermark 0), so every note is derived again and stored as what it really is.
       match deserialize_versioned::<LegacyUtxoIndexerState>(&bytes) {
          Ok(old) => {
             tracing::info!(
@@ -60,6 +67,7 @@ impl RedbDatabase {
                old.trees.len()
             );
             self.drop_utxo_trees().await?;
+            self.drop_utxo_accounts().await?;
             Ok(UtxoIndexerState::default())
          }
          Err(_) => deserialize_versioned(&bytes),
@@ -73,6 +81,28 @@ impl RedbDatabase {
    /// missing, and a rebuild that appends to leaves already on disk doubles every one of them.
    async fn drop_utxo_trees(&self) -> Result<(), DatabaseError> {
       let keys = self.keys_with_prefix(b"utxo_tree:").await?;
+      if keys.is_empty() {
+         return Ok(());
+      }
+
+      let mut batch = WriteBatch::new();
+      for key in keys {
+         batch.delete(key);
+      }
+      self.apply_batch(batch, WriteDurability::Immediate).await
+   }
+
+   /// Delete every stored UTXO account blob.
+   ///
+   /// Part of the pre-registry upgrade ([`Self::get_utxo_indexer`]), beside [`Self::drop_utxo_trees`]: the
+   /// replay re-derives each account, but only for the blocks past its own watermark, and a note it already
+   /// holds is never re-decoded (`IndexedAccount::knows_note` keys on `(tree, leaf)`). So a note stored
+   /// against a guessed asset — `TokenData::from_hash` reading a 32-byte hash as an ERC-20 address — would
+   /// outlive the very replay that now knows the real asset, keeping a wrong asset and a commitment no tree
+   /// can witness. A deleted account loads as its default (empty notes, watermark 0, per
+   /// [`Self::get_account`]), so the notes are derived again from the events themselves.
+   async fn drop_utxo_accounts(&self) -> Result<(), DatabaseError> {
+      let keys = self.list_account_keys().await?;
       if keys.is_empty() {
          return Ok(());
       }
@@ -894,6 +924,80 @@ mod tests {
       let db_bad = RedbDatabase::in_memory(RailgunDbKey::generate().unwrap()).unwrap();
       db_bad.set(&account_key(&addr), &raw).await.unwrap();
       assert!(db_bad.get_account(&addr).await.is_err());
+   }
+
+   /// The pre-registry upgrade drops the accounts, not only the trees.
+   ///
+   /// A note written before the registry existed carries an asset `TokenData::from_hash` *guessed* — an
+   /// ERC-20 address read out of a hash it cannot invert. The replay that follows fills the registry, but an
+   /// account is visited only past its own watermark and a note it already holds is never re-decoded, so the
+   /// wrong asset — and the commitment that goes with it — would outlive the repair that knows the real one.
+   /// A deleted account falls back to its default (empty notes, watermark 0), which is what lets the replay
+   /// derive every note again.
+   #[tokio::test]
+   async fn pre_registry_state_resets_accounts_too() {
+      use crate::account::address::RailgunAddress;
+      use crate::indexer::indexed_account::{IndexedAccountState, NoteRecord};
+      use crate::note::utxo::test_note;
+      use alloy_primitives::B256;
+
+      let db = test_db();
+
+      // What a wallet upgrading from a registry-less build looks like: a synced account holding a note.
+      let seed: [u8; 64] = rand::random();
+      let sec = secure_types::SecureArray::from_slice(&seed).unwrap();
+      let addr = RailgunAddress::new(&sec, 0, None).unwrap();
+      db.set_account(
+         &addr,
+         &IndexedAccountState {
+            notes: vec![NoteRecord {
+               note: test_note(),
+               created_block: 7,
+               created_timestamp: 7,
+               created_tx_hash: B256::ZERO,
+            }],
+            synced_block: 42,
+            spent_notes: vec![],
+         },
+      )
+      .await
+      .unwrap();
+
+      // The indexer state as written before the `token_registry` field: its bytes decode into the shorter
+      // shape, not the current one — bincode is not self-describing, so the third field cannot be invented.
+      #[derive(Serialize)]
+      struct LegacyIndexer {
+         synced_block: u64,
+         trees: Vec<u32>,
+      }
+      let mut batch = WriteBatch::new();
+      put_envelope(
+         &mut batch,
+         &utxo_indexer_key(),
+         3,
+         &LegacyIndexer {
+            synced_block: 42,
+            trees: vec![2],
+         },
+      )
+      .unwrap();
+      db.apply_batch(batch, WriteDurability::Immediate).await.unwrap();
+
+      let state = db.get_utxo_indexer().await.unwrap();
+
+      // The indexer is back at the start, trees and registry included…
+      assert_eq!(state.synced_block, 0);
+      assert!(state.trees.is_empty());
+      assert!(state.token_registry.is_empty());
+
+      // …and so are the accounts: without this the phantom note survives every later resync.
+      assert!(
+         db.list_account_keys().await.unwrap().is_empty(),
+         "the pre-registry upgrade must drop the account blobs"
+      );
+      let account = db.get_account(&addr).await.unwrap();
+      assert_eq!(account.synced_block, 0);
+      assert!(account.notes.is_empty());
    }
 
    #[tokio::test]
