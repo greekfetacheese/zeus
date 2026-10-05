@@ -11,8 +11,10 @@
 //!
 //! Where a URI may point is bounded by [`ensure_fetchable`]: art is fetched over `https` only, and
 //! never from a host that is — or resolves to — a loopback, private, link-local or otherwise
-//! non-public address. A metadata URI comes from a contract, so "fetch this" is really "make the
-//! user's machine send a GET there", and that is the whole of the attack.
+//! non-public address. That holds for every redirect hop too, which is why [`get_with_cap`] follows
+//! them itself rather than leaving them to the HTTP client. A metadata URI comes from a contract, so
+//! "fetch this" is really "make the user's machine send a GET there", and that is the whole of the
+//! attack.
 
 use crate::assets::icons::{NftIconData, save_nft_icon};
 use crate::core::urls::ZeusUrl;
@@ -39,6 +41,29 @@ const LARGE_EDGE: u32 = 250;
 /// before it is handed to the decoder.
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
+/// How many redirect hops one fetch follows before giving up (reqwest's own default).
+const MAX_REDIRECTS: usize = 10;
+
+/// Cap on either edge of the source art handed to the raster decoder, and on what that decode may
+/// allocate.
+///
+/// [`MAX_BYTES`] bounds the *transfer*, not the decode: a ≤4 MiB PNG that declares 8192×8192 decodes
+/// to ~256 MiB, and one list load runs [`NFT_ART_FETCH_PER_LOAD`] fetches at once. `image`'s own
+/// defaults bound only `max_alloc` (512 MiB) and leave both dimensions open, so both are set here.
+/// `MAX_ART_ALLOC` is exactly what a `MAX_ART_EDGE`-square 32-bit source needs — the renderings are
+/// [`THUMB_EDGE`] and [`LARGE_EDGE`], so the edge cap is already far above anything a view can use.
+const MAX_ART_EDGE: u32 = 4096;
+const MAX_ART_ALLOC: u64 = (MAX_ART_EDGE as u64) * (MAX_ART_EDGE as u64) * 4;
+
+/// Decode limits for art: both edges bounded (a *strict* limit, so a decoder that cannot uphold it
+/// must refuse rather than proceed), and an allocation budget a [`MAX_ART_EDGE`]-square source fits.
+fn art_limits() -> image::Limits {
+   let mut limits = image::Limits::default();
+   limits.max_image_width = Some(MAX_ART_EDGE);
+   limits.max_image_height = Some(MAX_ART_EDGE);
+   limits.max_alloc = Some(MAX_ART_ALLOC);
+   limits
+}
 
 /// How many art downloads one list load starts.
 ///
@@ -110,9 +135,15 @@ fn host_ip(host: &str) -> Option<IpAddr> {
 
 /// The verdict on a URL, without resolving anything.
 ///
-/// Synchronous because the redirect policy cannot await, and a redirect is the second way in: a
-/// harmless-looking public name only has to answer `302` with a private address to get the request
-/// the URI itself was refused.
+/// Synchronous and cheap: it is the pre-check [`ensure_fetchable`] runs before resolving anything, so
+/// a URL that cannot pass on its own terms — the scheme, a literal address, an obviously-local name —
+/// is refused without a lookup.
+///
+/// It is deliberately not the whole check. A name it passes can still resolve to a private address,
+/// and a redirect is the second way in: a harmless-looking public name only has to answer `302` with
+/// one to get the request the URI itself was refused. Both are answered by resolving, which is why
+/// [`get_with_cap`] follows redirects itself rather than leaving them to the client's policy — a
+/// policy callback cannot await, and so can only ever see the name.
 fn url_is_fetchable(url: &reqwest::Url) -> bool {
    if url.scheme() != "https" {
       return false;
@@ -168,31 +199,27 @@ async fn ensure_fetchable(url: &reqwest::Url) -> Result<(), anyhow::Error> {
 
 /// GET client, shared because a client per fetch would redo TLS setup every time.
 ///
-/// Redirects are still followed — a gateway may answer a CID with a `Location` — but every hop is
-/// put through [`url_is_fetchable`], which is the check a URI cannot dodge by answering `302`.
-fn http_client() -> &'static reqwest::Client {
+/// Redirects are **never** followed here: [`get_with_cap`] follows them itself, one hop at a time,
+/// because each hop has to be resolved and a redirect-policy callback cannot await. A client that
+/// followed one would be the hole that check exists to close.
+///
+/// A client that cannot be built is an error rather than a fallback to `Client::new()`: that client
+/// follows redirects, so the "fallback" would quietly undo the line above.
+fn http_client() -> Result<&'static reqwest::Client, anyhow::Error> {
    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-   CLIENT.get_or_init(|| {
-      reqwest::Client::builder()
-         .user_agent("zeus-wallet")
-         .timeout(FETCH_TIMEOUT)
-         .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            // Ten is reqwest's own default; the scheme and address checks are the addition.
-            if attempt.previous().len() >= 10 {
-               return attempt.error(anyhow!("too many redirects"));
-            }
 
-            let url = attempt.url().clone();
+   if let Some(client) = CLIENT.get() {
+      return Ok(client);
+   }
 
-            if !url_is_fetchable(&url) {
-               return attempt.error(anyhow!("refusing to follow {url}"));
-            }
+   let client = reqwest::Client::builder()
+      .user_agent("zeus-wallet")
+      .timeout(FETCH_TIMEOUT)
+      .redirect(reqwest::redirect::Policy::none())
+      .build()
+      .map_err(|e| anyhow!("cannot build the art http client: {e}"))?;
 
-            attempt.follow()
-         }))
-         .build()
-         .unwrap_or_else(|_| reqwest::Client::new())
-   })
+   Ok(CLIENT.get_or_init(|| client))
 }
 
 /// A metadata URI resolved to something we can actually fetch.
@@ -371,7 +398,11 @@ fn looks_like_json(bytes: &[u8]) -> bool {
 /// Not public on purpose: [`prepare_image_data`] is the entry point, so nobody can bypass the
 /// vector-art check and hand an SVG to a decoder that cannot read it.
 fn render_two_sizes(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), anyhow::Error> {
-   let image = image::load_from_memory(bytes)?;
+   // Built by hand rather than with `image::load_from_memory`, which would take `image`'s defaults:
+   // no dimension bound at all and a 512 MiB allocation budget (see [`art_limits`]).
+   let mut reader = image::ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
+   reader.limits(art_limits());
+   let image = reader.decode()?;
 
    let render = |edge: u32| -> Result<Vec<u8>, anyhow::Error> {
       // Only ever shrink. Upscaling would blur a small picture without adding detail, and would
@@ -481,31 +512,85 @@ pub fn prepare_image_data(bytes: &[u8]) -> Result<NftIconData, anyhow::Error> {
    })
 }
 
-/// GET with a size cap, from a host the wallet is allowed to reach.
+/// The URL a redirect points at: `Location`, resolved against the URL that produced it — a gateway
+/// commonly answers with a relative path.
+///
+/// `Ok(None)` when the response is not a redirect. A redirect we cannot make sense of is an error
+/// rather than a miss: there is no body to show either way, and "cannot tell right now" is the truer
+/// answer.
+fn redirect_target(
+   url: &reqwest::Url,
+   status: reqwest::StatusCode,
+   location: Option<&reqwest::header::HeaderValue>,
+) -> Result<Option<reqwest::Url>, anyhow::Error> {
+   if !status.is_redirection() {
+      return Ok(None);
+   }
+
+   let Some(location) = location else {
+      return Err(anyhow!(
+         "{url} answered {status} without a Location"
+      ));
+   };
+
+   let location = location
+      .to_str()
+      .map_err(|_| anyhow!("{url} answered {status} with a Location that is not text"))?;
+
+   url.join(location)
+      .map(Some)
+      .map_err(|e| anyhow!("{url} redirected to a url we cannot follow: {e}"))
+}
+
+/// GET with a size cap, from a host the wallet is allowed to reach — the redirect chain included.
 ///
 /// `Ok(None)` is a definitive miss (404/410 or an empty body) — the caller stops asking. `Err` is
 /// "cannot tell right now" (throttled, timed out, refused, too large).
+///
+/// Redirects are followed here rather than by the client's policy: a policy callback cannot await, so
+/// it can only judge a hop's *name* — and a harmless-looking public name that answers `302` with a
+/// private address would be followed and connected to. Every hop goes back through
+/// [`ensure_fetchable`], so the guarantee the first URL passes holds for all of them.
 async fn get_with_cap(url: &str, max: usize) -> Result<Option<Vec<u8>>, anyhow::Error> {
-   let url = reqwest::Url::parse(url).map_err(|e| anyhow!("{url} is not a usable url: {e}"))?;
-   ensure_fetchable(&url).await?;
+   let mut url = reqwest::Url::parse(url).map_err(|e| anyhow!("{url} is not a usable url: {e}"))?;
+   let mut hops = 0;
 
-   let mut response = http_client().get(url.clone()).send().await?;
+   loop {
+      ensure_fetchable(&url).await?;
 
-   match response.status() {
-      reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE => return Ok(None),
-      status if !status.is_success() => return Err(anyhow!("{url} returned {status}")),
-      _ => {}
-   }
+      let mut response = http_client()?.get(url.clone()).send().await?;
 
-   // A declared length is a hint, not the cap: a chunked response declares none, and a hostile one
-   // can lie. The early exit is worth taking, but [`read_body`] is what enforces the limit.
-   if let Some(len) = response.content_length() {
-      if len as usize > max {
-         return Err(anyhow!("{url} is too large ({len} bytes)"));
+      if let Some(next) = redirect_target(
+         &url,
+         response.status(),
+         response.headers().get(reqwest::header::LOCATION),
+      )? {
+         hops += 1;
+         if hops > MAX_REDIRECTS {
+            return Err(anyhow!(
+               "{url} redirected more than {MAX_REDIRECTS} times"
+            ));
+         }
+         url = next;
+         continue;
       }
-   }
 
-   read_body(&mut response, max, url.as_str()).await
+      match response.status() {
+         reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE => return Ok(None),
+         status if !status.is_success() => return Err(anyhow!("{url} returned {status}")),
+         _ => {}
+      }
+
+      // A declared length is a hint, not the cap: a chunked response declares none, and a hostile one
+      // can lie. The early exit is worth taking, but [`read_body`] is what enforces the limit.
+      if let Some(len) = response.content_length() {
+         if len as usize > max {
+            return Err(anyhow!("{url} is too large ({len} bytes)"));
+         }
+      }
+
+      return read_body(&mut response, max, url.as_str()).await;
+   }
 }
 
 /// Read a body chunk by chunk, refusing to hold more than `max`.
@@ -767,6 +852,48 @@ mod tests {
       (image.width(), image.height())
    }
 
+   /// A solid PNG of the given size: a row of one colour compresses to a few KB however wide it is,
+   /// which is what makes the decode cap, not the transfer cap, the thing under test.
+   fn encode_png(width: u32, height: u32) -> Vec<u8> {
+      let source = image::RgbaImage::from_pixel(width, height, image::Rgba([10, 20, 30, 255]));
+      let mut bytes = Vec::new();
+      source
+         .write_to(
+            &mut Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+         )
+         .unwrap();
+      bytes
+   }
+
+   /// [`MAX_BYTES`] bounds the transfer, not the decode: a few-KB PNG that declares 8192×8192 decodes
+   /// to ~256 MiB, and one list load runs [`NFT_ART_FETCH_PER_LOAD`] of those at once. The decode
+   /// limits bound both edges, so a source past them is refused — by the limit, not by another
+   /// failure — while one inside the cap still decodes.
+   #[test]
+   fn art_past_the_decode_edge_cap_is_refused() {
+      let oversized = encode_png(MAX_ART_EDGE + 1, 1);
+      assert!(
+         oversized.len() < 16 * 1024,
+         "the fixture is tiny on the wire, so only the decode limit can stop it ({} bytes)",
+         oversized.len()
+      );
+
+      let err = render_two_sizes(&oversized).expect_err("4097 wide is past the edge cap");
+      assert!(
+         matches!(
+            err.downcast_ref::<image::ImageError>(),
+            Some(image::ImageError::Limits(_))
+         ),
+         "the decode limit must be what refused it: {err}"
+      );
+
+      assert!(
+         render_two_sizes(&encode_png(MAX_ART_EDGE, 1)).is_ok(),
+         "a source inside the cap must still decode, so the limit is not refusing everything"
+      );
+   }
+
    #[test]
    fn resolves_the_uri_forms_that_actually_appear_on_chain() {
       assert_eq!(
@@ -907,6 +1034,73 @@ mod tests {
 
       let plaintext = reqwest::Url::parse("http://example.invalid/a.json").expect("a url");
       assert!(ensure_fetchable(&plaintext).await.is_err());
+   }
+
+   /// A redirect is followed by hand, and the URL it points at must pass the same check the first URL
+   /// did — the part a client redirect policy cannot do, since its callback cannot resolve a name.
+   ///
+   /// `Location` is often relative (`/ipfs/QmX`), so it is resolved against the URL that produced it
+   /// rather than used as written.
+   #[test]
+   fn a_redirect_is_resolved_against_its_source_and_must_still_be_fetchable() {
+      let url = reqwest::Url::parse("https://gateway.example.invalid/ipfs/QmX/1.png").unwrap();
+      let location = reqwest::header::HeaderValue::from_static;
+
+      // Not a redirect: nothing to follow.
+      assert_eq!(
+         redirect_target(&url, reqwest::StatusCode::OK, None).unwrap(),
+         None
+      );
+
+      // An absolute target.
+      assert_eq!(
+         redirect_target(
+            &url,
+            reqwest::StatusCode::FOUND,
+            Some(&location("https://cdn.example.invalid/1.png")),
+         )
+         .unwrap(),
+         Some(reqwest::Url::parse("https://cdn.example.invalid/1.png").unwrap())
+      );
+
+      // A relative one, resolved against the URL that answered.
+      assert_eq!(
+         redirect_target(
+            &url,
+            reqwest::StatusCode::FOUND,
+            Some(&location("/art/1.png")),
+         )
+         .unwrap(),
+         Some(reqwest::Url::parse("https://gateway.example.invalid/art/1.png").unwrap())
+      );
+
+      // A redirect that says nothing usable is a failure, not a miss.
+      assert!(
+         redirect_target(&url, reqwest::StatusCode::FOUND, None).is_err(),
+         "a redirect with no Location cannot be followed"
+      );
+
+      // A hop that lowers the scheme or lands on a private address is not fetchable, so the loop
+      // refuses it on the next turn — which the name-only check could not tell.
+      for target in [
+         "http://gateway.example.invalid/1.png",
+         "https://127.0.0.1/1.png",
+         "https://169.254.169.254/latest/meta-data/",
+         "https://foo.internal/1.png",
+      ] {
+         let next = redirect_target(
+            &url,
+            reqwest::StatusCode::FOUND,
+            Some(&location(target)),
+         )
+         .unwrap()
+         .expect("a location to follow");
+
+         assert!(
+            !url_is_fetchable(&next),
+            "{target} must not be fetchable at the next hop"
+         );
+      }
    }
 
    /// The cap has to bite *mid-stream*.
