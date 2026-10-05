@@ -1053,7 +1053,15 @@ impl UtxoIndexer {
       // The event carries its `TokenData` as a plaintext preimage, whichever wallet shielded it. Recording
       // it here — before any account decrypts, and before any later transact in this window does — is what
       // makes an asset recognizable later: a transact note keeps only `asset.hash()`.
-      self.token_registry.insert(event.token.hash(), event.token);
+      //
+      // ERC-20s are left out on purpose. Their tokenID *is* the address — `RailgunLogic.getTokenID` writes
+      // it into the low 20 bytes — so `TokenData::from_hash` reads one back losslessly and an entry here
+      // could only ever repeat what the hash already says (`test_erc20_hash_snap`). NFTs are the only assets
+      // whose preimage cannot be recovered, and the only ones worth the memory: one entry per
+      // (collection, tokenId), for every collection ever shielded on the chain.
+      if !event.token.is_erc20() {
+         self.token_registry.insert(event.token.hash(), event.token);
+      }
 
       for account in self.accounts.iter_mut() {
          if block > account.synced_block() {

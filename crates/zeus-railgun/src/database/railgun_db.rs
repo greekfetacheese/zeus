@@ -34,7 +34,11 @@ impl RedbDatabase {
          return Ok(Default::default());
       };
 
-      if let Ok(state) = deserialize_versioned::<UtxoIndexerState>(&bytes) {
+      if let Ok(mut state) = deserialize_versioned::<UtxoIndexerState>(&bytes) {
+         // ERC-20s are not registry material ([`TokenRegistry`]), but a map written before that was settled
+         // still carries one per ERC-20 ever shielded. Shed them once here instead of re-reading and
+         // re-writing them for the life of the database.
+         state.token_registry.retain(|_, asset| !asset.is_erc20());
          return Ok(state);
       }
 
@@ -998,6 +1002,53 @@ mod tests {
       let account = db.get_account(&addr).await.unwrap();
       assert_eq!(account.synced_block, 0);
       assert!(account.notes.is_empty());
+   }
+
+   /// ERC-20s are not registry material: their tokenID *is* the address, so `TokenData::from_hash` reads one
+   /// back without help. A payload written before that was recognized still carries them, and loading is
+   /// where they are shed — otherwise every database keeps a redundant entry per ERC-20 ever shielded.
+   #[tokio::test]
+   async fn loading_the_indexer_sheds_redundant_erc20_entries() {
+      use std::collections::HashMap;
+
+      use alloy_primitives::address;
+
+      use crate::caip::AssetId;
+
+      let db = test_db();
+
+      let erc20 = AssetId::Erc20(address!(
+         "0x1234567890123456789012345678901234567890"
+      ));
+      let nft = AssetId::Erc721(
+         address!("0xaf5aa7b670ef209e23d3f7b39a8f42f84bd002ac"),
+         U256::from(1071),
+      );
+
+      let mut batch = WriteBatch::new();
+      put_utxo_indexer(
+         &mut batch,
+         &UtxoIndexerState {
+            synced_block: 9,
+            trees: vec![1],
+            token_registry: HashMap::from([(erc20.hash(), erc20), (nft.hash(), nft)]),
+         },
+      )
+      .unwrap();
+      db.apply_batch(batch, WriteDurability::Immediate).await.unwrap();
+
+      let state = db.get_utxo_indexer().await.unwrap();
+
+      assert_eq!(
+         state.synced_block, 9,
+         "the watermark is untouched"
+      );
+      assert_eq!(state.trees, vec![1], "so are the known trees");
+      assert_eq!(
+         state.token_registry,
+         HashMap::from([(nft.hash(), nft)]),
+         "the NFT stays; the ERC-20 is recovered from its hash rather than stored"
+      );
    }
 
    #[tokio::test]

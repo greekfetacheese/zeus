@@ -76,6 +76,11 @@ impl AssetId {
 /// A `Shield` event carries its `TokenData` as a plaintext preimage, so registering every shield builds
 /// this up. It has to be *persisted* as well: a resumed sync skips the shields of earlier blocks, while a
 /// note arriving today can hold an asset that was shielded long before.
+///
+/// It holds **NFTs only**. An ERC-20's hash is its own address (`TokenData::hash` writes it into the low
+/// 20 bytes), so `TokenData::from_hash` recovers one unaided and an entry here would only ever repeat it —
+/// `UtxoIndexer::handle_shield` skips them, and a payload written before that was settled is stripped on
+/// load.
 pub type TokenRegistry = HashMap<U256, AssetId>;
 
 impl Display for AssetId {
