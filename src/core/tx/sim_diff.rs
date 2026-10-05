@@ -330,6 +330,12 @@ fn measure_approval_after<DB: Database>(
    out
 }
 
+/// The NFT half of the post-sim state, read on the fork EVM.
+///
+/// A read that failed reads as the shape's own *nothing* rather than as a hole in the map — the same
+/// conclusion the before-state fetch draws from a dropped sub-call. `combine_diffs` drops a candidate
+/// whose either side is missing, so a hole here would silently lose a real change: a burn's `ownerOf`
+/// reverts, and the change would never reach the confirmation window.
 fn measure_nft_after<DB: Database>(
    owner: Address,
    nft: &NftRequest,
@@ -341,13 +347,22 @@ fn measure_nft_after<DB: Database>(
       let key = (candidate.collection, candidate.token_id);
       match candidate.standard {
          NftStandard::Erc721 => {
-            if let Ok(owner_of) = erc721_owner_of(
+            // A reverted `ownerOf` after the tx means the token no longer exists — "not the signer's",
+            // which is exactly how the before-state fetch reads the same revert (`owner == Some(from)`
+            // with a dropped sub-call). Leaving the key out instead keeps that reading asymmetric:
+            // `combine_diffs` drops a candidate whose *either* side is missing, so a burn would lose the
+            // row rather than compare it.
+            let owner_of = erc721_owner_of(
                after_evm,
                candidate.collection,
                candidate.token_id,
-            ) {
-               state.ownership721.insert(key, U256::from(u8::from(owner_of == owner)));
-            }
+            );
+            state.ownership721.insert(
+               key,
+               U256::from(u8::from(
+                  owner_of.is_ok_and(|owner_of| owner_of == owner),
+               )),
+            );
          }
          NftStandard::Erc1155 => {
             if let Ok(balance) = erc1155_balance_of(
@@ -363,34 +378,37 @@ fn measure_nft_after<DB: Database>(
    }
 
    for candidate in &nft.approvals {
+      // A probe that failed on the fork reads as the shape's own *nothing* — the zero address, `false`,
+      // zero — the same default the before-state fetch applies to a dropped sub-call
+      // (`unwrap_or_default` there too). Dropping the candidate instead is asymmetric: a token burnt in
+      // the tx reverts `getApproved`, and the before side already answered "no operator" for it, so the
+      // row would be lost rather than compared.
       let value = match candidate.target {
-         NftApprovalTarget::Token(id) => erc721_get_approved(after_evm, candidate.collection, id)
-            .ok()
-            .map(NftApprovalValue::Approved),
-         NftApprovalTarget::ForAll => erc721_is_approved_for_all(
-            after_evm,
-            candidate.collection,
-            owner,
-            candidate.operator,
-         )
-         .ok()
-         .map(NftApprovalValue::ForAll),
-         NftApprovalTarget::Allowance(id) => erc1155_allowance(
-            after_evm,
-            candidate.collection,
-            owner,
-            candidate.operator,
-            id,
-         )
-         .ok()
-         .map(NftApprovalValue::Allowance),
+         NftApprovalTarget::Token(id) => NftApprovalValue::Approved(
+            erc721_get_approved(after_evm, candidate.collection, id).unwrap_or_default(),
+         ),
+         NftApprovalTarget::ForAll => NftApprovalValue::ForAll(
+            erc721_is_approved_for_all(
+               after_evm,
+               candidate.collection,
+               owner,
+               candidate.operator,
+            )
+            .unwrap_or_default(),
+         ),
+         NftApprovalTarget::Allowance(id) => NftApprovalValue::Allowance(
+            erc1155_allowance(
+               after_evm,
+               candidate.collection,
+               owner,
+               candidate.operator,
+               id,
+            )
+            .unwrap_or_default(),
+         ),
       };
 
-      // A probe that failed on the fork leaves the candidate out, so the row is dropped rather than
-      // compared against a made-up value.
-      if let Some(value) = value {
-         state.approvals.insert(*candidate, value);
-      }
+      state.approvals.insert(*candidate, value);
    }
 
    state
@@ -1472,6 +1490,9 @@ pub async fn simulate_and_diff(
 #[cfg(test)]
 mod tests {
    use super::*;
+   use zeus_eth::revm::database::{CacheDB, EmptyDB, InMemoryDB};
+   use zeus_eth::revm::state::{AccountInfo, Bytecode};
+   use zeus_eth::revm_utils::new_evm;
 
    fn addr(b: u8) -> Address {
       Address::repeat_byte(b)
@@ -1966,5 +1987,90 @@ mod tests {
 
       assert_eq!(raw.nft_approvals.len(), 1);
       assert_eq!(raw.nft_approvals[0].cand, for_all);
+   }
+
+   /// An EVM whose `collection` reverts on every call — a burnt token's `ownerOf`/`getApproved`, which
+   /// is the read the after-state probe has to interpret.
+   fn reverting_collection_evm(collection: Address) -> Evm2<InMemoryDB> {
+      let mut db = CacheDB::new(EmptyDB::default());
+      db.insert_account_info(
+         collection,
+         AccountInfo {
+            // PUSH1 0x00 PUSH1 0x00 REVERT
+            code: Some(Bytecode::new_raw(Bytes::from_static(&[
+               0x60, 0x00, 0x60, 0x00, 0xfd,
+            ]))),
+            ..Default::default()
+         },
+      );
+
+      new_evm(ChainId::Ethereum, None, db)
+   }
+
+   /// A failed post-tx read is the shape's *nothing*, not a hole in the map.
+   ///
+   /// A burn is the case that matters: the post-tx `ownerOf` reverts, and before this fix the key was
+   /// simply left out, so `combine_diffs` dropped the row and the confirmation window showed **no** NFT
+   /// change for a token the signer owned and no longer does — while the receipt/history path, which
+   /// reads both sides over RPC, still emitted it. `git stash`-free red proof: with the `if let Ok`
+   /// form restored, the first assertion below fails (the key is absent).
+   #[test]
+   fn a_reverted_balance_read_after_the_tx_reads_as_not_owned() {
+      let collection = addr(9);
+      let owner = addr(1);
+      let mut evm = reverting_collection_evm(collection);
+
+      let balances = balance_request(nft_candidate(collection, 1, NftStandard::Erc721));
+      let after = measure_nft_after(owner, &balances, &mut evm);
+
+      assert_eq!(
+         after.ownership721.get(&(collection, U256::from(1))),
+         Some(&U256::ZERO),
+         "a reverted `ownerOf` is \"not the signer's\", not a missing answer"
+      );
+
+      let mut before = BeforeState::empty();
+      before.nft.ownership721.insert((collection, U256::from(1)), U256::from(1));
+
+      let raw = combine_diffs(
+         &[],
+         &[],
+         &balances,
+         before,
+         AfterState {
+            tokens: HashMap::new(),
+            approvals: HashMap::new(),
+            nft: after,
+         },
+      );
+
+      assert_eq!(
+         raw.nft_balances.len(),
+         1,
+         "the burn is still a row"
+      );
+      assert_eq!(raw.nft_balances[0].after, U256::ZERO);
+      assert!(!raw.nft_balances[0].is_received());
+   }
+
+   /// The same rule for an approval: a `getApproved` that reverts after the tx reads as the zero
+   /// address — the value the before-state fetch would already have produced for it.
+   #[test]
+   fn a_reverted_approval_read_after_the_tx_reads_as_the_zero_address() {
+      let collection = addr(9);
+      let owner = addr(1);
+      let candidate = NftApprovalCandidate {
+         collection,
+         operator: addr(7),
+         target: NftApprovalTarget::Token(U256::from(4)),
+      };
+
+      let mut evm = reverting_collection_evm(collection);
+      let after = measure_nft_after(owner, &approval_request(candidate), &mut evm);
+
+      assert_eq!(
+         after.approvals.get(&candidate),
+         Some(&NftApprovalValue::Approved(Address::ZERO))
+      );
    }
 }
