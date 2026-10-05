@@ -90,6 +90,15 @@ pub async fn unshield(
       ));
    }
 
+   // Railgun has no ERC-1155 support to prove against, so the shield side already refuses it
+   // (`erc1155_shield_blocked`). Refused here too, so the two directions cannot disagree — and in the
+   // entry point rather than only in the form, so nothing can route around it.
+   if asset.asset_id().is_erc1155() {
+      return Err(anyhow!(
+         "Unshielding ERC-1155 is disabled: Railgun does not support it yet, and Zeus will enable it only after verifying that support."
+      ));
+   }
+
    let recipient = Address::from_str(recipient.trim())
       .map_err(|e| anyhow!("Invalid recipient address: {}", e))?;
 

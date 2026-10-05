@@ -624,8 +624,9 @@ pub fn show_balance_diff_rows(
       });
    }
 
-   // NFT rows after the fungible ones, the way they list everywhere else in Zeus.
-   for change in &diff.nfts {
+   // NFT rows after the fungible ones, the way they list everywhere else in Zeus — and in the same
+   // outflows-first order the fungible rows use.
+   for change in diff.nft_changes() {
       frame.show(ui, |ui| {
          nft_balance_change_row(ctx, chain, theme, icons.clone(), change, ui);
       });

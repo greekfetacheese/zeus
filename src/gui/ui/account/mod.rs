@@ -608,6 +608,13 @@ impl AccountPanel {
                   if gui.token_selection.is_open() {
                      gui.token_selection.process_currencies(privacy_mode, chain_id, owner);
                   }
+
+                  // The send view is paired with a wallet too: a token — or an NFT — picked for the
+                  // previous one cannot be sent from this one. Resetting to the new wallet's default
+                  // clears the NFT selection along with the fungible one.
+                  if gui.send_crypto.is_open() {
+                     gui.send_crypto.default_currency(privacy_mode, chain_id);
+                  }
                });
             });
          }

@@ -503,6 +503,9 @@ async fn process_private_tokens(
             // shielded holdings — so the scan is the only source for a private count.
             // A note's amount is whatever the sender shielded, so anything past `u64::MAX` is a clamp and
             // a wrong number: log it rather than showing it as the count.
+            // The same asset can arrive under more than one POI status (`provider.balance()` keys its
+            // entries by `(asset, poi_status)`), so the count is accumulated rather than overwritten —
+            // otherwise the last entry wins, and which one that is depends on `HashMap` order.
             let amount = match u64::try_from(U256::from(entry.amount)) {
                Ok(amount) => amount,
                Err(_) => {
@@ -512,7 +515,10 @@ async fn process_private_tokens(
                   u64::MAX
                }
             };
-            nft_amounts.insert(key, amount);
+            nft_amounts
+               .entry(key)
+               .and_modify(|total| *total = total.saturating_add(amount))
+               .or_insert(amount);
          }
       }
    }

@@ -431,11 +431,11 @@ where
 /// Fold the two multicall answers into one `(collection, id) -> amount` map.
 ///
 /// A reverted `ownerOf` — a burned or never-minted id — is a real zero: the contract answered.
-/// An ERC-1155 ref with no entry is also a zero, since `get_erc1155_balances` drops only calls that
-/// failed, which for a genuine ERC-1155 means the id is simply not held.
+/// A reverted `balanceOf` is the same: for a genuine ERC-1155 it means the id is simply not held, so
+/// its `None` lands as a zero too.
 fn holdings_from(
    owners: Vec<(Address, U256, Option<Address>)>,
-   balances: Vec<(Address, U256, U256)>,
+   balances: Vec<(Address, U256, Option<U256>)>,
    owner: Address,
 ) -> HashMap<(Address, U256), u64> {
    let mut holdings = HashMap::new();
@@ -448,7 +448,7 @@ fn holdings_from(
    }
 
    for (collection, token_id, amount) in balances {
-      holdings.insert((collection, token_id), to_u64(amount));
+      holdings.insert((collection, token_id), amount.map_or(0, to_u64));
    }
 
    holdings
@@ -503,8 +503,10 @@ mod tests {
          (erc721, U256::from(3), None),
       ];
       let balances = vec![
-         (erc1155, U256::from(1), U256::from(3)),
-         (erc1155, U256::from(2), U256::ZERO),
+         (erc1155, U256::from(1), Some(U256::from(3))),
+         (erc1155, U256::from(2), Some(U256::ZERO)),
+         // Reverted: for a genuine ERC-1155 that means the id is not held, so it is a zero too.
+         (erc1155, U256::from(3), None),
       ];
 
       let holdings = holdings_from(owners, balances, me);
@@ -514,6 +516,7 @@ mod tests {
       assert_eq!(holdings[&(erc721, U256::from(3))], 0);
       assert_eq!(holdings[&(erc1155, U256::from(1))], 3);
       assert_eq!(holdings[&(erc1155, U256::from(2))], 0);
+      assert_eq!(holdings[&(erc1155, U256::from(3))], 0);
    }
 
    /// The exact placeholder form the OpenSea shared storefront returns for `uri(1)`.
@@ -751,7 +754,7 @@ mod tests {
 
       assert_eq!(
          via_verify,
-         !via_batch[0].2.is_zero(),
+         via_batch[0].2.is_some_and(|balance| !balance.is_zero()),
          "verify_ownership must agree with balanceOf"
       );
 

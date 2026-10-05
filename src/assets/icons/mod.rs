@@ -313,7 +313,7 @@ impl NftIcons {
          icon_data.insert(key, data);
       }
 
-      Ok(Self {
+      let icons = Self {
          icons_x64: RwLock::new(HashMap::new()),
          icons_x250: RwLock::new(HashMap::new()),
          icon_data: RwLock::new(icon_data),
@@ -322,7 +322,13 @@ impl NftIcons {
          failed: RwLock::new(HashSet::new()),
          egui_ctx: ctx.clone(),
          placeholder,
-      })
+      };
+
+      // A startup load is capped by entries, never by bytes — and disk can hold what a build from before
+      // the byte bound was added wrote. Enforcing it here is what keeps the in-memory copy inside it.
+      icons.evict_art();
+
+      Ok(icons)
    }
 
    /// The raster texture for one rendering, if the stored art is raster.

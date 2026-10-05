@@ -253,15 +253,28 @@ pub fn collect_nft_approval_candidates(
       }
    }
 
-   if let Ok((to, token_id)) = erc721::decode_approve_call(call_data) {
-      push_nft_approval_candidate(
-         &mut out,
-         NftApprovalCandidate {
-            collection: interact_to,
-            operator: to,
-            target: NftApprovalTarget::Token(token_id),
-         },
-      );
+   // `approve(address,uint256)` is byte-identical between ERC-20 and ERC-721 — same selector, same
+   // layout — so the calldata alone cannot say which this call is. The *events* differ: the ERC-721
+   // `Approval` indexes the token id, so it carries four topics where the ERC-20's leaves the value in
+   // data and carries three, and the ERC-20 decoder refuses the four-topic shape. If this tx emitted an
+   // ERC-20 `Approval` for `interact_to`, the call was a token approval, not a token approval of a single
+   // NFT — and probing `getApproved` on an ERC-20 is a call that can only revert, or, if a contract
+   // happens to answer, a bogus row.
+   let erc20_approval_fired = logs
+      .iter()
+      .any(|log| log.address == interact_to && erc20::decode_approve_log(log).is_ok());
+
+   if !erc20_approval_fired {
+      if let Ok((to, token_id)) = erc721::decode_approve_call(call_data) {
+         push_nft_approval_candidate(
+            &mut out,
+            NftApprovalCandidate {
+               collection: interact_to,
+               operator: to,
+               target: NftApprovalTarget::Token(token_id),
+            },
+         );
+      }
    }
 
    if let Ok((operator, _approved)) = erc721::decode_set_approval_for_all_call(call_data) {
@@ -1163,6 +1176,28 @@ mod tests {
          collect_nft_approval_candidates(owner(), token(), &Bytes::new(), &[erc20_log], [])
             .is_empty(),
          "a token approval must not become an NFT one"
+      );
+   }
+
+   /// An ERC-20 `approve` names the same call as an ERC-721 one — `approve(address,uint256)` is
+   /// byte-identical — so the calldata cannot tell them apart. The ERC-20 `Approval` event the call
+   /// emits is the tiebreaker, and without it every ERC-20 approve would also be probed as an ERC-721
+   /// token approval: two wasted `getApproved` calls that can only revert.
+   #[test]
+   fn an_erc20_approve_call_is_not_an_erc721_token_approval() {
+      let approve = erc721::encode_approve(spender(), U256::from(7));
+      let erc20_log = erc20_approval_log(token(), owner(), spender());
+
+      assert!(
+         collect_nft_approval_candidates(owner(), token(), &approve, &[erc20_log], []).is_empty(),
+         "an ERC-20 approve must not become an ERC-721 per-token candidate"
+      );
+
+      // With no event, the calldata is all there is to go on — and on a collection the call names an
+      // NFT approval, the only reading that can answer.
+      assert_eq!(
+         collect_nft_approval_candidates(owner(), collection(), &approve, &[], []).len(),
+         1
       );
    }
 }

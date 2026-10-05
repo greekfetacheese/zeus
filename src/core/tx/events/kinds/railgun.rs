@@ -88,10 +88,7 @@ impl ShieldParams {
             {
                match ctx.get_nft(chain, *collection, *token_id).await {
                   Ok(token) => nft = Some(token),
-                  Err(e) => tracing::warn!(
-                     "Could not resolve shielded NFT {}",
-                     e
-                  ),
+                  Err(e) => tracing::warn!("Could not resolve shielded NFT {}", e),
                }
             }
 
@@ -216,10 +213,7 @@ impl UnshieldParams {
                   match ctx.get_nft(chain, collection, token_id).await {
                      Ok(token) => Some(token),
                      Err(e) => {
-                        tracing::warn!(
-                           "Could not resolve unshielded NFT {}",
-                           e
-                        );
+                        tracing::warn!("Could not resolve unshielded NFT {}", e);
                         None
                      }
                   }

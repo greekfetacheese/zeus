@@ -658,10 +658,10 @@ where
 
 /// Batched ERC-1155 `balanceOf(owner, id)` in Multicall3 aggregates.
 ///
-/// Returns `(collection, id, balance)` for the calls that succeeded, in request order. An
-/// ERC-1155 contract answers even for an id the owner holds none of, so a *failed* call means the
-/// address is not ERC-1155 (or the contract rejected the call) and the entry is omitted — the same
-/// convention as [`get_erc20_allowances`]. A returned `0` is a real zero balance.
+/// Returns `(collection, id, balance)` aligned with `refs`, where `None` is the call reverting — the
+/// contract answering "no such token" rather than a transport failure. Aligned like
+/// [`get_erc721_owners`] and [`get_erc721_approved`], and for the same reason: a dropped slot would
+/// silently shift the neighbours. A returned `0` is a real zero balance.
 ///
 /// Chunked by [`MULTICALL_CHUNK`] for the reason spelled out on [`get_erc721_owners`]: one aggregate
 /// over a whole portfolio can exceed the call gas cap and revert, losing every balance at once. A
@@ -672,7 +672,7 @@ pub async fn get_erc1155_balances<P, N>(
    owner: Address,
    refs: Vec<NftRef>,
    block: Option<BlockId>,
-) -> Result<Vec<(Address, U256, U256)>, anyhow::Error>
+) -> Result<Vec<(Address, U256, Option<U256>)>, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
@@ -710,10 +710,8 @@ where
       }
 
       for (i, result) in results.into_iter().enumerate() {
-         if let Ok(balance) = result {
-            let (collection, id) = chunk[i];
-            out.push((collection, id, balance));
-         }
+         let (collection, id) = chunk[i];
+         out.push((collection, id, result.ok()));
       }
    }
 
@@ -931,7 +929,7 @@ mod tests {
       .unwrap();
       assert_eq!(
          balances,
-         vec![(storefront, U256::from(1), U256::ZERO)]
+         vec![(storefront, U256::from(1), Some(U256::ZERO))]
       );
 
       // ERC-721 `getApproved`: a real token and a nonexistent one, so the revert lands as `None` in

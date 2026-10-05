@@ -729,7 +729,9 @@ async fn fetch_nft_balances_before(
       {
          Ok(rows) => {
             for (collection, token_id, balance) in rows {
-               out.insert((collection, token_id), balance);
+               if let Some(balance) = balance {
+                  out.insert((collection, token_id), balance);
+               }
             }
          }
          Err(e) => tracing::warn!("ERC-1155 balances at block failed: {:?}", e),

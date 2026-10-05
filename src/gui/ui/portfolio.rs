@@ -62,6 +62,11 @@ pub struct PortfolioUi {
    /// A marker that the ask went out, not an answer — the answers live in the balance manager, beside the
    /// token balances. It is here so that opening the list starts one refresh rather than one per frame.
    nft_list_asked_for: Option<(u64, Address)>,
+   /// Which `(chain, wallet)` the list currently on screen belongs to.
+   ///
+   /// The NFT preview belongs to it too: switching either must not leave the previous token's artwork
+   /// over the new list, and a reopen must not re-pop it.
+   shown_for: Option<(u64, Address)>,
 }
 
 impl PortfolioUi {
@@ -73,6 +78,7 @@ impl PortfolioUi {
          mode: PortfolioMode::Tokens,
          preview: None,
          nft_list_asked_for: None,
+         shown_for: None,
       }
    }
 
@@ -86,6 +92,8 @@ impl PortfolioUi {
 
    pub fn close(&mut self) {
       self.open = false;
+      // A reopen starts a new list; the previous session's preview must not re-appear over it.
+      self.preview = None;
    }
 
    /// Fixed-size cell with vertically centered content so every column
@@ -267,6 +275,13 @@ impl PortfolioUi {
          let privacy_mode = ctx.privacy_mode;
          let owner = wallet_info.address;
          let portfolio = ctx.read_wallet_state(|ws| ws.portfolio_db.get(chain_id, owner));
+
+         // The preview belongs to the (chain, wallet) it was opened under: switching either must not
+         // leave the previous token's artwork over the new list.
+         if self.shown_for != Some((chain_id, owner)) {
+            self.shown_for = Some((chain_id, owner));
+            self.preview = None;
+         }
 
          let portfolio_value = match privacy_mode {
             false => portfolio.public_value(),

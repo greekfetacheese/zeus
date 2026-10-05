@@ -1648,8 +1648,9 @@ mod tests {
       assert_eq!(nft_quantity(&erc1155, "three"), None);
    }
 
-   /// Shielding an ERC-1155 is refused until Railgun's support for it has been verified — and only the
-   /// shield side: unshielding a note that is already private is a different path with its own guard.
+   /// Shielding an ERC-1155 is refused until Railgun's support for it has been verified, and only in
+   /// this form — the unshield path refuses it in its own entry point (`unshield`), because a note
+   /// that is already private is a different path.
    #[test]
    fn an_erc1155_cannot_be_shielded() {
       let mut ui = ShieldUi::new();

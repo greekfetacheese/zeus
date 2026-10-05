@@ -230,6 +230,16 @@ pub fn resolve_uri(uri: &str) -> Option<ResolvedUri> {
       return None;
    }
 
+   // A `data:` URI is decoded here, before [`fetch_resolved`] can apply [`MAX_BYTES`] — and a base64
+   // payload allocates about three quarters of its input, while percent-encoded text allocates less than
+   // it. So the *string* is bounded first: it is attacker-controlled (any contract the wallet reads can
+   // return a multi-megabyte `tokenURI`) and nothing else caps it. The bound is generous enough for any
+   // `data:` URI that decodes within `MAX_BYTES`.
+   const MAX_URI_LEN: usize = MAX_BYTES * 4;
+   if uri.len() > MAX_URI_LEN {
+      return None;
+   }
+
    if let Some(rest) = strip_prefix_ci(uri, "ipfs://") {
       // Some collections write `ipfs://ipfs/<cid>`; the gateway path must not repeat the segment.
       let path = rest.strip_prefix("ipfs/").unwrap_or(rest).trim_matches('/');

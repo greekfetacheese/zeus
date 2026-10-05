@@ -181,6 +181,10 @@ pub struct TokenSelectionWindow {
    /// Did that fetch finish? An empty list is a legitimate result, so `processed_nfts.is_empty()`
    /// cannot stand in for "never fetched".
    nfts_loaded: bool,
+   /// Bumped whenever the list is invalidated ([`Self::clear_processed_nfts`]). A fetch captures it and
+   /// writes only while it still matches, so a slow fetch for a previous `(chain, owner)` cannot land its
+   /// rows — or latch `nfts_loaded` — over a newer one.
+   nfts_generation: u64,
 }
 
 /// How wide the Tokens / NFTs pair renders, so the row that holds it can centre it.
@@ -237,6 +241,7 @@ impl TokenSelectionWindow {
          processed_nfts: Vec::new(),
          nfts_loading: false,
          nfts_loaded: false,
+         nfts_generation: 0,
       }
    }
 
@@ -337,6 +342,8 @@ impl TokenSelectionWindow {
       self.processed_nfts.shrink_to_fit();
       self.nfts_loading = false;
       self.nfts_loaded = false;
+      // Invalidate a fetch still in flight: its rows belong to the list this call just forgot.
+      self.nfts_generation = self.nfts_generation.wrapping_add(1);
    }
 
    /// Kick off the NFT list fetch, at most once per opening.
@@ -349,6 +356,7 @@ impl TokenSelectionWindow {
       }
 
       self.nfts_loading = true;
+      let generation = self.nfts_generation;
 
       RT.spawn(async move {
          // Read on a worker: the handle is only reachable once the frame has dropped `SHARED_GUI`.
@@ -375,6 +383,10 @@ impl TokenSelectionWindow {
          start_nft_art_downloads(chain_id, nfts.iter().map(|row| &row.token));
 
          SHARED_GUI.write(|gui| {
+            // A newer open, close or wallet change has already replaced this list — these rows are stale.
+            if gui.token_selection.nfts_generation != generation {
+               return;
+            }
             gui.token_selection.processed_nfts = nfts;
             gui.token_selection.nfts_loading = false;
             gui.token_selection.nfts_loaded = true;

@@ -23,10 +23,11 @@ pub const TOKEN_ICON_X24: &str = "x24.png";
 
 /// Downloaded NFT-image basenames under [`PersistedTree::NftIcons`].
 ///
-/// Raster art is written as two renderings of the same picture, so switching between the grid and
-/// the detail view never goes back to the network. Vector art is written as its source instead —
-/// egui rasterises SVG at whatever size a view asks for, so pre-rendering it would only cost
-/// quality and disk. A token directory holds one form or the other, never both.
+/// Art is rasterised at ingest into two renderings of the same picture, so switching between the grid
+/// and the detail view never goes back to the network. A token directory holds those renderings plus
+/// [`NFT_ICON_SOURCE`], and a vector file left by an older version is deleted on write — nothing reads
+/// it any more. [`NFT_IMAGE_SVG`] stays a *known* name only so an archive written by that version
+/// still validates.
 pub const NFT_ICON_X64: &str = "x64.png";
 pub const NFT_ICON_X250: &str = "x250.png";
 pub const NFT_IMAGE_SVG: &str = "image.svg";
@@ -343,7 +344,8 @@ pub fn is_allowed_token_icon_rel(rel: &Path) -> bool {
    is_chain_id(&parts[0]) && is_token_address_dir(&parts[1]) && is_icon_file(&parts[2])
 }
 
-/// NFT images live at `nft_icons/{chain}/{collection}/{tokenId}/{x64,x250}.png`.
+/// NFT images live at `nft_icons/{chain}/{collection}/{tokenId}/{x64,x250}.png`, beside the
+/// `source_uri` sidecar that records the metadata URI they were read from.
 ///
 /// One directory per token id because the id is a `uint256`, not a fixed-size value. The id is
 /// stored in **decimal** and leading zeros are rejected, so `1` and `01` cannot become two
@@ -447,7 +449,7 @@ fn is_nft_token_id_dir(s: &str) -> bool {
 }
 
 fn is_nft_icon_file(name: &str) -> bool {
-   name == NFT_ICON_X64 || name == NFT_ICON_X250 || name == NFT_IMAGE_SVG
+   name == NFT_ICON_X64 || name == NFT_ICON_X250 || name == NFT_IMAGE_SVG || name == NFT_ICON_SOURCE
 }
 
 #[cfg(test)]
@@ -513,7 +515,11 @@ mod tests {
       assert!(good(&format!("1/{bayc}/1/x250.png")));
       assert!(
          good(&format!("1/{bayc}/1/image.svg")),
-         "vector art is stored too"
+         "a vector file from an older version is still a known path"
+      );
+      assert!(
+         good(&format!("1/{bayc}/1/{NFT_ICON_SOURCE}")),
+         "the metadata-URI sidecar is part of the token directory"
       );
       assert!(
          good(&format!("137/{bayc}/0/x64.png")),

@@ -64,9 +64,12 @@ pub const INVALID_INTERFACE_ID: FixedBytes<4> = fixed_bytes!("ffffffff");
 /// One `supportsInterface` call.
 ///
 /// A **revert** reads as `false`: a contract that does not implement ERC-165 reverts here (or answers
-/// `false`), and either way it does not support the interface. A transport failure is *not* an answer
-/// and stays an error — the same distinction [`crate::nft::verify_ownership`] draws, and for the same
-/// reason: an RPC outage must never be reported to the user as "this is not an NFT".
+/// `false`), and either way it does not support the interface. An address with **no code** answers `0x`
+/// instead of reverting, which alloy reports as [`alloy_contract::Error::ZeroData`] — also `false`, and
+/// for the same reason: it does not implement the interface, and "this is not an NFT contract" is the
+/// answer, not a failure. A transport failure is *not* an answer and stays an error — the same
+/// distinction [`crate::nft::verify_ownership`] draws, and for the same reason: an RPC outage must never
+/// be reported to the user as "this is not an NFT".
 pub async fn supports_interface<P, N>(
    client: P,
    token: Address,
@@ -80,6 +83,7 @@ where
    match contract.supportsInterface(interface_id).call().await {
       Ok(supported) => Ok(supported),
       Err(err) if err.as_revert_data().is_some() => Ok(false),
+      Err(alloy_contract::Error::ZeroData(..)) => Ok(false),
       Err(err) => Err(err.into()),
    }
 }
