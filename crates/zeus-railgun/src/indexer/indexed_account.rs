@@ -304,6 +304,27 @@ impl IndexedAccount {
          Ok(n) => n,
       };
 
+      // The event carries the leaf the chain actually inserted, and reading the ciphertext only proves *we*
+      // can read it: the note is a reconstruction from the event's preimage — `poseidon(npk, asset, value)` —
+      // so the two disagree wherever that reconstruction narrows or re-encodes, `value` being narrowed to
+      // u128 and the asset rebuilt from the event's `TokenData`. Same stakes as the transact path: a note the
+      // tree cannot witness is shown as a balance, never provable, never spendable, and never revisited,
+      // because `knows_note` short-circuits every later pass. So it is dropped rather than stored.
+      //
+      // Shields parsed from an RPC log carry no commitment at all (`parse_shield`: the log event holds the
+      // preimage, not the leaf), and those have nothing to be checked against.
+      if let Some(expected) = event.hash {
+         let commitment: U256 = note.hash().into();
+         let expected: U256 = expected.into();
+         if commitment != expected {
+            warn!(
+               "Dropped Shield note at tree {}, leaf {}: commitment {} does not match the event's {}",
+               note.tree_number, note.leaf_index, commitment, expected
+            );
+            return Ok(());
+         }
+      }
+
       if self.knows_note(note.tree_number, note.leaf_index) {
          return Ok(());
       }
@@ -564,6 +585,7 @@ mod tests {
    use crate::{
       account::signer::RailgunSigner,
       caip::AssetId,
+      merkle_tree::UtxoLeafHash,
       note::{encrypt::encrypt_shield, transfer::TransferNote},
    };
 
@@ -637,6 +659,65 @@ mod tests {
 
       let stored: U256 = notes[0].hash().into();
       assert_eq!(stored, event.hash);
+   }
+
+   /// A shield whose note does not reproduce its event's commitment is skipped, not stored.
+   ///
+   /// The note is a reconstruction from the event's preimage, `poseidon(npk, asset, value)`, so this is the
+   /// transact path's check applied where the source hands the commitment over — the subsquid shield
+   /// commitment carries it (`hash: Some(value.hash)`), a shield parsed from an RPC log cannot.
+   #[test]
+   fn a_shield_note_that_does_not_reproduce_its_commitment_is_not_stored() {
+      let seed: [u8; 64] = random();
+      let sec_array = SecureArray::from_slice(&seed).unwrap();
+      let recipient = RailgunSigner::from_seed(&sec_array, 0, 1).unwrap();
+
+      let asset = AssetId::erc20(address!(
+         "0xDEADDEADDEADDEADDEADDEADDEADDEADDEADDEAD"
+      ));
+      let value: u128 = 100;
+      let rng = &mut rand::rng();
+      let shield = encrypt_shield(recipient.address().clone(), asset, value, rng).unwrap();
+
+      let mut event = syncer::Shield {
+         tree_number: 1,
+         leaf_index: 0,
+         npk: shield.preimage.npk.into(),
+         token: shield.preimage.token.try_into().unwrap(),
+         value: U256::from(shield.preimage.value),
+         ciphertext: shield.ciphertext.clone().into(),
+         shield_key: *shield.ciphertext.shieldKey,
+         hash: None,
+         timestamp: 0,
+         tx_hash: B256::ZERO,
+      };
+
+      let account = || IndexedAccount {
+         signer: recipient.clone(),
+         inner: Default::default(),
+         dirty: false,
+      };
+
+      // What the leaf really holds: the commitment a stored note hashes to.
+      let mut reference = account();
+      reference.handle_shield_event(&event, 10).unwrap();
+      let expected = reference.unspent()[0].hash();
+
+      // An event the note does not agree with is skipped rather than stored as a note no tree can witness.
+      event.hash = Some(UtxoLeafHash::from(U256::from(0xdead_beefu64)));
+      let mut account = account();
+      account.handle_shield_event(&event, 10).unwrap();
+      assert!(
+         account.unspent().is_empty(),
+         "a note whose commitment does not match its event must not be stored"
+      );
+
+      // And the commitment it does reproduce is stored.
+      event.hash = Some(expected);
+      account.handle_shield_event(&event, 10).unwrap();
+      let notes = account.unspent();
+      assert_eq!(notes.len(), 1);
+      assert_eq!(notes[0].hash(), expected);
    }
 
    #[test]
