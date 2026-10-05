@@ -615,6 +615,11 @@ impl AccountPanel {
                   if gui.send_crypto.is_open() {
                      gui.send_crypto.default_currency(privacy_mode, chain_id);
                   }
+
+                  // The shield view holds a wallet's asset in the same way, and is reset the way a chain
+                  // switch resets it: unconditionally, so a token or NFT picked for the previous wallet is
+                  // gone before the view is next opened rather than only when it happens to be open now.
+                  gui.shield_ui.default_currency(chain_id);
                });
             });
          }
