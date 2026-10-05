@@ -240,15 +240,6 @@ pub enum RemoteArtifactLoaderError {
    Pin(#[from] ArtifactPinError),
 }
 
-impl Default for RemoteArtifactLoader {
-   fn default() -> Self {
-      Self::new(
-         "https://github.com/greekfetacheese/privacy-protocol-artifacts/raw/refs/heads/main/artifacts",
-         None,
-      )
-   }
-}
-
 impl RemoteArtifactLoader {
    pub fn new(base_url: &str, cache_dir: Option<PathBuf>) -> Self {
       if let Some(ref dir) = cache_dir {

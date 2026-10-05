@@ -504,21 +504,45 @@ impl RecoverHDWallet {
                   ui.set_width(content_width);
                   ui.spacing_mut().item_spacing.y = theme.spacing.md;
 
-                  let paragraphs = [
-                     "Zeus can use Railgun to shield your assets and keep balances private on Ethereum.",
-                     "Enabling it will sync private notes in the background. You can change this later in Settings/Railgun.",
-                     "Private transactions need proving circuits. Allow Zeus to download them when they are not already available.",
-                     "This is optional. Zeus already has a small set of circuits for the necessary operations.",
-                  ];
-                  for paragraph in paragraphs {
-                     let text = RichText::new(paragraph).size(theme.typography.large);
+                  let large = theme.typography.large;
+                  let paragraph = |ui: &mut Ui, text: &str| {
                      ui.add(
-                        Label::new(text, None)
+                        Label::new(RichText::new(text).size(large), None)
                            .wrap()
                            .fill_width(true)
                            .interactive(false),
                      );
-                  }
+                  };
+
+                  paragraph(
+                     ui,
+                     "Zeus can use Railgun to shield your assets and keep balances private on Ethereum.",
+                  );
+                  paragraph(
+                     ui,
+                     "Enabling it will sync private notes in the background. You can change this later in Settings/Railgun.",
+                  );
+
+                  // Circuit download source, with the host called out.
+                  let text1 = RichText::new(
+                     "Private transactions need proving circuits. Allow Zeus to download them from ",
+                  )
+                  .size(large);
+                  let text2 = RichText::new("Github.com ").size(large).underline();
+                  let text3 =
+                     RichText::new("when they are not already bundled with Zeus.").size(large);
+
+                  ui.add(
+                     Label::sections(vec![text1, text2, text3], None)
+                        .wrap()
+                        .fill_width(true)
+                        .interactive(false),
+                  );
+
+                  paragraph(
+                     ui,
+                     "This is optional. Zeus already has a small set of circuits for the necessary operations.",
+                  );
 
                   let enable_text = RichText::new("Enable Railgun").size(theme.typography.large);
                   ui.checkbox(&mut self.enable_railgun, enable_text);

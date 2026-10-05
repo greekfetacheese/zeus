@@ -1,5 +1,6 @@
 //! UI that allows the user to change the railgun settings.
 
+use crate::core::urls::{UrlPurpose, purpose_tip};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use crate::{
@@ -13,10 +14,20 @@ use elegance::{Badge, BadgeTone, Slider};
 use zeus_eth::types::SUPPORTED_CHAINS;
 use zeus_railgun::indexer::syncer::rpc::DEFAULT_BLOCK_RANGE;
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 const BLOCK_RANGE_TIP: &str =
    "If the sync fails often due to invalid root you may need to decrease the block range";
+
+const CIRCUIT_DOWNLOAD_TIP: &str =
+   "Allow Zeus to download Railgun proving circuits from the GitHub artifact host";
+
+/// Hover tip for the circuit-download opt-in: the sentence plus the artifact host
+/// it contacts. Built once — `on_hover_text` takes its value every frame.
+fn circuit_download_tip() -> &'static str {
+   static TIP: OnceLock<String> = OnceLock::new();
+   TIP.get_or_init(|| purpose_tip(CIRCUIT_DOWNLOAD_TIP, UrlPurpose::Circuits))
+}
 
 pub struct RailgunSettings {
    chain_select: ChainSelect,
@@ -81,13 +92,18 @@ impl RailgunSettings {
          self.config.set_enabled(chain, enabled);
       }
 
+      let q_mark = RichText::new("?").size(theme.typography.normal);
+
       let mut allow_download = self.config.allow_circuit_download();
       let download_text = RichText::new("Allow Circuit Download").size(theme.typography.normal);
-      if ui.checkbox(&mut allow_download, download_text).changed() {
-         self.config.set_allow_circuit_download(allow_download);
-      }
+      let circuit_tip = Badge::new(q_mark.clone(), BadgeTone::Info);
+      ui.horizontal(|ui| {
+         if ui.checkbox(&mut allow_download, download_text).changed() {
+            self.config.set_allow_circuit_download(allow_download);
+         }
+         ui.add(circuit_tip).on_hover_text(circuit_download_tip());
+      });
 
-      let q_mark = RichText::new("?").size(theme.typography.normal);
       let info_tip = Badge::new(q_mark, BadgeTone::Info);
 
       ui.allocate_ui(slider_size, |ui| {

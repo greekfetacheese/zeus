@@ -1766,7 +1766,8 @@ mod tests {
       assert_eq!(inputs.commitments_out.len(), 1);
 
       if let Some(circuit) = try_01x01_circuit() {
-         let prover = Groth16Prover::new(None).with_embedded_circuits([circuit]);
+         let prover = Groth16Prover::new("https://example.invalid/artifacts", None)
+            .with_embedded_circuits([circuit]);
          let mut rng = ChaCha12Rng::from_os_rng();
          let proved = TransactionBuilder::new()
             .unshield(

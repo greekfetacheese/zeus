@@ -1,4 +1,5 @@
 use crate::core::ctx::railgun_dir;
+use crate::core::urls::ZeusUrl;
 use crate::core::{WalletPortfolio, ZeusCtx, types::BaseFee};
 use crate::utils::{RT, malloc_trim, self_update};
 use anyhow::anyhow;
@@ -691,7 +692,7 @@ pub async fn prefetch_railgun_circuits_if_allowed(ctx: &ZeusCtx) {
 
 async fn prefetch_railgun_circuits() -> Result<PrefetchReport, anyhow::Error> {
    let dir = railgun_dir()?;
-   let prover = Groth16Prover::new(Some(dir))
+   let prover = Groth16Prover::new(ZeusUrl::RailgunCircuitArtifacts.base(), Some(dir))
       .with_embedded_circuits(crate::embedded::railgun::embedded_circuits())
       .with_allow_download(true);
    Ok(prover.prefetch_artifacts().await?)

@@ -37,8 +37,11 @@ pub enum Groth16ProverError {
 }
 
 impl Groth16Prover {
-   pub fn new(cache_dir: Option<PathBuf>) -> Self {
-      let artifact_loader = RemoteArtifactLoader::default().with_cache_dir(cache_dir);
+   /// `base_url` is the artifact host root (its `.../artifacts` prefix). The host
+   /// app supplies it — Zeus passes `ZeusUrl::RailgunCircuitArtifacts` — so the
+   /// crate carries no default host of its own.
+   pub fn new(base_url: &str, cache_dir: Option<PathBuf>) -> Self {
+      let artifact_loader = RemoteArtifactLoader::new(base_url, cache_dir);
       Groth16Prover { artifact_loader }
    }
 

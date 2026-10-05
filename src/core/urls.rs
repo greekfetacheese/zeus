@@ -60,6 +60,8 @@ zeus_urls! {
    AcrossSuggestedFees => "https://app.across.to/api/suggested-fees",
    // Public Pimlico bundler base (`…/{chain}/rpc`).
    PimlicoBundler => "https://public.pimlico.io/v2",
+   // Railgun proving-circuit artifacts (GitHub raw).
+   RailgunCircuitArtifacts => "https://github.com/greekfetacheese/privacy-protocol-artifacts/raw/refs/heads/main/artifacts",
    // Zeus releases, queried by the self-updater.
    ZeusReleases => "https://github.com/greekfetacheese/zeus",
 }
@@ -95,6 +97,8 @@ pub enum UrlPurpose {
    Bridge,
    /// The Pimlico bundler used by Railgun operations.
    Railgun,
+   /// Railgun proving-circuit artifacts (`Allow Circuit Download`).
+   Circuits,
 }
 
 impl ZeusUrl {
@@ -111,6 +115,7 @@ impl ZeusUrl {
          Self::ZeusReleases => UrlPurpose::Updates,
          Self::AcrossSuggestedFees => UrlPurpose::Bridge,
          Self::PimlicoBundler => UrlPurpose::Railgun,
+         Self::RailgunCircuitArtifacts => UrlPurpose::Circuits,
       }
    }
 
@@ -128,6 +133,7 @@ impl ZeusUrl {
          Self::ClearSigningRegistry => "Clear-signing descriptors - ERC-7730 registry",
          Self::AcrossSuggestedFees => "Bridge fees - Across",
          Self::PimlicoBundler => "Railgun bundler - Pimlico",
+         Self::RailgunCircuitArtifacts => "Railgun circuits - GitHub artifacts",
          Self::ZeusReleases => "App updates - GitHub releases",
       }
    }
@@ -226,6 +232,13 @@ mod tests {
       assert!(
          !tip.contains("sourcify.dev"),
          "other purposes stay out"
+      );
+
+      let circuits = purpose_tip("intro", UrlPurpose::Circuits);
+      assert!(circuits.contains("privacy-protocol-artifacts"));
+      assert!(
+         !circuits.contains("pimlico"),
+         "the bundler is a different purpose"
       );
    }
 }
