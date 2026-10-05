@@ -514,7 +514,7 @@ mod tests {
             OPERATOR,
          )
          .expect("the per-token approval");
-      assert_eq!(token.standard, NftStandard::Erc721);
+      assert_eq!(token.standard, Some(NftStandard::Erc721));
       assert_eq!(token.token_id, Some(U256::from(7)));
       assert_eq!(token.operator, OPERATOR);
 
@@ -533,7 +533,7 @@ mod tests {
             OPERATOR,
          )
          .expect("the ERC-5216 allowance");
-      assert_eq!(erc5216.standard, NftStandard::Erc1155);
+      assert_eq!(erc5216.standard, Some(NftStandard::Erc1155));
       assert_eq!(erc5216.amount, Some(U256::from(5)));
 
       assert_eq!(manager.get_all_active_nft_approvals().len(), 3);

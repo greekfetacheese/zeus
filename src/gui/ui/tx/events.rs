@@ -512,7 +512,15 @@ fn nft_approve_event_ui(
       ui.label(RichText::new("Standard").size(theme.typography.large));
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         ui.label(RichText::new(params.standard.to_string()).size(theme.typography.large));
+         ui.label(
+            RichText::new(match params.standard {
+               Some(standard) => standard.to_string(),
+               // The log carries no standard and the probe could not be made (`standard_of`): the row
+               // says it was not read rather than naming a guess.
+               None => "Unknown".to_string(),
+            })
+            .size(theme.typography.large),
+         );
       });
    });
 

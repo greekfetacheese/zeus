@@ -25,7 +25,14 @@ use zeus_eth::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NftApproveParams {
    pub chain: u64,
-   pub standard: NftStandard,
+   /// Which standard emitted the log, when it could be read.
+   ///
+   /// `None` is an answer here, not a missing one: `ApprovalForAll` carries no standard, ERC-721 and
+   /// ERC-1155 emit it byte-identically, and only the contract's own ERC-165 answer can tell them
+   /// apart — so a probe that could not be made (no node for the chain, or a transport failure)
+   /// leaves the standard **unobserved**. Naming one anyway would be a guess the event does not
+   /// support, and once rendered it reads as something read off the chain.
+   pub standard: Option<NftStandard>,
    /// The collection that emitted the log — an NFT has no other contract involved.
    pub collection: Address,
    /// `None` for a collection-wide `ApprovalForAll`, which has no id: a zero id would read as a
@@ -67,7 +74,7 @@ impl NftApproveParams {
    /// `ApprovalForAll` is the only other ERC-721 approval and it has no token id, so an ERC-721
    /// approval that names a token *is* this shape.
    pub fn is_erc721_per_token(&self) -> bool {
-      self.standard.is_erc721() && self.token_id.is_some()
+      self.standard.is_some_and(|standard| standard.is_erc721()) && self.token_id.is_some()
    }
 
    pub fn name(&self) -> &str {
@@ -119,7 +126,7 @@ impl NftApproveParams {
 
       Some(Self {
          chain,
-         standard: NftStandard::Erc721,
+         standard: Some(NftStandard::Erc721),
          collection: log.address,
          token_id: Some(decoded.tokenId),
          owner: decoded.owner,
@@ -137,7 +144,7 @@ impl NftApproveParams {
 
       Some(Self {
          chain,
-         standard: NftStandard::Erc1155,
+         standard: Some(NftStandard::Erc1155),
          collection: log.address,
          token_id: Some(decoded.id),
          owner: decoded.account,
@@ -155,7 +162,7 @@ impl NftApproveParams {
 
       Some(Self {
          chain,
-         standard: NftStandard::Erc721,
+         standard: Some(NftStandard::Erc721),
          collection: log.address,
          token_id: None,
          owner: decoded.owner,
@@ -168,27 +175,26 @@ impl NftApproveParams {
    /// Which standard emitted an `ApprovalForAll`: the cached collection first (no call), then the
    /// contract's own ERC-165 answer.
    ///
-   /// A contract that answers neither leaves the label as ERC-721 — that costs a label, not the
-   /// event, and losing an approval from the history would cost the user the one thing approvals
-   /// are worth showing for.
-   async fn standard_of(ctx: ZeusCtx, chain: u64, collection: Address) -> NftStandard {
+   /// `None` when the contract could not be asked at all — no client for the chain, or a transport
+   /// failure. The event is byte-identical for both standards, so an unanswered probe is *unobserved*
+   /// rather than ERC-721: the row says so, and keeps the event either way.
+   async fn standard_of(ctx: ZeusCtx, chain: u64, collection: Address) -> Option<NftStandard> {
       if let Some(collection) = ctx.read(|ctx| ctx.nft_db.get_collection(chain, collection)) {
-         return collection.standard;
+         return Some(collection.standard);
       }
 
       let Ok(client) = ctx.get_client(chain).await else {
-         return NftStandard::Erc721;
+         return None;
       };
 
       match erc165::probe(client, collection).await {
-         Ok(support) if support.is_erc1155() => NftStandard::Erc1155,
-         Ok(_) => NftStandard::Erc721,
-         // The node could not be asked. Falling back to the standard this function already falls back
-         // to (`Erc721`) keeps the approval visible, and the warning is what says the answer was a
-         // guess rather than an observation.
+         Ok(support) if support.is_erc1155() => Some(NftStandard::Erc1155),
+         // The contract answered and it is not ERC-1155: for this event the candidates are ERC-721 and
+         // ERC-1155, so this is an answer rather than a guess.
+         Ok(_) => Some(NftStandard::Erc721),
          Err(err) => {
             tracing::warn!("Could not read the standard of {collection}: {err}");
-            NftStandard::Erc721
+            None
          }
       }
    }
@@ -259,7 +265,7 @@ mod tests {
       let params =
          NftApproveParams::from_erc721_approval(1, &erc721_approval_log(OPERATOR, 7)).unwrap();
 
-      assert_eq!(params.standard, NftStandard::Erc721);
+      assert_eq!(params.standard, Some(NftStandard::Erc721));
       assert_eq!(params.collection, collection());
       assert_eq!(params.token_id, Some(U256::from(7)));
       assert_eq!(
@@ -297,7 +303,7 @@ mod tests {
          NftApproveParams::from_erc1155_approval(1, &erc5216_approval_log(OPERATOR, 42, 5))
             .unwrap();
 
-      assert_eq!(params.standard, NftStandard::Erc1155);
+      assert_eq!(params.standard, Some(NftStandard::Erc1155));
       assert_eq!(params.token_id, Some(U256::from(42)));
       assert_eq!(params.amount, Some(U256::from(5)));
       assert_eq!(params.approved, None);

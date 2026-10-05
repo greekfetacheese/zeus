@@ -82,8 +82,11 @@ impl ApprovalKind {
          Self::Erc20(_) => "ERC-20",
          Self::Permit2(_) => "Permit2",
          Self::Nft(params) => match params.standard {
-            NftStandard::Erc721 => "ERC-721",
-            NftStandard::Erc1155 => "ERC-1155",
+            Some(NftStandard::Erc721) => "ERC-721",
+            Some(NftStandard::Erc1155) => "ERC-1155",
+            // `ApprovalForAll` carries no standard in the log and the probe could not be made: the Type
+            // column says what is known rather than naming one the event does not contain.
+            None => "NFT",
          },
       }
    }
@@ -1452,6 +1455,30 @@ mod tests {
          .encode_log_data(),
       };
       NftApproveParams::from_approval_for_all(1, &log).unwrap()
+   }
+
+   /// An unread standard does not become a named one.
+   ///
+   /// `ApprovalForAll` is byte-identical for ERC-721 and ERC-1155, so the standard comes from the
+   /// contract's own ERC-165 answer — and when that answer cannot be had, the Type column says what is
+   /// known rather than claiming one of the two.
+   #[test]
+   fn an_unread_standard_is_not_named_in_the_type_column() {
+      let mut params = approval_for_all(true);
+
+      params.standard = Some(NftStandard::Erc1155);
+      assert_eq!(
+         ApprovalKind::Nft(params.clone()).type_label(),
+         "ERC-1155",
+         "an observed standard is named"
+      );
+
+      params.standard = None;
+      assert_eq!(
+         ApprovalKind::Nft(params).type_label(),
+         "NFT",
+         "an unread standard must not read as a read one"
+      );
    }
 
    fn erc5216_allowance(amount: u64) -> NftApproveParams {

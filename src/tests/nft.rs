@@ -484,7 +484,7 @@ mod tests {
       assert!(events[0].is_nft_approval());
 
       let params = events[0].nft_approve_params();
-      assert_eq!(params.standard, NftStandard::Erc1155);
+      assert_eq!(params.standard, Some(NftStandard::Erc1155));
       assert_eq!(params.token_id, Some(U256::from(7)));
       assert_eq!(params.amount, Some(U256::from(5)));
       assert_eq!(
