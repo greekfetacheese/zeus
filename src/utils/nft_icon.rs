@@ -44,6 +44,15 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
 /// How many redirect hops one fetch follows before giving up (reqwest's own default).
 const MAX_REDIRECTS: usize = 10;
 
+/// Cap on a metadata URI *string*, before it is expanded or fetched.
+///
+/// The string is attacker-controlled — any contract the wallet reads can return a multi-megabyte
+/// `tokenURI` — and it is what a `data:` decode and an `{id}` expansion are sized from. Generous
+/// enough for any `data:` URI that decodes within [`MAX_BYTES`] (base64 is about three quarters of its
+/// input), and applied to the *raw* string in [`fetch_nft_icon`] as well as to the resolved one here,
+/// so a template cannot be multiplied before anything looks at it.
+const MAX_URI_LEN: usize = MAX_BYTES * 4;
+
 /// Cap on either edge of the source art handed to the raster decoder, and on what that decode may
 /// allocate.
 ///
@@ -84,17 +93,28 @@ const NFT_ART_FETCH_PER_LOAD: usize = 24;
 fn is_public_ip(ip: IpAddr) -> bool {
    match ip {
       IpAddr::V4(v4) => is_public_v4(v4),
-      IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
-         // `::ffff:127.0.0.1` is the same address wearing a different hat.
-         Some(v4) => is_public_v4(v4),
-         None => {
-            !(v6.is_loopback()
-               || v6.is_unspecified()
-               || v6.is_multicast()
-               || v6.is_unique_local()
-               || v6.is_unicast_link_local())
+      IpAddr::V6(v6) => {
+         // `::a.b.c.d` (IPv4-compatible) and `::ffff:a.b.c.d` (IPv4-mapped) are the same address in a
+         // different spelling. Only the mapped form was covered, so `[::127.0.0.1]` — and every private
+         // range spelled that way — read as public. Handled from the octets rather than with
+         // `to_ipv4_compatible`, which is deprecated; this also covers `::` and `::1`, whose low 32 bits
+         // are `0.0.0.0` and `0.0.0.1`, neither of which `is_public_v4` accepts.
+         let o = v6.octets();
+         if o[..12].iter().all(|b| *b == 0) {
+            return is_public_v4(Ipv4Addr::new(o[12], o[13], o[14], o[15]));
          }
-      },
+
+         match v6.to_ipv4_mapped() {
+            Some(v4) => is_public_v4(v4),
+            None => {
+               !(v6.is_loopback()
+                  || v6.is_unspecified()
+                  || v6.is_multicast()
+                  || v6.is_unique_local()
+                  || v6.is_unicast_link_local())
+            }
+         }
+      }
    }
 }
 
@@ -248,10 +268,8 @@ pub fn resolve_uri(uri: &str) -> Option<ResolvedUri> {
 
    // A `data:` URI is decoded here, before [`fetch_resolved`] can apply [`MAX_BYTES`] — and a base64
    // payload allocates about three quarters of its input, while percent-encoded text allocates less than
-   // it. So the *string* is bounded first: it is attacker-controlled (any contract the wallet reads can
-   // return a multi-megabyte `tokenURI`) and nothing else caps it. The bound is generous enough for any
-   // `data:` URI that decodes within `MAX_BYTES`.
-   const MAX_URI_LEN: usize = MAX_BYTES * 4;
+   // it. So the *string* is bounded first: it is attacker-controlled and nothing else caps it (see
+   // [`MAX_URI_LEN`]).
    if uri.len() > MAX_URI_LEN {
       return None;
    }
@@ -684,6 +702,13 @@ pub async fn fetch_nft_icon(
    metadata_uri: &str,
    token_id: U256,
 ) -> Result<Option<NftIconData>, anyhow::Error> {
+   // Bounded *before* the expansion below: `expand_id_placeholder` copies the whole string once per
+   // placeholder form (four at most) while the only other bound applies to its result, so without this
+   // the copy is what grows, not the thing that is checked.
+   if metadata_uri.len() > MAX_URI_LEN {
+      return Ok(None);
+   }
+
    // The URI may still be a raw ERC-1155 template carrying `{id}`; expanding an already-expanded
    // URI is a no-op, so this is safe whichever layer expanded it.
    let uri = expand_id_placeholder(metadata_uri, token_id);
@@ -1003,13 +1028,17 @@ mod tests {
          assert!(!fetchable(host), "{host} must not be fetchable");
       }
 
-      // The v6 spellings, including one that is really v4.
+      // The v6 spellings, including the ones that are really v4 — both the mapped form and the
+      // IPv4-compatible one, which is the same address written with a zero prefix.
       for host in [
          "[::1]",
          "[::]",
          "[fd00::1]",
          "[fe80::1]",
          "[::ffff:127.0.0.1]",
+         "[::127.0.0.1]",
+         "[::10.0.0.5]",
+         "[::169.254.169.254]",
       ] {
          assert!(!fetchable(host), "{host} must not be fetchable");
       }
