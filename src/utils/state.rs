@@ -659,6 +659,9 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
 /// Prefetch pack circuits (`railgun/01x01` ..= `05x05`) into the Zeus
 /// railgun data directory. Skips circuits already complete on disk.
 /// No-op unless Railgun is enabled and circuit download is allowed.
+///
+/// The scan hashes the whole artifact pack (hundreds of MB) and a first run can
+/// download it, so the work runs on the blocking pool — never on an async worker.
 pub async fn prefetch_railgun_circuits_if_allowed(ctx: &ZeusCtx) {
    if !ctx
       .read(|ctx| ctx.railgun_config.any_enabled() && ctx.railgun_config.allow_circuit_download())
@@ -669,8 +672,14 @@ pub async fn prefetch_railgun_circuits_if_allowed(ctx: &ZeusCtx) {
    ctx.write(|ctx| {
       ctx.railgun_status.set_circuits_download_in_progress(true);
    });
-   match prefetch_railgun_circuits().await {
-      Ok(report) => {
+
+   // `prefetch_railgun_circuits` stays async because a first run downloads over the
+   // async HTTP client; `block_on` on a dedicated blocking thread keeps that off the
+   // async workers (same idiom as the Railgun merge flow).
+   let result = RT.spawn_blocking(|| RT.block_on(prefetch_railgun_circuits())).await;
+
+   match result {
+      Ok(Ok(report)) => {
          info!(
             "Railgun circuit prefetch: {} ready ({} embedded, {} disk, {} downloaded), {} failed",
             report.ok_count(),
@@ -683,8 +692,13 @@ pub async fn prefetch_railgun_circuits_if_allowed(ctx: &ZeusCtx) {
             warn!("Circuit prefetch failed for {}: {}", name, err);
          }
       }
-      Err(e) => error!("Railgun circuit prefetch error: {:?}", e),
+      Ok(Err(e)) => error!("Railgun circuit prefetch error: {:?}", e),
+      Err(join_error) => error!(
+         "Railgun circuit prefetch task failed: {:?}",
+         join_error
+      ),
    }
+
    ctx.write(|ctx| {
       ctx.railgun_status.set_circuits_download_in_progress(false);
    });

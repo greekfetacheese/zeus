@@ -367,7 +367,15 @@ async fn load_suggestion(
    ctx.sync_railgun(chain_id, false).await?;
 
    let mut provider = ctx.get_railgun_provider(chain_id, false).await?;
-   let max_inputs = provider.max_merge_inputs();
+
+   // The availability check reads and hashes the whole artifact pack from disk, so run it
+   // on the blocking pool — the async worker driving this task must not stall on it.
+   let prover = provider.prover().clone();
+   let max_inputs = RT
+      .spawn_blocking(move || prover.max_merge_inputs())
+      .await
+      .map_err(|e| anyhow::anyhow!("Railgun circuit availability scan failed: {e}"))?;
+
    let notes = provider.notes(address).await;
 
    let candidates: Vec<MergeCandidate> = notes
