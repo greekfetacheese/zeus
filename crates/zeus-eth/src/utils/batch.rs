@@ -529,7 +529,7 @@ pub struct Erc721Lookup {
 /// Sized so an aggregate stays a small fraction of a block: a few hundred sub-calls at a few thousand
 /// gas each is a couple of million, comfortably inside the `eth_call` caps nodes advertise, where
 /// thousands in one call is where aggregates start reverting whole.
-const MULTICALL_CHUNK: usize = 50;
+const MULTICALL_CHUNK: usize = 20;
 
 /// Batched ERC-721 `ownerOf(id)` in Multicall3 aggregates, owners only.
 ///
