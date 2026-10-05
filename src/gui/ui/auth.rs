@@ -647,6 +647,24 @@ impl RecoverHDWallet {
                      .interactive(false);
                   ui.add(label);
 
+                  // Contract-supplied hosts are the one destination class the list
+                  // below cannot enumerate, so they are disclosed separately.
+                  let label = Label::new(
+                     RichText::new(
+                        "Some NFT collections host their own metadata and art. When image \
+                         downloads are allowed, Zeus also follows the address a collection's \
+                         contract returns for a token. That host is chosen by the collection, so \
+                         it will not appear in the list below. Zeus only uses https, refuses \
+                         local or private addresses, and limits the size of what it downloads.",
+                     )
+                     .size(large),
+                     None,
+                  )
+                  .wrap()
+                  .fill_width(true)
+                  .interactive(false);
+                  ui.add(label);
+
                   // Every endpoint Zeus may contact, in one scrollable place —
                   // the list grows with each service the wallet learns to talk to.
                   ui.add(

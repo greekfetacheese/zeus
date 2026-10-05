@@ -14,6 +14,13 @@
 //! and the endpoints owned by workspace crates — `zeus-railgun`'s Subsquid /
 //! POI / circuit-artifact hosts and `zeus-tokens`' Trust Wallet repo stay with
 //! their crate, which is compiled without the GUI.
+//!
+//! Also out of scope, because the host is chosen by chain data rather than by
+//! Zeus: an NFT's `tokenURI` and the image URL inside the metadata it returns
+//! ([`crate::utils::nft_icon`]), and ENS record URLs — never fetched, since
+//! resolution refuses CCIP-read (`zeus_eth::utils::ens`). Those hosts cannot be
+//! listed, so the opt-ins that can reach them carry a caveat instead
+//! ([`UrlPurpose::trailing_note`]).
 
 use zeus_eth::alloy_primitives::Address;
 
@@ -139,6 +146,27 @@ impl ZeusUrl {
    }
 }
 
+impl UrlPurpose {
+   /// A caveat appended after an opt-in's fixed endpoint list.
+   ///
+   /// [`UrlPurpose::AssetImages`] reaches hosts its list cannot name: an NFT's
+   /// `tokenURI` and the image URL inside the metadata it returns are chosen by
+   /// the collection's contract (see [`crate::utils::nft_icon`]). Every other
+   /// purpose contacts only the endpoints listed for it.
+   pub const fn trailing_note(self) -> Option<&'static str> {
+      match self {
+         Self::AssetImages => Some(
+            "NFT collections may host their own metadata/images; those hosts come from the \
+             collection's contract and are not listed here. Zeus only uses https and refuses \
+             local or private addresses.",
+         ),
+         Self::ContractNames | Self::Updates | Self::Bridge | Self::Railgun | Self::Circuits => {
+            None
+         }
+      }
+   }
+}
+
 /// `intro` followed by one line per endpoint `purpose` owns — for a settings
 /// hover, so the tooltip names the hosts an opt-in actually contacts.
 pub fn purpose_tip(intro: &str, purpose: UrlPurpose) -> String {
@@ -151,6 +179,12 @@ pub fn purpose_tip(intro: &str, purpose: UrlPurpose) -> String {
       tip.push_str(": ");
       tip.push_str(url.base());
    }
+
+   if let Some(note) = purpose.trailing_note() {
+      tip.push_str("\n\n");
+      tip.push_str(note);
+   }
+
    tip
 }
 
@@ -234,11 +268,20 @@ mod tests {
          "other purposes stay out"
       );
 
+      assert!(
+         tip.contains("not listed here"),
+         "the asset-image opt-in carries the unlistable-host caveat"
+      );
+
       let circuits = purpose_tip("intro", UrlPurpose::Circuits);
       assert!(circuits.contains("privacy-protocol-artifacts"));
       assert!(
          !circuits.contains("pimlico"),
          "the bundler is a different purpose"
+      );
+      assert!(
+         !circuits.contains("not listed here"),
+         "only the asset-image opt-in has a trailing caveat"
       );
    }
 }

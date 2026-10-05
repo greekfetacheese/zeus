@@ -8,7 +8,7 @@ use egui_elements::{Button, Theme};
 use elegance::{Badge, BadgeTone};
 use std::sync::OnceLock;
 
-const ICONS_TIP: &str = "Allow Zeus to download token icons from tokens.smold.app";
+const ICONS_TIP: &str = "Allow Zeus to download token icons and NFT images";
 const SOURCIFY_TIP: &str = "Allow Zeus to look up verified contract names on sourcify.dev";
 const UPDATES_TIP: &str = "Allow Zeus to check GitHub for a newer Zeus release";
 

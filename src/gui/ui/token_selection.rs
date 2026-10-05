@@ -1002,7 +1002,28 @@ impl TokenSelectionWindow {
       let text = RichText::new("Add Collection").size(theme.typography.large);
       let button = Button::new(text).min_size(size).visuals(button_visuals);
 
-      if !ui.add(button).clicked() {
+      let clicked = ui.add(button).clicked();
+
+      // Adding a collection reads the metadata address its contract returns — a host
+      // the collection chooses, the same caveat as the asset-image opt-in.
+      ui.add_space(6.0);
+      ui.add(
+         Label::new(
+            RichText::new(
+               "Reading a collection fetches the metadata address its contract returns, which is \
+                the collection's own host. Zeus only uses https and refuses local or private \
+                addresses.",
+            )
+            .size(theme.typography.small)
+            .color(theme.colors.text_muted),
+            None,
+         )
+         .wrap()
+         .fill_width(true)
+         .interactive(false),
+      );
+
+      if !clicked {
          return;
       }
 
