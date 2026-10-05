@@ -434,13 +434,23 @@ pub fn collect_approval_candidates(
       }
    }
 
-   if let Ok((spender, _amount)) = erc20::decode_approve_call(call_data) {
-      push_candidate(
-         &mut out,
-         ApprovalKind::Erc20,
-         interact_to,
-         spender,
-      );
+   // The mirror of the check in [`collect_nft_approval_candidates`]: `approve(address,uint256)` is
+   // byte-identical between ERC-20 and ERC-721, so if this tx emitted the four-topic `Approval` shape
+   // for `interact_to` the call approved a single NFT. Probing `allowance` on that collection can only
+   // revert, or — for a contract that happens to answer — read as a phantom allowance row.
+   let erc721_approval_fired = logs
+      .iter()
+      .any(|log| log.address == interact_to && erc721::decode_approval_log(log).is_ok());
+
+   if !erc721_approval_fired {
+      if let Ok((spender, _amount)) = erc20::decode_approve_call(call_data) {
+         push_candidate(
+            &mut out,
+            ApprovalKind::Erc20,
+            interact_to,
+            spender,
+         );
+      }
    }
 
    for log in logs {
@@ -1197,6 +1207,38 @@ mod tests {
       // NFT approval, the only reading that can answer.
       assert_eq!(
          collect_nft_approval_candidates(owner(), collection(), &approve, &[], []).len(),
+         1
+      );
+   }
+
+   /// The other direction of the same tiebreak: a per-token ERC-721 `approve` must not also be
+   /// collected as an ERC-20 allowance. The calldatas are byte-identical, so the four-topic `Approval`
+   /// event is the only evidence that this call was about an NFT — the mirror of the check above, and
+   /// without it every ERC-721 per-token approve is probed with an `allowance` call that can only
+   /// revert (or, on a contract that answers anyway, read as a phantom allowance row).
+   #[test]
+   fn an_erc721_approve_call_is_not_an_erc20_allowance() {
+      let approve = erc721::encode_approve(spender(), U256::from(7));
+      let erc721_log = erc721_approval_log(collection(), owner(), spender());
+
+      let got = collect_approval_candidates(
+         owner(),
+         collection(),
+         &approve,
+         &[erc721_log],
+         [],
+         [],
+      );
+
+      assert!(
+         got.iter().all(|candidate| candidate.kind != ApprovalKind::Erc20),
+         "an NFT approval must not be probed as an allowance: {got:?}"
+      );
+
+      // With no event the calldata is all there is, and an ERC-20 allowance is the reading that
+      // answers — unchanged.
+      assert_eq!(
+         collect_approval_candidates(owner(), token(), &approve, &[], [], []).len(),
          1
       );
    }
