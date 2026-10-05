@@ -258,8 +258,8 @@ impl TokenSelectionWindow {
       // Always open on the ERC-20 list, so the existing flows see exactly what they saw before; a
       // caller that wants NFTs opts in with `set_mode`.
       self.mode = PickerMode::Fungible;
-      // Both the tracked tokens and the wallet's holdings can have moved since last time.
-      self.clear_processed_nfts();
+      // Both the tracked tokens and the wallet's holdings can have moved since last time;
+      // `process_currencies` reloads the first and drops the second.
       self.process_currencies(privacy_mode, chain_id, owner);
    }
 
@@ -305,8 +305,22 @@ impl TokenSelectionWindow {
       self.selected_nft.as_ref()
    }
 
-   pub fn process_currencies(&mut self, privacy_mode: bool, chain_id: u64, owner: Address) {
+   /// Start a reload of the picker's lists for `(privacy_mode, chain_id, owner)`.
+   ///
+   /// Drops the NFT list along with the fungible one: both are keyed on that same triple and
+   /// [`Self::load_nfts`] early-returns while `nfts_loaded`, so a context change that reloaded only the
+   /// fungibles would leave the NFT tab on the previous context's rows — and a row picked from there
+   /// seeds a send with a foreign-chain token.
+   ///
+   /// Split from [`Self::process_currencies`] because that one spawns through `RT` + `SHARED_GUI` and
+   /// cannot be driven from a test; this is the part that has to hold.
+   fn begin_asset_reload(&mut self) {
       self.loading = true;
+      self.clear_processed_nfts();
+   }
+
+   pub fn process_currencies(&mut self, privacy_mode: bool, chain_id: u64, owner: Address) {
+      self.begin_asset_reload();
 
       RT.spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
@@ -1944,6 +1958,42 @@ mod tests {
          symbol: symbol.to_string(),
          in_portfolio: false,
       }
+   }
+
+   /// A reload for a new asset context drops the NFT list with the fungible one, and cancels a fetch
+   /// still in flight. `load_nfts` only fetches while `nfts_loaded` is false, so a chain, wallet or
+   /// privacy-mode switch that reloaded just the fungibles would leave the NFT tab on the old
+   /// context's rows — and a row picked from there seeds a send with a foreign-chain token.
+   ///
+   /// Driven through `begin_asset_reload`, not `process_currencies`: the latter spawns through `RT` +
+   /// `SHARED_GUI`, which a unit test cannot run (the same reason `open` is not exercised here).
+   #[test]
+   fn an_asset_reload_drops_the_nft_list_and_cancels_its_fetch() {
+      let mut picker = TokenSelectionWindow::new();
+      picker.processed_nfts.push(row(1, "BoredApeYachtClub", "BAYC"));
+      picker.nfts_loaded = true;
+      picker.nfts_loading = true;
+      let generation = picker.nfts_generation;
+
+      picker.begin_asset_reload();
+
+      assert!(
+         picker.processed_nfts.is_empty(),
+         "rows fetched for the previous (chain, owner) must not survive the reload"
+      );
+      assert!(
+         !picker.nfts_loaded,
+         "the next frame has to refetch for the new context"
+      );
+      assert!(!picker.nfts_loading);
+      assert_ne!(
+         picker.nfts_generation, generation,
+         "a fetch already in flight belongs to the context just dropped"
+      );
+      assert!(
+         picker.loading,
+         "the fungible reload is marked in progress"
+      );
    }
 
    /// Search matches what the plan listed — token id, collection name, collection symbol — plus the
