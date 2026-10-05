@@ -178,20 +178,20 @@ pub fn truncate_symbol_or_name(string: &str, max_chars: usize) -> String {
 
 /// Shorten an address for display: six characters from each end, joined by an ellipsis.
 ///
-/// Anything too short to shorten comes back whole. The offsets are only safe once the length is known,
-/// which is what this guard is for — its sibling [`truncate_hash`] already had one, and without it any
-/// string shorter than the tail offset panicked. Addresses render as 42 ASCII characters, so byte
-/// offsets are the display rule.
+/// Anything too short to shorten comes back whole. The offsets are counted in *characters*, not
+/// bytes: the input is whatever the caller has — a decoded event value, a name — and a byte offset
+/// would split a multi-byte character and panic instead of shortening the label. Addresses render as
+/// 42 ASCII characters, where the two counts agree, so their output is unchanged.
 pub fn truncate_address(address: String) -> String {
-   if address.len() <= 12 {
+   let chars = address.chars().count();
+   if chars <= 12 {
       return address;
    }
 
-   format!(
-      "{}...{}",
-      &address[..6],
-      &address[address.len() - 6..]
-   )
+   let head: String = address.chars().take(6).collect();
+   let tail: String = address.chars().skip(chars - 6).collect();
+
+   format!("{head}...{tail}")
 }
 
 pub fn truncate_hash(hash: String) -> String {
@@ -377,5 +377,19 @@ mod tests {
          truncate_address(address.to_string()),
          "0xd8dA...A96045"
       );
+   }
+
+   /// The offsets are characters, not bytes.
+   ///
+   /// The input is whatever a caller has — a decoded event value, a name — so it is not guaranteed to
+   /// be ASCII, and a byte offset lands inside the emoji here (its bytes are 4..8). That took the
+   /// render path down with a panic instead of shortening the label.
+   #[test]
+   fn truncates_on_character_boundaries() {
+      let label = "abcd😀aaaaaaaa".to_string();
+      assert_eq!(label.len(), 16, "16 bytes");
+      assert_eq!(label.chars().count(), 13, "13 characters");
+
+      assert_eq!(truncate_address(label), "abcd😀a...aaaaaa");
    }
 }
