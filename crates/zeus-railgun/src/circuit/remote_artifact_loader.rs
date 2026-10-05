@@ -353,13 +353,16 @@ impl RemoteArtifactLoader {
       Ok(matrices.into())
    }
 
-   /// True when all required compressed files for `circuit_name` exist on disk
-   /// and pass basic validation (size / not-HTML). Does not hit the network and
-   /// does **not** hash — the pinned variant is [`Self::disk_circuit_ready`].
+   /// True when all required compressed files for `circuit_name` are present on disk and pass a cheap
+   /// basic validation (size / not-HTML). Does not hit the network and does **not** hash.
    ///
-   /// Reads only a 64-byte head plus the file length: proving keys are up to ~9 MB,
-   /// and buffering them (63 files per `available_circuits` probe) is what left
-   /// multi-MB buffers stuck in a worker's glibc arena.
+   /// This is a presence probe, not a readiness verdict: a cache poisoned with blobs that satisfy the
+   /// sniff reports `true` here. [`Self::disk_circuit_ready`] is the pinned check, and
+   /// [`Self::is_circuit_available`] — what callers should ask — goes through it.
+   ///
+   /// Reads only a 64-byte head plus the file length: proving keys are up to ~9 MB, and buffering them
+   /// (63 files per `available_circuits` probe) is what left multi-MB buffers stuck in a worker's glibc
+   /// arena.
    pub fn is_circuit_on_disk(&self, circuit_name: &str) -> bool {
       for file in TRANSACT_ARTIFACT_FILES {
          let Some(path) = self.artifact_path(circuit_name, file) else {
@@ -377,7 +380,11 @@ impl RemoteArtifactLoader {
    ///
    /// Fuses the old `is_circuit_on_disk` + `disk_circuit_pinned` pair that prefetch
    /// called back to back: two passes, each holding a multi-MB buffer.
-   fn disk_circuit_ready(&self, circuit_name: &str) -> bool {
+   ///
+   /// This is the pinned check ([`Self::is_circuit_on_disk`] is only a presence probe). Prefetch and the
+   /// availability verdict both go through here, so a cache poisoned past the sniff is never treated as
+   /// usable.
+   pub fn disk_circuit_ready(&self, circuit_name: &str) -> bool {
       for file in TRANSACT_ARTIFACT_FILES {
          let Some(path) = self.artifact_path(circuit_name, file) else {
             return false;
@@ -389,13 +396,18 @@ impl RemoteArtifactLoader {
       true
    }
 
-   /// True when the circuit can be loaded without the network
-   /// (binary embed and/or complete disk cache).
+   /// True when the circuit can be loaded without the network *and* every on-disk artifact matches its
+   /// SHA-256 pin (binary embeds are pinned by construction).
+   ///
+   /// The pin is the point: an on-disk set that fails it is deleted and re-fetched on load
+   /// (`load_compressed`), so counting such a circuit as available would size a merge around a circuit
+   /// that cannot be proved. Reads the on-disk pack to verify it, so call this off the frame.
    pub fn is_circuit_available(&self, circuit_name: &str) -> bool {
-      self.is_circuit_embedded(circuit_name) || self.is_circuit_on_disk(circuit_name)
+      self.is_circuit_embedded(circuit_name) || self.disk_circuit_ready(circuit_name)
    }
 
-   /// Offline-available circuits in the supported pack (embeds ∪ disk).
+   /// Offline-available circuits in the supported pack (embeds ∪ pin-verified disk). Verifies the
+   /// on-disk pins, so it reads the pack — call it off the frame.
    pub fn available_circuits(&self) -> AvailableCircuits {
       let mut names = BTreeSet::new();
       for name in all_transact_circuit_names() {
@@ -935,8 +947,13 @@ mod tests {
          "https://example.invalid/artifacts",
          Some(root.clone()),
       );
+      // The cheap presence probe is satisfied by the fake blobs…
       assert!(loader.is_circuit_on_disk("railgun/01x04"));
+      // …but the pin is not, so the circuit is not ready, not available, and does not raise
+      // `max_merge_inputs`: a poisoned cache must not be sized as usable.
       assert!(!loader.disk_circuit_ready("railgun/01x04"));
+      assert!(!loader.is_circuit_available("railgun/01x04"));
+      assert!(!loader.available_circuits().contains(1, 4));
       let _ = std::fs::remove_dir_all(&root);
    }
 

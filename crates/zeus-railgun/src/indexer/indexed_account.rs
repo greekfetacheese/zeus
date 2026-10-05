@@ -344,12 +344,18 @@ impl IndexedAccount {
       // leaf holds. The two disagree when the asset could not be resolved and a 32-byte hash was read as an
       // ERC-20 instead (`resolve_transact_asset`): the guess is part of `note_hash`, so storing it stores a
       // note the tree will never witness again — shown as a balance, never provable, never spendable, and
-      // never reprocessed, because `knows_note` short-circuits every later pass. Skipping costs the note
-      // until the registry knows the asset; storing it costs the note for good.
+      // never reprocessed, because `knows_note` short-circuits every later pass.
+      //
+      // So the note is dropped, and dropping it is final: the sync advances this account's watermark past
+      // the event (`UtxoIndexer::commit_window_progress`) and only ever offers a block *after* the
+      // watermark, so a later sync does not revisit it even once the registry knows the asset. Only a
+      // resync — which drops the indexer state and replays from the chain's first block — recovers the
+      // note. Skipping stays the lesser cost because the alternative stores a guess that corrupts it for
+      // good.
       let commitment: U256 = note.hash().into();
       if commitment != event.hash {
          warn!(
-            "Skipped Transact note at tree {}, leaf {}: commitment {} does not match the event's {}",
+            "Dropped Transact note at tree {}, leaf {}: commitment {} does not match the event's {} — unrecognized asset, only a resync retries it",
             note.tree_number, note.leaf_index, commitment, event.hash
          );
          return Ok(());
