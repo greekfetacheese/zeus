@@ -62,8 +62,9 @@ impl RedbDatabase {
       //
       // So the upgrade is a one-time resync rather than a silent no-op: the watermark goes back to the
       // chain's first block, and the stored UTXO trees go with it, because a tree rebuilt on top of the
-      // old one would hold every leaf twice. The next sync replays from `deployment_block`, rebuilding the
-      // trees and filling the registry on the way through.
+      // old one would hold every leaf twice. The frozen proofs go too — they are frozen against the old
+      // tree's root, and nothing downstream checks that root against the rebuilt tree. The next sync
+      // replays from `deployment_block`, rebuilding the trees and filling the registry on the way through.
       //
       // The accounts go too. The replay visits an account only for blocks *after* its own watermark
       // (`handle_transact`, gated by `block > account.synced_block()`), and a note already stored is never
@@ -80,6 +81,7 @@ impl RedbDatabase {
                old.trees.len()
             );
             self.drop_utxo_trees().await?;
+            self.drop_utxo_proofs().await?;
             self.drop_utxo_accounts().await?;
             Ok(UtxoIndexerState::default())
          }
@@ -94,6 +96,29 @@ impl RedbDatabase {
    /// missing, and a rebuild that appends to leaves already on disk doubles every one of them.
    async fn drop_utxo_trees(&self) -> Result<(), DatabaseError> {
       let keys = self.keys_with_prefix(b"utxo_tree:").await?;
+      if keys.is_empty() {
+         return Ok(());
+      }
+
+      let mut batch = WriteBatch::new();
+      for key in keys {
+         batch.delete(key);
+      }
+      self.apply_batch(batch, WriteDurability::Immediate).await
+   }
+
+   /// Delete every frozen inclusion proof.
+   ///
+   /// Part of the pre-registry upgrade ([`Self::get_utxo_indexer`]), beside [`Self::drop_utxo_trees`]: a
+   /// proof is frozen against the root its tree had when it was sealed, and the replay is in no way obliged
+   /// to reproduce that root — the very state being repaired is one where notes were derived against a
+   /// guessed asset. A proof that outlived its tree would be *trusted*: [`Self::get_utxo_note_proof`] is
+   /// checked against the note's own commitment and the proof's internal root, never against the tree, and a
+   /// leaf whose proof is already in memory is not re-frozen (`freeze_sealed_resident_trees`). So a stale
+   /// proof would shadow the correct one and the spend would only fail at the on-chain verifier. Dropping
+   /// costs nothing: the replay rebuilds the tree from the leaves it still has and re-freezes it.
+   async fn drop_utxo_proofs(&self) -> Result<(), DatabaseError> {
+      let keys = self.keys_with_prefix(b"utxo_proof:").await?;
       if keys.is_empty() {
          return Ok(());
       }
@@ -1192,6 +1217,63 @@ mod tests {
       );
       assert!(db.get_utxo_tree_meta(0).await.unwrap().is_none());
       assert!(db.keys_with_prefix(b"utxo_tree:").await.unwrap().is_empty());
+   }
+
+   /// A frozen proof does not outlive the tree it was frozen against.
+   ///
+   /// Nothing compares a stored proof's root to its tree: `hydrate_frozen_proofs` checks it against the
+   /// note's own commitment and its internal root, and `freeze_sealed_resident_trees` skips a leaf whose
+   /// proof is already in memory. So a proof kept across the resync is spent as-is — and the replay landing
+   /// on a different root is the very state being repaired, not something it rules out — so the mismatch
+   /// would surface only at the on-chain verifier, with the stale proof shadowing the correct one until then.
+   /// It goes with the tree; the replay re-freezes it from the leaves.
+   #[tokio::test]
+   async fn a_pre_registry_state_drops_its_frozen_proofs() {
+      use crate::merkle_tree::{UtxoLeafHash, UtxoMerkleTree};
+
+      let db = test_db();
+
+      let leaves: Vec<U256> = (0..10u64).map(U256::from).collect();
+      let chunks = all_chunk_indices(leaves.len());
+      let tree = UtxoMerkleTree::from_leaves(0, leaves.clone());
+      let proof = tree.generate_proof(UtxoLeafHash::from(leaves[3])).unwrap();
+
+      let legacy: (u64, Vec<u32>) = (1_000, vec![0]);
+
+      let mut batch = WriteBatch::new();
+      put_envelope(&mut batch, &utxo_indexer_key(), 3, &legacy).unwrap();
+      push_utxo_tree_save(
+         &mut batch,
+         0,
+         &leaves,
+         tree.root().into(),
+         &chunks,
+         false,
+      )
+      .unwrap();
+      put_utxo_note_proof(&mut batch, 0, 3, &proof, db.crypto_key()).unwrap();
+      db.apply_batch(batch, WriteDurability::Immediate).await.unwrap();
+
+      assert!(
+         db.get_utxo_note_proof(0, 3).await.unwrap().is_some(),
+         "the proof is stored to begin with"
+      );
+
+      db.get_utxo_indexer().await.unwrap();
+
+      assert!(
+         db.get_utxo_note_proof(0, 3).await.unwrap().is_none(),
+         "the proof went with the tree it was frozen against"
+      );
+      assert!(db.keys_with_prefix(b"utxo_proof:").await.unwrap().is_empty());
+
+      // And nothing is lost by dropping it: a rebuild over the same leaves lands on the very root the proof
+      // was frozen against. That is the equality the drop keeps out of reach, rather than resting on.
+      assert_eq!(
+         UtxoMerkleTree::from_leaves(0, leaves).root(),
+         proof.root,
+         "proof.root must equal the rebuilt root"
+      );
    }
 
    /// A state written by the branch's own intermediate build is resynced too, not trusted.
