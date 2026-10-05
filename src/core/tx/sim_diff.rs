@@ -365,14 +365,19 @@ fn measure_nft_after<DB: Database>(
             );
          }
          NftStandard::Erc1155 => {
-            if let Ok(balance) = erc1155_balance_of(
+            // The same reading the ERC-721 branch above applies to `ownerOf`: a probe that failed is the
+            // shape's own *nothing* — an id this contract never held — exactly as the before-state fetch
+            // reads a dropped sub-call (`unwrap_or_default`). Leaving the key out instead would drop the
+            // row in `combine_diffs`, which is the outcome the note on `measure_nft_after` argues against.
+            let balance = erc1155_balance_of(
                after_evm,
                candidate.collection,
                owner,
                candidate.token_id,
-            ) {
-               state.balances1155.insert(key, balance);
-            }
+            )
+            .unwrap_or_default();
+
+            state.balances1155.insert(key, balance);
          }
       }
    }
