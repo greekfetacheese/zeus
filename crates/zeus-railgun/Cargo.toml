@@ -62,3 +62,6 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs"] }
 [dev-dependencies]
 bip39 = "2"
 zeus-wallet = { path = "../zeus-wallet" }
+# The library's own tokio has no `net`/`time`; the artifact-download tests stand a localhost server up
+# and bound the read with a clock, so they need both — scoped here so the library's features are not.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "net", "time"] }

@@ -25,6 +25,14 @@ use crate::crypto::serializable_np_index::SerializableNpIndex;
 /// are typically a few KB of text; real `.br` proving keys are hundreds of KB+.
 const MIN_ARTIFACT_BYTES: usize = 256;
 
+/// Cap on a remote artifact body.
+///
+/// Proving keys are up to ~9 MB, so this is generous — but without it the body was buffered whole
+/// (`Response::bytes`) before [`validate_compressed_artifact`] ever saw it, and the loader's client
+/// sets no timeout, so the only bound on a download was what the host chose to send. Applied to the
+/// stream, not to the finished buffer.
+const MAX_ARTIFACT_BYTES: u64 = 32 * 1024 * 1024;
+
 /// Max nullifiers/commitments in the artifact pack Zeus ships against.
 /// Protocol max is 13; larger circuits are simply not published in this pack.
 pub const ARTIFACT_MAX_INPUTS: usize = 5;
@@ -630,7 +638,16 @@ impl RemoteArtifactLoader {
          }
       }
 
-      let data = response.bytes().await?.to_vec();
+      if let Some(len) = response.content_length() {
+         if len > MAX_ARTIFACT_BYTES {
+            return Err(RemoteArtifactLoaderError::InvalidArtifact {
+               url: url.clone(),
+               reason: format!("artifact too large ({len} bytes)"),
+            });
+         }
+      }
+
+      let data = read_capped(response, MAX_ARTIFACT_BYTES, &url).await?;
       if let Err(reason) = validate_compressed_artifact(&data) {
          return Err(RemoteArtifactLoaderError::InvalidArtifact {
             url: url.clone(),
@@ -713,6 +730,32 @@ const ARTIFACT_HEAD_BYTES: usize = 64;
 
 /// Chunk size for the streaming SHA-256 pin check.
 const HASH_CHUNK_BYTES: usize = 64 * 1024;
+
+/// Read a remote body chunk by chunk, refusing to hold more than `max`.
+///
+/// This is the cap: `Response::bytes` buffers whatever the host sends, and the loader's client sets no
+/// timeout, so without it the only bound on a download was the host's own willingness to stop. The
+/// allocation grows to `max` at the very worst, whatever the declared length says.
+async fn read_capped(
+   mut response: reqwest::Response,
+   max: u64,
+   url: &str,
+) -> Result<Vec<u8>, RemoteArtifactLoaderError> {
+   let mut body = Vec::new();
+
+   while let Some(chunk) = response.chunk().await? {
+      if body.len() as u64 + chunk.len() as u64 > max {
+         return Err(RemoteArtifactLoaderError::InvalidArtifact {
+            url: url.to_string(),
+            reason: format!("artifact is larger than {max} bytes"),
+         });
+      }
+
+      body.extend_from_slice(&chunk);
+   }
+
+   Ok(body)
+}
 
 fn validate_compressed_artifact(data: &[u8]) -> Result<(), String> {
    validate_compressed_artifact_prefix(data.len() as u64, data)
@@ -955,6 +998,66 @@ mod tests {
       assert!(!loader.is_circuit_available("railgun/01x04"));
       assert!(!loader.available_circuits().contains(1, 4));
       let _ = std::fs::remove_dir_all(&root);
+   }
+
+   /// A remote body past the cap is refused, not buffered.
+   ///
+   /// The loader's client sets no timeout, so before the cap the only bound on a download was what the
+   /// host chose to send — `Response::bytes` took all of it, and validation only ever saw the result.
+   /// The server here writes past the cap and then holds the connection open: nothing but the cap can
+   /// end the read, so a reader that buffers until the body finishes hangs until the clock fires.
+   #[tokio::test]
+   async fn an_oversized_remote_body_is_refused() {
+      use tokio::io::AsyncWriteExt;
+
+      let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+      let addr = listener.local_addr().unwrap();
+
+      let server = tokio::spawn(async move {
+         let (mut socket, _) = listener.accept().await.unwrap();
+         let head = b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nTransfer-Encoding: chunked\r\n\r\n";
+         socket.write_all(head).await.unwrap();
+
+         // 256 KiB for a call that allows 128 KiB, then the connection stays open.
+         let chunk = vec![0xABu8; 32 * 1024];
+         for _ in 0..8 {
+            let header = format!("{:x}\r\n", chunk.len());
+            let wrote = async {
+               socket.write_all(header.as_bytes()).await?;
+               socket.write_all(&chunk).await?;
+               socket.write_all(b"\r\n").await
+            };
+
+            if wrote.await.is_err() {
+               return;
+            }
+         }
+
+         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+      });
+
+      let response = reqwest::Client::new()
+         .get(format!("http://{addr}/proving_key.bin.br"))
+         .send()
+         .await
+         .unwrap();
+
+      let read = tokio::time::timeout(
+         std::time::Duration::from_secs(5),
+         read_capped(
+            response,
+            128 * 1024,
+            "http://large/proving_key.bin.br",
+         ),
+      )
+      .await
+      .expect("the cap has to end the read, not the clock");
+
+      assert!(
+         read.is_err(),
+         "a body past the cap must be refused"
+      );
+      server.abort();
    }
 
    #[tokio::test]
