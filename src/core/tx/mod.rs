@@ -11,9 +11,15 @@ pub mod send_calls;
 pub mod sim_diff;
 
 pub use analysis::TransactionAnalysis;
-pub use approval_diff::{ApprovalChange, ApprovalDiff, ApprovalKind};
-pub use approve::{ApproveSimulation, ensure_allowance, send_token_approve};
-pub use balance_diff::{BalanceChange, BalanceDiff};
+pub use approval_diff::{
+   ApprovalChange, ApprovalDiff, ApprovalKind, NftApprovalCandidate, NftApprovalChange,
+   NftApprovalTarget, NftApprovalValue,
+};
+pub use approve::{
+   ApproveSimulation, ensure_allowance, ensure_approval_for_all, ensure_erc721_approve,
+   send_nft_approve, send_token_approve,
+};
+pub use balance_diff::{BalanceChange, BalanceDiff, NftBalanceChange, NftCandidate};
 pub use events::DecodedEvent;
 pub use finalize::{
    MainEvent, MinedTx, RecordPolicy, TxOutcome, build_tx_outcome, record_and_notify,

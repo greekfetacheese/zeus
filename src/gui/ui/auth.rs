@@ -2,6 +2,7 @@
 //!
 //! If the vault is not found, it will show the wallet recovery UI.
 
+use crate::core::urls::ZeusUrl;
 use crate::core::{
    Vault, WalletInfo, ZeusContext,
    types::{MiscConfig, RailgunConfig},
@@ -10,7 +11,7 @@ use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::gui::ui::settings::ImportDataUi;
 use crate::utils::RT;
-use egui::{Align, Align2, FontId, Layout, Margin, RichText, Ui, Window, vec2};
+use egui::{Align, Align2, FontId, Layout, Margin, RichText, ScrollArea, Ui, Window, vec2};
 use egui_elements::{Button, CredentialsForm, Label, SecureTextEdit, Theme};
 use elegance::{BadgeTone, Toast};
 use ncrypt_me::{Argon2, Credentials};
@@ -163,7 +164,7 @@ pub struct RecoverHDWallet {
    onboarding_step: u8,
    enable_railgun: bool,
    allow_circuit_download: bool,
-   fetch_token_icons: bool,
+   fetch_asset_images: bool,
    fetch_contract_names: bool,
    check_for_updates: bool,
    memory: SystemMemory,
@@ -189,7 +190,7 @@ impl RecoverHDWallet {
          onboarding_step: 0,
          enable_railgun: false,
          allow_circuit_download: false,
-         fetch_token_icons: false,
+         fetch_asset_images: false,
          fetch_contract_names: false,
          check_for_updates: false,
          memory: SystemMemory::new(),
@@ -503,21 +504,45 @@ impl RecoverHDWallet {
                   ui.set_width(content_width);
                   ui.spacing_mut().item_spacing.y = theme.spacing.md;
 
-                  let paragraphs = [
-                     "Zeus can use Railgun to shield your assets and keep balances private on Ethereum.",
-                     "Enabling it will sync private notes in the background. You can change this later in Settings/Railgun.",
-                     "Private transactions need proving circuits. Allow Zeus to download them when they are not already available.",
-                     "This is optional. Zeus already has a small set of circuits for the necessary operations.",
-                  ];
-                  for paragraph in paragraphs {
-                     let text = RichText::new(paragraph).size(theme.typography.large);
+                  let large = theme.typography.large;
+                  let paragraph = |ui: &mut Ui, text: &str| {
                      ui.add(
-                        Label::new(text, None)
+                        Label::new(RichText::new(text).size(large), None)
                            .wrap()
                            .fill_width(true)
                            .interactive(false),
                      );
-                  }
+                  };
+
+                  paragraph(
+                     ui,
+                     "Zeus can use Railgun to shield your assets and keep balances private on Ethereum.",
+                  );
+                  paragraph(
+                     ui,
+                     "Enabling it will sync private notes in the background. You can change this later in Settings/Railgun.",
+                  );
+
+                  // Circuit download source, with the host called out.
+                  let text1 = RichText::new(
+                     "Private transactions need proving circuits. Allow Zeus to download them from ",
+                  )
+                  .size(large);
+                  let text2 = RichText::new("Github.com ").size(large).underline();
+                  let text3 =
+                     RichText::new("when they are not already bundled with Zeus.").size(large);
+
+                  ui.add(
+                     Label::sections(vec![text1, text2, text3], None)
+                        .wrap()
+                        .fill_width(true)
+                        .interactive(false),
+                  );
+
+                  paragraph(
+                     ui,
+                     "This is optional. Zeus already has a small set of circuits for the necessary operations.",
+                  );
 
                   let enable_text = RichText::new("Enable Railgun").size(theme.typography.large);
                   ui.checkbox(&mut self.enable_railgun, enable_text);
@@ -587,10 +612,10 @@ impl RecoverHDWallet {
                   let large = theme.typography.large;
 
                   // Smold.app paragraph
-                  let text1 = RichText::new("Zeus can download token icons from ").size(large);
+                  let text1 = RichText::new("Zeus can download asset icons from ").size(large);
                   let text2 = RichText::new("tokens.smold.app ").size(large).underline();
                   let text3 =
-                     RichText::new("so unknown tokens show an image instead of a placeholder.")
+                     RichText::new("and other sources, so unknown tokens/nfts show an image instead of a placeholder.")
                         .size(large);
 
                   let label = Label::sections(vec![text1, text2, text3], None)
@@ -622,8 +647,73 @@ impl RecoverHDWallet {
                      .interactive(false);
                   ui.add(label);
 
-                  let icons_text = RichText::new("Download Token Icons").size(large);
-                  ui.checkbox(&mut self.fetch_token_icons, icons_text);
+                  // Contract-supplied hosts are the one destination class the list
+                  // below cannot enumerate, so they are disclosed separately.
+                  let label = Label::new(
+                     RichText::new(
+                        "Some NFT collections host their own metadata and art. When image \
+                         downloads are allowed, Zeus also follows the address a collection's \
+                         contract returns for a token. That host is chosen by the collection, so \
+                         it will not appear in the list below. Zeus only uses https, refuses \
+                         local or private addresses, and limits the size of what it downloads.",
+                     )
+                     .size(large),
+                     None,
+                  )
+                  .wrap()
+                  .fill_width(true)
+                  .interactive(false);
+                  ui.add(label);
+
+                  // Every endpoint Zeus may contact, in one scrollable place —
+                  // the list grows with each service the wallet learns to talk to.
+                  ui.add(
+                     Label::new(
+                        RichText::new("Endpoints Zeus may contact")
+                           .size(large)
+                           .color(theme.colors.text),
+                        None,
+                     )
+                     .wrap()
+                     .fill_width(true)
+                     .interactive(false),
+                  );
+
+                  let frame1 = theme.frame1;
+                  let frame2 = theme.frame2;
+
+                  const URL_LIST_HEIGHT: f32 = 180.0;
+                  ui.allocate_ui(vec2(content_width, URL_LIST_HEIGHT), |ui| {
+                     let scroll = ScrollArea::vertical()
+                        .id_salt("onboarding_external_data_urls")
+                        .content_margin(10)
+                        .auto_shrink([false, true]);
+
+                     frame2.show(ui, |ui| {
+                        scroll.show(ui, |ui| {
+                           ui.spacing_mut().item_spacing.y = theme.spacing.sm;
+                           for url in ZeusUrl::ALL {
+                              frame1.show(ui, |ui| {
+                                 ui.label(RichText::new(url.label()).size(large));
+                                 ui.add(
+                                    Label::new(
+                                       RichText::new(url.base())
+                                          .size(theme.typography.small)
+                                          .color(theme.colors.text_muted),
+                                       None,
+                                    )
+                                    .wrap()
+                                    .fill_width(true)
+                                    .interactive(false),
+                                 );
+                              });
+                           }
+                        });
+                     });
+                  });
+
+                  let icons_text = RichText::new("Download Token Icons & NFT Images").size(large);
+                  ui.checkbox(&mut self.fetch_asset_images, icons_text);
 
                   let names_text = RichText::new("Fetch Contract Names").size(large);
                   ui.checkbox(&mut self.fetch_contract_names, names_text);
@@ -641,7 +731,7 @@ impl RecoverHDWallet {
                   Button::new(text).visuals(button_visuals).min_size(vec2(content_width, 45.0));
 
                if ui.add(continue_button).clicked() {
-                  ctx.misc_config.set_fetch_token_icons(self.fetch_token_icons);
+                  ctx.misc_config.set_fetch_asset_images(self.fetch_asset_images);
                   ctx.misc_config.set_fetch_contract_names(self.fetch_contract_names);
                   ctx.misc_config.set_check_for_updates(self.check_for_updates);
                   let config = ctx.misc_config.clone();
@@ -734,6 +824,7 @@ fn on_unlock_vault(mut vault: Vault) {
             ctx.load_tx_db();
             ctx.build_wallet_info_cache();
             ctx.load_currency_db();
+            ctx.load_nft_db();
             ctx.load_pool_manager();
             ctx.load_zeus_client();
             ctx.load_price_manager();

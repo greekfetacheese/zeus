@@ -7,7 +7,7 @@ use thiserror::Error;
 use crate::{
    abi::railgun::{TokenData, TokenDataError},
    account::signer::RailgunSigner,
-   caip::AssetId,
+   caip::{AssetId, TokenRegistry},
    crypto::{
       aes::AesError,
       keys::{
@@ -19,6 +19,29 @@ use crate::{
    merkle_tree::UtxoLeafHash,
    poi::types::BlindedCommitmentType,
 };
+
+/// The asset of a transact note, from the only thing its ciphertext kept: `asset.hash()`.
+///
+/// The hash is one-way, so this *recognizes* the asset among the ones the wallet has seen in the clear
+/// ([`TokenRegistry`]) instead of deriving it. When it is not recognized, the old reading is kept — reading
+/// a 32-byte value as an ERC-20 address — which is exactly right for a token and silently wrong for
+/// anything else: an ERC-721 or ERC-1155 would come back as a phantom token at the hash's low 20 bytes, and
+/// the note's commitment would never match the tree again. Persisting the registry, and resyncing once
+/// after it exists, is what makes an NFT's note readable.
+fn resolve_transact_asset(
+   token_hash: &[u8],
+   known_tokens: &TokenRegistry,
+) -> Result<AssetId, NoteError> {
+   let hash = U256::from_be_slice(token_hash);
+   if let Some(asset) = known_tokens.get(&hash) {
+      return Ok(*asset);
+   }
+
+   // Not recognized. `from_hash` cannot fail on the 32 bytes a note always carries, so a failure here
+   // means the bundle is not shaped like a note — said so rather than papered over with an invented asset.
+   let token_data = TokenData::from_hash(token_hash)?;
+   Ok(AssetId::from(token_data))
+}
 
 /// Railgun UTXO note
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -90,7 +113,11 @@ impl UtxoNote {
    }
 
    /// Decrypt a transact note into a Note
-   pub fn decrypt_transact(signer: &RailgunSigner, transact: &Transact) -> Result<Self, NoteError> {
+   pub fn decrypt_transact(
+      signer: &RailgunSigner,
+      transact: &Transact,
+      known_tokens: &TokenRegistry,
+   ) -> Result<Self, NoteError> {
       let blinded_sender = BlindedKey::from_bytes(transact.blinded_sender_viewing_key);
       let shared_key =
          signer.keys().viewing_private_key.derive_shared_key_blinded(blinded_sender)?;
@@ -100,8 +127,7 @@ impl UtxoNote {
       // random (16) | value (16)
       // memo (optional)
       let bundle = shared_key.decrypt_gcm(&transact.ciphertext)?;
-      let token_data = TokenData::from_hash(&bundle[1])?;
-      let asset_id = AssetId::from(token_data);
+      let asset_id = resolve_transact_asset(&bundle[1], known_tokens)?;
 
       let mut random = [0u8; 16];
       random.copy_from_slice(&bundle[2][..16]);
@@ -266,5 +292,68 @@ mod tests {
    fn test_note_public_key() {
       let note = test_note();
       let _pub_key = note.note_public_key;
+   }
+
+   /// A transact note keeps only `asset.hash()`, so an NFT has to be *recognized* from a registry built out
+   /// of the shields the wallet has seen, never derived back. Without it the note decodes as a phantom
+   /// ERC-20 **and** no longer hashes to its own leaf — the «Element not found in tree» that no amount of
+   /// resyncing gets a wallet out of.
+   #[test]
+   fn an_nft_transact_note_is_readable_only_while_its_asset_is_known() {
+      use alloy_primitives::{B256, address};
+      use rand::random;
+      use secure_types::SecureArray;
+
+      use crate::note::transfer::TransferNote;
+
+      let seed: [u8; 64] = random();
+      let sec_array = SecureArray::from_slice(&seed).unwrap();
+      let sender = RailgunSigner::from_seed(&sec_array, 0, 1).unwrap();
+
+      let seed: [u8; 64] = random();
+      let sec_array = SecureArray::from_slice(&seed).unwrap();
+      let recipient = RailgunSigner::from_seed(&sec_array, 0, 1).unwrap();
+
+      let asset = AssetId::Erc721(
+         address!("0xaf5aa7b670ef209e23d3f7b39a8f42f84bd002ac"),
+         U256::from(1071),
+      );
+
+      let rng = &mut rand::rng();
+      let transfer = TransferNote::new(
+         sender.keys().viewing_private_key.clone(),
+         recipient.address().clone(),
+         asset,
+         1u128,
+         random(),
+         "",
+      );
+      let ciphertext = transfer.encrypt(rng).unwrap();
+      let event = Transact {
+         tree_number: 1,
+         leaf_index: 0,
+         hash: transfer.hash().into(),
+         ciphertext: ciphertext.clone().into(),
+         blinded_sender_viewing_key: *ciphertext.blindedSenderViewingKey,
+         blinded_receiver_viewing_key: *ciphertext.blindedReceiverViewingKey,
+         annotation_data: ciphertext.annotationData.to_vec(),
+         timestamp: 0,
+         tx_hash: B256::ZERO,
+      };
+
+      // What a wallet holds once it has seen the collection shielded.
+      let mut known = TokenRegistry::new();
+      known.insert(asset.hash(), asset);
+
+      let note = UtxoNote::decrypt_transact(&recipient, &event, &known).unwrap();
+      assert_eq!(note.asset, asset);
+      assert_eq!(note.hash(), transfer.hash().into());
+
+      // Without it there is nothing to recognize the asset by, and a 32-byte hash can only be read as an
+      // ERC-20 address. The guess is not the asset the sender used, so the leaf does not match either.
+      let guessed = UtxoNote::decrypt_transact(&recipient, &event, &TokenRegistry::new()).unwrap();
+      assert_ne!(guessed.asset, asset);
+      assert_eq!(guessed.asset.is_erc20(), true);
+      assert_ne!(guessed.hash(), transfer.hash().into());
    }
 }

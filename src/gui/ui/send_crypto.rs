@@ -1,7 +1,9 @@
 //! UI that allows the user to send ETH or ERC20 tokens (public) or private
 //! Railgun (zk → zk) transfers when privacy mode is enabled.
 
-use eframe::egui::{CursorIcon, FontId, Frame, Margin, OpenUrl, RichText, Sense, Ui, vec2};
+use eframe::egui::{
+   Align, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl, RichText, Sense, Ui, vec2,
+};
 
 use std::{
    collections::HashMap,
@@ -22,30 +24,50 @@ use crate::gui::{
    ui::{
       ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
       common::{AmountField, AmountFieldParams, show_with_fade},
-      dapps::railgun::private_transfer,
+      dapps::railgun::{RailgunAsset, private_transfer},
+      token_selection::{PickerMode, nft_collection_name},
    },
 };
 use crate::utils::simulate::{
    AccountPrefetch, fetch_accounts_info, native_balance_at, pinned_head,
 };
-use egui_elements::{Button, SecureTextEdit, Theme};
+use egui_elements::{Button, Label, SecureTextEdit, Theme};
 use egui_lucide::Lucide;
 
 use zeus_eth::{
+   abi::{erc721, erc1155},
    alloy_primitives::{Address, Bytes, U256},
    alloy_rpc_types::BlockId,
    currency::{Currency, ERC20Token, NativeCurrency},
+   nft::{NftCollection, NftStandard, NftToken, verify_ownership},
    revm_utils::{ForkFactory, Host, new_evm, simulate as revm_simulate},
    types::ChainId,
    utils::{NumericValue, batch},
 };
 
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 
 const POOL_UPDATE_TIMEOUT: u64 = 60;
 
+/// What the Send view is sending.
+///
+/// One of two things rather than two booleans: an NFT has no `Currency`, no decimals and no price, so
+/// it cannot ride the amount field at all — the two paths share the recipient and the pipeline and
+/// nothing else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SendMode {
+   Fungible,
+   Nft,
+}
+
 pub struct SendCryptoUi {
    open: bool,
+   /// What this view is sending. The fungible path is the default and is unchanged.
+   mode: SendMode,
+   /// The NFT being sent, when `mode` is [`SendMode::Nft`].
+   pub selected_nft: Option<NftToken>,
+   /// How many units of it. ERC-721 always sends exactly one and ignores this.
+   pub nft_amount: String,
    pub currency: Currency,
    pub amount_field: AmountField,
    pub recipient: String,
@@ -64,6 +86,9 @@ impl SendCryptoUi {
    pub fn new() -> Self {
       Self {
          open: false,
+         mode: SendMode::Fungible,
+         selected_nft: None,
+         nft_amount: String::new(),
          currency: Currency::from(NativeCurrency::from_chain_id(1).unwrap()),
          amount_field: AmountField::new(),
          recipient: String::new(),
@@ -92,19 +117,53 @@ impl SendCryptoUi {
       self.amount_field.reset();
       self.clear_search_query();
       self.memo.clear();
+      self.clear_nft();
    }
 
    pub fn set_currency(&mut self, currency: Currency) {
+      self.clear_nft();
       self.currency = currency;
    }
 
    /// Default token for the active mode / chain (native for public, WETH for private).
    pub fn default_currency(&mut self, privacy_mode: bool, chain_id: u64) {
+      self.clear_nft();
+
       self.currency = if privacy_mode {
          Currency::from(ERC20Token::wrapped_native_token(chain_id))
       } else {
          Currency::from(NativeCurrency::from(chain_id))
       };
+   }
+
+   pub fn get_mode(&self) -> SendMode {
+      self.mode
+   }
+
+   /// Send this NFT.
+   ///
+   /// Sets the mode too: a selection that leaves the view on the fungible path is not a state any
+   /// caller wants, so there is no way to get it.
+   ///
+   /// The typed quantity goes with the previous selection. `nft_amount` belongs to the *selection*, and
+   /// carrying it over would offer a number the user never entered for this token: type 8 for one
+   /// ERC-1155, pick another, and the button would offer 8 of the new one. (The shield picker clears it
+   /// for the same reason.)
+   pub fn set_nft(&mut self, nft: NftToken) {
+      self.mode = SendMode::Nft;
+      self.selected_nft = Some(nft);
+      self.nft_amount.clear();
+   }
+
+   /// Back to the fungible path, forgetting the NFT.
+   ///
+   /// Called from every hook that means "the token for this chain changed" (`close`, `set_currency`,
+   /// `default_currency`): an NFT picked on the previous chain cannot be sent on the new one, and a
+   /// reopened view must never come back in a mode the user left behind.
+   fn clear_nft(&mut self) {
+      self.mode = SendMode::Fungible;
+      self.selected_nft = None;
+      self.nft_amount.clear();
    }
 
    pub fn clear_recipient(&mut self) {
@@ -193,52 +252,81 @@ impl SendCryptoUi {
                   let chain = ctx.chain;
                   let inner_frame = theme.frame2;
 
-                  // Currency Selection
-                  let balance = self.balance_for_mode(ctx, owner, privacy_mode);
-                  let cost = self.cost(ctx, privacy_mode);
-                  let max_amount = if privacy_mode || self.currency.is_erc20() {
-                     balance.clone()
-                  } else if balance.wei() < cost.wei() {
-                     NumericValue::default()
-                  } else {
-                     NumericValue::format_wei(
-                        balance.wei() - cost.wei(),
-                        self.currency.decimals(),
-                     )
-                  };
-
-                  let amount = self.amount_field.amount.clone();
-                  let currency = self.currency.clone();
-                  let data_syncing = self.price_syncing || self.syncing_balance;
-                  let should_calculate_price = self.should_calculate_price(&currency);
-                  let value = value(ctx, currency, amount, should_calculate_price);
-
-                  inner_frame.show(ui, |ui| {
-                     ui.set_width(ui.available_width());
-                     self.amount_field.show(
-                        AmountFieldParams::new(
+                  // NFT mode replaces the whole amount block below: an NFT has no decimals, no price
+                  // and no `Currency`, so `AmountField` cannot describe it. Not public-only any more —
+                  // a shielded NFT is transferable zk → zk, so the same block serves both modes.
+                  if self.mode == SendMode::Nft {
+                     inner_frame.show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        self.show_nft_selection(
+                           ctx,
                            theme,
                            icons.clone(),
-                           &self.currency,
+                           token_selection,
                            owner,
-                           chain.id(),
+                           privacy_mode,
+                           ui,
+                        );
+                     });
+                  } else {
+                     // Currency Selection
+                     let balance = self.balance_for_mode(ctx, owner, privacy_mode);
+                     let cost = self.cost(ctx, privacy_mode);
+                     let max_amount = if privacy_mode || self.currency.is_erc20() {
+                        balance.clone()
+                     } else if balance.wei() < cost.wei() {
+                        NumericValue::default()
+                     } else {
+                        NumericValue::format_wei(
+                           balance.wei() - cost.wei(),
+                           self.currency.decimals(),
                         )
-                        .privacy_mode(token_privacy_mode)
-                        .balance(balance)
-                        .max_amount(max_amount)
-                        .value(value)
-                        .label("Amount")
-                        .token_selection(token_selection, None)
-                        .loading(data_syncing)
-                        .show_slider(true),
-                        ui,
-                     );
-                  });
+                     };
 
+                     let amount = self.amount_field.amount.clone();
+                     let currency = self.currency.clone();
+                     let data_syncing = self.price_syncing || self.syncing_balance;
+                     let should_calculate_price = self.should_calculate_price(&currency);
+                     let value = value(ctx, currency, amount, should_calculate_price);
+
+                     inner_frame.show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        self.amount_field.show(
+                           AmountFieldParams::new(
+                              theme,
+                              icons.clone(),
+                              &self.currency,
+                              owner,
+                              chain.id(),
+                           )
+                           .privacy_mode(token_privacy_mode)
+                           .balance(balance)
+                           .max_amount(max_amount)
+                           .value(value)
+                           .label("Amount")
+                           .token_selection(token_selection, None)
+                           .loading(data_syncing)
+                           .show_slider(true),
+                           ui,
+                        );
+                     });
+                  }
+
+                  // The picker's own Tokens/NFTs switch decides the mode, so picking an NFT there is
+                  // what makes this an NFT send — there is no second switch to keep in sync.
                   if let Some(currency) = token_selection.get_selected_currency() {
                      self.currency = currency.clone();
+                     // A fungible pick means the fungible path, however the view got here.
+                     self.clear_nft();
                      token_selection.reset();
                      self.sync_balance(owner, privacy_mode);
+                  }
+
+                  // Either mode takes an NFT: a private transfer moves a shielded one zk → zk, and the
+                  // picker was opened for the side this mode spends.
+                  if let Some(nft) = token_selection.get_selected_nft() {
+                     self.set_nft(nft.clone());
+                     token_selection.reset();
                   }
 
                   // Hoisted: `show` takes `ctx` mutably, so read the chain before the call.
@@ -385,6 +473,417 @@ impl SendCryptoUi {
       });
    }
 
+   /// The NFT-mode replacement for the amount block.
+   ///
+   /// `AmountField` needs a `Currency` and shows a balance, a fiat value and a slider — none of which
+   /// an NFT has. This shows what is being sent and, for the standards that have more than one, how
+   /// many; the button opens the picker, which owns the Tokens/NFTs switch.
+   /// `privacy_mode` picks which side the picker lists: a private transfer spends shielded tokens, a
+   /// public send spends owned ones — the same rule the shield/unshield selector follows.
+   fn show_nft_selection(
+      &mut self,
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      token_selection: &mut TokenSelectionWindow,
+      owner: Address,
+      privacy_mode: bool,
+      ui: &mut Ui,
+   ) {
+      let chain_id = ctx.chain.id();
+      let text_edit_visuals = theme.text_edit_visuals();
+      let selected = self.selected_nft.clone();
+
+      ui.set_width(ui.available_width());
+
+      ui.horizontal(|ui| {
+         ui.label(RichText::new("NFT").size(theme.typography.large));
+         ui.add_space(10.0);
+
+         match &selected {
+            None => {
+               ui.label(
+                  RichText::new("None selected")
+                     .size(theme.typography.normal)
+                     .color(theme.colors.text_muted),
+               );
+            }
+            Some(nft) => {
+               // The same label widget a picker row uses, so the art goes through one code path and
+               // falls back to the placeholder the same way.
+               let name = nft_collection_name(
+                  ctx.nft_db.get_collection(chain_id, nft.collection).as_ref(),
+                  nft.collection,
+               );
+               let text = format!("{}\n#{}", name, nft.token_id);
+               let icon = icons.nft_icon_x64(
+                  chain_id,
+                  nft.collection,
+                  nft.token_id,
+                  theme.image_tint_recommended,
+               );
+               let label = Label::new(
+                  RichText::new(text).size(theme.typography.normal),
+                  Some(icon),
+               )
+               .interactive(false)
+               .wrap()
+               .image_on_left();
+
+               ui.add(label);
+            }
+         }
+
+         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let text = RichText::new(match selected.is_some() {
+               true => "Change",
+               false => "Select NFT",
+            })
+            .size(theme.typography.normal);
+
+            let button =
+               Button::new(text).min_size(vec2(90.0, 25.0)).visuals(theme.button_visuals());
+
+            if ui.add(button).clicked() {
+               // `open` restores the fungible default, so the mode is set *after* it. The privacy flag
+               // is the mode's own: shielded tokens for a private transfer, owned ones otherwise.
+               token_selection.open(privacy_mode, chain_id, owner);
+               token_selection.set_mode(PickerMode::Nft);
+            }
+         });
+      });
+
+      let Some(nft) = &selected else {
+         return;
+      };
+
+      if nft.standard == NftStandard::Erc1155 {
+         ui.add_space(theme.spacing.sm);
+         ui.horizontal(|ui| {
+            ui.label(RichText::new("Amount").size(theme.typography.large));
+            ui.add_space(10.0);
+            ui.add(
+               SecureTextEdit::singleline(&mut self.nft_amount)
+                  .visuals(text_edit_visuals)
+                  .hint_text(
+                     RichText::new("How many to send")
+                        .size(theme.typography.normal)
+                        .color(theme.colors.text_muted),
+                  )
+                  .desired_width(ui.available_width() * 0.5)
+                  .margin(Margin::same(10))
+                  .font(FontId::proportional(theme.typography.normal)),
+            );
+         });
+      } else {
+         // ERC-721: the id is the whole payload, so it is shown read-only. There is nothing to edit —
+         // one token, and its id came from the selection.
+         ui.add_space(theme.spacing.xs);
+         ui.label(
+            RichText::new(format!("Token ID {}", nft.token_id))
+               .size(theme.typography.small)
+               .color(theme.colors.text_muted),
+         );
+      }
+   }
+
+   /// The NFT-mode send button: the fungible button's states with NFT checks.
+   ///
+   /// `privacy_mode` changes what "enough" means. A public send asks nothing about ownership here — the
+   /// simulation refuses a token this wallet does not hold — while a private transfer can only spend what
+   /// is *shielded*, and the notes are the only place that is written down.
+   fn nft_send_button(
+      &mut self,
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      owner: Address,
+      owner_zk: String,
+      recipient: String,
+      recipient_chain: Option<u64>,
+      privacy_mode: bool,
+      ui: &mut Ui,
+   ) {
+      let button_visuals = theme.button_visuals();
+      let sending_tx = self.sending_tx;
+      let valid_recipient = self.valid_recipient(&recipient, privacy_mode);
+      let recipient_is_sender =
+         self.recipient_is_sender(owner, &owner_zk, &recipient, privacy_mode);
+      let has_entered_recipient = !recipient.trim().is_empty();
+      let nft = self.selected_nft.clone();
+      let amount = self.nft_transfer_amount();
+      // A private transfer goes to a `0zk` address, which has no chain.
+      let wrong_chain = match privacy_mode {
+         true => None,
+         false => recipient_chain.filter(|chain| *chain != ctx.chain.id()),
+      };
+
+      // Only a shielded token can be spent zk → zk, and only as far as its notes say. A token the scan
+      // did not find is not in the shielded set at all, so there is nothing to move — unlike the public
+      // side, where «not asked» is not «not owned».
+      let shielded_max = match privacy_mode {
+         true => self.private_nft_max(ctx, owner),
+         false => None,
+      };
+      let has_private_balance = !privacy_mode
+         || shielded_enough(
+            amount.and_then(|amount| u64::try_from(amount).ok()),
+            shielded_max,
+         );
+
+      // A private transfer of an ERC-721 is sound now that the asset is *recognized* rather than read back
+      // out of the note's 32-byte `asset.hash()` (see `TokenRegistry`) — without that it used to arrive as a
+      // phantom ERC-20 at a random address, with a leaf that no longer matches the tree, and could never be
+      // proved, spent, or seen again.
+      //
+      // ERC-1155 stays refused: Railgun's transact circuit does not support it, so there is nothing to prove
+      // against, and refusing here beats failing at the prover.
+      let nft_transfer_supported =
+         !privacy_mode || nft.as_ref().is_none_or(|n| n.standard == NftStandard::Erc721);
+
+      let mut button_text = match nft.is_some() {
+         true => "Send".to_string(),
+         false => "Select an NFT".to_string(),
+      };
+
+      if nft.is_some() && amount.is_none() {
+         button_text = "Invalid Amount".to_string();
+      }
+
+      // Nothing to spend, and no fee or simulation would explain it any better.
+      if nft.is_some() && privacy_mode && !has_private_balance {
+         button_text = "Not enough shielded".to_string();
+      }
+
+      // Last of the NFT states, so it wins: nothing else about this operation matters while it cannot be
+      // done at all.
+      if nft.is_some() && !nft_transfer_supported {
+         button_text = "Private ERC-1155 transfers are not supported".to_string();
+      }
+
+      if has_entered_recipient && !valid_recipient {
+         button_text = "Invalid Recipient".to_string();
+      }
+
+      if has_entered_recipient && recipient_is_sender {
+         button_text = "Cannot send to yourself".to_string();
+      }
+
+      // Last, for the same reason as the fungible button: on the wrong chain every check above is
+      // about the wrong chain, and sending there is the mistake worth blocking.
+      if let Some(chain) = wrong_chain {
+         button_text = match ChainId::new(chain) {
+            Ok(chain) => format!("Switch to {} to send", chain.name()),
+            Err(_) => "Unsupported chain".to_string(),
+         };
+      }
+
+      let valid_inputs = nft.is_some()
+         && nft_transfer_supported
+         && amount.is_some()
+         && has_private_balance
+         && valid_recipient
+         && !recipient_is_sender
+         && has_entered_recipient
+         && wrong_chain.is_none()
+         && !sending_tx;
+
+      let text = RichText::new(button_text).size(theme.typography.large);
+      let send = Button::new(text)
+         .min_size(vec2(ui.available_width() * 0.8, 45.0))
+         .visuals(button_visuals);
+
+      if ui.add_enabled(valid_inputs, send).clicked() {
+         if let (Some(nft), Some(amount)) = (nft, amount) {
+            self.sending_tx = true;
+
+            match self.send_nft_transaction(ctx, nft, amount, recipient, privacy_mode) {
+               Ok(_) => {}
+               Err(e) => {
+                  self.sending_tx = false;
+
+                  RT.spawn_blocking(move || {
+                     SHARED_GUI.write(|gui| {
+                        let msg = format!("Error while sending transaction: {}", e);
+                        gui.open_msg_window(msg);
+                     });
+                  });
+               }
+            }
+         }
+      }
+   }
+
+   /// How many units to move: ERC-721 always exactly one, ERC-1155 whatever the user typed.
+   ///
+   /// `None` means the input is not a usable amount, which blocks the send. The chain would revert
+   /// anyway, but a revert *after* the confirm window is a worse way to learn that zero is not an
+   /// amount — and for an amount above the balance the simulation is what refuses.
+   fn nft_transfer_amount(&self) -> Option<U256> {
+      let nft = self.selected_nft.as_ref()?;
+
+      if nft.standard == NftStandard::Erc721 {
+         return Some(U256::from(1));
+      }
+
+      let amount = U256::from_str(self.nft_amount.trim()).ok()?;
+
+      match amount.is_zero() {
+         true => None,
+         false => Some(amount),
+      }
+   }
+
+   /// Spawn the NFT send: `send_nft` for an owned token, a private zk → zk transfer of its note for a
+   /// shielded one.
+   ///
+   /// The two disagree about what the recipient even is — an EVM address against a `0zk` address — so the
+   /// branch is here rather than inside the senders.
+   fn send_nft_transaction(
+      &mut self,
+      ctx: &mut ZeusContext,
+      nft: NftToken,
+      amount: U256,
+      recipient: String,
+      privacy_mode: bool,
+   ) -> Result<(), anyhow::Error> {
+      let chain = ctx.chain;
+      let from = ctx.current_wallet_info().address;
+
+      if privacy_mode {
+         return self.send_private_nft_transfer(ctx, nft, amount, recipient);
+      }
+
+      let recipient_address = Address::from_str(&recipient)?;
+
+      RT.spawn(async move {
+         let ctx = SHARED_GUI.write(|gui| {
+            gui.loading_window.open("Wait while magic happens");
+            gui.request_repaint();
+            gui.ctx.clone()
+         });
+
+         match send_nft(
+            ctx.clone(),
+            chain,
+            from,
+            recipient_address,
+            nft,
+            amount,
+         )
+         .await
+         {
+            Ok(_) => {
+               SHARED_GUI.write(|gui| {
+                  gui.send_crypto.sending_tx = false;
+                  // The token left this wallet, so it cannot stay selected: sending it again would
+                  // revert. The mode stays, so another NFT can be picked without a detour.
+                  gui.send_crypto.selected_nft = None;
+                  gui.send_crypto.nft_amount.clear();
+               });
+            }
+            Err(e) => {
+               tracing::error!("Error sending NFT: {:?}", e);
+               SHARED_GUI.write(|gui| {
+                  gui.send_crypto.sending_tx = false;
+                  gui.notification.reset();
+                  gui.loading_window.reset();
+                  let msg = format!("Transaction Error: {}", e);
+                  gui.msg_window.open(msg);
+               });
+            }
+         }
+      });
+
+      Ok(())
+   }
+
+   /// Spawn a private (zk → zk) transfer of a shielded NFT, the NFT counterpart of
+   /// [`SendCryptoUi::send_private_transfer`].
+   fn send_private_nft_transfer(
+      &mut self,
+      ctx: &mut ZeusContext,
+      nft: NftToken,
+      amount: U256,
+      recipient_zk: String,
+   ) -> Result<(), anyhow::Error> {
+      let chain = ctx.chain;
+      let from = ctx.current_wallet_info().address;
+      // Whole units: a count of an id for an ERC-1155, one for an ERC-721 — the same answer `value()`
+      // gives the builder, so the receipt and the transfer agree.
+      let amount = NumericValue::format_wei(amount, 0);
+      let memo = self.memo.clone();
+
+      ctx.railgun_status.set_op_in_progress(chain.id(), true);
+
+      RT.spawn_blocking(move || {
+         let ctx = SHARED_GUI.write(|gui| {
+            gui.loading_window.open("Wait while magic happens");
+            gui.request_repaint();
+            gui.ctx.clone()
+         });
+
+         let result = RT.block_on(private_transfer(
+            ctx.clone(),
+            chain,
+            RailgunAsset::Nft(nft),
+            amount,
+            from,
+            recipient_zk,
+            memo,
+         ));
+
+         match result {
+            Ok(_) => {
+               SHARED_GUI.write(|gui| {
+                  gui.send_crypto.sending_tx = false;
+                  // The note left this wallet, so the token cannot stay selected: sending it again would
+                  // spend notes that are no longer there.
+                  gui.send_crypto.selected_nft = None;
+                  gui.send_crypto.nft_amount.clear();
+                  gui.send_crypto.memo.clear();
+                  gui.loading_window.reset();
+                  gui.request_repaint();
+               });
+            }
+            Err(e) => {
+               tracing::error!("Error sending private NFT transfer: {:?}", e);
+               SHARED_GUI.write(|gui| {
+                  gui.send_crypto.sending_tx = false;
+                  gui.notification.reset();
+                  gui.loading_window.reset();
+                  let msg = format!("Private Transfer Error: {}", e);
+                  gui.msg_window.open(msg);
+                  gui.request_repaint();
+               });
+            }
+         }
+
+         ctx.write(|ctx| {
+            ctx.railgun_status.set_op_in_progress(chain.id(), false);
+         });
+      });
+
+      Ok(())
+   }
+
+   /// How much of the selected NFT the wallet holds *shielded*, from the notes the last balance scan read.
+   ///
+   /// `None` means the token is not in the shielded set at all — there is no note to spend, which is a
+   /// different thing from «not asked», so it refuses rather than waits. Only the private count lives
+   /// here; the public one is the balance manager's.
+   fn private_nft_max(&self, ctx: &mut ZeusContext, owner: Address) -> Option<u64> {
+      let nft = self.selected_nft.as_ref()?;
+      let chain = ctx.chain.id();
+
+      ctx.read_wallet_state(|ws| {
+         ws.portfolio_db
+            .get(chain, owner)
+            .private_nft_amounts()
+            .get(&(nft.collection, nft.token_id))
+            .copied()
+      })
+   }
+
    fn should_calculate_price(&self, currency: &Currency) -> bool {
       let now = Instant::now();
       let last_updated = self.last_price_update.get(&currency.address()).cloned();
@@ -409,6 +908,23 @@ impl SendCryptoUi {
       privacy_mode: bool,
       ui: &mut Ui,
    ) {
+      // NFT mode shares none of the checks below — no currency, no balance manager, no amount field —
+      // so it leaves early, which is what keeps this path untouched. Both modes reach it now: a private
+      // transfer checks the shielded count instead of a balance.
+      if self.mode == SendMode::Nft {
+         self.nft_send_button(
+            ctx,
+            theme,
+            owner,
+            owner_zk,
+            recipient,
+            recipient_chain,
+            privacy_mode,
+            ui,
+         );
+         return;
+      }
+
       let button_visuals = theme.button_visuals();
       let sending_tx = self.sending_tx;
       let recipient_is_sender =
@@ -647,7 +1163,7 @@ impl SendCryptoUi {
          let result = RT.block_on(private_transfer(
             ctx.clone(),
             chain,
-            currency,
+            RailgunAsset::Fungible(currency),
             amount,
             from,
             recipient,
@@ -763,6 +1279,18 @@ impl SendCryptoUi {
          }
       });
       Ok(())
+   }
+}
+
+/// Whether a private transfer can move `count` of a token, given `max` as the notes report it.
+///
+/// Either side being `None` is a refusal, and that is deliberate: unlike ownership on the public side
+/// (where «not asked» is not «not owned»), the notes *are* the whole record of what is shielded — a token
+/// the scan did not find has nothing to spend, so waiting would only delay the same answer.
+fn shielded_enough(count: Option<u64>, max: Option<u64>) -> bool {
+   match (count, max) {
+      (Some(count), Some(max)) => count <= max,
+      _ => false,
    }
 }
 
@@ -1145,6 +1673,236 @@ async fn send_token(
    Ok(())
 }
 
+/// Send one NFT to `recipient`.
+///
+/// The NFT counterpart of [`send_token`], sharing its stages: pin a head, prefetch the accounts the
+/// call touches, fork, simulate, analyse, then the one send pipeline. `interact_to` is the
+/// **collection** — an NFT is not an ERC-20 contract and the collection is what the call goes to —
+/// and `value` stays zero, since no ether moves.
+///
+/// Deliberately no `set_main_event`: `DecodedEvent` has no NFT variant yet, so the confirm window
+/// shows what the simulation's own logs decode to. An ERC-721/1155 transfer event is the next phase's
+/// work; inventing a `Transfer` here would describe an NFT as a fungible amount.
+async fn send_nft(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   from: Address,
+   recipient: Address,
+   nft: NftToken,
+   amount: U256,
+) -> Result<(), anyhow::Error> {
+   let mev_protect = false;
+   let dapp = String::new();
+   let interact_to = nft.collection;
+   let value = U256::ZERO;
+   let auth_list = Vec::new();
+
+   // `amount` is always 1 for ERC-721 (its `safeTransferFrom` has no amount), and the user's number
+   // for ERC-1155. Empty `data`: nothing is notified of a receiver hook.
+   let call_data = match nft.standard {
+      NftStandard::Erc721 => erc721::encode_safe_transfer_from(from, recipient, nft.token_id),
+      NftStandard::Erc1155 => erc1155::encode_safe_transfer_from(
+         from,
+         recipient,
+         nft.token_id,
+         amount,
+         Bytes::new(),
+      ),
+   };
+
+   let (block, block_id) = pinned_head(ctx.clone(), chain, BlockId::latest()).await?;
+
+   let eth_balance_before = native_balance_at(ctx.clone(), chain, from, block_id).await?;
+
+   let mut accounts = Vec::new();
+   accounts.push(AccountPrefetch::eoa(from));
+   accounts.push(AccountPrefetch::eoa(recipient));
+   accounts.push(AccountPrefetch::contract(nft.collection));
+   accounts.push(AccountPrefetch::eoa(block.header.beneficiary));
+
+   let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), block_id, accounts).await;
+
+   let fork_client = ctx.get_client(chain.id()).await?;
+   let mut factory =
+      ForkFactory::new_sandbox_factory(fork_client, chain.id(), None, Some(block_id));
+
+   for info in accounts_info {
+      factory.insert_account_info(info.address, info.info);
+   }
+
+   let fork_db = factory.new_sandbox_fork();
+
+   let eth_balance_after;
+   let logs;
+   let gas_used;
+
+   {
+      let mut evm = new_evm(chain, Some(&block), fork_db);
+
+      // The pre-state comes from the same fork the simulation runs on, and `transact` does not commit,
+      // so this read leaves it untouched. ERC-721 needs no pre-read: `ownerOf` after the transfer says
+      // everything, and a sender who was not the owner never gets past the simulation.
+      let received_before = match nft.standard {
+         NftStandard::Erc1155 => Some(revm_simulate::erc1155_balance_of(
+            &mut evm,
+            interact_to,
+            recipient,
+            nft.token_id,
+         )?),
+         NftStandard::Erc721 => None,
+      };
+
+      // A revert here (not the owner, not approved, not enough copies) is what refuses the send before
+      // the user ever sees a confirm window.
+      let res = simulate::simulate_transaction(
+         &mut evm,
+         from,
+         interact_to,
+         call_data.clone(),
+         value,
+         auth_list,
+      )?;
+
+      // A call that *succeeds* while moving nothing is what a broken or hostile collection does, and
+      // the simulation is the only place to catch it before the user pays for it. `send_token` reads
+      // the recipient's balance for the same reason; here the collection itself has to report the new
+      // state — the logs cannot be trusted, a fake `Transfer` is one `emit` away.
+      let moved = match nft.standard {
+         NftStandard::Erc721 => {
+            let owner = revm_simulate::erc721_owner_of(&mut evm, interact_to, nft.token_id)
+               .map_err(|e| anyhow!("Could not verify the transfer: {}", e))?;
+
+            owner == recipient
+         }
+         NftStandard::Erc1155 => {
+            let received_after =
+               revm_simulate::erc1155_balance_of(&mut evm, interact_to, recipient, nft.token_id)
+                  .map_err(|e| anyhow!("Could not verify the transfer: {}", e))?;
+
+            received_after.saturating_sub(received_before.unwrap_or_default()) >= amount
+         }
+      };
+
+      if !moved {
+         bail!(
+            "Simulation Error: the transfer did not move token #{} — the collection may be broken or malicious",
+            nft.token_id
+         );
+      }
+
+      let state = evm.balance(from);
+      eth_balance_after = if let Some(state) = state {
+         state.data
+      } else {
+         U256::ZERO
+      };
+
+      gas_used = res.tx_gas_used();
+      logs = res.logs().to_vec();
+   }
+
+   let contract_interact = Some(true);
+   let auth_list = Vec::new();
+   let source_is_zeus = true;
+
+   let tx_analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      from,
+      interact_to,
+      contract_interact,
+      call_data.clone(),
+      value,
+      logs,
+      gas_used,
+      eth_balance_before,
+      eth_balance_after,
+      auth_list.clone(),
+   )
+   .await?;
+
+   let (_, _) = send_transaction(
+      ctx.clone(),
+      source_is_zeus,
+      SendTxRequest::new(chain, from, interact_to)
+         .call_data(call_data)
+         .value(value)
+         .authorization_list(auth_list)
+         .analysis(tx_analysis),
+      SendTxOptions {
+         dapp,
+         mev_protect,
+         ..Default::default()
+      },
+   )
+   .await?;
+
+   // What the transfer changed is the public side of both wallets, and possibly this wallet's own
+   // record of the NFT.
+   if ctx.wallet_exists(recipient) {
+      ctx.update_public_data(chain.id(), recipient);
+   }
+
+   ctx.update_public_data(chain.id(), from);
+
+   match update_nft(ctx.clone(), chain.id(), from, nft).await {
+      Ok(_) => {}
+      Err(e) => {
+         tracing::error!("Error refreshing the NFT after send: {:?}", e);
+      }
+   }
+
+   Ok(())
+}
+
+/// Re-read one NFT after a send, and make the portfolio agree with the chain.
+///
+/// Ownership is the chain's answer, never ours: `NftToken` carries no owner on purpose, and a
+/// portfolio entry is only a claim about what this wallet holds. So the question is asked over RPC
+/// rather than assumed from having just sent it.
+///
+/// When the wallet no longer holds it, the token leaves the portfolio — that list is what this wallet
+/// holds. It stays in the tracked catalog, which is the record of what Zeus has discovered: the picker
+/// goes on listing it, marked as not owned, so a token that comes back is already there to be sent
+/// again. The cached art stays for the same reason.
+///
+/// A transport failure changes nothing and is logged by the caller: dropping a token from the wallet
+/// because an RPC hiccuped would be far worse than a stale row.
+async fn update_nft(
+   ctx: ZeusCtx,
+   chain_id: u64,
+   owner: Address,
+   nft: NftToken,
+) -> Result<(), anyhow::Error> {
+   let client = ctx.get_client(chain_id).await?;
+
+   // The cached collection when we have it (the usual case — a token the picker listed), otherwise
+   // one ERC-165 sweep to learn the standard `verify_ownership` needs.
+   let collection = match ctx.read(|ctx| ctx.nft_db.get_collection(chain_id, nft.collection)) {
+      Some(collection) => collection,
+      None => NftCollection::fetch(client.clone(), chain_id, nft.collection).await?,
+   };
+
+   if verify_ownership(client, &collection, nft.token_id, owner).await? {
+      return Ok(());
+   }
+
+   ctx.write_wallet_state(|ws| {
+      let mut portfolio = ws.portfolio_db.get(chain_id, owner);
+      portfolio.remove_nft(&nft);
+      ws.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
+   });
+
+   if let Err(e) = ctx.save_wallet_state() {
+      tracing::error!(
+         "Error saving wallet state after an NFT send: {:?}",
+         e
+      );
+   }
+
+   Ok(())
+}
+
 async fn update_balances(
    ctx: ZeusCtx,
    chain: u64,
@@ -1178,4 +1936,164 @@ async fn update_balances(
 
    ctx.update_public_data(chain, sender);
    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   fn nft(token_id: u64, standard: NftStandard) -> NftToken {
+      NftToken {
+         chain_id: 1,
+         collection: Address::from([0xbc; 20]),
+         token_id: U256::from(token_id),
+         standard,
+         metadata_uri: None,
+      }
+   }
+
+   /// A private NFT transfer can only spend what the notes say is shielded, and neither side may be
+   /// invented: a token the scan did not find has no note, and «unknown» is not a quantity. So both
+   /// refuse — where the public side leaves it to the simulation, the private side already knows.
+   #[test]
+   fn a_private_transfer_refuses_what_the_notes_do_not_hold() {
+      assert!(
+         shielded_enough(Some(1), Some(1)),
+         "the note covers it exactly"
+      );
+      assert!(shielded_enough(Some(2), Some(3)));
+      assert!(
+         !shielded_enough(Some(3), Some(2)),
+         "more than the notes hold"
+      );
+
+      assert!(
+         !shielded_enough(None, Some(2)),
+         "nothing usable typed"
+      );
+      assert!(
+         !shielded_enough(Some(1), None),
+         "not shielded at all"
+      );
+      assert!(!shielded_enough(None, None));
+   }
+
+   /// An ERC-721 has no amount to enter — one token, always — so the field is ignored rather than
+   /// required, however it happens to be filled.
+   #[test]
+   fn erc721_always_sends_exactly_one() {
+      let mut send = SendCryptoUi::new();
+      send.set_nft(nft(7, NftStandard::Erc721));
+
+      assert_eq!(send.nft_transfer_amount(), Some(U256::from(1)));
+
+      send.nft_amount = "9".to_string();
+      assert_eq!(
+         send.nft_transfer_amount(),
+         Some(U256::from(1)),
+         "a typed amount cannot turn one ERC-721 into nine"
+      );
+   }
+
+   /// An ERC-1155 with no usable amount cannot be sent: empty, zero and nonsense all block it, and a
+   /// real number goes through as typed.
+   #[test]
+   fn erc1155_amounts_have_to_be_usable() {
+      let mut send = SendCryptoUi::new();
+      send.set_nft(nft(7, NftStandard::Erc1155));
+
+      assert_eq!(
+         send.nft_transfer_amount(),
+         None,
+         "nothing typed yet"
+      );
+
+      for bad in ["", "  ", "0", "abc", "-3", "1.5"] {
+         send.nft_amount = bad.to_string();
+         assert_eq!(
+            send.nft_transfer_amount(),
+            None,
+            "{bad:?} is not an amount"
+         );
+      }
+
+      send.nft_amount = " 12 ".to_string();
+      assert_eq!(
+         send.nft_transfer_amount(),
+         Some(U256::from(12)),
+         "padded input still parses"
+      );
+   }
+
+   /// Nothing selected is nothing to send.
+   #[test]
+   fn without_a_selection_there_is_no_amount() {
+      let send = SendCryptoUi::new();
+      assert_eq!(send.nft_transfer_amount(), None);
+   }
+
+   /// `set_nft` is the mode switch — there is no way to hold an NFT while staying on the fungible
+   /// path, so the send button can never render NFT state over a token amount field.
+   #[test]
+   fn selecting_an_nft_switches_the_mode() {
+      let mut send = SendCryptoUi::new();
+      assert_eq!(send.get_mode(), SendMode::Fungible);
+
+      send.set_nft(nft(7, NftStandard::Erc721));
+      assert_eq!(send.get_mode(), SendMode::Nft);
+      assert!(send.selected_nft.is_some());
+   }
+
+   /// Picking an NFT never inherits the previous selection's quantity.
+   ///
+   /// `nft_amount` is typed *for* a token, so it is cleared with the selection that it was typed for:
+   /// otherwise `nft_transfer_amount` reads a stale string and the button offers a count the user never
+   /// entered for the token now selected.
+   #[test]
+   fn picking_another_nft_does_not_inherit_the_typed_quantity() {
+      let mut send = SendCryptoUi::new();
+      send.set_nft(nft(7, NftStandard::Erc1155));
+      send.nft_amount = "8".to_string();
+      assert_eq!(
+         send.nft_transfer_amount(),
+         Some(U256::from(8)),
+         "as typed"
+      );
+
+      send.set_nft(nft(9, NftStandard::Erc1155));
+
+      assert_eq!(
+         send.selected_nft.as_ref().map(|n| n.token_id),
+         Some(U256::from(9)),
+         "the new selection is the one that is held"
+      );
+      assert_eq!(
+         send.nft_transfer_amount(),
+         None,
+         "and it starts with no quantity of its own"
+      );
+   }
+
+   /// Every hook that means "the token for this chain changed" drops the NFT and returns to the
+   /// fungible path, or a reopened view comes back holding a token from the previous chain.
+   #[test]
+   fn changing_the_token_forgets_the_nft_and_the_mode() {
+      for hook in 0..3 {
+         let mut send = SendCryptoUi::new();
+         send.set_nft(nft(7, NftStandard::Erc1155));
+         send.nft_amount = "3".to_string();
+
+         match hook {
+            0 => send.close(),
+            1 => send.set_currency(Currency::from(
+               NativeCurrency::from_chain_id(1).unwrap(),
+            )),
+            _ => send.default_currency(false, 1),
+         }
+
+         assert_eq!(send.get_mode(), SendMode::Fungible, "hook {hook}");
+         assert_eq!(send.selected_nft, None, "hook {hook}");
+         assert!(send.nft_amount.is_empty(), "hook {hook}");
+      }
+   }
 }

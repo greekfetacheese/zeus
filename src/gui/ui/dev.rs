@@ -3,6 +3,7 @@ use eframe::egui::{Align2, Frame, Order, RichText, ScrollArea, Ui, Window, vec2}
 use crate::assets::Icons;
 use crate::core::clear_signing::ClearDisplay;
 use crate::core::{DecodedEvent, SignMsgType, TransactionAnalysis, TransactionRich, ZeusContext};
+use crate::gui::ui::dev_nft::{NftMinting, spawn_approve_erc721, spawn_approve_erc1155};
 use crate::gui::{SHARED_GUI, ui::notification::NotificationType};
 use crate::utils::self_update::UpdateInfo;
 use crate::utils::{RT, TimeStamp};
@@ -16,6 +17,7 @@ use std::sync::Arc;
 pub struct DevUi {
    pub open: bool,
    pub ui_testing: UiTesting,
+   pub nft_minting: NftMinting,
    pub size: (f32, f32),
 }
 
@@ -24,6 +26,7 @@ impl DevUi {
       Self {
          open: false,
          ui_testing: UiTesting::new(),
+         nft_minting: NftMinting::new(),
          size: (550.0, 500.0),
       }
    }
@@ -38,6 +41,7 @@ impl DevUi {
 
    pub fn close(&mut self) {
       self.open = false;
+      self.nft_minting.close();
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -46,6 +50,8 @@ impl DevUi {
       }
 
       self.show_ui_testing(ctx, theme, icons, ui);
+
+      self.show_nft_minting(theme, ui);
 
       ui.vertical_centered(|ui| {
          ui.set_width(self.size.0);
@@ -63,6 +69,64 @@ impl DevUi {
 
          if ui.add(button).clicked() {
             self.ui_testing.open();
+         }
+
+         let button =
+            Button::new(RichText::new("NFT Minting").size(text_size)).min_size(button_size);
+
+         if ui.add(button).clicked() {
+            self.nft_minting.open();
+         }
+
+         // Live triggers for the State Changes approval diff. No built-in flow approves an NFT, and a
+         // dapp that does is not always at hand — each of these picks the first NFT of its standard
+         // out of the Sepolia portfolio and hands the Railgun smart wallet access to it.
+         let button =
+            Button::new(RichText::new("Approve ERC-721").size(text_size)).min_size(button_size);
+
+         if ui
+            .add(button)
+            .on_hover_text(
+               "approve(railgun, tokenId) on an ERC-721 in the Sepolia portfolio — the per-token \
+                approval shape",
+            )
+            .clicked()
+         {
+            spawn_approve_erc721();
+         }
+
+         let button =
+            Button::new(RichText::new("Approve ERC-1155").size(text_size)).min_size(button_size);
+
+         if ui
+            .add(button)
+            .on_hover_text(
+               "setApprovalForAll(railgun, true) on an ERC-1155 in the Sepolia portfolio — approves \
+                the whole collection",
+            )
+            .clicked()
+         {
+            spawn_approve_erc1155();
+         }
+
+         // The next two used to be entries in the left panel. They are dev-only windows, so they
+         // belong here with the rest of the dev tools instead of in the main navigation.
+         let button =
+            Button::new(RichText::new("Theme Editor").size(text_size)).min_size(button_size);
+
+         if ui.add(button).clicked() {
+            RT.spawn_blocking(|| {
+               SHARED_GUI.write(|gui| gui.editor.open = true);
+            });
+         }
+
+         let button =
+            Button::new(RichText::new("FPS Metrics").size(text_size)).min_size(button_size);
+
+         if ui.add(button).clicked() {
+            RT.spawn_blocking(|| {
+               SHARED_GUI.write(|gui| gui.fps_metrics.open = true);
+            });
          }
       });
    }
@@ -90,6 +154,26 @@ impl DevUi {
 
       if !open {
          self.ui_testing.close();
+      }
+   }
+
+   fn show_nft_minting(&mut self, theme: &Theme, ui: &mut Ui) {
+      let mut open = self.nft_minting.is_open();
+      let title = RichText::new("NFT Minting").size(theme.typography.heading);
+      let window_frame = theme.window_frame;
+
+      Window::new(title)
+         .open(&mut open)
+         .movable(true)
+         .collapsible(true)
+         .order(Order::Middle)
+         .frame(window_frame)
+         .show(ui.ctx(), |ui| {
+            self.nft_minting.show(theme, ui);
+         });
+
+      if !open {
+         self.nft_minting.close();
       }
    }
 }

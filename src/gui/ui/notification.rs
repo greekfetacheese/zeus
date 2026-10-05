@@ -3,6 +3,7 @@
 use crate::assets::Icons;
 use crate::core::{DecodedEvent, TransactionRich, ZeusContext, tx::events::*};
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::token_selection::nft_collection_name;
 use crate::utils::{RT, TimeStamp, truncate_address};
 use egui::{Align2, Order, ProgressBar, RichText, Spinner, TextWrapMode, Ui, Window, vec2};
 use egui_elements::{Button, Label, MultiLabel, Theme};
@@ -11,11 +12,27 @@ use egui_lucide::Lucide;
 use std::sync::Arc;
 
 use zeus_eth::{
-   alloy_primitives::U256,
+   alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token, NativeCurrency},
    types::ChainId,
    utils::NumericValue,
 };
+use zeus_railgun::{abi::railgun::TokenType, caip::AssetId};
+
+/// A known name for an address, or the truncated address when nothing knows it.
+fn address_text(ctx: &ZeusContext, chain: u64, address: Address, theme: &Theme) -> Label {
+   let name = match ctx.get_address_name(chain, address) {
+      Some(name) => name.to_string(),
+      None => truncate_address(address.to_string()),
+   };
+
+   Label::new(
+      RichText::new(name).size(theme.typography.normal),
+      None,
+   )
+   .wrap_mode(TextWrapMode::Extend)
+   .interactive(false)
+}
 
 #[derive(Clone)]
 pub enum NotificationType {
@@ -28,6 +45,12 @@ pub enum NotificationType {
    UnwrapWETH(UnwrapWETHParams),
 
    Transfer(TransferParams),
+
+   /// NFT transfer / mint / burn
+   NftTransfer(NftTransferParams),
+
+   /// An NFT approval or revoke — a collection-wide grant or one token's operator.
+   NftApproval(NftApproveParams),
 
    TokenApproval(TokenApproveParams),
 
@@ -46,12 +69,14 @@ impl NotificationType {
          DecodedEvent::Bridge(params) => Self::Bridge(params),
          DecodedEvent::SwapToken(params) => Self::Swap(params),
          DecodedEvent::Transfer(params) => Self::Transfer(params),
+         DecodedEvent::NftTransfer(params) => Self::NftTransfer(params),
          DecodedEvent::TokenApprove(params) => Self::TokenApproval(params),
          DecodedEvent::WrapETH(params) => Self::WrapETH(params),
          DecodedEvent::UnwrapWETH(params) => Self::UnwrapWETH(params),
          DecodedEvent::UniswapPositionOperation(_params) => Self::Other(String::new()),
          DecodedEvent::EOADelegate(_params) => Self::Other(String::new()),
          DecodedEvent::Permit(_params) => Self::Other(String::new()),
+         DecodedEvent::NftApprove(params) => Self::NftApproval(params),
          DecodedEvent::Shield(params) => Self::Shield(params),
          DecodedEvent::Unshield(params) => Self::Unshield(params),
          DecodedEvent::PrivateTransfer(params) => Self::PrivateTransfer(params),
@@ -77,6 +102,14 @@ impl NotificationType {
 
    pub fn is_transfer(&self) -> bool {
       matches!(self, NotificationType::Transfer { .. })
+   }
+
+   pub fn is_nft_transfer(&self) -> bool {
+      matches!(self, NotificationType::NftTransfer { .. })
+   }
+
+   pub fn is_nft_approval(&self) -> bool {
+      matches!(self, NotificationType::NftApproval { .. })
    }
 
    pub fn is_token_approval(&self) -> bool {
@@ -138,6 +171,20 @@ impl NotificationType {
       match self {
          NotificationType::TokenApproval(params) => params,
          _ => panic!("NotificationType is not a token approval"),
+      }
+   }
+
+   pub fn nft_transfer_params(&self) -> &NftTransferParams {
+      match self {
+         NotificationType::NftTransfer(params) => params,
+         _ => panic!("NotificationType is not an NFT transfer"),
+      }
+   }
+
+   pub fn nft_approval_params(&self) -> &NftApproveParams {
+      match self {
+         NotificationType::NftApproval(params) => params,
+         _ => panic!("NotificationType is not an NFT approval"),
       }
    }
 
@@ -280,6 +327,12 @@ impl Notification {
          NotificationType::Transfer(_) => {
             self.show_transfer_notification(ctx, theme, icons, ui);
          }
+         NotificationType::NftTransfer(_) => {
+            self.show_nft_transfer_notification(ctx, theme, icons, ui);
+         }
+         NotificationType::NftApproval(_) => {
+            self.show_nft_approval_notification(ctx, theme, icons, ui);
+         }
          NotificationType::TokenApproval(_) => {
             self.show_token_approval_notification(theme, icons, ui);
          }
@@ -290,13 +343,13 @@ impl Notification {
             self.show_unwrap_weth_notification(theme, icons.clone(), ui);
          }
          NotificationType::Shield(_) => {
-            self.show_shield_notification(theme, icons.clone(), ui);
+            self.show_shield_notification(ctx, theme, icons.clone(), ui);
          }
          NotificationType::Unshield(_) => {
-            self.show_unshield_notification(theme, icons.clone(), ui);
+            self.show_unshield_notification(ctx, theme, icons.clone(), ui);
          }
          NotificationType::PrivateTransfer(_) => {
-            self.show_private_transfer_notification(theme, icons.clone(), ui);
+            self.show_private_transfer_notification(ctx, theme, icons.clone(), ui);
          }
 
          NotificationType::Other(_) => {
@@ -600,6 +653,134 @@ impl Notification {
       });
    }
 
+   /// The body of an NFT transfer, mint, burn or approval: the token, then the same `from → to` line
+   /// the fungible transfer notification shows.
+   fn show_nft_transfer_notification(
+      &self,
+      ctx: &ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
+      let params = self.notification.nft_transfer_params();
+      let tint = theme.image_tint_recommended;
+      let icon_size = vec2(24.0, 24.0);
+
+      let collection = nft_collection_name(
+         ctx.nft_db.get_collection(params.chain, params.collection).as_ref(),
+         params.collection,
+      );
+
+      let subject = match params.token_id {
+         Some(token_id) => format!("{} #{}", collection, token_id),
+         None => collection,
+      };
+
+      // No `1 ×` prefix for an ERC-721: the id *is* the thing, and "1 ×" next to it is noise.
+      let units = if params.amount > U256::from(1) {
+         format!("{} × ", params.amount)
+      } else {
+         String::new()
+      };
+
+      let text = format!("{}{}", units, subject);
+
+      // A transfer always names a token; the fallback id only covers a stored event whose id never
+      // made it into the art cache.
+      let icon = icons
+         .nft_icon_x64(
+            params.chain,
+            params.collection,
+            params.token_id.unwrap_or(U256::ZERO),
+            tint,
+         )
+         .fit_to_exact_size(icon_size);
+
+      ui.vertical_centered(|ui| {
+         let label = Label::new(
+            RichText::new(text).size(theme.typography.normal),
+            Some(icon),
+         )
+         .wrap_mode(TextWrapMode::Extend)
+         .interactive(false);
+         ui.add(label);
+
+         let from_label = address_text(ctx, params.chain, params.from, theme);
+         let to_label = address_text(ctx, params.chain, params.to, theme);
+
+         let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
+         let arrow_label = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
+
+         ui.add(MultiLabel::new(vec![
+            from_label,
+            arrow_label,
+            to_label,
+         ]));
+      });
+   }
+
+   fn show_nft_approval_notification(
+      &self,
+      ctx: &ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
+      let params = self.notification.nft_approval_params();
+      let tint = theme.image_tint_recommended;
+      let icon_size = vec2(24.0, 24.0);
+
+      let collection = nft_collection_name(
+         ctx.nft_db.get_collection(params.chain, params.collection).as_ref(),
+         params.collection,
+      );
+
+      // A collection-wide approval has no token id, so the collection is the whole subject; the second
+      // line then says what was granted and to whom.
+      let subject = match params.token_id {
+         Some(token_id) => format!("{} #{}", collection, token_id),
+         None => collection,
+      };
+
+      let icon = match params.token_id {
+         Some(token_id) => icons.nft_icon_x64(params.chain, params.collection, token_id, tint),
+         None => icons.nft_collection_icon_x64(params.chain, params.collection, tint),
+      }
+      .fit_to_exact_size(icon_size);
+
+      ui.vertical_centered(|ui| {
+         let label = Label::new(
+            RichText::new(subject).size(theme.typography.normal),
+            Some(icon),
+         )
+         .wrap_mode(TextWrapMode::Extend)
+         .interactive(false);
+         ui.add(label);
+
+         // The same one-line reading the confirmation window gives, minus the collection it already
+         // named above: the action, then the operator it grants (or revokes).
+         let action = if params.is_revoke() {
+            "Revoke"
+         } else {
+            "Approve"
+         };
+         let action_label = Label::new(
+            RichText::new(action).size(theme.typography.normal),
+            None,
+         );
+         let operator = address_text(ctx, params.chain, params.operator, theme);
+
+         let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
+         let arrow_label = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
+
+         ui.add(MultiLabel::new(vec![
+            action_label,
+            arrow_label,
+            operator,
+         ]));
+      });
+   }
+
    fn show_token_approval_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let params = self.notification.token_approval_params();
       let tint = theme.image_tint_recommended;
@@ -638,7 +819,13 @@ impl Notification {
       });
    }
 
-   fn show_shield_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn show_shield_notification(
+      &self,
+      ctx: &ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
       let params = self.notification.shield_params();
       let tint = theme.image_tint_recommended;
       let icon_size = vec2(24.0, 24.0);
@@ -675,11 +862,47 @@ impl Notification {
                .wrap_mode(TextWrapMode::Extend)
                .interactive(false);
             ui.add(label);
+         } else if let AssetId::Erc721(collection, token_id)
+         | AssetId::Erc1155(collection, token_id) = &params.asset
+         {
+            // An NFT shield is reported the same way the fungible one is: the collection's name and art,
+            // with the id, instead of leaving the notification with only its title. An ERC-1155 moves a
+            // count, so it is shown the way the private transfer shows it.
+            let name = nft_collection_name(
+               ctx.nft_db.get_collection(params.chain, *collection).as_ref(),
+               *collection,
+            );
+
+            let icon = icons
+               .nft_icon_x64(params.chain, *collection, *token_id, tint)
+               .fit_to_exact_size(icon_size);
+
+            let mut text = format!("{} #{}", name, token_id);
+            if matches!(params.asset, AssetId::Erc1155(..)) {
+               if let Some(amount) = params.amount.as_ref() {
+                  text.push_str(&format!(" × {}", amount.abbreviated()));
+               }
+            }
+
+            let label = Label::new(
+               RichText::new(text).size(theme.typography.normal),
+               Some(icon),
+            )
+            .image_on_left()
+            .wrap_mode(TextWrapMode::Extend)
+            .interactive(false);
+            ui.add(label);
          }
       });
    }
 
-   fn show_unshield_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn show_unshield_notification(
+      &self,
+      ctx: &ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
       let params = self.notification.unshield_params();
       let tint = theme.image_tint_recommended;
       let icon_size = vec2(24.0, 24.0);
@@ -716,11 +939,52 @@ impl Notification {
                .wrap_mode(TextWrapMode::Extend)
                .interactive(false);
             ui.add(label);
+         } else if matches!(
+            params.token_data.tokenType,
+            TokenType::ERC721 | TokenType::ERC1155
+         ) {
+            // Same as the shield: name the NFT, don't leave the notification with only its title. An
+            // ERC-1155 moves a count, so it is shown the way the private transfer shows it.
+            let name = nft_collection_name(
+               ctx.nft_db.get_collection(params.chain, params.token_data.tokenAddress).as_ref(),
+               params.token_data.tokenAddress,
+            );
+
+            let icon = icons
+               .nft_icon_x64(
+                  params.chain,
+                  params.token_data.tokenAddress,
+                  params.token_data.tokenSubID,
+                  tint,
+               )
+               .fit_to_exact_size(icon_size);
+
+            let mut text = format!("{} #{}", name, params.token_data.tokenSubID);
+            if params.token_data.tokenType == TokenType::ERC1155 {
+               if let Some(amount) = params.amount.as_ref() {
+                  text.push_str(&format!(" × {}", amount.abbreviated()));
+               }
+            }
+
+            let label = Label::new(
+               RichText::new(text).size(theme.typography.normal),
+               Some(icon),
+            )
+            .image_on_left()
+            .wrap_mode(TextWrapMode::Extend)
+            .interactive(false);
+            ui.add(label);
          }
       });
    }
 
-   fn show_private_transfer_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn show_private_transfer_notification(
+      &self,
+      ctx: &ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
       let params = self.notification.private_transfer_params();
       let tint = theme.image_tint_recommended;
       let icon_size = vec2(24.0, 24.0);
@@ -751,6 +1015,35 @@ impl Notification {
                .image_on_left()
                .wrap_mode(TextWrapMode::Extend)
                .interactive(false);
+            ui.add(label);
+         } else if let AssetId::Erc721(collection, token_id)
+         | AssetId::Erc1155(collection, token_id) = &params.asset
+         {
+            // The same row shape the confirmation uses: the collection names it and its art stands in for
+            // a token icon — plus a count, but only for the standard that has one.
+            let name = nft_collection_name(
+               ctx.nft_db.get_collection(params.chain, *collection).as_ref(),
+               *collection,
+            );
+
+            let icon = icons
+               .nft_icon_x64(params.chain, *collection, *token_id, tint)
+               .fit_to_exact_size(icon_size);
+
+            let mut text = format!("{} #{}", name, token_id);
+            if matches!(params.asset, AssetId::Erc1155(..)) {
+               if let Some(amount) = params.amount.as_ref() {
+                  text.push_str(&format!(" × {}", amount.abbreviated()));
+               }
+            }
+
+            let label = Label::new(
+               RichText::new(text).size(theme.typography.normal),
+               Some(icon),
+            )
+            .image_on_left()
+            .wrap_mode(TextWrapMode::Extend)
+            .interactive(false);
             ui.add(label);
          }
       });

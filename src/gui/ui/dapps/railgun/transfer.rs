@@ -3,9 +3,9 @@
 use anyhow::anyhow;
 
 use zeus_eth::{
-   alloy_primitives::Address,
+   alloy_primitives::{Address, U256},
    alloy_rpc_types::BlockId,
-   currency::{Currency, ERC20Token},
+   currency::Currency,
    types::ChainId,
    utils::NumericValue,
 };
@@ -31,22 +31,32 @@ use crate::{
    },
 };
 
-use super::{ProvedCall, prove, railgun_ready, settle_railgun_op, simulate_proved};
+use super::{
+   ProvedCall, RailgunAsset, SettledOp, prove, railgun_ready, settle_railgun_op, simulate_proved,
+};
 
 /// Private transfer of notes from the current wallet's 0zk address to another 0zk address.
+///
+/// Takes a [`RailgunAsset`] for the same reason the shield does: the builders are asset-agnostic, and the
+/// difference between a fungible amount, an ERC-1155 quantity and an ERC-721's single token is already
+/// answered by `asset_id()` and `value()` in one place.
 pub async fn private_transfer(
    ctx: ZeusCtx,
    chain: ChainId,
-   currency: Currency,
+   asset: RailgunAsset,
    amount: NumericValue,
    from: Address,
    recipient_zk: String,
    memo: String,
 ) -> Result<(), anyhow::Error> {
-   if !currency.is_erc20() {
-      return Err(anyhow!(
-         "Private transfer requires an ERC-20 asset (use WETH for native-equivalent)"
-      ));
+   // A fungible transfer has to move an ERC-20 — native has no note of its own to spend, so WETH stands
+   // in. An NFT note *is* the asset, so there is nothing to check for it.
+   if let RailgunAsset::Fungible(currency) = &asset {
+      if !currency.is_erc20() {
+         return Err(anyhow!(
+            "Private transfer requires an ERC-20 asset (use WETH for native-equivalent)"
+         ));
+      }
    }
 
    let recipient = match RailgunAddress::from_zk_address(recipient_zk.trim()) {
@@ -70,29 +80,57 @@ pub async fn private_transfer(
 
    railgun_ready(ctx.clone(), chain).await?;
 
-   let token = currency.to_erc20().into_owned();
-   let asset = AssetId::Erc20(token.address);
-   let amount_u128: u128 = amount
-      .wei()
+   let asset_id = asset.asset_id();
+
+   // What actually moves: an ERC-20 its amount, an ERC-1155 a count of an id, an ERC-721 exactly one
+   // whatever the field says. `value` is where that difference lives, and the number it answers is what
+   // the receipt below reports too — so a receipt cannot claim something other than what moved.
+   let amount_u128: u128 = asset
+      .value(amount.wei())
       .try_into()
       .map_err(|_| anyhow!("Amount too large for private transfer"))?;
 
-   let amount_usd = ctx.get_token_value_for_amount(amount.f64(), &token);
+   // What the confirmation and the notification describe, and the contract the fork prefetches: the token
+   // for an ERC-20, the collection for an NFT.
+   let (contract, erc20, nft, shown_amount, amount_usd) = match &asset {
+      RailgunAsset::Fungible(currency) => {
+         let token = currency.to_erc20().into_owned();
+         let amount_usd = ctx.get_token_value_for_amount(amount.f64(), &token);
+
+         (
+            token.address,
+            Some(token),
+            None,
+            amount.clone(),
+            Some(amount_usd),
+         )
+      }
+      RailgunAsset::Nft(nft) => (
+         nft.collection,
+         None,
+         Some(nft.clone()),
+         // Whole units, with no decimals to scale a count by — and no price to go beside it.
+         NumericValue::format_wei(U256::from(amount_u128), 0),
+         None,
+      ),
+   };
+
    let transfer_params = PrivateTransferParams {
       chain: chain.id(),
       recipient: recipient.address.clone(),
-      asset,
-      erc20: Some(token.clone()),
-      amount_wei: amount.wei(),
-      amount: Some(amount.clone()),
-      amount_usd: Some(amount_usd),
+      asset: asset_id,
+      erc20,
+      nft,
+      amount_wei: U256::from(amount_u128),
+      amount: Some(shown_amount),
+      amount_usd,
    };
 
    let tx = TransactionBuilder::new()
       .transfer(
          railgun_signer.clone(),
          recipient,
-         asset,
+         asset_id,
          amount_u128,
          memo.trim(),
       )
@@ -106,7 +144,7 @@ pub async fn private_transfer(
       chain,
       railgun_signer,
       from,
-      token,
+      contract,
       tx,
       transfer_params,
    )
@@ -162,6 +200,7 @@ pub async fn private_merge_notes(
       recipient: self_zk.address.clone(),
       asset,
       erc20: Some(token.clone()),
+      nft: None,
       amount_wei: amount.wei(),
       amount: Some(amount.clone()),
       amount_usd: Some(amount_usd),
@@ -182,19 +221,22 @@ pub async fn private_merge_notes(
       chain,
       railgun_signer,
       from,
-      token,
+      token.address,
       tx,
       transfer_params,
    )
    .await
 }
 
+/// Runs a proved private transfer: pin the synced block, prove, fork-simulate, then send.
+///
+/// `contract` is what the fork prefetches — the token for an ERC-20, the collection for an NFT.
 async fn exec_private_transfer(
    ctx: ZeusCtx,
    chain: ChainId,
    railgun_signer: RailgunSigner,
    from: Address,
-   token: ERC20Token,
+   contract: Address,
    tx: TransactionBuilder,
    transfer_params: PrivateTransferParams,
 ) -> Result<(), anyhow::Error> {
@@ -230,7 +272,7 @@ async fn exec_private_transfer(
 
    let mut accounts = Vec::new();
    accounts.push(AccountPrefetch::eoa(from));
-   accounts.push(AccountPrefetch::contract(token.address));
+   accounts.push(AccountPrefetch::contract(contract));
    accounts.push(AccountPrefetch::eoa(
       fork_block.header.beneficiary,
    ));
@@ -309,7 +351,12 @@ async fn exec_private_transfer(
    )
    .await?;
 
-   RT.spawn(settle_railgun_op(ctx, chain, from, None));
+   RT.spawn(settle_railgun_op(
+      ctx,
+      chain,
+      from,
+      SettledOp::Private,
+   ));
 
    Ok(())
 }

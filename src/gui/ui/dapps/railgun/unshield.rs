@@ -17,7 +17,7 @@ use zeus_eth::{
    alloy_primitives::{Address, Bytes, KECCAK256_EMPTY, Log, U256, keccak256},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
-   currency::{Currency, ERC20Token},
+   currency::ERC20Token,
    revm_utils::{
       ForkFactory, Host, new_evm,
       revm::state::{AccountInfo, Bytecode},
@@ -50,13 +50,13 @@ use crate::{
 };
 
 use super::{
-   ProvedCall, expect_single_event, prove, railgun_ready, resync_railgun_later, settle_railgun_op,
-   simulate_proved,
+   ProvedCall, RailgunAsset, SettledOp, expect_single_event, prove, railgun_ready,
+   resync_railgun_later, settle_railgun_op, simulate_proved,
 };
 
 /// Default public Pimlico bundler RPC for a chain.
 pub fn default_bundler_url(chain_id: u64) -> String {
-   format!("https://public.pimlico.io/v2/{}/rpc", chain_id)
+   crate::core::urls::pimlico_bundler(chain_id)
 }
 
 /// EIP-7702 designated delegated code: `0xef0100 || implementation`.
@@ -75,7 +75,7 @@ fn eip7702_delegated_code(implementation: Address) -> Bytes {
 pub async fn unshield(
    ctx: ZeusCtx,
    chain: ChainId,
-   currency: Currency,
+   asset: RailgunAsset,
    amount: NumericValue,
    from: Address,
    recipient: String,
@@ -84,9 +84,18 @@ pub async fn unshield(
    bundler_url: String,
    memo: String,
 ) -> Result<(), anyhow::Error> {
-   if !currency.is_erc20() {
+   if asset.is_native() {
       return Err(anyhow!(
-         "Unshield requires an ERC-20 asset (use WETH for native-equivalent)"
+         "Unshield requires a token or an NFT (use WETH for native-equivalent)"
+      ));
+   }
+
+   // Railgun has no ERC-1155 support to prove against, so the shield side already refuses it
+   // (`erc1155_shield_blocked`). Refused here too, so the two directions cannot disagree — and in the
+   // entry point rather than only in the form, so nothing can route around it.
+   if asset.asset_id().is_erc1155() {
+      return Err(anyhow!(
+         "Unshielding ERC-1155 is disabled: Railgun does not support it yet, and Zeus will enable it only after verifying that support."
       ));
    }
 
@@ -110,16 +119,17 @@ pub async fn unshield(
 
    railgun_ready(ctx.clone(), chain).await?;
 
-   let token = currency.to_erc20().into_owned();
-   let asset = AssetId::Erc20(token.address);
-   let amount_u128: u128 =
-      amount.wei().try_into().map_err(|_| anyhow!("Amount too large for unshield"))?;
+   // An ERC-721 moves exactly one: the token id is the asset, so the amount the UI holds is not consulted.
+   let amount_u128: u128 = asset
+      .value(amount.wei())
+      .try_into()
+      .map_err(|_| anyhow!("Amount too large for unshield"))?;
 
    let tx = TransactionBuilder::new()
       .unshield(
          railgun_signer.clone(),
          recipient,
-         asset,
+         asset.asset_id(),
          amount_u128,
       )?
       .with_change_memo(&encode_history_memo(
@@ -134,7 +144,7 @@ pub async fn unshield(
          railgun_signer,
          from,
          recipient,
-         token,
+         &asset,
          tx,
       )
       .await
@@ -143,8 +153,8 @@ pub async fn unshield(
          ctx,
          chain,
          from,
-         token,
-         amount.wei(),
+         &asset,
+         asset.value(amount.wei()),
          recipient,
          unwrap_to_eth,
          railgun_signer,
@@ -162,7 +172,7 @@ async fn unshield_self_broadcast(
    railgun_signer: RailgunSigner,
    from: Address,
    recipient: Address,
-   token: ERC20Token,
+   asset: &RailgunAsset,
    tx: TransactionBuilder,
 ) -> Result<(), anyhow::Error> {
    SHARED_GUI.write(|gui| {
@@ -200,7 +210,9 @@ async fn unshield_self_broadcast(
    let mut accounts = Vec::new();
    accounts.push(AccountPrefetch::eoa(from));
    accounts.push(AccountPrefetch::eoa(recipient));
-   accounts.push(AccountPrefetch::contract(token.address));
+   accounts.push(AccountPrefetch::contract(
+      asset.asset_id().address(),
+   ));
    accounts.push(AccountPrefetch::eoa(
       fork_block.header.beneficiary,
    ));
@@ -312,7 +324,17 @@ async fn unshield_self_broadcast(
    )
    .await?;
 
-   RT.spawn(settle_railgun_op(ctx, chain, from, Some(token)));
+   RT.spawn(settle_railgun_op(
+      ctx,
+      chain,
+      from,
+      match asset {
+         RailgunAsset::Fungible(currency) => {
+            SettledOp::Fungible(Some(currency.to_erc20().into_owned()))
+         }
+         RailgunAsset::Nft(_) => SettledOp::Nft,
+      },
+   ));
 
    Ok(())
 }
@@ -321,7 +343,7 @@ async fn unshield_via_paymaster(
    ctx: ZeusCtx,
    chain: ChainId,
    from: Address,
-   token: ERC20Token,
+   asset: &RailgunAsset,
    amount: U256,
    recipient: Address,
    unwrap_to_eth: bool,
@@ -449,19 +471,23 @@ async fn unshield_via_paymaster(
    // unshields leave zero headroom for the fee and fail during UserOp prep.
    let amount_u128: u128 =
       amount.try_into().map_err(|_| anyhow!("Amount too large for unshield"))?;
-   if token.address == fee_token.address {
-      let need = amount_u128.saturating_add(INITIAL_FEE_WEI);
-      if need > fee_token_balance {
-         let amount_fmt = NumericValue::format_wei(amount, token.decimals);
-         let max_unshield = fee_token_balance.saturating_sub(INITIAL_FEE_WEI);
-         let max_fmt = NumericValue::format_wei(U256::from(max_unshield), token.decimals);
-         return Err(anyhow!(
-            "Not enough private {} for unshield + bundler fee. Unshielding {} leaves no room for the paymaster fee (private balance {}). Try unshielding at most {} or use self-broadcast.",
-            token.symbol,
-            amount_fmt.abbreviated(),
-            fee_token_balance_fmt.abbreviated(),
-            max_fmt.abbreviated()
-         ));
+   if let RailgunAsset::Fungible(currency) = asset {
+      let token = currency.to_erc20();
+
+      if token.address == fee_token.address {
+         let need = amount_u128.saturating_add(INITIAL_FEE_WEI);
+         if need > fee_token_balance {
+            let amount_fmt = NumericValue::format_wei(amount, token.decimals);
+            let max_unshield = fee_token_balance.saturating_sub(INITIAL_FEE_WEI);
+            let max_fmt = NumericValue::format_wei(U256::from(max_unshield), token.decimals);
+            return Err(anyhow!(
+               "Not enough private {} for unshield + bundler fee. Unshielding {} leaves no room for the paymaster fee (private balance {}). Try unshielding at most {} or use self-broadcast.",
+               token.symbol,
+               amount_fmt.abbreviated(),
+               fee_token_balance_fmt.abbreviated(),
+               max_fmt.abbreviated()
+            ));
+         }
       }
    }
 
@@ -482,7 +508,13 @@ async fn unshield_via_paymaster(
    // WETH, then: WETH.withdraw → (optional) send ETH to the real recipient.
    let sa_addr = smart_account.address();
    let (tx, post_calls) = if unwrap_to_eth {
-      if token.address != chain_config.wrapped_base_token {
+      let is_wrapped_base = matches!(
+         asset,
+         RailgunAsset::Fungible(currency)
+            if currency.to_erc20().address == chain_config.wrapped_base_token
+      );
+
+      if !is_wrapped_base {
          return Err(anyhow!(
             "Unwrap to ETH is only available when unshielding the chain wrapped base token (WETH)"
          ));
@@ -927,9 +959,17 @@ async fn unshield_via_paymaster(
 
    record_and_notify(ctx.clone(), chain, from, &outcome)?;
 
-   let token = if unwrap_to_eth { None } else { Some(token) };
+   // Which half waits on the chain is the operation's business: an unshield of an NFT hands public
+   // ownership back, a fungible one moves a token balance.
+   let settled_op = match asset {
+      RailgunAsset::Fungible(currency) if !unwrap_to_eth => {
+         SettledOp::Fungible(Some(currency.to_erc20().into_owned()))
+      }
+      RailgunAsset::Fungible(_) => SettledOp::Fungible(None),
+      RailgunAsset::Nft(_) => SettledOp::Nft,
+   };
 
-   RT.spawn(settle_railgun_op(ctx, chain, from, token));
+   RT.spawn(settle_railgun_op(ctx, chain, from, settled_op));
 
    Ok(())
 }

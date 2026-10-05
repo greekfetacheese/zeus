@@ -6,6 +6,7 @@ use crate::core::{
    SendTxOptions, SendTxRequest, TransactionRich, WalletCall, ZeusCtx, send_transaction,
    send_wallet_calls, sign_message,
 };
+use crate::gui::ui::common::switch_chain;
 use crate::gui::{DappAccountChoice, DappConnectResult, SHARED_GUI};
 use crate::utils::RT;
 use anyhow::anyhow;
@@ -1584,14 +1585,13 @@ async fn apply_chain_switch(
       ));
    }
 
-   ctx.write(|ctx| {
-      ctx.chain = chain;
-   });
+   // The chain changed, so everything that follows it has to be reset with it: the selected currency,
+   // the open picker, the swap defaults and the shield/send selections. `switch_chain` is the one place
+   // that list lives — a dapp asking for the switch is still a switch, and doing it by hand here is how
+   // this path came to leave the previous chain's token and NFT selected.
+   ctx.write(|ctx| switch_chain(ctx, chain));
 
-   SHARED_GUI.write(|gui| {
-      gui.account_panel.set_current_chain(chain);
-      gui.request_repaint();
-   });
+   SHARED_GUI.write(|gui| gui.request_repaint());
 
    Ok(JsonRpcResponse::ok(Some(Value::Null), payload_id))
 }

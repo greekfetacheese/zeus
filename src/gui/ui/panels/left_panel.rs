@@ -294,41 +294,21 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
       #[cfg(feature = "dev")]
       {
-         let text = RichText::new("Theme Editor").size(text_size);
-         let theme_editor = frame.selected(false).show(ui, |ui| {
+         let text = RichText::new("Dev UI").size(text_size);
+         let dev = frame.selected(false).show(ui, |ui| {
             ui.add(Label::new(text, None).interactive(false));
          });
+         if dev.response.clicked() {
+            gui.dev.open();
+            gui.portofolio.close();
+            gui.uniswap.close();
+            gui.send_crypto.close();
+            gui.wallet_ui.close();
+            gui.tx_history.close(ctx);
+            gui.across_bridge.close();
 
-         if theme_editor.response.clicked() {
-            gui.editor.open = true;
-         }
-
-         let text = RichText::new("FPS Metrics").size(text_size);
-         let fps_metrics = frame.selected(false).show(ui, |ui| {
-            ui.add(Label::new(text, None).interactive(false));
-         });
-
-         if fps_metrics.response.clicked() {
-            gui.fps_metrics.open = true;
-         }
-
-         {
-            let text = RichText::new("Dev UI").size(text_size);
-            let dev = frame.selected(false).show(ui, |ui| {
-               ui.add(Label::new(text, None).interactive(false));
-            });
-            if dev.response.clicked() {
-               gui.dev.open();
-               gui.portofolio.close();
-               gui.uniswap.close();
-               gui.send_crypto.close();
-               gui.wallet_ui.close();
-               gui.tx_history.close(ctx);
-               gui.across_bridge.close();
-
-               gui.shield_ui.close();
-               gui.approvals.close();
-            }
+            gui.shield_ui.close();
+            gui.approvals.close();
          }
       }
    });

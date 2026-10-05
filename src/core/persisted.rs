@@ -21,6 +21,22 @@ pub const CLEAR_SIGNING_INDEX_CALLDATA: &str = "index.calldata.json";
 pub const TOKEN_ICON_X32: &str = "x32.png";
 pub const TOKEN_ICON_X24: &str = "x24.png";
 
+/// Downloaded NFT-image basenames under [`PersistedTree::NftIcons`].
+///
+/// Art is rasterised at ingest into two renderings of the same picture, so switching between the grid
+/// and the detail view never goes back to the network. A token directory holds those renderings plus
+/// [`NFT_ICON_SOURCE`], and a vector file left by an older version is deleted on write — nothing reads
+/// it any more. [`NFT_IMAGE_SVG`] stays a *known* name only so an archive written by that version
+/// still validates.
+pub const NFT_ICON_X64: &str = "x64.png";
+pub const NFT_ICON_X250: &str = "x250.png";
+pub const NFT_IMAGE_SVG: &str = "image.svg";
+/// The metadata URI a token's cached art was read from, beside its renderings.
+///
+/// Kept so a collection that changes its `tokenURI` (a reveal, an upgrade) can be noticed: the cache is
+/// keyed by `(collection, token id)`, which cannot tell the difference on its own.
+pub const NFT_ICON_SOURCE: &str = "source_uri";
+
 macro_rules! persisted_files {
    ($($variant:ident => $name:literal),* $(,)?) => {
       /// A single known file at the root of `data/`.
@@ -80,6 +96,7 @@ persisted_files! {
    WalletState => "wallet_state.data",
    TxHistory => "tx_history.db",
    Tokens => "tokens.data",
+   NftDb => "nft_db.data",
    PoolData => "pool_data.data",
    Providers => "providers.data",
    BundlerUrl => "bundler_url.data",
@@ -101,6 +118,7 @@ persisted_trees! {
    Railgun => "railgun",
    ClearSigning => "clear_signing",
    TokenIcons => "token_icons",
+   NftIcons => "nft_icons",
 }
 
 /// Everything Zeus persists under `data/`.
@@ -129,6 +147,7 @@ impl Persisted {
             | PersistedFile::WalletState
             | PersistedFile::TxHistory
             | PersistedFile::Tokens
+            | PersistedFile::NftDb
             | PersistedFile::PoolData
             | PersistedFile::Providers
             | PersistedFile::BundlerUrl
@@ -170,6 +189,7 @@ impl PersistedTree {
          Self::Railgun => "Include Railgun data",
          Self::ClearSigning => "Include clear signing cache",
          Self::TokenIcons => "Include downloaded token icons",
+         Self::NftIcons => "Include downloaded NFT images",
       }
    }
 
@@ -189,6 +209,7 @@ impl PersistedTree {
             is_allowed_clear_signing_file(name)
          }
          Self::TokenIcons => is_allowed_token_icon_rel(rel),
+         Self::NftIcons => is_allowed_nft_icon_rel(rel),
       }
    }
 }
@@ -199,6 +220,7 @@ pub struct ExportOptions {
    pub clear_signing: bool,
    pub railgun: bool,
    pub token_icons: bool,
+   pub nft_icons: bool,
 }
 
 impl ExportOptions {
@@ -207,6 +229,7 @@ impl ExportOptions {
          PersistedTree::Railgun => self.railgun,
          PersistedTree::ClearSigning => self.clear_signing,
          PersistedTree::TokenIcons => self.token_icons,
+         PersistedTree::NftIcons => self.nft_icons,
       }
    }
 
@@ -215,6 +238,7 @@ impl ExportOptions {
          PersistedTree::Railgun => &mut self.railgun,
          PersistedTree::ClearSigning => &mut self.clear_signing,
          PersistedTree::TokenIcons => &mut self.token_icons,
+         PersistedTree::NftIcons => &mut self.nft_icons,
       }
    }
 }
@@ -253,7 +277,7 @@ pub fn tree_dir(tree: PersistedTree) -> Result<PathBuf, anyhow::Error> {
             );
          }
       }
-      PersistedTree::ClearSigning | PersistedTree::TokenIcons => {}
+      PersistedTree::ClearSigning | PersistedTree::TokenIcons | PersistedTree::NftIcons => {}
    }
    Ok(dir)
 }
@@ -318,6 +342,25 @@ pub fn is_allowed_token_icon_rel(rel: &Path) -> bool {
       return false;
    }
    is_chain_id(&parts[0]) && is_token_address_dir(&parts[1]) && is_icon_file(&parts[2])
+}
+
+/// NFT images live at `nft_icons/{chain}/{collection}/{tokenId}/{x64,x250}.png`, beside the
+/// `source_uri` sidecar that records the metadata URI they were read from.
+///
+/// One directory per token id because the id is a `uint256`, not a fixed-size value. The id is
+/// stored in **decimal** and leading zeros are rejected, so `1` and `01` cannot become two
+/// directories for the same token.
+pub fn is_allowed_nft_icon_rel(rel: &Path) -> bool {
+   let Some(parts) = normal_components(rel) else {
+      return false;
+   };
+   if parts.len() != 4 {
+      return false;
+   }
+   is_chain_id(&parts[0])
+      && is_token_address_dir(&parts[1])
+      && is_nft_token_id_dir(&parts[2])
+      && is_nft_icon_file(&parts[3])
 }
 
 /// Whether `parts` (relative to `data/`) is a known persisted path that may
@@ -396,6 +439,19 @@ fn is_icon_file(name: &str) -> bool {
    name == TOKEN_ICON_X32
 }
 
+/// Token-id directory names: decimal, no leading zeros, at most 78 digits (a `uint256` is at most
+/// 78 characters) so a hostile import zip cannot spell an absurd path.
+fn is_nft_token_id_dir(s: &str) -> bool {
+   if s.is_empty() || s.len() > 78 || !s.chars().all(|c| c.is_ascii_digit()) {
+      return false;
+   }
+   s == "0" || !s.starts_with('0')
+}
+
+fn is_nft_icon_file(name: &str) -> bool {
+   name == NFT_ICON_X64 || name == NFT_ICON_X250 || name == NFT_IMAGE_SVG || name == NFT_ICON_SOURCE
+}
+
 #[cfg(test)]
 mod tests {
    use super::*;
@@ -428,6 +484,107 @@ mod tests {
       assert!(names.contains(&"wallet_state.data"));
       assert!(names.contains(&"misc_config.json"));
       assert!(!names.contains(&"connector.json"));
+   }
+
+   /// The NFT catalog is user data: it must travel with an export exactly as `tokens.data` does.
+   /// A newly added store that nobody classified would silently drop out of every backup.
+   #[test]
+   fn nft_db_is_a_core_exported_file() {
+      assert_eq!(PersistedFile::NftDb.name(), "nft_db.data");
+      assert_eq!(
+         PersistedFile::NftDb.export_policy(),
+         ExportPolicy::Core
+      );
+      assert!(
+         is_allowed_rel_parts(&["nft_db.data".to_string()]),
+         "an export zip must accept nft_db.data"
+      );
+      assert!(
+         !is_allowed_rel_parts(&["nft_db.data.bak".to_string()]),
+         "only the exact file name is a known path"
+      );
+   }
+
+   /// NFT image paths are `nft_icons/{chain}/{collection}/{tokenId}/x*.png` and nothing else.
+   #[test]
+   fn nft_icon_paths_are_strictly_validated() {
+      let good = |rel: &str| is_allowed_nft_icon_rel(&PathBuf::from(rel));
+      let bayc = "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d";
+
+      assert!(good(&format!("1/{bayc}/1/x64.png")));
+      assert!(good(&format!("1/{bayc}/1/x250.png")));
+      assert!(
+         good(&format!("1/{bayc}/1/image.svg")),
+         "a vector file from an older version is still a known path"
+      );
+      assert!(
+         good(&format!("1/{bayc}/1/{NFT_ICON_SOURCE}")),
+         "the metadata-URI sidecar is part of the token directory"
+      );
+      assert!(
+         good(&format!("137/{bayc}/0/x64.png")),
+         "token id 0 is valid"
+      );
+      assert!(
+         good(&format!("1/{bayc}/{}/x64.png", u128::MAX)),
+         "a large token id is valid"
+      );
+
+      assert!(
+         !good(&format!("1/{bayc}/01/x64.png")),
+         "a leading zero would make two directories for one token"
+      );
+      assert!(
+         !good(&format!("1/{bayc}/x64.png")),
+         "the token id directory is required"
+      );
+      assert!(
+         !good(&format!("1/{bayc}/1/extra/x64.png")),
+         "no extra nesting"
+      );
+      assert!(!good(&format!("1/not-an-address/1/x64.png")));
+      assert!(
+         !good(&format!("1/{bayc}/1/logo-32.png")),
+         "only our own file names"
+      );
+      assert!(
+         !good(&format!("1/{bayc}/1/../1/x64.png")),
+         "traversal is not a known path"
+      );
+
+      // The two icon trees must not accept each other's layout.
+      assert!(!good(&format!("1/{bayc}/x32.png")));
+      assert!(is_allowed_token_icon_rel(&PathBuf::from(
+         format!("1/{bayc}/x32.png")
+      )));
+      assert!(!is_allowed_token_icon_rel(&PathBuf::from(
+         format!("1/{bayc}/1/x64.png")
+      )));
+
+      // And the tree dispatch finds it through `is_allowed_rel_parts`.
+      assert!(is_allowed_rel_parts(&[
+         "nft_icons".to_string(),
+         "1".to_string(),
+         bayc.to_string(),
+         "1".to_string(),
+         "x64.png".to_string(),
+      ]));
+   }
+
+   /// A new tree must be Optional with a label, or the export dialog would either skip it or render
+   /// a checkbox with no text.
+   #[test]
+   fn nft_icons_tree_is_exportable_with_a_label() {
+      assert_eq!(PersistedTree::NftIcons.dir_name(), "nft_icons");
+      assert_eq!(
+         PersistedTree::NftIcons.export_policy(),
+         ExportPolicy::Optional
+      );
+      assert!(!PersistedTree::NftIcons.export_label().is_empty());
+      assert!(
+         !ExportOptions::default().nft_icons,
+         "images stay opt-in for an export too"
+      );
    }
 
    #[test]

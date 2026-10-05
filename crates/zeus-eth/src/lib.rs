@@ -1,9 +1,14 @@
 pub mod abi;
 pub mod amm;
 pub mod currency;
+pub mod nft;
 pub mod revm_utils;
 pub mod types;
 pub mod utils;
+
+/// Shared helpers for live-chain tests. Test-only.
+#[cfg(test)]
+mod test_utils;
 
 pub use alloy_contract;
 pub use alloy_dyn_abi;
@@ -19,5 +24,6 @@ pub use alloy_transport;
 pub use revm;
 
 pub use crate::currency::{Currency, ERC20Token, NativeCurrency};
+pub use crate::nft::{NftCollection, NftStandard, NftToken};
 pub use crate::types::{ChainId, SUPPORTED_CHAINS};
 pub use crate::utils::{client::*, numeric_value::NumericValue};

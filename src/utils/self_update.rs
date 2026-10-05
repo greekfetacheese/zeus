@@ -1,4 +1,5 @@
 use crate::core::ZeusCtx;
+use crate::core::urls::ZeusUrl;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use anyhow::anyhow;
@@ -46,6 +47,13 @@ pub fn do_check_for_updates(ctx: ZeusCtx) {
 }
 
 pub async fn check_for_updates() -> Result<UpdateInfo, anyhow::Error> {
+   // The endpoint catalog is the single source of truth for where Zeus looks
+   // for its own releases; keep the self_update owner/repo in step with it.
+   debug_assert_eq!(
+      format!("https://github.com/{REPO_OWNER}/{REPO_NAME}"),
+      ZeusUrl::ZeusReleases.base()
+   );
+
    let current_version = cargo_crate_version!().to_string();
 
    let releases = ReleaseList::configure()

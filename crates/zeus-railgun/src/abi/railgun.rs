@@ -325,8 +325,49 @@ mod tests {
    use alloy_primitives::{Bytes, FixedBytes, address, b256, bytes};
    use ruint::uint;
 
-   use super::{BoundParams, CommitmentCiphertext, ShieldCiphertext, UnshieldType};
+   use super::{
+      BoundParams, CommitmentCiphertext, ShieldCiphertext, TokenData, TokenType, UnshieldType,
+   };
    use crate::crypto::aes::Ciphertext;
+
+   /// A note's ciphertext carries `asset.hash()` — 32 bytes, whatever the standard. `from_hash` has a
+   /// 96-byte branch for ERC-721/1155, but nothing ever produces 96 bytes, so the 32-byte branch is the
+   /// only one that runs and it *hardcodes* `TokenType::ERC20`, reading an address out of the hash's low 20
+   /// bytes. An NFT's identity is therefore gone the moment a transact note is decrypted: it comes back as
+   /// a phantom ERC-20 at a random address, its leaf (`poseidon(npk, asset.hash(), value)`) no longer
+   /// matches the tree, and the note can never be proved or spent.
+   ///
+   /// Pinned so the fix — resolving the asset from something other than this inversion — has a red test to
+   /// turn green.
+   #[test]
+   fn a_token_hash_only_round_trips_for_an_erc20() {
+      use crate::caip::AssetId;
+
+      let token = AssetId::Erc20(address!(
+         "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+      ));
+      let recovered = TokenData::from_hash(&token.hash().to_be_bytes_vec()).unwrap();
+      assert_eq!(recovered.tokenType, TokenType::ERC20);
+      assert_eq!(
+         recovered.tokenAddress,
+         address!("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
+      );
+
+      let nft = AssetId::Erc721(
+         address!("0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D"),
+         ruint::aliases::U256::from(1593),
+      );
+      let recovered = TokenData::from_hash(&nft.hash().to_be_bytes_vec()).unwrap();
+      assert_ne!(
+         recovered.tokenType,
+         TokenType::ERC721,
+         "the standard is lost — so the leaf can never match the tree"
+      );
+      assert_ne!(
+         recovered.tokenAddress,
+         address!("0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D")
+      );
+   }
 
    #[test]
    fn test_hash_bound_params() {

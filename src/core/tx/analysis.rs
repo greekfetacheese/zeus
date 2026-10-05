@@ -7,6 +7,7 @@ use zeus_eth::{
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
    currency::{Currency, ERC20Token, NativeCurrency},
+   nft::NftStandard,
    utils::{
       NumericValue,
       address_book::{
@@ -16,8 +17,11 @@ use zeus_eth::{
    },
 };
 
-use super::approval_diff::{ApprovalChange, ApprovalDiff, ApprovalKind};
-use super::balance_diff::{BalanceDiff, native_change, token_change};
+use super::approval_diff::{
+   ApprovalChange, ApprovalDiff, ApprovalKind, NftApprovalChange, NftApprovalTarget,
+   NftApprovalValue,
+};
+use super::balance_diff::{BalanceDiff, NftBalanceChange, native_change, token_change};
 use super::events::decode::{DecodeCtx, decode_transaction};
 use super::events::*;
 
@@ -278,7 +282,7 @@ impl TransactionAnalysis {
    }
 
    pub fn has_approval_diff(&self) -> bool {
-      self.approval_diff.changes.len() > 0
+      self.approval_diff.len() > 0
    }
 
    pub fn erc20_transfers_len(&self) -> usize {
@@ -291,6 +295,28 @@ impl TransactionAnalysis {
          .iter()
          .filter_map(|e| e.as_transfer().filter(|p| p.is_erc20_transfer()).cloned())
          .collect()
+   }
+
+   pub fn nft_transfers_len(&self) -> usize {
+      self.decoded_events.iter().filter(|e| e.is_nft_transfer()).count()
+   }
+
+   /// The NFT events of this transaction, in log order. A batch arrives as several.
+   pub fn nft_transfers(&self) -> Vec<NftTransferParams> {
+      self
+         .decoded_events
+         .iter()
+         .filter_map(|e| e.as_nft_transfer().cloned())
+         .collect()
+   }
+
+   pub fn nft_approvals_len(&self) -> usize {
+      self.decoded_events.iter().filter(|e| e.is_nft_approval()).count()
+   }
+
+   /// The NFT approvals of this transaction, in log order.
+   pub fn nft_approvals(&self) -> Vec<NftApproveParams> {
+      self.decoded_events.iter().filter_map(|e| e.as_nft_approve().cloned()).collect()
    }
 
    pub fn token_approvals_len(&self) -> usize {
@@ -955,12 +981,40 @@ fn dummy_balance_and_approval_diffs() -> (BalanceDiff, ApprovalDiff) {
       changes.push(change);
    }
 
+   // An NFT arriving and an NFT approval being granted, so the dev windows exercise those rows too.
+   let collection = Address::from_str("0xaf5aa7b670ef209e23d3f7b39a8f42f84bd002ac").unwrap();
+
+   let nfts = NftBalanceChange::new(
+      collection,
+      U256::from(1071),
+      NftStandard::Erc721,
+      U256::ZERO,
+      U256::from(1),
+   )
+   .into_iter()
+   .collect();
+
+   let nft_changes = NftApprovalChange::from_state(
+      collection,
+      nft_manager,
+      NftApprovalTarget::ForAll,
+      NftStandard::Erc721,
+      NftApprovalValue::ForAll(false),
+      NftApprovalValue::ForAll(true),
+   )
+   .into_iter()
+   .collect();
+
    (
       BalanceDiff {
          native: native_change(1, eth_price, eth_before, eth_after),
          tokens,
+         nfts,
       },
-      ApprovalDiff { changes },
+      ApprovalDiff {
+         changes,
+         nft_changes,
+      },
    )
 }
 
@@ -977,5 +1031,36 @@ mod involved_currency_tests {
       assert!(symbols.iter().any(|s| s == "USDC"));
       assert!(symbols.iter().any(|s| s == "WETH"));
       assert!(symbols.iter().any(|s| s == "ETH"));
+   }
+
+   /// A diff made only of NFT rows is still a diff: the `len()` behind `has_*` counts both vectors.
+   #[test]
+   fn nft_rows_alone_are_a_diff() {
+      let mut analysis = TransactionAnalysis::unknown_tx_1();
+      let (mut balance, mut approvals) = dummy_balance_and_approval_diffs();
+      balance.native = None;
+      balance.tokens.clear();
+      approvals.changes.clear();
+
+      assert!(!balance.nfts.is_empty());
+      assert!(!approvals.nft_changes.is_empty());
+
+      analysis.set_diffs(balance, approvals);
+      assert!(analysis.has_balance_diff());
+      assert!(analysis.has_approval_diff());
+   }
+
+   /// An NFT row has no `Currency` and no price, so it must stay out of the involvement path — and
+   /// out of `refresh_usd`, which walks the same two fungible vectors.
+   #[test]
+   fn nft_rows_stay_out_of_involved_currencies() {
+      let analysis = TransactionAnalysis::dummy_with_diffs();
+      let collection = analysis.balance_diff.nfts[0].collection;
+
+      let involved = analysis.involved_currencies();
+      assert!(involved.iter().all(|currency| currency.address() != collection));
+      // The NFT rows are still there to render — being excluded from pricing is not being dropped.
+      assert!(!analysis.balance_diff.nfts.is_empty());
+      assert!(!analysis.approval_diff.nft_changes.is_empty());
    }
 }

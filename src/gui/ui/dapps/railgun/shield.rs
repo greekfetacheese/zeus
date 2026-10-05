@@ -10,22 +10,25 @@ use std::{
    time::{Duration, Instant},
 };
 
+use crate::core::urls::ZeusUrl;
 use crate::core::{
    DecodedEvent, SendTxOptions, SendTxRequest, ShieldParams, TransactionAnalysis, WalletStateKey,
-   ZeusContext, ZeusCtx, bundler_url_dir, ensure_allowance, send_transaction,
+   ZeusContext, ZeusCtx, bundler_url_dir, ensure_allowance, ensure_approval_for_all,
+   ensure_erc721_approve, send_transaction,
 };
 use crate::{
    gui::ui::common::show_with_fade,
    utils::{RT, write_private_atomic},
 };
 
-use super::{expect_single_event, railgun_ready, settle_railgun_op};
+use super::{RailgunAsset, SettledOp, expect_single_event, railgun_ready, settle_railgun_op};
 use crate::assets::icons::Icons;
 use crate::gui::{
    SHARED_GUI,
    ui::{
       ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
       common::{AmountField, AmountFieldParams},
+      token_selection::{PickerMode, nft_collection_name},
    },
 };
 use crate::utils::simulate::{
@@ -37,18 +40,19 @@ use egui_lucide::Lucide;
 use elegance::{Badge, BadgeTone};
 
 use zeus_eth::{
-   alloy_primitives::Address,
+   alloy_primitives::{Address, U256},
    alloy_rpc_types::BlockId,
    currency::{Currency, ERC20Token, NativeCurrency},
+   nft::{NftStandard, NftToken},
    types::ChainId,
    utils::NumericValue,
 };
 
-use zeus_railgun::{RailgunAddress, caip::AssetId, rand::SeedableRng, rand_chacha::ChaCha12Rng};
+use zeus_railgun::{RailgunAddress, rand::SeedableRng, rand_chacha::ChaCha12Rng};
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use tracing::{error, warn};
 
 use super::unshield::{default_bundler_url, unshield};
 
@@ -122,6 +126,14 @@ pub struct ShieldUi {
    open: bool,
    mode: RailgunMode,
    currency: Currency,
+   /// The NFT being shielded, when one is. `None` means the fungible `currency` is the asset: the two are
+   /// exclusive, and picking either clears the other.
+   nft: Option<NftToken>,
+   /// The quantity of the selected ERC-1155, as typed.
+   ///
+   /// An ERC-721 moves exactly one and never reads this — there is no field for it. An ERC-1155 is a
+   /// quantity of an id, so the number is what moves, counted in whole units.
+   nft_amount: String,
    amount_field: AmountField,
    recipient: String,
    recipient_name: Option<String>,
@@ -151,6 +163,8 @@ impl ShieldUi {
          open: false,
          mode: RailgunMode::Shield,
          currency: Currency::from(NativeCurrency::from_chain_id(1).unwrap()),
+         nft: None,
+         nft_amount: String::new(),
          amount_field: AmountField::new(),
          recipient: String::new(),
          recipient_name: None,
@@ -194,7 +208,22 @@ impl ShieldUi {
       self.mode = mode;
    }
 
+   /// Forget the selected NFT and the quantity typed for it.
+   ///
+   /// Called from the hook that means "the token for this chain changed" (`default_currency`). A
+   /// selection names a collection on the chain that was active when it was picked, while
+   /// `send_transaction` pairs it with the chain active *now* (`ctx.chain`) — keeping it builds a
+   /// transfer of a foreign contract's token. The *mode* is deliberately left alone, unlike the send
+   /// view's: here it picks shield or unshield, not fungible-or-NFT, and re-defaulting the token says
+   /// nothing about which direction the user is going.
+   fn clear_nft(&mut self) {
+      self.nft = None;
+      self.nft_amount.clear();
+   }
+
    pub fn default_currency(&mut self, chain_id: u64) {
+      self.clear_nft();
+
       let currency = match self.mode {
          RailgunMode::Shield => Currency::from(NativeCurrency::from(chain_id)),
          RailgunMode::Unshield => Currency::from(ERC20Token::wrapped_native_token(chain_id)),
@@ -298,6 +327,55 @@ impl ShieldUi {
       });
    }
 
+   /// Whether the form is pointed at something Zeus refuses to shield.
+   fn erc1155_shield_blocked(&self) -> bool {
+      self.mode.is_shield()
+         && self.nft.as_ref().is_some_and(|nft| nft.standard == NftStandard::Erc1155)
+   }
+
+   /// The notice at the shield button, when an ERC-1155 is selected.
+   fn show_erc1155_block(&self, theme: &Theme, ui: &mut Ui) {
+      let text = "Shielding ERC-1155 is disabled: Railgun does not support it yet, and Zeus will enable \
+                  it only after verifying that support.";
+      ui.add(
+         Label::new(
+            RichText::new(text).size(theme.typography.small).color(theme.colors.info),
+            None,
+         )
+         .wrap()
+         .fill_width(true)
+         .interactive(false),
+      );
+   }
+
+   /// The "Select NFT" / "Change" button: opens the picker on its NFT list.
+   ///
+   /// The same affordance SendCrypto's NFT selector has. The picker opens listing what this mode moves
+   /// — shielded tokens for an unshield, public ones for a shield — and on its NFT tab; the picker's
+   /// own Tokens/NFTs switch is still there, which is the way back to a fungible token.
+   fn nft_select_button(
+      theme: &Theme,
+      nft_selected: bool,
+      privacy_mode: bool,
+      token_selection: &mut TokenSelectionWindow,
+      chain_id: u64,
+      owner: Address,
+      ui: &mut Ui,
+   ) {
+      let text = RichText::new(match nft_selected {
+         true => "Change",
+         false => "Select NFT",
+      })
+      .size(theme.typography.normal);
+
+      let button = Button::new(text).min_size(vec2(90.0, 25.0)).visuals(theme.button_visuals());
+
+      if ui.add(button).clicked() {
+         token_selection.open(privacy_mode, chain_id, owner);
+         token_selection.set_mode(PickerMode::Nft);
+      }
+   }
+
    pub fn show(
       &mut self,
       ctx: &mut ZeusContext,
@@ -397,7 +475,11 @@ impl ShieldUi {
                   let currency = self.currency.clone();
                   let data_syncing = self.price_syncing || self.syncing_balance;
                   let should_calculate_price = self.should_calculate_price(&currency);
-                  let value = value(ctx, currency, amount, should_calculate_price);
+                  // An NFT has no pool price, so there is nothing to value it by.
+                  let value = match &self.nft {
+                     Some(_) => NumericValue::default(),
+                     None => value(ctx, currency, amount, should_calculate_price),
+                  };
 
                   // Token list: public tokens for shield, private notes for unshield.
                   let token_privacy_mode = self.mode.is_unshield();
@@ -406,28 +488,108 @@ impl ShieldUi {
 
                   inner_frame.show(ui, |ui| {
                      ui.set_width(ui.available_width());
-                     self.amount_field.show(
-                        AmountFieldParams::new(
-                           theme,
-                           icons.clone(),
-                           &self.currency,
-                           owner,
-                           chain.id(),
+
+                     // An NFT has no amount to enter — it is one token, and `RailgunAsset` fixes its value
+                     // at 1 — so the field is replaced by what is being moved. Either way there is a way
+                     // to change the choice: picking an NFT used to be a one-way door until the window
+                     // was reopened.
+                     if let Some(nft) = &self.nft {
+                        let collection = nft_collection_name(
+                           ctx.nft_db.get_collection(chain.id(), nft.collection).as_ref(),
+                           nft.collection,
+                        );
+
+                        let icon = icons
+                           .nft_icon_x64(
+                              chain.id(),
+                              nft.collection,
+                              nft.token_id,
+                              theme.image_tint_recommended,
+                           )
+                           .fit_to_exact_size(vec2(24.0, 24.0));
+
+                        let label = Label::new(
+                           RichText::new(format!("{} #{}", collection, nft.token_id))
+                              .size(theme.typography.large),
+                           Some(icon),
                         )
-                        .privacy_mode(token_privacy_mode)
-                        .balance(balance)
-                        .max_amount(max_amount)
-                        .value(value)
-                        .label("Amount")
-                        .token_selection(token_selection, None)
-                        .loading(data_syncing)
-                        .show_slider(true),
-                        ui,
-                     );
+                        .spacing(3.0)
+                        .interactive(false);
+
+                        // The shape SendCrypto's NFT selector uses: what is being moved on the left, a
+                        // way to change it on the right.
+                        ui.horizontal(|ui| {
+                           ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                              ui.add(label);
+                           });
+
+                           ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                              Self::nft_select_button(
+                                 theme,
+                                 self.nft.is_some(),
+                                 token_privacy_mode,
+                                 token_selection,
+                                 chain.id(),
+                                 owner,
+                                 ui,
+                              );
+                           });
+                        });
+
+                        // An ERC-1155 moves a quantity of an id, so it needs a number; an ERC-721 is one
+                        // token and has nothing to ask for.
+                        if nft.standard == NftStandard::Erc1155 {
+                           let max = Self::nft_max(nft, self.mode, ctx, owner);
+
+                           ui.horizontal(|ui| {
+                              ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                                 ui.add(
+                                    Label::new(
+                                       RichText::new("Amount").size(theme.typography.large),
+                                       None,
+                                    )
+                                    .interactive(false),
+                                 );
+                              });
+
+                              ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                 Self::nft_amount_input(&mut self.nft_amount, theme, max, ui);
+                              });
+                           });
+                        }
+                     } else {
+                        self.amount_field.show(
+                           AmountFieldParams::new(
+                              theme,
+                              icons.clone(),
+                              &self.currency,
+                              owner,
+                              chain.id(),
+                           )
+                           .privacy_mode(token_privacy_mode)
+                           .balance(balance)
+                           .max_amount(max_amount)
+                           .value(value)
+                           .label("Amount")
+                           .token_selection(token_selection, None)
+                           .loading(data_syncing)
+                           .show_slider(true),
+                           ui,
+                        );
+                     }
                   });
 
-                  if let Some(currency) = token_selection.get_selected_currency() {
+                  if let Some(nft) = token_selection.get_selected_nft().cloned() {
+                     // An NFT and a fungible token are exclusive: picking one clears the other. A newly
+                     // picked token starts with no quantity, rather than inheriting the last one's.
+                     self.nft = Some(nft);
+                     self.nft_amount.clear();
+                     token_selection.reset();
+                     self.sync_balance(owner);
+                  } else if let Some(currency) = token_selection.get_selected_currency() {
                      self.currency = currency.clone();
+                     self.nft = None;
+                     self.nft_amount.clear();
                      token_selection.reset();
                      self.sync_balance(owner);
                   }
@@ -563,6 +725,12 @@ impl ShieldUi {
 
                   ui.add_space(10.0);
 
+                  // The refusal is explained where it happens: right above the button it disables.
+                  if self.erc1155_shield_blocked() {
+                     self.show_erc1155_block(theme, ui);
+                     ui.add_space(theme.spacing.sm);
+                  }
+
                   self.action_button(ctx, theme, owner, recipient_str, recipient_chain, ui);
                });
             });
@@ -658,7 +826,10 @@ impl ShieldUi {
                         SecureTextEdit::singleline(&mut self.bundler_url)
                            .visuals(text_edit_visuals)
                            .hint_text(
-                              RichText::new("https://public.pimlico.io/v2/{chainId}/rpc")
+                              RichText::new(format!(
+                                 "{}/{{chainId}}/rpc",
+                                 ZeusUrl::PimlicoBundler.base()
+                              ))
                                  .size(theme.typography.small)
                                  .color(theme.colors.text_muted),
                            )
@@ -762,13 +933,36 @@ impl ShieldUi {
       let is_synced = ctx.railgun_status().synced(ctx.chain.id());
       let button_visuals = theme.button_visuals();
       let sending_tx = self.sending_tx;
-      let valid_amount = self.valid_amount();
-      let has_balance = self.sufficient_balance(ctx, owner);
-      let has_entered_amount = !self.amount_field.amount.is_empty();
+      // What the selected NFT moves, if one is selected at all: one for an ERC-721, whatever was typed for
+      // an ERC-1155 — and `None` inside the `Some` means the field does not hold a usable count yet.
+      let nft_quantity = self.nft.as_ref().map(|nft| nft_quantity(nft, &self.nft_amount));
+      let nft_selected = self.nft.is_some();
+
+      let valid_amount = match nft_quantity {
+         Some(quantity) => quantity.is_some(),
+         None => self.valid_amount(),
+      };
+      let has_balance = match nft_quantity {
+         Some(quantity) => {
+            let max = self.nft.as_ref().and_then(|nft| Self::nft_max(nft, self.mode, ctx, owner));
+
+            // An unknown ceiling is not a refusal: only a chain that has spoken can say «not enough».
+            quantity.map_or(false, |quantity| {
+               max.map_or(true, |max| quantity <= max)
+            })
+         }
+         None => self.sufficient_balance(ctx, owner),
+      };
+      let has_entered_amount = match &self.nft {
+         // An ERC-721 has no field to have entered anything in; an ERC-1155 needs one filled.
+         Some(nft) => nft.standard == NftStandard::Erc721 || !self.nft_amount.trim().is_empty(),
+         None => !self.amount_field.amount.is_empty(),
+      };
       let has_recipient = !recipient.trim().is_empty();
       let valid_recipient = self.valid_recipient(&recipient);
+      let erc1155_blocked = self.erc1155_shield_blocked();
       let valid_token = if self.mode == RailgunMode::Unshield {
-         self.currency.is_erc20()
+         nft_selected || self.currency.is_erc20()
       } else {
          true
       };
@@ -788,7 +982,8 @@ impl ShieldUi {
          && valid_recipient
          && wrong_chain.is_none()
          && !sending_tx
-         && is_synced;
+         && is_synced
+         && !erc1155_blocked;
 
       let mut button_text = match self.mode {
          RailgunMode::Shield => "Shield".to_string(),
@@ -825,6 +1020,13 @@ impl ShieldUi {
          button_text = "Railgun is not synced".to_string();
       }
 
+      // A refusal outranks everything above it: the asset itself cannot be shielded, so a transient
+      // reason (or anything typed in the amount field) is beside the point. The notice above the button
+      // carries the why.
+      if erc1155_blocked {
+         button_text = "ERC-1155 not supported".to_string();
+      }
+
       // Last, so it wins: sending to a recipient resolved for another chain is the mistake worth
       // blocking, and the picker has already asked before switching.
       if let Some(chain) = wrong_chain {
@@ -846,13 +1048,36 @@ impl ShieldUi {
    }
 
    fn send_transaction(&mut self, ctx: &mut ZeusContext, recipient: String) {
+      // Belt and braces: the button is disabled for this, but no path may put an ERC-1155 on chain as a
+      // shield while Railgun's support for it is unverified.
+      if self.erc1155_shield_blocked() {
+         warn!("Refusing to shield an ERC-1155: Railgun's support for it is not verified");
+         self.sending_tx = false;
+         return;
+      }
+
       let chain = ctx.chain;
       let from = ctx.current_wallet_info().address;
-      let currency = self.currency.clone();
-      let amount = NumericValue::parse_to_wei(
-         &self.amount_field.amount,
-         self.currency.decimals(),
-      );
+
+      // The two are exclusive: an NFT wins when one is selected, and it fixes its own value at 1.
+      let asset = match &self.nft {
+         Some(nft) => RailgunAsset::Nft(nft.clone()),
+         None => RailgunAsset::Fungible(self.currency.clone()),
+      };
+
+      let amount = match &self.nft {
+         // An ERC-1155 moves the count that was typed — whole units, so there are no decimals to scale it
+         // by. An ERC-721 moves exactly one and has no field: `value()` answers one for it whatever arrives
+         // here, but the quantity is still what the validation agreed on.
+         Some(nft) => match nft_quantity(nft, &self.nft_amount) {
+            Some(quantity) => NumericValue::format_wei(U256::from(quantity), 0),
+            None => NumericValue::default(),
+         },
+         None => NumericValue::parse_to_wei(
+            &self.amount_field.amount,
+            self.currency.decimals(),
+         ),
+      };
 
       ctx.railgun_status.set_op_in_progress(chain.id(), true);
 
@@ -864,16 +1089,7 @@ impl ShieldUi {
                gui.ctx.clone()
             });
 
-            match shield(
-               ctx.clone(),
-               chain,
-               currency,
-               amount,
-               from,
-               recipient,
-            )
-            .await
-            {
+            match shield(ctx.clone(), chain, asset, amount, from, recipient).await {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
                      gui.shield_ui.sending_tx = false;
@@ -896,7 +1112,8 @@ impl ShieldUi {
          });
       } else {
          let self_broadcast = self.self_broadcast;
-         let unwrap_to_eth = self.unwrap_to_eth;
+         // Unwrapping WETH to ETH is a fungible-only call: there is nothing to unwrap for an NFT.
+         let unwrap_to_eth = self.unwrap_to_eth && self.nft.is_none();
          let bundler_url = self.bundler_url.clone();
          let memo = self.memo.clone();
          // Unshield futures are not `Send` (`PimlicoBundler` / `&dyn Signer` across awaits).
@@ -914,7 +1131,7 @@ impl ShieldUi {
             let result = RT.block_on(unshield(
                ctx.clone(),
                chain,
-               currency,
+               asset,
                amount,
                from,
                recipient,
@@ -1006,6 +1223,62 @@ impl ShieldUi {
       });
    }
 
+   /// How much of the selected NFT the wallet can move, from the side this mode reads.
+   ///
+   /// A shield moves what is owned publicly, which the balance manager asks the chain for — `None` there
+   /// means nobody has asked, not that there is none. An unshield moves what is shielded, and only the
+   /// private scan's notes know that, so a token their map does not mention has nothing to spend.
+   fn nft_max(
+      nft: &NftToken,
+      mode: RailgunMode,
+      ctx: &mut ZeusContext,
+      owner: Address,
+   ) -> Option<u64> {
+      let chain = ctx.chain.id();
+
+      match mode.is_unshield() {
+         true => Some(ctx.read_wallet_state(|ws| {
+            ws.portfolio_db
+               .get(chain, owner)
+               .private_nft_amounts()
+               .get(&(nft.collection, nft.token_id))
+               .copied()
+               .unwrap_or(0)
+         })),
+         false => ctx.get_nft_balance(chain, owner, nft.collection, nft.token_id),
+      }
+   }
+
+   /// The ERC-1155 quantity input: whole numbers, with what the wallet can move as the ceiling.
+   ///
+   /// Call inside a right-to-left layout. The hint is added first so that it lands to the *right* of the
+   /// box, reading as «[ 3 ] of 5».
+   fn nft_amount_input(nft_amount: &mut String, theme: &Theme, max: Option<u64>, ui: &mut Ui) {
+      if let Some(max) = max {
+         ui.add(
+            Label::new(
+               RichText::new(format!("of {max}"))
+                  .size(theme.typography.normal)
+                  .color(theme.colors.text_muted),
+               None,
+            )
+            .interactive(false),
+         );
+         ui.add_space(6.0);
+      }
+
+      let hint = RichText::new("0").color(theme.colors.text_muted).size(theme.typography.large);
+
+      let input = SecureTextEdit::singleline(nft_amount)
+         .visuals(theme.text_edit_visuals())
+         .font(FontId::proportional(theme.typography.large))
+         .hint_text(hint)
+         .margin(Margin::same(8))
+         .desired_width(110.0);
+
+      ui.add(input);
+   }
+
    fn valid_amount(&self) -> bool {
       let amount = self.amount_field.amount.parse().unwrap_or(0.0);
       amount > 0.0
@@ -1035,6 +1308,22 @@ impl ShieldUi {
          self.currency.decimals(),
       );
       balance.wei() >= amount.wei()
+   }
+}
+
+/// The quantity a selected NFT moves, from the field the user typed in.
+///
+/// An ERC-721 moves exactly one and has no field, so it is always `Some(1)`. An ERC-1155 moves what was
+/// typed, in whole units — there are no decimals to scale a count by — and anything that is not a usable
+/// positive number is `None`. Both the button's validation and the value that gets sent read this one
+/// answer, so they cannot disagree about what is about to move.
+fn nft_quantity(nft: &NftToken, typed: &str) -> Option<u64> {
+   match nft.standard {
+      NftStandard::Erc721 => Some(1),
+      NftStandard::Erc1155 => match typed.trim().parse::<u64>() {
+         Ok(amount) if amount > 0 => Some(amount),
+         _ => None,
+      },
    }
 }
 
@@ -1091,7 +1380,7 @@ fn value(
 async fn shield(
    ctx: ZeusCtx,
    chain: ChainId,
-   currency: Currency,
+   asset: RailgunAsset,
    amount: NumericValue,
    from: Address,
    recipient: String,
@@ -1105,25 +1394,62 @@ async fn shield(
       }
    };
 
-   let token = currency.to_erc20().into_owned();
    let railgun_address = railgun_provider.railgun_address();
    let relay_adapt = railgun_provider.chain_config().relay_adapt_contract;
-   let is_native = currency.is_native();
+   let is_native = asset.is_native();
 
-   // ERC-20 still needs an on-chain approval of RailgunSmartWallet before shield.
+   // ERC-20 still needs an on-chain approval of RailgunSmartWallet before shield. An NFT does too, but
+   // only for the token being moved: `RailgunLogic.transferTokenIn` calls `transferFrom` for an ERC-721,
+   // which accepts a per-token `approve`, so nothing grants the wallet a right over the rest of the
+   // collection. ERC-1155 has no per-token approval to give — and the protocol reverts on it outright
+   // ("RailgunLogic: ERC1155 not yet supported"), which is why shielding one is refused in the UI.
    // Native ETH uses RelayAdapt wrap+shield in one self-broadcast tx (no approval).
    if !is_native {
-      ensure_allowance(
-         ctx.clone(),
-         chain,
-         from,
-         &token,
-         railgun_address,
-         amount.wei(),
-         "Railgun",
-         "Token approval required to shield",
-      )
-      .await?;
+      match &asset {
+         RailgunAsset::Fungible(currency) => {
+            let token = currency.to_erc20().into_owned();
+
+            ensure_allowance(
+               ctx.clone(),
+               chain,
+               from,
+               &token,
+               railgun_address,
+               amount.wei(),
+               "Railgun",
+               "Token approval required to shield",
+            )
+            .await?;
+         }
+         RailgunAsset::Nft(nft) => match nft.standard {
+            NftStandard::Erc721 => {
+               ensure_erc721_approve(
+                  ctx.clone(),
+                  chain,
+                  from,
+                  nft.collection,
+                  nft.token_id,
+                  railgun_address,
+                  "Railgun",
+                  "Approval required to shield this token",
+               )
+               .await?;
+            }
+            NftStandard::Erc1155 => {
+               ensure_approval_for_all(
+                  ctx.clone(),
+                  chain,
+                  from,
+                  nft.collection,
+                  nft.standard,
+                  railgun_address,
+                  "Railgun",
+                  "Collection approval required to shield",
+               )
+               .await?;
+            }
+         },
+      }
    }
 
    SHARED_GUI.write(|gui| {
@@ -1131,7 +1457,8 @@ async fn shield(
       gui.request_repaint();
    });
 
-   let amount_u128: u128 = amount.wei().try_into()?;
+   // An ERC-721 moves exactly one: the token id is the asset, so the amount the UI holds is not consulted.
+   let amount_u128: u128 = asset.value(amount.wei()).try_into()?;
 
    let shield_tx = {
       let mut rng = ChaCha12Rng::from_os_rng();
@@ -1139,11 +1466,7 @@ async fn shield(
       let builder = if is_native {
          builder.shield_native(recipient.clone(), amount_u128)
       } else {
-         builder.shield(
-            recipient.clone(),
-            AssetId::Erc20(token.address),
-            amount_u128,
-         )
+         builder.shield(recipient.clone(), asset.asset_id(), amount_u128)
       };
       builder.build(&mut rng)?
    };
@@ -1164,7 +1487,9 @@ async fn shield(
    // Prefetch accounts and storage for the sim
    let mut accounts = Vec::new();
    accounts.push(AccountPrefetch::eoa(from));
-   accounts.push(AccountPrefetch::contract(token.address));
+   accounts.push(AccountPrefetch::contract(
+      asset.asset_id().address(),
+   ));
    accounts.push(AccountPrefetch::contract(railgun_address));
    accounts.push(AccountPrefetch::contract(interact_to));
    accounts.push(AccountPrefetch::contract(relay_adapt));
@@ -1255,7 +1580,15 @@ async fn shield(
       ctx,
       chain,
       from,
-      (!is_native).then_some(token),
+      // Which half waits on the chain is the operation's business: only an NFT shield moves public
+      // ownership, and only a fungible one has a token balance to re-read.
+      match &asset {
+         RailgunAsset::Fungible(currency) => {
+            // Always do to_erc20, there is no native balance on railgun
+            SettledOp::Fungible(Some(currency.to_erc20().into_owned()))
+         }
+         RailgunAsset::Nft(_) => SettledOp::Nft,
+      },
    ));
 
    Ok(())
@@ -1279,6 +1612,69 @@ fn persist_bundler_url(url: BundlerUrl) {
 mod tests {
    use super::*;
 
+   fn nft(standard: NftStandard) -> NftToken {
+      NftToken {
+         chain_id: 1,
+         collection: Address::from([0xbc; 20]),
+         token_id: U256::from(1),
+         standard,
+         metadata_uri: None,
+      }
+   }
+
+   /// An ERC-721 moves exactly one and has no field, so whatever `nft_amount` happens to hold cannot
+   /// change what it moves. An ERC-1155 moves a whole number the user typed — and only a usable positive
+   /// one: an empty field, a zero, a decimal or words are all «nothing to move», which is what the button
+   /// reads to stay disabled.
+   #[test]
+   fn an_erc721_moves_one_and_an_erc1155_moves_what_was_typed() {
+      let erc721 = nft(NftStandard::Erc721);
+      assert_eq!(nft_quantity(&erc721, ""), Some(1));
+      assert_eq!(
+         nft_quantity(&erc721, "0"),
+         Some(1),
+         "the field is never read"
+      );
+      assert_eq!(nft_quantity(&erc721, "not a number"), Some(1));
+
+      let erc1155 = nft(NftStandard::Erc1155);
+      assert_eq!(nft_quantity(&erc1155, "3"), Some(3));
+      assert_eq!(
+         nft_quantity(&erc1155, " 3 "),
+         Some(3),
+         "surrounding space is fine"
+      );
+
+      assert_eq!(nft_quantity(&erc1155, ""), None);
+      assert_eq!(nft_quantity(&erc1155, "0"), None);
+      assert_eq!(nft_quantity(&erc1155, "1.5"), None);
+      assert_eq!(nft_quantity(&erc1155, "-1"), None);
+      assert_eq!(nft_quantity(&erc1155, "three"), None);
+   }
+
+   /// Shielding an ERC-1155 is refused until Railgun's support for it has been verified, and only in
+   /// this form — the unshield path refuses it in its own entry point (`unshield`), because a note
+   /// that is already private is a different path.
+   #[test]
+   fn an_erc1155_cannot_be_shielded() {
+      let mut ui = ShieldUi::new();
+      ui.set_mode(RailgunMode::Shield);
+
+      ui.nft = Some(nft(NftStandard::Erc1155));
+      assert!(ui.erc1155_shield_blocked());
+
+      // An ERC-721 and the fungible form are untouched.
+      ui.nft = Some(nft(NftStandard::Erc721));
+      assert!(!ui.erc1155_shield_blocked());
+      ui.nft = None;
+      assert!(!ui.erc1155_shield_blocked());
+
+      // Same token, other mode: this guard says nothing about it.
+      ui.nft = Some(nft(NftStandard::Erc1155));
+      ui.set_mode(RailgunMode::Unshield);
+      assert!(!ui.erc1155_shield_blocked());
+   }
+
    #[test]
    fn test_bundler_url_seal_open_roundtrip() {
       let key = WalletStateKey::generate().unwrap();
@@ -1287,5 +1683,32 @@ mod tests {
       let loaded: BundlerUrl = key.open_json(&sealed, BUNDLER_URL_AAD).unwrap();
       assert_eq!(loaded.url, url.url);
       assert!(key.open_json::<BundlerUrl>(&sealed, b"wrong-aad").is_err());
+   }
+
+   /// A chain switch forgets the NFT, because the send path pairs the selection with the chain active at
+   /// send time rather than the one it was picked on.
+   ///
+   /// The mode survives — it says which direction the user is going, not which asset moves.
+   #[test]
+   fn a_chain_switch_forgets_the_nft() {
+      let mut ui = ShieldUi::new();
+      ui.set_mode(RailgunMode::Unshield);
+      ui.nft = Some(nft(NftStandard::Erc1155));
+      ui.nft_amount = "3".to_string();
+
+      ui.default_currency(8453);
+
+      assert!(
+         ui.nft.is_none(),
+         "the previous chain's NFT cannot be sent from this one"
+      );
+      assert!(
+         ui.nft_amount.is_empty(),
+         "nor the quantity typed for it"
+      );
+      assert!(
+         ui.mode.is_unshield(),
+         "only the asset is forgotten, not the mode"
+      );
    }
 }

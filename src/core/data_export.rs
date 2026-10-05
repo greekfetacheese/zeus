@@ -331,6 +331,7 @@ mod tests {
          clear_signing: true,
          railgun: true,
          token_icons: true,
+         nft_icons: true,
       };
       let mut names: Vec<_> = collect_export_entries(dir.path(), options)
          .unwrap()

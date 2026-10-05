@@ -5,10 +5,14 @@ use egui_elements::{Label, Modal, MultiLabel, Theme};
 
 use crate::assets::icons::Icons;
 use crate::core::{TransactionAnalysis, ZeusContext, tx::events::*};
+use crate::gui::ui::token_selection::nft_collection_name;
+use crate::utils::truncate_address;
 use zeus_eth::{
+   alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token, NativeCurrency},
    types::ChainId,
 };
+use zeus_railgun::{abi::railgun::TokenType, caip::AssetId};
 
 use std::sync::Arc;
 
@@ -349,6 +353,228 @@ fn transfer_event_ui(
    }
 }
 
+fn nft_transfer_event_ui(
+   ctx: &mut ZeusContext,
+   chain: ChainId,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   params: &NftTransferParams,
+   ui: &mut Ui,
+) {
+   let size = vec2(ui.available_width(), 30.0);
+   let tint = theme.image_tint_recommended;
+   let icon_size = vec2(24.0, 24.0);
+   let chain_id = chain.id();
+
+   let collection = nft_collection_name(
+      ctx.nft_db.get_collection(chain_id, params.collection).as_ref(),
+      params.collection,
+   );
+
+   ui.allocate_ui(size, |ui| {
+      ui.horizontal(|ui| {
+         // The token itself, named the same way the picker names it.
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            let subject = match params.token_id {
+               Some(token_id) => format!("{} #{}", collection, token_id),
+               None => collection.clone(),
+            };
+
+            // An ERC-1155 moves N units; an ERC-721 moves the token, and `1 ×` in front of an id is
+            // noise.
+            let text = match params.amount > U256::from(1) {
+               true => format!("{} × {}", params.amount, subject),
+               false => subject,
+            };
+
+            // A transfer always names a token, so there is always something specific to ask for; the
+            // collection fallback covers a stored event whose id never made it into the cache.
+            //
+            // A **mint** keeps the placeholder on purpose: it names a token that does not exist yet, so
+            // it can have no art of its own — and the collection's cached art would be a *different*
+            // NFT shown under this row's id. The collection fallback is for rows that are about a
+            // collection as a whole, not for one that names a token.
+            let icon = match params.token_id {
+               Some(token_id) => icons.nft_icon_x64(chain_id, params.collection, token_id, tint),
+               None => icons.nft_collection_icon_x64(chain_id, params.collection, tint),
+            }
+            .fit_to_exact_size(icon_size);
+
+            let label = Label::new(
+               RichText::new(text).size(theme.typography.large),
+               Some(icon),
+            )
+            .spacing(3.0)
+            .interactive(false);
+            ui.add(label);
+         });
+
+         // A mint or a burn is a transfer the user did not ask for in so many words, so it is
+         // worth naming.
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let action = if params.is_mint {
+               Some("Mint")
+            } else if params.is_burn {
+               Some("Burn")
+            } else {
+               None
+            };
+
+            if let Some(action) = action {
+               ui.label(RichText::new(action).size(theme.typography.large));
+            }
+         });
+      });
+   });
+
+   ui.horizontal(|ui| {
+      ui.label(RichText::new("Standard").size(theme.typography.large));
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         ui.label(RichText::new(params.standard.to_string()).size(theme.typography.large));
+      });
+   });
+
+   address(ctx, chain, "Sender", params.from, theme, ui);
+
+   ui.allocate_ui(size, |ui| {
+      address(ctx, chain, "Recipient", params.to, theme, ui);
+   });
+}
+
+/// An NFT approval row: what is being granted, on which token or collection, and to whom.
+///
+/// Separate from [`nft_transfer_event_ui`] because an approval moves nothing — calling the two
+/// parties "sender" and "recipient", or the action a "transfer", would describe something that never
+/// happened.
+fn nft_approve_event_ui(
+   ctx: &mut ZeusContext,
+   chain: ChainId,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   params: &NftApproveParams,
+   ui: &mut Ui,
+) {
+   let size = vec2(ui.available_width(), 30.0);
+   let tint = theme.image_tint_recommended;
+   let icon_size = vec2(24.0, 24.0);
+   let chain_id = chain.id();
+
+   let collection = nft_collection_name(
+      ctx.nft_db.get_collection(chain_id, params.collection).as_ref(),
+      params.collection,
+   );
+
+   ui.allocate_ui(size, |ui| {
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            // A collection-wide approval has no token id, so the collection is the whole subject.
+            let subject = match params.token_id {
+               Some(token_id) => format!("{} #{}", collection, token_id),
+               None => collection.clone(),
+            };
+
+            // Only ERC-5216 carries a number worth showing, and `1 ×` in front of a token is noise.
+            let text = match &params.amount {
+               Some(amount) if *amount > U256::from(1) => format!("{} × {}", amount, subject),
+               _ => subject,
+            };
+
+            // A collection-wide approval has no id to ask about, and a fixed id (0) showed the
+            // placeholder whenever that token's art had never been fetched. Any of the collection's
+            // cached art says what the row is about.
+            let icon = match params.token_id {
+               Some(token_id) => icons.nft_icon_x64(chain_id, params.collection, token_id, tint),
+               None => icons.nft_collection_icon_x64(chain_id, params.collection, tint),
+            }
+            .fit_to_exact_size(icon_size);
+
+            let label = Label::new(
+               RichText::new(text).size(theme.typography.large),
+               Some(icon),
+            )
+            .spacing(3.0)
+            .interactive(false);
+            ui.add(label);
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let action = match params.is_revoke() {
+               true => "Revoke",
+               false => "Approve",
+            };
+            ui.label(RichText::new(action).size(theme.typography.large));
+         });
+      });
+   });
+
+   ui.horizontal(|ui| {
+      ui.label(RichText::new("Standard").size(theme.typography.large));
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         ui.label(RichText::new(params.standard.to_string()).size(theme.typography.large));
+      });
+   });
+
+   // An approval hands rights to an operator, and calling those two "sender" and "recipient" would
+   // describe a transfer that never happened.
+   address(ctx, chain, "Owner", params.owner, theme, ui);
+
+   ui.allocate_ui(size, |ui| {
+      address(ctx, chain, "Operator", params.operator, theme, ui);
+   });
+}
+
+/// The NFT a Railgun operation moves, drawn inside a row's `ui.horizontal`: the action on the left, the
+/// token on the right.
+///
+/// An NFT shield has no ERC-20 to show — `erc20` is `None` and the asset is an `Erc721` or an `Erc1155`
+/// — so without this the confirmation window listed the recipient, the fee and the cost but never what
+/// was being moved. Callers pass the collection and the id rather than a resolved `NftToken`: the
+/// event's asset always carries both, while resolving the metadata is allowed to fail and would silently
+/// blank the row again.
+///
+/// `quantity` is the count for an ERC-1155, which moves a number of an id and so has to say which
+/// number; an ERC-721 moves exactly one and passes `None`.
+fn railgun_nft_row(
+   ctx: &mut ZeusContext,
+   chain: ChainId,
+   theme: &Theme,
+   icons: &Icons,
+   action: &str,
+   collection: Address,
+   token_id: U256,
+   quantity: Option<String>,
+   ui: &mut Ui,
+) {
+   let chain_id = chain.id();
+   let tint = theme.image_tint_recommended;
+
+   ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+      let text = RichText::new(action).size(theme.typography.large);
+      ui.add(Label::new(text, None).interactive(false));
+   });
+
+   ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+      let name = nft_collection_name(
+         ctx.nft_db.get_collection(chain_id, collection).as_ref(),
+         collection,
+      );
+
+      let icon = icons
+         .nft_icon_x64(chain_id, collection, token_id, tint)
+         .fit_to_exact_size(vec2(24.0, 24.0));
+
+      let subject = match quantity {
+         Some(quantity) => format!("{} #{} × {}", name, token_id, quantity),
+         None => format!("{} #{}", name, token_id),
+      };
+
+      let text = RichText::new(subject).size(theme.typography.large);
+      ui.add(Label::new(text, Some(icon)).spacing(3.0).interactive(false));
+   });
+}
+
 fn shield_event_ui(
    ctx: &mut ZeusContext,
    chain: ChainId,
@@ -396,6 +622,28 @@ fn shield_event_ui(
                let multi_label = MultiLabel::new(vec![label1, label2]);
                ui.add(multi_label);
             });
+         } else if let AssetId::Erc721(collection, token_id)
+         | AssetId::Erc1155(collection, token_id) = &params.asset
+         {
+            // An ERC-1155 moves a quantity of an id, so the row says how many; an ERC-721 moves one.
+            let quantity = match params.asset {
+               AssetId::Erc1155(..) => {
+                  params.amount.as_ref().map(|amount| amount.abbreviated().to_string())
+               }
+               _ => None,
+            };
+
+            railgun_nft_row(
+               ctx,
+               chain,
+               theme,
+               &icons,
+               "Shield",
+               *collection,
+               *token_id,
+               quantity,
+               ui,
+            );
          }
       });
    });
@@ -424,9 +672,11 @@ fn shield_event_ui(
                   .color(theme.colors.info);
                (rich, Some(contact.evm_address))
             } else {
-               let truncated = format!("{}...{}", &recipient[..6], &recipient[121..]);
-               let rich =
-                  RichText::new(truncated).size(theme.typography.large).color(theme.colors.info);
+               // Anything too short to shorten comes back whole from the helper: the slice offsets are
+               // safe only because it has already checked the length.
+               let rich = RichText::new(truncate_address(recipient.clone()))
+                  .size(theme.typography.large)
+                  .color(theme.colors.info);
                (rich, None)
             };
 
@@ -529,6 +779,30 @@ fn unshield_event_ui(
                let multi_label = MultiLabel::new(vec![label1, label2]);
                ui.add(multi_label);
             });
+         } else if matches!(
+            params.token_data.tokenType,
+            TokenType::ERC721 | TokenType::ERC1155
+         ) {
+            // Same as the shield: an ERC-1155 says how many of the id arrived, an ERC-721 has nothing to
+            // add.
+            let quantity = match params.token_data.tokenType {
+               TokenType::ERC1155 => {
+                  params.amount.as_ref().map(|amount| amount.abbreviated().to_string())
+               }
+               _ => None,
+            };
+
+            railgun_nft_row(
+               ctx,
+               chain,
+               theme,
+               &icons,
+               "Receive",
+               params.token_data.tokenAddress,
+               params.token_data.tokenSubID,
+               quantity,
+               ui,
+            );
          }
       });
    });
@@ -657,6 +931,30 @@ fn private_transfer_event_ui(
                let multi_label = MultiLabel::new(vec![label1, label2]);
                ui.add(multi_label);
             });
+         } else if let AssetId::Erc721(collection, token_id)
+         | AssetId::Erc1155(collection, token_id) = &params.asset
+         {
+            // An NFT transfer is its own row: the collection names it, its art stands in for a token icon,
+            // and there is no price to put beside it. A quantity appears only for the standard that has
+            // more than one — an ERC-721's «1» would be noise.
+            let quantity = match &params.asset {
+               AssetId::Erc1155(..) => {
+                  params.amount.as_ref().map(|amount| amount.abbreviated().to_string())
+               }
+               _ => None,
+            };
+
+            railgun_nft_row(
+               ctx,
+               chain,
+               theme,
+               &icons,
+               "Send",
+               *collection,
+               *token_id,
+               quantity,
+               ui,
+            );
          }
       });
    });
@@ -684,17 +982,8 @@ fn private_transfer_event_ui(
                .size(theme.typography.large)
                .color(theme.colors.info);
             (rich, Some(contact.evm_address))
-         } else if recipient.len() > 12 {
-            let truncated = format!(
-               "{}...{}",
-               &recipient[..6],
-               &recipient[recipient.len() - 6..]
-            );
-            let rich =
-               RichText::new(truncated).size(theme.typography.large).color(theme.colors.info);
-            (rich, None)
          } else {
-            let rich = RichText::new(recipient.clone())
+            let rich = RichText::new(truncate_address(recipient.clone()))
                .size(theme.typography.large)
                .color(theme.colors.info);
             (rich, None)
@@ -1219,5 +1508,15 @@ pub fn show_event(
    if event.is_private_transfer() {
       let params = event.private_transfer_params();
       private_transfer_event_ui(ctx, chain, theme, icons.clone(), params, ui);
+   }
+
+   if event.is_nft_approval() {
+      let params = event.nft_approve_params();
+      nft_approve_event_ui(ctx, chain, theme, icons.clone(), params, ui);
+   }
+
+   if event.is_nft_transfer() {
+      let params = event.nft_transfer_params();
+      nft_transfer_event_ui(ctx, chain, theme, icons.clone(), params, ui);
    }
 }

@@ -5,7 +5,7 @@ use alloy_rpc_types::BlockId;
 use crate::abi;
 use crate::types::{ARBITRUM, BASE, BSC, ChainId, ETH, ETH_SEPOLIA, OPTIMISM, ROBIN_HOOD};
 use crate::utils::{
-   address_book::{dai, usdc, usdt, usdg, wbnb, weth},
+   address_book::{dai, usdc, usdg, usdt, wbnb, weth},
    batch,
 };
 
@@ -69,8 +69,10 @@ impl Default for ERC20Token {
 impl ERC20Token {
    /// Create a new ERC20Token by retrieving the token information from the blockchain
    ///
-   /// Rejects ERC-721 / ERC-1155 contracts that expose the same `name()` / `symbol()`
-   /// selectors as ERC-20 (detected via ERC-165).
+   /// The gate is the deployed `ZeusStateViewV4.getERC20Info`: it answers with
+   /// `name()` / `symbol()` / `decimals()` / `totalSupply()` for an ERC-20, and reverts with a custom
+   /// error for an ERC-721 or ERC-1155 that exposes the same `name()` / `symbol()` selectors. Nothing
+   /// here probes ERC-165.
    pub async fn new<P, N>(client: P, token: Address, chain_id: u64) -> Result<Self, anyhow::Error>
    where
       P: Provider<N> + Clone + 'static,
@@ -567,14 +569,21 @@ impl ERC20Token {
 #[cfg(test)]
 mod tests {
    use super::ERC20Token;
+   use crate::test_utils::rpc_url;
    use alloy_primitives::address;
    use alloy_provider::ProviderBuilder;
-   use url::Url;
 
+   /// These talk to a live chain, so they are `#[ignore]`d — see `crate::test_utils`. They used to
+   /// hardcode an endpoint that has since gone away (HTTP 530), which is why they were failing.
+   /// Run them with:
+   ///
+   /// ```text
+   /// ZEUS_ETH_RPC=<keyed url> cargo test -p zeus-eth --lib currency::erc20 -- --ignored
+   /// ```
    #[tokio::test]
+   #[ignore = "needs an RPC that serves eth_call"]
    async fn can_get_erc20() {
-      let url = Url::parse("https://reth-ethereum.ithaca.xyz/rpc").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
+      let client = ProviderBuilder::new().connect_http(rpc_url());
 
       let weth = ERC20Token::weth();
 
@@ -586,9 +595,9 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "needs an RPC that serves eth_call"]
    async fn can_get_erc20_batch() {
-      let url = Url::parse("https://reth-ethereum.ithaca.xyz/rpc").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
+      let client = ProviderBuilder::new().connect_http(rpc_url());
 
       let weth = ERC20Token::weth();
       let usdc = ERC20Token::usdc();
@@ -596,7 +605,7 @@ mod tests {
       let dai = ERC20Token::dai();
       let addr = vec![weth.address, usdc.address, usdt.address, dai.address];
 
-      let tokens_erc20 = ERC20Token::from_batch(client.clone(), 1, addr.clone()).await.unwrap();
+      let tokens_erc20 = ERC20Token::from_batch(client, 1, addr.clone()).await.unwrap();
 
       assert_eq!(tokens_erc20.len(), addr.len());
       assert_eq!(tokens_erc20[0], weth);
@@ -606,19 +615,27 @@ mod tests {
    }
 
    /// Walletbeat testing ERC721 — same name/symbol selectors as ERC-20.
+   ///
+   /// The rejection comes from the deployed `ZeusStateViewV4.getERC20Info`, which reverts with a
+   /// custom error (`0x89f0387c` + the token address) for an NFT. That revert carries no readable
+   /// reason, so assert the outcome instead of a message — paired with a positive control so the
+   /// test cannot pass just because the endpoint is broken.
    #[tokio::test]
+   #[ignore = "needs an RPC that serves eth_call"]
    async fn rejects_erc721_as_erc20() {
-      let url = Url::parse("https://ethereum-rpc.publicnode.com").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
+      let client = ProviderBuilder::new().connect_http(rpc_url());
 
       let nft = address!("0xBe0963c43903cA02Aa8f93d85668aBBC7bc95Df2");
-      let err = ERC20Token::new(client, nft, 1)
-         .await
-         .expect_err("ERC721 must not parse as ERC20");
-      let msg = err.to_string();
       assert!(
-         msg.contains("NFT"),
-         "unexpected error for ERC721 fetch: {msg}"
+         ERC20Token::new(client.clone(), nft, 1).await.is_err(),
+         "ERC721 must not parse as ERC20"
       );
+
+      // Positive control: a real ERC-20 on the same endpoint still parses.
+      let weth = ERC20Token::weth();
+      let fetched = ERC20Token::new(client, weth.address, weth.chain_id)
+         .await
+         .expect("WETH must parse as ERC20");
+      assert_eq!(fetched.symbol, weth.symbol);
    }
 }

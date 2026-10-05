@@ -1,12 +1,13 @@
-//! UI for viewing and revoking ERC20 / Permit2 token approvals.
+//! UI for viewing and revoking ERC20 / Permit2 / NFT token approvals.
 
 use crate::assets::icons::Icons;
 use crate::core::{
-   DecodedEvent, PermitParams, SendTxOptions, SendTxRequest, TokenApproveParams,
+   DecodedEvent, NftApproveParams, PermitParams, SendTxOptions, SendTxRequest, TokenApproveParams,
    TransactionAnalysis, WalletInfo, ZeusContext, ZeusCtx, send_transaction, signature,
 };
 use crate::gui::{SHARED_GUI, ui::show_with_fade};
 use crate::utils::{RT, TimeStamp, simulate::simulate_for_analysis, truncate_address};
+use anyhow::anyhow;
 use egui::{
    Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, UiBuilder,
    vec2,
@@ -16,9 +17,13 @@ use elegance::{Badge, BadgeTone};
 use std::collections::HashMap;
 use std::sync::Arc;
 use zeus_eth::{
-   abi::permit::{allowance, encode_permit_single_call},
-   alloy_primitives::{Address, U256},
+   abi::{
+      erc721, erc1155,
+      permit::{allowance, encode_permit_single_call},
+   },
+   alloy_primitives::{Address, Bytes, U256},
    currency::{Currency, ERC20Token},
+   nft::NftStandard,
    types::ChainId,
    utils::{NumericValue, address_book, batch},
 };
@@ -28,13 +33,35 @@ It cannot track approvals made from other wallets.";
 
 const DEFAULT_ROWS_PER_PAGE: usize = 10;
 
+/// Row height for a fungible approval, sized for its 32 px token icon.
+const ROW_HEIGHT: f32 = 40.0;
+
+/// Row height for an NFT approval.
+///
+/// Its thumbnail is 64 px — the icon store's list size, which is what an NFT row draws — so a row
+/// shorter than that lets the art spill out over the card, which is exactly what a 40 px row did.
+const NFT_ROW_HEIGHT: f32 = 64.0;
+
 /// Max `(token, spender)` allowance pairs per Multicall3 aggregate so the eth_call stays under gas limits.
 const ALLOWANCE_PAIR_BATCH: usize = 20;
+
+/// What the approvals table is listing.
+///
+/// An enum rather than a `bool` for the same reason the token picker's `PickerMode` is one: a mode is
+/// exactly one of these, so "neither" and "both" cannot be represented. `Fungible` is the default and
+/// what `open` restores, which keeps the ERC-20 view the one the page lands on.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+enum ApprovalMode {
+   #[default]
+   Fungible,
+   Nft,
+}
 
 #[derive(Debug, Clone)]
 enum ApprovalKind {
    Erc20(TokenApproveParams),
    Permit2(PermitParams),
+   Nft(NftApproveParams),
 }
 
 impl ApprovalKind {
@@ -48,22 +75,98 @@ impl ApprovalKind {
          _ => TimeStamp::default(),
       }
    }
+
+   /// What the Type column calls this approval.
+   fn type_label(&self) -> &'static str {
+      match self {
+         Self::Erc20(_) => "ERC-20",
+         Self::Permit2(_) => "Permit2",
+         Self::Nft(params) => match params.standard {
+            NftStandard::Erc721 => "ERC-721",
+            NftStandard::Erc1155 => "ERC-1155",
+         },
+      }
+   }
+}
+
+/// What an approval is *over*, which is also what decides how the row is drawn and sorted.
+///
+/// A fungible approval has a token and an amount. An NFT approval has a **collection**, and covers
+/// either the whole collection (`ApprovalForAll` and nothing else) or one id — so it carries an
+/// `Option<U256>` where the fungible one carries a number. They are one enum rather than two row
+/// types because everything else about a row — who granted it, to whom, on which chain, revoke —
+/// is identical, and the columns line up because of it.
+#[derive(Debug, Clone)]
+enum ApprovalAsset {
+   Token {
+      currency: Currency,
+      amount: NumericValue,
+   },
+   Nft {
+      collection: Address,
+      /// `None` covers the whole collection; `Some` is one id.
+      token_id: Option<U256>,
+      /// ERC-5216 grants an allowance per id. The other two shapes carry no amount at all.
+      amount: Option<U256>,
+   },
+}
+
+impl ApprovalAsset {
+   /// What rows sort by.
+   ///
+   /// A token's symbol is already at hand; a collection's *name* is only known once a context is
+   /// there to resolve it, and sorting half by name and half by address would make the order depend
+   /// on cache warmth — so a collection sorts by its address, which is stable either way.
+   fn sort_key(&self) -> String {
+      match self {
+         Self::Token { currency, .. } => currency.symbol().to_owned(),
+         Self::Nft { collection, .. } => collection.to_string(),
+      }
+   }
+
+   /// The width of the thumbnail this row draws.
+   ///
+   /// The label beside it has to leave room for exactly this much — an NFT's art is 64 px where a
+   /// token's icon is 32, so a cap sized for the smaller one lets a long collection name run over the
+   /// icon and out of the cell.
+   fn icon_width(&self) -> f32 {
+      match self {
+         Self::Token { .. } => 32.0,
+         Self::Nft { .. } => 64.0,
+      }
+   }
 }
 
 #[derive(Debug, Clone)]
 struct ApprovalRow {
    chain: u64,
    owner: Address,
-   token: Currency,
+   asset: ApprovalAsset,
+   /// The address being trusted: an ERC-20 spender, a Permit2 spender, or an NFT operator.
    spender: Address,
-   amount: NumericValue,
    kind: ApprovalKind,
+}
+
+impl ApprovalRow {
+   /// Tall enough for this row's thumbnail — see [`NFT_ROW_HEIGHT`].
+   ///
+   /// The mode switch means a table holds one kind of row or the other, so the two heights never
+   /// interleave; a NFT-mode page is uniformly tall and a token-mode page uniformly compact.
+   fn height(&self) -> f32 {
+      match self.asset {
+         ApprovalAsset::Token { .. } => ROW_HEIGHT,
+         ApprovalAsset::Nft { .. } => NFT_ROW_HEIGHT,
+      }
+   }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct CacheKey {
    wallet: Option<Address>,
    chain: Option<u64>,
+   /// Part of the key because the two modes show different rows: without it, switching mode would
+   /// find the key unchanged and keep serving the other mode's cache.
+   mode: ApprovalMode,
 }
 
 impl CacheKey {
@@ -71,6 +174,7 @@ impl CacheKey {
       Self {
          wallet: None,
          chain: Some(u64::MAX),
+         mode: ApprovalMode::default(),
       }
    }
 }
@@ -80,6 +184,7 @@ pub struct ApprovalsUi {
    loading: bool,
    selected_wallet: Option<WalletInfo>,
    selected_chain: Option<ChainId>,
+   mode: ApprovalMode,
    cached_rows: Vec<ApprovalRow>,
    cache_key: CacheKey,
    current_page: usize,
@@ -93,6 +198,7 @@ impl ApprovalsUi {
          loading: false,
          selected_wallet: None,
          selected_chain: None,
+         mode: ApprovalMode::default(),
          cached_rows: Vec::new(),
          cache_key: CacheKey::default(),
          current_page: 0,
@@ -110,6 +216,7 @@ impl ApprovalsUi {
       }
 
       self.open = true;
+      self.mode = ApprovalMode::default();
       self.cached_rows.clear();
       self.cache_key = CacheKey::invalid();
       self.current_page = 0;
@@ -128,10 +235,28 @@ impl ApprovalsUi {
       self.current_page = 0;
    }
 
+   /// Switch which kind of approval the table lists.
+   ///
+   /// Only flips the mode and drops what is shown: the cache key carries the mode, so the next frame
+   /// rebuilds — and a rebuild is what reads the manager for the other kind. Clearing here (rather
+   /// than leaving the old rows up) is what shows the spinner instead of the previous mode's rows for
+   /// the frames the rebuild takes.
+   fn set_mode(&mut self, mode: ApprovalMode) {
+      if self.mode == mode {
+         return;
+      }
+
+      self.mode = mode;
+      self.cached_rows.clear();
+      self.loading = true;
+      self.current_page = 0;
+   }
+
    fn current_cache_key(&self) -> CacheKey {
       CacheKey {
          wallet: self.selected_wallet.as_ref().map(|w| w.address),
          chain: self.selected_chain.map(|c| c.id()),
+         mode: self.mode,
       }
    }
 
@@ -152,6 +277,7 @@ impl ApprovalsUi {
 
       let selected_wallet = self.selected_wallet.clone();
       let selected_chain = self.selected_chain;
+      let mode = self.mode;
 
       RT.spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
@@ -159,90 +285,133 @@ impl ApprovalsUi {
 
          let mut rows = Vec::new();
 
-         for (chain, params) in manager.get_all_active_token_approvals() {
-            if ctx.is_chain_disabled(chain) {
-               continue;
-            }
-
-            if let Some(chain_filter) = selected_chain {
-               if chain_filter.id() != chain {
+         // Each mode builds only its own rows. For the ERC-20 side that also means the Permit2
+         // allowance calls below do not run at all while the NFT table is up.
+         if mode == ApprovalMode::Fungible {
+            for (chain, params) in manager.get_all_active_token_approvals() {
+               if ctx.is_chain_disabled(chain) {
                   continue;
                }
-            }
 
-            if let Some(wallet) = &selected_wallet {
-               if wallet.address != params.owner {
-                  continue;
-               }
-            }
-
-            rows.push(ApprovalRow {
-               chain,
-               owner: params.owner,
-               token: Currency::from(params.token.clone()),
-               spender: params.spender,
-               amount: params.amount.clone(),
-               kind: ApprovalKind::Erc20(params),
-            });
-         }
-
-         let mut permit_groups: HashMap<(u64, Address), Vec<PermitParams>> = HashMap::new();
-         for params in manager.get_all_active_permits() {
-            if ctx.is_chain_disabled(params.chain) {
-               continue;
-            }
-
-            if let Some(chain_filter) = selected_chain {
-               if chain_filter.id() != params.chain {
-                  continue;
-               }
-            }
-
-            if let Some(wallet) = &selected_wallet {
-               if wallet.address != params.owner {
-                  continue;
-               }
-            }
-
-            permit_groups.entry((params.chain, params.owner)).or_default().push(params);
-         }
-
-         let now = TimeStamp::now_as_secs().ok().map(|t| t.timestamp());
-
-         for ((chain, owner), permits) in permit_groups {
-            let pairs: Vec<(Address, Address)> =
-               permits.iter().map(|p| (p.token.address(), p.spender)).collect();
-            let onchain = live_permit2_allowances(ctx.clone(), chain, owner, pairs).await;
-
-            for params in permits {
-               let key = (params.token.address(), params.spender);
-               let still_valid = match onchain.get(&key) {
-                  Some(&(amount, expiration)) => {
-                     let expired = now.map(|n| expiration < n).unwrap_or(false);
-                     amount >= params.amount.wei() && !expired
+               if let Some(chain_filter) = selected_chain {
+                  if chain_filter.id() != chain {
+                     continue;
                   }
-                  // RPC miss — keep the in-app row rather than hiding a live permit.
-                  None => true,
-               };
+               }
 
-               if still_valid {
-                  rows.push(ApprovalRow {
-                     chain: params.chain,
-                     owner: params.owner,
-                     token: params.token.clone(),
-                     spender: params.spender,
+               if let Some(wallet) = &selected_wallet {
+                  if wallet.address != params.owner {
+                     continue;
+                  }
+               }
+
+               rows.push(ApprovalRow {
+                  chain,
+                  owner: params.owner,
+                  asset: ApprovalAsset::Token {
+                     currency: Currency::from(params.token.clone()),
                      amount: params.amount.clone(),
-                     kind: ApprovalKind::Permit2(params),
-                  });
+                  },
+                  spender: params.spender,
+                  kind: ApprovalKind::Erc20(params),
+               });
+            }
+
+            let mut permit_groups: HashMap<(u64, Address), Vec<PermitParams>> = HashMap::new();
+            for params in manager.get_all_active_permits() {
+               if ctx.is_chain_disabled(params.chain) {
+                  continue;
+               }
+
+               if let Some(chain_filter) = selected_chain {
+                  if chain_filter.id() != params.chain {
+                     continue;
+                  }
+               }
+
+               if let Some(wallet) = &selected_wallet {
+                  if wallet.address != params.owner {
+                     continue;
+                  }
+               }
+
+               permit_groups.entry((params.chain, params.owner)).or_default().push(params);
+            }
+
+            let now = TimeStamp::now_as_secs().ok().map(|t| t.timestamp());
+
+            for ((chain, owner), permits) in permit_groups {
+               let pairs: Vec<(Address, Address)> =
+                  permits.iter().map(|p| (p.token.address(), p.spender)).collect();
+               let onchain = live_permit2_allowances(ctx.clone(), chain, owner, pairs).await;
+
+               for params in permits {
+                  let key = (params.token.address(), params.spender);
+                  let still_valid = match onchain.get(&key) {
+                     Some(&(amount, expiration)) => {
+                        let expired = now.map(|n| expiration < n).unwrap_or(false);
+                        amount >= params.amount.wei() && !expired
+                     }
+                     // RPC miss — keep the in-app row rather than hiding a live permit.
+                     None => true,
+                  };
+
+                  if still_valid {
+                     rows.push(ApprovalRow {
+                        chain: params.chain,
+                        owner: params.owner,
+                        asset: ApprovalAsset::Token {
+                           currency: params.token.clone(),
+                           amount: params.amount.clone(),
+                        },
+                        spender: params.spender,
+                        kind: ApprovalKind::Permit2(params),
+                     });
+                  }
                }
             }
          }
 
-         // Token symbol, then spender — stable enough for browsing.
+         // NFT approvals. The manager already holds them per shape; the row keeps the collection and
+         // the id, and the revoke builds the calldata the shape needs. Nothing here touches the
+         // network — the manager has it all — so this mode's rebuild is immediate.
+         if mode == ApprovalMode::Nft {
+            for params in manager.get_all_active_nft_approvals() {
+               if ctx.is_chain_disabled(params.chain) {
+                  continue;
+               }
+
+               if let Some(chain_filter) = selected_chain {
+                  if chain_filter.id() != params.chain {
+                     continue;
+                  }
+               }
+
+               if let Some(wallet) = &selected_wallet {
+                  if wallet.address != params.owner {
+                     continue;
+                  }
+               }
+
+               rows.push(ApprovalRow {
+                  chain: params.chain,
+                  owner: params.owner,
+                  asset: ApprovalAsset::Nft {
+                     collection: params.collection,
+                     token_id: params.token_id,
+                     amount: params.amount,
+                  },
+                  spender: params.operator,
+                  kind: ApprovalKind::Nft(params),
+               });
+            }
+         }
+
+         // Token symbol / collection address, then spender — stable enough for browsing.
          rows.sort_by(|a, b| {
-            a.token
-               .symbol()
-               .cmp(&b.token.symbol())
+            a.asset
+               .sort_key()
+               .cmp(&b.asset.sort_key())
                .then(a.spender.cmp(&b.spender))
                .then(a.chain.cmp(&b.chain))
          });
@@ -275,6 +444,41 @@ impl ApprovalsUi {
          .unwrap_or_else(|| truncate_address(spender.to_string()))
    }
 
+   /// The name of an NFT collection an approval is over.
+   ///
+   /// `get_address_name` already names a collection Zeus has cached — an approval is often the first
+   /// thing the user sees the collection in, though, so an unknown one falls back to its address
+   /// rather than to a blank cell.
+   fn collection_label(&self, ctx: &mut ZeusContext, chain: u64, collection: Address) -> String {
+      ctx.get_address_name(chain, collection)
+         .map(|s| s.to_string())
+         .unwrap_or_else(|| truncate_address(collection.to_string()))
+   }
+
+   /// The Tokens / NFTs switch.
+   ///
+   /// Two `Button::selectable`s sharing `theme.button_visuals()`, matching the switch in the token
+   /// picker (`token_selection.rs`) — the same two-mode choice, so it takes the same shape.
+   fn mode_switch(&mut self, theme: &Theme, ui: &mut Ui) {
+      let button_visuals = theme.button_visuals();
+
+      let tokens_text = RichText::new("Tokens").size(theme.typography.large);
+      let tokens_button = Button::selectable(self.mode == ApprovalMode::Fungible, tokens_text)
+         .visuals(button_visuals);
+
+      if ui.add(tokens_button).clicked() {
+         self.set_mode(ApprovalMode::Fungible);
+      }
+
+      let nfts_text = RichText::new("NFTs").size(theme.typography.large);
+      let nfts_button =
+         Button::selectable(self.mode == ApprovalMode::Nft, nfts_text).visuals(button_visuals);
+
+      if ui.add(nfts_button).clicked() {
+         self.set_mode(ApprovalMode::Nft);
+      }
+   }
+
    fn amount_label(amount: &NumericValue) -> String {
       // ERC20 unlimited is U256::MAX; Permit2 amounts are uint160.
       let wei = amount.wei();
@@ -299,22 +503,41 @@ impl ApprovalsUi {
       add_contents(&mut child);
    }
 
+   /// The Amount column: how much is approved.
+   ///
+   /// For an NFT that means the *scope* — which id, or the whole collection — plus the allowance on
+   /// the one shape that has one (ERC-5216), since "approved: yes" is not a number.
    fn amount_cell(
       ui: &mut Ui,
       width: f32,
       height: f32,
-      amount: &NumericValue,
+      asset: &ApprovalAsset,
       expire: Option<String>,
       theme: &Theme,
    ) {
+      let text = match asset {
+         ApprovalAsset::Token { amount, .. } => Self::amount_label(amount),
+         ApprovalAsset::Nft {
+            token_id, amount, ..
+         } => match (token_id, amount) {
+            // ERC-5216's allowance is a count of units for that id, not a decimal-scaled token
+            // amount, so it is shown as the integer it is.
+            (Some(id), Some(amount)) => {
+               let allowance = match amount == &U256::MAX {
+                  true => "Unlimited".to_string(),
+                  false => amount.to_string(),
+               };
+               format!("#{} × {}", id, allowance)
+            }
+            (Some(id), None) => format!("#{}", id),
+            (None, _) => "All tokens".to_string(),
+         },
+      };
+
       Self::row_cell(ui, width, height, |ui| {
          ui.spacing_mut().item_spacing.x = theme.spacing.xs;
 
-         ui.label(
-            RichText::new(Self::amount_label(amount))
-               .size(theme.typography.normal)
-               .color(theme.colors.text),
-         );
+         ui.label(RichText::new(text).size(theme.typography.normal).color(theme.colors.text));
 
          if let Some(text) = expire {
             let expire_text = RichText::new(text).size(theme.typography.normal);
@@ -341,6 +564,12 @@ impl ApprovalsUi {
                let combo_visuals = theme.combo_box_visuals();
                let label_visuals = theme.label_visuals();
                let expansion = Some(6.0);
+
+               // Tokens / NFTs — first, because it decides what the rest of the page is about.
+               ui.scope(|ui| {
+                  ui.spacing_mut().item_spacing.x = theme.spacing.sm;
+                  self.mode_switch(theme, ui);
+               });
 
                // Wallet filter
                let wallets = ctx.all_wallets_info_ordered();
@@ -551,7 +780,6 @@ impl ApprovalsUi {
                   // padding) so header cells line up with body cells and the
                   // row actually fills the card — leftover used to live after
                   // Revoke because body spacing/padding did not match the header.
-                  let row_height = 40.0;
                   let col_spacing = 20.0;
                   let n_cols = 7.0;
                   let row_frame = theme.frame1.outer_margin(Margin::ZERO);
@@ -575,14 +803,21 @@ impl ApprovalsUi {
                   ];
 
                   // --- Header (same widths + left inset as body cells) ---
+                  // The trusted-address column is "Operator" in NFT mode: it is the same slot, but an
+                  // NFT approval grants an operator, which is the word the rest of the UI uses for it.
+                  let headers = match self.mode {
+                     ApprovalMode::Fungible => {
+                        ["Asset", "Chain", "Wallet", "Spender", "Amount", "Type", ""]
+                     }
+                     ApprovalMode::Nft => {
+                        ["Asset", "Chain", "Wallet", "Operator", "Amount", "Type", ""]
+                     }
+                  };
+
                   ui.horizontal(|ui| {
                      ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0 + inner_left);
                      ui.spacing_mut().item_spacing.x = col_spacing;
-                     for (i, header) in
-                        ["Asset", "Chain", "Wallet", "Spender", "Amount", "Type", ""]
-                           .into_iter()
-                           .enumerate()
-                     {
+                     for (i, header) in headers.into_iter().enumerate() {
                         // Shorter header row — no need for full body height.
                         Self::row_cell(ui, column_widths[i], 28.0, |ui| {
                            if !header.is_empty() {
@@ -614,24 +849,66 @@ impl ApprovalsUi {
                      ui.spacing_mut().item_spacing.y = theme.spacing.md;
 
                      for row in rows {
+                        // An NFT row is as tall as its 64 px thumbnail; a fungible row keeps the
+                        // height its 32 px icon was laid out for.
+                        let row_height = row.height();
+
                         ui.allocate_ui(vec2(row_width, row_height + inner_y), |ui| {
                            row_frame.show(ui, |ui| {
                               ui.set_width(inner_width);
                               ui.spacing_mut().item_spacing.x = col_spacing;
 
                               ui.horizontal(|ui| {
-                                 // Asset
+                                 // Asset — a token's symbol, or the collection an NFT approval is over.
                                  Self::row_cell(ui, column_widths[0], row_height, |ui| {
-                                    let icon = icons.currency_icon_x32(&row.token, tint);
+                                    let icon_width = row.asset.icon_width();
+                                    let (icon, title, hover) = match &row.asset {
+                                       ApprovalAsset::Token { currency, .. } => (
+                                          icons.currency_icon_x32(currency, tint),
+                                          currency.symbol().to_string(),
+                                          currency.name().to_string(),
+                                       ),
+                                       ApprovalAsset::Nft {
+                                          collection,
+                                          token_id,
+                                          ..
+                                       } => {
+                                          // A collection-wide approval has no id, so any of the
+                                          // collection's cached art is what identifies it — asking
+                                          // for a fixed id usually lands on art that was never
+                                          // fetched and shows the placeholder instead.
+                                          let icon = match token_id {
+                                             Some(id) => icons.nft_icon_x64(
+                                                row.chain,
+                                                *collection,
+                                                *id,
+                                                tint,
+                                             ),
+                                             None => icons.nft_collection_icon_x64(
+                                                row.chain,
+                                                *collection,
+                                                tint,
+                                             ),
+                                          };
+                                          let name =
+                                             self.collection_label(ctx, row.chain, *collection);
+                                          let hover = format!("{}\n{}", name, collection);
+                                          (icon, name, hover)
+                                       }
+                                    };
+
                                     ui.add(icon);
-                                    let text = RichText::new(row.token.symbol())
+                                    let text = RichText::new(title)
                                        .size(theme.typography.normal)
                                        .color(theme.colors.text);
                                     let label =
                                        Label::new(text, None).wrap().visuals(label_visuals);
                                     ui.scope(|ui| {
-                                       ui.set_max_width(column_widths[0] - 40.0);
-                                       ui.add(label).on_hover_text(row.token.name());
+                                       ui.set_max_width(
+                                          (column_widths[0] - icon_width - theme.spacing.xs)
+                                             .max(0.0),
+                                       );
+                                       ui.add(label).on_hover_text(hover);
                                     });
                                  });
 
@@ -687,19 +964,15 @@ impl ApprovalsUi {
                                     ui,
                                     column_widths[4],
                                     row_height,
-                                    &row.amount,
+                                    &row.asset,
                                     expire,
                                     theme,
                                  );
 
                                  // Type
                                  Self::row_cell(ui, column_widths[5], row_height, |ui| {
-                                    let kind = match &row.kind {
-                                       ApprovalKind::Erc20(_) => "ERC-20",
-                                       ApprovalKind::Permit2(_) => "Permit2",
-                                    };
                                     ui.label(
-                                       RichText::new(kind)
+                                       RichText::new(row.kind.type_label())
                                           .size(theme.typography.normal)
                                           .color(theme.colors.text),
                                     );
@@ -772,6 +1045,25 @@ impl ApprovalsUi {
                }
             });
          }
+         ApprovalKind::Nft(params) => {
+            let chain = params.chain;
+            RT.spawn(async move {
+               if let Err(e) = revoke_nft_approval(chain, params).await {
+                  tracing::error!("Failed to revoke NFT approval: {:?}", e);
+                  SHARED_GUI.write(|gui| {
+                     gui.loading_window.reset();
+                     gui.notification.reset();
+                     gui.msg_window.open(format!("Revoke Failed: {}", e));
+                     gui.request_repaint();
+                  });
+               } else {
+                  SHARED_GUI.write(|gui| {
+                     gui.approvals.invalidate_cache();
+                     gui.request_repaint();
+                  });
+               }
+            });
+         }
       }
    }
 }
@@ -815,6 +1107,114 @@ async fn live_permit2_allowances(
    }
 
    out
+}
+
+/// The calldata that revokes an NFT approval, with the params as they will read once it lands.
+///
+/// There is no generic "revoke": each of the three shapes is cleared a different way, and they are
+/// **not** interchangeable. `setApprovalForAll(operator, false)` against a grant that was made with
+/// per-token `approve` revokes nothing at all — the transaction succeeds, the row stays, and the user
+/// has paid gas to believe they un-approved someone. So every shape is matched explicitly, and the
+/// combinations the three shapes never emit are refused rather than guessed at.
+///
+/// The returned params are the *revoked* ones on purpose: they are what the manager records, and
+/// recording the params as they were would leave the grant looking active after its revocation.
+fn revoke_call(params: &NftApproveParams) -> Result<(Bytes, NftApproveParams), anyhow::Error> {
+   let mut revoked = params.clone();
+
+   let calldata = match (params.token_id, params.approved, params.amount) {
+      // ERC-721 per-token: clear the operator to the zero address.
+      (Some(id), None, None) => {
+         revoked.operator = Address::ZERO;
+         erc721::encode_approve(Address::ZERO, id)
+      }
+      // `ApprovalForAll`: unset the flag. The operator stays, which is what lets the store find and
+      // drop the very row this revokes — a collection-wide entry is keyed by its operator.
+      (None, Some(_), None) => {
+         revoked.approved = Some(false);
+         erc721::encode_set_approval_for_all(params.operator, false)
+      }
+      // ERC-5216: a zero allowance for this operator and this id.
+      (Some(id), None, Some(_)) => {
+         revoked.amount = Some(U256::ZERO);
+         erc1155::encode_approve(params.operator, id, U256::ZERO)
+      }
+      _ => {
+         return Err(anyhow!(
+            "no revoke for this NFT approval shape (id: {:?}, approved: {:?}, amount: {:?})",
+            params.token_id,
+            params.approved,
+            params.amount
+         ));
+      }
+   };
+
+   Ok((calldata, revoked))
+}
+
+/// Revoke an NFT approval on the collection that emitted it.
+async fn revoke_nft_approval(chain_id: u64, params: NftApproveParams) -> Result<(), anyhow::Error> {
+   let (calldata, revoked) = revoke_call(&params)?;
+
+   let ctx = SHARED_GUI.write(|gui| {
+      gui.loading_window.open("Wait while magic happens");
+      gui.request_repaint();
+      gui.ctx.clone()
+   });
+   let chain: ChainId = chain_id.into();
+
+   let value = U256::ZERO;
+   let dapp = "".to_string();
+   let mev_protect = false;
+   let auth_list = vec![];
+   let interact_to = params.collection;
+   let source_is_zeus = true;
+
+   let simulated = simulate_for_analysis(
+      ctx.clone(),
+      chain,
+      params.owner,
+      interact_to,
+      calldata.clone(),
+      value,
+      Vec::new(),
+   )
+   .await?;
+
+   let mut analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      params.owner,
+      interact_to,
+      Some(true),
+      calldata.clone(),
+      value,
+      simulated.logs,
+      simulated.gas_used,
+      simulated.balance_before,
+      simulated.balance_after,
+      auth_list.clone(),
+   )
+   .await?;
+   analysis.set_main_event(DecodedEvent::NftApprove(revoked));
+
+   let (_, _) = send_transaction(
+      ctx,
+      source_is_zeus,
+      SendTxRequest::new(chain, params.owner, interact_to)
+         .call_data(calldata)
+         .value(value)
+         .authorization_list(auth_list)
+         .analysis(analysis),
+      SendTxOptions {
+         dapp,
+         mev_protect,
+         ..Default::default()
+      },
+   )
+   .await?;
+
+   Ok(())
 }
 
 async fn revoke_erc20_approval(
@@ -1012,4 +1412,126 @@ async fn revoke_permit2_approval(
    .await?;
 
    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use alloy_sol_types::SolEvent;
+   use zeus_eth::alloy_primitives::{Log, address};
+
+   const OWNER: Address = address!("1111111111111111111111111111111111111111");
+   const COLLECTION: Address = address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D");
+   const OPERATOR: Address = address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266");
+   const ID: u64 = 1071;
+
+   /// The params exactly as the decode ladder produces them, so these tests revoke what a real row
+   /// in the table is built from.
+
+   fn erc721_grant() -> NftApproveParams {
+      let log = Log {
+         address: COLLECTION,
+         data: erc721::IERC721::Approval {
+            owner: OWNER,
+            approved: OPERATOR,
+            tokenId: U256::from(ID),
+         }
+         .encode_log_data(),
+      };
+      NftApproveParams::from_erc721_approval(1, &log).unwrap()
+   }
+
+   fn approval_for_all(approved: bool) -> NftApproveParams {
+      let log = Log {
+         address: COLLECTION,
+         data: erc721::IERC721::ApprovalForAll {
+            owner: OWNER,
+            operator: OPERATOR,
+            approved,
+         }
+         .encode_log_data(),
+      };
+      NftApproveParams::from_approval_for_all(1, &log).unwrap()
+   }
+
+   fn erc5216_allowance(amount: u64) -> NftApproveParams {
+      let log = Log {
+         address: COLLECTION,
+         data: erc1155::IERC5216::Approval {
+            account: OWNER,
+            operator: OPERATOR,
+            id: U256::from(ID),
+            amount: U256::from(amount),
+         }
+         .encode_log_data(),
+      };
+      NftApproveParams::from_erc1155_approval(1, &log).unwrap()
+   }
+
+   /// An ERC-721 per-token grant is revoked by approving the zero address for that id.
+   #[test]
+   fn an_erc721_grant_is_revoked_with_approve_zero() {
+      let (calldata, revoked) = revoke_call(&erc721_grant()).unwrap();
+
+      assert_eq!(
+         calldata,
+         erc721::encode_approve(Address::ZERO, U256::from(ID))
+      );
+      assert_eq!(
+         revoked.operator,
+         Address::ZERO,
+         "the operator is cleared"
+      );
+      assert_eq!(revoked.token_id, Some(U256::from(ID)));
+      assert!(revoked.is_revoke());
+   }
+
+   /// `ApprovalForAll` is revoked by unsetting the flag — **not** by `approve(0, id)`, which would
+   /// revoke one token of a collection-wide grant and leave the rest of it live.
+   #[test]
+   fn an_approval_for_all_is_revoked_with_the_flag() {
+      let (calldata, revoked) = revoke_call(&approval_for_all(true)).unwrap();
+
+      assert_eq!(
+         calldata,
+         erc721::encode_set_approval_for_all(OPERATOR, false)
+      );
+      assert_eq!(
+         revoked.operator, OPERATOR,
+         "the operator stays: it is what the store keys the revoked row by"
+      );
+      assert_eq!(revoked.approved, Some(false));
+      assert_eq!(revoked.token_id, None);
+      assert!(revoked.is_revoke());
+   }
+
+   /// ERC-5216 is revoked with a zero allowance for that operator and id.
+   #[test]
+   fn an_erc5216_allowance_is_revoked_with_zero_amount() {
+      let (calldata, revoked) = revoke_call(&erc5216_allowance(5)).unwrap();
+
+      assert_eq!(
+         calldata,
+         erc1155::encode_approve(OPERATOR, U256::from(ID), U256::ZERO)
+      );
+      assert_eq!(revoked.amount, Some(U256::ZERO));
+      assert_eq!(revoked.operator, OPERATOR);
+      assert!(revoked.is_revoke());
+
+      assert_ne!(
+         calldata,
+         erc721::encode_approve(Address::ZERO, U256::from(ID)),
+         "an ERC-5216 revoke is not an ERC-721 one"
+      );
+   }
+
+   /// No shape emits a log that cannot be revoked, so an unrecognized combination is an error rather
+   /// than a guessed calldata: a wrong revoke sends a real transaction that revokes something else.
+   #[test]
+   fn an_unrepresentable_shape_is_refused() {
+      let mut params = erc721_grant();
+      params.token_id = None;
+
+      assert!(revoke_call(&params).is_err());
+   }
 }

@@ -6,6 +6,7 @@ pub mod persisted;
 pub mod signature;
 pub mod tx;
 pub mod types;
+pub mod urls;
 pub mod vault;
 pub mod wallet;
 pub mod wallet_state;

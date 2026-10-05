@@ -1,6 +1,8 @@
 mod approve;
 mod bridge;
 mod eoa_delegate;
+mod nft;
+mod nft_approve;
 mod permit;
 mod railgun;
 mod swap;
@@ -11,6 +13,8 @@ mod wrap;
 pub use approve::*;
 pub use bridge::*;
 pub use eoa_delegate::*;
+pub use nft::*;
+pub use nft_approve::*;
 pub use permit::*;
 pub use railgun::*;
 pub use swap::*;

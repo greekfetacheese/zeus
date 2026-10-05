@@ -1,17 +1,37 @@
 //! UI that allows the user to change the general settings.
 
 use crate::core::ZeusContext;
+use crate::core::urls::{UrlPurpose, purpose_tip};
 use crate::utils::RT;
 use egui::{Align, Layout, RichText, Ui, vec2};
 use egui_elements::{Button, Theme};
 use elegance::{Badge, BadgeTone};
+use std::sync::OnceLock;
 
-const ICONS_TIP: &str = "Allow Zeus to download token icons from tokens.smold.app";
+const ICONS_TIP: &str = "Allow Zeus to download token icons and NFT images";
 const SOURCIFY_TIP: &str = "Allow Zeus to look up verified contract names on sourcify.dev";
 const UPDATES_TIP: &str = "Allow Zeus to check GitHub for a newer Zeus release";
 
+/// The External Data hover tips: the one-line explanation plus the endpoints the
+/// opt-in actually contacts. Built once — `on_hover_text` takes its value every
+/// frame, so this must not allocate on the frame path.
+fn icons_tip() -> &'static str {
+   static TIP: OnceLock<String> = OnceLock::new();
+   TIP.get_or_init(|| purpose_tip(ICONS_TIP, UrlPurpose::AssetImages))
+}
+
+fn names_tip() -> &'static str {
+   static TIP: OnceLock<String> = OnceLock::new();
+   TIP.get_or_init(|| purpose_tip(SOURCIFY_TIP, UrlPurpose::ContractNames))
+}
+
+fn updates_tip() -> &'static str {
+   static TIP: OnceLock<String> = OnceLock::new();
+   TIP.get_or_init(|| purpose_tip(UPDATES_TIP, UrlPurpose::Updates))
+}
+
 pub struct GeneralSettings {
-   fetch_token_icons: bool,
+   fetch_asset_images: bool,
    fetch_contract_names: bool,
    check_for_updates: bool,
    concurrency_for_syncing_balances: usize,
@@ -23,7 +43,7 @@ pub struct GeneralSettings {
 impl GeneralSettings {
    pub fn new(ctx: &mut ZeusContext) -> Self {
       let mut this = Self {
-         fetch_token_icons: false,
+         fetch_asset_images: false,
          fetch_contract_names: false,
          check_for_updates: false,
          concurrency_for_syncing_balances: 1,
@@ -47,7 +67,7 @@ impl GeneralSettings {
    pub fn sync_from_ctx(&mut self, ctx: &mut ZeusContext) {
       let pool_manager = ctx.pool_manager.clone();
       let balance_manager = ctx.read_wallet_state(|ws| ws.balance_manager.clone());
-      self.fetch_token_icons = ctx.misc_config.fetch_token_icons();
+      self.fetch_asset_images = ctx.misc_config.fetch_asset_images();
       self.fetch_contract_names = ctx.misc_config.fetch_contract_names();
       self.check_for_updates = ctx.misc_config.check_for_updates();
       self.concurrency_for_syncing_balances = balance_manager.concurrency();
@@ -79,18 +99,19 @@ impl GeneralSettings {
       let qmark = Badge::new(q_mark_text.clone(), BadgeTone::Info);
 
       let ui_size = vec2(ui.available_width() * 0.3, 30.0);
-      let icons_text = RichText::new("Download Token Icons").size(theme.typography.normal);
+      let icons_text =
+         RichText::new("Download Token Icons & NFT Images").size(theme.typography.normal);
 
       ui.allocate_ui_with_layout(
          ui_size,
          Layout::left_to_right(Align::Center),
          |ui| {
-            if ui.checkbox(&mut self.fetch_token_icons, icons_text).changed() {
-               ctx.misc_config.set_fetch_token_icons(self.fetch_token_icons);
+            if ui.checkbox(&mut self.fetch_asset_images, icons_text).changed() {
+               ctx.misc_config.set_fetch_asset_images(self.fetch_asset_images);
                Self::persist_misc(ctx);
             }
 
-            ui.add(qmark).on_hover_text(ICONS_TIP);
+            ui.add(qmark).on_hover_text(icons_tip());
          },
       );
 
@@ -105,7 +126,7 @@ impl GeneralSettings {
                ctx.misc_config.set_fetch_contract_names(self.fetch_contract_names);
                Self::persist_misc(ctx);
             }
-            ui.add(qmark).on_hover_text(SOURCIFY_TIP);
+            ui.add(qmark).on_hover_text(names_tip());
          },
       );
 
@@ -120,7 +141,7 @@ impl GeneralSettings {
                ctx.misc_config.set_check_for_updates(self.check_for_updates);
                Self::persist_misc(ctx);
             }
-            ui.add(qmark).on_hover_text(UPDATES_TIP);
+            ui.add(qmark).on_hover_text(updates_tip());
          },
       );
 
@@ -181,8 +202,8 @@ impl GeneralSettings {
 
    pub fn save_settings(&self, ctx: &mut ZeusContext) {
       let mut save_misc = false;
-      if self.fetch_token_icons != ctx.misc_config.fetch_token_icons() {
-         ctx.misc_config.set_fetch_token_icons(self.fetch_token_icons);
+      if self.fetch_asset_images != ctx.misc_config.fetch_asset_images() {
+         ctx.misc_config.set_fetch_asset_images(self.fetch_asset_images);
          save_misc = true;
       }
       if self.fetch_contract_names != ctx.misc_config.fetch_contract_names() {

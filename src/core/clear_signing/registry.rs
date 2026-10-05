@@ -6,6 +6,7 @@ use super::registry_pins::{
 use crate::core::persisted::{
    CLEAR_SIGNING_INDEX_CALLDATA, CLEAR_SIGNING_INDEX_EIP712, PersistedTree, tree_dir,
 };
+use crate::core::urls::ZeusUrl;
 use crate::embedded::clear_signing as embedded_registry;
 use crate::utils::write_private;
 use anyhow::Context;
@@ -15,8 +16,6 @@ use std::sync::OnceLock;
 use std::time::Duration;
 use zeus_eth::alloy_primitives::{Address, B256, keccak256};
 
-const REGISTRY_BASE: &str =
-   "https://raw.githubusercontent.com/ethereum/clear-signing-erc7730-registry/master";
 const EIP712_INDEX_PATH: &str = CLEAR_SIGNING_INDEX_EIP712;
 const CALLDATA_INDEX_PATH: &str = CLEAR_SIGNING_INDEX_CALLDATA;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -85,7 +84,10 @@ fn read_pinned_json(path: &Path, registry_path: &str) -> Option<Value> {
 }
 
 async fn fetch_registry_bytes(registry_path: &str) -> Result<Vec<u8>, anyhow::Error> {
-   let url = format!("{REGISTRY_BASE}/{registry_path}");
+   let url = format!(
+      "{}/{registry_path}",
+      ZeusUrl::ClearSigningRegistry.base()
+   );
    let bytes = http_client()
       .get(&url)
       .send()

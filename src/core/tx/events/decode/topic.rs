@@ -6,8 +6,9 @@
 
 use super::{DecodeCtx, DecodeOutcome};
 use crate::core::tx::events::{
-   BridgeParams, DecodedEvent, PermitParams, ShieldParams, SwapParams, TokenApproveParams,
-   TransferParams, UniswapPositionParams, UnshieldParams, UnwrapWETHParams, WrapETHParams,
+   BridgeParams, DecodedEvent, NftApproveParams, NftTransferParams, PermitParams, ShieldParams,
+   SwapParams, TokenApproveParams, TransferParams, UniswapPositionParams, UnshieldParams,
+   UnwrapWETHParams, WrapETHParams,
 };
 use zeus_eth::alloy_primitives::Log;
 
@@ -28,6 +29,24 @@ pub async fn decode_log(dctx: &DecodeCtx, log: &Log) -> DecodeOutcome {
    if let Ok(params) = UnwrapWETHParams::from_log(dctx.ctx.clone(), dctx.chain, log) {
       return DecodeOutcome::One {
          event: DecodedEvent::UnwrapWETH(params),
+         counts_as_known: true,
+      };
+   }
+
+   // NFT transfer / mint / burn.
+   //
+   // Deliberately *before* the fungible attempt below, which is the opposite of what the plan assumed.
+   // `TransferParams::new` is not a fungible decoder: it accepts an ERC-721 `Transfer` too and reports
+   // `is_erc20_transfer() == false` for it, so placing this after it means this branch is never reached
+   // for an ERC-721 — the transaction decodes as a `Transfer` that is neither ERC-20 nor native, and
+   // renders as nothing. Placing it here is safe because this decoder is strict: an ERC-721 `Transfer`
+   // needs the token id as a fourth topic, which an ERC-20 `Transfer` never has, and the ERC-1155 events
+   // have topic0s of their own. `an_erc20_transfer_is_not_an_nft_transfer` pins exactly that.
+   if let Ok(params) = NftTransferParams::from_log(dctx.chain, log) {
+      let events = params.into_iter().map(DecodedEvent::NftTransfer).collect::<Vec<_>>();
+
+      return DecodeOutcome::Many {
+         events,
          counts_as_known: true,
       };
    }
@@ -64,6 +83,19 @@ pub async fn decode_log(dctx: &DecodeCtx, log: &Log) -> DecodeOutcome {
    if let Ok(params) = UnshieldParams::from_log(dctx.ctx.clone(), dctx.chain, log).await {
       return DecodeOutcome::One {
          event: DecodedEvent::Unshield(params),
+         counts_as_known: true,
+      };
+   }
+
+   // NFT approval — per token or collection-wide.
+   //
+   // Before the ERC-20 attempt for the same reason the NFT transfer sits before the fungible one:
+   // an ERC-721 per-token `Approval` shares the ERC-20 `Approval` topic0 and is separated only by
+   // its fourth topic. Asking the ERC-20 decoder first would leave it to decide — and it is the one
+   // that accepts the 3-topic shape, so the narrower read has to come first.
+   if let Ok(params) = NftApproveParams::from_log(dctx.ctx.clone(), dctx.chain, log).await {
+      return DecodeOutcome::One {
+         event: DecodedEvent::NftApprove(params),
          counts_as_known: true,
       };
    }

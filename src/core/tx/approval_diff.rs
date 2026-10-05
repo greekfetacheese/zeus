@@ -2,12 +2,14 @@
 //!
 //! Log `Approval` amounts are untrusted. Amounts here come from `allowance()`.
 
+use super::balance_diff::MAX_NFT_CANDIDATES;
 use crate::utils::TimeStamp;
 use serde::{Deserialize, Serialize};
 use zeus_eth::{
-   abi::{erc20, permit},
+   abi::{erc20, erc721, erc1155, permit},
    alloy_primitives::{Address, Bytes, Log, U256, aliases::U160},
    currency::{Currency, ERC20Token},
+   nft::NftStandard,
    utils::NumericValue,
 };
 
@@ -86,20 +88,121 @@ impl ApprovalChange {
    }
 }
 
+/// Which probe answers an NFT approval candidate — the three shapes, as the approval store models
+/// them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum NftApprovalTarget {
+   /// ERC-721 `getApproved(id)`. One id, and one approved address per id.
+   Token(U256),
+   /// `isApprovedForAll(owner, operator)` — both standards answer it identically.
+   ForAll,
+   /// ERC-5216 `allowance(owner, operator, id)`.
+   Allowance(U256),
+}
+
+/// The measured state of one NFT approval, in its shape's own units.
+///
+/// One variant per shape rather than a single number, because the three do not measure the same
+/// thing: an ERC-721 approval *is* an address (and a revoke is the zero address), an
+/// `ApprovalForAll` is a flag, and ERC-5216 is an allowance. Encoding them as one integer would mean
+/// giving one of them a meaning it does not have.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NftApprovalValue {
+   /// ERC-721 per-token: the approved address, the zero address when there is none.
+   Approved(Address),
+   /// `ApprovalForAll`: the flag.
+   ForAll(bool),
+   /// ERC-5216: the allowance for this operator and id.
+   Allowance(U256),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NftApprovalChange {
+   pub collection: Address,
+   /// Who the row is about — see [`Self::from_state`] for how that is decided per shape.
+   pub operator: Address,
+   pub target: NftApprovalTarget,
+   pub standard: NftStandard,
+   pub before: NftApprovalValue,
+   pub after: NftApprovalValue,
+}
+
+impl NftApprovalChange {
+   /// Build a change from the measured before/after state, or `None` when nothing changed.
+   ///
+   /// `operator` is the candidate's operator. For the per-token shape that is the address the log
+   /// named, and a revoke names the **zero address** — so the row takes its operator from the
+   /// measured state instead: the address it is now, or the one it was when the approval was
+   /// cleared. Naming zero there would leave the row saying "approved to 0x0" for a revocation.
+   pub fn from_state(
+      collection: Address,
+      operator: Address,
+      target: NftApprovalTarget,
+      standard: NftStandard,
+      before: NftApprovalValue,
+      after: NftApprovalValue,
+   ) -> Option<Self> {
+      if before == after {
+         return None;
+      }
+
+      let operator = match (&before, &after) {
+         (_, NftApprovalValue::Approved(address)) if !address.is_zero() => *address,
+         (NftApprovalValue::Approved(address), _) => *address,
+         _ => operator,
+      };
+
+      Some(Self {
+         collection,
+         operator,
+         target,
+         standard,
+         before,
+         after,
+      })
+   }
+
+   /// Whether this row takes the approval away. Each shape says no its own way, and none of them is
+   /// a missing value.
+   pub fn is_revoke(&self) -> bool {
+      match self.after {
+         NftApprovalValue::Approved(address) => address.is_zero(),
+         NftApprovalValue::ForAll(approved) => !approved,
+         NftApprovalValue::Allowance(amount) => amount.is_zero(),
+      }
+   }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ApprovalDiff {
    pub changes: Vec<ApprovalChange>,
+   /// NFT approval changes. Their own type because an NFT approval's shape decides what "before" and
+   /// "after" are at all. `serde(default)` so an analysis stored before these rows existed loads.
+   #[serde(default)]
+   pub nft_changes: Vec<NftApprovalChange>,
 }
 
 impl ApprovalDiff {
    pub fn is_empty(&self) -> bool {
-      self.changes.is_empty()
+      self.changes.is_empty() && self.nft_changes.is_empty()
+   }
+
+   pub fn len(&self) -> usize {
+      self.changes.len() + self.nft_changes.len()
    }
 
    /// Revokes first, then remaining grants.
    pub fn sorted(&self) -> Vec<&ApprovalChange> {
       let mut rows: Vec<&ApprovalChange> = self.changes.iter().collect();
       rows.sort_by_key(|c| (!c.is_revoke(), c.is_increase()));
+      rows
+   }
+
+   /// NFT rows: revokes first, then grants — the same order [`Self::sorted`] uses, and for the same
+   /// reason (a row that takes access away is the one worth reading first).
+   pub fn nft_sorted(&self) -> Vec<&NftApprovalChange> {
+      let mut rows: Vec<&NftApprovalChange> = self.nft_changes.iter().collect();
+      rows.sort_by_key(|c| !c.is_revoke());
       rows
    }
 }
@@ -109,6 +212,177 @@ pub fn unlimited_allowance(kind: ApprovalKind, amount: U256) -> bool {
       ApprovalKind::Erc20 => amount == U256::MAX,
       ApprovalKind::Permit2 => amount == U256::from(U160::MAX),
    }
+}
+
+/// One NFT approval to probe, as a *question*: which collection, to whom, and of which shape.
+///
+/// The collection's standard is deliberately absent — `ApprovalForAll` is byte-identical across
+/// ERC-721 and ERC-1155 and the probe that answers it is identical too, so the standard only matters
+/// once there is a row to draw, and it is resolved for display then.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NftApprovalCandidate {
+   pub collection: Address,
+   pub operator: Address,
+   pub target: NftApprovalTarget,
+}
+
+/// NFT approval candidates to probe for the signer, from the same three sources the fungible ones
+/// come from.
+///
+/// - the approval logs this tx emitted, of any of the three shapes;
+/// - the calldata, when it is one of the three approval calls;
+/// - approvals the user made in-app earlier, but **only when `operator == interact_to`**. That is
+///   what catches an approval this tx *consumes* — an ERC-721 token's approval is cleared by its
+///   transfer and an ERC-5216 allowance is spent by one — without probing every saved operator, which
+///   would be a sequential RPC walk.
+///
+/// A zero operator is kept: for NFTs the zero address is a **revocation**, not a missing value, and
+/// it is exactly what a revoke logs (or a `approve(0, id)` call carries).
+pub fn collect_nft_approval_candidates(
+   owner: Address,
+   interact_to: Address,
+   call_data: &Bytes,
+   logs: &[Log],
+   known_nft: impl IntoIterator<Item = NftApprovalCandidate>,
+) -> Vec<NftApprovalCandidate> {
+   let mut out = Vec::new();
+
+   for candidate in known_nft {
+      if candidate.operator == interact_to {
+         push_nft_approval_candidate(&mut out, candidate);
+      }
+   }
+
+   // `approve(address,uint256)` is byte-identical between ERC-20 and ERC-721 — same selector, same
+   // layout — so the calldata alone cannot say which this call is. The *events* differ: the ERC-721
+   // `Approval` indexes the token id, so it carries four topics where the ERC-20's leaves the value in
+   // data and carries three, and the ERC-20 decoder refuses the four-topic shape. If this tx emitted an
+   // ERC-20 `Approval` for `interact_to`, the call was a token approval, not a token approval of a single
+   // NFT — and probing `getApproved` on an ERC-20 is a call that can only revert, or, if a contract
+   // happens to answer, a bogus row.
+   let erc20_approval_fired = logs
+      .iter()
+      .any(|log| log.address == interact_to && erc20::decode_approve_log(log).is_ok());
+
+   if !erc20_approval_fired {
+      if let Ok((to, token_id)) = erc721::decode_approve_call(call_data) {
+         push_nft_approval_candidate(
+            &mut out,
+            NftApprovalCandidate {
+               collection: interact_to,
+               operator: to,
+               target: NftApprovalTarget::Token(token_id),
+            },
+         );
+      }
+   }
+
+   if let Ok((operator, _approved)) = erc721::decode_set_approval_for_all_call(call_data) {
+      push_nft_approval_candidate(
+         &mut out,
+         NftApprovalCandidate {
+            collection: interact_to,
+            operator,
+            target: NftApprovalTarget::ForAll,
+         },
+      );
+   }
+
+   if let Ok((operator, id, _amount)) = erc1155::decode_approve_call(call_data) {
+      push_nft_approval_candidate(
+         &mut out,
+         NftApprovalCandidate {
+            collection: interact_to,
+            operator,
+            target: NftApprovalTarget::Allowance(id),
+         },
+      );
+   }
+
+   for log in logs {
+      // ERC-721 `Approval(owner, approved, tokenId)`. It has four topics where an ERC-20 `Approval`
+      // has three, which is the only thing separating their shared event name.
+      if let Ok(approval) = erc721::decode_approval_log(log) {
+         if approval.owner == owner {
+            push_nft_approval_candidate(
+               &mut out,
+               NftApprovalCandidate {
+                  collection: log.address,
+                  operator: approval.approved,
+                  target: NftApprovalTarget::Token(approval.tokenId),
+               },
+            );
+         }
+         continue;
+      }
+
+      // `ApprovalForAll(owner, operator, approved)`. One decoder for both standards: the event and
+      // its meaning are the same on either.
+      if let Ok(for_all) = erc721::decode_approval_for_all_log(log) {
+         if for_all.owner == owner {
+            push_nft_approval_candidate(
+               &mut out,
+               NftApprovalCandidate {
+                  collection: log.address,
+                  operator: for_all.operator,
+                  target: NftApprovalTarget::ForAll,
+               },
+            );
+         }
+         continue;
+      }
+
+      // ERC-5216 `Approval(account, operator, id, amount)` — note the id is **not** indexed, so it
+      // lives in the data beside the amount.
+      if let Ok(allowance) = erc1155::decode_approval_log(log) {
+         if allowance.account == owner {
+            push_nft_approval_candidate(
+               &mut out,
+               NftApprovalCandidate {
+                  collection: log.address,
+                  operator: allowance.operator,
+                  target: NftApprovalTarget::Allowance(allowance.id),
+               },
+            );
+         }
+      }
+   }
+
+   out
+}
+
+fn push_nft_approval_candidate(
+   out: &mut Vec<NftApprovalCandidate>,
+   candidate: NftApprovalCandidate,
+) {
+   // Only the collection is vetted: a zero *operator* is a revocation here.
+   if candidate.collection.is_zero() {
+      return;
+   }
+
+   // Deduped on what the *row* is about, not on the candidate's fields. A per-token approval's row takes
+   // its operator from the measured state (`getApproved(id)`), so the operator is that record's *value*
+   // and not part of its identity — the same rule the store keys by (`approval_manager.rs`) — which means
+   // the same id reached from the known store (operator A) and from a revoke log (operator 0x0) is one
+   // row, probed once. The other two shapes are per operator by construction: an ERC-5216 allowance and an
+   // `ApprovalForAll` each belong to their own operator, so those keep it in the key.
+   let known = out.iter().any(|existing| {
+      existing.collection == candidate.collection
+         && existing.target == candidate.target
+         && match candidate.target {
+            NftApprovalTarget::Token(_) => true,
+            _ => existing.operator == candidate.operator,
+         }
+   });
+
+   if known {
+      return;
+   }
+
+   if out.len() >= MAX_NFT_CANDIDATES {
+      return;
+   }
+   out.push(candidate);
 }
 
 fn push_candidate(
@@ -211,7 +485,7 @@ pub fn collect_approval_candidates(
 mod tests {
    use super::*;
    use zeus_eth::{
-      abi::permit::Permit2,
+      abi::{erc721::IERC721, erc1155::IERC5216, permit::Permit2},
       alloy_primitives::{Log, address, aliases::U48},
       alloy_sol_types::SolEvent,
    };
@@ -518,6 +792,7 @@ mod tests {
 
       let diff = ApprovalDiff {
          changes: vec![grant.clone(), decrease.clone(), revoke.clone()],
+         nft_changes: Vec::new(),
       };
       let sorted = diff.sorted();
       assert!(sorted[0].is_revoke());
@@ -527,5 +802,402 @@ mod tests {
       assert_eq!(sorted[0].spender, revoke.spender);
       assert_eq!(sorted[1].spender, decrease.spender);
       assert_eq!(sorted[2].spender, grant.spender);
+   }
+
+   fn collection() -> Address {
+      address!("0xaf5aa7b670ef209e23d3f7b39a8f42f84bd002ac")
+   }
+
+   fn nft(
+      operator: Address,
+      before: NftApprovalValue,
+      after: NftApprovalValue,
+   ) -> NftApprovalChange {
+      NftApprovalChange::from_state(
+         collection(),
+         operator,
+         NftApprovalTarget::Token(U256::from(7)),
+         NftStandard::Erc721,
+         before,
+         after,
+      )
+      .expect("a real delta")
+   }
+
+   #[test]
+   fn an_nft_change_needs_a_real_delta() {
+      assert!(
+         NftApprovalChange::from_state(
+            collection(),
+            spender(),
+            NftApprovalTarget::ForAll,
+            NftStandard::Erc721,
+            NftApprovalValue::ForAll(true),
+            NftApprovalValue::ForAll(true),
+         )
+         .is_none(),
+         "an unchanged flag is not a row"
+      );
+   }
+
+   /// A per-token grant names the address that is now approved.
+   #[test]
+   fn a_per_token_grant_names_the_approved_address() {
+      let change = nft(
+         spender(),
+         NftApprovalValue::Approved(Address::ZERO),
+         NftApprovalValue::Approved(spender()),
+      );
+
+      assert_eq!(change.operator, spender());
+      assert!(!change.is_revoke());
+   }
+
+   /// A per-token **revoke** carries the zero address in the log, so the row must name the address
+   /// being removed instead — otherwise it reads "approved to 0x0", the opposite of what happened.
+   #[test]
+   fn a_per_token_revoke_names_the_address_it_removed() {
+      let change = nft(
+         Address::ZERO,
+         NftApprovalValue::Approved(spender()),
+         NftApprovalValue::Approved(Address::ZERO),
+      );
+
+      assert_eq!(change.operator, spender());
+      assert!(change.is_revoke());
+   }
+
+   /// Switching operators is a change like any other, and the row names the new one.
+   #[test]
+   fn a_per_token_switch_names_the_new_operator() {
+      let switched = nft(
+         token(),
+         NftApprovalValue::Approved(spender()),
+         NftApprovalValue::Approved(token()),
+      );
+
+      assert_eq!(switched.operator, token());
+      assert!(!switched.is_revoke());
+   }
+
+   /// The other two shapes keep the operator from the candidate: their probe is keyed by it, and
+   /// their value never holds an address.
+   #[test]
+   fn collection_wide_and_allowance_rows_keep_their_operator() {
+      let for_all = NftApprovalChange::from_state(
+         collection(),
+         spender(),
+         NftApprovalTarget::ForAll,
+         NftStandard::Erc721,
+         NftApprovalValue::ForAll(false),
+         NftApprovalValue::ForAll(true),
+      )
+      .unwrap();
+      assert_eq!(for_all.operator, spender());
+      assert!(!for_all.is_revoke());
+
+      let allowance = NftApprovalChange::from_state(
+         collection(),
+         spender(),
+         NftApprovalTarget::Allowance(U256::from(7)),
+         NftStandard::Erc1155,
+         NftApprovalValue::Allowance(U256::from(5)),
+         NftApprovalValue::Allowance(U256::ZERO),
+      )
+      .unwrap();
+      assert_eq!(allowance.operator, spender());
+      assert!(allowance.is_revoke());
+   }
+
+   #[test]
+   fn nft_rows_are_counted_and_sorted_revokes_first() {
+      let grant = NftApprovalChange::from_state(
+         collection(),
+         spender(),
+         NftApprovalTarget::ForAll,
+         NftStandard::Erc1155,
+         NftApprovalValue::ForAll(false),
+         NftApprovalValue::ForAll(true),
+      )
+      .unwrap();
+      let revoke = NftApprovalChange::from_state(
+         collection(),
+         token(),
+         NftApprovalTarget::Allowance(U256::from(7)),
+         NftStandard::Erc1155,
+         NftApprovalValue::Allowance(U256::from(5)),
+         NftApprovalValue::Allowance(U256::ZERO),
+      )
+      .unwrap();
+
+      let diff = ApprovalDiff {
+         changes: Vec::new(),
+         nft_changes: vec![grant, revoke],
+      };
+
+      assert!(!diff.is_empty());
+      assert_eq!(diff.len(), 2);
+      assert!(
+         diff.sorted().is_empty(),
+         "NFT rows are not fungible rows"
+      );
+
+      let rows = diff.nft_sorted();
+      assert!(rows[0].is_revoke());
+      assert!(!rows[1].is_revoke());
+   }
+
+   /// A payload stored before NFT approval rows existed has no `nft_changes` key.
+   #[test]
+   fn a_payload_written_before_nft_approval_rows_still_loads() {
+      let diff = ApprovalDiff::default();
+      let mut json = serde_json::to_value(&diff).unwrap();
+      json.as_object_mut().expect("an object").remove("nft_changes");
+
+      let loaded: ApprovalDiff = serde_json::from_value(json).expect("an older payload loads");
+      assert!(loaded.nft_changes.is_empty());
+   }
+
+   fn erc721_approval_log(collection: Address, owner: Address, approved: Address) -> Log {
+      Log {
+         address: collection,
+         data: IERC721::Approval {
+            owner,
+            approved,
+            tokenId: U256::from(7),
+         }
+         .encode_log_data(),
+      }
+   }
+
+   fn approval_for_all_log(collection: Address, owner: Address, operator: Address) -> Log {
+      Log {
+         address: collection,
+         data: IERC721::ApprovalForAll {
+            owner,
+            operator,
+            approved: true,
+         }
+         .encode_log_data(),
+      }
+   }
+
+   fn erc5216_approval_log(collection: Address, account: Address, operator: Address) -> Log {
+      Log {
+         address: collection,
+         data: IERC5216::Approval {
+            account,
+            operator,
+            id: U256::from(7),
+            amount: U256::from(5),
+         }
+         .encode_log_data(),
+      }
+   }
+
+   /// Every shape the tx emits becomes a candidate, and a per-token revoke — which logs the zero address —
+   /// is kept rather than treated as a missing operator.
+   ///
+   /// The two per-token logs name the *same* id, so they are one candidate: the row is built from
+   /// `getApproved(7)` and takes its operator from there, which makes the operator the row's value rather
+   /// than part of its identity. Whichever log is seen first is the one that survives — the other would be
+   /// the same probe and the same row.
+   #[test]
+   fn approval_logs_name_the_three_shapes() {
+      let logs = [
+         erc721_approval_log(collection(), owner(), Address::ZERO),
+         erc721_approval_log(collection(), owner(), spender()),
+         approval_for_all_log(collection(), owner(), spender()),
+         erc5216_approval_log(collection(), owner(), spender()),
+      ];
+
+      let got = collect_nft_approval_candidates(owner(), token(), &Bytes::new(), &logs, []);
+      assert_eq!(
+         got,
+         vec![
+            NftApprovalCandidate {
+               collection: collection(),
+               operator: Address::ZERO,
+               target: NftApprovalTarget::Token(U256::from(7)),
+            },
+            NftApprovalCandidate {
+               collection: collection(),
+               operator: spender(),
+               target: NftApprovalTarget::ForAll,
+            },
+            NftApprovalCandidate {
+               collection: collection(),
+               operator: spender(),
+               target: NftApprovalTarget::Allowance(U256::from(7)),
+            },
+         ]
+      );
+   }
+
+   /// The reported case: an approval the store knows about, and the revoke the same transaction logs for
+   /// it, are one row — not two.
+   ///
+   /// The store's entry carries the operator the approval *had*; the log names the zero address. Both probe
+   /// `getApproved(7)` and both draw "… #7 → A Revoked", so probing both would put the row on screen twice.
+   #[test]
+   fn a_token_approval_the_store_knows_and_the_log_revokes_is_one_candidate() {
+      let id = U256::from(7);
+
+      // `token()` is the contract being called, which is what lets a stored approval through at all.
+      let known = [NftApprovalCandidate {
+         collection: collection(),
+         operator: token(),
+         target: NftApprovalTarget::Token(id),
+      }];
+      let revoke = erc721_approval_log(collection(), owner(), Address::ZERO);
+
+      let got = collect_nft_approval_candidates(owner(), token(), &Bytes::new(), &[revoke], known);
+
+      assert_eq!(got.len(), 1, "one id, one row: {got:?}");
+      assert_eq!(got[0].target, NftApprovalTarget::Token(id));
+   }
+
+   /// The per-operator shapes keep the operator in the key: the same collection and id granted to two
+   /// operators is two rows, because each grant belongs to its own operator.
+   #[test]
+   fn a_per_operator_shape_is_one_candidate_per_operator() {
+      let logs = [
+         erc5216_approval_log(collection(), owner(), token()),
+         erc5216_approval_log(collection(), owner(), spender()),
+      ];
+
+      let got = collect_nft_approval_candidates(owner(), token(), &Bytes::new(), &logs, []);
+
+      assert_eq!(
+         got.len(),
+         2,
+         "an ERC-5216 allowance belongs to (owner, operator, id): {got:?}"
+      );
+      assert_ne!(got[0].operator, got[1].operator);
+   }
+
+   #[test]
+   fn another_owners_approvals_are_not_candidates() {
+      let logs = [
+         erc721_approval_log(collection(), other_owner(), spender()),
+         approval_for_all_log(collection(), other_owner(), spender()),
+         erc5216_approval_log(collection(), other_owner(), spender()),
+      ];
+
+      assert!(
+         collect_nft_approval_candidates(owner(), token(), &Bytes::new(), &logs, []).is_empty()
+      );
+   }
+
+   /// Each of the three calls names its shape, on the contract being called.
+   #[test]
+   fn calldata_names_the_three_shapes() {
+      let approve = erc721::encode_approve(spender(), U256::from(7));
+      let got = collect_nft_approval_candidates(owner(), collection(), &approve, &[], []);
+      assert_eq!(
+         got,
+         vec![NftApprovalCandidate {
+            collection: collection(),
+            operator: spender(),
+            target: NftApprovalTarget::Token(U256::from(7)),
+         }]
+      );
+
+      let for_all = erc721::encode_set_approval_for_all(spender(), true);
+      let got = collect_nft_approval_candidates(owner(), collection(), &for_all, &[], []);
+      assert_eq!(got[0].target, NftApprovalTarget::ForAll);
+
+      let allowance = erc1155::encode_approve(spender(), U256::from(7), U256::from(5));
+      let got = collect_nft_approval_candidates(owner(), collection(), &allowance, &[], []);
+      assert_eq!(
+         got[0].target,
+         NftApprovalTarget::Allowance(U256::from(7))
+      );
+   }
+
+   /// A revoke call carries the zero address, and the candidate keeps it: the combine step resolves
+   /// the operator from the measured state, so zero here is what a revoke *is*.
+   #[test]
+   fn a_revoke_call_is_a_candidate_with_a_zero_operator() {
+      let revoke = erc721::encode_approve(Address::ZERO, U256::from(7));
+
+      let got = collect_nft_approval_candidates(owner(), collection(), &revoke, &[], []);
+      assert_eq!(got.len(), 1);
+      assert_eq!(got[0].operator, Address::ZERO);
+   }
+
+   /// Approvals the user made earlier are only probed when the operator is the contract being called
+   /// — the rule that catches a consumed approval without walking every saved operator.
+   #[test]
+   fn known_approvals_only_for_the_called_contract() {
+      let known = [
+         NftApprovalCandidate {
+            collection: collection(),
+            operator: token(),
+            target: NftApprovalTarget::Token(U256::from(7)),
+         },
+         NftApprovalCandidate {
+            collection: collection(),
+            operator: spender(),
+            target: NftApprovalTarget::ForAll,
+         },
+      ];
+
+      let got = collect_nft_approval_candidates(owner(), token(), &Bytes::new(), &[], known);
+      assert_eq!(got.len(), 1);
+      assert_eq!(
+         got[0].target,
+         NftApprovalTarget::Token(U256::from(7)),
+         "only the one whose operator is the contract being called"
+      );
+   }
+
+   #[test]
+   fn nft_candidates_cap_at_max() {
+      let known: Vec<NftApprovalCandidate> = (1u8..=80)
+         .map(|i| NftApprovalCandidate {
+            collection: Address::repeat_byte(i),
+            operator: token(),
+            target: NftApprovalTarget::ForAll,
+         })
+         .collect();
+
+      let got = collect_nft_approval_candidates(owner(), token(), &Bytes::new(), &[], known);
+      assert_eq!(got.len(), MAX_NFT_CANDIDATES);
+   }
+
+   /// An ERC-20 `Approval` has three topics where the ERC-721 one has four, so the two collections of
+   /// approvals never decode into each other — the same separation the decode ladder relies on.
+   #[test]
+   fn an_erc20_approval_log_is_not_an_nft_one() {
+      let erc20_log = erc20_approval_log(token(), owner(), spender());
+
+      assert!(
+         collect_nft_approval_candidates(owner(), token(), &Bytes::new(), &[erc20_log], [])
+            .is_empty(),
+         "a token approval must not become an NFT one"
+      );
+   }
+
+   /// An ERC-20 `approve` names the same call as an ERC-721 one — `approve(address,uint256)` is
+   /// byte-identical — so the calldata cannot tell them apart. The ERC-20 `Approval` event the call
+   /// emits is the tiebreaker, and without it every ERC-20 approve would also be probed as an ERC-721
+   /// token approval: two wasted `getApproved` calls that can only revert.
+   #[test]
+   fn an_erc20_approve_call_is_not_an_erc721_token_approval() {
+      let approve = erc721::encode_approve(spender(), U256::from(7));
+      let erc20_log = erc20_approval_log(token(), owner(), spender());
+
+      assert!(
+         collect_nft_approval_candidates(owner(), token(), &approve, &[erc20_log], []).is_empty(),
+         "an ERC-20 approve must not become an ERC-721 per-token candidate"
+      );
+
+      // With no event, the calldata is all there is to go on — and on a collection the call names an
+      // NFT approval, the only reading that can answer.
+      assert_eq!(
+         collect_nft_approval_candidates(owner(), collection(), &approve, &[], []).len(),
+         1
+      );
    }
 }

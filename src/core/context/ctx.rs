@@ -1,5 +1,5 @@
 use super::{
-   AddressBookHandle, ApprovalManagerHandle, BalanceManagerHandle, CurrencyDB, EnsCache,
+   AddressBookHandle, ApprovalManagerHandle, BalanceManagerHandle, CurrencyDB, EnsCache, NftDB,
    PoolManagerHandle, WalletPortfolio, ZeusClient, price_manager::PriceManagerHandle,
    tx::TxDBHandle,
 };
@@ -31,6 +31,7 @@ use zeus_eth::{
       UniswapV4Pool,
    },
    currency::{Currency, NativeCurrency, erc20::ERC20Token},
+   nft::{NftCollection, NftToken},
    types::{ChainId, SUPPORTED_CHAINS},
    utils::{NumericValue, client::RpcClient, ens::ENS_CHAIN},
 };
@@ -196,7 +197,7 @@ impl ZeusCtx {
 
       for wallet in wallets {
          if let Ok(seed) = wallet.seed() {
-            let signer = RailgunSigner::from_seed(&seed, 0, 1)?;
+            let signer = RailgunSigner::from_seed(&seed, 0, chain)?;
             self.register_railgun_signer(signer, chain.into(), ignore_resync).await?;
          }
       }
@@ -894,6 +895,49 @@ impl ZeusCtx {
       }
    }
 
+   pub fn save_nft_db(&self) {
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error saving NftDB: {:?}", e);
+            return;
+         }
+      };
+      let db = self.read(|ctx| ctx.nft_db.clone());
+      match db.save(&key) {
+         Ok(_) => tracing::trace!("NftDB saved"),
+         Err(e) => tracing::error!("Error saving NftDB: {:?}", e),
+      }
+   }
+
+   /// Load sealed `nft_db.data` into the live context (no-op if the file is missing).
+   pub fn load_nft_db(&self) {
+      match NftDB::exists() {
+         Ok(true) => {}
+         Ok(false) => {
+            tracing::warn!("NFT data file missing, skipping load");
+            return;
+         }
+         Err(e) => {
+            tracing::error!("Error checking NftDB: {:?}", e);
+            return;
+         }
+      }
+
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error loading NftDB: {:?}", e);
+            return;
+         }
+      };
+
+      match NftDB::load_from_file(&key) {
+         Ok(db) => self.write(|ctx| ctx.nft_db = db),
+         Err(e) => tracing::error!("Error loading NftDB: {:?}", e),
+      }
+   }
+
    pub fn save_address_book(&self) {
       let key = match self.read_vault(|vault| vault.wallet_state_key()) {
          Ok(k) => k,
@@ -1069,6 +1113,7 @@ impl ZeusCtx {
 
       self.write(|ctx| {
          ctx.currency_db = CurrencyDB::default();
+         ctx.nft_db = NftDB::default();
          ctx.delegated_wallets = DelegatedWallets::new();
          ctx.railgun_provider.clear();
          ctx.railgun_status = RailgunStatus::new();
@@ -1118,6 +1163,7 @@ impl ZeusCtx {
       }
 
       self.load_currency_db();
+      self.load_nft_db();
       self.load_pool_manager();
       self.load_zeus_client();
       self.load_price_manager();
@@ -1406,6 +1452,10 @@ impl ZeusCtx {
 
    /// Off-frame ERC-7730 / Sourcify / ENS fill. No-op if already named or already attempted.
    ///
+   /// A token or an NFT collection Zeus already has cached is named by [`Self::get_address_name`],
+   /// which the UI reads first, so this never runs for one — it is the names that need a registry,
+   /// Sourcify or ENS to learn.
+   ///
    /// Returns true if a new name was stored.
    pub async fn lookup_address_name(&self, chain: u64, address: Address) -> bool {
       if address.is_zero() {
@@ -1643,6 +1693,36 @@ impl ZeusCtx {
 
          return Ok(token);
       };
+   }
+
+   /// Get an NFT
+   ///
+   /// If it is not cached, the collection is resolved first — the standard costs an ERC-165 sweep and
+   /// cannot differ per token — and then the token itself. Both are stored in `nft_db`.
+   pub async fn get_nft(
+      &self,
+      chain: u64,
+      collection: Address,
+      token_id: U256,
+   ) -> Result<NftToken, anyhow::Error> {
+      if let Some(nft) = self.read(|ctx| ctx.nft_db.get_nft(chain, collection, token_id)) {
+         return Ok(nft);
+      }
+
+      let z_client = self.get_zeus_client();
+      let rpc = z_client.get_best_rpc(chain).ok_or(anyhow!("No available RPC found"))?;
+      let client = z_client.connect_with_timeout(&rpc, 10).await?;
+
+      let collection = NftCollection::fetch(client.clone(), chain, collection).await?;
+      let nft = NftToken::fetch(client, &collection, token_id).await?;
+
+      self.write(|ctx| {
+         ctx.nft_db.insert_collection(chain, collection);
+         ctx.nft_db.insert_nft(nft.clone());
+      });
+      self.save_nft_db();
+
+      Ok(nft)
    }
 
    pub fn get_connected_dapps(&self) -> Vec<String> {
@@ -2236,6 +2316,9 @@ pub struct ZeusContext {
    /// Holds all ERC20 tokens
    pub currency_db: CurrencyDB,
 
+   /// Holds the NFTs the user tracks, plus cached collection metadata
+   pub nft_db: NftDB,
+
    /// Pool manager used for the Uniswap UI
    /// and price manager
    pub pool_manager: PoolManagerHandle,
@@ -2352,6 +2435,8 @@ impl ZeusContext {
 
       let currency_db = CurrencyDB::default();
 
+      let nft_db = NftDB::default();
+
       let vault_exists = Vault::exists().is_ok_and(|p| p);
 
       let pool_manager = PoolManagerHandle::default();
@@ -2405,6 +2490,7 @@ impl ZeusContext {
          address_book: AddressBookHandle::default(),
          ens_cache: EnsCache::new(),
          currency_db,
+         nft_db,
          pool_manager,
          price_manager,
          data_syncing: false,
@@ -2482,6 +2568,23 @@ impl ZeusContext {
          .read(|ws| ws.balance_manager.get_token_balance(chain, owner, token))
    }
 
+   /// How many of this NFT the wallet holds, or `None` when the balance manager has never been asked.
+   ///
+   /// A row must read `None` as "no claim" and `Some(0)` as `NOT OWNED`, which is why this is not the
+   /// `NumericValue` the token getters return: for a token the two cases can be the same thing, for an
+   /// NFT they cannot.
+   pub fn get_nft_balance(
+      &self,
+      chain: u64,
+      owner: Address,
+      collection: Address,
+      token_id: U256,
+   ) -> Option<u64> {
+      self
+         .wallet_state
+         .read(|ws| ws.balance_manager.get_nft_balance(chain, owner, collection, token_id))
+   }
+
    pub fn get_base_fee(&self, chain: u64) -> Option<BaseFee> {
       self.base_fee.get(&chain).cloned()
    }
@@ -2547,13 +2650,31 @@ impl ZeusContext {
       if address.is_zero() {
          return None;
       }
+
       if let Some(name) = self.address_book.get(chain, address) {
          return Some(name);
       }
+
       if let Some(name) = self.ens_cache.get(chain, address) {
          return Some(name);
       }
-      self.currency_db.get_token_name(chain, address)
+
+      if let Some(name) = self.currency_db.get_token_name(chain, address) {
+         return Some(name);
+      }
+
+      // An NFT collection names itself: on-chain metadata, cached by the time a token of it was
+      // discovered or added, so this needs no registry or Sourcify round trip. Last, because it is
+      // self-reported and a book or ENS name outranks it. The confirmation window's "Contract
+      // interaction" row reads this for the collection being called.
+      let name = self.nft_db.get_collection(chain, address)?.name?;
+      let name = name.trim();
+
+      if name.is_empty() {
+         return None;
+      }
+
+      Some(Arc::from(name))
    }
 
    /// Get the wallet info for the given zk address
@@ -2804,6 +2925,64 @@ mod tests {
    async fn test_must_panic_if_no_mev_protect_client() {
       let ctx = ZeusCtx::new();
       let _r = ctx.get_mev_protect_client(1).await.unwrap();
+   }
+
+   /// A collection names itself, and the confirmation window's "Contract interaction" row reads this to
+   /// label the contract being called. The name is cached by discovery, so it has to come out with no
+   /// registry or Sourcify round trip — and a curated label still outranks it.
+   #[test]
+   fn get_address_name_resolves_a_cached_nft_collection() {
+      use zeus_eth::nft::{NftCollection, NftStandard};
+
+      let ctx = ZeusCtx::new();
+      let collection = Address::from([0x3e; 20]);
+
+      assert_eq!(ctx.get_address_name(1, collection), None);
+
+      ctx.write(|ctx| {
+         ctx.nft_db.insert_collection(
+            1,
+            NftCollection {
+               chain_id: 1,
+               address: collection,
+               standard: NftStandard::Erc721,
+               name: Some("Zeus Test Collection".to_string()),
+               symbol: Some("ZTC".to_string()),
+            },
+         );
+      });
+
+      assert_eq!(
+         ctx.get_address_name(1, collection).as_deref(),
+         Some("Zeus Test Collection")
+      );
+
+      // The same address on another chain, where nothing is cached.
+      assert_eq!(ctx.get_address_name(10, collection), None);
+
+      // A curated address-book label outranks a contract's self-reported name.
+      ctx.address_book().insert_contract(1, collection, "Curated");
+      assert_eq!(
+         ctx.get_address_name(1, collection).as_deref(),
+         Some("Curated")
+      );
+
+      // A collection whose `name()` returned nothing names nothing.
+      let unnamed = Address::from([0x4f; 20]);
+      ctx.write(|ctx| {
+         ctx.nft_db.insert_collection(
+            1,
+            NftCollection {
+               chain_id: 1,
+               address: unnamed,
+               standard: NftStandard::Erc721,
+               name: None,
+               symbol: None,
+            },
+         );
+      });
+
+      assert_eq!(ctx.get_address_name(1, unnamed), None);
    }
 
    #[tokio::test]

@@ -471,11 +471,27 @@ pub fn verify_artifact_pin(
    filename: &str,
    data: &[u8],
 ) -> Result<(), ArtifactPinError> {
+   verify_artifact_digest(
+      circuit_name,
+      filename,
+      Sha256::digest(data).into(),
+   )
+}
+
+/// A caller-computed SHA-256 (e.g. streamed over a file) must match the pin for
+/// this compressed artifact.
+///
+/// Separate from [`verify_artifact_pin`] so a multi-MB artifact can be checked
+/// without holding it in memory.
+pub fn verify_artifact_digest(
+   circuit_name: &str,
+   filename: &str,
+   actual: [u8; 32],
+) -> Result<(), ArtifactPinError> {
    let expected = pin_digest(circuit_name, filename).ok_or_else(|| ArtifactPinError::Unpinned {
       circuit: circuit_name.to_string(),
       file: filename.to_string(),
    })?;
-   let actual: [u8; 32] = Sha256::digest(data).into();
    if actual != expected {
       return Err(ArtifactPinError::Mismatch {
          circuit: circuit_name.to_string(),

@@ -7,3 +7,6 @@
 /releases
 scc.exe
 /scc
+
+# Local secrets (keyed RPC endpoints used by the ignored live tests).
+.env

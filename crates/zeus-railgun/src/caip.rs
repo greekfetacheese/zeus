@@ -1,4 +1,4 @@
-use std::{fmt::Display, str::FromStr};
+use std::{collections::HashMap, fmt::Display, str::FromStr};
 
 use alloy_primitives::{Address, U256, Uint};
 use serde::{Deserialize, Serialize};
@@ -65,6 +65,23 @@ impl AssetId {
       token_data.hash()
    }
 }
+
+/// Every asset the wallet has seen in the clear, keyed by [`AssetId::hash`].
+///
+/// A transact note's ciphertext carries only that 32-byte one-way hash, so an asset has to be *recognized*
+/// rather than recovered: `TokenData::from_hash` can read such a value as an ERC-20 address, which is
+/// lossless for a token and silently wrong for anything else — and a wrong asset means a wrong commitment,
+/// which no merkle proof can ever satisfy.
+///
+/// A `Shield` event carries its `TokenData` as a plaintext preimage, so registering every shield builds
+/// this up. It has to be *persisted* as well: a resumed sync skips the shields of earlier blocks, while a
+/// note arriving today can hold an asset that was shielded long before.
+///
+/// It holds **NFTs only**. An ERC-20's hash is its own address (`TokenData::hash` writes it into the low
+/// 20 bytes), so `TokenData::from_hash` recovers one unaided and an entry here would only ever repeat it —
+/// `UtxoIndexer::handle_shield` skips them, and a payload written before that was settled is stripped on
+/// load.
+pub type TokenRegistry = HashMap<U256, AssetId>;
 
 impl Display for AssetId {
    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -85,7 +85,8 @@ Currently the extension is not listed in the Chrome Web Store, so you will need 
 | Feature | Details |
 |--------|---------|
 | **Wallet management** | Create unlimited wallets under one master, import/export wallets |
-| **Send** | ETH and ERC-20 transfers |
+| **Send** | ETH, ERC-20 and NFT (ERC-721 / ERC-1155) transfers |
+| **NFTs** | Track, view, send and receive ERC-721 / ERC-1155 collectibles; art is fetched on demand and cached on disk (opt-in, off by default) |
 | **Swaps** | Uniswap via the [Universal Router](https://docs.uniswap.org/contracts/v4/deployments) |
 | **Cross-chain bridge** | Bridge ETH across supported chains with [Across](https://across.to/) (**BNB not supported**) |
 | **Portfolio** | public + private balance (Railgun) |
@@ -95,12 +96,12 @@ Currently the extension is not listed in the Chrome Web Store, so you will need 
 
 ### Railgun
 
-Railgun is natively (no 3rd party) integrated in Zeus. Private balances shown in the UI are **ERC-20 only** (NFTs not supported yet).
+Railgun is natively (no 3rd party) integrated in Zeus. Private balances shown in the UI cover **ERC-20 and ERC-721** (including shielded NFTs in privacy mode); **ERC-1155 is not supported yet**.
 
 | Operation | Assets | Notes |
 |-----------|--------|--------|
-| **Shield** | ERC-20 | Move public funds into the private pool |
-| **Unshield** | ERC-20 | Default: private broadcaster (paymaster). Optional **self-broadcast** for emergency withdrawals (breaks anonymity). Optional unwrap WETH → ETH to fund new empty wallets |
+| **Shield** | ERC-20, ERC-721 | Move public funds into the private pool |
+| **Unshield** | ERC-20, ERC-721 | Default: private broadcaster (paymaster). Optional **self-broadcast** for emergency withdrawals (breaks anonymity). Optional unwrap WETH → ETH to fund new empty wallets (ERC-20 only) |
 | **Private transfer** | ERC-20 only | Send privately to a `0zk` address |
 | **Merge notes** | ERC-20 only | Consolidate UTXO notes for an asset |
 

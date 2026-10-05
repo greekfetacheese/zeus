@@ -6,12 +6,14 @@ use tokio::time::sleep;
 use anyhow::anyhow;
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256},
-   currency::ERC20Token,
+   currency::{Currency, ERC20Token},
+   nft::{NftStandard, NftToken},
    types::ChainId,
    utils::client::RpcClient,
 };
 use zeus_railgun::{
-   RailgunProvider, rand::SeedableRng, rand_chacha::ChaCha12Rng, transact::TransactionBuilder,
+   RailgunProvider, caip::AssetId, rand::SeedableRng, rand_chacha::ChaCha12Rng,
+   transact::TransactionBuilder,
 };
 
 use crate::core::ZeusCtx;
@@ -30,11 +32,135 @@ pub use shield::{BundlerUrl, RailgunMode, ShieldUi};
 pub use transfer::{private_merge_notes, private_transfer};
 pub use unshield::default_bundler_url;
 
+/// What the user is moving into or out of Railgun.
+///
+/// An enum rather than a `Currency` because an NFT never enters `Currency` (D1), and rather than two
+/// optional parameters so that "neither" and "both" cannot be represented.
+///
+/// The amount question is answered here too: a fungible token has a quantity the user picks, while an
+/// ERC-721 is exactly one — the token id *is* the asset — so the builders take what this derives rather
+/// than a number each call site invents.
+pub enum RailgunAsset {
+   Fungible(Currency),
+   Nft(NftToken),
+}
+
+impl RailgunAsset {
+   /// The asset id the Railgun builders take.
+   ///
+   /// The standard decides it, not the fact that it is an NFT: Railgun tracks a collection's ids as two
+   /// different asset types, so the same collection and id mean different things in each.
+   pub fn asset_id(&self) -> AssetId {
+      match self {
+         Self::Fungible(currency) => AssetId::Erc20(currency.to_erc20().address),
+         Self::Nft(nft) => match nft.standard {
+            NftStandard::Erc721 => AssetId::Erc721(nft.collection, nft.token_id),
+            NftStandard::Erc1155 => AssetId::Erc1155(nft.collection, nft.token_id),
+         },
+      }
+   }
+
+   /// The value to move, in the asset's own units.
+   ///
+   /// An ERC-721 is indivisible: the token id *is* the asset, so it moves exactly one and the amount is
+   /// not consulted. An ERC-1155 is a quantity of an id — divisible, and the same kind of asset as an
+   /// ERC-20 as far as Railgun is concerned — so its value **is** the amount, counted in whole units.
+   pub fn value(&self, amount: U256) -> U256 {
+      match self {
+         Self::Fungible(_) => amount,
+         Self::Nft(nft) => match nft.standard {
+            NftStandard::Erc721 => U256::from(1),
+            NftStandard::Erc1155 => amount,
+         },
+      }
+   }
+
+   /// Native ETH shields through `shield_native`, which wraps and shields in one call.
+   pub fn is_native(&self) -> bool {
+      matches!(self, Self::Fungible(currency) if currency.is_native())
+   }
+}
+
 /// A proved Railgun transaction, reduced to the call that gets broadcast.
 pub struct ProvedCall {
    pub calldata: Bytes,
    pub interact_to: Address,
    pub value: U256,
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use zeus_eth::{alloy_primitives::address, nft::NftStandard};
+
+   const BAYC: Address = address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D");
+
+   fn nft(token_id: u64, standard: NftStandard) -> NftToken {
+      NftToken {
+         chain_id: 1,
+         collection: BAYC,
+         token_id: U256::from(token_id),
+         standard,
+         metadata_uri: None,
+      }
+   }
+
+   /// A fungible asset is the currency it wraps, and the amount is whatever the user typed.
+   #[test]
+   fn a_fungible_asset_keeps_its_currency_and_amount() {
+      let weth = Currency::from(ERC20Token::weth());
+      let asset = RailgunAsset::Fungible(weth.clone());
+
+      assert_eq!(
+         asset.asset_id(),
+         AssetId::Erc20(weth.to_erc20().address)
+      );
+      assert_eq!(asset.value(U256::from(1500)), U256::from(1500));
+      assert!(!asset.is_native());
+   }
+
+   /// An ERC-721 is its collection and its id, and it is worth exactly one — there is no quantity to ask
+   /// the user for, so whatever number reaches `value` cannot change what moves.
+   #[test]
+   fn an_erc721_asset_is_its_id_and_always_worth_one() {
+      let asset = RailgunAsset::Nft(nft(7, NftStandard::Erc721));
+
+      assert_eq!(
+         asset.asset_id(),
+         AssetId::Erc721(BAYC, U256::from(7))
+      );
+      assert_eq!(asset.value(U256::ZERO), U256::from(1));
+      assert_eq!(
+         asset.value(U256::MAX),
+         U256::from(1),
+         "the amount is not consulted"
+      );
+      assert!(!asset.is_native());
+   }
+
+   /// An ERC-1155 is the same collection and id under a **different asset type**, and it is a quantity of
+   /// that id: the value is the amount the user asks for, counted in whole units, with nothing
+   /// substituted for it.
+   #[test]
+   fn an_erc1155_asset_is_its_id_under_its_own_type_and_worth_its_amount() {
+      let asset = RailgunAsset::Nft(nft(7, NftStandard::Erc1155));
+
+      assert_eq!(
+         asset.asset_id(),
+         AssetId::Erc1155(BAYC, U256::from(7))
+      );
+      assert_eq!(asset.value(U256::from(1)), U256::from(1));
+      assert_eq!(asset.value(U256::from(3)), U256::from(3));
+      assert!(!asset.is_native());
+   }
+
+   /// Native ETH is the one asset that shields through `shield_native`, so the flag has to be right for
+   /// it — and wrong for everything else.
+   #[test]
+   fn only_native_currency_is_native() {
+      assert!(RailgunAsset::Fungible(Currency::native(1)).is_native());
+      assert!(!RailgunAsset::Fungible(Currency::from(ERC20Token::weth())).is_native());
+   }
 }
 
 /// Prove `tx` and reduce it to its call.
@@ -136,6 +262,21 @@ pub async fn railgun_ready(
    Ok(provider)
 }
 
+/// What a settled Railgun operation moved, which is what decides how long its receipts are waited on.
+///
+/// The NFT half of the refresh only has something to wait for when *ownership* is what moved. A fungible
+/// operation — and a private zk → zk transfer above all — leaves public NFT ownership exactly where it
+/// was, so retrying until it changes spends the whole retry budget to learn nothing and logs «Max retries
+/// reached» for a refresh that was never going to differ.
+pub enum SettledOp {
+   /// A fungible operation, with the token to re-read when the caller has one.
+   Fungible(Option<ERC20Token>),
+   /// An NFT shield or unshield: the wallet gains or loses public ownership of it.
+   Nft,
+   /// A private (zk → zk) transfer: the *note* moved and nothing public did.
+   Private,
+}
+
 /// Refresh public and private state after a Railgun op.
 ///
 /// Every op leaves the sender's public balances stale and moves private notes, so
@@ -144,17 +285,19 @@ pub async fn railgun_ready(
 ///
 /// Order matters — `sync_railgun` has to land before `update_private_data`, or the
 /// refresh reports the state the chain has already moved past.
-pub async fn settle_railgun_op(
-   ctx: ZeusCtx,
-   chain: ChainId,
-   from: Address,
-   token: Option<ERC20Token>,
-) {
+pub async fn settle_railgun_op(ctx: ZeusCtx, chain: ChainId, from: Address, op: SettledOp) {
    ctx.write(|ctx| {
       ctx.railgun_status.set_op_in_progress(chain.id(), true);
    });
 
    let manager = ctx.balance_manager();
+
+   // Read before the move: which half waits on the chain is decided by the operation, not by the answer.
+   let retry_nft_balances = matches!(op, SettledOp::Nft);
+   let token = match op {
+      SettledOp::Fungible(token) => token,
+      _ => None,
+   };
 
    if let Some(token) = token {
       if let Err(e) = manager
@@ -162,6 +305,28 @@ pub async fn settle_railgun_op(
          .await
       {
          tracing::error!("Error updating token balance: {:?}", e);
+      }
+   }
+
+   // The NFT half of the same refresh. An NFT has no balance, only an owner, so what moves here is
+   // ownership — which the balance manager holds for the public side, exactly like the token balances
+   // above. `retry_if_unchanged` only for an NFT operation: a shield takes the token out of the wallet
+   // and an unshield puts it back, so an answer that has not moved yet is the chain lagging, not a
+   // settled one. For anything else nothing public moved — the private side needs no wait either, since
+   // the scan below is what maintains it.
+   let nfts = ctx.get_portfolio(chain.id(), from).nfts().clone();
+   if !nfts.is_empty() {
+      if let Err(e) = manager
+         .update_nft_balances(
+            ctx.clone(),
+            chain.id(),
+            from,
+            nfts,
+            retry_nft_balances,
+         )
+         .await
+      {
+         tracing::error!("Error updating NFT balances: {:?}", e);
       }
    }
 

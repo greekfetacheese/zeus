@@ -759,7 +759,6 @@ mod tests {
    use alloy_primitives::B256;
    use alloy_provider::ProviderBuilder;
    use std::str::FromStr;
-   use url::Url;
 
    #[test]
    fn correct_pool_creation() {
@@ -794,9 +793,9 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "needs an RPC that serves eth_call"]
    async fn can_swap() {
-      let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
+      let client = ProviderBuilder::new().connect_http(crate::test_utils::rpc_url());
 
       let mut pool = UniswapV4Pool::eth_uni();
       pool.update_state(client.clone(), None).await.unwrap();
@@ -828,9 +827,9 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "needs an RPC that serves eth_call"]
    async fn test_virtual_reserves_uni_usdc() {
-      let url = Url::parse("https://reth-ethereum.ithaca.xyz/rpc").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
+      let client = ProviderBuilder::new().connect_http(crate::test_utils::rpc_url());
 
       let mut pool = UniswapV4Pool::uni_usdc();
       pool.update_state(client.clone(), None).await.unwrap();
@@ -843,9 +842,9 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "needs an RPC that serves eth_call"]
    async fn test_base_token_liquidity_eth_uni() {
-      let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
+      let client = ProviderBuilder::new().connect_http(crate::test_utils::rpc_url());
 
       let mut pool = UniswapV4Pool::eth_uni();
       pool.update_state(client.clone(), None).await.unwrap();
@@ -859,9 +858,9 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "needs an RPC that serves eth_call"]
    async fn test_base_token_liquidity_usdc_usdt() {
-      let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
+      let client = ProviderBuilder::new().connect_http(crate::test_utils::rpc_url());
 
       let mut pool = UniswapV4Pool::usdc_usdt();
       pool.update_state(client.clone(), None).await.unwrap();
@@ -882,9 +881,9 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "needs an RPC that serves eth_call"]
    async fn test_base_token_liquidity_usdc_wbtc() {
-      let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
+      let client = ProviderBuilder::new().connect_http(crate::test_utils::rpc_url());
 
       let mut pool = UniswapV4Pool::usdc_wbtc();
       pool.update_state(client.clone(), None).await.unwrap();
@@ -905,9 +904,9 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "needs an RPC that serves eth_call"]
    async fn price_calculation() {
-      let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
+      let client = ProviderBuilder::new().connect_http(crate::test_utils::rpc_url());
 
       let mut pool = UniswapV4Pool::eth_uni();
       pool.update_state(client.clone(), None).await.unwrap();

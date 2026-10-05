@@ -17,10 +17,11 @@ use egui_elements::{Button, ComboBox, Label, Theme};
 use elegance::{Badge, BadgeTone};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
+   currency::Currency,
    types::ChainId,
    utils::NumericValue,
 };
-use zeus_railgun::{PrivateHistoryEntry, PrivateHistoryKind};
+use zeus_railgun::{PrivateHistoryEntry, PrivateHistoryKind, caip::AssetId};
 
 const DEFAULT_TXS_PER_PAGE: usize = 10;
 
@@ -783,6 +784,94 @@ impl TxHistory {
    }
 }
 
+/// How a private-history amount reads: the value, the name it goes by, and the token when Zeus prices
+/// it (so a caller can add a USD value).
+pub(crate) struct PrivateAssetDisplay {
+   symbol: String,
+   currency: Option<Currency>,
+   /// `None` for an NFT, whose note amount is a **count** and must never be wei-scaled.
+   decimals: Option<u8>,
+}
+
+impl PrivateAssetDisplay {
+   pub(crate) fn symbol(&self) -> &str {
+      &self.symbol
+   }
+
+   pub(crate) fn currency(&self) -> Option<&Currency> {
+      self.currency.as_ref()
+   }
+
+   /// The amount scaled to the asset's own decimals — `None` for an NFT, whose amount is a count.
+   pub(crate) fn value(&self, amount: u128) -> Option<NumericValue> {
+      self
+         .decimals
+         .map(|decimals| NumericValue::format_wei(U256::from(amount), decimals))
+   }
+
+   /// The note amount as the private history prints it: a scaled value, or the raw count for an NFT.
+   ///
+   /// `precision` is a *character* precision — the callers format [`NumericValue::abbreviated`], so it
+   /// caps the string, not a decimal count.
+   pub(crate) fn amount_text(&self, amount: u128, precision: usize) -> String {
+      match self.decimals {
+         Some(_) => {
+            let value = self.value(amount).expect("fungible");
+            format!("{:.precision$}", value.abbreviated())
+         }
+         None => amount.to_string(),
+      }
+   }
+}
+
+/// Name and scale an asset the way the private history shows it.
+///
+/// NFTs are the trap this exists for: they are not in `CurrencyDB`, so the old fallback put
+/// [`AssetId`]'s own `Display` next to an 18-decimal value, and every spent NFT note read
+/// `Sent 0 erc721:0xaf5aa7b670ef209e23d3f7b39a8f42f84bd002ac/1071` — the note's raw asset, and an
+/// amount formatted as if it were wei. An NFT is named by its **collection** (`get_address_name`
+/// resolves it from `NftDB`) and its amount is a count.
+pub(crate) fn private_asset_display(
+   ctx: &ZeusContext,
+   chain: u64,
+   asset: AssetId,
+) -> PrivateAssetDisplay {
+   let collection = |address: Address| {
+      ctx.get_address_name(chain, address).map_or_else(
+         || truncate_address(address.to_string()),
+         |name| name.to_string(),
+      )
+   };
+
+   match asset {
+      AssetId::Erc721(address, id) => PrivateAssetDisplay {
+         symbol: format!("{} #{id}", collection(address)),
+         currency: None,
+         decimals: None,
+      },
+      AssetId::Erc1155(address, id) => PrivateAssetDisplay {
+         symbol: format!("{} #{id}", collection(address)),
+         currency: None,
+         decimals: None,
+      },
+      AssetId::Erc20(address) => {
+         let token = ctx.currency_db.get_erc20_token(chain, address);
+         let decimals = token.as_ref().map_or(18, |token| token.decimals);
+         let symbol = token.as_ref().map_or_else(
+            || truncate_address(address.to_string()),
+            |token| token.symbol.to_string(),
+         );
+         let currency = token.map(Currency::from);
+
+         PrivateAssetDisplay {
+            symbol,
+            currency,
+            decimals: Some(decimals),
+         }
+      }
+   }
+}
+
 fn spent_action(
    ctx: &crate::core::context::ZeusCtx,
    chain: u64,
@@ -791,30 +880,52 @@ fn spent_action(
    if entry.kind == PrivateHistoryKind::Merge {
       return "Merged notes".to_string();
    }
-   let (symbol, decimals) = match entry.asset.erc20_address() {
-      Some(addr) => ctx.read(|c| {
-         c.currency_db
-            .get_erc20_token(chain, addr)
-            .map(|t| (t.symbol.to_string(), t.decimals))
-            .unwrap_or_else(|| (truncate_address(addr.to_string()), 18))
-      }),
-      None => (entry.asset.to_string(), 18),
-   };
 
-   let amount = NumericValue::format_wei(U256::from(entry.amount), decimals);
+   let display = ctx.read(|c| private_asset_display(c, chain, entry.asset));
+   let amount = display.amount_text(entry.amount, 5);
+   let symbol = display.symbol();
 
-   let action = match entry.kind {
-      PrivateHistoryKind::Unshield => {
-         format!("Unshield {:.5} {}", amount.abbreviated(), symbol)
-      }
-      PrivateHistoryKind::Send => {
-         format!("Transfer {:.5} {}", amount.abbreviated(), symbol)
-      }
-      PrivateHistoryKind::Spend => {
-         format!("Sent {:.5} {}", amount.abbreviated(), symbol)
-      }
+   match entry.kind {
+      PrivateHistoryKind::Unshield => format!("Unshield {amount} {symbol}"),
+      PrivateHistoryKind::Send => format!("Transfer {amount} {symbol}"),
+      PrivateHistoryKind::Spend => format!("Sent {amount} {symbol}"),
       PrivateHistoryKind::Merge => "Merged notes".to_string(),
-   };
+   }
+}
 
-   action
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use zeus_eth::alloy_primitives::address;
+
+   /// An NFT note is *named*, not identified: `Sent 1 <collection> #1071`, never the note's raw asset.
+   ///
+   /// Needs this machine's `data/` — the collection name comes from `NftDB` — so it is ignored by
+   /// default. Run it alone: `cargo test -p zeus -- --ignored an_nft_note_is_named`.
+   #[test]
+   #[ignore = "needs the machine's data/ for the NFT collection name"]
+   fn an_nft_note_is_named() {
+      let ctx = crate::tests::unlock_ctx();
+      let entry = PrivateHistoryEntry {
+         asset: AssetId::Erc721(
+            address!("0xaf5aa7b670ef209e23d3f7b39a8f42f84bd002ac"),
+            U256::from(1071),
+         ),
+         amount: 1,
+         change_amount: 0,
+         input_count: 1,
+         spent_block: 11837089,
+         spent_timestamp: 0,
+         tx_hash: Default::default(),
+         memo: String::new(),
+         kind: PrivateHistoryKind::Spend,
+      };
+
+      let action = spent_action(&ctx, 11155111, &entry);
+      println!("action = {action}");
+
+      assert!(action.starts_with("Sent 1 "), "{action}");
+      assert!(action.ends_with("#1071"), "{action}");
+      assert!(!action.contains("erc721"), "{action}");
+   }
 }

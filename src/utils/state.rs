@@ -1,4 +1,5 @@
 use crate::core::ctx::railgun_dir;
+use crate::core::urls::ZeusUrl;
 use crate::core::{WalletPortfolio, ZeusCtx, types::BaseFee};
 use crate::utils::{RT, malloc_trim, self_update};
 use anyhow::anyhow;
@@ -206,22 +207,26 @@ pub fn cleanup_orphaned_wallet_data(ctx: ZeusCtx) {
    let (
       eth_removed,
       token_removed,
+      nft_removed,
       portfolio_removed,
       approval_token_removed,
       approval_permit_removed,
+      approval_nft_removed,
       dapp_accounts_removed,
    ) = ctx.write_wallet_state(|ws| {
-      let (eth_removed, token_removed) = ws.balance_manager.retain_wallets(&wallets);
+      let (eth_removed, token_removed, nft_removed) = ws.balance_manager.retain_wallets(&wallets);
       let portfolio_removed = ws.portfolio_db.retain_wallets(&wallets);
-      let (approval_token_removed, approval_permit_removed) =
+      let (approval_token_removed, approval_permit_removed, approval_nft_removed) =
          ws.approval_manager.retain_wallets(&wallets);
       let dapp_accounts_removed = ws.dapp_accounts.retain_wallets(&wallets);
       (
          eth_removed,
          token_removed,
+         nft_removed,
          portfolio_removed,
          approval_token_removed,
          approval_permit_removed,
+         approval_nft_removed,
          dapp_accounts_removed,
       )
    });
@@ -229,20 +234,24 @@ pub fn cleanup_orphaned_wallet_data(ctx: ZeusCtx) {
 
    let total = eth_removed
       + token_removed
+      + nft_removed
       + portfolio_removed
       + tx_removed
       + approval_token_removed
       + approval_permit_removed
+      + approval_nft_removed
       + dapp_accounts_removed;
    if total > 0 {
       info!(
-         "Cleaned orphaned wallet data: {} eth balances, {} token balances, {} portfolios, {} tx histories, {} token approvals, {} permits, {} dapp accounts",
+         "Cleaned orphaned wallet data: {} eth balances, {} token balances, {} nft holdings, {} portfolios, {} tx histories, {} token approvals, {} permits, {} nft approvals, {} dapp accounts",
          eth_removed,
          token_removed,
+         nft_removed,
          portfolio_removed,
          tx_removed,
          approval_token_removed,
          approval_permit_removed,
+         approval_nft_removed,
          dapp_accounts_removed
       );
    } else {
@@ -650,6 +659,9 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
 /// Prefetch pack circuits (`railgun/01x01` ..= `05x05`) into the Zeus
 /// railgun data directory. Skips circuits already complete on disk.
 /// No-op unless Railgun is enabled and circuit download is allowed.
+///
+/// The scan hashes the whole artifact pack (hundreds of MB) and a first run can
+/// download it, so the work runs on the blocking pool — never on an async worker.
 pub async fn prefetch_railgun_circuits_if_allowed(ctx: &ZeusCtx) {
    if !ctx
       .read(|ctx| ctx.railgun_config.any_enabled() && ctx.railgun_config.allow_circuit_download())
@@ -660,8 +672,14 @@ pub async fn prefetch_railgun_circuits_if_allowed(ctx: &ZeusCtx) {
    ctx.write(|ctx| {
       ctx.railgun_status.set_circuits_download_in_progress(true);
    });
-   match prefetch_railgun_circuits().await {
-      Ok(report) => {
+
+   // `prefetch_railgun_circuits` stays async because a first run downloads over the
+   // async HTTP client; `block_on` on a dedicated blocking thread keeps that off the
+   // async workers (same idiom as the Railgun merge flow).
+   let result = RT.spawn_blocking(|| RT.block_on(prefetch_railgun_circuits())).await;
+
+   match result {
+      Ok(Ok(report)) => {
          info!(
             "Railgun circuit prefetch: {} ready ({} embedded, {} disk, {} downloaded), {} failed",
             report.ok_count(),
@@ -674,8 +692,13 @@ pub async fn prefetch_railgun_circuits_if_allowed(ctx: &ZeusCtx) {
             warn!("Circuit prefetch failed for {}: {}", name, err);
          }
       }
-      Err(e) => error!("Railgun circuit prefetch error: {:?}", e),
+      Ok(Err(e)) => error!("Railgun circuit prefetch error: {:?}", e),
+      Err(join_error) => error!(
+         "Railgun circuit prefetch task failed: {:?}",
+         join_error
+      ),
    }
+
    ctx.write(|ctx| {
       ctx.railgun_status.set_circuits_download_in_progress(false);
    });
@@ -683,7 +706,7 @@ pub async fn prefetch_railgun_circuits_if_allowed(ctx: &ZeusCtx) {
 
 async fn prefetch_railgun_circuits() -> Result<PrefetchReport, anyhow::Error> {
    let dir = railgun_dir()?;
-   let prover = Groth16Prover::new(Some(dir))
+   let prover = Groth16Prover::new(ZeusUrl::RailgunCircuitArtifacts.base(), Some(dir))
       .with_embedded_circuits(crate::embedded::railgun::embedded_circuits())
       .with_allow_download(true);
    Ok(prover.prefetch_artifacts().await?)

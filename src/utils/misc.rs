@@ -1,4 +1,5 @@
 use crate::core::ZeusContext;
+use crate::core::urls::ZeusUrl;
 use crate::gui::SHARED_GUI;
 
 use zeus_eth::{
@@ -115,9 +116,12 @@ pub async fn create_railgun_provider(
    let db = RedbDatabase::new(db_file, db_key)?;
    let utxo_indexer = UtxoIndexer::new(db, rpc_syncer, subsquid_syncer, utxo_verifier).await?;
 
-   let prover = Groth16Prover::new(Some(railgun_dir))
-      .with_embedded_circuits(crate::embedded::railgun::embedded_circuits())
-      .with_allow_download(allow_circuit_download);
+   let prover = Groth16Prover::new(
+      ZeusUrl::RailgunCircuitArtifacts.base(),
+      Some(railgun_dir),
+   )
+   .with_embedded_circuits(crate::embedded::railgun::embedded_circuits())
+   .with_allow_download(allow_circuit_download);
 
    let railgun_provider = RailgunProvider::new(
       chain_config,
@@ -172,8 +176,22 @@ pub fn truncate_symbol_or_name(string: &str, max_chars: usize) -> String {
    }
 }
 
+/// Shorten an address for display: six characters from each end, joined by an ellipsis.
+///
+/// Anything too short to shorten comes back whole. The offsets are only safe once the length is known,
+/// which is what this guard is for — its sibling [`truncate_hash`] already had one, and without it any
+/// string shorter than the tail offset panicked. Addresses render as 42 ASCII characters, so byte
+/// offsets are the display rule.
 pub fn truncate_address(address: String) -> String {
-   format!("{}...{}", &address[..6], &address[36..])
+   if address.len() <= 12 {
+      return address;
+   }
+
+   format!(
+      "{}...{}",
+      &address[..6],
+      &address[address.len() - 6..]
+   )
 }
 
 pub fn truncate_hash(hash: String) -> String {
@@ -333,4 +351,31 @@ fn timestamp_to_relative_time(timestamp: &TimeStamp) -> String {
    }
 
    format!("Invalid timestamp")
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// A string too short to shorten is shown whole — the offsets are not safe until the length is known.
+   ///
+   /// The tail used to be a fixed `&address[36..]`, so anything under 36 bytes took the render path down
+   /// with it: a truncated value out of a decoded event, a name, anything that is not a full address. A
+   /// real address still shortens to its six-and-six form, which is what the callers expect.
+   #[test]
+   fn truncates_only_what_is_long_enough_to_truncate() {
+      assert_eq!(truncate_address("0x1234".to_string()), "0x1234");
+      assert_eq!(truncate_address(String::new()), "");
+      assert_eq!(
+         truncate_address("0x1234567890".to_string()),
+         "0x1234567890",
+         "twelve bytes is the shortest that stays whole"
+      );
+
+      let address = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
+      assert_eq!(
+         truncate_address(address.to_string()),
+         "0xd8dA...A96045"
+      );
+   }
 }

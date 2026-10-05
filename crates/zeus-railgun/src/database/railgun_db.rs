@@ -34,12 +34,93 @@ impl RedbDatabase {
          return Ok(Default::default());
       };
 
-      deserialize_versioned(&bytes)
+      if let Ok(mut state) = deserialize_versioned::<UtxoIndexerState>(&bytes) {
+         // ERC-20s are not registry material ([`TokenRegistry`]), but a map written before that was settled
+         // still carries one per ERC-20 ever shielded. Shed them once here instead of re-reading and
+         // re-writing them for the life of the database.
+         state.token_registry.retain(|_, asset| !asset.is_erc20());
+         return Ok(state);
+      }
+
+      // The state grew a `token_registry` field. Bincode is not self-describing — nothing in the payload
+      // says how many fields follow — so an earlier blob has to be read back as the shorter shape it really
+      // is. What it cannot be given back is the registry: it is filled from the `TokenData` of *shield*
+      // events (`UtxoIndexer::handle_shield`), and a sync only ever fetches blocks *after* the watermark
+      // (`tree_from = global_synced + 1`), so preserving the watermark would leave every asset shielded
+      // before the upgrade unrecognizable — a transact note keeps only `asset.hash()`, and an unrecognized
+      // hash is read as a phantom ERC-20 at the hash's low 20 bytes (`resolve_transact_asset`). That is a
+      // wallet whose NFT notes can never be proved.
+      //
+      // So the upgrade is a one-time resync rather than a silent no-op: the watermark goes back to the
+      // chain's first block, and the stored UTXO trees go with it, because a tree rebuilt on top of the
+      // old one would hold every leaf twice. The next sync replays from `deployment_block`, rebuilding the
+      // trees and filling the registry on the way through.
+      //
+      // The accounts go too. The replay visits an account only for blocks *after* its own watermark
+      // (`handle_transact`, gated by `block > account.synced_block()`), and a note already stored is never
+      // re-decoded at all (`IndexedAccount::knows_note` keys on `(tree, leaf)`). So a note written before
+      // the registry existed — against `TokenData::from_hash`'s guess of an ERC-20 address inside a hash it
+      // could not invert — would keep that wrong asset, and the commitment that goes with it, through the
+      // very replay that now knows the real one. A deleted account loads as its default (empty notes,
+      // watermark 0), so every note is derived again and stored as what it really is.
+      match deserialize_versioned::<LegacyUtxoIndexerState>(&bytes) {
+         Ok(old) => {
+            tracing::info!(
+               "UTXO indexer state predates the token registry: it was at block {} with {} tree(s), resyncing from the first block to rebuild it",
+               old.synced_block,
+               old.trees.len()
+            );
+            self.drop_utxo_trees().await?;
+            self.drop_utxo_accounts().await?;
+            Ok(UtxoIndexerState::default())
+         }
+         Err(_) => deserialize_versioned(&bytes),
+      }
+   }
+
+   /// Drop every stored UTXO tree blob.
+   ///
+   /// Part of the pre-registry upgrade ([`Self::get_utxo_indexer`]): the replay rebuilds those trees, and a
+   /// leftover blob would be mixed into the rebuild — the loader reads a legacy blob whenever a meta key is
+   /// missing, and a rebuild that appends to leaves already on disk doubles every one of them.
+   async fn drop_utxo_trees(&self) -> Result<(), DatabaseError> {
+      let keys = self.keys_with_prefix(b"utxo_tree:").await?;
+      if keys.is_empty() {
+         return Ok(());
+      }
+
+      let mut batch = WriteBatch::new();
+      for key in keys {
+         batch.delete(key);
+      }
+      self.apply_batch(batch, WriteDurability::Immediate).await
+   }
+
+   /// Delete every stored UTXO account blob.
+   ///
+   /// Part of the pre-registry upgrade ([`Self::get_utxo_indexer`]), beside [`Self::drop_utxo_trees`]: the
+   /// replay re-derives each account, but only for the blocks past its own watermark, and a note it already
+   /// holds is never re-decoded (`IndexedAccount::knows_note` keys on `(tree, leaf)`). So a note stored
+   /// against a guessed asset — `TokenData::from_hash` reading a 32-byte hash as an ERC-20 address — would
+   /// outlive the very replay that now knows the real asset, keeping a wrong asset and a commitment no tree
+   /// can witness. A deleted account loads as its default (empty notes, watermark 0, per
+   /// [`Self::get_account`]), so the notes are derived again from the events themselves.
+   async fn drop_utxo_accounts(&self) -> Result<(), DatabaseError> {
+      let keys = self.list_account_keys().await?;
+      if keys.is_empty() {
+         return Ok(());
+      }
+
+      let mut batch = WriteBatch::new();
+      for key in keys {
+         batch.delete(key);
+      }
+      self.apply_batch(batch, WriteDurability::Immediate).await
    }
 
    pub async fn set_utxo_indexer(&self, state: &UtxoIndexerState) -> Result<(), DatabaseError> {
       let mut batch = WriteBatch::new();
-      put_envelope(&mut batch, &utxo_indexer_key(), 2, state)?;
+      put_envelope(&mut batch, &utxo_indexer_key(), 3, state)?;
       self.apply_batch(batch, WriteDurability::Immediate).await
    }
 
@@ -326,7 +407,7 @@ pub fn put_utxo_indexer(
    batch: &mut WriteBatch,
    state: &UtxoIndexerState,
 ) -> Result<(), DatabaseError> {
-   put_envelope(batch, &utxo_indexer_key(), 2, state)
+   put_envelope(batch, &utxo_indexer_key(), 3, state)
 }
 
 pub fn put_utxo_note_proof(
@@ -519,6 +600,14 @@ pub fn all_chunk_indices(leaf_count: usize) -> BTreeSet<u32> {
 struct JsonEnvelope {
    pub v: u32,
    pub data: serde_json::Value,
+}
+
+/// [`UtxoIndexerState`] as it was written before it grew a `token_registry`: what a payload from an older
+/// build decodes into.
+#[derive(Deserialize)]
+struct LegacyUtxoIndexerState {
+   synced_block: u64,
+   trees: Vec<u32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -841,6 +930,127 @@ mod tests {
       assert!(db_bad.get_account(&addr).await.is_err());
    }
 
+   /// The pre-registry upgrade drops the accounts, not only the trees.
+   ///
+   /// A note written before the registry existed carries an asset `TokenData::from_hash` *guessed* — an
+   /// ERC-20 address read out of a hash it cannot invert. The replay that follows fills the registry, but an
+   /// account is visited only past its own watermark and a note it already holds is never re-decoded, so the
+   /// wrong asset — and the commitment that goes with it — would outlive the repair that knows the real one.
+   /// A deleted account falls back to its default (empty notes, watermark 0), which is what lets the replay
+   /// derive every note again.
+   #[tokio::test]
+   async fn pre_registry_state_resets_accounts_too() {
+      use crate::account::address::RailgunAddress;
+      use crate::indexer::indexed_account::{IndexedAccountState, NoteRecord};
+      use crate::note::utxo::test_note;
+      use alloy_primitives::B256;
+
+      let db = test_db();
+
+      // What a wallet upgrading from a registry-less build looks like: a synced account holding a note.
+      let seed: [u8; 64] = rand::random();
+      let sec = secure_types::SecureArray::from_slice(&seed).unwrap();
+      let addr = RailgunAddress::new(&sec, 0, None).unwrap();
+      db.set_account(
+         &addr,
+         &IndexedAccountState {
+            notes: vec![NoteRecord {
+               note: test_note(),
+               created_block: 7,
+               created_timestamp: 7,
+               created_tx_hash: B256::ZERO,
+            }],
+            synced_block: 42,
+            spent_notes: vec![],
+         },
+      )
+      .await
+      .unwrap();
+
+      // The indexer state as written before the `token_registry` field: its bytes decode into the shorter
+      // shape, not the current one — bincode is not self-describing, so the third field cannot be invented.
+      #[derive(Serialize)]
+      struct LegacyIndexer {
+         synced_block: u64,
+         trees: Vec<u32>,
+      }
+      let mut batch = WriteBatch::new();
+      put_envelope(
+         &mut batch,
+         &utxo_indexer_key(),
+         3,
+         &LegacyIndexer {
+            synced_block: 42,
+            trees: vec![2],
+         },
+      )
+      .unwrap();
+      db.apply_batch(batch, WriteDurability::Immediate).await.unwrap();
+
+      let state = db.get_utxo_indexer().await.unwrap();
+
+      // The indexer is back at the start, trees and registry included…
+      assert_eq!(state.synced_block, 0);
+      assert!(state.trees.is_empty());
+      assert!(state.token_registry.is_empty());
+
+      // …and so are the accounts: without this the phantom note survives every later resync.
+      assert!(
+         db.list_account_keys().await.unwrap().is_empty(),
+         "the pre-registry upgrade must drop the account blobs"
+      );
+      let account = db.get_account(&addr).await.unwrap();
+      assert_eq!(account.synced_block, 0);
+      assert!(account.notes.is_empty());
+   }
+
+   /// ERC-20s are not registry material: their tokenID *is* the address, so `TokenData::from_hash` reads one
+   /// back without help. A payload written before that was recognized still carries them, and loading is
+   /// where they are shed — otherwise every database keeps a redundant entry per ERC-20 ever shielded.
+   #[tokio::test]
+   async fn loading_the_indexer_sheds_redundant_erc20_entries() {
+      use std::collections::HashMap;
+
+      use alloy_primitives::address;
+
+      use crate::caip::AssetId;
+
+      let db = test_db();
+
+      let erc20 = AssetId::Erc20(address!(
+         "0x1234567890123456789012345678901234567890"
+      ));
+      let nft = AssetId::Erc721(
+         address!("0xaf5aa7b670ef209e23d3f7b39a8f42f84bd002ac"),
+         U256::from(1071),
+      );
+
+      let mut batch = WriteBatch::new();
+      put_utxo_indexer(
+         &mut batch,
+         &UtxoIndexerState {
+            synced_block: 9,
+            trees: vec![1],
+            token_registry: HashMap::from([(erc20.hash(), erc20), (nft.hash(), nft)]),
+         },
+      )
+      .unwrap();
+      db.apply_batch(batch, WriteDurability::Immediate).await.unwrap();
+
+      let state = db.get_utxo_indexer().await.unwrap();
+
+      assert_eq!(
+         state.synced_block, 9,
+         "the watermark is untouched"
+      );
+      assert_eq!(state.trees, vec![1], "so are the known trees");
+      assert_eq!(
+         state.token_registry,
+         HashMap::from([(nft.hash(), nft)]),
+         "the NFT stays; the ERC-20 is recovered from its hash rather than stored"
+      );
+   }
+
    #[tokio::test]
    async fn large_tree_save_load_and_continue() {
       let db = test_db();
@@ -916,5 +1126,60 @@ mod tests {
       let db_bad = RedbDatabase::in_memory(RailgunDbKey::generate().unwrap()).unwrap();
       db_bad.set(&utxo_proof_key(0, 7), &raw).await.unwrap();
       assert!(db_bad.get_utxo_note_proof(0, 7).await.is_err());
+   }
+
+   /// A DB written before the token registry existed is resynced, not simply reopened.
+   ///
+   /// Keeping the watermark would be cheaper and wrong: the registry is filled from shield events, the sync
+   /// only fetches blocks after the watermark, so every asset shielded before the upgrade would stay
+   /// unrecognizable — and a transact note whose asset is unrecognized is read as a phantom ERC-20 whose
+   /// commitment can never match its leaf. Hence a fresh state, and the trees dropped with it (a rebuild on
+   /// top of the old leaves would double them).
+   #[tokio::test]
+   async fn a_pre_registry_state_is_resynced_from_the_first_block() {
+      let db = test_db();
+
+      // The legacy payload: the two fields the state had before `token_registry`, which bincode encodes
+      // exactly as this tuple.
+      let legacy: (u64, Vec<u32>) = (1_000, vec![0, 1, 2]);
+
+      // A stored tree, in the current chunked format, so there is something for the upgrade to drop.
+      let leaves: Vec<U256> = (0..10u64).map(U256::from).collect();
+      let chunks = all_chunk_indices(leaves.len());
+
+      let mut batch = WriteBatch::new();
+      put_envelope(&mut batch, &utxo_indexer_key(), 3, &legacy).unwrap();
+      push_utxo_tree_save(
+         &mut batch,
+         0,
+         &leaves,
+         U256::from(7),
+         &chunks,
+         false,
+      )
+      .unwrap();
+      db.apply_batch(batch, WriteDurability::Immediate).await.unwrap();
+
+      let state = db.get_utxo_indexer().await.unwrap();
+
+      assert_eq!(
+         state.synced_block, 0,
+         "an upgraded DB has to replay from the first block"
+      );
+      assert!(
+         state.trees.is_empty(),
+         "and rediscover the trees it replays"
+      );
+      assert!(
+         state.token_registry.is_empty(),
+         "the registry is rebuilt by the replay, not carried over empty"
+      );
+
+      assert!(
+         db.get_utxo_tree_leaves(0).await.unwrap().is_none(),
+         "the trees went with the watermark"
+      );
+      assert!(db.get_utxo_tree_meta(0).await.unwrap().is_none());
+      assert!(db.keys_with_prefix(b"utxo_tree:").await.unwrap().is_empty());
    }
 }
