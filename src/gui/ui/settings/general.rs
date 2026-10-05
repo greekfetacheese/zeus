@@ -1,14 +1,34 @@
 //! UI that allows the user to change the general settings.
 
 use crate::core::ZeusContext;
+use crate::core::urls::{UrlPurpose, purpose_tip};
 use crate::utils::RT;
 use egui::{Align, Layout, RichText, Ui, vec2};
 use egui_elements::{Button, Theme};
 use elegance::{Badge, BadgeTone};
+use std::sync::OnceLock;
 
 const ICONS_TIP: &str = "Allow Zeus to download token icons from tokens.smold.app";
 const SOURCIFY_TIP: &str = "Allow Zeus to look up verified contract names on sourcify.dev";
 const UPDATES_TIP: &str = "Allow Zeus to check GitHub for a newer Zeus release";
+
+/// The External Data hover tips: the one-line explanation plus the endpoints the
+/// opt-in actually contacts. Built once — `on_hover_text` takes its value every
+/// frame, so this must not allocate on the frame path.
+fn icons_tip() -> &'static str {
+   static TIP: OnceLock<String> = OnceLock::new();
+   TIP.get_or_init(|| purpose_tip(ICONS_TIP, UrlPurpose::AssetImages))
+}
+
+fn names_tip() -> &'static str {
+   static TIP: OnceLock<String> = OnceLock::new();
+   TIP.get_or_init(|| purpose_tip(SOURCIFY_TIP, UrlPurpose::ContractNames))
+}
+
+fn updates_tip() -> &'static str {
+   static TIP: OnceLock<String> = OnceLock::new();
+   TIP.get_or_init(|| purpose_tip(UPDATES_TIP, UrlPurpose::Updates))
+}
 
 pub struct GeneralSettings {
    fetch_asset_images: bool,
@@ -91,7 +111,7 @@ impl GeneralSettings {
                Self::persist_misc(ctx);
             }
 
-            ui.add(qmark).on_hover_text(ICONS_TIP);
+            ui.add(qmark).on_hover_text(icons_tip());
          },
       );
 
@@ -106,7 +126,7 @@ impl GeneralSettings {
                ctx.misc_config.set_fetch_contract_names(self.fetch_contract_names);
                Self::persist_misc(ctx);
             }
-            ui.add(qmark).on_hover_text(SOURCIFY_TIP);
+            ui.add(qmark).on_hover_text(names_tip());
          },
       );
 
@@ -121,7 +141,7 @@ impl GeneralSettings {
                ctx.misc_config.set_check_for_updates(self.check_for_updates);
                Self::persist_misc(ctx);
             }
-            ui.add(qmark).on_hover_text(UPDATES_TIP);
+            ui.add(qmark).on_hover_text(updates_tip());
          },
       );
 

@@ -2,6 +2,7 @@
 //!
 //! If the vault is not found, it will show the wallet recovery UI.
 
+use crate::core::urls::ZeusUrl;
 use crate::core::{
    Vault, WalletInfo, ZeusContext,
    types::{MiscConfig, RailgunConfig},
@@ -10,7 +11,7 @@ use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::gui::ui::settings::ImportDataUi;
 use crate::utils::RT;
-use egui::{Align, Align2, FontId, Layout, Margin, RichText, Ui, Window, vec2};
+use egui::{Align, Align2, FontId, Layout, Margin, RichText, ScrollArea, Ui, Window, vec2};
 use egui_elements::{Button, CredentialsForm, Label, SecureTextEdit, Theme};
 use elegance::{BadgeTone, Toast};
 use ncrypt_me::{Argon2, Credentials};
@@ -587,10 +588,10 @@ impl RecoverHDWallet {
                   let large = theme.typography.large;
 
                   // Smold.app paragraph
-                  let text1 = RichText::new("Zeus can download token icons from ").size(large);
+                  let text1 = RichText::new("Zeus can download asset icons from ").size(large);
                   let text2 = RichText::new("tokens.smold.app ").size(large).underline();
                   let text3 =
-                     RichText::new("so unknown tokens show an image instead of a placeholder.")
+                     RichText::new("and other sources, so unknown tokens/nfts show an image instead of a placeholder.")
                         .size(large);
 
                   let label = Label::sections(vec![text1, text2, text3], None)
@@ -621,6 +622,53 @@ impl RecoverHDWallet {
                      .fill_width(true)
                      .interactive(false);
                   ui.add(label);
+
+                  // Every endpoint Zeus may contact, in one scrollable place —
+                  // the list grows with each service the wallet learns to talk to.
+                  ui.add(
+                     Label::new(
+                        RichText::new("Endpoints Zeus may contact")
+                           .size(large)
+                           .color(theme.colors.text),
+                        None,
+                     )
+                     .wrap()
+                     .fill_width(true)
+                     .interactive(false),
+                  );
+
+                  let frame1 = theme.frame1;
+                  let frame2 = theme.frame2;
+
+                  const URL_LIST_HEIGHT: f32 = 180.0;
+                  ui.allocate_ui(vec2(content_width, URL_LIST_HEIGHT), |ui| {
+                     let scroll = ScrollArea::vertical()
+                        .id_salt("onboarding_external_data_urls")
+                        .content_margin(10)
+                        .auto_shrink([false, true]);
+
+                     frame2.show(ui, |ui| {
+                        scroll.show(ui, |ui| {
+                           ui.spacing_mut().item_spacing.y = theme.spacing.sm;
+                           for url in ZeusUrl::ALL {
+                              frame1.show(ui, |ui| {
+                                 ui.label(RichText::new(url.label()).size(large));
+                                 ui.add(
+                                    Label::new(
+                                       RichText::new(url.base())
+                                          .size(theme.typography.small)
+                                          .color(theme.colors.text_muted),
+                                       None,
+                                    )
+                                    .wrap()
+                                    .fill_width(true)
+                                    .interactive(false),
+                                 );
+                              });
+                           }
+                        });
+                     });
+                  });
 
                   let icons_text = RichText::new("Download Token Icons & NFT Images").size(large);
                   ui.checkbox(&mut self.fetch_asset_images, icons_text);

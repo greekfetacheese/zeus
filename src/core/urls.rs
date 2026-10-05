@@ -54,6 +54,7 @@ zeus_urls! {
    // Verified-source lookups for clear signing.
    Sourcify => "https://sourcify.dev/server",
    // ERC-7730 clear-signing registry.
+   // ? This is actually unused since the registry is built-in to Zeus binary.
    ClearSigningRegistry => "https://raw.githubusercontent.com/ethereum/clear-signing-erc7730-registry/master",
    // Across fee API (default; user-overridable in Bridge settings).
    AcrossSuggestedFees => "https://app.across.to/api/suggested-fees",
@@ -78,6 +79,73 @@ impl ZeusUrl {
       ZeusUrl::IpfsIo,
       ZeusUrl::IpfsDwebLink,
    ];
+}
+
+/// What an endpoint is for — lets the settings UI name exactly the hosts an
+/// opt-in turns on, and forces a new endpoint to be classified at compile time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UrlPurpose {
+   /// Token icons and NFT art (`Download Token Icons & NFT Images`).
+   AssetImages,
+   /// Verified contract names and ERC-7730 descriptors (`Fetch Contract Names`).
+   ContractNames,
+   /// Release checks (`Check for Updates`).
+   Updates,
+   /// The Across bridge fee API.
+   Bridge,
+   /// The Pimlico bundler used by Railgun operations.
+   Railgun,
+}
+
+impl ZeusUrl {
+   /// Which opt-in (if any) owns this endpoint.
+   pub const fn purpose(self) -> UrlPurpose {
+      match self {
+         Self::SmoldappToken
+         | Self::IpfsPinata
+         | Self::Ipfs4everland
+         | Self::IpfsIo
+         | Self::IpfsDwebLink
+         | Self::Arweave => UrlPurpose::AssetImages,
+         Self::Sourcify | Self::ClearSigningRegistry => UrlPurpose::ContractNames,
+         Self::ZeusReleases => UrlPurpose::Updates,
+         Self::AcrossSuggestedFees => UrlPurpose::Bridge,
+         Self::PimlicoBundler => UrlPurpose::Railgun,
+      }
+   }
+
+   /// A short human label for the UI. Exhaustive, so a new endpoint cannot ship
+   /// unlabelled.
+   pub const fn label(self) -> &'static str {
+      match self {
+         Self::SmoldappToken => "Token icons - SmolDapp",
+         Self::IpfsPinata => "NFT metadata - IPFS (Pinata)",
+         Self::Ipfs4everland => "NFT metadata - IPFS (4EVERLAND)",
+         Self::IpfsIo => "NFT metadata - IPFS (ipfs.io)",
+         Self::IpfsDwebLink => "NFT metadata - IPFS (dweb.link)",
+         Self::Arweave => "NFT metadata - Arweave",
+         Self::Sourcify => "Verified contract names - Sourcify",
+         Self::ClearSigningRegistry => "Clear-signing descriptors - ERC-7730 registry",
+         Self::AcrossSuggestedFees => "Bridge fees - Across",
+         Self::PimlicoBundler => "Railgun bundler - Pimlico",
+         Self::ZeusReleases => "App updates - GitHub releases",
+      }
+   }
+}
+
+/// `intro` followed by one line per endpoint `purpose` owns — for a settings
+/// hover, so the tooltip names the hosts an opt-in actually contacts.
+pub fn purpose_tip(intro: &str, purpose: UrlPurpose) -> String {
+   let mut tip = intro.to_string();
+   let mut first = true;
+   for url in ZeusUrl::ALL.iter().filter(|u| u.purpose() == purpose) {
+      tip.push_str(if first { "\n\n" } else { "\n" });
+      first = false;
+      tip.push_str(url.label());
+      tip.push_str(": ");
+      tip.push_str(url.base());
+   }
+   tip
 }
 
 /// The 32px SmolDapp icon URL for a token.
@@ -136,6 +204,28 @@ mod tests {
             ZeusUrl::IpfsIo,
             ZeusUrl::IpfsDwebLink,
          ]
+      );
+   }
+
+   #[test]
+   fn labels_are_non_empty_and_unique() {
+      let mut labels: Vec<_> = ZeusUrl::ALL.iter().map(|u| u.label()).collect();
+      assert!(labels.iter().all(|l| !l.is_empty()));
+      labels.sort_unstable();
+      labels.dedup();
+      assert_eq!(labels.len(), ZeusUrl::ALL.len());
+   }
+
+   #[test]
+   fn purpose_tip_lists_the_endpoints_of_that_purpose() {
+      let tip = purpose_tip("intro", UrlPurpose::AssetImages);
+      assert!(tip.starts_with("intro\n\n"));
+      assert!(tip.contains("assets.smold.app"));
+      assert!(tip.contains("gateway.pinata.cloud"));
+      assert!(tip.contains("arweave.net"));
+      assert!(
+         !tip.contains("sourcify.dev"),
+         "other purposes stay out"
       );
    }
 }
