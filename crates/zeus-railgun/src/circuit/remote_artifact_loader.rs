@@ -352,7 +352,7 @@ impl RemoteArtifactLoader {
 
    /// True when all required compressed files for `circuit_name` exist on disk
    /// and pass basic validation (size / not-HTML). Does not hit the network
-   /// and does **not** hash (see [`Self::disk_circuit_pinned`]).
+   /// and does **not** hash — the pinned variant is [`Self::disk_circuit_ready`].
    pub fn is_circuit_on_disk(&self, circuit_name: &str) -> bool {
       for file in TRANSACT_ARTIFACT_FILES {
          let Some(path) = self.artifact_path(circuit_name, file) else {
@@ -369,16 +369,24 @@ impl RemoteArtifactLoader {
       true
    }
 
-   /// True when the on-disk set exists and every compressed file matches its
-   /// SHA-256 pin. Used by prefetch so a poisoned cache is not treated as ready.
-   fn disk_circuit_pinned(&self, circuit_name: &str) -> bool {
+   /// True when the on-disk set exists and every compressed file both passes basic
+   /// validation and matches its SHA-256 pin — reading each file exactly once.
+   ///
+   /// Fuses the old `is_circuit_on_disk` + `disk_circuit_pinned` pair that prefetch called
+   /// back to back: those read (and hashed) the entire artifact pack twice per pass, which
+   /// is what made every prefetch churn multi-MB heap buffers. `tokio::fs` keeps the read
+   /// off the runtime worker thread.
+   async fn disk_circuit_ready(&self, circuit_name: &str) -> bool {
       for file in TRANSACT_ARTIFACT_FILES {
          let Some(path) = self.artifact_path(circuit_name, file) else {
             return false;
          };
-         let Ok(data) = std::fs::read(&path) else {
+         let Ok(data) = fs::read(&path).await else {
             return false;
          };
+         if validate_compressed_artifact(&data).is_err() {
+            return false;
+         }
          if verify_artifact_pin(circuit_name, file, &data).is_err() {
             return false;
          }
@@ -460,7 +468,7 @@ impl RemoteArtifactLoader {
             continue;
          }
 
-         if self.is_circuit_on_disk(&name) && self.disk_circuit_pinned(&name) {
+         if self.disk_circuit_ready(&name).await {
             debug!("Circuit already cached on disk: {}", name);
             report.already_cached.push(name);
             continue;
@@ -845,8 +853,8 @@ mod tests {
       }
    }
 
-   #[test]
-   fn poisoned_disk_cache_is_not_pinned() {
+   #[tokio::test]
+   async fn poisoned_disk_cache_is_not_pinned() {
       let root = unique_temp_dir();
       write_fake_circuit(&root, "01x04");
       let loader = RemoteArtifactLoader::new(
@@ -854,7 +862,7 @@ mod tests {
          Some(root.clone()),
       );
       assert!(loader.is_circuit_on_disk("railgun/01x04"));
-      assert!(!loader.disk_circuit_pinned("railgun/01x04"));
+      assert!(!loader.disk_circuit_ready("railgun/01x04").await);
       let _ = std::fs::remove_dir_all(&root);
    }
 

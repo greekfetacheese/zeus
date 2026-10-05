@@ -188,6 +188,13 @@ impl RailgunSettings {
 
 fn post_click(ctx: &mut ZeusContext, new_config: RailgunConfig) {
    let allow_download = new_config.allow_circuit_download();
+
+   // The prefetch scans the whole artifact pack on disk (~160 MB), so only run it when the
+   // user has just opted in. Startup already prefetches, and a plain Save would otherwise
+   // repeat that scan — and the multi-MB heap churn it causes — on every single click.
+   let circuit_download_just_enabled =
+      !ctx.railgun_config.allow_circuit_download() && allow_download;
+
    ctx.railgun_config = new_config.clone();
    for provider in ctx.railgun_provider.values() {
       provider.prover().set_allow_download(allow_download);
@@ -258,6 +265,8 @@ fn post_click(ctx: &mut ZeusContext, new_config: RailgunConfig) {
          }
       }
 
-      crate::utils::state::prefetch_railgun_circuits_if_allowed(&ctx).await;
+      if circuit_download_just_enabled {
+         crate::utils::state::prefetch_railgun_circuits_if_allowed(&ctx).await;
+      }
    });
 }
