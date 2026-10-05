@@ -11,8 +11,9 @@ use crate::{
       crypto::ENCRYPTED_ENVELOPE_VERSION,
    },
    indexer::{
-      indexed_account::IndexedAccountState, txid_indexer::TxidIndexerState,
-      utxo_indexer::UtxoIndexerState,
+      indexed_account::IndexedAccountState,
+      txid_indexer::TxidIndexerState,
+      utxo_indexer::{UTXO_INDEXER_SCHEMA, UtxoIndexerState},
    },
    merkle_tree::{RailgunMerkleProof, RailgunMerkleTreeState},
    poi::provider::PoiProviderState,
@@ -34,18 +35,26 @@ impl RedbDatabase {
          return Ok(Default::default());
       };
 
+      // A payload at the current layout. `schema` gates it: one written before the marker existed
+      // serialized fewer fields and fails to decode here, and one that still decodes but carries an
+      // older marker is an older layout too. Either way it falls through to the resync below.
       if let Ok(mut state) = deserialize_versioned::<UtxoIndexerState>(&bytes) {
-         // ERC-20s are not registry material ([`TokenRegistry`]), but a map written before that was settled
-         // still carries one per ERC-20 ever shielded. Shed them once here instead of re-reading and
-         // re-writing them for the life of the database.
-         state.token_registry.retain(|_, asset| !asset.is_erc20());
-         return Ok(state);
+         if state.schema == UTXO_INDEXER_SCHEMA {
+            // ERC-20s are not registry material ([`TokenRegistry`]), but a map written before that was
+            // settled still carries one per ERC-20 ever shielded. Shed them once here instead of
+            // re-reading and re-writing them for the life of the database.
+            state.token_registry.retain(|_, asset| !asset.is_erc20());
+            return Ok(state);
+         }
       }
 
-      // The state grew a `token_registry` field. Bincode is not self-describing — nothing in the payload
-      // says how many fields follow — so an earlier blob has to be read back as the shorter shape it really
-      // is. What it cannot be given back is the registry: it is filled from the `TokenData` of *shield*
-      // events (`UtxoIndexer::handle_shield`), and a sync only ever fetches blocks *after* the watermark
+      // No current-layout payload: it predates the `token_registry` field, or the schema marker, or was
+      // written by a build that had the field but not this resync (the branch's own intermediate state —
+      // a valid three-field blob whose registry was never backfilled). Bincode is not self-describing —
+      // nothing in the payload says which layout follows — so a pre-marker blob is read back as the
+      // shorter shape it really is. What it cannot be given back is the registry: it is filled from the
+      // `TokenData` of *shield* events (`UtxoIndexer::handle_shield`), and a sync only ever fetches blocks
+      // *after* the watermark
       // (`tree_from = global_synced + 1`), so preserving the watermark would leave every asset shielded
       // before the upgrade unrecognizable — a transact note keeps only `asset.hash()`, and an unrecognized
       // hash is read as a phantom ERC-20 at the hash's low 20 bytes (`resolve_transact_asset`). That is a
@@ -66,7 +75,7 @@ impl RedbDatabase {
       match deserialize_versioned::<LegacyUtxoIndexerState>(&bytes) {
          Ok(old) => {
             tracing::info!(
-               "UTXO indexer state predates the token registry: it was at block {} with {} tree(s), resyncing from the first block to rebuild it",
+               "UTXO indexer state predates the schema marker: it was at block {} with {} tree(s), resyncing from the first block to rebuild it",
                old.synced_block,
                old.trees.len()
             );
@@ -602,8 +611,9 @@ struct JsonEnvelope {
    pub data: serde_json::Value,
 }
 
-/// [`UtxoIndexerState`] as it was written before it grew a `token_registry`: what a payload from an older
-/// build decodes into.
+/// The leading fields of a [`UtxoIndexerState`] as written before the schema marker — what a
+/// pre-marker payload decodes into. Bincode reads fields in order and ignores a trailing remainder, so
+/// this also matches a payload that carries the `token_registry` field but no marker.
 #[derive(Deserialize)]
 struct LegacyUtxoIndexerState {
    synced_block: u64,
@@ -1032,6 +1042,7 @@ mod tests {
             synced_block: 9,
             trees: vec![1],
             token_registry: HashMap::from([(erc20.hash(), erc20), (nft.hash(), nft)]),
+            schema: UTXO_INDEXER_SCHEMA,
          },
       )
       .unwrap();
@@ -1181,5 +1192,69 @@ mod tests {
       );
       assert!(db.get_utxo_tree_meta(0).await.unwrap().is_none());
       assert!(db.keys_with_prefix(b"utxo_tree:").await.unwrap().is_empty());
+   }
+
+   /// A state written by the branch's own intermediate build is resynced too, not trusted.
+   ///
+   /// That build wrote a valid three-field blob — watermark preserved, registry empty or filled only
+   /// from shields *after* the upgrade — which decodes cleanly into the layout that predates the schema
+   /// marker. Trusted, it would keep a watermark the registry was never backfilled to, and the
+   /// commitment check would then drop every historical NFT note. It has to fall into the same resync as
+   /// the two-field shape, which is what the marker makes it do: the payload is short, so its decode
+   /// fails and the upgrade runs.
+   #[tokio::test]
+   async fn a_pre_marker_state_with_a_registry_is_resynced() {
+      use crate::caip::TokenRegistry;
+
+      let db = test_db();
+
+      // The intermediate shape exactly: `synced_block`, `trees`, `token_registry`, and no marker.
+      #[derive(Serialize)]
+      struct PreMarkerIndexer {
+         synced_block: u64,
+         trees: Vec<u32>,
+         token_registry: TokenRegistry,
+      }
+
+      let leaves: Vec<U256> = (0..10u64).map(U256::from).collect();
+      let chunks = all_chunk_indices(leaves.len());
+
+      let mut batch = WriteBatch::new();
+      put_envelope(
+         &mut batch,
+         &utxo_indexer_key(),
+         3,
+         &PreMarkerIndexer {
+            synced_block: 1_000,
+            trees: vec![0],
+            token_registry: TokenRegistry::new(),
+         },
+      )
+      .unwrap();
+      push_utxo_tree_save(
+         &mut batch,
+         0,
+         &leaves,
+         U256::from(7),
+         &chunks,
+         false,
+      )
+      .unwrap();
+      db.apply_batch(batch, WriteDurability::Immediate).await.unwrap();
+
+      let state = db.get_utxo_indexer().await.unwrap();
+
+      assert_eq!(
+         state.synced_block, 0,
+         "a pre-marker state must replay from the first block, not keep its watermark"
+      );
+      assert!(
+         state.trees.is_empty(),
+         "and rediscover the trees it replays"
+      );
+      assert!(
+         db.keys_with_prefix(b"utxo_tree:").await.unwrap().is_empty(),
+         "the stored trees went with the watermark"
+      );
    }
 }

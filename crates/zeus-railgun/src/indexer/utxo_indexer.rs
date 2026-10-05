@@ -71,13 +71,39 @@ pub struct UtxoIndexer {
    pub utxo_verifier: RootVerifier,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+/// Persisted layout of [`UtxoIndexerState`].
+///
+/// Bincode is not self-describing, so a payload written by an older build cannot be recognized from
+/// its bytes alone: it either fails to decode (fewer fields than the current layout) or, worse,
+/// decodes into the current shape while meaning something else. This marker makes the layout
+/// explicit — [`RedbDatabase::get_utxo_indexer`] resyncs a payload whose marker is not the current
+/// one. Bump it whenever a field here is added, removed or retyped.
+pub const UTXO_INDEXER_SCHEMA: u32 = 2;
+
+#[derive(Serialize, Deserialize)]
 pub struct UtxoIndexerState {
    pub synced_block: u64,
    pub trees: Vec<u32>,
    /// See [`TokenRegistry`]. Read through [`RedbDatabase::get_utxo_indexer`], which also knows how to load a
    /// payload written before the field existed.
    pub token_registry: TokenRegistry,
+   /// Persisted layout marker — see [`UTXO_INDEXER_SCHEMA`].
+   ///
+   /// Last field on purpose: a payload from an earlier layout is short, so bincode fails to decode it
+   /// here and the resync runs instead of the payload being trusted. What gets written always carries
+   /// the current marker, [`UtxoIndexerState::default`] included, so a freshly built state is current.
+   pub schema: u32,
+}
+
+impl Default for UtxoIndexerState {
+   fn default() -> Self {
+      Self {
+         synced_block: 0,
+         trees: Vec::new(),
+         token_registry: TokenRegistry::new(),
+         schema: UTXO_INDEXER_SCHEMA,
+      }
+   }
 }
 
 #[derive(Debug, Error)]
@@ -1265,6 +1291,7 @@ impl UtxoIndexer {
          synced_block: self.synced_block,
          trees: self.known_trees.iter().copied().collect(),
          token_registry: self.token_registry.clone(),
+         schema: UTXO_INDEXER_SCHEMA,
       };
       put_utxo_indexer(&mut batch, &state)?;
 
