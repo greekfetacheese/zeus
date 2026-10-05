@@ -255,13 +255,36 @@ pub struct CollectionHolding {
    pub collection: NftCollection,
    /// Owned token ids, from `tokenOfOwnerByIndex`.
    pub token_ids: Vec<U256>,
+   /// Whether the collection holds more than [`MAX_ENUMERATED_TOKENS`], so `token_ids` is as far as
+   /// enumeration goes rather than all of it.
+   ///
+   /// The cap is deliberate; the flag is what keeps it from being *silent*, since a short list that
+   /// does not say so reads as a complete one.
+   #[serde(default)]
+   pub truncated: bool,
 }
 
+// TODO: This need to be adjusted to the actually collection size.
 /// Ceiling on how many ids we will enumerate for one collection.
 ///
 /// `balanceOf` is contract-controlled: a hostile or buggy contract can answer with an enormous
 /// number, and sizing an allocation from it would abort the process. Real wallets hold tens.
-const MAX_ENUMERATED_TOKENS: u64 = 1_000;
+///
+/// Public because it is reported: the caller shows the cap where the list stops short of it.
+pub const MAX_ENUMERATED_TOKENS: u64 = 1_000;
+
+/// How many ids to enumerate for a collection the owner holds `balance` of, and whether that is fewer
+/// than it holds.
+///
+/// Pure so the cap — including the hostile contract answering `U256::MAX` — is a unit test rather
+/// than a hope.
+fn enumeration_plan(balance: U256) -> (usize, bool) {
+   let cap = U256::from(MAX_ENUMERATED_TOKENS);
+   (
+      balance.min(cap).to::<u64>() as usize,
+      balance > cap,
+   )
+}
 
 /// What `owner` holds in `candidates`, via the ERC-721 Enumerable path.
 ///
@@ -308,9 +331,10 @@ where
       let collection =
          NftCollection::with_support(client.clone(), chain_id, candidate, support).await?;
 
-      let wanted = balance.min(U256::from(MAX_ENUMERATED_TOKENS)).to::<u64>() as usize;
+      let (wanted, truncated) = enumeration_plan(balance);
       let mut token_ids = Vec::with_capacity(wanted);
 
+      // TODO: Impl batch calls for this one.
       for index in 0..wanted {
          // A revert mid-scan (the collection mutated under us, or an index past the end) ends this
          // collection's enumeration rather than failing the whole call.
@@ -331,6 +355,7 @@ where
          holdings.push(CollectionHolding {
             collection,
             token_ids,
+            truncated,
          });
       }
    }
@@ -484,6 +509,30 @@ mod tests {
          standard,
          metadata_uri: metadata_uri.map(|s| s.to_string()),
       }
+   }
+
+   /// The enumeration cap holds, and says so.
+   ///
+   /// `balanceOf` is contract-controlled, so the ceiling is not only about big collections: a hostile
+   /// contract answering `U256::MAX` must not size an allocation either. Past the cap the list stops
+   /// short, and `truncated` is what keeps that from reading as the whole answer.
+   #[test]
+   fn the_enumeration_cap_is_bounded_and_reported() {
+      assert_eq!(enumeration_plan(U256::from(3)), (3, false));
+      assert_eq!(
+         enumeration_plan(U256::from(MAX_ENUMERATED_TOKENS)),
+         (MAX_ENUMERATED_TOKENS as usize, false),
+         "exactly at the cap is not truncated"
+      );
+      assert_eq!(
+         enumeration_plan(U256::from(MAX_ENUMERATED_TOKENS + 1)),
+         (MAX_ENUMERATED_TOKENS as usize, true)
+      );
+      assert_eq!(
+         enumeration_plan(U256::MAX),
+         (MAX_ENUMERATED_TOKENS as usize, true),
+         "a hostile balance must not size an allocation"
+      );
    }
 
    /// Ownership is "the chain says this wallet", and a reverted `ownerOf` is a real no rather than an

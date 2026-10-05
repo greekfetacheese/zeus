@@ -24,7 +24,7 @@ use zeus_eth::{
    abi::erc165,
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
-   nft::{NftCollection, NftStandard, NftToken, collections_of},
+   nft::{MAX_ENUMERATED_TOKENS, NftCollection, NftStandard, NftToken, collections_of},
    types::ChainId,
    utils::{
       NumericValue,
@@ -1563,7 +1563,12 @@ fn collection_label(
 /// What a pasted collection address turned into.
 enum CollectionAdd {
    /// Its owned ids are now tracked.
-   Tracked { name: String, count: usize },
+   Tracked {
+      name: String,
+      count: usize,
+      /// The collection holds more than [`MAX_ENUMERATED_TOKENS`], so the list stops at the cap.
+      truncated: bool,
+   },
    /// Enumerable, but this wallet holds none of its tokens.
    NoTokens { name: String },
    /// No on-chain way to learn which ids the wallet holds: an ERC-1155, or an ERC-721 without the
@@ -1576,9 +1581,19 @@ impl CollectionAdd {
    /// The notice the user is shown.
    fn message(&self) -> String {
       match self {
-         Self::Tracked { name, count } => {
+         Self::Tracked {
+            name,
+            count,
+            truncated,
+         } => {
             let plural = if *count == 1 { "" } else { "s" };
-            format!("Added {count} token{plural} from {name}")
+            match truncated {
+               false => format!("Added {count} token{plural} from {name}"),
+               // The cap is deliberate; saying so is what keeps the list from reading as complete.
+               true => format!(
+                  "Added {count} token{plural} from {name} — first {MAX_ENUMERATED_TOKENS} shown, it holds more"
+               ),
+            }
          }
          Self::NoTokens { name } => format!("This wallet holds no tokens of {name}"),
          Self::NotEnumerable { name, standard } => {
@@ -1639,15 +1654,17 @@ async fn add_nft_collection(
       return Ok(CollectionAdd::NotEnumerable { name, standard });
    }
 
-   let token_ids = match collections_of(client.clone(), chain_id, owner, &[address])
+   let Some(holding) = collections_of(client.clone(), chain_id, owner, &[address])
       .await?
       .into_iter()
       .next()
-   {
-      Some(holding) => holding.token_ids,
+   else {
       // Enumerable, and the wallet holds none: a real answer, not a failure.
-      None => return Ok(CollectionAdd::NoTokens { name }),
+      return Ok(CollectionAdd::NoTokens { name });
    };
+
+   let truncated = holding.truncated;
+   let token_ids = holding.token_ids;
 
    // Two aggregates for every id's `tokenURI`, instead of one call per token.
    let refs: Vec<NftRef> = token_ids.iter().map(|id| (address, *id)).collect();
@@ -1696,7 +1713,11 @@ async fn add_nft_collection(
       );
    }
 
-   Ok(CollectionAdd::Tracked { name, count })
+   Ok(CollectionAdd::Tracked {
+      name,
+      count,
+      truncated,
+   })
 }
 
 /// Add an NFT to the wallet's portfolio, or take it back out.
@@ -2046,6 +2067,7 @@ mod tests {
       let one = CollectionAdd::Tracked {
          name: "BAYC".to_string(),
          count: 1,
+         truncated: false,
       };
       assert_eq!(one.message(), "Added 1 token from BAYC");
       assert!(
@@ -2056,8 +2078,22 @@ mod tests {
       let many = CollectionAdd::Tracked {
          name: "BAYC".to_string(),
          count: 4,
+         truncated: false,
       };
       assert_eq!(many.message(), "Added 4 tokens from BAYC");
+
+      // The enumeration cap is deliberate, and a capped list that does not say so reads as complete.
+      let capped = CollectionAdd::Tracked {
+         name: "BAYC".to_string(),
+         count: MAX_ENUMERATED_TOKENS as usize,
+         truncated: true,
+      };
+      assert_eq!(
+         capped.message(),
+         format!(
+            "Added {MAX_ENUMERATED_TOKENS} tokens from BAYC — first {MAX_ENUMERATED_TOKENS} shown, it holds more"
+         )
+      );
 
       let none = CollectionAdd::NoTokens {
          name: "BAYC".to_string(),
