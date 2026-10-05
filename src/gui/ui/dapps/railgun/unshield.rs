@@ -56,7 +56,7 @@ use super::{
 
 /// Default public Pimlico bundler RPC for a chain.
 pub fn default_bundler_url(chain_id: u64) -> String {
-   format!("https://public.pimlico.io/v2/{}/rpc", chain_id)
+   crate::core::urls::pimlico_bundler(chain_id)
 }
 
 /// EIP-7702 designated delegated code: `0xef0100 || implementation`.

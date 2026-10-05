@@ -1,10 +1,10 @@
+use crate::core::urls::ZeusUrl;
 use serde_json::Value;
 use std::str::FromStr;
 use std::sync::OnceLock;
 use std::time::Duration;
 use zeus_eth::alloy_primitives::Address;
 
-const SOURCIFY_BASE: &str = "https://sourcify.dev/server";
 const FETCH_TIMEOUT: Duration = Duration::from_secs(3);
 
 fn http_client() -> &'static reqwest::Client {
@@ -20,7 +20,10 @@ fn http_client() -> &'static reqwest::Client {
 
 /// If `address` is a proxy verified on Sourcify, return the implementation address.
 pub async fn implementation_address(chain: u64, address: Address) -> Option<Address> {
-   let url = format!("{SOURCIFY_BASE}/v2/contract/{chain}/{address:#x}?fields=proxyResolution");
+   let url = format!(
+      "{}/v2/contract/{chain}/{address:#x}?fields=proxyResolution",
+      ZeusUrl::Sourcify.base()
+   );
    let resp = http_client().get(&url).send().await.ok()?;
    if !resp.status().is_success() {
       return None;
@@ -31,7 +34,10 @@ pub async fn implementation_address(chain: u64, address: Address) -> Option<Addr
 
 /// Verified contract name from Sourcify, if any.
 pub async fn contract_name(chain: u64, address: Address) -> Option<String> {
-   let url = format!("{SOURCIFY_BASE}/v2/contract/{chain}/{address:#x}?fields=name,compilation");
+   let url = format!(
+      "{}/v2/contract/{chain}/{address:#x}?fields=name,compilation",
+      ZeusUrl::Sourcify.base()
+   );
    let resp = http_client().get(&url).send().await.ok()?;
    if !resp.status().is_success() {
       return None;

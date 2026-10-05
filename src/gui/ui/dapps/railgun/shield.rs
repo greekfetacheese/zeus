@@ -10,6 +10,7 @@ use std::{
    time::{Duration, Instant},
 };
 
+use crate::core::urls::ZeusUrl;
 use crate::core::{
    DecodedEvent, SendTxOptions, SendTxRequest, ShieldParams, TransactionAnalysis, WalletStateKey,
    ZeusContext, ZeusCtx, bundler_url_dir, ensure_allowance, ensure_approval_for_all,
@@ -825,7 +826,10 @@ impl ShieldUi {
                         SecureTextEdit::singleline(&mut self.bundler_url)
                            .visuals(text_edit_visuals)
                            .hint_text(
-                              RichText::new("https://public.pimlico.io/v2/{chainId}/rpc")
+                              RichText::new(format!(
+                                 "{}/{{chainId}}/rpc",
+                                 ZeusUrl::PimlicoBundler.base()
+                              ))
                                  .size(theme.typography.small)
                                  .color(theme.colors.text_muted),
                            )

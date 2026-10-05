@@ -15,6 +15,7 @@
 //! user's machine send a GET there", and that is the whole of the attack.
 
 use crate::assets::icons::{NftIconData, save_nft_icon};
+use crate::core::urls::ZeusUrl;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use anyhow::anyhow;
@@ -47,20 +48,8 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
 /// list instead of retrying the first few forever.
 const NFT_ART_FETCH_PER_LOAD: usize = 24;
 
-/// IPFS gateways, tried in order.
-///
-/// The order is load-bearing. `ipfs.io` and `dweb.link` answer 429 ("service worker gateway only")
-/// to non-browser clients, and `cloudflare-ipfs.com` no longer resolves, so the two that answered
-/// reliably are tried first and the throttled pair is a last resort. Never trust one gateway: they
-/// pin different content, so a miss on one is not a miss overall.
-const IPFS_GATEWAYS: &[&str] = &[
-   "https://gateway.pinata.cloud/ipfs",
-   "https://4everland.io/ipfs",
-   "https://ipfs.io/ipfs",
-   "https://dweb.link/ipfs",
-];
-
-const ARWEAVE_GATEWAY: &str = "https://arweave.net";
+// The IPFS gateways and the Arweave host live in the endpoint catalog
+// (`crate::core::urls`), which also carries the note on why gateway order matters.
 
 /// Whether an address is one a collection's URI has no business pointing the wallet at.
 ///
@@ -552,8 +541,8 @@ async fn read_body(
 async fn fetch_ipfs(path: &str) -> Result<Option<Vec<u8>>, anyhow::Error> {
    let mut last_error = None;
 
-   for gateway in IPFS_GATEWAYS {
-      match get_with_cap(&format!("{gateway}/{path}"), MAX_BYTES).await {
+   for gateway in ZeusUrl::IPFS_GATEWAYS {
+      match get_with_cap(&format!("{}/{path}", gateway.base()), MAX_BYTES).await {
          Ok(Some(bytes)) => return Ok(Some(bytes)),
          Ok(None) => continue,
          Err(e) => last_error = Some(e),
@@ -578,7 +567,13 @@ async fn fetch_resolved(uri: ResolvedUri) -> Result<Option<Vec<u8>>, anyhow::Err
       ResolvedUri::Data(bytes) => Ok(Some(bytes)),
       ResolvedUri::Http(url) => get_with_cap(&url, MAX_BYTES).await,
       ResolvedUri::Ipfs(path) => fetch_ipfs(&path).await,
-      ResolvedUri::Arweave(id) => get_with_cap(&format!("{ARWEAVE_GATEWAY}/{id}"), MAX_BYTES).await,
+      ResolvedUri::Arweave(id) => {
+         get_with_cap(
+            &format!("{}/{id}", ZeusUrl::Arweave.base()),
+            MAX_BYTES,
+         )
+         .await
+      }
    }
 }
 

@@ -2,6 +2,7 @@
 
 use crate::assets::icons::Icons;
 use crate::core::persisted::{PersistedFile, file_path};
+use crate::core::urls::ZeusUrl;
 use crate::core::{
    BridgeParams, DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, ZeusContext,
    ZeusCtx, send_transaction,
@@ -111,7 +112,7 @@ struct Settings {
 impl Default for Settings {
    fn default() -> Self {
       Self {
-         api_url: String::from("https://app.across.to/api/suggested-fees"),
+         api_url: ZeusUrl::AcrossSuggestedFees.base().to_string(),
          use_api: true,
          fee_to_pay: 0.1,
          api_notice_shown: false,
@@ -1459,7 +1460,7 @@ pub async fn get_suggested_fees(
    amount: U256,
 ) -> Result<ClientResponse, anyhow::Error> {
    let client = Client::new();
-   let url = "https://app.across.to/api/suggested-fees";
+   let url = ZeusUrl::AcrossSuggestedFees.base();
 
    let params = [
       ("inputToken", input_token.to_string()),

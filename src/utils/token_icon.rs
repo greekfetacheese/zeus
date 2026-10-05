@@ -1,4 +1,5 @@
 use crate::assets::icons::save_token_icon;
+use crate::core::urls::smoldapp_token_icon;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use anyhow::anyhow;
@@ -8,7 +9,6 @@ use std::sync::OnceLock;
 use std::time::Duration;
 use zeus_eth::alloy_primitives::Address;
 
-const SMOLDAPP_CDN: &str = "https://assets.smold.app/token";
 const MAX_ICON_BYTES: usize = 512 * 1024;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -21,10 +21,6 @@ fn http_client() -> &'static reqwest::Client {
          .build()
          .unwrap_or_else(|_| reqwest::Client::new())
    })
-}
-
-fn smoldapp_url(chain_id: u64, address: Address) -> String {
-   format!("{SMOLDAPP_CDN}/{chain_id}/{address:#x}/logo-32.png")
 }
 
 fn resize_if_needed(data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, anyhow::Error> {
@@ -51,7 +47,7 @@ async fn fetch_smoldapp_icon(
    chain_id: u64,
    address: Address,
 ) -> Result<Option<Vec<u8>>, anyhow::Error> {
-   let url = smoldapp_url(chain_id, address);
+   let url = smoldapp_token_icon(chain_id, address);
    let response = http_client().get(&url).send().await?;
 
    if response.status() == reqwest::StatusCode::NOT_FOUND {
