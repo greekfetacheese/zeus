@@ -1,6 +1,6 @@
 use std::{
    collections::{BTreeSet, HashMap, VecDeque},
-   io::Cursor,
+   io::{Cursor, Read},
    path::{Path, PathBuf},
    sync::{
       Arc, Mutex,
@@ -12,10 +12,13 @@ use ark_bn254::Fr;
 use ark_circom::index::NPIndex;
 use ark_groth16::ProvingKey;
 use ark_serialize::CanonicalDeserialize;
+use sha2::{Digest, Sha256};
 use tokio::fs;
 use tracing::{debug, info, warn};
 
-use crate::circuit::artifact_pins::{ArtifactPinError, is_artifact_pinned, verify_artifact_pin};
+use crate::circuit::artifact_pins::{
+   ArtifactPinError, is_artifact_pinned, verify_artifact_digest, verify_artifact_pin,
+};
 use crate::crypto::serializable_np_index::SerializableNpIndex;
 
 /// Minimum compressed size we accept for a remote artifact. 404 HTML pages
@@ -351,43 +354,35 @@ impl RemoteArtifactLoader {
    }
 
    /// True when all required compressed files for `circuit_name` exist on disk
-   /// and pass basic validation (size / not-HTML). Does not hit the network
-   /// and does **not** hash — the pinned variant is [`Self::disk_circuit_ready`].
+   /// and pass basic validation (size / not-HTML). Does not hit the network and
+   /// does **not** hash — the pinned variant is [`Self::disk_circuit_ready`].
+   ///
+   /// Reads only a 64-byte head plus the file length: proving keys are up to ~9 MB,
+   /// and buffering them (63 files per `available_circuits` probe) is what left
+   /// multi-MB buffers stuck in a worker's glibc arena.
    pub fn is_circuit_on_disk(&self, circuit_name: &str) -> bool {
       for file in TRANSACT_ARTIFACT_FILES {
          let Some(path) = self.artifact_path(circuit_name, file) else {
             return false;
          };
-         if !path.is_file() {
+         if !artifact_file_present(&path) {
             return false;
-         }
-         match std::fs::read(&path) {
-            Ok(data) if validate_compressed_artifact(&data).is_ok() => {}
-            _ => return false,
          }
       }
       true
    }
 
-   /// True when the on-disk set exists and every compressed file both passes basic
-   /// validation and matches its SHA-256 pin — reading each file exactly once.
+   /// True when the on-disk set exists, passes basic validation and matches every
+   /// SHA-256 pin — **streaming** each file, so an artifact is never buffered whole.
    ///
-   /// Fuses the old `is_circuit_on_disk` + `disk_circuit_pinned` pair that prefetch called
-   /// back to back: those read (and hashed) the entire artifact pack twice per pass, which
-   /// is what made every prefetch churn multi-MB heap buffers. `tokio::fs` keeps the read
-   /// off the runtime worker thread.
-   async fn disk_circuit_ready(&self, circuit_name: &str) -> bool {
+   /// Fuses the old `is_circuit_on_disk` + `disk_circuit_pinned` pair that prefetch
+   /// called back to back: two passes, each holding a multi-MB buffer.
+   fn disk_circuit_ready(&self, circuit_name: &str) -> bool {
       for file in TRANSACT_ARTIFACT_FILES {
          let Some(path) = self.artifact_path(circuit_name, file) else {
             return false;
          };
-         let Ok(data) = fs::read(&path).await else {
-            return false;
-         };
-         if validate_compressed_artifact(&data).is_err() {
-            return false;
-         }
-         if verify_artifact_pin(circuit_name, file, &data).is_err() {
+         if !verify_disk_artifact(circuit_name, file, &path) {
             return false;
          }
       }
@@ -468,7 +463,7 @@ impl RemoteArtifactLoader {
             continue;
          }
 
-         if self.disk_circuit_ready(&name).await {
+         if self.disk_circuit_ready(&name) {
             debug!("Circuit already cached on disk: {}", name);
             report.already_cached.push(name);
             continue;
@@ -701,24 +696,103 @@ fn migrate_legacy_circuit_cache(cache_dir: &Path) {
    }
 }
 
+/// Leading bytes sampled for the HTML/format sniff.
+const ARTIFACT_HEAD_BYTES: usize = 64;
+
+/// Chunk size for the streaming SHA-256 pin check.
+const HASH_CHUNK_BYTES: usize = 64 * 1024;
+
 fn validate_compressed_artifact(data: &[u8]) -> Result<(), String> {
-   if data.len() < MIN_ARTIFACT_BYTES {
+   validate_compressed_artifact_prefix(data.len() as u64, data)
+}
+
+/// Validate from the length and a leading sample only.
+///
+/// The sniff never needs more than the first [`ARTIFACT_HEAD_BYTES`], so a caller
+/// holding only a file on disk can check it without reading it whole.
+fn validate_compressed_artifact_prefix(len: u64, head: &[u8]) -> Result<(), String> {
+   if len < MIN_ARTIFACT_BYTES as u64 {
       return Err(format!(
-         "response too small ({} bytes); circuit artifact is likely missing",
-         data.len()
+         "artifact too small ({len} bytes); it is likely missing"
       ));
    }
    // Brotli streams don't have a universal magic header, but HTML almost always
    // starts with '<'. Catch the common 404 body case early.
-   let head = &data[..data.len().min(64)];
+   let head = &head[..head.len().min(ARTIFACT_HEAD_BYTES)];
    if head.iter().any(|&b| b == b'<')
       && (starts_with_ignore_ws(head, b"<!DOCTYPE")
          || starts_with_ignore_ws(head, b"<html")
          || starts_with_ignore_ws(head, b"<HTML"))
    {
-      return Err("response looks like HTML, not a brotli artifact".into());
+      return Err("artifact looks like HTML, not a brotli stream".into());
    }
    Ok(())
+}
+
+/// Read at most [`ARTIFACT_HEAD_BYTES`] from the current position of `file`.
+fn read_artifact_head(
+   file: &mut std::fs::File,
+) -> std::io::Result<([u8; ARTIFACT_HEAD_BYTES], usize)> {
+   let mut head = [0u8; ARTIFACT_HEAD_BYTES];
+   let mut filled = 0;
+   while filled < ARTIFACT_HEAD_BYTES {
+      match file.read(&mut head[filled..])? {
+         0 => break,
+         n => filled += n,
+      }
+   }
+   Ok((head, filled))
+}
+
+/// "Present and plausibly a real artifact" for one file: length plus a 64-byte head,
+/// never a full read.
+fn artifact_file_present(path: &Path) -> bool {
+   let Ok(mut file) = std::fs::File::open(path) else {
+      return false;
+   };
+   let Ok(meta) = file.metadata() else {
+      return false;
+   };
+   if !meta.is_file() {
+      return false;
+   }
+   let Ok((head, filled)) = read_artifact_head(&mut file) else {
+      return false;
+   };
+   validate_compressed_artifact_prefix(meta.len(), &head[..filled]).is_ok()
+}
+
+/// Validate one on-disk artifact and check its SHA-256 pin, streaming the file in
+/// fixed-size chunks so a multi-MB proving key is never held in memory.
+fn verify_disk_artifact(circuit_name: &str, filename: &str, path: &Path) -> bool {
+   let Ok(mut file) = std::fs::File::open(path) else {
+      return false;
+   };
+   let Ok(meta) = file.metadata() else {
+      return false;
+   };
+   if !meta.is_file() {
+      return false;
+   }
+
+   let Ok((head, filled)) = read_artifact_head(&mut file) else {
+      return false;
+   };
+   if validate_compressed_artifact_prefix(meta.len(), &head[..filled]).is_err() {
+      return false;
+   }
+
+   let mut hasher = Sha256::new();
+   hasher.update(&head[..filled]);
+   let mut buf = [0u8; HASH_CHUNK_BYTES];
+   loop {
+      match file.read(&mut buf) {
+         Ok(0) => break,
+         Ok(n) => hasher.update(&buf[..n]),
+         Err(_) => return false,
+      }
+   }
+   verify_artifact_digest(circuit_name, filename, hasher.finalize().into()).is_ok()
 }
 
 fn starts_with_ignore_ws(data: &[u8], prefix: &[u8]) -> bool {
@@ -853,8 +927,8 @@ mod tests {
       }
    }
 
-   #[tokio::test]
-   async fn poisoned_disk_cache_is_not_pinned() {
+   #[test]
+   fn poisoned_disk_cache_is_not_pinned() {
       let root = unique_temp_dir();
       write_fake_circuit(&root, "01x04");
       let loader = RemoteArtifactLoader::new(
@@ -862,7 +936,7 @@ mod tests {
          Some(root.clone()),
       );
       assert!(loader.is_circuit_on_disk("railgun/01x04"));
-      assert!(!loader.disk_circuit_ready("railgun/01x04").await);
+      assert!(!loader.disk_circuit_ready("railgun/01x04"));
       let _ = std::fs::remove_dir_all(&root);
    }
 
