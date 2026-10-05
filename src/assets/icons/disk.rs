@@ -319,22 +319,25 @@ fn dir_size_and_age(dir: &std::path::Path) -> (u64, std::time::SystemTime) {
 /// A token directory is kept only if it holds a non-empty rendering, so a half-written directory
 /// does not surface as an icon with a blank picture.
 ///
-/// At most `limit` of them are read back, newest by write time. The in-memory copy is a bounded hot
-/// cache — reading a whole archive into memory at startup is the very thing the bound exists to stop —
-/// and anything past the limit stays on disk, to be read on demand when a view asks for it.
-pub fn load_downloaded_nft_icons(limit: usize) -> HashMap<NftKey, NftIconData> {
+/// At most `limit` of them are read back, newest by write time, and returned **oldest first** — that
+/// is the order `NftIcons` evicts in, so the list has to stay a list. Collected into a map (as this
+/// used to be) the write order is replaced by hash order, and eviction stops being
+/// least-recently-used. The in-memory copy is a bounded hot cache — reading a whole archive into
+/// memory at startup is the very thing the bound exists to stop — and anything past the limit stays on
+/// disk, to be read on demand when a view asks for it.
+pub fn load_downloaded_nft_icons(limit: usize) -> Vec<(NftKey, NftIconData)> {
    let mut found: Vec<(std::time::SystemTime, NftKey, NftIconData)> = Vec::new();
 
    let root = match nft_icons_dir() {
       Ok(dir) => dir,
       Err(e) => {
          tracing::warn!("Failed to resolve NFT icon dir: {e}");
-         return HashMap::new();
+         return Vec::new();
       }
    };
 
    let Ok(chain_entries) = std::fs::read_dir(&root) else {
-      return HashMap::new();
+      return Vec::new();
    };
 
    for chain_entry in chain_entries.flatten() {
@@ -456,6 +459,71 @@ mod tests {
       let _ = std::fs::remove_dir_all(&root);
    }
 
+   /// The loader's list as a map, for the assertions that only want one key's art back.
+   fn loaded_icons(limit: usize) -> HashMap<NftKey, NftIconData> {
+      load_downloaded_nft_icons(limit).into_iter().collect()
+   }
+
+   /// The loader hands the icons back **oldest first**, because that is the order the cache evicts in.
+   ///
+   /// A map cannot express it: with twenty distinct write times, iteration order is hash order, so
+   /// eviction would pick an arbitrary entry rather than the least recently written one. Each directory
+   /// is stamped explicitly, so the expected order is exact rather than a race with mtime granularity.
+   ///
+   /// Ignored by default for the same reason as the round trip below — the tree is resolved from the
+   /// working directory, so **run it on its own**.
+   #[test]
+   #[ignore = "moves the process working directory; run alone"]
+   fn the_icons_come_back_oldest_first() {
+      let previous = std::env::current_dir().unwrap();
+      let scratch = std::env::temp_dir().join(format!("zeus_nft_order_{}", std::process::id()));
+      let _ = std::fs::remove_dir_all(&scratch);
+      std::fs::create_dir_all(&scratch).unwrap();
+      std::env::set_current_dir(&scratch).unwrap();
+
+      let outcome = std::panic::catch_unwind(|| {
+         let collection = Address::from([0xbc; 20]);
+         let base = std::time::SystemTime::now() - std::time::Duration::from_secs(3_600);
+
+         let mut expected: Vec<NftKey> = Vec::new();
+         for i in 0..20u64 {
+            let token = U256::from(i);
+            save_nft_icon(
+               1,
+               collection,
+               token,
+               &raster(vec![i as u8], vec![i as u8]),
+            )
+            .unwrap();
+
+            let dir = nft_icon_dir(1, collection, token).unwrap();
+            std::fs::File::open(&dir)
+               .unwrap()
+               .set_modified(base + std::time::Duration::from_secs(i))
+               .unwrap();
+
+            expected.push((collection, 1, token));
+         }
+
+         let loaded: Vec<NftKey> =
+            load_downloaded_nft_icons(usize::MAX).into_iter().map(|(key, _)| key).collect();
+
+         assert_eq!(
+            loaded, expected,
+            "the list must be the eviction order: oldest written first"
+         );
+
+         // The cap keeps the *newest* entries, still oldest-first.
+         let capped: Vec<NftKey> =
+            load_downloaded_nft_icons(5).into_iter().map(|(key, _)| key).collect();
+         assert_eq!(capped, expected[15..].to_vec());
+      });
+
+      std::env::set_current_dir(previous).unwrap();
+      let _ = std::fs::remove_dir_all(&scratch);
+      outcome.unwrap();
+   }
+
    /// Round-trips the renderings through the real filesystem, including the cleanup of a vector file
    /// left by an earlier version and the fact that such a file is no longer art.
    ///
@@ -480,10 +548,7 @@ mod tests {
          let token = U256::from(7);
          let key = (collection, 1, token);
 
-         assert!(
-            load_downloaded_nft_icons(64).is_empty(),
-            "nothing saved yet"
-         );
+         assert!(loaded_icons(64).is_empty(), "nothing saved yet");
 
          save_nft_icon(1, collection, token, &raster(vec![1, 2], vec![3])).unwrap();
          let dir = nft_icon_dir(1, collection, token).unwrap();
@@ -497,7 +562,7 @@ mod tests {
             "detail copy written"
          );
          assert_eq!(
-            load_downloaded_nft_icons(64).get(&key),
+            loaded_icons(64).get(&key),
             Some(&raster(vec![1, 2], vec![3])),
             "both renderings come back"
          );
@@ -506,7 +571,7 @@ mod tests {
          // next save clears it so a directory cannot hold a stale source beside its renderings.
          std::fs::write(dir.join(NFT_IMAGE_SVG), b"<svg/>").unwrap();
          assert_eq!(
-            load_downloaded_nft_icons(64).get(&key),
+            loaded_icons(64).get(&key),
             Some(&raster(vec![1, 2], vec![3])),
             "a legacy vector file is ignored"
          );
@@ -517,7 +582,7 @@ mod tests {
             "stale vector file removed"
          );
          assert_eq!(
-            load_downloaded_nft_icons(64).get(&key),
+            loaded_icons(64).get(&key),
             Some(&raster(vec![9], vec![8]))
          );
 
@@ -528,7 +593,7 @@ mod tests {
          std::fs::create_dir_all(&legacy_dir).unwrap();
          std::fs::write(legacy_dir.join(NFT_IMAGE_SVG), b"<svg/>").unwrap();
          assert!(
-            load_downloaded_nft_icons(64).get(&(collection, 1, legacy_only)).is_none(),
+            loaded_icons(64).get(&(collection, 1, legacy_only)).is_none(),
             "a vector-only directory is not art"
          );
 
@@ -545,13 +610,13 @@ mod tests {
             "the source URI is written beside the renderings"
          );
          assert_eq!(
-            load_downloaded_nft_icons(64).get(&key),
+            loaded_icons(64).get(&key),
             Some(&with_uri),
             "and read back with them"
          );
 
          delete_nft_icon(1, collection, token).unwrap();
-         assert!(load_downloaded_nft_icons(64).get(&key).is_none());
+         assert!(loaded_icons(64).get(&key).is_none());
       });
 
       std::env::set_current_dir(previous).unwrap();
