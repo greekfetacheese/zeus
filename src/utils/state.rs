@@ -169,9 +169,11 @@ pub async fn on_startup(ctx: ZeusCtx) {
 
    let ctx2 = ctx.clone();
    RT.spawn(async move {
-      // Prefetch ERC-7730 registry index so the first unknown typed-data
-      // sign does not wait on GitHub.
-      crate::core::clear_signing::registry::prefetch_index().await;
+      // Prefetch the ERC-7730 registry index so the first unknown typed-data sign does not wait on it.
+      // The registry is embedded, so this reads the snapshot unless the user has opted into
+      // contract-name fetches — which is also the only case in which a host is contacted at all.
+      let fetch_names = ctx2.read(|ctx| ctx.misc_config.fetch_contract_names());
+      crate::core::clear_signing::registry::prefetch_index(fetch_names).await;
       prefetch_railgun_circuits_if_allowed(&ctx2).await;
    });
 

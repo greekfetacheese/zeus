@@ -109,6 +109,24 @@ async fn fetch_registry_bytes(registry_path: &str) -> Result<Vec<u8>, anyhow::Er
    Ok(bytes.to_vec())
 }
 
+/// Refuse the remote registry fetch when the user has not opted into contract-name fetches
+/// (`MiscConfig::fetch_contract_names`).
+///
+/// Only the *network* fallback is gated. The registry ships embedded ([`read_embedded_json`]) and its
+/// pinned cache is read first, so this fires solely for a path that both lack — which is exactly the
+/// case that would otherwise contact `ClearSigningRegistry` with nothing having asked for it. Keeping
+/// the gate here, rather than at the call sites, is what lets the offline descriptors go on serving
+/// clear-signing and contract labels to a user who never opted in.
+fn ensure_network_allowed(allow_network: bool, registry_path: &str) -> Result<(), anyhow::Error> {
+   if allow_network {
+      return Ok(());
+   }
+
+   Err(anyhow::anyhow!(
+      "{registry_path} is not in the embedded registry, and remote registry fetches are off"
+   ))
+}
+
 fn cache_registry_file(path: &Path, bytes: &[u8], label: &str) {
    if let Err(e) = write_private(path, bytes) {
       tracing::warn!("Failed to cache ERC-7730 {label}: {e}");
@@ -123,7 +141,7 @@ fn read_embedded_json(registry_path: &str) -> Result<Option<Value>, anyhow::Erro
    Ok(Some(serde_json::from_slice(bytes)?))
 }
 
-async fn get_json(registry_path: &str) -> Result<Value, anyhow::Error> {
+async fn get_json(registry_path: &str, allow_network: bool) -> Result<Value, anyhow::Error> {
    ensure_pinned_path(registry_path)?;
 
    if let Some(v) = read_embedded_json(registry_path)? {
@@ -136,6 +154,8 @@ async fn get_json(registry_path: &str) -> Result<Value, anyhow::Error> {
       }
    }
 
+   ensure_network_allowed(allow_network, registry_path)?;
+
    let bytes = fetch_registry_bytes(registry_path).await?;
    verify_registry_pin(registry_path, &bytes)?;
    let value: Value = serde_json::from_slice(&bytes)?;
@@ -147,28 +167,38 @@ async fn get_json(registry_path: &str) -> Result<Value, anyhow::Error> {
    Ok(value)
 }
 
-// ? This always early returns, without doing any http calls.
-// ? Because now indexes are embedded
-pub async fn prefetch_index() {
-   match fetch_named_index(EIP712_INDEX_PATH, true).await {
+/// Warm the ERC-7730 indexes so the first unknown typed-data sign does not wait on them.
+///
+/// `allow_network` is the user's contract-name opt-in. Without it this only reads the embedded
+/// snapshot, which is what the indexes normally are — the remote copy exists so a registry that
+/// outgrows the snapshot can still be reached, and reaching it is what the opt-in is for.
+pub async fn prefetch_index(allow_network: bool) {
+   match fetch_named_index(EIP712_INDEX_PATH, true, allow_network).await {
       Ok(_) => tracing::info!("ERC-7730 EIP-712 index ready"),
       Err(e) => tracing::warn!("ERC-7730 EIP-712 index prefetch failed: {e}"),
    }
-   match fetch_named_index(CALLDATA_INDEX_PATH, true).await {
+   match fetch_named_index(CALLDATA_INDEX_PATH, true, allow_network).await {
       Ok(_) => tracing::info!("ERC-7730 calldata index ready"),
       Err(e) => tracing::warn!("ERC-7730 calldata index prefetch failed: {e}"),
    }
 }
 
-async fn fetch_index(force_network: bool) -> Result<Value, anyhow::Error> {
-   fetch_named_index(EIP712_INDEX_PATH, force_network).await
+async fn fetch_index(force_network: bool, allow_network: bool) -> Result<Value, anyhow::Error> {
+   fetch_named_index(EIP712_INDEX_PATH, force_network, allow_network).await
 }
 
-async fn fetch_calldata_index(force_network: bool) -> Result<Value, anyhow::Error> {
-   fetch_named_index(CALLDATA_INDEX_PATH, force_network).await
+async fn fetch_calldata_index(
+   force_network: bool,
+   allow_network: bool,
+) -> Result<Value, anyhow::Error> {
+   fetch_named_index(CALLDATA_INDEX_PATH, force_network, allow_network).await
 }
 
-async fn fetch_named_index(name: &str, force_network: bool) -> Result<Value, anyhow::Error> {
+async fn fetch_named_index(
+   name: &str,
+   force_network: bool,
+   allow_network: bool,
+) -> Result<Value, anyhow::Error> {
    ensure_pinned_path(name)?;
 
    if let Some(v) = read_embedded_json(name)? {
@@ -177,12 +207,16 @@ async fn fetch_named_index(name: &str, force_network: bool) -> Result<Value, any
 
    if let Ok(path) = cached_index_path(name) {
       let fresh = cached_index_is_fresh(&path);
-      if fresh || !force_network {
+      // A stale entry is only good enough when the network is not about to be asked anyway — either
+      // because the caller does not force it, or because it is off entirely.
+      if fresh || !force_network || !allow_network {
          if let Some(v) = read_pinned_json(&path, name) {
             return Ok(v);
          }
       }
    }
+
+   ensure_network_allowed(allow_network, name)?;
 
    let bytes = match fetch_registry_bytes(name).await {
       Ok(bytes) => bytes,
@@ -270,41 +304,56 @@ pub fn lookup_calldata_index_path(index: &Value, chain: u64, to: Address) -> Opt
    None
 }
 
-pub async fn resolve_calldata_descriptor(chain: u64, to: Address) -> Option<(String, Descriptor)> {
-   let index = fetch_calldata_index(false).await.ok()?;
+/// `allow_network` is the user's contract-name opt-in; see [`ensure_network_allowed`].
+pub async fn resolve_calldata_descriptor(
+   chain: u64,
+   to: Address,
+   allow_network: bool,
+) -> Option<(String, Descriptor)> {
+   let index = fetch_calldata_index(false, allow_network).await.ok()?;
    let path = lookup_calldata_index_path(&index, chain, to)?;
-   let merged = load_merged(&path).await.ok()?;
+   let merged = load_merged(&path, allow_network).await.ok()?;
    let descriptor = descriptor::parse_descriptor(&merged).ok()?;
    Some((path, descriptor))
 }
 
 /// Best-effort human name from ERC-7730 metadata (calldata index, then EIP-712 index).
-pub async fn resolve_contract_label(chain: u64, address: Address) -> Option<String> {
+///
+/// `allow_network` is the user's contract-name opt-in; see [`ensure_network_allowed`].
+pub async fn resolve_contract_label(
+   chain: u64,
+   address: Address,
+   allow_network: bool,
+) -> Option<String> {
    // Hyperliquid (and similar) register EIP-712 verifyingContract as 0x0.
    // That must not become a display name for the zero address in tx events.
    if address.is_zero() {
       return None;
    }
-   if let Some(path) = lookup_calldata_path(chain, address).await {
-      if let Some(name) = label_from_descriptor_path(&path).await {
+   if let Some(path) = lookup_calldata_path(chain, address, allow_network).await {
+      if let Some(name) = label_from_descriptor_path(&path, allow_network).await {
          return Some(name);
       }
    }
-   if let Some(path) = lookup_any_eip712_path(chain, address).await {
-      if let Some(name) = label_from_descriptor_path(&path).await {
+   if let Some(path) = lookup_any_eip712_path(chain, address, allow_network).await {
+      if let Some(name) = label_from_descriptor_path(&path, allow_network).await {
          return Some(name);
       }
    }
    None
 }
 
-async fn lookup_calldata_path(chain: u64, address: Address) -> Option<String> {
-   let index = fetch_calldata_index(false).await.ok()?;
+async fn lookup_calldata_path(chain: u64, address: Address, allow_network: bool) -> Option<String> {
+   let index = fetch_calldata_index(false, allow_network).await.ok()?;
    lookup_calldata_index_path(&index, chain, address)
 }
 
-async fn lookup_any_eip712_path(chain: u64, address: Address) -> Option<String> {
-   let index = fetch_index(false).await.ok()?;
+async fn lookup_any_eip712_path(
+   chain: u64,
+   address: Address,
+   allow_network: bool,
+) -> Option<String> {
+   let index = fetch_index(false, allow_network).await.ok()?;
    lookup_any_eip712_index_path(&index, chain, address)
 }
 
@@ -330,8 +379,8 @@ fn lookup_any_eip712_index_path(index: &Value, chain: u64, address: Address) -> 
    None
 }
 
-async fn label_from_descriptor_path(path: &str) -> Option<String> {
-   let merged = load_merged(path).await.ok()?;
+async fn label_from_descriptor_path(path: &str, allow_network: bool) -> Option<String> {
+   let merged = load_merged(path, allow_network).await.ok()?;
    let meta = merged.get("metadata")?;
    let contract_name = meta.get("contractName").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
    let owner = meta.get("owner").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
@@ -342,30 +391,41 @@ async fn label_from_descriptor_path(path: &str) -> Option<String> {
    }
 }
 
+/// `allow_network` is the user's contract-name opt-in; see [`ensure_network_allowed`].
 pub async fn resolve_eip712_descriptor(
    chain: u64,
    verifying: Address,
    type_hash: B256,
+   allow_network: bool,
 ) -> Option<(String, Descriptor)> {
-   let index = fetch_index(false).await.ok()?;
+   let index = fetch_index(false, allow_network).await.ok()?;
    let path = lookup_index_path(&index, chain, verifying, type_hash)?;
-   let merged = load_merged(&path).await.ok()?;
+   let merged = load_merged(&path, allow_network).await.ok()?;
    let descriptor = descriptor::parse_descriptor(&merged).ok()?;
    Some((path, descriptor))
 }
 
-async fn load_merged(registry_path: &str) -> Result<Value, anyhow::Error> {
-   load_merged_depth(registry_path, 0).await
+async fn load_merged(registry_path: &str, allow_network: bool) -> Result<Value, anyhow::Error> {
+   load_merged_depth(registry_path, 0, allow_network).await
 }
 
-async fn load_merged_depth(registry_path: &str, depth: usize) -> Result<Value, anyhow::Error> {
+async fn load_merged_depth(
+   registry_path: &str,
+   depth: usize,
+   allow_network: bool,
+) -> Result<Value, anyhow::Error> {
    if depth > MAX_INCLUDE_DEPTH {
       return Err(anyhow::anyhow!("include depth exceeded"));
    }
-   let doc = get_json(registry_path).await?;
+   let doc = get_json(registry_path, allow_network).await?;
    if let Some(inc) = doc.get("includes").and_then(|v| v.as_str()) {
       let inc_path = resolve_include(registry_path, inc);
-      let included = Box::pin(load_merged_depth(&inc_path, depth + 1)).await?;
+      let included = Box::pin(load_merged_depth(
+         &inc_path,
+         depth + 1,
+         allow_network,
+      ))
+      .await?;
       return Ok(descriptor::merge_descriptor_json(included, doc));
    }
    Ok(doc)
@@ -413,4 +473,28 @@ pub fn resolve_include_for_tests(parent: &str, inc: &str) -> String {
 #[cfg(test)]
 pub fn calldata_index_lookup_for_tests(index: &Value, chain: u64, to: Address) -> Option<String> {
    lookup_calldata_index_path(index, chain, to)
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// The contract-name opt-in gates the **remote** fetch and nothing else.
+   ///
+   /// The embedded snapshot (and the pinned cache) are served either way — that is what keeps
+   /// clear-signing and off-chain contract labels working for a user who never opted in — while a path
+   /// they do not carry is refused rather than fetched, which is the contact the gate exists to stop.
+   #[tokio::test]
+   async fn the_opt_in_gates_only_the_remote_registry_fetch() {
+      assert!(
+         get_json(EIP712_INDEX_PATH, false).await.is_ok(),
+         "the embedded index must be served without the opt-in"
+      );
+
+      assert!(ensure_network_allowed(true, "eip712/index.json").is_ok());
+      assert!(
+         ensure_network_allowed(false, "eip712/index.json").is_err(),
+         "an unopted-in wallet must not reach the registry host"
+      );
+   }
 }
