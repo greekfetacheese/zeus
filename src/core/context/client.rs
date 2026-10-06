@@ -90,17 +90,16 @@ const JSON_RPC_BATCH: usize = 20;
 const DEFAULT_BLOCK_RANGE: u64 = 5_000;
 
 async fn connect_rpc(url: &str, timeout: u64) -> Result<RpcClient, anyhow::Error> {
-   get_client(
-      url,
-      retry_layer(
+   RpcClientBuilder::new(url)
+      .retry(retry_layer(
          MAX_RETRIES,
          INITIAL_BACKOFF,
          COMPUTE_UNITS_PER_SECOND,
-      ),
-      throttle_layer(CLIENT_RPS),
-      timeout,
-   )
-   .await
+      ))
+      .throttle(throttle_layer(CLIENT_RPS))
+      .timeout_secs(timeout)
+      .connect()
+      .await
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
