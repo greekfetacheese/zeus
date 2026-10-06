@@ -44,8 +44,18 @@ const CLIENT_TIMEOUT: u64 = 5;
 /// 8 hours in seconds
 const EIGHT_HOURS: u64 = 28_800;
 
-/// Request per second
-const CLIENT_RPS: u32 = 10;
+/// Default per-endpoint request rate (requests per second).
+pub const DEFAULT_RPC_RPS: u32 = 10;
+
+/// Default per-endpoint compute-unit budget (per second).
+pub const DEFAULT_RPC_CU_PER_SECOND: u64 = 330;
+
+/// A user-set rate must stay inside this range: 0 would stall the throttle layer and divide by
+/// zero in `get_best_rpc`.
+pub const MIN_RPC_RPS: u32 = 1;
+pub const MAX_RPC_RPS: u32 = 1_000;
+pub const MIN_RPC_CU_PER_SECOND: u64 = 1;
+pub const MAX_RPC_CU_PER_SECOND: u64 = 1_000_000;
 
 /// Websocket reconnect budget for cached clients: retry forever so a dropped
 /// connection recovers on its own once the network is back.
@@ -56,9 +66,6 @@ const MAX_RETRIES: u32 = 10;
 
 /// Initial backoff
 const INITIAL_BACKOFF: u64 = 400;
-
-/// Compute units per second
-const COMPUTE_UNITS_PER_SECOND: u64 = 330;
 
 /// Batch size for fetching ETH balance
 const ETH_BALANCE_BATCH: usize = 20;
@@ -93,14 +100,14 @@ const JSON_RPC_BATCH: usize = 20;
 /// For testing only
 const DEFAULT_BLOCK_RANGE: u64 = 5_000;
 
-async fn connect_rpc(url: &str, timeout: u64) -> Result<RpcClient, anyhow::Error> {
-   RpcClientBuilder::new(url)
+async fn connect_rpc(rpc: &Rpc, timeout: u64) -> Result<RpcClient, anyhow::Error> {
+   RpcClientBuilder::new(rpc.url.as_ref())
       .retry(retry_layer(
          MAX_RETRIES,
          INITIAL_BACKOFF,
-         COMPUTE_UNITS_PER_SECOND,
+         rpc.cu_per_second.max(1),
       ))
-      .throttle(throttle_layer(CLIENT_RPS))
+      .throttle(throttle_layer(rpc.rps.max(1)))
       .timeout_secs(timeout)
       .connect()
       .await
@@ -196,6 +203,14 @@ impl Default for RpcCheck {
    }
 }
 
+fn default_rpc_rps() -> u32 {
+   DEFAULT_RPC_RPS
+}
+
+fn default_rpc_cu_per_second() -> u64 {
+   DEFAULT_RPC_CU_PER_SECOND
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Rpc {
    pub url: Arc<str>,
@@ -205,6 +220,12 @@ pub struct Rpc {
    pub enabled: bool,
    pub check: RpcCheck,
    pub mev_protect: bool,
+   /// Requests per second allowed against this endpoint (throttle layer).
+   #[serde(default = "default_rpc_rps")]
+   pub rps: u32,
+   /// Compute-units-per-second budget for the retry/backoff layer.
+   #[serde(default = "default_rpc_cu_per_second")]
+   pub cu_per_second: u64,
    #[serde(skip)]
    pub latency: Option<Duration>,
    /// Last time in UNIX timestamp we used this RPC
@@ -226,6 +247,8 @@ impl Rpc {
          default: false,
          enabled: false,
          mev_protect: false,
+         rps: DEFAULT_RPC_RPS,
+         cu_per_second: DEFAULT_RPC_CU_PER_SECOND,
       }
    }
 
@@ -265,6 +288,12 @@ impl Rpc {
       self.mev_protect
    }
 
+   /// Clamp the rate limits into the range the transport layers can actually use.
+   pub fn clamp_limits(&mut self) {
+      self.rps = self.rps.clamp(MIN_RPC_RPS, MAX_RPC_RPS);
+      self.cu_per_second = self.cu_per_second.clamp(MIN_RPC_CU_PER_SECOND, MAX_RPC_CU_PER_SECOND);
+   }
+
    pub fn latency_ms(&self) -> u128 {
       self.latency.map(|latency| latency.as_millis()).unwrap_or(0)
    }
@@ -296,6 +325,8 @@ pub struct RpcBuilder {
    default: bool,
    enabled: bool,
    mev_protect: bool,
+   rps: u32,
+   cu_per_second: u64,
 }
 
 impl RpcBuilder {
@@ -318,19 +349,37 @@ impl RpcBuilder {
       self
    }
 
+   /// Requests per second allowed against this endpoint (clamped on [`RpcBuilder::build`]).
+   #[must_use]
+   pub fn rps(mut self, rps: u32) -> Self {
+      self.rps = rps;
+      self
+   }
+
+   /// Compute-units-per-second budget (clamped on [`RpcBuilder::build`]).
+   #[must_use]
+   pub fn cu_per_second(mut self, cu_per_second: u64) -> Self {
+      self.cu_per_second = cu_per_second;
+      self
+   }
+
    pub fn build(self) -> Rpc {
-      Rpc {
+      let mut rpc = Rpc {
          url: self.url,
          chain_id: self.chain_id,
          default: self.default,
          enabled: self.enabled,
          check: RpcCheck::default(),
          mev_protect: self.mev_protect,
+         rps: self.rps,
+         cu_per_second: self.cu_per_second,
          latency: None,
          last_used: 0,
          last_failure: None,
          test_in_progress: false,
-      }
+      };
+      rpc.clamp_limits();
+      rpc
    }
 }
 
@@ -502,7 +551,12 @@ impl ClientManager {
    pub fn load_from_file(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
       let dir = Self::dir()?;
       let sealed = std::fs::read(&dir)?;
-      let rpcs: HashMap<u64, RpcMapByUrl> = key.open_json(&sealed, PROVIDER_AAD)?;
+      let mut rpcs: HashMap<u64, RpcMapByUrl> = key.open_json(&sealed, PROVIDER_AAD)?;
+      for rpcs_by_url in rpcs.values_mut() {
+         for rpc in rpcs_by_url.values_mut() {
+            rpc.clamp_limits();
+         }
+      }
       self.write(|map| *map = rpcs);
       self.retain_known_clients();
       Ok(())
@@ -574,8 +628,18 @@ impl ClientManager {
       }
    }
 
+   /// Update an endpoint's rate limits and drop its cached connections so the new transport
+   /// layers take effect.
+   pub fn set_rpc_limits(&self, chain: u64, url: &str, rps: u32, cu_per_second: u64) {
+      self.update_rpc(chain, url, |rpc| {
+         rpc.rps = rps.clamp(MIN_RPC_RPS, MAX_RPC_RPS);
+         rpc.cu_per_second = cu_per_second.clamp(MIN_RPC_CU_PER_SECOND, MAX_RPC_CU_PER_SECOND);
+      });
+      self.evict_client(chain, url);
+   }
+
    pub async fn run_latency_check_for(&self, rpc: Rpc) {
-      let client = connect_rpc(&rpc.url, REQUEST_TIMEOUT).await;
+      let client = connect_rpc(&rpc, REQUEST_TIMEOUT).await;
 
       let client = match client {
          Ok(client) => client,
@@ -757,9 +821,9 @@ impl ClientManager {
          .retry(retry_layer(
             MAX_RETRIES,
             INITIAL_BACKOFF,
-            COMPUTE_UNITS_PER_SECOND,
+            rpc.cu_per_second.max(1),
          ))
-         .throttle(throttle_layer(CLIENT_RPS))
+         .throttle(throttle_layer(rpc.rps.max(1)))
          .timeout_secs(kind.timeout_secs())
          .ws_max_retries(WS_INFINITE_RETRIES)
          .connect()
@@ -922,7 +986,6 @@ impl ClientManager {
 
    /// Select the best RPC for the given chain
    pub fn get_best_rpc(&self, chain: u64) -> Option<Rpc> {
-      let cooldown_ms: u64 = 1000 / CLIENT_RPS as u64;
       let failure_penalty_max: u128 = 10_000;
       let failure_decay_secs: u64 = 60;
 
@@ -940,6 +1003,7 @@ impl ClientManager {
                continue;
             }
 
+            let cooldown_ms: u64 = 1000 / u64::from(rpc.rps.max(1));
             let time_since_used = now_ms.saturating_sub(rpc.last_used);
             let usage_penalty = cooldown_ms.saturating_sub(time_since_used) as u128;
 
@@ -1076,7 +1140,7 @@ async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), anyhow
    #[cfg(feature = "dev")]
    tracing::debug!("Testing {}", rpc.url);
 
-   let client = connect_rpc(&rpc.url, CLIENT_TIMEOUT_FOR_SENDING_TX).await?;
+   let client = connect_rpc(&rpc, CLIENT_TIMEOUT_FOR_SENDING_TX).await?;
    let chain = rpc.chain_id;
 
    let time = Instant::now();
@@ -1496,6 +1560,48 @@ mod tests {
       client.retain_known_clients();
 
       assert_eq!(client.clients.read().unwrap().len(), 1);
+   }
+
+   #[test]
+   fn rpc_limits_default_when_missing_from_json() {
+      let rpc = Rpc::builder("http://127.0.0.1:1", 1).build();
+      let mut value: serde_json::Value =
+         serde_json::from_str(&serde_json::to_string(&rpc).unwrap()).unwrap();
+      let obj = value.as_object_mut().unwrap();
+      obj.remove("rps");
+      obj.remove("cu_per_second");
+
+      let rpc: Rpc = serde_json::from_value(value).unwrap();
+      assert_eq!(rpc.rps, DEFAULT_RPC_RPS);
+      assert_eq!(rpc.cu_per_second, DEFAULT_RPC_CU_PER_SECOND);
+   }
+
+   #[test]
+   fn clamp_limits_bounds_zero_and_max() {
+      let mut rpc = Rpc::builder("http://127.0.0.1:1", 1).rps(0).cu_per_second(0).build();
+      assert_eq!(rpc.rps, MIN_RPC_RPS);
+      assert_eq!(rpc.cu_per_second, MIN_RPC_CU_PER_SECOND);
+
+      rpc.rps = u32::MAX;
+      rpc.cu_per_second = u64::MAX;
+      rpc.clamp_limits();
+      assert_eq!(rpc.rps, MAX_RPC_RPS);
+      assert_eq!(rpc.cu_per_second, MAX_RPC_CU_PER_SECOND);
+   }
+
+   #[tokio::test]
+   async fn set_rpc_limits_clamps_and_evicts() {
+      let client = client_with([http_rpc("http://127.0.0.1:1")]);
+      let rpc = client.get_best_rpc(1).unwrap();
+      let _ = client.client_for(&rpc, ClientKind::Standard).await.unwrap();
+      assert_eq!(client.clients.read().unwrap().len(), 1);
+
+      client.set_rpc_limits(1, "http://127.0.0.1:1", 0, 0);
+      assert!(client.clients.read().unwrap().is_empty());
+
+      let rpc = client.get_rpcs(1).into_values().next().unwrap();
+      assert_eq!(rpc.rps, MIN_RPC_RPS);
+      assert_eq!(rpc.cu_per_second, MIN_RPC_CU_PER_SECOND);
    }
 
    #[test]
