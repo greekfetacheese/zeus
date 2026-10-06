@@ -1655,11 +1655,17 @@ async fn add_nft_collection(
       return Ok(CollectionAdd::NotEnumerable { name, standard });
    }
 
-   let Some(holding) = collections_of(client.clone(), chain_id, owner, &[address])
-      .await?
-      .into_iter()
-      .next()
-   else {
+   let concurrency = ctx.get_client_manager().concurrency();
+   let Some(holding) = collections_of(
+      client.clone(),
+      chain_id,
+      owner,
+      &[address],
+      concurrency,
+   )
+   .await?
+   .into_iter()
+   .next() else {
       // Enumerable, and the wallet holds none: a real answer, not a failure.
       return Ok(CollectionAdd::NoTokens { name });
    };

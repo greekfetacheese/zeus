@@ -447,7 +447,7 @@ pub const MIN_CONCURRENCY: usize = 1;
 pub const MAX_CONCURRENCY: usize = 16;
 
 fn default_concurrency() -> usize {
-   1
+   2
 }
 
 /// Non-secret [`ClientManager`] settings, stored in `data/client_settings.json`.
