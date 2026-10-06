@@ -9,7 +9,7 @@ use super::address_book::zeus_stateview_v4;
 use crate::{
    abi::{
       erc20::IERC20,
-      erc721::{IERC721, IERC721Metadata},
+      erc721::{IERC721, IERC721Enumerable, IERC721Metadata},
       erc1155::{IERC1155, IERC5216},
       permit::Permit2,
       zeus::ZeusStateViewV3::{self, *},
@@ -524,12 +524,15 @@ pub struct Erc721Lookup {
    pub token_uri: Option<String>,
 }
 
-/// How many `ownerOf` / `balanceOf` calls go into one Multicall3 aggregate.
+/// How many sub-calls go into one Multicall3 aggregate.
 ///
 /// Sized so an aggregate stays a small fraction of a block: a few hundred sub-calls at a few thousand
 /// gas each is a couple of million, comfortably inside the `eth_call` caps nodes advertise, where
 /// thousands in one call is where aggregates start reverting whole.
-const MULTICALL_CHUNK: usize = 20;
+///
+/// Public because the enumeration helper deliberately does **not** chunk: the caller splits its own
+/// list so the chunks can run concurrently (`crate::nft::collections_of`).
+pub const MULTICALL_CHUNK: usize = 20;
 
 /// Batched ERC-721 `ownerOf(id)` in Multicall3 aggregates, owners only.
 ///
@@ -585,6 +588,67 @@ where
    }
 
    Ok(out)
+}
+
+/// Batched ERC-721 Enumerable `tokenOfOwnerByIndex(owner, index)` in one Multicall3 aggregate.
+///
+/// `refs` are `(collection, owner_index)` pairs — every index is asked of the same `owner`. Returns
+/// `(collection, index, token_id)` aligned with `refs`, where `None` is the call reverting: an index
+/// at or past `balanceOf(owner)`, which is the contract answering "no such index" rather than a
+/// transport failure. Aligned like [`get_erc721_owners`], and for the same reason: a dropped slot
+/// would shift every later index onto the wrong owner slot.
+///
+/// This is the enumeration primitive — `balanceOf(owner)` says how many owner-indices exist, and one
+/// aggregate resolves them instead of a call per index. It does **not** chunk: the caller splits its
+/// own list into [`MULTICALL_CHUNK`] pieces so the pieces can run concurrently, and a single aggregate
+/// carrying a whole enumeration is exactly the `eth_call` that reverts whole.
+pub async fn get_erc721_owner_token_ids<P, N>(
+   client: P,
+   owner: Address,
+   refs: Vec<NftRef>,
+   block: Option<BlockId>,
+) -> Result<Vec<(Address, U256, Option<U256>)>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   if refs.is_empty() {
+      return Ok(Vec::new());
+   }
+
+   let block = block.unwrap_or(BlockId::latest());
+
+   let mut builder = client
+      .multicall()
+      .dynamic::<IERC721Enumerable::tokenOfOwnerByIndexCall>()
+      .block(block);
+   for (collection, index) in &refs {
+      let input = Bytes::from(
+         IERC721Enumerable::tokenOfOwnerByIndexCall {
+            owner,
+            index: *index,
+         }
+         .abi_encode(),
+      );
+      let call = CallItem::<IERC721Enumerable::tokenOfOwnerByIndexCall>::new(*collection, input)
+         .allow_failure(true);
+      builder = builder.add_call_dynamic(call);
+   }
+   let ids = builder.aggregate3().await?;
+
+   if ids.len() != refs.len() {
+      anyhow::bail!(
+         "multicall returned {} ids for {} refs",
+         ids.len(),
+         refs.len()
+      );
+   }
+
+   Ok(refs
+      .into_iter()
+      .zip(ids)
+      .map(|((collection, index), id)| (collection, index, id.ok()))
+      .collect())
 }
 
 /// Batched ERC-721 `ownerOf` + `tokenURI`, in **two** Multicall3 aggregates per chunk.
@@ -1160,6 +1224,39 @@ mod tests {
          refs
             .iter()
             .map(|(collection, id)| (*collection, *id, Some(Address::ZERO)))
+            .collect::<Vec<_>>(),
+         "every row in request order, none dropped or shifted"
+      );
+   }
+
+   /// The enumeration lookup is **one** aggregate over however many indices it is handed, and the rows
+   /// stay aligned — splitting a scan into chunks is the caller's job, so the caller is what decides
+   /// how much goes out at once.
+   #[tokio::test]
+   async fn enumeration_lookup_is_one_aggregate_and_stays_aligned() {
+      let (url, requests) = counting_node();
+      let client = ProviderBuilder::new().connect_http(url.parse().unwrap());
+
+      let collection = address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D");
+      let owner = address!("46efbaedc92067e6d60e84ed6395099723252496");
+      let refs: Vec<NftRef> = (0..MULTICALL_CHUNK * 3 + 1)
+         .map(|index| (collection, U256::from(index)))
+         .collect();
+
+      let ids = get_erc721_owner_token_ids(client, owner, refs.clone(), None)
+         .await
+         .expect("enumeration");
+
+      assert_eq!(
+         requests.load(Ordering::SeqCst),
+         1,
+         "one aggregate, whatever the ref count — the caller chunks"
+      );
+      assert_eq!(
+         ids,
+         refs
+            .iter()
+            .map(|(collection, index)| (*collection, *index, Some(U256::ZERO)))
             .collect::<Vec<_>>(),
          "every row in request order, none dropped or shifted"
       );

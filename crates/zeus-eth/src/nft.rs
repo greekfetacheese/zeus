@@ -13,7 +13,9 @@
 
 use crate::abi::erc165::Erc165Support;
 use crate::abi::{erc165, erc721, erc1155};
-use crate::utils::batch::{NftRef, get_erc721_owners, get_erc1155_balances};
+use crate::utils::batch::{
+   MULTICALL_CHUNK, NftRef, get_erc721_owner_token_ids, get_erc721_owners, get_erc1155_balances,
+};
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{Address, Bytes, U256};
 use serde::{Deserialize, Serialize};
@@ -21,6 +23,8 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 
 /// Which NFT standard a collection implements.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -255,8 +259,8 @@ pub struct CollectionHolding {
    pub collection: NftCollection,
    /// Owned token ids, from `tokenOfOwnerByIndex`.
    pub token_ids: Vec<U256>,
-   /// Whether the collection holds more than [`MAX_ENUMERATED_TOKENS`], so `token_ids` is as far as
-   /// enumeration goes rather than all of it.
+   /// Whether the owner holds more than [`MAX_ENUMERATED_TOKENS`] in this collection, so `token_ids`
+   /// is as far as enumeration goes rather than all of it.
    ///
    /// The cap is deliberate; the flag is what keeps it from being *silent*, since a short list that
    /// does not say so reads as a complete one.
@@ -264,8 +268,15 @@ pub struct CollectionHolding {
    pub truncated: bool,
 }
 
-// TODO: This need to be adjusted to the actually collection size.
 /// Ceiling on how many ids we will enumerate for one collection.
+///
+/// A **wallet-side policy limit**, not a property of the collection. The scan asks about the owner's
+/// own slots (`0..balanceOf(owner)`), so it only binds when one address holds more than this many
+/// tokens of a single collection — a wallet holding one NFT pays one call whatever the supply.
+///
+/// Deliberately not derived from `totalSupply()`: that is the size of the whole collection, while
+/// `tokenOfOwnerByIndex` is bounded by `balanceOf(owner)`, so a supply-sized loop would ask about
+/// thousands of indices that revert.
 ///
 /// `balanceOf` is contract-controlled: a hostile or buggy contract can answer with an enormous
 /// number, and sizing an allocation from it would abort the process. Real wallets hold tens.
@@ -286,6 +297,48 @@ fn enumeration_plan(balance: U256) -> (usize, bool) {
    )
 }
 
+/// How many enumeration aggregates may be in flight at once.
+///
+/// A full [`MAX_ENUMERATED_TOKENS`] scan is one aggregate per [`MULTICALL_CHUNK`] owner-indices, so
+/// this keeps a whale's scan to a handful of round trips without opening a socket per chunk: every
+/// request goes to the same node, where unconditional fan-out buys latency at the price of rate
+/// limits.
+const ENUMERATION_CONCURRENCY: usize = 2;
+
+/// Owner-indices `0..wanted`, in chunks of [`MULTICALL_CHUNK`] — one chunk is one aggregate.
+///
+/// Pure, so the shape the batched scan depends on (every index exactly once, in order, no chunk over
+/// the aggregate size) is a unit test rather than an assumption.
+fn enumeration_chunks(wanted: usize) -> Vec<Vec<U256>> {
+   (0..wanted as u64)
+      .map(U256::from)
+      .collect::<Vec<_>>()
+      .chunks(MULTICALL_CHUNK)
+      .map(<[U256]>::to_vec)
+      .collect()
+}
+
+/// Fold the batched chunks back into the id list, stopping at the first index the contract refused.
+///
+/// Enumeration over `0..balanceOf(owner)` should not revert; when it does — the collection mutated
+/// under us, or a contract that answers a count it will not enumerate — the scan ends there rather
+/// than the whole call failing. That is the `break` the sequential loop this replaced took, so the
+/// result is the same ids in the same order, and no id after a refused index is part of the answer.
+fn take_until_refused(chunks: Vec<Vec<Option<U256>>>) -> Vec<U256> {
+   let mut ids = Vec::new();
+
+   for chunk in chunks {
+      for slot in chunk {
+         match slot {
+            Some(id) => ids.push(id),
+            None => return ids,
+         }
+      }
+   }
+
+   ids
+}
+
 /// What `owner` holds in `candidates`, via the ERC-721 Enumerable path.
 ///
 /// `candidates` is required because Zeus has no indexer: nothing on-chain answers "which
@@ -297,6 +350,10 @@ fn enumeration_plan(balance: U256) -> (usize, bool) {
 /// Two steps on purpose: one `balanceOf` filters candidates the owner holds nothing in (the common
 /// case) for a single round trip, and only a collection with a non-zero balance pays for the
 /// ERC-165 sweep.
+///
+/// Enumeration itself is batched — one Multicall3 aggregate per [`MULTICALL_CHUNK`] owner-indices, at
+/// most [`ENUMERATION_CONCURRENCY`] in flight — so a thousand-id scan is a handful of round trips
+/// rather than a thousand.
 pub async fn collections_of<P, N>(
    client: P,
    chain_id: u64,
@@ -332,24 +389,7 @@ where
          NftCollection::with_support(client.clone(), chain_id, candidate, support).await?;
 
       let (wanted, truncated) = enumeration_plan(balance);
-      let mut token_ids = Vec::with_capacity(wanted);
-
-      // TODO: Impl batch calls for this one.
-      for index in 0..wanted {
-         // A revert mid-scan (the collection mutated under us, or an index past the end) ends this
-         // collection's enumeration rather than failing the whole call.
-         match erc721::token_of_owner_by_index(
-            candidate,
-            owner,
-            U256::from(index),
-            client.clone(),
-         )
-         .await
-         {
-            Ok(token_id) => token_ids.push(token_id),
-            Err(_) => break,
-         }
-      }
+      let token_ids = owner_token_ids(client.clone(), candidate, owner, wanted).await?;
 
       if !token_ids.is_empty() {
          holdings.push(CollectionHolding {
@@ -361,6 +401,51 @@ where
    }
 
    Ok(holdings)
+}
+
+/// The ids `owner` holds in `collection`, for owner-indices `0..wanted`.
+///
+/// One Multicall3 aggregate per [`MULTICALL_CHUNK`] indices, at most [`ENUMERATION_CONCURRENCY`] in
+/// flight: a full scan is tens of aggregates rather than a thousand round trips, and a wallet holding
+/// one NFT pays a single call whatever the collection's size.
+///
+/// A transport failure is an error — never an empty holding. A reverting index ends the list, which
+/// [`take_until_refused`] folds back in.
+async fn owner_token_ids<P, N>(
+   client: P,
+   collection: Address,
+   owner: Address,
+   wanted: usize,
+) -> Result<Vec<U256>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let semaphore = Arc::new(Semaphore::new(ENUMERATION_CONCURRENCY));
+   let mut tasks = Vec::new();
+
+   for indices in enumeration_chunks(wanted) {
+      let refs: Vec<NftRef> = indices.into_iter().map(|index| (collection, index)).collect();
+      let client = client.clone();
+      let semaphore = Arc::clone(&semaphore);
+
+      tasks.push(tokio::spawn(async move {
+         // Held for the whole aggregate, so at most ENUMERATION_CONCURRENCY are in flight.
+         let _permit =
+            semaphore.acquire().await.expect("the enumeration semaphore is never closed");
+
+         get_erc721_owner_token_ids(client, owner, refs, None).await
+      }));
+   }
+
+   let mut chunks = Vec::with_capacity(tasks.len());
+   for task in tasks {
+      let rows = task.await.map_err(|err| anyhow::anyhow!("enumeration task failed: {err}"))??;
+
+      chunks.push(rows.into_iter().map(|(_, _, id)| id).collect());
+   }
+
+   Ok(take_until_refused(chunks))
 }
 
 /// Whether `owner` currently holds `token_id`.
@@ -532,6 +617,56 @@ mod tests {
          enumeration_plan(U256::MAX),
          (MAX_ENUMERATED_TOKENS as usize, true),
          "a hostile balance must not size an allocation"
+      );
+   }
+
+   /// The batched scan asks about every owner-index exactly once, in order, in chunks no larger than
+   /// one aggregate — and the cap still bounds how many there are.
+   #[test]
+   fn enumeration_chunks_cover_every_index_once_in_order() {
+      let chunks = enumeration_chunks(MAX_ENUMERATED_TOKENS as usize);
+      assert!(
+         chunks.iter().all(|chunk| chunk.len() <= MULTICALL_CHUNK),
+         "no chunk may exceed one aggregate"
+      );
+      assert_eq!(
+         chunks.iter().map(Vec::len).sum::<usize>(),
+         MAX_ENUMERATED_TOKENS as usize
+      );
+      assert_eq!(
+         chunks.into_iter().flatten().collect::<Vec<_>>(),
+         (0..MAX_ENUMERATED_TOKENS).map(U256::from).collect::<Vec<_>>(),
+         "index order, nothing skipped or repeated"
+      );
+
+      assert!(
+         enumeration_chunks(0).is_empty(),
+         "holding none asks about nothing"
+      );
+   }
+
+   /// Batching must not move where enumeration stops: the first index the contract refuses ends the
+   /// list — the `break` the sequential scan used — and no later chunk can add an id after it.
+   #[test]
+   fn a_refused_index_ends_the_list_however_the_chunks_arrive() {
+      let (a, b, c) = (U256::from(1), U256::from(2), U256::from(3));
+
+      assert_eq!(
+         take_until_refused(vec![vec![Some(a), Some(b)], vec![Some(c)]]),
+         vec![a, b, c]
+      );
+      assert_eq!(
+         take_until_refused(vec![
+            vec![Some(a)],
+            vec![Some(b), None],
+            vec![Some(c)]
+         ]),
+         vec![a, b],
+         "ids after a refused index are not part of the answer"
+      );
+      assert_eq!(
+         take_until_refused(vec![vec![None], vec![Some(c)]]),
+         Vec::<U256>::new()
       );
    }
 
