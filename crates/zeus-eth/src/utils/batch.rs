@@ -531,7 +531,8 @@ pub struct Erc721Lookup {
 /// thousands in one call is where aggregates start reverting whole.
 ///
 /// Public because the enumeration helper deliberately does **not** chunk: the caller splits its own
-/// list so the chunks can run concurrently (`crate::nft::collections_of`).
+/// list so the chunks can run concurrently (`crate::nft::collections_of`). The helpers that do chunk
+/// keep it to themselves, as [`get_erc721_owners`] and [`get_erc721_balances`] do.
 pub const MULTICALL_CHUNK: usize = 20;
 
 /// Batched ERC-721 `ownerOf(id)` in Multicall3 aggregates, owners only.
@@ -584,6 +585,60 @@ where
             .iter()
             .zip(owners)
             .map(|((collection, token_id), owner)| (*collection, *token_id, owner.ok())),
+      );
+   }
+
+   Ok(out)
+}
+
+/// Batched ERC-721 `balanceOf(owner)` over many collections, in Multicall3 aggregates.
+///
+/// Returns `(collection, balance)` aligned with `collections`, where `None` is the call reverting —
+/// the contract not answering the core ERC-721 `balanceOf(address)`, which is how an ERC-1155 (no such
+/// function) or a contract without a fallback reads. A returned `0` is a real zero balance.
+///
+/// Chunked by [`MULTICALL_CHUNK`] like [`get_erc721_owners`], and a failed chunk stays an `Err` for
+/// the whole call rather than "nobody holds anything": an outage that reads as an empty holding is the
+/// failure this convention exists to prevent.
+pub async fn get_erc721_balances<P, N>(
+   client: P,
+   owner: Address,
+   collections: Vec<Address>,
+   block: Option<BlockId>,
+) -> Result<Vec<(Address, Option<U256>)>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   if collections.is_empty() {
+      return Ok(Vec::new());
+   }
+
+   let block = block.unwrap_or(BlockId::latest());
+   let mut out = Vec::with_capacity(collections.len());
+
+   for chunk in collections.chunks(MULTICALL_CHUNK) {
+      let mut builder = client.multicall().dynamic::<IERC721::balanceOfCall>().block(block);
+      for collection in chunk {
+         let input = Bytes::from(IERC721::balanceOfCall { owner }.abi_encode());
+         let call = CallItem::<IERC721::balanceOfCall>::new(*collection, input).allow_failure(true);
+         builder = builder.add_call_dynamic(call);
+      }
+      let balances = builder.aggregate3().await?;
+
+      if balances.len() != chunk.len() {
+         anyhow::bail!(
+            "multicall returned {} balances for {} collections",
+            balances.len(),
+            chunk.len()
+         );
+      }
+
+      out.extend(
+         chunk
+            .iter()
+            .zip(balances)
+            .map(|(collection, balance)| (*collection, balance.ok())),
       );
    }
 
@@ -1226,6 +1281,35 @@ mod tests {
             .map(|(collection, id)| (*collection, *id, Some(Address::ZERO)))
             .collect::<Vec<_>>(),
          "every row in request order, none dropped or shifted"
+      );
+   }
+
+   /// The balance sweep answers for every collection it is handed, in request order.
+   #[tokio::test]
+   async fn balance_sweep_answers_every_collection_in_order() {
+      let (url, requests) = counting_node();
+      let client = ProviderBuilder::new().connect_http(url.parse().unwrap());
+
+      let owner = address!("46efbaedc92067e6d60e84ed6395099723252496");
+      let collections: Vec<Address> =
+         (0..MULTICALL_CHUNK).map(|i| Address::repeat_byte((i + 1) as u8)).collect();
+
+      let balances = get_erc721_balances(client, owner, collections.clone(), None)
+         .await
+         .expect("balances");
+
+      assert_eq!(
+         requests.load(Ordering::SeqCst),
+         1,
+         "one aggregate per chunk of {MULTICALL_CHUNK}"
+      );
+      assert_eq!(
+         balances,
+         collections
+            .iter()
+            .map(|collection| (*collection, Some(U256::ZERO)))
+            .collect::<Vec<_>>(),
+         "every collection in request order, none dropped or shifted"
       );
    }
 

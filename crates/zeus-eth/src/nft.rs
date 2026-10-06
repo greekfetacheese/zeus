@@ -14,7 +14,8 @@
 use crate::abi::erc165::Erc165Support;
 use crate::abi::{erc165, erc721, erc1155};
 use crate::utils::batch::{
-   MULTICALL_CHUNK, NftRef, get_erc721_owner_token_ids, get_erc721_owners, get_erc1155_balances,
+   MULTICALL_CHUNK, NftRef, get_erc721_balances, get_erc721_owner_token_ids, get_erc721_owners,
+   get_erc1155_balances,
 };
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{Address, Bytes, U256};
@@ -347,9 +348,9 @@ fn take_until_refused(chunks: Vec<Vec<Option<U256>>>) -> Vec<U256> {
 /// ERC-1155s are skipped here — for those, ask about a specific token id with
 /// [`verify_ownership`]. Collections the owner holds nothing in are omitted.
 ///
-/// Two steps on purpose: one `balanceOf` filters candidates the owner holds nothing in (the common
-/// case) for a single round trip, and only a collection with a non-zero balance pays for the
-/// ERC-165 sweep.
+/// Two steps on purpose: one aggregated `balanceOf` sweep filters candidates the owner holds nothing
+/// in (the common case) in a single round trip, and only a collection with a non-zero balance pays for
+/// the ERC-165 sweep.
 ///
 /// Enumeration itself is batched — one Multicall3 aggregate per [`MULTICALL_CHUNK`] owner-indices, at
 /// most [`ENUMERATION_CONCURRENCY`] in flight — so a thousand-id scan is a handful of round trips
@@ -366,10 +367,14 @@ where
 {
    let mut holdings = Vec::new();
 
-   for &candidate in candidates {
-      // The core ERC-721 selector. ERC-1155 and ERC-20 contracts do not answer it, so they fall
-      // out here for the price of one call instead of a full sweep.
-      let Ok(balance) = erc721::balance_of(candidate, owner, client.clone(), None).await else {
+   // The core ERC-721 selector, in one aggregate for every candidate rather than a call each. `None`
+   // is the contract not answering it at all — an ERC-1155, or a contract without a fallback — so a
+   // non-ERC-721 falls out for the price of its own slot instead of a full sweep. An aggregate that
+   // fails is an error: "the node could not be asked" must never read as "you hold nothing here".
+   let balances = get_erc721_balances(client.clone(), owner, candidates.to_vec(), None).await?;
+
+   for (&candidate, (_, balance)) in candidates.iter().zip(balances) {
+      let Some(balance) = balance else {
          continue;
       };
 
