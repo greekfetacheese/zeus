@@ -1566,7 +1566,8 @@ enum CollectionAdd {
    Tracked {
       name: String,
       count: usize,
-      /// The collection holds more than [`MAX_ENUMERATED_TOKENS`], so the list stops at the cap.
+      /// This wallet holds more than [`MAX_ENUMERATED_TOKENS`] of the collection, so the list stops at
+      /// the cap.
       truncated: bool,
    },
    /// Enumerable, but this wallet holds none of its tokens.
@@ -1591,7 +1592,7 @@ impl CollectionAdd {
                false => format!("Added {count} token{plural} from {name}"),
                // The cap is deliberate; saying so is what keeps the list from reading as complete.
                true => format!(
-                  "Added {count} token{plural} from {name} — first {MAX_ENUMERATED_TOKENS} shown, it holds more"
+                  "Added {count} token{plural} from {name} — first {MAX_ENUMERATED_TOKENS} shown, this wallet holds more"
                ),
             }
          }
@@ -2091,7 +2092,7 @@ mod tests {
       assert_eq!(
          capped.message(),
          format!(
-            "Added {MAX_ENUMERATED_TOKENS} tokens from BAYC — first {MAX_ENUMERATED_TOKENS} shown, it holds more"
+            "Added {MAX_ENUMERATED_TOKENS} tokens from BAYC — first {MAX_ENUMERATED_TOKENS} shown, this wallet holds more"
          )
       );
 
