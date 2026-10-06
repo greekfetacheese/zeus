@@ -1,4 +1,4 @@
-use crate::core::{ZeusClient, ZeusCtx};
+use crate::core::{ClientManager, ZeusCtx};
 use crate::utils::RT;
 
 use alloy_eips::eip7702::SignedAuthorization;
@@ -104,7 +104,7 @@ pub async fn pinned_head(
    chain: ChainId,
    source: BlockId,
 ) -> Result<(Block, BlockId), anyhow::Error> {
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    let block = client
       .request(chain.id(), |client| async move {
@@ -126,7 +126,7 @@ pub async fn native_balance_at(
    owner: Address,
    block_id: BlockId,
 ) -> Result<U256, anyhow::Error> {
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    client
       .request(chain.id(), |client| async move {
@@ -361,7 +361,7 @@ pub async fn simulate_for_analysis(
    value: U256,
    extra_prefetch: Vec<AccountPrefetch>,
 ) -> Result<SimulatedCall, anyhow::Error> {
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    let (block, _) = pinned_head(ctx.clone(), chain, BlockId::latest()).await?;
 
@@ -701,7 +701,7 @@ pub async fn fetch_accounts_info(
 
    let time = Instant::now();
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let addresses: Vec<Address> = accounts.iter().map(|a| a.address).collect();
    let eoas: Vec<Address> = accounts.iter().filter(|a| a.is_eoa).map(|a| a.address).collect();
 
@@ -750,7 +750,7 @@ pub async fn fetch_accounts_info(
 }
 
 async fn fetch_eth_balances_batched(
-   client: ZeusClient,
+   client: ClientManager,
    chain: u64,
    block_id: BlockId,
    addresses: Vec<Address>,
@@ -799,7 +799,7 @@ async fn fetch_eth_balances_batched(
 }
 
 async fn fetch_account_codes_batched(
-   client: ZeusClient,
+   client: ClientManager,
    chain: u64,
    block_id: BlockId,
    addresses: Vec<Address>,
@@ -849,7 +849,7 @@ async fn fetch_account_codes_batched(
 }
 
 async fn fetch_eoa_nonces(
-   client: ZeusClient,
+   client: ClientManager,
    chain: u64,
    block_id: BlockId,
    eoas: Vec<Address>,
@@ -983,7 +983,7 @@ pub async fn fetch_storage(
    block_id: BlockId,
    account: AccountSlots,
 ) -> Vec<AccountStorage> {
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let address = account.address;
 
    let chunks: Vec<Vec<U256>> =

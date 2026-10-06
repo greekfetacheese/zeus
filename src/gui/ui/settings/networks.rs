@@ -110,7 +110,7 @@ impl NetworkSettings {
       let text_edit_visuals = theme.text_edit_visuals();
 
       let chain = self.chain_select.chain.id();
-      let z_client = ctx.client.clone();
+      let z_client = ctx.client_manager.clone();
       let mut rpcs = z_client.get_rpcs(chain);
 
       ui.add_space(10.0);
@@ -169,7 +169,7 @@ impl NetworkSettings {
 
                   RT.spawn(async move {
                      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                     let z_client = ctx.get_zeus_client();
+                     let z_client = ctx.get_client_manager();
                      z_client.run_rpc_checks(ctx.clone()).await;
                      SHARED_GUI.write(|gui| {
                         gui.settings.network.refreshing = false;
@@ -261,14 +261,14 @@ impl NetworkSettings {
                });
 
                if res.inner.clicked() {
-                  let z_client = ctx.client.clone();
+                  let z_client = ctx.client_manager.clone();
                   z_client.set_rpc_enabled(chain, &rpc.url, rpc.enabled);
 
                   if !was_enabled && rpc.enabled {
                      let rpc = rpc.clone();
                      RT.spawn(async move {
                         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                        let z_client = ctx.get_zeus_client();
+                        let z_client = ctx.get_client_manager();
                         z_client.run_check_for(ctx.clone(), rpc).await;
 
                         post_enable_rpc(ctx, chain).await
@@ -277,7 +277,7 @@ impl NetworkSettings {
 
                   RT.spawn_blocking(move || {
                      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                     ctx.save_zeus_client();
+                     ctx.save_client_manager();
                   });
                }
 
@@ -319,7 +319,7 @@ impl NetworkSettings {
                         let rpc_clone = rpc.clone();
                         RT.spawn(async move {
                            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                           let z_client = ctx.get_zeus_client();
+                           let z_client = ctx.get_client_manager();
                            z_client.run_check_for(ctx, rpc_clone).await;
                         });
                      }
@@ -330,12 +330,12 @@ impl NetworkSettings {
                   let button = Button::new(RichText::new("X").size(theme.typography.normal))
                      .visuals(button_visuals);
                   if ui.add(button).clicked() {
-                     let z_client = ctx.client.clone();
+                     let z_client = ctx.client_manager.clone();
                      z_client.remove_rpc(chain, rpc.url.clone());
 
                      RT.spawn_blocking(move || {
                         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                        ctx.save_zeus_client();
+                        ctx.save_client_manager();
                      });
                   }
                });
@@ -364,7 +364,7 @@ impl NetworkSettings {
       let clicked = ui.checkbox(&mut rpc.mev_protect, "").clicked();
 
       if clicked {
-         let z_client = ctx.client.clone();
+         let z_client = ctx.client_manager.clone();
          z_client.write(|rpcs_map| {
             if let Some(rpcs) = rpcs_map.get_mut(&rpc.chain_id) {
                if let Some(old_rpc) = rpcs.get_mut(&rpc.url) {
@@ -374,7 +374,7 @@ impl NetworkSettings {
          });
          RT.spawn_blocking(move || {
             let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-            ctx.save_zeus_client();
+            ctx.save_client_manager();
          });
       }
    }
@@ -469,13 +469,13 @@ fn validate_rpc(chain: u64, url: String) {
          return;
       }
 
-      let z_client = ctx.get_zeus_client();
+      let z_client = ctx.get_client_manager();
       z_client.add_rpc(chain, rpc.clone());
       z_client.run_check_for(ctx.clone(), rpc).await;
 
       let ctx_clone = ctx.clone();
       RT.spawn_blocking(move || {
-         ctx_clone.save_zeus_client();
+         ctx_clone.save_client_manager();
       });
 
       SHARED_GUI.write(|gui| {
@@ -549,7 +549,7 @@ async fn post_enable_rpc(ctx: ZeusCtx, chain: u64) {
       return;
    }
 
-   let z_client = ctx.get_zeus_client();
+   let z_client = ctx.get_client_manager();
 
    let rpcs = z_client.get_rpcs(chain);
    let valid_rpcs = rpcs.iter().filter(|rpc| rpc.1.is_enabled() && rpc.1.is_working()).count();

@@ -394,7 +394,7 @@ struct ClientKey {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ZeusClient {
+pub struct ClientManager {
    pub rpcs: Arc<RwLock<HashMap<u64, RpcMapByUrl>>>,
 
    /// Live connections, keyed by endpoint + purpose. Runtime-only, never persisted.
@@ -402,7 +402,7 @@ pub struct ZeusClient {
    clients: Arc<RwLock<HashMap<ClientKey, RpcClient>>>,
 }
 
-impl Default for ZeusClient {
+impl Default for ClientManager {
    fn default() -> Self {
       let mut rpc_map_by_chain = HashMap::new();
 
@@ -490,7 +490,7 @@ impl Default for ZeusClient {
    }
 }
 
-impl ZeusClient {
+impl ClientManager {
    pub fn read<R>(&self, reader: impl FnOnce(&HashMap<u64, RpcMapByUrl>) -> R) -> R {
       reader(&self.rpcs.read().unwrap())
    }
@@ -504,7 +504,19 @@ impl ZeusClient {
       let sealed = std::fs::read(&dir)?;
       let rpcs: HashMap<u64, RpcMapByUrl> = key.open_json(&sealed, PROVIDER_AAD)?;
       self.write(|map| *map = rpcs);
+      self.retain_known_clients();
       Ok(())
+   }
+
+   /// Drop cached connections whose endpoint is no longer known (e.g. after loading a different
+   /// provider set), keeping the connections for surviving endpoints warm.
+   fn retain_known_clients(&self) {
+      let rpcs = self.rpcs.read().unwrap();
+      self
+         .clients
+         .write()
+         .unwrap()
+         .retain(|key, _| rpcs.get(&key.chain).is_some_and(|rpcs| rpcs.contains_key(&key.url)));
    }
 
    pub fn save_to_file(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
@@ -1354,7 +1366,7 @@ mod tests {
 
    #[tokio::test]
    async fn test_rpcs() {
-      let zeus_client = ZeusClient::default();
+      let zeus_client = ClientManager::default();
       zeus_client.mark_all_as_working();
 
       let chain = 1;
@@ -1391,7 +1403,7 @@ mod tests {
    #[test]
    fn test_seal_open_roundtrip() {
       let key = WalletStateKey::generate().unwrap();
-      let client = ZeusClient::default();
+      let client = ClientManager::default();
       let sealed = client.read(|rpcs| key.seal_json(rpcs, PROVIDER_AAD)).unwrap();
       let loaded: HashMap<u64, RpcMapByUrl> = key.open_json(&sealed, PROVIDER_AAD).unwrap();
       assert!(!loaded.is_empty());
@@ -1406,8 +1418,8 @@ mod tests {
       rpc
    }
 
-   fn client_with(rpcs: impl IntoIterator<Item = Rpc>) -> ZeusClient {
-      let client = ZeusClient {
+   fn client_with(rpcs: impl IntoIterator<Item = Rpc>) -> ClientManager {
+      let client = ClientManager {
          rpcs: Arc::new(RwLock::new(HashMap::new())),
          clients: Arc::new(RwLock::new(HashMap::new())),
       };
@@ -1434,6 +1446,27 @@ mod tests {
       client.set_rpc_enabled(1, "http://127.0.0.1:1", false);
       assert!(client.clients.read().unwrap().is_empty());
       assert!(!client.get_rpcs(1).values().any(|rpc| rpc.enabled));
+   }
+
+   #[tokio::test]
+   async fn retain_known_clients_drops_removed_endpoints() {
+      let client = client_with([
+         http_rpc("http://127.0.0.1:1"),
+         http_rpc("http://127.0.0.1:2"),
+      ]);
+
+      for rpc in client.get_rpcs(1).values() {
+         let _ = client.client_for(rpc, ClientKind::Standard).await.unwrap();
+      }
+      assert_eq!(client.clients.read().unwrap().len(), 2);
+
+      // Simulate loading a provider set that no longer lists the second endpoint.
+      client.write(|rpcs| {
+         rpcs.get_mut(&1).unwrap().remove("http://127.0.0.1:2");
+      });
+      client.retain_known_clients();
+
+      assert_eq!(client.clients.read().unwrap().len(), 1);
    }
 
    #[test]

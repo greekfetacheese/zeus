@@ -1360,7 +1360,7 @@ async fn send_eth(
    let auth_list = Vec::new();
    let eth = NativeCurrency::from(chain.id());
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    let (block, block_id) = pinned_head(ctx.clone(), chain, BlockId::latest()).await?;
 
@@ -1538,7 +1538,7 @@ async fn send_token(
    let call_data = token.encode_transfer(recipient, amount.wei());
    let auth_list = Vec::new();
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    let (block, block_id) = pinned_head(ctx.clone(), chain, BlockId::latest()).await?;
 

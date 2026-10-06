@@ -489,7 +489,7 @@ impl TransactionAnalysis {
       let owner = self.sender;
       let chain = self.chain;
       let before_block = BlockId::number(tx_block - 1);
-      let z_client = ctx.get_zeus_client();
+      let z_client = ctx.get_client_manager();
 
       let token_before = token.clone();
       let before_fut = z_client.request(chain, move |client| {

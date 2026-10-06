@@ -1351,7 +1351,7 @@ pub async fn wrap_eth(
    chain: ChainId,
    amount: NumericValue,
 ) -> Result<(), anyhow::Error> {
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    let (block, block_id) = pinned_head(ctx.clone(), chain, BlockId::latest()).await?;
 
@@ -1727,7 +1727,7 @@ async fn swap_via_ur(
    currency_out: Currency,
    swap_steps: Vec<SwapStep<AnyUniswapPool>>,
 ) -> Result<(), anyhow::Error> {
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    let (block, block_id) = pinned_head(ctx.clone(), chain, BlockId::latest()).await?;
 

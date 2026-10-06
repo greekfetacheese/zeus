@@ -1,6 +1,6 @@
 use super::{
-   AddressBookHandle, ApprovalManagerHandle, BalanceManagerHandle, ClientKind, CurrencyDB,
-   EnsCache, NftDB, PoolManagerHandle, WalletPortfolio, ZeusClient,
+   AddressBookHandle, ApprovalManagerHandle, BalanceManagerHandle, ClientKind, ClientManager,
+   CurrencyDB, EnsCache, NftDB, PoolManagerHandle, WalletPortfolio,
    price_manager::PriceManagerHandle, tx::TxDBHandle,
 };
 
@@ -799,21 +799,21 @@ impl ZeusCtx {
 
    /// Check if any RPC client is available for the given chain
    pub fn client_available(&self, chain: u64) -> bool {
-      let z_client = self.get_zeus_client();
+      let z_client = self.get_client_manager();
       z_client.rpc_available(chain)
    }
 
-   pub fn get_zeus_client(&self) -> ZeusClient {
-      self.read(|ctx| ctx.client.clone())
+   pub fn get_client_manager(&self) -> ClientManager {
+      self.read(|ctx| ctx.client_manager.clone())
    }
 
    pub async fn get_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
-      let z_client = self.get_zeus_client();
+      let z_client = self.get_client_manager();
       z_client.get_client(chain).await
    }
 
    pub async fn connect_to_rpc(&self, rpc: &Rpc) -> Result<RpcClient, anyhow::Error> {
-      let z_client = self.get_zeus_client();
+      let z_client = self.get_client_manager();
       z_client.connect_to(rpc).await
    }
 
@@ -825,12 +825,12 @@ impl ZeusCtx {
       chain: u64,
       http: bool,
    ) -> Result<RpcClient, anyhow::Error> {
-      let z_client = self.get_zeus_client();
+      let z_client = self.get_client_manager();
       z_client.get_archive_client(chain, http).await
    }
 
    pub async fn get_mev_protect_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
-      let z_client = self.get_zeus_client();
+      let z_client = self.get_client_manager();
       z_client.get_mev_protect_client(chain).await
    }
 
@@ -986,31 +986,31 @@ impl ZeusCtx {
       }
    }
 
-   pub fn save_zeus_client(&self) {
+   pub fn save_client_manager(&self) {
       let key = match self.read_vault(|vault| vault.wallet_state_key()) {
          Ok(k) => k,
          Err(e) => {
-            tracing::error!("Error saving ZeusClient: {:?}", e);
+            tracing::error!("Error saving ClientManager: {:?}", e);
             return;
          }
       };
-      let client = self.get_zeus_client();
+      let client = self.get_client_manager();
       match client.save_to_file(&key) {
-         Ok(_) => tracing::trace!("ZeusClient saved"),
-         Err(e) => tracing::error!("Error saving ZeusClient: {:?}", e),
+         Ok(_) => tracing::trace!("ClientManager saved"),
+         Err(e) => tracing::error!("Error saving ClientManager: {:?}", e),
       }
    }
 
    /// Load sealed `providers.data` into the live client (no-op if the file is missing).
-   pub fn load_zeus_client(&self) {
-      match ZeusClient::exists() {
+   pub fn load_client_manager(&self) {
+      match ClientManager::exists() {
          Ok(true) => {}
          Ok(false) => {
-            tracing::warn!("ZeusClient file missing, skipping load");
+            tracing::warn!("ClientManager file missing, skipping load");
             return;
          }
          Err(e) => {
-            tracing::error!("Error checking ZeusClient: {:?}", e);
+            tracing::error!("Error checking ClientManager: {:?}", e);
             return;
          }
       }
@@ -1018,14 +1018,14 @@ impl ZeusCtx {
       let key = match self.read_vault(|vault| vault.wallet_state_key()) {
          Ok(k) => k,
          Err(e) => {
-            tracing::error!("Error loading ZeusClient: {:?}", e);
+            tracing::error!("Error loading ClientManager: {:?}", e);
             return;
          }
       };
 
-      let client = self.get_zeus_client();
+      let client = self.get_client_manager();
       if let Err(e) = client.load_from_file(&key) {
-         tracing::error!("Error loading ZeusClient: {:?}", e);
+         tracing::error!("Error loading ClientManager: {:?}", e);
       }
    }
 
@@ -1134,8 +1134,8 @@ impl ZeusCtx {
          ctx.tx_counts.clear();
       });
 
-      let defaults = ZeusClient::default();
-      self.get_zeus_client().write(|map| {
+      let defaults = ClientManager::default();
+      self.get_client_manager().write(|map| {
          defaults.read(|d| *map = d.clone());
       });
 
@@ -1165,7 +1165,7 @@ impl ZeusCtx {
       self.load_currency_db();
       self.load_nft_db();
       self.load_pool_manager();
-      self.load_zeus_client();
+      self.load_client_manager();
       self.load_price_manager();
       self.load_or_create_address_book();
 
@@ -1545,7 +1545,7 @@ impl ZeusCtx {
       chain: u64,
       address: Address,
    ) -> Result<AnyUniswapPool, anyhow::Error> {
-      let z_client = self.get_zeus_client();
+      let z_client = self.get_client_manager();
       let cached = self.read(|ctx| ctx.pool_manager.get_v2_pool_from_address(chain, address));
 
       if let Some(pool) = cached {
@@ -1575,7 +1575,7 @@ impl ZeusCtx {
       chain: u64,
       address: Address,
    ) -> Result<AnyUniswapPool, anyhow::Error> {
-      let z_client = self.get_zeus_client();
+      let z_client = self.get_client_manager();
       let cached = self.read(|ctx| ctx.pool_manager.get_v3_pool_from_address(chain, address));
 
       if let Some(pool) = cached {
@@ -1688,7 +1688,7 @@ impl ZeusCtx {
       if let Some(token) = cached {
          return Ok(token);
       } else {
-         let z_client = self.get_zeus_client();
+         let z_client = self.get_client_manager();
          let rpc = z_client.get_best_rpc(chain).ok_or(anyhow!("No available RPC found"))?;
          let client = z_client.client_for(&rpc, ClientKind::Short).await?;
 
@@ -1714,7 +1714,7 @@ impl ZeusCtx {
          return Ok(nft);
       }
 
-      let z_client = self.get_zeus_client();
+      let z_client = self.get_client_manager();
       let rpc = z_client.get_best_rpc(chain).ok_or(anyhow!("No available RPC found"))?;
       let client = z_client.client_for(&rpc, ClientKind::Short).await?;
 
@@ -1803,7 +1803,7 @@ impl ZeusCtx {
          return Ok(());
       }
 
-      let client = self.get_zeus_client();
+      let client = self.get_client_manager();
       let code = client
          .request(chain, |client| async move {
             client.get_code_at(account).await.map_err(|e| anyhow!("{:?}", e))
@@ -1842,7 +1842,7 @@ impl ZeusCtx {
          return Ok(Some(receipt));
       }
 
-      let client = self.get_zeus_client();
+      let client = self.get_client_manager();
       let receipt = client
          .request(chain, |client| async move {
             client.get_transaction_receipt(hash).await.map_err(|e| anyhow!("{:?}", e))
@@ -1873,7 +1873,7 @@ impl ZeusCtx {
          return Ok(Some(transaction));
       }
 
-      let client = self.get_zeus_client();
+      let client = self.get_client_manager();
       let transaction = client
          .request(chain, |client| async move {
             client.get_transaction_by_hash(hash).await.map_err(|e| anyhow!("{:?}", e))
@@ -1916,7 +1916,7 @@ impl ZeusCtx {
          return Ok(storage);
       }
 
-      let client = self.get_zeus_client();
+      let client = self.get_client_manager();
       let storage = client
          .request(chain, |client| async move {
             client
@@ -1960,7 +1960,7 @@ impl ZeusCtx {
          return Ok(code);
       }
 
-      let client = self.get_zeus_client();
+      let client = self.get_client_manager();
       let code = client
          .request(chain, |client| async move {
             client
@@ -1997,7 +1997,7 @@ impl ZeusCtx {
          }
       }
 
-      let client = self.get_zeus_client();
+      let client = self.get_client_manager();
       let gas = client
          .request(chain.id(), |client| {
             let tx = tx.clone();
@@ -2036,7 +2036,7 @@ impl ZeusCtx {
          }
       }
 
-      let z_client = self.get_zeus_client();
+      let z_client = self.get_client_manager();
       let result = z_client
          .request(chain.id(), |client| {
             let tx = tx.clone();
@@ -2078,7 +2078,7 @@ impl ZeusCtx {
          }
       }
 
-      let z_client = self.get_zeus_client();
+      let z_client = self.get_client_manager();
       let block = z_client
          .request(chain.id(), |client| async move {
             client.get_block(BlockId::latest()).await.map_err(|e| anyhow!("{:?}", e))
@@ -2134,7 +2134,7 @@ impl ZeusCtx {
          }
       }
 
-      let z_client = self.get_zeus_client();
+      let z_client = self.get_client_manager();
       let block = z_client
          .request(chain.id(), move |client| async move {
             let req = client.get_block(block_id);
@@ -2189,7 +2189,7 @@ impl ZeusCtx {
          }
       }
 
-      let z_client = self.get_zeus_client();
+      let z_client = self.get_client_manager();
       let block = z_client
          .request(chain.id(), move |client| async move {
             let req = client.get_block_by_hash(hash);
@@ -2237,7 +2237,7 @@ impl ZeusCtx {
          }
       }
 
-      let z_client = self.get_zeus_client();
+      let z_client = self.get_client_manager();
       let count = z_client
          .request(chain.id(), move |client| async move {
             client.get_transaction_count(address).await.map_err(|e| anyhow!("{:?}", e))
@@ -2267,7 +2267,7 @@ impl ZeusCtx {
 
 pub struct ZeusContext {
    /// Client manager that handles almost all the RPC calls in Zeus
-   pub client: ZeusClient,
+   pub client_manager: ClientManager,
 
    /// The current selected chain from the GUI
    pub chain: ChainId,
@@ -2416,7 +2416,7 @@ fn tighten_existing_secret_files() {
       CurrencyDB::dir().ok(),
       AddressBookHandle::dir().ok(),
       pool_data_dir().ok(),
-      ZeusClient::dir().ok(),
+      ClientManager::dir().ok(),
       bundler_url_dir().ok(),
       PriceManagerHandle::dir().ok(),
       persisted::file_path(PersistedFile::Connector).ok(),
@@ -2436,7 +2436,7 @@ impl ZeusContext {
    pub fn new() -> Self {
       tighten_existing_secret_files();
 
-      let client = ZeusClient::default();
+      let client_manager = ClientManager::default();
 
       let currency_db = CurrencyDB::default();
 
@@ -2477,7 +2477,7 @@ impl ZeusContext {
       let priority_fee = PriorityFee::default();
 
       Self {
-         client,
+         client_manager,
          chain: ChainId::new(1).unwrap(),
          privacy_mode: false,
          railgun_resync_attempts: HashMap::new(),
@@ -2835,7 +2835,7 @@ impl ZeusContext {
       let should_check = now_millis.saturating_sub(last_checked) > threshold;
 
       if should_check {
-         let ok = self.client.rpc_available(chain);
+         let ok = self.client_manager.rpc_available(chain);
          self.last_checked_for_available_rpcs.insert(chain, now_millis);
          self.available_rpcs.insert(chain, ok);
 
@@ -2867,7 +2867,7 @@ impl ZeusContext {
 
       self.last_checked_for_malfunction.insert(chain, now_millis);
 
-      if self.client.rpcs_fully_functional(chain) {
+      if self.client_manager.rpcs_fully_functional(chain) {
          return false;
       }
 

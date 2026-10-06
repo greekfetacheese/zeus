@@ -436,7 +436,7 @@ impl PriceManagerHandle {
       ctx: ZeusCtx,
       chain: u64,
    ) -> Result<(), anyhow::Error> {
-      let client = ctx.get_zeus_client();
+      let client = ctx.get_client_manager();
       let tokens = ERC20Token::base_tokens(chain);
 
       let mut tasks: Vec<JoinHandle<Result<(Address, f64), anyhow::Error>>> = Vec::new();

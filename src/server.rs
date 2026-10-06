@@ -1287,7 +1287,7 @@ async fn max_priority_fee_per_gas(
       ));
    }
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let fee = match client
       .request(chain, |client| async move {
          client.get_max_priority_fee_per_gas().await.map_err(|e| anyhow!("{:?}", e))

@@ -431,7 +431,7 @@ impl PoolManagerHandle {
 
             let base_tokens_addr = bases_to_discover.iter().map(|t| t.address).collect::<Vec<_>>();
             let quote_token = token.address;
-            let zeus_client = ctx.get_zeus_client();
+            let zeus_client = ctx.get_client_manager();
 
             let pools = zeus_client
                .request(chain, |client| {
@@ -894,7 +894,7 @@ async fn batch_update_state(
       v4_pools.len()
    );
 
-   let zeus_client = ctx.get_zeus_client();
+   let zeus_client = ctx.get_client_manager();
    let state_view = uniswap_v4_stateview(chain)?;
 
    #[cfg(feature = "dev")]

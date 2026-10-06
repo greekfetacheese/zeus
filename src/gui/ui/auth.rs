@@ -826,7 +826,7 @@ fn on_unlock_vault(mut vault: Vault) {
             ctx.load_currency_db();
             ctx.load_nft_db();
             ctx.load_pool_manager();
-            ctx.load_zeus_client();
+            ctx.load_client_manager();
             ctx.load_price_manager();
             ctx.load_or_create_address_book();
 

@@ -119,7 +119,7 @@ impl BalanceManagerHandle {
          return Ok(());
       }
 
-      let client = ctx.get_zeus_client();
+      let client = ctx.get_client_manager();
       let batch_size = self.batch_size();
       let max_retries = self.max_retries();
       let retry_delay = self.retry_delay();
@@ -201,7 +201,7 @@ impl BalanceManagerHandle {
          return Ok(());
       }
 
-      let client = ctx.get_zeus_client();
+      let client = ctx.get_client_manager();
       let semaphore = Arc::new(Semaphore::new(self.concurrency()));
       let token_map: Arc<HashMap<Address, ERC20Token>> =
          Arc::new(tokens.iter().map(|token| (token.address, token.clone())).collect());

@@ -284,7 +284,7 @@ pub async fn send_transaction(
       gui.request_repaint();
    });
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    let base_fee_fut = get_base_fee(ctx.clone(), chain.id());
    let nonce_fut = client.request(chain.id(), |client| async move {
@@ -523,7 +523,7 @@ pub async fn delegate_to(
    delegate_to: Address,
 ) -> Result<(), anyhow::Error> {
    let wallet = ctx.get_wallet(from).ok_or(anyhow!("Wallet not found"))?.key;
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    if !delegate_to.is_zero() {
       let code = client

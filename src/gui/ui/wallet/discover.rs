@@ -832,7 +832,7 @@ async fn sync_wallets_balance(
 
       let task = RT.spawn(async move {
          let _permit = semaphore.acquire().await?;
-         let z_client = ctx.get_zeus_client();
+         let z_client = ctx.get_client_manager();
 
          let balances = z_client
             .request(chain, |client| {

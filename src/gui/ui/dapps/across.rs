@@ -1163,7 +1163,7 @@ async fn across_bridge(
    let from_block_clone = from_block.clone();
    RT.spawn(async move {
       if ctx_clone.client_available(dest_chain.id()) {
-         let z_client = ctx_clone.get_zeus_client();
+         let z_client = ctx_clone.get_client_manager();
          let block = z_client
             .request(dest_chain.id(), |client| async move {
                client.get_block_number().await.map_err(|e| anyhow!("{:?}", e))
@@ -1331,7 +1331,7 @@ async fn wait_for_fill(
       .address(vec![target])
       .event(filled_relay_signature());
 
-   let z_client = ctx.get_zeus_client();
+   let z_client = ctx.get_client_manager();
 
    // Wait for the order to be filled at the destination chain
    while now.elapsed().as_secs() < deadline as u64 {

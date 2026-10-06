@@ -1192,7 +1192,7 @@ async fn get_erc20_token(
    // Fire-and-forget do not await. The placeholder stays until this finishes.
    spawn_fetch_token_icon(chain, token_address);
 
-   let z_client = ctx.get_zeus_client();
+   let z_client = ctx.get_client_manager();
    let rpc = z_client.get_best_rpc(chain).ok_or(anyhow!("No available RPC found"))?;
    let client = z_client.client_for(&rpc, ClientKind::Short).await?;
 

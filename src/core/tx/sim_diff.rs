@@ -550,7 +550,7 @@ async fn fetch_token_before(
       return HashMap::new();
    }
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let mut out = HashMap::new();
 
    for chunk in tokens.chunks(TOKEN_BALANCE_BATCH) {
@@ -590,7 +590,7 @@ async fn fetch_erc20_allowance_before(
       return HashMap::new();
    }
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let mut out = HashMap::new();
 
    for chunk in pairs.chunks(ALLOWANCE_PAIR_BATCH) {
@@ -632,7 +632,7 @@ async fn fetch_permit2_before(
       return HashMap::new();
    };
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let mut out = HashMap::new();
 
    for chunk in pairs.chunks(ALLOWANCE_PAIR_BATCH) {
@@ -679,7 +679,7 @@ async fn fetch_nft_ownership_before(
       return HashMap::new();
    }
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let mut out = HashMap::new();
 
    for chunk in refs.chunks(NFT_REF_BATCH) {
@@ -720,7 +720,7 @@ async fn fetch_nft_balances_before(
       return HashMap::new();
    }
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let mut out = HashMap::new();
 
    for chunk in refs.chunks(NFT_REF_BATCH) {
@@ -757,7 +757,7 @@ async fn fetch_nft_token_approvals_before(
       return HashMap::new();
    }
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let mut out = HashMap::new();
 
    for chunk in candidates.chunks(NFT_REF_BATCH) {
@@ -815,7 +815,7 @@ async fn fetch_nft_for_all_before(
       return HashMap::new();
    }
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let mut out = HashMap::new();
 
    for chunk in candidates.chunks(NFT_REF_BATCH) {
@@ -861,7 +861,7 @@ async fn fetch_nft_allowances_before(
       return HashMap::new();
    }
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let mut out = HashMap::new();
 
    for chunk in candidates.chunks(NFT_REF_BATCH) {
@@ -1126,7 +1126,7 @@ pub async fn diffs_from_receipt(
 
    let nft = NftRequest::collect(&ctx, chain, from, interact_to, call_data, logs);
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let native_before_fut = client.request(chain, |client| async move {
       client.get_balance(from).block_id(parent).await.map_err(|e| anyhow!("{:?}", e))
    });
@@ -1413,7 +1413,7 @@ pub async fn simulate_and_diff(
    value: U256,
    authorization_list: Vec<SignedAuthorization>,
 ) -> Result<SimulatedTx, anyhow::Error> {
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    let (block, block_id) = pinned_head(ctx.clone(), chain, BlockId::latest()).await?;
 

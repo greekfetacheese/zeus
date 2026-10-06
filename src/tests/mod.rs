@@ -37,7 +37,7 @@ pub fn unlock_ctx() -> crate::core::ZeusCtx {
    ctx.load_currency_db();
    ctx.load_nft_db();
    ctx.load_pool_manager();
-   ctx.load_zeus_client();
+   ctx.load_client_manager();
    ctx.load_price_manager();
 
    ctx
@@ -52,7 +52,7 @@ pub fn unlock_ctx() -> crate::core::ZeusCtx {
 #[cfg(test)]
 pub fn test_ctx(chain: u64) -> crate::core::ZeusCtx {
    let ctx = unlock_ctx();
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let rpcs = client.get_rpcs(chain);
 
    assert!(
