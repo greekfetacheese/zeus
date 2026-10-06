@@ -1,4 +1,4 @@
-use crate::core::persisted::{PersistedFile, file_path};
+use crate::core::persisted::{PersistedFile, client_settings_dir, file_path};
 use crate::core::{WalletStateKey, ZeusCtx};
 use crate::utils::{RT, TimeStamp, simulate::STORAGE_FETCH_CHUNK_SIZE, write_private_atomic};
 use zeus_eth::{
@@ -442,6 +442,44 @@ struct ClientKey {
    kind: ClientKind,
 }
 
+/// Lower / upper bound for the global concurrency setting.
+pub const MIN_CONCURRENCY: usize = 1;
+pub const MAX_CONCURRENCY: usize = 16;
+
+fn default_concurrency() -> usize {
+   1
+}
+
+/// Non-secret [`ClientManager`] settings, stored in `data/client_settings.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientSettings {
+   /// Max concurrent batch/prefetch requests the client fans out. Default 1 (public-endpoint safe).
+   #[serde(default = "default_concurrency")]
+   pub concurrency: usize,
+}
+
+impl Default for ClientSettings {
+   fn default() -> Self {
+      Self {
+         concurrency: default_concurrency(),
+      }
+   }
+}
+
+impl ClientSettings {
+   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+      let dir = client_settings_dir()?;
+      let data = std::fs::read_to_string(dir)?;
+      Ok(serde_json::from_str(&data)?)
+   }
+
+   pub fn save(&self) -> Result<(), anyhow::Error> {
+      let dir = client_settings_dir()?;
+      write_private_atomic(&dir, serde_json::to_string(self)?.as_bytes())?;
+      Ok(())
+   }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientManager {
    pub rpcs: Arc<RwLock<HashMap<u64, RpcMapByUrl>>>,
@@ -449,6 +487,10 @@ pub struct ClientManager {
    /// Live connections, keyed by endpoint + purpose. Runtime-only, never persisted.
    #[serde(skip)]
    clients: Arc<RwLock<HashMap<ClientKey, RpcClient>>>,
+
+   /// Runtime settings (concurrency), loaded from / saved to `data/client_settings.json`.
+   #[serde(skip)]
+   settings: Arc<RwLock<ClientSettings>>,
 }
 
 impl Default for ClientManager {
@@ -535,6 +577,7 @@ impl Default for ClientManager {
       Self {
          rpcs: Arc::new(RwLock::new(rpc_map_by_chain)),
          clients: Arc::new(RwLock::new(HashMap::new())),
+         settings: Arc::new(RwLock::new(ClientSettings::default())),
       }
    }
 }
@@ -585,6 +628,33 @@ impl ClientManager {
 
    pub fn exists() -> Result<bool, anyhow::Error> {
       Ok(Self::dir()?.exists())
+   }
+
+   /// Max concurrent batch/prefetch requests the client fans out (see [`ClientSettings`]).
+   pub fn concurrency(&self) -> usize {
+      self.settings.read().unwrap().concurrency
+   }
+
+   /// Set the global concurrency, clamped to [`MIN_CONCURRENCY`]`..=`[`MAX_CONCURRENCY`].
+   pub fn set_concurrency(&self, concurrency: usize) {
+      self.settings.write().unwrap().concurrency =
+         concurrency.clamp(MIN_CONCURRENCY, MAX_CONCURRENCY);
+   }
+
+   /// Load `client_settings.json`, keeping the defaults if it is missing or unreadable.
+   pub fn load_settings(&self) {
+      match ClientSettings::load_from_file() {
+         Ok(mut settings) => {
+            settings.concurrency = settings.concurrency.clamp(MIN_CONCURRENCY, MAX_CONCURRENCY);
+            *self.settings.write().unwrap() = settings;
+         }
+         Err(e) => tracing::warn!("Client settings not loaded, using defaults: {e:?}"),
+      }
+   }
+
+   pub fn save_settings(&self) -> Result<(), anyhow::Error> {
+      let settings = self.settings.read().unwrap().clone();
+      settings.save()
    }
 
    pub fn get_rpcs(&self, chain: u64) -> RpcMapByUrl {
@@ -1515,6 +1585,7 @@ mod tests {
       let client = ClientManager {
          rpcs: Arc::new(RwLock::new(HashMap::new())),
          clients: Arc::new(RwLock::new(HashMap::new())),
+         settings: Arc::new(RwLock::new(ClientSettings::default())),
       };
       for rpc in rpcs {
          client.add_rpc(rpc.chain_id, rpc);
@@ -1602,6 +1673,27 @@ mod tests {
       let rpc = client.get_rpcs(1).into_values().next().unwrap();
       assert_eq!(rpc.rps, MIN_RPC_RPS);
       assert_eq!(rpc.cu_per_second, MIN_RPC_CU_PER_SECOND);
+   }
+
+   #[test]
+   fn client_settings_concurrency_clamps() {
+      let client = ClientManager::default();
+      assert_eq!(client.concurrency(), default_concurrency());
+
+      client.set_concurrency(0);
+      assert_eq!(client.concurrency(), MIN_CONCURRENCY);
+
+      client.set_concurrency(usize::MAX);
+      assert_eq!(client.concurrency(), MAX_CONCURRENCY);
+
+      client.set_concurrency(4);
+      assert_eq!(client.concurrency(), 4);
+   }
+
+   #[test]
+   fn client_settings_default_when_field_missing() {
+      let settings: ClientSettings = serde_json::from_str("{}").unwrap();
+      assert_eq!(settings.concurrency, default_concurrency());
    }
 
    #[test]

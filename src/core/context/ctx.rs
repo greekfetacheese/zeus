@@ -999,10 +999,17 @@ impl ZeusCtx {
          Ok(_) => tracing::trace!("ClientManager saved"),
          Err(e) => tracing::error!("Error saving ClientManager: {:?}", e),
       }
+
+      if let Err(e) = client.save_settings() {
+         tracing::error!("Error saving client settings: {:?}", e);
+      }
    }
 
    /// Load sealed `providers.data` into the live client (no-op if the file is missing).
    pub fn load_client_manager(&self) {
+      let client = self.get_client_manager();
+      client.load_settings();
+
       match ClientManager::exists() {
          Ok(true) => {}
          Ok(false) => {
@@ -1023,7 +1030,6 @@ impl ZeusCtx {
          }
       };
 
-      let client = self.get_client_manager();
       if let Err(e) = client.load_from_file(&key) {
          tracing::error!("Error loading ClientManager: {:?}", e);
       }
