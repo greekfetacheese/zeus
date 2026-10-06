@@ -1,5 +1,5 @@
 use crate::core::{
-   TransactionAnalysis, TransactionRich, ZeusCtx, client::CLIENT_TIMEOUT_FOR_SENDING_TX,
+   ClientKind, TransactionAnalysis, TransactionRich, ZeusCtx, client::CLIENT_TIMEOUT_FOR_SENDING_TX,
 };
 use crate::utils::{state::get_base_fee, wait_confirm_window, wait_tx_confirm};
 use alloy_eips::eip7702::{Authorization, SignedAuthorization};
@@ -395,7 +395,7 @@ pub async fn send_transaction(
    .authorization_list(authorization_list.clone());
 
    let rpc = client.get_best_rpc(chain.id()).ok_or(anyhow!("No available RPC found"))?;
-   let tx_client = client.connect_with_timeout(&rpc, CLIENT_TIMEOUT_FOR_SENDING_TX).await?;
+   let tx_client = client.client_for(&rpc, ClientKind::Send).await?;
 
    // If needed use MEV protect client, if not found prompt the user to continue
    let send_client = if opts.mev_protect {

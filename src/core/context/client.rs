@@ -762,16 +762,9 @@ impl ZeusClient {
          .retain(|key, _| !(key.chain == chain && &*key.url == url));
    }
 
+   /// A cached [`ClientKind::Standard`] connection for `rpc`.
    pub async fn connect_to(&self, rpc: &Rpc) -> Result<RpcClient, anyhow::Error> {
-      self.connect_with_timeout(rpc, CLIENT_TIMEOUT).await
-   }
-
-   pub async fn connect_with_timeout(
-      &self,
-      rpc: &Rpc,
-      timeout: u64,
-   ) -> Result<RpcClient, anyhow::Error> {
-      connect_rpc(&rpc.url, timeout).await
+      self.cached_connect(rpc, ClientKind::Standard).await
    }
 
    pub async fn get_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
@@ -830,7 +823,7 @@ impl ZeusClient {
             continue;
          }
 
-         match self.connect_with_timeout(rpc, CLIENT_TIMEOUT_FOR_SENDING_TX).await {
+         match self.client_for(rpc, ClientKind::Send).await {
             Ok(client) => return Ok(client),
             Err(_e) => {
                #[cfg(feature = "dev")]
@@ -1441,6 +1434,14 @@ mod tests {
       let rpc = client.get_best_rpc(1).unwrap();
       let _a = client.client_for(&rpc, ClientKind::Standard).await.unwrap();
       let _b = client.client_for(&rpc, ClientKind::Standard).await.unwrap();
+      assert_eq!(client.clients.read().unwrap().len(), 1);
+   }
+
+   #[tokio::test]
+   async fn get_client_reuses_the_cached_connection() {
+      let client = client_with([http_rpc("http://127.0.0.1:1")]);
+      let _a = client.get_client(1).await.unwrap();
+      let _b = client.get_client(1).await.unwrap();
       assert_eq!(client.clients.read().unwrap().len(), 1);
    }
 

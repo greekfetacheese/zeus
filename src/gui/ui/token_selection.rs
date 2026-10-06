@@ -6,7 +6,7 @@ use eframe::egui::{
 };
 
 use crate::assets::icons::Icons;
-use crate::core::{ZeusContext, ZeusCtx};
+use crate::core::{ClientKind, ZeusContext, ZeusCtx};
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::{
    RT, nft_icon::start_nft_art_downloads, token_icon::spawn_fetch_token_icon, truncate_address,
@@ -1194,7 +1194,7 @@ async fn get_erc20_token(
 
    let z_client = ctx.get_zeus_client();
    let rpc = z_client.get_best_rpc(chain).ok_or(anyhow!("No available RPC found"))?;
-   let client = z_client.connect_with_timeout(&rpc, 10).await?;
+   let client = z_client.client_for(&rpc, ClientKind::Short).await?;
 
    let token = ERC20Token::new(client, token_address, chain).await?;
 

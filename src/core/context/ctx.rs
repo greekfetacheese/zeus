@@ -1,7 +1,7 @@
 use super::{
-   AddressBookHandle, ApprovalManagerHandle, BalanceManagerHandle, CurrencyDB, EnsCache, NftDB,
-   PoolManagerHandle, WalletPortfolio, ZeusClient, price_manager::PriceManagerHandle,
-   tx::TxDBHandle,
+   AddressBookHandle, ApprovalManagerHandle, BalanceManagerHandle, ClientKind, CurrencyDB,
+   EnsCache, NftDB, PoolManagerHandle, WalletPortfolio, ZeusClient,
+   price_manager::PriceManagerHandle, tx::TxDBHandle,
 };
 
 use crate::core::persisted::{self, PersistedFile};
@@ -1690,7 +1690,7 @@ impl ZeusCtx {
       } else {
          let z_client = self.get_zeus_client();
          let rpc = z_client.get_best_rpc(chain).ok_or(anyhow!("No available RPC found"))?;
-         let client = z_client.connect_with_timeout(&rpc, 10).await?;
+         let client = z_client.client_for(&rpc, ClientKind::Short).await?;
 
          let token = ERC20Token::new(client, address, chain).await?;
 
@@ -1716,7 +1716,7 @@ impl ZeusCtx {
 
       let z_client = self.get_zeus_client();
       let rpc = z_client.get_best_rpc(chain).ok_or(anyhow!("No available RPC found"))?;
-      let client = z_client.connect_with_timeout(&rpc, 10).await?;
+      let client = z_client.client_for(&rpc, ClientKind::Short).await?;
 
       let collection = NftCollection::fetch(client.clone(), chain, collection).await?;
       let nft = NftToken::fetch(client, &collection, token_id).await?;
