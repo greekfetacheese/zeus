@@ -33,9 +33,6 @@ pub const STORAGE_FETCH_CHUNK_SIZE: usize = 50;
 /// Max addresses per StateView / `eth_getCode` batch.
 const ACCOUNT_INFO_BATCH: usize = 20;
 
-/// Concurrent RPC batches (balances, codes, and nonce fetches).
-const CONCURRENCY: usize = 1;
-
 /// EIP-7702 designated code is `0xef0100 || implementation`.
 pub fn eip7702_implementation(code: &[u8]) -> Option<Address> {
    if code.len() == 23 && code[0] == 0xef && code[1] == 0x01 && code[2] == 0x00 {
@@ -758,7 +755,7 @@ async fn fetch_eth_balances_batched(
    #[cfg(feature = "dev")]
    let time = Instant::now();
 
-   let semaphore = Arc::new(Semaphore::new(CONCURRENCY));
+   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
    let mut tasks = Vec::new();
 
    for chunk in addresses.chunks(ACCOUNT_INFO_BATCH) {
@@ -806,7 +803,7 @@ async fn fetch_account_codes_batched(
    #[cfg(feature = "dev")]
    let time = Instant::now();
 
-   let semaphore = Arc::new(Semaphore::new(CONCURRENCY));
+   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
    let mut tasks = Vec::new();
 
    for chunk in addresses.chunks(ACCOUNT_INFO_BATCH) {
@@ -859,7 +856,7 @@ async fn fetch_eoa_nonces(
    #[cfg(feature = "dev")]
    let time = Instant::now();
 
-   let semaphore = Arc::new(Semaphore::new(CONCURRENCY));
+   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
    let mut tasks = Vec::new();
    for chunk in eoas.chunks(ACCOUNT_INFO_BATCH) {
       let chunk = chunk.to_vec();
@@ -944,7 +941,8 @@ pub async fn fetch_storage_for_pools(
       };
    }
 
-   let semaphore = Arc::new(Semaphore::new(CONCURRENCY));
+   let concurrency = ctx.get_client_manager().concurrency();
+   let semaphore = Arc::new(Semaphore::new(concurrency));
 
    for acc in account_slots {
       let ctx = ctx.clone();
