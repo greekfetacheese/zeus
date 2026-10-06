@@ -543,6 +543,7 @@ impl ZeusClient {
       self.write(|rpcs| {
          rpcs.entry(chain).or_default().remove(&*url);
       });
+      self.evict_client(chain, &url);
    }
 
    fn update_rpc(&self, chain: u64, url: &str, f: impl FnOnce(&mut Rpc)) {
@@ -551,6 +552,14 @@ impl ZeusClient {
             f(rpc);
          }
       });
+   }
+
+   /// Enable or disable an endpoint, closing its cached connections when disabled.
+   pub fn set_rpc_enabled(&self, chain: u64, url: &str, enabled: bool) {
+      self.update_rpc(chain, url, |rpc| rpc.enabled = enabled);
+      if !enabled {
+         self.evict_client(chain, url);
+      }
    }
 
    pub async fn run_latency_check_for(&self, rpc: Rpc) {
@@ -1413,6 +1422,18 @@ mod tests {
       let mut rpc = Rpc::builder(url, 1).enabled().build();
       rpc.check.working = true;
       rpc
+   }
+
+   #[tokio::test]
+   async fn disabling_an_rpc_evicts_its_connection() {
+      let client = client_with([http_rpc("http://127.0.0.1:1")]);
+      let rpc = client.get_best_rpc(1).unwrap();
+      let _ = client.client_for(&rpc, ClientKind::Standard).await.unwrap();
+      assert_eq!(client.clients.read().unwrap().len(), 1);
+
+      client.set_rpc_enabled(1, "http://127.0.0.1:1", false);
+      assert!(client.clients.read().unwrap().is_empty());
+      assert!(!client.get_rpcs(1).values().any(|rpc| rpc.enabled));
    }
 
    #[test]

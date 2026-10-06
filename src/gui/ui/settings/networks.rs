@@ -262,14 +262,7 @@ impl NetworkSettings {
 
                if res.inner.clicked() {
                   let z_client = ctx.client.clone();
-                  z_client.write(|rpcs_map| {
-                     let rpcs_opt = rpcs_map.get_mut(&chain);
-                     if let Some(rpcs) = rpcs_opt {
-                        if let Some(old_rpc) = rpcs.get_mut(&rpc.url) {
-                           old_rpc.enabled = rpc.enabled;
-                        }
-                     }
-                  });
+                  z_client.set_rpc_enabled(chain, &rpc.url, rpc.enabled);
 
                   if !was_enabled && rpc.enabled {
                      let rpc = rpc.clone();
