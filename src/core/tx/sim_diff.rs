@@ -556,11 +556,8 @@ async fn fetch_token_before(
    for chunk in tokens.chunks(TOKEN_BALANCE_BATCH) {
       let chunk = chunk.to_vec();
       match client
-         .request(chain, |client| {
-            let chunk = chunk.clone();
-            async move {
-               batch::get_erc20_balances(client, chain, Some(block_id), from, chunk).await
-            }
+         .request_with(chain, chunk.clone(), |client, chunk| async move {
+            batch::get_erc20_balances(client, chain, Some(block_id), from, chunk).await
          })
          .await
       {
@@ -596,9 +593,8 @@ async fn fetch_erc20_allowance_before(
    for chunk in pairs.chunks(ALLOWANCE_PAIR_BATCH) {
       let chunk = chunk.to_vec();
       match client
-         .request(chain, |client| {
-            let chunk = chunk.clone();
-            async move { batch::get_erc20_allowances(client, from, chunk, Some(block_id)).await }
+         .request_with(chain, chunk.clone(), |client, chunk| async move {
+            batch::get_erc20_allowances(client, from, chunk, Some(block_id)).await
          })
          .await
       {
@@ -638,11 +634,8 @@ async fn fetch_permit2_before(
    for chunk in pairs.chunks(ALLOWANCE_PAIR_BATCH) {
       let chunk = chunk.to_vec();
       match client
-         .request(chain, |client| {
-            let chunk = chunk.clone();
-            async move {
-               batch::get_permit2_allowances(client, permit2, from, chunk, Some(block_id)).await
-            }
+         .request_with(chain, chunk.clone(), |client, chunk| async move {
+            batch::get_permit2_allowances(client, permit2, from, chunk, Some(block_id)).await
          })
          .await
       {
@@ -685,9 +678,8 @@ async fn fetch_nft_ownership_before(
    for chunk in refs.chunks(NFT_REF_BATCH) {
       let chunk = chunk.to_vec();
       match client
-         .request(chain, |client| {
-            let chunk = chunk.clone();
-            async move { batch::get_erc721_owners(client, chunk, Some(block_id)).await }
+         .request_with(chain, chunk.clone(), |client, chunk| async move {
+            batch::get_erc721_owners(client, chunk, Some(block_id)).await
          })
          .await
       {
@@ -726,9 +718,8 @@ async fn fetch_nft_balances_before(
    for chunk in refs.chunks(NFT_REF_BATCH) {
       let chunk = chunk.to_vec();
       match client
-         .request(chain, |client| {
-            let chunk = chunk.clone();
-            async move { batch::get_erc1155_balances(client, from, chunk, Some(block_id)).await }
+         .request_with(chain, chunk.clone(), |client, chunk| async move {
+            batch::get_erc1155_balances(client, from, chunk, Some(block_id)).await
          })
          .await
       {
@@ -778,9 +769,8 @@ async fn fetch_nft_token_approvals_before(
       let chunk = chunk.to_vec();
 
       match client
-         .request(chain, |client| {
-            let refs = refs.clone();
-            async move { batch::get_erc721_approved(client, refs, Some(block_id)).await }
+         .request_with(chain, refs.clone(), |client, refs| async move {
+            batch::get_erc721_approved(client, refs, Some(block_id)).await
          })
          .await
       {
@@ -826,12 +816,13 @@ async fn fetch_nft_for_all_before(
       let chunk = chunk.to_vec();
 
       match client
-         .request(chain, |client| {
-            let targets = targets.clone();
-            async move {
+         .request_with(
+            chain,
+            targets.clone(),
+            |client, targets| async move {
                batch::get_erc721_is_approved_for_all(client, from, targets, Some(block_id)).await
-            }
-         })
+            },
+         )
          .await
       {
          Ok(rows) => {
@@ -877,9 +868,8 @@ async fn fetch_nft_allowances_before(
       let chunk = chunk.to_vec();
 
       match client
-         .request(chain, |client| {
-            let refs = refs.clone();
-            async move { batch::get_erc1155_allowances(client, from, refs, Some(block_id)).await }
+         .request_with(chain, refs.clone(), |client, refs| async move {
+            batch::get_erc1155_allowances(client, from, refs, Some(block_id)).await
          })
          .await
       {

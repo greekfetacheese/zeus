@@ -434,10 +434,10 @@ impl PoolManagerHandle {
             let zeus_client = ctx.get_client_manager();
 
             let pools = zeus_client
-               .request(chain, |client| {
-                  let v4_pool_ids = v4_pool_ids.clone();
-                  let base_tokens_addr = base_tokens_addr.clone();
-                  async move {
+               .request_with(
+                  chain,
+                  (v4_pool_ids.clone(), base_tokens_addr.clone()),
+                  |client, (v4_pool_ids, base_tokens_addr)| async move {
                      batch::get_pools(
                         client,
                         chain,
@@ -450,8 +450,8 @@ impl PoolManagerHandle {
                      )
                      .await
                      .map_err(|e| anyhow!("{:?}", e))
-                  }
-               })
+                  },
+               )
                .await?;
 
             let v2_pools = &pools.v2Pools;
@@ -920,11 +920,14 @@ async fn batch_update_state(
       let task = RT.spawn(async move {
          let _permit = semaphore.acquire().await?;
          let res = zeus_client
-            .request(chain, move |client| {
-               let v2_chunk = v2_chunk.clone();
-               let v3_chunk = v3_chunk.clone();
-               let v4_chunk = v4_chunk.clone();
-               async move {
+            .request_with(
+               chain,
+               (
+                  v2_chunk.clone(),
+                  v3_chunk.clone(),
+                  v4_chunk.clone(),
+               ),
+               |client, (v2_chunk, v3_chunk, v4_chunk)| async move {
                   batch::get_pools_state(
                      client.clone(),
                      chain,
@@ -934,8 +937,8 @@ async fn batch_update_state(
                      state_view,
                   )
                   .await
-               }
-            })
+               },
+            )
             .await?;
 
          Ok(res)

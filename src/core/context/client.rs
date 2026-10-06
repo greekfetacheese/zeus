@@ -983,12 +983,41 @@ impl ClientManager {
 
    /// Execute a request with automatic RPC selection, retries, and load balancing.
    ///
-   /// The closure `f` receives a connected Provider (RpcClient) and returns a future with the result.
+   /// `f` receives a connected Provider (RpcClient) and returns a future with the result. It is called
+   /// once per retry attempt, so it must be reusable (an `Fn` closure returning a future).
    /// Retries across RPCs on failure, up to MAX_RETRIES total attempts.
    /// Selects RPC based on latency + usage cooldown to spread concurrent load.
    pub async fn request<F, Fut, R>(&self, chain: u64, f: F) -> Result<R, anyhow::Error>
    where
       F: Fn(RpcClient) -> Fut,
+      Fut: core::future::Future<Output = Result<R, anyhow::Error>>,
+   {
+      self.request_with(chain, (), |client, _| f(client)).await
+   }
+
+   /// Like [`Self::request`], but takes an owned, clonable payload that is handed to `f` on every
+   /// attempt. This removes the `|client| { let x = x.clone(); async move { … } }` boilerplate: pass
+   /// the captured value once, and this method clones it per retry while you return the future
+   /// directly instead of wrapping it in an `async move` block:
+   ///
+   /// ```ignore
+   /// client
+   ///    .request_with(chain, tokens_addr, |client, tokens_addr| {
+   ///       batch::get_erc20_balances(client, chain, None, owner, tokens_addr)
+   ///    })
+   ///    .await?;
+   /// ```
+   ///
+   /// Pass a tuple for more than one value. Use [`Self::request`] when nothing needs owning.
+   pub async fn request_with<A, F, Fut, R>(
+      &self,
+      chain: u64,
+      args: A,
+      f: F,
+   ) -> Result<R, anyhow::Error>
+   where
+      A: Clone,
+      F: Fn(RpcClient, A) -> Fut,
       Fut: core::future::Future<Output = Result<R, anyhow::Error>>,
    {
       let mut attempts = 0;
@@ -1018,7 +1047,7 @@ impl ClientManager {
             }
          };
 
-         match f(client).await {
+         match f(client, args.clone()).await {
             Ok(res) => return Ok(res),
             Err(_e) => {
                self.penalize(chain, &rpc);

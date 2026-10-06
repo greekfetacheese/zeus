@@ -768,9 +768,8 @@ async fn fetch_eth_balances_batched(
       tasks.push(RT.spawn(async move {
          let _permit = semaphore.acquire().await.unwrap();
          client
-            .request(chain, |client| {
-               let chunk = chunk.clone();
-               async move { batch::get_eth_balances(client, chain, Some(block_id), chunk).await }
+            .request_with(chain, chunk.clone(), |client, chunk| async move {
+               batch::get_eth_balances(client, chain, Some(block_id), chunk).await
             })
             .await
       }));
@@ -817,9 +816,8 @@ async fn fetch_account_codes_batched(
       tasks.push(RT.spawn(async move {
          let _permit = semaphore.acquire().await.unwrap();
          client
-            .request(chain, |client| {
-               let chunk = chunk.clone();
-               async move { batch::get_account_codes(client, chunk, Some(block_id)).await }
+            .request_with(chain, chunk.clone(), |client, chunk| async move {
+               batch::get_account_codes(client, chunk, Some(block_id)).await
             })
             .await
             .map(|codes| (chunk, codes))
@@ -870,9 +868,8 @@ async fn fetch_eoa_nonces(
       tasks.push(RT.spawn(async move {
          let _permit = semaphore.acquire().await.unwrap();
          client
-            .request(chain, |client| {
-               let chunk = chunk.clone();
-               async move { batch::get_account_nonces(client, chunk, Some(block_id)).await }
+            .request_with(chain, chunk.clone(), |client, chunk| async move {
+               batch::get_account_nonces(client, chunk, Some(block_id)).await
             })
             .await
             .map(|nonces| (chunk, nonces))
@@ -1000,9 +997,8 @@ pub async fn fetch_storage(
       let client = client.clone();
 
       let read_res = client
-         .request(chain, |client| {
-            let chunk = chunk.clone();
-            async move { batch::get_account_storage(client, address, chunk, Some(block_id)).await }
+         .request_with(chain, chunk.clone(), |client, chunk| async move {
+            batch::get_account_storage(client, address, chunk, Some(block_id)).await
          })
          .await;
 

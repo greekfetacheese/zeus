@@ -1336,10 +1336,13 @@ async fn wait_for_fill(
    // Wait for the order to be filled at the destination chain
    while now.elapsed().as_secs() < deadline as u64 {
       let logs = z_client
-         .request(dest_chain.id(), |client| {
-            let filter = filter.clone();
-            async move { client.get_logs(&filter).await.map_err(|e| anyhow!("{:?}", e)) }
-         })
+         .request_with(
+            dest_chain.id(),
+            filter.clone(),
+            |client, filter| async move {
+               client.get_logs(&filter).await.map_err(|e| anyhow!("{:?}", e))
+            },
+         )
          .await?;
 
       for log in logs {

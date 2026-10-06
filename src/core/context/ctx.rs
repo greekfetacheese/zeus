@@ -1999,9 +1999,8 @@ impl ZeusCtx {
 
       let client = self.get_client_manager();
       let gas = client
-         .request(chain.id(), |client| {
-            let tx = tx.clone();
-            async move { client.estimate_gas(tx).await.map_err(|e| anyhow!("{:?}", e)) }
+         .request_with(chain.id(), tx.clone(), |client, tx| async move {
+            client.estimate_gas(tx).await.map_err(|e| anyhow!("{:?}", e))
          })
          .await?;
 
@@ -2038,9 +2037,8 @@ impl ZeusCtx {
 
       let z_client = self.get_client_manager();
       let result = z_client
-         .request(chain.id(), |client| {
-            let tx = tx.clone();
-            async move { client.call(tx).await.map_err(|e| anyhow!("{:?}", e)) }
+         .request_with(chain.id(), tx.clone(), |client, tx| async move {
+            client.call(tx).await.map_err(|e| anyhow!("{:?}", e))
          })
          .await?;
 

@@ -135,9 +135,8 @@ impl BalanceManagerHandle {
 
          for attempt in 0..=max_retries {
             let balances = match client
-               .request(chain, |client| {
-                  let chunk = chunk.clone();
-                  async move { batch::get_eth_balances(client, chain, None, chunk).await }
+               .request_with(chain, chunk.clone(), |client, chunk| async move {
+                  batch::get_eth_balances(client, chain, None, chunk).await
                })
                .await
             {
@@ -233,11 +232,8 @@ impl BalanceManagerHandle {
                let balances = {
                   let _permit = semaphore.acquire().await?;
                   client
-                     .request(chain, |client| {
-                        let tokens_addr = tokens_addr.clone();
-                        async move {
-                           batch::get_erc20_balances(client, chain, None, owner, tokens_addr).await
-                        }
+                     .request_with(chain, tokens_addr.clone(), |client, tokens_addr| async move {
+                        batch::get_erc20_balances(client, chain, None, owner, tokens_addr).await
                      })
                      .await
                };

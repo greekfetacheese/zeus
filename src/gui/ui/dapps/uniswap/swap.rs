@@ -1360,15 +1360,16 @@ pub async fn wrap_eth(
    let weth = ERC20Token::wrapped_native_token(chain.id());
 
    let weth_balance_before = client
-      .request(chain.id(), |client| {
-         let weth = weth.clone();
-         async move {
+      .request_with(
+         chain.id(),
+         weth.clone(),
+         |client, weth| async move {
             weth
                .balance_of(client, from, Some(block_id))
                .await
                .map_err(|e| anyhow!("{:?}", e))
-         }
-      })
+         },
+      )
       .await?;
 
    let weth_balance_before = NumericValue::format_wei(weth_balance_before, weth.decimals);
@@ -1734,10 +1735,13 @@ async fn swap_via_ur(
    let eth_balance_before = native_balance_at(ctx.clone(), chain, signer_address, block_id).await?;
 
    let token_out = currency_out.to_erc20().into_owned();
-   let token_out_balance_fut = client.request(chain.id(), |client| {
-      let token = token_out.clone();
-      async move { token.balance_of(client.clone(), signer_address, Some(block_id)).await }
-   });
+   let token_out_balance_fut = client.request_with(
+      chain.id(),
+      token_out.clone(),
+      |client, token| async move {
+         token.balance_of(client.clone(), signer_address, Some(block_id)).await
+      },
+   );
 
    // Prefetch account and storage info
    let router_addr = address_book::universal_router_v2(chain.id())?;

@@ -1092,9 +1092,8 @@ async fn live_permit2_allowances(
    for chunk in pairs.chunks(ALLOWANCE_PAIR_BATCH) {
       let chunk = chunk.to_vec();
       match client
-         .request(chain, |client| {
-            let chunk = chunk.clone();
-            async move { batch::get_permit2_allowances(client, permit2, owner, chunk, None).await }
+         .request_with(chain, chunk.clone(), |client, chunk| async move {
+            batch::get_permit2_allowances(client, permit2, owner, chunk, None).await
          })
          .await
       {
