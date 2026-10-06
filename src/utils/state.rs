@@ -24,7 +24,7 @@ const WALLET_STATE_INTERVAL: u64 = 600;
 const FEE_INTERVAL: u64 = 300;
 
 pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    let mut tasks = Vec::new();
    let semaphore = Arc::new(Semaphore::new(2));
@@ -86,7 +86,7 @@ pub async fn sync_state(ctx: ZeusCtx, chain: u64) {
 
    let time = Instant::now();
 
-   let z_client = ctx.get_zeus_client();
+   let z_client = ctx.get_client_manager();
    let available_rpcs = z_client.rpc_available(chain);
 
    if !available_rpcs {
@@ -554,7 +554,7 @@ async fn state_update_interval(ctx: ZeusCtx) {
       }
 
       if rpc_measure_time_passed.elapsed().as_secs() > MEASURE_RPCS_INTERVAL {
-         let z_client = ctx.get_zeus_client();
+         let z_client = ctx.get_client_manager();
          z_client.run_latency_checks(ctx.clone()).await;
          rpc_measure_time_passed = Instant::now();
       }
@@ -568,7 +568,7 @@ pub async fn get_base_fee(ctx: ZeusCtx, chain: u64) -> Result<BaseFee, anyhow::E
       return Ok(BaseFee::new(0, 0));
    }
 
-   let z_client = ctx.get_zeus_client();
+   let z_client = ctx.get_client_manager();
    let chain = ChainId::new(chain)?;
 
    if chain.is_ethereum() {
@@ -616,7 +616,7 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
       return Ok(());
    }
 
-   let z_client = ctx.get_zeus_client();
+   let z_client = ctx.get_client_manager();
    let chain = ChainId::new(chain)?;
    if chain.supports_type_2_tx() {
       let fee = z_client

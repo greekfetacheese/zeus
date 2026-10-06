@@ -1360,16 +1360,17 @@ async fn send_eth(
    let auth_list = Vec::new();
    let eth = NativeCurrency::from(chain.id());
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    let (block, block_id) = pinned_head(ctx.clone(), chain, BlockId::latest()).await?;
 
    let accounts = vec![from, recipient];
 
    let eth_balance_before = client
-      .request(chain.id(), |client| {
-         let accounts2 = accounts.clone();
-         async move {
+      .request_with(
+         chain.id(),
+         accounts.clone(),
+         |client, accounts2| async move {
             batch::get_eth_balances(
                client,
                chain.id(),
@@ -1377,8 +1378,8 @@ async fn send_eth(
                accounts2.clone(),
             )
             .await
-         }
-      })
+         },
+      )
       .await?;
 
    if eth_balance_before.len() != accounts.len() {
@@ -1538,17 +1539,20 @@ async fn send_token(
    let call_data = token.encode_transfer(recipient, amount.wei());
    let auth_list = Vec::new();
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    let (block, block_id) = pinned_head(ctx.clone(), chain, BlockId::latest()).await?;
 
    let eth_balance_before = native_balance_at(ctx.clone(), chain, from, block_id).await?;
 
    let recipient_token_balance_before = client
-      .request(chain.id(), |client| {
-         let token_clone = token.clone();
-         async move { token_clone.balance_of(client.clone(), recipient, Some(block_id)).await }
-      })
+      .request_with(
+         chain.id(),
+         token.clone(),
+         |client, token_clone| async move {
+            token_clone.balance_of(client.clone(), recipient, Some(block_id)).await
+         },
+      )
       .await?;
 
    let mut accounts = Vec::new();

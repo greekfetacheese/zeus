@@ -436,7 +436,7 @@ impl PriceManagerHandle {
       ctx: ZeusCtx,
       chain: u64,
    ) -> Result<(), anyhow::Error> {
-      let client = ctx.get_zeus_client();
+      let client = ctx.get_client_manager();
       let tokens = ERC20Token::base_tokens(chain);
 
       let mut tasks: Vec<JoinHandle<Result<(Address, f64), anyhow::Error>>> = Vec::new();
@@ -446,9 +446,8 @@ impl PriceManagerHandle {
 
          let task = RT.spawn(async move {
             let price = client
-               .request(chain, |client| {
-                  let token = token.clone();
-                  async move { get_base_token_price(client, token, None).await }
+               .request_with(chain, token.clone(), |client, token| async move {
+                  get_base_token_price(client, token, None).await
                })
                .await?;
             Ok((token.address, price))

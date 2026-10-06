@@ -446,7 +446,7 @@ mod tests {
       rpc.enabled = true;
       rpc.check.working = true;
       rpc.check.fully_functional = true;
-      ctx.get_zeus_client().add_rpc(1, rpc);
+      ctx.get_client_manager().add_rpc(1, rpc);
 
       ctx
    }

@@ -16,7 +16,7 @@ mod tests {
    /// startup measurement, so a test has to find a usable one the same way — by
    /// making the call.
    async fn usable_mainnet_rpc(ctx: &ZeusCtx) -> (Arc<str>, RpcClient) {
-      let z_client = ctx.get_zeus_client();
+      let z_client = ctx.get_client_manager();
 
       for (url, rpc) in z_client.get_rpcs(ens::ENS_CHAIN) {
          let Ok(client) = ctx.connect_to_rpc(&rpc).await else {
@@ -40,7 +40,7 @@ mod tests {
    /// does this measurement at startup.
    async fn ctx_with_measured_mainnet_rpc() -> ZeusCtx {
       let ctx = ZeusCtx::new();
-      let z_client = ctx.get_zeus_client();
+      let z_client = ctx.get_client_manager();
       let (url, _client) = usable_mainnet_rpc(&ctx).await;
 
       let mut rpcs = z_client.get_rpcs(ens::ENS_CHAIN);

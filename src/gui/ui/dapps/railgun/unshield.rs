@@ -362,7 +362,7 @@ async fn unshield_via_paymaster(
       ));
    }
 
-   let zeus_client = ctx.get_zeus_client();
+   let zeus_client = ctx.get_client_manager();
    let last_synced_block_opt =
       railgun_provider.account_synced_block(railgun_signer.address()).await;
 

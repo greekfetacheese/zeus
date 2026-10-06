@@ -832,13 +832,16 @@ async fn sync_wallets_balance(
 
       let task = RT.spawn(async move {
          let _permit = semaphore.acquire().await?;
-         let z_client = ctx.get_zeus_client();
+         let z_client = ctx.get_client_manager();
 
          let balances = z_client
-            .request(chain, |client| {
-               let addresses = addresses.clone();
-               async move { batch::get_eth_balances(client, chain, None, addresses).await }
-            })
+            .request_with(
+               chain,
+               addresses.clone(),
+               |client, addresses| async move {
+                  batch::get_eth_balances(client, chain, None, addresses).await
+               },
+            )
             .await?;
 
          let mut balance_map = SHARED_GUI.read(|gui| {

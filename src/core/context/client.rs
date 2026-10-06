@@ -1,4 +1,4 @@
-use crate::core::persisted::{PersistedFile, file_path};
+use crate::core::persisted::{PersistedFile, client_settings_dir, file_path};
 use crate::core::{WalletStateKey, ZeusCtx};
 use crate::utils::{RT, TimeStamp, simulate::STORAGE_FETCH_CHUNK_SIZE, write_private_atomic};
 use zeus_eth::{
@@ -8,7 +8,7 @@ use zeus_eth::{
    },
    alloy_primitives::{Address, U256},
    alloy_provider::Provider,
-   alloy_rpc_types::{BlockId, BlockNumberOrTag},
+   alloy_rpc_types::BlockId,
    alloy_signer_local::PrivateKeySigner,
    alloy_sol_types::SolEvent,
    amm::uniswap::UniswapPool,
@@ -44,17 +44,28 @@ const CLIENT_TIMEOUT: u64 = 5;
 /// 8 hours in seconds
 const EIGHT_HOURS: u64 = 28_800;
 
-/// Request per second
-const CLIENT_RPS: u32 = 10;
+/// Default per-endpoint request rate (requests per second).
+pub const DEFAULT_RPC_RPS: u32 = 10;
+
+/// Default per-endpoint compute-unit budget (per second).
+pub const DEFAULT_RPC_CU_PER_SECOND: u64 = 330;
+
+/// A user-set rate must stay inside this range: 0 would stall the throttle layer and divide by
+/// zero in `get_best_rpc`.
+pub const MIN_RPC_RPS: u32 = 1;
+pub const MAX_RPC_RPS: u32 = 1_000;
+pub const MIN_RPC_CU_PER_SECOND: u64 = 1;
+pub const MAX_RPC_CU_PER_SECOND: u64 = 1_000_000;
+
+/// Websocket reconnect budget for cached clients: retry forever so a dropped
+/// connection recovers on its own once the network is back.
+const WS_INFINITE_RETRIES: u32 = u32::MAX;
 
 /// Max retries
 const MAX_RETRIES: u32 = 10;
 
 /// Initial backoff
 const INITIAL_BACKOFF: u64 = 400;
-
-/// Compute units per second
-const COMPUTE_UNITS_PER_SECOND: u64 = 330;
 
 /// Batch size for fetching ETH balance
 const ETH_BALANCE_BATCH: usize = 20;
@@ -89,18 +100,17 @@ const JSON_RPC_BATCH: usize = 20;
 /// For testing only
 const DEFAULT_BLOCK_RANGE: u64 = 5_000;
 
-async fn connect_rpc(url: &str, timeout: u64) -> Result<RpcClient, anyhow::Error> {
-   get_client(
-      url,
-      retry_layer(
+async fn connect_rpc(rpc: &Rpc, timeout: u64) -> Result<RpcClient, anyhow::Error> {
+   RpcClientBuilder::new(rpc.url.as_ref())
+      .retry(retry_layer(
          MAX_RETRIES,
          INITIAL_BACKOFF,
-         COMPUTE_UNITS_PER_SECOND,
-      ),
-      throttle_layer(CLIENT_RPS),
-      timeout,
-   )
-   .await
+         rpc.cu_per_second.max(1),
+      ))
+      .throttle(throttle_layer(rpc.rps.max(1)))
+      .timeout_secs(timeout)
+      .connect()
+      .await
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,6 +203,14 @@ impl Default for RpcCheck {
    }
 }
 
+fn default_rpc_rps() -> u32 {
+   DEFAULT_RPC_RPS
+}
+
+fn default_rpc_cu_per_second() -> u64 {
+   DEFAULT_RPC_CU_PER_SECOND
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Rpc {
    pub url: Arc<str>,
@@ -202,6 +220,12 @@ pub struct Rpc {
    pub enabled: bool,
    pub check: RpcCheck,
    pub mev_protect: bool,
+   /// Requests per second allowed against this endpoint (throttle layer).
+   #[serde(default = "default_rpc_rps")]
+   pub rps: u32,
+   /// Compute-units-per-second budget for the retry/backoff layer.
+   #[serde(default = "default_rpc_cu_per_second")]
+   pub cu_per_second: u64,
    #[serde(skip)]
    pub latency: Option<Duration>,
    /// Last time in UNIX timestamp we used this RPC
@@ -223,6 +247,8 @@ impl Rpc {
          default: false,
          enabled: false,
          mev_protect: false,
+         rps: DEFAULT_RPC_RPS,
+         cu_per_second: DEFAULT_RPC_CU_PER_SECOND,
       }
    }
 
@@ -262,6 +288,12 @@ impl Rpc {
       self.mev_protect
    }
 
+   /// Clamp the rate limits into the range the transport layers can actually use.
+   pub fn clamp_limits(&mut self) {
+      self.rps = self.rps.clamp(MIN_RPC_RPS, MAX_RPC_RPS);
+      self.cu_per_second = self.cu_per_second.clamp(MIN_RPC_CU_PER_SECOND, MAX_RPC_CU_PER_SECOND);
+   }
+
    pub fn latency_ms(&self) -> u128 {
       self.latency.map(|latency| latency.as_millis()).unwrap_or(0)
    }
@@ -293,6 +325,8 @@ pub struct RpcBuilder {
    default: bool,
    enabled: bool,
    mev_protect: bool,
+   rps: u32,
+   cu_per_second: u64,
 }
 
 impl RpcBuilder {
@@ -315,19 +349,37 @@ impl RpcBuilder {
       self
    }
 
+   /// Requests per second allowed against this endpoint (clamped on [`RpcBuilder::build`]).
+   #[must_use]
+   pub fn rps(mut self, rps: u32) -> Self {
+      self.rps = rps;
+      self
+   }
+
+   /// Compute-units-per-second budget (clamped on [`RpcBuilder::build`]).
+   #[must_use]
+   pub fn cu_per_second(mut self, cu_per_second: u64) -> Self {
+      self.cu_per_second = cu_per_second;
+      self
+   }
+
    pub fn build(self) -> Rpc {
-      Rpc {
+      let mut rpc = Rpc {
          url: self.url,
          chain_id: self.chain_id,
          default: self.default,
          enabled: self.enabled,
          check: RpcCheck::default(),
          mev_protect: self.mev_protect,
+         rps: self.rps,
+         cu_per_second: self.cu_per_second,
          latency: None,
          last_used: 0,
          last_failure: None,
          test_in_progress: false,
-      }
+      };
+      rpc.clamp_limits();
+      rpc
    }
 }
 
@@ -358,12 +410,90 @@ fn insert_chain_rpcs(
    map.insert(chain_id, rpcs);
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ZeusClient {
-   pub rpcs: Arc<RwLock<HashMap<u64, RpcMapByUrl>>>,
+/// What a cached connection is used for.
+///
+/// The request timeout is baked into the transport, so endpoints used with different timeout
+/// budgets get separate connections rather than sharing one with the wrong timeout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClientKind {
+   /// Routine reads and queries. [`CLIENT_TIMEOUT`]
+   Standard,
+   /// Short targeted reads (token / NFT fetch). 10s
+   Short,
+   /// Transaction submission and MEV-protect endpoints. [`CLIENT_TIMEOUT_FOR_SENDING_TX`]
+   Send,
 }
 
-impl Default for ZeusClient {
+impl ClientKind {
+   pub const fn timeout_secs(self) -> u64 {
+      match self {
+         Self::Standard => CLIENT_TIMEOUT,
+         Self::Short => 10,
+         Self::Send => CLIENT_TIMEOUT_FOR_SENDING_TX,
+      }
+   }
+}
+
+/// Identity of a cached connection: one per endpoint per purpose.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ClientKey {
+   chain: u64,
+   url: Arc<str>,
+   kind: ClientKind,
+}
+
+/// Lower / upper bound for the global concurrency setting.
+pub const MIN_CONCURRENCY: usize = 1;
+pub const MAX_CONCURRENCY: usize = 16;
+
+fn default_concurrency() -> usize {
+   2
+}
+
+/// Non-secret [`ClientManager`] settings, stored in `data/client_settings.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientSettings {
+   /// Max concurrent batch/prefetch requests the client fans out. Default 1 (public-endpoint safe).
+   #[serde(default = "default_concurrency")]
+   pub concurrency: usize,
+}
+
+impl Default for ClientSettings {
+   fn default() -> Self {
+      Self {
+         concurrency: default_concurrency(),
+      }
+   }
+}
+
+impl ClientSettings {
+   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+      let dir = client_settings_dir()?;
+      let data = std::fs::read_to_string(dir)?;
+      Ok(serde_json::from_str(&data)?)
+   }
+
+   pub fn save(&self) -> Result<(), anyhow::Error> {
+      let dir = client_settings_dir()?;
+      write_private_atomic(&dir, serde_json::to_string(self)?.as_bytes())?;
+      Ok(())
+   }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientManager {
+   pub rpcs: Arc<RwLock<HashMap<u64, RpcMapByUrl>>>,
+
+   /// Live connections, keyed by endpoint + purpose. Runtime-only, never persisted.
+   #[serde(skip)]
+   clients: Arc<RwLock<HashMap<ClientKey, RpcClient>>>,
+
+   /// Runtime settings (concurrency), loaded from / saved to `data/client_settings.json`.
+   #[serde(skip)]
+   settings: Arc<RwLock<ClientSettings>>,
+}
+
+impl Default for ClientManager {
    fn default() -> Self {
       let mut rpc_map_by_chain = HashMap::new();
 
@@ -446,11 +576,13 @@ impl Default for ZeusClient {
 
       Self {
          rpcs: Arc::new(RwLock::new(rpc_map_by_chain)),
+         clients: Arc::new(RwLock::new(HashMap::new())),
+         settings: Arc::new(RwLock::new(ClientSettings::default())),
       }
    }
 }
 
-impl ZeusClient {
+impl ClientManager {
    pub fn read<R>(&self, reader: impl FnOnce(&HashMap<u64, RpcMapByUrl>) -> R) -> R {
       reader(&self.rpcs.read().unwrap())
    }
@@ -462,9 +594,26 @@ impl ZeusClient {
    pub fn load_from_file(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
       let dir = Self::dir()?;
       let sealed = std::fs::read(&dir)?;
-      let rpcs: HashMap<u64, RpcMapByUrl> = key.open_json(&sealed, PROVIDER_AAD)?;
+      let mut rpcs: HashMap<u64, RpcMapByUrl> = key.open_json(&sealed, PROVIDER_AAD)?;
+      for rpcs_by_url in rpcs.values_mut() {
+         for rpc in rpcs_by_url.values_mut() {
+            rpc.clamp_limits();
+         }
+      }
       self.write(|map| *map = rpcs);
+      self.retain_known_clients();
       Ok(())
+   }
+
+   /// Drop cached connections whose endpoint is no longer known (e.g. after loading a different
+   /// provider set), keeping the connections for surviving endpoints warm.
+   fn retain_known_clients(&self) {
+      let rpcs = self.rpcs.read().unwrap();
+      self
+         .clients
+         .write()
+         .unwrap()
+         .retain(|key, _| rpcs.get(&key.chain).is_some_and(|rpcs| rpcs.contains_key(&key.url)));
    }
 
    pub fn save_to_file(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
@@ -479,6 +628,33 @@ impl ZeusClient {
 
    pub fn exists() -> Result<bool, anyhow::Error> {
       Ok(Self::dir()?.exists())
+   }
+
+   /// Max concurrent batch/prefetch requests the client fans out (see [`ClientSettings`]).
+   pub fn concurrency(&self) -> usize {
+      self.settings.read().unwrap().concurrency
+   }
+
+   /// Set the global concurrency, clamped to [`MIN_CONCURRENCY`]`..=`[`MAX_CONCURRENCY`].
+   pub fn set_concurrency(&self, concurrency: usize) {
+      self.settings.write().unwrap().concurrency =
+         concurrency.clamp(MIN_CONCURRENCY, MAX_CONCURRENCY);
+   }
+
+   /// Load `client_settings.json`, keeping the defaults if it is missing or unreadable.
+   pub fn load_settings(&self) {
+      match ClientSettings::load_from_file() {
+         Ok(mut settings) => {
+            settings.concurrency = settings.concurrency.clamp(MIN_CONCURRENCY, MAX_CONCURRENCY);
+            *self.settings.write().unwrap() = settings;
+         }
+         Err(e) => tracing::warn!("Client settings not loaded, using defaults: {e:?}"),
+      }
+   }
+
+   pub fn save_settings(&self) -> Result<(), anyhow::Error> {
+      let settings = self.settings.read().unwrap().clone();
+      settings.save()
    }
 
    pub fn get_rpcs(&self, chain: u64) -> RpcMapByUrl {
@@ -503,6 +679,7 @@ impl ZeusClient {
       self.write(|rpcs| {
          rpcs.entry(chain).or_default().remove(&*url);
       });
+      self.evict_client(chain, &url);
    }
 
    fn update_rpc(&self, chain: u64, url: &str, f: impl FnOnce(&mut Rpc)) {
@@ -513,8 +690,26 @@ impl ZeusClient {
       });
    }
 
+   /// Enable or disable an endpoint, closing its cached connections when disabled.
+   pub fn set_rpc_enabled(&self, chain: u64, url: &str, enabled: bool) {
+      self.update_rpc(chain, url, |rpc| rpc.enabled = enabled);
+      if !enabled {
+         self.evict_client(chain, url);
+      }
+   }
+
+   /// Update an endpoint's rate limits and drop its cached connections so the new transport
+   /// layers take effect.
+   pub fn set_rpc_limits(&self, chain: u64, url: &str, rps: u32, cu_per_second: u64) {
+      self.update_rpc(chain, url, |rpc| {
+         rpc.rps = rps.clamp(MIN_RPC_RPS, MAX_RPC_RPS);
+         rpc.cu_per_second = cu_per_second.clamp(MIN_RPC_CU_PER_SECOND, MAX_RPC_CU_PER_SECOND);
+      });
+      self.evict_client(chain, url);
+   }
+
    pub async fn run_latency_check_for(&self, rpc: Rpc) {
-      let client = connect_rpc(&rpc.url, REQUEST_TIMEOUT).await;
+      let client = connect_rpc(&rpc, REQUEST_TIMEOUT).await;
 
       let client = match client {
          Ok(client) => client,
@@ -677,16 +872,54 @@ impl ZeusClient {
          .any(|rpc| rpc.is_working() && rpc.is_enabled() && rpc.is_mev_protect())
    }
 
-   pub async fn connect_to(&self, rpc: &Rpc) -> Result<RpcClient, anyhow::Error> {
-      self.connect_with_timeout(rpc, CLIENT_TIMEOUT).await
+   /// Return the cached connection for `rpc`, dialing once on first use.
+   ///
+   /// The std lock is never held across the `.await`. A concurrent first-use race may dial twice; the
+   /// first insert wins and the extra socket is dropped when the losing client is returned by value.
+   async fn cached_connect(&self, rpc: &Rpc, kind: ClientKind) -> Result<RpcClient, anyhow::Error> {
+      let key = ClientKey {
+         chain: rpc.chain_id,
+         url: rpc.url.clone(),
+         kind,
+      };
+
+      if let Some(client) = self.clients.read().unwrap().get(&key).cloned() {
+         return Ok(client);
+      }
+
+      let client = RpcClientBuilder::new(rpc.url.as_ref())
+         .retry(retry_layer(
+            MAX_RETRIES,
+            INITIAL_BACKOFF,
+            rpc.cu_per_second.max(1),
+         ))
+         .throttle(throttle_layer(rpc.rps.max(1)))
+         .timeout_secs(kind.timeout_secs())
+         .ws_max_retries(WS_INFINITE_RETRIES)
+         .connect()
+         .await?;
+
+      let mut cache = self.clients.write().unwrap();
+      Ok(cache.entry(key).or_insert(client).clone())
    }
 
-   pub async fn connect_with_timeout(
-      &self,
-      rpc: &Rpc,
-      timeout: u64,
-   ) -> Result<RpcClient, anyhow::Error> {
-      connect_rpc(&rpc.url, timeout).await
+   /// A cached connection for `rpc` under the given [`ClientKind`] timeout policy.
+   pub async fn client_for(&self, rpc: &Rpc, kind: ClientKind) -> Result<RpcClient, anyhow::Error> {
+      self.cached_connect(rpc, kind).await
+   }
+
+   /// Drop every cached connection for one endpoint (all purposes).
+   pub fn evict_client(&self, chain: u64, url: &str) {
+      self
+         .clients
+         .write()
+         .unwrap()
+         .retain(|key, _| !(key.chain == chain && &*key.url == url));
+   }
+
+   /// A cached [`ClientKind::Standard`] connection for `rpc`.
+   pub async fn connect_to(&self, rpc: &Rpc) -> Result<RpcClient, anyhow::Error> {
+      self.cached_connect(rpc, ClientKind::Standard).await
    }
 
    pub async fn get_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
@@ -745,7 +978,7 @@ impl ZeusClient {
             continue;
          }
 
-         match self.connect_with_timeout(rpc, CLIENT_TIMEOUT_FOR_SENDING_TX).await {
+         match self.client_for(rpc, ClientKind::Send).await {
             Ok(client) => return Ok(client),
             Err(_e) => {
                #[cfg(feature = "dev")]
@@ -823,7 +1056,6 @@ impl ZeusClient {
 
    /// Select the best RPC for the given chain
    pub fn get_best_rpc(&self, chain: u64) -> Option<Rpc> {
-      let cooldown_ms: u64 = 1000 / CLIENT_RPS as u64;
       let failure_penalty_max: u128 = 10_000;
       let failure_decay_secs: u64 = 60;
 
@@ -841,6 +1073,7 @@ impl ZeusClient {
                continue;
             }
 
+            let cooldown_ms: u64 = 1000 / u64::from(rpc.rps.max(1));
             let time_since_used = now_ms.saturating_sub(rpc.last_used);
             let usage_penalty = cooldown_ms.saturating_sub(time_since_used) as u128;
 
@@ -884,12 +1117,41 @@ impl ZeusClient {
 
    /// Execute a request with automatic RPC selection, retries, and load balancing.
    ///
-   /// The closure `f` receives a connected Provider (RpcClient) and returns a future with the result.
+   /// `f` receives a connected Provider (RpcClient) and returns a future with the result. It is called
+   /// once per retry attempt, so it must be reusable (an `Fn` closure returning a future).
    /// Retries across RPCs on failure, up to MAX_RETRIES total attempts.
    /// Selects RPC based on latency + usage cooldown to spread concurrent load.
    pub async fn request<F, Fut, R>(&self, chain: u64, f: F) -> Result<R, anyhow::Error>
    where
       F: Fn(RpcClient) -> Fut,
+      Fut: core::future::Future<Output = Result<R, anyhow::Error>>,
+   {
+      self.request_with(chain, (), |client, _| f(client)).await
+   }
+
+   /// Like [`Self::request`], but takes an owned, clonable payload that is handed to `f` on every
+   /// attempt. This removes the `|client| { let x = x.clone(); async move { … } }` boilerplate: pass
+   /// the captured value once, and this method clones it per retry while you return the future
+   /// directly instead of wrapping it in an `async move` block:
+   ///
+   /// ```ignore
+   /// client
+   ///    .request_with(chain, tokens_addr, |client, tokens_addr| {
+   ///       batch::get_erc20_balances(client, chain, None, owner, tokens_addr)
+   ///    })
+   ///    .await?;
+   /// ```
+   ///
+   /// Pass a tuple for more than one value. Use [`Self::request`] when nothing needs owning.
+   pub async fn request_with<A, F, Fut, R>(
+      &self,
+      chain: u64,
+      args: A,
+      f: F,
+   ) -> Result<R, anyhow::Error>
+   where
+      A: Clone,
+      F: Fn(RpcClient, A) -> Fut,
       Fut: core::future::Future<Output = Result<R, anyhow::Error>>,
    {
       let mut attempts = 0;
@@ -919,7 +1181,7 @@ impl ZeusClient {
             }
          };
 
-         match f(client).await {
+         match f(client, args.clone()).await {
             Ok(res) => return Ok(res),
             Err(_e) => {
                self.penalize(chain, &rpc);
@@ -948,7 +1210,7 @@ async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), anyhow
    #[cfg(feature = "dev")]
    tracing::debug!("Testing {}", rpc.url);
 
-   let client = connect_rpc(&rpc.url, CLIENT_TIMEOUT_FOR_SENDING_TX).await?;
+   let client = connect_rpc(&rpc, CLIENT_TIMEOUT_FOR_SENDING_TX).await?;
    let chain = rpc.chain_id;
 
    let time = Instant::now();
@@ -963,15 +1225,19 @@ async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), anyhow
       guard.working = true;
    }
 
-   let block_to_query = if latest_block > 100_000 {
-      latest_block - 100_000
-   } else {
-      return Err(anyhow!("Latest block is < 100_000"));
-   };
+   // Deep enough that a pruned full node's ~128-block state window is far behind; a young chain
+   // simply probes from its earliest block instead of failing the whole check.
+   let block_to_query = latest_block.saturating_sub(100_000);
 
    let weth = ERC20Token::wrapped_native_token(rpc.chain_id);
 
-   archive_check(client.clone(), block_to_query, result.clone()).await;
+   archive_check(
+      client.clone(),
+      block_to_query,
+      weth.address,
+      result.clone(),
+   )
+   .await;
 
    get_logs_check(
       client.clone(),
@@ -1073,14 +1339,22 @@ async fn json_rpc_batch_check(client: RpcClient, result: Arc<Mutex<RpcCheck>>) {
    guard.json_rpc_batch = ok;
 }
 
-async fn archive_check(client: RpcClient, block_to_query: u64, result: Arc<Mutex<RpcCheck>>) {
-   let old_block = client
-      .get_block(BlockId::Number(BlockNumberOrTag::Number(
-         block_to_query,
-      )))
-      .await;
+/// Archive means "can serve historical **state**", not "can serve an old block".
+///
+/// A pruned full node still answers `eth_getBlockByNumber` for old heights — geth keeps them in its
+/// freezer — while what it actually drops is the state trie behind them. So the probe is a balance
+/// read: a pruned node errors ("missing trie node" / "historical state is not available"), an
+/// archive node answers, and that answer is legitimately allowed to be zero, which is why this tests
+/// `is_ok` rather than the value.
+async fn archive_check(
+   client: RpcClient,
+   block_to_query: u64,
+   probe: Address,
+   result: Arc<Mutex<RpcCheck>>,
+) {
+   let old_balance = client.get_balance(probe).block_id(BlockId::number(block_to_query)).await;
 
-   let is_archive = matches!(old_block, Ok(Some(_)));
+   let is_archive = old_balance.is_ok();
 
    let mut guard = result.lock().unwrap();
    guard.archive = is_archive;
@@ -1267,7 +1541,7 @@ mod tests {
 
    #[tokio::test]
    async fn test_rpcs() {
-      let zeus_client = ZeusClient::default();
+      let zeus_client = ClientManager::default();
       zeus_client.mark_all_as_working();
 
       let chain = 1;
@@ -1304,7 +1578,7 @@ mod tests {
    #[test]
    fn test_seal_open_roundtrip() {
       let key = WalletStateKey::generate().unwrap();
-      let client = ZeusClient::default();
+      let client = ClientManager::default();
       let sealed = client.read(|rpcs| key.seal_json(rpcs, PROVIDER_AAD)).unwrap();
       let loaded: HashMap<u64, RpcMapByUrl> = key.open_json(&sealed, PROVIDER_AAD).unwrap();
       assert!(!loaded.is_empty());
@@ -1319,14 +1593,169 @@ mod tests {
       rpc
    }
 
-   fn client_with(rpcs: impl IntoIterator<Item = Rpc>) -> ZeusClient {
-      let client = ZeusClient {
+   fn client_with(rpcs: impl IntoIterator<Item = Rpc>) -> ClientManager {
+      let client = ClientManager {
          rpcs: Arc::new(RwLock::new(HashMap::new())),
+         clients: Arc::new(RwLock::new(HashMap::new())),
+         settings: Arc::new(RwLock::new(ClientSettings::default())),
       };
       for rpc in rpcs {
          client.add_rpc(rpc.chain_id, rpc);
       }
       client
+   }
+
+   /// Enabled + working http endpoint; building a client performs no network I/O.
+   fn http_rpc(url: &str) -> Rpc {
+      let mut rpc = Rpc::builder(url, 1).enabled().build();
+      rpc.check.working = true;
+      rpc
+   }
+
+   #[tokio::test]
+   async fn disabling_an_rpc_evicts_its_connection() {
+      let client = client_with([http_rpc("http://127.0.0.1:1")]);
+      let rpc = client.get_best_rpc(1).unwrap();
+      let _ = client.client_for(&rpc, ClientKind::Standard).await.unwrap();
+      assert_eq!(client.clients.read().unwrap().len(), 1);
+
+      client.set_rpc_enabled(1, "http://127.0.0.1:1", false);
+      assert!(client.clients.read().unwrap().is_empty());
+      assert!(!client.get_rpcs(1).values().any(|rpc| rpc.enabled));
+   }
+
+   #[tokio::test]
+   async fn retain_known_clients_drops_removed_endpoints() {
+      let client = client_with([
+         http_rpc("http://127.0.0.1:1"),
+         http_rpc("http://127.0.0.1:2"),
+      ]);
+
+      for rpc in client.get_rpcs(1).values() {
+         let _ = client.client_for(rpc, ClientKind::Standard).await.unwrap();
+      }
+      assert_eq!(client.clients.read().unwrap().len(), 2);
+
+      // Simulate loading a provider set that no longer lists the second endpoint.
+      client.write(|rpcs| {
+         rpcs.get_mut(&1).unwrap().remove("http://127.0.0.1:2");
+      });
+      client.retain_known_clients();
+
+      assert_eq!(client.clients.read().unwrap().len(), 1);
+   }
+
+   #[test]
+   fn rpc_limits_default_when_missing_from_json() {
+      let rpc = Rpc::builder("http://127.0.0.1:1", 1).build();
+      let mut value: serde_json::Value =
+         serde_json::from_str(&serde_json::to_string(&rpc).unwrap()).unwrap();
+      let obj = value.as_object_mut().unwrap();
+      obj.remove("rps");
+      obj.remove("cu_per_second");
+
+      let rpc: Rpc = serde_json::from_value(value).unwrap();
+      assert_eq!(rpc.rps, DEFAULT_RPC_RPS);
+      assert_eq!(rpc.cu_per_second, DEFAULT_RPC_CU_PER_SECOND);
+   }
+
+   #[test]
+   fn clamp_limits_bounds_zero_and_max() {
+      let mut rpc = Rpc::builder("http://127.0.0.1:1", 1).rps(0).cu_per_second(0).build();
+      assert_eq!(rpc.rps, MIN_RPC_RPS);
+      assert_eq!(rpc.cu_per_second, MIN_RPC_CU_PER_SECOND);
+
+      rpc.rps = u32::MAX;
+      rpc.cu_per_second = u64::MAX;
+      rpc.clamp_limits();
+      assert_eq!(rpc.rps, MAX_RPC_RPS);
+      assert_eq!(rpc.cu_per_second, MAX_RPC_CU_PER_SECOND);
+   }
+
+   #[tokio::test]
+   async fn set_rpc_limits_clamps_and_evicts() {
+      let client = client_with([http_rpc("http://127.0.0.1:1")]);
+      let rpc = client.get_best_rpc(1).unwrap();
+      let _ = client.client_for(&rpc, ClientKind::Standard).await.unwrap();
+      assert_eq!(client.clients.read().unwrap().len(), 1);
+
+      client.set_rpc_limits(1, "http://127.0.0.1:1", 0, 0);
+      assert!(client.clients.read().unwrap().is_empty());
+
+      let rpc = client.get_rpcs(1).into_values().next().unwrap();
+      assert_eq!(rpc.rps, MIN_RPC_RPS);
+      assert_eq!(rpc.cu_per_second, MIN_RPC_CU_PER_SECOND);
+   }
+
+   #[test]
+   fn client_settings_concurrency_clamps() {
+      let client = ClientManager::default();
+      assert_eq!(client.concurrency(), default_concurrency());
+
+      client.set_concurrency(0);
+      assert_eq!(client.concurrency(), MIN_CONCURRENCY);
+
+      client.set_concurrency(usize::MAX);
+      assert_eq!(client.concurrency(), MAX_CONCURRENCY);
+
+      client.set_concurrency(4);
+      assert_eq!(client.concurrency(), 4);
+   }
+
+   #[test]
+   fn client_settings_default_when_field_missing() {
+      let settings: ClientSettings = serde_json::from_str("{}").unwrap();
+      assert_eq!(settings.concurrency, default_concurrency());
+   }
+
+   #[test]
+   fn client_kind_timeout_secs_maps_each_policy() {
+      assert_eq!(
+         ClientKind::Standard.timeout_secs(),
+         CLIENT_TIMEOUT
+      );
+      assert_eq!(ClientKind::Short.timeout_secs(), 10);
+      assert_eq!(
+         ClientKind::Send.timeout_secs(),
+         CLIENT_TIMEOUT_FOR_SENDING_TX
+      );
+   }
+
+   #[tokio::test]
+   async fn client_for_caches_one_connection_per_endpoint() {
+      let client = client_with([http_rpc("http://127.0.0.1:1")]);
+      let rpc = client.get_best_rpc(1).unwrap();
+      let _a = client.client_for(&rpc, ClientKind::Standard).await.unwrap();
+      let _b = client.client_for(&rpc, ClientKind::Standard).await.unwrap();
+      assert_eq!(client.clients.read().unwrap().len(), 1);
+   }
+
+   #[tokio::test]
+   async fn get_client_reuses_the_cached_connection() {
+      let client = client_with([http_rpc("http://127.0.0.1:1")]);
+      let _a = client.get_client(1).await.unwrap();
+      let _b = client.get_client(1).await.unwrap();
+      assert_eq!(client.clients.read().unwrap().len(), 1);
+   }
+
+   #[tokio::test]
+   async fn different_kinds_do_not_share_a_connection() {
+      let client = client_with([http_rpc("http://127.0.0.1:1")]);
+      let rpc = client.get_best_rpc(1).unwrap();
+      let _standard = client.client_for(&rpc, ClientKind::Standard).await.unwrap();
+      let _send = client.client_for(&rpc, ClientKind::Send).await.unwrap();
+      assert_eq!(client.clients.read().unwrap().len(), 2);
+   }
+
+   #[tokio::test]
+   async fn evict_client_drops_the_cached_connection() {
+      let client = client_with([http_rpc("http://127.0.0.1:1")]);
+      let rpc = client.get_best_rpc(1).unwrap();
+      let _ = client.client_for(&rpc, ClientKind::Standard).await.unwrap();
+      assert_eq!(client.clients.read().unwrap().len(), 1);
+
+      client.evict_client(1, "http://127.0.0.1:1");
+      assert!(client.clients.read().unwrap().is_empty());
    }
 
    #[test]

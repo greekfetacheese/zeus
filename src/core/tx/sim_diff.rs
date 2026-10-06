@@ -21,7 +21,9 @@ use crate::utils::simulate::{
 use alloy_eips::eip7702::SignedAuthorization;
 use anyhow::anyhow;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::Semaphore;
 use zeus_eth::{
    alloy_contract::private::Provider,
    alloy_primitives::{Address, Bytes, Log, U256},
@@ -550,28 +552,36 @@ async fn fetch_token_before(
       return HashMap::new();
    }
 
-   let client = ctx.get_zeus_client();
-   let mut out = HashMap::new();
+   let client = ctx.get_client_manager();
+   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
+   let mut tasks = Vec::new();
 
    for chunk in tokens.chunks(TOKEN_BALANCE_BATCH) {
       let chunk = chunk.to_vec();
-      match client
-         .request(chain, |client| {
-            let chunk = chunk.clone();
-            async move {
+      let client = client.clone();
+      let semaphore = Arc::clone(&semaphore);
+
+      tasks.push(tokio::spawn(async move {
+         let _permit = semaphore.acquire().await.expect("the fetch semaphore is never closed");
+
+         client
+            .request_with(chain, chunk.clone(), |client, chunk| async move {
                batch::get_erc20_balances(client, chain, Some(block_id), from, chunk).await
-            }
-         })
-         .await
-      {
-         Ok(rows) => {
+            })
+            .await
+      }));
+   }
+
+   let mut out = HashMap::new();
+   for task in tasks {
+      match task.await {
+         Ok(Ok(rows)) => {
             for row in rows {
                out.insert(row.token, row.balance);
             }
          }
-         Err(e) => {
-            tracing::warn!("ERC-20 balances at block failed: {:?}", e);
-         }
+         Ok(Err(e)) => tracing::warn!("ERC-20 balances at block failed: {:?}", e),
+         Err(e) => tracing::warn!("ERC-20 balances at block failed: {e:?}"),
       }
    }
 
@@ -590,26 +600,36 @@ async fn fetch_erc20_allowance_before(
       return HashMap::new();
    }
 
-   let client = ctx.get_zeus_client();
-   let mut out = HashMap::new();
+   let client = ctx.get_client_manager();
+   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
+   let mut tasks = Vec::new();
 
    for chunk in pairs.chunks(ALLOWANCE_PAIR_BATCH) {
       let chunk = chunk.to_vec();
-      match client
-         .request(chain, |client| {
-            let chunk = chunk.clone();
-            async move { batch::get_erc20_allowances(client, from, chunk, Some(block_id)).await }
-         })
-         .await
-      {
-         Ok(rows) => {
+      let client = client.clone();
+      let semaphore = Arc::clone(&semaphore);
+
+      tasks.push(tokio::spawn(async move {
+         let _permit = semaphore.acquire().await.expect("the fetch semaphore is never closed");
+
+         client
+            .request_with(chain, chunk.clone(), |client, chunk| async move {
+               batch::get_erc20_allowances(client, from, chunk, Some(block_id)).await
+            })
+            .await
+      }));
+   }
+
+   let mut out = HashMap::new();
+   for task in tasks {
+      match task.await {
+         Ok(Ok(rows)) => {
             for (token, spender, amount) in rows {
                out.insert((token, spender), amount);
             }
          }
-         Err(e) => {
-            tracing::warn!("ERC-20 allowances at block failed: {:?}", e);
-         }
+         Ok(Err(e)) => tracing::warn!("ERC-20 allowances at block failed: {:?}", e),
+         Err(e) => tracing::warn!("ERC-20 allowances at block failed: {e:?}"),
       }
    }
 
@@ -632,28 +652,36 @@ async fn fetch_permit2_before(
       return HashMap::new();
    };
 
-   let client = ctx.get_zeus_client();
-   let mut out = HashMap::new();
+   let client = ctx.get_client_manager();
+   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
+   let mut tasks = Vec::new();
 
    for chunk in pairs.chunks(ALLOWANCE_PAIR_BATCH) {
       let chunk = chunk.to_vec();
-      match client
-         .request(chain, |client| {
-            let chunk = chunk.clone();
-            async move {
+      let client = client.clone();
+      let semaphore = Arc::clone(&semaphore);
+
+      tasks.push(tokio::spawn(async move {
+         let _permit = semaphore.acquire().await.expect("the fetch semaphore is never closed");
+
+         client
+            .request_with(chain, chunk.clone(), |client, chunk| async move {
                batch::get_permit2_allowances(client, permit2, from, chunk, Some(block_id)).await
-            }
-         })
-         .await
-      {
-         Ok(rows) => {
+            })
+            .await
+      }));
+   }
+
+   let mut out = HashMap::new();
+   for task in tasks {
+      match task.await {
+         Ok(Ok(rows)) => {
             for (token, spender, amount, expiration) in rows {
                out.insert((token, spender), (amount, expiration));
             }
          }
-         Err(e) => {
-            tracing::warn!("Multicall3 Permit2 allowances failed: {:?}", e);
-         }
+         Ok(Err(e)) => tracing::warn!("Multicall3 Permit2 allowances failed: {:?}", e),
+         Err(e) => tracing::warn!("Multicall3 Permit2 allowances failed: {e:?}"),
       }
    }
 
@@ -679,19 +707,30 @@ async fn fetch_nft_ownership_before(
       return HashMap::new();
    }
 
-   let client = ctx.get_zeus_client();
-   let mut out = HashMap::new();
+   let client = ctx.get_client_manager();
+   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
+   let mut tasks = Vec::new();
 
    for chunk in refs.chunks(NFT_REF_BATCH) {
       let chunk = chunk.to_vec();
-      match client
-         .request(chain, |client| {
-            let chunk = chunk.clone();
-            async move { batch::get_erc721_owners(client, chunk, Some(block_id)).await }
-         })
-         .await
-      {
-         Ok(rows) => {
+      let client = client.clone();
+      let semaphore = Arc::clone(&semaphore);
+
+      tasks.push(tokio::spawn(async move {
+         let _permit = semaphore.acquire().await.expect("the fetch semaphore is never closed");
+
+         client
+            .request_with(chain, chunk.clone(), |client, chunk| async move {
+               batch::get_erc721_owners(client, chunk, Some(block_id)).await
+            })
+            .await
+      }));
+   }
+
+   let mut out = HashMap::new();
+   for task in tasks {
+      match task.await {
+         Ok(Ok(rows)) => {
             for (collection, token_id, owner) in rows {
                // A reverted `ownerOf` says the token has no owner — "not the signer's" is the answer
                // the row needs, not a hole in the map.
@@ -701,7 +740,8 @@ async fn fetch_nft_ownership_before(
                );
             }
          }
-         Err(e) => tracing::warn!("ERC-721 owners at block failed: {:?}", e),
+         Ok(Err(e)) => tracing::warn!("ERC-721 owners at block failed: {:?}", e),
+         Err(e) => tracing::warn!("ERC-721 owners at block failed: {e:?}"),
       }
    }
 
@@ -720,26 +760,38 @@ async fn fetch_nft_balances_before(
       return HashMap::new();
    }
 
-   let client = ctx.get_zeus_client();
-   let mut out = HashMap::new();
+   let client = ctx.get_client_manager();
+   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
+   let mut tasks = Vec::new();
 
    for chunk in refs.chunks(NFT_REF_BATCH) {
       let chunk = chunk.to_vec();
-      match client
-         .request(chain, |client| {
-            let chunk = chunk.clone();
-            async move { batch::get_erc1155_balances(client, from, chunk, Some(block_id)).await }
-         })
-         .await
-      {
-         Ok(rows) => {
+      let client = client.clone();
+      let semaphore = Arc::clone(&semaphore);
+
+      tasks.push(tokio::spawn(async move {
+         let _permit = semaphore.acquire().await.expect("the fetch semaphore is never closed");
+
+         client
+            .request_with(chain, chunk.clone(), |client, chunk| async move {
+               batch::get_erc1155_balances(client, from, chunk, Some(block_id)).await
+            })
+            .await
+      }));
+   }
+
+   let mut out = HashMap::new();
+   for task in tasks {
+      match task.await {
+         Ok(Ok(rows)) => {
             for (collection, token_id, balance) in rows {
                if let Some(balance) = balance {
                   out.insert((collection, token_id), balance);
                }
             }
          }
-         Err(e) => tracing::warn!("ERC-1155 balances at block failed: {:?}", e),
+         Ok(Err(e)) => tracing::warn!("ERC-1155 balances at block failed: {:?}", e),
+         Err(e) => tracing::warn!("ERC-1155 balances at block failed: {e:?}"),
       }
    }
 
@@ -757,8 +809,9 @@ async fn fetch_nft_token_approvals_before(
       return HashMap::new();
    }
 
-   let client = ctx.get_zeus_client();
-   let mut out = HashMap::new();
+   let client = ctx.get_client_manager();
+   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
+   let mut tasks = Vec::new();
 
    for chunk in candidates.chunks(NFT_REF_BATCH) {
       debug_assert!(
@@ -776,17 +829,28 @@ async fn fetch_nft_token_approvals_before(
          })
          .collect();
       let chunk = chunk.to_vec();
+      let client = client.clone();
+      let semaphore = Arc::clone(&semaphore);
 
-      match client
-         .request(chain, |client| {
-            let refs = refs.clone();
-            async move { batch::get_erc721_approved(client, refs, Some(block_id)).await }
-         })
-         .await
-      {
-         Ok(rows) => {
-            // The helper returns one row per ref, in order, so the zip keeps each answer with its
-            // own candidate.
+      tasks.push(tokio::spawn(async move {
+         let _permit = semaphore.acquire().await.expect("the fetch semaphore is never closed");
+
+         let rows = client
+            .request_with(chain, refs.clone(), |client, refs| async move {
+               batch::get_erc721_approved(client, refs, Some(block_id)).await
+            })
+            .await;
+
+         (rows, chunk)
+      }));
+   }
+
+   let mut out = HashMap::new();
+   for task in tasks {
+      match task.await {
+         // The helper returns one row per ref, in order, so the zip keeps each answer with its own
+         // candidate.
+         Ok((Ok(rows), chunk)) => {
             for (row, candidate) in rows.into_iter().zip(chunk) {
                // A reverted `getApproved` is the zero address: no approval, which a mint that also
                // approves someone still shows up as a change from.
@@ -796,7 +860,8 @@ async fn fetch_nft_token_approvals_before(
                );
             }
          }
-         Err(e) => tracing::warn!("ERC-721 approvals at block failed: {:?}", e),
+         Ok((Err(e), _)) => tracing::warn!("ERC-721 approvals at block failed: {:?}", e),
+         Err(e) => tracing::warn!("ERC-721 approvals at block failed: {e:?}"),
       }
    }
 
@@ -815,8 +880,9 @@ async fn fetch_nft_for_all_before(
       return HashMap::new();
    }
 
-   let client = ctx.get_zeus_client();
-   let mut out = HashMap::new();
+   let client = ctx.get_client_manager();
+   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
+   let mut tasks = Vec::new();
 
    for chunk in candidates.chunks(NFT_REF_BATCH) {
       let targets: Vec<(Address, Address)> = chunk
@@ -824,17 +890,30 @@ async fn fetch_nft_for_all_before(
          .map(|candidate| (candidate.collection, candidate.operator))
          .collect();
       let chunk = chunk.to_vec();
+      let client = client.clone();
+      let semaphore = Arc::clone(&semaphore);
 
-      match client
-         .request(chain, |client| {
-            let targets = targets.clone();
-            async move {
-               batch::get_erc721_is_approved_for_all(client, from, targets, Some(block_id)).await
-            }
-         })
-         .await
-      {
-         Ok(rows) => {
+      tasks.push(tokio::spawn(async move {
+         let _permit = semaphore.acquire().await.expect("the fetch semaphore is never closed");
+
+         let rows = client
+            .request_with(
+               chain,
+               targets.clone(),
+               |client, targets| async move {
+                  batch::get_erc721_is_approved_for_all(client, from, targets, Some(block_id)).await
+               },
+            )
+            .await;
+
+         (rows, chunk)
+      }));
+   }
+
+   let mut out = HashMap::new();
+   for task in tasks {
+      match task.await {
+         Ok((Ok(rows), chunk)) => {
             for (row, candidate) in rows.into_iter().zip(chunk) {
                out.insert(
                   candidate,
@@ -842,7 +921,8 @@ async fn fetch_nft_for_all_before(
                );
             }
          }
-         Err(e) => tracing::warn!("isApprovedForAll at block failed: {:?}", e),
+         Ok((Err(e), _)) => tracing::warn!("isApprovedForAll at block failed: {:?}", e),
+         Err(e) => tracing::warn!("isApprovedForAll at block failed: {e:?}"),
       }
    }
 
@@ -861,8 +941,9 @@ async fn fetch_nft_allowances_before(
       return HashMap::new();
    }
 
-   let client = ctx.get_zeus_client();
-   let mut out = HashMap::new();
+   let client = ctx.get_client_manager();
+   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
+   let mut tasks = Vec::new();
 
    for chunk in candidates.chunks(NFT_REF_BATCH) {
       let refs: Vec<(Address, Address, U256)> = chunk
@@ -875,15 +956,26 @@ async fn fetch_nft_allowances_before(
          })
          .collect();
       let chunk = chunk.to_vec();
+      let client = client.clone();
+      let semaphore = Arc::clone(&semaphore);
 
-      match client
-         .request(chain, |client| {
-            let refs = refs.clone();
-            async move { batch::get_erc1155_allowances(client, from, refs, Some(block_id)).await }
-         })
-         .await
-      {
-         Ok(rows) => {
+      tasks.push(tokio::spawn(async move {
+         let _permit = semaphore.acquire().await.expect("the fetch semaphore is never closed");
+
+         let rows = client
+            .request_with(chain, refs.clone(), |client, refs| async move {
+               batch::get_erc1155_allowances(client, from, refs, Some(block_id)).await
+            })
+            .await;
+
+         (rows, chunk)
+      }));
+   }
+
+   let mut out = HashMap::new();
+   for task in tasks {
+      match task.await {
+         Ok((Ok(rows), chunk)) => {
             for (row, candidate) in rows.into_iter().zip(chunk) {
                out.insert(
                   candidate,
@@ -891,7 +983,8 @@ async fn fetch_nft_allowances_before(
                );
             }
          }
-         Err(e) => tracing::warn!("ERC-5216 allowances at block failed: {:?}", e),
+         Ok((Err(e), _)) => tracing::warn!("ERC-5216 allowances at block failed: {:?}", e),
+         Err(e) => tracing::warn!("ERC-5216 allowances at block failed: {e:?}"),
       }
    }
 
@@ -1126,7 +1219,7 @@ pub async fn diffs_from_receipt(
 
    let nft = NftRequest::collect(&ctx, chain, from, interact_to, call_data, logs);
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let native_before_fut = client.request(chain, |client| async move {
       client.get_balance(from).block_id(parent).await.map_err(|e| anyhow!("{:?}", e))
    });
@@ -1413,7 +1506,7 @@ pub async fn simulate_and_diff(
    value: U256,
    authorization_list: Vec<SignedAuthorization>,
 ) -> Result<SimulatedTx, anyhow::Error> {
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    let (block, block_id) = pinned_head(ctx.clone(), chain, BlockId::latest()).await?;
 

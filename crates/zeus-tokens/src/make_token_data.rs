@@ -70,7 +70,12 @@ pub async fn make_token_data(
 
       let retry = retry_layer(10, 400, 330);
       let throttle = throttle_layer(30);
-      let client = get_client(url, retry, throttle, 10).await?;
+      let client = RpcClientBuilder::new(url.as_str())
+         .retry(retry)
+         .throttle(throttle)
+         .timeout_secs(10)
+         .connect()
+         .await?;
 
       let native_price = price_feed::get_eth_price(client.clone(), chain.id(), None).await?;
 

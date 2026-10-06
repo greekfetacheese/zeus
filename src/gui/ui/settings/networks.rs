@@ -1,7 +1,13 @@
 //! UI that allows the user to change the network settings.
 
 use crate::assets::icons::Icons;
-use crate::core::{ZeusContext, ZeusCtx, client::Rpc};
+use crate::core::{
+   ZeusContext, ZeusCtx,
+   client::{
+      MAX_CONCURRENCY, MAX_RPC_CU_PER_SECOND, MAX_RPC_RPS, MIN_CONCURRENCY, MIN_RPC_CU_PER_SECOND,
+      MIN_RPC_RPS, Rpc,
+   },
+};
 use crate::gui::{SHARED_GUI, ui::ChainSelect, ui::show_with_fade};
 use crate::utils::{RT, state};
 use eframe::egui::{
@@ -25,6 +31,11 @@ pub struct NetworkSettings {
    refreshing: bool,
    rpc_to_edit: Option<Rpc>,
    url_to_add: String,
+   /// Rate-limit inputs for the endpoint being edited.
+   rps_input: String,
+   cu_input: String,
+   /// Global concurrency input; `None` until seeded from the client on first render.
+   concurrency_input: Option<String>,
    chain_select: ChainSelect,
 }
 
@@ -39,6 +50,9 @@ impl NetworkSettings {
          refreshing: false,
          rpc_to_edit: None,
          url_to_add: String::new(),
+         rps_input: String::new(),
+         cu_input: String::new(),
+         concurrency_input: None,
          chain_select,
       }
    }
@@ -47,6 +61,9 @@ impl NetworkSettings {
       self.view = NetworkView::List;
       self.rpc_to_edit = None;
       self.url_to_add.clear();
+      self.rps_input.clear();
+      self.cu_input.clear();
+      self.concurrency_input = None;
    }
 
    pub fn open_add_rpc(&mut self) {
@@ -58,13 +75,18 @@ impl NetworkSettings {
       self.url_to_add.clear();
    }
 
-   pub fn open_rpc_settings(&mut self) {
+   pub fn open_rpc_settings(&mut self, rpc: Rpc) {
       self.view = NetworkView::EditRpc;
+      self.rps_input = rpc.rps.to_string();
+      self.cu_input = rpc.cu_per_second.to_string();
+      self.rpc_to_edit = Some(rpc);
    }
 
    pub fn close_rpc_settings(&mut self) {
       self.view = NetworkView::List;
       self.rpc_to_edit = None;
+      self.rps_input.clear();
+      self.cu_input.clear();
    }
 
    fn valid_url(&self) -> bool {
@@ -110,7 +132,7 @@ impl NetworkSettings {
       let text_edit_visuals = theme.text_edit_visuals();
 
       let chain = self.chain_select.chain.id();
-      let z_client = ctx.client.clone();
+      let z_client = ctx.client_manager.clone();
       let mut rpcs = z_client.get_rpcs(chain);
 
       ui.add_space(10.0);
@@ -169,7 +191,7 @@ impl NetworkSettings {
 
                   RT.spawn(async move {
                      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                     let z_client = ctx.get_zeus_client();
+                     let z_client = ctx.get_client_manager();
                      z_client.run_rpc_checks(ctx.clone()).await;
                      SHARED_GUI.write(|gui| {
                         gui.settings.network.refreshing = false;
@@ -192,6 +214,69 @@ impl NetworkSettings {
          ui.label(text);
          ui.label(text2);
       });
+
+      ui.add_space(theme.spacing.md);
+      ui.separator();
+
+      // Kept above the RPC table: the table's scroll area consumes the remaining height, so
+      // anything below it would fall off-screen on a short window.
+      ui.allocate_ui_with_layout(
+         vec2(ui.available_width(), 32.0),
+         Layout::left_to_right(Align::Center),
+         |ui| {
+            ui.spacing_mut().item_spacing.x = theme.spacing.sm;
+            ui.label(RichText::new("Request Concurrency").size(theme.typography.normal));
+
+            let current = z_client.concurrency();
+            let input = self.concurrency_input.get_or_insert_with(|| current.to_string());
+
+            ui.add(
+               SecureTextEdit::singleline(input)
+                  .visuals(text_edit_visuals)
+                  .font(FontId::proportional(theme.typography.normal))
+                  .desired_width(32.0)
+                  .margin(Margin::same(6)),
+            );
+
+            let parsed = self
+               .concurrency_input
+               .as_ref()
+               .and_then(|value| value.trim().parse::<usize>().ok());
+            let valid =
+               parsed.is_some_and(|value| (MIN_CONCURRENCY..=MAX_CONCURRENCY).contains(&value));
+
+            let text = RichText::new("Apply").size(theme.typography.normal);
+            let button = Button::new(text).visuals(button_visuals);
+            if ui.add_enabled(valid, button).clicked() {
+               if let Some(value) = parsed {
+                  z_client.set_concurrency(value);
+                  self.concurrency_input = Some(z_client.concurrency().to_string());
+
+                  RT.spawn_blocking(move || {
+                     let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+                     ctx.save_client_manager();
+                  });
+               }
+            }
+
+            if !valid {
+               let text = RichText::new("Enter a whole number within the range below")
+                  .size(theme.typography.small)
+                  .color(theme.colors.error);
+               ui.label(text);
+            }
+         },
+      );
+
+      ui.label(
+         RichText::new(format!(
+            "How many requests Zeus may run at once (range {MIN_CONCURRENCY}-{MAX_CONCURRENCY}). Raise it for a paid or local RPC, keep it low for public endpoints."
+         ))
+         .size(theme.typography.small)
+         .color(theme.colors.text_muted),
+      );
+
+      ui.separator();
 
       ui.add_space(12.0);
 
@@ -261,21 +346,14 @@ impl NetworkSettings {
                });
 
                if res.inner.clicked() {
-                  let z_client = ctx.client.clone();
-                  z_client.write(|rpcs_map| {
-                     let rpcs_opt = rpcs_map.get_mut(&chain);
-                     if let Some(rpcs) = rpcs_opt {
-                        if let Some(old_rpc) = rpcs.get_mut(&rpc.url) {
-                           old_rpc.enabled = rpc.enabled;
-                        }
-                     }
-                  });
+                  let z_client = ctx.client_manager.clone();
+                  z_client.set_rpc_enabled(chain, &rpc.url, rpc.enabled);
 
                   if !was_enabled && rpc.enabled {
                      let rpc = rpc.clone();
                      RT.spawn(async move {
                         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                        let z_client = ctx.get_zeus_client();
+                        let z_client = ctx.get_client_manager();
                         z_client.run_check_for(ctx.clone(), rpc).await;
 
                         post_enable_rpc(ctx, chain).await
@@ -284,7 +362,7 @@ impl NetworkSettings {
 
                   RT.spawn_blocking(move || {
                      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                     ctx.save_zeus_client();
+                     ctx.save_client_manager();
                   });
                }
 
@@ -313,8 +391,7 @@ impl NetworkSettings {
                   visuals.corner_radius = CornerRadius::same(15);
                   let settings_btn = Button::image(icon).small().visuals(visuals);
                   if ui.add(settings_btn).on_hover_cursor(CursorIcon::PointingHand).clicked() {
-                     self.open_rpc_settings();
-                     self.rpc_to_edit = Some(rpc.clone());
+                     self.open_rpc_settings(rpc.clone());
                   }
 
                   if rpc.test_in_progress {
@@ -326,7 +403,7 @@ impl NetworkSettings {
                         let rpc_clone = rpc.clone();
                         RT.spawn(async move {
                            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                           let z_client = ctx.get_zeus_client();
+                           let z_client = ctx.get_client_manager();
                            z_client.run_check_for(ctx, rpc_clone).await;
                         });
                      }
@@ -337,12 +414,12 @@ impl NetworkSettings {
                   let button = Button::new(RichText::new("X").size(theme.typography.normal))
                      .visuals(button_visuals);
                   if ui.add(button).clicked() {
-                     let z_client = ctx.client.clone();
+                     let z_client = ctx.client_manager.clone();
                      z_client.remove_rpc(chain, rpc.url.clone());
 
                      RT.spawn_blocking(move || {
                         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                        ctx.save_zeus_client();
+                        ctx.save_client_manager();
                      });
                   }
                });
@@ -364,25 +441,95 @@ impl NetworkSettings {
          return;
       }
 
-      let rpc = self.rpc_to_edit.as_mut().unwrap();
+      let button_visuals = theme.button_visuals();
+      let text_edit_visuals = theme.text_edit_visuals();
 
-      let text = RichText::new("MEV Protect").size(theme.typography.normal);
-      ui.label(text);
-      let clicked = ui.checkbox(&mut rpc.mev_protect, "").clicked();
+      {
+         let rpc = self.rpc_to_edit.as_mut().unwrap();
 
-      if clicked {
-         let z_client = ctx.client.clone();
-         z_client.write(|rpcs_map| {
-            if let Some(rpcs) = rpcs_map.get_mut(&rpc.chain_id) {
-               if let Some(old_rpc) = rpcs.get_mut(&rpc.url) {
-                  old_rpc.mev_protect = rpc.mev_protect;
+         let text = RichText::new("MEV Protect").size(theme.typography.normal);
+         ui.label(text);
+         let clicked = ui.checkbox(&mut rpc.mev_protect, "").clicked();
+
+         if clicked {
+            let z_client = ctx.client_manager.clone();
+            z_client.write(|rpcs_map| {
+               if let Some(rpcs) = rpcs_map.get_mut(&rpc.chain_id) {
+                  if let Some(old_rpc) = rpcs.get_mut(&rpc.url) {
+                     old_rpc.mev_protect = rpc.mev_protect;
+                  }
                }
+            });
+            RT.spawn_blocking(move || {
+               let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+               ctx.save_client_manager();
+            });
+         }
+      }
+
+      let rpc = self.rpc_to_edit.as_ref().unwrap();
+      let chain = rpc.chain_id;
+      let url = rpc.url.clone();
+
+      ui.add_space(theme.spacing.sm);
+
+      let input_size = vec2(140.0, 20.0);
+      let hint = format!(
+         "Range {MIN_RPC_RPS}-{MAX_RPC_RPS} req/s, {MIN_RPC_CU_PER_SECOND}-{MAX_RPC_CU_PER_SECOND} CU/s. Applied per connection."
+      );
+
+      ui.label(RichText::new("Requests / second").size(theme.typography.normal));
+      ui.add(
+         SecureTextEdit::singleline(&mut self.rps_input)
+            .visuals(text_edit_visuals)
+            .font(FontId::proportional(theme.typography.normal))
+            .min_size(input_size)
+            .margin(Margin::same(10)),
+      );
+
+      ui.label(RichText::new("Compute units / second").size(theme.typography.normal));
+      ui.add(
+         SecureTextEdit::singleline(&mut self.cu_input)
+            .visuals(text_edit_visuals)
+            .font(FontId::proportional(theme.typography.normal))
+            .min_size(input_size)
+            .margin(Margin::same(10)),
+      );
+
+      let rps = self.rps_input.trim().parse::<u32>().ok();
+      let cu = self.cu_input.trim().parse::<u64>().ok();
+      let valid = rps.is_some_and(|v| (MIN_RPC_RPS..=MAX_RPC_RPS).contains(&v))
+         && cu.is_some_and(|v| (MIN_RPC_CU_PER_SECOND..=MAX_RPC_CU_PER_SECOND).contains(&v));
+
+      ui.label(RichText::new(hint).size(theme.typography.small).color(theme.colors.text_muted));
+
+      if !valid {
+         let text = RichText::new("Enter a whole number within the range above")
+            .size(theme.typography.small)
+            .color(theme.colors.error);
+         ui.label(text);
+      }
+
+      let text = RichText::new("Apply").size(theme.typography.normal);
+      let button = Button::new(text).visuals(button_visuals);
+      if ui.add_enabled(valid, button).clicked() {
+         if let (Some(rps), Some(cu)) = (rps, cu) {
+            let z_client = ctx.client_manager.clone();
+            z_client.set_rpc_limits(chain, &url, rps, cu);
+
+            if let Some(rpc) = self.rpc_to_edit.as_mut() {
+               rpc.rps = rps;
+               rpc.cu_per_second = cu;
+               rpc.clamp_limits();
+               self.rps_input = rpc.rps.to_string();
+               self.cu_input = rpc.cu_per_second.to_string();
             }
-         });
-         RT.spawn_blocking(move || {
-            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-            ctx.save_zeus_client();
-         });
+
+            RT.spawn_blocking(move || {
+               let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+               ctx.save_client_manager();
+            });
+         }
       }
    }
 
@@ -476,13 +623,13 @@ fn validate_rpc(chain: u64, url: String) {
          return;
       }
 
-      let z_client = ctx.get_zeus_client();
+      let z_client = ctx.get_client_manager();
       z_client.add_rpc(chain, rpc.clone());
       z_client.run_check_for(ctx.clone(), rpc).await;
 
       let ctx_clone = ctx.clone();
       RT.spawn_blocking(move || {
-         ctx_clone.save_zeus_client();
+         ctx_clone.save_client_manager();
       });
 
       SHARED_GUI.write(|gui| {
@@ -556,7 +703,7 @@ async fn post_enable_rpc(ctx: ZeusCtx, chain: u64) {
       return;
    }
 
-   let z_client = ctx.get_zeus_client();
+   let z_client = ctx.get_client_manager();
 
    let rpcs = z_client.get_rpcs(chain);
    let valid_rpcs = rpcs.iter().filter(|rpc| rpc.1.is_enabled() && rpc.1.is_working()).count();
