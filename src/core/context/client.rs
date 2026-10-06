@@ -8,7 +8,7 @@ use zeus_eth::{
    },
    alloy_primitives::{Address, U256},
    alloy_provider::Provider,
-   alloy_rpc_types::{BlockId, BlockNumberOrTag},
+   alloy_rpc_types::BlockId,
    alloy_signer_local::PrivateKeySigner,
    alloy_sol_types::SolEvent,
    amm::uniswap::UniswapPool,
@@ -1225,15 +1225,19 @@ async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), anyhow
       guard.working = true;
    }
 
-   let block_to_query = if latest_block > 100_000 {
-      latest_block - 100_000
-   } else {
-      return Err(anyhow!("Latest block is < 100_000"));
-   };
+   // Deep enough that a pruned full node's ~128-block state window is far behind; a young chain
+   // simply probes from its earliest block instead of failing the whole check.
+   let block_to_query = latest_block.saturating_sub(100_000);
 
    let weth = ERC20Token::wrapped_native_token(rpc.chain_id);
 
-   archive_check(client.clone(), block_to_query, result.clone()).await;
+   archive_check(
+      client.clone(),
+      block_to_query,
+      weth.address,
+      result.clone(),
+   )
+   .await;
 
    get_logs_check(
       client.clone(),
@@ -1335,14 +1339,22 @@ async fn json_rpc_batch_check(client: RpcClient, result: Arc<Mutex<RpcCheck>>) {
    guard.json_rpc_batch = ok;
 }
 
-async fn archive_check(client: RpcClient, block_to_query: u64, result: Arc<Mutex<RpcCheck>>) {
-   let old_block = client
-      .get_block(BlockId::Number(BlockNumberOrTag::Number(
-         block_to_query,
-      )))
-      .await;
+/// Archive means "can serve historical **state**", not "can serve an old block".
+///
+/// A pruned full node still answers `eth_getBlockByNumber` for old heights — geth keeps them in its
+/// freezer — while what it actually drops is the state trie behind them. So the probe is a balance
+/// read: a pruned node errors ("missing trie node" / "historical state is not available"), an
+/// archive node answers, and that answer is legitimately allowed to be zero, which is why this tests
+/// `is_ok` rather than the value.
+async fn archive_check(
+   client: RpcClient,
+   block_to_query: u64,
+   probe: Address,
+   result: Arc<Mutex<RpcCheck>>,
+) {
+   let old_balance = client.get_balance(probe).block_id(BlockId::number(block_to_query)).await;
 
-   let is_archive = matches!(old_block, Ok(Some(_)));
+   let is_archive = old_balance.is_ok();
 
    let mut guard = result.lock().unwrap();
    guard.archive = is_archive;
