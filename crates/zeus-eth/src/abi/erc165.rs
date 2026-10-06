@@ -11,8 +11,11 @@
 //! call succeeds and you get a confident wrong answer.
 
 use alloy_contract::private::{Network, Provider};
-use alloy_primitives::{Address, FixedBytes, fixed_bytes};
-use alloy_sol_types::sol;
+use alloy_network::TransactionBuilder;
+use alloy_primitives::{Address, Bytes, FixedBytes, U256, fixed_bytes};
+use alloy_rpc_client::BatchRequest;
+use alloy_rpc_types::BlockId;
+use alloy_sol_types::{SolCall, sol};
 
 sol! {
     #[sol(rpc)]
@@ -60,6 +63,22 @@ pub const IERC5216_ID: FixedBytes<4> = fixed_bytes!("1be07d74");
 pub const IERC1155_PERMIT_ID: FixedBytes<4> = fixed_bytes!("7409106d");
 /// Must return false on a spec-compliant ERC-165 contract.
 pub const INVALID_INTERFACE_ID: FixedBytes<4> = fixed_bytes!("ffffffff");
+/// Every interface id [`probe`] sweeps, in the order [`Erc165Support::from_answers`] reads them.
+///
+/// One list so the batched and the sequential sweep ask the same questions in the same order: the
+/// batched answers are position-matched, so a reordered list would pair an answer with the wrong field
+/// and report, say, an ERC-1155 as an ERC-721.
+const PROBED_IDS: [FixedBytes<4>; 9] = [
+   IERC165_ID,
+   INVALID_INTERFACE_ID,
+   IERC721_ID,
+   IERC721_METADATA_ID,
+   IERC721_ENUMERABLE_ID,
+   IERC1155_ID,
+   IERC1155_METADATA_ID,
+   IERC5216_ID,
+   IERC1155_PERMIT_ID,
+];
 
 /// One `supportsInterface` call.
 ///
@@ -107,6 +126,36 @@ pub struct Erc165Support {
 }
 
 impl Erc165Support {
+   /// Build the sweep from one answer per [`PROBED_IDS`] entry, in that order.
+   ///
+   /// The single place the id list and the field list can disagree, so a batched answer cannot be
+   /// filed under the wrong field.
+   fn from_answers(answers: [bool; 9]) -> Self {
+      let [
+         erc165,
+         invalid_id_supported,
+         erc721,
+         erc721_metadata,
+         erc721_enumerable,
+         erc1155,
+         erc1155_metadata,
+         erc5216,
+         erc1155_permit,
+      ] = answers;
+
+      Self {
+         erc165,
+         invalid_id_supported,
+         erc721,
+         erc721_metadata,
+         erc721_enumerable,
+         erc1155,
+         erc1155_metadata,
+         erc5216,
+         erc1155_permit,
+      }
+   }
+
    /// Whether the contract implements `supportsInterface` at all.
    pub fn is_erc165(&self) -> bool {
       self.erc165
@@ -164,15 +213,74 @@ impl Erc165Support {
    }
 }
 
-/// Probe every interface id we care about for `token`.
+/// Probe every interface id we care about for `token`, in **one** JSON-RPC batch.
 ///
-/// The calls run sequentially on purpose: this crate has no `tokio` dependency, and the sweeps
-/// are short enough that the extra round trips do not matter next to the RPC latency.
+/// The sweep is the whole cost of resolving a collection, and it is now a single round trip instead of
+/// [`PROBED_IDS`] of them. A provider that will not serve a batch is still served by
+/// [`probe_sequential`]: batching here is an optimisation, never a requirement.
 ///
 /// `Err` means the contract could not be *asked* — never that it answered "no". A caller that wants to
 /// treat an unreachable node as "not an NFT" has to say so itself, which is what keeps a hiccup from
 /// being shown to the user as a verdict about the contract.
 pub async fn probe<P, N>(client: P, token: Address) -> Result<Erc165Support, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   match probe_batched(client.clone(), token).await {
+      Ok(support) => Ok(support),
+      Err(err) => {
+         tracing::debug!(
+            "ERC-165 batch for {token} did not go through ({err:?}), asking one by one"
+         );
+
+         probe_sequential(client, token).await
+      }
+   }
+}
+
+/// [`probe`] in one JSON-RPC batch: every id asked in the same POST.
+async fn probe_batched<P, N>(client: P, token: Address) -> Result<Erc165Support, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let block = BlockId::latest();
+   let mut batch = BatchRequest::new(client.client());
+   let mut waiters = Vec::with_capacity(PROBED_IDS.len());
+
+   for interface_id in PROBED_IDS {
+      let input = Bytes::from(
+         IERC165::supportsInterfaceCall {
+            interfaceId: interface_id,
+         }
+         .abi_encode(),
+      );
+      let tx = N::TransactionRequest::default().with_to(token).with_input(input);
+
+      let waiter = batch
+         .add_call::<_, U256>("eth_call", &(tx, block))
+         .map_err(|e| anyhow::anyhow!("ERC-165 batch serialize: {e:?}"))?;
+      waiters.push(waiter);
+   }
+
+   batch.send().await.map_err(|e| anyhow::anyhow!("ERC-165 batch: {e:?}"))?;
+
+   let mut answers = [false; 9];
+
+   for (slot, waiter) in answers.iter_mut().zip(waiters) {
+      // Any per-slot failure reads as "does not implement it": a revert, an empty return (a fallback
+      // answering `0x`, e.g. WETH9), and the invalid-opcode error CryptoPunks answers `supportsInterface`
+      // with. A batch that does not come back at all — node unreachable, throttled, or refusing
+      // batches — is what `send` above caught, and that stays an error.
+      *slot = waiter.await.is_ok_and(|word| !word.is_zero());
+   }
+
+   Ok(Erc165Support::from_answers(answers))
+}
+
+/// [`probe`]'s fallback: one call per id, for an endpoint that rejects a batch.
+async fn probe_sequential<P, N>(client: P, token: Address) -> Result<Erc165Support, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
@@ -230,6 +338,24 @@ mod tests {
       assert_eq!(IERC1155_METADATA_ID.0, [0x0e, 0x89, 0x34, 0x1c]);
       assert_eq!(IERC5216_ID.0, [0x1b, 0xe0, 0x7d, 0x74]);
       assert_eq!(IERC1155_PERMIT_ID.0, [0x74, 0x09, 0x10, 0x6d]);
+   }
+
+   /// The batched answers are matched to fields by position, so a swap would misclassify a contract
+   /// while every individual answer still looked right. Pin the mapping.
+   #[test]
+   fn answers_map_to_their_own_fields_by_position() {
+      let support =
+         Erc165Support::from_answers([true, false, true, false, true, false, true, false, true]);
+
+      assert!(support.erc165);
+      assert!(!support.invalid_id_supported);
+      assert!(support.erc721);
+      assert!(!support.erc721_metadata);
+      assert!(support.erc721_enumerable);
+      assert!(!support.erc1155);
+      assert!(support.erc1155_metadata);
+      assert!(!support.erc5216);
+      assert!(support.erc1155_permit);
    }
 
    /// An ERC-165 interface id is the XOR of the selectors of its functions. Deriving
@@ -418,12 +544,28 @@ mod tests {
 
       // CryptoPunks — reverts on every probe, so it reads as "not an NFT" rather than erroring.
       let punks = address!("b47e3cd837dDF8e4c57F05d70Ab865de6e193BBB");
-      let s = probe(client, punks).await.expect("the sweep reached the node");
+      let s = probe(client.clone(), punks).await.expect("the sweep reached the node");
       assert!(
          !s.is_compliant(),
          "Punks does not implement ERC-165"
       );
       assert!(!s.is_nft(), "Punks must not be treated as an NFT");
+
+      // The one-POST sweep must give exactly the verdicts the sequential one does — same answers in
+      // the same fields. CryptoPunks is deliberately left out of the comparison: it *errors* rather
+      // than reverting, and whether `supports_interface` reads that as "not ERC-165" depends on the
+      // endpoint attaching revert data, which this one does not. The batched sweep needs no such data,
+      // so the verdict asserted above is the one the module documents; the sequential path is the one
+      // that cannot reach it here.
+      for target in [bayc, storefront, weth] {
+         let batched = probe(client.clone(), target).await.expect("batched sweep");
+         let sequential = probe_sequential(client.clone(), target).await.expect("sequential sweep");
+
+         assert_eq!(
+            batched, sequential,
+            "the two sweeps disagree for {target}"
+         );
+      }
    }
 
    /// A probe that cannot reach a node is an **error**, never a "no".
