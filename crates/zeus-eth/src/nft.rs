@@ -298,14 +298,6 @@ fn enumeration_plan(balance: U256) -> (usize, bool) {
    )
 }
 
-/// How many enumeration aggregates may be in flight at once.
-///
-/// A full [`MAX_ENUMERATED_TOKENS`] scan is one aggregate per [`MULTICALL_CHUNK`] owner-indices, so
-/// this keeps a whale's scan to a handful of round trips without opening a socket per chunk: every
-/// request goes to the same node, where unconditional fan-out buys latency at the price of rate
-/// limits.
-const ENUMERATION_CONCURRENCY: usize = 2;
-
 /// Owner-indices `0..wanted`, in chunks of [`MULTICALL_CHUNK`] — one chunk is one aggregate.
 ///
 /// Pure, so the shape the batched scan depends on (every index exactly once, in order, no chunk over
@@ -353,13 +345,14 @@ fn take_until_refused(chunks: Vec<Vec<Option<U256>>>) -> Vec<U256> {
 /// the ERC-165 sweep.
 ///
 /// Enumeration itself is batched — one Multicall3 aggregate per [`MULTICALL_CHUNK`] owner-indices, at
-/// most [`ENUMERATION_CONCURRENCY`] in flight — so a thousand-id scan is a handful of round trips
-/// rather than a thousand.
+/// most `concurrency` in flight — so a thousand-id scan is a handful of round trips rather than a
+/// thousand. The caller picks `concurrency`: only it knows what the endpoint's rate budget can take.
 pub async fn collections_of<P, N>(
    client: P,
    chain_id: u64,
    owner: Address,
    candidates: &[Address],
+   concurrency: usize,
 ) -> Result<Vec<CollectionHolding>, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
@@ -394,7 +387,14 @@ where
          NftCollection::with_support(client.clone(), chain_id, candidate, support).await?;
 
       let (wanted, truncated) = enumeration_plan(balance);
-      let token_ids = owner_token_ids(client.clone(), candidate, owner, wanted).await?;
+      let token_ids = owner_token_ids(
+         client.clone(),
+         candidate,
+         owner,
+         wanted,
+         concurrency,
+      )
+      .await?;
 
       if !token_ids.is_empty() {
          holdings.push(CollectionHolding {
@@ -410,9 +410,9 @@ where
 
 /// The ids `owner` holds in `collection`, for owner-indices `0..wanted`.
 ///
-/// One Multicall3 aggregate per [`MULTICALL_CHUNK`] indices, at most [`ENUMERATION_CONCURRENCY`] in
-/// flight: a full scan is tens of aggregates rather than a thousand round trips, and a wallet holding
-/// one NFT pays a single call whatever the collection's size.
+/// One Multicall3 aggregate per [`MULTICALL_CHUNK`] indices, at most `concurrency` in flight: a full
+/// scan is tens of aggregates rather than a thousand round trips, and a wallet holding one NFT pays a
+/// single call whatever the collection's size.
 ///
 /// A transport failure is an error — never an empty holding. A reverting index ends the list, which
 /// [`take_until_refused`] folds back in.
@@ -421,12 +421,14 @@ async fn owner_token_ids<P, N>(
    collection: Address,
    owner: Address,
    wanted: usize,
+   concurrency: usize,
 ) -> Result<Vec<U256>, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   let semaphore = Arc::new(Semaphore::new(ENUMERATION_CONCURRENCY));
+   // `max(1)`: a zero-permit semaphore would never hand out a permit and the scan would hang.
+   let semaphore = Arc::new(Semaphore::new(concurrency.max(1)));
    let mut tasks = Vec::new();
 
    for indices in enumeration_chunks(wanted) {
@@ -435,7 +437,7 @@ where
       let semaphore = Arc::clone(&semaphore);
 
       tasks.push(tokio::spawn(async move {
-         // Held for the whole aggregate, so at most ENUMERATION_CONCURRENCY are in flight.
+         // Held for the whole aggregate, so at most `concurrency` are in flight.
          let _permit =
             semaphore.acquire().await.expect("the enumeration semaphore is never closed");
 
@@ -861,6 +863,7 @@ mod tests {
          1,
          holder,
          &[bayc, storefront, weth],
+         2,
       )
       .await
       .unwrap();
@@ -950,7 +953,7 @@ mod tests {
       // An ERC-20 the owner *does* hold must still not be discovered as a collection: a non-zero
       // balance carries the candidate past the cheap filter and into the ERC-165 sweep, which is
       // what has to reject it. Vitalik holds WETH, unlike the `holder` above.
-      let erc20_only = collections_of(client, 1, vitalik, &[weth]).await.unwrap();
+      let erc20_only = collections_of(client, 1, vitalik, &[weth], 2).await.unwrap();
       assert!(
          erc20_only.is_empty(),
          "an ERC-20 must never be discovered as a collection"

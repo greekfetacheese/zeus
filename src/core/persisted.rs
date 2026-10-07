@@ -109,6 +109,7 @@ persisted_files! {
    MiscConfig => "misc_config.json",
    Security => "security.data",
    AcrossSettings => "across_settings.json",
+   ClientSettings => "client_settings.json",
    Connector => "connector.json",
    NativeHostManifest => "io.github.zeus_wallet.json",
    NativeHostWrapperUnix => "zeus_connector_host.sh",
@@ -160,7 +161,8 @@ impl Persisted {
             | PersistedFile::RailgunConfig
             | PersistedFile::MiscConfig
             | PersistedFile::Security
-            | PersistedFile::AcrossSettings,
+            | PersistedFile::AcrossSettings
+            | PersistedFile::ClientSettings,
          ) => ExportPolicy::Core,
          Self::File(
             PersistedFile::Connector
@@ -314,6 +316,10 @@ pub fn misc_config_dir() -> Result<PathBuf, anyhow::Error> {
 
 pub fn security_dir() -> Result<PathBuf, anyhow::Error> {
    file_path(PersistedFile::Security)
+}
+
+pub fn client_settings_dir() -> Result<PathBuf, anyhow::Error> {
+   file_path(PersistedFile::ClientSettings)
 }
 
 pub fn pool_data_dir() -> Result<PathBuf, anyhow::Error> {

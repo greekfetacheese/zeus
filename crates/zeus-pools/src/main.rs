@@ -14,7 +14,7 @@ use tracing::info;
 use zeus_eth::{
    amm::uniswap::{DexKind, UniswapPool},
    types::ChainId,
-   utils::client::{get_client, retry_layer, throttle_layer},
+   utils::client::{RpcClientBuilder, retry_layer, throttle_layer},
 };
 
 use filter::{filter_liquid_pools, native_price, prefilter_pools};
@@ -175,7 +175,12 @@ fn init_tracing() {
 async fn rpc_client(url: &str) -> anyhow::Result<zeus_eth::utils::client::RpcClient> {
    let retry = retry_layer(10, 400, 330);
    let throttle = throttle_layer(10);
-   get_client(url, retry, throttle, 120).await
+   RpcClientBuilder::new(url)
+      .retry(retry)
+      .throttle(throttle)
+      .timeout_secs(120)
+      .connect()
+      .await
 }
 
 #[tokio::main]

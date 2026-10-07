@@ -92,41 +92,103 @@ pub fn throttle_layer(max_requests_per_second: u32) -> ThrottleLayer {
    ThrottleLayer::new(max_requests_per_second)
 }
 
-pub async fn get_client(
-   url: &str,
-   retry_layer: RetryBackoffLayer,
+/// Default request timeout (seconds) when a caller does not set one.
+const DEFAULT_TIMEOUT_SECS: u64 = 15;
+/// Default max rate-limit retries for the retry layer.
+const DEFAULT_MAX_RATE_LIMIT_RETRIES: u32 = 10;
+/// Default retry backoff base (ms).
+const DEFAULT_INITIAL_BACKOFF: u64 = 400;
+/// Default compute-unit budget per second.
+const DEFAULT_COMPUTE_UNITS_PER_SECOND: u64 = 330;
+/// Default max requests per second for the throttle layer.
+const DEFAULT_MAX_REQUESTS_PER_SECOND: u32 = 10;
+/// Default websocket reconnect budget.
+const DEFAULT_WS_MAX_RETRIES: u32 = 10;
+/// Default websocket reconnect backoff base.
+const DEFAULT_WS_RETRY_INTERVAL: Duration = Duration::from_secs(3);
+
+/// Builder for a connected [`RpcClient`].
+///
+/// Websocket endpoints dial immediately in [`RpcClientBuilder::connect`]; http endpoints are lazy and
+/// do no I/O until the first request.
+#[must_use = "builders do nothing unless you call connect()"]
+pub struct RpcClientBuilder {
+   url: String,
+   retry: RetryBackoffLayer,
    throttle: ThrottleLayer,
-   timeout: u64,
-) -> Result<RpcClient, anyhow::Error> {
-   let is_ws = url.starts_with("ws");
-   let url = Url::parse(url)?;
-   let timeout = Duration::from_secs(timeout);
-
-   let client_builder = ClientBuilder::default()
-      .layer(retry_layer)
-      .layer(throttle)
-      .layer(TimeoutLayer::new(timeout));
-
-   let client = if is_ws {
-      client_builder.ws(WsConnect::new(url)).await?
-   } else {
-      client_builder.http(url)
-   };
-
-   let client = ProviderBuilder::new().connect_client(client);
-   Ok(client)
+   timeout: Duration,
+   ws_max_retries: u32,
+   ws_retry_interval: Duration,
 }
 
-pub fn get_http_client(
-   url: &str,
-   retry_layer: RetryBackoffLayer,
-   throttle: ThrottleLayer,
-) -> Result<RpcClient, anyhow::Error> {
-   let url = Url::parse(url)?;
-   let client = ClientBuilder::default().layer(retry_layer).layer(throttle).http(url);
+impl RpcClientBuilder {
+   pub fn new(url: impl Into<String>) -> Self {
+      Self {
+         url: url.into(),
+         retry: retry_layer(
+            DEFAULT_MAX_RATE_LIMIT_RETRIES,
+            DEFAULT_INITIAL_BACKOFF,
+            DEFAULT_COMPUTE_UNITS_PER_SECOND,
+         ),
+         throttle: throttle_layer(DEFAULT_MAX_REQUESTS_PER_SECOND),
+         timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
+         ws_max_retries: DEFAULT_WS_MAX_RETRIES,
+         ws_retry_interval: DEFAULT_WS_RETRY_INTERVAL,
+      }
+   }
 
-   let client = ProviderBuilder::new().connect_client(client);
-   Ok(client)
+   #[must_use]
+   pub fn retry(mut self, retry: RetryBackoffLayer) -> Self {
+      self.retry = retry;
+      self
+   }
+
+   #[must_use]
+   pub fn throttle(mut self, throttle: ThrottleLayer) -> Self {
+      self.throttle = throttle;
+      self
+   }
+
+   #[must_use]
+   pub fn timeout_secs(mut self, secs: u64) -> Self {
+      self.timeout = Duration::from_secs(secs);
+      self
+   }
+
+   /// Reconnect budget for websocket endpoints. Use [`u32::MAX`] to retry forever.
+   #[must_use]
+   pub fn ws_max_retries(mut self, max_retries: u32) -> Self {
+      self.ws_max_retries = max_retries;
+      self
+   }
+
+   /// Base interval for the websocket reconnect backoff (alloy caps the delay at 30s).
+   #[must_use]
+   pub fn ws_retry_interval(mut self, interval: Duration) -> Self {
+      self.ws_retry_interval = interval;
+      self
+   }
+
+   pub async fn connect(self) -> Result<RpcClient, anyhow::Error> {
+      let is_ws = self.url.starts_with("ws");
+      let url = Url::parse(&self.url)?;
+
+      let client_builder = ClientBuilder::default()
+         .layer(self.retry)
+         .layer(self.throttle)
+         .layer(TimeoutLayer::new(self.timeout));
+
+      let client = if is_ws {
+         let ws = WsConnect::new(self.url)
+            .with_max_retries(self.ws_max_retries)
+            .with_retry_interval(self.ws_retry_interval);
+         client_builder.ws(ws).await?
+      } else {
+         client_builder.http(url)
+      };
+
+      Ok(ProviderBuilder::new().connect_client(client))
+   }
 }
 
 #[cfg(test)]

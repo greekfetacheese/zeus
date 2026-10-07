@@ -1,4 +1,4 @@
-use crate::core::{ZeusClient, ZeusCtx};
+use crate::core::{ClientManager, ZeusCtx};
 use crate::utils::RT;
 
 use alloy_eips::eip7702::SignedAuthorization;
@@ -32,9 +32,6 @@ pub const STORAGE_FETCH_CHUNK_SIZE: usize = 50;
 
 /// Max addresses per StateView / `eth_getCode` batch.
 const ACCOUNT_INFO_BATCH: usize = 20;
-
-/// Concurrent RPC batches (balances, codes, and nonce fetches).
-const CONCURRENCY: usize = 1;
 
 /// EIP-7702 designated code is `0xef0100 || implementation`.
 pub fn eip7702_implementation(code: &[u8]) -> Option<Address> {
@@ -104,7 +101,7 @@ pub async fn pinned_head(
    chain: ChainId,
    source: BlockId,
 ) -> Result<(Block, BlockId), anyhow::Error> {
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    let block = client
       .request(chain.id(), |client| async move {
@@ -126,7 +123,7 @@ pub async fn native_balance_at(
    owner: Address,
    block_id: BlockId,
 ) -> Result<U256, anyhow::Error> {
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    client
       .request(chain.id(), |client| async move {
@@ -361,7 +358,7 @@ pub async fn simulate_for_analysis(
    value: U256,
    extra_prefetch: Vec<AccountPrefetch>,
 ) -> Result<SimulatedCall, anyhow::Error> {
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    let (block, _) = pinned_head(ctx.clone(), chain, BlockId::latest()).await?;
 
@@ -701,7 +698,7 @@ pub async fn fetch_accounts_info(
 
    let time = Instant::now();
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let addresses: Vec<Address> = accounts.iter().map(|a| a.address).collect();
    let eoas: Vec<Address> = accounts.iter().filter(|a| a.is_eoa).map(|a| a.address).collect();
 
@@ -750,7 +747,7 @@ pub async fn fetch_accounts_info(
 }
 
 async fn fetch_eth_balances_batched(
-   client: ZeusClient,
+   client: ClientManager,
    chain: u64,
    block_id: BlockId,
    addresses: Vec<Address>,
@@ -758,7 +755,7 @@ async fn fetch_eth_balances_batched(
    #[cfg(feature = "dev")]
    let time = Instant::now();
 
-   let semaphore = Arc::new(Semaphore::new(CONCURRENCY));
+   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
    let mut tasks = Vec::new();
 
    for chunk in addresses.chunks(ACCOUNT_INFO_BATCH) {
@@ -768,9 +765,8 @@ async fn fetch_eth_balances_batched(
       tasks.push(RT.spawn(async move {
          let _permit = semaphore.acquire().await.unwrap();
          client
-            .request(chain, |client| {
-               let chunk = chunk.clone();
-               async move { batch::get_eth_balances(client, chain, Some(block_id), chunk).await }
+            .request_with(chain, chunk.clone(), |client, chunk| async move {
+               batch::get_eth_balances(client, chain, Some(block_id), chunk).await
             })
             .await
       }));
@@ -799,7 +795,7 @@ async fn fetch_eth_balances_batched(
 }
 
 async fn fetch_account_codes_batched(
-   client: ZeusClient,
+   client: ClientManager,
    chain: u64,
    block_id: BlockId,
    addresses: Vec<Address>,
@@ -807,7 +803,7 @@ async fn fetch_account_codes_batched(
    #[cfg(feature = "dev")]
    let time = Instant::now();
 
-   let semaphore = Arc::new(Semaphore::new(CONCURRENCY));
+   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
    let mut tasks = Vec::new();
 
    for chunk in addresses.chunks(ACCOUNT_INFO_BATCH) {
@@ -817,9 +813,8 @@ async fn fetch_account_codes_batched(
       tasks.push(RT.spawn(async move {
          let _permit = semaphore.acquire().await.unwrap();
          client
-            .request(chain, |client| {
-               let chunk = chunk.clone();
-               async move { batch::get_account_codes(client, chunk, Some(block_id)).await }
+            .request_with(chain, chunk.clone(), |client, chunk| async move {
+               batch::get_account_codes(client, chunk, Some(block_id)).await
             })
             .await
             .map(|codes| (chunk, codes))
@@ -849,7 +844,7 @@ async fn fetch_account_codes_batched(
 }
 
 async fn fetch_eoa_nonces(
-   client: ZeusClient,
+   client: ClientManager,
    chain: u64,
    block_id: BlockId,
    eoas: Vec<Address>,
@@ -861,7 +856,7 @@ async fn fetch_eoa_nonces(
    #[cfg(feature = "dev")]
    let time = Instant::now();
 
-   let semaphore = Arc::new(Semaphore::new(CONCURRENCY));
+   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
    let mut tasks = Vec::new();
    for chunk in eoas.chunks(ACCOUNT_INFO_BATCH) {
       let chunk = chunk.to_vec();
@@ -870,9 +865,8 @@ async fn fetch_eoa_nonces(
       tasks.push(RT.spawn(async move {
          let _permit = semaphore.acquire().await.unwrap();
          client
-            .request(chain, |client| {
-               let chunk = chunk.clone();
-               async move { batch::get_account_nonces(client, chunk, Some(block_id)).await }
+            .request_with(chain, chunk.clone(), |client, chunk| async move {
+               batch::get_account_nonces(client, chunk, Some(block_id)).await
             })
             .await
             .map(|nonces| (chunk, nonces))
@@ -947,7 +941,8 @@ pub async fn fetch_storage_for_pools(
       };
    }
 
-   let semaphore = Arc::new(Semaphore::new(CONCURRENCY));
+   let concurrency = ctx.get_client_manager().concurrency();
+   let semaphore = Arc::new(Semaphore::new(concurrency));
 
    for acc in account_slots {
       let ctx = ctx.clone();
@@ -983,7 +978,7 @@ pub async fn fetch_storage(
    block_id: BlockId,
    account: AccountSlots,
 ) -> Vec<AccountStorage> {
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let address = account.address;
 
    let chunks: Vec<Vec<U256>> =
@@ -1000,9 +995,8 @@ pub async fn fetch_storage(
       let client = client.clone();
 
       let read_res = client
-         .request(chain, |client| {
-            let chunk = chunk.clone();
-            async move { batch::get_account_storage(client, address, chunk, Some(block_id)).await }
+         .request_with(chain, chunk.clone(), |client, chunk| async move {
+            batch::get_account_storage(client, address, chunk, Some(block_id)).await
          })
          .await;
 

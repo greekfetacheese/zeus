@@ -51,7 +51,7 @@ impl Permit2Info {
       spender: Address,
    ) -> Result<Self, anyhow::Error> {
       let permit2 = address_book::permit2_contract(chain)?;
-      let client = ctx.get_zeus_client();
+      let client = ctx.get_client_manager();
 
       let data_fut = client.request(chain, |client| async move {
          let data = allowance(client, permit2, owner, token.address, spender).await?;

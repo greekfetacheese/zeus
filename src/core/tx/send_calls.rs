@@ -139,7 +139,7 @@ async fn prepare_7702_batch(
    }
 
    let wallet = ctx.get_wallet(from).ok_or(anyhow!("Wallet not found"))?;
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let nonce = client
       .request(chain.id(), |client| async move {
          client.get_transaction_count(from).await.map_err(|e| anyhow!("{:?}", e))

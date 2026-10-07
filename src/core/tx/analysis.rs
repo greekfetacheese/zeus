@@ -489,18 +489,20 @@ impl TransactionAnalysis {
       let owner = self.sender;
       let chain = self.chain;
       let before_block = BlockId::number(tx_block - 1);
-      let z_client = ctx.get_zeus_client();
+      let z_client = ctx.get_client_manager();
 
       let token_before = token.clone();
-      let before_fut = z_client.request(chain, move |client| {
-         let token = token_before.clone();
-         async move { token.balance_of(client, owner, Some(before_block)).await }
-      });
+      let before_fut = z_client.request_with(
+         chain,
+         token_before.clone(),
+         |client, token| async move { token.balance_of(client, owner, Some(before_block)).await },
+      );
       let token_after = token.clone();
-      let after_fut = z_client.request(chain, move |client| {
-         let token = token_after.clone();
-         async move { token.balance_of(client, owner, None).await }
-      });
+      let after_fut = z_client.request_with(
+         chain,
+         token_after.clone(),
+         |client, token| async move { token.balance_of(client, owner, None).await },
+      );
 
       let (balance_before, balance_after) = tokio::try_join!(before_fut, after_fut)?;
 

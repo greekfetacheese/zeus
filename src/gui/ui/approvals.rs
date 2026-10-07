@@ -1086,15 +1086,14 @@ async fn live_permit2_allowances(
       return HashMap::new();
    };
 
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
    let mut out = HashMap::new();
 
    for chunk in pairs.chunks(ALLOWANCE_PAIR_BATCH) {
       let chunk = chunk.to_vec();
       match client
-         .request(chain, |client| {
-            let chunk = chunk.clone();
-            async move { batch::get_permit2_allowances(client, permit2, owner, chunk, None).await }
+         .request_with(chain, chunk.clone(), |client, chunk| async move {
+            batch::get_permit2_allowances(client, permit2, owner, chunk, None).await
          })
          .await
       {
@@ -1314,7 +1313,7 @@ async fn revoke_permit2_approval(
    let token_addr = token.address();
 
    let permit2 = address_book::permit2_contract(chain_id)?;
-   let client = ctx.get_zeus_client();
+   let client = ctx.get_client_manager();
 
    let allowance_data = client
       .request(chain_id, |client| async move {
