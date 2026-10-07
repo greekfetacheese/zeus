@@ -12,7 +12,7 @@ use crate::utils::RT;
 use egui::Context;
 use std::sync::mpsc::{Receiver, channel};
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-use tray_icon::{Icon, MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 /// A tray interaction, delivered to [`ZeusApp::logic`](crate::gui::app::ZeusApp::logic).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +50,11 @@ impl Tray {
 
       let icon_handle = TrayIconBuilder::new()
          .with_menu(Box::new(menu))
+         // Left click toggles the window, right click opens the menu. Windows and
+         // macOS also open the menu on a *left* click by default, which would drop it
+         // on top of the window we just restored; Linux ignores this (its StatusNotifier
+         // host owns the right-click menu).
+         .with_menu_on_left_click(false)
          .with_tooltip("Zeus")
          .with_icon(icon)
          .build()?;
@@ -60,15 +65,18 @@ impl Tray {
       let lock_id = lock.id().clone();
       let quit_id = quit.id().clone();
 
-      // Left click. Emitted on Windows, macOS and the Linux `ksni` backend; the
-      // AppIndicator backend does not report clicks at all, so the menu above is
-      // the portable way to reach the same actions.
+      // Left click, on **release only**. Windows and macOS emit a `Click` for the
+      // button-down *and* the button-up of a single press, so reacting to every
+      // `Click` toggles twice: the window flashes back and vanishes again (with a
+      // second notification). The Linux `ksni` backend emits a single `Up`, so this
+      // filter drops nothing there.
       {
          let ctx = egui_ctx.clone();
          let tx = tx.clone();
          TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
             if let TrayIconEvent::Click {
                button: MouseButton::Left,
+               button_state: MouseButtonState::Up,
                ..
             } = event
             {
