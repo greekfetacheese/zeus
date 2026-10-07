@@ -13,6 +13,7 @@ use egui_elements::{Frame as Frame2, Label, Theme};
 use egui_lucide::Lucide;
 use std::sync::Arc;
 
+pub mod autolock;
 pub mod change_credentials;
 pub mod contacts;
 pub mod encryption;
@@ -23,6 +24,7 @@ pub mod networks;
 pub mod railgun;
 pub mod theme;
 
+pub use autolock::AutoLockSettings;
 pub use change_credentials::ChangeCredentialsUi;
 pub use contacts::ContactsUi;
 pub use encryption::EncryptionSettings;
@@ -57,6 +59,7 @@ pub struct SettingsUi {
    page: SettingsPage,
    general: GeneralSettings,
    pub encryption: EncryptionSettings,
+   autolock: AutoLockSettings,
    pub network: NetworkSettings,
    theme: ThemeSettings,
    pub contacts_ui: ContactsUi,
@@ -74,6 +77,7 @@ impl SettingsUi {
          page: SettingsPage::General,
          general: GeneralSettings::new(ctx),
          encryption: EncryptionSettings::new(),
+         autolock: AutoLockSettings::new(),
          network: NetworkSettings::new(),
          theme: ThemeSettings::new(),
          contacts_ui: ContactsUi::new(),
@@ -98,6 +102,7 @@ impl SettingsUi {
          self.open = true;
          self.general.sync_from_ctx(ctx);
          self.encryption.sync_from_ctx(ctx);
+         self.autolock.sync_from_ctx(ctx);
          self.railgun.sync_from_ctx(ctx);
       }
    }
@@ -128,6 +133,7 @@ impl SettingsUi {
       }
       if page == SettingsPage::Security {
          self.encryption.sync_from_ctx(ctx);
+         self.autolock.sync_from_ctx(ctx);
       }
       if page == SettingsPage::Railgun {
          self.railgun.sync_from_ctx(ctx);
@@ -253,6 +259,10 @@ impl SettingsUi {
                      page == SettingsPage::Security,
                      |ui| {
                         ui.add_space(10.0);
+                        self.autolock.show(ctx, theme, ui);
+                        ui.add_space(24.0);
+                        ui.separator();
+                        ui.add_space(16.0);
                         self.change_credentials_ui.show(theme, ui);
                         ui.add_space(24.0);
                         ui.separator();
