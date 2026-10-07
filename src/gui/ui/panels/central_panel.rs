@@ -4,6 +4,12 @@ use eframe::egui::{RichText, Stroke, Ui, vec2};
 use egui_elements::{Theme, widgets::Window};
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
+   // Locked: only the lock card is shown, and nothing else is interactive.
+   if ctx.locked {
+      gui.lock_screen.show(ctx, &gui.theme, ui);
+      return;
+   }
+
    if !gui.settings.is_open() {
       gui.show_overlay_modals(ui);
    }

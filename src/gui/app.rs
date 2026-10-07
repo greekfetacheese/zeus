@@ -247,6 +247,7 @@ impl ZeusApp {
             gui.wallet_ui.erase(&egui_ctx);
             gui.unlock_vault_ui.erase();
             gui.recover_wallet_ui.erase();
+            gui.lock_screen.erase();
             gui.settings.erase();
 
             gui.loading_window.reset();
@@ -311,7 +312,7 @@ impl eframe::App for ZeusApp {
                .frame(left_frame)
                .show_separator_line(false)
                .show(ui, |ui| {
-                  if ctx.vault_unlocked {
+                  if ctx.vault_unlocked && !ctx.locked {
                      gui.show_left_panel(ctx, ui);
                   }
                });
@@ -322,7 +323,7 @@ impl eframe::App for ZeusApp {
                .show_separator_line(false)
                .frame(main_frame)
                .show(ui, |ui| {
-                  if ctx.vault_unlocked {
+                  if ctx.vault_unlocked && !ctx.locked {
                      gui.show_top_panel(ctx, ui);
                   }
                });

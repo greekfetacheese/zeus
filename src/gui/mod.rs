@@ -11,9 +11,9 @@ use egui_elements::{editor::ThemeEditor, theme::*};
 use lazy_static::lazy_static;
 
 pub use crate::gui::ui::{
-   AccountPanel, ApprovalsUi, ConfirmWindow, LoadingWindow, MsgWindow, Notification, PortfolioUi,
-   RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, TokenSelectionWindow,
-   TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
+   AccountPanel, ApprovalsUi, ConfirmWindow, LoadingWindow, LockScreen, MsgWindow, Notification,
+   PortfolioUi, RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi,
+   TokenSelectionWindow, TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
    common::dots_button,
    dapps::{
       across::AcrossBridge,
@@ -82,6 +82,7 @@ pub struct GUI {
    pub wallet_ui: WalletUi,
    pub unlock_vault_ui: UnlockVault,
    pub recover_wallet_ui: RecoverHDWallet,
+   pub lock_screen: LockScreen,
    pub portofolio: PortfolioUi,
    pub send_crypto: SendCryptoUi,
    pub msg_window: MsgWindow,
@@ -136,6 +137,7 @@ impl GUI {
       let merge_notes_window = MergeNotesWindow::new();
       let unlock_vault_ui = UnlockVault::new();
       let recover_wallet_ui = RecoverHDWallet::new();
+      let lock_screen = LockScreen::new();
 
       Self {
          egui_ctx,
@@ -153,6 +155,7 @@ impl GUI {
          across_bridge,
          unlock_vault_ui,
          recover_wallet_ui,
+         lock_screen,
          portofolio: PortfolioUi::new(),
          send_crypto,
          msg_window,
