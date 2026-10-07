@@ -107,6 +107,7 @@ persisted_files! {
    DisabledChains => "disabled_chains.json",
    RailgunConfig => "railgun_config.json",
    MiscConfig => "misc_config.json",
+   Security => "security.data",
    AcrossSettings => "across_settings.json",
    Connector => "connector.json",
    NativeHostManifest => "io.github.zeus_wallet.json",
@@ -158,6 +159,7 @@ impl Persisted {
             | PersistedFile::DisabledChains
             | PersistedFile::RailgunConfig
             | PersistedFile::MiscConfig
+            | PersistedFile::Security
             | PersistedFile::AcrossSettings,
          ) => ExportPolicy::Core,
          Self::File(
@@ -308,6 +310,10 @@ pub fn railgun_config_dir() -> Result<PathBuf, anyhow::Error> {
 
 pub fn misc_config_dir() -> Result<PathBuf, anyhow::Error> {
    file_path(PersistedFile::MiscConfig)
+}
+
+pub fn security_dir() -> Result<PathBuf, anyhow::Error> {
+   file_path(PersistedFile::Security)
 }
 
 pub fn pool_data_dir() -> Result<PathBuf, anyhow::Error> {
@@ -501,6 +507,25 @@ mod tests {
       );
       assert!(
          !is_allowed_rel_parts(&["nft_db.data.bak".to_string()]),
+         "only the exact file name is a known path"
+      );
+   }
+
+   /// Security settings are user data: they must travel with an export exactly as
+   /// `wallet_state.data` does, and the sealed file must be a known path.
+   #[test]
+   fn security_is_a_core_exported_file() {
+      assert_eq!(PersistedFile::Security.name(), "security.data");
+      assert_eq!(
+         PersistedFile::Security.export_policy(),
+         ExportPolicy::Core
+      );
+      assert!(
+         is_allowed_rel_parts(&["security.data".to_string()]),
+         "an export zip must accept security.data"
+      );
+      assert!(
+         !is_allowed_rel_parts(&["security.data.bak".to_string()]),
          "only the exact file name is a known path"
       );
    }

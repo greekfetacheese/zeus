@@ -39,7 +39,7 @@ use zeus_railgun::{RailgunAddress, RailgunProvider, RailgunSigner, SnapshotLoade
 
 pub use persisted::{
    bundler_url_dir, data_dir, disabled_chains_dir, misc_config_dir, pool_data_dir,
-   railgun_config_dir, railgun_db_file, railgun_dir, theme_kind_dir,
+   railgun_config_dir, railgun_db_file, railgun_dir, security_dir, theme_kind_dir,
 };
 
 /// This is the minimum USD value in a base currency that a pool needs to have in order to be considered sufficiently liquid
