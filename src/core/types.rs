@@ -8,18 +8,21 @@ use zeus_eth::{
 };
 
 use crate::core::{
-   WalletInfo, ZK_ADDRESS_UNAVAILABLE,
+   WalletInfo, WalletStateKey, ZK_ADDRESS_UNAVAILABLE,
    context::{
       DELEGATE_WALLET_CHECK_TIMEOUT, disabled_chains_dir, misc_config_dir, railgun_config_dir,
+      security_dir,
    },
 };
-use crate::utils::{TimeStamp, write_private};
+use crate::utils::{TimeStamp, write_private, write_private_atomic};
 
 use zeus_railgun::indexer::syncer::rpc::{
    DEFAULT_BLOCK_RANGE, DEFAULT_CONCURRENCY, SEPOLIA_BLOCK_RANGE,
 };
 
 use serde::{Deserialize, Serialize};
+
+use ncrypt_me::Argon2;
 
 const DEFAULT_STATE_UPDATE_INTERVAL_MINUTES: u64 = 5;
 const MIN_STATE_UPDATE_INTERVAL_MINUTES: u64 = 1;
@@ -229,6 +232,108 @@ impl MiscConfig {
 impl Default for MiscConfig {
    fn default() -> Self {
       Self::new()
+   }
+}
+
+/// AAD bound to the sealed `security.data` slot.
+pub const SECURITY_AAD: &[u8] = b"zeus-security-v1";
+
+/// Idle period before Zeus locks the UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AutoLock {
+   TenMinutes,
+   OneHour,
+   FourHours,
+   Never,
+   /// Dev-build option. The variant is always compiled so a `security.data`
+   /// written by a dev build still deserializes in release.
+   OneMinute,
+}
+
+impl AutoLock {
+   /// Release-build choices, in menu order.
+   pub const ALL: [Self; 4] = [
+      Self::TenMinutes,
+      Self::OneHour,
+      Self::FourHours,
+      Self::Never,
+   ];
+
+   /// Dev-build choices (adds the 1-minute option first).
+   #[cfg(feature = "dev")]
+   pub const ALL_DEV: [Self; 5] = [
+      Self::OneMinute,
+      Self::TenMinutes,
+      Self::OneHour,
+      Self::FourHours,
+      Self::Never,
+   ];
+
+   pub fn label(self) -> &'static str {
+      match self {
+         Self::OneMinute => "1 minute",
+         Self::TenMinutes => "10 minutes",
+         Self::OneHour => "1 hour",
+         Self::FourHours => "4 hours",
+         Self::Never => "Never",
+      }
+   }
+
+   /// Idle seconds before locking; `None` = never lock.
+   pub fn idle_secs(self) -> Option<u64> {
+      match self {
+         Self::OneMinute => Some(60),
+         Self::TenMinutes => Some(600),
+         Self::OneHour => Some(3_600),
+         Self::FourHours => Some(14_400),
+         Self::Never => None,
+      }
+   }
+}
+
+impl Default for AutoLock {
+   fn default() -> Self {
+      Self::OneHour
+   }
+}
+
+/// Security settings, sealed in `data/security.data` with the vault's
+/// `wallet_state_key`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecuritySettings {
+   /// Idle timeout before the UI locks.
+   #[serde(default)]
+   pub autolock: AutoLock,
+   /// Whether the user ever changed `autolock` away from the default. While
+   /// false, the top bar nudges them to make a deliberate choice.
+   #[serde(default)]
+   pub autolock_changed: bool,
+   /// Argon2 params of the current vault. Persisted in `vault.data`'s header —
+   /// never duplicated here.
+   #[serde(skip)]
+   pub argon_params: Argon2,
+}
+
+impl SecuritySettings {
+   pub fn load_from_file(key: &WalletStateKey) -> Result<Self, anyhow::Error> {
+      let sealed = std::fs::read(security_dir()?)?;
+      key.open_json(&sealed, SECURITY_AAD)
+   }
+
+   pub fn save(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      let sealed = key.seal_json(self, SECURITY_AAD)?;
+      write_private_atomic(&security_dir()?, &sealed)?;
+      Ok(())
+   }
+}
+
+impl Default for SecuritySettings {
+   fn default() -> Self {
+      Self {
+         autolock: AutoLock::default(),
+         autolock_changed: false,
+         argon_params: Argon2::balanced(),
+      }
    }
 }
 
@@ -822,5 +927,78 @@ impl WalletInfoCache {
 
    pub fn ordered_slice(&self) -> &[WalletInfo] {
       &self.ordered_vec
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn autolock_idle_seconds() {
+      assert_eq!(AutoLock::OneMinute.idle_secs(), Some(60));
+      assert_eq!(AutoLock::TenMinutes.idle_secs(), Some(600));
+      assert_eq!(AutoLock::OneHour.idle_secs(), Some(3_600));
+      assert_eq!(AutoLock::FourHours.idle_secs(), Some(14_400));
+      assert_eq!(AutoLock::Never.idle_secs(), None);
+   }
+
+   #[test]
+   fn autolock_labels_are_unique() {
+      let mut labels: Vec<_> = [
+         AutoLock::OneMinute,
+         AutoLock::TenMinutes,
+         AutoLock::OneHour,
+         AutoLock::FourHours,
+         AutoLock::Never,
+      ]
+      .iter()
+      .map(|autolock| autolock.label())
+      .collect();
+
+      labels.sort_unstable();
+      labels.dedup();
+      assert_eq!(labels.len(), 5);
+   }
+
+   #[test]
+   fn autolock_defaults_to_one_hour() {
+      assert_eq!(AutoLock::default(), AutoLock::OneHour);
+      assert_eq!(
+         SecuritySettings::default().autolock,
+         AutoLock::OneHour
+      );
+      assert!(!SecuritySettings::default().autolock_changed);
+   }
+
+   /// The persisted fields round-trip; `argon_params` does not, because it is
+   /// serde-skipped (it belongs to `vault.data`'s header).
+   #[test]
+   fn security_settings_seal_roundtrip() {
+      let key = WalletStateKey::generate().unwrap();
+      let settings = SecuritySettings {
+         autolock: AutoLock::FourHours,
+         autolock_changed: true,
+         argon_params: Argon2::new(1_024, 2, 2),
+      };
+
+      let sealed = key.seal_json(&settings, SECURITY_AAD).unwrap();
+      let loaded: SecuritySettings = key.open_json(&sealed, SECURITY_AAD).unwrap();
+
+      assert_eq!(loaded.autolock, AutoLock::FourHours);
+      assert!(loaded.autolock_changed);
+      assert_eq!(loaded.argon_params, Argon2::default());
+   }
+
+   /// A `security.data` written by an older build (or hand-truncated) must still
+   /// load, falling back to the defaults for absent fields.
+   #[test]
+   fn security_settings_missing_fields_use_defaults() {
+      let key = WalletStateKey::generate().unwrap();
+      let sealed = key.seal_json(&serde_json::json!({}), SECURITY_AAD).unwrap();
+      let loaded: SecuritySettings = key.open_json(&sealed, SECURITY_AAD).unwrap();
+
+      assert_eq!(loaded.autolock, AutoLock::OneHour);
+      assert!(!loaded.autolock_changed);
    }
 }
