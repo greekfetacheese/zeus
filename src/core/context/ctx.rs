@@ -3022,6 +3022,47 @@ mod tests {
       let _r = ctx.get_mev_protect_client(1).await.unwrap();
    }
 
+   /// D5c: the "auto-lock is not configured" nudge comes once ~30 s after
+   /// unlock, then at most hourly, and never once the user made a choice.
+   #[test]
+   fn autolock_notice_cadence() {
+      const FIRST: u64 = 30_000;
+      const REPEAT: u64 = 3_600_000;
+
+      let ctx = ZeusCtx::new();
+      ctx.write(|ctx| {
+         ctx.security.autolock_changed = false;
+         ctx.locked = false;
+         ctx.last_autolock_notice_ms = 1_000;
+         ctx.autolock_notice_shown = false;
+      });
+
+      let warn = |now: u64| ctx.write(|ctx| ctx.should_warn_autolock(now, FIRST, REPEAT));
+
+      assert!(
+         !warn(1_000 + FIRST - 1),
+         "too early for the first notice"
+      );
+      assert!(warn(1_000 + FIRST), "first notice is due");
+      assert!(
+         !warn(1_000 + FIRST + REPEAT - 1),
+         "within the repeat interval"
+      );
+      assert!(warn(1_000 + FIRST + REPEAT), "repeat is due");
+
+      ctx.write(|ctx| ctx.security.autolock_changed = true);
+      assert!(
+         !warn(1_000 + 100 * REPEAT),
+         "an explicit choice stops it"
+      );
+
+      ctx.write(|ctx| {
+         ctx.security.autolock_changed = false;
+         ctx.locked = true;
+      });
+      assert!(!warn(1_000 + 100 * REPEAT), "locked never warns");
+   }
+
    /// A collection names itself, and the confirmation window's "Contract interaction" row reads this to
    /// label the contract being called. The name is cached by discovery, so it has to come out with no
    /// registry or Sourcify round trip — and a curated label still outranks it.
