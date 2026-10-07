@@ -2,6 +2,7 @@
 //!
 //! It only affects the vault, it has no effect on the master wallet recovery.
 
+use crate::core::types::CredentialCheck;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use egui::{RichText, Ui, Vec2, vec2};
@@ -91,10 +92,8 @@ impl ChangeCredentialsUi {
                gui.ctx.clone()
             });
 
-            let creds_match = ctx.read_vault(|vault| vault.credentials_match(&credentials));
-
-            match creds_match {
-               true => {
+            match ctx.check_credentials(&credentials, false) {
+               CredentialCheck::Matched => {
                   SHARED_GUI.write(|gui| {
                      gui.settings.change_credentials_ui.verified_credentials = true;
                      gui.settings.change_credentials_ui.credentials_form.erase();
@@ -102,7 +101,7 @@ impl ChangeCredentialsUi {
                      gui.request_repaint();
                   });
                }
-               false => {
+               CredentialCheck::Mismatch => {
                   SHARED_GUI.write(|gui| {
                      gui.open_msg_window("Credentials do not match");
                      gui.loading_window.reset();
@@ -110,6 +109,8 @@ impl ChangeCredentialsUi {
                   });
                   return;
                }
+               // The attempt cap was reached: Zeus is shutting down.
+               CredentialCheck::LockedOut => return,
             }
          });
       }

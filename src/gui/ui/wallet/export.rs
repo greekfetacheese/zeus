@@ -1,5 +1,6 @@
 //! UI that allows the user to export a private key
 
+use crate::core::types::CredentialCheck;
 use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
@@ -311,10 +312,8 @@ fn on_verify_credentials(credentials: Credentials) {
          gui.ctx.clone()
       });
 
-      let creds_match = ctx.read_vault(|vault| vault.credentials_match(&credentials));
-
-      match creds_match {
-         true => {
+      match ctx.check_credentials(&credentials, false) {
+         CredentialCheck::Matched => {
             let key_data = SHARED_GUI.read(|gui| {
                gui.wallet_ui.export_key_ui.wallet_to_export.as_ref().map(|wallet| {
                   (
@@ -352,13 +351,16 @@ fn on_verify_credentials(credentials: Credentials) {
                gui.request_repaint();
             });
          }
-         false => {
+         CredentialCheck::Mismatch => {
             SHARED_GUI.write(|gui| {
                gui.open_msg_window("Credentials do not match");
                gui.loading_window.reset();
                gui.request_repaint();
             });
          }
+         // The attempt cap was reached: `check_credentials` has shown why and is
+         // shutting Zeus down.
+         CredentialCheck::LockedOut => {}
       }
    });
 }

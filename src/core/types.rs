@@ -297,6 +297,27 @@ impl Default for AutoLock {
    }
 }
 
+/// How many in-memory credential checks may fail in a row before Zeus refuses
+/// further tries and shuts down.
+///
+/// The check is pure equality — there is no KDF to slow a guess — so an
+/// unlocked Zeus would otherwise be a fast brute-force oracle.
+pub const MAX_CREDENTIAL_ATTEMPTS: u8 = 5;
+
+/// Outcome of an in-memory credential check.
+///
+/// See [`SecuritySettings::note_credential_result`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CredentialCheck {
+   /// The credentials matched.
+   Matched,
+   /// They did not match; the attempt was counted.
+   Mismatch,
+   /// The attempt cap was reached: further tries are refused and Zeus shuts
+   /// down.
+   LockedOut,
+}
+
 /// Security settings, sealed in `data/security.data` with the vault's
 /// `wallet_state_key`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -312,6 +333,12 @@ pub struct SecuritySettings {
    /// never duplicated here.
    #[serde(skip)]
    pub argon_params: Argon2,
+   /// Failed in-memory credential checks since the last success.
+   ///
+   /// Never persisted: a restart drops the vault and re-enters through the
+   /// Argon2 login, so this oracle cannot outlive the process.
+   #[serde(skip)]
+   pub credential_attempts: u8,
 }
 
 impl SecuritySettings {
@@ -325,6 +352,25 @@ impl SecuritySettings {
       write_private_atomic(&security_dir()?, &sealed)?;
       Ok(())
    }
+
+   /// Count one in-memory credential check and report what may happen next.
+   ///
+   /// A match clears the count; `MAX_CREDENTIAL_ATTEMPTS` failures in a row
+   /// (with no success in between) end in [`CredentialCheck::LockedOut`], which
+   /// means the caller must refuse the attempt and shut Zeus down.
+   pub fn note_credential_result(&mut self, matched: bool) -> CredentialCheck {
+      if matched {
+         self.credential_attempts = 0;
+         return CredentialCheck::Matched;
+      }
+
+      self.credential_attempts = self.credential_attempts.saturating_add(1);
+      if self.credential_attempts >= MAX_CREDENTIAL_ATTEMPTS {
+         CredentialCheck::LockedOut
+      } else {
+         CredentialCheck::Mismatch
+      }
+   }
 }
 
 impl Default for SecuritySettings {
@@ -333,6 +379,7 @@ impl Default for SecuritySettings {
          autolock: AutoLock::default(),
          autolock_changed: false,
          argon_params: Argon2::balanced(),
+         credential_attempts: 0,
       }
    }
 }
@@ -980,6 +1027,7 @@ mod tests {
          autolock: AutoLock::FourHours,
          autolock_changed: true,
          argon_params: Argon2::new(1_024, 2, 2),
+         credential_attempts: 0,
       };
 
       let sealed = key.seal_json(&settings, SECURITY_AAD).unwrap();
@@ -1000,5 +1048,45 @@ mod tests {
 
       assert_eq!(loaded.autolock, AutoLock::OneHour);
       assert!(!loaded.autolock_changed);
+      assert_eq!(loaded.credential_attempts, 0);
+   }
+
+   /// A match clears the count; `MAX_CREDENTIAL_ATTEMPTS` failures in a row
+   /// (with no success in between) lock out.
+   #[test]
+   fn credential_attempts_cap_at_five() {
+      let mut settings = SecuritySettings::default();
+
+      assert_eq!(
+         settings.note_credential_result(false),
+         CredentialCheck::Mismatch
+      );
+      assert_eq!(
+         settings.note_credential_result(false),
+         CredentialCheck::Mismatch
+      );
+
+      // A success clears the run of failures.
+      assert_eq!(
+         settings.note_credential_result(true),
+         CredentialCheck::Matched
+      );
+      assert_eq!(settings.credential_attempts, 0);
+
+      for _ in 0..MAX_CREDENTIAL_ATTEMPTS - 1 {
+         assert_eq!(
+            settings.note_credential_result(false),
+            CredentialCheck::Mismatch
+         );
+      }
+
+      assert_eq!(
+         settings.note_credential_result(false),
+         CredentialCheck::LockedOut
+      );
+      assert_eq!(
+         settings.credential_attempts,
+         MAX_CREDENTIAL_ATTEMPTS
+      );
    }
 }

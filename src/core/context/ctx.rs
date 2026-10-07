@@ -183,6 +183,56 @@ impl ZeusCtx {
       Ok(())
    }
 
+   /// Verify `other` against the in-memory vault, counting the attempt.
+   ///
+   /// This is the Argon2-free re-login / confirm check (the lock screen and the
+   /// confirm-password dialogs). Because it is pure equality — no KDF to slow a
+   /// guess — it is capped: after `MAX_CREDENTIAL_ATTEMPTS` failures Zeus
+   /// refuses further tries and shuts down.
+   ///
+   /// `login_only` picks [`Vault::credentials_match_login`] (username +
+   /// password) over [`Vault::credentials_match`], which also compares the
+   /// confirm field the login form does not have.
+   pub fn check_credentials(
+      &self,
+      other: &ncrypt_me::Credentials,
+      login_only: bool,
+   ) -> CredentialCheck {
+      // Refuse before comparing once the cap is reached.
+      if self.read(|ctx| ctx.security.credential_attempts) >= MAX_CREDENTIAL_ATTEMPTS {
+         Self::credential_lockout_shutdown();
+         return CredentialCheck::LockedOut;
+      }
+
+      let matched = self.read_vault(|vault| {
+         if login_only {
+            vault.credentials_match_login(other)
+         } else {
+            vault.credentials_match(other)
+         }
+      });
+
+      let result = self.write(|ctx| ctx.security.note_credential_result(matched));
+
+      if result == CredentialCheck::LockedOut {
+         Self::credential_lockout_shutdown();
+      }
+
+      result
+   }
+
+   /// Tell the user and shut Zeus down (see [`Self::check_credentials`]).
+   ///
+   /// The notice window stays up while `ZeusApp::on_shutdown` saves the vault,
+   /// so it is readable before the window closes.
+   fn credential_lockout_shutdown() {
+      tracing::warn!("Too many failed credential attempts, shutting Zeus down");
+      crate::gui::SHARED_GUI.write(|gui| {
+         gui.open_msg_window("Too many failed attempts. Zeus will close.");
+         gui.shutdown();
+      });
+   }
+
    pub fn server_running(&self) -> bool {
       self.read(|ctx| ctx.server_running)
    }

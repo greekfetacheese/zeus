@@ -5,6 +5,7 @@
 //! wallet stays in memory, we only gate the UI.
 
 use crate::core::ZeusContext;
+use crate::core::types::CredentialCheck;
 use crate::gui::SHARED_GUI;
 use crate::utils::{RT, TimeStamp};
 use egui::{Align2, RichText, Ui, Window, vec2};
@@ -94,14 +95,17 @@ fn on_unlock(credentials: Credentials) {
    RT.spawn_blocking(move || {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
 
-      let matched = ctx.read_vault(|vault| vault.credentials_match_login(&credentials));
-
-      if !matched {
-         SHARED_GUI.write(|gui| {
-            gui.open_msg_window("Incorrect credentials");
-            gui.request_repaint();
-         });
-         return;
+      match ctx.check_credentials(&credentials, true) {
+         CredentialCheck::Matched => {}
+         CredentialCheck::Mismatch => {
+            SHARED_GUI.write(|gui| {
+               gui.open_msg_window("Incorrect credentials");
+               gui.request_repaint();
+            });
+            return;
+         }
+         // The attempt cap was reached: Zeus is shutting down.
+         CredentialCheck::LockedOut => return,
       }
 
       let now = TimeStamp::now_as_millis().unwrap_or_default().timestamp();

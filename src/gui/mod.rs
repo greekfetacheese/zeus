@@ -242,6 +242,16 @@ impl GUI {
       }
    }
 
+   /// Close Zeus through the normal shutdown path (`ZeusApp::on_shutdown`),
+   /// which saves the vault and erases in-memory secrets before the window
+   /// closes. Used to refuse further credential tries after too many failures.
+   pub fn shutdown(&self) {
+      self.egui_ctx.send_viewport_cmd_to(
+         egui::ViewportId::ROOT,
+         egui::ViewportCommand::Close,
+      );
+   }
+
    /// Raise the main window so a dapp prompt is not hidden behind the browser.
    ///
    /// `ViewportCommand::Focus` works on Windows, macOS, and X11. On Wayland it
