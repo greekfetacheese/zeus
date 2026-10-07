@@ -1027,6 +1027,12 @@ fn on_recover_hd_wallet(name: String, credentials: Credentials) {
                   .show(&egui_ctx);
                tracing::error!("Failed to save initial wallet state: {e}");
             }
+
+            // Ensure security.data exists too (defaults: a 1 hour auto-lock).
+            if let Err(e) = ctx.save_security_settings() {
+               tracing::error!("Failed to save initial security settings: {e}");
+            }
+
             ctx.load_tx_db();
             ctx.build_wallet_info_cache();
             ctx.load_or_create_address_book();
