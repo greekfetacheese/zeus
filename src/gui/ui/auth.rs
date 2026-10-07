@@ -10,7 +10,7 @@ use crate::core::{
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::gui::ui::settings::ImportDataUi;
-use crate::utils::RT;
+use crate::utils::{RT, TimeStamp};
 use egui::{Align, Align2, FontId, Layout, Margin, RichText, ScrollArea, Ui, Window, vec2};
 use egui_elements::{Button, CredentialsForm, Label, SecureTextEdit, Theme};
 use elegance::{BadgeTone, Toast};
@@ -830,6 +830,10 @@ fn on_unlock_vault(mut vault: Vault) {
             ctx.load_price_manager();
             ctx.load_or_create_address_book();
 
+            if let Err(e) = ctx.load_security_settings() {
+               tracing::error!("Failed to load security settings: {:?}", e);
+            }
+
             let bundler_url = match BundlerUrl::exists() {
                Ok(true) => match BundlerUrl::load(&key) {
                   Ok(url) => Some(url.url),
@@ -867,8 +871,16 @@ fn on_unlock_vault(mut vault: Vault) {
                }
             });
 
+            let now = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
+
             ctx.write(|ctx| {
-               ctx.argon_params = info.argon2;
+               ctx.security.argon_params = info.argon2;
+               // Fresh unlock: not locked, idle timer armed, first auto-lock
+               // notice due `first_delay` from now (see `should_warn_autolock`).
+               ctx.locked = false;
+               ctx.last_activity_ms = now;
+               ctx.last_autolock_notice_ms = now;
+               ctx.autolock_notice_shown = false;
                ctx.vault_unlocked = true;
                ctx.current_wallet = master_info;
             });

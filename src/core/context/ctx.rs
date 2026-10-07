@@ -166,6 +166,11 @@ impl ZeusCtx {
       self.read(|ctx| ctx.vault_unlocked)
    }
 
+   /// True while the UI is locked by auto-lock.
+   pub fn is_locked(&self) -> bool {
+      self.read(|ctx| ctx.locked)
+   }
+
    pub fn server_running(&self) -> bool {
       self.read(|ctx| ctx.server_running)
    }
@@ -619,6 +624,35 @@ impl ZeusCtx {
 
    pub fn save_wallet_state_in_progress(&self) -> bool {
       self.read(|ctx| ctx.save_wallet_state_in_progress)
+   }
+
+   /// Load `data/security.data` with the vault-held key.
+   ///
+   /// The file is optional: a missing or undecryptable file falls back to the
+   /// defaults. Returns an error only when the vault has no `wallet_state_key`
+   /// (i.e. it was not unlocked).
+   pub fn load_security_settings(&self) -> Result<(), anyhow::Error> {
+      let key = self.read_vault(|vault| vault.wallet_state_key())?;
+
+      let settings = match SecuritySettings::load_from_file(&key) {
+         Ok(settings) => settings,
+         Err(e) => {
+            if persisted::file_path(PersistedFile::Security).is_ok_and(|path| path.exists()) {
+               tracing::error!("Failed to load security settings: {:?}", e);
+            }
+            SecuritySettings::default()
+         }
+      };
+
+      self.write(|ctx| ctx.security = settings);
+      Ok(())
+   }
+
+   /// Seal and write `data/security.data` with the vault-held key.
+   pub fn save_security_settings(&self) -> Result<(), anyhow::Error> {
+      let key = self.read_vault(|vault| vault.wallet_state_key())?;
+      let settings = self.read(|ctx| ctx.security.clone());
+      settings.save(&key)
    }
 
    /// Mutable access to the vault (does not hold the ZeusContext lock).
@@ -1107,9 +1141,12 @@ impl ZeusCtx {
       self.set_vault(vault);
       self.set_wallet_state(wallet_state);
       self.load_tx_db();
+      self.load_security_settings()?;
 
       self.address_book().replace_from(&AddressBookHandle::default());
       self.ens_cache().clear();
+
+      let now = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
 
       self.write(|ctx| {
          ctx.currency_db = CurrencyDB::default();
@@ -1120,7 +1157,11 @@ impl ZeusCtx {
          ctx.railgun_resync_attempts.clear();
          ctx.wallet_info_cache = new_wallet_info_cache;
          ctx.current_wallet = master_info.clone();
-         ctx.argon_params = info.argon2.clone();
+         ctx.security.argon_params = info.argon2.clone();
+         ctx.locked = false;
+         ctx.last_activity_ms = now;
+         ctx.last_autolock_notice_ms = now;
+         ctx.autolock_notice_shown = false;
          ctx.vault_exists = true;
          ctx.vault_unlocked = true;
          ctx.eth_calls.clear();
@@ -2299,8 +2340,22 @@ pub struct ZeusContext {
    /// Transaction history (`tx_history.db`), sealed with [`Vault`]'s `wallet_state_key`.
    pub tx_db: TxDBHandle,
 
-   /// The Argon2 params used for the current vault
-   pub argon_params: Argon2,
+   /// Security settings (persisted, sealed in `security.data` with the vault's
+   /// `wallet_state_key`). Holds the Argon2 params of the current vault.
+   pub security: SecuritySettings,
+
+   /// True while the UI is locked by auto-lock. Not persisted; false at startup.
+   pub locked: bool,
+
+   /// Wall-clock ms of the last user input, for the auto-lock timer.
+   pub last_activity_ms: u64,
+
+   /// Wall-clock ms of the last "auto-lock is not configured" toast.
+   pub last_autolock_notice_ms: u64,
+
+   /// False until the first "auto-lock is not configured" toast has fired, so
+   /// the first one comes `first_delay` after unlock and the rest `repeat`.
+   pub autolock_notice_shown: bool,
 
    /// True if a vault exists in the data directory
    pub vault_exists: bool,
@@ -2419,6 +2474,7 @@ fn tighten_existing_secret_files() {
       ZeusClient::dir().ok(),
       bundler_url_dir().ok(),
       PriceManagerHandle::dir().ok(),
+      persisted::file_path(PersistedFile::Security).ok(),
       persisted::file_path(PersistedFile::Connector).ok(),
    ];
 
@@ -2487,7 +2543,11 @@ impl ZeusContext {
          vault: Arc::new(Mutex::new(Vault::default())),
          wallet_state: WalletState::default(),
          tx_db: TxDBHandle::new(),
-         argon_params: Argon2::balanced(),
+         security: SecuritySettings::default(),
+         locked: false,
+         last_activity_ms: 0,
+         last_autolock_notice_ms: 0,
+         autolock_notice_shown: false,
          save_vault_in_progress: false,
          save_wallet_state_in_progress: false,
          vault_exists,
@@ -2877,6 +2937,36 @@ impl ZeusContext {
       }
 
       self.last_detected_malfunction.insert(chain, now_millis);
+      true
+   }
+
+   /// Whether an "auto-lock is not configured" toast is due.
+   ///
+   /// Fires at most once per `repeat_ms`, and the first one only after
+   /// `first_delay_ms` from the seeded timestamp (both are set at unlock).
+   /// Returns false once the user has made an explicit choice.
+   pub fn should_warn_autolock(
+      &mut self,
+      now_millis: u64,
+      first_delay_ms: u64,
+      repeat_ms: u64,
+   ) -> bool {
+      if self.security.autolock_changed || self.locked {
+         return false;
+      }
+
+      let delay = if self.autolock_notice_shown {
+         repeat_ms
+      } else {
+         first_delay_ms
+      };
+
+      if now_millis.saturating_sub(self.last_autolock_notice_ms) < delay {
+         return false;
+      }
+
+      self.last_autolock_notice_ms = now_millis;
+      self.autolock_notice_shown = true;
       true
    }
 

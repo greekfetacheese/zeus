@@ -43,7 +43,7 @@ impl EncryptionSettings {
    }
 
    pub fn sync_from_ctx(&mut self, ctx: &mut ZeusContext) {
-      self.argon_params = ctx.argon_params.clone();
+      self.argon_params = ctx.security.argon_params.clone();
    }
 
    pub fn set_argon2(&mut self, argon_params: Argon2) {
@@ -162,7 +162,7 @@ impl EncryptionSettings {
          match ctx.encrypt_and_save_vault(None, Some(new_params.clone())) {
             Ok(_) => {
                ctx.write(|ctx| {
-                  ctx.argon_params = new_params.clone();
+                  ctx.security.argon_params = new_params.clone();
                });
                SHARED_GUI.write(|gui| {
                   gui.loading_window.reset();
