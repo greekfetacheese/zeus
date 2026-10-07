@@ -3,6 +3,7 @@
 //! Owns the delegate modal, the credentials verification modal, and the
 //! delegate / undelegate transactions.
 
+use crate::core::types::CredentialCheck;
 use crate::core::{ZeusContext, delegate_to};
 use crate::gui::{SHARED_GUI, ui::tx::address};
 use crate::utils::RT;
@@ -262,10 +263,8 @@ impl DelegateUi {
                gui.ctx.clone()
             });
 
-            let creds_match = ctx.read_vault(|vault| vault.credentials_match(&credentials));
-
-            match creds_match {
-               true => {
+            match ctx.check_credentials(&credentials, false) {
+               CredentialCheck::Matched => {
                   let (delegate_to_addr, chain) = SHARED_GUI.write(|gui| {
                      gui.account_panel.delegate.credentials_form.erase();
                      gui.account_panel.delegate.credentials_form.close();
@@ -322,13 +321,15 @@ impl DelegateUi {
                      }
                   });
                }
-               false => {
+               CredentialCheck::Mismatch => {
                   SHARED_GUI.write(|gui| {
                      gui.open_msg_window("Credentials do not match");
                      gui.loading_window.reset();
                      gui.request_repaint();
                   });
                }
+               // The attempt cap was reached: Zeus is shutting down.
+               CredentialCheck::LockedOut => {}
             }
          });
       }

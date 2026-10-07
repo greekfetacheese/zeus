@@ -19,6 +19,9 @@ const RAILGUN_CHECK_THRESHOLD: u64 = 250;
 
 const MALFUNCTION_TOAST_DURATION_SECS: u64 = 30;
 
+const AUTOLOCK_FIRST_NOTICE_MS: u64 = 10 * 1000;
+const AUTOLOCK_NOTICE_REPEAT_MS: u64 = 60 * 60 * 1000;
+
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let chain = ctx.chain;
 
@@ -127,6 +130,22 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       Toast::new("Check your network settings")
          .tone(BadgeTone::Warning)
          .description("At least one RPC is not working properly, some features may not work")
+         .duration(Duration::from_secs(
+            MALFUNCTION_TOAST_DURATION_SECS,
+         ))
+         .show(&gui.egui_ctx);
+   }
+
+   if ctx.should_warn_autolock(
+      now,
+      AUTOLOCK_FIRST_NOTICE_MS,
+      AUTOLOCK_NOTICE_REPEAT_MS,
+   ) {
+      Toast::new("Auto-lock is not configured")
+         .tone(BadgeTone::Warning)
+         .description(
+            "Zeus is on the default 1 hour auto-lock. Choose a timeout in Settings/Security.",
+         )
          .duration(Duration::from_secs(
             MALFUNCTION_TOAST_DURATION_SECS,
          ))

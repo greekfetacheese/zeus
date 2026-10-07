@@ -635,6 +635,27 @@ impl Vault {
       username_ok && password_ok && confirm_password_ok
    }
 
+   /// Verify username + password only — the re-login check used by the unlock
+   /// and auto-lock screens.
+   ///
+   /// Unlike [`Self::credentials_match`], this ignores `confirm_password`, which
+   /// is a creation/change-time check: a user who changed their password through
+   /// Settings has a non-empty stored confirm while the login form has no confirm
+   /// field, so matching on it would reject a correct password.
+   pub fn credentials_match_login(&self, other: &Credentials) -> bool {
+      let username_ok = self
+         .credentials
+         .username
+         .unlock_str(|username| other.username.unlock_str(|other| username == other));
+
+      let password_ok = self
+         .credentials
+         .password
+         .unlock_str(|password| other.password.unlock_str(|other| password == other));
+
+      username_ok && password_ok
+   }
+
    /// Remove the wallet with the given address
    ///
    /// Master wallet cannot be removed
@@ -847,5 +868,38 @@ mod tests {
       assert_eq!(legacy.contacts[0].name, "bob");
 
       let _ = vault;
+   }
+
+   /// Re-login must accept the username + password even when the stored vault
+   /// credentials carry a confirm-password from a "change credentials" (the
+   /// unlock / lock form has no confirm field).
+   #[test]
+   fn login_matches_without_confirm_password() {
+      let mut vault = sample_vault();
+      vault.set_credentials(Credentials::new(
+         SecureString::from("user"),
+         SecureString::from("newpass"),
+         SecureString::from("newpass"),
+      ));
+
+      // What the unlock / lock form produces: no confirm field.
+      let form = Credentials::new(
+         SecureString::from("user"),
+         SecureString::from("newpass"),
+         SecureString::from(""),
+      );
+
+      assert!(vault.credentials_match_login(&form));
+      assert!(
+         !vault.credentials_match(&form),
+         "credentials_match includes confirm_password and would reject a changed password"
+      );
+
+      let wrong = Credentials::new(
+         SecureString::from("user"),
+         SecureString::from("nope"),
+         SecureString::from(""),
+      );
+      assert!(!vault.credentials_match_login(&wrong));
    }
 }

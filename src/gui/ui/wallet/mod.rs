@@ -98,6 +98,16 @@ impl WalletUi {
       self.open = false;
    }
 
+   /// Close the wallet UI and drop any exported key/seed it is showing.
+   ///
+   /// Called when Zeus auto-locks, so a private key shown before the lock does
+   /// not resurface after unlock.
+   pub fn lock(&mut self, ctx: &Context) {
+      self.close();
+      self.close_rename_wallet();
+      self.export_key_ui.lock(ctx);
+   }
+
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       show_with_fade(ui, "wallet_ui_fade", self.open, |ui| {
          self.main_ui(ctx, theme, icons.clone(), ui);

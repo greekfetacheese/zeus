@@ -4,6 +4,26 @@ use eframe::egui::{RichText, Stroke, Ui, vec2};
 use egui_elements::{Theme, widgets::Window};
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
+   // Locked: only the lock card is shown, and nothing else is interactive.
+   if ctx.locked {
+      // Cancel anything waiting on the user to authorize (a signature, a tx
+      // confirmation, a connect prompt) before hiding it, so a prompt open when
+      // the lock fired cannot be approved — or resurface after unlock.
+      gui.cancel_pending_actions();
+
+      // A private key / seed shown before the lock must not resurface after
+      // unlock.
+      gui.wallet_ui.lock(ui.ctx());
+      gui.lock_screen.show(ctx, &gui.theme, ui);
+
+      // Informational modals (the unlock error, "saving vault…") must render on
+      // the lock screen. Deliberately not `show_overlay_modals`: its action
+      // prompts are cancelled above, so only the informational two are shown.
+      gui.msg_window.show(&gui.theme, ui);
+      gui.loading_window.show(&gui.theme, ui);
+      return;
+   }
+
    if !gui.settings.is_open() {
       gui.show_overlay_modals(ui);
    }

@@ -8,18 +8,21 @@ use zeus_eth::{
 };
 
 use crate::core::{
-   WalletInfo, ZK_ADDRESS_UNAVAILABLE,
+   WalletInfo, WalletStateKey, ZK_ADDRESS_UNAVAILABLE,
    context::{
       DELEGATE_WALLET_CHECK_TIMEOUT, disabled_chains_dir, misc_config_dir, railgun_config_dir,
+      security_dir,
    },
 };
-use crate::utils::{TimeStamp, write_private};
+use crate::utils::{TimeStamp, write_private, write_private_atomic};
 
 use zeus_railgun::indexer::syncer::rpc::{
    DEFAULT_BLOCK_RANGE, DEFAULT_CONCURRENCY, SEPOLIA_BLOCK_RANGE,
 };
 
 use serde::{Deserialize, Serialize};
+
+use ncrypt_me::Argon2;
 
 const DEFAULT_STATE_UPDATE_INTERVAL_MINUTES: u64 = 5;
 const MIN_STATE_UPDATE_INTERVAL_MINUTES: u64 = 1;
@@ -229,6 +232,155 @@ impl MiscConfig {
 impl Default for MiscConfig {
    fn default() -> Self {
       Self::new()
+   }
+}
+
+/// AAD bound to the sealed `security.data` slot.
+pub const SECURITY_AAD: &[u8] = b"zeus-security-v1";
+
+/// Idle period before Zeus locks the UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AutoLock {
+   TenMinutes,
+   OneHour,
+   FourHours,
+   Never,
+   /// Dev-build option. The variant is always compiled so a `security.data`
+   /// written by a dev build still deserializes in release.
+   OneMinute,
+}
+
+impl AutoLock {
+   /// Release-build choices, in menu order.
+   pub const ALL: [Self; 4] = [
+      Self::TenMinutes,
+      Self::OneHour,
+      Self::FourHours,
+      Self::Never,
+   ];
+
+   /// Dev-build choices (adds the 1-minute option first).
+   #[cfg(feature = "dev")]
+   pub const ALL_DEV: [Self; 5] = [
+      Self::OneMinute,
+      Self::TenMinutes,
+      Self::OneHour,
+      Self::FourHours,
+      Self::Never,
+   ];
+
+   pub fn label(self) -> &'static str {
+      match self {
+         Self::OneMinute => "1 minute",
+         Self::TenMinutes => "10 minutes",
+         Self::OneHour => "1 hour",
+         Self::FourHours => "4 hours",
+         Self::Never => "Never",
+      }
+   }
+
+   /// Idle seconds before locking; `None` = never lock.
+   pub fn idle_secs(self) -> Option<u64> {
+      match self {
+         Self::OneMinute => Some(60),
+         Self::TenMinutes => Some(600),
+         Self::OneHour => Some(3_600),
+         Self::FourHours => Some(14_400),
+         Self::Never => None,
+      }
+   }
+}
+
+impl Default for AutoLock {
+   fn default() -> Self {
+      Self::OneHour
+   }
+}
+
+/// How many in-memory credential checks may fail in a row before Zeus refuses
+/// further tries and shuts down.
+///
+/// The check is pure equality — there is no KDF to slow a guess — so an
+/// unlocked Zeus would otherwise be a fast brute-force oracle.
+pub const MAX_CREDENTIAL_ATTEMPTS: u8 = 5;
+
+/// Outcome of an in-memory credential check.
+///
+/// See [`SecuritySettings::note_credential_result`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CredentialCheck {
+   /// The credentials matched.
+   Matched,
+   /// They did not match; the attempt was counted.
+   Mismatch,
+   /// The attempt cap was reached: further tries are refused and Zeus shuts
+   /// down.
+   LockedOut,
+}
+
+/// Security settings, sealed in `data/security.data` with the vault's
+/// `wallet_state_key`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecuritySettings {
+   /// Idle timeout before the UI locks.
+   #[serde(default)]
+   pub autolock: AutoLock,
+   /// Whether the user ever changed `autolock` away from the default. While
+   /// false, the top bar nudges them to make a deliberate choice.
+   #[serde(default)]
+   pub autolock_changed: bool,
+   /// Argon2 params of the current vault. Persisted in `vault.data`'s header —
+   /// never duplicated here.
+   #[serde(skip)]
+   pub argon_params: Argon2,
+   /// Failed in-memory credential checks since the last success.
+   ///
+   /// Never persisted: a restart drops the vault and re-enters through the
+   /// Argon2 login, so this oracle cannot outlive the process.
+   #[serde(skip)]
+   pub credential_attempts: u8,
+}
+
+impl SecuritySettings {
+   pub fn load_from_file(key: &WalletStateKey) -> Result<Self, anyhow::Error> {
+      let sealed = std::fs::read(security_dir()?)?;
+      key.open_json(&sealed, SECURITY_AAD)
+   }
+
+   pub fn save(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      let sealed = key.seal_json(self, SECURITY_AAD)?;
+      write_private_atomic(&security_dir()?, &sealed)?;
+      Ok(())
+   }
+
+   /// Count one in-memory credential check and report what may happen next.
+   ///
+   /// A match clears the count; `MAX_CREDENTIAL_ATTEMPTS` failures in a row
+   /// (with no success in between) end in [`CredentialCheck::LockedOut`], which
+   /// means the caller must refuse the attempt and shut Zeus down.
+   pub fn note_credential_result(&mut self, matched: bool) -> CredentialCheck {
+      if matched {
+         self.credential_attempts = 0;
+         return CredentialCheck::Matched;
+      }
+
+      self.credential_attempts = self.credential_attempts.saturating_add(1);
+      if self.credential_attempts >= MAX_CREDENTIAL_ATTEMPTS {
+         CredentialCheck::LockedOut
+      } else {
+         CredentialCheck::Mismatch
+      }
+   }
+}
+
+impl Default for SecuritySettings {
+   fn default() -> Self {
+      Self {
+         autolock: AutoLock::default(),
+         autolock_changed: false,
+         argon_params: Argon2::balanced(),
+         credential_attempts: 0,
+      }
    }
 }
 
@@ -822,5 +974,119 @@ impl WalletInfoCache {
 
    pub fn ordered_slice(&self) -> &[WalletInfo] {
       &self.ordered_vec
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn autolock_idle_seconds() {
+      assert_eq!(AutoLock::OneMinute.idle_secs(), Some(60));
+      assert_eq!(AutoLock::TenMinutes.idle_secs(), Some(600));
+      assert_eq!(AutoLock::OneHour.idle_secs(), Some(3_600));
+      assert_eq!(AutoLock::FourHours.idle_secs(), Some(14_400));
+      assert_eq!(AutoLock::Never.idle_secs(), None);
+   }
+
+   #[test]
+   fn autolock_labels_are_unique() {
+      let mut labels: Vec<_> = [
+         AutoLock::OneMinute,
+         AutoLock::TenMinutes,
+         AutoLock::OneHour,
+         AutoLock::FourHours,
+         AutoLock::Never,
+      ]
+      .iter()
+      .map(|autolock| autolock.label())
+      .collect();
+
+      labels.sort_unstable();
+      labels.dedup();
+      assert_eq!(labels.len(), 5);
+   }
+
+   #[test]
+   fn autolock_defaults_to_one_hour() {
+      assert_eq!(AutoLock::default(), AutoLock::OneHour);
+      assert_eq!(
+         SecuritySettings::default().autolock,
+         AutoLock::OneHour
+      );
+      assert!(!SecuritySettings::default().autolock_changed);
+   }
+
+   /// The persisted fields round-trip; `argon_params` does not, because it is
+   /// serde-skipped (it belongs to `vault.data`'s header).
+   #[test]
+   fn security_settings_seal_roundtrip() {
+      let key = WalletStateKey::generate().unwrap();
+      let settings = SecuritySettings {
+         autolock: AutoLock::FourHours,
+         autolock_changed: true,
+         argon_params: Argon2::new(1_024, 2, 2),
+         credential_attempts: 0,
+      };
+
+      let sealed = key.seal_json(&settings, SECURITY_AAD).unwrap();
+      let loaded: SecuritySettings = key.open_json(&sealed, SECURITY_AAD).unwrap();
+
+      assert_eq!(loaded.autolock, AutoLock::FourHours);
+      assert!(loaded.autolock_changed);
+      assert_eq!(loaded.argon_params, Argon2::default());
+   }
+
+   /// A `security.data` written by an older build (or hand-truncated) must still
+   /// load, falling back to the defaults for absent fields.
+   #[test]
+   fn security_settings_missing_fields_use_defaults() {
+      let key = WalletStateKey::generate().unwrap();
+      let sealed = key.seal_json(&serde_json::json!({}), SECURITY_AAD).unwrap();
+      let loaded: SecuritySettings = key.open_json(&sealed, SECURITY_AAD).unwrap();
+
+      assert_eq!(loaded.autolock, AutoLock::OneHour);
+      assert!(!loaded.autolock_changed);
+      assert_eq!(loaded.credential_attempts, 0);
+   }
+
+   /// A match clears the count; `MAX_CREDENTIAL_ATTEMPTS` failures in a row
+   /// (with no success in between) lock out.
+   #[test]
+   fn credential_attempts_cap_at_five() {
+      let mut settings = SecuritySettings::default();
+
+      assert_eq!(
+         settings.note_credential_result(false),
+         CredentialCheck::Mismatch
+      );
+      assert_eq!(
+         settings.note_credential_result(false),
+         CredentialCheck::Mismatch
+      );
+
+      // A success clears the run of failures.
+      assert_eq!(
+         settings.note_credential_result(true),
+         CredentialCheck::Matched
+      );
+      assert_eq!(settings.credential_attempts, 0);
+
+      for _ in 0..MAX_CREDENTIAL_ATTEMPTS - 1 {
+         assert_eq!(
+            settings.note_credential_result(false),
+            CredentialCheck::Mismatch
+         );
+      }
+
+      assert_eq!(
+         settings.note_credential_result(false),
+         CredentialCheck::LockedOut
+      );
+      assert_eq!(
+         settings.credential_attempts,
+         MAX_CREDENTIAL_ATTEMPTS
+      );
    }
 }

@@ -18,6 +18,8 @@ pub async fn sign_message(
    msg_bytes: Option<Vec<u8>>,
    signer: Option<Address>,
 ) -> Result<Signature, anyhow::Error> {
+   ctx.ensure_unlocked()?;
+
    let signer_address = signer.unwrap_or_else(|| ctx.current_wallet_info().address);
 
    let msg_type = SignMsgType::new(ctx.clone(), chain.id(), msg_value, msg_bytes).await?;
@@ -50,6 +52,10 @@ pub async fn sign_message(
          "You cancelled the signing process"
       ));
    }
+
+   // The wallet may have been locked while the prompt was up — never sign for a
+   // locked wallet.
+   ctx.ensure_unlocked()?;
 
    let wallet = ctx.get_wallet(signer_address).ok_or(anyhow::anyhow!("Wallet not found"))?;
    let signature = msg_type.sign(wallet.key).await?;

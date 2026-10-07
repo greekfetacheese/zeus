@@ -39,7 +39,7 @@ use zeus_railgun::{RailgunAddress, RailgunProvider, RailgunSigner, SnapshotLoade
 
 pub use persisted::{
    bundler_url_dir, data_dir, disabled_chains_dir, misc_config_dir, pool_data_dir,
-   railgun_config_dir, railgun_db_file, railgun_dir, theme_kind_dir,
+   railgun_config_dir, railgun_db_file, railgun_dir, security_dir, theme_kind_dir,
 };
 
 /// This is the minimum USD value in a base currency that a pool needs to have in order to be considered sufficiently liquid
@@ -164,6 +164,73 @@ impl ZeusCtx {
 
    pub fn vault_unlocked(&self) -> bool {
       self.read(|ctx| ctx.vault_unlocked)
+   }
+
+   /// True while the UI is locked by auto-lock.
+   pub fn is_locked(&self) -> bool {
+      self.read(|ctx| ctx.locked)
+   }
+
+   /// Guard for anything that signs, sends, or authorizes on the user's behalf.
+   ///
+   /// Auto-lock gates the UI, but headless callers — the dapp server, a built-in
+   /// flow still mid-simulation — have no window to be hidden by, so every
+   /// signing / broadcasting chokepoint re-checks the lock here.
+   pub fn ensure_unlocked(&self) -> Result<(), anyhow::Error> {
+      if self.is_locked() {
+         return Err(anyhow::anyhow!("Zeus is locked"));
+      }
+      Ok(())
+   }
+
+   /// Verify `other` against the in-memory vault, counting the attempt.
+   ///
+   /// This is the Argon2-free re-login / confirm check (the lock screen and the
+   /// confirm-password dialogs). Because it is pure equality — no KDF to slow a
+   /// guess — it is capped: after `MAX_CREDENTIAL_ATTEMPTS` failures Zeus
+   /// refuses further tries and shuts down.
+   ///
+   /// `login_only` picks [`Vault::credentials_match_login`] (username +
+   /// password) over [`Vault::credentials_match`], which also compares the
+   /// confirm field the login form does not have.
+   pub fn check_credentials(
+      &self,
+      other: &ncrypt_me::Credentials,
+      login_only: bool,
+   ) -> CredentialCheck {
+      // Refuse before comparing once the cap is reached.
+      if self.read(|ctx| ctx.security.credential_attempts) >= MAX_CREDENTIAL_ATTEMPTS {
+         Self::credential_lockout_shutdown();
+         return CredentialCheck::LockedOut;
+      }
+
+      let matched = self.read_vault(|vault| {
+         if login_only {
+            vault.credentials_match_login(other)
+         } else {
+            vault.credentials_match(other)
+         }
+      });
+
+      let result = self.write(|ctx| ctx.security.note_credential_result(matched));
+
+      if result == CredentialCheck::LockedOut {
+         Self::credential_lockout_shutdown();
+      }
+
+      result
+   }
+
+   /// Tell the user and shut Zeus down (see [`Self::check_credentials`]).
+   ///
+   /// The notice window stays up while `ZeusApp::on_shutdown` saves the vault,
+   /// so it is readable before the window closes.
+   fn credential_lockout_shutdown() {
+      tracing::warn!("Too many failed credential attempts, shutting Zeus down");
+      crate::gui::SHARED_GUI.write(|gui| {
+         gui.open_msg_window("Too many failed attempts. Zeus will close.");
+         gui.shutdown();
+      });
    }
 
    pub fn server_running(&self) -> bool {
@@ -619,6 +686,35 @@ impl ZeusCtx {
 
    pub fn save_wallet_state_in_progress(&self) -> bool {
       self.read(|ctx| ctx.save_wallet_state_in_progress)
+   }
+
+   /// Load `data/security.data` with the vault-held key.
+   ///
+   /// The file is optional: a missing or undecryptable file falls back to the
+   /// defaults. Returns an error only when the vault has no `wallet_state_key`
+   /// (i.e. it was not unlocked).
+   pub fn load_security_settings(&self) -> Result<(), anyhow::Error> {
+      let key = self.read_vault(|vault| vault.wallet_state_key())?;
+
+      let settings = match SecuritySettings::load_from_file(&key) {
+         Ok(settings) => settings,
+         Err(e) => {
+            if persisted::file_path(PersistedFile::Security).is_ok_and(|path| path.exists()) {
+               tracing::error!("Failed to load security settings: {:?}", e);
+            }
+            SecuritySettings::default()
+         }
+      };
+
+      self.write(|ctx| ctx.security = settings);
+      Ok(())
+   }
+
+   /// Seal and write `data/security.data` with the vault-held key.
+   pub fn save_security_settings(&self) -> Result<(), anyhow::Error> {
+      let key = self.read_vault(|vault| vault.wallet_state_key())?;
+      let settings = self.read(|ctx| ctx.security.clone());
+      settings.save(&key)
    }
 
    /// Mutable access to the vault (does not hold the ZeusContext lock).
@@ -1113,9 +1209,12 @@ impl ZeusCtx {
       self.set_vault(vault);
       self.set_wallet_state(wallet_state);
       self.load_tx_db();
+      self.load_security_settings()?;
 
       self.address_book().replace_from(&AddressBookHandle::default());
       self.ens_cache().clear();
+
+      let now = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
 
       self.write(|ctx| {
          ctx.currency_db = CurrencyDB::default();
@@ -1126,7 +1225,11 @@ impl ZeusCtx {
          ctx.railgun_resync_attempts.clear();
          ctx.wallet_info_cache = new_wallet_info_cache;
          ctx.current_wallet = master_info.clone();
-         ctx.argon_params = info.argon2.clone();
+         ctx.security.argon_params = info.argon2.clone();
+         ctx.locked = false;
+         ctx.last_activity_ms = now;
+         ctx.last_autolock_notice_ms = now;
+         ctx.autolock_notice_shown = false;
          ctx.vault_exists = true;
          ctx.vault_unlocked = true;
          ctx.eth_calls.clear();
@@ -2303,8 +2406,22 @@ pub struct ZeusContext {
    /// Transaction history (`tx_history.db`), sealed with [`Vault`]'s `wallet_state_key`.
    pub tx_db: TxDBHandle,
 
-   /// The Argon2 params used for the current vault
-   pub argon_params: Argon2,
+   /// Security settings (persisted, sealed in `security.data` with the vault's
+   /// `wallet_state_key`). Holds the Argon2 params of the current vault.
+   pub security: SecuritySettings,
+
+   /// True while the UI is locked by auto-lock. Not persisted; false at startup.
+   pub locked: bool,
+
+   /// Wall-clock ms of the last user input, for the auto-lock timer.
+   pub last_activity_ms: u64,
+
+   /// Wall-clock ms of the last "auto-lock is not configured" toast.
+   pub last_autolock_notice_ms: u64,
+
+   /// False until the first "auto-lock is not configured" toast has fired, so
+   /// the first one comes `first_delay` after unlock and the rest `repeat`.
+   pub autolock_notice_shown: bool,
 
    /// True if a vault exists in the data directory
    pub vault_exists: bool,
@@ -2423,6 +2540,7 @@ fn tighten_existing_secret_files() {
       ClientManager::dir().ok(),
       bundler_url_dir().ok(),
       PriceManagerHandle::dir().ok(),
+      persisted::file_path(PersistedFile::Security).ok(),
       persisted::file_path(PersistedFile::Connector).ok(),
    ];
 
@@ -2491,7 +2609,11 @@ impl ZeusContext {
          vault: Arc::new(Mutex::new(Vault::default())),
          wallet_state: WalletState::default(),
          tx_db: TxDBHandle::new(),
-         argon_params: Argon2::balanced(),
+         security: SecuritySettings::default(),
+         locked: false,
+         last_activity_ms: 0,
+         last_autolock_notice_ms: 0,
+         autolock_notice_shown: false,
          save_vault_in_progress: false,
          save_wallet_state_in_progress: false,
          vault_exists,
@@ -2884,6 +3006,36 @@ impl ZeusContext {
       true
    }
 
+   /// Whether an "auto-lock is not configured" toast is due.
+   ///
+   /// Fires at most once per `repeat_ms`, and the first one only after
+   /// `first_delay_ms` from the seeded timestamp (both are set at unlock).
+   /// Returns false once the user has made an explicit choice.
+   pub fn should_warn_autolock(
+      &mut self,
+      now_millis: u64,
+      first_delay_ms: u64,
+      repeat_ms: u64,
+   ) -> bool {
+      if self.security.autolock_changed || self.locked {
+         return false;
+      }
+
+      let delay = if self.autolock_notice_shown {
+         repeat_ms
+      } else {
+         first_delay_ms
+      };
+
+      if now_millis.saturating_sub(self.last_autolock_notice_ms) < delay {
+         return false;
+      }
+
+      self.last_autolock_notice_ms = now_millis;
+      self.autolock_notice_shown = true;
+      true
+   }
+
    /// Returns true if we need to check if a Railgun provider is syncing
    pub fn should_check_railgun_provider_sync(
       &mut self,
@@ -2934,6 +3086,63 @@ mod tests {
    async fn test_must_panic_if_no_mev_protect_client() {
       let ctx = ZeusCtx::new();
       let _r = ctx.get_mev_protect_client(1).await.unwrap();
+   }
+
+   /// the "auto-lock is not configured" nudge comes once ~30 s after
+   /// unlock, then at most hourly, and never once the user made a choice.
+   #[test]
+   fn autolock_notice_cadence() {
+      const FIRST: u64 = 30_000;
+      const REPEAT: u64 = 3_600_000;
+
+      let ctx = ZeusCtx::new();
+      ctx.write(|ctx| {
+         ctx.security.autolock_changed = false;
+         ctx.locked = false;
+         ctx.last_autolock_notice_ms = 1_000;
+         ctx.autolock_notice_shown = false;
+      });
+
+      let warn = |now: u64| ctx.write(|ctx| ctx.should_warn_autolock(now, FIRST, REPEAT));
+
+      assert!(
+         !warn(1_000 + FIRST - 1),
+         "too early for the first notice"
+      );
+      assert!(warn(1_000 + FIRST), "first notice is due");
+      assert!(
+         !warn(1_000 + FIRST + REPEAT - 1),
+         "within the repeat interval"
+      );
+      assert!(warn(1_000 + FIRST + REPEAT), "repeat is due");
+
+      ctx.write(|ctx| ctx.security.autolock_changed = true);
+      assert!(
+         !warn(1_000 + 100 * REPEAT),
+         "an explicit choice stops it"
+      );
+
+      ctx.write(|ctx| {
+         ctx.security.autolock_changed = false;
+         ctx.locked = true;
+      });
+      assert!(!warn(1_000 + 100 * REPEAT), "locked never warns");
+   }
+
+   /// The unlock guard refuses while locked and passes while unlocked.
+   #[test]
+   fn ensure_unlocked_refuses_while_locked() {
+      let ctx = ZeusCtx::new();
+
+      ctx.write(|ctx| ctx.locked = false);
+      assert!(ctx.ensure_unlocked().is_ok());
+
+      ctx.write(|ctx| ctx.locked = true);
+      let err = ctx.ensure_unlocked().unwrap_err();
+      assert!(
+         err.to_string().contains("locked"),
+         "unexpected error: {err}"
+      );
    }
 
    /// A collection names itself, and the confirmation window's "Contract interaction" row reads this to

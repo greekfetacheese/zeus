@@ -187,6 +187,26 @@ impl RequestMethod {
          RequestMethod::WalletWatchAsset => "wallet_watchAsset",
       }
    }
+
+   /// Methods that must be refused while Zeus is auto-locked.
+   ///
+   /// These sign, send, or change the wallet's connection. With the UI gated
+   /// behind the lock card the in-app confirm/sign windows are unreachable, so
+   /// letting them through would just hang the dapp — refuse them instead.
+   pub fn is_sensitive(&self) -> bool {
+      matches!(
+         self,
+         RequestMethod::RequestAccounts
+            | RequestMethod::WalletRequestPermissions
+            | RequestMethod::EthSendTransaction
+            | RequestMethod::PersonalSign
+            | RequestMethod::EthSignedTypedDataV4
+            | RequestMethod::WalletSendCalls
+            | RequestMethod::WalletSwitchEthereumChain
+            | RequestMethod::WalletAddEthereumChain
+            | RequestMethod::WalletWatchAsset
+      )
+   }
 }
 
 #[derive(Deserialize, Debug)]
@@ -2101,6 +2121,16 @@ async fn handle_request(
       origin
    );
 
+   // Auto-locked: refuse anything that signs, sends, or changes the connection.
+   if ctx.is_locked() && method.is_sensitive() {
+      info!(
+         "Refusing '{}' from '{}': Zeus is locked",
+         method.as_str(),
+         origin
+      );
+      return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id));
+   }
+
    let dapp_connected = ctx.is_dapp_connected(&origin);
 
    if !dapp_connected {
@@ -2323,6 +2353,57 @@ mod connector_auth_tests {
          "You cancelled the signing process"
       )));
       assert!(!is_user_rejected(&anyhow!("RPC timeout")));
+   }
+
+   /// While auto-locked the server refuses everything that signs, sends, or
+   /// changes the connection; read-only methods keep working.
+   #[test]
+   fn sensitive_methods_are_refused_while_locked() {
+      for method in [
+         RequestMethod::RequestAccounts,
+         RequestMethod::WalletRequestPermissions,
+         RequestMethod::EthSendTransaction,
+         RequestMethod::PersonalSign,
+         RequestMethod::EthSignedTypedDataV4,
+         RequestMethod::WalletSendCalls,
+         RequestMethod::WalletSwitchEthereumChain,
+         RequestMethod::WalletAddEthereumChain,
+         RequestMethod::WalletWatchAsset,
+      ] {
+         assert!(
+            method.is_sensitive(),
+            "{} must be refused while locked",
+            method.as_str()
+         );
+      }
+
+      for method in [
+         RequestMethod::EthAccounts,
+         RequestMethod::WalletGetPermissions,
+         RequestMethod::WalletGetCapabilities,
+         RequestMethod::ChainId,
+         RequestMethod::BlockNumber,
+         RequestMethod::GetBalance,
+         RequestMethod::EthCall,
+         RequestMethod::EstimateGas,
+         RequestMethod::EthGasPrice,
+         RequestMethod::EthMaxPriorityFeePerGas,
+         RequestMethod::EthGetTransactionCount,
+         RequestMethod::EthGetCode,
+         RequestMethod::EthGetStorageAt,
+         RequestMethod::EthGetTransactionByHash,
+         RequestMethod::EthGetTransactionReceipt,
+         RequestMethod::EthGetBlockByNumber,
+         RequestMethod::EthGetBlockByHash,
+         RequestMethod::WalletGetCallsStatus,
+         RequestMethod::WalletRevokePermissions,
+      ] {
+         assert!(
+            !method.is_sensitive(),
+            "{} is read-only and stays allowed while locked",
+            method.as_str()
+         );
+      }
    }
 
    /// The extension polls `/status` for every tab; an account there would be

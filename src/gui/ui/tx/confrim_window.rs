@@ -233,6 +233,13 @@ impl TxConfirmationWindow {
       self.confirmed_or_rejected
    }
 
+   /// Close without confirming and record a rejection, so the awaiting
+   /// `confirm_tx` errors out instead of hanging. Used when auto-lock fires.
+   pub fn reject(&mut self) {
+      self.confirmed_or_rejected = Some(false);
+      self.close();
+   }
+
    pub fn get_priority_fee(&self) -> NumericValue {
       NumericValue::parse_to_gwei(&self.priority_fee)
    }
@@ -700,5 +707,23 @@ impl TxConfirmationWindow {
       let balance = ctx.get_eth_balance(self.chain.id(), sender);
       let total_cost = eth_spent + self.tx_cost.wei();
       balance.wei() >= total_cost
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// Auto-lock cancels a pending confirmation: the window closes and the
+   /// awaiting `confirm_tx` is answered "rejected" so it errors out.
+   #[test]
+   fn reject_answers_rejected_and_closes() {
+      let mut window = TxConfirmationWindow::new();
+      window.open = true;
+
+      window.reject();
+
+      assert!(!window.is_open());
+      assert_eq!(window.get_confirmed_or_rejected(), Some(false));
    }
 }

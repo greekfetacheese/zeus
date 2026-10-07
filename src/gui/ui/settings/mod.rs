@@ -3,7 +3,9 @@
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::{WindowCtx, common::privacy_mode_switch, show_with_fade, window_frame};
+use crate::gui::ui::{
+   WindowCtx, common::privacy_mode_switch, record_input_activity, show_with_fade, window_frame,
+};
 use egui::{
    RichText, ScrollArea, Shadow, Stroke, Ui, ViewportBuilder, ViewportClass, ViewportId, vec2,
 };
@@ -11,6 +13,7 @@ use egui_elements::{Frame as Frame2, Label, Theme};
 use egui_lucide::Lucide;
 use std::sync::Arc;
 
+pub mod autolock;
 pub mod change_credentials;
 pub mod contacts;
 pub mod encryption;
@@ -21,6 +24,7 @@ pub mod networks;
 pub mod railgun;
 pub mod theme;
 
+pub use autolock::AutoLockSettings;
 pub use change_credentials::ChangeCredentialsUi;
 pub use contacts::ContactsUi;
 pub use encryption::EncryptionSettings;
@@ -55,6 +59,7 @@ pub struct SettingsUi {
    page: SettingsPage,
    general: GeneralSettings,
    pub encryption: EncryptionSettings,
+   pub autolock: AutoLockSettings,
    pub network: NetworkSettings,
    theme: ThemeSettings,
    pub contacts_ui: ContactsUi,
@@ -72,6 +77,7 @@ impl SettingsUi {
          page: SettingsPage::General,
          general: GeneralSettings::new(ctx),
          encryption: EncryptionSettings::new(),
+         autolock: AutoLockSettings::new(),
          network: NetworkSettings::new(),
          theme: ThemeSettings::new(),
          contacts_ui: ContactsUi::new(),
@@ -96,6 +102,7 @@ impl SettingsUi {
          self.open = true;
          self.general.sync_from_ctx(ctx);
          self.encryption.sync_from_ctx(ctx);
+         self.autolock.sync_from_ctx(ctx);
          self.railgun.sync_from_ctx(ctx);
       }
    }
@@ -126,6 +133,7 @@ impl SettingsUi {
       }
       if page == SettingsPage::Security {
          self.encryption.sync_from_ctx(ctx);
+         self.autolock.sync_from_ctx(ctx);
       }
       if page == SettingsPage::Railgun {
          self.railgun.sync_from_ctx(ctx);
@@ -161,6 +169,19 @@ impl SettingsUi {
    /// Must be called from the root viewport while Settings is open. The actual
    /// paint runs later on the child viewport's own pass via [`paint_settings_viewport`].
    pub fn show(&mut self, ctx: &mut ZeusContext, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
+      if ctx.locked {
+         // Auto-lock closes the Settings window: it is a separate OS viewport
+         // and a real bypass if left interactive while the wallet is locked.
+         if self.open {
+            ui.ctx().send_viewport_cmd_to(
+               settings_viewport_id(),
+               egui::ViewportCommand::Close,
+            );
+            self.close(ctx);
+         }
+         return;
+      }
+
       if !self.open {
          return;
       }
@@ -238,6 +259,10 @@ impl SettingsUi {
                      page == SettingsPage::Security,
                      |ui| {
                         ui.add_space(10.0);
+                        self.autolock.show(ctx, theme, ui);
+                        ui.add_space(24.0);
+                        ui.separator();
+                        ui.add_space(16.0);
                         self.change_credentials_ui.show(theme, ui);
                         ui.add_space(24.0);
                         ui.separator();
@@ -370,9 +395,16 @@ fn paint_settings_viewport(ui: &mut Ui, _class: ViewportClass) {
    }
 
    SHARED_GUI.write(|gui| {
+      // While locked the Settings window paints nothing (it is being closed).
+      if gui.ctx.read(|ctx| ctx.locked) {
+         return;
+      }
+
       let icons = gui.icons.clone();
       let theme = gui.theme.clone();
       gui.ctx.clone().write(|ctx| {
+         // Interacting with the Settings window is activity too.
+         record_input_activity(ui.ctx(), ctx);
          gui.settings.paint(ctx, icons, &theme, ui);
       });
       // Overlay modals (msg / loading / confirm / update) are Areas on the

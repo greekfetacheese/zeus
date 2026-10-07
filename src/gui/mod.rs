@@ -11,9 +11,9 @@ use egui_elements::{editor::ThemeEditor, theme::*};
 use lazy_static::lazy_static;
 
 pub use crate::gui::ui::{
-   AccountPanel, ApprovalsUi, ConfirmWindow, LoadingWindow, MsgWindow, Notification, PortfolioUi,
-   RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, TokenSelectionWindow,
-   TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
+   AccountPanel, ApprovalsUi, ConfirmWindow, LoadingWindow, LockScreen, MsgWindow, Notification,
+   PortfolioUi, RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi,
+   TokenSelectionWindow, TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
    common::dots_button,
    dapps::{
       across::AcrossBridge,
@@ -82,6 +82,7 @@ pub struct GUI {
    pub wallet_ui: WalletUi,
    pub unlock_vault_ui: UnlockVault,
    pub recover_wallet_ui: RecoverHDWallet,
+   pub lock_screen: LockScreen,
    pub portofolio: PortfolioUi,
    pub send_crypto: SendCryptoUi,
    pub msg_window: MsgWindow,
@@ -136,6 +137,7 @@ impl GUI {
       let merge_notes_window = MergeNotesWindow::new();
       let unlock_vault_ui = UnlockVault::new();
       let recover_wallet_ui = RecoverHDWallet::new();
+      let lock_screen = LockScreen::new();
 
       Self {
          egui_ctx,
@@ -153,6 +155,7 @@ impl GUI {
          across_bridge,
          unlock_vault_ui,
          recover_wallet_ui,
+         lock_screen,
          portofolio: PortfolioUi::new(),
          send_crypto,
          msg_window,
@@ -210,11 +213,43 @@ impl GUI {
       self.update_window.show(theme, ui);
    }
 
+   /// Cancel every prompt that authorizes something, answering its awaiting
+   /// flow with a rejection.
+   ///
+   /// Called while auto-locked: a prompt that was open when the lock fired must
+   /// not be approvable, and must not resurface after unlock. The flow waiting
+   /// on it (`sign_message`, `confirm_tx`, the connect server loop) then errors
+   /// out instead of hanging.
+   pub fn cancel_pending_actions(&mut self) {
+      if self.sign_msg_window.is_open() {
+         self.sign_msg_window.reject();
+      }
+      if self.tx_confirmation_window.is_open() {
+         self.tx_confirmation_window.reject();
+      }
+      if self.confirm_window.is_open() {
+         self.confirm_window.reject();
+      }
+      if self.connect_dapp_window.is_open() {
+         self.connect_dapp_window.reject();
+      }
+   }
+
    pub fn request_repaint(&self) {
       self.egui_ctx.request_repaint();
       if self.settings.is_open() {
          self.egui_ctx.request_repaint_of(settings::settings_viewport_id());
       }
+   }
+
+   /// Close Zeus through the normal shutdown path (`ZeusApp::on_shutdown`),
+   /// which saves the vault and erases in-memory secrets before the window
+   /// closes. Used to refuse further credential tries after too many failures.
+   pub fn shutdown(&self) {
+      self.egui_ctx.send_viewport_cmd_to(
+         egui::ViewportId::ROOT,
+         egui::ViewportCommand::Close,
+      );
    }
 
    /// Raise the main window so a dapp prompt is not hidden behind the browser.
