@@ -171,6 +171,18 @@ impl ZeusCtx {
       self.read(|ctx| ctx.locked)
    }
 
+   /// Guard for anything that signs, sends, or authorizes on the user's behalf.
+   ///
+   /// Auto-lock gates the UI, but headless callers — the dapp server, a built-in
+   /// flow still mid-simulation — have no window to be hidden by, so every
+   /// signing / broadcasting chokepoint re-checks the lock here.
+   pub fn ensure_unlocked(&self) -> Result<(), anyhow::Error> {
+      if self.is_locked() {
+         return Err(anyhow::anyhow!("Zeus is locked"));
+      }
+      Ok(())
+   }
+
    pub fn server_running(&self) -> bool {
       self.read(|ctx| ctx.server_running)
    }
@@ -3061,6 +3073,22 @@ mod tests {
          ctx.locked = true;
       });
       assert!(!warn(1_000 + 100 * REPEAT), "locked never warns");
+   }
+
+   /// The unlock guard refuses while locked and passes while unlocked.
+   #[test]
+   fn ensure_unlocked_refuses_while_locked() {
+      let ctx = ZeusCtx::new();
+
+      ctx.write(|ctx| ctx.locked = false);
+      assert!(ctx.ensure_unlocked().is_ok());
+
+      ctx.write(|ctx| ctx.locked = true);
+      let err = ctx.ensure_unlocked().unwrap_err();
+      assert!(
+         err.to_string().contains("locked"),
+         "unexpected error: {err}"
+      );
    }
 
    /// A collection names itself, and the confirmation window's "Contract interaction" row reads this to

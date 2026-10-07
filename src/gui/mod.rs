@@ -213,6 +213,28 @@ impl GUI {
       self.update_window.show(theme, ui);
    }
 
+   /// Cancel every prompt that authorizes something, answering its awaiting
+   /// flow with a rejection.
+   ///
+   /// Called while auto-locked: a prompt that was open when the lock fired must
+   /// not be approvable, and must not resurface after unlock. The flow waiting
+   /// on it (`sign_message`, `confirm_tx`, the connect server loop) then errors
+   /// out instead of hanging.
+   pub fn cancel_pending_actions(&mut self) {
+      if self.sign_msg_window.is_open() {
+         self.sign_msg_window.reject();
+      }
+      if self.tx_confirmation_window.is_open() {
+         self.tx_confirmation_window.reject();
+      }
+      if self.confirm_window.is_open() {
+         self.confirm_window.reject();
+      }
+      if self.connect_dapp_window.is_open() {
+         self.connect_dapp_window.reject();
+      }
+   }
+
    pub fn request_repaint(&self) {
       self.egui_ctx.request_repaint();
       if self.settings.is_open() {

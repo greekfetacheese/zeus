@@ -77,6 +77,13 @@ impl SignMsgWindow {
       self.signed
    }
 
+   /// Close without signing and answer the awaiting `sign_message` with a
+   /// cancel, so it errors out instead of hanging. Used when auto-lock fires.
+   pub fn reject(&mut self) {
+      self.close();
+      self.signed = Some(false);
+   }
+
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
@@ -775,4 +782,22 @@ fn format_typed_data(typed_data: &TypedData) -> String {
    }
 
    formatted
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// Auto-lock cancels a pending signature: the window closes and the awaiting
+   /// `sign_message` is answered "not signed" so it returns a cancel error.
+   #[test]
+   fn reject_answers_cancelled_and_closes() {
+      let mut window = SignMsgWindow::new();
+      window.open = true;
+
+      window.reject();
+
+      assert!(!window.is_open());
+      assert_eq!(window.is_signed(), Some(false));
+   }
 }

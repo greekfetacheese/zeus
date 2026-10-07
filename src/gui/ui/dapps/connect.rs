@@ -109,6 +109,13 @@ impl ConnectDappWindow {
       self.result
    }
 
+   /// Close and answer the server with a rejection. Used when auto-lock fires,
+   /// so a connection prompt cannot be approved while locked.
+   pub fn reject(&mut self) {
+      self.result = Some(DappConnectResult::Rejected);
+      self.close();
+   }
+
    pub fn close(&mut self) {
       self.open = false;
    }
@@ -394,5 +401,25 @@ mod tests {
 
       window.reset();
       assert!(!window.is_busy());
+   }
+
+   /// Auto-lock cancels a pending connection prompt: it is answered "rejected"
+   /// so the server stops waiting, and cannot be approved from a locked UI.
+   #[test]
+   fn reject_records_a_rejection_and_closes() {
+      let mut window = ConnectDappWindow::new();
+      window.open(
+         "https://app.example".to_string(),
+         None,
+         Vec::new(),
+         vec![wallet(address(1))],
+      );
+
+      window.reject();
+
+      assert!(!window.is_open());
+      assert_eq!(window.result, Some(DappConnectResult::Rejected));
+      // Still busy until the server collects the decision.
+      assert!(window.is_busy());
    }
 }

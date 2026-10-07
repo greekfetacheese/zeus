@@ -229,6 +229,9 @@ pub async fn confirm_tx(
    analysis: &TransactionAnalysis,
    opts: &SendTxOptions,
 ) -> Result<ConfirmedTx, anyhow::Error> {
+   // A locked wallet never confirms: refuse before opening the prompt.
+   ctx.ensure_unlocked()?;
+
    let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
 
    SHARED_GUI.write(|gui| {
@@ -269,6 +272,8 @@ pub async fn send_transaction(
    req: SendTxRequest,
    opts: SendTxOptions,
 ) -> Result<(TransactionReceipt, TransactionRich), anyhow::Error> {
+   ctx.ensure_unlocked()?;
+
    let SendTxRequest {
       chain,
       from,
@@ -423,6 +428,10 @@ pub async fn send_transaction(
    } else {
       tx_client
    };
+
+   // Last gate: the wallet may have locked while the confirmation was up (or
+   // during the MEV prompt). Never broadcast for a locked wallet.
+   ctx.ensure_unlocked()?;
 
    let receipt = send_tx(send_client, tx_params).await?;
    let tx_block = receipt.block_number.unwrap_or(0);

@@ -75,6 +75,13 @@ impl ConfirmWindow {
       self.confirm
    }
 
+   /// Close and answer the awaiting prompt with a rejection. Used when
+   /// auto-lock fires, so a confirm prompt cannot be approved while locked.
+   pub fn reject(&mut self) {
+      self.confirm = Some(false);
+      self.close();
+   }
+
    pub fn reset(&mut self) {
       self.close();
       self.msg.clear();
@@ -460,5 +467,23 @@ impl MsgWindow {
                }
             });
          });
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// Auto-lock cancels a pending confirm: the window closes and the awaiting
+   /// `wait_confirm_window` is answered "rejected" so it errors out.
+   #[test]
+   fn reject_answers_rejected_and_closes() {
+      let mut window = ConfirmWindow::new();
+      window.open("No available MEV protect RPC found");
+
+      window.reject();
+
+      assert!(!window.is_open());
+      assert_eq!(window.get_confirm(), Some(false));
    }
 }

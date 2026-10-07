@@ -840,6 +840,9 @@ async fn unshield_via_paymaster(
       gui.request_repaint();
    });
 
+   // The wallet may have locked since the confirmation; never submit for it.
+   ctx.ensure_unlocked()?;
+
    // Submit the UserOp tx
    let hash = bundler
       .send_user_operation(&signed)
