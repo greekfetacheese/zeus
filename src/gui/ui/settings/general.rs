@@ -11,6 +11,8 @@ use std::sync::OnceLock;
 const ICONS_TIP: &str = "Allow Zeus to download token icons and NFT images";
 const SOURCIFY_TIP: &str = "Allow Zeus to look up verified contract names on sourcify.dev";
 const UPDATES_TIP: &str = "Allow Zeus to check GitHub for a newer Zeus release";
+const TRAY_TIP: &str = "Hide Zeus to the system tray when the window is minimized. Zeus keeps \
+                        running in the background; the tray icon brings it back.";
 
 /// The External Data hover tips: the one-line explanation plus the endpoints the
 /// opt-in actually contacts. Built once — `on_hover_text` takes its value every
@@ -34,6 +36,7 @@ pub struct GeneralSettings {
    fetch_asset_images: bool,
    fetch_contract_names: bool,
    check_for_updates: bool,
+   minimize_to_tray: bool,
    concurrency_for_syncing_balances: usize,
    concurrency_for_discovering_pools: usize,
    batch_size_for_syncing_balances: usize,
@@ -46,6 +49,7 @@ impl GeneralSettings {
          fetch_asset_images: false,
          fetch_contract_names: false,
          check_for_updates: false,
+         minimize_to_tray: true,
          concurrency_for_syncing_balances: 1,
          concurrency_for_discovering_pools: 1,
          batch_size_for_syncing_balances: 1,
@@ -70,6 +74,7 @@ impl GeneralSettings {
       self.fetch_asset_images = ctx.misc_config.fetch_asset_images();
       self.fetch_contract_names = ctx.misc_config.fetch_contract_names();
       self.check_for_updates = ctx.misc_config.check_for_updates();
+      self.minimize_to_tray = ctx.misc_config.minimize_to_tray();
       self.concurrency_for_syncing_balances = balance_manager.concurrency();
       self.concurrency_for_discovering_pools = pool_manager.concurrency();
       self.batch_size_for_syncing_balances = balance_manager.batch_size();
@@ -148,6 +153,27 @@ impl GeneralSettings {
       ui.separator();
       ui.add_space(10.0);
 
+      let header = RichText::new("Window").size(theme.typography.very_large);
+      ui.label(header);
+
+      let tray_text = RichText::new("Minimize to Tray").size(theme.typography.normal);
+      let qmark = Badge::new(q_mark_text.clone(), BadgeTone::Info);
+
+      ui.allocate_ui_with_layout(
+         ui_size,
+         Layout::left_to_right(Align::Center),
+         |ui| {
+            if ui.checkbox(&mut self.minimize_to_tray, tray_text).changed() {
+               ctx.misc_config.set_minimize_to_tray(self.minimize_to_tray);
+               Self::persist_misc(ctx);
+            }
+            ui.add(qmark).on_hover_text(TRAY_TIP);
+         },
+      );
+
+      ui.separator();
+      ui.add_space(10.0);
+
       let header = RichText::new("Pool Manager").size(theme.typography.very_large);
       ui.label(header);
 
@@ -212,6 +238,10 @@ impl GeneralSettings {
       }
       if self.check_for_updates != ctx.misc_config.check_for_updates() {
          ctx.misc_config.set_check_for_updates(self.check_for_updates);
+         save_misc = true;
+      }
+      if self.minimize_to_tray != ctx.misc_config.minimize_to_tray() {
+         ctx.misc_config.set_minimize_to_tray(self.minimize_to_tray);
          save_misc = true;
       }
       if save_misc {
