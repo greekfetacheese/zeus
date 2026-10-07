@@ -22,8 +22,8 @@ pub use windows::{ConfirmWindow, LoadingWindow, MsgWindow, UpdateWindow};
 
 use crate::core::ZeusContext;
 use crate::gui::{SHARED_GUI, ui::dapps::railgun::RailgunMode};
-use crate::utils::RT;
-use egui::{Align, Layout, Response, RichText, Ui, pos2, Vec2, vec2};
+use crate::utils::{RT, TimeStamp};
+use egui::{Align, Layout, Response, RichText, Ui, Vec2, pos2, vec2};
 use egui_elements::{Button, Theme};
 use egui_lucide::Lucide;
 use elegance::{Accent, Switch};
@@ -43,6 +43,41 @@ pub fn delayed_action_label(opened_at: Option<Instant>, ready_label: &str) -> (b
    } else {
       let secs = remaining.as_secs_f32().ceil() as u64;
       (false, format!("Available in {secs}s"))
+   }
+}
+
+/// Events that count as the user doing something (they reset the auto-lock
+/// idle timer).
+///
+/// Window/focus, modifier, accesskit and screenshot events are deliberately
+/// excluded: they fire without the user interacting and would keep the app
+/// unlocked on their own.
+pub fn is_user_input_event(event: &egui::Event) -> bool {
+   use egui::Event;
+   matches!(
+      event,
+      Event::PointerMoved(_)
+         | Event::MouseMoved(_)
+         | Event::PointerButton { .. }
+         | Event::MouseWheel { .. }
+         | Event::Zoom(_)
+         | Event::Key { pressed: true, .. }
+         | Event::Text(_)
+         | Event::Paste(_)
+         | Event::Cut
+         | Event::Copy
+         | Event::Touch { .. }
+         | Event::Ime(_)
+   )
+}
+
+/// Refresh the auto-lock idle timer when this frame carried real user input.
+///
+/// Called on both the main-window and the Settings-viewport passes, so
+/// interacting with either counts as activity.
+pub fn record_input_activity(egui_ctx: &egui::Context, ctx: &mut ZeusContext) {
+   if egui_ctx.input(|input| input.events.iter().any(is_user_input_event)) {
+      ctx.last_activity_ms = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
    }
 }
 
@@ -117,4 +152,40 @@ pub fn dots_button(theme: &Theme, size: Vec2, ui: &mut Ui) -> Response {
       }
    }
    resp
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use egui::{Event, Key, Modifiers, Pos2};
+
+   fn key(pressed: bool) -> Event {
+      Event::Key {
+         key: Key::A,
+         physical_key: None,
+         pressed,
+         repeat: false,
+         modifiers: Modifiers::NONE,
+      }
+   }
+
+   #[test]
+   fn user_input_events_are_recognized() {
+      assert!(is_user_input_event(&Event::PointerMoved(
+         Pos2::ZERO
+      )));
+      assert!(is_user_input_event(&Event::Text("a".to_string())));
+      assert!(is_user_input_event(&Event::Copy));
+      assert!(is_user_input_event(&key(true)));
+   }
+
+   /// Events that fire on their own must not reset the idle timer.
+   #[test]
+   fn passive_events_are_not_user_input() {
+      assert!(!is_user_input_event(&key(false)));
+      assert!(!is_user_input_event(&Event::WindowFocused(true)));
+      assert!(!is_user_input_event(&Event::ModifiersChanged(
+         Modifiers::NONE
+      )));
+   }
 }
