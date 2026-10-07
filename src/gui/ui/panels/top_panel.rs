@@ -19,9 +19,7 @@ const RAILGUN_CHECK_THRESHOLD: u64 = 250;
 
 const MALFUNCTION_TOAST_DURATION_SECS: u64 = 30;
 
-// D5c: the first "auto-lock is not configured" nudge comes ~30 s after unlock,
-// then at most once an hour while the user has never made a choice.
-const AUTOLOCK_FIRST_NOTICE_MS: u64 = 30 * 1000;
+const AUTOLOCK_FIRST_NOTICE_MS: u64 = 10 * 1000;
 const AUTOLOCK_NOTICE_REPEAT_MS: u64 = 60 * 60 * 1000;
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
@@ -146,7 +144,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       Toast::new("Auto-lock is not configured")
          .tone(BadgeTone::Warning)
          .description(
-            "Zeus is on the default 1 hour auto-lock. Choose a timeout in Settings → Security.",
+            "Zeus is on the default 1 hour auto-lock. Choose a timeout in Settings/Security.",
          )
          .duration(Duration::from_secs(
             MALFUNCTION_TOAST_DURATION_SECS,

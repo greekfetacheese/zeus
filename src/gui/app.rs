@@ -96,36 +96,9 @@ impl ZeusApp {
          let _r = run_server(ctx_clone).await;
       });
 
-      // Auto-lock watcher: a slow tick that locks the UI once the idle time
-      // exceeds the configured timeout. Lives off the frame path because egui
-      // only repaints on demand, so an idle window would otherwise never check.
       let ctx_autolock = ctx.clone();
       RT.spawn(async move {
-         loop {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-
-            let mut locked_now = false;
-            ctx_autolock.write(|ctx| {
-               if !ctx.vault_unlocked || ctx.locked {
-                  return;
-               }
-
-               let Some(idle_secs) = ctx.security.autolock.idle_secs() else {
-                  return;
-               };
-
-               let now = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
-               if now.saturating_sub(ctx.last_activity_ms) >= idle_secs * 1000 {
-                  ctx.locked = true;
-                  locked_now = true;
-               }
-            });
-
-            if locked_now {
-               tracing::info!("Auto-lock: idle timeout reached, locking the UI");
-               SHARED_GUI.write(|gui| gui.request_repaint());
-            }
-         }
+         autolock_watcher(ctx_autolock).await;
       });
 
       Self {
@@ -341,6 +314,39 @@ impl eframe::App for ZeusApp {
             gui.fps_metrics.update(time.elapsed().as_secs_f64() * 1000.0);
          });
       });
+   }
+}
+
+/// Auto-lock watcher: a slow tick that locks the UI once the idle time
+/// exceeds the configured timeout. 
+/// 
+/// Lives off the frame path because egui
+/// only repaints on demand, so an idle window would otherwise never check.vv
+async fn autolock_watcher(ctx: ZeusCtx) {
+   loop {
+      tokio::time::sleep(Duration::from_secs(1)).await;
+
+      let mut locked_now = false;
+      ctx.write(|ctx| {
+         if !ctx.vault_unlocked || ctx.locked {
+            return;
+         }
+
+         let Some(idle_secs) = ctx.security.autolock.idle_secs() else {
+            return;
+         };
+
+         let now = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
+         if now.saturating_sub(ctx.last_activity_ms) >= idle_secs * 1000 {
+            ctx.locked = true;
+            locked_now = true;
+         }
+      });
+
+      if locked_now {
+         tracing::info!("Auto-lock: idle timeout reached, locking the UI");
+         SHARED_GUI.write(|gui| gui.request_repaint());
+      }
    }
 }
 

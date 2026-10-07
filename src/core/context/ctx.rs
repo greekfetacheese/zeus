@@ -3034,7 +3034,7 @@ mod tests {
       let _r = ctx.get_mev_protect_client(1).await.unwrap();
    }
 
-   /// D5c: the "auto-lock is not configured" nudge comes once ~30 s after
+   /// the "auto-lock is not configured" nudge comes once ~30 s after
    /// unlock, then at most hourly, and never once the user made a choice.
    #[test]
    fn autolock_notice_cadence() {
