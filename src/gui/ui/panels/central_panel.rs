@@ -10,6 +10,14 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       // unlock.
       gui.wallet_ui.lock(ui.ctx());
       gui.lock_screen.show(ctx, &gui.theme, ui);
+
+      // Informational modals (the unlock error, "saving vault…") must render on
+      // the lock screen. Deliberately not `show_overlay_modals`: that also
+      // paints the interactive confirm / dapp-connect prompts, which — if they
+      // were open before the lock fired — would sit clickable over the lock
+      // card and let a locked wallet authorize something.
+      gui.msg_window.show(&gui.theme, ui);
+      gui.loading_window.show(&gui.theme, ui);
       return;
    }
 

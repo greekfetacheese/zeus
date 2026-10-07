@@ -59,7 +59,7 @@ pub struct SettingsUi {
    page: SettingsPage,
    general: GeneralSettings,
    pub encryption: EncryptionSettings,
-   autolock: AutoLockSettings,
+   pub autolock: AutoLockSettings,
    pub network: NetworkSettings,
    theme: ThemeSettings,
    pub contacts_ui: ContactsUi,
