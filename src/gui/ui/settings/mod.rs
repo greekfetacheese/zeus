@@ -163,6 +163,19 @@ impl SettingsUi {
    /// Must be called from the root viewport while Settings is open. The actual
    /// paint runs later on the child viewport's own pass via [`paint_settings_viewport`].
    pub fn show(&mut self, ctx: &mut ZeusContext, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
+      if ctx.locked {
+         // Auto-lock closes the Settings window: it is a separate OS viewport
+         // and a real bypass if left interactive while the wallet is locked.
+         if self.open {
+            ui.ctx().send_viewport_cmd_to(
+               settings_viewport_id(),
+               egui::ViewportCommand::Close,
+            );
+            self.close(ctx);
+         }
+         return;
+      }
+
       if !self.open {
          return;
       }
@@ -372,6 +385,11 @@ fn paint_settings_viewport(ui: &mut Ui, _class: ViewportClass) {
    }
 
    SHARED_GUI.write(|gui| {
+      // While locked the Settings window paints nothing (it is being closed).
+      if gui.ctx.read(|ctx| ctx.locked) {
+         return;
+      }
+
       let icons = gui.icons.clone();
       let theme = gui.theme.clone();
       gui.ctx.clone().write(|ctx| {

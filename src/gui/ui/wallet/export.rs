@@ -82,6 +82,19 @@ impl ExportKeyUi {
       self.erase_exported_wallet();
    }
 
+   /// Drop every secret this UI holds and close it.
+   ///
+   /// Used when Zeus auto-locks: a private key or seed shown before the lock
+   /// must not resurface after unlock, so the verification state and the
+   /// shown key/QR flags are cleared, not just the window flag.
+   pub fn lock(&mut self, ctx: &Context) {
+      self.erase(ctx);
+      self.close();
+      self.verified_credentials = false;
+      self.show_key = false;
+      self.show_key_qrcode = false;
+   }
+
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       self.verify_credentials_ui(theme, ui);
       self.show_key(ctx, theme, ui);

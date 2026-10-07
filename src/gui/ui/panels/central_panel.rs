@@ -6,6 +6,9 @@ use egui_elements::{Theme, widgets::Window};
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    // Locked: only the lock card is shown, and nothing else is interactive.
    if ctx.locked {
+      // A private key / seed shown before the lock must not resurface after
+      // unlock.
+      gui.wallet_ui.lock(ui.ctx());
       gui.lock_screen.show(ctx, &gui.theme, ui);
       return;
    }
