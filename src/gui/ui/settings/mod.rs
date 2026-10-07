@@ -3,7 +3,9 @@
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::{WindowCtx, common::privacy_mode_switch, show_with_fade, window_frame};
+use crate::gui::ui::{
+   WindowCtx, common::privacy_mode_switch, record_input_activity, show_with_fade, window_frame,
+};
 use egui::{
    RichText, ScrollArea, Shadow, Stroke, Ui, ViewportBuilder, ViewportClass, ViewportId, vec2,
 };
@@ -373,6 +375,8 @@ fn paint_settings_viewport(ui: &mut Ui, _class: ViewportClass) {
       let icons = gui.icons.clone();
       let theme = gui.theme.clone();
       gui.ctx.clone().write(|ctx| {
+         // Interacting with the Settings window is activity too.
+         record_input_activity(ui.ctx(), ctx);
          gui.settings.paint(ctx, icons, &theme, ui);
       });
       // Overlay modals (msg / loading / confirm / update) are Areas on the

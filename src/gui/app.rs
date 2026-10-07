@@ -4,6 +4,7 @@ use zeus_eth::types::SUPPORTED_CHAINS;
 use crate::assets::{INTER_BOLD_18, icons::Icons};
 use crate::core::{WalletInfo, ZeusCtx};
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::record_input_activity;
 use crate::server::run_server;
 use crate::utils::{RT, TimeStamp, state::on_startup};
 use eframe::{
@@ -93,6 +94,38 @@ impl ZeusApp {
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
          let _r = run_server(ctx_clone).await;
+      });
+
+      // Auto-lock watcher: a slow tick that locks the UI once the idle time
+      // exceeds the configured timeout. Lives off the frame path because egui
+      // only repaints on demand, so an idle window would otherwise never check.
+      let ctx_autolock = ctx.clone();
+      RT.spawn(async move {
+         loop {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+
+            let mut locked_now = false;
+            ctx_autolock.write(|ctx| {
+               if !ctx.vault_unlocked || ctx.locked {
+                  return;
+               }
+
+               let Some(idle_secs) = ctx.security.autolock.idle_secs() else {
+                  return;
+               };
+
+               let now = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
+               if now.saturating_sub(ctx.last_activity_ms) >= idle_secs * 1000 {
+                  ctx.locked = true;
+                  locked_now = true;
+               }
+            });
+
+            if locked_now {
+               tracing::info!("Auto-lock: idle timeout reached, locking the UI");
+               SHARED_GUI.write(|gui| gui.request_repaint());
+            }
+         }
       });
 
       Self {
@@ -243,6 +276,11 @@ impl eframe::App for ZeusApp {
 
          zeus_ctx.write(|ctx| {
             self.on_shutdown(ui.ctx());
+
+            // Reset the auto-lock idle timer on real user input.
+            if ctx.vault_unlocked && !ctx.locked {
+               record_input_activity(ui.ctx(), ctx);
+            }
 
             #[cfg(feature = "dev")]
             gui.theme.install(ui.ctx());
