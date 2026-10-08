@@ -7,7 +7,7 @@
 //! them — that hook is the only one eframe keeps calling while the root window is hidden,
 //! which is exactly the state the tray puts the app in.
 
-use crate::assets::ZEUS_TRAY;
+use crate::assets::{ZEUS_TRAY, decode_mark};
 use crate::utils::RT;
 use egui::Context;
 use std::sync::mpsc::{Receiver, channel};
@@ -38,9 +38,8 @@ impl Tray {
    pub fn build(egui_ctx: Context) -> Result<Self, Box<dyn std::error::Error>> {
       let (tx, actions) = channel();
 
-      let image = image::load_from_memory(ZEUS_TRAY)?.into_rgba8();
-      let (width, height) = image.dimensions();
-      let icon = Icon::from_rgba(image.into_raw(), width, height)?;
+      let (rgba, width, height) = decode_mark(ZEUS_TRAY)?;
+      let icon = Icon::from_rgba(rgba, width, height)?;
 
       let menu = Menu::new();
       let toggle = MenuItem::new("Show / Hide Zeus", true, None);

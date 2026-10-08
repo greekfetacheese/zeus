@@ -63,15 +63,36 @@ fn main() -> eframe::Result {
       ..Default::default()
    };
 
+   // The mark for the taskbar, Alt-Tab list and title bar. Without it eframe substitutes
+   // its own placeholder "e" icon. Wayland has no window-icon protocol, so winit ignores
+   // this there and the icon comes from a `.desktop` file instead (not shipped yet).
+   let icon = match assets::decode_mark(assets::ZEUS_ICON) {
+      Ok((rgba, width, height)) => Some(Arc::new(egui::IconData {
+         rgba,
+         width,
+         height,
+      })),
+      Err(e) => {
+         tracing::warn!("Failed to decode the Zeus window icon: {e}");
+         None
+      }
+   };
+
+   let mut viewport = egui::ViewportBuilder::default()
+      .with_decorations(true)
+      .with_inner_size([1280.0, 900.0])
+      .with_min_inner_size([1280.0, 900.0])
+      .with_transparent(false)
+      .with_resizable(true);
+
+   if let Some(icon) = icon {
+      viewport = viewport.with_icon(icon);
+   }
+
    let options = eframe::NativeOptions {
       renderer: eframe::Renderer::Wgpu,
       wgpu_options: wgpu_config,
-      viewport: egui::ViewportBuilder::default()
-         .with_decorations(true)
-         .with_inner_size([1280.0, 900.0])
-         .with_min_inner_size([1280.0, 900.0])
-         .with_transparent(false)
-         .with_resizable(true),
+      viewport,
 
       ..Default::default()
    };
