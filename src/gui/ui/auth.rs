@@ -167,6 +167,7 @@ pub struct RecoverHDWallet {
    fetch_asset_images: bool,
    fetch_contract_names: bool,
    check_for_updates: bool,
+   desktop_integration: bool,
    memory: SystemMemory,
    pub size: (f32, f32),
 }
@@ -193,6 +194,7 @@ impl RecoverHDWallet {
          fetch_asset_images: false,
          fetch_contract_names: false,
          check_for_updates: false,
+         desktop_integration: false,
          memory: SystemMemory::new(),
          size: (550.0, 350.0),
       }
@@ -401,7 +403,8 @@ impl RecoverHDWallet {
       match self.onboarding_step {
          0 => self.show_onboarding_tips(theme, ui),
          1 => self.show_onboarding_railgun(ctx, theme, ui),
-         _ => self.show_onboarding_external_data(ctx, theme, ui),
+         2 => self.show_onboarding_external_data(theme, ui),
+         _ => self.show_onboarding_desktop(ctx, theme, ui),
       }
    }
 
@@ -581,7 +584,7 @@ impl RecoverHDWallet {
          });
    }
 
-   fn show_onboarding_external_data(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+   fn show_onboarding_external_data(&mut self, theme: &Theme, ui: &mut Ui) {
       let frame = theme.frame1;
 
       Window::new("Recover_HD_Wallet_external_data")
@@ -726,14 +729,99 @@ impl RecoverHDWallet {
             ui.add_space(20.0);
 
             ui.vertical_centered(|ui| {
-               let text = RichText::new("Continue").size(theme.typography.large);
-               let continue_button =
+               let text = RichText::new("Next").size(theme.typography.large);
+               let next_button =
                   Button::new(text).visuals(button_visuals).min_size(vec2(content_width, 45.0));
 
-               if ui.add(continue_button).clicked() {
+               if ui.add(next_button).clicked() {
+                  self.onboarding_step = 3;
+               }
+            });
+         });
+   }
+
+   /// Last onboarding step: the opt-in application-menu entry.
+   ///
+   /// This is the step that collects every choice made in the wizard and finishes it, which is
+   /// why the steps before it only advance — their values already live on `self`.
+   fn show_onboarding_desktop(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+      let frame = theme.frame1;
+
+      Window::new("Recover_HD_Wallet_desktop")
+         .title_bar(false)
+         .movable(false)
+         .resizable(false)
+         .frame(frame)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .show(ui.ctx(), |ui| {
+            ui.set_width(self.size.0);
+            ui.spacing_mut().item_spacing.y = theme.spacing.md;
+            ui.spacing_mut().button_padding = theme.button_padding;
+
+            let button_visuals = theme.button_visuals();
+            let content_width = ui.available_width() * 0.9;
+
+            ui.vertical_centered(|ui| {
+               ui.label(RichText::new("Application Menu").size(theme.typography.heading));
+            });
+
+            ui.horizontal(|ui| {
+               let pad = ((ui.available_width() - content_width) / 2.0).max(0.0);
+               ui.add_space(pad);
+               ui.vertical(|ui| {
+                  ui.set_width(content_width);
+                  ui.spacing_mut().item_spacing.y = theme.spacing.md;
+
+                  let large = theme.typography.large;
+                  let paragraph = |ui: &mut Ui, text: &str| {
+                     ui.add(
+                        Label::new(RichText::new(text).size(large), None)
+                           .wrap()
+                           .fill_width(true)
+                           .interactive(false),
+                     );
+                  };
+
+                  paragraph(
+                     ui,
+                     "Zeus can add itself to your application menu, with its own icon, so you \
+                      can start it like any other app and pin it to your panel or dock.",
+                  );
+
+                  // The one thing Zeus writes that is not inside its own folder, so it is
+                  // stated plainly rather than buried in the readme.
+                  paragraph(
+                     ui,
+                     "Zeus keeps its own state in its folder. The exception it already makes \
+                      is the icon your file manager shows for the Zeus program. Turning this \
+                      on adds a second: a menu entry under ~/.local/share/applications and its \
+                      icon under ~/.local/share/icons. Both are removed again if you turn this \
+                      off, and the entry points at this copy of Zeus so if you move the \
+                      folder, the entry disappears until you start Zeus from its new home.",
+                  );
+
+                  paragraph(
+                     ui,
+                     "You can change this later in Settings/General.",
+                  );
+
+                  let desktop_text = RichText::new("Add Zeus to the Application Menu").size(large);
+                  ui.checkbox(&mut self.desktop_integration, desktop_text);
+               });
+            });
+
+            ui.add_space(20.0);
+
+            ui.vertical_centered(|ui| {
+               let text = RichText::new("Finish").size(theme.typography.large);
+               let finish_button =
+                  Button::new(text).visuals(button_visuals).min_size(vec2(content_width, 45.0));
+
+               if ui.add(finish_button).clicked() {
                   ctx.misc_config.set_fetch_asset_images(self.fetch_asset_images);
                   ctx.misc_config.set_fetch_contract_names(self.fetch_contract_names);
                   ctx.misc_config.set_check_for_updates(self.check_for_updates);
+                  ctx.misc_config.set_desktop_integration(self.desktop_integration);
                   let config = ctx.misc_config.clone();
                   let current_wallet = ctx.current_wallet_info();
                   on_finish_onboarding(config, current_wallet);
@@ -1005,6 +1093,7 @@ fn on_recover_hd_wallet(name: String, credentials: Credentials) {
                gui.recover_wallet_ui.show_onboarding = true;
                gui.recover_wallet_ui.onboarding_step = 0;
                gui.recover_wallet_ui.enable_railgun = false;
+               gui.recover_wallet_ui.desktop_integration = false;
                gui.recover_wallet_ui.credentials_form.erase();
 
                gui.loading_window.reset();
@@ -1063,6 +1152,14 @@ fn on_finish_onboarding(config: MiscConfig, current_wallet: WalletInfo) {
    RT.spawn_blocking(move || {
       if let Err(e) = config.save() {
          tracing::error!("Failed to save misc config: {e}");
+      }
+
+      // Applied here as well as on startup, so ticking the box takes effect when the wizard
+      // ends rather than at the next launch.
+      if config.desktop_integration() {
+         crate::utils::desktop_integration::install_desktop_entry();
+      } else {
+         crate::utils::desktop_integration::uninstall_desktop_entry();
       }
 
       let ctx = SHARED_GUI.write(|gui| {

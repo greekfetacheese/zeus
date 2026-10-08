@@ -190,6 +190,13 @@ pub struct MiscConfig {
    /// leaving it in the taskbar. The wallet keeps running either way.
    #[serde(default = "default_true")]
    pub minimize_to_tray: bool,
+   /// When true, Zeus installs a per-user application-menu entry (and its icon) pointing at
+   /// this copy of the app.
+   ///
+   /// Opt-in, and the reason is the same one that makes it worth asking about: the entry
+   /// lives in `~/.local/share`, i.e. outside the folder the rest of Zeus's state stays in.
+   #[serde(default)]
+   pub desktop_integration: bool,
 }
 
 impl MiscConfig {
@@ -199,6 +206,7 @@ impl MiscConfig {
          fetch_contract_names: false,
          check_for_updates: false,
          minimize_to_tray: true,
+         desktop_integration: false,
       }
    }
 
@@ -247,6 +255,14 @@ impl MiscConfig {
 
    pub fn set_minimize_to_tray(&mut self, enabled: bool) {
       self.minimize_to_tray = enabled;
+   }
+
+   pub fn desktop_integration(&self) -> bool {
+      self.desktop_integration
+   }
+
+   pub fn set_desktop_integration(&mut self, enabled: bool) {
+      self.desktop_integration = enabled;
    }
 }
 

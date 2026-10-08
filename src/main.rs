@@ -42,11 +42,16 @@ fn main() -> eframe::Result {
 
    cleanup_old_logs();
 
-   // `zeus-gui --install-file-icon`: apply the Linux file-manager icon and exit, without
-   // starting the GUI. A normal launch does this too; the flag is for repair and for
-   // machines where the icon has to be set from a script.
-   if utils::desktop_icon::is_install_invocation() {
-      utils::desktop_icon::install_file_icon();
+   // `zeus --install-desktop` / `--uninstall-desktop`: opt in to (or out of) the application
+   // menu entry and exit, without starting the GUI. A normal launch applies the recorded
+   // choice too; the flags are for scripting and for a machine where it cannot be set from
+   // the UI.
+   if utils::desktop_integration::is_install_invocation() {
+      utils::desktop_integration::set_enabled(true);
+      return Ok(());
+   }
+   if utils::desktop_integration::is_uninstall_invocation() {
+      utils::desktop_integration::set_enabled(false);
       return Ok(());
    }
 
@@ -86,7 +91,12 @@ fn main() -> eframe::Result {
       }
    };
 
+   // The application id the window identifies as. On Wayland the compositor resolves a
+   // window's icon from `<app_id>.desktop`; on X11 it becomes WM_CLASS, which the entry's
+   // `StartupWMClass` is matched against. Left unset, winit falls back to the window *title*,
+   // which carries the version and so can never match a stable entry.
    let mut viewport = egui::ViewportBuilder::default()
+      .with_app_id(utils::desktop_integration::APP_ID)
       .with_decorations(true)
       .with_inner_size([1280.0, 900.0])
       .with_min_inner_size([1280.0, 900.0])
