@@ -7,7 +7,7 @@
 //! them — that hook is the only one eframe keeps calling while the root window is hidden,
 //! which is exactly the state the tray puts the app in.
 
-use crate::assets::TRAY_ICON_PNG;
+use crate::assets::ZEUS_TRAY;
 use crate::utils::RT;
 use egui::Context;
 use std::sync::mpsc::{Receiver, channel};
@@ -38,7 +38,7 @@ impl Tray {
    pub fn build(egui_ctx: Context) -> Result<Self, Box<dyn std::error::Error>> {
       let (tx, actions) = channel();
 
-      let image = image::load_from_memory(TRAY_ICON_PNG)?.into_rgba8();
+      let image = image::load_from_memory(ZEUS_TRAY)?.into_rgba8();
       let (width, height) = image.dimensions();
       let icon = Icon::from_rgba(image.into_raw(), width, height)?;
 
