@@ -185,16 +185,25 @@ impl ZeusApp {
    }
 
    fn lock_wallet(&mut self, egui_ctx: &egui::Context) {
-      SHARED_GUI.write(|gui| {
+      let locked = SHARED_GUI.write(|gui| {
          let zeus_ctx = gui.ctx.clone();
-         zeus_ctx.write(|ctx| {
-            if ctx.vault_unlocked && !ctx.locked {
+         let locked = zeus_ctx.write(|ctx| {
+            let lock = ctx.vault_unlocked && !ctx.locked;
+            if lock {
                ctx.locked = true;
                tracing::info!("Wallet locked from the system tray");
             }
+            lock
          });
          gui.request_repaint();
+         locked
       });
+
+      // Only when this call is what locked it: a wallet that was already locked gets
+      // no second notification.
+      if locked {
+         tray::notify_locked();
+      }
 
       egui_ctx.request_repaint();
    }

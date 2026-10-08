@@ -48,16 +48,30 @@ impl Tray {
       let quit = MenuItem::new("Quit Zeus", true, None);
       menu.append_items(&[&toggle, &lock, &PredefinedMenuItem::separator(), &quit])?;
 
-      let icon_handle = TrayIconBuilder::new()
+      let builder = TrayIconBuilder::new()
          .with_menu(Box::new(menu))
          // Left click toggles the window, right click opens the menu. Windows and
          // macOS also open the menu on a *left* click by default, which would drop it
          // on top of the window we just restored; Linux ignores this (its StatusNotifier
          // host owns the right-click menu).
          .with_menu_on_left_click(false)
-         .with_tooltip("Zeus")
-         .with_icon(icon)
-         .build()?;
+         .with_icon(icon);
+
+      // Which attribute carries the hover text is backend-specific, and setting both
+      // makes the Linux host draw the name twice: its `ksni` tooltip is
+      // `(title, description)` = `(title, tooltip)`. Windows and macOS read the tooltip
+      // only; Linux/BSD read the item *title*, and with the tooltip alone that title is
+      // empty, so the host renders nothing. Both measured over D-Bus:
+      //
+      //   tooltip only -> Title='',      ToolTip=('',      'Zeus')
+      //   title only   -> Title='Zeus',  ToolTip=('Zeus',  '')
+      //   both         -> Title='Zeus',  ToolTip=('Zeus',  'Zeus')  <- drawn twice
+      #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+      let builder = builder.with_title("Zeus");
+      #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+      let builder = builder.with_tooltip("Zeus");
+
+      let icon_handle = builder.build()?;
 
       // The handlers capture plain `Send` values — a `MenuId` clone and the egui
       // context — never the `TrayIcon`, which is not `Send`.
@@ -133,24 +147,39 @@ pub fn show_window(egui_ctx: &Context) {
    egui_ctx.request_repaint();
 }
 
-/// Tell the user where the window went.
+/// Show a desktop notification off the frame path.
 ///
 /// `notify-rust` blocks, so this runs on a worker thread. A missing notification
 /// daemon is logged rather than fatal — the tray icon is still there.
-pub fn notify_hidden() {
-   RT.spawn_blocking(|| {
+fn notify(summary: &'static str, body: &'static str) {
+   RT.spawn_blocking(move || {
       let shown = notify_rust::Notification::new()
          .appname("Zeus")
-         .summary("Zeus is still running")
-         .body(
-            "The window was minimized to the system tray. Click the Zeus tray icon to bring it \
-             back, or quit from the tray menu.",
-         )
+         .summary(summary)
+         .body(body)
          .timeout(notify_rust::Timeout::Milliseconds(8000))
          .show();
 
       if let Err(e) = shown {
-         tracing::warn!("Failed to show the tray notification: {e}");
+         tracing::warn!("Failed to show the '{summary}' notification: {e}");
       }
    });
+}
+
+/// Tell the user where the window went.
+pub fn notify_hidden() {
+   notify(
+      "Zeus is still running",
+      "The window was minimized to the system tray. Click the Zeus tray icon to bring it back, \
+       or quit from the tray menu.",
+   );
+}
+
+/// Tell the user the wallet is locked, since the tray locked it with the window hidden.
+pub fn notify_locked() {
+   notify(
+      "Zeus is locked",
+      "The wallet was locked from the system tray. Open the Zeus window and enter your \
+       credentials to unlock it.",
+   );
 }
