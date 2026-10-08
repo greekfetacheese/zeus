@@ -1,4 +1,5 @@
 pub mod app;
+pub mod tray;
 pub mod ui;
 
 use egui::{Context, Ui};

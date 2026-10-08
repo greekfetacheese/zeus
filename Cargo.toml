@@ -130,6 +130,26 @@ redb = "4"
 lazy_static = "=1.5.0"
 bincode-next = "=3.1.1"
 
+# Notifications (Zeus hidden to the system tray)
+notify-rust = "=4.18.1"
+
+# System tray icon.
+#
+# On Linux/BSD we pick the pure-Rust `ksni` (D-Bus StatusNotifierItem) backend
+# instead of the crate default `libappindicator`: it runs its own worker thread
+# and needs no GTK system libraries at build or run time, so the Linux build keeps
+# the same prerequisites it has today. It also reports left-click events, which
+# the AppIndicator backend does not.
+#
+# Windows/macOS need no feature at all — their backends come from non-optional
+# target dependencies — so the crate default is switched off there too; leaving it
+# on would drag the GTK feature set into `Cargo.lock` for a build that never uses it.
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+tray-icon = { version = "=0.26", default-features = false, features = ["ksni"] }
+
+[target.'cfg(not(any(target_os = "linux", target_os = "freebsd")))'.dependencies]
+tray-icon = { version = "=0.26", default-features = false }
+
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.189"
 

@@ -163,6 +163,14 @@ impl Default for RailgunConfig {
    }
 }
 
+/// Serde default for flags that are on unless the user turns them off.
+///
+/// A plain `#[serde(default)]` on a `bool` yields `false`, which would flip the
+/// setting off for every `misc_config.json` written before the field existed.
+fn default_true() -> bool {
+   true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MiscConfig {
    /// When true, unknown ERC-20 icons and NFT images may be downloaded from the network —
@@ -178,6 +186,10 @@ pub struct MiscConfig {
    /// When true, Zeus may query GitHub for a newer release.
    #[serde(default)]
    pub check_for_updates: bool,
+   /// When true, minimizing the root window hides Zeus to the system tray instead of
+   /// leaving it in the taskbar. The wallet keeps running either way.
+   #[serde(default = "default_true")]
+   pub minimize_to_tray: bool,
 }
 
 impl MiscConfig {
@@ -186,6 +198,7 @@ impl MiscConfig {
          fetch_asset_images: false,
          fetch_contract_names: false,
          check_for_updates: false,
+         minimize_to_tray: true,
       }
    }
 
@@ -226,6 +239,14 @@ impl MiscConfig {
 
    pub fn set_check_for_updates(&mut self, allow: bool) {
       self.check_for_updates = allow;
+   }
+
+   pub fn minimize_to_tray(&self) -> bool {
+      self.minimize_to_tray
+   }
+
+   pub fn set_minimize_to_tray(&mut self, enabled: bool) {
+      self.minimize_to_tray = enabled;
    }
 }
 
