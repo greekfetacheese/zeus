@@ -1,3 +1,4 @@
+pub mod desktop_icon;
 pub mod fs;
 pub mod misc;
 pub mod nft_icon;

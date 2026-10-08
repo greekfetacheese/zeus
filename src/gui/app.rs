@@ -113,6 +113,11 @@ impl ZeusApp {
          autolock_watcher(ctx_autolock).await;
       });
 
+      // Linux only: hand the file manager an icon for this binary (`gio` + GVFS metadata,
+      // see `utils::desktop_icon`). Best effort, and idempotent — it re-checks the recorded
+      // icon on every launch, so moving the app folder heals itself.
+      RT.spawn_blocking(crate::utils::desktop_icon::install_file_icon);
+
       // Built here rather than in `main` so the icon can drive the root viewport;
       // eframe calls this from `resumed`, i.e. with the event loop already running.
       let tray = match Tray::build(cc.egui_ctx.clone()) {

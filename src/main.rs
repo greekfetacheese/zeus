@@ -42,6 +42,14 @@ fn main() -> eframe::Result {
 
    cleanup_old_logs();
 
+   // `zeus-gui --install-file-icon`: apply the Linux file-manager icon and exit, without
+   // starting the GUI. A normal launch does this too; the flag is for repair and for
+   // machines where the icon has to be set from a script.
+   if utils::desktop_icon::is_install_invocation() {
+      utils::desktop_icon::install_file_icon();
+      return Ok(());
+   }
+
    panic::set_hook(Box::new(|panic_info| {
       let message = panic_info.payload().downcast_ref::<&str>().map_or("Unknown panic", |s| s);
       let location = panic_info.location().map_or("Unknown location".to_string(), |loc| {
