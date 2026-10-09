@@ -156,9 +156,7 @@ impl UrlPurpose {
    pub const fn trailing_note(self) -> Option<&'static str> {
       match self {
          Self::AssetImages => Some(
-            "NFT collections may host their own metadata/images; those hosts come from the \
-             collection's contract and are not listed here. Zeus only uses https and refuses \
-             local or private addresses.",
+            "Some NFTs host their own images, so Zeus may contact sites that are not listed here.",
          ),
          Self::ContractNames | Self::Updates | Self::Bridge | Self::Railgun | Self::Circuits => {
             None

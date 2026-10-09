@@ -2,7 +2,7 @@
 //!
 //! If the vault is not found, it will show the wallet recovery UI.
 
-use crate::core::urls::ZeusUrl;
+use crate::core::urls::{UrlPurpose, ZeusUrl};
 use crate::core::{
    Vault, WalletInfo, ZeusContext,
    types::{MiscConfig, RailgunConfig},
@@ -431,7 +431,7 @@ impl RecoverHDWallet {
             let content_width = ui.available_width() * 0.9;
 
             ui.vertical_centered(|ui| {
-               ui.label(RichText::new("Your HD Wallet").size(theme.typography.heading));
+               ui.label(RichText::new("Your Master Wallet").size(theme.typography.heading));
             });
 
             ui.horizontal(|ui| {
@@ -442,12 +442,12 @@ impl RecoverHDWallet {
                   ui.spacing_mut().item_spacing.y = theme.spacing.md;
 
                   let tips = [
-                     "You just created a new Hierarchical Deterministic (HD) wallet",
-                     "This wallet can always be recovered with the same credentials even if you lose your Vault",
-                     "A Vault has been created with the credentials you just used for faster access to your wallets and contacts",
-                     "If you want to create new wallets, it is recommended to derive them from the HD wallet you just created",
-                     "You can import wallets from a seed phrase or a private key, but those can be lost forever if you lose your Vault",
+                     "You can always recover it with the same username and password you just used, even if you lose your computer, no internet connection required.",
+                     "Zeus keeps your wallets and transaction history encrypted locally for quick access.",
+                     "With your master wallet you can generate unlimited new wallets which can be recovered too in case you lose access to your computer.",
+                     "You can also import wallets from a seed phrase or private key but those can be lost forever if you don't keep your own backups.",
                   ];
+                  
                   for tip in tips {
                      let text = RichText::new(tip).size(theme.typography.large);
                      ui.add(
@@ -459,7 +459,7 @@ impl RecoverHDWallet {
                   }
 
                   let warning = RichText::new(
-                     "Make sure to never forget your credentials, it is the only way to recover your wallet",
+                     "The only way to recover your master wallet is by using the exact same credentials again so make sure you don't forget them.",
                   )
                   .size(theme.typography.very_large)
                   .color(theme.colors.warning);
@@ -522,23 +522,19 @@ impl RecoverHDWallet {
                      );
                   };
 
+                  paragraph(ui, "Railgun keeps your balances and transfers private on Ethereum.");
                   paragraph(
                      ui,
-                     "Zeus can use Railgun to shield your assets and keep balances private on Ethereum.",
-                  );
-                  paragraph(
-                     ui,
-                     "Enabling it will sync private notes in the background. You can change this later in Settings/Railgun.",
+                     "Enabling it will sync your private activity in the background. You can change this later in Settings/Railgun.",
                   );
 
                   // Circuit download source, with the host called out.
                   let text1 = RichText::new(
-                     "Private transactions need proving circuits. Allow Zeus to download them from ",
+                     "Railgun may need extra files (circuits). Allow Zeus to download them from ",
                   )
                   .size(large);
                   let text2 = RichText::new("Github.com ").size(large).underline();
-                  let text3 =
-                     RichText::new("when they are not already bundled with Zeus.").size(large);
+                  let text3 = RichText::new("when needed.").size(large);
 
                   ui.add(
                      Label::sections(vec![text1, text2, text3], None)
@@ -547,9 +543,9 @@ impl RecoverHDWallet {
                         .interactive(false),
                   );
 
-                  paragraph(
-                     ui,
-                     "This is optional. Zeus already has a small set of circuits for the necessary operations.",
+                  let text4 = RichText::new("This is optional, Zeus can operate Railgun without those extra files.").size(large);
+                  ui.add(
+                     Label::new(text4, None).wrap().fill_width(true).interactive(false),
                   );
 
                   let enable_text = RichText::new("Enable Railgun").size(theme.typography.large);
@@ -624,11 +620,11 @@ impl RecoverHDWallet {
                   let large = theme.typography.large;
 
                   // Smold.app paragraph
-                  let text1 = RichText::new("Zeus can download asset icons from ").size(large);
+                  let text1 =
+                     RichText::new("Zeus can download token and NFT images from ").size(large);
                   let text2 = RichText::new("tokens.smold.app ").size(large).underline();
                   let text3 =
-                     RichText::new("and other sources, so unknown tokens/nfts show an image instead of a placeholder.")
-                        .size(large);
+                     RichText::new("so they show up instead of a blank placeholder.").size(large);
 
                   let label = Label::sections(vec![text1, text2, text3], None)
                      .wrap()
@@ -638,7 +634,7 @@ impl RecoverHDWallet {
 
                   // Sourcify.dev paragraph
                   let text1 =
-                     RichText::new("Zeus can also look up verified contract names on ").size(large);
+                     RichText::new("Zeus can look up verified contract names on ").size(large);
                   let text2 = RichText::new("sourcify.dev ").size(large).underline();
                   let text3 = RichText::new("when you sign a transaction or message.").size(large);
 
@@ -651,30 +647,12 @@ impl RecoverHDWallet {
                   // GitHub paragraph
                   let text1 = RichText::new("Zeus can check ").size(large);
                   let text2 = RichText::new("GitHub.com ").size(large).underline();
-                  let text3 = RichText::new("for a newer release on startup.").size(large);
+                  let text3 = RichText::new("for a newer version on startup.").size(large);
 
                   let label = Label::sections(vec![text1, text2, text3], None)
                      .wrap()
                      .fill_width(true)
                      .interactive(false);
-                  ui.add(label);
-
-                  // Contract-supplied hosts are the one destination class the list
-                  // below cannot enumerate, so they are disclosed separately.
-                  let label = Label::new(
-                     RichText::new(
-                        "Some NFT collections host their own metadata and art. When image \
-                         downloads are allowed, Zeus also follows the address a collection's \
-                         contract returns for a token. That host is chosen by the collection, so \
-                         it will not appear in the list below. Zeus only uses https, refuses \
-                         local or private addresses, and limits the size of what it downloads.",
-                     )
-                     .size(large),
-                     None,
-                  )
-                  .wrap()
-                  .fill_width(true)
-                  .interactive(false);
                   ui.add(label);
 
                   // Every endpoint Zeus may contact, in one scrollable place —
@@ -694,7 +672,7 @@ impl RecoverHDWallet {
                   let frame1 = theme.frame1;
                   let frame2 = theme.frame2;
 
-                  const URL_LIST_HEIGHT: f32 = 180.0;
+                  const URL_LIST_HEIGHT: f32 = 240.0;
                   ui.allocate_ui(vec2(content_width, URL_LIST_HEIGHT), |ui| {
                      let scroll = ScrollArea::vertical()
                         .id_salt("onboarding_external_data_urls")
@@ -723,6 +701,18 @@ impl RecoverHDWallet {
                         });
                      });
                   });
+
+                  // The image opt-in reaches hosts its list cannot name — a collection's own
+                  // tokenURI host — so the caveat comes from the same source the settings
+                  // tooltip uses.
+                  if let Some(note) = UrlPurpose::AssetImages.trailing_note() {
+                     ui.add(
+                        Label::new(RichText::new(note).size(large), None)
+                           .wrap()
+                           .fill_width(true)
+                           .interactive(false),
+                     );
+                  }
 
                   let icons_text = RichText::new("Download Token Icons & NFT Images").size(large);
                   ui.checkbox(&mut self.fetch_asset_images, icons_text);
@@ -802,26 +792,20 @@ impl RecoverHDWallet {
 
                   paragraph(
                      ui,
-                     "Zeus can add itself to your application menu, with its own icon, so you \
-                      can start it like any other app and pin it to your panel or dock.",
+                     "Zeus can add itself to your app menu, with its own icon, so you can \
+                      launch and pin it like any other app.",
                   );
 
                   // The one thing Zeus writes that is not inside its own folder, so it is
                   // stated plainly rather than buried in the readme.
                   paragraph(
                      ui,
-                     "Zeus keeps its own state in its folder. The exception it already makes \
-                      is the icon your file manager shows for the Zeus program. Turning this \
-                      on adds a second: a menu entry under ~/.local/share/applications and its \
-                      icon under ~/.local/share/icons. Both are removed again if you turn this \
-                      off, and the entry points at this copy of Zeus so if you move the \
-                      folder, the entry disappears until you start Zeus from its new home.",
+                     "This creates a menu entry and icon under ~/.local/share. Turning it off \
+                      removes both. It points to this copy of Zeus, so moving the folder breaks \
+                      the entry until you start Zeus from its new location.",
                   );
 
-                  paragraph(
-                     ui,
-                     "You can change this later in Settings/General.",
-                  );
+                  paragraph(ui, "You can change this later in Settings.");
 
                   let desktop_text = RichText::new("Add Zeus to the Application Menu").size(large);
                   ui.checkbox(&mut self.desktop_integration, desktop_text);
