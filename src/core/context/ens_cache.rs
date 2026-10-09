@@ -97,10 +97,10 @@ impl EnsCache {
 
       let mut map = self.0.write().unwrap();
 
-      if let Some(existing) = map.get(&(chain, address)) {
-         if !is_lapsed(existing.takeover_at, now) {
-            return false;
-         }
+      if let Some(existing) = map.get(&(chain, address))
+         && !is_lapsed(existing.takeover_at, now)
+      {
+         return false;
       }
 
       map.insert(
