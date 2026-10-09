@@ -32,6 +32,8 @@ enum UnknownRecipient {
    Ens {
       name: String,
       address: Address,
+      /// The name's registration expiry. `None` for a name with no onchain expiry (non-`.eth`).
+      expiry: Option<ens::NameExpiry>,
    },
    /// An ERC-7828 `<address>@<chain>`. The chain is part of what the user typed, so it is
    /// carried through to the send path instead of being assumed from the active chain.
@@ -43,6 +45,9 @@ enum UnknownRecipient {
       /// The address came from the name's ENSIP-19 *default EVM chain* record rather than a
       /// record set for this exact chain — a weaker claim, shown as such.
       from_default_evm_record: bool,
+      /// The name's registration expiry. `None` for a chain-specific *raw address*, or a name
+      /// with no onchain expiry (non-`.eth`).
+      expiry: Option<ens::NameExpiry>,
    },
    /// An ERC-7828 name whose `#<checksum>` did not match the address and chain. Shown as a
    /// warning and never selectable: the checksum is the one thing the user asked Zeus to check.
@@ -238,18 +243,19 @@ impl RecipientSelectionWindow {
       name: Option<String>,
       address: Address,
       chain: u64,
+      takeover_at: Option<u64>,
    ) {
       if let Some(name) = name.as_deref() {
          // The display paths (`tx::address` → the confirm window, history, notifications) only ever
          // see `(chain, address)`, and a chain-specific name cannot be re-derived from those: the
          // address's primary name may be a different name (`jefflau.eth@base` resolves to an address
          // whose primary name is `jeff.eth`), and most have none at all. Remembering it is what
-         // keeps the recipient from rendering as a truncated address. Session-only, like every
-         // other ENS name — see [`EnsCache`].
-         ctx.ens_cache.insert(chain, address, name);
+         // keeps the recipient from rendering as a truncated address. Session-only and now
+         // expiry-aware: the cache drops the label when the name's binding lapses. See [`EnsCache`].
+         ctx.ens_cache.insert(chain, address, name, takeover_at.unwrap_or(0));
       }
 
-      self.recipient = Recipient::from_ens_name(name, address, Some(chain));
+      self.recipient = Recipient::from_ens_name(name, address, Some(chain), takeover_at);
    }
 
    /// `send_chain` is the chain this flow will actually send the recipient to: the active chain
@@ -406,6 +412,7 @@ impl RecipientSelectionWindow {
                if self.parsing_unknown_recipient {
                   ui.add(Spinner::new().size(17.0).color(theme.colors.text));
                } else if let Some(unknown) = self.unknown_recipient.clone() {
+                  let now = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
                   let heading = match &unknown {
                      UnknownRecipient::Ens { .. } => "ENS",
                      UnknownRecipient::Interoperable { .. } => "Chain-specific address",
@@ -425,15 +432,43 @@ impl RecipientSelectionWindow {
                            close_window = true;
                         }
                      }
-                     UnknownRecipient::Ens { name, address } => {
-                        let name_text = RichText::new(&name).size(theme.typography.normal);
-                        let button = Button::new(name_text).visuals(button_visuals);
+                     UnknownRecipient::Ens {
+                        name,
+                        address,
+                        expiry,
+                     } => {
+                        // Past its grace period the name can be registered by anyone, so it no
+                        // longer identifies this address: shown, but never selectable.
+                        let trusted = expiry.is_none_or(|expiry| expiry.is_trusted(now));
 
-                        if ui.add(button).clicked() {
-                           // A plain name is chain-agnostic: `chain` stays `None`, so the send
-                           // path keeps behaving exactly as it does today.
-                           self.recipient = Recipient::from_ens_name(Some(name), address, None);
-                           close_window = true;
+                        if trusted {
+                           let name_text = RichText::new(&name).size(theme.typography.normal);
+                           let button = Button::new(name_text).visuals(button_visuals);
+
+                           if ui.add(button).clicked() {
+                              // A plain name is chain-agnostic: `chain` stays `None`, so the send
+                              // path keeps behaving exactly as it does today.
+                              self.recipient = Recipient::from_ens_name(
+                                 Some(name),
+                                 address,
+                                 None,
+                                 expiry.map(|expiry| expiry.takeover_at),
+                              );
+                              close_window = true;
+                           }
+
+                           if let Some(expiry) = expiry
+                              && now >= expiry.expires_at
+                           {
+                              ui.label(grace_note(expiry, theme));
+                           }
+                        } else {
+                           ui.label(
+                              RichText::new(&name)
+                                 .size(theme.typography.normal)
+                                 .color(theme.colors.error),
+                           );
+                           ui.label(lapsed_name_note(expiry, theme));
                         }
 
                         // Show what the name resolves to: the address is what is sent.
@@ -455,9 +490,15 @@ impl RecipientSelectionWindow {
                         address,
                         chain,
                         from_default_evm_record,
+                        expiry,
                      } => {
                         // `None` when the chain is not one Zeus can send to.
                         let chain_id = ChainId::new(chain).ok();
+
+                        // Past its grace period the name can be registered by anyone, so it no
+                        // longer identifies this address: shown, but never selectable.
+                        let trusted = expiry.is_none_or(|expiry| expiry.is_trusted(now));
+                        let takeover_at = expiry.map(|expiry| expiry.takeover_at);
 
                         let label = match (&name, chain_id) {
                            (Some(name), Some(chain_id)) => {
@@ -470,18 +511,30 @@ impl RecipientSelectionWindow {
                            (None, None) => address.to_string(),
                         };
 
-                        let button =
-                           Button::new(RichText::new(label).size(theme.typography.normal))
-                              .visuals(button_visuals);
+                        let label_color = match trusted {
+                           true => theme.colors.text,
+                           false => theme.colors.error,
+                        };
+
+                        let button = Button::new(
+                           RichText::new(label).size(theme.typography.normal).color(label_color),
+                        )
+                        .visuals(button_visuals);
 
                         // Where this flow sends. Switching the *active* chain only fixes a
                         // mismatch when the flow sends on the active chain — a bridge sends on
                         // its own destination chain, which this window cannot change.
                         let can_switch_active_chain = send_chain == ctx.chain.id();
 
-                        if ui.add_enabled(chain_id.is_some(), button).clicked() {
+                        if ui.add_enabled(chain_id.is_some() && trusted, button).clicked() {
                            if chain == send_chain {
-                              self.accept_interoperable(ctx, name.clone(), address, chain);
+                              self.accept_interoperable(
+                                 ctx,
+                                 name.clone(),
+                                 address,
+                                 chain,
+                                 takeover_at,
+                              );
                               close_window = true;
                            } else if can_switch_active_chain {
                               // The chain in the name is authoritative for resolution, but
@@ -491,9 +544,19 @@ impl RecipientSelectionWindow {
                            } else {
                               // Select it with its chain and let the flow offer the fix; the
                               // flow's own guard keeps it from being sent on the wrong chain.
-                              self.accept_interoperable(ctx, name.clone(), address, chain);
+                              self.accept_interoperable(
+                                 ctx,
+                                 name.clone(),
+                                 address,
+                                 chain,
+                                 takeover_at,
+                              );
                               close_window = true;
                            }
+                        }
+
+                        if !trusted {
+                           ui.label(lapsed_name_note(expiry, theme));
                         }
 
                         match chain_id {
@@ -522,6 +585,13 @@ impl RecipientSelectionWindow {
                                  ui.label(note);
                               }
 
+                              if let Some(expiry) = expiry
+                                 && expiry.is_trusted(now)
+                                 && now >= expiry.expires_at
+                              {
+                                 ui.label(grace_note(expiry, theme));
+                              }
+
                               if self.pending_chain_switch == Some(chain) {
                                  let text = RichText::new(format!(
                                     "Switch to {} and use this recipient",
@@ -533,7 +603,13 @@ impl RecipientSelectionWindow {
 
                                  if ui.add(button).clicked() {
                                     switch_chain(ctx, chain_id);
-                                    self.accept_interoperable(ctx, name.clone(), address, chain);
+                                    self.accept_interoperable(
+                                       ctx,
+                                       name.clone(),
+                                       address,
+                                       chain,
+                                       takeover_at,
+                                    );
                                     close_window = true;
                                  }
                               }
@@ -860,11 +936,17 @@ fn resolve_ens_recipient(ctx: &ZeusCtx, query: &str) -> Option<UnknownRecipient>
 
    let resolved = RT.block_on(async {
       let client = ctx.get_client(ETH).await?;
-      ens::resolve_name(&client, &name).await.map_err(|e| anyhow::anyhow!("{:?}", e))
+      ens::resolve_name_with_expiry(&client, &name)
+         .await
+         .map_err(|e| anyhow::anyhow!("{:?}", e))
    });
 
    match resolved {
-      Ok(Some(address)) => Some(UnknownRecipient::Ens { name, address }),
+      Ok(Some((address, expiry))) => Some(UnknownRecipient::Ens {
+         name,
+         address,
+         expiry,
+      }),
       Ok(None) => None,
       Err(e) => {
          tracing::error!("Could not resolve ENS {}", e);
@@ -897,6 +979,7 @@ fn resolve_interoperable_recipient(ctx: &ZeusCtx, query: &str) -> Option<Unknown
          address: resolved.address,
          chain: resolved.chain_id,
          from_default_evm_record: resolved.from_default_evm_record,
+         expiry: resolved.expiry,
       }),
       Ok(None) => None,
       Err(e) => {
@@ -919,6 +1002,35 @@ fn resolve_interoperable_recipient(ctx: &ZeusCtx, query: &str) -> Option<Unknown
          None
       }
    }
+}
+
+/// Why a name whose grace period has run out cannot be used as a recipient.
+fn lapsed_name_note(expiry: Option<ens::NameExpiry>, theme: &Theme) -> RichText {
+   let text = match expiry {
+      Some(expiry) => format!(
+         "This name expired on {} and left its grace period on {} — it may now belong to someone \
+          else, so it is not offered as a recipient. Enter its address instead.",
+         TimeStamp::Seconds(expiry.expires_at).to_date_string(),
+         TimeStamp::Seconds(expiry.takeover_at).to_date_string(),
+      ),
+      None => {
+         "This name can no longer be trusted as a recipient. Enter its address instead.".to_string()
+      }
+   };
+
+   RichText::new(text).size(theme.typography.normal).color(theme.colors.error)
+}
+
+/// An informational note for a name that has expired but is still inside its grace period: the
+/// owner is frozen, so the binding still holds, but the reader is owed the date.
+fn grace_note(expiry: ens::NameExpiry, theme: &Theme) -> RichText {
+   RichText::new(format!(
+      "Expired {} — the name can be released to the market from {}.",
+      TimeStamp::Seconds(expiry.expires_at).to_date_string(),
+      TimeStamp::Seconds(expiry.takeover_at).to_date_string(),
+   ))
+   .size(theme.typography.normal)
+   .color(theme.colors.text_muted)
 }
 
 fn valid_contact_search(contact: &Contact, privacy_mode: bool, query: &str) -> bool {

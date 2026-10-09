@@ -429,6 +429,12 @@ pub struct Recipient {
    /// The chain an ERC-7828 name resolved for (`vitalik.eth@base` → `8453`). `None` when the
    /// recipient is chain-agnostic — a plain address, contact, wallet or plain ENS name.
    pub chain: Option<u64>,
+   /// When the ENS name's binding stops being trustworthy: its registration end plus the 90-day
+   /// grace period, after which a third party can take the name over. `None` when the recipient
+   /// was not derived from a name, or the name has no onchain expiry (a non-`.eth` name). A
+   /// recipient whose binding has lapsed must not be sent to on the strength of the name — see
+   /// [`Self::name_binding_trusted`].
+   pub ens_takeover_at: Option<u64>,
 }
 
 impl Recipient {
@@ -438,6 +444,7 @@ impl Recipient {
          evm_address: address.to_string(),
          zk_address: String::new(),
          chain: None,
+         ens_takeover_at: None,
       }
    }
 
@@ -447,6 +454,7 @@ impl Recipient {
          evm_address: String::new(),
          zk_address: address,
          chain: None,
+         ens_takeover_at: None,
       }
    }
 
@@ -456,12 +464,21 @@ impl Recipient {
    /// `chain` is `Some` only when the name was chain-specific (`name@chain`, ERC-7828), which is
    /// what makes the send path refuse to go out on a different chain; `name` is `None` for a
    /// chain-specific *raw address* (`0x…@eip155:1`).
-   pub fn from_ens_name(name: Option<String>, address: Address, chain: Option<u64>) -> Self {
+   ///
+   /// `takeover_at` is `Some` when the name has an onchain expiry; it is what later decides whether
+   /// the name may still be trusted — see [`Self::name_binding_trusted`].
+   pub fn from_ens_name(
+      name: Option<String>,
+      address: Address,
+      chain: Option<u64>,
+      takeover_at: Option<u64>,
+   ) -> Self {
       Self {
          name,
          evm_address: address.to_string(),
          zk_address: String::new(),
          chain,
+         ens_takeover_at: takeover_at,
       }
    }
 
@@ -471,6 +488,7 @@ impl Recipient {
          evm_address: wallet_info.address.to_string(),
          zk_address: wallet_info.zk_address(),
          chain: None,
+         ens_takeover_at: None,
       }
    }
 
@@ -480,7 +498,28 @@ impl Recipient {
          evm_address: contact.evm_address,
          zk_address: contact.zk_address,
          chain: None,
+         ens_takeover_at: None,
       }
+   }
+
+   /// Is the name this recipient was derived from still trustworthy at `now_secs`?
+   ///
+   /// `true` when there is no name, or the name has no onchain expiry (`None`): the address is
+   /// then sent as-is, exactly as before. `false` once the name's binding has lapsed — a third
+   /// party can register it, so it no longer identifies `evm_address` and the name must not be
+   /// what makes the user trust the send.
+   pub fn name_binding_trusted(&self, now_secs: u64) -> bool {
+      self.ens_takeover_at.is_none_or(|takeover_at| now_secs < takeover_at)
+   }
+
+   /// The ENS binding to re-check at the confirm step, when this recipient came from a named
+   /// `.eth` name. `None` for anything else — a plain address, a contact, a wallet label, or a
+   /// name with no onchain expiry — where there is no name that could go stale.
+   pub fn ens_guard(&self) -> Option<EnsRecipientGuard> {
+      Some(EnsRecipientGuard {
+         name: self.name.clone()?,
+         takeover_at: self.ens_takeover_at?,
+      })
    }
 
    pub fn is_empty(&self, privacy_mode: bool) -> bool {
@@ -489,6 +528,33 @@ impl Recipient {
       } else {
          return self.evm_address.is_empty();
       }
+   }
+}
+
+/// The ENS name a recipient was derived from, carried from the picker to the confirm step.
+///
+/// A recipient is locked in when the user picks it, but the *approval* comes later — long enough
+/// for a name past its registration (plus the 90-day grace) to change hands. Nothing between the
+/// two re-checks it, so the confirmation re-tests this with the clock it reads at that moment
+/// (see `confirm_tx` in `core::tx`) — and refuses when that clock cannot be read at all, because
+/// then the name cannot be shown to still be live either way.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnsRecipientGuard {
+   /// The name as it was shown to the user, repeated back if the send is refused.
+   pub name: String,
+   /// The name's takeover time (`nameExpires + grace`), past which the binding no longer holds.
+   pub takeover_at: u64,
+}
+
+impl EnsRecipientGuard {
+   /// May the name still be trusted for the recipient at `now_secs`?
+   ///
+   /// `None` is the clock failing to be read, and that is *not* a "yes". An unreadable clock reads
+   /// as `0`, and `0 < takeover_at` holds for every name — including the ones that have changed
+   /// hands since the user picked them — so trusting it would open the very gap this guard exists
+   /// to close. No clock, no send.
+   pub fn is_trusted(&self, now_secs: Option<u64>) -> bool {
+      now_secs.is_some_and(|now_secs| now_secs < self.takeover_at)
    }
 }
 
@@ -1053,6 +1119,54 @@ mod tests {
          AutoLock::OneHour
       );
       assert!(!SecuritySettings::default().autolock_changed);
+   }
+
+   /// The confirm-step guard exists only for a name *and* an onchain expiry — nothing else is
+   /// re-checked — and it stops trusting the name the moment takeover passes.
+   #[test]
+   fn ens_guard_is_only_a_named_expiring_recipient() {
+      let address = Address::repeat_byte(0x11);
+      let takeover_at = 1_000_000u64;
+
+      let named = Recipient::from_ens_name(
+         Some("alice.eth".to_string()),
+         address,
+         None,
+         Some(takeover_at),
+      );
+
+      let guard = named.ens_guard().expect("a named, expiring recipient");
+      assert_eq!(guard.name, "alice.eth");
+      assert!(guard.is_trusted(Some(takeover_at - 1)));
+      assert!(!guard.is_trusted(Some(takeover_at)));
+
+      // Nothing to re-check: a plain address, a name with no onchain expiry, and an expiry with
+      // no name (which has nothing to show the user) each build no guard.
+      assert!(Recipient::from_unknown_evm_address(address).ens_guard().is_none());
+      assert!(
+         Recipient::from_ens_name(Some("alice.xyz".to_string()), address, None, None)
+            .ens_guard()
+            .is_none()
+      );
+      assert!(
+         Recipient::from_ens_name(None, address, None, Some(takeover_at))
+            .ens_guard()
+            .is_none()
+      );
+   }
+
+   /// An unreadable clock is a refusal, never a pass: with no "now" the name cannot be shown to
+   /// still be live, and `0 < takeover_at` would trust exactly the names that have changed hands.
+   #[test]
+   fn ens_guard_refuses_an_unreadable_clock() {
+      let guard = EnsRecipientGuard {
+         name: "alice.eth".to_string(),
+         takeover_at: 1_000_000,
+      };
+
+      assert!(guard.is_trusted(Some(999_999)));
+      assert!(!guard.is_trusted(Some(1_000_000)));
+      assert!(!guard.is_trusted(None));
    }
 
    /// The persisted fields round-trip; `argon_params` does not, because it is

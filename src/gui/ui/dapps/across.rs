@@ -2,6 +2,7 @@
 
 use crate::assets::icons::Icons;
 use crate::core::persisted::{PersistedFile, file_path};
+use crate::core::types::EnsRecipientGuard;
 use crate::core::urls::ZeusUrl;
 use crate::core::{
    BridgeParams, DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, ZeusContext,
@@ -15,7 +16,9 @@ use crate::gui::{
       show_with_fade,
    },
 };
-use crate::utils::{RT, estimate_tx_cost, simulate::simulate_for_analysis, write_private};
+use crate::utils::{
+   RT, TimeStamp, estimate_tx_cost, simulate::simulate_for_analysis, write_private,
+};
 use anyhow::anyhow;
 use egui::{
    Align, CornerRadius, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText, Sense,
@@ -241,6 +244,14 @@ impl AcrossBridge {
 
       let recipient = recipient_selection.get_recipient();
       let from_chain = self.from_chain.chain.id();
+
+      // A name whose registration lapsed past its grace period may now belong to someone else.
+      let now = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
+      let recipient_name_lapsed = !recipient.name_binding_trusted(now);
+
+      // Carried to the confirm step, which re-checks the name with its own clock.
+      let recipient_guard = recipient.ens_guard();
+
       let depositor = ctx.current_wallet_info().address;
       self.currency = NativeCurrency::from(from_chain).into();
 
@@ -368,11 +379,25 @@ impl AcrossBridge {
 
                         if !recipient.is_empty(false) {
                            if let Some(name) = &recipient.name {
+                              let name_color = match recipient_name_lapsed {
+                                 true => theme.colors.error,
+                                 false => theme.colors.info,
+                              };
+
                               ui.label(
-                                 RichText::new(name)
-                                    .size(theme.typography.large)
-                                    .color(theme.colors.info),
+                                 RichText::new(name).size(theme.typography.large).color(name_color),
                               );
+
+                              if recipient_name_lapsed {
+                                 ui.label(
+                                    RichText::new(
+                                       "This name is past its registration and may no longer \
+                                        belong to the address it resolved to.",
+                                    )
+                                    .size(theme.typography.normal)
+                                    .color(theme.colors.error),
+                                 );
+                              }
                            } else {
                               ui.label(
                                  RichText::new("Unknown Address")
@@ -513,6 +538,8 @@ impl AcrossBridge {
                      depositor,
                      recipient.evm_address,
                      recipient_chain,
+                     recipient_name_lapsed,
+                     recipient_guard,
                      ui,
                   );
                });
@@ -528,6 +555,8 @@ impl AcrossBridge {
       depositor: Address,
       recipient: String,
       recipient_chain: Option<u64>,
+      recipient_name_lapsed: bool,
+      recipient_guard: Option<EnsRecipientGuard>,
       ui: &mut Ui,
    ) {
       let sending_tx = self.sending_tx;
@@ -541,8 +570,12 @@ impl AcrossBridge {
       // instead of only refusing.
       let wrong_chain = recipient_chain.filter(|chain| *chain != self.to_chain.chain.id());
 
-      let valid_inputs =
-         valid_amount && valid_recipient && has_balance && wrong_chain.is_none() && !sending_tx;
+      let valid_inputs = valid_amount
+         && valid_recipient
+         && has_balance
+         && wrong_chain.is_none()
+         && !recipient_name_lapsed
+         && !sending_tx;
 
       let mut button_text = "Bridge".to_string();
 
@@ -562,6 +595,10 @@ impl AcrossBridge {
          button_text = format!("Insufficient {} Balance", self.currency.symbol());
       }
 
+      if recipient_name_lapsed {
+         button_text = "ENS name expired".to_string();
+      }
+
       // Last, so it wins: the recipient was resolved for another chain.
       if let Some(chain) = wrong_chain {
          button_text = match ChainId::new(chain) {
@@ -579,7 +616,7 @@ impl AcrossBridge {
       if ui.add_enabled(valid_inputs, button).clicked() {
          self.sending_tx = true;
 
-         match self.send_transaction(ctx, recipient) {
+         match self.send_transaction(ctx, recipient, recipient_guard) {
             Ok(_) => {}
             Err(e) => {
                self.sending_tx = false;
@@ -987,6 +1024,7 @@ impl AcrossBridge {
       &mut self,
       ctx: &mut ZeusContext,
       recipient: String,
+      recipient_guard: Option<EnsRecipientGuard>,
    ) -> Result<(), anyhow::Error> {
       let cache_opt = self
          .api_res_cache
@@ -1074,6 +1112,7 @@ impl AcrossBridge {
             transact_to,
             call_data,
             input_amount,
+            recipient_guard,
          )
          .await
          {
@@ -1154,6 +1193,7 @@ async fn across_bridge(
    interact_to: Address,
    call_data: Bytes,
    input_amount: NumericValue,
+   recipient_guard: Option<EnsRecipientGuard>,
 ) -> Result<(), anyhow::Error> {
    // Across protocol is very fast on filling the orders
    // So we get the latest block from the destination chain now so we dont miss it and the progress window stucks
@@ -1233,6 +1273,7 @@ async fn across_bridge(
          .analysis(tx_analysis),
       SendTxOptions {
          mev_protect,
+         ens_recipient: recipient_guard,
          ..Default::default()
       },
    )

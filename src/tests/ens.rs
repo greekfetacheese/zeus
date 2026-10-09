@@ -397,7 +397,7 @@ mod tests {
       assert_eq!(ctx.get_address_name(chain, address), None);
 
       // What the recipient picker does when the user accepts `jefflau.eth@base`.
-      assert!(ctx.ens_cache().insert(chain, address, "jefflau.eth"));
+      assert!(ctx.ens_cache().insert(chain, address, "jefflau.eth", 0));
       assert_eq!(
          ctx.get_address_name(chain, address).as_deref(),
          Some("jefflau.eth")
@@ -409,7 +409,7 @@ mod tests {
 
       // An existing name is never overwritten, and once one exists the reverse lookup is skipped
       // outright — so it cannot replace the name the user entered with `jeff.eth`.
-      assert!(!ctx.ens_cache().insert(chain, address, "something.else"));
+      assert!(!ctx.ens_cache().insert(chain, address, "something.else", 0));
       assert!(!ctx.lookup_address_name(chain, address).await);
       assert_eq!(
          ctx.get_address_name(chain, address).as_deref(),
@@ -418,5 +418,43 @@ mod tests {
 
       // It stays chain-specific: resolving for Base must not label the address on mainnet.
       assert_eq!(ctx.get_address_name(1, address), None);
+   }
+
+   /// The expiry primitive, against the live registrar.
+   ///
+   /// Only registrable `.eth` names have an onchain expiry, a subdomain is bounded by its
+   /// registrable parent, and `takeover_at` sits exactly one grace period after `expires_at`.
+   #[tokio::test]
+   async fn test_name_expiry_reads_the_registrar() {
+      let ctx = ZeusCtx::new();
+      let client = mainnet_client(&ctx).await;
+
+      let now = std::time::SystemTime::now()
+         .duration_since(std::time::UNIX_EPOCH)
+         .unwrap()
+         .as_secs();
+
+      let vitalik = ens::name_expiry(&client, "vitalik.eth")
+         .await
+         .unwrap()
+         .expect("vitalik.eth has a registration");
+      assert!(
+         vitalik.is_trusted(now),
+         "vitalik.eth is registered into 2048"
+      );
+      assert!(vitalik.takeover_at > vitalik.expires_at);
+
+      // A subdomain has no registration of its own: it is bounded by its parent.
+      assert_eq!(
+         ens::name_expiry(&client, "sub.vitalik.eth")
+            .await
+            .unwrap()
+            .map(|expiry| expiry.takeover_at),
+         Some(vitalik.takeover_at),
+      );
+
+      // No onchain expiry to read: a non-`.eth` name, and an unregistered `.eth` label.
+      assert!(ens::name_expiry(&client, "example.xyz").await.unwrap().is_none());
+      assert!(ens::name_expiry(&client, "not-registered-zzz-999.eth").await.unwrap().is_none());
    }
 }
