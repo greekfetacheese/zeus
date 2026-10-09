@@ -1,12 +1,14 @@
+<p align="center">
+  <img src="src/assets/brand/banner2.jpg" alt="Banner">
+</p>
+
 # <p align="center">Zeus</p>
 
 ## <p align="center"><b>A seedless, self-custodial Ethereum wallet that just works.</b></p>
 
 <p align="center">
-  <img src="src/assets/brand/banner.jpg" alt="Banner">
+<img src="src/zeus.png" alt="Zeus home screen">
 </p>
-
-![Screenshot](src/zeus.png)
  
  ---
 
