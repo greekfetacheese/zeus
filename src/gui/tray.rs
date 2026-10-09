@@ -129,20 +129,42 @@ impl Tray {
 }
 
 /// Hide the root window, leaving the tray icon as the only way back.
+///
+/// Targets [`egui::ViewportId::ROOT`] explicitly rather than the context's *current*
+/// viewport: `send_viewport_cmd` resolves that to whatever viewport is mid-pass, which
+/// is only meaningful on the frame path, and one caller here runs off it.
 pub fn hide_window(egui_ctx: &Context) {
-   egui_ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+   egui_ctx.send_viewport_cmd_to(
+      egui::ViewportId::ROOT,
+      egui::ViewportCommand::Visible(false),
+   );
    // Clear the minimized state too: the window is usually hidden straight from
    // the OS minimize button, and a window that is *both* hidden and minimized
    // pops back into the taskbar instead of reappearing in front.
-   egui_ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+   egui_ctx.send_viewport_cmd_to(
+      egui::ViewportId::ROOT,
+      egui::ViewportCommand::Minimized(false),
+   );
    egui_ctx.request_repaint();
 }
 
 /// Bring the root window back, in front of whatever the user was doing.
+///
+/// Explicit [`egui::ViewportId::ROOT`] for the same reason as [`hide_window`]: this is
+/// called from `GUI::bring_to_front` on a worker thread as well as from the frame path.
 pub fn show_window(egui_ctx: &Context) {
-   egui_ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-   egui_ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-   egui_ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+   egui_ctx.send_viewport_cmd_to(
+      egui::ViewportId::ROOT,
+      egui::ViewportCommand::Visible(true),
+   );
+   egui_ctx.send_viewport_cmd_to(
+      egui::ViewportId::ROOT,
+      egui::ViewportCommand::Minimized(false),
+   );
+   egui_ctx.send_viewport_cmd_to(
+      egui::ViewportId::ROOT,
+      egui::ViewportCommand::Focus,
+   );
    egui_ctx.request_repaint();
 }
 

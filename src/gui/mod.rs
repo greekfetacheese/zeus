@@ -3,6 +3,7 @@ pub mod tray;
 pub mod ui;
 
 use egui::{Context, Ui};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use ui::settings;
 
@@ -69,6 +70,9 @@ impl Default for SharedGUI {
 
 pub struct GUI {
    pub egui_ctx: Context,
+   /// Set by `bring_to_front` (a worker thread) and consumed once by `ZeusApp::logic`,
+   /// which owns the hidden-in-tray bookkeeping.
+   pub show_requested: AtomicBool,
    pub ctx: ZeusCtx,
    pub icons: Arc<Icons>,
    pub theme: Theme,
@@ -142,6 +146,7 @@ impl GUI {
 
       Self {
          egui_ctx,
+         show_requested: AtomicBool::new(false),
          ctx: ctx.clone(),
          theme,
          editor: ThemeEditor::new(),
@@ -255,23 +260,37 @@ impl GUI {
 
    /// Raise the main window so a dapp prompt is not hidden behind the browser.
    ///
-   /// `ViewportCommand::Focus` works on Windows, macOS, and X11. On Wayland it
-   /// is a no-op, so we also request taskbar/dock attention (flash / bounce).
+   /// Also undoes a minimize-to-tray hide: the window is hidden with
+   /// `ViewportCommand::Visible(false)` (see [`crate::gui::tray::hide_window`]), so
+   /// without a `Visible(true)` here every other command is a no-op and the prompt
+   /// never surfaces. `ViewportCommand::Focus` works on Windows, macOS, and X11 but is
+   /// a no-op on Wayland, so taskbar/dock attention (flash / bounce) is asked for too.
+   ///
+   /// Called from a worker thread (the local server), so the app's hidden-in-tray flag
+   /// is not touched here: [`Self::take_show_request`] is drained by
+   /// [`ZeusApp::logic`](crate::gui::app::ZeusApp::logic), which also runs while the
+   /// window is hidden.
    pub fn bring_to_front(&self) {
       let ctx = &self.egui_ctx;
-      ctx.send_viewport_cmd_to(
-         egui::ViewportId::ROOT,
-         egui::ViewportCommand::Minimized(false),
-      );
-      ctx.send_viewport_cmd_to(
-         egui::ViewportId::ROOT,
-         egui::ViewportCommand::Focus,
-      );
+
+      crate::gui::tray::show_window(ctx);
       ctx.send_viewport_cmd_to(
          egui::ViewportId::ROOT,
          egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Critical),
       );
+
+      self.show_requested.store(true, Ordering::SeqCst);
       self.request_repaint();
+   }
+
+   /// Whether a [`Self::bring_to_front`] asked to raise the window since the last call.
+   ///
+   /// The frame path consumes it in
+   /// [`ZeusApp::logic`](crate::gui::app::ZeusApp::logic) to clear the hidden-in-tray
+   /// flag, so the next tray click hides the window again instead of no-oping on a
+   /// window a dapp prompt already brought up.
+   pub fn take_show_request(&self) -> bool {
+      self.show_requested.swap(false, Ordering::SeqCst)
    }
 
    pub fn should_show_right_panel(&self) -> bool {

@@ -376,6 +376,16 @@ impl eframe::App for ZeusApp {
    /// minimize-to-tray leaves it in. No painting is allowed here.
    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
       self.handle_tray(ctx);
+
+      // A dapp prompt raised the window from a worker thread (`GUI::bring_to_front`).
+      // It already queued the viewport commands; here we only clear the hidden-in-tray
+      // flag, so the next tray click hides the window again rather than no-oping on a
+      // window that is already visible. Runs after `handle_tray` on purpose: that keeps
+      // the flag set for this frame's minimize check, so the raise is not mistaken for
+      // a fresh minimize.
+      if SHARED_GUI.read(|gui| gui.take_show_request()) {
+         self.hidden_to_tray = false;
+      }
    }
 
    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
