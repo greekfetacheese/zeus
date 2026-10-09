@@ -33,6 +33,11 @@ use std::panic;
 /// gets that for free; a launcher does not — a start-menu entry inherits the launcher's own
 /// directory (usually the home directory), which would silently start a second, empty wallet.
 ///
+/// A cargo-driven launch is the exception: there the executable is a build artifact under
+/// `target/`, and cargo already runs it from the directory it was invoked in, so anchoring it
+/// would only start a second, empty wallet inside `target/`. In that case the working directory
+/// is left alone.
+///
 /// Best effort: if the binary cannot be resolved (deleted or replaced while running), the
 /// working directory is left alone rather than failing the launch.
 fn pin_working_dir_to_exe() -> Result<(), std::io::Error> {
@@ -41,7 +46,21 @@ fn pin_working_dir_to_exe() -> Result<(), std::io::Error> {
       .parent()
       .ok_or_else(|| std::io::Error::other("the executable has no parent directory"))?;
 
+   if is_cargo_build_artifact(dir) {
+      return Ok(());
+   }
+
    std::env::set_current_dir(dir)
+}
+
+/// Whether `dir` belongs to a cargo target directory, i.e. the executable is a build artifact
+/// (`target/debug/zeus`) rather than a portable Zeus folder.
+///
+/// Cargo drops a `CACHEDIR.TAG` at the root of every target directory, so that marker in `dir` or
+/// in one of its ancestors identifies the `target/<profile>` layout without guessing profile
+/// names. A packaged Zeus has no such marker above it.
+fn is_cargo_build_artifact(dir: &std::path::Path) -> bool {
+   dir.ancestors().any(|ancestor| ancestor.join("CACHEDIR.TAG").is_file())
 }
 
 fn main() -> eframe::Result {
