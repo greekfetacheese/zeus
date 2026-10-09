@@ -30,6 +30,7 @@
 - Arbitrum
 - Base
 - Binance Smart Chain
+- Robinhood
 
 ## Supported Platforms
 - Windows
@@ -84,6 +85,7 @@ Currently the extension is not listed in the Chrome Web Store, so you will need 
 ## Installing the extension
 1. Download the **wallet-connector.zip** from the latest [release](https://github.com/greekfetacheese/zeus/releases)
 2. You can use this [guide](https://bashvlas.com/blog/install-chrome-extension-in-developer-mode) on how to install the extension in developer mode.
+3. Once the extension is enabled no further action is needed.
 
 
 ## Features
@@ -102,13 +104,15 @@ Currently the extension is not listed in the Chrome Web Store, so you will need 
 
 ### Railgun
 
-Railgun is natively (no 3rd party) integrated in Zeus. Private balances shown in the UI cover **ERC-20 and ERC-721** (including shielded NFTs in privacy mode); **ERC-1155 is not supported yet**.
+Railgun is natively (no 3rd party) integrated in Zeus. Private balances shown in the UI cover **ERC-20 and ERC-721**.
+<br/>
+**ERC-1155 is not supported yet by Railgun**.
 
 | Operation | Assets | Notes |
 |-----------|--------|--------|
 | **Shield** | ERC-20, ERC-721 | Move public funds into the private pool |
-| **Unshield** | ERC-20, ERC-721 | Default: private broadcaster (paymaster). Optional **self-broadcast** for emergency withdrawals (breaks anonymity). Optional unwrap WETH → ETH to fund new empty wallets (ERC-20 only) |
-| **Private transfer** | ERC-20 only | Send privately to a `0zk` address |
+| **Unshield** | ERC-20, ERC-721 | Default: private broadcaster (paymaster). Optional **self-broadcast** for emergency withdrawals (breaks anonymity). Optional unwrap WETH → ETH to fund new empty wallets |
+| **Private transfer** | ERC-20, ERC-721 | Send privately to a `0zk` address |
 | **Merge notes** | ERC-20 only | Consolidate UTXO notes for an asset |
 
 ### RPC / data model
