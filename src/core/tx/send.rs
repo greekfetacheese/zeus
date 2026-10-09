@@ -262,13 +262,23 @@ pub async fn confirm_tx(
    // past its registration can change hands in the meantime. Refuse rather than broadcast on a name
    // that no longer identifies the address.
    if let Some(recipient) = &opts.ens_recipient {
-      let now = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
+      let now = TimeStamp::now_as_secs().ok().map(|now| now.timestamp());
+
       if !recipient.is_trusted(now) {
-         return Err(anyhow!(
-            "{} is past its registration, so it may no longer belong to the recipient. Re-enter \
-             the recipient and try again.",
-            recipient.name
-         ));
+         // The guard refuses a lapsed name and an unreadable clock alike. Say which: re-entering
+         // the recipient cannot fix a clock.
+         return Err(match now {
+            Some(_) => anyhow!(
+               "{} is past its registration, so it may no longer belong to the recipient. Re-enter \
+                the recipient and try again.",
+               recipient.name
+            ),
+            None => anyhow!(
+               "The system clock could not be read, so {} cannot be shown to still belong to the \
+                recipient. Fix the clock and try again.",
+               recipient.name
+            ),
+         });
       }
    }
 

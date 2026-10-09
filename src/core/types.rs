@@ -536,7 +536,8 @@ impl Recipient {
 /// A recipient is locked in when the user picks it, but the *approval* comes later — long enough
 /// for a name past its registration (plus the 90-day grace) to change hands. Nothing between the
 /// two re-checks it, so the confirmation re-tests this with the clock it reads at that moment
-/// (see `confirm_tx` in `core::tx`).
+/// (see `confirm_tx` in `core::tx`) — and refuses when that clock cannot be read at all, because
+/// then the name cannot be shown to still be live either way.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EnsRecipientGuard {
    /// The name as it was shown to the user, repeated back if the send is refused.
@@ -547,8 +548,13 @@ pub struct EnsRecipientGuard {
 
 impl EnsRecipientGuard {
    /// May the name still be trusted for the recipient at `now_secs`?
-   pub fn is_trusted(&self, now_secs: u64) -> bool {
-      now_secs < self.takeover_at
+   ///
+   /// `None` is the clock failing to be read, and that is *not* a "yes". An unreadable clock reads
+   /// as `0`, and `0 < takeover_at` holds for every name — including the ones that have changed
+   /// hands since the user picked them — so trusting it would open the very gap this guard exists
+   /// to close. No clock, no send.
+   pub fn is_trusted(&self, now_secs: Option<u64>) -> bool {
+      now_secs.is_some_and(|now_secs| now_secs < self.takeover_at)
    }
 }
 
@@ -1131,8 +1137,8 @@ mod tests {
 
       let guard = named.ens_guard().expect("a named, expiring recipient");
       assert_eq!(guard.name, "alice.eth");
-      assert!(guard.is_trusted(takeover_at - 1));
-      assert!(!guard.is_trusted(takeover_at));
+      assert!(guard.is_trusted(Some(takeover_at - 1)));
+      assert!(!guard.is_trusted(Some(takeover_at)));
 
       // Nothing to re-check: a plain address, a name with no onchain expiry, and an expiry with
       // no name (which has nothing to show the user) each build no guard.
@@ -1147,6 +1153,20 @@ mod tests {
             .ens_guard()
             .is_none()
       );
+   }
+
+   /// An unreadable clock is a refusal, never a pass: with no "now" the name cannot be shown to
+   /// still be live, and `0 < takeover_at` would trust exactly the names that have changed hands.
+   #[test]
+   fn ens_guard_refuses_an_unreadable_clock() {
+      let guard = EnsRecipientGuard {
+         name: "alice.eth".to_string(),
+         takeover_at: 1_000_000,
+      };
+
+      assert!(guard.is_trusted(Some(999_999)));
+      assert!(!guard.is_trusted(Some(1_000_000)));
+      assert!(!guard.is_trusted(None));
    }
 
    /// The persisted fields round-trip; `argon_params` does not, because it is
