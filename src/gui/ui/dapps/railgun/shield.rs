@@ -10,6 +10,7 @@ use std::{
    time::{Duration, Instant},
 };
 
+use crate::core::types::EnsRecipientGuard;
 use crate::core::urls::ZeusUrl;
 use crate::core::{
    DecodedEvent, SendTxOptions, SendTxRequest, ShieldParams, TransactionAnalysis, WalletStateKey,
@@ -616,6 +617,9 @@ impl ShieldUi {
                      now
                   );
 
+                  // Carried to the confirm step, which re-checks the name with its own clock.
+                  let recipient_guard = recipient.ens_guard();
+
                   // Recipient Selection
                   inner_frame.show(ui, |ui| {
                      ui.set_width(ui.available_width());
@@ -761,6 +765,7 @@ impl ShieldUi {
                      recipient_str,
                      recipient_chain,
                      recipient_name_lapsed,
+                     recipient_guard,
                      ui,
                   );
                });
@@ -960,6 +965,7 @@ impl ShieldUi {
       recipient: String,
       recipient_chain: Option<u64>,
       recipient_name_lapsed: bool,
+      recipient_guard: Option<EnsRecipientGuard>,
       ui: &mut Ui,
    ) {
       let is_synced = ctx.railgun_status().synced(ctx.chain.id());
@@ -1080,11 +1086,16 @@ impl ShieldUi {
 
       if ui.add_enabled(valid_inputs, send).clicked() {
          self.sending_tx = true;
-         self.send_transaction(ctx, recipient);
+         self.send_transaction(ctx, recipient, recipient_guard);
       }
    }
 
-   fn send_transaction(&mut self, ctx: &mut ZeusContext, recipient: String) {
+   fn send_transaction(
+      &mut self,
+      ctx: &mut ZeusContext,
+      recipient: String,
+      recipient_guard: Option<EnsRecipientGuard>,
+   ) {
       // Belt and braces: the button is disabled for this, but no path may put an ERC-1155 on chain as a
       // shield while Railgun's support for it is unverified.
       if self.erc1155_shield_blocked() {
@@ -1126,7 +1137,17 @@ impl ShieldUi {
                gui.ctx.clone()
             });
 
-            match shield(ctx.clone(), chain, asset, amount, from, recipient).await {
+            match shield(
+               ctx.clone(),
+               chain,
+               asset,
+               amount,
+               from,
+               recipient,
+               recipient_guard,
+            )
+            .await
+            {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
                      gui.shield_ui.sending_tx = false;
@@ -1176,6 +1197,7 @@ impl ShieldUi {
                unwrap_to_eth,
                bundler_url,
                memo,
+               recipient_guard,
             ));
 
             match result {
@@ -1421,6 +1443,7 @@ async fn shield(
    amount: NumericValue,
    from: Address,
    recipient: String,
+   recipient_guard: Option<EnsRecipientGuard>,
 ) -> Result<(), anyhow::Error> {
    let railgun_provider = railgun_ready(ctx.clone(), chain).await?;
 
@@ -1608,6 +1631,7 @@ async fn shield(
       SendTxOptions {
          dapp: "Railgun".to_string(),
          keep_intent_event: true,
+         ens_recipient: recipient_guard,
          ..Default::default()
       },
    )

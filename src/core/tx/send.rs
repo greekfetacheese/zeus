@@ -1,7 +1,8 @@
+use crate::core::types::EnsRecipientGuard;
 use crate::core::{
    ClientKind, TransactionAnalysis, TransactionRich, ZeusCtx, client::CLIENT_TIMEOUT_FOR_SENDING_TX,
 };
-use crate::utils::{state::get_base_fee, wait_confirm_window, wait_tx_confirm};
+use crate::utils::{TimeStamp, state::get_base_fee, wait_confirm_window, wait_tx_confirm};
 use alloy_eips::eip7702::{Authorization, SignedAuthorization};
 use anyhow::anyhow;
 use std::time::Duration;
@@ -205,9 +206,13 @@ pub struct SendTxOptions {
    /// Present the transaction as sponsored in the confirm window.
    pub sponsored: bool,
    pub dapp: String,
-   /// Record the analysis' own main event instead of inferring one from the
-   /// receipt logs — Railgun Transact logs are not public ERC-20 transfers.
+   /// Record the analysis' own main event instead of inferring one from the receipt logs —
+   /// Railgun Transact logs are not public ERC-20 transfers.
    pub keep_intent_event: bool,
+   /// A named recipient whose ENS binding must still hold when the user approves. The recipient is
+   /// picked long before the confirmation, and a `.eth` name past its registration can change hands
+   /// in between, so [`confirm_tx`] re-tests this. `None` for a flow with no named recipient.
+   pub ens_recipient: Option<EnsRecipientGuard>,
 }
 
 /// What the user left in the transaction confirmation window.
@@ -251,6 +256,20 @@ pub async fn confirm_tx(
 
    if !wait_tx_confirm().await {
       return Err(anyhow!("Transaction rejected"));
+   }
+
+   // The recipient was locked in before the window opened, and the user may have sat on it: a name
+   // past its registration can change hands in the meantime. Refuse rather than broadcast on a name
+   // that no longer identifies the address.
+   if let Some(recipient) = &opts.ens_recipient {
+      let now = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
+      if !recipient.is_trusted(now) {
+         return Err(anyhow!(
+            "{} is past its registration, so it may no longer belong to the recipient. Re-enter \
+             the recipient and try again.",
+            recipient.name
+         ));
+      }
    }
 
    Ok(SHARED_GUI.read(|gui| ConfirmedTx {

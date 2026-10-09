@@ -512,12 +512,43 @@ impl Recipient {
       self.ens_takeover_at.is_none_or(|takeover_at| now_secs < takeover_at)
    }
 
+   /// The ENS binding to re-check at the confirm step, when this recipient came from a named
+   /// `.eth` name. `None` for anything else — a plain address, a contact, a wallet label, or a
+   /// name with no onchain expiry — where there is no name that could go stale.
+   pub fn ens_guard(&self) -> Option<EnsRecipientGuard> {
+      Some(EnsRecipientGuard {
+         name: self.name.clone()?,
+         takeover_at: self.ens_takeover_at?,
+      })
+   }
+
    pub fn is_empty(&self, privacy_mode: bool) -> bool {
       if privacy_mode {
          return self.zk_address.is_empty();
       } else {
          return self.evm_address.is_empty();
       }
+   }
+}
+
+/// The ENS name a recipient was derived from, carried from the picker to the confirm step.
+///
+/// A recipient is locked in when the user picks it, but the *approval* comes later — long enough
+/// for a name past its registration (plus the 90-day grace) to change hands. Nothing between the
+/// two re-checks it, so the confirmation re-tests this with the clock it reads at that moment
+/// (see `confirm_tx` in `core::tx`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnsRecipientGuard {
+   /// The name as it was shown to the user, repeated back if the send is refused.
+   pub name: String,
+   /// The name's takeover time (`nameExpires + grace`), past which the binding no longer holds.
+   pub takeover_at: u64,
+}
+
+impl EnsRecipientGuard {
+   /// May the name still be trusted for the recipient at `now_secs`?
+   pub fn is_trusted(&self, now_secs: u64) -> bool {
+      now_secs < self.takeover_at
    }
 }
 
@@ -1082,6 +1113,40 @@ mod tests {
          AutoLock::OneHour
       );
       assert!(!SecuritySettings::default().autolock_changed);
+   }
+
+   /// The confirm-step guard exists only for a name *and* an onchain expiry — nothing else is
+   /// re-checked — and it stops trusting the name the moment takeover passes.
+   #[test]
+   fn ens_guard_is_only_a_named_expiring_recipient() {
+      let address = Address::repeat_byte(0x11);
+      let takeover_at = 1_000_000u64;
+
+      let named = Recipient::from_ens_name(
+         Some("alice.eth".to_string()),
+         address,
+         None,
+         Some(takeover_at),
+      );
+
+      let guard = named.ens_guard().expect("a named, expiring recipient");
+      assert_eq!(guard.name, "alice.eth");
+      assert!(guard.is_trusted(takeover_at - 1));
+      assert!(!guard.is_trusted(takeover_at));
+
+      // Nothing to re-check: a plain address, a name with no onchain expiry, and an expiry with
+      // no name (which has nothing to show the user) each build no guard.
+      assert!(Recipient::from_unknown_evm_address(address).ens_guard().is_none());
+      assert!(
+         Recipient::from_ens_name(Some("alice.xyz".to_string()), address, None, None)
+            .ens_guard()
+            .is_none()
+      );
+      assert!(
+         Recipient::from_ens_name(None, address, None, Some(takeover_at))
+            .ens_guard()
+            .is_none()
+      );
    }
 
    /// The persisted fields round-trip; `argon_params` does not, because it is

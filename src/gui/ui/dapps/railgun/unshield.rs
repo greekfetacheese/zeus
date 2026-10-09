@@ -33,6 +33,7 @@ use zeus_railgun::{
 use crate::{
    // The diffs for the sponsored unshield are probed off its own fork simulation.
    core::tx::DiffProbe,
+   core::types::EnsRecipientGuard,
    core::{
       ApprovalDiff, BalanceDiff, DecodedEvent, MainEvent, MinedTx, RecordPolicy, SendTxOptions,
       SendTxRequest, TransactionAnalysis, UnshieldParams, ZeusCtx, build_tx_outcome, confirm_tx,
@@ -83,6 +84,7 @@ pub async fn unshield(
    unwrap_to_eth: bool,
    bundler_url: String,
    memo: String,
+   recipient_guard: Option<EnsRecipientGuard>,
 ) -> Result<(), anyhow::Error> {
    if asset.is_native() {
       return Err(anyhow!(
@@ -146,6 +148,7 @@ pub async fn unshield(
          recipient,
          &asset,
          tx,
+         recipient_guard,
       )
       .await
    } else {
@@ -161,6 +164,7 @@ pub async fn unshield(
          tx,
          bundler_url,
          memo,
+         recipient_guard,
       )
       .await
    }
@@ -174,6 +178,7 @@ async fn unshield_self_broadcast(
    recipient: Address,
    asset: &RailgunAsset,
    tx: TransactionBuilder,
+   recipient_guard: Option<EnsRecipientGuard>,
 ) -> Result<(), anyhow::Error> {
    SHARED_GUI.write(|gui| {
       gui.loading_window.open("Wait while magic happens");
@@ -310,6 +315,7 @@ async fn unshield_self_broadcast(
       dapp: "Railgun".to_string(),
       // The Transact logs do not describe the unshield, so record the intent.
       keep_intent_event: true,
+      ens_recipient: recipient_guard,
       ..Default::default()
    };
 
@@ -351,6 +357,7 @@ async fn unshield_via_paymaster(
    tx: TransactionBuilder,
    bundler_url: String,
    memo: String,
+   recipient_guard: Option<EnsRecipientGuard>,
 ) -> Result<(), anyhow::Error> {
    let mut railgun_provider = ctx.get_railgun_provider(chain.id(), false).await?;
 
@@ -829,6 +836,7 @@ async fn unshield_via_paymaster(
    let tx_opt = SendTxOptions {
       dapp: "Railgun".to_string(),
       sponsored: true,
+      ens_recipient: recipient_guard,
       ..Default::default()
    };
 

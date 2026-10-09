@@ -12,6 +12,7 @@ use std::{
    time::{Duration, Instant},
 };
 
+use crate::core::types::EnsRecipientGuard;
 use crate::core::{
    DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, TransferParams, ZeusContext,
    ZeusCtx, send_transaction,
@@ -470,6 +471,9 @@ impl SendCryptoUi {
                   // for. Read it before the address fields are moved out of `recipient`.
                   let recipient_chain = recipient.chain;
 
+                  // Carried to the confirm step, which re-checks the name with its own clock.
+                  let recipient_guard = recipient.ens_guard();
+
                   let recipient_str = if recipient_privacy_mode {
                      recipient.zk_address
                   } else {
@@ -484,6 +488,7 @@ impl SendCryptoUi {
                      recipient_str,
                      recipient_chain,
                      recipient_name_lapsed,
+                     recipient_guard,
                      privacy_mode,
                      ui,
                   );
@@ -621,6 +626,7 @@ impl SendCryptoUi {
       recipient: String,
       recipient_chain: Option<u64>,
       recipient_name_lapsed: bool,
+      recipient_guard: Option<EnsRecipientGuard>,
       privacy_mode: bool,
       ui: &mut Ui,
    ) {
@@ -722,7 +728,14 @@ impl SendCryptoUi {
          if let (Some(nft), Some(amount)) = (nft, amount) {
             self.sending_tx = true;
 
-            match self.send_nft_transaction(ctx, nft, amount, recipient, privacy_mode) {
+            match self.send_nft_transaction(
+               ctx,
+               nft,
+               amount,
+               recipient,
+               privacy_mode,
+               recipient_guard,
+            ) {
                Ok(_) => {}
                Err(e) => {
                   self.sending_tx = false;
@@ -771,6 +784,7 @@ impl SendCryptoUi {
       amount: U256,
       recipient: String,
       privacy_mode: bool,
+      recipient_guard: Option<EnsRecipientGuard>,
    ) -> Result<(), anyhow::Error> {
       let chain = ctx.chain;
       let from = ctx.current_wallet_info().address;
@@ -795,6 +809,7 @@ impl SendCryptoUi {
             recipient_address,
             nft,
             amount,
+            recipient_guard,
          )
          .await
          {
@@ -932,6 +947,7 @@ impl SendCryptoUi {
       recipient: String,
       recipient_chain: Option<u64>,
       recipient_name_lapsed: bool,
+      recipient_guard: Option<EnsRecipientGuard>,
       privacy_mode: bool,
       ui: &mut Ui,
    ) {
@@ -947,6 +963,7 @@ impl SendCryptoUi {
             recipient,
             recipient_chain,
             recipient_name_lapsed,
+            recipient_guard,
             privacy_mode,
             ui,
          );
@@ -1035,7 +1052,7 @@ impl SendCryptoUi {
          if privacy_mode {
             self.send_private_transfer(ctx, recipient);
          } else {
-            match self.send_public_transaction(ctx, recipient) {
+            match self.send_public_transaction(ctx, recipient, recipient_guard) {
                Ok(_) => {}
                Err(e) => {
                   self.sending_tx = false;
@@ -1236,6 +1253,7 @@ impl SendCryptoUi {
       &mut self,
       ctx: &mut ZeusContext,
       recipient: String,
+      recipient_guard: Option<EnsRecipientGuard>,
    ) -> Result<(), anyhow::Error> {
       let chain = ctx.chain;
       let from = ctx.current_wallet_info().address;
@@ -1261,6 +1279,7 @@ impl SendCryptoUi {
                recipient_address,
                amount,
                currency,
+               recipient_guard,
             )
             .await
             {
@@ -1289,6 +1308,7 @@ impl SendCryptoUi {
                recipient_address,
                currency,
                amount,
+               recipient_guard,
             )
             .await
             {
@@ -1384,6 +1404,7 @@ async fn send_eth(
    recipient: Address,
    amount: NumericValue,
    currency: Currency,
+   recipient_guard: Option<EnsRecipientGuard>,
 ) -> Result<(), anyhow::Error> {
    let mev_protect = false;
    let dapp = "".to_string();
@@ -1540,6 +1561,7 @@ async fn send_eth(
       SendTxOptions {
          dapp,
          mev_protect,
+         ens_recipient: recipient_guard,
          ..Default::default()
       },
    )
@@ -1562,6 +1584,7 @@ async fn send_token(
    recipient: Address,
    currency: Currency,
    amount: NumericValue,
+   recipient_guard: Option<EnsRecipientGuard>,
 ) -> Result<(), anyhow::Error> {
    let token = currency.to_erc20().into_owned();
 
@@ -1695,6 +1718,7 @@ async fn send_token(
       SendTxOptions {
          dapp,
          mev_protect,
+         ens_recipient: recipient_guard,
          ..Default::default()
       },
    )
@@ -1727,6 +1751,7 @@ async fn send_nft(
    recipient: Address,
    nft: NftToken,
    amount: U256,
+   recipient_guard: Option<EnsRecipientGuard>,
 ) -> Result<(), anyhow::Error> {
    let mev_protect = false;
    let dapp = String::new();
@@ -1869,6 +1894,7 @@ async fn send_nft(
       SendTxOptions {
          dapp,
          mev_protect,
+         ens_recipient: recipient_guard,
          ..Default::default()
       },
    )
