@@ -64,6 +64,10 @@ fn main() -> eframe::Result {
 
    let _tracing_guard = setup_tracing();
 
+   // Captured now, while it is still the truth: the updater replaces the running binary, after
+   // which the OS reports a stale path (see `self_update::restart_target`).
+   utils::self_update::remember_startup_exe();
+
    cleanup_old_logs();
 
    // `zeus --install-desktop` / `--uninstall-desktop`: opt in to (or out of) the application
