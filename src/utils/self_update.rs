@@ -7,12 +7,24 @@ use minisign_verify::{PublicKey, Signature};
 use self_replace::self_replace;
 use self_update::{backends::github::ReleaseList, cargo_crate_version};
 use std::io::Write;
+use std::path::PathBuf;
+use std::sync::OnceLock;
 use zip::ZipArchive;
 
 const PUBLIC_KEY: &str = "RWRXdtAo1pQA54VsAh9XfZQDkO1aateQkMSVk3UAlxOzIF2kJZ9a6vha";
 
 const REPO_OWNER: &str = "greekfetacheese";
 const REPO_NAME: &str = "zeus";
+
+/// Where this process was started from, captured before an update can replace it.
+///
+/// The restart cannot ask the OS for its own path: once `self_replace` has swapped the running
+/// binary, `/proc/self/exe` points at the old, unlinked inode and the kernel reports it as
+/// `"<path> (deleted)"` (measured), which spawns nothing. Nor can the name be assumed — a user
+/// may rename the binary, and `self_replace` keeps the path it replaced rather than the name the
+/// release archive uses. So it is resolved once, at startup, while it is still the truth:
+/// see [`remember_startup_exe`].
+static STARTUP_EXE: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 #[derive(Debug, Clone, Default)]
 pub struct UpdateInfo {
@@ -245,14 +257,41 @@ pub async fn update_zeus(download_url: &str, asset_name: &str) -> Result<(), any
    Ok(())
 }
 
+/// Remember where this process was started from. Call once, early in `main`.
+pub fn remember_startup_exe() {
+   STARTUP_EXE.get_or_init(|| {
+      let exe = std::env::current_exe().ok();
+      match &exe {
+         Some(exe) => tracing::debug!("Started from {}", exe.display()),
+         None => tracing::warn!("Cannot resolve the Zeus binary; the updater will not restart it"),
+      }
+      exe
+   });
+}
+
+/// The program to start in order to come back up.
+fn restart_target() -> PathBuf {
+   if let Some(exe) = STARTUP_EXE.get().and_then(Option::as_ref) {
+      return exe.clone();
+   }
+
+   // Nothing was remembered, so fall back to the name the release archive ships, beside the
+   // working directory. Only reachable if the binary could not be resolved at startup.
+   let name = if cfg!(windows) {
+      "zeus-gui.exe"
+   } else {
+      "zeus-gui"
+   };
+   std::env::current_dir().unwrap_or_default().join(name)
+}
+
 #[cfg(unix)]
 pub fn restart_app() {
    use std::thread;
    use std::time::Duration;
 
-   let current_dir = std::env::current_dir().unwrap();
-   let exe = current_dir.join("zeus-gui");
-   tracing::info!("Current executable: {}", exe.display());
+   let exe = restart_target();
+   tracing::info!("Restarting {}", exe.display());
 
    for _ in 0..3 {
       match std::process::Command::new(&exe).spawn() {
@@ -282,9 +321,8 @@ pub fn restart_app() {
    use std::thread;
    use std::time::Duration;
 
-   let current_dir = std::env::current_dir().unwrap();
-   let exe = current_dir.join("zeus-gui");
-   tracing::info!("Current executable: {}", exe.display());
+   let exe = restart_target();
+   tracing::info!("Restarting {}", exe.display());
 
    for _ in 0..3 {
       match std::process::Command::new(&exe).creation_flags(0x00000008).spawn() {

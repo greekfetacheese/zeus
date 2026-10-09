@@ -26,7 +26,31 @@ pub mod utils;
 
 use std::panic;
 
+/// Make the process working directory the folder holding the running executable.
+///
+/// Zeus is portable: `data/`, `logs/` and the connector host script are all resolved from the
+/// working directory, so that directory has to be the one the binary lives in. A shell launch
+/// gets that for free; a launcher does not — a start-menu entry inherits the launcher's own
+/// directory (usually the home directory), which would silently start a second, empty wallet.
+///
+/// Best effort: if the binary cannot be resolved (deleted or replaced while running), the
+/// working directory is left alone rather than failing the launch.
+fn pin_working_dir_to_exe() -> Result<(), std::io::Error> {
+   let exe = std::env::current_exe()?;
+   let dir = exe
+      .parent()
+      .ok_or_else(|| std::io::Error::other("the executable has no parent directory"))?;
+
+   std::env::set_current_dir(dir)
+}
+
 fn main() -> eframe::Result {
+   // Must run before anything reads a path: `setup_tracing` writes to `./logs`, and the
+   // connector host resolves `data/` from here.
+   if let Err(e) = pin_working_dir_to_exe() {
+      eprintln!("zeus: cannot anchor the working directory to the binary: {e}");
+   }
+
    // Native messaging uses stdin/stdout. Must run before any tracing to stdout,
    // and must NEVER fall through into the GUI, Brave/Chrome spawn this process
    // on every sendNativeMessage and kill it when the handshake ends.
@@ -40,7 +64,24 @@ fn main() -> eframe::Result {
 
    let _tracing_guard = setup_tracing();
 
+   // Captured now, while it is still the truth: the updater replaces the running binary, after
+   // which the OS reports a stale path (see `self_update::restart_target`).
+   utils::self_update::remember_startup_exe();
+
    cleanup_old_logs();
+
+   // `zeus --install-desktop` / `--uninstall-desktop`: opt in to (or out of) the application
+   // menu entry and exit, without starting the GUI. A normal launch applies the recorded
+   // choice too; the flags are for scripting and for a machine where it cannot be set from
+   // the UI.
+   if utils::desktop_integration::is_install_invocation() {
+      utils::desktop_integration::set_enabled(true);
+      return Ok(());
+   }
+   if utils::desktop_integration::is_uninstall_invocation() {
+      utils::desktop_integration::set_enabled(false);
+      return Ok(());
+   }
 
    panic::set_hook(Box::new(|panic_info| {
       let message = panic_info.payload().downcast_ref::<&str>().map_or("Unknown panic", |s| s);
@@ -63,15 +104,41 @@ fn main() -> eframe::Result {
       ..Default::default()
    };
 
+   // The mark for the taskbar, Alt-Tab list and title bar. Without it eframe substitutes
+   // its own placeholder "e" icon. Wayland has no window-icon protocol, so winit ignores
+   // this there and the icon comes from a `.desktop` file instead (not shipped yet).
+   let icon = match assets::decode_mark(assets::ZEUS_ICON) {
+      Ok((rgba, width, height)) => Some(Arc::new(egui::IconData {
+         rgba,
+         width,
+         height,
+      })),
+      Err(e) => {
+         tracing::warn!("Failed to decode the Zeus window icon: {e}");
+         None
+      }
+   };
+
+   // The application id the window identifies as. On Wayland the compositor resolves a
+   // window's icon from `<app_id>.desktop`; on X11 it becomes WM_CLASS, which the entry's
+   // `StartupWMClass` is matched against. Left unset, winit falls back to the window *title*,
+   // which carries the version and so can never match a stable entry.
+   let mut viewport = egui::ViewportBuilder::default()
+      .with_app_id(utils::desktop_integration::APP_ID)
+      .with_decorations(true)
+      .with_inner_size([1280.0, 900.0])
+      .with_min_inner_size([1280.0, 900.0])
+      .with_transparent(false)
+      .with_resizable(true);
+
+   if let Some(icon) = icon {
+      viewport = viewport.with_icon(icon);
+   }
+
    let options = eframe::NativeOptions {
       renderer: eframe::Renderer::Wgpu,
       wgpu_options: wgpu_config,
-      viewport: egui::ViewportBuilder::default()
-         .with_decorations(true)
-         .with_inner_size([1280.0, 900.0])
-         .with_min_inner_size([1280.0, 900.0])
-         .with_transparent(false)
-         .with_resizable(true),
+      viewport,
 
       ..Default::default()
    };

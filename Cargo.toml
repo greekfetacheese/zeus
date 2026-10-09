@@ -153,6 +153,11 @@ tray-icon = { version = "=0.26", default-features = false }
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.189"
 
+[build-dependencies]
+# Embeds the Zeus .ico (and version metadata) in the Windows executable. Inert on every
+# other target — see build.rs, which returns early unless the *target* OS is Windows.
+winresource = "0.1"
+
 [profile.dev]
 # Default debug=2 emits full DWARF and a ~1GB zeus binary. Line tables are
 # enough for backtraces and keep incremental artifacts / linking much smaller.
