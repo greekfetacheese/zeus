@@ -1638,9 +1638,13 @@ impl ZeusCtx {
    /// reachable, or the address simply has no primary name — none of them errors.
    ///
    /// The returned `u64` is the name's takeover time (`0` = no onchain expiry known, e.g. a
-   /// non-`.eth` name, or an expiry read that failed). It bounds the label's life in [`EnsCache`]:
-   /// a *reverse* record is owned by the address rather than the name, so it survives the name's
-   /// expiry and would otherwise keep labelling the address forever.
+   /// non-`.eth` name). It bounds the label's life in [`EnsCache`]: a *reverse* record is owned by
+   /// the address rather than the name, so it survives the name's expiry and would otherwise keep
+   /// labelling the address forever.
+   ///
+   /// Fails closed: if the expiry cannot be read the name is **not** returned, so the address is
+   /// left unlabelled rather than cached with an unbounded (`0`) life. A transient read failure
+   /// costs the label, never the guarantee.
    async fn lookup_ens_name(&self, address: Address) -> Option<(String, u64)> {
       if self.is_chain_disabled(ENS_CHAIN) {
          return None;
@@ -1658,10 +1662,18 @@ impl ZeusCtx {
 
       let takeover_at = match zeus_eth::utils::ens::name_expiry(&client, &name).await {
          Ok(Some(expiry)) => expiry.takeover_at,
+         // No onchain expiry to read (a non-`.eth` name): session-only, as before.
          Ok(None) => 0,
+         // The expiry could not be read, so the label's life cannot be bounded. Fail closed:
+         // do not label the address at all rather than cache a name that can never be
+         // invalidated — an unbounded label is exactly what expiry awareness exists to prevent.
          Err(e) => {
-            tracing::warn!("ENS expiry lookup failed for {}: {}", name, e);
-            0
+            tracing::error!(
+               "ENS expiry lookup failed for {}, not labelling: {}",
+               name,
+               e
+            );
+            return None;
          }
       };
 

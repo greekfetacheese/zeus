@@ -387,11 +387,12 @@ where
    }))
 }
 
-/// Forward resolution plus the name's expiry.
+/// Forward resolution plus the name's expiry, failing closed on the expiry.
 ///
-/// The expiry is best-effort: a failed expiry read degrades to `None` ("unknown"), which callers
-/// treat exactly like a non-`.eth` name, rather than to a wrong *expired* verdict. `Ok(None)`
-/// means "no address", as in [`resolve_name`].
+/// The expiry is **not** optional for a name that has one: if it cannot be read the whole lookup
+/// fails, so an address whose name may already have lapsed is never offered. Only a name with no
+/// expiry to read — a non-`.eth` name — comes back as `Ok(Some((address, None)))`. `Ok(None)` means
+/// "no address", as in [`resolve_name`].
 pub async fn resolve_name_with_expiry<P>(
    client: &P,
    name: &str,
@@ -403,15 +404,17 @@ where
       return Ok(None);
    };
 
+   // Refusing here, rather than resolving with `None`, is the point: an unreadable expiry must
+   // never be mistaken for "this name cannot expire".
    let expiry = match name_expiry(client, name).await {
       Ok(expiry) => expiry,
       Err(e) => {
          tracing::warn!(
-            "ens: expiry lookup failed for {:?}: {:?}",
+            "ens: expiry lookup failed for {:?}, refusing to resolve: {:?}",
             name,
             e
          );
-         None
+         return Err(e);
       }
    };
 
@@ -449,7 +452,9 @@ pub struct ChainAddress {
    /// from the per-chain call, so it reports `false` even though the address is the default one.
    pub from_default_evm_record: bool,
    /// The name's registration expiry. Chain-independent — the same registration whichever coin
-   /// type the address came from. `None` for a name with no onchain expiry (non-`.eth`).
+   /// type the address came from. `None` for a name with no onchain expiry (non-`.eth`); a name
+   /// that *has* one never reaches here with `None`, because an unreadable expiry fails the whole
+   /// lookup (see [`resolve_name_for_chain`]).
    pub expiry: Option<NameExpiry>,
 }
 
@@ -546,17 +551,17 @@ where
          None => return Ok(None),
       };
 
-   // The name's expiry is orthogonal to the coin type, and best effort like
-   // [`resolve_name_with_expiry`]: a failed read degrades to "unknown", never to "expired".
+   // The name's expiry is orthogonal to the coin type, and like [`resolve_name_with_expiry`] it is
+   // not optional: an unreadable expiry fails the lookup rather than resolving to "no expiry".
    let expiry = match name_expiry(client, &name).await {
       Ok(expiry) => expiry,
       Err(e) => {
          tracing::warn!(
-            "ens: expiry lookup failed for {:?}: {:?}",
+            "ens: expiry lookup failed for {:?}, refusing to resolve: {:?}",
             name,
             e
          );
-         None
+         return Err(e);
       }
    };
 

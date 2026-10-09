@@ -388,7 +388,8 @@ pub struct Resolved {
    pub from_default_evm_record: bool,
    /// The name's registration expiry, when the address part was a name. Chain-independent: the
    /// same registration whichever coin type answered. `None` for a raw address, or a name with no
-   /// onchain expiry (non-`.eth`).
+   /// onchain expiry (non-`.eth`) — a `.eth` name whose expiry could not be read never reaches
+   /// here, because the lookup fails instead.
    pub expiry: Option<ens::NameExpiry>,
 }
 

@@ -1004,21 +1004,14 @@ fn resolve_interoperable_recipient(ctx: &ZeusCtx, query: &str) -> Option<Unknown
    }
 }
 
-/// `YYYY-MM-DD` for a unix timestamp, or the raw seconds if the range is impossible.
-fn format_day(seconds: u64) -> String {
-   chrono::DateTime::<chrono::Utc>::from_timestamp(seconds as i64, 0)
-      .map(|day| day.format("%Y-%m-%d").to_string())
-      .unwrap_or_else(|| seconds.to_string())
-}
-
 /// Why a name whose grace period has run out cannot be used as a recipient.
 fn lapsed_name_note(expiry: Option<ens::NameExpiry>, theme: &Theme) -> RichText {
    let text = match expiry {
       Some(expiry) => format!(
          "This name expired on {} and left its grace period on {} — it may now belong to someone \
           else, so it is not offered as a recipient. Enter its address instead.",
-         format_day(expiry.expires_at),
-         format_day(expiry.takeover_at),
+         TimeStamp::Seconds(expiry.expires_at).to_date_string(),
+         TimeStamp::Seconds(expiry.takeover_at).to_date_string(),
       ),
       None => {
          "This name can no longer be trusted as a recipient. Enter its address instead.".to_string()
@@ -1033,8 +1026,8 @@ fn lapsed_name_note(expiry: Option<ens::NameExpiry>, theme: &Theme) -> RichText 
 fn grace_note(expiry: ens::NameExpiry, theme: &Theme) -> RichText {
    RichText::new(format!(
       "Expired {} — the name can be released to the market from {}.",
-      format_day(expiry.expires_at),
-      format_day(expiry.takeover_at),
+      TimeStamp::Seconds(expiry.expires_at).to_date_string(),
+      TimeStamp::Seconds(expiry.takeover_at).to_date_string(),
    ))
    .size(theme.typography.normal)
    .color(theme.colors.text_muted)
