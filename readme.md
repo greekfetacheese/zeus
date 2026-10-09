@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/assets/brand/banner2.jpg" alt="Banner">
+  <img src="src/assets/brand/banner.jpg" alt="Banner">
 </p>
 
 # <p align="center">Zeus</p>
