@@ -26,7 +26,31 @@ pub mod utils;
 
 use std::panic;
 
+/// Make the process working directory the folder holding the running executable.
+///
+/// Zeus is portable: `data/`, `logs/` and the connector host script are all resolved from the
+/// working directory, so that directory has to be the one the binary lives in. A shell launch
+/// gets that for free; a launcher does not — a start-menu entry inherits the launcher's own
+/// directory (usually the home directory), which would silently start a second, empty wallet.
+///
+/// Best effort: if the binary cannot be resolved (deleted or replaced while running), the
+/// working directory is left alone rather than failing the launch.
+fn pin_working_dir_to_exe() -> Result<(), std::io::Error> {
+   let exe = std::env::current_exe()?;
+   let dir = exe
+      .parent()
+      .ok_or_else(|| std::io::Error::other("the executable has no parent directory"))?;
+
+   std::env::set_current_dir(dir)
+}
+
 fn main() -> eframe::Result {
+   // Must run before anything reads a path: `setup_tracing` writes to `./logs`, and the
+   // connector host resolves `data/` from here.
+   if let Err(e) = pin_working_dir_to_exe() {
+      eprintln!("zeus: cannot anchor the working directory to the binary: {e}");
+   }
+
    // Native messaging uses stdin/stdout. Must run before any tracing to stdout,
    // and must NEVER fall through into the GUI, Brave/Chrome spawn this process
    // on every sendNativeMessage and kill it when the handshake ends.
