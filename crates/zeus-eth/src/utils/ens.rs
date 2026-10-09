@@ -332,6 +332,13 @@ where
       .await
    {
       Ok(seconds) => {
+         // A value that does not fit a `u64` is not a grace period. Fall back to the constant
+         // rather than clamping, so a broken or hostile answer cannot widen the trust window.
+         if seconds > U256::from(u64::MAX) {
+            tracing::warn!("ens: GRACE_PERIOD read is out of range, using the constant");
+            return GRACE_PERIOD_SECS;
+         }
+
          let seconds = seconds.to::<u64>();
          if seconds != 0 {
             CACHE.store(seconds, Ordering::Relaxed);
@@ -378,7 +385,11 @@ where
       return Ok(None);
    }
 
-   let expires_at = expires.to::<u64>();
+   // A registration end too large for a `u64` can only be an unpayable duration or a lying RPC (a
+   // real one is bounded by what anyone could pay to renew), so it reads as "registered well beyond
+   // any horizon" — trusted, which is what a value that large means. `saturating_to` keeps that
+   // from being a panic where `to` would be; a plausible future timestamp is trusted regardless.
+   let expires_at = expires.saturating_to::<u64>();
    let takeover_at = expires_at.saturating_add(grace_period(client).await);
 
    Ok(Some(NameExpiry {
