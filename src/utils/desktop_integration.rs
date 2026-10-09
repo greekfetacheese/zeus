@@ -38,6 +38,13 @@ pub const INSTALL_FLAG: &str = "--install-desktop";
 /// `zeus --uninstall-desktop`: opt out, remove the menu entry, and exit.
 pub const UNINSTALL_FLAG: &str = "--uninstall-desktop";
 
+/// Whether this platform can have an application-menu entry at all.
+///
+/// The entry is a freedesktop `.desktop` file, so Linux only: Windows takes its icon from the
+/// executable's own resource instead (see `build.rs`). This is the run-time twin of the
+/// `#[cfg(target_os = "linux")]` gates that remove the entry's UI where it cannot work.
+pub const SUPPORTED: bool = cfg!(target_os = "linux");
+
 /// Name of the mark written beside the executable, for the GVFS metadata to point at.
 #[cfg(target_os = "linux")]
 const ICON_FILE_NAME: &str = "zeus-logo.png";
@@ -68,10 +75,26 @@ pub fn is_uninstall_invocation() -> bool {
 pub fn set_enabled(enabled: bool) {
    use crate::core::types::MiscConfig;
 
+   if !SUPPORTED {
+      tracing::info!("The application-menu entry is a Linux feature; nothing to do");
+      return;
+   }
+
    let mut config = MiscConfig::load_from_file().unwrap_or_else(|_| MiscConfig::new());
    config.set_desktop_integration(enabled);
    if let Err(e) = config.save() {
       tracing::warn!("Desktop integration: cannot record the choice: {e}");
+   }
+
+   apply(enabled);
+}
+
+/// Make the system match a recorded choice: install the entry when enabled, remove it when not.
+///
+/// A no-op where there is no application menu, so callers may invoke it unconditionally.
+pub fn apply(enabled: bool) {
+   if !SUPPORTED {
+      return;
    }
 
    if enabled {
@@ -91,9 +114,6 @@ pub fn install_file_icon() {
    if let Err(e) = install_file_icon_linux() {
       tracing::warn!("File-manager icon: {e}");
    }
-
-   #[cfg(not(target_os = "linux"))]
-   tracing::info!("The file-manager icon is a Linux feature, nothing to do");
 }
 
 /// Add Zeus to the application menu, with its own icon.
@@ -102,9 +122,6 @@ pub fn install_desktop_entry() {
    if let Err(e) = install_desktop_entry_linux() {
       tracing::warn!("Application-menu entry: {e}");
    }
-
-   #[cfg(not(target_os = "linux"))]
-   tracing::info!("The application-menu entry is a Linux feature, nothing to do");
 }
 
 /// Remove the application-menu entry Zeus installed.
@@ -113,9 +130,6 @@ pub fn uninstall_desktop_entry() {
    if let Err(e) = uninstall_desktop_entry_linux() {
       tracing::warn!("Application-menu entry: {e}");
    }
-
-   #[cfg(not(target_os = "linux"))]
-   tracing::info!("The application-menu entry is a Linux feature, nothing to do");
 }
 
 #[cfg(target_os = "linux")]

@@ -13,6 +13,7 @@ const SOURCIFY_TIP: &str = "Allow Zeus to look up verified contract names on sou
 const UPDATES_TIP: &str = "Allow Zeus to check GitHub for a newer Zeus release";
 const TRAY_TIP: &str = "Hide Zeus to the system tray when the window is minimized. Zeus keeps \
                         running in the background; the tray icon brings it back.";
+#[cfg(target_os = "linux")]
 const DESKTOP_TIP: &str = "Add Zeus to your application menu, with its own icon, so you can \
                            start it and pin it like any other app. This writes a desktop entry \
                            and its icon under ~/.local/share - outside Zeus's own folder. Both \
@@ -79,13 +80,7 @@ impl GeneralSettings {
    /// The only setting whose effect is file work rather than a `misc_config` field, so it
    /// never runs on the frame path.
    fn apply_desktop_integration(enabled: bool) {
-      RT.spawn_blocking(move || {
-         if enabled {
-            crate::utils::desktop_integration::install_desktop_entry();
-         } else {
-            crate::utils::desktop_integration::uninstall_desktop_entry();
-         }
-      });
+      RT.spawn_blocking(move || crate::utils::desktop_integration::apply(enabled));
    }
 
    pub fn sync_from_ctx(&mut self, ctx: &mut ZeusContext) {
@@ -195,27 +190,32 @@ impl GeneralSettings {
       ui.separator();
       ui.add_space(10.0);
 
-      let header = RichText::new("Desktop").size(theme.typography.very_large);
-      ui.label(header);
+      // Linux only: there is no application menu to add Zeus to on the other platforms, so the
+      // section is not offered there at all.
+      #[cfg(target_os = "linux")]
+      {
+         let header = RichText::new("Desktop").size(theme.typography.very_large);
+         ui.label(header);
 
-      let desktop_text = RichText::new("Add to Application Menu").size(theme.typography.normal);
-      let qmark = Badge::new(q_mark_text.clone(), BadgeTone::Info);
+         let desktop_text = RichText::new("Add to Application Menu").size(theme.typography.normal);
+         let qmark = Badge::new(q_mark_text.clone(), BadgeTone::Info);
 
-      ui.allocate_ui_with_layout(
-         ui_size,
-         Layout::left_to_right(Align::Center),
-         |ui| {
-            if ui.checkbox(&mut self.desktop_integration, desktop_text).changed() {
-               ctx.misc_config.set_desktop_integration(self.desktop_integration);
-               Self::persist_misc(ctx);
-               Self::apply_desktop_integration(self.desktop_integration);
-            }
-            ui.add(qmark).on_hover_text(DESKTOP_TIP);
-         },
-      );
+         ui.allocate_ui_with_layout(
+            ui_size,
+            Layout::left_to_right(Align::Center),
+            |ui| {
+               if ui.checkbox(&mut self.desktop_integration, desktop_text).changed() {
+                  ctx.misc_config.set_desktop_integration(self.desktop_integration);
+                  Self::persist_misc(ctx);
+                  Self::apply_desktop_integration(self.desktop_integration);
+               }
+               ui.add(qmark).on_hover_text(DESKTOP_TIP);
+            },
+         );
 
-      ui.separator();
-      ui.add_space(10.0);
+         ui.separator();
+         ui.add_space(10.0);
+      }
 
       let header = RichText::new("Pool Manager").size(theme.typography.very_large);
       ui.label(header);

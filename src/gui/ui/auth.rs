@@ -403,8 +403,13 @@ impl RecoverHDWallet {
       match self.onboarding_step {
          0 => self.show_onboarding_tips(theme, ui),
          1 => self.show_onboarding_railgun(ctx, theme, ui),
-         2 => self.show_onboarding_external_data(theme, ui),
+         2 => self.show_onboarding_external_data(ctx, theme, ui),
+         // The application-menu step exists on Linux only; elsewhere the external-data step
+         // ends the wizard, so nothing can advance past it.
+         #[cfg(target_os = "linux")]
          _ => self.show_onboarding_desktop(ctx, theme, ui),
+         #[cfg(not(target_os = "linux"))]
+         _ => {}
       }
    }
 
@@ -584,7 +589,11 @@ impl RecoverHDWallet {
          });
    }
 
-   fn show_onboarding_external_data(&mut self, theme: &Theme, ui: &mut Ui) {
+   /// Every destination Zeus may contact, and the switches for the downloads it may make.
+   ///
+   /// Platforms without the application-menu step end the wizard here, so the button finishes
+   /// it; on Linux it only advances.
+   fn show_onboarding_external_data(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       let frame = theme.frame1;
 
       Window::new("Recover_HD_Wallet_external_data")
@@ -729,21 +738,30 @@ impl RecoverHDWallet {
             ui.add_space(20.0);
 
             ui.vertical_centered(|ui| {
-               let text = RichText::new("Next").size(theme.typography.large);
-               let next_button =
+               // Linux has a further step after this one, the application menu; everywhere else
+               // this is the last step, so the button ends the wizard instead of advancing.
+               let last_step = !crate::utils::desktop_integration::SUPPORTED;
+               let label = if last_step { "Finish" } else { "Next" };
+               let text = RichText::new(label).size(theme.typography.large);
+               let button =
                   Button::new(text).visuals(button_visuals).min_size(vec2(content_width, 45.0));
 
-               if ui.add(next_button).clicked() {
-                  self.onboarding_step = 3;
+               if ui.add(button).clicked() {
+                  if last_step {
+                     self.finish_onboarding(ctx);
+                  } else {
+                     self.onboarding_step = 3;
+                  }
                }
             });
          });
    }
 
-   /// Last onboarding step: the opt-in application-menu entry.
+   /// Last onboarding step on Linux: the opt-in application-menu entry.
    ///
-   /// This is the step that collects every choice made in the wizard and finishes it, which is
-   /// why the steps before it only advance — their values already live on `self`.
+   /// It only advances or finishes; the choices live on `self` and are persisted by
+   /// [`Self::finish_onboarding`].
+   #[cfg(target_os = "linux")]
    fn show_onboarding_desktop(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       let frame = theme.frame1;
 
@@ -818,16 +836,25 @@ impl RecoverHDWallet {
                   Button::new(text).visuals(button_visuals).min_size(vec2(content_width, 45.0));
 
                if ui.add(finish_button).clicked() {
-                  ctx.misc_config.set_fetch_asset_images(self.fetch_asset_images);
-                  ctx.misc_config.set_fetch_contract_names(self.fetch_contract_names);
-                  ctx.misc_config.set_check_for_updates(self.check_for_updates);
-                  ctx.misc_config.set_desktop_integration(self.desktop_integration);
-                  let config = ctx.misc_config.clone();
-                  let current_wallet = ctx.current_wallet_info();
-                  on_finish_onboarding(config, current_wallet);
+                  self.finish_onboarding(ctx);
                }
             });
          });
+   }
+
+   /// Persist the wizard's choices and close it.
+   ///
+   /// The terminal action of the onboarding, shared by every step that can be its last: the
+   /// application-menu step on Linux, the external-data step everywhere else.
+   fn finish_onboarding(&mut self, ctx: &mut ZeusContext) {
+      ctx.misc_config.set_fetch_asset_images(self.fetch_asset_images);
+      ctx.misc_config.set_fetch_contract_names(self.fetch_contract_names);
+      ctx.misc_config.set_check_for_updates(self.check_for_updates);
+      ctx.misc_config.set_desktop_integration(self.desktop_integration);
+
+      let config = ctx.misc_config.clone();
+      let current_wallet = ctx.current_wallet_info();
+      on_finish_onboarding(config, current_wallet);
    }
 }
 
@@ -1156,11 +1183,7 @@ fn on_finish_onboarding(config: MiscConfig, current_wallet: WalletInfo) {
 
       // Applied here as well as on startup, so ticking the box takes effect when the wizard
       // ends rather than at the next launch.
-      if config.desktop_integration() {
-         crate::utils::desktop_integration::install_desktop_entry();
-      } else {
-         crate::utils::desktop_integration::uninstall_desktop_entry();
-      }
+      crate::utils::desktop_integration::apply(config.desktop_integration());
 
       let ctx = SHARED_GUI.write(|gui| {
          gui.recover_wallet_ui.show_onboarding = false;
