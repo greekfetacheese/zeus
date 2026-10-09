@@ -18,7 +18,7 @@ use crate::core::{
 };
 use crate::{
    gui::ui::common::show_with_fade,
-   utils::{RT, write_private_atomic},
+   utils::{RT, TimeStamp, write_private_atomic},
 };
 
 use super::{RailgunAsset, SettledOp, expect_single_event, railgun_ready, settle_railgun_op};
@@ -609,6 +609,13 @@ impl ShieldUi {
 
                   let recipient = recipient_selection.get_recipient();
 
+                  // A name whose registration lapsed past its grace period may now belong to
+                  // someone else, so the address it resolved to is no longer what the name means.
+                  let now = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
+                  let recipient_name_lapsed = !recipient.name_binding_trusted(
+                     now
+                  );
+
                   // Recipient Selection
                   inner_frame.show(ui, |ui| {
                      ui.set_width(ui.available_width());
@@ -618,11 +625,27 @@ impl ShieldUi {
 
                         if !recipient.is_empty(recipient_privacy_mode) {
                            if let Some(name) = &recipient.name {
+                              let name_color = match recipient_name_lapsed {
+                                 true => theme.colors.error,
+                                 false => theme.colors.info,
+                              };
+
                               ui.label(
                                  RichText::new(name)
                                     .size(theme.typography.large)
-                                    .color(theme.colors.info),
+                                    .color(name_color),
                               );
+
+                              if recipient_name_lapsed {
+                                 ui.label(
+                                    RichText::new(
+                                       "This name is past its registration and may no longer \
+                                        belong to the address it resolved to.",
+                                    )
+                                    .size(theme.typography.normal)
+                                    .color(theme.colors.error),
+                                 );
+                              }
                            } else {
                               ui.label(
                                  RichText::new("Unknown Address")
@@ -731,7 +754,15 @@ impl ShieldUi {
                      ui.add_space(theme.spacing.sm);
                   }
 
-                  self.action_button(ctx, theme, owner, recipient_str, recipient_chain, ui);
+                  self.action_button(
+                     ctx,
+                     theme,
+                     owner,
+                     recipient_str,
+                     recipient_chain,
+                     recipient_name_lapsed,
+                     ui,
+                  );
                });
             });
       });
@@ -928,6 +959,7 @@ impl ShieldUi {
       owner: Address,
       recipient: String,
       recipient_chain: Option<u64>,
+      recipient_name_lapsed: bool,
       ui: &mut Ui,
    ) {
       let is_synced = ctx.railgun_status().synced(ctx.chain.id());
@@ -981,6 +1013,7 @@ impl ShieldUi {
          && has_recipient
          && valid_recipient
          && wrong_chain.is_none()
+         && !recipient_name_lapsed
          && !sending_tx
          && is_synced
          && !erc1155_blocked;
@@ -1025,6 +1058,10 @@ impl ShieldUi {
       // carries the why.
       if erc1155_blocked {
          button_text = "ERC-1155 not supported".to_string();
+      }
+
+      if recipient_name_lapsed {
+         button_text = "ENS name expired".to_string();
       }
 
       // Last, so it wins: sending to a recipient resolved for another chain is the mistake worth

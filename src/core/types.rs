@@ -429,6 +429,12 @@ pub struct Recipient {
    /// The chain an ERC-7828 name resolved for (`vitalik.eth@base` → `8453`). `None` when the
    /// recipient is chain-agnostic — a plain address, contact, wallet or plain ENS name.
    pub chain: Option<u64>,
+   /// When the ENS name's binding stops being trustworthy: its registration end plus the 90-day
+   /// grace period, after which a third party can take the name over. `None` when the recipient
+   /// was not derived from a name, or the name has no onchain expiry (a non-`.eth` name). A
+   /// recipient whose binding has lapsed must not be sent to on the strength of the name — see
+   /// [`Self::name_binding_trusted`].
+   pub ens_takeover_at: Option<u64>,
 }
 
 impl Recipient {
@@ -438,6 +444,7 @@ impl Recipient {
          evm_address: address.to_string(),
          zk_address: String::new(),
          chain: None,
+         ens_takeover_at: None,
       }
    }
 
@@ -447,6 +454,7 @@ impl Recipient {
          evm_address: String::new(),
          zk_address: address,
          chain: None,
+         ens_takeover_at: None,
       }
    }
 
@@ -456,12 +464,21 @@ impl Recipient {
    /// `chain` is `Some` only when the name was chain-specific (`name@chain`, ERC-7828), which is
    /// what makes the send path refuse to go out on a different chain; `name` is `None` for a
    /// chain-specific *raw address* (`0x…@eip155:1`).
-   pub fn from_ens_name(name: Option<String>, address: Address, chain: Option<u64>) -> Self {
+   ///
+   /// `takeover_at` is `Some` when the name has an onchain expiry; it is what later decides whether
+   /// the name may still be trusted — see [`Self::name_binding_trusted`].
+   pub fn from_ens_name(
+      name: Option<String>,
+      address: Address,
+      chain: Option<u64>,
+      takeover_at: Option<u64>,
+   ) -> Self {
       Self {
          name,
          evm_address: address.to_string(),
          zk_address: String::new(),
          chain,
+         ens_takeover_at: takeover_at,
       }
    }
 
@@ -471,6 +488,7 @@ impl Recipient {
          evm_address: wallet_info.address.to_string(),
          zk_address: wallet_info.zk_address(),
          chain: None,
+         ens_takeover_at: None,
       }
    }
 
@@ -480,7 +498,18 @@ impl Recipient {
          evm_address: contact.evm_address,
          zk_address: contact.zk_address,
          chain: None,
+         ens_takeover_at: None,
       }
+   }
+
+   /// Is the name this recipient was derived from still trustworthy at `now_secs`?
+   ///
+   /// `true` when there is no name, or the name has no onchain expiry (`None`): the address is
+   /// then sent as-is, exactly as before. `false` once the name's binding has lapsed — a third
+   /// party can register it, so it no longer identifies `evm_address` and the name must not be
+   /// what makes the user trust the send.
+   pub fn name_binding_trusted(&self, now_secs: u64) -> bool {
+      self.ens_takeover_at.is_none_or(|takeover_at| now_secs < takeover_at)
    }
 
    pub fn is_empty(&self, privacy_mode: bool) -> bool {

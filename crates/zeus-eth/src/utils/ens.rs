@@ -18,10 +18,18 @@
 //!
 //! Name normalization is [`normalize_name`] — the ENSIP-15 subset Zeus can
 //! validate on its own, without vendoring Unicode tables.
+//!
+//! **Expiry.** An expired `.eth` name keeps resolving to its last records — the
+//! registry owner, the resolver and the resolver's `addr` all survive expiry — so a
+//! name can change hands while a wallet is still running. Only the [`.eth`
+//! BaseRegistrar](BASE_REGISTRAR_ADDRESS) knows when a registration ends, and
+//! [`name_expiry`] reads it. A binding is trustworthy only while
+//! `now < takeover_at`: `expires_at` plus the grace period, after which a third
+//! party can register the name. See [`NameExpiry`].
 
 use alloy_ens::{ProviderEnsExt, try_dns_encode};
 use alloy_network::Ethereum;
-use alloy_primitives::{Address, Bytes};
+use alloy_primitives::{Address, Bytes, U256, keccak256};
 use alloy_provider::{
    CcipReadClient, CcipReadGateway, CcipReadGatewayError, CcipReadRequest, Provider,
 };
@@ -233,6 +241,183 @@ where
    }
 }
 
+/// ENS `.eth` BaseRegistrar on Ethereum mainnet (ERC-721, `BaseRegistrarImplementation`).
+///
+/// [`EnsBaseRegistrar::nameExpires`] is the **only** onchain source of a name's registration end:
+/// the registry owner, the resolver and the resolver's records all survive expiry, so an expired
+/// name keeps resolving to its last records. Only the registrar knows when the registration ends.
+pub const BASE_REGISTRAR_ADDRESS: Address =
+   alloy_primitives::address!("0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85");
+
+/// `.eth` grace period in seconds, matching [`EnsBaseRegistrar::GRACE_PERIOD`] (90 days).
+///
+/// Only a fallback: the live value is read once per process. It bounds the window after expiry
+/// during which nobody can register the name and its owner cannot transfer it away, so it is what
+/// turns a registration end into a *takeover* time.
+pub const GRACE_PERIOD_SECS: u64 = 90 * 24 * 60 * 60;
+
+/// The registrable label of a `.eth` name — the label immediately left of `eth`.
+///
+/// `alice.eth` → `alice`; `sub.alice.eth` → `alice`, because a subdomain is controlled by its
+/// registrable parent and it is the parent's registration that can lapse. `None` for any name
+/// whose TLD is not `eth`, and for bare `eth` — those have no onchain expiry to read.
+pub fn registrable_label(name: &str) -> Option<&str> {
+   let mut labels = name.rsplit('.');
+
+   if !labels.next()?.eq_ignore_ascii_case("eth") {
+      return None;
+   }
+
+   labels.next().filter(|label| !label.is_empty())
+}
+
+/// When a name's `name ↔ address` binding stops being trustworthy.
+///
+/// A binding may be trusted only while `now < takeover_at`. This is deliberately **not** just
+/// `expires_at`: during the 90-day grace period after expiry nobody can register the name and its
+/// owner cannot even transfer it, so the binding is still the owner's. The takeover window — the
+/// Temporary Premium auction, then open availability — only opens at `expires_at + grace`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NameExpiry {
+   /// Registration end, `BaseRegistrar.nameExpires`.
+   pub expires_at: u64,
+   /// First moment a third party can take the name over: `expires_at + grace period`.
+   pub takeover_at: u64,
+}
+
+impl NameExpiry {
+   /// Is the `name ↔ address` binding still trustworthy at `now`?
+   pub fn is_trusted(&self, now: u64) -> bool {
+      now < self.takeover_at
+   }
+}
+
+sol! {
+   /// ENS `.eth` BaseRegistrar. `alloy-ens` has no registrar binding and only the registrar knows
+   /// when a registration ends.
+   #[sol(rpc)]
+   contract EnsBaseRegistrar {
+      /// Unix timestamp at which the registration of `id` (a label's `keccak256`) ends. `0` when
+      /// the label was never registered.
+      function nameExpires(uint256 id) external view returns (uint256);
+
+      /// Seconds after expiry during which the name cannot be registered by anyone, but its owner
+      /// can still renew it and ownership cannot change.
+      function GRACE_PERIOD() external view returns (uint256);
+   }
+}
+
+/// The `.eth` grace period, read from the registrar once per process and cached.
+///
+/// It is a contract constant (90 days today), so one read is enough; the cache keeps the
+/// per-lookup cost at a single extra `eth_call`. Falls back to [`GRACE_PERIOD_SECS`] if the read
+/// fails, which only shifts the trust window, never inverts it.
+async fn grace_period<P>(client: &P) -> u64
+where
+   P: Provider<Ethereum>,
+{
+   use std::sync::atomic::{AtomicU64, Ordering};
+
+   static CACHE: AtomicU64 = AtomicU64::new(0);
+
+   let cached = CACHE.load(Ordering::Relaxed);
+
+   if cached != 0 {
+      return cached;
+   }
+
+   match EnsBaseRegistrar::new(BASE_REGISTRAR_ADDRESS, client)
+      .GRACE_PERIOD()
+      .call()
+      .await
+   {
+      Ok(seconds) => {
+         let seconds = seconds.to::<u64>();
+         if seconds != 0 {
+            CACHE.store(seconds, Ordering::Relaxed);
+         }
+         seconds
+      }
+      Err(e) => {
+         tracing::warn!("ens: GRACE_PERIOD read failed: {:?}", e);
+         GRACE_PERIOD_SECS
+      }
+   }
+}
+
+/// Read a name's registration expiry, onchain only.
+///
+/// Only registrable `.eth` second-level names have an onchain expiry. For anything else — a
+/// non-`.eth` TLD, bare `eth` — the answer is `Ok(None)`: "no expiry is known", which callers must
+/// treat as *unverifiable*, never as *expired*. A subdomain (`sub.alice.eth`) is bounded by its
+/// registrable parent (`alice.eth`).
+pub async fn name_expiry<P>(
+   client: &P,
+   name: &str,
+) -> Result<Option<NameExpiry>, alloy_ens::EnsError>
+where
+   P: Provider<Ethereum>,
+{
+   let Ok(name) = normalize_name(name) else {
+      return Ok(None);
+   };
+
+   let Some(label) = registrable_label(&name) else {
+      return Ok(None);
+   };
+
+   let labelhash = keccak256(label.as_bytes());
+
+   let expires = EnsBaseRegistrar::new(BASE_REGISTRAR_ADDRESS, client)
+      .nameExpires(U256::from_be_bytes(labelhash.0))
+      .call()
+      .await
+      .map_err(alloy_ens::EnsError::Resolve)?;
+
+   if expires.is_zero() {
+      return Ok(None);
+   }
+
+   let expires_at = expires.to::<u64>();
+   let takeover_at = expires_at.saturating_add(grace_period(client).await);
+
+   Ok(Some(NameExpiry {
+      expires_at,
+      takeover_at,
+   }))
+}
+
+/// Forward resolution plus the name's expiry.
+///
+/// The expiry is best-effort: a failed expiry read degrades to `None` ("unknown"), which callers
+/// treat exactly like a non-`.eth` name, rather than to a wrong *expired* verdict. `Ok(None)`
+/// means "no address", as in [`resolve_name`].
+pub async fn resolve_name_with_expiry<P>(
+   client: &P,
+   name: &str,
+) -> Result<Option<(Address, Option<NameExpiry>)>, alloy_ens::EnsError>
+where
+   P: Provider<Ethereum>,
+{
+   let Some(address) = resolve_name(client, name).await? else {
+      return Ok(None);
+   };
+
+   let expiry = match name_expiry(client, name).await {
+      Ok(expiry) => expiry,
+      Err(e) => {
+         tracing::warn!(
+            "ens: expiry lookup failed for {:?}: {:?}",
+            name,
+            e
+         );
+         None
+      }
+   };
+
+   Ok(Some((address, expiry)))
+}
+
 /// ENSIP-24 data record key holding a chain's ERC-7930 *Interoperable Address*.
 pub const INTEROPERABLE_ADDRESS_KEY: &str = "interoperable-address";
 
@@ -263,6 +448,9 @@ pub struct ChainAddress {
    /// Best effort: a resolver that implements the default substitution itself returns the value
    /// from the per-chain call, so it reports `false` even though the address is the default one.
    pub from_default_evm_record: bool,
+   /// The name's registration expiry. Chain-independent — the same registration whichever coin
+   /// type the address came from. `None` for a name with no onchain expiry (non-`.eth`).
+   pub expiry: Option<NameExpiry>,
 }
 
 /// Resolve a chain label under `on.eth` to its EIP-155 chain id, onchain only.
@@ -346,23 +534,37 @@ where
       return Ok(None);
    };
 
-   if let Some(address) = resolve_evm_coin_type(client, &name, coin_type).await? {
-      return Ok(Some(ChainAddress {
-         address,
-         from_default_evm_record: false,
-      }));
-   }
+   let (address, from_default_evm_record) =
+      match resolve_evm_coin_type(client, &name, coin_type).await? {
+         Some(address) => (address, false),
+         None if coin_type != DEFAULT_EVM_COIN_TYPE => {
+            match resolve_evm_coin_type(client, &name, DEFAULT_EVM_COIN_TYPE).await? {
+               Some(address) => (address, true),
+               None => return Ok(None),
+            }
+         }
+         None => return Ok(None),
+      };
 
-   if coin_type != DEFAULT_EVM_COIN_TYPE
-      && let Some(address) = resolve_evm_coin_type(client, &name, DEFAULT_EVM_COIN_TYPE).await?
-   {
-      return Ok(Some(ChainAddress {
-         address,
-         from_default_evm_record: true,
-      }));
-   }
+   // The name's expiry is orthogonal to the coin type, and best effort like
+   // [`resolve_name_with_expiry`]: a failed read degrades to "unknown", never to "expired".
+   let expiry = match name_expiry(client, &name).await {
+      Ok(expiry) => expiry,
+      Err(e) => {
+         tracing::warn!(
+            "ens: expiry lookup failed for {:?}: {:?}",
+            name,
+            e
+         );
+         None
+      }
+   };
 
-   Ok(None)
+   Ok(Some(ChainAddress {
+      address,
+      from_default_evm_record,
+      expiry,
+   }))
 }
 
 /// `addr(node, coinType)` for an EVM coin type.
@@ -542,5 +744,44 @@ mod tests {
          decode_chain_id(&alloy_primitives::hex::decode("0001000002a4b1").unwrap()).unwrap(),
          42161
       );
+   }
+
+   #[test]
+   fn registrable_label_is_the_second_level_under_eth() {
+      assert_eq!(registrable_label("alice.eth"), Some("alice"));
+      assert_eq!(registrable_label("sub.alice.eth"), Some("alice"));
+      assert_eq!(registrable_label("a.b.alice.eth"), Some("alice"));
+      assert_eq!(registrable_label("alice.xyz"), None);
+      assert_eq!(registrable_label("eth"), None);
+      assert_eq!(registrable_label("alice.eth."), None);
+   }
+
+   /// Pins the registrar ABI against what mainnet answered. `nameExpires` takes the *label's*
+   /// `keccak256`, not the namehash, and its selector is the one the live read used.
+   #[test]
+   fn registrar_calldata_is_pinned() {
+      assert_eq!(
+         EnsBaseRegistrar::nameExpiresCall::SELECTOR,
+         alloy_primitives::hex!("d6e4fa86")
+      );
+
+      // `keccak256("vitalik")` is the token id the registrar answered for vitalik.eth.
+      assert_eq!(
+         keccak256("vitalik").0,
+         alloy_primitives::hex!("af2caa1c2ca1d027f1ac823b529d0a67cd144264b2789fa2ea4d63a67c7103cc")
+      );
+   }
+
+   #[test]
+   fn name_expiry_trusts_through_the_grace_period() {
+      let expiry = NameExpiry {
+         expires_at: 1_000,
+         takeover_at: 1_000 + GRACE_PERIOD_SECS,
+      };
+
+      assert!(expiry.is_trusted(999)); // still registered
+      assert!(expiry.is_trusted(1_000)); // just expired, still in grace
+      assert!(expiry.is_trusted(expiry.takeover_at - 1)); // last second of grace
+      assert!(!expiry.is_trusted(expiry.takeover_at)); // takeover window opens
    }
 }

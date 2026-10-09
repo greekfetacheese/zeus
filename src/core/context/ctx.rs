@@ -1575,9 +1575,14 @@ impl ZeusCtx {
          return false;
       }
 
+      // A reverse label whose binding has lapsed is forgotten and re-resolved once — after its
+      // grace period the name may belong to someone else. Any other address keeps the
+      // once-per-session guard, so an address with no name is never looked up on every frame.
+      let relapsed = self.ens_cache().remove_lapsed(chain, address);
+
       let book = self.address_book();
 
-      if !book.mark_pending(chain, address) {
+      if !relapsed && !book.mark_pending(chain, address) {
          return false;
       }
 
@@ -1617,33 +1622,50 @@ impl ZeusCtx {
 
       // ENS reverse, asked for on mainnet (ENS only exists there). The name goes to the session
       // cache rather than the book: ENS names expire and a reverse record outlives the name it
-      // points at, so a persisted label would outlive the name. See [`EnsCache`].
-      let Some(name) = self.lookup_ens_name(address).await else {
+      // points at, so a persisted label would outlive the name. The cache also refuses a name
+      // whose binding has already lapsed. See [`EnsCache`].
+      let Some((name, takeover_at)) = self.lookup_ens_name(address).await else {
          return false;
       };
 
-      self.ens_cache().insert(chain, address, &name)
+      self.ens_cache().insert(chain, address, &name, takeover_at)
    }
 
-   /// ENS reverse lookup for [`Self::lookup_address_name`].
+   /// ENS reverse lookup for [`Self::lookup_address_name`], with the name's takeover time.
    ///
    /// Onchain only (`zeus_eth::utils::ens` refuses offchain redirects) and mainnet
    /// only. `None` covers every ordinary outcome: mainnet disabled, no RPC
    /// reachable, or the address simply has no primary name — none of them errors.
-   async fn lookup_ens_name(&self, address: Address) -> Option<String> {
+   ///
+   /// The returned `u64` is the name's takeover time (`0` = no onchain expiry known, e.g. a
+   /// non-`.eth` name, or an expiry read that failed). It bounds the label's life in [`EnsCache`]:
+   /// a *reverse* record is owned by the address rather than the name, so it survives the name's
+   /// expiry and would otherwise keep labelling the address forever.
+   async fn lookup_ens_name(&self, address: Address) -> Option<(String, u64)> {
       if self.is_chain_disabled(ENS_CHAIN) {
          return None;
       }
 
       let client = self.get_client(ENS_CHAIN).await.ok()?;
 
-      match zeus_eth::utils::ens::lookup_name(&client, &address).await {
-         Ok(name) => name,
+      let name = match zeus_eth::utils::ens::lookup_name(&client, &address).await {
+         Ok(name) => name?,
          Err(e) => {
             tracing::error!("ENS reverse lookup failed {}", e);
-            None
+            return None;
          }
-      }
+      };
+
+      let takeover_at = match zeus_eth::utils::ens::name_expiry(&client, &name).await {
+         Ok(Some(expiry)) => expiry.takeover_at,
+         Ok(None) => 0,
+         Err(e) => {
+            tracing::warn!("ENS expiry lookup failed for {}: {}", name, e);
+            0
+         }
+      };
+
+      Some((name, takeover_at))
    }
 
    /// Get the V2 pool for the given address

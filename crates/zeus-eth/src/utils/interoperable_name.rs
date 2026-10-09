@@ -386,6 +386,10 @@ pub struct Resolved {
    /// True when the address came from the name's ENSIP-19 *default EVM chain* record instead of a
    /// record set for this chain — a weaker claim the UI should surface.
    pub from_default_evm_record: bool,
+   /// The name's registration expiry, when the address part was a name. Chain-independent: the
+   /// same registration whichever coin type answered. `None` for a raw address, or a name with no
+   /// onchain expiry (non-`.eth`).
+   pub expiry: Option<ens::NameExpiry>,
 }
 
 /// Reject a checksum that does not match the address and chain.
@@ -449,6 +453,7 @@ where
             address: *address,
             chain_id,
             from_default_evm_record: false,
+            expiry: None,
          }))
       }
       AddressPart::Name(name) => {
@@ -464,6 +469,7 @@ where
             address: resolved.address,
             chain_id,
             from_default_evm_record: resolved.from_default_evm_record,
+            expiry: resolved.expiry,
          }))
       }
    }
