@@ -329,37 +329,24 @@ impl ShieldUi {
       !self.self_broadcast && self.bundler_url.trim() != default_bundler_url(chain_id).as_str()
    }
 
-   /// The broadcaster relays the unshield from the user's IP address.
-   fn show_ip_warning(&self, theme: &Theme, chain_id: u64, ui: &mut Ui) {
-      if !self.mode.is_unshield() || self.self_broadcast {
-         return;
-      }
-
-      let (text, color) = if self.uses_custom_bundler(chain_id) {
-         (
-            "Using a custom bundler. Its operator sees your IP address and your unshields.",
-            theme.colors.info,
-         )
+   /// The first tip: the broadcaster relays the unshield from the user's IP address.
+   ///
+   /// This was three lines of panel copy above the amount field, which the form cannot spare — but it
+   /// is standing advice rather than a live verdict, so it belongs with the other tips. It still names
+   /// whichever party actually sees the IP, because "a bundler sees your IP" is the wrong sentence
+   /// when the user is broadcasting from their own wallet, or has pointed the unshield at someone
+   /// else's bundler.
+   fn ip_tip(&self, chain_id: u64) -> &'static str {
+      if self.self_broadcast {
+         "IP address: self-broadcast sends this from your own wallet, so your IP address goes out with \
+          the transaction. Use a VPN, and a machine you do not use for your identified life."
+      } else if self.uses_custom_bundler(chain_id) {
+         "IP address: the bundler set in Broadcast options sees your IP address and your unshields. Use \
+          a VPN, and a machine you do not use for your identified life."
       } else {
-         (
-            "Private broadcast keeps the origin of your funds anonymous, but the bundler still sees your IP address. Point Broadcast options at a bundler you run yourself to keep it private.",
-            theme.colors.text_muted,
-         )
-      };
-
-      let content_width = ui.available_width();
-      ui.vertical(|ui| {
-         ui.set_width(content_width);
-         ui.add(
-            Label::new(
-               RichText::new(text).size(theme.typography.small).color(color),
-               None,
-            )
-            .wrap()
-            .fill_width(true)
-            .interactive(false),
-         );
-      });
+         "IP address: private broadcast hides the origin of your funds, but the bundler still sees your \
+          IP address. Point Broadcast options at a bundler you run yourself, and use a VPN."
+      }
    }
 
    /// Whether the form is pointed at something Zeus refuses to shield.
@@ -434,7 +421,7 @@ impl ShieldUi {
 
          self.broadcast_options(theme, ctx.chain.id(), ui);
 
-         self.privacy_tips(theme, ui);
+         self.privacy_tips(theme, ctx.chain.id(), ui);
 
          let frame = theme.frame1;
 
@@ -501,10 +488,6 @@ impl ShieldUi {
                         }
                      }
                   }
-
-                  ui.add_space(theme.spacing.md);
-
-                  self.show_ip_warning(theme, chain.id(), ui);
 
                   ui.add_space(theme.spacing.md);
 
@@ -1264,10 +1247,12 @@ impl ShieldUi {
    }
 
    /// The habits that outlast any single verdict, in a modal because the form has no room for them.
-   fn privacy_tips(&mut self, theme: &Theme, ui: &mut Ui) {
+   fn privacy_tips(&mut self, theme: &Theme, chain_id: u64, ui: &mut Ui) {
       if !self.privacy_tips_open {
          return;
       }
+
+      let ip_tip = self.ip_tip(chain_id);
 
       let title = RichText::new("Privacy tips")
          .size(theme.typography.large)
@@ -1292,7 +1277,7 @@ impl ShieldUi {
 
             ui.set_width(500.0);
 
-            for tip in PRIVACY_TIPS {
+            for tip in std::iter::once(ip_tip).chain(PRIVACY_TIPS.iter().copied()) {
                ui.add(
                   Label::new(
                      RichText::new(format!("• {tip}"))
@@ -1734,23 +1719,20 @@ impl ShieldUi {
 }
 
 /// The standing advice behind the check's **Privacy tips** modal: the habits that matter more than
-/// any single score.
+/// any single score. The first tip — the IP address — is built by [`ShieldUi::ip_tip`] instead, since
+/// who sees it depends on how the unshield is broadcast.
 ///
 /// Each is the honest answer to something the check cannot measure — an IP address, a bundler's
 /// logs, an exchange's records, the timing of two transactions — which is why they are shown
 /// whether or not the amount looks distinctive.
-const PRIVACY_TIPS: [&str; 5] = [
+const PRIVACY_TIPS: [&str; 4] = [
    "Amount and timing: unshield in smaller amounts, at varied times — not the amount you just \
     shielded, and not the exact sum of a few deposits.",
-   "IP address: broadcast through a bundler you run yourself, and use a VPN. For anything \
-    sensitive, use a machine you do not use for your identified life.",
+   "IP address: broadcast through a bundler you run yourself or use a VPN.",
    "Reads leak too: a public RPC sees which addresses you ask about. Use a private RPC or your own \
     node for the queries that matter.",
    "Recipient: a fresh 0x address that has never held funds — never one used for earlier unshields \
-    or other activity.",
-   "Gas: get it without linking the address. Swap to gas on the fresh address (CoW Swap needs no \
-    gas), or top up privately (smolrefuel, Ambire, Anon). Funding it from your main wallet or an \
-    exchange links it.",
+    or other activity that can link back to you",
 ];
 
 /// Run the check for `key` and publish the verdict if the form still matches it.
@@ -2292,7 +2274,7 @@ mod tests {
       for _ in 0..4 {
          let mut output = ctx.run_ui(input.clone(), |ui| {
             ui.set_max_width(490.0);
-            ui_state.privacy_tips(&theme, ui);
+            ui_state.privacy_tips(&theme, 1, ui);
          });
          output.textures_delta.clear();
          rects.push(ctx.memory(|memory| memory.area_rect(area)));
