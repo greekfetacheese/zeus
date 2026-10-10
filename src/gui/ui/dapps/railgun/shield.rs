@@ -434,6 +434,8 @@ impl ShieldUi {
 
          self.broadcast_options(theme, ctx.chain.id(), ui);
 
+         self.privacy_tips(theme, ui);
+
          let frame = theme.frame1;
 
          // Centred across the panel, but anchored to its top. The card is taller than a 900 px window
@@ -1087,16 +1089,12 @@ impl ShieldUi {
             }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-               let tips_text = if self.privacy_tips_open {
-                  "Hide privacy tips"
-               } else {
-                  "Privacy tips"
-               };
-               let button = Button::new(RichText::new(tips_text).size(theme.typography.normal))
-                  .visuals(theme.button_visuals());
+               let button =
+                  Button::new(RichText::new("Privacy tips").size(theme.typography.normal))
+                     .visuals(theme.button_visuals());
 
                if ui.add(button).clicked() {
-                  self.privacy_tips_open = !self.privacy_tips_open;
+                  self.privacy_tips_open = true;
                }
             });
          });
@@ -1258,12 +1256,48 @@ impl ShieldUi {
                .interactive(false),
             );
          }
+      });
 
-         if self.privacy_tips_open {
+      if let Some(suggested) = apply_suggestion {
+         self.amount_field.amount = NumericValue::format_wei(suggested, decimals).flatten();
+      }
+   }
+
+   /// The habits that outlast any single verdict, in a modal because the form has no room for them.
+   fn privacy_tips(&mut self, theme: &Theme, ui: &mut Ui) {
+      if !self.privacy_tips_open {
+         return;
+      }
+
+      let title = RichText::new("Privacy tips")
+         .size(theme.typography.large)
+         .color(theme.colors.text);
+
+      let id = Id::new("shield_ui_privacy_tips");
+      let mut open = self.privacy_tips_open;
+
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         // A centred header asserts the width it measured last frame as a minimum, so the card needs
+         // an explicit cap or it widens a little every frame.
+         .max_width(560.0)
+         .closable(true)
+         .show(ui.ctx(), |ui| {
+            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
+            ui.spacing_mut().button_padding = theme.button_padding;
+
+            ui.set_width(500.0);
+
             for tip in PRIVACY_TIPS {
                ui.add(
                   Label::new(
-                     RichText::new(tip).size(theme.typography.small).color(theme.colors.text_muted),
+                     RichText::new(format!("• {tip}"))
+                        .size(theme.typography.normal)
+                        .color(theme.colors.text),
                      None,
                   )
                   .wrap()
@@ -1271,12 +1305,10 @@ impl ShieldUi {
                   .interactive(false),
                );
             }
-         }
-      });
+         });
 
-      if let Some(suggested) = apply_suggestion {
-         self.amount_field.amount = NumericValue::format_wei(suggested, decimals).flatten();
-      }
+      // X / Esc / backdrop must stick.
+      self.privacy_tips_open = open;
    }
 
    fn valid_recipient(&self, recipient: &str) -> bool {
@@ -1701,7 +1733,8 @@ impl ShieldUi {
    }
 }
 
-/// The standing advice under the check: the habits that matter more than any score.
+/// The standing advice behind the check's **Privacy tips** modal: the habits that matter more than
+/// any single score.
 ///
 /// Each is the honest answer to something the check cannot measure — an IP address, a bundler's
 /// logs, an exchange's records, the timing of two transactions — which is why they are shown
@@ -2223,6 +2256,63 @@ mod tests {
          NumericValue::parse_to_wei(&text, 18).wei(),
          U256::from(suggestion),
          "and it round-trips back to the amount that was suggested"
+      );
+   }
+
+   /// The tips modal is an overlay, so the form's budget says nothing about it: measure it, and check
+   /// that a centred header does not widen the card frame after frame.
+   #[test]
+   fn the_privacy_tips_modal_fits_and_holds_its_width() {
+      use egui_elements::theme::ThemeKind;
+
+      let theme = Theme::new(ThemeKind::TokyoNight);
+      let mut ui_state = ShieldUi::new();
+      ui_state.set_mode(RailgunMode::Unshield);
+      ui_state.currency = Currency::from(ERC20Token::weth());
+      ui_state.privacy_tips_open = true;
+
+      let ctx = eframe::egui::Context::default();
+      ctx.set_fonts(eframe::egui::FontDefinitions::default());
+      ctx.all_styles_mut(|style| *style = theme.style());
+
+      let input = eframe::egui::RawInput {
+         screen_rect: Some(eframe::egui::Rect::from_min_size(
+            eframe::egui::Pos2::ZERO,
+            vec2(1280.0, 900.0),
+         )),
+         ..Default::default()
+      };
+
+      // The card's Area, as the modal registers it: `elegance_modal_window` salted with the id.
+      let area = eframe::egui::Id::new("elegance_modal_window").with(eframe::egui::Id::new(
+         eframe::egui::Id::new("shield_ui_privacy_tips"),
+      ));
+
+      let mut rects = Vec::new();
+      for _ in 0..4 {
+         let mut output = ctx.run_ui(input.clone(), |ui| {
+            ui.set_max_width(490.0);
+            ui_state.privacy_tips(&theme, ui);
+         });
+         output.textures_delta.clear();
+         rects.push(ctx.memory(|memory| memory.area_rect(area)));
+      }
+
+      let last = rects.last().copied().flatten().expect("the modal's area is registered");
+      assert!(
+         last.height() <= 880.0,
+         "the tips modal is taller than the window: {last:?}"
+      );
+      assert!(
+         last.width() <= 561.0,
+         "the tips modal is wider than its cap: {last:?}"
+      );
+
+      // Flat after the first pass, or the header band is ratcheting the card wider every frame.
+      let warm = rects[1].expect("measured by the second frame");
+      assert!(
+         (last.width() - warm.width()).abs() < 1.0,
+         "the modal's width drifts across frames: {rects:?}"
       );
    }
 
