@@ -23,11 +23,13 @@ use crate::utils::{
 };
 
 pub mod merge_notes;
+pub mod privacy;
 pub mod shield;
 pub mod transfer;
 pub mod unshield;
 
 pub use merge_notes::MergeNotesWindow;
+pub use privacy::{UnshieldPrivacy, assess_unshield};
 pub use shield::{BundlerUrl, RailgunMode, ShieldUi};
 pub use transfer::{private_merge_notes, private_transfer};
 pub use unshield::default_bundler_url;
@@ -40,6 +42,7 @@ pub use unshield::default_bundler_url;
 /// The amount question is answered here too: a fungible token has a quantity the user picks, while an
 /// ERC-721 is exactly one — the token id *is* the asset — so the builders take what this derives rather
 /// than a number each call site invents.
+#[derive(Clone)]
 pub enum RailgunAsset {
    Fungible(Currency),
    Nft(NftToken),

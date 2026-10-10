@@ -19,6 +19,7 @@ use crate::{
    utils::{RT, TimeStamp, write_private_atomic},
 };
 
+use super::privacy::{LARGE_POOL_SHARE, UnshieldPrivacy, assess_unshield};
 use super::{RailgunAsset, SettledOp, expect_single_event, railgun_ready, settle_railgun_op};
 use crate::assets::icons::Icons;
 use crate::gui::{
@@ -45,7 +46,9 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
-use zeus_railgun::{RailgunAddress, rand::SeedableRng, rand_chacha::ChaCha12Rng};
+use zeus_railgun::{
+   RailgunAddress, caip::AssetId, privacy::RiskBand, rand::SeedableRng, rand_chacha::ChaCha12Rng,
+};
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -61,6 +64,27 @@ const BUNDLER_URL_AAD: &[u8] = b"zeus-bundler-url-v1";
 const SELF_BROADCAST_TIP: &str = "Submits the unshield from your public wallet. Breaks anonymity only use if private broadcast is unavailable.";
 const UNWRAP_TO_ETH_TIP: &str =
    "Unwraps WETH to ETH. Useful if the recipient doesn't have native ETH for gas.";
+
+/// How long the amount field is left alone before a privacy check runs.
+///
+/// The check reads the events snapshot and the chain, so it must not run on every keystroke — but it
+/// should land while the user is still deciding, not when they press the button.
+const PRIVACY_CHECK_DELAY: Duration = Duration::from_millis(450);
+
+/// What a privacy verdict belongs to.
+///
+/// A changed input does not make the old verdict stale, it makes it wrong: it would describe a
+/// withdrawal nobody is about to send. So a verdict is only ever shown for the key it was computed
+/// for, and a newer key drops the older answer.
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct PrivacyKey {
+   chain: u64,
+   asset: AssetId,
+   /// What is being moved, as typed: an amount for a fungible token, the count and id for an NFT.
+   amount: String,
+   recipient: Address,
+   owner: Address,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BundlerUrl {
@@ -152,6 +176,15 @@ pub struct ShieldUi {
    open_broadcast_options: bool,
    /// Optional memo for unshield (written on change notes for private history).
    memo: String,
+   /// The privacy check's verdict, and the form inputs it belongs to.
+   privacy: Option<UnshieldPrivacy>,
+   /// The key `privacy` was computed for; also the key whose check is in flight.
+   privacy_key: Option<PrivacyKey>,
+   /// A key waiting out the debounce before it is checked.
+   privacy_pending: Option<(PrivacyKey, Instant)>,
+   privacy_loading: bool,
+   /// Whether the tips list is expanded.
+   privacy_tips_open: bool,
 }
 
 impl ShieldUi {
@@ -177,6 +210,11 @@ impl ShieldUi {
          open_merge_notes: false,
          open_broadcast_options: false,
          memo: String::new(),
+         privacy: None,
+         privacy_key: None,
+         privacy_pending: None,
+         privacy_loading: false,
+         privacy_tips_open: false,
       }
    }
 
@@ -658,6 +696,12 @@ impl ShieldUi {
                      recipient.evm_address
                   };
 
+                  // What this withdrawal reveals, computed off the frame path.
+                  if self.mode.is_unshield() {
+                     self.poll_privacy(chain, owner, &recipient_str, ui);
+                     self.show_privacy_check(theme, ui);
+                  }
+
                   ui.add_space(10.0);
 
                   // The refusal is explained where it happens: right above the button it disables.
@@ -854,6 +898,360 @@ impl ShieldUi {
       }
 
       self.open_broadcast_options = open;
+   }
+
+   /// The asset the form is about to move.
+   fn privacy_asset(&self) -> RailgunAsset {
+      match &self.nft {
+         Some(nft) => RailgunAsset::Nft(nft.clone()),
+         None => RailgunAsset::Fungible(self.currency.clone()),
+      }
+   }
+
+   /// The asset identity the check belongs to.
+   fn privacy_asset_key(&self) -> AssetId {
+      self.privacy_asset().asset_id()
+   }
+
+   /// What is being moved, as typed: the amount for a token, the id and count for an NFT.
+   fn privacy_amount_key(&self) -> String {
+      match &self.nft {
+         Some(nft) => format!(
+            "{}#{}x{}",
+            nft.collection,
+            nft.token_id,
+            self.nft_amount.trim()
+         ),
+         None => self.amount_field.amount.trim().to_string(),
+      }
+   }
+
+   /// The value the check scores, in the asset's own units.
+   ///
+   /// An NFT moves one token and has no amount to be distinctive or to take a share of a pool, so the
+   /// check answers only for the recipient; the number is not consulted.
+   fn privacy_amount_wei(&self) -> U256 {
+      match &self.nft {
+         Some(_) => U256::ZERO,
+         None => NumericValue::parse_to_wei(
+            &self.amount_field.amount,
+            self.currency.decimals(),
+         )
+         .wei(),
+      }
+   }
+
+   /// Forget the verdict — the form no longer describes what it was computed for.
+   fn reset_privacy(&mut self) {
+      self.privacy = None;
+      self.privacy_key = None;
+      self.privacy_pending = None;
+      self.privacy_loading = false;
+   }
+
+   /// The check's key for this form: what a verdict would be about.
+   fn privacy_key(&self, chain: ChainId, owner: Address, recipient: Address) -> PrivacyKey {
+      PrivacyKey {
+         chain: chain.id(),
+         asset: self.privacy_asset_key(),
+         amount: self.privacy_amount_key(),
+         recipient,
+         owner,
+      }
+   }
+
+   /// Run the privacy check once the form's inputs have settled.
+   ///
+   /// The check reads the events snapshot and the chain, so it waits out the debounce rather than
+   /// running on every keystroke, and a newer key always supersedes the one on screen.
+   fn poll_privacy(&mut self, chain: ChainId, owner: Address, recipient: &str, ui: &mut Ui) {
+      let Ok(recipient_address) = Address::from_str(recipient.trim()) else {
+         self.reset_privacy();
+         return;
+      };
+
+      let key = self.privacy_key(chain, owner, recipient_address);
+
+      // Answered, or in flight, for exactly this form: nothing to do.
+      if self.privacy_key.as_ref() == Some(&key) {
+         return;
+      }
+
+      // Nothing to check yet, so nothing to show either.
+      if key.amount.is_empty() {
+         self.reset_privacy();
+         return;
+      }
+
+      match &self.privacy_pending {
+         Some((pending, staged_at)) if pending == &key => {
+            let waited = staged_at.elapsed();
+            if waited < PRIVACY_CHECK_DELAY {
+               // The debounce is a timer: without a repaint the check would wait for the next click.
+               ui.ctx().request_repaint_after(PRIVACY_CHECK_DELAY - waited);
+               return;
+            }
+
+            self.privacy_pending = None;
+            self.privacy_key = Some(key.clone());
+            self.privacy_loading = true;
+            self.privacy = None;
+
+            spawn_privacy_check(
+               key,
+               chain,
+               self.privacy_asset(),
+               self.privacy_amount_wei(),
+               recipient_address,
+               owner,
+            );
+         }
+         _ => {
+            // A different form: the old verdict is wrong rather than stale, so it goes now.
+            self.privacy_pending = Some((key, Instant::now()));
+            self.privacy = None;
+            self.privacy_key = None;
+            self.privacy_loading = true;
+            ui.ctx().request_repaint_after(PRIVACY_CHECK_DELAY);
+         }
+      }
+   }
+
+   /// What this withdrawal reveals, and what to do about it.
+   fn show_privacy_check(&mut self, theme: &Theme, ui: &mut Ui) {
+      if !self.mode.is_unshield() {
+         return;
+      }
+
+      let Some(privacy) = self.privacy.clone() else {
+         if self.privacy_loading {
+            ui.add(
+               Label::new(
+                  RichText::new("Checking what this withdrawal reveals…")
+                     .size(theme.typography.small)
+                     .color(theme.colors.text_muted),
+                  None,
+               )
+               .interactive(false),
+            );
+         }
+         return;
+      };
+
+      let decimals = self.currency.decimals();
+      let symbol = self.currency.symbol().to_string();
+      let inner_frame = theme.frame2;
+      let mut apply_suggestion = None;
+
+      inner_frame.show(ui, |ui| {
+         ui.set_width(ui.available_width());
+         ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+
+         if let Some(advice) = &privacy.amount {
+            let color = match advice.band {
+               RiskBand::Low => theme.colors.text_muted,
+               RiskBand::Medium => theme.colors.text,
+               RiskBand::High => theme.colors.warning,
+               RiskBand::Critical => theme.colors.error,
+            };
+
+            ui.add(
+               Label::new(
+                  RichText::new(format!(
+                     "Amount privacy risk: {}",
+                     advice.band.label()
+                  ))
+                  .size(theme.typography.large)
+                  .color(color),
+                  None,
+               )
+               .interactive(false),
+            );
+
+            let reason = if advice.matches() > 0 {
+               format!(
+                  "{} deposits, or sums of deposits, add up to this amount.",
+                  advice.matches()
+               )
+            } else {
+               "No deposit in the last 180 days adds up to this amount.".to_string()
+            };
+            ui.add(
+               Label::new(
+                  RichText::new(reason)
+                     .size(theme.typography.small)
+                     .color(theme.colors.text_muted),
+                  None,
+               )
+               .wrap()
+               .fill_width(true)
+               .interactive(false),
+            );
+
+            if advice.user.duplicate_shields > 0 {
+               ui.add(
+                  Label::new(
+                     RichText::new(
+                        "You shielded this exact amount — unshielding it again links the two. \
+                         Consider smaller amounts, spread over days.",
+                     )
+                     .size(theme.typography.small)
+                     .color(theme.colors.warning),
+                     None,
+                  )
+                  .wrap()
+                  .fill_width(true)
+                  .interactive(false),
+               );
+            } else if advice.user.withdraws_remainder {
+               ui.add(
+                  Label::new(
+                     RichText::new(
+                        "This is what is left of a deposit you already partly withdrew: the two \
+                         withdrawals add up to it.",
+                     )
+                     .size(theme.typography.small)
+                     .color(theme.colors.warning),
+                     None,
+                  )
+                  .wrap()
+                  .fill_width(true)
+                  .interactive(false),
+               );
+            }
+
+            if let Some(suggestion) = advice.suggestion {
+               let suggested = NumericValue::format_wei(U256::from(suggestion), decimals).flatten();
+               ui.horizontal(|ui| {
+                  ui.add(
+                     Label::new(
+                        RichText::new(format!("Try {suggested} {symbol} instead"))
+                           .size(theme.typography.normal),
+                        None,
+                     )
+                     .interactive(false),
+                  );
+
+                  ui.add_space(8.0);
+
+                  let button = Button::new(RichText::new("Use it").size(theme.typography.normal))
+                     .visuals(theme.button_visuals());
+
+                  if ui.add(button).clicked() {
+                     apply_suggestion = Some(U256::from(suggestion));
+                  }
+               });
+            }
+         }
+
+         if let Some(reason) = &privacy.unavailable {
+            ui.add(
+               Label::new(
+                  RichText::new(format!(
+                     "No privacy check for this withdrawal: {reason}"
+                  ))
+                  .size(theme.typography.small)
+                  .color(theme.colors.text_muted),
+                  None,
+               )
+               .wrap()
+               .fill_width(true)
+               .interactive(false),
+            );
+         }
+
+         if let Some(pool) = &privacy.pool {
+            if pool.is_shallow() {
+               let text = match (pool.usd, pool.share) {
+                  (Some(usd), _) => format!(
+                     "Only ${usd:.0} of {symbol} is shielded pool-wide — there is no crowd here to \
+                      hide in."
+                  ),
+                  (None, _) => format!(
+                     "Zeus cannot value {symbol} on-chain, so how deep its pool is is unknown — \
+                      treat it as thin."
+                  ),
+               };
+               ui.add(
+                  Label::new(
+                     RichText::new(text).size(theme.typography.small).color(theme.colors.warning),
+                     None,
+                  )
+                  .wrap()
+                  .fill_width(true)
+                  .interactive(false),
+               );
+            }
+
+            if let Some(share) = pool.share.filter(|share| *share > LARGE_POOL_SHARE) {
+               ui.add(
+                  Label::new(
+                     RichText::new(format!(
+                        "This withdrawal would take {:.0}% of the entire {symbol} pool.",
+                        share * 100.0
+                     ))
+                     .size(theme.typography.small)
+                     .color(theme.colors.warning),
+                     None,
+                  )
+                  .wrap()
+                  .fill_width(true)
+                  .interactive(false),
+               );
+            }
+         }
+
+         if privacy.recipient.is_reused() {
+            let text = match privacy.recipient.prior_unshields {
+               0 => {
+                  "This address already has on-chain history — unshield to a fresh one.".to_string()
+               }
+               n => format!(
+                  "You have already unshielded to this address {n} time(s); a fresh address is not \
+                   linked to them."
+               ),
+            };
+            ui.add(
+               Label::new(
+                  RichText::new(text).size(theme.typography.small).color(theme.colors.warning),
+                  None,
+               )
+               .wrap()
+               .fill_width(true)
+               .interactive(false),
+            );
+         }
+
+         let tips_text = if self.privacy_tips_open {
+            "Hide privacy tips"
+         } else {
+            "Privacy tips"
+         };
+         let button = Button::new(RichText::new(tips_text).size(theme.typography.normal))
+            .visuals(theme.button_visuals());
+
+         if ui.add(button).clicked() {
+            self.privacy_tips_open = !self.privacy_tips_open;
+         }
+
+         if self.privacy_tips_open {
+            for tip in PRIVACY_TIPS {
+               ui.add(
+                  Label::new(
+                     RichText::new(tip).size(theme.typography.small).color(theme.colors.text_muted),
+                     None,
+                  )
+                  .wrap()
+                  .fill_width(true)
+                  .interactive(false),
+               );
+            }
+         }
+      });
+
+      if let Some(suggested) = apply_suggestion {
+         self.amount_field.amount = NumericValue::format_wei(suggested, decimals).flatten();
+      }
    }
 
    fn valid_recipient(&self, recipient: &str) -> bool {
@@ -1278,6 +1676,52 @@ impl ShieldUi {
    }
 }
 
+/// The standing advice under the check: the habits that matter more than any score.
+///
+/// Each is the honest answer to something the check cannot measure — an IP address, a bundler's
+/// logs, an exchange's records, the timing of two transactions — which is why they are shown
+/// whether or not the amount looks distinctive.
+const PRIVACY_TIPS: [&str; 5] = [
+   "Amount and timing: unshield in smaller amounts, at varied times — not the amount you just \
+    shielded, and not the exact sum of a few deposits.",
+   "IP address: broadcast through a bundler you run yourself, and use a VPN. For anything \
+    sensitive, use a machine you do not use for your identified life.",
+   "Reads leak too: a public RPC sees which addresses you ask about. Use a private RPC or your own \
+    node for the queries that matter.",
+   "Recipient: a fresh 0x address that has never held funds — never one used for earlier unshields \
+    or other activity.",
+   "Gas: get it without linking the address. Swap to gas on the fresh address (CoW Swap needs no \
+    gas), or top up privately (smolrefuel, Ambire, Anon). Funding it from your main wallet or an \
+    exchange links it.",
+];
+
+/// Run the check for `key` and publish the verdict if the form still matches it.
+///
+/// The context is taken inside the task: the frame holds the GUI lock while this is scheduled, and
+/// the verdict is only ever written back for the key that asked for it.
+fn spawn_privacy_check(
+   key: PrivacyKey,
+   chain: ChainId,
+   asset: RailgunAsset,
+   amount_wei: U256,
+   recipient: Address,
+   owner: Address,
+) {
+   RT.spawn(async move {
+      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+      let privacy = assess_unshield(ctx, chain, &asset, amount_wei, recipient, owner).await;
+
+      SHARED_GUI.write(|gui| {
+         // A newer key owns the form now: this verdict describes a withdrawal nobody is sending.
+         if gui.shield_ui.privacy_key.as_ref() == Some(&key) {
+            gui.shield_ui.privacy = Some(privacy);
+            gui.shield_ui.privacy_loading = false;
+         }
+         gui.request_repaint();
+      });
+   });
+}
+
 /// The quantity a selected NFT moves, from the field the user typed in.
 ///
 /// An ERC-721 moves exactly one and has no field, so it is always `Some(1)`. An ERC-1155 moves what was
@@ -1678,6 +2122,82 @@ mod tests {
       assert!(
          ui.mode.is_unshield(),
          "only the asset is forgotten, not the mode"
+      );
+   }
+
+   /// A privacy verdict belongs to the form that asked for it: editing the amount, the token or the
+   /// recipient makes it the answer to another question, and it must not be shown as if it were this
+   /// one's.
+   #[test]
+   fn a_privacy_key_follows_the_form() {
+      let weth = Currency::from(ERC20Token::weth());
+      let owner = Address::from([1u8; 20]);
+      let recipient = Address::from([2u8; 20]);
+      let other_recipient = Address::from([3u8; 20]);
+      let chain = ChainId::new(1).unwrap();
+
+      let mut ui = ShieldUi::new();
+      ui.set_mode(RailgunMode::Unshield);
+      ui.currency = weth.clone();
+      ui.amount_field.amount = "1.5".to_string();
+
+      let key = ui.privacy_key(chain, owner, recipient);
+      assert_eq!(key.asset, AssetId::Erc20(weth.to_erc20().address));
+      assert_eq!(key.chain, 1);
+      assert_eq!(key, ui.privacy_key(chain, owner, recipient));
+
+      // The same form on another chain is another pool.
+      assert_ne!(
+         key,
+         ui.privacy_key(ChainId::new(11155111).unwrap(), owner, recipient)
+      );
+
+      ui.amount_field.amount = "1.6".to_string();
+      assert_ne!(
+         key,
+         ui.privacy_key(chain, owner, recipient),
+         "an edited amount is another withdrawal"
+      );
+
+      ui.amount_field.amount = "1.5".to_string();
+      assert_ne!(
+         key,
+         ui.privacy_key(chain, owner, other_recipient),
+         "another recipient is another withdrawal"
+      );
+      assert_ne!(
+         key,
+         ui.privacy_key(chain, Address::from([4u8; 20]), recipient),
+         "the wallet's own history is part of the question"
+      );
+
+      ui.currency = Currency::from(ERC20Token::usdc());
+      assert_ne!(
+         key,
+         ui.privacy_key(chain, owner, recipient),
+         "another asset is another pool"
+      );
+
+      // Nothing typed yet: the form is not something a check can answer for.
+      let mut ui = ShieldUi::new();
+      ui.set_mode(RailgunMode::Unshield);
+      ui.currency = weth;
+      assert!(ui.privacy_key(chain, owner, recipient).amount.is_empty());
+   }
+
+   /// What "Use it" writes into the amount field is the suggestion as a plain decimal, which is what
+   /// the field — and `parse_to_wei` — reads back.
+   #[test]
+   fn a_suggestion_is_written_as_a_plain_amount() {
+      let suggestion = 1_020_000_000_000_000_000u128;
+
+      let text = NumericValue::format_wei(U256::from(suggestion), 18).flatten();
+
+      assert_eq!(text, "1.02");
+      assert_eq!(
+         NumericValue::parse_to_wei(&text, 18).wei(),
+         U256::from(suggestion),
+         "and it round-trips back to the amount that was suggested"
       );
    }
 }

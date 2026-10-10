@@ -403,6 +403,11 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
    /// `(asset, snapshot tip)`, which is what the unshield privacy check runs against on every
    /// keystroke. Only the snapshot is consulted: blocks above its tip are not fetched here, so a
    /// caller that needs them must extend the window (and say so in its own copy).
+   ///
+   /// The window decides what is read and what belongs; the cache is keyed by the tip alone, so a
+   /// caller must ask the same question of a given tip. Drift of minutes at the far edge of a
+   /// 180-day window is immaterial — the deposits it would move are a handful — while a moved tip
+   /// always rebuilds.
    pub async fn shield_activity(
       &self,
       asset: AssetId,
