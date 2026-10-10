@@ -137,9 +137,11 @@ impl SignMsgWindow {
                   let msg = msg.unwrap();
 
                   frame2.show(ui, |ui| {
-                     ui.label(RichText::new(&self.dapp).size(large));
+                     if !self.dapp.is_empty() {
+                        ui.label(RichText::new(&self.dapp).size(large));
 
-                     ui.separator();
+                        ui.separator();
+                     }
 
                      // The signing account may differ from the active one (apps get
                      // their own account), so always show which account signs. This is
