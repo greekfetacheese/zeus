@@ -19,7 +19,9 @@ use crate::{
    utils::{RT, TimeStamp, write_private_atomic},
 };
 
-use super::privacy::{LARGE_POOL_SHARE, UnshieldPrivacy, assess_unshield};
+use super::privacy::{
+   LARGE_POOL_SHARE, MIN_POOL_DEPOSITS, RecipientLink, UnshieldPrivacy, assess_unshield,
+};
 use super::{RailgunAsset, SettledOp, expect_single_event, railgun_ready, settle_railgun_op};
 use crate::assets::icons::Icons;
 use crate::gui::{
@@ -1083,17 +1085,21 @@ impl ShieldUi {
          });
 
          if let Some(advice) = &privacy.amount {
-            let reason = format!(
-               "{}{as_of}",
-               if advice.matches() > 0 {
-                  format!(
-                     "{} deposits, or sums of deposits, add up to this amount.",
-                     advice.matches()
-                  )
-               } else {
-                  "No deposit in the last 180 days adds up to this amount.".to_string()
-               }
-            );
+            // Exact matches are only half of the picture: an amount that nothing adds up to can
+            // still be the only one of its size, which fingerprints it just as well. Both numbers go
+            // out, so the sentence never reads as reassurance on the strength of the match count.
+            let near = advice.crowding.within_ten_percent;
+            let reason = match (advice.matches(), near) {
+               (0, 0) => "Nothing in the last 180 days adds up to this size, or even comes within 10%                           of it — a size nobody else uses stands out."
+                  .to_string(),
+               (0, near) => format!(
+                  "Nothing adds up to this size exactly, and {near} deposits are within 10% of it."
+               ),
+               (matches, near) => format!(
+                  "{matches} deposits, or sums of them, add up to the size this will record                    on-chain; {near} deposits are within 10% of it."
+               ),
+            };
+            let reason = format!("{reason}{as_of}");
             ui.add(
                Label::new(
                   RichText::new(reason)
@@ -1180,12 +1186,17 @@ impl ShieldUi {
 
          if let Some(pool) = &privacy.pool {
             if pool.is_shallow() {
-               let text = match (pool.usd, pool.share) {
-                  (Some(usd), _) => format!(
+               let text = match (pool.deposits, pool.usd, pool.share) {
+                  // Too few deposits to judge a size against, whatever the value says.
+                  (Some(deposits), _, _) if deposits < MIN_POOL_DEPOSITS => format!(
+                     "Only {deposits} deposits of {symbol} in the last 180 days — too little traffic \
+                      to judge a size against."
+                  ),
+                  (_, Some(usd), _) => format!(
                      "Only ${usd:.0} of {symbol} is shielded pool-wide — there is no crowd here to \
                       hide in."
                   ),
-                  (None, _) => format!(
+                  (_, None, _) => format!(
                      "Zeus cannot value {symbol} on-chain, so how deep its pool is is unknown — \
                       treat it as thin."
                   ),
@@ -1201,7 +1212,13 @@ impl ShieldUi {
                );
             }
 
-            if let Some(share) = pool.share.filter(|share| *share > LARGE_POOL_SHARE) {
+            // Only when the pool is otherwise fine: a shallow pool has just said so, and the share of
+            // it tells that reader nothing new.
+            if let Some(share) = pool
+               .share
+               .filter(|share| *share > LARGE_POOL_SHARE)
+               .filter(|_| !pool.is_shallow())
+            {
                ui.add(
                   Label::new(
                      RichText::new(format!(
@@ -1219,24 +1236,37 @@ impl ShieldUi {
             }
          }
 
-         if privacy.recipient.is_reused() {
-            let text = match privacy.recipient.prior_unshields {
-               0 => {
-                  "This address already has on-chain history — unshield to a fresh one.".to_string()
-               }
-               n => format!(
-                  "You have already unshielded to this address {n} time(s); a fresh address is not \
-                   linked to them."
+         // On-chain history on its own is not a link — plenty of addresses have paid gas once — so
+         // only a tie back to this wallet is reported, and only the loudest one of those.
+         let link = match privacy.recipient.link() {
+            Some(RecipientLink::OwnWallet) => Some((
+               theme.colors.error,
+               "This is one of your own addresses: the withdrawal lands where your deposits can be \
+                tied to you. Send it somewhere with no connection to this wallet."
+                  .to_string(),
+            )),
+            Some(RecipientLink::Transacted) => Some((
+               theme.colors.warning,
+               "You have transacted with this address before, so it can be tied back to you — a \
+                fresh address cannot."
+                  .to_string(),
+            )),
+            Some(RecipientLink::PriorUnshields(times)) => Some((
+               theme.colors.warning,
+               format!(
+                  "You have already unshielded to this address {times} time(s); a fresh address is \
+                   not linked to them."
                ),
-            };
+            )),
+            None => None,
+         };
+
+         if let Some((color, text)) = link {
             ui.add(
-               Label::new(
-                  RichText::new(text).size(theme.typography.small).color(theme.colors.warning),
-                  None,
-               )
-               .wrap()
-               .fill_width(true)
-               .interactive(false),
+               Label::new(RichText::new(text).size(theme.typography.small).color(color), None)
+                  .wrap()
+                  .fill_width(true)
+                  .interactive(false),
             );
          }
       });
@@ -2306,40 +2336,12 @@ mod tests {
    ///
    /// State is what the reported screenshot showed: a `Low` amount with nothing matching, no
    /// suggestion, no pool warning, and a recipient with history.
-   #[test]
-   fn the_check_block_fits_its_height_budget() {
-      use egui_elements::theme::ThemeKind;
-      use zeus_railgun::privacy::{MatchSets, RiskBand, UnshieldAmountAdvice, UserExposure};
-
-      use super::super::privacy::RecipientAdvice;
-      use super::UnshieldPrivacy;
-
-      let theme = Theme::new(ThemeKind::TokyoNight);
+   /// Render the check block headlessly and report the height it took.
+   fn check_block_height(theme: &Theme, privacy: UnshieldPrivacy) -> f32 {
       let mut ui_state = ShieldUi::new();
       ui_state.set_mode(RailgunMode::Unshield);
       ui_state.currency = Currency::from(ERC20Token::weth());
-      ui_state.privacy = Some(UnshieldPrivacy {
-         checked_block: 26_133_618,
-         amount: Some(UnshieldAmountAdvice {
-            score: 5,
-            amount_score: 5,
-            band: RiskBand::Low,
-            pool_size: 9_184,
-            matches_by_size: [0, 0, 0],
-            sets: MatchSets::default(),
-            suggestion: None,
-            user: UserExposure {
-               duplicate_shields: 0,
-               withdraws_remainder: false,
-            },
-         }),
-         unavailable: None,
-         pool: None,
-         recipient: RecipientAdvice {
-            fresh: Some(false),
-            prior_unshields: 0,
-         },
-      });
+      ui_state.privacy = Some(privacy);
 
       let ctx = eframe::egui::Context::default();
       ctx.set_fonts(eframe::egui::FontDefinitions::default());
@@ -2357,16 +2359,111 @@ mod tests {
       let mut output = ctx.run_ui(input, |ui| {
          // The card's inner width in the running app (card ~520 px wide, minus its padding).
          ui.set_max_width(490.0);
-         let block = ui.vertical(|ui| ui_state.show_privacy_check(&theme, ui));
+         let block = ui.vertical(|ui| ui_state.show_privacy_check(theme, ui));
          height = block.response.rect.height();
       });
 
       // The probe paints into no window, so the texture uploads have nowhere to go.
       output.textures_delta.clear();
 
-      assert!(
-         height <= 130.0,
-         "the check block grew to {height:.1} px; the Unshield form has no room for another row"
-      );
+      height
+   }
+
+   /// The check block sits directly above the action button in a form with no scroll area, so every
+   /// row it draws is a row the button loses.
+   ///
+   /// Both ends are measured: the state the form usually shows — a low-risk amount with nothing
+   /// matching it, and an address whose only sin is history, which is now silent — and the loudest
+   /// block it can ever draw, where every warning fires at once.
+   #[test]
+   fn the_check_block_fits_its_height_budget() {
+      use egui_elements::theme::ThemeKind;
+      use zeus_railgun::privacy::{
+         Crowding, MatchSets, RiskBand, UnshieldAmountAdvice, UserExposure,
+      };
+
+      use super::super::privacy::{PoolDepth, RecipientAdvice};
+      use super::UnshieldPrivacy;
+
+      let theme = Theme::new(ThemeKind::TokyoNight);
+
+      let advice =
+         |band, score, matches_by_size, crowding, suggestion, user| UnshieldAmountAdvice {
+            score,
+            amount_score: score,
+            band,
+            pool_size: 9_184,
+            matches_by_size,
+            sets: MatchSets::default(),
+            crowding,
+            suggestion,
+            user,
+         };
+
+      let quiet = UnshieldPrivacy {
+         checked_block: 26_133_618,
+         amount: Some(advice(
+            RiskBand::Low,
+            5,
+            [0, 0, 0],
+            Crowding::default(),
+            None,
+            UserExposure {
+               duplicate_shields: 0,
+               withdraws_remainder: false,
+            },
+         )),
+         unavailable: None,
+         pool: None,
+         recipient: RecipientAdvice {
+            fresh: Some(false),
+            ..RecipientAdvice::default()
+         },
+      };
+
+      let loudest = UnshieldPrivacy {
+         checked_block: 26_133_618,
+         amount: Some(advice(
+            RiskBand::Critical,
+            97,
+            [4, 548, 37_692],
+            Crowding {
+               within_one_percent: 36,
+               within_ten_percent: 41,
+            },
+            Some(90_000_000_000_000_000),
+            UserExposure {
+               duplicate_shields: 1,
+               withdraws_remainder: true,
+            },
+         )),
+         unavailable: None,
+         pool: Some(PoolDepth {
+            balance_wei: U256::from(1_000u64),
+            usd: Some(500.0),
+            share: Some(0.4),
+            deposits: Some(900),
+         }),
+         recipient: RecipientAdvice {
+            fresh: Some(false),
+            is_own_wallet: true,
+            transacted_with: true,
+            prior_unshields: 3,
+         },
+      };
+
+      // Measured: 97 px quiet, 245 px loudest. The card is top-anchored and the block sits directly
+      // above a 45 px button, so the budgets are the room it has: the block cleared the bottom edge by
+      // ~120 px at 105 px tall (with the header reserve at 100), and moving the IP notice into the
+      // tips bought another ~58 px — hence ~260 px for the worst case, with the quiet case left at the
+      // 130 px it was already held to.
+      for (name, privacy, budget) in [("quiet", quiet, 130.0), ("loudest", loudest, 260.0)] {
+         let height = check_block_height(&theme, privacy);
+         assert!(
+            height <= budget,
+            "the {name} check block is {height:.1} px, over its {budget:.0} px budget: the Unshield \
+             form has no room for another row"
+         );
+      }
    }
 }
