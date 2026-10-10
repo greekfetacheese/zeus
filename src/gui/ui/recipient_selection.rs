@@ -373,12 +373,10 @@ impl RecipientSelectionWindow {
                // The QR button sits on the field's row, so its width is reserved
                // out of the text area.
                let reserve = SEARCH_ICON + 2.0 * theme.button_padding.x + theme.spacing.md;
+               let min_width = (ui.available_width() * 0.7) - reserve;
 
                self.search_field.set_hint_text(hint);
-               self.search_field.set_min_size(vec2(
-                  (ui.available_width() - reserve).max(120.0),
-                  25.0,
-               ));
+               self.search_field.set_min_size(vec2(min_width.max(120.0), 25.0));
                self.search_field.show(ui);
 
                ui.add_space(15.0);
