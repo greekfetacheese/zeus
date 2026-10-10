@@ -33,7 +33,7 @@ pub const RESERVE: f32 = 200.0;
 /// A warning or a status pill still sizes the panel by its own content either way.
 pub fn reserve(gui: &GUI) -> f32 {
    if gui.shield_ui.is_open() {
-      0.0
+      100.0
    } else {
       RESERVE
    }
