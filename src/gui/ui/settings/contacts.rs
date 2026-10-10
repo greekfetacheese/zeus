@@ -7,13 +7,18 @@ use crate::utils::RT;
 use egui::{
    Align, FontId, Frame, Layout, Margin, OpenUrl, RichText, ScrollArea, Spinner, Ui, vec2,
 };
-use egui_elements::{Button, Label, QrImage, SecureTextEdit, Theme, components::QrEncoding};
+use egui_elements::{
+   Button, InputField, Label, QrImage, SecureTextEdit, Theme, components::QrEncoding,
+};
 use elegance::{Menu, MenuItem};
 use std::str::FromStr;
 use zeus_eth::alloy_primitives::Address;
 use zeus_railgun::RailgunAddress;
 
 const QR_IMAGE_SIZE: u32 = 250;
+
+/// Display size of an address field's QR icon.
+const FIELD_ICON: f32 = 18.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ContactsPageView {
@@ -27,6 +32,11 @@ enum ContactsPageView {
 pub struct AddContact {
    contact: Contact,
    contact_added: bool,
+   /// Public (EVM) address. It owns its text and its QR scanner, so it lives here
+   /// instead of being rebuilt every frame.
+   evm_field: InputField,
+   /// Railgun (zk) address.
+   zk_field: InputField,
 }
 
 impl AddContact {
@@ -34,6 +44,8 @@ impl AddContact {
       Self {
          contact: Contact::default(),
          contact_added: false,
+         evm_field: InputField::new("Public Address", true).icon_size(vec2(FIELD_ICON, FIELD_ICON)),
+         zk_field: InputField::new("Railgun Address", true).icon_size(vec2(FIELD_ICON, FIELD_ICON)),
       }
    }
 
@@ -44,6 +56,15 @@ impl AddContact {
    pub fn reset(&mut self) {
       self.contact_added = false;
       self.contact = Contact::default();
+      self.evm_field.erase();
+      self.zk_field.erase();
+      self.close_qr_scanners();
+   }
+
+   /// Stop a QR overlay opened from either address field.
+   fn close_qr_scanners(&mut self) {
+      self.evm_field.close_qr_scanner();
+      self.zk_field.close_qr_scanner();
    }
 
    pub fn get_contact(&self) -> &Contact {
@@ -69,25 +90,13 @@ impl AddContact {
                .font(FontId::proportional(theme.typography.normal)),
          );
 
-         ui.label(RichText::new("Public Address").size(theme.typography.large));
-         let address = &mut self.contact.evm_address;
-         ui.add(
-            SecureTextEdit::singleline(address)
-               .visuals(text_edit_visuals)
-               .min_size(text_edit_size)
-               .margin(Margin::same(10))
-               .font(FontId::proportional(theme.typography.normal)),
-         );
+         // The address fields label themselves and own their text — and their QR
+         // scanner — so the contact is filled in from them on submit.
+         self.evm_field.set_min_size(text_edit_size);
+         self.evm_field.show(ui);
 
-         ui.label(RichText::new("Railgun Address").size(theme.typography.large));
-         let address = &mut self.contact.zk_address;
-         ui.add(
-            SecureTextEdit::singleline(address)
-               .visuals(text_edit_visuals)
-               .min_size(text_edit_size)
-               .margin(Margin::same(10))
-               .font(FontId::proportional(theme.typography.normal)),
-         );
+         self.zk_field.set_min_size(text_edit_size);
+         self.zk_field.show(ui);
 
          let text = RichText::new("Add").size(theme.typography.large);
          let size = vec2(100.0, 25.0);
@@ -96,6 +105,8 @@ impl AddContact {
       });
 
       if res.inner.clicked() {
+         self.contact.evm_address = self.evm_field.text().to_owned();
+         self.contact.zk_address = self.zk_field.text().to_owned();
          on_add_contact(self.contact.clone(), reset_on_success);
       }
    }
@@ -202,6 +213,11 @@ impl DeleteContact {
 struct EditContact {
    contact_to_edit: Contact,
    old_contact: Contact,
+   /// Public (EVM) address. It owns its text and its QR scanner, so it lives here
+   /// instead of being rebuilt every frame.
+   evm_field: InputField,
+   /// Railgun (zk) address.
+   zk_field: InputField,
 }
 
 impl EditContact {
@@ -209,7 +225,24 @@ impl EditContact {
       Self {
          contact_to_edit: Contact::default(),
          old_contact: Contact::default(),
+         evm_field: InputField::new("Address:", true).icon_size(vec2(FIELD_ICON, FIELD_ICON)),
+         zk_field: InputField::new("Railgun Address:", true)
+            .icon_size(vec2(FIELD_ICON, FIELD_ICON)),
       }
+   }
+
+   /// Start editing `contact`: remember it and load its addresses into the fields.
+   fn begin(&mut self, contact: Contact) {
+      self.evm_field.set_text(&contact.evm_address);
+      self.zk_field.set_text(&contact.zk_address);
+      self.old_contact = contact.clone();
+      self.contact_to_edit = contact;
+   }
+
+   /// Stop a QR overlay opened from either address field.
+   fn close_qr_scanners(&mut self) {
+      self.evm_field.close_qr_scanner();
+      self.zk_field.close_qr_scanner();
    }
 
    fn body(&mut self, theme: &Theme, ui: &mut Ui) {
@@ -233,28 +266,15 @@ impl EditContact {
                .font(FontId::proportional(theme.typography.normal)),
          );
 
-         ui.label(RichText::new("Address:").size(theme.typography.large));
-         let address = &mut contact.evm_address;
+         self.contact_to_edit = contact;
 
-         ui.add(
-            SecureTextEdit::singleline(address)
-               .visuals(text_edit_visuals)
-               .min_size(text_edit_size)
-               .margin(Margin::same(10))
-               .font(FontId::proportional(theme.typography.normal)),
-         );
+         // The address fields label themselves and own their text — and their QR
+         // scanner — so the contact is filled in from them on save.
+         self.evm_field.set_min_size(text_edit_size);
+         self.evm_field.show(ui);
 
-         ui.label(RichText::new("Railgun Address:").size(theme.typography.large));
-         let address = &mut contact.zk_address;
-         ui.add(
-            SecureTextEdit::singleline(address)
-               .visuals(text_edit_visuals)
-               .min_size(text_edit_size)
-               .margin(Margin::same(10))
-               .font(FontId::proportional(theme.typography.normal)),
-         );
-
-         self.contact_to_edit = contact.clone();
+         self.zk_field.set_min_size(text_edit_size);
+         self.zk_field.show(ui);
 
          let text = RichText::new("Save").size(theme.typography.large);
          let size = vec2(100.0, 25.0);
@@ -264,6 +284,8 @@ impl EditContact {
       });
 
       if res.inner.clicked() {
+         self.contact_to_edit.evm_address = self.evm_field.text().to_owned();
+         self.contact_to_edit.zk_address = self.zk_field.text().to_owned();
          on_edit_contact(
             self.old_contact.clone(),
             self.contact_to_edit.clone(),
@@ -392,10 +414,30 @@ impl ContactsUi {
       }
       self.view = ContactsPageView::List;
       self.search_query.clear();
+      self.close_qr_scanners();
+   }
+
+   /// Stop a QR overlay opened from an address field.
+   ///
+   /// The add/edit forms draw their fields only on their own view, and a scanner
+   /// keeps its capture worker alive while an overlay is open, so a scanner left
+   /// open when the fields stop being drawn has to be stopped here.
+   pub fn close_qr_scanners(&mut self) {
+      self.add_contact.close_qr_scanners();
+      self.edit_contact.close_qr_scanners();
    }
 
    pub fn show_page(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       let view = self.view;
+
+      // The inactive view's fields are not drawn, so its scanner must not be left
+      // capturing (e.g. the user hit Back with the QR overlay still open).
+      if view != ContactsPageView::Add {
+         self.add_contact.close_qr_scanners();
+      }
+      if view != ContactsPageView::Edit {
+         self.edit_contact.close_qr_scanners();
+      }
 
       show_with_fade(
          ui,
@@ -563,8 +605,7 @@ impl ContactsUi {
                Menu::new(id).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("Edit")).clicked() {
                      self.view = ContactsPageView::Edit;
-                     self.edit_contact.contact_to_edit = contact.clone();
-                     self.edit_contact.old_contact = contact.clone();
+                     self.edit_contact.begin(contact.clone());
                   }
 
                   if ui.add(MenuItem::new("Delete")).clicked() {

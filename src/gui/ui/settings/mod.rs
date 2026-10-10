@@ -138,6 +138,10 @@ impl SettingsUi {
       if page == SettingsPage::Railgun {
          self.railgun.sync_from_ctx(ctx);
       }
+      if self.page == SettingsPage::Contacts && page != SettingsPage::Contacts {
+         // Leaving the page stops drawing the address fields; stop their scanners.
+         self.contacts_ui.close_qr_scanners();
+      }
       self.page = page;
    }
 
