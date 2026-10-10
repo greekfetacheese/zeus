@@ -10,10 +10,9 @@ use crate::gui::ui::common::switch_chain;
 use crate::gui::ui::{ContactsUi, WalletListByValue};
 use crate::utils::{RT, TimeStamp};
 use eframe::egui::{
-   Align, FontId, Id, Layout, Margin, Order, RichText, ScrollArea, Sense, Spinner, TextWrapMode,
-   Ui, vec2,
+   Align, Id, Layout, Margin, Order, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, vec2,
 };
-use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme, utils::frame as frame_fn};
+use egui_elements::{Button, InputField, Label, Modal, Theme, utils::frame as frame_fn};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -64,16 +63,22 @@ enum UnknownRecipient {
 /// RPC round-trip, so it waits for the typing to stop.
 const ENS_LOOKUP_DEBOUNCE_MILLIS: u64 = 400;
 
+/// Size of the QR icon on the recipient search field's row.
+const SEARCH_ICON: f32 = 18.0;
+
 pub struct RecipientSelectionWindow {
    open: bool,
    loading: bool,
    contacts_tab_open: bool,
    wallets_tab_open: bool,
    pub recipient: Recipient,
-   search_query: String,
+   /// The search field owns its text and its QR scanner, so it is kept here
+   /// instead of being rebuilt every frame — the scanner's state has to survive
+   /// across frames for a scan to land.
+   search_field: InputField,
    /// Result of async search-bar address parsing (unknown recipient suggestion).
    unknown_recipient: Option<UnknownRecipient>,
-   /// `search_query` the current `unknown_recipient` / in-flight parse is for.
+   /// The search query the current `unknown_recipient` / in-flight parse is for.
    unknown_recipient_query: String,
    /// Privacy mode used for the current parse / cache entry.
    unknown_recipient_privacy: bool,
@@ -103,7 +108,9 @@ impl RecipientSelectionWindow {
          contacts_tab_open: true,
          wallets_tab_open: false,
          recipient: Recipient::default(),
-         search_query: String::new(),
+         search_field: InputField::new("", true)
+            .icon_size(vec2(SEARCH_ICON, SEARCH_ICON))
+            .inner_margin(Margin::same(10)),
          unknown_recipient: None,
          unknown_recipient_query: String::new(),
          unknown_recipient_privacy: false,
@@ -144,16 +151,20 @@ impl RecipientSelectionWindow {
    }
 
    pub fn close(&mut self) {
-      self.search_query.clear();
+      self.search_field.erase();
       self.open = false;
       self.adding_contact = false;
+      // The search field is about to stop being drawn, so stop an open QR
+      // overlay — its capture worker must not outlive the field.
+      self.search_field.close_qr_scanner();
    }
 
    pub fn reset(&mut self) {
       self.recipient = Recipient::default();
-      self.search_query.clear();
+      self.search_field.erase();
       self.clear_unknown_recipient_cache();
       self.adding_contact = false;
+      self.search_field.close_qr_scanner();
    }
 
    fn clear_unknown_recipient_cache(&mut self) {
@@ -169,17 +180,19 @@ impl RecipientSelectionWindow {
    /// Returns how long to wait before calling this again while an ENS lookup is
    /// sitting out its debounce window; `None` when nothing is pending.
    fn update_unknown_recipient_parse(&mut self, privacy_mode: bool) -> Option<Duration> {
-      if self.search_query.is_empty() {
+      let query = self.search_field.text().to_owned();
+
+      if query.is_empty() {
          self.clear_unknown_recipient_cache();
          return None;
       }
 
-      let query_changed = self.unknown_recipient_query != self.search_query;
+      let query_changed = self.unknown_recipient_query != query;
       let privacy_changed = self.unknown_recipient_privacy != privacy_mode;
 
       if query_changed || privacy_changed {
          self.unknown_recipient = None;
-         self.unknown_recipient_query = self.search_query.clone();
+         self.unknown_recipient_query = query.clone();
          self.unknown_recipient_privacy = privacy_mode;
          self.parsing_unknown_recipient = false;
          self.ens_lookup_due_at = 0;
@@ -191,7 +204,7 @@ impl RecipientSelectionWindow {
 
       // A name costs an RPC round-trip, so the lookup waits for the typing to stop.
       // Address / 0zk parsing stays immediate — it is local.
-      if needs_name_lookup(&self.search_query, privacy_mode) {
+      if needs_name_lookup(&query, privacy_mode) {
          if self.ens_lookup_due_at == 0 {
             self.ens_lookup_due_at = TimeStamp::now_as_millis().unwrap_or_default().timestamp()
                + ENS_LOOKUP_DEBOUNCE_MILLIS;
@@ -208,7 +221,6 @@ impl RecipientSelectionWindow {
       self.ens_lookup_due_at = 0;
       self.parsing_unknown_recipient = true;
 
-      let query = self.search_query.clone();
       RT.spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let result = parse_unknown_recipient(ctx, &query, privacy_mode);
@@ -307,7 +319,6 @@ impl RecipientSelectionWindow {
             ui.spacing_mut().button_padding = theme.button_padding;
             let size = vec2(ui.available_width() * 0.4, 45.0);
             let button_visuals = theme.button_visuals();
-            let text_edit_visuals = theme.text_edit_visuals();
 
             if self.adding_contact {
                let text = RichText::new("Back").size(theme.typography.normal);
@@ -342,6 +353,8 @@ impl RecipientSelectionWindow {
 
                if ui.add(add_contact).clicked() {
                   self.adding_contact = true;
+                  // The search field — and its QR overlay — is replaced by the form.
+                  self.search_field.close_qr_scanner();
                }
 
                ui.add_space(15.0);
@@ -351,19 +364,22 @@ impl RecipientSelectionWindow {
                   true => "Search contacts or enter a zk address",
                };
 
-               // Search bar
+               // Search bar — the stored `InputField` owns its text and its QR
+               // scanner, so a decode survives across frames.
                let hint = RichText::new(hint_text)
                   .size(theme.typography.normal)
                   .color(theme.colors.text_muted);
 
-               ui.add(
-                  SecureTextEdit::singleline(&mut self.search_query)
-                     .visuals(text_edit_visuals)
-                     .hint_text(hint)
-                     .min_size(vec2(ui.available_width() * 0.80, 25.0))
-                     .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.typography.normal)),
-               );
+               // The QR button sits on the field's row, so its width is reserved
+               // out of the text area.
+               let reserve = SEARCH_ICON + 2.0 * theme.button_padding.x + theme.spacing.md;
+
+               self.search_field.set_hint_text(hint);
+               self.search_field.set_min_size(vec2(
+                  (ui.available_width() - reserve).max(120.0),
+                  25.0,
+               ));
+               self.search_field.show(ui);
 
                ui.add_space(15.0);
 
@@ -669,7 +685,7 @@ impl RecipientSelectionWindow {
       let contacts = ctx.read_wallet_state(|ws| ws.contacts.clone());
       let are_valid_contacts = contacts
          .iter()
-         .any(|c| valid_contact_search(c, privacy_mode, &self.search_query));
+         .any(|c| valid_contact_search(c, privacy_mode, self.search_field.text()));
 
       ScrollArea::vertical()
          .id_salt("contact_tabs_scroll")
@@ -700,7 +716,7 @@ impl RecipientSelectionWindow {
       let visuals = theme.visuals.frame1_visuals;
 
       for contact in &contacts {
-         let valid_search = valid_contact_search(contact, privacy_mode, &self.search_query);
+         let valid_search = valid_contact_search(contact, privacy_mode, self.search_field.text());
 
          let address = match privacy_mode {
             false => contact.evm_address.clone(),
@@ -755,7 +771,9 @@ impl RecipientSelectionWindow {
    ) {
       let wallets = &self.wallets;
       let are_valid_wallets = !wallets.is_empty()
-         && wallets.iter().any(|w| valid_wallet_search(w, privacy_mode, &self.search_query));
+         && wallets
+            .iter()
+            .any(|w| valid_wallet_search(w, privacy_mode, self.search_field.text()));
 
       ScrollArea::vertical()
          .id_salt("wallets_tabs_scroll")
@@ -786,7 +804,7 @@ impl RecipientSelectionWindow {
       let wallets = &self.wallets;
 
       for wallet in wallets {
-         let valid_search = valid_wallet_search(wallet, privacy_mode, &self.search_query);
+         let valid_search = valid_wallet_search(wallet, privacy_mode, self.search_field.text());
 
          // Wallet value across all chains
          let value = self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
