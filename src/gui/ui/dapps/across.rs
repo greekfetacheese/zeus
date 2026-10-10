@@ -12,7 +12,7 @@ use crate::gui::{
    SHARED_GUI,
    ui::{
       ChainSelect, ContactsUi, RecipientSelectionWindow,
-      common::{AmountField, AmountFieldParams},
+      common::{AmountField, AmountFieldParams, recipient_field},
       show_with_fade,
    },
 };
@@ -21,8 +21,8 @@ use crate::utils::{
 };
 use anyhow::anyhow;
 use egui::{
-   Align, CornerRadius, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText, Sense,
-   Slider, Spinner, Ui, vec2,
+   Align, CornerRadius, CursorIcon, FontId, Layout, Margin, Order, RichText, Slider, Spinner, Ui,
+   vec2,
 };
 use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme, visuals::ButtonVisuals};
 use egui_lucide::Lucide;
@@ -267,19 +267,9 @@ impl AcrossBridge {
          }
 
          // The recipient lands on the bridge's *destination* chain, not the active one, so a
-         // chain-specific recipient has to agree with `to_chain`.
+         // chain-specific recipient has to agree with `to_chain`. The picker is drawn with the
+         // rest of the form, below.
          let send_chain = self.to_chain.chain.id();
-
-         recipient_selection.show(
-            ctx,
-            theme,
-            icons.clone(),
-            false,
-            send_chain,
-            contacts_ui,
-            ui,
-         );
-         let recipient = recipient_selection.get_recipient();
 
          ui.vertical_centered(|ui| {
             frame.show(ui, |ui| {
@@ -372,85 +362,19 @@ impl AcrossBridge {
                   });
 
                   // Recipient
-                  inner_frame.show(ui, |ui| {
-                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("Recipient").size(theme.typography.large));
-                        ui.add_space(10.0);
-
-                        if !recipient.is_empty(false) {
-                           if let Some(name) = &recipient.name {
-                              let name_color = match recipient_name_lapsed {
-                                 true => theme.colors.error,
-                                 false => theme.colors.info,
-                              };
-
-                              ui.label(
-                                 RichText::new(name).size(theme.typography.large).color(name_color),
-                              );
-
-                              if recipient_name_lapsed {
-                                 ui.label(
-                                    RichText::new(
-                                       "This name is past its registration and may no longer \
-                                        belong to the address it resolved to.",
-                                    )
-                                    .size(theme.typography.normal)
-                                    .color(theme.colors.error),
-                                 );
-                              }
-                           } else {
-                              ui.label(
-                                 RichText::new("Unknown Address")
-                                    .size(theme.typography.large)
-                                    .color(theme.colors.error),
-                              );
-                           }
-
-                           ui.add_space(5.0);
-
-                           let chain = self.to_chain.chain;
-                           let block_explorer = chain.block_explorer();
-                           let link = format!(
-                              "{}/address/{}",
-                              block_explorer, recipient.evm_address
-                           );
-                           let icon = Lucide::ExternalLink
-                              .size(18.0)
-                              .color(theme.colors.text)
-                              .image()
-                              .sense(Sense::click());
-
-                           let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
-
-                           if res.clicked() {
-                              let url = OpenUrl::new_tab(link);
-                              ui.ctx().open_url(url);
-                           }
-                        }
-                     });
-
-                     ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                        let visuals = theme.text_edit_visuals();
-                        let hint = RichText::new("Search contacts or enter an address")
-                           .size(theme.typography.normal)
-                           .color(theme.colors.text_muted);
-
-                        let res = ui.add(
-                           SecureTextEdit::singleline(
-                              &mut recipient_selection.recipient.evm_address,
-                           )
-                           .visuals(visuals)
-                           .hint_text(hint)
-                           .min_size(vec2(ui_width, 25.0))
-                           .margin(Margin::same(10))
-                           .font(FontId::proportional(theme.typography.normal)),
-                        );
-
-                        if res.clicked() {
-                           recipient_selection.open();
-                        }
-                     });
-                  });
+                  recipient_field(
+                     ctx,
+                     theme,
+                     icons.clone(),
+                     recipient_selection,
+                     contacts_ui,
+                     false,
+                     send_chain,
+                     self.to_chain.chain,
+                     ui,
+                  );
+                  // The picker may have just changed it.
+                  let recipient = recipient_selection.get_recipient();
 
                   let size = vec2(ui.available_width() * 0.83, 25.0);
 
