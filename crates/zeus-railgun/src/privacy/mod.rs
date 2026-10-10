@@ -21,6 +21,6 @@ pub mod assessment;
 
 pub use activity::{Deposit, DepositWindow, deposits_from_events, estimated_timestamp};
 pub use assessment::{
-   ACTIVITY_WINDOW_SECONDS, MatchSets, PrivacyError, RiskBand, UnshieldAmountAdvice, UserExposure,
-   assess_amount, user_exposure,
+   ACTIVITY_WINDOW_SECONDS, Crowding, MatchSets, PrivacyError, RiskBand, UnshieldAmountAdvice,
+   UserExposure, assess_amount, user_exposure,
 };

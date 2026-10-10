@@ -156,6 +156,20 @@ impl MatchSets {
    }
 }
 
+/// How many deposits sit close to the requested size.
+///
+/// The exact-sum matches answer "could this be one deposit, or a sum of them?" — which is rare, and
+/// silence there reads as reassurance. These answer "is this a common size at all?", which is the
+/// question a slider amount always fails: a size nobody else uses stands out even when nothing adds
+/// up to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Crowding {
+   /// Deposits within ±1% of the amount.
+   pub within_one_percent: u32,
+   /// Deposits within ±10% of the amount.
+   pub within_ten_percent: u32,
+}
+
 /// The verdict on one requested amount.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnshieldAmountAdvice {
@@ -169,6 +183,8 @@ pub struct UnshieldAmountAdvice {
    /// Matching combinations by size: single deposits, pairs, triples.
    pub matches_by_size: [u32; 3],
    pub sets: MatchSets,
+   /// How many deposits are near this size, whether or not any of them add up to it.
+   pub crowding: Crowding,
    /// A smaller amount the pool hides better, when one was found.
    pub suggestion: Option<u128>,
    pub user: UserExposure,
@@ -223,6 +239,7 @@ pub fn assess_amount(
       pool_size: window.len().min(u32::MAX as usize) as u32,
       matches_by_size: scored.matches_by_size,
       sets: scored.sets,
+      crowding: scored.crowding,
       suggestion: safer_amount(&window, target, decimals, scored.score),
       user,
    })
@@ -314,6 +331,7 @@ struct Scored {
    /// Matching combinations by size: single deposits, pairs, triples.
    matches_by_size: [u32; 3],
    sets: MatchSets,
+   crowding: Crowding,
 }
 
 /// railcheck's `amountScore`: the posterior per deposit, the reported score, and the match table.
@@ -348,6 +366,29 @@ fn amount_score(pool: &[Deposit], target: i128, decimals: u8) -> Scored {
       1.0
    } else {
       (((1 + m) as f64 / pool.len() as f64) * 0.00001 / (0.45 * a)).min(1.0)
+   };
+
+   // The same neighbourhood `m` counts, reported instead of only weighted: symmetric bands, because
+   // "within 10% of this amount" is a sentence the user can check, while `q`'s window is deliberately
+   // not symmetric. An amount too small to have whole units has no neighbourhood to speak of.
+   let near = |band: f64| -> u32 {
+      pool
+         .iter()
+         .filter_map(|deposit| deposit.amount_i128())
+         .filter(|amount| {
+            let value = whole_units(*amount, decimals);
+            value >= (1.0 - band) * a && value <= (1.0 + band) * a
+         })
+         .count()
+         .min(u32::MAX as usize) as u32
+   };
+   let crowding = if a <= 0.0 {
+      Crowding::default()
+   } else {
+      Crowding {
+         within_one_percent: near(0.01),
+         within_ten_percent: near(0.10),
+      }
    };
 
    let choose = [
@@ -392,6 +433,7 @@ fn amount_score(pool: &[Deposit], target: i128, decimals: u8) -> Scored {
       score,
       matches_by_size,
       sets,
+      crowding,
    }
 }
 
@@ -683,6 +725,33 @@ mod tests {
    /// Deposits of `amount` ETH, `count` of them, `days_ago` days back.
    fn eth(amount: f64, days_ago: u64) -> Deposit {
       deposit((amount * WEI as f64) as u128, days_ago)
+   }
+
+   /// Exact matches are not the whole picture: a size nobody else uses stands out even when nothing
+   /// adds up to it, which is what a slider amount always does.
+   #[test]
+   fn crowding_counts_the_deposits_close_to_the_amount() {
+      let pool = vec![
+         eth(1.0, 1),
+         eth(1.004, 2),
+         eth(1.009, 3),
+         eth(1.05, 4),
+         eth(1.09, 5),
+         eth(1.5, 6),
+         eth(0.98, 7),
+         eth(0.99, 8),
+      ];
+
+      let advice = assess_amount(&pool, WEI as u128, 18, END_TS, &[], &[]).unwrap();
+
+      assert_eq!(
+         advice.crowding.within_one_percent, 4,
+         "1.0, 1.004, 1.009 and 0.99 are within 1%"
+      );
+      assert_eq!(
+         advice.crowding.within_ten_percent, 7,
+         "all but 1.5"
+      );
    }
 
    /// railcheck's `brute`: every 1/2/3-deposit subset, counted the slow way.
