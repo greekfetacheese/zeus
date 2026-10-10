@@ -68,9 +68,8 @@ const PANEL_CLIP_SLACK: f32 = 8.0;
 /// - check the status of the background services (Railgun, wallet connector)
 pub struct AccountPanel {
    open: bool,
-   /// Maximum size of the panel body. The body itself hugs its content; the space up to
-   /// this height is what keeps the nav below the panel in one place.
-   overview_size: (f32, f32),
+   /// Width the panel body may fill (the sidebar is 260 wide).
+   body_width: f32,
    chain_select: ChainSelect,
    wallet_select: WalletSelect,
    wallet_info: WalletInfo,
@@ -87,14 +86,14 @@ pub struct AccountPanel {
 
 impl AccountPanel {
    pub fn new() -> Self {
-      let overview_size = (260.0, 336.0);
+      let body_width = 260.0;
 
       let chain_select = ChainSelect::new("main_chain_select", 1).size(vec2(PANEL_ROW_WIDTH, 20.0));
       let wallet_select = WalletSelect::new("main_wallet_select").size(vec2(PANEL_ROW_WIDTH, 20.0));
 
       Self {
          open: false,
-         overview_size,
+         body_width,
          chain_select,
          wallet_select,
          wallet_info: WalletInfo::default(),
@@ -132,9 +131,6 @@ impl AccountPanel {
          return;
       }
 
-      ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
-      ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
-
       let chain = ctx.chain;
       let privacy_mode = ctx.privacy_mode;
 
@@ -146,11 +142,9 @@ impl AccountPanel {
 
       let frame2 = theme.frame2.outer_margin(Margin::same(10));
 
-      // The panel body hugs its content, but the space it may occupy is fixed: whatever
-      // is left below its tallest state stays as gap, so the nav beneath the panel never
-      // moves as apps connect or as the tab changes.
+      // The nav below the panel rides the panel's height, so what the panel takes has to be
+      // the *animated* height of its body and not the body's own.
       let frame_margins = frame2.inner_margin.sum().y + frame2.outer_margin.sum().y;
-      let footprint = self.overview_size.1 + frame_margins + ui.spacing().item_spacing.y;
       let panel_top = ui.cursor().top();
 
       // Slide to the tab's height instead of jumping. A tab that has not been laid out
@@ -167,10 +161,10 @@ impl AccountPanel {
          0.0
       };
 
-      // While it moves, force the layout to the animated height and clip the painted
-      // output to it: the forced height is what keeps a body that *shrinks* from
-      // snapping, the clip is what keeps a body that *grows* from running ahead of the
-      // animation (egui never clips a child on its own).
+      // While it moves, hold a shrinking body at the animated height and clip the painted
+      // output to it: the forced minimum is what keeps a shrinking body from snapping, the
+      // clip is what keeps a growing one from painting past the animation (egui never clips a
+      // child on its own). The nav below is pinned to the same height at the end of `show`.
       let clip = ui.clip_rect();
       if animate {
          let bottom = (panel_top + height + frame_margins + PANEL_CLIP_SLACK).min(clip.max.y);
@@ -183,7 +177,12 @@ impl AccountPanel {
       let mut measured = 0.0;
 
       frame2.show(ui, |ui| {
-         ui.set_max_width(self.overview_size.0);
+         // The card's rows own the space between them; the ui the card is shown in is only
+         // the gap between the panel and the nav below it (set by the panel's host).
+         ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+         ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
+
+         ui.set_max_width(self.body_width);
          if animate {
             ui.set_min_height(height);
          }
@@ -214,10 +213,15 @@ impl AccountPanel {
 
       self.body_heights[self.tab] = measured;
 
-      // Additional margin we can take
-      let margin = 20.0;
-      let spent = ui.cursor().top() - (panel_top - margin);
-      ui.add_space((footprint - spent).max(0.0));
+      // Pin the space the panel consumed to the animated height, so the nav below rides the
+      // same slide. A body *shorter* than the animated height is already held by
+      // `set_min_height`; a *taller* one takes the nav down with it — egui grows a parent
+      // along with its child — and the nav would move ahead of the animation.
+      if animate {
+         let mut consumed = ui.min_rect();
+         consumed.max.y = panel_top + height + frame_margins;
+         ui.advance_cursor_after_rect(consumed);
+      }
    }
 
    /// Overview tab
@@ -453,7 +457,7 @@ impl AccountPanel {
 
       let frame = theme.frame1.inner_margin(Margin::same(5));
       let frame_height = 40.0;
-      let frame_width = self.overview_size.0 - 50.0;
+      let frame_width = self.body_width - 50.0;
 
       // Railgun Status
       frame.show(ui, |ui| {

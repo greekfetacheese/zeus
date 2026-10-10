@@ -16,6 +16,11 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let icons = gui.icons.clone();
    let theme = &gui.theme;
 
+   // The nav sits directly under the account panel: this is the whole space between them, and
+   // the panel's own body height is the rest of the separation. Connecting a dApp grows the
+   // panel and pushes the nav down, riding the panel's height animation.
+   ui.spacing_mut().item_spacing.y = theme.spacing.md;
+
    gui.account_panel.show(ctx, theme, icons, ui);
 
    ui.vertical(|ui| {

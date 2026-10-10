@@ -212,8 +212,7 @@ pub fn card(theme: &Theme, ui: &mut Ui, vitals: &SystemVitals) {
 
    frame.show(ui, |ui| {
       ui.set_max_width(PANEL_ROW_WIDTH - frame.inner_margin.sum().x);
-      // Zero row spacing: the readout is a block, and the card has a fixed budget it
-      // must not push the nav with (measured against `overview_size.1`).
+      // Zero row spacing: the readout is a block.
       ui.spacing_mut().item_spacing.y = 0.0;
 
       heading(theme, ui, vitals);
