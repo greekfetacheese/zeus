@@ -1725,10 +1725,9 @@ impl ShieldUi {
 /// Each is the honest answer to something the check cannot measure — an IP address, a bundler's
 /// logs, an exchange's records, the timing of two transactions — which is why they are shown
 /// whether or not the amount looks distinctive.
-const PRIVACY_TIPS: [&str; 4] = [
+const PRIVACY_TIPS: [&str; 3] = [
    "Amount and timing: unshield in smaller amounts, at varied times — not the amount you just \
     shielded, and not the exact sum of a few deposits.",
-   "IP address: broadcast through a bundler you run yourself or use a VPN.",
    "Reads leak too: a public RPC sees which addresses you ask about. Use a private RPC or your own \
     node for the queries that matter.",
    "Recipient: a fresh 0x address that has never held funds — never one used for earlier unshields \
