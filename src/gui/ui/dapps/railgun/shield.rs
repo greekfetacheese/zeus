@@ -436,8 +436,14 @@ impl ShieldUi {
 
          let frame = theme.frame1;
 
-         ui.vertical_centered(|ui| {
-            frame.show(ui, |ui| {
+         // Centred across the panel, but anchored to its top. The card is taller than a 900 px window
+         // (the check block is the last straw), and centring it vertically spent the difference as
+         // empty space above the title while pushing the action button past the bottom edge, where
+         // nothing can scroll to it.
+         ui.with_layout(
+            Layout::top_down(Align::Center).with_main_align(Align::Min),
+            |ui| {
+               frame.show(ui, |ui| {
                   ui.set_width(self.size.0);
                   ui.set_max_height(self.size.1);
                   ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
@@ -1043,39 +1049,70 @@ impl ShieldUi {
       let inner_frame = theme.frame2;
       let mut apply_suggestion = None;
 
+      // What the check was judged against. The snapshot trails the chain, so the verdict is dated —
+      // but on the line it belongs to rather than on a row of its own.
+      let as_of = if privacy.checked_block > 0 {
+         format!(" Activity up to block {}.", privacy.checked_block)
+      } else {
+         String::new()
+      };
+
       inner_frame.show(ui, |ui| {
          ui.set_width(ui.available_width());
          ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
 
+         // One row carries the verdict and the way into the tips: this block sits directly above the
+         // action button, so every row it spends is a row the button loses.
+         ui.horizontal(|ui| {
+            if let Some(advice) = &privacy.amount {
+               let color = match advice.band {
+                  RiskBand::Low => theme.colors.text_muted,
+                  RiskBand::Medium => theme.colors.text,
+                  RiskBand::High => theme.colors.warning,
+                  RiskBand::Critical => theme.colors.error,
+               };
+
+               ui.add(
+                  Label::new(
+                     RichText::new(format!(
+                        "Amount privacy risk: {}",
+                        advice.band.label()
+                     ))
+                     .size(theme.typography.large)
+                     .color(color),
+                     None,
+                  )
+                  .interactive(false),
+               );
+            }
+
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+               let tips_text = if self.privacy_tips_open {
+                  "Hide privacy tips"
+               } else {
+                  "Privacy tips"
+               };
+               let button = Button::new(RichText::new(tips_text).size(theme.typography.normal))
+                  .visuals(theme.button_visuals());
+
+               if ui.add(button).clicked() {
+                  self.privacy_tips_open = !self.privacy_tips_open;
+               }
+            });
+         });
+
          if let Some(advice) = &privacy.amount {
-            let color = match advice.band {
-               RiskBand::Low => theme.colors.text_muted,
-               RiskBand::Medium => theme.colors.text,
-               RiskBand::High => theme.colors.warning,
-               RiskBand::Critical => theme.colors.error,
-            };
-
-            ui.add(
-               Label::new(
-                  RichText::new(format!(
-                     "Amount privacy risk: {}",
-                     advice.band.label()
-                  ))
-                  .size(theme.typography.large)
-                  .color(color),
-                  None,
-               )
-               .interactive(false),
+            let reason = format!(
+               "{}{as_of}",
+               if advice.matches() > 0 {
+                  format!(
+                     "{} deposits, or sums of deposits, add up to this amount.",
+                     advice.matches()
+                  )
+               } else {
+                  "No deposit in the last 180 days adds up to this amount.".to_string()
+               }
             );
-
-            let reason = if advice.matches() > 0 {
-               format!(
-                  "{} deposits, or sums of deposits, add up to this amount.",
-                  advice.matches()
-               )
-            } else {
-               "No deposit in the last 180 days adds up to this amount.".to_string()
-            };
             ui.add(
                Label::new(
                   RichText::new(reason)
@@ -1148,7 +1185,7 @@ impl ShieldUi {
             ui.add(
                Label::new(
                   RichText::new(format!(
-                     "No privacy check for this withdrawal: {reason}"
+                     "No privacy check for this withdrawal: {reason}{as_of}"
                   ))
                   .size(theme.typography.small)
                   .color(theme.colors.text_muted),
@@ -1222,18 +1259,6 @@ impl ShieldUi {
             );
          }
 
-         let tips_text = if self.privacy_tips_open {
-            "Hide privacy tips"
-         } else {
-            "Privacy tips"
-         };
-         let button = Button::new(RichText::new(tips_text).size(theme.typography.normal))
-            .visuals(theme.button_visuals());
-
-         if ui.add(button).clicked() {
-            self.privacy_tips_open = !self.privacy_tips_open;
-         }
-
          if self.privacy_tips_open {
             for tip in PRIVACY_TIPS {
                ui.add(
@@ -1246,25 +1271,6 @@ impl ShieldUi {
                   .interactive(false),
                );
             }
-         }
-
-         // The snapshot trails the chain, so the verdict is dated: without this the lines above read
-         // as if the check had just looked at the protocol.
-         if privacy.checked_block > 0 {
-            ui.add(
-               Label::new(
-                  RichText::new(format!(
-                     "Judged against protocol activity up to block {}.",
-                     privacy.checked_block
-                  ))
-                  .size(theme.typography.small)
-                  .color(theme.colors.text_muted),
-                  None,
-               )
-               .wrap()
-               .fill_width(true)
-               .interactive(false),
-            );
          }
       });
 
@@ -2217,6 +2223,79 @@ mod tests {
          NumericValue::parse_to_wei(&text, 18).wei(),
          U256::from(suggestion),
          "and it round-trips back to the amount that was suggested"
+      );
+   }
+
+   /// The check block has a height budget, and this measures it.
+   ///
+   /// The form is a fixed stack with no scroll area: the block sits directly above the action button,
+   /// so a row it grows is a row the button loses off the bottom of the window. The number is a
+   /// *proxy* — default fonts and one theme, which is what a unit test can build — so the bound is
+   /// generous: it catches rows being re-added, not a few pixels of metric drift.
+   ///
+   /// State is what the reported screenshot showed: a `Low` amount with nothing matching, no
+   /// suggestion, no pool warning, and a recipient with history.
+   #[test]
+   fn the_check_block_fits_its_height_budget() {
+      use egui_elements::theme::ThemeKind;
+      use zeus_railgun::privacy::{MatchSets, RiskBand, UnshieldAmountAdvice, UserExposure};
+
+      use super::super::privacy::RecipientAdvice;
+      use super::UnshieldPrivacy;
+
+      let theme = Theme::new(ThemeKind::TokyoNight);
+      let mut ui_state = ShieldUi::new();
+      ui_state.set_mode(RailgunMode::Unshield);
+      ui_state.currency = Currency::from(ERC20Token::weth());
+      ui_state.privacy = Some(UnshieldPrivacy {
+         checked_block: 26_133_618,
+         amount: Some(UnshieldAmountAdvice {
+            score: 5,
+            amount_score: 5,
+            band: RiskBand::Low,
+            pool_size: 9_184,
+            matches_by_size: [0, 0, 0],
+            sets: MatchSets::default(),
+            suggestion: None,
+            user: UserExposure {
+               duplicate_shields: 0,
+               withdraws_remainder: false,
+            },
+         }),
+         unavailable: None,
+         pool: None,
+         recipient: RecipientAdvice {
+            fresh: Some(false),
+            prior_unshields: 0,
+         },
+      });
+
+      let ctx = eframe::egui::Context::default();
+      ctx.set_fonts(eframe::egui::FontDefinitions::default());
+      ctx.all_styles_mut(|style| *style = theme.style());
+
+      let mut height = 0.0;
+      let input = eframe::egui::RawInput {
+         screen_rect: Some(eframe::egui::Rect::from_min_size(
+            eframe::egui::Pos2::ZERO,
+            vec2(1280.0, 900.0),
+         )),
+         ..Default::default()
+      };
+
+      let mut output = ctx.run_ui(input, |ui| {
+         // The card's inner width in the running app (card ~520 px wide, minus its padding).
+         ui.set_max_width(490.0);
+         let block = ui.vertical(|ui| ui_state.show_privacy_check(&theme, ui));
+         height = block.response.rect.height();
+      });
+
+      // The probe paints into no window, so the texture uploads have nowhere to go.
+      output.textures_delta.clear();
+
+      assert!(
+         height <= 130.0,
+         "the check block grew to {height:.1} px; the Unshield form has no room for another row"
       );
    }
 }
