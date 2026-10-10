@@ -1247,6 +1247,25 @@ impl ShieldUi {
                );
             }
          }
+
+         // The snapshot trails the chain, so the verdict is dated: without this the lines above read
+         // as if the check had just looked at the protocol.
+         if privacy.checked_block > 0 {
+            ui.add(
+               Label::new(
+                  RichText::new(format!(
+                     "Judged against protocol activity up to block {}.",
+                     privacy.checked_block
+                  ))
+                  .size(theme.typography.small)
+                  .color(theme.colors.text_muted),
+                  None,
+               )
+               .wrap()
+               .fill_width(true)
+               .interactive(false),
+            );
+         }
       });
 
       if let Some(suggested) = apply_suggestion {
