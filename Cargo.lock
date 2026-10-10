@@ -3620,8 +3620,7 @@ dependencies = [
 [[package]]
 name = "egui-elements"
 version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8564bc55109dae4a958da89692cdfc4153fe69c58395abeaa5b0868d70d7101"
+source = "git+https://github.com/greekfetacheese/egui-elements#07d1df0e447809d14e0ea6c1bbb695decfefd662"
 dependencies = [
  "egui",
  "egui-elegance",

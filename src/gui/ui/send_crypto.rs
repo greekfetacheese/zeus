@@ -1,9 +1,7 @@
 //! UI that allows the user to send ETH or ERC20 tokens (public) or private
 //! Railgun (zk → zk) transfers when privacy mode is enabled.
 
-use eframe::egui::{
-   Align, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl, RichText, Sense, Ui, vec2,
-};
+use eframe::egui::{Align, FontId, Frame, Layout, Margin, RichText, Ui, vec2};
 
 use std::{
    collections::HashMap,
@@ -24,7 +22,7 @@ use crate::gui::{
    SHARED_GUI,
    ui::{
       ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
-      common::{AmountField, AmountFieldParams, show_with_fade},
+      common::{AmountField, AmountFieldParams, recipient_field, show_with_fade},
       dapps::railgun::{RailgunAsset, private_transfer},
       token_selection::{PickerMode, nft_collection_name},
    },
@@ -33,7 +31,6 @@ use crate::utils::simulate::{
    AccountPrefetch, fetch_accounts_info, native_balance_at, pinned_head,
 };
 use egui_elements::{Button, Label, SecureTextEdit, Theme};
-use egui_lucide::Lucide;
 
 use zeus_eth::{
    abi::{erc721, erc1155},
@@ -333,13 +330,15 @@ impl SendCryptoUi {
                   // Hoisted: `show` takes `ctx` mutably, so read the chain before the call.
                   let send_chain = ctx.chain.id();
 
-                  recipient_selection.show(
+                  recipient_field(
                      ctx,
                      theme,
                      icons.clone(),
+                     recipient_selection,
+                     contacts_ui,
                      recipient_privacy_mode,
                      send_chain,
-                     contacts_ui,
+                     chain,
                      ui,
                   );
                   let recipient = recipient_selection.get_recipient();
@@ -348,97 +347,6 @@ impl SendCryptoUi {
                   // someone else, so the address it resolved to is no longer what the name means.
                   let now = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
                   let recipient_name_lapsed = !recipient.name_binding_trusted(now);
-
-                  // Recipient Selection
-                  inner_frame.show(ui, |ui| {
-                     ui.set_width(ui.available_width());
-                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("Recipient").size(theme.typography.large));
-                        ui.add_space(10.0);
-
-                        if !recipient.is_empty(recipient_privacy_mode) {
-                           if let Some(name) = &recipient.name {
-                              let name_color = match recipient_name_lapsed {
-                                 true => theme.colors.error,
-                                 false => theme.colors.info,
-                              };
-
-                              ui.label(
-                                 RichText::new(name).size(theme.typography.large).color(name_color),
-                              );
-
-                              if recipient_name_lapsed {
-                                 ui.label(
-                                    RichText::new(
-                                       "This name is past its registration and may no longer \
-                                        belong to the address it resolved to.",
-                                    )
-                                    .size(theme.typography.normal)
-                                    .color(theme.colors.error),
-                                 );
-                              }
-                           } else {
-                              ui.label(
-                                 RichText::new("Unknown Address")
-                                    .size(theme.typography.large)
-                                    .color(theme.colors.error),
-                              );
-                           }
-
-                           ui.add_space(5.0);
-
-                           if !recipient_privacy_mode && !recipient.evm_address.is_empty() {
-                              let block_explorer = chain.block_explorer();
-                              let link = format!(
-                                 "{}/address/{}",
-                                 block_explorer, recipient.evm_address
-                              );
-                              let icon = Lucide::ExternalLink
-                                 .size(18.0)
-                                 .color(theme.colors.text)
-                                 .image()
-                                 .sense(Sense::click());
-
-                              let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
-
-                              if res.clicked() {
-                                 let url = OpenUrl::new_tab(link);
-                                 ui.ctx().open_url(url);
-                              }
-                           }
-                        }
-                     });
-
-                     ui.horizontal(|ui| {
-                        let hint = if recipient_privacy_mode {
-                           RichText::new("Search contacts or enter a 0zk address")
-                              .size(theme.typography.normal)
-                              .color(theme.colors.text_muted)
-                        } else {
-                           RichText::new("Search contacts, ENS or enter an address")
-                              .size(theme.typography.normal)
-                              .color(theme.colors.text_muted)
-                        };
-
-                        let address_edit = if recipient_privacy_mode {
-                           &mut recipient_selection.recipient.zk_address
-                        } else {
-                           &mut recipient_selection.recipient.evm_address
-                        };
-
-                        let res = ui.add(
-                           SecureTextEdit::singleline(address_edit)
-                              .visuals(text_edit_visuals)
-                              .hint_text(hint)
-                              .min_size(vec2(ui.available_width(), 25.0))
-                              .margin(Margin::same(10))
-                              .font(FontId::proportional(theme.typography.normal)),
-                        );
-                        if res.clicked() {
-                           recipient_selection.open();
-                        }
-                     });
-                  });
 
                   if privacy_mode {
                      inner_frame.show(ui, |ui| {
