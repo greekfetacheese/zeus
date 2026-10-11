@@ -98,42 +98,38 @@ impl PoolDepth {
    }
 }
 
-/// How the recipient is tied to this wallet — the part of "has it been used" that actually links a
-/// withdrawal back to the deposits behind it.
+/// How the recipient is tied to the person unshielding — the part of "has it been used" that actually
+/// links a withdrawal back to the deposits behind it.
+///
+/// Owning the address is **not** a link. Deriving a fresh wallet and unshielding to it is the point of
+/// a private withdrawal, so landing on one of the user's own wallets says nothing on its own; what
+/// matters is whether a *connection* to the rest of their activity is already on chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecipientLink {
-   /// The recipient is one of the wallets on this machine: the withdrawal lands on the address the
-   /// deposits may well have come from.
-   OwnWallet,
-   /// This wallet has transacted with the address before, in either direction.
+   /// One of the user's wallets has transacted with the address before, in either direction.
    Transacted,
-   /// This wallet has unshielded to it before, this many times.
+   /// One of the user's wallets has unshielded to it before, this many times.
    PriorUnshields(usize),
 }
 
-/// What the chain and this wallet's own history say about the address receiving the unshield.
+/// What the chain and the user's own history say about the address receiving the unshield.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RecipientAdvice {
    /// `Some(true)` when the address has no on-chain history at all, `None` when the chain could not
    /// be asked — which is not the same answer as "fresh".
    pub fresh: Option<bool>,
-   /// The recipient is one of the wallets on this machine.
-   pub is_own_wallet: bool,
-   /// This wallet's history contains a transaction with the address, in either direction.
+   /// One of the wallets on this machine has transacted with the address, in either direction.
    pub transacted_with: bool,
-   /// Unshields to this address, counted on every chain this wallet has history on.
+   /// Unshields to this address, counted on every chain and from any of the machine's wallets.
    pub prior_unshields: usize,
 }
 
 impl RecipientAdvice {
-   /// The loudest link this address has to the wallet, if any.
+   /// The loudest link this address has to the person unshielding, if any.
    ///
    /// Having on-chain history is not one: plenty of addresses have paid gas once, and that ties the
-   /// withdrawal to nothing. Only these three tie it back to the deposits this wallet made.
+   /// withdrawal to nothing. Neither is being one of their wallets — see [`RecipientLink`].
    pub fn link(&self) -> Option<RecipientLink> {
-      if self.is_own_wallet {
-         return Some(RecipientLink::OwnWallet);
-      }
       if self.transacted_with {
          return Some(RecipientLink::Transacted);
       }
@@ -176,11 +172,14 @@ impl UnshieldPrivacy {
    }
 }
 
-/// The recorded transactions the check reads, without the rest of a [`crate::core::TransactionRich`].
+/// The recorded transaction the check reads, without the rest of a [`crate::core::TransactionRich`].
 ///
-/// Taking just the four fields the check needs keeps the fold below a pure function: no context, no
-/// wallet, no chain.
+/// Taking just the fields the check needs keeps the fold below a pure function: no context, no
+/// database, no clock.
 pub struct OwnTx<'a> {
+   /// The wallet this transaction was recorded for — not always the one unshielding, because a link is
+   /// to the person, so every wallet's rows are read.
+   pub wallet: Address,
    /// Which chain the transaction happened on: an amount only means something on its own chain.
    pub chain: u64,
    pub hash: TxHash,
@@ -214,38 +213,45 @@ impl OwnHistory {
    }
 }
 
-/// Fold the wallet's recorded transactions into the deposits its own history implies.
+/// Fold the recorded transactions of every wallet on this machine into what the check needs.
 ///
-/// The two questions have different scopes, so the fold reads them differently. An **amount** only
-/// means something on its own chain — another chain's pool is a different pool, and the same token
-/// address can be a different token — and only for the asset being unshielded. A **recipient**, on
-/// the other hand, is the same public address everywhere, so reuse and prior transactions with it
-/// are counted across every chain and every asset.
+/// The questions have different scopes, so the fold reads them differently:
+///
+/// - an **amount** belongs to the wallet that is unshielding and to its own chain — another wallet's
+///   deposit is not one this withdrawal could be a repeat of, and another chain's pool is a different
+///   pool (the same token address can even be a different token);
+/// - a **recipient** is one public address everywhere, and a link to it is a link to the person, so
+///   every wallet and every chain is read;
+/// - and a link has to reach a *different* party: the recipient's own transactions are skipped, since
+///   a wallet that has only ever acted for itself is what an anonymous withdrawal is for.
 ///
 /// `asset` is `None` when the asset cannot be checked at all (an NFT): the recipient signals are
-/// still collected, because the address links back to the wallet whatever is being unshielded.
+/// still collected, because the address links back to the person whatever is being unshielded.
 pub fn own_history<'a>(
    txs: impl IntoIterator<Item = OwnTx<'a>>,
    asset: Option<&AssetId>,
    chain: u64,
+   owner: Address,
    recipient: Address,
 ) -> OwnHistory {
    let mut history = OwnHistory::default();
 
    for tx in txs {
-      if let DecodedEvent::Unshield(params) = tx.event {
-         *history.unshields_to.entry(params.recipient).or_default() += 1;
+      if tx.wallet != recipient {
+         if let DecodedEvent::Unshield(params) = tx.event {
+            *history.unshields_to.entry(params.recipient).or_default() += 1;
+         }
+
+         if tx.sender == recipient
+            || tx.interact_to == recipient
+            || counterparty(tx.event, recipient)
+            || tx.events.iter().any(|event| counterparty(event, recipient))
+         {
+            history.transacted_with = true;
+         }
       }
 
-      if tx.sender == recipient
-         || tx.interact_to == recipient
-         || counterparty(tx.event, recipient)
-         || tx.events.iter().any(|event| counterparty(event, recipient))
-      {
-         history.transacted_with = true;
-      }
-
-      if tx.chain != chain {
+      if tx.chain != chain || tx.wallet != owner {
          continue;
       }
 
@@ -437,11 +443,19 @@ fn own_tx_history(
    recipient: Address,
    owner: Address,
 ) -> OwnHistory {
+   // Every wallet on this machine, because a link is to the person: a transfer from a second wallet to
+   // the recipient ties the recipient to the deposits just as well, and the user may be operating a
+   // third. `owner` is included in case the wallet list is momentarily behind the wallet in use.
+   let mut wallets: HashSet<Address> =
+      ctx.get_all_wallets_info().iter().map(|wallet| wallet.address).collect();
+   wallets.insert(owner);
+
    // Rows from every chain: the recipient signals are read across all of them, while the fold keeps
-   // the amounts to this chain.
-   ctx.tx_db().visit_own_txs(owner, |txs| {
+   // the amounts to this chain and this wallet.
+   ctx.tx_db().visit_txs_of(&wallets, |txs| {
       own_history(
-         txs.into_iter().map(|tx| OwnTx {
+         txs.into_iter().map(|(wallet, tx)| OwnTx {
+            wallet,
             chain: tx.chain,
             hash: tx.hash,
             block: tx.block,
@@ -453,6 +467,7 @@ fn own_tx_history(
          }),
          asset,
          chain.id(),
+         owner,
          recipient,
       )
    })
@@ -563,7 +578,6 @@ async fn recipient_advice(ctx: &ZeusCtx, recipient: Address, own: &OwnHistory) -
 
    RecipientAdvice {
       fresh: nonce.map(|nonce| nonce == 0),
-      is_own_wallet: ctx.get_all_wallets_info().iter().any(|wallet| wallet.address == recipient),
       transacted_with: own.transacted_with,
       prior_unshields: own.prior_unshields_to(recipient),
    }
@@ -585,6 +599,9 @@ mod tests {
       "A0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
    ));
    const RECIPIENT: Address = address!("1111111111111111111111111111111111111111");
+   /// The wallet that is unshielding, and a second one of the user's — a link is to the person.
+   const OWNER: Address = address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+   const SECOND_WALLET: Address = address!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
 
    fn shield_event(asset: AssetId, amount_wei: u128) -> DecodedEvent {
       DecodedEvent::Shield(ShieldParams {
@@ -624,18 +641,30 @@ mod tests {
       })
    }
 
-   /// A recorded transaction with everything the fold needs beyond the event left neutral.
-   fn tx<'a>(chain: u64, block: u64, timestamp: u64, event: &'a DecodedEvent) -> OwnTx<'a> {
+   /// A recorded transaction of `wallet`, with everything the fold needs beyond the event neutral.
+   fn tx_of<'a>(
+      wallet: Address,
+      chain: u64,
+      block: u64,
+      timestamp: u64,
+      event: &'a DecodedEvent,
+   ) -> OwnTx<'a> {
       OwnTx {
+         wallet,
          chain,
          hash: TxHash::from([block as u8; 32]),
          block,
          timestamp,
          event,
          events: std::slice::from_ref(event),
-         sender: address!("9999999999999999999999999999999999999999"),
+         sender: wallet,
          interact_to: address!("8888888888888888888888888888888888888888"),
       }
+   }
+
+   /// A recorded transaction of the wallet that is unshielding.
+   fn tx<'a>(chain: u64, block: u64, timestamp: u64, event: &'a DecodedEvent) -> OwnTx<'a> {
+      tx_of(OWNER, chain, block, timestamp, event)
    }
 
    fn transfer(to: Address) -> DecodedEvent {
@@ -674,6 +703,7 @@ mod tests {
          ],
          Some(&WETH),
          1,
+         OWNER,
          RECIPIENT,
       );
 
@@ -774,10 +804,12 @@ mod tests {
       assert!(!uncounted.is_shallow());
    }
 
-   /// What links a withdrawal back to the deposits is not history: plenty of addresses have paid gas
-   /// once. Only the wallet's own addresses, its own transactions, and its own earlier unshields do.
+   /// What links a withdrawal back to the deposits is not history — plenty of addresses have paid gas
+   /// once — and not being one of the user's wallets either: unshielding to a wallet nothing connects
+   /// to them is the point of the whole exercise. Only transactions with the address, and earlier
+   /// unshields to it, tie it back.
    #[test]
-   fn a_recipient_links_only_when_it_ties_back_to_the_wallet() {
+   fn a_recipient_links_only_when_it_ties_back_to_the_user() {
       let used = RecipientAdvice {
          fresh: Some(false),
          ..RecipientAdvice::default()
@@ -797,17 +829,19 @@ mod tests {
          transacted_with: true,
          ..used
       };
-      assert_eq!(transacted.link(), Some(RecipientLink::Transacted));
-
-      let ours = RecipientAdvice {
-         is_own_wallet: true,
-         ..transacted
-      };
       assert_eq!(
-         ours.link(),
-         Some(RecipientLink::OwnWallet),
-         "the loudest link is the one to report"
+         transacted.link(),
+         Some(RecipientLink::Transacted),
+         "a transaction with the address outranks having unshielded to it"
       );
+
+      // A wallet of the user's own that nothing connects to the rest of their activity: owning it is
+      // not a link, and the check must stay quiet — the reason Railgun can be used to pay yourself.
+      let fresh_wallet = RecipientAdvice {
+         fresh: Some(true),
+         ..RecipientAdvice::default()
+      };
+      assert_eq!(fresh_wallet.link(), None);
 
       let unknown = RecipientAdvice {
          fresh: None,
@@ -861,6 +895,7 @@ mod tests {
          ],
          Some(&WETH),
          11_155_111,
+         OWNER,
          RECIPIENT,
       );
 
@@ -889,7 +924,7 @@ mod tests {
       let mut paid_to_them = tx(1, 10, 1_000, &shield);
       paid_to_them.events = std::slice::from_ref(&paid);
 
-      assert!(own_history([paid_to_them], Some(&WETH), 1, RECIPIENT).transacted_with);
+      assert!(own_history([paid_to_them], Some(&WETH), 1, OWNER, RECIPIENT).transacted_with);
 
       let elsewhere = transfer(address!(
          "4444444444444444444444444444444444444444"
@@ -897,6 +932,44 @@ mod tests {
       let mut unrelated = tx(1, 10, 1_000, &shield);
       unrelated.events = std::slice::from_ref(&elsewhere);
 
-      assert!(!own_history([unrelated], Some(&WETH), 1, RECIPIENT).transacted_with);
+      assert!(!own_history([unrelated], Some(&WETH), 1, OWNER, RECIPIENT).transacted_with);
+   }
+
+   /// A link is to the person, so a second wallet's history links the recipient — while its *amounts*
+   /// are still not this withdrawal's business.
+   #[test]
+   fn a_second_wallets_activity_links_the_recipient_but_not_its_amounts() {
+      let deposit = shield_event(WETH, 5_000);
+      let mut paid_by_second = tx_of(SECOND_WALLET, 1, 10, 1_000, &deposit);
+      paid_by_second.interact_to = RECIPIENT;
+
+      let history = own_history([paid_by_second], Some(&WETH), 1, OWNER, RECIPIENT);
+
+      assert!(
+         history.transacted_with,
+         "a second wallet of the user's has transacted with the address"
+      );
+      assert!(
+         history.shields.is_empty(),
+         "but its deposit is not one this withdrawal could be a repeat of"
+      );
+   }
+
+   /// The recipient's own transactions are not a link to anyone: a wallet that has only ever acted for
+   /// itself is exactly what an anonymous withdrawal is for.
+   #[test]
+   fn the_recipients_own_activity_is_not_a_link_to_the_user() {
+      let deposit = shield_event(WETH, 5_000);
+      let mut for_itself = tx_of(RECIPIENT, 1, 10, 1_000, &deposit);
+      for_itself.interact_to = RECIPIENT;
+
+      let history = own_history([for_itself], Some(&WETH), 1, OWNER, RECIPIENT);
+
+      assert!(
+         !history.transacted_with,
+         "the recipient acting for itself is not a link to the user"
+      );
+      assert_eq!(history.prior_unshields_to(RECIPIENT), 0);
+      assert!(history.shields.is_empty());
    }
 }

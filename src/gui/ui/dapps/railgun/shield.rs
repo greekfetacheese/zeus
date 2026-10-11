@@ -1236,19 +1236,14 @@ impl ShieldUi {
             }
          }
 
-         // On-chain history on its own is not a link — plenty of addresses have paid gas once — so
-         // only a tie back to this wallet is reported, and only the loudest one of those.
+         // Neither on-chain history nor being one of the user's own wallets is a link — unshielding to
+         // a wallet nobody can connect to you is the point — so only a tie back to the person is
+         // reported, and only the loudest one of those.
          let link = match privacy.recipient.link() {
-            Some(RecipientLink::OwnWallet) => Some((
-               theme.colors.error,
-               "This is one of your own addresses: the withdrawal lands where your deposits can be \
-                tied to you. Send it somewhere with no connection to this wallet."
-                  .to_string(),
-            )),
             Some(RecipientLink::Transacted) => Some((
                theme.colors.warning,
-               "You have transacted with this address before, so it can be tied back to you — a \
-                fresh address cannot."
+               "You have transacted with this address from one of your wallets, so it can be tied \
+                back to you — a fresh address cannot."
                   .to_string(),
             )),
             Some(RecipientLink::PriorUnshields(times)) => Some((
@@ -2446,13 +2441,12 @@ mod tests {
          }),
          recipient: RecipientAdvice {
             fresh: Some(false),
-            is_own_wallet: true,
             transacted_with: true,
             prior_unshields: 3,
          },
       };
 
-      // Measured: 97 px quiet, 245 px loudest. The card is top-anchored and the block sits directly
+      // Measured: 97 px quiet, 229 px loudest. The card is top-anchored and the block sits directly
       // above a 45 px button, so the budgets are the room it has: the block cleared the bottom edge by
       // ~120 px at 105 px tall (with the header reserve at 100), and moving the IP notice into the
       // tips bought another ~58 px — hence ~260 px for the worst case, with the quiet case left at the
