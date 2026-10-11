@@ -35,12 +35,16 @@ use crate::{
       provider::{PoiProvider, PoiProviderError},
       types::{BlindedCommitmentType, PoiStatus},
    },
+   privacy::{Deposit, DepositWindow, deposits_from_events},
    transact::{
       ShieldBuilder, TransactionBuilder, TransactionBuilderError,
       proved_transaction::{ProvedOperation, ProvedTx},
    },
    types::Chain,
 };
+
+/// How many `(asset, snapshot tip)` activity lists are kept before the cache is dropped.
+const MAX_CACHED_ACTIVITY: usize = 4;
 
 #[derive(Debug, Serialize)]
 pub struct BalanceEntry {
@@ -134,6 +138,11 @@ pub struct RailgunProvider<P: Provider<Ethereum>> {
    prover: Groth16Prover,
    poi_provider: Option<PoiProvider>,
    snapshot_loader: SnapshotLoader,
+   /// Protocol deposits read out of the events snapshot, per `(asset, snapshot tip)`.
+   ///
+   /// A privacy check runs whenever the amount field changes, while decoding the snapshot window is
+   /// the expensive half of it: the answer only changes when the snapshot does.
+   shield_activity: Arc<Mutex<HashMap<(AssetId, u64), Arc<Vec<Deposit>>>>>,
    is_syncing: Arc<RwLock<bool>>,
    is_verifying: Arc<RwLock<bool>>,
 }
@@ -184,6 +193,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
          prover,
          poi_provider,
          snapshot_loader,
+         shield_activity: Arc::new(Mutex::new(HashMap::new())),
          is_syncing: Arc::new(RwLock::new(false)),
          is_verifying: Arc::new(RwLock::new(false)),
       })
@@ -367,6 +377,74 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
          .compact(self.chain.id)
          .await
          .map_err(|e| DatabaseError::StorageError(e.to_string()))
+   }
+
+   /// Highest block the persisted events snapshot covers. `0` when there is none yet.
+   ///
+   /// Read-only: a missing snapshot is reported as `0` rather than created.
+   pub async fn snapshot_tip(&self) -> Result<u64, RailgunProviderError> {
+      self
+         .snapshot_loader
+         .load_meta(self.chain.id)
+         .await
+         .map_err(|e| RailgunProviderError::Rpc(anyhow!("events snapshot meta: {e}")))
+   }
+
+   /// Seconds per block on this chain, for estimating a timestamp the RPC did not return.
+   ///
+   /// Both chains Railgun is configured for here are 12-second chains; a new one has to state its own.
+   pub fn block_time_secs(&self) -> u64 {
+      12
+   }
+
+   /// The protocol's deposits of `asset` inside `window`, reshields removed, oldest first.
+   ///
+   /// Reads the persisted events snapshot — no RPC, no network — and caches the answer per
+   /// `(asset, snapshot tip)`, which is what the unshield privacy check runs against on every
+   /// keystroke. Only the snapshot is consulted: blocks above its tip are not fetched here, so a
+   /// caller that needs them must extend the window (and say so in its own copy).
+   ///
+   /// The window decides what is read and what belongs; the cache is keyed by the tip alone, so a
+   /// caller must ask the same question of a given tip. Drift of minutes at the far edge of a
+   /// 180-day window is immaterial — the deposits it would move are a handful — while a moved tip
+   /// always rebuilds.
+   pub async fn shield_activity(
+      &self,
+      asset: AssetId,
+      window: DepositWindow,
+   ) -> Result<Arc<Vec<Deposit>>, RailgunProviderError> {
+      let tip = self.snapshot_tip().await?;
+
+      if let Some(cached) = self.shield_activity.lock().await.get(&(asset, tip)) {
+         return Ok(cached.clone());
+      }
+
+      let events = self
+         .snapshot_loader
+         .load_range(
+            self.chain.id,
+            window.start_block,
+            window.end_block,
+         )
+         .await
+         .map_err(|e| RailgunProviderError::Rpc(anyhow!("events snapshot range: {e}")))?;
+
+      let deposits = Arc::new(deposits_from_events(
+         &events,
+         asset,
+         &window,
+         self.block_time_secs(),
+      ));
+
+      let mut cache = self.shield_activity.lock().await;
+      // One asset at a time is the normal case; a handful of entries keeps switching tokens from
+      // thrashing the cache without letting it grow with every asset ever unshielded.
+      if cache.len() >= MAX_CACHED_ACTIVITY {
+         cache.clear();
+      }
+      cache.insert((asset, tip), deposits.clone());
+
+      Ok(deposits)
    }
 
    /// Save the db to disk
@@ -872,6 +950,172 @@ async fn estimate_paymaster_verification_gas_limit<P: Provider<Ethereum>>(
       .map_err(|e| RailgunProviderError::Other(Box::new(e)))?;
 
    Ok(res as u128)
+}
+
+#[cfg(test)]
+mod privacy_activity_tests {
+   use super::*;
+   use crate::{
+      database::{RailgunDbKey, RedbDatabase},
+      indexer::{
+         syncer::{RpcSyncer, types as events},
+         utxo_indexer::UtxoIndexer,
+      },
+      merkle_tree::RootVerifier,
+   };
+   use alloy_primitives::{B256, address};
+   use alloy_provider::ProviderBuilder;
+   use events::SyncEvent;
+
+   const WETH: AssetId = AssetId::Erc20(address!(
+      "C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+   ));
+   const USDC: AssetId = AssetId::Erc20(address!(
+      "A0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+   ));
+
+   const TIP: u64 = 26_000_000;
+   const TS: u64 = 1_790_000_000;
+
+   fn shield(token: AssetId, value: u128, block: u64, timestamp: u64, tx: u8) -> SyncEvent {
+      SyncEvent::Shield(
+         events::Shield {
+            tree_number: 0,
+            leaf_index: 0,
+            npk: U256::ZERO,
+            token,
+            value: U256::from(value),
+            ciphertext: crate::crypto::aes::Ciphertext {
+               iv: [0u8; 16],
+               tag: [0u8; 16],
+               data: Vec::new(),
+            },
+            shield_key: [0u8; 32],
+            hash: None,
+            timestamp,
+            tx_hash: B256::from([tx; 32]),
+         },
+         block,
+      )
+   }
+
+   /// A provider over an unreachable RPC: every read here goes to the snapshot, never the network.
+   async fn provider_with<P: Provider<Ethereum> + Clone + 'static>(
+      snapshot: SnapshotLoader,
+      client: P,
+   ) -> RailgunProvider<P> {
+      let chain = ChainConfig::mainnet();
+      let db = RedbDatabase::in_memory(RailgunDbKey::generate().expect("a fresh key"))
+         .expect("an in-memory database");
+      let syncer = RpcSyncer::new(
+         client.clone(),
+         chain.id,
+         chain.railgun_smart_wallet,
+      )
+      .with_snapshot_loader(snapshot.clone());
+      let verifier = RootVerifier::new(client.clone(), chain.railgun_smart_wallet);
+      let indexer = UtxoIndexer::new(db, syncer, None, verifier).await.expect("an empty indexer");
+
+      RailgunProvider::new(
+         chain,
+         client,
+         indexer,
+         Groth16Prover::new("http://127.0.0.1:1", None),
+         None,
+         snapshot,
+      )
+      .await
+      .expect("a provider over the snapshot")
+   }
+
+   /// A client pointed at nothing: these tests read the snapshot, never the network.
+   fn offline_client() -> impl Provider<Ethereum> + Clone + 'static {
+      ProviderBuilder::new()
+         .connect_http(reqwest::Url::parse("http://127.0.0.1:1").expect("a literal URL"))
+   }
+
+   /// The check's activity comes out of the persisted snapshot, filtered to the asset and the
+   /// window, and is reused until the snapshot's tip moves.
+   #[tokio::test]
+   async fn activity_is_read_from_the_snapshot_and_cached_until_the_tip_moves() {
+      let snapshot = SnapshotLoader::in_memory();
+      snapshot
+         .append(
+            1,
+            &[
+               shield(WETH, 5_000, TIP - 10, TS - 100, 1),
+               shield(USDC, 7_000, TIP - 10, TS - 100, 2),
+               shield(WETH, 9_000, TIP - 1_000_000, TS - 200 * 86_400, 3),
+            ],
+            TIP,
+            Some(TIP - 2_000_000),
+         )
+         .await
+         .expect("a seeded snapshot");
+
+      let provider = provider_with(snapshot.clone(), offline_client()).await;
+      assert_eq!(provider.snapshot_tip().await.unwrap(), TIP);
+
+      let window = DepositWindow::new(
+         TS - 180 * 86_400,
+         TS,
+         TIP - 180 * 86_400 / 12,
+         TIP,
+      );
+
+      let weth = provider.shield_activity(WETH, window).await.unwrap();
+      assert_eq!(
+         weth.len(),
+         1,
+         "only the WETH deposit inside the window"
+      );
+      assert_eq!(weth[0].amount_wei, 5_000);
+
+      // Same tip: the decode is not repeated.
+      let cached = provider.shield_activity(WETH, window).await.unwrap();
+      assert!(Arc::ptr_eq(&weth, &cached));
+
+      // Another asset is its own entry.
+      let usdc = provider.shield_activity(USDC, window).await.unwrap();
+      assert_eq!(usdc.len(), 1);
+      assert_eq!(usdc[0].amount_wei, 7_000);
+
+      // A tip that moved makes the old answer stale, and the new one is built from scratch.
+      snapshot
+         .append(
+            1,
+            &[shield(WETH, 11_000, TIP + 5, TS + 60, 4)],
+            TIP + 5,
+            None,
+         )
+         .await
+         .expect("an appended tip");
+
+      let after = provider.shield_activity(WETH, window).await.unwrap();
+      assert!(!Arc::ptr_eq(&weth, &after));
+      assert_eq!(
+         after.len(),
+         1,
+         "the window is unchanged, so the deposit set is"
+      );
+      assert_eq!(provider.snapshot_tip().await.unwrap(), TIP + 5);
+   }
+
+   /// No snapshot is not an error: the tip is `0` and nothing is claimed about the pool.
+   #[tokio::test]
+   async fn a_missing_snapshot_is_an_empty_activity_list() {
+      let provider = provider_with(SnapshotLoader::in_memory(), offline_client()).await;
+
+      assert_eq!(provider.snapshot_tip().await.unwrap(), 0);
+
+      let window = DepositWindow::new(
+         TS - 180 * 86_400,
+         TS,
+         TIP - 180 * 86_400 / 12,
+         TIP,
+      );
+      assert!(provider.shield_activity(WETH, window).await.unwrap().is_empty());
+   }
 }
 
 mod abi {

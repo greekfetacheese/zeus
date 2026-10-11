@@ -156,6 +156,19 @@ impl TxDBHandle {
       self.read(|db| db.get_txs(chain, owner).cloned())
    }
 
+   /// Hand `visit` every recorded transaction of `owners`, by reference, each paired with the wallet
+   /// it belongs to.
+   ///
+   /// A check that reads several wallets' histories would otherwise clone them out of the store on
+   /// every pass.
+   pub fn visit_txs_of<R>(
+      &self,
+      owners: &HashSet<Address>,
+      visit: impl FnOnce(Vec<(Address, &TransactionRich)>) -> R,
+   ) -> R {
+      self.read(|db| visit(db.txs_of_any(owners).collect()))
+   }
+
    pub fn get_tx_count(&self, chain: u64, owner: Address) -> usize {
       self.read(|db| db.get_tx_count(chain, owner))
    }
@@ -439,6 +452,21 @@ impl TransactionsDB {
 
    pub fn all(&self) -> impl Iterator<Item = &TransactionRich> {
       self.txs.values().flat_map(|v| v.iter())
+   }
+
+   /// Every recorded transaction of any owner in `owners`, on every chain, paired with the wallet it
+   /// was recorded for.
+   ///
+   /// Borrowed, so a reader that only looks at the rows clones nothing out of the store.
+   pub fn txs_of_any(
+      &self,
+      owners: &HashSet<Address>,
+   ) -> impl Iterator<Item = (Address, &TransactionRich)> {
+      self
+         .txs
+         .iter()
+         .filter(move |((_, owner), _)| owners.contains(owner))
+         .flat_map(|((_, owner), txs)| txs.iter().map(move |tx| (*owner, tx)))
    }
 
    pub fn get_txs_paged(

@@ -1,4 +1,6 @@
-use eframe::egui::{Align, Checkbox, FontId, Id, Layout, Margin, Order, RichText, Ui, vec2};
+use eframe::egui::{
+   Align, Checkbox, FontId, Id, Layout, Margin, Order, RichText, Spinner, Ui, vec2,
+};
 
 use std::{
    collections::HashMap,
@@ -19,6 +21,9 @@ use crate::{
    utils::{RT, TimeStamp, write_private_atomic},
 };
 
+use super::privacy::{
+   LARGE_POOL_SHARE, MIN_POOL_DEPOSITS, RecipientLink, UnshieldPrivacy, assess_unshield,
+};
 use super::{RailgunAsset, SettledOp, expect_single_event, railgun_ready, settle_railgun_op};
 use crate::assets::icons::Icons;
 use crate::gui::{
@@ -45,7 +50,9 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
-use zeus_railgun::{RailgunAddress, rand::SeedableRng, rand_chacha::ChaCha12Rng};
+use zeus_railgun::{
+   RailgunAddress, caip::AssetId, privacy::RiskBand, rand::SeedableRng, rand_chacha::ChaCha12Rng,
+};
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -61,6 +68,31 @@ const BUNDLER_URL_AAD: &[u8] = b"zeus-bundler-url-v1";
 const SELF_BROADCAST_TIP: &str = "Submits the unshield from your public wallet. Breaks anonymity only use if private broadcast is unavailable.";
 const UNWRAP_TO_ETH_TIP: &str =
    "Unwraps WETH to ETH. Useful if the recipient doesn't have native ETH for gas.";
+
+/// Why the default bundler is Zeus's own: what it is, who pays, and how to stop relying on it.
+const PAYMASTER_TIP: &str = "Uses Railgun Privacy Paymaster. Fee is paid from private WETH balance. \
+                             Point this at a self-hosted Alto for less reliance on public Pimlico.";
+
+/// How long the amount field is left alone before a privacy check runs.
+///
+/// The check reads the events snapshot and the chain, so it must not run on every keystroke — but it
+/// should land while the user is still deciding, not when they press the button.
+const PRIVACY_CHECK_DELAY: Duration = Duration::from_millis(450);
+
+/// What a privacy verdict belongs to.
+///
+/// A changed input does not make the old verdict stale, it makes it wrong: it would describe a
+/// withdrawal nobody is about to send. So a verdict is only ever shown for the key it was computed
+/// for, and a newer key drops the older answer.
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct PrivacyKey {
+   chain: u64,
+   asset: AssetId,
+   /// What is being moved, as typed: an amount for a fungible token, the count and id for an NFT.
+   amount: String,
+   recipient: Address,
+   owner: Address,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BundlerUrl {
@@ -152,6 +184,15 @@ pub struct ShieldUi {
    open_broadcast_options: bool,
    /// Optional memo for unshield (written on change notes for private history).
    memo: String,
+   /// The privacy check's verdict, and the form inputs it belongs to.
+   privacy: Option<UnshieldPrivacy>,
+   /// The key `privacy` was computed for; also the key whose check is in flight.
+   privacy_key: Option<PrivacyKey>,
+   /// A key waiting out the debounce before it is checked.
+   privacy_pending: Option<(PrivacyKey, Instant)>,
+   privacy_loading: bool,
+   /// Whether the tips list is expanded.
+   privacy_tips_open: bool,
 }
 
 impl ShieldUi {
@@ -177,6 +218,11 @@ impl ShieldUi {
          open_merge_notes: false,
          open_broadcast_options: false,
          memo: String::new(),
+         privacy: None,
+         privacy_key: None,
+         privacy_pending: None,
+         privacy_loading: false,
+         privacy_tips_open: false,
       }
    }
 
@@ -291,37 +337,24 @@ impl ShieldUi {
       !self.self_broadcast && self.bundler_url.trim() != default_bundler_url(chain_id).as_str()
    }
 
-   /// The broadcaster relays the unshield from the user's IP address.
-   fn show_ip_warning(&self, theme: &Theme, chain_id: u64, ui: &mut Ui) {
-      if !self.mode.is_unshield() || self.self_broadcast {
-         return;
-      }
-
-      let (text, color) = if self.uses_custom_bundler(chain_id) {
-         (
-            "Using a custom bundler. Its operator sees your IP address and your unshields.",
-            theme.colors.info,
-         )
+   /// The first tip: the broadcaster relays the unshield from the user's IP address.
+   ///
+   /// This was three lines of panel copy above the amount field, which the form cannot spare — but it
+   /// is standing advice rather than a live verdict, so it belongs with the other tips. It still names
+   /// whichever party actually sees the IP, because "a bundler sees your IP" is the wrong sentence
+   /// when the user is broadcasting from their own wallet, or has pointed the unshield at someone
+   /// else's bundler.
+   fn ip_tip(&self, chain_id: u64) -> &'static str {
+      if self.self_broadcast {
+         "IP address: self-broadcast sends this from your own wallet, so your IP address goes out with \
+          the transaction. Use a VPN, and a machine you do not use for your identified life."
+      } else if self.uses_custom_bundler(chain_id) {
+         "IP address: the bundler set in Broadcast options sees your IP address and your unshields. Use \
+          a VPN, and a machine you do not use for your identified life."
       } else {
-         (
-            "Private broadcast keeps the origin of your funds anonymous, but the bundler still sees your IP address. Point Broadcast options at a bundler you run yourself to keep it private.",
-            theme.colors.text_muted,
-         )
-      };
-
-      let content_width = ui.available_width();
-      ui.vertical(|ui| {
-         ui.set_width(content_width);
-         ui.add(
-            Label::new(
-               RichText::new(text).size(theme.typography.small).color(color),
-               None,
-            )
-            .wrap()
-            .fill_width(true)
-            .interactive(false),
-         );
-      });
+         "IP address: private broadcast hides the origin of your funds, but the bundler still sees your \
+          IP address. Point Broadcast options at a bundler you run yourself, and use a VPN."
+      }
    }
 
    /// Whether the form is pointed at something Zeus refuses to shield.
@@ -396,16 +429,19 @@ impl ShieldUi {
 
          self.broadcast_options(theme, ctx.chain.id(), ui);
 
+         self.privacy_tips(theme, ctx.chain.id(), ui);
+
          let frame = theme.frame1;
 
+         // Centred both ways, as the other pages are. The form was anchored to the top only because it
+         // was taller than the panel; the memo and the broadcast switches now live in the Broadcast
+         // options modal, which gave back the rows they cost, so the card fits where it belongs.
          ui.vertical_centered(|ui| {
             frame.show(ui, |ui| {
                   ui.set_width(self.size.0);
                   ui.set_max_height(self.size.1);
                   ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
                   ui.spacing_mut().button_padding = theme.button_padding;
-
-                  let text_edit_visuals = theme.text_edit_visuals();
 
                   let title = match self.mode {
                      RailgunMode::Shield => "Shield",
@@ -455,10 +491,6 @@ impl ShieldUi {
                         }
                      }
                   }
-
-                  ui.add_space(theme.spacing.md);
-
-                  self.show_ip_warning(theme, chain.id(), ui);
 
                   ui.add_space(theme.spacing.md);
 
@@ -618,35 +650,11 @@ impl ShieldUi {
                   // Carried to the confirm step, which re-checks the name with its own clock.
                   let recipient_guard = recipient.ens_guard();
 
+                  // The memo and the broadcast switches are in the Broadcast options modal now: the
+                  // form is a fixed stack with no scroll area, so the rows it keeps are rows the action
+                  // button gets. The row below still shows what is set in there.
                   if self.mode.is_unshield() {
-                     inner_frame.show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.horizontal(|ui| {
-                           ui.label(RichText::new("Memo").size(theme.typography.large));
-                           ui.add_space(8.0);
-                           ui.label(
-                              RichText::new("(optional)")
-                                 .size(theme.typography.small)
-                                 .color(theme.colors.text_muted),
-                           );
-                        });
-                        ui.add(
-                           SecureTextEdit::singleline(&mut self.memo)
-                              .visuals(text_edit_visuals)
-                              .hint_text(
-                                 RichText::new("Shown in private history")
-                                    .size(theme.typography.normal)
-                                    .color(theme.colors.text_muted),
-                              )
-                              .min_size(vec2(ui.available_width(), 25.0))
-                              .margin(Margin::same(10))
-                              .font(FontId::proportional(theme.typography.normal)),
-                        );
-                     });
-                  }
-
-                  if self.mode.is_unshield() {
-                     self.unshield_options(theme, ui);
+                     self.broadcast_options_row(theme, ui);
                   }
 
                   // Read before the address fields are moved out of `recipient`.
@@ -657,6 +665,12 @@ impl ShieldUi {
                   } else {
                      recipient.evm_address
                   };
+
+                  // What this withdrawal reveals, computed off the frame path.
+                  if self.mode.is_unshield() {
+                     self.poll_privacy(chain, owner, &recipient_str, ui);
+                     self.show_privacy_check(theme, ui);
+                  }
 
                   ui.add_space(10.0);
 
@@ -681,7 +695,13 @@ impl ShieldUi {
       });
    }
 
-   fn unshield_options(&mut self, theme: &Theme, ui: &mut Ui) {
+   /// The way into the broadcast options, and what is currently set inside them.
+   ///
+   /// The memo and the switches live in the modal, but a self-broadcast unshield sends from the user's
+   /// own wallet and breaks anonymity: the state has to stay visible from the form, or the setting
+   /// would only be discovered by opening the modal again. Both badges are the form's own, so they
+   /// cost no row: the row already carries the button.
+   fn broadcast_options_row(&mut self, theme: &Theme, ui: &mut Ui) {
       let inner_frame = theme.frame2;
 
       inner_frame.show(ui, |ui| {
@@ -689,41 +709,31 @@ impl ShieldUi {
          ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
 
          ui.horizontal(|ui| {
-            let text = RichText::new("Self-broadcast").size(theme.typography.large);
-            let checkbox = Checkbox::new(&mut self.self_broadcast, text);
-            ui.add(checkbox);
+            let text = RichText::new("Broadcast options").size(theme.typography.normal);
+            let button = Button::new(text).visuals(theme.button_visuals());
 
-            ui.add_space(10.0);
+            if ui.add(button).clicked() {
+               self.open_broadcast_options();
+            }
 
-            let q_mark = RichText::new("Breaks Anonymity").size(theme.typography.large);
-            let badge = Badge::new(q_mark, BadgeTone::Warning);
-            let tip_text = RichText::new(SELF_BROADCAST_TIP).size(theme.typography.normal);
-            ui.add(badge).on_hover_text(tip_text);
-         });
-
-         // ? Maybe in the future we could replace this with swaps
-         // ? Eg. going from USDC to ETH and not just limited to WETH > ETH
-         if self.currency.is_native_wrapped() && !self.self_broadcast {
-            ui.horizontal(|ui| {
-               let text = RichText::new("Unwrap to ETH").size(theme.typography.large);
-               let checkbox = Checkbox::new(&mut self.unwrap_to_eth, text);
-               ui.add(checkbox);
-
+            if self.self_broadcast {
                ui.add_space(10.0);
 
-               let text = RichText::new("For empty wallets without funds for gas")
-                  .size(theme.typography.normal);
+               let q_mark = RichText::new("Self-broadcast").size(theme.typography.normal);
+               let badge = Badge::new(q_mark, BadgeTone::Warning);
+               let tip_text = RichText::new(SELF_BROADCAST_TIP).size(theme.typography.normal);
+               ui.add(badge).on_hover_text(tip_text);
+            }
+
+            // ? Maybe in the future we could replace this with swaps
+            // ? Eg. going from USDC to ETH and not just limited to WETH > ETH
+            if self.unwrap_to_eth && self.currency.is_native_wrapped() && !self.self_broadcast {
+               ui.add_space(10.0);
+
+               let text = RichText::new("Unwrap to ETH").size(theme.typography.normal);
                let badge = Badge::new(text, BadgeTone::Info);
                let tip_text = RichText::new(UNWRAP_TO_ETH_TIP).size(theme.typography.normal);
                ui.add(badge).on_hover_text(tip_text);
-            });
-         }
-
-         let text = RichText::new("Broadcast options").size(theme.typography.normal);
-         let button = Button::new(text).visuals(theme.button_visuals());
-         ui.horizontal(|ui| {
-            if ui.add(button).clicked() {
-               self.open_broadcast_options();
             }
          });
       });
@@ -750,19 +760,91 @@ impl ShieldUi {
          .heading(title)
          .header_separator(false)
          .center_header(true)
+         // The card carries the memo and the switches the form used to hold, so its width is set here
+         // rather than left to whatever the centred header measured last frame.
+         .max_width(620.0)
          .show(ui.ctx(), |ui| {
             ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
             ui.spacing_mut().button_padding = theme.button_padding;
 
-            ui.add_enabled_ui(!self.self_broadcast, |ui| {
-               ui.set_width(450.0);
-               ui.set_max_height(250.0);
+            ui.set_width(560.0);
 
-               let ui_size = vec2(ui.available_width() * 0.9, 45.0);
+            // The switches come first: self-broadcast replaces the bundler below it entirely.
+            ui.horizontal(|ui| {
+               let text = RichText::new("Self-broadcast").size(theme.typography.large);
+               let checkbox = Checkbox::new(&mut self.self_broadcast, text);
+               ui.add(checkbox);
+
+               ui.add_space(10.0);
+
+               let q_mark = RichText::new("Breaks Anonymity").size(theme.typography.large);
+               let badge = Badge::new(q_mark, BadgeTone::Warning);
+               let tip_text = RichText::new(SELF_BROADCAST_TIP).size(theme.typography.normal);
+               ui.add(badge).on_hover_text(tip_text);
+            });
+
+            // ? Maybe in the future we could replace this with swaps
+            // ? Eg. going from USDC to ETH and not just limited to WETH > ETH
+            if self.currency.is_native_wrapped() && !self.self_broadcast {
+               ui.horizontal(|ui| {
+                  let text = RichText::new("Unwrap to ETH").size(theme.typography.large);
+                  let checkbox = Checkbox::new(&mut self.unwrap_to_eth, text);
+                  ui.add(checkbox);
+
+                  ui.add_space(10.0);
+
+                  let text = RichText::new("For empty wallets without funds for gas")
+                     .size(theme.typography.normal);
+                  let badge = Badge::new(text, BadgeTone::Info);
+                  let tip_text = RichText::new(UNWRAP_TO_ETH_TIP).size(theme.typography.normal);
+                  ui.add(badge).on_hover_text(tip_text);
+               });
+            }
+
+            if self.mode.is_unshield() {
+               ui.add_space(theme.spacing.sm);
+
+               ui.horizontal(|ui| {
+                  ui.label(RichText::new("Memo").size(theme.typography.large));
+                  ui.add_space(8.0);
+                  ui.label(
+                     RichText::new("(optional)")
+                        .size(theme.typography.small)
+                        .color(theme.colors.text_muted),
+                  );
+               });
+
+               ui.add(
+                  SecureTextEdit::singleline(&mut self.memo)
+                     .visuals(text_edit_visuals)
+                     .hint_text(
+                        RichText::new("Shown in private history")
+                           .size(theme.typography.normal)
+                           .color(theme.colors.text_muted),
+                     )
+                     .min_size(vec2(ui.available_width(), 25.0))
+                     .margin(Margin::same(10))
+                     .font(FontId::proportional(theme.typography.normal)),
+               );
+            }
+
+            ui.add_space(theme.spacing.md);
+
+            ui.add_enabled_ui(!self.self_broadcast, |ui| {
+               let ui_size = vec2(ui.available_width(), 45.0);
 
                ui.allocate_ui(ui_size, |ui| {
                   ui.horizontal_centered(|ui| {
                      ui.label(RichText::new("Bundler URL").size(theme.typography.normal));
+
+                     ui.add_space(6.0);
+
+                     // What the default bundler is, who pays the fee and how to stop relying on it: a
+                     // hover, because it is reference material rather than a decision.
+                     let mark = RichText::new("?").size(theme.typography.normal);
+                     let badge = Badge::new(mark, BadgeTone::Info);
+                     let tip_text = RichText::new(PAYMASTER_TIP).size(theme.typography.normal);
+                     ui.add(badge).on_hover_text(tip_text);
 
                      ui.add_space(8.0);
 
@@ -774,8 +856,8 @@ impl ShieldUi {
                                  "{}/{{chainId}}/rpc",
                                  ZeusUrl::PimlicoBundler.base()
                               ))
-                                 .size(theme.typography.small)
-                                 .color(theme.colors.text_muted),
+                              .size(theme.typography.small)
+                              .color(theme.colors.text_muted),
                            )
                            .desired_width(ui.available_width())
                            .margin(Margin::same(6))
@@ -809,24 +891,7 @@ impl ShieldUi {
                   }
                });
 
-               ui.add_space(theme.spacing.md);
-
-               let text = "Uses Railgun Privacy Paymaster.\nFee is paid from private WETH balance.\nPoint this at a self-hosted Alto for less reliance on public Pimlico.";
-
-               ui.label(RichText::new(text).size(theme.typography.normal));
-
-               let note = "The bundler operator sees your IP address and your unshields. A VPN hides your IP address, a bundler you run yourself hides both.";
-               ui.add(
-                  Label::new(
-                     RichText::new(note)
-                        .size(theme.typography.small)
-                        .color(theme.colors.text_muted),
-                     None,
-                  )
-                  .wrap()
-                  .fill_width(true)
-                  .interactive(false),
-               );
+               ui.add_space(theme.spacing.sm);
             });
 
             if self.self_broadcast {
@@ -837,16 +902,16 @@ impl ShieldUi {
                );
             }
 
-            ui.add_space(10.0);
+            ui.add_space(theme.spacing.md);
 
-               let text = RichText::new("OK").size(theme.typography.normal);
-               let button = Button::new(text).visuals(theme.button_visuals());
+            let text = RichText::new("OK").size(theme.typography.normal);
+            let button = Button::new(text).visuals(theme.button_visuals());
 
-               ui.vertical_centered(|ui| {
-                  if ui.add(button).clicked() {
-                     ok_clicked = true;
-                  }
-               });
+            ui.vertical_centered(|ui| {
+               if ui.add(button).clicked() {
+                  ok_clicked = true;
+               }
+            });
          });
 
       if ok_clicked {
@@ -854,6 +919,433 @@ impl ShieldUi {
       }
 
       self.open_broadcast_options = open;
+   }
+
+   /// The asset the form is about to move.
+   fn privacy_asset(&self) -> RailgunAsset {
+      match &self.nft {
+         Some(nft) => RailgunAsset::Nft(nft.clone()),
+         None => RailgunAsset::Fungible(self.currency.clone()),
+      }
+   }
+
+   /// The asset identity the check belongs to.
+   fn privacy_asset_key(&self) -> AssetId {
+      self.privacy_asset().asset_id()
+   }
+
+   /// What is being moved, as typed: the amount for a token, the id and count for an NFT.
+   fn privacy_amount_key(&self) -> String {
+      match &self.nft {
+         Some(nft) => format!(
+            "{}#{}x{}",
+            nft.collection,
+            nft.token_id,
+            self.nft_amount.trim()
+         ),
+         None => self.amount_field.amount.trim().to_string(),
+      }
+   }
+
+   /// The value the check scores, in the asset's own units.
+   ///
+   /// An NFT moves one token and has no amount to be distinctive or to take a share of a pool, so the
+   /// check answers only for the recipient; the number is not consulted.
+   fn privacy_amount_wei(&self) -> U256 {
+      match &self.nft {
+         Some(_) => U256::ZERO,
+         None => NumericValue::parse_to_wei(
+            &self.amount_field.amount,
+            self.currency.decimals(),
+         )
+         .wei(),
+      }
+   }
+
+   /// Forget the verdict — the form no longer describes what it was computed for.
+   fn reset_privacy(&mut self) {
+      self.privacy = None;
+      self.privacy_key = None;
+      self.privacy_pending = None;
+      self.privacy_loading = false;
+   }
+
+   /// The check's key for this form: what a verdict would be about.
+   fn privacy_key(&self, chain: ChainId, owner: Address, recipient: Address) -> PrivacyKey {
+      PrivacyKey {
+         chain: chain.id(),
+         asset: self.privacy_asset_key(),
+         amount: self.privacy_amount_key(),
+         recipient,
+         owner,
+      }
+   }
+
+   /// Run the privacy check once the form's inputs have settled.
+   ///
+   /// The check reads the events snapshot and the chain, so it waits out the debounce rather than
+   /// running on every keystroke, and a newer key always supersedes the one on screen.
+   fn poll_privacy(&mut self, chain: ChainId, owner: Address, recipient: &str, ui: &mut Ui) {
+      let Ok(recipient_address) = Address::from_str(recipient.trim()) else {
+         self.reset_privacy();
+         return;
+      };
+
+      let key = self.privacy_key(chain, owner, recipient_address);
+
+      // Answered, or in flight, for exactly this form: nothing to do.
+      if self.privacy_key.as_ref() == Some(&key) {
+         return;
+      }
+
+      // Nothing to check yet, so nothing to show either.
+      if key.amount.is_empty() {
+         self.reset_privacy();
+         return;
+      }
+
+      match &self.privacy_pending {
+         Some((pending, staged_at)) if pending == &key => {
+            let waited = staged_at.elapsed();
+            if waited < PRIVACY_CHECK_DELAY {
+               // The debounce is a timer: without a repaint the check would wait for the next click.
+               ui.ctx().request_repaint_after(PRIVACY_CHECK_DELAY - waited);
+               return;
+            }
+
+            self.privacy_pending = None;
+            self.privacy_key = Some(key.clone());
+            self.privacy_loading = true;
+            self.privacy = None;
+
+            spawn_privacy_check(
+               key,
+               chain,
+               self.privacy_asset(),
+               self.privacy_amount_wei(),
+               recipient_address,
+               owner,
+            );
+         }
+         _ => {
+            // A different form: the old verdict is wrong rather than stale, so it goes now.
+            self.privacy_pending = Some((key, Instant::now()));
+            self.privacy = None;
+            self.privacy_key = None;
+            self.privacy_loading = true;
+            ui.ctx().request_repaint_after(PRIVACY_CHECK_DELAY);
+         }
+      }
+   }
+
+   /// What this withdrawal reveals, and what to do about it.
+   fn show_privacy_check(&mut self, theme: &Theme, ui: &mut Ui) {
+      if !self.mode.is_unshield() {
+         return;
+      }
+
+      let Some(privacy) = self.privacy.clone() else {
+         if self.privacy_loading {
+            // The check is debounced and runs off the frame path, so this line can sit there for a
+            // moment: the spinner is what says it is working rather than stuck.
+            ui.horizontal(|ui| {
+               ui.add(Spinner::new().size(theme.typography.small).color(theme.colors.text_muted));
+
+               ui.add(
+                  Label::new(
+                     RichText::new("Checking what this withdrawal reveals…")
+                        .size(theme.typography.small)
+                        .color(theme.colors.text_muted),
+                     None,
+                  )
+                  .interactive(false),
+               );
+            });
+         }
+         return;
+      };
+
+      let decimals = self.currency.decimals();
+      let symbol = self.currency.symbol().to_string();
+      let inner_frame = theme.frame2;
+      let mut apply_suggestion = None;
+
+      inner_frame.show(ui, |ui| {
+         ui.set_width(ui.available_width());
+         ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+
+         // One row carries the verdict and the way into the tips: this block sits directly above the
+         // action button, so every row it spends is a row the button loses.
+         ui.horizontal(|ui| {
+            if let Some(advice) = &privacy.amount {
+               let color = match advice.band {
+                  RiskBand::Low => theme.colors.text_muted,
+                  RiskBand::Medium => theme.colors.text,
+                  RiskBand::High => theme.colors.warning,
+                  RiskBand::Critical => theme.colors.error,
+               };
+
+               ui.add(
+                  Label::new(
+                     RichText::new(format!(
+                        "Amount privacy risk: {}",
+                        advice.band.label()
+                     ))
+                     .size(theme.typography.large)
+                     .color(color),
+                     None,
+                  )
+                  .interactive(false),
+               );
+            }
+
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+               let button =
+                  Button::new(RichText::new("Privacy tips").size(theme.typography.normal))
+                     .visuals(theme.button_visuals());
+
+               if ui.add(button).clicked() {
+                  self.privacy_tips_open = true;
+               }
+            });
+         });
+
+         if let Some(advice) = &privacy.amount {
+            // Exact matches are only half of the picture: an amount that nothing adds up to can
+            // still be the only one of its size, which fingerprints it just as well. Both numbers go
+            // out, so the sentence never reads as reassurance on the strength of the match count.
+            let near = advice.crowding.within_ten_percent;
+            // One line each: this block sits above the action button in a form with no scroll area.
+            let reason = match (advice.matches(), near) {
+               (0, 0) => "Nothing adds up to this size, or even comes within 10% of it.".to_string(),
+               (0, near) => format!(
+                  "Nothing matches this size exactly, {near} deposits are within 10% of it."
+               ),
+               (matches, near) => format!(
+                  "{matches} deposits or sums match this size, {near} within 10% of it."
+               ),
+            };
+            ui.add(
+               Label::new(
+                  RichText::new(reason)
+                     .size(theme.typography.small)
+                     .color(theme.colors.text_muted),
+                  None,
+               )
+               .wrap()
+               .fill_width(true)
+               .interactive(false),
+            );
+
+            if advice.user.duplicate_shields > 0 {
+               ui.add(
+                  Label::new(
+                     RichText::new(
+                        "You shielded this exact amount. Unshielding it again links the two: \
+                         consider smaller amounts, spread over days.",
+                     )
+                     .size(theme.typography.small)
+                     .color(theme.colors.warning),
+                     None,
+                  )
+                  .wrap()
+                  .fill_width(true)
+                  .interactive(false),
+               );
+            } else if advice.user.withdraws_remainder {
+               ui.add(
+                  Label::new(
+                     RichText::new(
+                        "This is what is left of a deposit you already partly withdrew: the two \
+                         withdrawals add up to it.",
+                     )
+                     .size(theme.typography.small)
+                     .color(theme.colors.warning),
+                     None,
+                  )
+                  .wrap()
+                  .fill_width(true)
+                  .interactive(false),
+               );
+            }
+
+            if let Some(suggestion) = advice.suggestion {
+               let suggested = NumericValue::format_wei(U256::from(suggestion), decimals).flatten();
+               ui.horizontal(|ui| {
+                  ui.add(
+                     Label::new(
+                        RichText::new(format!("Try {suggested} {symbol} instead"))
+                           .size(theme.typography.normal),
+                        None,
+                     )
+                     .interactive(false),
+                  );
+
+                  ui.add_space(8.0);
+
+                  let button = Button::new(RichText::new("Use it").size(theme.typography.normal))
+                     .visuals(theme.button_visuals());
+
+                  if ui.add(button).clicked() {
+                     apply_suggestion = Some(U256::from(suggestion));
+                  }
+               });
+            }
+         }
+
+         if let Some(reason) = &privacy.unavailable {
+            ui.add(
+               Label::new(
+                  RichText::new(format!("No privacy check for this withdrawal: {reason}"))
+                  .size(theme.typography.small)
+                  .color(theme.colors.text_muted),
+                  None,
+               )
+               .wrap()
+               .fill_width(true)
+               .interactive(false),
+            );
+         }
+
+         if let Some(pool) = &privacy.pool {
+            if pool.is_shallow() {
+               let text = match (pool.deposits, pool.usd, pool.share) {
+                  // Too few deposits to judge a size against, whatever the value says.
+                  (Some(deposits), _, _) if deposits < MIN_POOL_DEPOSITS => format!(
+                     "Only {deposits} deposits of {symbol} in the last 180 days."
+                  ),
+                  (_, Some(usd), _) => format!(
+                     "Only ${usd:.0} of {symbol} is shielded pool-wide: too little activity to hide in."
+                  ),
+                  (_, None, _) => format!(
+                     "Zeus cannot value {symbol} on-chain: treat its pool as thin."
+                  ),
+               };
+               ui.add(
+                  Label::new(
+                     RichText::new(text).size(theme.typography.small).color(theme.colors.warning),
+                     None,
+                  )
+                  .wrap()
+                  .fill_width(true)
+                  .interactive(false),
+               );
+            }
+
+            // Only when the pool is otherwise fine: a shallow pool has just said so, and the share of
+            // it tells that reader nothing new.
+            if let Some(share) = pool
+               .share
+               .filter(|share| *share > LARGE_POOL_SHARE)
+               .filter(|_| !pool.is_shallow())
+            {
+               ui.add(
+                  Label::new(
+                     RichText::new(format!(
+                        "This withdrawal would take {:.0}% of the entire {symbol} pool.",
+                        share * 100.0
+                     ))
+                     .size(theme.typography.small)
+                     .color(theme.colors.warning),
+                     None,
+                  )
+                  .wrap()
+                  .fill_width(true)
+                  .interactive(false),
+               );
+            }
+         }
+
+         // Neither on-chain history nor being one of the user's own wallets is a link — unshielding to
+         // a wallet nobody can connect to you is the point — so only a tie back to the person is
+         // reported, and only the loudest one of those. An address with no tie at all says so in the
+         // success colour: the form is otherwise silent about the one thing the recipient got right.
+         //
+         // The link is judged from the local history plus one `nonce` call, and neither of those can
+         // fail its way into "no link": the history is what it is, and an unreadable `nonce` only
+         // leaves `fresh` unknown. That is why this line is allowed to be reassuring.
+         let (color, text) = match privacy.recipient.link() {
+            Some(RecipientLink::Transacted) => (
+               theme.colors.warning,
+               "You have transacted with this address from one of your wallets, so it can be tied \
+                back to you. A fresh address cannot."
+                  .to_string(),
+            ),
+            Some(RecipientLink::PriorUnshields(1)) => (
+               theme.colors.warning,
+               "You have already unshielded to this address once.".to_string(),
+            ),
+            Some(RecipientLink::PriorUnshields(times)) => (
+               theme.colors.warning,
+               format!("You have already unshielded to this address {times} times."),
+            ),
+            None => (
+               theme.colors.success,
+               "Recipient doesn't link back to you.".to_string(),
+            ),
+         };
+
+         ui.add(
+            Label::new(RichText::new(text).size(theme.typography.small).color(color), None)
+               .wrap()
+               .fill_width(true)
+               .interactive(false),
+         );
+      });
+
+      if let Some(suggested) = apply_suggestion {
+         self.amount_field.amount = NumericValue::format_wei(suggested, decimals).flatten();
+      }
+   }
+
+   /// The habits that outlast any single verdict, in a modal because the form has no room for them.
+   fn privacy_tips(&mut self, theme: &Theme, chain_id: u64, ui: &mut Ui) {
+      if !self.privacy_tips_open {
+         return;
+      }
+
+      let ip_tip = self.ip_tip(chain_id);
+
+      let title = RichText::new("Privacy tips")
+         .size(theme.typography.large)
+         .color(theme.colors.text);
+
+      let id = Id::new("shield_ui_privacy_tips");
+      let mut open = self.privacy_tips_open;
+
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         // A centred header asserts the width it measured last frame as a minimum, so the card needs
+         // an explicit cap or it widens a little every frame.
+         .max_width(560.0)
+         .closable(true)
+         .show(ui.ctx(), |ui| {
+            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
+            ui.spacing_mut().button_padding = theme.button_padding;
+
+            ui.set_width(500.0);
+
+            for tip in std::iter::once(ip_tip).chain(PRIVACY_TIPS.iter().copied()) {
+               ui.add(
+                  Label::new(
+                     RichText::new(format!("• {tip}"))
+                        .size(theme.typography.normal)
+                        .color(theme.colors.text),
+                     None,
+                  )
+                  .wrap()
+                  .fill_width(true)
+                  .interactive(false),
+               );
+            }
+         });
+
+      // X / Esc / backdrop must stick.
+      self.privacy_tips_open = open;
    }
 
    fn valid_recipient(&self, recipient: &str) -> bool {
@@ -1278,6 +1770,49 @@ impl ShieldUi {
    }
 }
 
+/// The standing advice behind the check's **Privacy tips** modal: the habits that matter more than
+/// any single score. The first tip — the IP address — is built by [`ShieldUi::ip_tip`] instead, since
+/// who sees it depends on how the unshield is broadcast.
+///
+/// Each is the honest answer to something the check cannot measure — an IP address, a bundler's
+/// logs, an exchange's records, the timing of two transactions — which is why they are shown
+/// whether or not the amount looks distinctive.
+const PRIVACY_TIPS: [&str; 3] = [
+   "Amount and timing: unshield in smaller amounts, at varied times. Not the amount you just \
+    shielded, and not the exact sum of a few deposits.",
+   "Reads leak too: a public RPC sees which addresses you ask about. Use a private RPC or your own \
+    node for the queries that matter.",
+   "Recipient: a fresh 0x address that has never held funds. Never one used for earlier unshields \
+    or other activity that can link back to you",
+];
+
+/// Run the check for `key` and publish the verdict if the form still matches it.
+///
+/// The context is taken inside the task: the frame holds the GUI lock while this is scheduled, and
+/// the verdict is only ever written back for the key that asked for it.
+fn spawn_privacy_check(
+   key: PrivacyKey,
+   chain: ChainId,
+   asset: RailgunAsset,
+   amount_wei: U256,
+   recipient: Address,
+   owner: Address,
+) {
+   RT.spawn(async move {
+      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+      let privacy = assess_unshield(ctx, chain, &asset, amount_wei, recipient, owner).await;
+
+      SHARED_GUI.write(|gui| {
+         // A newer key owns the form now: this verdict describes a withdrawal nobody is sending.
+         if gui.shield_ui.privacy_key.as_ref() == Some(&key) {
+            gui.shield_ui.privacy = Some(privacy);
+            gui.shield_ui.privacy_loading = false;
+         }
+         gui.request_repaint();
+      });
+   });
+}
+
 /// The quantity a selected NFT moves, from the field the user typed in.
 ///
 /// An ERC-721 moves exactly one and has no field, so it is always `Some(1)`. An ERC-1155 moves what was
@@ -1679,5 +2214,325 @@ mod tests {
          ui.mode.is_unshield(),
          "only the asset is forgotten, not the mode"
       );
+   }
+
+   /// A privacy verdict belongs to the form that asked for it: editing the amount, the token or the
+   /// recipient makes it the answer to another question, and it must not be shown as if it were this
+   /// one's.
+   #[test]
+   fn a_privacy_key_follows_the_form() {
+      let weth = Currency::from(ERC20Token::weth());
+      let owner = Address::from([1u8; 20]);
+      let recipient = Address::from([2u8; 20]);
+      let other_recipient = Address::from([3u8; 20]);
+      let chain = ChainId::new(1).unwrap();
+
+      let mut ui = ShieldUi::new();
+      ui.set_mode(RailgunMode::Unshield);
+      ui.currency = weth.clone();
+      ui.amount_field.amount = "1.5".to_string();
+
+      let key = ui.privacy_key(chain, owner, recipient);
+      assert_eq!(key.asset, AssetId::Erc20(weth.to_erc20().address));
+      assert_eq!(key.chain, 1);
+      assert_eq!(key, ui.privacy_key(chain, owner, recipient));
+
+      // The same form on another chain is another pool.
+      assert_ne!(
+         key,
+         ui.privacy_key(ChainId::new(11155111).unwrap(), owner, recipient)
+      );
+
+      ui.amount_field.amount = "1.6".to_string();
+      assert_ne!(
+         key,
+         ui.privacy_key(chain, owner, recipient),
+         "an edited amount is another withdrawal"
+      );
+
+      ui.amount_field.amount = "1.5".to_string();
+      assert_ne!(
+         key,
+         ui.privacy_key(chain, owner, other_recipient),
+         "another recipient is another withdrawal"
+      );
+      assert_ne!(
+         key,
+         ui.privacy_key(chain, Address::from([4u8; 20]), recipient),
+         "the wallet's own history is part of the question"
+      );
+
+      ui.currency = Currency::from(ERC20Token::usdc());
+      assert_ne!(
+         key,
+         ui.privacy_key(chain, owner, recipient),
+         "another asset is another pool"
+      );
+
+      // Nothing typed yet: the form is not something a check can answer for.
+      let mut ui = ShieldUi::new();
+      ui.set_mode(RailgunMode::Unshield);
+      ui.currency = weth;
+      assert!(ui.privacy_key(chain, owner, recipient).amount.is_empty());
+   }
+
+   /// What "Use it" writes into the amount field is the suggestion as a plain decimal, which is what
+   /// the field — and `parse_to_wei` — reads back.
+   #[test]
+   fn a_suggestion_is_written_as_a_plain_amount() {
+      let suggestion = 1_020_000_000_000_000_000u128;
+
+      let text = NumericValue::format_wei(U256::from(suggestion), 18).flatten();
+
+      assert_eq!(text, "1.02");
+      assert_eq!(
+         NumericValue::parse_to_wei(&text, 18).wei(),
+         U256::from(suggestion),
+         "and it round-trips back to the amount that was suggested"
+      );
+   }
+
+   /// The tips modal is an overlay, so the form's budget says nothing about it: measure it, and check
+   /// that a centred header does not widen the card frame after frame.
+   #[test]
+   fn the_privacy_tips_modal_fits_and_holds_its_width() {
+      use egui_elements::theme::ThemeKind;
+
+      let theme = Theme::new(ThemeKind::TokyoNight);
+      let mut ui_state = ShieldUi::new();
+      ui_state.set_mode(RailgunMode::Unshield);
+      ui_state.currency = Currency::from(ERC20Token::weth());
+      ui_state.privacy_tips_open = true;
+
+      let ctx = eframe::egui::Context::default();
+      ctx.set_fonts(eframe::egui::FontDefinitions::default());
+      ctx.all_styles_mut(|style| *style = theme.style());
+
+      let input = eframe::egui::RawInput {
+         screen_rect: Some(eframe::egui::Rect::from_min_size(
+            eframe::egui::Pos2::ZERO,
+            vec2(1280.0, 900.0),
+         )),
+         ..Default::default()
+      };
+
+      // The card's Area, as the modal registers it: `elegance_modal_window` salted with the id.
+      let area = eframe::egui::Id::new("elegance_modal_window").with(eframe::egui::Id::new(
+         eframe::egui::Id::new("shield_ui_privacy_tips"),
+      ));
+
+      let mut rects = Vec::new();
+      for _ in 0..4 {
+         let mut output = ctx.run_ui(input.clone(), |ui| {
+            ui.set_max_width(490.0);
+            ui_state.privacy_tips(&theme, 1, ui);
+         });
+         output.textures_delta.clear();
+         rects.push(ctx.memory(|memory| memory.area_rect(area)));
+      }
+
+      let last = rects.last().copied().flatten().expect("the modal's area is registered");
+      assert!(
+         last.height() <= 880.0,
+         "the tips modal is taller than the window: {last:?}"
+      );
+      assert!(
+         last.width() <= 561.0,
+         "the tips modal is wider than its cap: {last:?}"
+      );
+
+      // Flat after the first pass, or the header band is ratcheting the card wider every frame.
+      let warm = rects[1].expect("measured by the second frame");
+      assert!(
+         (last.width() - warm.width()).abs() < 1.0,
+         "the modal's width drifts across frames: {rects:?}"
+      );
+   }
+
+   /// The broadcast options modal holds what the form gave up — the memo and the two switches — and it
+   /// is an overlay, so the form's budget says nothing about it. Measured the same way all the same,
+   /// because a centred header is the thing that ratchets.
+   #[test]
+   fn the_broadcast_options_modal_fits_and_holds_its_width() {
+      use egui_elements::theme::ThemeKind;
+
+      let theme = Theme::new(ThemeKind::TokyoNight);
+      let mut ui_state = ShieldUi::new();
+      ui_state.set_mode(RailgunMode::Unshield);
+      ui_state.currency = Currency::from(ERC20Token::weth());
+      ui_state.open_broadcast_options = true;
+      ui_state.memo = "a note that has to fit".to_string();
+
+      let ctx = eframe::egui::Context::default();
+      ctx.set_fonts(eframe::egui::FontDefinitions::default());
+      ctx.all_styles_mut(|style| *style = theme.style());
+
+      let input = eframe::egui::RawInput {
+         screen_rect: Some(eframe::egui::Rect::from_min_size(
+            eframe::egui::Pos2::ZERO,
+            vec2(1280.0, 900.0),
+         )),
+         ..Default::default()
+      };
+
+      // `Modal::new` salts with an id it hashes once more, so the area is a double wrap.
+      let area = eframe::egui::Id::new("elegance_modal_window").with(eframe::egui::Id::new(
+         eframe::egui::Id::new("shield_ui_advanced_broadcast_options"),
+      ));
+
+      let mut rects = Vec::new();
+      for _ in 0..4 {
+         let mut output = ctx.run_ui(input.clone(), |ui| {
+            ui_state.broadcast_options(&theme, 1, ui);
+         });
+         output.textures_delta.clear();
+         rects.push(ctx.memory(|memory| memory.area_rect(area)));
+      }
+
+      let last = rects.last().copied().flatten().expect("the modal's area is registered");
+      assert!(
+         last.height() <= 880.0,
+         "the broadcast modal is taller than the window: {last:?}"
+      );
+      assert!(
+         last.width() <= 621.0,
+         "the broadcast modal is wider than its cap: {last:?}"
+      );
+
+      let warm = rects[1].expect("measured by the second frame");
+      assert!(
+         (last.width() - warm.width()).abs() < 1.0,
+         "the modal's width drifts across frames: {rects:?}"
+      );
+   }
+
+   /// Render the check block headlessly and report the height it took.
+   fn check_block_height(theme: &Theme, privacy: UnshieldPrivacy) -> f32 {
+      let mut ui_state = ShieldUi::new();
+      ui_state.set_mode(RailgunMode::Unshield);
+      ui_state.currency = Currency::from(ERC20Token::weth());
+      ui_state.privacy = Some(privacy);
+
+      let ctx = eframe::egui::Context::default();
+      ctx.set_fonts(eframe::egui::FontDefinitions::default());
+      ctx.all_styles_mut(|style| *style = theme.style());
+
+      let mut height = 0.0;
+      let input = eframe::egui::RawInput {
+         screen_rect: Some(eframe::egui::Rect::from_min_size(
+            eframe::egui::Pos2::ZERO,
+            vec2(1280.0, 900.0),
+         )),
+         ..Default::default()
+      };
+
+      let mut output = ctx.run_ui(input, |ui| {
+         // The card's inner width in the running app (card ~520 px wide, minus its padding).
+         ui.set_max_width(490.0);
+         let block = ui.vertical(|ui| ui_state.show_privacy_check(theme, ui));
+         height = block.response.rect.height();
+      });
+
+      // The probe paints into no window, so the texture uploads have nowhere to go.
+      output.textures_delta.clear();
+
+      height
+   }
+
+   /// The check block sits directly above the action button in a form with no scroll area, so every
+   /// row it draws is a row the button loses.
+   ///
+   /// Both ends are measured: the state the form usually shows — a low-risk amount with nothing
+   /// matching it, and an address whose only sin is history, which is now silent — and the loudest
+   /// block it can ever draw, where every warning fires at once.
+   #[test]
+   fn the_check_block_fits_its_height_budget() {
+      use egui_elements::theme::ThemeKind;
+      use zeus_railgun::privacy::{
+         Crowding, MatchSets, RiskBand, UnshieldAmountAdvice, UserExposure,
+      };
+
+      use super::super::privacy::{PoolDepth, RecipientAdvice};
+      use super::UnshieldPrivacy;
+
+      let theme = Theme::new(ThemeKind::TokyoNight);
+
+      let advice =
+         |band, score, matches_by_size, crowding, suggestion, user| UnshieldAmountAdvice {
+            score,
+            amount_score: score,
+            band,
+            pool_size: 9_184,
+            matches_by_size,
+            sets: MatchSets::default(),
+            crowding,
+            suggestion,
+            user,
+         };
+
+      let quiet = UnshieldPrivacy {
+         amount: Some(advice(
+            RiskBand::Low,
+            5,
+            [0, 0, 0],
+            Crowding::default(),
+            None,
+            UserExposure {
+               duplicate_shields: 0,
+               withdraws_remainder: false,
+            },
+         )),
+         unavailable: None,
+         pool: None,
+         recipient: RecipientAdvice {
+            fresh: Some(false),
+            ..RecipientAdvice::default()
+         },
+      };
+
+      let loudest = UnshieldPrivacy {
+         amount: Some(advice(
+            RiskBand::Critical,
+            97,
+            [4, 548, 37_692],
+            Crowding {
+               within_one_percent: 36,
+               within_ten_percent: 41,
+            },
+            Some(90_000_000_000_000_000),
+            UserExposure {
+               duplicate_shields: 1,
+               withdraws_remainder: true,
+            },
+         )),
+         unavailable: None,
+         pool: Some(PoolDepth {
+            balance_wei: U256::from(1_000u64),
+            usd: Some(500.0),
+            share: Some(0.4),
+            deposits: Some(900),
+         }),
+         recipient: RecipientAdvice {
+            fresh: Some(false),
+            transacted_with: true,
+            prior_unshields: 3,
+         },
+      };
+
+      // Measured: 89 px quiet, 197 px loudest. The block is the only part of the form whose height
+      // follows the data, so it is the part that gets a budget — the card is centred in the panel, and
+      // a block taller than the fixed rows leave room for pushes the action button off the bottom of
+      // the window. The bounds stay where they were when the block measured 97 and 229 and the form
+      // still carried the memo and the switches: they catch rows being re-added, not metric drift.
+      // The quiet state is the one that reassures about the recipient, so it is a row (24 px) taller
+      // than it used to be, and it is still the shorter of the two by a wide margin.
+      for (name, privacy, budget) in [("quiet", quiet, 130.0), ("loudest", loudest, 260.0)] {
+         let height = check_block_height(&theme, privacy);
+         assert!(
+            height <= budget,
+            "the {name} check block is {height:.1} px, over its {budget:.0} px budget: the Unshield \
+             form has no room for another row"
+         );
+      }
    }
 }
