@@ -766,7 +766,7 @@ mod height_budget {
    /// height it renders at today plus ~25 px — about one row — so that re-adding a
    /// row fails here instead of being found in a screenshot. Measured with the same
    /// instrument before the wallet identity / transaction options work these samples
-   /// were 594–730 px tall; they are 446–718 px now.
+   /// were 594–730 px tall; they are 446–826 px now.
    ///
    /// Ignored by default: it renders the real window and needs this machine's `data/`.
    /// Run it alone: `cargo test -p zeus -- --ignored height_budget --nocapture`.
@@ -798,6 +798,15 @@ mod height_budget {
             TransactionAnalysis::dummy_with_diffs(),
             "",
             true,
+            855.0,
+         ),
+         (
+            // One capped section per kind of change: a long balance list must cost no
+            // more than a short one.
+            "long balance list",
+            analysis_with_many_changes(),
+            "app.uniswap.org",
+            false,
             745.0,
          ),
          (
@@ -879,6 +888,19 @@ mod height_budget {
       }
 
       height
+   }
+
+   /// The `with diffs` fixture with a long balance list: ten rows behind one capped
+   /// section, so a transaction with a dozen movements costs no more than a short one.
+   fn analysis_with_many_changes() -> TransactionAnalysis {
+      let mut analysis = TransactionAnalysis::dummy_with_diffs();
+      let tokens = analysis.balance_diff.tokens.clone();
+
+      for i in 0..10 {
+         analysis.balance_diff.tokens.push(tokens[i % tokens.len()].clone());
+      }
+
+      analysis
    }
 
    /// The window as the confirmation path leaves it, minus the parts of `open_inner`

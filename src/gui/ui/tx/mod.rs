@@ -54,6 +54,10 @@ pub const AVAIL_WIDTH_MARGIN: f32 = 0.98;
 /// scroll — about three diff rows.
 const STATE_CHANGES_MAX_HEIGHT: f32 = 160.0;
 
+/// How tall a section of the inline state changes may get when both kinds of change are
+/// present: about three diff rows each ([`STATE_CHANGES_MAX_HEIGHT`] when it is alone).
+const STATE_CHANGES_SECTION_MAX_HEIGHT: f32 = 96.0;
+
 /// Show the transaction cost in a horizontal layout from left to right
 pub fn tx_cost(
    chain: ChainId,
@@ -703,10 +707,17 @@ pub fn show_approval_diff_rows(
 /// a transaction Zeus has no decoded main event for.
 ///
 /// Those rows are the whole account of what such a transaction does, so they belong on
-/// the window itself rather than behind the State button. Bounded by a scroll area,
-/// because a transaction with a dozen changes must not push the confirm button out of
-/// the window: three rows fit, more scroll, and one change shows in full with no
-/// scrollbar at all.
+/// the window itself rather than behind the State button.
+///
+/// Each list is its own section, header included, and each scrolls on its own: with one
+/// shared scroll area a balance list of four changes filled it, and the approvals —
+/// the half of the report that grants spending power — sat below the fold, so nothing on
+/// the window said allowances had moved too. **The headers stay outside the scroll
+/// areas**, or the section can hide exactly like the rows did; they carry the change
+/// count for the same reason, so the size of each list reads at a glance.
+///
+/// Three rows fit a section, and a section on its own keeps the full height: a
+/// transaction with only one kind of change loses no rows to this split.
 pub fn show_state_changes_block(
    ctx: &mut ZeusContext,
    chain: ChainId,
@@ -720,25 +731,41 @@ pub fn show_state_changes_block(
       return;
    }
 
-   ScrollArea::vertical()
-      .id_salt("tx_state_changes")
-      .auto_shrink([false, true])
-      .max_width(ui.available_width() * AVAIL_WIDTH_MARGIN)
-      .max_height(STATE_CHANGES_MAX_HEIGHT)
-      .show(ui, |ui| {
-         ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
+   let section_height = if balance_diff.is_empty() || approval_diff.is_empty() {
+      STATE_CHANGES_MAX_HEIGHT
+   } else {
+      STATE_CHANGES_SECTION_MAX_HEIGHT
+   };
 
-         if !balance_diff.is_empty() {
-            ui.label(RichText::new("Balance Changes").size(theme.typography.large));
+   if !balance_diff.is_empty() {
+      let title = format!("Balance Changes ({})", balance_diff.len());
+      ui.label(RichText::new(title).size(theme.typography.large));
+
+      state_changes_scroll(
+         "tx_state_changes_balance",
+         theme,
+         section_height,
+         ui,
+         |ui| {
             show_balance_diff_rows(ctx, chain, theme, icons.clone(), balance_diff, ui);
-         }
+         },
+      );
+   }
 
-         if !approval_diff.is_empty() {
-            if !balance_diff.is_empty() {
-               ui.add_space(theme.spacing.sm);
-            }
+   if !approval_diff.is_empty() {
+      if !balance_diff.is_empty() {
+         ui.add_space(theme.spacing.md);
+      }
 
-            ui.label(RichText::new("Approval Changes").size(theme.typography.large));
+      let title = format!("Approval Changes ({})", approval_diff.len());
+      ui.label(RichText::new(title).size(theme.typography.large));
+
+      state_changes_scroll(
+         "tx_state_changes_approval",
+         theme,
+         section_height,
+         ui,
+         |ui| {
             show_approval_diff_rows(
                ctx,
                chain,
@@ -747,7 +774,30 @@ pub fn show_state_changes_block(
                approval_diff,
                ui,
             );
-         }
+         },
+      );
+   }
+}
+
+/// One section of [`show_state_changes_block`]: a bounded list of change rows.
+///
+/// `auto_shrink` keeps the height content-driven up to `max_height`, and a lone change
+/// shows in full with no scrollbar at all.
+fn state_changes_scroll(
+   id_salt: &'static str,
+   theme: &Theme,
+   max_height: f32,
+   ui: &mut Ui,
+   body: impl FnOnce(&mut Ui),
+) {
+   ScrollArea::vertical()
+      .id_salt(id_salt)
+      .auto_shrink([false, true])
+      .max_width(ui.available_width() * AVAIL_WIDTH_MARGIN)
+      .max_height(max_height)
+      .show(ui, |ui| {
+         ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
+         body(ui);
       });
 }
 
