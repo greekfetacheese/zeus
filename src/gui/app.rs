@@ -439,7 +439,7 @@ impl eframe::App for ZeusApp {
 
             // The Railgun form gets the empty reserve back: see `top_panel::reserve`.
             egui::Panel::top("top_panel")
-               .min_size(crate::gui::ui::panels::top_panel::reserve(gui))
+               .min_size(crate::gui::ui::panels::top_panel::RESERVE)
                .resizable(false)
                .show_separator_line(false)
                .frame(main_frame)

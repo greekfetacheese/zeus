@@ -23,21 +23,12 @@ const AUTOLOCK_FIRST_NOTICE_MS: u64 = 10 * 1000;
 const AUTOLOCK_NOTICE_REPEAT_MS: u64 = 60 * 60 * 1000;
 
 /// What the panel reserves for the RPC warning and the sync pill.
-pub const RESERVE: f32 = 200.0;
-
-/// How much the top panel reserves this frame.
+/// What the top panel keeps for the RPC warning bar and the sync pill.
 ///
-/// The panel draws nothing on a synced wallet, so the reserve is empty space above whatever the page
-/// puts in the central panel. The Railgun form is a fixed stack with no scroll area — a row it cannot
-/// fit is a row the action button loses — so while that form is up the reserve goes back to it.
-/// A warning or a status pill still sizes the panel by its own content either way.
-pub fn reserve(gui: &GUI) -> f32 {
-   if gui.shield_ui.is_open() {
-      100.0
-   } else {
-      RESERVE
-   }
-}
+/// On a synced wallet it draws neither, so this is empty space above the page in the central panel —
+/// the space every page is centred in. A warning or a status pill still sizes the panel by its own
+/// content either way.
+pub const RESERVE: f32 = 200.0;
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let chain = ctx.chain;
@@ -64,7 +55,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let icons = gui.icons.clone();
 
    // Read before the borrows below: the body's closure takes `gui` mutably.
-   let top_reserve = reserve(gui);
+   let top_reserve = RESERVE;
 
    let theme = &gui.theme;
 

@@ -67,6 +67,10 @@ const SELF_BROADCAST_TIP: &str = "Submits the unshield from your public wallet. 
 const UNWRAP_TO_ETH_TIP: &str =
    "Unwraps WETH to ETH. Useful if the recipient doesn't have native ETH for gas.";
 
+/// Why the default bundler is Zeus's own: what it is, who pays, and how to stop relying on it.
+const PAYMASTER_TIP: &str = "Uses Railgun Privacy Paymaster. Fee is paid from private WETH balance. \
+                             Point this at a self-hosted Alto for less reliance on public Pimlico.";
+
 /// How long the amount field is left alone before a privacy check runs.
 ///
 /// The check reads the events snapshot and the chain, so it must not run on every keystroke — but it
@@ -427,20 +431,15 @@ impl ShieldUi {
 
          let frame = theme.frame1;
 
-         // Centred across the panel, but anchored to its top. The card is taller than a 900 px window
-         // (the check block is the last straw), and centring it vertically spent the difference as
-         // empty space above the title while pushing the action button past the bottom edge, where
-         // nothing can scroll to it.
-         ui.with_layout(
-            Layout::top_down(Align::Center).with_main_align(Align::Min),
-            |ui| {
-               frame.show(ui, |ui| {
+         // Centred both ways, as the other pages are. The form was anchored to the top only because it
+         // was taller than the panel; the memo and the broadcast switches now live in the Broadcast
+         // options modal, which gave back the rows they cost, so the card fits where it belongs.
+         ui.vertical_centered(|ui| {
+            frame.show(ui, |ui| {
                   ui.set_width(self.size.0);
                   ui.set_max_height(self.size.1);
                   ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
                   ui.spacing_mut().button_padding = theme.button_padding;
-
-                  let text_edit_visuals = theme.text_edit_visuals();
 
                   let title = match self.mode {
                      RailgunMode::Shield => "Shield",
@@ -649,35 +648,11 @@ impl ShieldUi {
                   // Carried to the confirm step, which re-checks the name with its own clock.
                   let recipient_guard = recipient.ens_guard();
 
+                  // The memo and the broadcast switches are in the Broadcast options modal now: the
+                  // form is a fixed stack with no scroll area, so the rows it keeps are rows the action
+                  // button gets. The row below still shows what is set in there.
                   if self.mode.is_unshield() {
-                     inner_frame.show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.horizontal(|ui| {
-                           ui.label(RichText::new("Memo").size(theme.typography.large));
-                           ui.add_space(8.0);
-                           ui.label(
-                              RichText::new("(optional)")
-                                 .size(theme.typography.small)
-                                 .color(theme.colors.text_muted),
-                           );
-                        });
-                        ui.add(
-                           SecureTextEdit::singleline(&mut self.memo)
-                              .visuals(text_edit_visuals)
-                              .hint_text(
-                                 RichText::new("Shown in private history")
-                                    .size(theme.typography.normal)
-                                    .color(theme.colors.text_muted),
-                              )
-                              .min_size(vec2(ui.available_width(), 25.0))
-                              .margin(Margin::same(10))
-                              .font(FontId::proportional(theme.typography.normal)),
-                        );
-                     });
-                  }
-
-                  if self.mode.is_unshield() {
-                     self.unshield_options(theme, ui);
+                     self.broadcast_options_row(theme, ui);
                   }
 
                   // Read before the address fields are moved out of `recipient`.
@@ -718,7 +693,13 @@ impl ShieldUi {
       });
    }
 
-   fn unshield_options(&mut self, theme: &Theme, ui: &mut Ui) {
+   /// The way into the broadcast options, and what is currently set inside them.
+   ///
+   /// The memo and the switches live in the modal, but a self-broadcast unshield sends from the user's
+   /// own wallet and breaks anonymity: the state has to stay visible from the form, or the setting
+   /// would only be discovered by opening the modal again. Both badges are the form's own, so they
+   /// cost no row: the row already carries the button.
+   fn broadcast_options_row(&mut self, theme: &Theme, ui: &mut Ui) {
       let inner_frame = theme.frame2;
 
       inner_frame.show(ui, |ui| {
@@ -726,41 +707,31 @@ impl ShieldUi {
          ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
 
          ui.horizontal(|ui| {
-            let text = RichText::new("Self-broadcast").size(theme.typography.large);
-            let checkbox = Checkbox::new(&mut self.self_broadcast, text);
-            ui.add(checkbox);
+            let text = RichText::new("Broadcast options").size(theme.typography.normal);
+            let button = Button::new(text).visuals(theme.button_visuals());
 
-            ui.add_space(10.0);
+            if ui.add(button).clicked() {
+               self.open_broadcast_options();
+            }
 
-            let q_mark = RichText::new("Breaks Anonymity").size(theme.typography.large);
-            let badge = Badge::new(q_mark, BadgeTone::Warning);
-            let tip_text = RichText::new(SELF_BROADCAST_TIP).size(theme.typography.normal);
-            ui.add(badge).on_hover_text(tip_text);
-         });
-
-         // ? Maybe in the future we could replace this with swaps
-         // ? Eg. going from USDC to ETH and not just limited to WETH > ETH
-         if self.currency.is_native_wrapped() && !self.self_broadcast {
-            ui.horizontal(|ui| {
-               let text = RichText::new("Unwrap to ETH").size(theme.typography.large);
-               let checkbox = Checkbox::new(&mut self.unwrap_to_eth, text);
-               ui.add(checkbox);
-
+            if self.self_broadcast {
                ui.add_space(10.0);
 
-               let text = RichText::new("For empty wallets without funds for gas")
-                  .size(theme.typography.normal);
+               let q_mark = RichText::new("Self-broadcast").size(theme.typography.normal);
+               let badge = Badge::new(q_mark, BadgeTone::Warning);
+               let tip_text = RichText::new(SELF_BROADCAST_TIP).size(theme.typography.normal);
+               ui.add(badge).on_hover_text(tip_text);
+            }
+
+            // ? Maybe in the future we could replace this with swaps
+            // ? Eg. going from USDC to ETH and not just limited to WETH > ETH
+            if self.unwrap_to_eth && self.currency.is_native_wrapped() && !self.self_broadcast {
+               ui.add_space(10.0);
+
+               let text = RichText::new("Unwrap to ETH").size(theme.typography.normal);
                let badge = Badge::new(text, BadgeTone::Info);
                let tip_text = RichText::new(UNWRAP_TO_ETH_TIP).size(theme.typography.normal);
                ui.add(badge).on_hover_text(tip_text);
-            });
-         }
-
-         let text = RichText::new("Broadcast options").size(theme.typography.normal);
-         let button = Button::new(text).visuals(theme.button_visuals());
-         ui.horizontal(|ui| {
-            if ui.add(button).clicked() {
-               self.open_broadcast_options();
             }
          });
       });
@@ -787,19 +758,91 @@ impl ShieldUi {
          .heading(title)
          .header_separator(false)
          .center_header(true)
+         // The card carries the memo and the switches the form used to hold, so its width is set here
+         // rather than left to whatever the centred header measured last frame.
+         .max_width(620.0)
          .show(ui.ctx(), |ui| {
             ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
             ui.spacing_mut().button_padding = theme.button_padding;
 
-            ui.add_enabled_ui(!self.self_broadcast, |ui| {
-               ui.set_width(450.0);
-               ui.set_max_height(250.0);
+            ui.set_width(560.0);
 
-               let ui_size = vec2(ui.available_width() * 0.9, 45.0);
+            // The switches come first: self-broadcast replaces the bundler below it entirely.
+            ui.horizontal(|ui| {
+               let text = RichText::new("Self-broadcast").size(theme.typography.large);
+               let checkbox = Checkbox::new(&mut self.self_broadcast, text);
+               ui.add(checkbox);
+
+               ui.add_space(10.0);
+
+               let q_mark = RichText::new("Breaks Anonymity").size(theme.typography.large);
+               let badge = Badge::new(q_mark, BadgeTone::Warning);
+               let tip_text = RichText::new(SELF_BROADCAST_TIP).size(theme.typography.normal);
+               ui.add(badge).on_hover_text(tip_text);
+            });
+
+            // ? Maybe in the future we could replace this with swaps
+            // ? Eg. going from USDC to ETH and not just limited to WETH > ETH
+            if self.currency.is_native_wrapped() && !self.self_broadcast {
+               ui.horizontal(|ui| {
+                  let text = RichText::new("Unwrap to ETH").size(theme.typography.large);
+                  let checkbox = Checkbox::new(&mut self.unwrap_to_eth, text);
+                  ui.add(checkbox);
+
+                  ui.add_space(10.0);
+
+                  let text = RichText::new("For empty wallets without funds for gas")
+                     .size(theme.typography.normal);
+                  let badge = Badge::new(text, BadgeTone::Info);
+                  let tip_text = RichText::new(UNWRAP_TO_ETH_TIP).size(theme.typography.normal);
+                  ui.add(badge).on_hover_text(tip_text);
+               });
+            }
+
+            if self.mode.is_unshield() {
+               ui.add_space(theme.spacing.sm);
+
+               ui.horizontal(|ui| {
+                  ui.label(RichText::new("Memo").size(theme.typography.large));
+                  ui.add_space(8.0);
+                  ui.label(
+                     RichText::new("(optional)")
+                        .size(theme.typography.small)
+                        .color(theme.colors.text_muted),
+                  );
+               });
+
+               ui.add(
+                  SecureTextEdit::singleline(&mut self.memo)
+                     .visuals(text_edit_visuals)
+                     .hint_text(
+                        RichText::new("Shown in private history")
+                           .size(theme.typography.normal)
+                           .color(theme.colors.text_muted),
+                     )
+                     .min_size(vec2(ui.available_width(), 25.0))
+                     .margin(Margin::same(10))
+                     .font(FontId::proportional(theme.typography.normal)),
+               );
+            }
+
+            ui.add_space(theme.spacing.md);
+
+            ui.add_enabled_ui(!self.self_broadcast, |ui| {
+               let ui_size = vec2(ui.available_width(), 45.0);
 
                ui.allocate_ui(ui_size, |ui| {
                   ui.horizontal_centered(|ui| {
                      ui.label(RichText::new("Bundler URL").size(theme.typography.normal));
+
+                     ui.add_space(6.0);
+
+                     // What the default bundler is, who pays the fee and how to stop relying on it: a
+                     // hover, because it is reference material rather than a decision.
+                     let mark = RichText::new("?").size(theme.typography.normal);
+                     let badge = Badge::new(mark, BadgeTone::Info);
+                     let tip_text = RichText::new(PAYMASTER_TIP).size(theme.typography.normal);
+                     ui.add(badge).on_hover_text(tip_text);
 
                      ui.add_space(8.0);
 
@@ -811,8 +854,8 @@ impl ShieldUi {
                                  "{}/{{chainId}}/rpc",
                                  ZeusUrl::PimlicoBundler.base()
                               ))
-                                 .size(theme.typography.small)
-                                 .color(theme.colors.text_muted),
+                              .size(theme.typography.small)
+                              .color(theme.colors.text_muted),
                            )
                            .desired_width(ui.available_width())
                            .margin(Margin::same(6))
@@ -846,24 +889,7 @@ impl ShieldUi {
                   }
                });
 
-               ui.add_space(theme.spacing.md);
-
-               let text = "Uses Railgun Privacy Paymaster.\nFee is paid from private WETH balance.\nPoint this at a self-hosted Alto for less reliance on public Pimlico.";
-
-               ui.label(RichText::new(text).size(theme.typography.normal));
-
-               let note = "The bundler operator sees your IP address and your unshields. A VPN hides your IP address, a bundler you run yourself hides both.";
-               ui.add(
-                  Label::new(
-                     RichText::new(note)
-                        .size(theme.typography.small)
-                        .color(theme.colors.text_muted),
-                     None,
-                  )
-                  .wrap()
-                  .fill_width(true)
-                  .interactive(false),
-               );
+               ui.add_space(theme.spacing.sm);
             });
 
             if self.self_broadcast {
@@ -874,16 +900,16 @@ impl ShieldUi {
                );
             }
 
-            ui.add_space(10.0);
+            ui.add_space(theme.spacing.md);
 
-               let text = RichText::new("OK").size(theme.typography.normal);
-               let button = Button::new(text).visuals(theme.button_visuals());
+            let text = RichText::new("OK").size(theme.typography.normal);
+            let button = Button::new(text).visuals(theme.button_visuals());
 
-               ui.vertical_centered(|ui| {
-                  if ui.add(button).clicked() {
-                     ok_clicked = true;
-                  }
-               });
+            ui.vertical_centered(|ui| {
+               if ui.add(button).clicked() {
+                  ok_clicked = true;
+               }
+            });
          });
 
       if ok_clicked {
@@ -1036,14 +1062,6 @@ impl ShieldUi {
       let inner_frame = theme.frame2;
       let mut apply_suggestion = None;
 
-      // What the check was judged against. The snapshot trails the chain, so the verdict is dated —
-      // but on the line it belongs to rather than on a row of its own.
-      let as_of = if privacy.checked_block > 0 {
-         format!(" Activity up to block {}.", privacy.checked_block)
-      } else {
-         String::new()
-      };
-
       inner_frame.show(ui, |ui| {
          ui.set_width(ui.available_width());
          ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
@@ -1089,17 +1107,16 @@ impl ShieldUi {
             // still be the only one of its size, which fingerprints it just as well. Both numbers go
             // out, so the sentence never reads as reassurance on the strength of the match count.
             let near = advice.crowding.within_ten_percent;
+            // One line each: this block sits above the action button in a form with no scroll area.
             let reason = match (advice.matches(), near) {
-               (0, 0) => "Nothing in the last 180 days adds up to this size, or even comes within 10%                           of it — a size nobody else uses stands out."
-                  .to_string(),
+               (0, 0) => "Nothing adds up to this size, or even comes within 10% of it.".to_string(),
                (0, near) => format!(
-                  "Nothing adds up to this size exactly, and {near} deposits are within 10% of it."
+                  "Nothing matches this size exactly, {near} deposits are within 10% of it."
                ),
                (matches, near) => format!(
-                  "{matches} deposits, or sums of them, add up to the size this will record                    on-chain; {near} deposits are within 10% of it."
+                  "{matches} deposits or sums match this size, {near} within 10% of it."
                ),
             };
-            let reason = format!("{reason}{as_of}");
             ui.add(
                Label::new(
                   RichText::new(reason)
@@ -1116,8 +1133,8 @@ impl ShieldUi {
                ui.add(
                   Label::new(
                      RichText::new(
-                        "You shielded this exact amount — unshielding it again links the two. \
-                         Consider smaller amounts, spread over days.",
+                        "You shielded this exact amount. Unshielding it again links the two: \
+                         consider smaller amounts, spread over days.",
                      )
                      .size(theme.typography.small)
                      .color(theme.colors.warning),
@@ -1171,9 +1188,7 @@ impl ShieldUi {
          if let Some(reason) = &privacy.unavailable {
             ui.add(
                Label::new(
-                  RichText::new(format!(
-                     "No privacy check for this withdrawal: {reason}{as_of}"
-                  ))
+                  RichText::new(format!("No privacy check for this withdrawal: {reason}"))
                   .size(theme.typography.small)
                   .color(theme.colors.text_muted),
                   None,
@@ -1189,16 +1204,13 @@ impl ShieldUi {
                let text = match (pool.deposits, pool.usd, pool.share) {
                   // Too few deposits to judge a size against, whatever the value says.
                   (Some(deposits), _, _) if deposits < MIN_POOL_DEPOSITS => format!(
-                     "Only {deposits} deposits of {symbol} in the last 180 days — too little traffic \
-                      to judge a size against."
+                     "Only {deposits} deposits of {symbol} in the last 180 days."
                   ),
                   (_, Some(usd), _) => format!(
-                     "Only ${usd:.0} of {symbol} is shielded pool-wide — there is no crowd here to \
-                      hide in."
+                     "Only ${usd:.0} of {symbol} is shielded pool-wide: too little activity to hide in."
                   ),
                   (_, None, _) => format!(
-                     "Zeus cannot value {symbol} on-chain, so how deep its pool is is unknown — \
-                      treat it as thin."
+                     "Zeus cannot value {symbol} on-chain: treat its pool as thin."
                   ),
                };
                ui.add(
@@ -1243,15 +1255,16 @@ impl ShieldUi {
             Some(RecipientLink::Transacted) => Some((
                theme.colors.warning,
                "You have transacted with this address from one of your wallets, so it can be tied \
-                back to you — a fresh address cannot."
+                back to you. A fresh address cannot."
                   .to_string(),
+            )),
+            Some(RecipientLink::PriorUnshields(1)) => Some((
+               theme.colors.warning,
+               "You have already unshielded to this address once.".to_string(),
             )),
             Some(RecipientLink::PriorUnshields(times)) => Some((
                theme.colors.warning,
-               format!(
-                  "You have already unshielded to this address {times} time(s); a fresh address is \
-                   not linked to them."
-               ),
+               format!("You have already unshielded to this address {times} times."),
             )),
             None => None,
          };
@@ -1751,11 +1764,11 @@ impl ShieldUi {
 /// logs, an exchange's records, the timing of two transactions — which is why they are shown
 /// whether or not the amount looks distinctive.
 const PRIVACY_TIPS: [&str; 3] = [
-   "Amount and timing: unshield in smaller amounts, at varied times — not the amount you just \
+   "Amount and timing: unshield in smaller amounts, at varied times. Not the amount you just \
     shielded, and not the exact sum of a few deposits.",
    "Reads leak too: a public RPC sees which addresses you ask about. Use a private RPC or your own \
     node for the queries that matter.",
-   "Recipient: a fresh 0x address that has never held funds — never one used for earlier unshields \
+   "Recipient: a fresh 0x address that has never held funds. Never one used for earlier unshields \
     or other activity that can link back to you",
 ];
 
@@ -2322,15 +2335,63 @@ mod tests {
       );
    }
 
-   /// The check block has a height budget, and this measures it.
-   ///
-   /// The form is a fixed stack with no scroll area: the block sits directly above the action button,
-   /// so a row it grows is a row the button loses off the bottom of the window. The number is a
-   /// *proxy* — default fonts and one theme, which is what a unit test can build — so the bound is
-   /// generous: it catches rows being re-added, not a few pixels of metric drift.
-   ///
-   /// State is what the reported screenshot showed: a `Low` amount with nothing matching, no
-   /// suggestion, no pool warning, and a recipient with history.
+   /// The broadcast options modal holds what the form gave up — the memo and the two switches — and it
+   /// is an overlay, so the form's budget says nothing about it. Measured the same way all the same,
+   /// because a centred header is the thing that ratchets.
+   #[test]
+   fn the_broadcast_options_modal_fits_and_holds_its_width() {
+      use egui_elements::theme::ThemeKind;
+
+      let theme = Theme::new(ThemeKind::TokyoNight);
+      let mut ui_state = ShieldUi::new();
+      ui_state.set_mode(RailgunMode::Unshield);
+      ui_state.currency = Currency::from(ERC20Token::weth());
+      ui_state.open_broadcast_options = true;
+      ui_state.memo = "a note that has to fit".to_string();
+
+      let ctx = eframe::egui::Context::default();
+      ctx.set_fonts(eframe::egui::FontDefinitions::default());
+      ctx.all_styles_mut(|style| *style = theme.style());
+
+      let input = eframe::egui::RawInput {
+         screen_rect: Some(eframe::egui::Rect::from_min_size(
+            eframe::egui::Pos2::ZERO,
+            vec2(1280.0, 900.0),
+         )),
+         ..Default::default()
+      };
+
+      // `Modal::new` salts with an id it hashes once more, so the area is a double wrap.
+      let area = eframe::egui::Id::new("elegance_modal_window").with(eframe::egui::Id::new(
+         eframe::egui::Id::new("shield_ui_advanced_broadcast_options"),
+      ));
+
+      let mut rects = Vec::new();
+      for _ in 0..4 {
+         let mut output = ctx.run_ui(input.clone(), |ui| {
+            ui_state.broadcast_options(&theme, 1, ui);
+         });
+         output.textures_delta.clear();
+         rects.push(ctx.memory(|memory| memory.area_rect(area)));
+      }
+
+      let last = rects.last().copied().flatten().expect("the modal's area is registered");
+      assert!(
+         last.height() <= 880.0,
+         "the broadcast modal is taller than the window: {last:?}"
+      );
+      assert!(
+         last.width() <= 621.0,
+         "the broadcast modal is wider than its cap: {last:?}"
+      );
+
+      let warm = rects[1].expect("measured by the second frame");
+      assert!(
+         (last.width() - warm.width()).abs() < 1.0,
+         "the modal's width drifts across frames: {rects:?}"
+      );
+   }
+
    /// Render the check block headlessly and report the height it took.
    fn check_block_height(theme: &Theme, privacy: UnshieldPrivacy) -> f32 {
       let mut ui_state = ShieldUi::new();
@@ -2396,7 +2457,6 @@ mod tests {
          };
 
       let quiet = UnshieldPrivacy {
-         checked_block: 26_133_618,
          amount: Some(advice(
             RiskBand::Low,
             5,
@@ -2417,7 +2477,6 @@ mod tests {
       };
 
       let loudest = UnshieldPrivacy {
-         checked_block: 26_133_618,
          amount: Some(advice(
             RiskBand::Critical,
             97,
@@ -2446,11 +2505,11 @@ mod tests {
          },
       };
 
-      // Measured: 97 px quiet, 229 px loudest. The card is top-anchored and the block sits directly
-      // above a 45 px button, so the budgets are the room it has: the block cleared the bottom edge by
-      // ~120 px at 105 px tall (with the header reserve at 100), and moving the IP notice into the
-      // tips bought another ~58 px — hence ~260 px for the worst case, with the quiet case left at the
-      // 130 px it was already held to.
+      // Measured: 65 px quiet, 197 px loudest. The block is the only part of the form whose height
+      // follows the data, so it is the part that gets a budget — the card is centred in the panel, and
+      // a block taller than the fixed rows leave room for pushes the action button off the bottom of
+      // the window. The bounds stay where they were when the block measured 97 and 229 and the form
+      // still carried the memo and the switches: they catch rows being re-added, not metric drift.
       for (name, privacy, budget) in [("quiet", quiet, 130.0), ("loudest", loudest, 260.0)] {
          let height = check_block_height(&theme, privacy);
          assert!(

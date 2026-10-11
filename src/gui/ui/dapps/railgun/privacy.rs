@@ -143,11 +143,6 @@ impl RecipientAdvice {
 /// What the unshield form shows above its button.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnshieldPrivacy {
-   /// The block the activity was read up to — the snapshot's tip, which trails the chain.
-   ///
-   /// The verdict speaks about the protocol as of this block and nothing later, so the form states it
-   /// rather than letting the reader imagine it saw the last few minutes.
-   pub checked_block: u64,
    /// The amount verdict, when the pool could be read and scored.
    ///
    /// Its `suggestion`, and only it, is already in the units the form takes — what to type — rather
@@ -163,7 +158,6 @@ impl UnshieldPrivacy {
    /// Nothing to say yet: the form renders its static advice until a check lands.
    pub fn empty() -> Self {
       Self {
-         checked_block: 0,
          amount: None,
          unavailable: None,
          pool: None,
@@ -357,9 +351,6 @@ pub async fn assess_unshield(
          return privacy;
       }
    };
-
-   // Every verdict below describes the protocol up to this block, and says so.
-   privacy.checked_block = tip;
 
    if tip == 0 {
       privacy.unavailable = Some("no Railgun activity snapshot on this machine yet".to_string());
