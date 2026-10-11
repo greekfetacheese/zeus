@@ -335,7 +335,7 @@ impl TxWindow {
 
                // the row needs the width, see show_analysis_buttons()
                let buttons_size = ui.available_width() * 0.95;
-               let buttons = show_analysis_buttons(&tx.analysis, theme, buttons_size, ui);
+               let buttons = show_analysis_buttons(&tx.analysis, theme, buttons_size, false, ui);
 
                if buttons.events {
                   self.decoded_events.open();
