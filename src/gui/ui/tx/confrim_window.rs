@@ -244,8 +244,19 @@ impl TxConfirmationWindow {
       NumericValue::parse_to_gwei(&self.priority_fee)
    }
 
+   /// The gas limit the transaction is sent with.
+   ///
+   /// The window's "Gas Limit" field is an override: whatever the user typed wins, and the simulated
+   /// limit is only the fallback for a field that is empty or unparseable. It can only ever add
+   /// headroom — a value below what the simulation used is floored, since a limit under the
+   /// requirement can only produce an out-of-gas revert.
    pub fn get_gas_limit(&self) -> u64 {
-      self.gas_limit
+      self
+         .adjusted_gas_limit
+         .trim()
+         .parse::<u64>()
+         .unwrap_or(self.gas_limit)
+         .max(self.gas_used)
    }
 
    pub fn get_clear_display(&self) -> Option<ClearDisplay> {
@@ -725,5 +736,50 @@ mod tests {
 
       assert!(!window.is_open());
       assert_eq!(window.get_confirmed_or_rejected(), Some(false));
+   }
+
+   /// The "Gas Limit" field is an override, not decoration. It was written and edited but never read
+   /// back, so a typed value was discarded and the transaction went out with the simulated limit —
+   /// which on a chain where a new storage slot costs ~98,000 gas cannot be raised from the UI at all.
+   #[test]
+   fn the_typed_gas_limit_overrides_the_simulated_one() {
+      let mut window = TxConfirmationWindow::new();
+      window.gas_used = 45_000;
+      window.gas_limit = 67_500;
+
+      window.adjusted_gas_limit = "600000".to_string();
+      assert_eq!(
+         window.get_gas_limit(),
+         600_000,
+         "the typed value wins"
+      );
+
+      window.adjusted_gas_limit = " 600000 ".to_string();
+      assert_eq!(
+         window.get_gas_limit(),
+         600_000,
+         "surrounding space is tolerated"
+      );
+
+      window.adjusted_gas_limit = String::new();
+      assert_eq!(
+         window.get_gas_limit(),
+         67_500,
+         "an empty field falls back to the simulated limit"
+      );
+
+      window.adjusted_gas_limit = "not a number".to_string();
+      assert_eq!(
+         window.get_gas_limit(),
+         67_500,
+         "an unparseable field falls back too"
+      );
+
+      window.adjusted_gas_limit = "1000".to_string();
+      assert_eq!(
+         window.get_gas_limit(),
+         45_000,
+         "never below what the simulation used"
+      );
    }
 }
