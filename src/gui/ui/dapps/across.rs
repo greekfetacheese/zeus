@@ -1185,6 +1185,7 @@ async fn across_bridge(
       auth_list.clone(),
    )
    .await?;
+   tx_analysis.set_block_number(simulated.block_number);
    tx_analysis.set_main_event(DecodedEvent::Bridge(params));
 
    let (_, _) = send_transaction(

@@ -142,6 +142,8 @@ pub struct SimulatedCall {
    pub gas_used: u64,
    pub balance_before: U256,
    pub balance_after: U256,
+   /// The block the fork was pinned to (see [`ForkSim::block_number`]).
+   pub block_number: u64,
 }
 
 /// Contract storage to load into the fork before simulating.
@@ -209,6 +211,9 @@ pub struct ForkSim {
    pub logs: Vec<Log>,
    pub balance_before: U256,
    pub balance_after: U256,
+   /// The block the fork was pinned to. Callers that show what they simulated
+   /// ("simulated at block N") carry it onto the analysis.
+   pub block_number: u64,
 }
 
 /// Prefetch `prefetch`'s accounts and storage and return a factory holding them.
@@ -303,6 +308,7 @@ pub fn simulate_on_fork_db<R>(
       logs,
       balance_before,
       balance_after,
+      block_number: block.header.number,
    };
 
    let after_result = after(&mut evm, &sim);
@@ -405,6 +411,7 @@ pub async fn simulate_for_analysis(
       gas_used: sim.sim_res.tx_gas_used(),
       balance_before: sim.balance_before,
       balance_after: sim.balance_after,
+      block_number: sim.block_number,
    })
 }
 

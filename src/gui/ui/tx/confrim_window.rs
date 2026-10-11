@@ -1,17 +1,17 @@
-use egui::{Align, Id, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2};
-use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme};
+use egui::{Align, CollapsingHeader, Id, Layout, Order, RichText, ScrollArea, Ui, vec2};
+use egui_elements::{Button, Modal, Theme};
 
 use super::{
-   address, chain, clear_display_ui, events::*, show_analysis_buttons, show_approval_diff_rows,
-   show_balance_diff_rows, show_calldata_modal, show_tx_diffs_modal, tx_cost, value,
+   AVAIL_WIDTH_MARGIN, address, chain_chip, clear_display_ui, events::*, show_analysis_buttons,
+   show_calldata_modal, show_state_changes_block, show_tx_diffs_modal, show_tx_options_modal,
+   simulated_block, tx_cost, value,
 };
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::{self, ClearDisplay};
 use crate::core::{DecodedEvent, TransactionAnalysis, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::common::delayed_action_label;
+use crate::gui::ui::common::{delayed_action_label, wallet_identity};
 use crate::utils::{RT, estimate_tx_cost};
-use elegance::{Indicator, IndicatorState};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::NativeCurrency,
@@ -50,6 +50,8 @@ pub struct TxConfirmationWindow {
    tx_cost_usd: NumericValue,
    show_calldata: bool,
    show_diffs: bool,
+   /// Priority fee / gas limit / MEV status
+   show_tx_options: bool,
    clear_display: Option<ClearDisplay>,
    /// When the prompt became visible. `None` skips the Sign/Confirm delay (in-app Zeus txs).
    opened_at: Option<Instant>,
@@ -79,6 +81,7 @@ impl TxConfirmationWindow {
          tx_cost_usd: NumericValue::default(),
          show_calldata: false,
          show_diffs: false,
+         show_tx_options: false,
          clear_display: None,
          opened_at: None,
          size: (550.0, 400.0),
@@ -290,18 +293,24 @@ impl TxConfirmationWindow {
       let mut open = self.open;
       let id = Id::new("tx_confirmation_window");
       let frame = theme.window_frame.fill(theme.frame1.fill);
+      let heading = self.heading(theme);
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)
          .content_order(Order::Foreground)
+         .heading(heading)
+         .header_separator(false)
+         .center_header(true)
          .closable(false)
          .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+            // A maximum, not a fixed height: `set_height` also sets the *minimum*, and
+            // that is what left a band of empty space under the buttons of a short
+            // window. The content decides the height now.
+            ui.set_max_height(self.size.1);
 
             let button_visuals = theme.button_visuals();
-            let text_edit_visuals = theme.text_edit_visuals();
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
@@ -318,13 +327,8 @@ impl TxConfirmationWindow {
                let analysis = self.tx.as_ref().unwrap();
                let main_event = self.tx_main_event.as_ref().unwrap();
 
-               if !self.dapp.is_empty() {
-                  ui.label(RichText::new(&self.dapp).size(theme.typography.large));
-               }
-
                let frame = theme.frame2;
-               let avail_width_margin = 0.98;
-               let frame_size = vec2(ui.available_width() * avail_width_margin, 45.0);
+               let frame_size = vec2(ui.available_width() * AVAIL_WIDTH_MARGIN, 45.0);
 
                // Decoded events window
                self.decoded_events.show(
@@ -365,36 +369,50 @@ impl TxConfirmationWindow {
                   ui,
                );
 
-               // Action Name
-               let action_name = if main_event.is_other() {
-                  self
-                     .clear_display
-                     .as_ref()
-                     .map(|d| d.heading.clone())
-                     .unwrap_or_else(|| main_event.name())
-               } else {
-                  main_event.name()
-               };
+               // Priority fee, gas limit and the MEV status live behind this modal: the
+               // fields are set once in a while, and the height they used to hold is
+               // worth more to what the transaction does.
+               let fee_changed = show_tx_options_modal(
+                  &mut self.show_tx_options,
+                  theme,
+                  self.chain,
+                  &mut self.priority_fee,
+                  &mut self.adjusted_gas_limit,
+                  self.gas_used,
+                  self.mev_protect,
+                  (!main_event.is_other() && main_event.is_mev_vulnerable())
+                     || main_event.is_other_or_eoa_delegate(),
+                  ui,
+               );
 
-               let mut title_text = RichText::new(action_name).size(theme.typography.heading);
-
-               if !self.source_is_zeus {
-                  if main_event.is_permit() {
-                     if main_event.permit_params().is_unlimited() {
-                        title_text = title_text.color(theme.colors.error);
+               // The wallet that signs this transaction, on the chain it goes out on
+               ui.allocate_ui(frame_size, |ui| {
+                  frame.show(ui, |ui| {
+                     if !self.dapp.is_empty() {
+                        ui.label(RichText::new(&self.dapp).size(theme.typography.large));
+                        ui.separator();
                      }
-                  }
 
-                  if main_event.is_token_approval() {
-                     if main_event.token_approval_params().is_unlimited() {
-                        title_text = title_text.color(theme.colors.error);
-                     }
-                  }
-               }
+                     // A dapp gets its own account, so the signing wallet is not
+                     // necessarily the one selected in the sidebar: name it next to the
+                     // origin that asked for it.
+                     ui.horizontal(|ui| {
+                        ui.add(wallet_identity(
+                           ctx,
+                           self.chain.id(),
+                           analysis.sender,
+                           theme,
+                           icons.clone(),
+                        ));
 
-               ui.label(title_text);
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                           chain_chip(self.chain, theme, icons.clone(), ui);
+                        });
+                     });
+                  });
+               });
 
-               let completly_unknown = main_event.is_other() && self.clear_display.is_none();
+               let completely_unknown = main_event.is_other() && self.clear_display.is_none();
                let has_more_than_one_diff =
                   analysis.balance_diff.len() > 1 || analysis.approval_diff.len() > 1;
                let show_extra_warning =
@@ -402,7 +420,7 @@ impl TxConfirmationWindow {
 
                let msg = "Review the balance and approval changes before proceeding";
 
-               if show_extra_warning || completly_unknown {
+               if show_extra_warning || completely_unknown {
                   ui.label(
                      RichText::new(msg).size(theme.typography.large).color(theme.colors.warning),
                   );
@@ -426,7 +444,7 @@ impl TxConfirmationWindow {
 
                // Clear display UI
                if main_event.is_other() {
-                  let frame_size = vec2(ui.available_width() * avail_width_margin, 300.0);
+                  let frame_size = vec2(ui.available_width() * AVAIL_WIDTH_MARGIN, 300.0);
 
                   if let Some(display) = self.clear_display.clone() {
                      ui.allocate_ui(frame_size, |ui| {
@@ -449,78 +467,25 @@ impl TxConfirmationWindow {
                   }
                }
 
-               // For unkown txs (Unless its an EOA Delegate) we show the diffs right away only if the len is 1
-               // so we dont fuck up the UI with too many widgets
+               // Show the state changes, if empty it early returns
+               // so it doesn't affect the UI in any way.
+               show_state_changes_block(
+                  ctx,
+                  self.chain,
+                  theme,
+                  icons.clone(),
+                  &analysis.balance_diff,
+                  &analysis.approval_diff,
+                  ui,
+               );
 
-               // ? Ideally need to be showwn right away in a scroll area
-               // ? but right now this is ugly
-               // ? Also egui doesn't respect the ScrollBarVisibility::AlwaysVisible
-               // ? which makes things even worse
-
-               let should_show_balance_diff =
-                  main_event.is_other_or_eoa_delegate() && analysis.balance_diff.len() == 1;
-
-               let should_show_approval_diff =
-                  main_event.is_other_or_eoa_delegate() && analysis.approval_diff.len() == 1;
-
-               if should_show_balance_diff {
-                  ui.allocate_ui(frame_size, |ui| {
-                     ui.label(RichText::new("Balance Changes").size(theme.typography.large));
-                     show_balance_diff_rows(
-                        ctx,
-                        self.chain,
-                        theme,
-                        icons.clone(),
-                        &analysis.balance_diff,
-                        ui,
-                     );
-                  });
-               }
-
-               if should_show_approval_diff {
-                  ui.allocate_ui(frame_size, |ui| {
-                     ui.label(RichText::new("Approval Changes").size(theme.typography.large));
-                     show_approval_diff_rows(
-                        ctx,
-                        self.chain,
-                        theme,
-                        icons.clone(),
-                        &analysis.approval_diff,
-                        ui,
-                     );
-                  });
-               }
-
-               // Tx details
+               // Transaction cost, then the raw details behind a toggle.
+               //
+               // The cost stays outside the toggle: it is what the balance check above
+               // is measured against, so it cannot be hidden by default. Chain and
+               // sender are not repeated here — the identity line names both.
                ui.allocate_ui(frame_size, |ui| {
                   frame.show(ui, |ui| {
-                     chain(self.chain, theme, icons.clone(), ui);
-                     address(
-                        ctx,
-                        self.chain,
-                        "Sender",
-                        analysis.sender,
-                        theme,
-                        ui,
-                     );
-
-                     // Contract interaction
-                     if analysis.contract_interact {
-                        let label = "Contract interaction";
-                        address(
-                           ctx,
-                           self.chain,
-                           label,
-                           analysis.interact_to,
-                           theme,
-                           ui,
-                        );
-                     }
-
-                     // Value to be sent
-                     value(ctx, self.chain, analysis.value_sent(), theme, ui);
-
-                     // Transaction cost
                      tx_cost(
                         self.chain,
                         &self.tx_cost,
@@ -528,6 +493,33 @@ impl TxConfirmationWindow {
                         theme,
                         ui,
                      );
+
+                     CollapsingHeader::new(
+                        RichText::new("Transaction details").size(theme.typography.large),
+                     )
+                     .id_salt(("tx_details", self.open_generation))
+                     .show(ui, |ui| {
+                        // Contract interaction
+                        if analysis.contract_interact {
+                           let label = "Contract interaction";
+                           address(
+                              ctx,
+                              self.chain,
+                              label,
+                              analysis.interact_to,
+                              theme,
+                              ui,
+                           );
+                        }
+
+                        // Value to be sent
+                        value(ctx, self.chain, analysis.value_sent(), theme, ui);
+
+                        // The block the numbers above were read at
+                        if let Some(block_number) = analysis.block_number {
+                           simulated_block(self.chain, block_number, theme, ui);
+                        }
+                     });
                   });
                });
 
@@ -554,9 +546,9 @@ impl TxConfirmationWindow {
                }
                */
 
-               // Decoded Events / Calldata / Balance & Approvals
-               let buttons_size = ui.available_width() * avail_width_margin;
-               let buttons = show_analysis_buttons(analysis, theme, buttons_size, ui);
+               // Decoded Events / Calldata / State / Tx Options
+               let buttons_size = ui.available_width() * AVAIL_WIDTH_MARGIN;
+               let buttons = show_analysis_buttons(analysis, theme, buttons_size, true, ui);
 
                if buttons.events {
                   self.decoded_events.open();
@@ -570,113 +562,27 @@ impl TxConfirmationWindow {
                   self.show_diffs = true;
                }
 
-               let sufficient_balance =
-                  self.sufficient_balance(ctx, analysis.value_sent().wei(), analysis.sender);
+               if buttons.tx_options {
+                  self.show_tx_options = true;
+               }
 
-               let mut recalculate_tx_cost = false;
+               // Read before the cost is recalculated: `analysis` borrows `self.tx`, and
+               // `calculate_tx_cost` needs the whole `self`.
+               let sender = analysis.sender;
+               let value_sent = analysis.value_sent().wei();
 
-               let size = vec2(ui.available_width() * 0.7, 45.0);
-
-               // Priority Fee / Gas Limit
-               ui.allocate_ui(size, |ui| {
-                  frame.show(ui, |ui| {
-                     ui.set_width(size.x);
-                     ui.spacing_mut().item_spacing = vec2(theme.spacing.md, theme.spacing.sm);
-
-                     ui.horizontal(|ui| {
-                        let availabled_width = ui.available_width();
-                        let fee_width = ui.available_width() * 0.3;
-                        let gas_width = ui.available_width() * 0.5;
-
-                        // Ajdust Priority Fee
-                        ui.vertical(|ui| {
-                           let text = "Priority Fee (Gwei)";
-                           ui.label(RichText::new(text).size(theme.typography.normal));
-
-                           if self.chain.is_bsc() {
-                              ui.disable();
-                           }
-
-                           let res = ui.add(
-                              SecureTextEdit::singleline(&mut self.priority_fee)
-                                 .visuals(text_edit_visuals)
-                                 .margin(Margin::same(10))
-                                 .desired_width(fee_width)
-                                 .font(egui::FontId::proportional(
-                                    theme.typography.normal,
-                                 )),
-                           );
-
-                           if res.changed() {
-                              recalculate_tx_cost = true;
-                           }
-                        });
-
-                        // Take the available space because otherwise the gas limit
-                        // will not be pushed to the far right
-                        ui.add_space(availabled_width - (fee_width + gas_width));
-
-                        // Adjust Gas Limit
-                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                           ui.vertical(|ui| {
-                              let text = "Gas Limit";
-                              ui.label(RichText::new(text).size(theme.typography.normal));
-
-                              ui.add(
-                                 SecureTextEdit::singleline(&mut self.adjusted_gas_limit)
-                                    .visuals(text_edit_visuals)
-                                    .margin(Margin::same(10))
-                                    .desired_width(gas_width)
-                                    .font(egui::FontId::proportional(
-                                       theme.typography.normal,
-                                    )),
-                              );
-                           });
-                        });
-                     });
-                  });
-               });
-
-               let base_case = !main_event.is_other() && main_event.is_mev_vulnerable();
-               let show_mev_protect = base_case || main_event.is_other_or_eoa_delegate();
-
-               if recalculate_tx_cost {
+               if fee_changed {
                   self.calculate_tx_cost(ctx, self.gas_used);
                }
 
-               if show_mev_protect {
-                  let icon = if self.mev_protect {
-                     Indicator::new(IndicatorState::On).size(12.0)
-                  } else {
-                     Indicator::new(IndicatorState::Off).size(12.0)
-                  };
+               let sufficient_balance = self.sufficient_balance(ctx, value_sent, sender);
 
-                  let text = if self.mev_protect {
-                     "MEV Protect is enabled"
-                  } else {
-                     "MEV Protect is disabled"
-                  };
-
-                  let text = RichText::new(text).size(theme.typography.large);
-                  let size = vec2(ui.available_width() * 0.3, 15.0);
-
-                  ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
-                     ui.add(Label::new(text, None).interactive(false));
-                     ui.add_space(10.0);
-                     ui.add(icon);
-                  });
-               }
-
-               if !sufficient_balance {
-                  ui.label(
-                     RichText::new("Insufficient balance to send transaction")
-                        .size(theme.typography.large)
-                        .color(theme.colors.error),
-                  );
-               }
+               // The action row is a different decision from the row of inspectors above
+               // it, so it gets a gap rather than just `item_spacing`.
+               ui.add_space(theme.spacing.lg);
 
                // Buttons
-               let size = vec2(ui.available_width() * avail_width_margin, 45.0);
+               let size = vec2(ui.available_width() * AVAIL_WIDTH_MARGIN, 45.0);
                ui.allocate_ui(size, |ui| {
                   ui.horizontal(|ui| {
                      ui.spacing_mut().item_spacing.x = theme.spacing.xl;
@@ -688,8 +594,11 @@ impl TxConfirmationWindow {
                         45.0,
                      );
 
+                     // A wallet that cannot cover value + cost says so on the button it
+                     // disables, rather than in a row of its own above the row.
+                     let ready_label = self.confirm_label(sufficient_balance);
                      let (confirm_ready, confirm_label) =
-                        delayed_action_label(self.opened_at, "Confirm");
+                        delayed_action_label(self.opened_at, &ready_label);
                      if !confirm_ready {
                         ui.ctx().request_repaint_after(Duration::from_millis(100));
                      }
@@ -714,6 +623,50 @@ impl TxConfirmationWindow {
          });
    }
 
+   /// The window's title: what the transaction does.
+   ///
+   /// A decoded main event names itself; an undecodable calldata falls back to the
+   /// ERC-7730 heading, and an unlimited approval is called out in the error colour —
+   /// the same treatment the signing window gives its own title.
+   fn heading(&self, theme: &Theme) -> RichText {
+      let (Some(_), Some(main_event)) = (self.tx.as_ref(), self.tx_main_event.as_ref()) else {
+         return RichText::new("Confirm Transaction").size(theme.typography.heading);
+      };
+
+      let action_name = if main_event.is_other() {
+         self
+            .clear_display
+            .as_ref()
+            .map(|d| d.heading.clone())
+            .unwrap_or_else(|| main_event.name())
+      } else {
+         main_event.name()
+      };
+
+      let mut text = RichText::new(action_name).size(theme.typography.heading);
+
+      if !self.source_is_zeus {
+         let unlimited = (main_event.is_permit() && main_event.permit_params().is_unlimited())
+            || (main_event.is_token_approval()
+               && main_event.token_approval_params().is_unlimited());
+
+         if unlimited {
+            text = text.color(theme.colors.error);
+         }
+      }
+
+      text
+   }
+
+   /// What the confirm button says: the action, or the reason it cannot be pressed.
+   fn confirm_label(&self, sufficient_balance: bool) -> String {
+      if sufficient_balance {
+         "Confirm".to_string()
+      } else {
+         format!("Insufficient {}", self.native_currency.symbol)
+      }
+   }
+
    fn sufficient_balance(&self, ctx: &mut ZeusContext, eth_spent: U256, sender: Address) -> bool {
       let balance = ctx.get_eth_balance(self.chain.id(), sender);
       let total_cost = eth_spent + self.tx_cost.wei();
@@ -736,6 +689,17 @@ mod tests {
 
       assert!(!window.is_open());
       assert_eq!(window.get_confirmed_or_rejected(), Some(false));
+   }
+
+   /// A wallet that cannot cover value + cost says so on the confirm button, which is
+   /// the control it disables — the window spends no row repeating it.
+   #[test]
+   fn the_confirm_button_names_the_missing_funds() {
+      let mut window = TxConfirmationWindow::new();
+      window.native_currency = NativeCurrency::from(1);
+
+      assert_eq!(window.confirm_label(true), "Confirm");
+      assert_eq!(window.confirm_label(false), "Insufficient ETH");
    }
 
    /// The "Gas Limit" field is an override, not decoration. It was written and edited but never read
@@ -781,5 +745,207 @@ mod tests {
          45_000,
          "never below what the simulation used"
       );
+   }
+}
+
+#[cfg(test)]
+mod height_budget {
+   use super::*;
+   use crate::core::clear_signing::ClearDisplay;
+   use crate::tests::unlock_ctx;
+   use egui::{CentralPanel, Context, RawInput, Rect, pos2};
+   use egui_elements::ThemeKind;
+
+   /// The confirmation window's height budget.
+   ///
+   /// Height is the constraint this window keeps tripping over: every row it carries
+   /// is a row the confirmation itself cannot use. Each sample therefore names the
+   /// height it renders at today plus ~25 px — about one row — so that re-adding a
+   /// row fails here instead of being found in a screenshot. Measured with the same
+   /// instrument before the wallet identity / transaction options work these samples
+   /// were 594–730 px tall; they are 446–826 px now.
+   ///
+   /// Ignored by default: it renders the real window and needs this machine's `data/`.
+   /// Run it alone: `cargo test -p zeus -- --ignored height_budget --nocapture`.
+   #[test]
+   #[ignore = "renders the real window: needs this machine's data/ for unlock_ctx"]
+   fn the_confirmation_window_fits_its_height_budget() {
+      let handle = unlock_ctx();
+
+      let cases = [
+         (
+            "eoa delegate",
+            TransactionAnalysis::dummy_eoa_delegate(),
+            "",
+            false,
+            505.0,
+         ),
+         (
+            "unknown",
+            TransactionAnalysis::unknown_tx_1(),
+            "app.uniswap.org",
+            false,
+            470.0,
+         ),
+         (
+            // The tallest combination the window can reach: an undecodable
+            // transaction with a clear-signing display and more state changes than
+            // the inline block shows at once.
+            "unknown with diffs",
+            TransactionAnalysis::dummy_with_diffs(),
+            "",
+            true,
+            855.0,
+         ),
+         (
+            // Decoded main event plus both kinds of change: the tallest a dapp
+            // transaction can render.
+            "swap with diffs",
+            decoded_swap_with_diffs(),
+            "app.uniswap.org",
+            false,
+            825.0,
+         ),
+         (
+            // One capped section per kind of change: a long balance list must cost no
+            // more than a short one.
+            "long balance list",
+            analysis_with_many_changes(),
+            "app.uniswap.org",
+            false,
+            745.0,
+         ),
+         (
+            "clear signed",
+            TransactionAnalysis::dummy_clear_signed(),
+            "app.aave.com",
+            true,
+            605.0,
+         ),
+         (
+            "shield",
+            TransactionAnalysis::dummy_shield(),
+            "",
+            false,
+            510.0,
+         ),
+         (
+            "unshield",
+            TransactionAnalysis::dummy_unshield(),
+            "",
+            false,
+            550.0,
+         ),
+      ];
+
+      for (name, analysis, dapp, clear_display, budget) in cases {
+         let mut window = window_for(&handle, analysis, dapp, clear_display);
+         let height = modal_height(&mut window, &handle);
+
+         println!("{name}: {height:.0} px (budget {budget:.0})");
+
+         assert!(
+            height <= budget,
+            "{name} renders {height:.0} px tall, past its {budget:.0} px budget"
+         );
+      }
+   }
+
+   /// Render the window headlessly and return the settled height of the modal card.
+   ///
+   /// Read on several frames: a centred modal header re-asserts the width it measured
+   /// on the previous one, so a single frame shows a size that is still moving.
+   fn modal_height(window: &mut TxConfirmationWindow, handle: &ZeusCtx) -> f32 {
+      let egui_ctx = Context::default();
+      let mut theme = Theme::new(ThemeKind::TokyoNight);
+      theme.install(&egui_ctx);
+      egui_extras::install_image_loaders(&egui_ctx);
+      let icons = Arc::new(Icons::new(&egui_ctx).expect("icons"));
+
+      // How `egui_elements::Modal` registers its card: the Area id it salts with the
+      // id passed to `Modal::new`.
+      let card = Id::new("elegance_modal_window").with(Id::new(Id::new("tx_confirmation_window")));
+
+      let mut height = 0.0;
+
+      for _ in 0..4 {
+         let handle = handle.clone();
+
+         let mut out = egui_ctx.run_ui(
+            RawInput {
+               screen_rect: Some(Rect::from_min_size(
+                  pos2(0.0, 0.0),
+                  vec2(1290.0, 950.0),
+               )),
+               ..Default::default()
+            },
+            |egui_ctx| {
+               CentralPanel::default().show(egui_ctx, |ui| {
+                  handle.write(|c| window.show(c, &theme, icons.clone(), ui));
+               });
+            },
+         );
+         out.textures_delta.clear();
+
+         height = egui_ctx
+            .memory(|m| m.area_rect(card))
+            .map(|rect| rect.height())
+            .unwrap_or(height);
+      }
+
+      height
+   }
+
+   /// The `with diffs` fixture with a long balance list: ten rows behind one capped
+   /// section, so a transaction with a dozen movements costs no more than a short one.
+   fn analysis_with_many_changes() -> TransactionAnalysis {
+      let mut analysis = TransactionAnalysis::dummy_with_diffs();
+      let tokens = analysis.balance_diff.tokens.clone();
+
+      for i in 0..10 {
+         analysis.balance_diff.tokens.push(tokens[i % tokens.len()].clone());
+      }
+
+      analysis
+   }
+
+   /// A decoded main event *and* state changes: what a dapp transaction looks like now
+   /// that the inline block is not gated on the main event being undecodable.
+   fn decoded_swap_with_diffs() -> TransactionAnalysis {
+      let mut analysis = TransactionAnalysis::dummy_swap();
+      let with_diffs = TransactionAnalysis::dummy_with_diffs();
+      analysis.set_diffs(with_diffs.balance_diff, with_diffs.approval_diff);
+      analysis
+   }
+
+   /// The window as the confirmation path leaves it, minus the parts of `open_inner`
+   /// that cannot run in a test (it spawns through `RT` and writes back through
+   /// `SHARED_GUI`).
+   fn window_for(
+      handle: &ZeusCtx,
+      analysis: TransactionAnalysis,
+      dapp: &str,
+      clear_display: bool,
+   ) -> TxConfirmationWindow {
+      let chain = handle.chain();
+      let gas_used = analysis.gas_used;
+      let gas_limit = gas_used * 15 / 10;
+
+      let mut window = TxConfirmationWindow::new();
+      window.chain = chain;
+      window.native_currency = NativeCurrency::from(chain.id());
+      window.dapp = dapp.to_string();
+      window.gas_used = gas_used;
+      window.gas_limit = gas_limit;
+      window.adjusted_gas_limit = gas_limit.to_string();
+      window.priority_fee = "1".to_string();
+      window.tx_main_event = Some(analysis.infer_main_event(handle.clone(), chain.id()));
+      window.tx = Some(analysis);
+      window.clear_display = clear_display.then(ClearDisplay::dummy_calldata);
+      window.open = true;
+
+      handle.write(|c| window.calculate_tx_cost(c, gas_used));
+
+      window
    }
 }

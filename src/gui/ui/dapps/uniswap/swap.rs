@@ -1409,6 +1409,7 @@ pub async fn wrap_eth(
       sim_res,
       logs,
       balance_after: eth_balance_after,
+      block_number,
       ..
    } = sim;
 
@@ -1459,6 +1460,7 @@ pub async fn wrap_eth(
    .await?;
 
    let main_event = DecodedEvent::WrapETH(params.clone());
+   tx_analysis.set_block_number(block_number);
    tx_analysis.set_main_event(main_event);
 
    let mev_protect = false;
@@ -1547,6 +1549,7 @@ pub async fn unwrap_weth(
       sim_res,
       logs,
       balance_after: eth_balance_after,
+      block_number,
       ..
    } = sim;
 
@@ -1598,6 +1601,7 @@ pub async fn unwrap_weth(
    .await?;
 
    let main_event = DecodedEvent::UnwrapWETH(params.clone());
+   tx_analysis.set_block_number(block_number);
    tx_analysis.set_main_event(main_event);
 
    let mev_protect = false;
@@ -1701,6 +1705,7 @@ async fn handle_approve(
             gas_used: approval_gas_used,
             eth_balance_before,
             eth_balance_after,
+            block_number: block.header.number,
          }),
          "",
          false, // mev protect not needed for approval
@@ -1863,6 +1868,7 @@ async fn swap_via_ur(
       sim_res,
       logs,
       balance_after: eth_balance_after,
+      block_number,
       ..
    } = sim;
 
@@ -1967,6 +1973,7 @@ async fn swap_via_ur(
    .await?;
 
    let main_event = DecodedEvent::SwapToken(swap_params.clone());
+   swap_tx_analysis.set_block_number(block_number);
    swap_tx_analysis.set_main_event(main_event);
 
    // Now we can proceed with the swap

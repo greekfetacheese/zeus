@@ -8,11 +8,11 @@ use egui::{
    TextEdit, TextWrapMode, Ui, scroll_area::ScrollBarVisibility, vec2,
 };
 use egui_elements::{
-   Button, Label, Modal, MultiLabel, Theme,
+   Button, Label, Modal, MultiLabel, SecureTextEdit, Theme,
    widgets::{Badge as CornerBadge, BadgeCorner},
 };
 use egui_lucide::Lucide;
-use elegance::{Badge, BadgeTone};
+use elegance::{Badge, BadgeTone, Indicator, IndicatorState};
 use zeus_eth::alloy_primitives::TxHash;
 
 use crate::assets::icons::Icons;
@@ -44,6 +44,19 @@ pub use tx_window::TxWindow;
 
 const NULL_ADDRESS_TIP: &str =
    "Recipient is null, any tokens sent to this address will be lost forever.";
+
+/// How much of the window's width the confirmation window's rows take, leaving a
+/// margin on both sides. [`show_state_changes_block`] shares it so its rows line up
+/// with the frames around them.
+pub const AVAIL_WIDTH_MARGIN: f32 = 0.98;
+
+/// How tall the inline state changes of the confirmation window may get before they
+/// scroll — about three diff rows.
+const STATE_CHANGES_MAX_HEIGHT: f32 = 160.0;
+
+/// How tall a section of the inline state changes may get when both kinds of change are
+/// present: about three diff rows each ([`STATE_CHANGES_MAX_HEIGHT`] when it is alone).
+const STATE_CHANGES_SECTION_MAX_HEIGHT: f32 = 96.0;
 
 /// Show the transaction cost in a horizontal layout from left to right
 pub fn tx_cost(
@@ -122,6 +135,32 @@ pub fn value(
    });
 }
 
+/// Show the block a transaction was simulated against, linked to the block explorer.
+///
+/// The numbers above it come out of that fork, so naming the block is what lets the
+/// user check them against the chain. Only analyses that came from a simulation
+/// carry a block (see [`TransactionAnalysis::block_number`]).
+pub fn simulated_block(chain: ChainId, block_number: u64, theme: &Theme, ui: &mut Ui) {
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         let text = "Simulated at block";
+         ui.label(RichText::new(text).size(theme.typography.large));
+      });
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         // `block_explorer` carries a trailing slash for RobinHood.
+         let explorer = chain.block_explorer().trim_end_matches('/');
+         let link = format!("{}/block/{}", explorer, block_number);
+         ui.hyperlink_to(
+            RichText::new(block_number.to_string())
+               .size(theme.typography.large)
+               .color(theme.colors.info),
+            link,
+         );
+      });
+   });
+}
+
 /// Show a label with a hyperlink to the block explorer
 /// in a horizontal layout from left to right
 pub fn address(
@@ -180,19 +219,25 @@ pub fn address(
 
 /// Show the chain name with an icon in a horizontal layout from left to right
 pub fn chain(chain: ChainId, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-   let tint = theme.image_tint_recommended;
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.label(RichText::new("Chain").size(theme.typography.large));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let icon = icons.chain_icon(chain.id(), tint);
-         let text = RichText::new(chain.name()).size(theme.typography.large);
-         let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
-         ui.add(label);
+         chain_chip(chain, theme, icons, ui);
       });
    });
+}
+
+/// The chain's icon and name as one label, for rows that need no "Chain" label of
+/// their own — the confirmation window's wallet identity line.
+pub fn chain_chip(chain: ChainId, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   let tint = theme.image_tint_recommended;
+   let icon = icons.chain_icon(chain.id(), tint);
+   let text = RichText::new(chain.name()).size(theme.typography.large);
+   let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+   ui.add(label);
 }
 
 /// Show the ETH spent in a horizontal layout from left to right
@@ -658,37 +703,142 @@ pub fn show_approval_diff_rows(
    }
 }
 
+/// The confirmation window's inline state changes: the balance and approval diffs of
+/// a transaction Zeus has no decoded main event for.
+///
+/// Those rows are the whole account of what such a transaction does, so they belong on
+/// the window itself rather than behind the State button.
+///
+/// Each list is its own section, header included, and each scrolls on its own: with one
+/// shared scroll area a balance list of four changes filled it, and the approvals —
+/// the half of the report that grants spending power — sat below the fold, so nothing on
+/// the window said allowances had moved too. **The headers stay outside the scroll
+/// areas**, or the section can hide exactly like the rows did; they carry the change
+/// count for the same reason, so the size of each list reads at a glance.
+///
+/// Three rows fit a section, and a section on its own keeps the full height: a
+/// transaction with only one kind of change loses no rows to this split.
+pub fn show_state_changes_block(
+   ctx: &mut ZeusContext,
+   chain: ChainId,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   balance_diff: &BalanceDiff,
+   approval_diff: &ApprovalDiff,
+   ui: &mut Ui,
+) {
+   if balance_diff.is_empty() && approval_diff.is_empty() {
+      return;
+   }
+
+   let section_height = if balance_diff.is_empty() || approval_diff.is_empty() {
+      STATE_CHANGES_MAX_HEIGHT
+   } else {
+      STATE_CHANGES_SECTION_MAX_HEIGHT
+   };
+
+   if !balance_diff.is_empty() {
+      let title = format!("Balance Changes ({})", balance_diff.len());
+      ui.label(RichText::new(title).size(theme.typography.large));
+
+      state_changes_scroll(
+         "tx_state_changes_balance",
+         theme,
+         section_height,
+         ui,
+         |ui| {
+            show_balance_diff_rows(ctx, chain, theme, icons.clone(), balance_diff, ui);
+         },
+      );
+   }
+
+   if !approval_diff.is_empty() {
+      if !balance_diff.is_empty() {
+         ui.add_space(theme.spacing.md);
+      }
+
+      let title = format!("Approval Changes ({})", approval_diff.len());
+      ui.label(RichText::new(title).size(theme.typography.large));
+
+      state_changes_scroll(
+         "tx_state_changes_approval",
+         theme,
+         section_height,
+         ui,
+         |ui| {
+            show_approval_diff_rows(
+               ctx,
+               chain,
+               theme,
+               icons.clone(),
+               approval_diff,
+               ui,
+            );
+         },
+      );
+   }
+}
+
+/// One section of [`show_state_changes_block`]: a bounded list of change rows.
+///
+/// `auto_shrink` keeps the height content-driven up to `max_height`, and a lone change
+/// shows in full with no scrollbar at all.
+fn state_changes_scroll(
+   id_salt: &'static str,
+   theme: &Theme,
+   max_height: f32,
+   ui: &mut Ui,
+   body: impl FnOnce(&mut Ui),
+) {
+   ScrollArea::vertical()
+      .id_salt(id_salt)
+      .auto_shrink([false, true])
+      .max_width(ui.available_width() * AVAIL_WIDTH_MARGIN)
+      .max_height(max_height)
+      .show(ui, |ui| {
+         ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
+         body(ui);
+      });
+}
+
 /// Which of the [`show_analysis_buttons`] buttons were clicked
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AnalysisButtons {
    pub events: bool,
    pub calldata: bool,
    pub balance_and_approvals: bool,
+   pub tx_options: bool,
 }
 
-/// The Events / Calldata / Balance & Approvals buttons.
+/// The Events / Calldata / State [/ Tx Options] buttons.
 ///
 /// A [`CornerBadge`] is painted on top of the button and reserves no layout
 /// space, so the row relies on `button_padding` for the badge to clear the
 /// label. Note that `Button::min_size` is only a floor: a button grows past its
 /// share of the row as soon as its label plus that padding is wider than the
-/// share, which stretches the whole column. "Balance & Approvals" at
-/// `theme.typography.large` takes ~202 points that way, so [`width`] must be
-/// wide enough for `n * 202 + gap` — the modals hosting this row are sized for
+/// share, which stretches the whole column. "Tx Options" at
+/// `theme.typography.large` takes ~110 points that way, so [`width`] must be
+/// wide enough for `n * 110 + gap` — the modals hosting this row are sized for
 /// it.
+///
+/// `include_tx_options` is the confirmation window's own button: it opens the
+/// modal holding the fee and gas fields. A transaction that is already sent
+/// ([`TxWindow`]) has nothing left to edit, so it passes `false`.
 pub fn show_analysis_buttons(
    analysis: &TransactionAnalysis,
    theme: &Theme,
    width: f32,
+   include_tx_options: bool,
    ui: &mut Ui,
 ) -> AnalysisButtons {
    let mut clicked = AnalysisButtons::default();
 
    let has_diffs = !analysis.balance_diff.is_empty() || !analysis.approval_diff.is_empty();
 
-   let n = match has_diffs {
-      true => 3.0,
-      false => 2.0,
+   let n = match (has_diffs, include_tx_options) {
+      (true, true) => 4.0,
+      (true, false) | (false, true) => 3.0,
+      (false, false) => 2.0,
    };
 
    let height = 30.0;
@@ -730,6 +880,13 @@ pub fn show_analysis_buttons(
             let button = Button::new(text).badge(badge).visuals(button_visuals).min_size(size);
 
             clicked.balance_and_approvals = ui.add(button).clicked();
+         }
+
+         if include_tx_options {
+            let text = RichText::new("Tx Options").size(theme.typography.large);
+            let button = Button::new(text).visuals(button_visuals).min_size(size);
+
+            clicked.tx_options = ui.add(button).clicked();
          }
       });
    });
@@ -804,6 +961,113 @@ pub fn show_tx_diffs_modal(
                }
             });
       });
+}
+
+/// The Priority Fee and Gas Limit fields, plus the MEV status, in a modal of their
+/// own.
+///
+/// They used to hold a frame of their own in the confirmation window, where two
+/// rarely-touched fields competed for height with what the transaction actually does.
+/// Returns `true` when the priority fee was edited, so the caller can recompute the
+/// cost it shows.
+pub fn show_tx_options_modal(
+   open: &mut bool,
+   theme: &Theme,
+   chain: ChainId,
+   priority_fee: &mut String,
+   gas_limit: &mut String,
+   gas_used: u64,
+   mev_protect: bool,
+   show_mev_protect: bool,
+   ui: &mut Ui,
+) -> bool {
+   let mut fee_changed = false;
+
+   let heading = RichText::new("Transaction Options").size(theme.typography.heading);
+   let modal_frame = theme.window_frame.fill(theme.frame1.fill);
+   let modal_width = 460.0;
+   let text_edit_visuals = theme.text_edit_visuals();
+
+   Modal::new("tx_options", open)
+      .backdrop_order(Order::Foreground)
+      .content_order(Order::Tooltip)
+      .heading(heading)
+      .center_header(true)
+      .frame(modal_frame)
+      .max_width(modal_width)
+      .show(ui.ctx(), |ui| {
+         ui.set_width(ui.available_width());
+         ui.spacing_mut().item_spacing.y = theme.spacing.md;
+
+         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = theme.spacing.md;
+            let field_width = (ui.available_width() - theme.spacing.md) * 0.5;
+
+            ui.vertical(|ui| {
+               ui.label(RichText::new("Priority Fee (Gwei)").size(theme.typography.large));
+
+               // BSC has no priority fee to set
+               if chain.is_bsc() {
+                  ui.disable();
+               }
+
+               let res = ui.add(
+                  SecureTextEdit::singleline(priority_fee)
+                     .visuals(text_edit_visuals)
+                     .margin(Margin::same(10))
+                     .desired_width(field_width)
+                     .font(FontId::proportional(theme.typography.large)),
+               );
+
+               if res.changed() {
+                  fee_changed = true;
+               }
+            });
+
+            ui.vertical(|ui| {
+               ui.label(RichText::new("Gas Limit").size(theme.typography.large));
+
+               ui.add(
+                  SecureTextEdit::singleline(gas_limit)
+                     .visuals(text_edit_visuals)
+                     .margin(Margin::same(10))
+                     .desired_width(field_width)
+                     .font(FontId::proportional(theme.typography.large)),
+               );
+            });
+         });
+
+         let hint = format!(
+            "Simulated gas: {gas_used} — raise the limit if the transaction runs out of gas"
+         );
+         ui.label(RichText::new(hint).size(theme.typography.small).color(theme.colors.text_muted));
+
+         if show_mev_protect {
+            let (icon, text) = if mev_protect {
+               (
+                  Indicator::new(IndicatorState::On).size(12.0),
+                  "MEV Protect is enabled",
+               )
+            } else {
+               (
+                  Indicator::new(IndicatorState::Off).size(12.0),
+                  "MEV Protect is disabled",
+               )
+            };
+
+            let text = RichText::new(text).size(theme.typography.large);
+
+            // One row: as direct children of the modal body's vertical layout each
+            // of these would land on a line of its own, the indicator included.
+            ui.horizontal(|ui| {
+               ui.add(Label::new(text, None).interactive(false));
+               ui.add_space(10.0);
+               ui.add(icon);
+            });
+         }
+      });
+
+   fee_changed
 }
 
 pub fn clear_display_ui(

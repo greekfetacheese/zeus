@@ -72,6 +72,14 @@ pub struct TransactionAnalysis {
    /// Signer ERC-20 / Permit2 allowance deltas from simulation `allowance`, not logs.
    #[serde(default)]
    pub approval_diff: ApprovalDiff,
+
+   /// The block the fork simulation was pinned to, when the analysis came from one.
+   ///
+   /// `None` for anything that was not simulated (a recorded transaction, a
+   /// paymaster user operation), which is why the confirmation window only shows a
+   /// "simulated at block" row when it is set.
+   #[serde(default)]
+   pub block_number: Option<u64>,
 }
 
 /// Output-token amount the sender actually received, from `balanceOf` at
@@ -431,6 +439,11 @@ impl TransactionAnalysis {
       self.main_event = Some(event);
    }
 
+   /// Record the block the simulation behind this analysis was pinned to.
+   pub fn set_block_number(&mut self, block_number: u64) {
+      self.block_number = Some(block_number);
+   }
+
    pub fn set_diffs(&mut self, balance: BalanceDiff, approval: ApprovalDiff) {
       self.balance_diff = balance;
       self.approval_diff = approval;
@@ -571,11 +584,16 @@ impl TransactionAnalysis {
    }
 }
 
+/// Fixture block the dummy analyses below are pinned to, so the DevUI shows a
+/// simulated-at-block row just like a real simulation does.
+const DUMMY_SIM_BLOCK: u64 = 23_000_000;
+
 impl TransactionAnalysis {
    pub fn dummy_token_approval() -> Self {
       let main_event = DecodedEvent::dummy_token_approve();
       let token = main_event.token_approval_params().token.clone();
       Self {
+         block_number: Some(DUMMY_SIM_BLOCK),
          chain: 1,
          sender: vitalik(),
          interact_to: token.address,
@@ -599,6 +617,7 @@ impl TransactionAnalysis {
    pub fn dummy_swap() -> Self {
       let main_event = DecodedEvent::dummy_swap();
       Self {
+         block_number: Some(DUMMY_SIM_BLOCK),
          chain: 1,
          sender: vitalik(),
          interact_to: universal_router_v2(1).unwrap(),
@@ -622,6 +641,7 @@ impl TransactionAnalysis {
    pub fn dummy_bridge() -> Self {
       let main_event = DecodedEvent::dummy_bridge();
       Self {
+         block_number: Some(DUMMY_SIM_BLOCK),
          chain: 1,
          sender: vitalik(),
          interact_to: across_spoke_pool_v2(1).unwrap(),
@@ -645,6 +665,7 @@ impl TransactionAnalysis {
    pub fn dummy_transfer() -> Self {
       let main_event = DecodedEvent::dummy_transfer();
       Self {
+         block_number: Some(DUMMY_SIM_BLOCK),
          chain: 1,
          sender: vitalik(),
          interact_to: Address::from_str("0x0000000000000000000000000000000000000000").unwrap(),
@@ -669,6 +690,7 @@ impl TransactionAnalysis {
       let main_event = DecodedEvent::dummy_shield();
       let calldata = Bytes::from_str("0x044a40c3000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000011c7f67dc635a4b43233eee0404407aa83eb2e21cacb163ff9825bb166ba9d88a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000fff9976782d46cc05630d1f6ebab18b2324d6b1400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000de0b6b3a7640000a837c375aac12d1c426df9bd30f8471e1ac650c458fe2f07e257e8840552988ff4badb30337e4552bd9e1c47a9602a7d78105f21d8753a8dec2771c41bcb4808fc767b7a598165b1f19f0de719008db65ffb7b80c32b388ed38a806706d108f113ab7f7ca89acdd6cbd7d306f9766a40e4a57cfc4845fa710112753e5958505e").unwrap();
       Self {
+         block_number: Some(DUMMY_SIM_BLOCK),
          chain: 1,
          sender: vitalik(),
          interact_to: Address::ZERO,
@@ -692,6 +714,7 @@ impl TransactionAnalysis {
    pub fn dummy_unshield() -> Self {
       let main_event = DecodedEvent::dummy_unshield();
       Self {
+         block_number: Some(DUMMY_SIM_BLOCK),
          chain: 1,
          sender: vitalik(),
          interact_to: Address::ZERO,
@@ -716,6 +739,7 @@ impl TransactionAnalysis {
       let main_event = DecodedEvent::dummy_erc20_transfer();
       let token = main_event.transfer_params().currency.address();
       Self {
+         block_number: Some(DUMMY_SIM_BLOCK),
          chain: 1,
          sender: vitalik(),
          interact_to: token,
@@ -739,6 +763,7 @@ impl TransactionAnalysis {
    pub fn dummy_unwrap_weth() -> Self {
       let main_event = DecodedEvent::dummy_unwrap_weth();
       Self {
+         block_number: Some(DUMMY_SIM_BLOCK),
          chain: 1,
          sender: vitalik(),
          interact_to: weth(1).unwrap(),
@@ -762,6 +787,7 @@ impl TransactionAnalysis {
    pub fn dummy_wrap_eth() -> Self {
       let main_event = DecodedEvent::dummy_wrap_eth();
       Self {
+         block_number: Some(DUMMY_SIM_BLOCK),
          chain: 1,
          sender: vitalik(),
          interact_to: weth(1).unwrap(),
@@ -785,6 +811,7 @@ impl TransactionAnalysis {
    pub fn dummy_uniswap_position_operation() -> Self {
       let main_event = DecodedEvent::dummy_uniswap_position_operation();
       Self {
+         block_number: Some(DUMMY_SIM_BLOCK),
          chain: 1,
          sender: vitalik(),
          interact_to: uniswap_v3_nft_position_manager(1).unwrap(),
@@ -808,6 +835,7 @@ impl TransactionAnalysis {
    pub fn dummy_permit() -> Self {
       let main_event = DecodedEvent::dummy_permit();
       Self {
+         block_number: Some(DUMMY_SIM_BLOCK),
          chain: 1,
          sender: vitalik(),
          interact_to: permit2_contract(1).unwrap(),
@@ -831,6 +859,7 @@ impl TransactionAnalysis {
    pub fn dummy_eoa_delegate() -> Self {
       let main_event = DecodedEvent::dummy_eoa_delegate();
       Self {
+         block_number: Some(DUMMY_SIM_BLOCK),
          chain: 1,
          sender: vitalik(),
          interact_to: Address::from_str("0x0000000000000000000000000000000000000000").unwrap(),
@@ -857,6 +886,7 @@ impl TransactionAnalysis {
       let balance_after = NumericValue::parse_to_wei("1", 18);
 
       Self {
+         block_number: Some(DUMMY_SIM_BLOCK),
          chain: 1,
          sender: vitalik(),
          interact_to: Address::from_str("0x0000000000000000000000000000000000000000").unwrap(),
@@ -882,6 +912,7 @@ impl TransactionAnalysis {
       let pool = Address::from_str("0xA238Dd80C259a72e81d7e4664a9801593F98d1c5").unwrap();
       let calldata = Bytes::from_str("0x617ba037000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda0291300000000000000000000000000000000000000000000000000000000000f424000000000000000000000000022222222222222222222222222222222222222220000000000000000000000000000000000000000000000000000000000000000").unwrap();
       Self {
+         block_number: Some(DUMMY_SIM_BLOCK),
          chain: 8453,
          sender: vitalik(),
          interact_to: pool,
