@@ -1,31 +1,18 @@
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use crate::core::persisted::{PersistedFile, file_path};
 use crate::core::{WalletStateKey, serde_hashmap};
-use crate::embedded::TOKEN_DATA;
 use crate::utils::write_private_atomic;
 
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, ERC20Token, NativeCurrency},
-   types::{BSC, ETH, ETH_SEPOLIA},
+   types::ChainId,
 };
-
-use bincode_next::{Decode, Encode, config::standard, decode_from_slice};
 
 /// Bound ciphertext to this logical slot (AAD).
 const CURRENCY_DB_AAD: &[u8] = b"zeus-currency-db-v1";
-
-#[derive(Clone, Encode, Decode)]
-pub struct TokenData {
-   pub chain_id: u64,
-   pub address: String,
-   pub name: String,
-   pub symbol: String,
-   pub decimals: u8,
-   pub icon_data_x32: Vec<u8>,
-}
 
 type TokenMap = HashMap<Address, ERC20Token>;
 
@@ -38,7 +25,7 @@ pub struct CurrencyDB {
 impl Default for CurrencyDB {
    fn default() -> Self {
       let mut currency_db = CurrencyDB::new();
-      currency_db.load_default_tokens().unwrap_or_default();
+      currency_db.insert_base_tokens();
       currency_db
    }
 }
@@ -53,7 +40,7 @@ impl CurrencyDB {
       let dir = Self::dir()?;
       let sealed = std::fs::read(&dir)?;
       let mut db: CurrencyDB = key.open_json(&sealed, CURRENCY_DB_AAD)?;
-      db.load_necessary_tokens();
+      db.insert_base_tokens();
       Ok(db)
    }
 
@@ -127,81 +114,19 @@ impl CurrencyDB {
       }
    }
 
-   pub fn load_default_tokens(&mut self) -> Result<(), anyhow::Error> {
-      let default_tokens = load_default_tokens()?;
-
-      let weth = ERC20Token::weth();
-      let dai = ERC20Token::dai();
-
-      for token in default_tokens {
-         if token.address == weth.address {
-            continue;
+   /// Insert the base token list for every supported chain.
+   ///
+   /// The default list is [`ERC20Token::base_tokens`] — the canonical wrapped-native and stablecoin
+   /// tokens of each chain — not a snapshot of a third-party token repository. Run on a fresh DB
+   /// *and* after loading an existing file, so the base tokens are always present with their
+   /// canonical metadata; everything else in `tokens.data` is what the user has added.
+   fn insert_base_tokens(&mut self) {
+      for chain in ChainId::supported_chains() {
+         for token in ERC20Token::base_tokens(chain.id()) {
+            self.insert_token(token.chain_id, token);
          }
-
-         if token.address == dai.address {
-            continue;
-         }
-
-         self.insert_token(token.chain_id, token);
       }
-
-      self.load_necessary_tokens();
-
-      Ok(())
    }
-
-   fn load_necessary_tokens(&mut self) {
-      let weth = ERC20Token::weth();
-      let dai = ERC20Token::dai();
-      let wbnb = ERC20Token::wbnb();
-
-      self.insert_token(BSC, wbnb);
-
-      // Fix for WETH on mainnet cause it has WETH as name instead of Wrapped Ether
-      self.insert_token(ETH, weth);
-
-      // Fix for DAI on mainnet cause it has DAI as name instead of Dai Stablecoin
-      self.insert_token(ETH, dai);
-
-      // Sepolia Testnet
-      let sepolia_weth = ERC20Token::weth_sepolia();
-      let sepolia_dai = ERC20Token::dai_sepolia();
-      let sepolia_usdc = ERC20Token::usdc_sepolia();
-
-      self.insert_token(ETH_SEPOLIA, sepolia_weth);
-      self.insert_token(ETH_SEPOLIA, sepolia_dai);
-      self.insert_token(ETH_SEPOLIA, sepolia_usdc);
-
-      // USDG on Robinhood Chain
-      let usdg = ERC20Token::usdg_robinhood();
-      self.insert_token(usdg.chain_id, usdg);
-
-      // WETH on Robinhood Chain
-      let robin_weth = ERC20Token::weth_robinhood();
-      self.insert_token(robin_weth.chain_id, robin_weth);
-   }
-}
-
-fn load_default_tokens() -> Result<Vec<ERC20Token>, anyhow::Error> {
-   let (default_tokens, _bytes_read): (Vec<TokenData>, usize) =
-      decode_from_slice(TOKEN_DATA, standard())?;
-
-   let mut tokens = Vec::new();
-
-   for token in default_tokens {
-      let address = Address::from_str(&token.address)?;
-      let erc20 = ERC20Token {
-         chain_id: token.chain_id,
-         address,
-         name: token.name.clone().into(),
-         symbol: token.symbol.clone().into(),
-         decimals: token.decimals,
-         total_supply: Default::default(),
-      };
-      tokens.push(erc20);
-   }
-
-   Ok(tokens)
 }
 
 #[cfg(test)]
@@ -216,5 +141,25 @@ mod tests {
       let loaded: CurrencyDB = key.open_json(&sealed, CURRENCY_DB_AAD).unwrap();
       assert!(!loaded.tokens.is_empty());
       assert!(key.open_json::<CurrencyDB>(&sealed, b"wrong-aad").is_err());
+   }
+
+   /// The default list is the base tokens and nothing else — the whole point of the refactor.
+   #[test]
+   fn default_db_holds_only_the_base_tokens() {
+      let db = CurrencyDB::default();
+
+      for chain in ChainId::supported_chains() {
+         let base = ERC20Token::base_tokens(chain.id());
+
+         // The native currency plus that chain's base tokens.
+         assert_eq!(
+            db.get_currencies(chain.id()).len(),
+            base.len() + 1
+         );
+
+         for token in base {
+            assert!(db.get_erc20_token(chain.id(), token.address).is_some());
+         }
+      }
    }
 }

@@ -6,5 +6,4 @@
 pub mod clear_signing;
 pub mod railgun;
 
-pub const TOKEN_DATA: &[u8] = include_bytes!("../../embedded/token_data.data");
 pub const POOL_DATA: &str = include_str!("../../embedded/pool_data.json");

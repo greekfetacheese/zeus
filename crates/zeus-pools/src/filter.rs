@@ -9,7 +9,7 @@ use zeus_eth::{
    utils::{NumericValue, client::RpcClient, price_feed},
 };
 
-/// Same USD gate as `zeus-tokens` / `DEFAULT_POOL_MINIMUM_LIQUIDITY`.
+/// Same USD gate as the wallet's own `DEFAULT_POOL_MINIMUM_LIQUIDITY`.
 const POOL_MINIMUM_LIQUIDITY: f64 = 10_000.0;
 
 /// Drop pools whose fee is above this (Uniswap fee units / 10_000 = percent).
