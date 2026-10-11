@@ -22,7 +22,8 @@ use crate::{
 };
 
 use super::privacy::{
-   LARGE_POOL_SHARE, MIN_POOL_DEPOSITS, RecipientLink, UnshieldPrivacy, assess_unshield,
+   LARGE_POOL_SHARE, PoolDepth, RecipientLink, UnshieldPrivacy, assess_shield, assess_unshield,
+   shallow_pool_warnings,
 };
 use super::{RailgunAsset, SettledOp, expect_single_event, railgun_ready, settle_railgun_op};
 use crate::assets::icons::Icons;
@@ -191,6 +192,14 @@ pub struct ShieldUi {
    /// A key waiting out the debounce before it is checked.
    privacy_pending: Option<(PrivacyKey, Instant)>,
    privacy_loading: bool,
+   /// The shield side's pool verdict: how much activity the token's Railgun pool carries, and the
+   /// `(chain, asset)` it was computed for.
+   ///
+   /// A shield is answered by the pool it would join and by nothing else — the amount is public and
+   /// the recipient is the user's own `0zk` — so unlike the check above there is no amount and no
+   /// address to key on. `None` is "nothing to say": a deep pool, or a check that could not run.
+   shield_pool: Option<PoolDepth>,
+   shield_pool_key: Option<(u64, AssetId)>,
    /// Whether the tips list is expanded.
    privacy_tips_open: bool,
 }
@@ -222,6 +231,8 @@ impl ShieldUi {
          privacy_key: None,
          privacy_pending: None,
          privacy_loading: false,
+         shield_pool: None,
+         shield_pool_key: None,
          privacy_tips_open: false,
       }
    }
@@ -666,10 +677,15 @@ impl ShieldUi {
                      recipient.evm_address
                   };
 
-                  // What this withdrawal reveals, computed off the frame path.
+                  // What this move reveals, computed off the frame path. The check above is about
+                  // the withdrawal; the shield side has one thing to say, about the pool the deposit
+                  // would join.
                   if self.mode.is_unshield() {
                      self.poll_privacy(chain, owner, &recipient_str, ui);
                      self.show_privacy_check(theme, ui);
+                  } else {
+                     self.poll_shield_pool(chain);
+                     self.show_shield_pool_check(theme, ui);
                   }
 
                   ui.add_space(10.0);
@@ -1117,13 +1133,15 @@ impl ShieldUi {
             let near = advice.crowding.within_ten_percent;
             // One line each: this block sits above the action button in a form with no scroll area.
             let reason = match (advice.matches(), near) {
-               (0, 0) => "Nothing adds up to this size, or even comes within 10% of it.".to_string(),
+               (0, 0) => {
+                  "Nothing adds up to this size, or even comes within 10% of it.".to_string()
+               }
                (0, near) => format!(
                   "Nothing matches this size exactly, {near} deposits are within 10% of it."
                ),
-               (matches, near) => format!(
-                  "{matches} deposits or sums match this size, {near} within 10% of it."
-               ),
+               (matches, near) => {
+                  format!("{matches} deposits or sums match this size, {near} within 10% of it.")
+               }
             };
             ui.add(
                Label::new(
@@ -1196,7 +1214,9 @@ impl ShieldUi {
          if let Some(reason) = &privacy.unavailable {
             ui.add(
                Label::new(
-                  RichText::new(format!("No privacy check for this withdrawal: {reason}"))
+                  RichText::new(format!(
+                     "No privacy check for this withdrawal: {reason}"
+                  ))
                   .size(theme.typography.small)
                   .color(theme.colors.text_muted),
                   None,
@@ -1208,22 +1228,17 @@ impl ShieldUi {
          }
 
          if let Some(pool) = &privacy.pool {
-            if pool.is_shallow() {
-               let text = match (pool.deposits, pool.usd, pool.share) {
-                  // Too few deposits to judge a size against, whatever the value says.
-                  (Some(deposits), _, _) if deposits < MIN_POOL_DEPOSITS => format!(
-                     "Only {deposits} deposits of {symbol} in the last 180 days."
-                  ),
-                  (_, Some(usd), _) => format!(
-                     "Only ${usd:.0} of {symbol} is shielded pool-wide: too little activity to hide in."
-                  ),
-                  (_, None, _) => format!(
-                     "Zeus cannot value {symbol} on-chain: treat its pool as thin."
-                  ),
-               };
+            // The sentences are shared with the shield side, so the two directions speak of a pool the
+            // same way whether it is being joined or withdrawn from. Every reason that is true gets a
+            // row: a pool thin in two ways is not explained by the louder of them.
+            let warnings = shallow_pool_warnings(&symbol, pool);
+
+            for text in &warnings {
                ui.add(
                   Label::new(
-                     RichText::new(text).size(theme.typography.small).color(theme.colors.warning),
+                     RichText::new(text.as_str())
+                        .size(theme.typography.small)
+                        .color(theme.colors.warning),
                      None,
                   )
                   .wrap()
@@ -1232,12 +1247,12 @@ impl ShieldUi {
                );
             }
 
-            // Only when the pool is otherwise fine: a shallow pool has just said so, and the share of
-            // it tells that reader nothing new.
+            // The share of the pool this one withdrawal takes is only worth saying when the pool
+            // itself is not the story: a thin pool has just spoken for itself.
             if let Some(share) = pool
                .share
                .filter(|share| *share > LARGE_POOL_SHARE)
-               .filter(|_| !pool.is_shallow())
+               .filter(|_| warnings.is_empty())
             {
                ui.add(
                   Label::new(
@@ -1286,15 +1301,68 @@ impl ShieldUi {
          };
 
          ui.add(
-            Label::new(RichText::new(text).size(theme.typography.small).color(color), None)
-               .wrap()
-               .fill_width(true)
-               .interactive(false),
+            Label::new(
+               RichText::new(text).size(theme.typography.small).color(color),
+               None,
+            )
+            .wrap()
+            .fill_width(true)
+            .interactive(false),
          );
       });
 
       if let Some(suggested) = apply_suggestion {
          self.amount_field.amount = NumericValue::format_wei(suggested, decimals).flatten();
+      }
+   }
+
+   /// Run the pool check for the token the shield form would deposit, once per `(chain, asset)`.
+   ///
+   /// The key moves when the token or the chain is picked and at no other time — the check reads no
+   /// amount and no recipient — so unlike the unshield check there is nothing to debounce, and the
+   /// warning lands as soon as it is known. A key computed for another token does not make the old
+   /// verdict stale but wrong, so it is dropped here, and the in-flight check publishes only for the
+   /// key that asked for it.
+   fn poll_shield_pool(&mut self, chain: ChainId) {
+      let key = (chain.id(), self.privacy_asset_key());
+
+      // Answered, or in flight, for exactly this token: nothing to do.
+      if self.shield_pool_key.as_ref() == Some(&key) {
+         return;
+      }
+
+      self.shield_pool_key = Some(key.clone());
+      self.shield_pool = None;
+
+      spawn_shield_pool_check(key, chain, self.privacy_asset());
+   }
+
+   /// Every sentence the pool earns, above the shield form's button: a token whose Railgun pool
+   /// carries too little activity — or too little value — to hide a later withdrawal in.
+   ///
+   /// Silent until there is something to say, and silent when the check could not run — unlike the
+   /// unshield check there is no reassurance to protect here, since a deposit is unaffected either
+   /// way, so a blank line never has to stand in for a verdict. A native shield deposits the chain's
+   /// wrapped base token, and that is the pool the sentence names.
+   fn show_shield_pool_check(&self, theme: &Theme, ui: &mut Ui) {
+      let Some(pool) = &self.shield_pool else {
+         return;
+      };
+
+      let token = self.currency.to_erc20();
+
+      // Every reason the pool is thin gets a row: a pool that is thin by traffic *and* by value is
+      // not explained by either sentence alone.
+      for text in shallow_pool_warnings(&token.symbol, pool) {
+         ui.add(
+            Label::new(
+               RichText::new(text).size(theme.typography.small).color(theme.colors.warning),
+               None,
+            )
+            .wrap()
+            .fill_width(true)
+            .interactive(false),
+         );
       }
    }
 
@@ -1813,6 +1881,24 @@ fn spawn_privacy_check(
    });
 }
 
+/// Run the shield pool check for `key` and publish the verdict if the form still matches it.
+///
+/// Same contract as [`spawn_privacy_check`]: the context is taken inside the task, and a verdict
+/// whose key has moved on is dropped rather than shown for another token.
+fn spawn_shield_pool_check(key: (u64, AssetId), chain: ChainId, asset: RailgunAsset) {
+   RT.spawn(async move {
+      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+      let pool = assess_shield(ctx, chain, &asset).await;
+
+      SHARED_GUI.write(|gui| {
+         if gui.shield_ui.shield_pool_key.as_ref() == Some(&key) {
+            gui.shield_ui.shield_pool = pool;
+         }
+         gui.request_repaint();
+      });
+   });
+}
+
 /// The quantity a selected NFT moves, from the field the user typed in.
 ///
 /// An ERC-721 moves exactly one and has no field, so it is always `Some(1)`. An ERC-1155 moves what was
@@ -2276,6 +2362,73 @@ mod tests {
       assert!(ui.privacy_key(chain, owner, recipient).amount.is_empty());
    }
 
+   /// A native shield goes in as the chain's wrapped base token, so ETH and WETH are one pool — and
+   /// one key for the shield pool check, which is why switching between them re-reads nothing.
+   #[test]
+   fn a_native_shield_shares_the_wrapped_tokens_pool() {
+      let mut ui = ShieldUi::new();
+      ui.set_mode(RailgunMode::Shield);
+
+      ui.currency = Currency::native(1);
+      let native = ui.privacy_asset_key();
+
+      ui.currency = Currency::from(ERC20Token::weth());
+      assert_eq!(native, ui.privacy_asset_key());
+      assert_eq!(native, AssetId::Erc20(ERC20Token::weth().address));
+   }
+
+   /// The shield warning is at most two wrapped sentences in the slot the ERC-1155 notice already
+   /// uses — the pool can be thin by traffic and by value at once, and both are said — and the shield
+   /// form carries fewer fixed rows than the unshield one (no broadcast row, no verdict block, no tips
+   /// button), so it needs no budget of its own. Measured all the same, because a wrapped line is
+   /// exactly the kind of row that grows without anyone noticing.
+   #[test]
+   fn the_shield_pool_warnings_stay_on_two_rows() {
+      use egui_elements::theme::ThemeKind;
+
+      let theme = Theme::new(ThemeKind::TokyoNight);
+      let mut ui_state = ShieldUi::new();
+      ui_state.set_mode(RailgunMode::Shield);
+      ui_state.currency = Currency::from(ERC20Token::weth());
+      // Both sentences the shield form can draw at once, at the width the card actually gives them.
+      ui_state.shield_pool = Some(PoolDepth {
+         balance_wei: U256::from(1_000u64),
+         usd: Some(400.0),
+         share: None,
+         deposits: Some(1_224),
+      });
+
+      let ctx = eframe::egui::Context::default();
+      ctx.set_fonts(eframe::egui::FontDefinitions::default());
+      ctx.all_styles_mut(|style| *style = theme.style());
+
+      let input = eframe::egui::RawInput {
+         screen_rect: Some(eframe::egui::Rect::from_min_size(
+            eframe::egui::Pos2::ZERO,
+            vec2(1280.0, 900.0),
+         )),
+         ..Default::default()
+      };
+
+      let mut height = 0.0;
+      let mut output = ctx.run_ui(input, |ui| {
+         // The card's inner width in the running app (card ~520 px wide, minus its padding).
+         ui.set_max_width(490.0);
+         let block = ui.vertical(|ui| ui_state.show_shield_pool_check(&theme, ui));
+         height = block.response.rect.height();
+      });
+
+      // The probe paints into no window, so the texture uploads have nowhere to go.
+      output.textures_delta.clear();
+
+      // Measured: 35 px — both sentences the pool can draw at once. The bound is headroom above
+      // that, not the number itself.
+      assert!(
+         height <= 48.0,
+         "the shield pool warnings are {height:.1} px, past the two rows the shield form can spare"
+      );
+   }
+
    /// What "Use it" writes into the amount field is the suggestion as a plain decimal, which is what
    /// the field — and `parse_to_wei` — reads back.
    #[test]
@@ -2519,13 +2672,14 @@ mod tests {
          },
       };
 
-      // Measured: 89 px quiet, 197 px loudest. The block is the only part of the form whose height
+      // Measured: 89 px quiet, 221 px loudest. The block is the only part of the form whose height
       // follows the data, so it is the part that gets a budget — the card is centred in the panel, and
       // a block taller than the fixed rows leave room for pushes the action button off the bottom of
       // the window. The bounds stay where they were when the block measured 97 and 229 and the form
       // still carried the memo and the switches: they catch rows being re-added, not metric drift.
-      // The quiet state is the one that reassures about the recipient, so it is a row (24 px) taller
-      // than it used to be, and it is still the shorter of the two by a wide margin.
+      // The quiet state is the one that reassures about the recipient, so it is a row taller than it
+      // used to be. The loudest state gained the second pool sentence — a pool can be thin by traffic
+      // and by value at once, and both are said — which is 24 px of its 260, and it is still inside.
       for (name, privacy, budget) in [("quiet", quiet, 130.0), ("loudest", loudest, 260.0)] {
          let height = check_block_height(&theme, privacy);
          assert!(

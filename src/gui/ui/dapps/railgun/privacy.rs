@@ -1,6 +1,6 @@
-//! The unshield privacy check: what this withdrawal would reveal, and what to do instead.
+//! The Railgun privacy checks: what an unshield would reveal, and what a shield would join.
 //!
-//! Three questions, all answered from data Zeus already has:
+//! The unshield check answers three questions, all of them from data Zeus already has:
 //!
 //! - **Is the amount distinctive?** The persisted Railgun events snapshot holds every deposit the
 //!   protocol has taken ([`crate::privacy`] in `zeus-railgun` scores the requested amount against
@@ -12,8 +12,14 @@
 //! - **Has the recipient been used?** A fresh `0x` address is the cheapest thing to get right and
 //!   the most common way to undo everything else.
 //!
+//! The shield check answers one of them — **is the pool deep enough to hide in?** A shield is public
+//! whatever happens (its amount, its token and the fact that it was shielded are all on chain), so
+//! nothing about the deposit itself is judged and its recipient is the user's own `0zk`. What is
+//! left is the pool: depositing into a thin one buys little privacy for the withdrawal that follows.
+//! [`shallow_pool_warnings`] are the sentences both directions use.
+//!
 //! All of it is I/O — snapshot reads, an RPC balance, a nonce — so it runs off the frame path and
-//! its verdict is written back through `SHIELD_GUI`. Nothing here refuses an unshield: a check that
+//! its verdict is written back through `SHIELD_GUI`. Nothing here refuses anything: a check that
 //! cannot run reports why, and the form keeps the static advice it always had.
 
 use std::collections::{HashMap, HashSet};
@@ -86,16 +92,39 @@ pub struct PoolDepth {
    pub deposits: Option<u32>,
 }
 
-impl PoolDepth {
-   /// Too small to hide in, unvalued, or mostly this one withdrawal.
-   ///
-   /// An unpriceable token is deliberately treated as shallow: if its size cannot be established,
-   /// nothing here can say it is deep, and saying nothing would read as reassurance.
-   pub fn is_shallow(&self) -> bool {
-      self.deposits.is_some_and(|deposits| deposits < MIN_POOL_DEPOSITS)
-         || self.usd.is_none_or(|usd| usd < SHALLOW_POOL_USD)
-         || self.share.is_some_and(|share| share > LARGE_POOL_SHARE)
+/// The sentences a pool too thin to hide in earns: one per reason, and more than one when more than
+/// one is true.
+///
+/// The reasons are independent, because a pool can be thin in more than one way at once — 900
+/// deposits of a token worth $400 is thin by traffic *and* by value — and letting the loudest
+/// sentence stand alone would drop the half the reader was likelier to have missed. So a low value
+/// is said beside the count rather than instead of it, and an unpriceable token is never silent: if
+/// the size of a pool cannot be established, nothing here can say it is deep.
+///
+/// The two directions share this copy: a shield warns about the pool it would join and an unshield
+/// about the pool it would withdraw from, and it is the same pool either way. The share of it a
+/// single withdrawal takes is a different question and belongs to the caller.
+pub fn shallow_pool_warnings(symbol: &str, pool: &PoolDepth) -> Vec<String> {
+   let mut warnings = Vec::new();
+
+   if let Some(deposits) = pool.deposits.filter(|deposits| *deposits < MIN_POOL_DEPOSITS) {
+      warnings.push(format!(
+         "Only {deposits} deposits of {symbol} in the last 180 days."
+      ));
    }
+
+   match pool.usd {
+      Some(usd) if usd < SHALLOW_POOL_USD => warnings.push(format!(
+         "Only ${usd:.0} of {symbol} is shielded pool-wide: too little activity to hide in."
+      )),
+      // Not priced is not "worth nothing", and it is not silence either.
+      None => warnings.push(format!(
+         "Cannot value {symbol} on-chain: consider its pool as low activity."
+      )),
+      Some(_) => {}
+   }
+
+   warnings
 }
 
 /// How the recipient is tied to the person unshielding — the part of "has it been used" that actually
@@ -342,35 +371,15 @@ pub async fn assess_unshield(
       }
    };
 
-   let tip = match provider.snapshot_tip().await {
-      Ok(tip) => tip,
-      Err(e) => {
-         privacy.unavailable = Some(format!(
-            "could not read the activity snapshot: {e}"
-         ));
+   // One window and one wall clock for the whole verdict: the amount is scored against the same
+   // instant the window ends at, so its two halves cannot disagree about when "now" is.
+   let (window, now) = match snapshot_window(&provider).await {
+      Ok(window) => window,
+      Err(reason) => {
+         privacy.unavailable = Some(reason);
          return privacy;
       }
    };
-
-   if tip == 0 {
-      privacy.unavailable = Some("no Railgun activity snapshot on this machine yet".to_string());
-      return privacy;
-   }
-
-   let now = TimeStamp::now_as_secs()
-      .map(|timestamp| timestamp.timestamp())
-      .unwrap_or_default();
-   let block_time = provider.block_time_secs().max(1);
-
-   // The window is stated twice on purpose: blocks select what to read out of the snapshot (cheap),
-   // times decide what belongs in it (exact). Its end block is the snapshot's tip, so the activity
-   // is judged against what this machine has actually seen.
-   let window = DepositWindow::new(
-      now.saturating_sub(ACTIVITY_WINDOW_SECONDS),
-      now,
-      tip.saturating_sub(ACTIVITY_WINDOW_SECONDS / block_time),
-      tip,
-   );
 
    let pool = match provider.shield_activity(asset_id, window).await {
       Ok(pool) => pool,
@@ -412,7 +421,7 @@ pub async fn assess_unshield(
             chain,
             &provider,
             &token,
-            onchain_wei,
+            Some(onchain_wei),
             deposits,
          )
          .await;
@@ -421,6 +430,83 @@ pub async fn assess_unshield(
    }
 
    privacy
+}
+
+/// The activity window the snapshot can answer for, and the wall clock that window ends at.
+///
+/// The window is stated twice on purpose: blocks select what to read out of the snapshot (cheap),
+/// times decide what belongs in it (exact). Its end block is the snapshot's tip, so the activity is
+/// judged against what this machine has actually seen rather than against a chain that has moved on.
+///
+/// A snapshot with no tip is "no activity data", not "no activity", which is why the reason is
+/// spelled out for the caller to report instead of being folded into an empty window.
+async fn snapshot_window(
+   provider: &RailgunProvider<RpcClient>,
+) -> Result<(DepositWindow, u64), String> {
+   let tip = provider
+      .snapshot_tip()
+      .await
+      .map_err(|e| format!("could not read the activity snapshot: {e}"))?;
+
+   if tip == 0 {
+      return Err("no Railgun activity snapshot on this machine yet".to_string());
+   }
+
+   let now = TimeStamp::now_as_secs()
+      .map(|timestamp| timestamp.timestamp())
+      .unwrap_or_default();
+   let block_time = provider.block_time_secs().max(1);
+
+   Ok((
+      DepositWindow::new(
+         now.saturating_sub(ACTIVITY_WINDOW_SECONDS),
+         now,
+         tip.saturating_sub(ACTIVITY_WINDOW_SECONDS / block_time),
+         tip,
+      ),
+      now,
+   ))
+}
+
+/// What the shield form has to warn about: the pool the deposit would join.
+///
+/// A shield is public whatever happens, so the only thing worth saying beforehand is how much
+/// activity that pool carries — a deposit into a thin one buys little privacy for the withdrawal
+/// that follows. Nothing here depends on the amount or on the recipient, and there is no amount to
+/// score: matching a deposit's size against earlier deposits says nothing about a transaction
+/// everyone can already read.
+///
+/// `None` is "nothing to say": a deep pool, an asset with no pool of its own (an NFT), or a check
+/// that could not run. A shield proceeds exactly as it did before either way.
+pub async fn assess_shield(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   asset: &RailgunAsset,
+) -> Option<PoolDepth> {
+   let RailgunAsset::Fungible(currency) = asset else {
+      return None;
+   };
+
+   // A native shield goes in as the chain's wrapped base token — `shield_native` wraps it on the way
+   // — and `to_erc20` is exactly that mapping, so a native shield and a WETH one read one pool.
+   let token = currency.to_erc20().into_owned();
+
+   let provider = ctx.get_railgun_provider(chain.id(), false).await.ok()?;
+   let (window, _now) = snapshot_window(&provider).await.ok()?;
+
+   let deposits = provider.shield_activity(AssetId::Erc20(token.address), window).await.ok()?;
+   let deposits = deposits.len().min(u32::MAX as usize) as u32;
+
+   // No amount on the way in: the pool is judged for what it holds, not for what got deposited.
+   pool_depth(
+      &ctx,
+      chain,
+      &provider,
+      &token,
+      None,
+      Some(deposits),
+   )
+   .await
 }
 
 /// The wallet's own activity as the tx history records it.
@@ -521,17 +607,33 @@ async fn own_private_activity(
    history
 }
 
-/// How deep the pool is for `token`, and what share of it this withdrawal would take.
+/// How deep the pool is for `token`, and — when there is an amount to be a share of it — how much of
+/// it that amount is.
+///
+/// `amount_wei` is `None` on the shield side: a deposit's size is public whatever it is, so a share
+/// of the pool would be a number with nothing to warn about.
 async fn pool_depth(
    ctx: &ZeusCtx,
    chain: ChainId,
    provider: &RailgunProvider<RpcClient>,
    token: &ERC20Token,
-   amount_wei: u128,
+   amount_wei: Option<u128>,
    deposits: Option<u32>,
 ) -> Option<PoolDepth> {
    let client = ctx.get_client(chain.id()).await.ok()?;
    let balance = token.balance_of(client, provider.railgun_address(), None).await.ok()?;
+
+   let manager = ctx.price_manager();
+   let pool_manager = ctx.pool_manager();
+   manager
+      .calculate_prices(
+         ctx.clone(),
+         chain.id(),
+         pool_manager,
+         vec![token.clone()],
+      )
+      .await
+      .ok()?;
 
    // A price of zero is "not priced", not "worth nothing": the two must not be conflated, or every
    // unpriced token would look like a dead pool.
@@ -543,12 +645,12 @@ async fn pool_depth(
       Some(ctx.get_token_value_for_amount(amount.f64(), token).f64())
    };
 
-   let share = if balance.is_zero() {
-      None
-   } else {
-      let balance = balance.to_string().parse::<f64>().unwrap_or(f64::MAX);
-      let amount = amount_wei as f64;
-      Some(amount / balance)
+   let share = match amount_wei {
+      Some(amount_wei) if !balance.is_zero() => {
+         let balance = balance.to_string().parse::<f64>().unwrap_or(f64::MAX);
+         Some(amount_wei as f64 / balance)
+      }
+      _ => None,
    };
 
    Some(PoolDepth {
@@ -745,54 +847,94 @@ mod tests {
       assert!(fungible_token(&nft).is_none());
    }
 
-   /// A shallow pool is one that is small, unvalued, or mostly this withdrawal — and an unvalued
-   /// token is shallow on purpose, because silence would read as reassurance.
+   /// Every reason a pool is too thin gets its own sentence, and every reason that is true is said: a
+   /// pool that is thin by traffic *and* by value is exactly the case one sentence would half-report.
    #[test]
-   fn a_pool_is_shallow_when_small_unvalued_or_mostly_this_withdrawal() {
+   fn shallow_pool_warnings_says_every_reason_that_is_true() {
       let deep = PoolDepth {
          balance_wei: U256::from(1_000u64),
          usd: Some(50_000.0),
          share: Some(0.01),
          deposits: Some(40_000),
       };
-      assert!(!deep.is_shallow());
+      assert!(shallow_pool_warnings("WETH", &deep).is_empty());
 
-      let small = PoolDepth {
+      // Thin by traffic alone: the count is all there is to say.
+      let few = PoolDepth {
+         deposits: Some(900),
+         ..deep
+      };
+      assert_eq!(
+         shallow_pool_warnings("WETH", &few),
+         ["Only 900 deposits of WETH in the last 180 days."]
+      );
+
+      // Thin by value alone — the case no traffic count can catch.
+      let cheap = PoolDepth {
          usd: Some(400.0),
          ..deep
       };
-      assert!(small.is_shallow());
+      assert_eq!(
+         shallow_pool_warnings("WETH", &cheap),
+         ["Only $400 of WETH is shielded pool-wide: too little activity to hide in."]
+      );
 
-      let unvalued = PoolDepth { usd: None, ..deep };
-      assert!(unvalued.is_shallow());
-
-      let most_of_it = PoolDepth {
-         share: Some(0.4),
-         ..deep
-      };
-      assert!(most_of_it.is_shallow());
-
+      // An emptied pool is still priced, and priced at nothing: that is a value like any other.
       let empty = PoolDepth {
          balance_wei: U256::ZERO,
          usd: Some(0.0),
          share: None,
          ..deep
       };
-      assert!(empty.is_shallow());
+      assert_eq!(
+         shallow_pool_warnings("WETH", &empty),
+         ["Only $0 of WETH is shielded pool-wide: too little activity to hide in."]
+      );
 
-      // Deep by value, thin by traffic: a testnet pool that a size verdict cannot be trusted on.
-      let thin = PoolDepth {
+      // Both at once — a testnet pool, deep enough by neither measure: neither sentence replaces the
+      // other.
+      let few_and_cheap = PoolDepth {
          deposits: Some(1_224),
+         usd: Some(400.0),
          ..deep
       };
-      assert!(thin.is_shallow());
+      assert_eq!(
+         shallow_pool_warnings("WETH", &few_and_cheap),
+         [
+            "Only 1224 deposits of WETH in the last 180 days.",
+            "Only $400 of WETH is shielded pool-wide: too little activity to hide in.",
+         ]
+      );
+
+      // An unvalued pool speaks beside the count rather than instead of it: not priced is not "worth
+      // nothing", and it is not silence either.
+      let few_and_unvalued = PoolDepth {
+         deposits: Some(900),
+         usd: None,
+         ..deep
+      };
+      assert_eq!(
+         shallow_pool_warnings("WETH", &few_and_unvalued),
+         [
+            "Only 900 deposits of WETH in the last 180 days.",
+            "Cannot value WETH on-chain: consider its pool as low activity.",
+         ]
+      );
 
       // No count is not a thin count: the amount check did not run, which is not evidence of anything.
       let uncounted = PoolDepth {
          deposits: None,
          ..deep
       };
-      assert!(!uncounted.is_shallow());
+      assert!(shallow_pool_warnings("WETH", &uncounted).is_empty());
+
+      // And a withdrawal taking most of a deep pool is the share sentence's business, never this
+      // one's — the pool itself is fine on both counts.
+      let most_of_it = PoolDepth {
+         share: Some(0.4),
+         ..deep
+      };
+      assert!(shallow_pool_warnings("WETH", &most_of_it).is_empty());
    }
 
    /// What links a withdrawal back to the deposits is not history — plenty of addresses have paid gas
