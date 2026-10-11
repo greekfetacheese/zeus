@@ -5,21 +5,15 @@ use eframe::egui::{
    ColorImage, Context, Image, ImageSource, Sense, TextureHandle, Vec2,
    epaint::textures::TextureOptions,
 };
-use std::borrow::Cow;
-use zeus_eth::{ERC20Token, types::ChainId};
-
-use crate::core::context::currencies::TokenData;
-use crate::embedded::TOKEN_DATA;
 use egui_elements::utils::TINT_1;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::str::FromStr;
 use std::sync::RwLock;
+use zeus_eth::{ERC20Token, types::ChainId};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::Currency,
 };
-
-use bincode_next::{config::standard, decode_from_slice};
 
 mod disk;
 pub(crate) use disk::{delete_nft_icon, delete_token_icon, save_nft_icon, save_token_icon};
@@ -87,20 +81,34 @@ impl Default for TokenIcons {
    }
 }
 
+/// The baked 32×32 art of a base token, by symbol.
+///
+/// The default list no longer takes its icons from an external token blob, so the handful of tokens
+/// it holds carry their art in the binary. `None` means no baked art: the token stays on the
+/// ERC-20/BEP-20 placeholder until SmolDapp has an icon for it.
+fn base_token_icon(symbol: &str) -> Option<&'static [u8]> {
+   match symbol {
+      "WETH" => Some(include_bytes!("currency/resized/weth.png")),
+      "USDC" => Some(include_bytes!("currency/resized/usdc.png")),
+      "USDT" => Some(include_bytes!("currency/resized/usdt.png")),
+      "DAI" => Some(include_bytes!("currency/resized/dai.png")),
+      "WBNB" => Some(include_bytes!("currency/resized/wbnb.png")),
+      "USDG" => Some(include_bytes!("currency/resized/USDG.png")),
+      _ => None,
+   }
+}
+
 impl TokenIcons {
    pub fn new(ctx: &Context) -> Result<Self, anyhow::Error> {
-      let (icon_data, _bytes_read): (Vec<TokenData>, usize) =
-         decode_from_slice(TOKEN_DATA, standard())?;
-
-      #[cfg(feature = "dev")]
-      tracing::info!("Loaded {} tokens", icon_data.len());
-
       let mut icon_bytes: HashMap<(Address, u64), Vec<u8>> = HashMap::new();
 
-      for icon in icon_data {
-         let address = Address::from_str(&icon.address)?;
-         let key = (address, icon.chain_id);
-         icon_bytes.insert(key, icon.icon_data_x32);
+      // Baked art for the default (base) token list
+      for chain in ChainId::supported_chains() {
+         for token in ERC20Token::base_tokens(chain.id()) {
+            if let Some(png) = base_token_icon(&token.symbol) {
+               icon_bytes.insert((token.address, token.chain_id), png.to_vec());
+            }
+         }
       }
 
       // Downloaded icons from previous sessions. Baked-in icons win.
@@ -116,23 +124,6 @@ impl TokenIcons {
 
       let erc20_x32 = ctx.load_texture("erc20_x32", erc20_x32, texture_options);
       let bep20_x32 = ctx.load_texture("bep20_x32", bep20_x32, texture_options);
-
-      // Robinhood USDG
-      let usdg_x32 = include_bytes!("currency/resized/USDG.png");
-      let usdg_token = ERC20Token::usdg_robinhood();
-
-      // Robinhood WETH
-      let weth_x32 = include_bytes!("currency/resized/weth.png");
-      let weth_token = ERC20Token::weth_robinhood();
-
-      icon_bytes.insert(
-         (usdg_token.address, usdg_token.chain_id),
-         usdg_x32.to_vec(),
-      );
-      icon_bytes.insert(
-         (weth_token.address, weth_token.chain_id),
-         weth_x32.to_vec(),
-      );
 
       Ok(Self {
          icons_x32: RwLock::new(HashMap::new()),
