@@ -1,4 +1,6 @@
-use eframe::egui::{Align, Checkbox, FontId, Id, Layout, Margin, Order, RichText, Ui, vec2};
+use eframe::egui::{
+   Align, Checkbox, FontId, Id, Layout, Margin, Order, RichText, Spinner, Ui, vec2,
+};
 
 use std::{
    collections::HashMap,
@@ -1044,15 +1046,21 @@ impl ShieldUi {
 
       let Some(privacy) = self.privacy.clone() else {
          if self.privacy_loading {
-            ui.add(
-               Label::new(
-                  RichText::new("Checking what this withdrawal reveals…")
-                     .size(theme.typography.small)
-                     .color(theme.colors.text_muted),
-                  None,
-               )
-               .interactive(false),
-            );
+            // The check is debounced and runs off the frame path, so this line can sit there for a
+            // moment: the spinner is what says it is working rather than stuck.
+            ui.horizontal(|ui| {
+               ui.add(Spinner::new().size(theme.typography.small).color(theme.colors.text_muted));
+
+               ui.add(
+                  Label::new(
+                     RichText::new("Checking what this withdrawal reveals…")
+                        .size(theme.typography.small)
+                        .color(theme.colors.text_muted),
+                     None,
+                  )
+                  .interactive(false),
+               );
+            });
          }
          return;
       };
@@ -1250,33 +1258,39 @@ impl ShieldUi {
 
          // Neither on-chain history nor being one of the user's own wallets is a link — unshielding to
          // a wallet nobody can connect to you is the point — so only a tie back to the person is
-         // reported, and only the loudest one of those.
-         let link = match privacy.recipient.link() {
-            Some(RecipientLink::Transacted) => Some((
+         // reported, and only the loudest one of those. An address with no tie at all says so in the
+         // success colour: the form is otherwise silent about the one thing the recipient got right.
+         //
+         // The link is judged from the local history plus one `nonce` call, and neither of those can
+         // fail its way into "no link": the history is what it is, and an unreadable `nonce` only
+         // leaves `fresh` unknown. That is why this line is allowed to be reassuring.
+         let (color, text) = match privacy.recipient.link() {
+            Some(RecipientLink::Transacted) => (
                theme.colors.warning,
                "You have transacted with this address from one of your wallets, so it can be tied \
                 back to you. A fresh address cannot."
                   .to_string(),
-            )),
-            Some(RecipientLink::PriorUnshields(1)) => Some((
+            ),
+            Some(RecipientLink::PriorUnshields(1)) => (
                theme.colors.warning,
                "You have already unshielded to this address once.".to_string(),
-            )),
-            Some(RecipientLink::PriorUnshields(times)) => Some((
+            ),
+            Some(RecipientLink::PriorUnshields(times)) => (
                theme.colors.warning,
                format!("You have already unshielded to this address {times} times."),
-            )),
-            None => None,
+            ),
+            None => (
+               theme.colors.success,
+               "Recipient doesn't link back to you.".to_string(),
+            ),
          };
 
-         if let Some((color, text)) = link {
-            ui.add(
-               Label::new(RichText::new(text).size(theme.typography.small).color(color), None)
-                  .wrap()
-                  .fill_width(true)
-                  .interactive(false),
-            );
-         }
+         ui.add(
+            Label::new(RichText::new(text).size(theme.typography.small).color(color), None)
+               .wrap()
+               .fill_width(true)
+               .interactive(false),
+         );
       });
 
       if let Some(suggested) = apply_suggestion {
@@ -2505,11 +2519,13 @@ mod tests {
          },
       };
 
-      // Measured: 65 px quiet, 197 px loudest. The block is the only part of the form whose height
+      // Measured: 89 px quiet, 197 px loudest. The block is the only part of the form whose height
       // follows the data, so it is the part that gets a budget — the card is centred in the panel, and
       // a block taller than the fixed rows leave room for pushes the action button off the bottom of
       // the window. The bounds stay where they were when the block measured 97 and 229 and the form
       // still carried the memo and the switches: they catch rows being re-added, not metric drift.
+      // The quiet state is the one that reassures about the recipient, so it is a row (24 px) taller
+      // than it used to be, and it is still the shorter of the two by a wide margin.
       for (name, privacy, budget) in [("quiet", quiet, 130.0), ("loudest", loudest, 260.0)] {
          let height = check_block_height(&theme, privacy);
          assert!(
