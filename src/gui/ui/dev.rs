@@ -3,6 +3,7 @@ use eframe::egui::{Align2, Frame, Order, RichText, ScrollArea, Ui, Window, vec2}
 use crate::assets::Icons;
 use crate::core::clear_signing::ClearDisplay;
 use crate::core::{DecodedEvent, SignMsgType, TransactionAnalysis, TransactionRich, ZeusContext};
+use crate::gui::ui::dev_erc20::Erc20Minting;
 use crate::gui::ui::dev_nft::{NftMinting, spawn_approve_erc721, spawn_approve_erc1155};
 use crate::gui::{SHARED_GUI, ui::notification::NotificationType};
 use crate::utils::self_update::UpdateInfo;
@@ -18,6 +19,7 @@ pub struct DevUi {
    pub open: bool,
    pub ui_testing: UiTesting,
    pub nft_minting: NftMinting,
+   pub erc20_minting: Erc20Minting,
    pub size: (f32, f32),
 }
 
@@ -27,6 +29,7 @@ impl DevUi {
          open: false,
          ui_testing: UiTesting::new(),
          nft_minting: NftMinting::new(),
+         erc20_minting: Erc20Minting::new(),
          size: (550.0, 500.0),
       }
    }
@@ -42,6 +45,7 @@ impl DevUi {
    pub fn close(&mut self) {
       self.open = false;
       self.nft_minting.close();
+      self.erc20_minting.close();
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -52,6 +56,8 @@ impl DevUi {
       self.show_ui_testing(ctx, theme, icons, ui);
 
       self.show_nft_minting(theme, ui);
+
+      self.show_erc20_minting(theme, ui);
 
       ui.vertical_centered(|ui| {
          ui.set_width(self.size.0);
@@ -76,6 +82,13 @@ impl DevUi {
 
          if ui.add(button).clicked() {
             self.nft_minting.open();
+         }
+
+         let button =
+            Button::new(RichText::new("ERC20 Minting").size(text_size)).min_size(button_size);
+
+         if ui.add(button).clicked() {
+            self.erc20_minting.open();
          }
 
          // Live triggers for the State Changes approval diff. No built-in flow approves an NFT, and a
@@ -174,6 +187,26 @@ impl DevUi {
 
       if !open {
          self.nft_minting.close();
+      }
+   }
+
+   fn show_erc20_minting(&mut self, theme: &Theme, ui: &mut Ui) {
+      let mut open = self.erc20_minting.is_open();
+      let title = RichText::new("ERC20 Minting").size(theme.typography.heading);
+      let window_frame = theme.window_frame;
+
+      Window::new(title)
+         .open(&mut open)
+         .movable(true)
+         .collapsible(true)
+         .order(Order::Middle)
+         .frame(window_frame)
+         .show(ui.ctx(), |ui| {
+            self.erc20_minting.show(theme, ui);
+         });
+
+      if !open {
+         self.erc20_minting.close();
       }
    }
 }

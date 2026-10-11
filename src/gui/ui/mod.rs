@@ -4,6 +4,7 @@ pub mod auth;
 pub mod common;
 pub mod dapps;
 pub mod dev;
+pub mod dev_erc20;
 pub mod dev_nft;
 pub mod lock;
 pub mod notification;
