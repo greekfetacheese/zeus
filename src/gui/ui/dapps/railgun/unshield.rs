@@ -268,6 +268,7 @@ async fn unshield_self_broadcast(
       sim_res,
       logs,
       balance_after: eth_balance_after,
+      block_number,
       ..
    } = sim;
 
@@ -309,6 +310,7 @@ async fn unshield_self_broadcast(
    )
    .await?;
 
+   tx_analysis.set_block_number(block_number);
    tx_analysis.set_main_event(DecodedEvent::Unshield(unshield_params));
 
    let tx_opt = SendTxOptions {
@@ -823,6 +825,7 @@ async fn unshield_via_paymaster(
    tx_analysis.set_diffs(sim_balance_diff, sim_approval_diff);
 
    let main_event = DecodedEvent::Unshield(unshield_params.clone());
+   tx_analysis.set_block_number(fork_block.header.number);
    tx_analysis.set_main_event(main_event);
 
    // Replace the decoded unshield with the main so it can also show

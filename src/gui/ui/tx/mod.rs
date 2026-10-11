@@ -131,6 +131,32 @@ pub fn value(
    });
 }
 
+/// Show the block a transaction was simulated against, linked to the block explorer.
+///
+/// The numbers above it come out of that fork, so naming the block is what lets the
+/// user check them against the chain. Only analyses that came from a simulation
+/// carry a block (see [`TransactionAnalysis::block_number`]).
+pub fn simulated_block(chain: ChainId, block_number: u64, theme: &Theme, ui: &mut Ui) {
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         let text = "Simulated at block";
+         ui.label(RichText::new(text).size(theme.typography.large));
+      });
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         // `block_explorer` carries a trailing slash for RobinHood.
+         let explorer = chain.block_explorer().trim_end_matches('/');
+         let link = format!("{}/block/{}", explorer, block_number);
+         ui.hyperlink_to(
+            RichText::new(block_number.to_string())
+               .size(theme.typography.large)
+               .color(theme.colors.info),
+            link,
+         );
+      });
+   });
+}
+
 /// Show a label with a hyperlink to the block explorer
 /// in a horizontal layout from left to right
 pub fn address(
@@ -981,9 +1007,13 @@ pub fn show_tx_options_modal(
 
             let text = RichText::new(text).size(theme.typography.large);
 
-            ui.add(Label::new(text, None).interactive(false));
-            ui.add_space(10.0);
-            ui.add(icon);
+            // One row: as direct children of the modal body's vertical layout each
+            // of these would land on a line of its own, the indicator included.
+            ui.horizontal(|ui| {
+               ui.add(Label::new(text, None).interactive(false));
+               ui.add_space(10.0);
+               ui.add(icon);
+            });
          }
       });
 

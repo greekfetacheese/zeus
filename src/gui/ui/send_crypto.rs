@@ -1456,6 +1456,7 @@ async fn send_eth(
    )
    .await?;
 
+   tx_analysis.set_block_number(block.header.number);
    tx_analysis.set_main_event(DecodedEvent::Transfer(transfer_params));
 
    let (_, _) = send_transaction(
@@ -1613,6 +1614,7 @@ async fn send_token(
    )
    .await?;
 
+   tx_analysis.set_block_number(block.header.number);
    tx_analysis.set_main_event(DecodedEvent::Transfer(transfer_params));
 
    let (_, _) = send_transaction(

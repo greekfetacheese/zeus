@@ -4,7 +4,7 @@ use egui_elements::{Button, Modal, Theme};
 use super::{
    AVAIL_WIDTH_MARGIN, address, chain_chip, clear_display_ui, events::*, show_analysis_buttons,
    show_calldata_modal, show_state_changes_block, show_tx_diffs_modal, show_tx_options_modal,
-   tx_cost, value,
+   simulated_block, tx_cost, value,
 };
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::{self, ClearDisplay};
@@ -305,7 +305,10 @@ impl TxConfirmationWindow {
          .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+            // A maximum, not a fixed height: `set_height` also sets the *minimum*, and
+            // that is what left a band of empty space under the buttons of a short
+            // window. The content decides the height now.
+            ui.set_max_height(self.size.1);
 
             let button_visuals = theme.button_visuals();
 
@@ -514,6 +517,11 @@ impl TxConfirmationWindow {
 
                         // Value to be sent
                         value(ctx, self.chain, analysis.value_sent(), theme, ui);
+
+                        // The block the numbers above were read at
+                        if let Some(block_number) = analysis.block_number {
+                           simulated_block(self.chain, block_number, theme, ui);
+                        }
                      });
                   });
                });
@@ -571,6 +579,10 @@ impl TxConfirmationWindow {
                }
 
                let sufficient_balance = self.sufficient_balance(ctx, value_sent, sender);
+
+               // The action row is a different decision from the row of inspectors above
+               // it, so it gets a gap rather than just `item_spacing`.
+               ui.add_space(theme.spacing.lg);
 
                // Buttons
                let size = vec2(ui.available_width() * AVAIL_WIDTH_MARGIN, 45.0);
@@ -751,10 +763,10 @@ mod height_budget {
    ///
    /// Height is the constraint this window keeps tripping over: every row it carries
    /// is a row the confirmation itself cannot use. Each sample therefore names the
-   /// height it renders at today plus ~40 px of headroom — about one row — so that
-   /// re-adding a row fails here instead of being found in a screenshot. Measured
-   /// with the same instrument before the wallet identity / transaction options work,
-   /// these samples were 594–730 px tall.
+   /// height it renders at today plus ~25 px — about one row — so that re-adding a
+   /// row fails here instead of being found in a screenshot. Measured with the same
+   /// instrument before the wallet identity / transaction options work these samples
+   /// were 594–730 px tall; they are 446–718 px now.
    ///
    /// Ignored by default: it renders the real window and needs this machine's `data/`.
    /// Run it alone: `cargo test -p zeus -- --ignored height_budget --nocapture`.
@@ -769,14 +781,14 @@ mod height_budget {
             TransactionAnalysis::dummy_eoa_delegate(),
             "",
             false,
-            540.0,
+            505.0,
          ),
          (
             "unknown",
             TransactionAnalysis::unknown_tx_1(),
             "app.uniswap.org",
             false,
-            540.0,
+            470.0,
          ),
          (
             // The tallest combination the window can reach: an undecodable
@@ -793,14 +805,14 @@ mod height_budget {
             TransactionAnalysis::dummy_clear_signed(),
             "app.aave.com",
             true,
-            610.0,
+            605.0,
          ),
          (
             "shield",
             TransactionAnalysis::dummy_shield(),
             "",
             false,
-            540.0,
+            510.0,
          ),
          (
             "unshield",

@@ -310,6 +310,7 @@ async fn exec_private_transfer(
       sim_res,
       logs,
       balance_after: eth_balance_after,
+      block_number,
       ..
    } = sim;
 
@@ -332,6 +333,7 @@ async fn exec_private_transfer(
    .await?;
 
    // Transact logs are not public ERC-20 transfers, so record the intent.
+   tx_analysis.set_block_number(block_number);
    tx_analysis.set_main_event(DecodedEvent::PrivateTransfer(transfer_params));
 
    let tx_opt = SendTxOptions {

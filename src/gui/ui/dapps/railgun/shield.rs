@@ -2110,6 +2110,7 @@ async fn shield(
       sim_res,
       logs,
       balance_after: eth_balance_after,
+      block_number,
       ..
    } = sim;
 
@@ -2148,6 +2149,7 @@ async fn shield(
    .await?;
 
    // Transact logs are not public ERC-20 transfers, so record the intent.
+   tx_analysis.set_block_number(block_number);
    tx_analysis.set_main_event(DecodedEvent::Shield(shield_params));
 
    let (_, _) = send_transaction(

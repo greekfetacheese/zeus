@@ -355,6 +355,7 @@ pub async fn send_transaction(
       )
       .await?;
       analysis.set_diffs(simulated.balance_diff, simulated.approval_diff);
+      analysis.set_block_number(simulated.block_number);
       analysis
    };
 

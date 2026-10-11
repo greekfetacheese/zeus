@@ -54,6 +54,8 @@ pub struct SimulatedTx {
    pub contract_interact: bool,
    pub balance_diff: BalanceDiff,
    pub approval_diff: ApprovalDiff,
+   /// The block the fork was pinned to (see [`ForkSim::block_number`]).
+   pub block_number: u64,
 }
 
 struct TokenWei {
@@ -1571,6 +1573,7 @@ pub async fn simulate_and_diff(
       logs,
       balance_before,
       balance_after,
+      block_number,
    } = sim;
 
    let (balance_diff, approval_diff) =
@@ -1584,6 +1587,7 @@ pub async fn simulate_and_diff(
       contract_interact: !bytecode.is_empty(),
       balance_diff,
       approval_diff,
+      block_number,
    })
 }
 

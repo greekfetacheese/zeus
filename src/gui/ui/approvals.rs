@@ -1198,6 +1198,7 @@ async fn revoke_nft_approval(chain_id: u64, params: NftApproveParams) -> Result<
       auth_list.clone(),
    )
    .await?;
+   analysis.set_block_number(simulated.block_number);
    analysis.set_main_event(DecodedEvent::NftApprove(revoked));
 
    let (_, _) = send_transaction(
@@ -1274,6 +1275,7 @@ async fn revoke_erc20_approval(
       auth_list.clone(),
    )
    .await?;
+   analysis.set_block_number(simulated.block_number);
    analysis.set_main_event(DecodedEvent::TokenApprove(params));
 
    let (_, _) = send_transaction(
@@ -1401,6 +1403,7 @@ async fn revoke_permit2_approval(
       vec![],
    )
    .await?;
+   analysis.set_block_number(simulated.block_number);
    analysis.set_main_event(DecodedEvent::Permit(params));
 
    let source_is_zeus = true;
