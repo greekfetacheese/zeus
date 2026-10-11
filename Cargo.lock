@@ -12022,7 +12022,6 @@ dependencies = [
  "alloy-signer-local",
  "alloy-sol-types",
  "anyhow",
- "bincode-next",
  "brotli",
  "chacha20poly1305",
  "chrono",
@@ -12201,24 +12200,6 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "zeus-railgun",
-]
-
-[[package]]
-name = "zeus-tokens"
-version = "0.1.0"
-dependencies = [
- "alloy-primitives",
- "anyhow",
- "bincode-next",
- "clap",
- "image",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "zeus-eth",
 ]
 
 [[package]]

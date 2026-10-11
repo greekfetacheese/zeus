@@ -7,7 +7,7 @@
 Compiles **without** the Zeus GUI. It syncs Uniswap from factory / PoolManager deployment to tip via `zeus_eth::amm::uniswap::sync`. **Default dex is Uniswap V4** (`--dex v4`). Repeat `--dex` for V2/V3. Then:
 
 1. **save snapshot** — unfiltered pools + checkpoints per chain (`pool_snapshots/pools:{chain}.json`). Gitignored. **Never deleted** by this tool so the next run can resume from the checkpoint. Other dexes already in the file are left alone.
-2. **filter** — only the selected dex(es); same $10,000 base-side USD gate as `zeus-tokens`
+2. **filter** — only the selected dex(es); same $10,000 base-side USD gate as the wallet's own pool minimum
 3. **encode** — `PoolManager` JSON matching `zeus::core::context::pool_manager::PoolManager` (selected dexes only)
 
 Output is the blob Zeus already embeds:

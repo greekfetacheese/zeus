@@ -12,8 +12,8 @@
 //! Deliberately out of scope: the per-chain RPC tables in
 //! [`crate::core::context::client`] (a chain-keyed table, not a flat catalog),
 //! and the endpoints owned by workspace crates — `zeus-railgun`'s Subsquid /
-//! POI / circuit-artifact hosts and `zeus-tokens`' Trust Wallet repo stay with
-//! their crate, which is compiled without the GUI.
+//! POI / circuit-artifact hosts and `zeus-pools`' archive RPCs stay with their
+//! crate, which is compiled without the GUI.
 //!
 //! Also out of scope, because the host is chosen by chain data rather than by
 //! Zeus: an NFT's `tokenURI` and the image URL inside the metadata it returns
