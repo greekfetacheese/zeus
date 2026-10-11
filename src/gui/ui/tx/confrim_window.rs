@@ -467,20 +467,17 @@ impl TxConfirmationWindow {
                   }
                }
 
-               // A transaction with no decoded main event has nothing else to read its
-               // outcome from, so its diffs are shown on the window itself rather than
-               // behind the State button.
-               if main_event.is_other_or_eoa_delegate() {
-                  show_state_changes_block(
-                     ctx,
-                     self.chain,
-                     theme,
-                     icons.clone(),
-                     &analysis.balance_diff,
-                     &analysis.approval_diff,
-                     ui,
-                  );
-               }
+               // Show the state changes, if empty it early returns
+               // so it doesn't affect the UI in any way.
+               show_state_changes_block(
+                  ctx,
+                  self.chain,
+                  theme,
+                  icons.clone(),
+                  &analysis.balance_diff,
+                  &analysis.approval_diff,
+                  ui,
+               );
 
                // Transaction cost, then the raw details behind a toggle.
                //
@@ -801,6 +798,15 @@ mod height_budget {
             855.0,
          ),
          (
+            // Decoded main event plus both kinds of change: the tallest a dapp
+            // transaction can render.
+            "swap with diffs",
+            decoded_swap_with_diffs(),
+            "app.uniswap.org",
+            false,
+            825.0,
+         ),
+         (
             // One capped section per kind of change: a long balance list must cost no
             // more than a short one.
             "long balance list",
@@ -900,6 +906,15 @@ mod height_budget {
          analysis.balance_diff.tokens.push(tokens[i % tokens.len()].clone());
       }
 
+      analysis
+   }
+
+   /// A decoded main event *and* state changes: what a dapp transaction looks like now
+   /// that the inline block is not gated on the main event being undecodable.
+   fn decoded_swap_with_diffs() -> TransactionAnalysis {
+      let mut analysis = TransactionAnalysis::dummy_swap();
+      let with_diffs = TransactionAnalysis::dummy_with_diffs();
+      analysis.set_diffs(with_diffs.balance_diff, with_diffs.approval_diff);
       analysis
    }
 
