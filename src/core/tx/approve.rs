@@ -22,6 +22,8 @@ pub struct ApproveSimulation {
    pub gas_used: u64,
    pub eth_balance_before: U256,
    pub eth_balance_after: U256,
+   /// The block the caller's fork was pinned to.
+   pub block_number: u64,
 }
 
 /// Approve `spender` to spend `amount` of `token`, confirming with a
@@ -87,6 +89,7 @@ pub async fn send_token_approve(
          )
          .await?;
 
+         analysis.set_block_number(sim.block_number);
          analysis.set_main_event(DecodedEvent::TokenApprove(params));
 
          Some(analysis)

@@ -1705,6 +1705,7 @@ async fn handle_approve(
             gas_used: approval_gas_used,
             eth_balance_before,
             eth_balance_after,
+            block_number: block.header.number,
          }),
          "",
          false, // mev protect not needed for approval

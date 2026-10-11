@@ -1777,7 +1777,7 @@ async fn send_nft(
    let auth_list = Vec::new();
    let source_is_zeus = true;
 
-   let tx_analysis = TransactionAnalysis::new(
+   let mut tx_analysis = TransactionAnalysis::new(
       ctx.clone(),
       chain.id(),
       from,
@@ -1792,6 +1792,8 @@ async fn send_nft(
       auth_list.clone(),
    )
    .await?;
+
+   tx_analysis.set_block_number(block.header.number);
 
    let (_, _) = send_transaction(
       ctx.clone(),
