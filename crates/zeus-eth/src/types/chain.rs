@@ -213,6 +213,13 @@ impl ChainId {
       )
    }
 
+   /// Gas a brand-new account is charged on a chain that meters state creation separately
+   /// (EIP-8037): 120 state bytes at 1,530 per byte. Verified against a Sepolia node.
+   const EIP8037_NEW_ACCOUNT_GAS: u64 = 183_600;
+
+   /// Gas a brand-new storage slot is charged on such a chain: 64 state bytes at 1,530 per byte.
+   const EIP8037_NEW_SLOT_GAS: u64 = 97_920;
+
    /// Minimum gas usage for a transaction
    pub fn min_gas(&self) -> u64 {
       match self {
@@ -227,10 +234,17 @@ impl ChainId {
    }
 
    /// Gas needed for a transfer
+   ///
+   /// The send screen keeps this back from the balance to size the **Max** amount, so it covers the
+   /// worst case rather than the common one. On a chain that meters state creation (EIP-8037) a
+   /// transfer to an address the chain has never seen creates that account and pays
+   /// [`Self::EIP8037_NEW_ACCOUNT_GAS`] on top of the 21,000 intrinsic, which a 21,000 reserve
+   /// cannot cover; a transfer to an account that already exists still costs 21,000. Keep this in
+   /// step with the spec `revm_utils::new_evm` simulates for the chain.
    pub fn transfer_gas(&self) -> u64 {
       match self {
          ChainId::Ethereum => 21_000,
-         ChainId::EthereumSepolia => 21_000,
+         ChainId::EthereumSepolia => 21_000 + Self::EIP8037_NEW_ACCOUNT_GAS,
          ChainId::Optimism => 21_000,
          ChainId::BinanceSmartChain => 21_000,
          ChainId::Base => 21_000,
@@ -241,11 +255,13 @@ impl ChainId {
 
    /// Gas needed for an ERC20 Transfer
    ///
-   /// This is an estimate since the actual gas cost may vary depending on the token
+   /// This is an estimate since the actual gas cost may vary depending on the token. It carries the
+   /// new storage slot [`Self::EIP8037_NEW_SLOT_GAS`] that a transfer to a target the token has
+   /// never seen creates, for the same reason as [`Self::transfer_gas`].
    pub fn erc20_transfer_gas(&self) -> u64 {
       match self {
          ChainId::Ethereum => 50_000,
-         ChainId::EthereumSepolia => 50_000,
+         ChainId::EthereumSepolia => 50_000 + Self::EIP8037_NEW_SLOT_GAS,
          ChainId::Optimism => 50_000,
          ChainId::BinanceSmartChain => 50_000,
          ChainId::Base => 50_000,
