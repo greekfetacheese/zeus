@@ -317,7 +317,7 @@ mod tests {
       // one when it has to sign), so gate on the currency, not on that flag.
       let fork_db = factory.new_sandbox_fork();
       let fork_db = if currency_in.is_erc20() {
-         let mut evm = new_evm(chain_id, Some(&block), fork_db);
+         let mut evm = new_evm(chain_id, Some(&block), fork_db, None);
          simulate::approve_token(
             &mut evm,
             currency_in.address(),
@@ -335,6 +335,7 @@ mod tests {
          chain_id,
          &block,
          fork_db,
+         None,
          ForkSimRequest {
             from: alice.address,
             interact_to: router,

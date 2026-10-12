@@ -2108,7 +2108,7 @@ mod tests {
          },
       );
 
-      new_evm(ChainId::Ethereum, None, db)
+      new_evm(ChainId::Ethereum, None, db, None)
    }
 
    /// A failed post-tx read is the shape's *nothing*, not a hole in the map.

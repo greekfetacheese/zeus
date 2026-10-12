@@ -691,7 +691,8 @@ async fn unshield_via_paymaster(
    let logs;
    let measured;
    {
-      let mut evm = new_evm(chain, Some(&fork_block), fork_db.clone());
+      let spec = ctx.node_spec(chain).await;
+      let mut evm = new_evm(chain, Some(&fork_block), fork_db.clone(), spec);
       evm.tx.gas_limit = 30_000_000;
 
       sim_res = match simulate_transaction(

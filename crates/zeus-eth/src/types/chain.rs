@@ -1,5 +1,7 @@
 use alloy_primitives::{Address, U256};
 use anyhow::bail;
+use revm::primitives::eip8037::{CPSB_GLAMSTERDAM, NEW_ACCOUNT_BYTES, SSTORE_SET_BYTES};
+use revm::primitives::hardfork::SpecId;
 
 pub const ETH: u64 = 1;
 pub const ETH_SEPOLIA: u64 = 11155111;
@@ -213,44 +215,94 @@ impl ChainId {
       )
    }
 
-   /// Minimum gas usage for a transaction
-   pub fn min_gas(&self) -> u64 {
+   /// The hardfork the local simulation runs this chain on.
+   ///
+   /// The single source of truth: `revm_utils::new_evm` simulates with it and the gas constants
+   /// below are derived from it, so a chain moving to a new fork is one edit here. Simulating a
+   /// chain on an older spec is silent — the transaction is priced by rules the chain no longer
+   /// has — which is how a Sepolia transfer to a fresh account came to estimate 21,000 against the
+   /// 204,600 the chain charges.
+   pub fn spec(&self) -> SpecId {
       match self {
-         ChainId::Ethereum => 21_000,
-         ChainId::EthereumSepolia => 21_000,
-         ChainId::Optimism => 21_000,
-         ChainId::BinanceSmartChain => 21_000,
-         ChainId::Base => 21_000,
-         ChainId::Arbitrum => 97_818,
-         ChainId::RobinHood => 97_818,
+         ChainId::Ethereum => SpecId::OSAKA,
+         ChainId::EthereumSepolia => SpecId::AMSTERDAM,
+         ChainId::Optimism
+         | ChainId::BinanceSmartChain
+         | ChainId::Base
+         | ChainId::Arbitrum
+         | ChainId::RobinHood => SpecId::PRAGUE,
       }
    }
 
-   /// Gas needed for a transfer
-   pub fn transfer_gas(&self) -> u64 {
+   /// State gas a new account is charged (EIP-8037): its state bytes at the cost per state byte.
+   ///
+   /// Both figures come from revm rather than being written out, because they are *parameters* —
+   /// EIP-8037 was still in Last Call while Sepolia was already charging for it, and a revision that
+   /// moves the cost per state byte would leave this reserve quoting the old price, silently. That
+   /// is the same underprice that put the spec in the simulation's hands in the first place.
+   ///
+   /// Verified against a Sepolia node: 183,600.
+   const NEW_ACCOUNT_STATE_GAS: u64 = NEW_ACCOUNT_BYTES * CPSB_GLAMSTERDAM;
+
+   /// State gas a new storage slot is charged: 64 state bytes at the same rate (verified: 97,920).
+   const NEW_SLOT_STATE_GAS: u64 = SSTORE_SET_BYTES * CPSB_GLAMSTERDAM;
+
+   /// Execution gas a Railgun shield costs, before the state it creates.
+   const SHIELD_EXECUTION_GAS: u64 = 500_000;
+
+   /// Storage slots a shield writes: the commitment tree leaf and the token's balance entry.
+   const SHIELD_NEW_SLOTS: u64 = 2;
+
+   /// Minimum gas usage for a transaction — the intrinsic floor, and the base a transfer starts
+   /// from.
+   pub fn min_gas(&self) -> u64 {
       match self {
-         ChainId::Ethereum => 21_000,
-         ChainId::EthereumSepolia => 21_000,
-         ChainId::Optimism => 21_000,
-         ChainId::BinanceSmartChain => 21_000,
-         ChainId::Base => 21_000,
-         ChainId::Arbitrum => 97_818,
-         ChainId::RobinHood => 97_818,
+         ChainId::Arbitrum | ChainId::RobinHood => 97_818,
+         _ => 21_000,
       }
+   }
+
+   /// Gas needed for a transfer.
+   ///
+   /// The send screen keeps this back from the balance to size the **Max** amount, so it covers the
+   /// transfer that has to create the recipient's account rather than the common one: on a chain
+   /// that meters state creation that transfer pays [`Self::NEW_ACCOUNT_STATE_GAS`] on top, which a
+   /// 21,000 reserve cannot cover. A transfer to an account that already exists still costs 21,000.
+   pub fn transfer_gas(&self) -> u64 {
+      self.min_gas() + self.state_gas(Self::NEW_ACCOUNT_STATE_GAS)
    }
 
    /// Gas needed for an ERC20 Transfer
    ///
-   /// This is an estimate since the actual gas cost may vary depending on the token
+   /// This is an estimate since the actual gas cost may vary depending on the token. It carries the
+   /// storage slot [`Self::NEW_SLOT_STATE_GAS`] that a transfer to a target the token has never
+   /// seen creates, for the same reason as [`Self::transfer_gas`].
    pub fn erc20_transfer_gas(&self) -> u64 {
-      match self {
-         ChainId::Ethereum => 50_000,
-         ChainId::EthereumSepolia => 50_000,
-         ChainId::Optimism => 50_000,
-         ChainId::BinanceSmartChain => 50_000,
-         ChainId::Base => 50_000,
-         ChainId::Arbitrum => 97_818,
-         ChainId::RobinHood => 97_818,
+      let base = match self {
+         ChainId::Arbitrum | ChainId::RobinHood => 97_818,
+         _ => 50_000,
+      };
+
+      base + self.state_gas(Self::NEW_SLOT_STATE_GAS)
+   }
+
+   /// Gas needed for a private send — shielding through Railgun.
+   ///
+   /// The same contract as the other two: it sizes the **Max** amount, so it covers the shield that
+   /// writes the most state rather than the cheapest one. A shield writes the commitment tree leaf
+   /// and the token's balance entry, which a chain that meters state creation charges on top of the
+   /// execution — the figure `500_000` used to stand in for both.
+   pub fn privacy_transfer_gas(&self) -> u64 {
+      Self::SHIELD_EXECUTION_GAS + Self::SHIELD_NEW_SLOTS * self.state_gas(Self::NEW_SLOT_STATE_GAS)
+   }
+
+   /// `state_gas` where the chain meters state creation separately, zero where it does not
+   /// (EIP-8037 arrives with Amsterdam).
+   fn state_gas(&self, state_gas: u64) -> u64 {
+      if self.spec().is_enabled_in(SpecId::AMSTERDAM) {
+         state_gas
+      } else {
+         0
       }
    }
 
@@ -319,5 +371,68 @@ mod tests {
          ChainId::Ethereum.nft_url(collection, U256::from(7)),
          format!("https://etherscan.io/nft/{collection}/7")
       );
+   }
+
+   /// The spec is what the reserves are derived from, so a chain that meters state creation
+   /// reserves for it and one that does not keeps the legacy numbers. The Sepolia figures are what
+   /// the chain charges, measured against a node.
+   #[test]
+   fn gas_reserves_follow_the_chain_spec() {
+      assert_eq!(ChainId::EthereumSepolia.spec(), SpecId::AMSTERDAM);
+      assert_eq!(
+         ChainId::EthereumSepolia.transfer_gas(),
+         21_000 + 183_600
+      );
+      assert_eq!(
+         ChainId::EthereumSepolia.erc20_transfer_gas(),
+         50_000 + 97_920
+      );
+      assert_eq!(
+         ChainId::EthereumSepolia.privacy_transfer_gas(),
+         500_000 + 2 * 97_920,
+         "a shield writes two slots"
+      );
+
+      for id in SUPPORTED_CHAINS {
+         let chain = ChainId::new(id).unwrap();
+         let base = if chain.is_arbitrum() || chain.is_robinhood() {
+            97_818
+         } else {
+            21_000
+         };
+         let state_gas = if chain.is_eth_sepolia() { 183_600 } else { 0 };
+
+         assert_eq!(
+            chain.transfer_gas(),
+            base + state_gas,
+            "{chain:?}"
+         );
+         assert_eq!(chain.min_gas(), base, "{chain:?}");
+
+         let slot_gas = if chain.is_eth_sepolia() {
+            2 * 97_920
+         } else {
+            0
+         };
+         assert_eq!(
+            chain.privacy_transfer_gas(),
+            500_000 + slot_gas,
+            "{chain:?}"
+         );
+      }
+   }
+
+   /// Mainnet is the simulation's default spec, which is what let a Sepolia simulation run as an
+   /// Osaka one without anything looking wrong.
+   #[test]
+   fn a_chain_names_the_fork_it_runs_on() {
+      assert_eq!(ChainId::Ethereum.spec(), SpecId::OSAKA);
+      assert_eq!(ChainId::Base.spec(), SpecId::PRAGUE);
+      assert_eq!(ChainId::Optimism.spec(), SpecId::PRAGUE);
+
+      for id in SUPPORTED_CHAINS {
+         let chain = ChainId::new(id).unwrap();
+         assert!(chain.spec() <= SpecId::NEXT, "{chain:?}");
+      }
    }
 }

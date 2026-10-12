@@ -13,7 +13,8 @@ use zeus_eth::{
    alloy_sol_types::SolEvent,
    amm::uniswap::UniswapPool,
    currency::ERC20Token,
-   types::SUPPORTED_CHAINS,
+   revm::primitives::hardfork::SpecId,
+   types::{ChainId, ForkConfig, SUPPORTED_CHAINS},
    utils::{batch, client::*, get_logs_for},
 };
 
@@ -491,7 +492,26 @@ pub struct ClientManager {
    /// Runtime settings (concurrency), loaded from / saved to `data/client_settings.json`.
    #[serde(skip)]
    settings: Arc<RwLock<ClientSettings>>,
+
+   /// What each chain's node said about the fork it runs, and when it was asked. Runtime-only.
+   #[serde(skip)]
+   node_forks: Arc<RwLock<HashMap<u64, NodeFork>>>,
 }
+
+/// A chain's hardfork as its node reported it (EIP-7910 `eth_config`), with the time it was asked.
+///
+/// `spec` is `None` when the node gave no answer Zeus can use, and that is cached too — briefly, so
+/// a node without the method is not asked on every simulation, but is asked again soon in case the
+/// endpoint was the problem rather than the node.
+#[derive(Debug)]
+struct NodeFork {
+   spec: Option<SpecId>,
+   asked_at: Instant,
+}
+
+/// How long an answer about a node's fork is reused, and how long a missing one is.
+const NODE_FORK_TTL: Duration = Duration::from_secs(600);
+const NODE_FORK_MISS_TTL: Duration = Duration::from_secs(30);
 
 impl Default for ClientManager {
    fn default() -> Self {
@@ -578,6 +598,7 @@ impl Default for ClientManager {
          rpcs: Arc::new(RwLock::new(rpc_map_by_chain)),
          clients: Arc::new(RwLock::new(HashMap::new())),
          settings: Arc::new(RwLock::new(ClientSettings::default())),
+         node_forks: Arc::new(RwLock::new(HashMap::new())),
       }
    }
 }
@@ -1129,6 +1150,91 @@ impl ClientManager {
       self.request_with(chain, (), |client, _| f(client)).await
    }
 
+   /// The hardfork a chain's own node says it runs, for the local simulation.
+   ///
+   /// Zeus's per-chain spec is a build-time guess about somebody else's node, so the node is asked
+   /// what it is configured for (EIP-7910 `eth_config`) and its answer wins:
+   /// [`ChainId::spec_from_node`] turns it into a spec. Whatever the node cannot answer — the
+   /// method is not implemented, the chain is one Zeus does not track, the fork is not one Zeus can
+   /// place — comes back as `None` and leaves the caller on [`ChainId::spec`].
+   ///
+   /// Cached per chain: an answer Zeus can use is kept for [`NODE_FORK_TTL`], a missing one for
+   /// [`NODE_FORK_MISS_TTL`].
+   pub async fn node_spec(&self, chain: u64) -> Option<SpecId> {
+      let chain_id = ChainId::new(chain).ok()?;
+
+      // `eth_config` is an L1 method: the L2s do not implement it, so asking would spend a request
+      // and its retries on every simulation to be told nothing. Only the chains whose fork schedule
+      // Zeus tracks by hand have anything to ask about — the same gate `spec_from_node` applies,
+      // moved ahead of the request — and they are left on the spec Zeus ships.
+      if chain_id.spec_activation_time().is_none() {
+         return None;
+      }
+
+      let cached = self
+         .node_forks
+         .read()
+         .unwrap()
+         .get(&chain)
+         .map(|fork| (fork.spec, fork.asked_at));
+      if let Some((spec, asked_at)) = cached {
+         let ttl = if spec.is_some() {
+            NODE_FORK_TTL
+         } else {
+            NODE_FORK_MISS_TTL
+         };
+         if asked_at.elapsed() < ttl {
+            return spec;
+         }
+      }
+
+      // `eth_config` answers with the fork's configuration object under `current`; a node that does
+      // not implement the method fails the request, which is the same as saying nothing.
+      let config = self
+         .request(chain, |client| async move {
+            let result: serde_json::Value = client
+               .raw_request("eth_config".into(), ())
+               .await
+               .map_err(|e| anyhow!("{:?}", e))?;
+            Ok(result)
+         })
+         .await
+         .ok()
+         .and_then(|result| {
+            // The fork's configuration object; anything else in the response is not needed.
+            let current = result.get("current")?.clone();
+            serde_json::from_value::<ForkConfig>(current).ok()
+         });
+
+      let spec = config.as_ref().and_then(|conf| chain_id.spec_from_node(conf));
+
+      // The node is the authority on the fork it runs, so a disagreement with what Zeus was built
+      // with is worth saying out loud: without this the simulation is silently priced by rules the
+      // chain may have replaced, which is how a Sepolia transfer came to estimate 21,000 against
+      // the 204,600 the chain charges.
+      if let Some(conf) = &config {
+         let known = chain_id.spec_activation_time();
+         if conf.activation_time.is_some() && conf.activation_time != known {
+            tracing::warn!(
+               "{chain_id:?} reports a fork activated at {:?}, Zeus knows {:?} — simulating on {:?}",
+               conf.activation_time,
+               known,
+               spec.unwrap_or_else(|| chain_id.spec())
+            );
+         }
+      }
+
+      self.node_forks.write().unwrap().insert(
+         chain,
+         NodeFork {
+            spec,
+            asked_at: Instant::now(),
+         },
+      );
+
+      spec
+   }
+
    /// Like [`Self::request`], but takes an owned, clonable payload that is handed to `f` on every
    /// attempt. This removes the `|client| { let x = x.clone(); async move { … } }` boilerplate: pass
    /// the captured value once, and this method clones it per retry while you return the future
@@ -1575,6 +1681,65 @@ mod tests {
       println!("Time: {}secs", elapsed.as_secs_f32());
    }
 
+   /// Requires the public endpoints below to answer. Proves the whole path against real nodes: the
+   /// request, the parse, and the resolution — mainnet reports Osaka's activation time, Sepolia
+   /// Amsterdam's, and an L2 gets nothing out of its own answer.
+   ///
+   /// The endpoints are added rather than taken from [`ClientManager::default`], whose list is
+   /// disabled until the app probes it.
+   #[tokio::test]
+   #[ignore = "needs working public endpoints"]
+   async fn node_spec_against_live_nodes() {
+      let zeus_client = ClientManager::default();
+
+      for (chain, urls) in [
+         (
+            1u64,
+            [
+               "https://ethereum-rpc.publicnode.com",
+               "https://eth.blockrazor.xyz",
+            ],
+         ),
+         (
+            11155111,
+            [
+               "https://ethereum-sepolia-rpc.publicnode.com",
+               "https://sepolia.drpc.org",
+            ],
+         ),
+         (
+            8453,
+            [
+               "https://base-rpc.publicnode.com",
+               "https://mainnet.base.org",
+            ],
+         ),
+      ] {
+         for url in urls {
+            let mut rpc = Rpc::builder(url, chain).enabled().build();
+            rpc.check.working = true;
+            rpc.check.fully_functional = true;
+            zeus_client.add_rpc(chain, rpc);
+         }
+      }
+
+      assert_eq!(
+         zeus_client.node_spec(1).await,
+         Some(SpecId::OSAKA)
+      );
+      assert_eq!(
+         zeus_client.node_spec(11155111).await,
+         Some(SpecId::AMSTERDAM)
+      );
+
+      // An L2 is left on the spec Zeus ships without being asked at all: `eth_config` is an L1
+      // method, so the request would cost a round trip and its retries on every simulation to be
+      // told nothing. Nothing is cached for it either — which is how this asserts the request was
+      // never attempted, endpoints or no endpoints.
+      assert_eq!(zeus_client.node_spec(8453).await, None);
+      assert!(!zeus_client.node_forks.read().unwrap().contains_key(&8453));
+   }
+
    #[test]
    fn test_seal_open_roundtrip() {
       let key = WalletStateKey::generate().unwrap();
@@ -1598,6 +1763,7 @@ mod tests {
          rpcs: Arc::new(RwLock::new(HashMap::new())),
          clients: Arc::new(RwLock::new(HashMap::new())),
          settings: Arc::new(RwLock::new(ClientSettings::default())),
+         node_forks: Arc::new(RwLock::new(HashMap::new())),
       };
       for rpc in rpcs {
          client.add_rpc(rpc.chain_id, rpc);

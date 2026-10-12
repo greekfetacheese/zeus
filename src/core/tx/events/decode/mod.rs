@@ -78,11 +78,11 @@ pub async fn decode_transaction(
             event,
             counts_as_known,
          } => {
-            if let DecodedEvent::Transfer(ref p) = event {
-               if p.is_erc20_transfer() && counts_as_known {
-                  known_events += 1;
-               }
-            } else if counts_as_known {
+            // The branch decides whether its log was understood, which is what this counts. The
+            // ERC-20 test that used to live here is now the branch's own `counts_as_known`: the
+            // native fallback sets it false, so the transfer that describes the transaction is not
+            // counted, while one read from a log (EIP-7708, ERC-20) is.
+            if counts_as_known {
                known_events += 1;
             }
             decoded_events.push(event);

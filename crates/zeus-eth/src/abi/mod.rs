@@ -1,3 +1,4 @@
+pub mod eip7708;
 pub mod erc1155;
 pub mod erc165;
 pub mod erc20;

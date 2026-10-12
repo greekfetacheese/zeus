@@ -33,11 +33,28 @@ pub mod simulate;
 pub use dummy_account::{AccountType, DummyAccount};
 pub use fork_db::{ForkDB, ForkFactory};
 
-pub fn new_evm<DB>(chain: ChainId, block: Option<&Block>, db: DB) -> Evm2<DB>
+/// Build the EVM a simulation runs on.
+///
+/// `spec` is the chain's hardfork as the chain's own node reports it — `eth_config`, resolved
+/// through [`ChainId::spec_from_node`]. `None` means the node did not answer, the chain's schedule
+/// is not one Zeus tracks, or the fork is not one Zeus can place, and it falls back to
+/// [`ChainId::spec`], the fork Zeus ships. Either answer has to arrive here: the spec is captured
+/// when the EVM is built (see below), so it cannot be corrected later.
+pub fn new_evm<DB>(chain: ChainId, block: Option<&Block>, db: DB, spec: Option<SpecId>) -> Evm2<DB>
 where
    DB: Database,
 {
-   let mut evm = Context::mainnet().with_db(db).build_mainnet();
+   let spec = spec.unwrap_or_else(|| chain.spec());
+
+   // The spec goes on the `CfgEnv` *before* `build_mainnet()`: that is where the instruction set
+   // (and its static gas table) captures the spec, and `set_spec_and_mainnet_gas_params` is what
+   // turns on the Amsterdam repricings. Assigning `cfg.spec` directly leaves EIP-8037 state
+   // creation gas and the EIP-2780 intrinsic model off, so the simulation prices a transaction
+   // that creates state with pre-Amsterdam rules.
+   let mut evm = Context::mainnet()
+      .with_db(db)
+      .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(spec))
+      .build_mainnet();
 
    if let Some(block) = block {
       evm.block.number = U256::from(block.header.number);
@@ -45,14 +62,7 @@ where
       evm.block.timestamp = U256::from(block.header.timestamp);
    }
 
-   let spec = if chain.is_ethereum() {
-      SpecId::OSAKA
-   } else {
-      SpecId::PRAGUE
-   };
-
    evm.cfg.chain_id = chain.id();
-   evm.cfg.spec = spec;
 
    // Disable checks
    evm.cfg.disable_balance_check = true;
@@ -80,7 +90,37 @@ pub fn revert_msg(bytes: &Bytes) -> String {
 mod tests {
    use super::*;
    use alloy_primitives::hex;
+   use alloy_primitives::{Address, TxKind};
    use alloy_sol_types::SolError;
+
+   /// EIP-7708 arrives with the spec and nothing else: a chain whose fork has it emits an ETH
+   /// transfer log for a value move, and a chain whose fork does not stays silent. This is the
+   /// gating the ETH transfer event in the tx analysis rests on.
+   #[test]
+   fn the_simulated_spec_decides_whether_an_eth_transfer_logs() {
+      let log_count = |chain: ChainId, spec: Option<SpecId>, value: u64| {
+         let mut evm = new_evm(chain, None, InMemoryDB::default(), spec);
+         evm.tx.caller = Address::repeat_byte(0x11);
+         evm.tx.chain_id = Some(chain.id());
+         evm.tx.kind = TxKind::Call(Address::repeat_byte(0x22));
+         evm.tx.value = U256::from(value);
+         evm.tx.gas_limit = 1_000_000;
+         evm.tx.gas_price = 1;
+
+         evm.transact(evm.tx.clone()).unwrap().result.logs().len()
+      };
+
+      assert_eq!(log_count(ChainId::EthereumSepolia, None, 1), 1);
+      assert_eq!(log_count(ChainId::Ethereum, None, 1), 0);
+      // A value move to a different account is what logs; zero reaches nobody.
+      assert_eq!(log_count(ChainId::EthereumSepolia, None, 0), 0);
+      // What a node reports is what the simulation runs: mainnet told to simulate on Amsterdam
+      // logs the transfer its chain would, before mainnet has the fork.
+      assert_eq!(
+         log_count(ChainId::Ethereum, Some(SpecId::AMSTERDAM), 1),
+         1
+      );
+   }
 
    #[test]
    fn test_revert_msg_with_data() {

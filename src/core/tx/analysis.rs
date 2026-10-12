@@ -50,9 +50,11 @@ pub struct TransactionAnalysis {
    /// Events in total by how many logs were emitted
    pub logs_len: usize,
 
-   /// Total decoded events by how many logs were decoded
+   /// How many of the transaction's logs the decoder made sense of.
    ///
-   /// ETH transfers and EIP7702 Authorization events are not counted
+   /// The events window's "Decoded N out of M" numerator, so an ETH transfer log counts: it is
+   /// decoded and rendered like any other. This is *not* [`Self::decoded_events`], the intent count
+   /// the main-event ranking reads, which leaves ETH transfers and authorizations out.
    pub known_events: usize,
 
    // All decoded events
@@ -1095,5 +1097,76 @@ mod involved_currency_tests {
       // The NFT rows are still there to render — being excluded from pricing is not being dropped.
       assert!(!analysis.balance_diff.nfts.is_empty());
       assert!(!analysis.approval_diff.nft_changes.is_empty());
+   }
+}
+
+/// The ETH transfer log EIP-7708 attaches to every value move (`events::decode::topic`).
+///
+/// It is decoded so the events window can show it, and it is *not* intent: the value a transaction
+/// moves is the transaction, so counting the log as well would turn a WETH deposit or a shield that
+/// carries ETH into "two things happened" and lose the headline.
+#[cfg(test)]
+mod eth_transfer_log_tests {
+   use super::*;
+   use zeus_eth::alloy_primitives::address;
+
+   const SENDER: Address = address!("A88D2cb271E3dB59CF8CD4c84Ea7d83eEF1c94b0");
+   const RECIPIENT: Address = address!("80Dbe0E147739CE637E8f6f87a912b43Aee17543");
+   /// 0.002713297724087723 ETH, as a Sepolia ETH transfer reports it.
+   const VALUE: u64 = 2_713_297_724_087_723;
+
+   /// The event `decode_log` produces for that log: a native `Transfer` carrying the log's own
+   /// endpoints and amount.
+   fn eth_transfer_event() -> DecodedEvent {
+      DecodedEvent::Transfer(TransferParams {
+         currency: NativeCurrency::from(1).into(),
+         amount: NumericValue::format_wei(U256::from(VALUE), 18),
+         amount_usd: None,
+         real_amount_sent: None,
+         real_amount_sent_usd: None,
+         sender: SENDER,
+         recipient: RECIPIENT,
+      })
+   }
+
+   /// A plain ETH send on such a chain: value moved, no calldata, and the log alongside it.
+   fn plain_send() -> TransactionAnalysis {
+      TransactionAnalysis {
+         chain: 1,
+         sender: SENDER,
+         interact_to: RECIPIENT,
+         value: U256::from(VALUE),
+         decoded_events: vec![eth_transfer_event()],
+         ..Default::default()
+      }
+   }
+
+   #[test]
+   fn the_log_is_an_event_the_window_can_show() {
+      let analysis = plain_send();
+
+      assert_eq!(analysis.decoded_events.len(), 1);
+      assert!(analysis.decoded_events[0].is_native_transfer());
+   }
+
+   #[test]
+   fn the_log_is_not_a_second_thing_happening() {
+      let analysis = plain_send();
+
+      assert_eq!(analysis.decoded_events(), 0);
+      assert!(
+         analysis.is_native_transfer(),
+         "a plain ETH send is still a transfer"
+      );
+   }
+
+   /// The guard the design rests on: a token transfer beside the log still counts as exactly one.
+   #[test]
+   fn a_token_transfer_beside_the_log_still_counts_once() {
+      let mut analysis = plain_send();
+      analysis.decoded_events.push(DecodedEvent::dummy_erc20_transfer());
+
+      assert_eq!(analysis.decoded_events(), 1);
+      assert!(!analysis.is_native_transfer());
    }
 }

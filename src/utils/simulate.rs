@@ -11,6 +11,7 @@ use zeus_eth::{
    revm_utils::{
       Database, DatabaseCommit, Evm2, ExecuteCommitEvm, ExecutionResult, ForkDB, ForkFactory, Host,
       new_evm, revert_msg,
+      revm::primitives::hardfork::SpecId,
       revm::state::{AccountInfo, Bytecode},
    },
    types::ChainId,
@@ -267,10 +268,14 @@ pub async fn prepare_fork(
 /// `after` sees the state the tx actually produced, so it can read the balances
 /// and allowances the simulation created (`sim_diff` does). Keeping the EVM in
 /// here is what lets [`ForkSim`] stay `Send`.
+///
+/// `spec` is the chain's hardfork as its node reports it ([`new_evm`]); the caller resolves it,
+/// since asking the node is async and this is not.
 pub fn simulate_on_fork_db<R>(
    chain: ChainId,
    block: &Block,
    fork_db: ForkDB,
+   spec: Option<SpecId>,
    req: ForkSimRequest,
    after: impl FnOnce(&mut Evm2<ForkDB>, &ForkSim) -> R,
 ) -> Result<(ForkSim, R), anyhow::Error> {
@@ -283,7 +288,7 @@ pub fn simulate_on_fork_db<R>(
       authorization_list,
    } = req;
 
-   let mut evm = new_evm(chain, Some(block), fork_db);
+   let mut evm = new_evm(chain, Some(block), fork_db, spec);
 
    if let Some(gas_limit) = gas_limit {
       evm.tx.gas_limit = gas_limit;
@@ -343,12 +348,17 @@ pub async fn simulate_on_fork_with<R>(
       storage,
    } = prefetch;
 
+   // What the chain's node says it runs, so the simulation is priced by the fork the chain
+   // actually has; `None` (no answer) leaves the chain's own spec.
+   let spec = ctx.node_spec(chain).await;
+
    let factory = prepare_fork(ctx, chain, &block, accounts, storage).await?;
 
    simulate_on_fork_db(
       chain,
       &block,
       factory.new_sandbox_fork(),
+      spec,
       req,
       after,
    )
@@ -653,7 +663,6 @@ pub fn railgun_smart_wallet_known_slots() -> Vec<U256> {
       .unwrap(),
    ]
 }
-
 
 #[derive(Clone, Copy, Debug)]
 pub struct AccountPrefetch {
@@ -1010,7 +1019,11 @@ pub async fn fetch_storage(
       let read = match read_res {
          Ok(read) => read,
          Err(e) => {
-            tracing::error!("Failed to read storage for account {}: {:?}", address, e);
+            tracing::error!(
+               "Failed to read storage for account {}: {:?}",
+               address,
+               e
+            );
             continue;
          }
       };

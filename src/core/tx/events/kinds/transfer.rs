@@ -94,6 +94,7 @@ impl TransferParams {
       })
    }
 
+   /// A native transfer described by the transaction itself.
    pub fn native(
       ctx: ZeusCtx,
       chain: u64,
@@ -106,6 +107,30 @@ impl TransferParams {
          return Err(anyhow!("Not a native transfer"));
       }
 
+      Self::native_transfer(ctx, chain, from, to, value)
+   }
+
+   /// A native transfer read from an [EIP-7708](https://eips.ethereum.org/EIPS/eip-7708) log.
+   ///
+   /// The endpoints and the amount come from the log rather than the transaction, so this also
+   /// describes an ETH transfer a contract made mid-execution — which nothing else records.
+   pub fn from_eth_transfer_log(
+      ctx: ZeusCtx,
+      chain: u64,
+      from: Address,
+      to: Address,
+      value: U256,
+   ) -> Result<Self, anyhow::Error> {
+      Self::native_transfer(ctx, chain, from, to, value)
+   }
+
+   fn native_transfer(
+      ctx: ZeusCtx,
+      chain: u64,
+      from: Address,
+      to: Address,
+      value: U256,
+   ) -> Result<Self, anyhow::Error> {
       if from.is_zero() {
          return Err(anyhow!("Transfer from zero address"));
       }

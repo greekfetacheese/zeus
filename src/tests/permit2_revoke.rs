@@ -67,7 +67,7 @@ mod tests {
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(owner.clone());
       let fork_db = factory.new_sandbox_fork();
-      let mut evm = new_evm(chain, Some(&block), fork_db);
+      let mut evm = new_evm(chain, Some(&block), fork_db, None);
 
       let sim = simulate_transaction(
          &mut evm,

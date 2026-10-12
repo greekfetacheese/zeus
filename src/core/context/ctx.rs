@@ -32,6 +32,7 @@ use zeus_eth::{
    },
    currency::{Currency, NativeCurrency, erc20::ERC20Token},
    nft::{NftCollection, NftToken},
+   revm::primitives::hardfork::SpecId,
    types::{ChainId, SUPPORTED_CHAINS},
    utils::{NumericValue, client::RpcClient, ens::ENS_CHAIN},
 };
@@ -901,6 +902,15 @@ impl ZeusCtx {
 
    pub fn get_client_manager(&self) -> ClientManager {
       self.read(|ctx| ctx.client_manager.clone())
+   }
+
+   /// The hardfork to simulate the chain on: what the chain's own node reports when it has an
+   /// answer, Zeus's per-chain spec otherwise.
+   ///
+   /// See [`ClientManager::node_spec`] — the node is asked because a spec baked into a release is
+   /// a guess about somebody else's chain, and `None` here means that guess is all Zeus has.
+   pub async fn node_spec(&self, chain: ChainId) -> Option<SpecId> {
+      self.get_client_manager().node_spec(chain.id()).await
    }
 
    pub async fn get_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
