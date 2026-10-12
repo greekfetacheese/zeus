@@ -10,13 +10,38 @@ use crate::core::tx::events::{
    SwapParams, TokenApproveParams, TransferParams, UniswapPositionParams, UnshieldParams,
    UnwrapWETHParams, WrapETHParams,
 };
-use zeus_eth::alloy_primitives::Log;
+use zeus_eth::{abi::eip7708, alloy_primitives::Log};
+
+/// The native transfer an [EIP-7708](https://eips.ethereum.org/EIPS/eip-7708) log describes, if
+/// this log is one.
+fn eth_transfer(dctx: &DecodeCtx, log: &Log) -> Option<TransferParams> {
+   if !eip7708::is_eth_transfer_log(log) {
+      return None;
+   }
+
+   let (from, to, value) = eip7708::decode_eth_transfer_log(log).ok()?;
+   TransferParams::from_eth_transfer_log(dctx.ctx.clone(), dctx.chain, from, to, value).ok()
+}
 
 /// Decode a single log into zero or more [`DecodedEvent`]s.
 ///
 /// Order mirrors the historical ladder in `analysis.rs` and is load-bearing for
 /// overlapping decode attempts (e.g. wrap before generic transfer).
 pub async fn decode_log(dctx: &DecodeCtx, log: &Log) -> DecodeOutcome {
+   // ETH transfer log (EIP-7708), which comes first because its topic0 is ERC-20's `Transfer`
+   // signature: the fungible attempt below would look the system address up as a token, and the
+   // native one would describe the transaction's own value move instead of what the log says.
+   //
+   // ETH transfers are deliberately not counted as known events (see `decode_transaction`): the
+   // value a transaction moves is the transaction, and an inner one is a balance change the diffs
+   // already carry.
+   if let Some(params) = eth_transfer(dctx, log) {
+      return DecodeOutcome::One {
+         event: DecodedEvent::Transfer(params),
+         counts_as_known: false,
+      };
+   }
+
    // Wrap ETH (WETH Deposit)
    if let Ok(params) = WrapETHParams::from_log(dctx.ctx.clone(), dctx.chain, log) {
       return DecodeOutcome::One {
@@ -168,4 +193,67 @@ pub async fn decode_log(dctx: &DecodeCtx, log: &Log) -> DecodeOutcome {
    }
 
    DecodeOutcome::None
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use crate::core::ZeusCtx;
+   use zeus_eth::{
+      abi::eip7708::{EIP7708, ETH_TRANSFER_LOG_ADDRESS},
+      alloy_primitives::{Address, Bytes, Log, U256, address},
+      alloy_sol_types::SolEvent,
+   };
+
+   const CHAIN: u64 = 11155111;
+   const SENDER: Address = address!("A88D2cb271E3dB59CF8CD4c84Ea7d83eEF1c94b0");
+   const RECIPIENT: Address = address!("80Dbe0E147739CE637E8f6f87a912b43Aee17543");
+
+   /// What a Sepolia ETH transfer log reports: 0.002713297724087723 ETH.
+   const LOGGED_VALUE: u64 = 2_713_297_724_087_723;
+
+   fn eth_transfer_log() -> Log {
+      Log {
+         address: ETH_TRANSFER_LOG_ADDRESS,
+         data: EIP7708::Transfer {
+            from: SENDER,
+            to: RECIPIENT,
+            value: U256::from(LOGGED_VALUE),
+         }
+         .encode_log_data(),
+      }
+   }
+
+   /// The log reaches the ladder ahead of the fungible attempt (they share `topics[0]`), and what it
+   /// describes is what it says — not the transaction's own value move, which is all the native
+   /// decoder could have reported.
+   #[tokio::test]
+   async fn an_eth_transfer_log_decodes_from_the_log_not_the_transaction() {
+      let dctx = DecodeCtx::new(
+         ZeusCtx::new(),
+         CHAIN,
+         SENDER,
+         RECIPIENT,
+         Bytes::new(),
+         U256::from(1), // the transaction moved 1 wei; the log says otherwise
+      );
+
+      let DecodeOutcome::One {
+         event,
+         counts_as_known,
+      } = decode_log(&dctx, &eth_transfer_log()).await
+      else {
+         panic!("the ETH transfer log was not claimed");
+      };
+
+      let params = event.as_transfer().expect("a transfer event");
+      assert!(params.is_native_transfer());
+      assert_eq!(params.sender, SENDER);
+      assert_eq!(params.recipient, RECIPIENT);
+      assert_eq!(params.amount.wei(), U256::from(LOGGED_VALUE));
+      assert!(
+         !counts_as_known,
+         "ETH transfers are not known events"
+      );
+   }
 }
