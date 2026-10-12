@@ -699,6 +699,87 @@ impl TxHistory {
                            });
                         }
                      } else {
+                        // Broadcast but not yet mined. Drawn above the mined rows and not paged: a
+                        // transaction that is on its way should be visible from the moment it is
+                        // sent, rather than becoming an error message and no row at all.
+                        for pending in ctx.pending_txs.txs.clone() {
+                           ui.allocate_ui(vec2(row_width, row_height + inner_y), |ui| {
+                              row_frame.show(ui, |ui| {
+                                 ui.set_width(inner_width);
+                                 ui.spacing_mut().item_spacing.x = col_spacing;
+
+                                 ui.horizontal(|ui| {
+                                    Self::row_cell(ui, column_widths[0], row_height, |ui| {
+                                       let sender = pending.analysis.sender;
+                                       let name = self.wallet_name_or_address(ctx, sender);
+                                       let text = RichText::new(&name)
+                                          .size(theme.typography.normal)
+                                          .color(theme.colors.text);
+                                       let label = Label::new(text, None)
+                                          .wrap_mode(TextWrapMode::Truncate)
+                                          .visuals(label_visuals);
+                                       ui.add(label).on_hover_text(format!("{}\n{}", name, sender));
+                                    });
+
+                                    Self::row_cell(ui, column_widths[1], row_height, |ui| {
+                                       let chain: ChainId = pending.chain.into();
+                                       let text = RichText::new(chain.name())
+                                          .size(theme.typography.normal)
+                                          .color(theme.colors.text);
+                                       let label = Label::new(text, None)
+                                          .wrap_mode(TextWrapMode::Truncate)
+                                          .visuals(label_visuals);
+                                       ui.add(label).on_hover_text(chain.name());
+                                    });
+
+                                    Self::row_cell(ui, column_widths[2], row_height, |ui| {
+                                       // What the send flow knew when it broadcast, which is the
+                                       // same event the record will carry once it lands.
+                                       let action = pending
+                                          .analysis
+                                          .main_event_opt()
+                                          .map(|event| event.name())
+                                          .unwrap_or_else(|| "Transaction".to_string());
+                                       let text = RichText::new(&action)
+                                          .size(theme.typography.normal)
+                                          .color(theme.colors.text);
+                                       let label = Label::new(text, None)
+                                          .wrap_mode(TextWrapMode::Truncate)
+                                          .visuals(label_visuals);
+                                       ui.add(label).on_hover_text(&action);
+                                    });
+
+                                    Self::row_cell(ui, column_widths[3], row_height, |ui| {
+                                       let secs = pending.elapsed().as_secs();
+                                       let age = match secs {
+                                          0..=119 => format!("Pending {secs}s"),
+                                          _ => format!("Pending {}m", secs / 60),
+                                       };
+                                       let text = RichText::new(&age)
+                                          .size(theme.typography.normal)
+                                          .color(theme.colors.text_muted);
+                                       let label = Label::new(text, None)
+                                          .wrap_mode(TextWrapMode::Truncate)
+                                          .visuals(label_visuals);
+                                       ui.add(label).on_hover_text(&age);
+                                    });
+
+                                    Self::row_cell(ui, column_widths[4], row_height, |ui| {
+                                       ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                          let text = RichText::new("Pending")
+                                             .size(theme.typography.normal)
+                                             .color(theme.colors.text_muted);
+                                          ui.add(Label::new(text, None)).on_hover_text(
+                                             "Broadcast and not mined yet — Zeus is watching \
+                                                 for it and will record it when it lands",
+                                          );
+                                       });
+                                    });
+                                 });
+                              });
+                           });
+                        }
+
                         let txs_on_page = if start < end {
                            &self.cached_txs[start..end]
                         } else {
