@@ -501,6 +501,10 @@ mod tests {
       assert_eq!(format_duration(273_852), "3d 04:04");
    }
 
+   /// `format_limit` only exists where an `rlimit` can be read, so its test does too: without the
+   /// gate this file fails to compile on Windows and macOS (`E0425`), where the test target is
+   /// built by CI even though the release binary never is.
+   #[cfg(target_os = "linux")]
    #[test]
    fn rlimit_infinity_reads_as_unlimited() {
       assert_eq!(format_limit(u64::MAX, u64::MAX), "unlimited");
