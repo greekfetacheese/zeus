@@ -744,6 +744,11 @@ fn on_delete_contact(contact_to_delete: Contact) {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
       ctx.remove_contact(&contact_to_delete.evm_address);
 
+      // Reset the recipient selection to avoid sending to the wrong address.
+      SHARED_GUI.write(|gui| {
+         gui.recipient_selection.reset();
+      });
+
       match ctx.save_wallet_state() {
          Ok(_) => {}
          Err(e) => {
@@ -772,6 +777,9 @@ fn on_edit_contact(old_contact: Contact, edited_contact: Contact) {
          gui.settings.contacts_ui.edit_contact.contact_to_edit = Contact::default();
          gui.settings.contacts_ui.edit_contact.old_contact = Contact::default();
          gui.settings.contacts_ui.view = ContactsPageView::List;
+
+         // Reset the recipient selection to avoid sending to the wrong address.
+         gui.recipient_selection.reset();
       });
 
       ctx.write_wallet_state(|ws| {
