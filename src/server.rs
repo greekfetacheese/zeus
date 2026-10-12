@@ -1643,6 +1643,19 @@ async fn eth_send_transaction(
       return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id));
    }
 
+   // One confirmation at a time. Replacing a pending prompt would leave its flow
+   // waiting on an answer the user gives to this transaction instead.
+   if SHARED_GUI.read(|gui| gui.tx_confirmation_window.is_busy()) {
+      info!(
+         "Dapp {} sent a transaction while another confirmation is pending",
+         origin
+      );
+      return Ok(JsonRpcResponse::error(
+         RESOURCE_UNAVAILABLE,
+         payload.id,
+      ));
+   }
+
    SHARED_GUI.write(|gui| {
       gui.bring_to_front();
    });
@@ -1681,7 +1694,12 @@ fn json_rpc_from_send_err(e: anyhow::Error, payload_id: Value) -> JsonRpcRespons
    SHARED_GUI.write(|gui| {
       gui.loading_window.reset();
       gui.notification.reset();
-      gui.tx_confirmation_window.reset();
+      // Only clear the confirmation window when this send owns it: a send refused
+      // because another confirmation is already in flight must not close that
+      // prompt, which would leave its flow waiting on an answer that never comes.
+      if !gui.tx_confirmation_window.is_busy() {
+         gui.tx_confirmation_window.reset();
+      }
       if !rejected {
          let msg = format!("Error Sending Transaction: {}", e);
          gui.msg_window.open(msg);
@@ -1911,6 +1929,19 @@ async fn wallet_send_calls(
    if chain != ctx.chain() {
       return Ok(JsonRpcResponse::error(
          CHAIN_DISCONNECTED,
+         payload.id,
+      ));
+   }
+
+   // One confirmation at a time. Replacing a pending prompt would leave its flow
+   // waiting on an answer the user gives to this batch instead.
+   if SHARED_GUI.read(|gui| gui.tx_confirmation_window.is_busy()) {
+      info!(
+         "Dapp {} sent a transaction batch while another confirmation is pending",
+         origin
+      );
+      return Ok(JsonRpcResponse::error(
+         RESOURCE_UNAVAILABLE,
          payload.id,
       ));
    }

@@ -42,11 +42,16 @@ fn build_runtime() -> Runtime {
 pub async fn wait_tx_confirm() -> bool {
    loop {
       tokio::time::sleep(Duration::from_millis(50)).await;
-      let confirmed = SHARED_GUI.read(|gui| gui.tx_confirmation_window.get_confirmed_or_rejected());
-      if let Some(confirmed) = confirmed {
-         SHARED_GUI.write(|gui| {
+      // Collect the answer and close in one exclusive step: the answer is
+      // single-use, so one Confirm click can only ever be acted on once.
+      let confirmed = SHARED_GUI.write(|gui| {
+         let confirmed = gui.tx_confirmation_window.take_confirmed_or_rejected();
+         if confirmed.is_some() {
             gui.tx_confirmation_window.close();
-         });
+         }
+         confirmed
+      });
+      if let Some(confirmed) = confirmed {
          return confirmed;
       }
    }
