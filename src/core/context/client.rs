@@ -1163,6 +1163,14 @@ impl ClientManager {
    pub async fn node_spec(&self, chain: u64) -> Option<SpecId> {
       let chain_id = ChainId::new(chain).ok()?;
 
+      // `eth_config` is an L1 method: the L2s do not implement it, so asking would spend a request
+      // and its retries on every simulation to be told nothing. Only the chains whose fork schedule
+      // Zeus tracks by hand have anything to ask about — the same gate `spec_from_node` applies,
+      // moved ahead of the request — and they are left on the spec Zeus ships.
+      if chain_id.spec_activation_time().is_none() {
+         return None;
+      }
+
       let cached = self
          .node_forks
          .read()
@@ -1724,9 +1732,12 @@ mod tests {
          Some(SpecId::AMSTERDAM)
       );
 
-      // An L2 is left on the spec Zeus ships: whatever its node says describes its own schedule,
-      // which is not the L1's rules.
+      // An L2 is left on the spec Zeus ships without being asked at all: `eth_config` is an L1
+      // method, so the request would cost a round trip and its retries on every simulation to be
+      // told nothing. Nothing is cached for it either — which is how this asserts the request was
+      // never attempted, endpoints or no endpoints.
       assert_eq!(zeus_client.node_spec(8453).await, None);
+      assert!(!zeus_client.node_forks.read().unwrap().contains_key(&8453));
    }
 
    #[test]
