@@ -557,6 +557,62 @@ fn direct_impact_percent(route: &EvaluatedRoute) -> Option<f64> {
    Some((1.0 - (route.amount_out.f64() / ideal)) * 100.0)
 }
 
+/// Hand the input out one chunk at a time, always to the route whose next chunk buys the
+/// most output, and return what each route got.
+///
+/// The allocation always sums to `total`. Two things can leave input unallocated: the
+/// chunk loop stops early once no route gains anything from another chunk, and the integer
+/// division that sized the chunk leaves a remainder — so the leftover is measured against
+/// what was actually allocated, not recomputed from the chunk. Every wei has to land on a
+/// route: the plan moves the whole `amount_in`, so an allocation short of `total` would
+/// swap less than the quote priced and leave the difference sitting in the router.
+fn allocate_chunks(
+   routes: usize,
+   total: U256,
+   chunk: U256,
+   chunks: u32,
+   mut output_at: impl FnMut(usize, U256) -> U256,
+) -> Vec<U256> {
+   let mut allocations = vec![U256::ZERO; routes];
+   let mut current_output = vec![U256::ZERO; routes];
+
+   let initial: Vec<MarginalGain> = (0..routes)
+      .map(|route_index| MarginalGain {
+         gain: output_at(route_index, chunk),
+         route_index,
+      })
+      .collect();
+   let mut heap = BinaryHeap::from(initial);
+
+   for _ in 0..chunks {
+      let Some(MarginalGain { gain, route_index }) = heap.pop() else {
+         break;
+      };
+      if gain.is_zero() {
+         continue;
+      }
+
+      allocations[route_index] += chunk;
+      current_output[route_index] += gain;
+
+      let next_output = output_at(route_index, allocations[route_index] + chunk);
+      heap.push(MarginalGain {
+         gain: next_output.saturating_sub(current_output[route_index]),
+         route_index,
+      });
+   }
+
+   let allocated = allocations.iter().copied().fold(U256::ZERO, |sum, amount| sum + amount);
+   let leftover = total.saturating_sub(allocated);
+   if !leftover.is_zero() {
+      if let Some((best, _)) = allocations.iter().enumerate().max_by_key(|(_, amt)| *amt) {
+         allocations[best] += leftover;
+      }
+   }
+
+   allocations
+}
+
 fn split_direct_pools(
    directs: &[EvaluatedRoute],
    amount_to_swap: &NumericValue,
@@ -596,53 +652,18 @@ fn split_direct_pools(
    }
 
    let candidates: Vec<&EvaluatedRoute> = ranked.iter().map(|(i, _)| &directs[*i]).collect();
-   let n = candidates.len();
-   let mut allocations = vec![U256::ZERO; n];
-   let mut current_output = vec![U256::ZERO; n];
-
-   let initial: Vec<MarginalGain> = candidates
-      .iter()
-      .enumerate()
-      .map(|(i, route)| MarginalGain {
-         gain: simulate_path_with_steps(&route.pools, &route.path_currencies, chunk)
+   let allocations = allocate_chunks(
+      candidates.len(),
+      total,
+      chunk,
+      SPLIT_CHUNKS,
+      |route_index, amount| {
+         let route = candidates[route_index];
+         simulate_path_with_steps(&route.pools, &route.path_currencies, amount)
             .map(|(out, _)| out)
-            .unwrap_or_default(),
-         route_index: i,
-      })
-      .collect();
-   let mut heap = BinaryHeap::from(initial);
-
-   for _ in 0..SPLIT_CHUNKS {
-      let Some(MarginalGain { gain, route_index }) = heap.pop() else {
-         break;
-      };
-      if gain.is_zero() {
-         continue;
-      }
-      allocations[route_index] += chunk;
-      current_output[route_index] += gain;
-
-      let route = candidates[route_index];
-      let next_output = simulate_path_with_steps(
-         &route.pools,
-         &route.path_currencies,
-         allocations[route_index] + chunk,
-      )
-      .map(|(out, _)| out)
-      .unwrap_or_default();
-
-      heap.push(MarginalGain {
-         gain: next_output.saturating_sub(current_output[route_index]),
-         route_index,
-      });
-   }
-
-   let leftover = total.saturating_sub(chunk * U256::from(SPLIT_CHUNKS));
-   if !leftover.is_zero() {
-      if let Some((best_i, _)) = allocations.iter().enumerate().max_by_key(|(_, amt)| *amt) {
-         allocations[best_i] += leftover;
-      }
-   }
+            .unwrap_or_default()
+      },
+   );
 
    let used: Vec<(usize, U256)> = allocations
       .iter()
@@ -1061,5 +1082,38 @@ mod tests {
          split.amount_out.wei(),
          single.amount_out.wei()
       );
+
+      // The split spends the whole input. The plan moves `amount_in` in full — as the
+      // transaction's value, or as a Permit2 transfer of that size — so steps that add up
+      // to less would leave the difference sitting in the router.
+      let spent = split
+         .swap_steps
+         .iter()
+         .map(|step| step.amount_in.wei())
+         .fold(U256::ZERO, |sum, amount| sum + amount);
+      assert_eq!(spent, split.amount_in.wei());
+   }
+
+   /// A route that stops buying output ends the chunk loop early, and what is left over is
+   /// still allocated: the pre-fix leftover was `total mod chunk`, which silently dropped
+   /// everything the loop never handed out.
+   #[test]
+   fn a_split_allocates_every_wei() {
+      let chunk = U256::from(10u64);
+      let total = U256::from(35u64);
+      let sum = |allocations: &[U256]| allocations.iter().copied().fold(U256::ZERO, |a, b| a + b);
+
+      // Two routes that each absorb exactly one chunk: the second round gains nothing, so
+      // the loop stops with 20 of the 35 allocated.
+      let allocations = allocate_chunks(2, total, chunk, 10, |_route, amount| {
+         if amount == chunk { amount } else { U256::ZERO }
+      });
+      assert_eq!(sum(&allocations), total);
+      assert!(allocations.iter().all(|amount| !amount.is_zero()));
+
+      // And the remainder of the integer division is allocated too, not dropped.
+      let allocations = allocate_chunks(1, total, chunk, 3, |_route, amount| amount);
+      assert_eq!(sum(&allocations), total);
+      assert_eq!(allocations[0], total);
    }
 }
