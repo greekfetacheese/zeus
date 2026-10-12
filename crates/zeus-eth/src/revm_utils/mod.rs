@@ -7,7 +7,7 @@ use revm::{
    context::{BlockEnv, CfgEnv, Evm, TxEnv},
    handler::{EthFrame, EthPrecompiles, instructions::EthInstructions},
    interpreter::interpreter::EthInterpreter,
-   primitives::{Bytes, U256, hardfork::SpecId},
+   primitives::{Bytes, U256},
 };
 
 pub use revm;
@@ -37,13 +37,7 @@ pub fn new_evm<DB>(chain: ChainId, block: Option<&Block>, db: DB) -> Evm2<DB>
 where
    DB: Database,
 {
-   let spec = if chain.is_ethereum() {
-      SpecId::OSAKA
-   } else if chain.is_eth_sepolia() {
-      SpecId::AMSTERDAM
-   } else {
-      SpecId::PRAGUE
-   };
+   let spec = chain.spec();
 
    // The spec goes on the `CfgEnv` *before* `build_mainnet()`: that is where the instruction set
    // (and its static gas table) captures the spec, and `set_spec_and_mainnet_gas_params` is what
@@ -89,7 +83,31 @@ pub fn revert_msg(bytes: &Bytes) -> String {
 mod tests {
    use super::*;
    use alloy_primitives::hex;
+   use alloy_primitives::{Address, TxKind};
    use alloy_sol_types::SolError;
+
+   /// EIP-7708 arrives with the spec and nothing else: a chain whose fork has it emits an ETH
+   /// transfer log for a value move, and a chain whose fork does not stays silent. This is the
+   /// gating the ETH transfer event in the tx analysis rests on.
+   #[test]
+   fn the_simulated_spec_decides_whether_an_eth_transfer_logs() {
+      let log_count = |chain: ChainId, value: u64| {
+         let mut evm = new_evm(chain, None, InMemoryDB::default());
+         evm.tx.caller = Address::repeat_byte(0x11);
+         evm.tx.chain_id = Some(chain.id());
+         evm.tx.kind = TxKind::Call(Address::repeat_byte(0x22));
+         evm.tx.value = U256::from(value);
+         evm.tx.gas_limit = 1_000_000;
+         evm.tx.gas_price = 1;
+
+         evm.transact(evm.tx.clone()).unwrap().result.logs().len()
+      };
+
+      assert_eq!(log_count(ChainId::EthereumSepolia, 1), 1);
+      assert_eq!(log_count(ChainId::Ethereum, 1), 0);
+      // A value move to a different account is what logs; zero reaches nobody.
+      assert_eq!(log_count(ChainId::EthereumSepolia, 0), 0);
+   }
 
    #[test]
    fn test_revert_msg_with_data() {
