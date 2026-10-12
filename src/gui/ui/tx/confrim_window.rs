@@ -418,7 +418,7 @@ impl TxConfirmationWindow {
                let show_extra_warning =
                   main_event.is_other_or_eoa_delegate() && has_more_than_one_diff;
 
-               let msg = "Review the balance and approval changes before proceeding";
+               let msg = "Review the transaction details before proceeding";
 
                if show_extra_warning || completely_unknown {
                   ui.label(
@@ -653,6 +653,10 @@ impl TxConfirmationWindow {
          if unlimited {
             text = text.color(theme.colors.error);
          }
+      }
+
+      if main_event.is_other() {
+         text = text.color(theme.colors.warning);
       }
 
       text

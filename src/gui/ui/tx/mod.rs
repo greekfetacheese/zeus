@@ -1059,10 +1059,12 @@ pub fn show_tx_options_modal(
 
             // One row: as direct children of the modal body's vertical layout each
             // of these would land on a line of its own, the indicator included.
-            ui.horizontal(|ui| {
-               ui.add(Label::new(text, None).interactive(false));
-               ui.add_space(10.0);
-               ui.add(icon);
+            ui.allocate_ui(vec2(ui.available_width(), 25.0), |ui| {
+               ui.horizontal_centered(|ui| {
+                  ui.spacing_mut().item_spacing.x = theme.spacing.sm;
+                  ui.add(Label::new(text, None).interactive(false));
+                  ui.add(icon);
+               });
             });
          }
       });
