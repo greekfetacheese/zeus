@@ -32,13 +32,13 @@ pub async fn decode_log(dctx: &DecodeCtx, log: &Log) -> DecodeOutcome {
    // signature: the fungible attempt below would look the system address up as a token, and the
    // native one would describe the transaction's own value move instead of what the log says.
    //
-   // ETH transfers are deliberately not counted as known events (see `decode_transaction`): the
-   // value a transaction moves is the transaction, and an inner one is a balance change the diffs
-   // already carry.
+   // It counts as a decoded log — the events window reports how many of the transaction's logs were
+   // made sense of, and this one is rendered below with the rest. `TransactionAnalysis` keeps it out
+   // of the *intent* count, which is a different question (see `decoded_events`).
    if let Some(params) = eth_transfer(dctx, log) {
       return DecodeOutcome::One {
          event: DecodedEvent::Transfer(params),
-         counts_as_known: false,
+         counts_as_known: true,
       };
    }
 
@@ -252,8 +252,57 @@ mod tests {
       assert_eq!(params.recipient, RECIPIENT);
       assert_eq!(params.amount.wei(), U256::from(LOGGED_VALUE));
       assert!(
-         !counts_as_known,
-         "ETH transfers are not known events"
+         counts_as_known,
+         "the log was understood, so the window counts it"
       );
+   }
+
+   /// The events window reports "decoded N out of M" from these two numbers, and the ETH transfer
+   /// log was the case that read "0 out of 1" while being listed below: it is one of the
+   /// transaction's logs and it was decoded, so N is 1. The analysis's *intent* count stays 0 —
+   /// that is the separate question, and what keeps a plain ETH send headlined as a transfer.
+   #[tokio::test]
+   async fn a_decoded_eth_transfer_is_one_of_one() {
+      use crate::core::tx::TransactionAnalysis;
+      use crate::core::tx::events::decode::decode_transaction;
+
+      let logs = vec![eth_transfer_log()];
+      let ctx = ZeusCtx::new();
+      let dctx = DecodeCtx::new(
+         ctx.clone(),
+         CHAIN,
+         SENDER,
+         RECIPIENT,
+         Bytes::new(),
+         U256::from(1),
+      );
+
+      let (events, known_events) = decode_transaction(&dctx, &logs, Vec::new()).await;
+      let analysis = TransactionAnalysis::new(
+         ctx,
+         CHAIN,
+         SENDER,
+         RECIPIENT,
+         Some(false),
+         Bytes::new(),
+         U256::from(1),
+         logs,
+         21_000,
+         U256::ZERO,
+         U256::ZERO,
+         Vec::new(),
+      )
+      .await
+      .expect("analysis");
+
+      assert_eq!(events.len(), 1);
+      assert_eq!(known_events, 1, "the numerator the window shows");
+      assert_eq!(
+         analysis.total_events(),
+         1,
+         "one log is the denominator"
+      );
+      assert_eq!(analysis.decoded_events(), 0, "still not intent");
+      assert!(analysis.is_native_transfer());
    }
 }

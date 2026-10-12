@@ -50,9 +50,11 @@ pub struct TransactionAnalysis {
    /// Events in total by how many logs were emitted
    pub logs_len: usize,
 
-   /// Total decoded events by how many logs were decoded
+   /// How many of the transaction's logs the decoder made sense of.
    ///
-   /// ETH transfers and EIP7702 Authorization events are not counted
+   /// The events window's "Decoded N out of M" numerator, so an ETH transfer log counts: it is
+   /// decoded and rendered like any other. This is *not* [`Self::decoded_events`], the intent count
+   /// the main-event ranking reads, which leaves ETH transfers and authorizations out.
    pub known_events: usize,
 
    // All decoded events
