@@ -12074,6 +12074,7 @@ dependencies = [
  "userop-kit",
  "warp",
  "winresource",
+ "zbus",
  "zeus-bip32",
  "zeus-eth",
  "zeus-railgun",

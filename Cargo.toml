@@ -144,6 +144,18 @@ notify-rust = "=4.18.1"
 # on would drag the GTK feature set into `Cargo.lock` for a build that never uses it.
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
 tray-icon = { version = "=0.26", default-features = false, features = ["ksni"] }
+# StatusNotifier host check, for the tray icon above.
+#
+# The `ksni` backend runs with `assume_sni_available(true)`, so building an icon succeeds
+# even on a desktop that will never draw it — and a window hidden behind an icon nobody
+# draws has no way back. Before hiding, we ask the session bus for the host ourselves.
+#
+# `zbus` is already in the build as ksni's own D-Bus client, and the features below are
+# exactly the ones ksni enables (`async-io` + `blocking-api`, pinned by tray-icon's own
+# dependency on it). They are repeated here so this code does not silently depend on another
+# crate's choices — and deliberately *not* swapped for `tokio`: enabling both runtimes would
+# hand zbus's internals to tokio, changing the behaviour of ksni's icon under this PR.
+zbus = { version = "=5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
 
 [target.'cfg(not(any(target_os = "linux", target_os = "freebsd")))'.dependencies]
 tray-icon = { version = "=0.26", default-features = false }
