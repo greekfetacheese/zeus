@@ -5,6 +5,7 @@ pub mod balance_diff;
 pub mod events;
 pub mod finalize;
 pub mod main_event;
+pub mod pending;
 pub mod rich;
 pub mod send;
 pub mod send_calls;
@@ -24,6 +25,7 @@ pub use events::DecodedEvent;
 pub use finalize::{
    MainEvent, MinedTx, RecordPolicy, TxOutcome, build_tx_outcome, record_and_notify,
 };
+pub use pending::{PendingTx, PendingTxStore, watch_pending_tx};
 pub use rich::TransactionRich;
 pub use send::{
    ConfirmedTx, SendTxOptions, SendTxRequest, confirm_tx, delegate_to, send_transaction, send_tx,

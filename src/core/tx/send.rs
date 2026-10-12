@@ -1,15 +1,17 @@
 use crate::core::types::EnsRecipientGuard;
-use crate::core::{
-   ClientKind, TransactionAnalysis, TransactionRich, ZeusCtx, client::CLIENT_TIMEOUT_FOR_SENDING_TX,
-};
+use crate::core::{ClientKind, TransactionAnalysis, TransactionRich, ZeusCtx};
 use crate::utils::{TimeStamp, state::get_base_fee, wait_confirm_window, wait_tx_confirm};
+use alloy_eips::eip2718::Encodable2718;
 use alloy_eips::eip7702::{Authorization, SignedAuthorization};
 use anyhow::anyhow;
-use std::time::Duration;
 
 use super::finalize::{MainEvent, MinedTx, RecordPolicy, build_tx_outcome, record_and_notify};
 use crate::core::clear_signing::ClearDisplay;
-use crate::core::tx::{diffs_from_receipt, simulate_and_diff};
+use crate::core::tx::{
+   diffs_from_receipt,
+   pending::{PendingTx, watch_pending_tx},
+   simulate_and_diff,
+};
 use crate::gui::{SHARED_GUI, ui::NotificationType};
 use zeus_eth::{
    alloy_contract::private::Provider,
@@ -495,7 +497,14 @@ pub async fn send_transaction(
    // during the MEV prompt). Never broadcast for a locked wallet.
    ctx.ensure_unlocked()?;
 
-   let receipt = send_tx(send_client, tx_params).await?;
+   let receipt = send_tx(
+      ctx.clone(),
+      send_client,
+      tx_params,
+      tx_analysis.clone(),
+      opts.keep_intent_event,
+   )
+   .await?;
    let tx_block = receipt.block_number.unwrap_or(0);
    let block_id = if tx_block > 0 {
       BlockId::number(tx_block)
@@ -583,6 +592,9 @@ pub async fn send_transaction(
 
    record_and_notify(ctx.clone(), chain, from, &outcome)?;
 
+   // The record is in the history now, so the pending entry has done its job.
+   ctx.remove_pending_tx(receipt.transaction_hash);
+
    Ok((receipt, outcome.tx_rich))
 }
 
@@ -644,26 +656,46 @@ pub async fn delegate_to(
    Ok(())
 }
 
-pub async fn send_tx<P>(client: P, params: TxParams) -> Result<TransactionReceipt, anyhow::Error>
+/// Sign, broadcast, and see the transaction through.
+///
+/// The signed bytes are remembered the moment the node accepts them, so a transaction that is in the
+/// mempool but not yet mined is never reported as an error and never lost: it is watched, re-sent
+/// unchanged when the node drops it, and recorded when it lands.
+pub async fn send_tx<P>(
+   ctx: ZeusCtx,
+   client: P,
+   params: TxParams,
+   analysis: TransactionAnalysis,
+   keep_intent_event: bool,
+) -> Result<TransactionReceipt, anyhow::Error>
 where
    P: Provider<Ethereum> + Clone + 'static,
 {
    let tx = make_tx_request(&params);
    let wallet = params.signer.to_wallet();
-   let tx_envelope = tx.build(&wallet).await?;
+   let envelope = tx.build(&wallet).await?;
    drop(wallet);
 
    let time = std::time::Instant::now();
-   let receipt = client
-      .send_tx_envelope(tx_envelope)
-      .await?
-      .with_timeout(Some(Duration::from_secs(
-         CLIENT_TIMEOUT_FOR_SENDING_TX,
-      )))
-      .get_receipt()
-      .await?;
+
+   // One broadcast here; every retry re-sends exactly these bytes.
+   let encoded = Bytes::from(envelope.encoded_2718());
+   let hash = *client.send_raw_transaction(encoded.as_ref()).await?.tx_hash();
+
+   let pending = PendingTx {
+      chain: params.chain.id(),
+      hash,
+      envelope: encoded,
+      analysis,
+      keep_intent_event,
+      sent_at: TimeStamp::now_as_secs()?.timestamp().max(0) as u64,
+      attempts: 0,
+   };
+   ctx.add_pending_tx(pending.clone());
+
+   let receipt = watch_pending_tx(ctx, client, pending).await?;
    tracing::info!(
-      "Time take to send tx: {:?}secs",
+      "Time taken to send tx: {:?}secs",
       time.elapsed().as_secs_f32()
    );
 

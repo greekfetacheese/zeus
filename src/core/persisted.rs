@@ -97,6 +97,7 @@ persisted_files! {
    TxHistory => "tx_history.db",
    Tokens => "tokens.data",
    NftDb => "nft_db.data",
+   PendingTxs => "pending_txs.data",
    PoolData => "pool_data.data",
    Providers => "providers.data",
    BundlerUrl => "bundler_url.data",
@@ -150,6 +151,7 @@ impl Persisted {
             | PersistedFile::TxHistory
             | PersistedFile::Tokens
             | PersistedFile::NftDb
+            | PersistedFile::PendingTxs
             | PersistedFile::PoolData
             | PersistedFile::Providers
             | PersistedFile::BundlerUrl

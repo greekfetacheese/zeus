@@ -5,6 +5,7 @@ use super::{
 };
 
 use crate::core::persisted::{self, PersistedFile};
+use crate::core::tx::{PendingTx, PendingTxStore};
 use crate::core::{TransactionRich, WalletState, WalletValue};
 use crate::core::{Vault, WalletInfo, client::Rpc, types::*};
 use crate::server::SERVER_PORT;
@@ -21,7 +22,7 @@ use std::{
 use zeus_wallet::Wallet;
 
 use zeus_eth::{
-   alloy_primitives::{Address, Bytes, FixedBytes, U256},
+   alloy_primitives::{Address, Bytes, FixedBytes, TxHash, U256},
    alloy_provider::Provider,
    alloy_rpc_types::{
       Block as RpcBlock, BlockId, Transaction, TransactionReceipt, TransactionRequest,
@@ -1044,6 +1045,64 @@ impl ZeusCtx {
       }
    }
 
+   /// Persist the transactions that are broadcast but not yet mined.
+   pub fn save_pending_txs(&self) {
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error saving pending txs: {:?}", e);
+            return;
+         }
+      };
+      let store = self.read(|ctx| ctx.pending_txs.clone());
+      if let Err(e) = store.save(&key) {
+         tracing::error!("Error saving pending txs: {:?}", e);
+      }
+   }
+
+   /// Remember a transaction as broadcast, before its receipt exists.
+   pub fn add_pending_tx(&self, tx: PendingTx) {
+      self.write(|ctx| ctx.pending_txs.insert(tx));
+      self.save_pending_txs();
+   }
+
+   /// Forget a transaction: it has been mined and recorded.
+   pub fn remove_pending_tx(&self, hash: TxHash) {
+      let removed = self.write(|ctx| ctx.pending_txs.remove(hash).is_some());
+      if removed {
+         self.save_pending_txs();
+      }
+   }
+
+   /// Load sealed `pending_txs.data` and pick up watching whatever is still unanswered.
+   ///
+   /// Called after vault unlock, like [`Self::load_nft_db`]. A transaction that was still in the
+   /// mempool when Zeus closed is resumed here, and one that was mined in the meantime is recorded
+   /// without the user having to look for it.
+   pub fn load_pending_txs(&self) {
+      match PendingTxStore::exists() {
+         Ok(true) => {}
+         Ok(false) => return,
+         Err(e) => {
+            tracing::error!("Error checking pending txs: {:?}", e);
+            return;
+         }
+      }
+
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error loading pending txs: {:?}", e);
+            return;
+         }
+      };
+
+      match PendingTxStore::load_from_file(&key) {
+         Ok(store) => self.write(|ctx| ctx.pending_txs = store),
+         Err(e) => tracing::error!("Error loading pending txs: {:?}", e),
+      }
+   }
+
    pub fn save_address_book(&self) {
       let key = match self.read_vault(|vault| vault.wallet_state_key()) {
          Ok(k) => k,
@@ -1286,6 +1345,8 @@ impl ZeusCtx {
 
       self.load_currency_db();
       self.load_nft_db();
+
+      self.load_pending_txs();
       self.load_pool_manager();
       self.load_client_manager();
       self.load_price_manager();
@@ -2492,6 +2553,9 @@ pub struct ZeusContext {
    /// Holds the NFTs the user tracks, plus cached collection metadata
    pub nft_db: NftDB,
 
+   /// Transactions broadcast but not seen mined yet, so a slow one is never lost.
+   pub pending_txs: PendingTxStore,
+
    /// Pool manager used for the Uniswap UI
    /// and price manager
    pub pool_manager: PoolManagerHandle,
@@ -2611,6 +2675,8 @@ impl ZeusContext {
 
       let nft_db = NftDB::default();
 
+      let pending_txs = PendingTxStore::default();
+
       let vault_exists = Vault::exists().is_ok_and(|p| p);
 
       let pool_manager = PoolManagerHandle::default();
@@ -2669,6 +2735,7 @@ impl ZeusContext {
          ens_cache: EnsCache::new(),
          currency_db,
          nft_db,
+         pending_txs,
          pool_manager,
          price_manager,
          data_syncing: false,
