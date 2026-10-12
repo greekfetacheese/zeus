@@ -21,11 +21,13 @@ use crate::core::urls::ZeusUrl;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use anyhow::anyhow;
+use flate2::read::GzDecoder;
 use image::imageops::FilterType;
 use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg;
-use std::io::Cursor;
-use std::net::{IpAddr, Ipv4Addr};
+use std::borrow::Cow;
+use std::io::{Cursor, Read};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::OnceLock;
 use std::time::Duration;
 use zeus_eth::alloy_primitives::{Address, U256};
@@ -93,29 +95,61 @@ const NFT_ART_FETCH_PER_LOAD: usize = 24;
 fn is_public_ip(ip: IpAddr) -> bool {
    match ip {
       IpAddr::V4(v4) => is_public_v4(v4),
-      IpAddr::V6(v6) => {
-         // `::a.b.c.d` (IPv4-compatible) and `::ffff:a.b.c.d` (IPv4-mapped) are the same address in a
-         // different spelling. Only the mapped form was covered, so `[::127.0.0.1]` — and every private
-         // range spelled that way — read as public. Handled from the octets rather than with
-         // `to_ipv4_compatible`, which is deprecated; this also covers `::` and `::1`, whose low 32 bits
-         // are `0.0.0.0` and `0.0.0.1`, neither of which `is_public_v4` accepts.
-         let o = v6.octets();
-         if o[..12].iter().all(|b| *b == 0) {
-            return is_public_v4(Ipv4Addr::new(o[12], o[13], o[14], o[15]));
+      IpAddr::V6(v6) => match embedded_v4(v6) {
+         // The transition forms carry an IPv4 destination: `::a.b.c.d` and `::ffff:a.b.c.d` are the
+         // same address in another spelling, and NAT64 / 6to4 / IPv4-translated wrap one too. Only
+         // the mapped form used to be covered, so `[::127.0.0.1]` — and every private range spelled
+         // that way — read as public.
+         Some(v4) => is_public_v4(v4),
+         None => {
+            !(v6.is_loopback()
+               || v6.is_unspecified()
+               || v6.is_multicast()
+               || v6.is_unique_local()
+               || v6.is_unicast_link_local())
          }
-
-         match v6.to_ipv4_mapped() {
-            Some(v4) => is_public_v4(v4),
-            None => {
-               !(v6.is_loopback()
-                  || v6.is_unspecified()
-                  || v6.is_multicast()
-                  || v6.is_unique_local()
-                  || v6.is_unicast_link_local())
-            }
-         }
-      }
+      },
    }
+}
+
+/// The IPv4 address an IPv6 one carries, when it is one of the transition forms that embed one.
+///
+/// Every one of these means an IPv4 destination reached over a network that routes IPv6, so reading
+/// them as "some public IPv6" hands `[64:ff9b::127.0.0.1]` — or a 6to4 address wrapping
+/// `169.254.169.254` — straight past the check. Whether the connection arrives depends on the
+/// network: a NAT64 gateway or a 6to4 relay delivers it, an ordinary IPv6-only host fails the
+/// attempt. Zeus refuses the address rather than betting on which network it is on.
+fn embedded_v4(v6: Ipv6Addr) -> Option<Ipv4Addr> {
+   // `::a.b.c.d` (IPv4-compatible) and `::ffff:a.b.c.d` (IPv4-mapped) both reduce here; so do `::`
+   // and `::1`, whose embedded addresses `is_public_v4` refuses on their own terms.
+   if let Some(v4) = v6.to_ipv4() {
+      return Some(v4);
+   }
+
+   let o = v6.octets();
+
+   // `::ffff:0:a.b.c.d` — IPv4-translated (RFC 6145).
+   if o[..8].iter().all(|b| *b == 0) && o[8] == 0xff && o[9] == 0xff && o[10] == 0 && o[11] == 0 {
+      return Some(Ipv4Addr::new(o[12], o[13], o[14], o[15]));
+   }
+
+   // `64:ff9b::a.b.c.d` — NAT64 (RFC 6052).
+   if o[0] == 0x00
+      && o[1] == 0x64
+      && o[2] == 0xff
+      && o[3] == 0x9b
+      && o[4..12].iter().all(|b| *b == 0)
+   {
+      return Some(Ipv4Addr::new(o[12], o[13], o[14], o[15]));
+   }
+
+   // `2002:a.b.c.d::` — 6to4 (RFC 3056): the embedded address is the 6to4 prefix's own, which is the
+   // host the address routes to.
+   if o[0] == 0x20 && o[1] == 0x02 {
+      return Some(Ipv4Addr::new(o[2], o[3], o[4], o[5]));
+   }
+
+   None
 }
 
 fn is_public_v4(v4: Ipv4Addr) -> bool {
@@ -462,10 +496,89 @@ fn svg_options() -> usvg::Options<'static> {
    options
 }
 
+/// The largest an SVG may be after inflating.
+///
+/// A gzip stream is the one route by which a download that passed every size check becomes an
+/// arbitrarily large allocation: the compressed form is bounded by [`MAX_BYTES`], the inflated one
+/// by nothing at all. usvg inflates SVGZ itself with no cap (its `parser/mod.rs` runs a `GzDecoder`
+/// straight into `read_to_end`), so Zeus inflates first, under this bound, and only ever hands usvg
+/// plain SVG.
+const MAX_INFLATED_SVG: usize = 8 * 1024 * 1024;
+
+/// `bytes` with a gzip stream inflated, refusing anything that inflates past [`MAX_INFLATED_SVG`].
+///
+/// An error rather than a truncated document on purpose: half an SVG is not something to draw, and
+/// "too big" is the honest answer.
+fn inflate_svgz_if_needed(bytes: &[u8]) -> Result<Cow<'_, [u8]>, anyhow::Error> {
+   if !bytes.starts_with(&[0x1f, 0x8b]) {
+      return Ok(Cow::Borrowed(bytes));
+   }
+
+   let mut out = Vec::new();
+   GzDecoder::new(bytes).take(MAX_INFLATED_SVG as u64 + 1).read_to_end(&mut out)?;
+
+   if out.len() > MAX_INFLATED_SVG {
+      return Err(anyhow!(
+         "SVGZ art inflates past {MAX_INFLATED_SVG} bytes, refusing to render it"
+      ));
+   }
+
+   Ok(Cow::Owned(out))
+}
+
+/// Whether the document embeds a gzip-compressed SVG in a `data:` href.
+///
+/// [`svg_options`] keeps the default `data:` resolver so art that embeds an image inline still
+/// renders, and usvg parses such a document with resolvers of its own (`load_sub_svg` →
+/// `Tree::from_data` → the same unbounded inflate). Nothing Zeus can pass into usvg reaches that
+/// path, so the document is refused instead: art that embeds an SVGZ is rarer than the bomb it
+/// would let in, and a refused document is a placeholder rather than an allocation.
+fn embeds_compressed_nested_svg(svg: &str) -> bool {
+   const NEEDLE: &str = "data:image/svg+xml";
+
+   // Case-folded once for the search only. ASCII folding keeps byte offsets, so payloads are still
+   // read out of the document itself — base64's `H4sI` is case-sensitive.
+   let folded = svg.to_ascii_lowercase();
+   let mut from = 0;
+
+   while let Some(at) = folded[from..].find(NEEDLE) {
+      from = at + NEEDLE.len();
+
+      let rest = &folded[from..];
+      let end = rest.find(['"', '\'', ')']).unwrap_or(rest.len());
+      let payload = &svg[from..from + end];
+
+      // A data URI is `meta,body`: the metadata says how the body is spelled.
+      let Some((meta, body)) = payload.split_once(',') else {
+         continue;
+      };
+
+      if meta.to_ascii_lowercase().contains("base64") {
+         // `1f 8b 08` — the gzip magic, and the first three bytes of every gzip stream — is `H4sI`
+         // at the head of its base64.
+         if body.starts_with("H4sI") {
+            return true;
+         }
+      } else if body.to_ascii_lowercase().contains("%1f%8b") {
+         return true;
+      }
+   }
+
+   false
+}
+
 /// Rasterise vector art into the two renderings a view asks for.
 ///
 /// Only ever shrinks, matching [`render_two_sizes`]: a small picture is never upscaled.
 fn render_svg(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), anyhow::Error> {
+   if let Ok(text) = std::str::from_utf8(bytes) {
+      if embeds_compressed_nested_svg(text) {
+         return Err(anyhow!(
+            "SVG art embeds a compressed nested document, refusing to render it"
+         ));
+      }
+   }
+
    let tree = usvg::Tree::from_data(bytes, &svg_options())?;
    Ok((
       render_svg_edge(&tree, THUMB_EDGE)?,
@@ -498,14 +611,41 @@ fn render_svg_edge(tree: &usvg::Tree, edge: u32) -> Result<Vec<u8>, anyhow::Erro
 /// Sniffed from the content rather than from the URI or a mime type: the same collection serves SVG
 /// from a `data:` URI and from gateways that label it `application/octet-stream`. Anything
 /// mislabelled would otherwise be handed to a decoder that cannot read it.
+///
+/// A legal prolog — an XML declaration, a doctype, a comment — may precede the root element, and all
+/// three may appear together. Reading the first four non-whitespace bytes instead sent a document
+/// that opened with `<!DOCTYPE svg …>` to the raster decoder, which cannot read it, and the token
+/// showed a placeholder.
 fn is_svg(bytes: &[u8]) -> bool {
-   // A UTF-8 BOM and leading whitespace are both legal ahead of the root element.
-   let head = &bytes[..bytes.len().min(1024)];
+   // The prolog is small in practice; a document that hides it further in reads as a raster image.
+   let head = &bytes[..bytes.len().min(4096)];
+   // A UTF-8 BOM and leading whitespace are both legal ahead of the prolog.
    let head = head.strip_prefix(&[0xEF, 0xBB, 0xBF][..]).unwrap_or(head);
-   let start: Vec<u8> =
-      head.iter().copied().skip_while(|b| b.is_ascii_whitespace()).take(4).collect();
+   let mut rest = head;
 
-   start.starts_with(b"<svg") || start.starts_with(b"<?xm")
+   loop {
+      rest = rest.trim_ascii_start();
+
+      // `<?xml … ?>`, `<!DOCTYPE … >`, `<!-- … -->`: skipped to the end of the declaration, then
+      // whatever follows is checked again — a prolog may be several of these in a row.
+      let skip = if rest.starts_with(b"<?") {
+         rest.iter().position(|b| *b == b'>').map(|at| at + 1)
+      } else if rest.starts_with(b"<!--") {
+         rest[4..].windows(3).position(|w| w == b"-->").map(|at| at + 4 + 3)
+      } else if rest.starts_with(b"<!") {
+         rest.iter().position(|b| *b == b'>').map(|at| at + 1)
+      } else {
+         None
+      };
+
+      match skip.filter(|at| *at < rest.len()) {
+         Some(at) => rest = &rest[at..],
+         // Nothing left to skip: the root element is here, or this is not SVG at all.
+         None => break,
+      }
+   }
+
+   rest.len() >= 4 && rest[..4].eq_ignore_ascii_case(b"<svg")
 }
 
 /// Decide what to store for a piece of art: two raster renderings, whichever way it arrived.
@@ -516,6 +656,10 @@ fn is_svg(bytes: &[u8]) -> bool {
 /// [`svg_options`], keeps that reach out of the picture entirely. The two sizes are the only ones
 /// the views ask for, so neither the grid nor the detail view loses anything.
 pub fn prepare_image_data(bytes: &[u8]) -> Result<NftIconData, anyhow::Error> {
+   // Inflated here, once, under a bound — so neither this sniff nor usvg ever inflates anything.
+   let bytes = inflate_svgz_if_needed(bytes)?;
+   let bytes = bytes.as_ref();
+
    let (x64, x250) = if is_svg(bytes) {
       render_svg(bytes)?
    } else {
@@ -740,25 +884,40 @@ pub async fn fetch_nft_icon(
       bytes
    };
 
-   match prepare_image_data(&image_bytes) {
-      // The URI is stored with the art so a later change to it can be noticed at all: the cache is keyed
-      // by `(collection, token id)`, which cannot tell on its own. What is recorded is the *metadata* URI
-      // the fetch was asked for — the same string the caller compares against next time — and a change to
-      // the document's contents behind an unchanged URI stays undetectable, by nature.
-      Ok(mut data) => {
+   // Decoding, resizing and rasterising are CPU work. `fetch_nft_icon` runs on a worker of the
+   // shared runtime — the same pool the RPC, proving and server tasks use — so the decode is handed
+   // to the blocking pool instead: an art pipeline that saturates every worker reads as a wallet that
+   // cannot talk to a node while a list loads.
+   let prepared = RT
+      .spawn_blocking(move || match prepare_image_data(&image_bytes) {
+         Ok(data) => Ok(data),
+         Err(e) => {
+            // Not retryable: an undecodable picture will not become decodable. Log the format so a
+            // placeholder is diagnosable instead of mysterious.
+            let format = match image::guess_format(&image_bytes) {
+               Ok(format) => format!("{format:?}"),
+               Err(_) => "unrecognised".to_string(),
+            };
+            tracing::debug!("NFT image not decodable ({format}): {e}");
+            Err(())
+         }
+      })
+      .await;
+
+   match prepared {
+      // The URI is stored with the art so a later change to it can be noticed at all: the cache is
+      // keyed by `(collection, token id)`, which cannot tell on its own. What is recorded is the
+      // *metadata* URI the fetch was asked for — the same string the caller compares against next
+      // time — and a change to the document's contents behind an unchanged URI stays undetectable,
+      // by nature.
+      Ok(Ok(mut data)) => {
          data.source_uri = Some(uri);
          Ok(Some(data))
       }
-      Err(e) => {
-         // Not retryable: an undecodable picture will not become decodable. Log the format so a
-         // placeholder is diagnosable instead of mysterious.
-         let format = match image::guess_format(&image_bytes) {
-            Ok(format) => format!("{format:?}"),
-            Err(_) => "unrecognised".to_string(),
-         };
-         tracing::debug!("NFT image not decodable ({format}): {e}");
-         Ok(None)
-      }
+      // Nothing to show: no metadata, no usable image, or a format we cannot decode.
+      Ok(Err(())) => Ok(None),
+      // The decode task itself went away (a panic in a decoder, or the runtime shutting down).
+      Err(e) => Err(anyhow!("NFT image decode task failed: {e}")),
    }
 }
 
@@ -782,6 +941,12 @@ pub fn start_nft_art_downloads<'a>(chain_id: u64, tokens: impl Iterator<Item = &
       };
 
       let key = (token.collection, chain_id, token.token_id);
+
+      // The URI recorded with the art is the expanded one (`fetch_nft_icon` expands before storing
+      // it as `source_uri`), so the comparison has to be against the same form: a raw `{id}` template
+      // never matches itself once expanded, which had every templated collection dropping and
+      // re-downloading its art on every list load.
+      let uri = expand_id_placeholder(&uri, token.token_id);
 
       // Before deciding whether this token needs a fetch, check what is cached against the URI the
       // contract reports now: without this a reveal or an upgrade would keep showing the old picture for
@@ -855,6 +1020,95 @@ pub fn spawn_fetch_nft_icon(
 #[cfg(test)]
 mod tests {
    use super::*;
+
+   #[test]
+   fn an_svg_prolog_does_not_hide_the_root_element() {
+      // Every form a legal document may open with — and that used to send it to the raster decoder.
+      assert!(is_svg(
+         b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"
+      ));
+      assert!(is_svg(b"<?xml version=\"1.0\"?>\n<svg/>"));
+      assert!(is_svg(
+         b"<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"x\">\n<svg/>"
+      ));
+      assert!(is_svg(b"<!-- drawn by hand -->\n<svg/>"));
+      assert!(is_svg(
+         b"\xEF\xBB\xBF  <?xml version=\"1.0\"?><!-- x --><!DOCTYPE svg><SVG/>"
+      ));
+      // And it still rejects what is not vector art.
+      assert!(!is_svg(b"\x89PNG\r\n\x1a\n"));
+      assert!(!is_svg(b"<html><body><svg/></body></html>"));
+      assert!(!is_svg(b""));
+   }
+
+   #[test]
+   fn an_ipv4_hidden_in_an_ipv6_address_is_still_checked() {
+      let private = |address: &str| !is_public_ip(address.parse().unwrap());
+
+      // The same local address, in every spelling that reaches an IPv4 destination.
+      assert!(private("::127.0.0.1"));
+      assert!(private("::ffff:127.0.0.1"));
+      assert!(private("::ffff:0:127.0.0.1")); // IPv4-translated
+      assert!(private("64:ff9b::127.0.0.1")); // NAT64
+      assert!(private("64:ff9b::a00:1")); // NAT64 wrapping 10.0.0.1
+      assert!(private("2002:7f00:1::")); // 6to4 wrapping 127.0.0.1
+      assert!(private("2002:a9fe:a9fe::")); // 6to4 wrapping 169.254.169.254
+      assert!(private("::1"));
+      assert!(private("::"));
+
+      // A 6to4 address wrapping a public one is still public, and a plain public v6 stays public.
+      assert!(is_public_ip("2002:808:808::".parse().unwrap()));
+      assert!(is_public_ip("2606:4700::1111".parse().unwrap()));
+   }
+
+   #[test]
+   fn a_compressed_nested_svg_is_refused_rather_than_inflated() {
+      // `H4sI` heads the base64 of the gzip magic; the percent-encoded form spells the same bytes.
+      assert!(embeds_compressed_nested_svg(
+         "<svg><image href=\"data:image/svg+xml;base64,H4sIAAAAAAAA\"/></svg>"
+      ));
+      assert!(embeds_compressed_nested_svg(
+         "<svg><image href=\"data:image/svg+xml,%1F%8B%08\"/></svg>"
+      ));
+      // An inline image that is not a compressed SVG is left alone: only the bomb is refused.
+      assert!(!embeds_compressed_nested_svg(
+         "<svg><image href=\"data:image/png;base64,iVBORw0KGgo=\"/></svg>"
+      ));
+      assert!(!embeds_compressed_nested_svg(
+         "<svg><image href=\"data:image/svg+xml,%3Csvg%2F%3E\"/></svg>"
+      ));
+   }
+
+   #[test]
+   fn a_gzip_download_is_inflated_under_a_bound() {
+      // Small enough to inflate, and handed on plain.
+      assert_eq!(
+         inflate_svgz_if_needed(&gzip(b"<svg/>")).unwrap().as_ref(),
+         b"<svg/>"
+      );
+      // A document that is not a gzip stream is passed through untouched.
+      assert_eq!(
+         inflate_svgz_if_needed(b"<svg/>").unwrap().as_ref(),
+         b"<svg/>"
+      );
+
+      // Past the bound it is refused, not truncated — and the compressed form is a few kilobytes,
+      // which is the whole point of capping here rather than on the download.
+      let bomb = gzip(&vec![0u8; MAX_INFLATED_SVG + 1]);
+      assert!(bomb.len() < 64 * 1024);
+      assert!(inflate_svgz_if_needed(&bomb).is_err());
+   }
+
+   /// `bytes` as a gzip stream, for the SVGZ cases.
+   fn gzip(bytes: &[u8]) -> Vec<u8> {
+      use flate2::Compression;
+      use flate2::write::GzEncoder;
+      use std::io::Write;
+
+      let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+      encoder.write_all(bytes).unwrap();
+      encoder.finish().unwrap()
+   }
 
    /// A real 8×8 PNG, inline. Smaller than the thumbnail edge on purpose, so the resize tests also
    /// prove we never upscale.

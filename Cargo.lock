@@ -12042,6 +12042,7 @@ dependencies = [
  "egui-lucide",
  "egui_extras",
  "either",
+ "flate2",
  "futures",
  "generic-array",
  "image",

@@ -235,11 +235,23 @@ impl NftToken {
    }
 }
 
-/// Expand an EIP-1155 `{id}` placeholder in a metadata URI.
+/// The largest a `tokenURI` may be after `{id}` expansion.
+///
+/// Each placeholder is four bytes and each expansion is sixty-four, so a template of a few kilobytes
+/// can ask for hundreds of megabytes: the string is contract-supplied, and it should not be able to
+/// size an allocation on the user's machine. A real URI is well under a kilobyte, so anything past
+/// this is not art metadata.
+pub const MAX_EXPANDED_URI_LEN: usize = 64 * 1024;
+
+/// A `tokenURI` with its ERC-1155 `{id}` placeholders expanded.
 ///
 /// The id is substituted as lowercase hex, zero-padded to 64 characters. Every spelling of the
 /// placeholder is expanded, not only the two the EIP prints: it shows `{id}` and `{ID}`, clients are
 /// expected to treat it case-insensitively, and "id" has exactly four spellings.
+///
+/// Returns the template unchanged when expanding it would exceed [`MAX_EXPANDED_URI_LEN`]: the
+/// caller then fails to resolve it and shows a placeholder, which is a better outcome than the
+/// allocation the template was asking for.
 pub fn expand_id_placeholder(uri: &str, token_id: U256) -> String {
    if !uri.contains('{') {
       return uri.to_string();
@@ -248,6 +260,18 @@ pub fn expand_id_placeholder(uri: &str, token_id: U256) -> String {
    let hex = format!("{token_id:064x}");
    let mut out = uri.to_string();
    for placeholder in ["{id}", "{ID}", "{Id}", "{iD}"] {
+      if !out.contains(placeholder) {
+         continue;
+      }
+
+      // The bound is on the *result*: the input is bounded by the caller, and every pass grows the
+      // string it is given.
+      let occurrences = out.matches(placeholder).count() as u64;
+      let grown = out.len() as u64 + occurrences * (hex.len() as u64 - placeholder.len() as u64);
+      if grown > MAX_EXPANDED_URI_LEN as u64 {
+         return uri.to_string();
+      }
+
       out = out.replace(placeholder, &hex);
    }
 
