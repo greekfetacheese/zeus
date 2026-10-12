@@ -1127,22 +1127,37 @@ impl ShieldUi {
          });
 
          if let Some(advice) = &privacy.amount {
-            // Exact matches are only half of the picture: an amount that nothing adds up to can
-            // still be the only one of its size, which fingerprints it just as well. Both numbers go
-            // out, so the sentence never reads as reassurance on the strength of the match count.
+            // The band rests on the worse of two separate exposures — the size range the amount
+            // lands in, and what adds up to it — so both numbers appear, and whichever carries the
+            // band leads. Silence about one must not read as reassurance next to the other, which is
+            // how a size nothing came near used to sit under a reassurance about the sums.
+            let matches = advice.matches();
+            let tight = advice.crowding.within_one_percent;
             let near = advice.crowding.within_ten_percent;
-            // One line each: this block sits above the action button in a form with no scroll area.
-            let reason = match (advice.matches(), near) {
-               (0, 0) => {
-                  "Nothing adds up to this size, or even comes within 10% of it.".to_string()
-               }
-               (0, near) => format!(
-                  "Nothing matches this size exactly, {near} deposits are within 10% of it."
-               ),
-               (matches, near) => {
-                  format!("{matches} deposits or sums match this size, {near} within 10% of it.")
+            let sizes = match (tight, near) {
+               (0, 0) => "nothing comes within 10% of this size".to_string(),
+               (0, near) => format!("{near} deposits are within 10% of this size, none within 1%"),
+               (tight, near) => {
+                  format!("{near} deposits are within 10% of this size, {tight} within 1%")
                }
             };
+            let sums = match matches {
+               0 => "nothing adds up to it".to_string(),
+               1 => "a single deposit or sum adds up to it".to_string(),
+               matches => format!("{matches} deposits or sums add up to it"),
+            };
+
+            let (mut lead, follow) = if advice.crowd_score >= advice.match_score {
+               (sizes, sums)
+            } else {
+               (sums, sizes)
+            };
+            if let Some(head) = lead.get_mut(0..1) {
+               head.make_ascii_uppercase();
+            }
+
+            // One line: this block sits above the action button in a form with no scroll area.
+            let reason = format!("{lead}, and {follow}.");
             ui.add(
                Label::new(
                   RichText::new(reason)
@@ -2616,6 +2631,8 @@ mod tests {
          |band, score, matches_by_size, crowding, suggestion, user| UnshieldAmountAdvice {
             score,
             amount_score: score,
+            crowd_score: score,
+            match_score: score,
             band,
             pool_size: 9_184,
             matches_by_size,

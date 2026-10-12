@@ -1,12 +1,20 @@
 //! Scoring a requested unshield amount against the pool's recent deposits.
 //!
 //! This is a Rust port of the engine in [railcheck](https://github.com/ddddubbby/railcheck) (MIT),
-//! which asks the same question for RAILGUN withdrawals on Ethereum. The model, in short: a
-//! withdrawal is linked to a deposit when the amount *is* that deposit, or a small sum of them. So
-//! the scorer looks for 1-, 2- and 3-deposit subsets that add up to the requested amount, weights
-//! them by how many such subsets the pool admits (a pool of 10,000 deposits where thousands of
-//! combinations add up to your amount hides you; a pool of 10,000 where only one deposit does not),
-//! and adds a term for how crowded the region around the amount is.
+//! which asks the same question for RAILGUN withdrawals on Ethereum. Two independent things make an
+//! amount stand out, and the worse of the two is the verdict:
+//!
+//! - **Nothing is in its size range.** An amount nobody else uses is one of a kind whatever the sums
+//!   say, so how many deposits sit within ±1% and ±10% of it scores on its own ([`crowd_score`]).
+//! - **Something adds up to it.** A withdrawal is linked to a deposit when the amount *is* that
+//!   deposit, or a small sum of them: the scorer looks for 1-, 2- and 3-deposit subsets that add up
+//!   to the requested amount and weights them by how many such subsets the pool admits (a pool of
+//!   10,000 deposits where thousands of combinations add up to your amount hides you; a pool of
+//!   10,000 where only one deposit does not). That is railcheck's posterior, kept as it is,
+//!   crowding term included.
+//!
+//! They are separate exposures because neither answers the other: a crowd does not stop an amount
+//! from pointing at one deposit, and a common size is still worth flagging when nothing sums to it.
 //!
 //! What differs from railcheck, and why:
 //!
@@ -16,9 +24,11 @@
 //! - railcheck's pool stores amounts rounded to nano-ETH, so its match tolerance is `±5000`
 //!   nano-ETH. Zeus keeps full wei, so the tolerance here is relative (`1e-9`): it only has to
 //!   absorb rounding, not a lossy store.
-//! - The suggestion search is the same: try a smaller amount, and keep it only when the pool has a
-//!   crowd to hide in (at least [`CROWD_FLOOR`] deposits inside a 10% band) *and* the smaller amount
-//!   itself matches nothing.
+//! - railcheck scores the posterior alone, and its crowding term only ever dilutes a match, so an
+//!   amount that nothing matches and nothing comes near used to score zero — read as safe, directly
+//!   above a sentence saying nothing was within 10% of it. The crowd is a score of its own here.
+//! - The suggestion search tries smaller amounts, as railcheck does, but takes one only when it
+//!   reads [`RiskBand::Low`] on that scale, rather than merely matching nothing.
 
 use std::cmp::Ordering;
 use std::collections::HashSet;
@@ -35,12 +45,15 @@ pub const ACTIVITY_WINDOW_SECONDS: u64 = 180 * 86_400;
 /// How many matching sets the UI is given to show.
 pub const MATCH_LIMIT: usize = 5;
 
-/// Deposits that must sit inside a 10% band for a suggested amount to be worth suggesting. Below
-/// this the suggestion would be a different distinctive amount.
+/// The crowd the verdict is calibrated around: this many *effective* neighbours (see
+/// [`CROWD_TIGHT_WEIGHT`]) is where the score sits mid-scale. It takes several times as many
+/// neighbours for an amount to read [`RiskBand::Low`], because the falloff either side is quadratic.
 const CROWD_FLOOR: usize = 20;
 
-/// The band a crowd is counted in: `[candidate, candidate / CROWD_BAND]` — a 10% window.
-const CROWD_BAND: f64 = 0.9;
+/// What one deposit inside 1% of the amount is worth against one inside 10%: ten of them. Both bands
+/// answer "does this size look like the pool's?", and "someone withdrew this exact size" blurs far
+/// better than "someone withdrew something in this ballpark".
+const CROWD_TIGHT_WEIGHT: f64 = 10.0;
 
 /// Combination weights, smallest set first: railcheck's.
 const SET_WEIGHTS: [f64; 3] = [0.25, 0.1, 0.05];
@@ -175,8 +188,12 @@ pub struct Crowding {
 pub struct UnshieldAmountAdvice {
    /// The risk the user is shown: the pool's score, floored by their own history.
    pub score: u8,
-   /// The pool's score on its own, before the floor.
+   /// The pool's score on its own, before the floor: the worse of the two below.
    pub amount_score: u8,
+   /// The part of [`Self::amount_score`] the size range contributes — see [`crowd_score`].
+   pub crowd_score: u8,
+   /// The part the matching sets contribute: railcheck's posterior, in percent.
+   pub match_score: u8,
    pub band: RiskBand,
    /// How many deposits of the asset the window held.
    pub pool_size: u32,
@@ -235,6 +252,8 @@ pub fn assess_amount(
    Ok(UnshieldAmountAdvice {
       score,
       amount_score: scored.score,
+      crowd_score: scored.crowd_score,
+      match_score: scored.match_score,
       band: RiskBand::from_score(score),
       pool_size: window.len().min(u32::MAX as usize) as u32,
       matches_by_size: scored.matches_by_size,
@@ -326,15 +345,40 @@ fn whole_units(amount: i128, decimals: u8) -> f64 {
    amount as f64 / 10f64.powi(i32::from(decimals))
 }
 
+/// What the size range alone says: 0 when the amount is lost among neighbours, 100 when nothing
+/// comes near it.
+///
+/// The two bands [`Crowding`] counts collapse into one number of *effective* neighbours, a deposit
+/// inside 1% weighing [`CROWD_TIGHT_WEIGHT`] of one inside 10%, and [`CROWD_FLOOR`] is the knee the
+/// score is calibrated at: there the amount is still exposed (the score sits at half), and the
+/// quadratic falloff brings it down to [`RiskBand::Low`] several times that crowd later. Nothing
+/// near an amount is therefore the worst case, which is what nothing summing to it cannot say.
+fn crowd_score(crowding: Crowding) -> u8 {
+   let tight = f64::from(crowding.within_one_percent);
+   let loose = f64::from(crowding.within_ten_percent.saturating_sub(crowding.within_one_percent));
+   let neighbours = tight + loose / CROWD_TIGHT_WEIGHT;
+
+   let floor = CROWD_FLOOR as f64;
+   let ratio = floor / (floor + neighbours);
+
+   (100.0 * ratio * ratio).round().clamp(0.0, 100.0) as u8
+}
+
 struct Scored {
+   /// The worse of the two exposures below.
    score: u8,
+   /// What the size range alone scored: [`crowd_score`].
+   crowd_score: u8,
+   /// What the matching sets alone scored: the highest posterior, in percent.
+   match_score: u8,
    /// Matching combinations by size: single deposits, pairs, triples.
    matches_by_size: [u32; 3],
    sets: MatchSets,
    crowding: Crowding,
 }
 
-/// railcheck's `amountScore`: the posterior per deposit, the reported score, and the match table.
+/// railcheck's `amountScore` plus the crowd: the posterior per deposit, the two scores behind the
+/// verdict, and the match table.
 fn amount_score(pool: &[Deposit], target: i128, decimals: u8) -> Scored {
    let tolerance = tolerance(target);
    let high = target + tolerance;
@@ -417,7 +461,13 @@ fn amount_score(pool: &[Deposit], target: i128, decimals: u8) -> Scored {
       .collect();
 
    let highest = posterior.iter().copied().fold(0.0, f64::max);
-   let score = (100.0 * highest).round().clamp(0.0, 100.0) as u8;
+   let match_score = (100.0 * highest).round().clamp(0.0, 100.0) as u8;
+   let crowd = crowd_score(crowding);
+
+   // The worse of the two, because they are separate exposures: neighbours around the amount do not
+   // stop it from pointing at one deposit, and a sum that adds up to it does not stop it from being
+   // the only one of its size.
+   let score = crowd.max(match_score);
    let matches_by_size = counts.totals.map(|total| total.min(u32::MAX as u64) as u32);
    let reportable = posterior.iter().any(|p| (100.0 * p).round() >= REPORTABLE_PERCENT);
 
@@ -431,6 +481,8 @@ fn amount_score(pool: &[Deposit], target: i128, decimals: u8) -> Scored {
 
    Scored {
       score,
+      crowd_score: crowd,
+      match_score,
       matches_by_size,
       sets,
       crowding,
@@ -668,8 +720,13 @@ fn lower_bound(amounts: &[i128], x: i128, from: usize) -> usize {
 }
 
 /// A smaller amount the pool hides better, or `None` when the requested amount is already common.
+///
+/// Only smaller amounts are offered: the user asked for this much, and a privacy tip is no reason to
+/// take out more than they said. A candidate has to read [`RiskBand::Low`] on the whole scale — the
+/// crowd around it *and* what adds up to it, the same judgement the row above it shows — because
+/// anything short of that is an amount this check would still be warning about.
 fn safer_amount(pool: &[Deposit], target: i128, decimals: u8, score: u8) -> Option<u128> {
-   if f64::from(score) < REPORTABLE_PERCENT {
+   if RiskBand::from_score(score) == RiskBand::Low {
       return None;
    }
 
@@ -685,21 +742,7 @@ fn safer_amount(pool: &[Deposit], target: i128, decimals: u8, score: u8) -> Opti
          continue;
       }
 
-      let whole = whole_units(candidate, decimals);
-      let crowd = pool
-         .iter()
-         .filter_map(Deposit::amount_i128)
-         .filter(|amount| {
-            let value = whole_units(*amount, decimals);
-            value >= whole && value <= whole / CROWD_BAND
-         })
-         .count();
-
-      if crowd < CROWD_FLOOR {
-         continue;
-      }
-
-      if amount_score(pool, candidate, decimals).score <= 5 {
+      if RiskBand::from_score(amount_score(pool, candidate, decimals).score) == RiskBand::Low {
          return u128::try_from(candidate).ok();
       }
    }
@@ -752,6 +795,41 @@ mod tests {
          advice.crowding.within_ten_percent, 7,
          "all but 1.5"
       );
+   }
+
+   /// The knee the model hangs on: a size nothing comes near is the worst case, and it takes several
+   /// times [`CROWD_FLOOR`] to read Low — which is what makes an amount nobody else uses stop scoring
+   /// as safe just because nothing adds up to it.
+   #[test]
+   fn the_crowd_score_is_calibrated_at_the_floor() {
+      let verdict = |tight: u32, wide: u32| {
+         let score = crowd_score(Crowding {
+            within_one_percent: tight,
+            within_ten_percent: wide,
+         });
+         (score, RiskBand::from_score(score))
+      };
+
+      // (inside 1%, inside 10%) -> proximity score, band.
+      let ladder: [((u32, u32), (u8, RiskBand)); 9] = [
+         ((0, 0), (100, RiskBand::Critical)), // nothing within 10% of it
+         ((0, 5), (95, RiskBand::Critical)),  // a handful in the ballpark
+         ((1, 3), (89, RiskBand::Critical)),  // one deposit of exactly this size
+         ((5, 50), (46, RiskBand::High)),
+         ((10, 100), (26, RiskBand::High)),
+         ((25, 100), (15, RiskBand::Medium)), // a crowd, but the neighbours stop there
+         ((50, 200), (6, RiskBand::Medium)),
+         ((60, 300), (4, RiskBand::Low)), // several times the floor: it stops standing out
+         ((100, 500), (2, RiskBand::Low)),
+      ];
+
+      for ((tight, wide), expected) in ladder {
+         assert_eq!(
+            verdict(tight, wide),
+            expected,
+            "{tight} within 1% and {wide} within 10%"
+         );
+      }
    }
 
    /// railcheck's `brute`: every 1/2/3-deposit subset, counted the slow way.
@@ -959,6 +1037,43 @@ mod tests {
    /// The same amount is *not* distinctive when the pool is full of it: hiding is the point.
    #[test]
    fn an_amount_the_pool_is_full_of_is_low_risk() {
+      let mut pool: Vec<Deposit> = (1..=90).map(|i| eth(0.25, 1 + i as u64 % 100)).collect();
+      pool.extend((1..=275).map(|i| eth(i as f64 * 0.01, 1 + i as u64 % 100)));
+
+      let advice = assess_amount(
+         &pool,
+         (0.25 * WEI as f64) as u128,
+         18,
+         END_TS,
+         &[],
+         &[],
+      )
+      .unwrap();
+
+      assert_eq!(
+         advice.crowd_score, 3,
+         "90 deposits of exactly this size"
+      );
+      assert!(
+         advice.match_score < advice.crowd_score,
+         "the size is the story here, and the sums agree with it"
+      );
+      assert_eq!(
+         advice.band,
+         RiskBand::Low,
+         "a common amount scored {}",
+         advice.score
+      );
+      assert_eq!(
+         advice.suggestion, None,
+         "there is nothing safer to suggest"
+      );
+   }
+
+   /// A crowd that stops at the floor is a crowd, but not enough of one: the neighbours are this size
+   /// and no further, which is what the knee means. Reading Low takes several times as many.
+   #[test]
+   fn a_crowd_at_the_floor_is_not_yet_low_risk() {
       let mut pool: Vec<Deposit> = (1..=25).map(|i| eth(0.25, 1 + i as u64 % 100)).collect();
       pool.extend((1..=275).map(|i| eth(i as f64 * 0.01, 1 + i as u64 % 100)));
 
@@ -973,14 +1088,61 @@ mod tests {
       .unwrap();
 
       assert_eq!(
-         advice.band,
-         RiskBand::Low,
-         "a common amount scored {}",
-         advice.score
+         advice.crowd_score, 19,
+         "26 within 1% of it, 30 within 10%"
       );
       assert_eq!(
-         advice.suggestion, None,
-         "there is nothing safer to suggest"
+         advice.band,
+         RiskBand::Medium,
+         "scored {}",
+         advice.score
+      );
+   }
+
+   /// An amount nothing matches *and* nothing comes near is the worst case, not a safe one: the two
+   /// exposures are separate, and padding the pool with deposits nowhere near the amount, summing to
+   /// nothing, buys it no safety. This is the case the crowd score exists for — it scored zero here.
+   #[test]
+   fn unrelated_deposits_do_not_improve_the_verdict() {
+      let alone = vec![eth(1.5, 1)];
+      let mut padded = alone.clone();
+      padded.extend((1..=200).map(|i| eth(50.0 + i as f64, 2)));
+
+      let bare = assess_amount(
+         &alone,
+         (1.2 * WEI as f64) as u128,
+         18,
+         END_TS,
+         &[],
+         &[],
+      )
+      .unwrap();
+      let wide = assess_amount(
+         &padded,
+         (1.2 * WEI as f64) as u128,
+         18,
+         END_TS,
+         &[],
+         &[],
+      )
+      .unwrap();
+
+      assert_eq!(bare.crowding.within_ten_percent, 0);
+      assert_eq!(
+         bare.match_score, 0,
+         "nothing matches it, or adds up to it"
+      );
+      assert_eq!(
+         bare.band,
+         RiskBand::Critical,
+         "and that is the worst case"
+      );
+      assert_eq!(wide.crowding.within_ten_percent, 0);
+      assert!(
+         wide.score >= bare.score,
+         "{} padded against {} alone",
+         wide.score,
+         bare.score
       );
    }
 
@@ -1077,11 +1239,11 @@ mod tests {
       );
    }
 
-   /// When the amount is distinctive and the pool has somewhere to hide, a smaller amount is
-   /// offered — and it is one that matches nothing.
+   /// When the amount is distinctive and the pool has somewhere to hide, a smaller amount inside that
+   /// crowd is offered — and it has to read Low on the same scale, not merely match nothing.
    #[test]
    fn a_safer_amount_is_offered_when_the_pool_supports_it() {
-      let mut pool: Vec<Deposit> = (1..=30).map(|i| eth(1.05, 1 + i as u64 % 50)).collect();
+      let mut pool: Vec<Deposit> = (1..=80).map(|i| eth(1.05, 1 + i as u64 % 50)).collect();
       pool.push(eth(1.2, 5));
 
       let advice = assess_amount(
@@ -1097,8 +1259,14 @@ mod tests {
       assert_eq!(advice.score, 100);
       assert_eq!(advice.band, RiskBand::Critical);
 
+      // The crowd is at 1.05, so the first candidate to land on it — 88% of the amount — is the one
+      // taken, and it is a size the crowd is at rather than merely a smaller number.
       let suggestion = advice.suggestion.expect("a crowd sits below the amount");
-      assert_eq!(suggestion, (1.02 * WEI as f64) as u128);
+      assert_eq!(suggestion, (1.056 * WEI as f64) as u128);
+      assert!(
+         (suggestion as f64 - 1.05 * WEI as f64).abs() <= 0.01 * 1.05 * WEI as f64,
+         "the suggestion has to be a size the crowd is at"
+      );
       assert!(
          advice.sets.singles.iter().all(|d| d.amount_wei != suggestion),
          "the suggestion must not be a deposit of its own"
@@ -1126,6 +1294,17 @@ mod tests {
          assert!(advice.score <= 100);
          assert!(advice.pool_size <= count as u32);
          assert_eq!(advice.sets.len() <= MATCH_LIMIT, true);
+         assert_eq!(
+            advice.amount_score,
+            advice.crowd_score.max(advice.match_score)
+         );
+         if advice.crowding.within_ten_percent == 0 {
+            assert_ne!(
+               advice.band,
+               RiskBand::Low,
+               "an amount nothing comes near cannot read Low"
+            );
+         }
          if let Some(suggestion) = advice.suggestion {
             assert!(suggestion > 0 && suggestion < requested);
          }
