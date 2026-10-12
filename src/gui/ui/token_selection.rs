@@ -2,7 +2,7 @@
 
 use eframe::egui::{
    Align, Color32, FontId, Id, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Sense,
-   Spinner, Ui, emath::Vec2b, vec2,
+   Spinner, Ui, Vec2, emath::Vec2b, vec2,
 };
 
 use crate::assets::icons::Icons;
@@ -34,7 +34,7 @@ use zeus_eth::{
 
 use anyhow::{anyhow, bail};
 use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme, utils::frame as frame_fn};
-use elegance::{Badge, BadgeTone, Toast};
+use elegance::{Badge, BadgeTone, TabBar, Toast};
 
 /// Currency direction for [`TokenSelectionWindow`].
 ///
@@ -187,40 +187,67 @@ pub struct TokenSelectionWindow {
    nfts_generation: u64,
 }
 
-/// How wide the Tokens / NFTs pair renders, so the row that holds it can centre it.
-///
-/// A framed `egui_elements::Button` is `max(min_size, label + 2 * button_padding.x)`, and its default
-/// `min_size` is zero, so measuring the two labels is enough. The gap between the buttons is
-/// `theme.spacing.sm` **plus the row's `item_spacing.x` once**: egui advances by the item spacing after
-/// each *widget*, and `add_space` is not one (it moves the cursor by its own amount and nothing more).
-/// (The picker zeroes `item_spacing.x`, so in the real row the second term disappears — but the
-/// arithmetic has to hold wherever the row is laid out.)
-///
-/// The measurement is needed because a `ui.horizontal` inside `vertical_centered` is a full-width
-/// region whose children start at its left edge: nothing else will centre the pair.
-fn mode_switch_width(theme: &Theme, ui: &Ui) -> f32 {
-   const LABELS: [&str; 2] = ["Tokens", "NFTs"];
+/// The two labels of the Tokens / NFTs switch.
+const MODE_TABS: [&str; 2] = ["Tokens", "NFTs"];
 
-   let text = ui.ctx().fonts_mut(|fonts| {
-      LABELS
-         .iter()
-         .map(|label| {
+/// The sync button's label and its minimum size.
+///
+/// The row that centres the button measures it before drawing it, so the two have to agree on what
+/// the button is — a second copy of either would be a second thing to keep in step.
+const SYNC_LABEL: &str = "Sync balances";
+const SYNC_BUTTON_MIN_SIZE: Vec2 = Vec2::new(70.0, 25.0);
+
+/// How wide the Tokens / NFTs [`TabBar`] renders, so the row that holds it can centre it.
+///
+/// `TabBar` is content-sized but packs its cells at the left edge of whatever region it is handed,
+/// however wide that region is — so centring it means giving it a band exactly as wide as the two
+/// tabs, and letting the parent centre *that*. Elegance lays a tab out as `text + 2 *
+/// control_padding_x`, with the label in `typography.button` and no item spacing between the cells
+/// (`TabBar` zeroes it), and it reads both numbers from the elegance theme the app injects — so this
+/// has to read them from the same theme rather than guess. Pinned against what the bar actually
+/// paints in every theme by `the_mode_tabs_width_matches_what_the_tab_bar_renders`.
+fn mode_tabs_width(ui: &Ui) -> f32 {
+   let tab_theme = elegance::Theme::current(ui.ctx());
+
+   MODE_TABS
+      .iter()
+      .map(|label| {
+         let text = ui.ctx().fonts_mut(|fonts| {
             fonts
                .layout_no_wrap(
                   (*label).to_owned(),
-                  FontId::proportional(theme.typography.large),
+                  FontId::proportional(tab_theme.typography.button),
                   Color32::PLACEHOLDER,
                )
                .size()
                .x
-         })
-         .sum::<f32>()
+         });
+
+         text + 2.0 * tab_theme.control_padding_x
+      })
+      .sum()
+}
+
+/// How wide the sync button renders, so the row that holds it can centre it together with the spinner
+/// that joins it while a sync runs.
+///
+/// `egui_elements::Button` is `max(min_size, label + 2 * button_padding.x)`, with the label laid out
+/// in the theme's `normal` size and the row setting the button padding to the theme's — the same
+/// shape of measurement [`mode_tabs_width`] does for a tab. Pinned against what the button renders in
+/// every theme by `the_sync_button_width_matches_what_the_button_renders`.
+fn sync_button_width(theme: &Theme, ui: &Ui) -> f32 {
+   let text = ui.ctx().fonts_mut(|fonts| {
+      fonts
+         .layout_no_wrap(
+            SYNC_LABEL.to_owned(),
+            FontId::proportional(theme.typography.normal),
+            Color32::PLACEHOLDER,
+         )
+         .size()
+         .x
    });
 
-   text
-      + (LABELS.len() as f32 * 2.0 * ui.spacing().button_padding.x)
-      + theme.spacing.sm
-      + ui.spacing().item_spacing.x
+   (text + 2.0 * theme.button_padding.x).max(SYNC_BUTTON_MIN_SIZE.x)
 }
 
 impl TokenSelectionWindow {
@@ -484,19 +511,24 @@ impl TokenSelectionWindow {
                // Both modes can sync; privacy mode lists what is already shielded, and there is nothing
                // on chain to check it against. The search bar below serves both modes.
                if !ctx.privacy_mode {
-                  let text = RichText::new("Sync balances").size(theme.typography.normal);
-                  let button = Button::new(text).min_size(vec2(70.0, 25.0));
+                  let text = RichText::new(SYNC_LABEL).size(theme.typography.normal);
+                  let button = Button::new(text).min_size(SYNC_BUTTON_MIN_SIZE);
 
-                  let size = vec2(ui.available_width() * 0.25, 25.0);
                   let mut sync_clicked = false;
 
-                  ui.allocate_ui(size, |ui| {
+                  // A band exactly as wide as the button, centred by the enclosing `vertical_centered`:
+                  // a bare widget is centred by it, but the spinner that joins the row while a sync
+                  // runs makes this two, and a row packs its children at the left of whatever region it
+                  // gets. The band stays the button's own width in both states, so the spinner appears
+                  // beside the button rather than pushing it off the axis the title and switch sit on.
+                  ui.allocate_ui(vec2(sync_button_width(theme, ui), 0.0), |ui| {
                      ui.spacing_mut().button_padding = theme.button_padding;
 
-                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                     ui.horizontal(|ui| {
                         sync_clicked = ui.add_enabled(!self.syncing_balances, button).clicked();
+
                         if self.syncing_balances {
-                           ui.add_space(5.0);
+                           ui.add_space(theme.spacing.xs);
                            ui.add(Spinner::new().size(17.0).color(theme.colors.text));
                         }
                      });
@@ -733,39 +765,30 @@ impl TokenSelectionWindow {
       }
    }
 
-   /// The Tokens / NFTs switch.
+   /// The Tokens / NFTs switch: an elegance [`TabBar`], the widget the account panel and the
+   /// portfolio use for their own mode switches.
    ///
-   /// Two `Button::selectable`s sharing `theme.button_visuals()`, matching the two-mode switch in
-   /// `recipient_selection.rs` — this picker is a selection modal of the same shape, so it takes
-   /// that pattern rather than a `TabBar`.
+   /// The bar draws the active tab as an accent underline, and packs its cells at the left of the
+   /// region it is given — so it is centred by handing it a band exactly as wide as its two cells and
+   /// letting the enclosing `vertical_centered` centre that band. Given a wider band the cells sit at
+   /// its left edge and the switch reads off-centre.
    fn show_mode_switch(&mut self, theme: &Theme, ui: &mut Ui) {
-      let button_visuals = theme.button_visuals();
-      let switch_width = mode_switch_width(theme, ui);
+      let mut tab = usize::from(self.mode == PickerMode::Nft);
 
-      ui.horizontal(|ui| {
-         // A `ui.horizontal` here is a full-width region whose children start at its left edge, so the
-         // pair only ends up centred if the row is padded by half of what is left over.
-         ui.add_space(((ui.available_width() - switch_width) * 0.5).max(0.0));
-
-         let tokens_text = RichText::new("Tokens").size(theme.typography.large);
-         let nfts_text = RichText::new("NFTs").size(theme.typography.large);
-
-         let tokens_button = Button::selectable(self.mode == PickerMode::Fungible, tokens_text)
-            .visuals(button_visuals);
-
-         if ui.add(tokens_button).clicked() {
-            self.mode = PickerMode::Fungible;
-         }
-
-         ui.add_space(theme.spacing.sm);
-
-         let nfts_button =
-            Button::selectable(self.mode == PickerMode::Nft, nfts_text).visuals(button_visuals);
-
-         if ui.add(nfts_button).clicked() {
-            self.mode = PickerMode::Nft;
-         }
+      // Zero height: the band takes the tabs' own height.
+      ui.allocate_ui(vec2(mode_tabs_width(ui), 0.0), |ui| {
+         ui.add(TabBar::new(&mut tab, MODE_TABS));
       });
+
+      // `TabBar` writes the clicked index into `tab`, and a click on the active tab leaves it alone.
+      let picked = match tab {
+         0 => PickerMode::Fungible,
+         _ => PickerMode::Nft,
+      };
+
+      if picked != self.mode {
+         self.mode = picked;
+      }
 
       ui.add_space(theme.spacing.sm);
    }
@@ -1837,6 +1860,9 @@ mod tests {
    use egui_elements::ThemeKind;
    use zeus_eth::nft::NftStandard;
 
+   /// The width of the block the row-centring assertions lay their row out in.
+   const BLOCK: f32 = 400.0;
+
    /// The ownership badge: an unanswered question draws nothing, a held ERC-1155 says how many, and a
    /// token the chain says is gone reads "not owned" rather than blank — the catalog goes on listing it
    /// on purpose, so the row has to say which is which.
@@ -2324,13 +2350,13 @@ mod tests {
       assert_eq!(order, vec![2, 4, 1, 3]);
    }
 
-   /// The mode switch is centred by padding its row with half of the leftover width, so that width has
-   /// to be the width the two buttons actually render — `egui_elements::Button` is
-   /// `label + 2 * button_padding.x`, and every theme's typography changes the number. Padding by a
-   /// guess leaves the pair visibly off centre (or overflowing), so this pins the measurement against
-   /// the real widgets in every theme.
+   /// The switch is centred by handing the tab bar a band exactly as wide as its two cells, so that
+   /// width has to be the width the bar actually renders: every theme's typography and the injected
+   /// elegance padding move the number, and a band wider than the cells is not centred at all — the
+   /// cells pack at its left edge. Both halves are measured here, in every theme: the bar paints the
+   /// band's width, and the band sits in the middle of the row.
    #[test]
-   fn the_mode_switch_width_matches_what_the_buttons_render() {
+   fn the_mode_tabs_width_matches_what_the_tab_bar_renders() {
       for kind in [
          ThemeKind::TokyoNight,
          ThemeKind::TokyoNightLight,
@@ -2345,7 +2371,8 @@ mod tests {
          theme.install(&ctx);
 
          let mut measured = 0.0f32;
-         let mut rendered = 0.0f32;
+         let mut band = Rect::NOTHING;
+         let mut left = 0.0f32;
 
          let mut out = ctx.run_ui(
             RawInput {
@@ -2357,35 +2384,35 @@ mod tests {
             },
             |ctx| {
                CentralPanel::default().show(ctx, |ui| {
-                  measured = mode_switch_width(&theme, ui);
+                  let mut tab = 0usize;
 
-                  let visuals = theme.button_visuals();
-                  let mut left = 0.0;
-                  let mut right = 0.0;
+                  // A `TabBar`'s rect is its content width however wide the region it is given, so this
+                  // is the width it paints — the number `mode_tabs_width` has to reproduce.
+                  let painted = ui.add(TabBar::new(&mut tab, MODE_TABS)).rect;
 
-                  ui.horizontal(|ui| {
-                     let tokens = ui.add(
-                        Button::selectable(
-                           true,
-                           RichText::new("Tokens").size(theme.typography.large),
-                        )
-                        .visuals(visuals),
-                     );
-                     left = tokens.rect.min.x;
+                  // The block the band is centred in. `allocate_ui` reports the child's *content* rect,
+                  // which is not the width it was handed, so the centre comes from the block's own left
+                  // edge and the width it was asked for.
+                  left = ui.cursor().min.x;
 
-                     ui.add_space(theme.spacing.sm);
+                  ui.allocate_ui(vec2(BLOCK, 100.0), |ui| {
+                     ui.vertical_centered(|ui| {
+                        measured = mode_tabs_width(ui);
 
-                     let nfts = ui.add(
-                        Button::selectable(
-                           false,
-                           RichText::new("NFTs").size(theme.typography.large),
-                        )
-                        .visuals(visuals),
-                     );
-                     right = nfts.rect.max.x;
+                        band = ui
+                           .allocate_ui(vec2(measured, 0.0), |ui| {
+                              ui.add(TabBar::new(&mut tab, MODE_TABS))
+                           })
+                           .response
+                           .rect;
+                     });
                   });
 
-                  rendered = right - left;
+                  assert!(
+                     (painted.width() - measured).abs() < 0.5,
+                     "{kind:?}: band {measured}, the tab bar paints {}",
+                     painted.width()
+                  );
                });
             },
          );
@@ -2394,8 +2421,95 @@ mod tests {
          out.textures_delta.clear();
 
          assert!(
-            (measured - rendered).abs() < 0.5,
-            "{kind:?}: padded by {measured}, the buttons render {rendered}"
+            (band.width() - measured).abs() < 0.5,
+            "{kind:?}: the tab bar fills the band {measured}, it rendered {}",
+            band.width()
+         );
+
+         assert!(
+            (band.center().x - (left + BLOCK * 0.5)).abs() < 0.5,
+            "{kind:?}: the band is centred in its block: {} vs {}",
+            band.center().x,
+            left + BLOCK * 0.5
+         );
+      }
+   }
+
+   /// The sync row is centred by handing the button a band exactly as wide as the button itself, so
+   /// that width has to be what `egui_elements::Button` renders — `max(min_size, label + 2 *
+   /// button_padding.x)`, which every theme's typography moves. The band is also what keeps the
+   /// spinner from shifting the button, so a band that is off by a few px is a button off the axis the
+   /// title and the switch sit on.
+   #[test]
+   fn the_sync_button_width_matches_what_the_button_renders() {
+      for kind in [
+         ThemeKind::TokyoNight,
+         ThemeKind::TokyoNightLight,
+         ThemeKind::McLaren650Gts,
+         ThemeKind::Reverie,
+         ThemeKind::ShadeSanctuary,
+         ThemeKind::Wasp,
+         ThemeKind::WaspLight,
+      ] {
+         let ctx = Context::default();
+         let mut theme = Theme::new(kind.clone());
+         theme.install(&ctx);
+
+         let mut measured = 0.0f32;
+         let mut button = Rect::NOTHING;
+         let mut left = 0.0f32;
+
+         let mut out = ctx.run_ui(
+            RawInput {
+               screen_rect: Some(Rect::from_min_size(
+                  Pos2::ZERO,
+                  vec2(600.0, 200.0),
+               )),
+               ..Default::default()
+            },
+            |ctx| {
+               CentralPanel::default().show(ctx, |ui| {
+                  // The block the band is centred in: `allocate_ui` reports the child's *content* rect,
+                  // so the centre comes from the block's own left edge and the width it was handed.
+                  left = ui.cursor().min.x;
+
+                  ui.allocate_ui(vec2(BLOCK, 100.0), |ui| {
+                     ui.vertical_centered(|ui| {
+                        measured = sync_button_width(&theme, ui);
+
+                        button = ui
+                           .allocate_ui(vec2(measured, 0.0), |ui| {
+                              ui.spacing_mut().button_padding = theme.button_padding;
+
+                              ui.add(
+                                 Button::new(
+                                    RichText::new(SYNC_LABEL).size(theme.typography.normal),
+                                 )
+                                 .min_size(SYNC_BUTTON_MIN_SIZE),
+                              )
+                           })
+                           .inner
+                           .rect;
+                     })
+                  });
+               });
+            },
+         );
+
+         // Dropping the output with unapplied texture deltas panics the test.
+         out.textures_delta.clear();
+
+         assert!(
+            (button.width() - measured).abs() < 0.5,
+            "{kind:?}: band {measured}, the button renders {}",
+            button.width()
+         );
+
+         assert!(
+            (button.center().x - (left + BLOCK * 0.5)).abs() < 0.5,
+            "{kind:?}: the button is centred in its block: {} vs {}",
+            button.center().x,
+            left + BLOCK * 0.5
          );
       }
    }
