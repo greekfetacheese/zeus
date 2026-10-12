@@ -1,5 +1,6 @@
 use alloy_primitives::{Address, U256};
 use anyhow::bail;
+use revm::primitives::eip8037::{CPSB_GLAMSTERDAM, NEW_ACCOUNT_BYTES, SSTORE_SET_BYTES};
 use revm::primitives::hardfork::SpecId;
 
 pub const ETH: u64 = 1;
@@ -233,12 +234,24 @@ impl ChainId {
       }
    }
 
-   /// State gas a new account is charged (EIP-8037): 120 state bytes at 1,530 per byte.
-   /// Verified against a Sepolia node.
-   const NEW_ACCOUNT_STATE_GAS: u64 = 183_600;
+   /// State gas a new account is charged (EIP-8037): its state bytes at the cost per state byte.
+   ///
+   /// Both figures come from revm rather than being written out, because they are *parameters* —
+   /// EIP-8037 was still in Last Call while Sepolia was already charging for it, and a revision that
+   /// moves the cost per state byte would leave this reserve quoting the old price, silently. That
+   /// is the same underprice that put the spec in the simulation's hands in the first place.
+   ///
+   /// Verified against a Sepolia node: 183,600.
+   const NEW_ACCOUNT_STATE_GAS: u64 = NEW_ACCOUNT_BYTES * CPSB_GLAMSTERDAM;
 
-   /// State gas a new storage slot is charged: 64 state bytes at 1,530 per byte.
-   const NEW_SLOT_STATE_GAS: u64 = 97_920;
+   /// State gas a new storage slot is charged: 64 state bytes at the same rate (verified: 97,920).
+   const NEW_SLOT_STATE_GAS: u64 = SSTORE_SET_BYTES * CPSB_GLAMSTERDAM;
+
+   /// Execution gas a Railgun shield costs, before the state it creates.
+   const SHIELD_EXECUTION_GAS: u64 = 500_000;
+
+   /// Storage slots a shield writes: the commitment tree leaf and the token's balance entry.
+   const SHIELD_NEW_SLOTS: u64 = 2;
 
    /// Minimum gas usage for a transaction — the intrinsic floor, and the base a transfer starts
    /// from.
@@ -271,6 +284,16 @@ impl ChainId {
       };
 
       base + self.state_gas(Self::NEW_SLOT_STATE_GAS)
+   }
+
+   /// Gas needed for a private send — shielding through Railgun.
+   ///
+   /// The same contract as the other two: it sizes the **Max** amount, so it covers the shield that
+   /// writes the most state rather than the cheapest one. A shield writes the commitment tree leaf
+   /// and the token's balance entry, which a chain that meters state creation charges on top of the
+   /// execution — the figure `500_000` used to stand in for both.
+   pub fn privacy_transfer_gas(&self) -> u64 {
+      Self::SHIELD_EXECUTION_GAS + Self::SHIELD_NEW_SLOTS * self.state_gas(Self::NEW_SLOT_STATE_GAS)
    }
 
    /// `state_gas` where the chain meters state creation separately, zero where it does not
@@ -364,6 +387,11 @@ mod tests {
          ChainId::EthereumSepolia.erc20_transfer_gas(),
          50_000 + 97_920
       );
+      assert_eq!(
+         ChainId::EthereumSepolia.privacy_transfer_gas(),
+         500_000 + 2 * 97_920,
+         "a shield writes two slots"
+      );
 
       for id in SUPPORTED_CHAINS {
          let chain = ChainId::new(id).unwrap();
@@ -380,6 +408,17 @@ mod tests {
             "{chain:?}"
          );
          assert_eq!(chain.min_gas(), base, "{chain:?}");
+
+         let slot_gas = if chain.is_eth_sepolia() {
+            2 * 97_920
+         } else {
+            0
+         };
+         assert_eq!(
+            chain.privacy_transfer_gas(),
+            500_000 + slot_gas,
+            "{chain:?}"
+         );
       }
    }
 

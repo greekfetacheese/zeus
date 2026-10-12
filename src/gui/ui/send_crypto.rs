@@ -1020,7 +1020,7 @@ impl SendCryptoUi {
 
    fn cost(&self, ctx: &mut ZeusContext, privacy_mode: bool) -> NumericValue {
       let gas_used = if privacy_mode {
-         500_000
+         ctx.chain.privacy_transfer_gas()
       } else if self.currency.is_native() {
          ctx.chain.transfer_gas()
       } else {
@@ -1389,7 +1389,8 @@ async fn send_eth(
    let gas_used;
 
    {
-      let mut evm = new_evm(chain, Some(&block), fork_db);
+      let spec = ctx.node_spec(chain).await;
+      let mut evm = new_evm(chain, Some(&block), fork_db, spec);
 
       let res = simulate::simulate_transaction(
          &mut evm,
@@ -1551,7 +1552,8 @@ async fn send_token(
    let gas_used;
 
    {
-      let mut evm = new_evm(chain, Some(&block), fork_db);
+      let spec = ctx.node_spec(chain).await;
+      let mut evm = new_evm(chain, Some(&block), fork_db, spec);
 
       let res = simulate::simulate_transaction(
          &mut evm,
@@ -1709,7 +1711,8 @@ async fn send_nft(
    let gas_used;
 
    {
-      let mut evm = new_evm(chain, Some(&block), fork_db);
+      let spec = ctx.node_spec(chain).await;
+      let mut evm = new_evm(chain, Some(&block), fork_db, spec);
 
       // The pre-state comes from the same fork the simulation runs on, and `transact` does not commit,
       // so this read leaves it untouched. ERC-721 needs no pre-read: `ownerOf` after the transfer says
