@@ -177,9 +177,18 @@ impl ZeusApp {
       // us to notice, then hidden.
       let minimized = egui_ctx.input(|i| i.viewport().minimized).unwrap_or(false);
       if minimized && !self.hidden_to_tray && self.minimize_to_tray_enabled() {
-         self.hidden_to_tray = true;
-         tray::hide_window(egui_ctx);
-         tray::notify_hidden();
+         // Hiding leaves the tray icon as the only way back, so it needs an icon the
+         // desktop is actually drawing — one that built is not the same thing (see
+         // `tray::host_available`). While that cannot be confirmed the minimize simply
+         // stands, and the answer is refreshed for the next one: a session can start
+         // Zeus before its tray host does.
+         if tray::host_available() {
+            self.hidden_to_tray = true;
+            tray::hide_window(egui_ctx);
+            tray::notify_hidden();
+         } else {
+            tray::refresh_host_availability();
+         }
       }
    }
 

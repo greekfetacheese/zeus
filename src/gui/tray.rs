@@ -72,6 +72,10 @@ impl Tray {
 
       let icon_handle = builder.build()?;
 
+      // Ask the session bus whether a host is there to draw it (Linux/BSD). Building the
+      // icon says nothing about that, and the answer gates hiding the window.
+      refresh_host_availability();
+
       // The handlers capture plain `Send` values — a `MenuId` clone and the egui
       // context — never the `TrayIcon`, which is not `Send`.
       let toggle_id = toggle.id().clone();
@@ -125,6 +129,85 @@ impl Tray {
    /// Every interaction since the last call, without blocking.
    pub fn drain(&self) -> Vec<TrayAction> {
       self.actions.try_iter().collect()
+   }
+}
+
+/// Whether an icon we register would actually be drawn (see [`watcher`]).
+///
+/// A `false` answer means hiding the window must not happen yet.
+pub fn host_available() -> bool {
+   watcher::present()
+}
+
+/// Ask the session bus again, in the background. Cheap enough for the frame path.
+pub fn refresh_host_availability() {
+   watcher::refresh();
+}
+
+/// The StatusNotifier host question, asked of the session bus.
+///
+/// Building the icon proves nothing on Linux: the `ksni` backend runs with
+/// `assume_sni_available(true)`, so `Tray::build` succeeds even where no host exists — ksni's
+/// own docs say the icon "may never appear if SNI support is truly absent". A window hidden
+/// behind an icon nobody draws is unreachable (only a dapp prompt or a restart brings it
+/// back), so this answer decides whether hiding is allowed at all.
+///
+/// The probe is a D-Bus round trip and never runs on the frame path: it starts when the tray
+/// is built and is re-asked by a minimize that finds the answer unusable. Until a probe
+/// answers, the answer is `false`, which keeps the window on screen — the safe direction.
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+mod watcher {
+   use std::sync::atomic::{AtomicBool, Ordering};
+
+   /// The name a StatusNotifier host owns (KDE's, and the name the GNOME AppIndicator
+   /// extension takes).
+   const WATCHER: &str = "org.kde.StatusNotifierWatcher";
+
+   static PRESENT: AtomicBool = AtomicBool::new(false);
+   static PROBING: AtomicBool = AtomicBool::new(false);
+
+   /// Ask the session bus, off the frame path.
+   pub fn refresh() {
+      // One probe at a time: a minimize is noticed on every frame until it takes effect.
+      if PROBING.swap(true, Ordering::SeqCst) {
+         return;
+      }
+
+      // A plain thread rather than `RT.spawn_blocking`: this is zbus's blocking API, and
+      // zbus `block_on`s a runtime of its own, which tokio refuses to nest inside a runtime
+      // thread. Under `async-io` that is only a hazard on paper; running off every runtime
+      // makes it a non-question.
+      std::thread::spawn(move || {
+         let present = ask().unwrap_or(false);
+         PRESENT.store(present, Ordering::Relaxed);
+         PROBING.store(false, Ordering::SeqCst);
+      });
+   }
+
+   /// The last answered result.
+   pub fn present() -> bool {
+      PRESENT.load(Ordering::Relaxed)
+   }
+
+   fn ask() -> zbus::Result<bool> {
+      let connection = zbus::blocking::Connection::session()?;
+      let dbus = zbus::blocking::fdo::DBusProxy::new(&connection)?;
+      let watcher = zbus::names::BusName::from_static_str(WATCHER).map_err(zbus::Error::Names)?;
+
+      // The proxy reports its own error type; the caller only cares that the bus could not
+      // be asked, and folds that into "no host".
+      dbus.name_has_owner(watcher).map_err(|e| zbus::Error::FDO(Box::new(e)))
+   }
+}
+
+/// Windows and macOS report a refused icon registration themselves (`Shell_NotifyIcon`,
+/// `NSStatusBar`), so an icon that built is an icon the OS is showing.
+#[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+mod watcher {
+   pub fn refresh() {}
+
+   pub fn present() -> bool {
+      true
    }
 }
 
@@ -203,4 +286,50 @@ pub fn notify_locked() {
       "The wallet was locked from the system tray. Open the Zeus window and enter your \
        credentials to unlock it.",
    );
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// `refresh_host_availability` is called from the frame path — a minimize is noticed on
+   /// every frame until it takes effect — so it has to return immediately and leave the
+   /// D-Bus round trip to a worker. Repeats must not queue one probe each either.
+   #[test]
+   fn refreshing_never_blocks_the_caller() {
+      let start = std::time::Instant::now();
+      for _ in 0..50 {
+         refresh_host_availability();
+      }
+
+      assert!(
+         start.elapsed() < std::time::Duration::from_millis(50),
+         "50 refreshes took {:?}",
+         start.elapsed()
+      );
+   }
+
+   /// What the frame path reads has to be what the bus says. Ignored because it needs a
+   /// session bus, and because "no host" is a legitimate answer (it is the case the guard
+   /// exists for) — on a host-less desktop the assertion still holds, it just proves less.
+   #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+   #[test]
+   #[ignore = "needs a session bus with a StatusNotifier host"]
+   fn the_probe_reports_what_the_bus_says() {
+      let connection = zbus::blocking::Connection::session().expect("a session bus");
+      let dbus = zbus::blocking::fdo::DBusProxy::new(&connection).expect("the bus proxy");
+      let watcher = zbus::names::BusName::from_static_str("org.kde.StatusNotifierWatcher")
+         .expect("a valid bus name");
+      let direct = dbus.name_has_owner(watcher).expect("name_has_owner");
+
+      refresh_host_availability();
+      for _ in 0..50 {
+         if host_available() == direct {
+            break;
+         }
+         std::thread::sleep(std::time::Duration::from_millis(100));
+      }
+
+      assert_eq!(host_available(), direct);
+   }
 }
