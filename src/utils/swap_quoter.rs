@@ -557,6 +557,71 @@ fn direct_impact_percent(route: &EvaluatedRoute) -> Option<f64> {
    Some((1.0 - (route.amount_out.f64() / ideal)) * 100.0)
 }
 
+/// Hand the input out one chunk at a time, always to the route whose next chunk buys the
+/// most output, and return what each route got.
+///
+/// **The allocation always sums to `total`.** Two things can leave input unallocated: the
+/// chunk loop stops early once no route gains anything from another chunk, and the integer
+/// division that sized the chunk leaves a remainder — so the leftover is measured against
+/// what was actually allocated, not recomputed from the chunk. Every wei has to land on a
+/// route: the plan moves the whole `amount_in`, so an allocation short of `total` would swap
+/// less than the quote priced and leave the difference sitting in the router.
+///
+/// Requires `chunk * chunks <= total`, which [`split_direct_pools`] guarantees by sizing the
+/// chunk as `total / SPLIT_CHUNKS`. That is what makes the sum reach `total` rather than
+/// overshoot it.
+fn allocate_chunks(
+   routes: usize,
+   total: U256,
+   chunk: U256,
+   chunks: u32,
+   mut output_at: impl FnMut(usize, U256) -> U256,
+) -> Vec<U256> {
+   debug_assert!(
+      chunk * U256::from(chunks) <= total,
+      "chunk {chunk} over {chunks} chunks exceeds the {total} being allocated"
+   );
+
+   let mut allocations = vec![U256::ZERO; routes];
+   let mut current_output = vec![U256::ZERO; routes];
+
+   let initial: Vec<MarginalGain> = (0..routes)
+      .map(|route_index| MarginalGain {
+         gain: output_at(route_index, chunk),
+         route_index,
+      })
+      .collect();
+   let mut heap = BinaryHeap::from(initial);
+
+   for _ in 0..chunks {
+      let Some(MarginalGain { gain, route_index }) = heap.pop() else {
+         break;
+      };
+      if gain.is_zero() {
+         continue;
+      }
+
+      allocations[route_index] += chunk;
+      current_output[route_index] += gain;
+
+      let next_output = output_at(route_index, allocations[route_index] + chunk);
+      heap.push(MarginalGain {
+         gain: next_output.saturating_sub(current_output[route_index]),
+         route_index,
+      });
+   }
+
+   let allocated = allocations.iter().copied().fold(U256::ZERO, |sum, amount| sum + amount);
+   let leftover = total.saturating_sub(allocated);
+   if !leftover.is_zero() {
+      if let Some((best, _)) = allocations.iter().enumerate().max_by_key(|(_, amt)| *amt) {
+         allocations[best] += leftover;
+      }
+   }
+
+   allocations
+}
+
 fn split_direct_pools(
    directs: &[EvaluatedRoute],
    amount_to_swap: &NumericValue,
@@ -596,53 +661,18 @@ fn split_direct_pools(
    }
 
    let candidates: Vec<&EvaluatedRoute> = ranked.iter().map(|(i, _)| &directs[*i]).collect();
-   let n = candidates.len();
-   let mut allocations = vec![U256::ZERO; n];
-   let mut current_output = vec![U256::ZERO; n];
-
-   let initial: Vec<MarginalGain> = candidates
-      .iter()
-      .enumerate()
-      .map(|(i, route)| MarginalGain {
-         gain: simulate_path_with_steps(&route.pools, &route.path_currencies, chunk)
+   let allocations = allocate_chunks(
+      candidates.len(),
+      total,
+      chunk,
+      SPLIT_CHUNKS,
+      |route_index, amount| {
+         let route = candidates[route_index];
+         simulate_path_with_steps(&route.pools, &route.path_currencies, amount)
             .map(|(out, _)| out)
-            .unwrap_or_default(),
-         route_index: i,
-      })
-      .collect();
-   let mut heap = BinaryHeap::from(initial);
-
-   for _ in 0..SPLIT_CHUNKS {
-      let Some(MarginalGain { gain, route_index }) = heap.pop() else {
-         break;
-      };
-      if gain.is_zero() {
-         continue;
-      }
-      allocations[route_index] += chunk;
-      current_output[route_index] += gain;
-
-      let route = candidates[route_index];
-      let next_output = simulate_path_with_steps(
-         &route.pools,
-         &route.path_currencies,
-         allocations[route_index] + chunk,
-      )
-      .map(|(out, _)| out)
-      .unwrap_or_default();
-
-      heap.push(MarginalGain {
-         gain: next_output.saturating_sub(current_output[route_index]),
-         route_index,
-      });
-   }
-
-   let leftover = total.saturating_sub(chunk * U256::from(SPLIT_CHUNKS));
-   if !leftover.is_zero() {
-      if let Some((best_i, _)) = allocations.iter().enumerate().max_by_key(|(_, amt)| *amt) {
-         allocations[best_i] += leftover;
-      }
-   }
+            .unwrap_or_default()
+      },
+   );
 
    let used: Vec<(usize, U256)> = allocations
       .iter()
@@ -661,9 +691,15 @@ fn split_direct_pools(
    let mut total_out = U256::ZERO;
    for (i, amt) in &used {
       let route = candidates[*i];
+      // Every used route has to be placeable. Skipping one would leave the slice of input the
+      // allocation gave it unspent — while the plan still moves the whole `amount_in` out of
+      // the wallet — so an allocation that cannot be simulated means this split cannot carry
+      // the trade, and the best single route (evaluated with the full amount) takes it instead.
       let Some((out, steps)) = simulate_path_with_steps(&route.pools, &route.path_currencies, *amt)
       else {
-         continue;
+         return best_single
+            .map(|r| build_quote_from_route(r, currency_in.clone(), currency_out.clone()))
+            .unwrap_or_default();
       };
       total_out += out;
       swap_steps.extend(steps_to_swap_steps(route, &steps));
@@ -1061,5 +1097,86 @@ mod tests {
          split.amount_out.wei(),
          single.amount_out.wei()
       );
+
+      // The split spends the whole input. The plan moves `amount_in` in full — as the
+      // transaction's value, or as a Permit2 transfer of that size — so steps that add up
+      // to less would leave the difference sitting in the router.
+      let spent = split
+         .swap_steps
+         .iter()
+         .map(|step| step.amount_in.wei())
+         .fold(U256::ZERO, |sum, amount| sum + amount);
+      assert_eq!(spent, split.amount_in.wei());
+   }
+
+   /// A route that stops buying output ends the chunk loop early, and what is left over is
+   /// still allocated: the pre-fix leftover was `total mod chunk`, which silently dropped
+   /// everything the loop never handed out.
+   #[test]
+   fn a_split_allocates_every_wei() {
+      let total = U256::from(1055u64);
+      let chunk = total / U256::from(SPLIT_CHUNKS);
+      let sum = |allocations: &[U256]| allocations.iter().copied().fold(U256::ZERO, |a, b| a + b);
+
+      // Three routes that each absorb exactly one chunk: the next round gains nothing, so the
+      // loop stops with three of the ten chunks handed out and the rest left over.
+      let allocations = allocate_chunks(3, total, chunk, SPLIT_CHUNKS, |_route, amount| {
+         if amount == chunk { amount } else { U256::ZERO }
+      });
+      assert_eq!(sum(&allocations), total);
+      assert_eq!(
+         allocations.iter().filter(|amount| !amount.is_zero()).count(),
+         3
+      );
+
+      // A route that never produces anything keeps nothing, and the rest still lands.
+      let allocations = allocate_chunks(3, total, chunk, SPLIT_CHUNKS, |route, amount| {
+         if route == 2 || amount != chunk {
+            U256::ZERO
+         } else {
+            amount
+         }
+      });
+      assert_eq!(sum(&allocations), total);
+      assert!(allocations[2].is_zero());
+   }
+
+   /// No input can be left unallocated, whatever the route count, the total, or how many chunks
+   /// the loop manages to hand out before every route has had enough.
+   ///
+   /// This is the guarantee a split quote rests on: it carries the whole `amount_in`, and the
+   /// plan moves that much out of the wallet, so an allocation short of the total would swap less
+   /// than the quote priced and leave the difference sitting in the Universal Router. Pre-fix the
+   /// leftover was recomputed as `total mod chunk`, so every chunk the loop never reached was
+   /// dropped — which is what this sweeps.
+   #[test]
+   fn a_split_never_leaves_input_unallocated() {
+      /// Route `r` absorbs `r + 1` chunks and then produces nothing more — the shape a route that
+      /// has run out of liquidity has.
+      const CAPACITY_CHUNKS: [u64; 4] = [1, 2, 3, 4];
+
+      let sum = |allocations: &[U256]| allocations.iter().copied().fold(U256::ZERO, |a, b| a + b);
+
+      for routes in 1..=CAPACITY_CHUNKS.len() {
+         for total in [0u64, 1, 7, 10, 35, 99, 100, 101, 250, 1000] {
+            for chunks in 1..=SPLIT_CHUNKS {
+               let amount = U256::from(total);
+               // Sized the way `split_direct_pools` sizes it, which is what keeps the allocation
+               // from overshooting the total.
+               let chunk = amount / U256::from(SPLIT_CHUNKS);
+
+               let allocations = allocate_chunks(routes, amount, chunk, chunks, |route, want| {
+                  let capacity = chunk * U256::from(CAPACITY_CHUNKS[route]);
+                  if want <= capacity { want } else { U256::ZERO }
+               });
+
+               assert_eq!(
+                  sum(&allocations),
+                  amount,
+                  "routes={routes} chunks={chunks} total={total}"
+               );
+            }
+         }
+      }
    }
 }
