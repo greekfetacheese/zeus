@@ -159,10 +159,13 @@ impl NumericValue {
    ///
    /// Example:
    /// ```
+   /// use zeus_eth::alloy_primitives::U256;
+   /// use zeus_eth::utils::NumericValue;
+   ///
    /// // 1 ETH in wei
    /// let wei = U256::from(1000000000000000000u128);
    /// let value = NumericValue::format_wei(wei, 18);
-   /// assert_eq!(value.wei().unwrap(), U256::from(1000000000000000000u128));
+   /// assert_eq!(value.wei(), U256::from(1000000000000000000u128));
    /// assert_eq!(value.f64(), 1.0);
    /// ```
    pub fn format_wei(wei: U256, decimals: u8) -> Self {
@@ -175,10 +178,13 @@ impl NumericValue {
    ///
    /// Example:
    /// ```
+   /// use zeus_eth::alloy_primitives::U256;
+   /// use zeus_eth::utils::NumericValue;
+   ///
    /// let amount = "1";
-   /// let value = NumericValue::parse_to_wei(&amount.to_string(), 18);
-   /// assert_eq!(value.wei().unwrap(), U256::from(1000000000000000000u128));
-   /// assert_eq!(value.f64, 1.0);
+   /// let value = NumericValue::parse_to_wei(amount, 18);
+   /// assert_eq!(value.wei(), U256::from(1000000000000000000u128));
+   /// assert_eq!(value.f64(), 1.0);
    /// ```
    pub fn parse_to_wei(amount: &str, currency_decimals: u8) -> Self {
       let wei = if let Ok(units) = parse_units(amount, currency_decimals) {
@@ -193,11 +199,14 @@ impl NumericValue {
    ///
    /// Example:
    /// ```
+   /// use zeus_eth::alloy_primitives::U256;
+   /// use zeus_eth::utils::NumericValue;
+   ///
    /// // 1 GWei in wei
    /// let wei = U256::from(1000000000u128);
    /// let value = NumericValue::format_to_gwei(wei);
-   /// assert_eq!(value.wei().unwrap(), U256::from(1000000000u128));
-   /// assert_eq!(value.f64, 1.0);
+   /// assert_eq!(value.wei(), U256::from(1000000000u128));
+   /// assert_eq!(value.f64(), 1.0);
    /// ```
    pub fn format_to_gwei(amount: U256) -> Self {
       Self::from_wei(amount, 9)
@@ -209,10 +218,13 @@ impl NumericValue {
    ///
    /// Example:
    /// ```
+   /// use zeus_eth::alloy_primitives::U256;
+   /// use zeus_eth::utils::NumericValue;
+   ///
    /// let amount = "1";
-   /// let value = NumericValue::parse_to_gwei(&amount.to_string());
-   /// assert_eq!(value.wei().unwrap(), U256::from(1000000000u128));
-   /// assert_eq!(value.f64, 1.0);
+   /// let value = NumericValue::parse_to_gwei(amount);
+   /// assert_eq!(value.wei(), U256::from(1000000000u128));
+   /// assert_eq!(value.f64(), 1.0);
    /// ```
    pub fn parse_to_gwei(amount: &str) -> Self {
       let wei = if let Ok(units) = parse_units(amount, 9) {
