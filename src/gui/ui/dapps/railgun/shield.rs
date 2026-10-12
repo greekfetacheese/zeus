@@ -1141,10 +1141,13 @@ impl ShieldUi {
                   format!("{near} deposits are within 10% of this size, {tight} within 1%")
                }
             };
+            // A count of sets, not of deposits: each way is a 1-, 2- or 3-deposit combination, and a
+            // pool full of the same few sizes makes that number far larger than the pool itself — so
+            // it has to say what it counts, or it reads as "108,602 deposits".
             let sums = match matches {
                0 => "nothing adds up to it".to_string(),
                1 => "a single deposit or sum adds up to it".to_string(),
-               matches => format!("{matches} deposits or sums add up to it"),
+               matches => format!("{matches} combinations of deposits add up to it"),
             };
 
             let (mut lead, follow) = if advice.crowd_score >= advice.match_score {

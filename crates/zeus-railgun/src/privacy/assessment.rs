@@ -393,7 +393,10 @@ fn amount_score(pool: &[Deposit], target: i128, decimals: u8) -> Scored {
    let amounts: Vec<i128> = sorted.iter().filter_map(Deposit::amount_i128).collect();
    let n = amounts.len();
 
-   let counts = count_sets(&amounts, target, tolerance);
+   // One dust floor for the whole call: what a leg has to exceed to be part of a set of two or more,
+   // for the count and for the sets that are listed.
+   let dust = dust_leg(decimals, target);
+   let counts = count_sets(&amounts, target, tolerance, dust);
 
    // How crowded the region around the amount is, against the whole pool: a withdrawal of a common
    // size is hidden by everyone else withdrawing the same size.
@@ -473,7 +476,7 @@ fn amount_score(pool: &[Deposit], target: i128, decimals: u8) -> Scored {
 
    let sets = if reportable {
       match_sets(
-         &sorted, &amounts, target, tolerance, decimals, &posterior,
+         &sorted, &amounts, target, tolerance, dust, &posterior,
       )
    } else {
       MatchSets::default()
@@ -494,7 +497,13 @@ fn amount_score(pool: &[Deposit], target: i128, decimals: u8) -> Scored {
 /// `amounts` must be ascending. railcheck's sliding-window scan, kept as it is: for each pair of
 /// outer deposits the eligible third is a contiguous slice, so a moving lower bound and a running
 /// difference array cover the range without enumerating it.
-fn count_sets(amounts: &[i128], target: i128, tolerance: i128) -> SetCounts {
+///
+/// A single deposit can be matched on its own, but a set of two or more legs cannot use a leg at or
+/// under `dust`: that sum restates a smaller set rather than being one, which is the rule
+/// [`match_sets`] already applies to the sets it lists. Counting them anyway is what let a pool of
+/// 1,212 deposits report 108,602 ways of matching one 0.018 withdrawal — 116 of those deposits are
+/// 100 wei, and they paired and tripled with everything else.
+fn count_sets(amounts: &[i128], target: i128, tolerance: i128, dust: i128) -> SetCounts {
    let n = amounts.len();
    let mut counts = [vec![0u64; n], vec![0u64; n], vec![0u64; n]];
    let mut totals = [0u64; 3];
@@ -505,6 +514,10 @@ fn count_sets(amounts: &[i128], target: i128, tolerance: i128) -> SetCounts {
 
    let low = target - tolerance;
    let high = target + tolerance;
+
+   // `amounts` is ascending, so the dust legs are its prefix and no leg of a pair or triple can come
+   // from before this index.
+   let real = amounts.partition_point(|amount| *amount <= dust);
 
    for i in 0..n {
       if amounts[i] >= low && amounts[i] <= high {
@@ -518,6 +531,10 @@ fn count_sets(amounts: &[i128], target: i128, tolerance: i128) -> SetCounts {
       let outer = if k == 2 { 1 } else { n.saturating_sub(2) };
 
       for p in 0..outer {
+         if k == 3 && amounts[p] <= dust {
+            continue;
+         }
+
          if k == 3 && p + 2 < n && amounts[p] + amounts[p + 1] + amounts[p + 2] > high {
             break;
          }
@@ -525,7 +542,7 @@ fn count_sets(amounts: &[i128], target: i128, tolerance: i128) -> SetCounts {
          let base = if k == 2 { 0 } else { amounts[p] };
          let mut lo = n;
          let mut hi = n as isize - 1;
-         let mut j = if k == 2 { 0 } else { p + 1 };
+         let mut j = if k == 2 { real } else { p + 1 };
 
          while j + 1 < n {
             if base + amounts[j] + amounts[j + 1] > high {
@@ -535,7 +552,7 @@ fn count_sets(amounts: &[i128], target: i128, tolerance: i128) -> SetCounts {
             let min = low - base - amounts[j];
             let max = high - base - amounts[j];
 
-            while lo > 0 && amounts[lo - 1] >= min {
+            while lo > real && amounts[lo - 1] >= min {
                lo -= 1;
             }
             while hi >= 0 && amounts[hi as usize] > max {
@@ -586,13 +603,12 @@ fn match_sets(
    amounts: &[i128],
    target: i128,
    tolerance: i128,
-   decimals: u8,
+   dust: i128,
    posterior: &[f64],
 ) -> MatchSets {
    let n = amounts.len();
    let low = target - tolerance;
    let high = target + tolerance;
-   let dust = dust_leg(decimals, target);
    let score = |index: usize| posterior.get(index).copied().unwrap_or(0.0);
 
    let mut table = SetTable::default();
@@ -832,15 +848,17 @@ mod tests {
       }
    }
 
-   /// railcheck's `brute`: every 1/2/3-deposit subset, counted the slow way.
-   fn brute(amounts: &[i128], target: i128, tolerance: i128) -> SetCounts {
+   /// railcheck's `brute`: every 1/2/3-deposit subset, counted the slow way, with the same dust rule
+   /// the scan applies — a leg at or under the floor cannot be part of a set of two or more.
+   fn brute(amounts: &[i128], target: i128, tolerance: i128, dust: i128) -> SetCounts {
       let n = amounts.len();
       let mut counts = [vec![0u64; n], vec![0u64; n], vec![0u64; n]];
       let mut totals = [0u64; 3];
 
       let mut visit = |indices: &[usize]| {
          let sum: i128 = indices.iter().map(|i| amounts[*i]).sum();
-         if (sum - target).abs() <= tolerance {
+         let has_dust_leg = indices.len() > 1 && indices.iter().any(|i| amounts[*i] <= dust);
+         if !has_dust_leg && (sum - target).abs() <= tolerance {
             totals[indices.len() - 1] += 1;
             for i in indices {
                counts[indices.len() - 1][*i] += 1;
@@ -879,11 +897,13 @@ mod tests {
          amounts.sort_unstable();
 
          let target = (rand() * 300_000.0) as i128 * 1_000_000_000 + (rand() * 1e9) as i128;
-         // The tolerance is relative here, so the brute force has to be told the same one.
+         // The tolerance is relative here, so the brute force has to be told the same one — and the
+         // same dust floor, since a leg under it cannot be part of a set.
          let tolerance = tolerance(target.max(1));
+         let dust = dust_leg(18, target.max(1));
 
-         let fast = count_sets(&amounts, target, tolerance);
-         let slow = brute(&amounts, target, tolerance);
+         let fast = count_sets(&amounts, target, tolerance, dust);
+         let slow = brute(&amounts, target, tolerance, dust);
 
          assert_eq!(
             fast.totals, slow.totals,
@@ -905,7 +925,9 @@ mod tests {
          (seed >> 32) as f64 / 4_294_967_296.0
       };
 
-      let mut amounts: Vec<i128> = (0..32).map(|_| 1 + (rand() * 1e9) as i128).collect();
+      // Above the dust floor for an 18-decimal asset, so a pair or triple of them is a set at all.
+      const ABOVE_DUST: i128 = 50_000_000_000_000;
+      let mut amounts: Vec<i128> = (0..32).map(|_| ABOVE_DUST + (rand() * 1e9) as i128).collect();
       amounts.sort_unstable();
 
       for round in 0..2_000 {
@@ -916,7 +938,12 @@ mod tests {
          }
 
          let target: i128 = picked.iter().map(|i| amounts[*i]).sum();
-         let counts = count_sets(&amounts, target, tolerance(target));
+         let counts = count_sets(
+            &amounts,
+            target,
+            tolerance(target),
+            dust_leg(18, target),
+         );
 
          assert!(
             counts.totals[wanted - 1] > 0,
@@ -931,7 +958,7 @@ mod tests {
       }
    }
 
-   /// A set is listed only when it says something: a sum whose part is dust is a smaller set.
+   /// A sum whose part is dust is a smaller set said twice, so it is neither counted nor listed.
    #[test]
    fn a_dust_part_is_not_a_listed_set() {
       let pool = vec![
@@ -944,9 +971,9 @@ mod tests {
 
       let scored = amount_score(&pool, target, 18);
 
-      assert!(
-         scored.matches_by_size[1] > 0,
-         "the dust pair does sum to the amount"
+      assert_eq!(
+         scored.matches_by_size[1], 0,
+         "the pair with the zero leg is not a match, for the count either"
       );
       assert_eq!(
          scored.sets.len(),
@@ -956,6 +983,30 @@ mod tests {
       assert_eq!(scored.sets.singles.len(), 1);
       assert_eq!(scored.sets.singles[0].amount_wei, target as u128);
       assert_eq!(scored.score, 100);
+   }
+
+   /// The shape a real Sepolia pool had: a crowd of 100 wei deposits — fee notes, not deposits anyone
+   /// could be linked to — which paired and tripled with everything and turned a handful of real
+   /// matches into a six-figure "ways" count. Only legs above the dust floor can make a set.
+   #[test]
+   fn dust_deposits_do_not_multiply_the_matches() {
+      let mut pool: Vec<Deposit> = (0..116).map(|i| deposit(100, 1 + i as u64 % 30)).collect();
+      pool.push(deposit(17_955_000_000_000_000, 1)); // the amount itself
+      pool.push(deposit(10_000_000_000_000_000, 2)); // and a real pair that makes it up
+      pool.push(deposit(7_955_000_000_000_000, 3));
+
+      let scored = amount_score(&pool, 17_955_000_000_000_000, 18);
+
+      assert_eq!(
+         scored.matches_by_size,
+         [1, 1, 0],
+         "one deposit, one real pair — the 116 dust notes add nothing"
+      );
+      assert_eq!(
+         scored.sets.pairs.len(),
+         1,
+         "and the pair that is listed is the real one"
+      );
    }
 
    /// Sets that sum to the amount are listed; lone tiny legs that cannot are not.
