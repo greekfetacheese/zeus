@@ -498,7 +498,9 @@ mod tests {
       let factory =
          ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, Some(block_id));
       let fork_db = factory.new_sandbox_fork();
-      let mut evm = new_evm(chain, Some(&block), fork_db);
+      // Reads, not transactions: no gas is charged for a `balanceOf`, so the chain's own spec is
+      // enough here and the node's answer would not change the result.
+      let mut evm = new_evm(chain, Some(&block), fork_db, None);
 
       // ERC-721 `ownerOf`.
       let from_fork = erc721_owner_of(&mut evm, bayc, U256::from(1)).unwrap();

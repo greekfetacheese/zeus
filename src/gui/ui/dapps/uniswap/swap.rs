@@ -1664,7 +1664,8 @@ async fn handle_approve(
       let permit2 = address_book::permit2_contract(chain.id())?;
 
       {
-         let mut evm = new_evm(chain, Some(&block), fork_db);
+         let spec = ctx.node_spec(chain).await;
+         let mut evm = new_evm(chain, Some(&block), fork_db, spec);
          let time = Instant::now();
 
          let res = simulate::approve_token(
@@ -1847,6 +1848,7 @@ async fn swap_via_ur(
       chain,
       &block,
       fork_db,
+      ctx.node_spec(chain).await,
       ForkSimRequest {
          from: signer_address,
          interact_to: router_addr,

@@ -235,7 +235,9 @@ where
          cloned_fork_factory.give_token_with_slot(owner, token, slot, amount)?;
 
          let db = cloned_fork_factory.new_sandbox_fork();
-         let mut evm = new_evm(self.chain_id.into(), None, db);
+         // A `balanceOf` read, not a transaction: no gas rules are involved, so the chain's own
+         // spec is enough and the node is not asked.
+         let mut evm = new_evm(self.chain_id.into(), None, db, None);
          let balance = erc20_balance(&mut evm, token, owner)?;
 
          if balance > U256::ZERO {
