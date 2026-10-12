@@ -1257,6 +1257,9 @@ impl ZeusCtx {
       self.get_client_manager().write(|map| {
          defaults.read(|d| *map = d.clone());
       });
+      // Every endpoint set was replaced, so a fork learned from the node that used to answer for a
+      // chain is no longer that chain's answer.
+      self.get_client_manager().forget_node_forks();
 
       let fresh_pools = PoolManagerHandle::default();
       self.pool_manager().write(|manager| {
