@@ -560,12 +560,16 @@ fn direct_impact_percent(route: &EvaluatedRoute) -> Option<f64> {
 /// Hand the input out one chunk at a time, always to the route whose next chunk buys the
 /// most output, and return what each route got.
 ///
-/// The allocation always sums to `total`. Two things can leave input unallocated: the
+/// **The allocation always sums to `total`.** Two things can leave input unallocated: the
 /// chunk loop stops early once no route gains anything from another chunk, and the integer
 /// division that sized the chunk leaves a remainder — so the leftover is measured against
 /// what was actually allocated, not recomputed from the chunk. Every wei has to land on a
-/// route: the plan moves the whole `amount_in`, so an allocation short of `total` would
-/// swap less than the quote priced and leave the difference sitting in the router.
+/// route: the plan moves the whole `amount_in`, so an allocation short of `total` would swap
+/// less than the quote priced and leave the difference sitting in the router.
+///
+/// Requires `chunk * chunks <= total`, which [`split_direct_pools`] guarantees by sizing the
+/// chunk as `total / SPLIT_CHUNKS`. That is what makes the sum reach `total` rather than
+/// overshoot it.
 fn allocate_chunks(
    routes: usize,
    total: U256,
@@ -573,6 +577,11 @@ fn allocate_chunks(
    chunks: u32,
    mut output_at: impl FnMut(usize, U256) -> U256,
 ) -> Vec<U256> {
+   debug_assert!(
+      chunk * U256::from(chunks) <= total,
+      "chunk {chunk} over {chunks} chunks exceeds the {total} being allocated"
+   );
+
    let mut allocations = vec![U256::ZERO; routes];
    let mut current_output = vec![U256::ZERO; routes];
 
@@ -682,9 +691,15 @@ fn split_direct_pools(
    let mut total_out = U256::ZERO;
    for (i, amt) in &used {
       let route = candidates[*i];
+      // Every used route has to be placeable. Skipping one would leave the slice of input the
+      // allocation gave it unspent — while the plan still moves the whole `amount_in` out of
+      // the wallet — so an allocation that cannot be simulated means this split cannot carry
+      // the trade, and the best single route (evaluated with the full amount) takes it instead.
       let Some((out, steps)) = simulate_path_with_steps(&route.pools, &route.path_currencies, *amt)
       else {
-         continue;
+         return best_single
+            .map(|r| build_quote_from_route(r, currency_in.clone(), currency_out.clone()))
+            .unwrap_or_default();
       };
       total_out += out;
       swap_steps.extend(steps_to_swap_steps(route, &steps));
@@ -1099,21 +1114,69 @@ mod tests {
    /// everything the loop never handed out.
    #[test]
    fn a_split_allocates_every_wei() {
-      let chunk = U256::from(10u64);
-      let total = U256::from(35u64);
+      let total = U256::from(1055u64);
+      let chunk = total / U256::from(SPLIT_CHUNKS);
       let sum = |allocations: &[U256]| allocations.iter().copied().fold(U256::ZERO, |a, b| a + b);
 
-      // Two routes that each absorb exactly one chunk: the second round gains nothing, so
-      // the loop stops with 20 of the 35 allocated.
-      let allocations = allocate_chunks(2, total, chunk, 10, |_route, amount| {
+      // Three routes that each absorb exactly one chunk: the next round gains nothing, so the
+      // loop stops with three of the ten chunks handed out and the rest left over.
+      let allocations = allocate_chunks(3, total, chunk, SPLIT_CHUNKS, |_route, amount| {
          if amount == chunk { amount } else { U256::ZERO }
       });
       assert_eq!(sum(&allocations), total);
-      assert!(allocations.iter().all(|amount| !amount.is_zero()));
+      assert_eq!(
+         allocations.iter().filter(|amount| !amount.is_zero()).count(),
+         3
+      );
 
-      // And the remainder of the integer division is allocated too, not dropped.
-      let allocations = allocate_chunks(1, total, chunk, 3, |_route, amount| amount);
+      // A route that never produces anything keeps nothing, and the rest still lands.
+      let allocations = allocate_chunks(3, total, chunk, SPLIT_CHUNKS, |route, amount| {
+         if route == 2 || amount != chunk {
+            U256::ZERO
+         } else {
+            amount
+         }
+      });
       assert_eq!(sum(&allocations), total);
-      assert_eq!(allocations[0], total);
+      assert!(allocations[2].is_zero());
+   }
+
+   /// No input can be left unallocated, whatever the route count, the total, or how many chunks
+   /// the loop manages to hand out before every route has had enough.
+   ///
+   /// This is the guarantee a split quote rests on: it carries the whole `amount_in`, and the
+   /// plan moves that much out of the wallet, so an allocation short of the total would swap less
+   /// than the quote priced and leave the difference sitting in the Universal Router. Pre-fix the
+   /// leftover was recomputed as `total mod chunk`, so every chunk the loop never reached was
+   /// dropped — which is what this sweeps.
+   #[test]
+   fn a_split_never_leaves_input_unallocated() {
+      /// Route `r` absorbs `r + 1` chunks and then produces nothing more — the shape a route that
+      /// has run out of liquidity has.
+      const CAPACITY_CHUNKS: [u64; 4] = [1, 2, 3, 4];
+
+      let sum = |allocations: &[U256]| allocations.iter().copied().fold(U256::ZERO, |a, b| a + b);
+
+      for routes in 1..=CAPACITY_CHUNKS.len() {
+         for total in [0u64, 1, 7, 10, 35, 99, 100, 101, 250, 1000] {
+            for chunks in 1..=SPLIT_CHUNKS {
+               let amount = U256::from(total);
+               // Sized the way `split_direct_pools` sizes it, which is what keeps the allocation
+               // from overshooting the total.
+               let chunk = amount / U256::from(SPLIT_CHUNKS);
+
+               let allocations = allocate_chunks(routes, amount, chunk, chunks, |route, want| {
+                  let capacity = chunk * U256::from(CAPACITY_CHUNKS[route]);
+                  if want <= capacity { want } else { U256::ZERO }
+               });
+
+               assert_eq!(
+                  sum(&allocations),
+                  amount,
+                  "routes={routes} chunks={chunks} total={total}"
+               );
+            }
+         }
+      }
    }
 }
