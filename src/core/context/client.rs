@@ -513,86 +513,98 @@ struct NodeFork {
 const NODE_FORK_TTL: Duration = Duration::from_secs(600);
 const NODE_FORK_MISS_TTL: Duration = Duration::from_secs(30);
 
+/// The endpoints Zeus ships, per chain: `(chain, rpc urls, mev-protect urls)`.
+///
+/// One table for both a fresh profile and a loaded one. It used to be a run of calls inside
+/// [`ClientManager::default`], which meant a chain added in a later build only ever reached a user
+/// who had no profile yet — everyone upgrading had a chain with no endpoints and no way back to
+/// them.
+const BUILTIN_ENDPOINTS: &[(u64, &[&str], &[&str])] = &[
+   (
+      1,
+      &[
+         "wss://ethereum-rpc.publicnode.com",
+         "wss://mainnet.gateway.tenderly.co",
+         "https://ethereum-rpc.publicnode.com",
+         "https://eth.blockrazor.xyz",
+      ],
+      &[
+         "https://rpc.mevblocker.io",
+         "https://rpc.flashbots.net/fast",
+      ],
+   ),
+   (
+      10,
+      &[
+         "wss://optimism.gateway.tenderly.co",
+         "wss://optimism.drpc.org",
+         "wss://optimism-rpc.publicnode.com",
+         "https://mainnet.optimism.io",
+         "https://optimism-rpc.publicnode.com",
+         "https://optimism.drpc.org",
+      ],
+      &[],
+   ),
+   (
+      56,
+      &[
+         "wss://bsc-rpc.publicnode.com",
+         "https://binance.llamarpc.com",
+         "https://bsc-pokt.nodies.app",
+         "https://api.zan.top/bsc-mainnet",
+      ],
+      &[],
+   ),
+   (
+      8453,
+      &[
+         "wss://base-rpc.publicnode.com",
+         "wss://base.gateway.tenderly.co",
+         "https://mainnet.base.org",
+         "https://1rpc.io/base",
+         "https://base-rpc.publicnode.com",
+      ],
+      &[],
+   ),
+   (
+      42161,
+      &[
+         "wss://arbitrum-one-rpc.publicnode.com",
+         "https://arbitrum.meowrpc.com",
+         "https://arb1.arbitrum.io/rpc",
+         "https://1rpc.io/arb",
+      ],
+      &[],
+   ),
+   (
+      4663,
+      &[
+         "https://rpc.mainnet.chain.robinhood.com/",
+         "https://robinhood-rpc.publicnode.com",
+         "https://robinhood.drpc.org",
+      ],
+      &[],
+   ),
+];
+
+/// Give every chain in [`BUILTIN_ENDPOINTS`] the endpoints Zeus ships, unless `map` already mentions
+/// that chain.
+///
+/// A chain the map *does* mention is left exactly as it is, even where it is empty: that is the
+/// user's own configuration. A chain missing entirely is one this build knows and the profile
+/// predates.
+fn insert_missing_builtin_rpcs(map: &mut HashMap<u64, RpcMapByUrl>) {
+   for &(chain, urls, mev_urls) in BUILTIN_ENDPOINTS {
+      if !map.contains_key(&chain) {
+         insert_chain_rpcs(map, chain, urls, mev_urls);
+      }
+   }
+}
+
 impl Default for ClientManager {
    fn default() -> Self {
       let mut rpc_map_by_chain = HashMap::new();
-
-      insert_chain_rpcs(
-         &mut rpc_map_by_chain,
-         1,
-         &[
-            "wss://ethereum-rpc.publicnode.com",
-            "wss://mainnet.gateway.tenderly.co",
-            "https://ethereum-rpc.publicnode.com",
-            "https://eth.blockrazor.xyz",
-         ],
-         &[
-            "https://rpc.mevblocker.io",
-            "https://rpc.flashbots.net/fast",
-         ],
-      );
-
-      insert_chain_rpcs(
-         &mut rpc_map_by_chain,
-         10,
-         &[
-            "wss://optimism.gateway.tenderly.co",
-            "wss://optimism.drpc.org",
-            "wss://optimism-rpc.publicnode.com",
-            "https://mainnet.optimism.io",
-            "https://optimism-rpc.publicnode.com",
-            "https://optimism.drpc.org",
-         ],
-         &[],
-      );
-
-      insert_chain_rpcs(
-         &mut rpc_map_by_chain,
-         56,
-         &[
-            "wss://bsc-rpc.publicnode.com",
-            "https://binance.llamarpc.com",
-            "https://bsc-pokt.nodies.app",
-            "https://api.zan.top/bsc-mainnet",
-         ],
-         &[],
-      );
-
-      insert_chain_rpcs(
-         &mut rpc_map_by_chain,
-         8453,
-         &[
-            "wss://base-rpc.publicnode.com",
-            "wss://base.gateway.tenderly.co",
-            "https://mainnet.base.org",
-            "https://1rpc.io/base",
-            "https://base-rpc.publicnode.com",
-         ],
-         &[],
-      );
-
-      insert_chain_rpcs(
-         &mut rpc_map_by_chain,
-         42161,
-         &[
-            "wss://arbitrum-one-rpc.publicnode.com",
-            "https://arbitrum.meowrpc.com",
-            "https://arb1.arbitrum.io/rpc",
-            "https://1rpc.io/arb",
-         ],
-         &[],
-      );
-
-      insert_chain_rpcs(
-         &mut rpc_map_by_chain,
-         4663,
-         &[
-            "https://rpc.mainnet.chain.robinhood.com/",
-            "https://robinhood-rpc.publicnode.com",
-            "https://robinhood.drpc.org",
-         ],
-         &[],
-      );
+      insert_missing_builtin_rpcs(&mut rpc_map_by_chain);
 
       Self {
          rpcs: Arc::new(RwLock::new(rpc_map_by_chain)),
@@ -621,8 +633,14 @@ impl ClientManager {
             rpc.clamp_limits();
          }
       }
+      // A profile written by an earlier build names only the chains that existed then, so give the
+      // chains it does not mention at all the endpoints Zeus ships for them.
+      insert_missing_builtin_rpcs(&mut rpcs);
       self.write(|map| *map = rpcs);
       self.retain_known_clients();
+      // Every chain's endpoint set was just replaced, so a fork cached from the node that used to
+      // answer for it is no longer that chain's fork.
+      self.forget_node_forks();
       Ok(())
    }
 
@@ -635,6 +653,20 @@ impl ClientManager {
          .write()
          .unwrap()
          .retain(|key, _| rpcs.get(&key.chain).is_some_and(|rpcs| rpcs.contains_key(&key.url)));
+   }
+
+   /// Forget the fork the node for `chain` reported.
+   ///
+   /// A fork schedule belongs to the node that answered: once the endpoints a chain has change, the
+   /// next simulation may run on a node with a different hardfork, and reusing the old answer would
+   /// price it by rules the new node does not follow.
+   fn forget_node_fork(&self, chain: u64) {
+      self.node_forks.write().unwrap().remove(&chain);
+   }
+
+   /// Forget every chain's node-reported fork, for when the whole endpoint set is replaced.
+   pub fn forget_node_forks(&self) {
+      self.node_forks.write().unwrap().clear();
    }
 
    pub fn save_to_file(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
@@ -686,6 +718,7 @@ impl ClientManager {
       self.write(|rpcs| {
          rpcs.entry(chain).or_default().insert(rpc.url.clone(), rpc);
       });
+      self.forget_node_fork(chain);
    }
 
    pub fn set_test_in_progress(&self, chain: u64, rpc: &Rpc, in_progress: bool) {
@@ -701,6 +734,7 @@ impl ClientManager {
          rpcs.entry(chain).or_default().remove(&*url);
       });
       self.evict_client(chain, &url);
+      self.forget_node_fork(chain);
    }
 
    fn update_rpc(&self, chain: u64, url: &str, f: impl FnOnce(&mut Rpc)) {
@@ -717,6 +751,7 @@ impl ClientManager {
       if !enabled {
          self.evict_client(chain, url);
       }
+      self.forget_node_fork(chain);
    }
 
    /// Update an endpoint's rate limits and drop its cached connections so the new transport
@@ -1809,6 +1844,59 @@ mod tests {
       client.retain_known_clients();
 
       assert_eq!(client.clients.read().unwrap().len(), 1);
+   }
+
+   /// A cached fork belongs to the node that reported it, so any change to which endpoints a chain
+   /// has — added, removed, enabled, disabled — must drop it.
+   #[test]
+   fn a_changed_endpoint_set_forgets_the_nodes_fork() {
+      let client = client_with([http_rpc("http://127.0.0.1:1")]);
+      let reported = |client: &ClientManager| {
+         client.node_forks.write().unwrap().insert(
+            1,
+            NodeFork {
+               spec: Some(SpecId::OSAKA),
+               asked_at: Instant::now(),
+            },
+         );
+      };
+      let cached = |client: &ClientManager| client.node_forks.read().unwrap().contains_key(&1);
+
+      reported(&client);
+      client.add_rpc(1, http_rpc("http://127.0.0.1:2"));
+      assert!(!cached(&client));
+
+      reported(&client);
+      client.set_rpc_enabled(1, "http://127.0.0.1:1", false);
+      assert!(!cached(&client));
+
+      reported(&client);
+      client.remove_rpc(1, Arc::from("http://127.0.0.1:1"));
+      assert!(!cached(&client));
+   }
+
+   /// A profile written before a chain existed names only the chains that did. The shipped endpoints
+   /// used to be inserted for a fresh profile only, so a chain added in a later build was unusable
+   /// out of the box for anyone upgrading, with no way to get its endpoints back.
+   #[test]
+   fn a_profile_gains_the_shipped_endpoints_for_chains_it_predates() {
+      let mut rpcs: HashMap<u64, RpcMapByUrl> = HashMap::new();
+      insert_chain_rpcs(&mut rpcs, 1, &["https://mine.example/eth"], &[]);
+
+      insert_missing_builtin_rpcs(&mut rpcs);
+
+      // What the profile did name is left exactly as the user configured it.
+      assert_eq!(rpcs[&1].len(), 1);
+      assert!(rpcs[&1].contains_key("https://mine.example/eth"));
+      // Every chain Zeus ships endpoints for is present, with all of its endpoints.
+      assert_eq!(rpcs.len(), BUILTIN_ENDPOINTS.len());
+      for &(chain, urls, mev_urls) in BUILTIN_ENDPOINTS {
+         // Chain 1 is the one the profile named, whose single endpoint is asserted above.
+         if chain == 1 {
+            continue;
+         }
+         assert_eq!(rpcs[&chain].len(), urls.len() + mev_urls.len());
+      }
    }
 
    #[test]
