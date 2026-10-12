@@ -98,14 +98,17 @@ impl WalletUi {
       self.open = false;
    }
 
-   /// Close the wallet UI and drop any exported key/seed it is showing.
+   /// Close the wallet UI and drop the secrets it is holding.
    ///
-   /// Called when Zeus auto-locks, so a private key shown before the lock does
-   /// not resurface after unlock.
+   /// Called when Zeus auto-locks, so neither a private key shown before the lock nor a seed half
+   /// typed into the import form can resurface after unlock.
    pub fn lock(&mut self, ctx: &Context) {
       self.close();
       self.close_rename_wallet();
       self.export_key_ui.lock(ctx);
+      // The import form holds the key or seed phrase as it is typed, and `erase` runs only at
+      // shutdown — without this the seed is still in the form when the wallet comes back.
+      self.add_wallet_ui.erase();
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
