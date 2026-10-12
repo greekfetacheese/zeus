@@ -37,7 +37,23 @@ pub fn new_evm<DB>(chain: ChainId, block: Option<&Block>, db: DB) -> Evm2<DB>
 where
    DB: Database,
 {
-   let mut evm = Context::mainnet().with_db(db).build_mainnet();
+   let spec = if chain.is_ethereum() {
+      SpecId::OSAKA
+   } else if chain.is_eth_sepolia() {
+      SpecId::AMSTERDAM
+   } else {
+      SpecId::PRAGUE
+   };
+
+   // The spec goes on the `CfgEnv` *before* `build_mainnet()`: that is where the instruction set
+   // (and its static gas table) captures the spec, and `set_spec_and_mainnet_gas_params` is what
+   // turns on the Amsterdam repricings. Assigning `cfg.spec` directly leaves EIP-8037 state
+   // creation gas and the EIP-2780 intrinsic model off, so the simulation prices a transaction
+   // that creates state with pre-Amsterdam rules.
+   let mut evm = Context::mainnet()
+      .with_db(db)
+      .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(spec))
+      .build_mainnet();
 
    if let Some(block) = block {
       evm.block.number = U256::from(block.header.number);
@@ -45,14 +61,7 @@ where
       evm.block.timestamp = U256::from(block.header.timestamp);
    }
 
-   let spec = if chain.is_ethereum() {
-      SpecId::OSAKA
-   } else {
-      SpecId::PRAGUE
-   };
-
    evm.cfg.chain_id = chain.id();
-   evm.cfg.spec = spec;
 
    // Disable checks
    evm.cfg.disable_balance_check = true;
