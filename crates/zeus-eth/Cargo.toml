@@ -32,7 +32,7 @@ alloy-transport-ws = { workspace = true }
 alloy-tx-macros = { workspace = true }
 
 # EVM
-revm = { version = "43.0.0", features = [
+revm = { version = "43.0.3", features = [
     "std",
     "optional_block_gas_limit",
     "optional_no_base_fee",
