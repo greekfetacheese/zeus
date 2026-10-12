@@ -351,10 +351,7 @@ impl ApprovalsUi {
                for params in permits {
                   let key = (params.token.address(), params.spender);
                   let still_valid = match onchain.get(&key) {
-                     Some(&(amount, expiration)) => {
-                        let expired = now.map(|n| expiration < n).unwrap_or(false);
-                        amount >= params.amount.wei() && !expired
-                     }
+                     Some(&(amount, expiration)) => permit_row_still_valid(amount, expiration, now),
                      // RPC miss — keep the in-app row rather than hiding a live permit.
                      None => true,
                   };
@@ -1071,6 +1068,16 @@ impl ApprovalsUi {
    }
 }
 
+/// Whether a Permit2 row is still worth showing: any allowance left, and not expired.
+///
+/// Not "still at the amount that was recorded" — spending part of an allowance does not stop the
+/// spender spending the rest, and the row is where the Revoke button lives, so a partially spent
+/// allowance is the one that most needs showing.
+fn permit_row_still_valid(remaining: U256, expiration: u64, now: Option<u64>) -> bool {
+   let expired = now.map(|n| expiration < n).unwrap_or(false);
+   !remaining.is_zero() && !expired
+}
+
 // ! This may return an empty or partial map if any requests fail
 async fn live_permit2_allowances(
    ctx: ZeusCtx,
@@ -1429,6 +1436,44 @@ mod tests {
    const COLLECTION: Address = address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D");
    const OPERATOR: Address = address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266");
    const ID: u64 = 1071;
+
+   /// A partially spent allowance is the case this table exists for, and the one where revoking
+   /// matters most — it used to be the case that hid the row.
+   #[test]
+   fn a_permit_row_lives_while_any_allowance_is_left() {
+      let now = Some(1_700_000_000);
+      let live_until = 1_700_000_000 + 3_600;
+
+      // Untouched, then all but spent: both are spendable, so both keep their row.
+      assert!(permit_row_still_valid(
+         U256::from(100),
+         live_until,
+         now
+      ));
+      assert!(permit_row_still_valid(
+         U256::from(1),
+         live_until,
+         now
+      ));
+      // Nothing left to spend.
+      assert!(!permit_row_still_valid(
+         U256::ZERO,
+         live_until,
+         now
+      ));
+      // Expired is expired however much is left.
+      assert!(!permit_row_still_valid(
+         U256::from(100),
+         1_699_999_999,
+         now
+      ));
+      // A clock that could not be read is not evidence of expiry.
+      assert!(permit_row_still_valid(
+         U256::from(100),
+         live_until,
+         None
+      ));
+   }
 
    /// The params exactly as the decode ladder produces them, so these tests revoke what a real row
    /// in the table is built from.
