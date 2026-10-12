@@ -629,7 +629,9 @@ impl SwapUi {
          if let Err(e) = result {
             gui.notification.reset();
             gui.loading_window.reset();
-            if reset_confirm {
+            // Only when no flow owns it: a confirmation still waiting on the user
+            // belongs to another send, not to this failed swap.
+            if reset_confirm && !gui.tx_confirmation_window.is_busy() {
                gui.tx_confirmation_window.reset();
             }
             gui.msg_window.open(format!("Transaction Error: {e}"));

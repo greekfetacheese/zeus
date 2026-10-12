@@ -222,6 +222,18 @@ pub struct ConfirmedTx {
    pub clear_display: Option<ClearDisplay>,
 }
 
+/// Releases the confirmation window's claim when the flow holding it ends.
+///
+/// A drop guard rather than a call at each exit point: `confirm_tx` must hand the
+/// window back on every path, including a future dropped mid-prompt.
+struct ConfirmClaim;
+
+impl Drop for ConfirmClaim {
+   fn drop(&mut self) {
+      SHARED_GUI.write(|gui| gui.tx_confirmation_window.release());
+   }
+}
+
 /// Open the transaction confirmation window, wait for the user, and hand back
 /// their edits.
 ///
@@ -239,7 +251,15 @@ pub async fn confirm_tx(
 
    let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
 
-   SHARED_GUI.write(|gui| {
+   // One confirmation at a time. Two sends racing here would share this window —
+   // the second prompt replacing what the first displayed — and both would then
+   // act on the one answer, broadcasting a transaction the user never reviewed.
+   // The claim and the open happen under one lock, so the race has no gap.
+   let busy = SHARED_GUI.write(|gui| {
+      if !gui.tx_confirmation_window.claim() {
+         return true;
+      }
+
       gui.tx_confirmation_window.open(
          ctx.clone(),
          source_is_zeus,
@@ -252,7 +272,19 @@ pub async fn confirm_tx(
       );
       gui.loading_window.reset();
       gui.bring_to_front();
+      false
    });
+
+   if busy {
+      return Err(anyhow!(
+         "Another transaction is already waiting for confirmation"
+      ));
+   }
+
+   // Held until this flow is done with the prompt, however it ends: the claim is
+   // released on return, on error, and if the future is dropped, so a flow that
+   // dies can never wedge the next confirmation.
+   let _claim = ConfirmClaim;
 
    if !wait_tx_confirm().await {
       return Err(anyhow!("Transaction rejected"));

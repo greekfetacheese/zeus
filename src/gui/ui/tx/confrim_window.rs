@@ -24,6 +24,11 @@ use std::time::{Duration, Instant};
 
 pub struct TxConfirmationWindow {
    open: bool,
+   /// A flow has claimed this window ([`Self::claim`]) and holds it until it is done
+   /// with the prompt. Claimed under the same lock that checks [`Self::is_busy`], so
+   /// a second flow cannot claim it while the first is still fetching the analysis
+   /// for its prompt — the phase where no prompt can be shown yet.
+   pending: bool,
    /// True if the tx is coming from Zeus
    source_is_zeus: bool,
    decoded_events: DecodedEvents,
@@ -62,6 +67,7 @@ impl TxConfirmationWindow {
    pub fn new() -> Self {
       Self {
          open: false,
+         pending: false,
          source_is_zeus: false,
          decoded_events: DecodedEvents::new(),
          confirmed_or_rejected: None,
@@ -90,6 +96,33 @@ impl TxConfirmationWindow {
 
    pub fn is_open(&self) -> bool {
       self.open
+   }
+
+   /// True while a confirmation is in flight: a flow holds the window
+   /// ([`Self::pending`]), the prompt is up, or it was answered and the awaiting
+   /// flow has not collected the answer yet.
+   ///
+   /// `confirm_tx` refuses to raise a second prompt while this holds, so two sends
+   /// can never share one window — and therefore one Confirm click.
+   pub fn is_busy(&self) -> bool {
+      self.pending || self.open || self.confirmed_or_rejected.is_some()
+   }
+
+   /// Claim the window for one flow, from just before its prompt is built until it
+   /// is done with it. Returns false when another flow already holds it.
+   ///
+   /// Call under the same lock as the [`Self::is_busy`] check (`confirm_tx` does),
+   /// or two flows can both pass the check. [`Self::release`] hands it back.
+   pub fn claim(&mut self) -> bool {
+      if self.pending {
+         return false;
+      }
+      self.pending = true;
+      true
+   }
+
+   pub fn release(&mut self) {
+      self.pending = false;
    }
 
    pub fn reset(&mut self) {
@@ -232,8 +265,13 @@ impl TxConfirmationWindow {
       });
    }
 
-   pub fn get_confirmed_or_rejected(&self) -> Option<bool> {
-      self.confirmed_or_rejected
+   /// Collect the answer, consuming it.
+   ///
+   /// Single-use on purpose: an answer that could be read twice would answer two
+   /// flows from one Confirm click, and the second would broadcast a transaction
+   /// the user never reviewed.
+   pub fn take_confirmed_or_rejected(&mut self) -> Option<bool> {
+      self.confirmed_or_rejected.take()
    }
 
    /// Close without confirming and record a rejection, so the awaiting
@@ -692,7 +730,39 @@ mod tests {
       window.reject();
 
       assert!(!window.is_open());
-      assert_eq!(window.get_confirmed_or_rejected(), Some(false));
+      assert_eq!(window.take_confirmed_or_rejected(), Some(false));
+   }
+
+   /// One Confirm click answers exactly one flow: the answer is collected once, so
+   /// a second awaiting `confirm_tx` cannot read it and broadcast again.
+   #[test]
+   fn a_confirmation_stays_busy_until_its_answer_is_collected() {
+      let mut window = TxConfirmationWindow::new();
+
+      // Nothing in flight: a flow may claim the window.
+      assert!(!window.is_busy());
+      assert!(window.claim());
+      assert!(window.is_busy());
+
+      // The claim is exclusive for as long as the flow holds it — including while
+      // the prompt's analysis is still being fetched and no prompt is up yet.
+      assert!(!window.claim());
+
+      // The prompt is up.
+      window.open = true;
+      assert!(window.is_busy());
+
+      // Answered, but the awaiting flow has not collected it yet: still busy, and
+      // the answer is collected once and only once.
+      window.confirmed_or_rejected = Some(true);
+      window.close();
+      assert!(window.is_busy());
+      assert_eq!(window.take_confirmed_or_rejected(), Some(true));
+      assert_eq!(window.take_confirmed_or_rejected(), None);
+
+      // The owning flow releases the window when it is done with it.
+      window.release();
+      assert!(!window.is_busy());
    }
 
    /// A wallet that cannot cover value + cost says so on the confirm button, which is
