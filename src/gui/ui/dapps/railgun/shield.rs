@@ -52,7 +52,11 @@ use zeus_eth::{
 };
 
 use zeus_railgun::{
-   RailgunAddress, caip::AssetId, privacy::RiskBand, rand::SeedableRng, rand_chacha::ChaCha12Rng,
+   RailgunAddress,
+   caip::AssetId,
+   privacy::{RiskBand, UnshieldAmountAdvice},
+   rand::SeedableRng,
+   rand_chacha::ChaCha12Rng,
 };
 
 use anyhow::anyhow;
@@ -1127,22 +1131,8 @@ impl ShieldUi {
          });
 
          if let Some(advice) = &privacy.amount {
-            // Exact matches are only half of the picture: an amount that nothing adds up to can
-            // still be the only one of its size, which fingerprints it just as well. Both numbers go
-            // out, so the sentence never reads as reassurance on the strength of the match count.
-            let near = advice.crowding.within_ten_percent;
-            // One line each: this block sits above the action button in a form with no scroll area.
-            let reason = match (advice.matches(), near) {
-               (0, 0) => {
-                  "Nothing adds up to this size, or even comes within 10% of it.".to_string()
-               }
-               (0, near) => format!(
-                  "Nothing matches this size exactly, {near} deposits are within 10% of it."
-               ),
-               (matches, near) => {
-                  format!("{matches} deposits or sums match this size, {near} within 10% of it.")
-               }
-            };
+            // One line: this block sits above the action button in a form with no scroll area.
+            let reason = amount_reason(advice);
             ui.add(
                Label::new(
                   RichText::new(reason)
@@ -2200,9 +2190,80 @@ fn persist_bundler_url(url: BundlerUrl) {
    }
 }
 
+/// The line under the amount's verdict: what the check counted, in deposits, with the direction the
+/// band went.
+///
+/// Every number here counts deposits that could explain the amount — ones close to its size, and
+/// ones that add up to it — and they all run the same way: the more there are, the more cover the
+/// amount has. A bare count does not say which way it cuts, so a crowd thin enough to be what the
+/// band is resting on is named as thin, and the sums get a clause only when they are what carries
+/// it. The ±1% count the scorer keeps is left out: a deposit that is *exactly* this size is the
+/// sharper fact, and the one the user can act on.
+fn amount_reason(advice: &UnshieldAmountAdvice) -> String {
+   let capitalize = |clause: &str| {
+      let mut clause = clause.to_string();
+      if let Some(head) = clause.get_mut(0..1) {
+         head.make_ascii_uppercase();
+      }
+      clause
+   };
+
+   let exact = advice.matches_by_size[0];
+   let pairs = advice.matches_by_size[1];
+   let near = advice.crowding.within_ten_percent;
+   let thin = matches!(
+      RiskBand::from_score(advice.crowd_score),
+      RiskBand::High | RiskBand::Critical
+   );
+   let sums_lead = advice.match_score > advice.crowd_score;
+
+   let crowd = match near {
+      0 => format!(
+         "no deposit in the last 180 days is within 10% {}",
+         if sums_lead { "of it" } else { "of this size" }
+      ),
+      near => {
+         let clause = format!(
+            "{}{near} deposits in the last 180 days are within 10% {}",
+            if thin { "only " } else { "" },
+            if sums_lead { "of it" } else { "of this size" },
+         );
+         if exact > 0 && !sums_lead {
+            // The exact count sits inside the 10% one, so it reads as part of it, not as a second
+            // population. When the sums lead, that same count is the first clause already.
+            format!("{clause}, {exact} of them exactly this size")
+         } else {
+            clause
+         }
+      }
+   };
+
+   if !sums_lead {
+      return format!("{}.", capitalize(&crowd));
+   }
+
+   // The smallest set that matches is the sharpest explanation of the amount, so it is the one
+   // stated: a deposit of this size, else a pair, else a triple.
+   let sums = if exact > 0 {
+      format!(
+         "{exact} deposit{} in the last 180 days {} exactly this size",
+         if exact == 1 { "" } else { "s" },
+         if exact == 1 { "is" } else { "are" },
+      )
+   } else if pairs > 0 {
+      "2 deposits in the last 180 days add up to this size".to_string()
+   } else {
+      "3 deposits in the last 180 days add up to this size".to_string()
+   };
+
+   format!("{}, and {crowd}.", capitalize(&sums))
+}
+
 #[cfg(test)]
 mod tests {
    use super::*;
+
+   use zeus_railgun::privacy::{Crowding, MatchSets, UserExposure};
 
    fn nft(standard: NftStandard) -> NftToken {
       NftToken {
@@ -2594,6 +2655,105 @@ mod tests {
       height
    }
 
+   /// The sentence under the verdict, for each way the check can come out.
+   ///
+   /// Every number in it counts deposits, and they all cut the same way — more deposits that could
+   /// explain the amount means more cover — so "only" appears exactly when the crowd is thin enough
+   /// to be what the band is resting on. The sums get a clause only when they carry the band, which
+   /// is what keeps the line to one clause in the ordinary case.
+   #[test]
+   fn the_amount_reason_reads_the_verdict_off_the_numbers() {
+      fn advice(
+         matches_by_size: [u32; 3],
+         crowding: Crowding,
+         crowd_score: u8,
+         match_score: u8,
+      ) -> UnshieldAmountAdvice {
+         let score = crowd_score.max(match_score);
+         UnshieldAmountAdvice {
+            score,
+            amount_score: score,
+            crowd_score,
+            match_score,
+            band: RiskBand::from_score(score),
+            pool_size: 1_212,
+            matches_by_size,
+            sets: MatchSets::default(),
+            crowding,
+            suggestion: None,
+            user: UserExposure::default(),
+         }
+      }
+
+      // The Sepolia run: a thin crowd, one deposit exactly the size, the crowd carrying the band.
+      assert_eq!(
+         amount_reason(&advice(
+            [1, 344, 51_676],
+            Crowding {
+               within_one_percent: 1,
+               within_ten_percent: 5,
+            },
+            87,
+            69,
+         )),
+         "Only 5 deposits in the last 180 days are within 10% of this size, 1 of them exactly this size."
+      );
+
+      // A crowd worth hiding in: no "only", and the sums stay out of the line entirely.
+      assert_eq!(
+         amount_reason(&advice(
+            [91, 0, 0],
+            Crowding {
+               within_one_percent: 91,
+               within_ten_percent: 95,
+            },
+            3,
+            1,
+         )),
+         "95 deposits in the last 180 days are within 10% of this size, 91 of them exactly this size."
+      );
+
+      // The sums carry the band, so they lead — and the exact count is not said twice.
+      assert_eq!(
+         amount_reason(&advice(
+            [1, 0, 0],
+            Crowding {
+               within_one_percent: 1,
+               within_ten_percent: 5,
+            },
+            20,
+            40,
+         )),
+         "1 deposit in the last 180 days is exactly this size, and 5 deposits in the last 180 days are within 10% of it."
+      );
+
+      // A pair is the sharpest explanation there is.
+      assert_eq!(
+         amount_reason(&advice(
+            [0, 3, 0],
+            Crowding {
+               within_one_percent: 0,
+               within_ten_percent: 4,
+            },
+            30,
+            55,
+         )),
+         "2 deposits in the last 180 days add up to this size, and only 4 deposits in the last 180 days are within 10% of it."
+      );
+
+      // A triple, with nothing near the size at all.
+      assert_eq!(
+         amount_reason(&advice([0, 0, 2], Crowding::default(), 60, 80)),
+         "3 deposits in the last 180 days add up to this size, and no deposit in the last 180 days is within 10% of it."
+      );
+
+      // Nothing near it and nothing adding up to it: one clause, at the thinnest crowd there is.
+      assert_eq!(
+         amount_reason(&advice([0, 0, 0], Crowding::default(), 100, 0)),
+         "No deposit in the last 180 days is within 10% of this size."
+      );
+   }
+
    /// The check block sits directly above the action button in a form with no scroll area, so every
    /// row it draws is a row the button loses.
    ///
@@ -2616,6 +2776,8 @@ mod tests {
          |band, score, matches_by_size, crowding, suggestion, user| UnshieldAmountAdvice {
             score,
             amount_score: score,
+            crowd_score: score,
+            match_score: score,
             band,
             pool_size: 9_184,
             matches_by_size,
