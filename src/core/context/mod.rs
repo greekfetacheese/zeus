@@ -20,7 +20,7 @@ pub use ens_cache::EnsCache;
 pub use portfolio::{PortfolioDB, WalletPortfolio, WalletValue};
 pub use tx::TxDBHandle;
 
-pub use client::{ClientKind, ClientManager};
+pub use client::{ClientKind, ClientManager, RpcFunctionality};
 pub use ctx::*;
 pub use currencies::CurrencyDB;
 pub use nft::NftDB;

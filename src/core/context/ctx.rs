@@ -1,6 +1,6 @@
 use super::{
    AddressBookHandle, ApprovalManagerHandle, BalanceManagerHandle, ClientKind, ClientManager,
-   CurrencyDB, EnsCache, NftDB, PoolManagerHandle, WalletPortfolio,
+   CurrencyDB, EnsCache, NftDB, PoolManagerHandle, RpcFunctionality, WalletPortfolio,
    price_manager::PriceManagerHandle, tx::TxDBHandle,
 };
 
@@ -3051,6 +3051,14 @@ impl ZeusContext {
 
       self.last_detected_malfunction.insert(chain, now_millis);
       true
+   }
+
+   /// The [`RpcFunctionality`]s no enabled, already-checked RPC for `chain` can answer.
+   ///
+   /// Read beside [`Self::check_for_malfunction`] when its warning fires, so the toast can
+   /// name what is missing instead of saying "some features may not work".
+   pub fn unavailable_rpc_functionalities(&self, chain: u64) -> Vec<RpcFunctionality> {
+      self.client_manager.unavailable_functionalities(chain)
    }
 
    /// Whether an "auto-lock is not configured" toast is due.

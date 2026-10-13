@@ -114,6 +114,51 @@ async fn connect_rpc(rpc: &Rpc, timeout: u64) -> Result<RpcClient, anyhow::Error
       .await
 }
 
+/// One capability the pre-sim state fetches need from an endpoint, and that an
+/// [`RpcCheck`] records.
+///
+/// Every one of them is on the path that builds a transaction's before-state
+/// (`core::tx::sim_diff`) or a fork's prefetch (`utils::simulate`): an endpoint that
+/// cannot answer leaves the fetch empty or partial, so the diff the user reads loses
+/// rows and transaction eligibility is no longer trustworthy. The top panel lists the
+/// ones no endpoint can do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RpcFunctionality {
+   /// `eth_call` to Multicall3 — batched ERC-20 / Permit2 allowances and the NFT probes.
+   Multicall,
+
+   /// `eth_call` state overrides — batched storage-slot reads through the injected
+   /// `StorageReader` bytecode. Losing it costs no rows, only speed: the slots go back
+   /// to being read one at a time.
+   StateOverride,
+
+   /// JSON-RPC batch requests — batched `eth_getCode` / `eth_getTransactionCount`.
+   JsonRpcBatch,
+
+   /// The ZeusStateView contract — batched ERC-20 balances and V2/V3/V4 pool state.
+   ZeusStateView,
+}
+
+impl RpcFunctionality {
+   /// Every capability a check records, in the order the warning lists them.
+   pub const ALL: [Self; 4] = [
+      Self::Multicall,
+      Self::StateOverride,
+      Self::JsonRpcBatch,
+      Self::ZeusStateView,
+   ];
+
+   /// What the top panel calls it.
+   pub fn label(self) -> &'static str {
+      match self {
+         Self::Multicall => "Multicall",
+         Self::StateOverride => "State Override",
+         Self::JsonRpcBatch => "JSON-RPC Batch",
+         Self::ZeusStateView => "Zeus StateView",
+      }
+   }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 /// A check for rpc functionality
 pub struct RpcCheck {
@@ -201,6 +246,31 @@ impl Default for RpcCheck {
          v4_pool_state_batch: V4_POOL_STATE_BATCH,
          last_check: None,
       }
+   }
+}
+
+impl RpcCheck {
+   /// Whether this endpoint answered the probe for `functionality`.
+   pub fn supports(&self, functionality: RpcFunctionality) -> bool {
+      match functionality {
+         RpcFunctionality::Multicall => self.multicall,
+         RpcFunctionality::StateOverride => self.state_override,
+         RpcFunctionality::JsonRpcBatch => self.json_rpc_batch,
+         RpcFunctionality::ZeusStateView => self.stateview_working(),
+      }
+   }
+
+   /// The ZeusStateView deployment answered at least one of its batch ops.
+   ///
+   /// All four pool checks call the same contract, so one answering is what says the
+   /// contract is reachable: the probes that fail do it for their own reason — an
+   /// `eth_call` the endpoint's gas cap refuses, a version the pool manager has no
+   /// sample for — and would fail together with the contract itself.
+   fn stateview_working(&self) -> bool {
+      self.v2_pool_reserves_batch > 0
+         || self.v3_pool_state_batch > 0
+         || self.v4_pool_state_batch > 0
+         || self.validate_v4_pools_batch > 0
    }
 }
 
@@ -915,6 +985,33 @@ impl ClientManager {
          .values()
          .filter(|rpc| rpc.is_enabled() && rpc.check.last_check.is_some())
          .all(|rpc| rpc.is_fully_functional())
+   }
+
+   /// The [`RpcFunctionality`]s no enabled, already-checked RPC on `chain` can answer.
+   ///
+   /// [`Self::rpcs_fully_functional`] answers "is an endpoint degraded"; this answers the
+   /// follow-up the warning needs — which capability is gone *everywhere*, so the message can
+   /// name what transaction eligibility loses instead of saying "something".
+   ///
+   /// Endpoints that were never checked are ignored, exactly like `rpcs_fully_functional`
+   /// ignores them: a first-run probe must not read as a missing capability. With nothing
+   /// checked the answer is empty for the same reason.
+   pub fn unavailable_functionalities(&self, chain: u64) -> Vec<RpcFunctionality> {
+      let checked: Vec<RpcCheck> = self
+         .get_rpcs(chain)
+         .into_values()
+         .filter(|rpc| rpc.is_enabled() && rpc.check.last_check.is_some())
+         .map(|rpc| rpc.check)
+         .collect();
+
+      if checked.is_empty() {
+         return Vec::new();
+      }
+
+      RpcFunctionality::ALL
+         .into_iter()
+         .filter(|functionality| !checked.iter().any(|check| check.supports(*functionality)))
+         .collect()
    }
 
    pub fn rpc_archive_available(&self, chain: u64) -> bool {
@@ -2055,5 +2152,80 @@ mod tests {
          rpc_checked("http://partial", false),
       ]);
       assert!(!client.rpcs_fully_functional(1));
+   }
+
+   /// An enabled, already-checked endpoint that answered exactly `supported`'s probes.
+   fn rpc_supporting(url: &str, supported: impl IntoIterator<Item = RpcFunctionality>) -> Rpc {
+      let supported: Vec<RpcFunctionality> = supported.into_iter().collect();
+      let has = |functionality: RpcFunctionality| supported.contains(&functionality);
+
+      let mut rpc = http_rpc(url);
+      rpc.check.last_check = Some(1);
+      rpc.check.multicall = has(RpcFunctionality::Multicall);
+      rpc.check.state_override = has(RpcFunctionality::StateOverride);
+      rpc.check.json_rpc_batch = has(RpcFunctionality::JsonRpcBatch);
+      if has(RpcFunctionality::ZeusStateView) {
+         rpc.check.v2_pool_reserves_batch = V2_POOL_RESERVES_BATCH;
+      }
+      rpc
+   }
+
+   #[test]
+   fn unavailable_functionalities_is_empty_when_endpoints_cover_each_other() {
+      let client = client_with([
+         rpc_supporting("http://a", [RpcFunctionality::Multicall]),
+         rpc_supporting(
+            "http://b",
+            [
+               RpcFunctionality::StateOverride,
+               RpcFunctionality::JsonRpcBatch,
+               RpcFunctionality::ZeusStateView,
+            ],
+         ),
+      ]);
+
+      assert!(client.unavailable_functionalities(1).is_empty());
+   }
+
+   #[test]
+   fn unavailable_functionalities_names_what_no_endpoint_can_do() {
+      let client = client_with([
+         rpc_supporting(
+            "http://a",
+            [
+               RpcFunctionality::Multicall,
+               RpcFunctionality::JsonRpcBatch,
+               RpcFunctionality::ZeusStateView,
+            ],
+         ),
+         rpc_supporting("http://b", []),
+      ]);
+
+      assert_eq!(
+         client.unavailable_functionalities(1),
+         vec![RpcFunctionality::StateOverride]
+      );
+   }
+
+   #[test]
+   fn unavailable_functionalities_ignores_unchecked_and_disabled_endpoints() {
+      let unchecked = http_rpc("http://unchecked");
+      let mut disabled = rpc_supporting("http://disabled", []);
+      disabled.enabled = false;
+
+      let client = client_with([unchecked, disabled]);
+
+      assert!(client.unavailable_functionalities(1).is_empty());
+   }
+
+   #[test]
+   fn stateview_is_available_when_only_one_batch_op_answers() {
+      let mut rpc = http_rpc("http://a");
+      rpc.check.last_check = Some(1);
+      rpc.check.validate_v4_pools_batch = VALIDATE_V4_POOLS_BATCH;
+
+      let client = client_with([rpc]);
+
+      assert!(!client.unavailable_functionalities(1).contains(&RpcFunctionality::ZeusStateView));
    }
 }

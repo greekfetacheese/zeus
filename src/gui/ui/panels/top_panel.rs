@@ -1,4 +1,4 @@
-use crate::core::ZeusContext;
+use crate::core::{RpcFunctionality, ZeusContext};
 use crate::gui::{GUI, SHARED_GUI};
 use crate::utils::{RT, TimeStamp};
 use egui::{Align, Align2, Area, Id, Layout, Margin, Order, RichText, Spinner, Ui, vec2};
@@ -18,6 +18,9 @@ const AVAILABLE_RPCS_CHECK_THRESHOLD: u64 = 100;
 const RAILGUN_CHECK_THRESHOLD: u64 = 250;
 
 const MALFUNCTION_TOAST_DURATION_SECS: u64 = 30;
+
+const DEGRADED_RPC_MSG: &str =
+   "At least one RPC is not working properly, some features may not work";
 
 const AUTOLOCK_FIRST_NOTICE_MS: u64 = 10 * 1000;
 const AUTOLOCK_NOTICE_REPEAT_MS: u64 = 60 * 60 * 1000;
@@ -139,9 +142,11 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    });
 
    if has_malfunction {
+      let missing = ctx.unavailable_rpc_functionalities(chain.id());
+
       Toast::new("Check your network settings")
          .tone(BadgeTone::Warning)
-         .description("At least one RPC is not working properly, some features may not work")
+         .description(malfunction_description(&missing))
          .duration(Duration::from_secs(
             MALFUNCTION_TOAST_DURATION_SECS,
          ))
@@ -207,4 +212,35 @@ fn check_railgun(chain: u64) {
          gui.request_repaint();
       });
    });
+}
+
+/// The warning's second line: which capabilities no enabled RPC can answer, or the
+/// generic note when every one of them is covered somewhere and the endpoints are merely
+/// degraded.
+fn malfunction_description(missing: &[RpcFunctionality]) -> String {
+   if missing.is_empty() {
+      return DEGRADED_RPC_MSG.to_string();
+   }
+
+   let names = missing.iter().map(|f| f.label()).collect::<Vec<_>>().join(", ");
+
+   format!("No enabled RPC supports {names} — transaction eligibility may not work")
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn malfunction_description_names_every_missing_capability() {
+      assert_eq!(
+         malfunction_description(&[RpcFunctionality::Multicall, RpcFunctionality::JsonRpcBatch]),
+         "No enabled RPC supports Multicall, JSON-RPC Batch — transaction eligibility may not work"
+      );
+   }
+
+   #[test]
+   fn malfunction_description_falls_back_to_the_generic_note() {
+      assert_eq!(malfunction_description(&[]), DEGRADED_RPC_MSG);
+   }
 }
