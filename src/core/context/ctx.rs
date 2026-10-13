@@ -3251,6 +3251,7 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "live chain: needs a working public RPC on four chains — a manual fee read"]
    async fn test_base_fee() {
       let ctx = ZeusCtx::new();
 
@@ -3277,6 +3278,7 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "live chain: needs a working public RPC, and pins one mainnet account's delegation"]
    async fn test_extract_delegated_address() {
       let ctx = ZeusCtx::new();
 
@@ -3298,6 +3300,7 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "live chain: needs a working public RPC on every supported chain"]
    async fn test_priority_fee_suggestion() {
       let ctx = ZeusCtx::new();
 

@@ -551,6 +551,7 @@ mod tests {
    use super::*;
 
    #[tokio::test]
+   #[ignore = "live chain: needs working public RPCs and live price feeds"]
    async fn test_it_works() {
       let ctx = ZeusCtx::new();
       let chain = 1;
