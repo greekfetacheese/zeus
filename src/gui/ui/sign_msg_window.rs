@@ -293,7 +293,7 @@ impl SignMsgWindow {
 
 fn permit2_single_approval(
    ctx: &mut ZeusContext,
-   chain_id: ChainId,
+   current_chain: ChainId,
    msg: &SignMsgType,
    theme: &Theme,
    icons: Arc<Icons>,
@@ -303,11 +303,22 @@ fn permit2_single_approval(
    let tint = theme.image_tint_recommended;
    let icon_size = vec2(24.0, 24.0);
 
+   // Show the chain the permit is actually signed for. Its token was fetched on that chain, so it
+   // is a supported one; the wallet's own chain is only what the user happened to be connected to,
+   // and presenting it as the permit's chain describes an allowance on another chain as a signature
+   // on this one. Permit2's `verifyingContract` cannot stand in for this — it is the same address
+   // on every chain — so the domain's `chainId` is the only thing that names a chain here.
+   let permit_chain: ChainId = details.chain.into();
+
    let size = vec2(ui.available_width(), 30.0);
 
    ui.allocate_ui(size, |ui| {
       // Chain
-      chain(chain_id, theme, icons.clone(), ui);
+      chain(permit_chain, theme, icons.clone(), ui);
+
+      if let Some(warning) = cross_chain_permit_warning(permit_chain, current_chain) {
+         ui.label(RichText::new(warning).size(theme.typography.normal).color(theme.colors.warning));
+      }
 
       // Token
       ui.horizontal(|ui| {
@@ -364,7 +375,7 @@ fn permit2_single_approval(
       let label = "Contract interaction";
       address(
          ctx,
-         chain_id,
+         permit_chain,
          label,
          details.permit2_contract,
          theme,
@@ -374,7 +385,7 @@ fn permit2_single_approval(
       // Spender
       address(
          ctx,
-         chain_id,
+         permit_chain,
          "Spender",
          details.spender,
          theme,
@@ -383,13 +394,15 @@ fn permit2_single_approval(
    });
 }
 
-/// The warning to show when an EIP-2612 permit is signed for a chain other than the one
-/// the wallet is connected to, and `None` when the two agree.
+/// The warning to show when a permit is signed for a chain other than the one the wallet is
+/// connected to, and `None` when the two agree.
 ///
-/// A Permit2 prompt cannot drift this way: its `verifyingContract` is checked against the
-/// current chain when the message is parsed (`msg.rs`), so it always describes the chain
-/// the wallet is on. An EIP-2612 permit carries no such tie — it is valid on whatever
-/// chain its own domain names, and the allowance it grants lands there.
+/// Both permit shapes need it, for the same reason and with no tie to lean on: a permit is valid on
+/// whatever chain its own domain names, and the allowance it grants lands there. Permit2's
+/// `verifyingContract` looks like a tie and is not one — the canonical Permit2 address is the same
+/// on every chain Zeus supports, so comparing it to the connected chain's entry compares a
+/// constant to itself. `sign_msg_window.rs` therefore renders the permit's own chain and warns when
+/// it differs, and `msg.rs` reads the permit's token on that chain rather than on the wallet's.
 fn cross_chain_permit_warning(permit_chain: ChainId, current_chain: ChainId) -> Option<String> {
    if permit_chain.id() == current_chain.id() {
       return None;
@@ -716,7 +729,9 @@ fn format_permit2_single_approval(msg: &SignMsgType) -> String {
    writeln!(formatted, "Domain:").unwrap();
    writeln!(formatted, "Name: {}", "Uniswap Permit2").unwrap();
    writeln!(formatted, "Version: 2").unwrap();
-   writeln!(formatted, "Chain: {}", details.token.chain_id).unwrap();
+   // The domain's own chain, which is what the signature is bound to and where the allowance
+   // lands — not the chain the wallet is connected to.
+   writeln!(formatted, "Chain: {}", details.chain).unwrap();
    writeln!(
       formatted,
       "Verifying Contract: {}",
