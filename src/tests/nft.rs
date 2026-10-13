@@ -1,11 +1,12 @@
 //! NFT decoding at the app level: raw logs → `DecodedEvent` → the main event.
 //!
 //! The params themselves are unit-tested where they live (`core::tx::events::kinds::nft`, and the ABI
-//! encoders in `zeus-eth`). What can only be proven here is the **wiring between them**: that the
-//! fungible decoder keeps first refusal on the shared `Transfer` topic, that an ERC-1155 batch expands
-//! through `DecodeOutcome::Many`, and that a transaction moving an NFT ends up *described* as one —
-//! title, notification and history all come from the main event, so a gap between the decoder and the
-//! ranking is invisible until a user sees "Unknown Interaction" on their own transaction.
+//! encoders in `zeus-eth`). What can only be proven here is the **wiring between them**: that the NFT
+//! branch takes the shared `Transfer` topic *before* the fungible attempt — which would otherwise
+//! accept an ERC-721 `Transfer` as a non-ERC-20 transfer and swallow the NFT — that an ERC-1155 batch
+//! expands through `DecodeOutcome::Many`, and that a transaction moving an NFT ends up *described* as
+//! one — title, notification and history all come from the main event, so a gap between the decoder and
+//! the ranking is invisible until a user sees "Unknown Interaction" on their own transaction.
 //!
 //! These run against a configured endpoint (`test_ctx`), because the fungible side of the ladder
 //! resolves token metadata — exactly like the swap and bridge regressions.
