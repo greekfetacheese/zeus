@@ -417,9 +417,13 @@ impl ApprovalsUi {
          });
 
          SHARED_GUI.write(|gui| {
-            if gui.approvals.cache_key == key {
-               gui.approvals.cached_rows = rows;
+            // A superseded fetch owns nothing here, not even the flag: a newer one is in flight, and
+            // clearing `loading` would let "no active approvals match your filters" flash before its
+            // rows land.
+            if gui.approvals.cache_key != key {
+               return;
             }
+            gui.approvals.cached_rows = rows;
             gui.approvals.loading = false;
             gui.request_repaint();
          });

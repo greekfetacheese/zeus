@@ -226,11 +226,15 @@ impl TxHistory {
          txs.sort_unstable_by(|a, b| b.tx.timestamp.cmp(&a.tx.timestamp));
 
          SHARED_GUI.write(|gui| {
-            gui.tx_history.loading = false;
-            if gui.tx_history.cache_key == key {
-               gui.tx_history.cached_txs = txs;
-               gui.tx_history.cached_spent.clear();
+            // A superseded fetch owns nothing here, not even the flag: a newer one is in flight, and
+            // clearing `loading` would let "no transactions match your filters" flash before its rows
+            // land.
+            if gui.tx_history.cache_key != key {
+               return;
             }
+            gui.tx_history.cached_txs = txs;
+            gui.tx_history.cached_spent.clear();
+            gui.tx_history.loading = false;
             gui.request_repaint();
          });
       });
