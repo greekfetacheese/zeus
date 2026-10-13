@@ -2,6 +2,7 @@ use crate::core::ZeusCtx;
 use crate::core::serde_hashmap;
 use crate::utils::RT;
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::sync::{Arc, RwLock};
 
 use tokio::{sync::Semaphore, time::sleep};
@@ -127,8 +128,13 @@ impl BalanceManagerHandle {
 
       for chunk in owners.chunks(batch_size) {
          let chunk = chunk.to_vec();
-         let old_balances: HashMap<Address, NumericValue> = if retry_if_unchanged {
-            chunk.iter().map(|&owner| (owner, self.get_eth_balance(chain, owner))).collect()
+         // Held in wei, the shape the round answers in, so both sides of the comparison are the same
+         // type (`awaiting_change`).
+         let old_balances: HashMap<Address, U256> = if retry_if_unchanged {
+            chunk
+               .iter()
+               .map(|&owner| (owner, self.get_eth_balance(chain, owner).wei()))
+               .collect()
          } else {
             HashMap::new()
          };
@@ -154,12 +160,17 @@ impl BalanceManagerHandle {
                }
             };
 
-            let unchanged = retry_if_unchanged
-               && balances.iter().any(|balance| {
-                  old_balances.get(&balance.owner).is_some_and(|old| balance.balance == old.wei())
-               });
+            // What the round answered, in the shape the comparison takes: one moved owner is enough to
+            // write the whole chunk, and only a round where nothing moved is worth another attempt.
+            let now: HashMap<Address, U256> =
+               balances.iter().map(|balance| (balance.owner, balance.balance)).collect();
 
-            if unchanged {
+            if awaiting_change(
+               retry_if_unchanged,
+               &old_balances,
+               &now,
+               U256::ZERO,
+            ) {
                #[cfg(feature = "dev")]
                tracing::debug!(
                   "ETH balances unchanged for chain {}, retrying",
@@ -218,10 +229,15 @@ impl BalanceManagerHandle {
          let token_map = token_map.clone();
          let tokens_addr = chunk.to_vec();
 
-         let old_balances: HashMap<Address, NumericValue> = if retry_if_unchanged {
+         let old_balances: HashMap<Address, U256> = if retry_if_unchanged {
             tokens_addr
                .iter()
-               .map(|&token| (token, self.get_token_balance(chain, owner, token)))
+               .map(|&token| {
+                  (
+                     token,
+                     self.get_token_balance(chain, owner, token).wei(),
+                  )
+               })
                .collect()
          } else {
             HashMap::new()
@@ -254,14 +270,13 @@ impl BalanceManagerHandle {
                   }
                };
 
-               let unchanged = retry_if_unchanged
-                  && balances.iter().any(|balance| {
-                     old_balances
-                        .get(&balance.token)
-                        .is_some_and(|old| balance.balance == old.wei())
-                  });
+               // Same rule as the ether path: nothing moved is the only reason to wait.
+               let now: HashMap<Address, U256> = balances
+                  .iter()
+                  .map(|balance| (balance.token, balance.balance))
+                  .collect();
 
-               if unchanged {
+               if awaiting_change(retry_if_unchanged, &old_balances, &now, U256::ZERO) {
                   #[cfg(feature = "dev")]
                   tracing::warn!(
                      "Token balances unchanged for owner {} on chain {}, retrying",
@@ -370,7 +385,7 @@ impl BalanceManagerHandle {
 
          // Ownership only ever moves *after* the tx that moves it, so the round is worth waiting on —
          // but only while nothing has moved. One moved id is enough to write the whole round.
-         if awaiting_change(retry_if_unchanged, &before, &holdings) {
+         if awaiting_change(retry_if_unchanged, &before, &holdings, 0) {
             if attempt == max_retries {
                return Err(anyhow!("Max retries reached"));
             }
@@ -516,21 +531,32 @@ impl BalanceManagerHandle {
 /// Whether a balance round should be retried rather than written.
 ///
 /// `retry_if_unchanged` is the caller saying it just sent a tx, so the balances should be about to move.
-/// A round counts as *unchanged* only when **none** of the ids that already had an answer has moved: one
-/// moved id means the chain has caught up, and the round is then written for every id in it.
+/// Whether a round is worth waiting on: **nothing** it asked about has moved. One moved id means the
+/// chain has caught up, and the round is then written for every id in it.
 ///
-/// The `all` is the whole point, and `any` is the trap. An NFT update answers about a whole portfolio at
-/// once, so `any` retries on whichever tokens were untouched, exhausts the retries and returns *without
-/// writing anything* — which is how a shield left every badge stale and logged a «Max retries reached».
-/// With nothing answered yet there is nothing to wait for either, so the round is written straight away.
-fn awaiting_change(
+/// The `all` is the whole point, and `any` is the trap. One update answers about a whole set at once —
+/// a portfolio of tokens, every owner in a chunk — so `any` retries on whichever entries were
+/// *untouched*, exhausts the retries and returns without writing anything: a round in which something
+/// did move is the round that never gets written. (That is how a shield left every NFT badge stale
+/// while logging «Max retries reached».) With nothing answered yet there is nothing to wait for
+/// either, so the round is written straight away.
+///
+/// `missing` is what an answer that does not mention a key means: `0` for ownership, since a token the
+/// contract did not answer about is not held, and `U256::ZERO` for a balance — compared in wei, the
+/// shape a round answers in — where every key asked about is answered.
+fn awaiting_change<K, V>(
    retry_if_unchanged: bool,
-   before: &HashMap<batch::NftRef, u64>,
-   after: &HashMap<batch::NftRef, u64>,
-) -> bool {
+   before: &HashMap<K, V>,
+   after: &HashMap<K, V>,
+   missing: V,
+) -> bool
+where
+   K: Eq + Hash,
+   V: PartialEq,
+{
    retry_if_unchanged
       && !before.is_empty()
-      && before.iter().all(|(key, old)| after.get(key).copied().unwrap_or(0) == *old)
+      && before.iter().all(|(key, old)| after.get(key).unwrap_or(&missing) == old)
 }
 
 fn default_concurrency() -> usize {
@@ -718,40 +744,64 @@ mod tests {
       assert!(awaiting_change(
          true,
          &before,
-         &HashMap::from([(a, 1), (b, 1)])
+         &HashMap::from([(a, 1), (b, 1)]),
+         0
       ));
 
       // One of them moved: write the round, including the one that did not move.
       assert!(!awaiting_change(
          true,
          &before,
-         &HashMap::from([(a, 0), (b, 1)])
+         &HashMap::from([(a, 0), (b, 1)]),
+         0
       ));
       assert!(!awaiting_change(
          true,
          &before,
-         &HashMap::from([(a, 1), (b, 4)])
+         &HashMap::from([(a, 1), (b, 4)]),
+         0
       ));
 
       // Nothing was ever answered, so there is nothing to wait for.
       assert!(!awaiting_change(
          true,
          &HashMap::new(),
-         &HashMap::from([(a, 0)])
+         &HashMap::from([(a, 0)]),
+         0
       ));
 
       // Not expecting a move at all.
       assert!(!awaiting_change(
          false,
          &before,
-         &HashMap::from([(a, 1), (b, 1)])
+         &HashMap::from([(a, 1), (b, 1)]),
+         0
       ));
 
       // An id that lost its answer counts as moved, not as unchanged.
       assert!(!awaiting_change(
          true,
          &before,
-         &HashMap::from([(b, 1)])
+         &HashMap::from([(b, 1)]),
+         0
+      ));
+
+      // The rule serves the balance paths too, whose answers are wei — that is what the ether and ERC-20
+      // updates pass, and `any` there would retry on the owners that did *not* move (the round that had
+      // something to write being the round it never writes).
+      let owner = Address::from([0xcc; 20]);
+      let before_owner = HashMap::from([(owner, U256::ZERO)]);
+      assert!(awaiting_change(
+         true,
+         &before_owner,
+         &HashMap::from([(owner, U256::ZERO)]),
+         U256::ZERO
+      ));
+      assert!(!awaiting_change(
+         true,
+         &before_owner,
+         &HashMap::from([(owner, U256::from(1))]),
+         U256::ZERO
       ));
    }
 }
