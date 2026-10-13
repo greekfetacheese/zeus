@@ -28,7 +28,8 @@ use resvg::usvg;
 use std::borrow::Cow;
 use std::io::{Cursor, Read};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use zeus_eth::alloy_primitives::{Address, U256};
 use zeus_eth::nft::{NftToken, expand_id_placeholder};
@@ -59,12 +60,21 @@ const MAX_URI_LEN: usize = MAX_BYTES * 4;
 /// allocate.
 ///
 /// [`MAX_BYTES`] bounds the *transfer*, not the decode: a ≤4 MiB PNG that declares 8192×8192 decodes
-/// to ~256 MiB, and one list load runs [`NFT_ART_FETCH_PER_LOAD`] fetches at once. `image`'s own
+/// to ~256 MiB, and one list load starts [`NFT_ART_FETCH_PER_LOAD`] fetches at once — see
+/// [`MAX_CONCURRENT_ART_DECODES`] for what bounds how many of them decode together. `image`'s own
 /// defaults bound only `max_alloc` (512 MiB) and leave both dimensions open, so both are set here.
 /// `MAX_ART_ALLOC` is exactly what a `MAX_ART_EDGE`-square 32-bit source needs — the renderings are
 /// [`THUMB_EDGE`] and [`LARGE_EDGE`], so the edge cap is already far above anything a view can use.
 const MAX_ART_EDGE: u32 = 4096;
 const MAX_ART_ALLOC: u64 = (MAX_ART_EDGE as u64) * (MAX_ART_EDGE as u64) * 4;
+
+/// How many pixels' worth of nested raster images one document may declare, in total.
+///
+/// [`MAX_ART_EDGE`] bounds each nested payload, not how many there are: a 4 MiB document holds ~48
+/// 4096×4096 payloads at ~87 KB of base64 each, and a renderer that decoded them would work through
+/// ~3 GiB of pixels — twice, since [`render_svg`] renders both sizes. This is the budget they share
+/// per document: one full-size source.
+const MAX_NESTED_ART_PIXELS: usize = (MAX_ART_EDGE as usize) * (MAX_ART_EDGE as usize);
 
 /// Decode limits for art: both edges bounded (a *strict* limit, so a decoder that cannot uphold it
 /// must refuse rather than proceed), and an allocation budget a [`MAX_ART_EDGE`]-square source fits.
@@ -81,8 +91,22 @@ fn art_limits() -> image::Limits {
 /// The cap is what keeps a wallet tracking hundreds of ids from firing hundreds of concurrent
 /// gateway requests at once (the throttle that follows marks tokens failed for the session, so the
 /// art would never appear). Tokens already tried are skipped, so successive loads work through a long
-/// list instead of retrying the first few forever.
+/// list instead of retrying the first few forever. How many of these *decode* at once is a separate
+/// bound — see [`MAX_CONCURRENT_ART_DECODES`].
 const NFT_ART_FETCH_PER_LOAD: usize = 24;
+
+/// How many art decodes may run at once.
+///
+/// Every bound in this module is per *document*, and a list load starts [`NFT_ART_FETCH_PER_LOAD`]
+/// of them: twenty-four decoded rasters of [`MAX_ART_ALLOC`] each, or twenty-four documents each
+/// spending the ~155 MB usvg allows before its own one-million-node cap trips, is what the aggregate
+/// would be. Fetching twenty-four at a time is what that constant is for — a throttle on the
+/// gateways — so the decode, which is the expensive half, queues here instead.
+///
+/// A `const` rather than a `OnceLock`: it is never replaced, and `acquire` on it cannot fail.
+const MAX_CONCURRENT_ART_DECODES: usize = 3;
+static ART_DECODE_SLOTS: tokio::sync::Semaphore =
+   tokio::sync::Semaphore::const_new(MAX_CONCURRENT_ART_DECODES);
 
 // The IPFS gateways and the Arweave host live in the endpoint catalog
 // (`crate::core::urls`), which also carries the note on why gateway order matters.
@@ -490,6 +514,48 @@ fn render_two_sizes(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), anyhow::Error> {
    Ok((render(THUMB_EDGE)?, render(LARGE_EDGE)?))
 }
 
+/// Whether a document declares an XML entity — the one construct whose cost is not the document's.
+///
+/// usvg parses with `allow_dtd: true` and leaves roxmltree's `nodes_limit` at `u32::MAX`
+/// (`usvg-0.45.1/src/parser/mod.rs`), so the only guard on entity expansion is roxmltree's loop
+/// detector: at most 10 levels deep, at most 255 references *per reference*. Neither counts bytes,
+/// and an entity's own definition sits in the document. A `<!ENTITY a "…7 MiB…">` with 250 `&a;`
+/// references is therefore gigabytes of text out of a document of [`MAX_INFLATED_SVG`] or less — and
+/// every further reference in the document gets its own 255-reference budget. Measured: a 1.2 KiB
+/// download that had to be killed at 60 s.
+///
+/// Art has no use for entity declarations, and an *undefined* entity reference is a parse error
+/// already, so a document that declares one is refused whole instead of handed to the parser. A
+/// plain `<!DOCTYPE …>` prolog — what Inkscape-style art opens with — declares nothing and is left
+/// alone.
+fn declares_an_xml_entity(bytes: &[u8]) -> bool {
+   const KEYWORD: &[u8] = b"ENTITY";
+
+   let mut at = 0;
+   while at + 2 <= bytes.len() {
+      if bytes[at] == b'<' && bytes[at + 1] == b'!' {
+         // `<!ENTITY name …>` and `<!ENTITY % name …>`: XML allows white space between the markup
+         // introducer and the keyword, so it is skipped rather than assumed away.
+         let mut keyword = at + 2;
+         while keyword < bytes.len() && bytes[keyword].is_ascii_whitespace() {
+            keyword += 1;
+         }
+
+         // White space (or the end of the document) after `ENTITY`, so an element or attribute name
+         // that merely starts with the keyword is not one.
+         if bytes[keyword..].starts_with(KEYWORD)
+            && bytes.get(keyword + KEYWORD.len()).is_none_or(|byte| byte.is_ascii_whitespace())
+         {
+            return true;
+         }
+      }
+
+      at += 1;
+   }
+
+   false
+}
+
 /// `usvg` options that cannot reach the machine, and cannot be made to allocate without a bound.
 ///
 /// `resolve_string` is the one hook with filesystem reach: usvg's default treats a non-`data:`
@@ -499,10 +565,10 @@ fn render_two_sizes(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), anyhow::Error> {
 /// art. Refusing every string reference removes that reach.
 ///
 /// `resolve_data` stays the default resolver for everything a nested document is allowed to carry —
-/// that is what lets art with an inline image still render — behind the two limits in
+/// that is what lets art with an inline image still render — behind the checks in
 /// [`art_data_resolver`]. usvg parses an embedded SVG with resolvers of its own (`load_sub_svg`), so
-/// a nested document cannot name a path either; what it can still do is inflate or decode without a
-/// bound, which is what the wrapper refuses.
+/// a nested document cannot name a path either; what it can still do is inflate, declare entities or
+/// decode without a bound, which is what the wrapper refuses.
 fn svg_options() -> usvg::Options<'static> {
    let mut options = usvg::Options::default();
    options.image_href_resolver = usvg::ImageHrefResolver {
@@ -512,7 +578,28 @@ fn svg_options() -> usvg::Options<'static> {
    options
 }
 
-/// usvg's `data:` resolver behind the two limits a nested payload has to pass.
+/// Whether usvg hands a nested payload to its raster decoder rather than to its SVG parser.
+///
+/// Mirrors `ImageHrefResolver::default_data_resolver` (`usvg-0.45.1/src/parser/image.rs`): a raster
+/// mime by name, or — for `text/plain`, which is what a mime-less `data:` becomes — a payload whose
+/// bytes are one of the four formats it sniffs for through `imagesize`, the same call Zeus makes
+/// below. The distinction is what decides the bound: a raster is bounded by the size it declares, a
+/// document by what it may carry.
+fn nested_payload_is_raster(mime: &str, data: &[u8]) -> bool {
+   match mime {
+      "image/jpg" | "image/jpeg" | "image/png" | "image/gif" | "image/webp" => true,
+      "text/plain" => matches!(
+         imagesize::image_type(data),
+         Ok(imagesize::ImageType::Gif
+            | imagesize::ImageType::Jpeg
+            | imagesize::ImageType::Png
+            | imagesize::ImageType::Webp)
+      ),
+      _ => false,
+   }
+}
+
+/// usvg's `data:` resolver behind the checks a nested payload has to pass.
 ///
 /// The bytes decide, never the mime. usvg reaches its own uncapped inflate for a
 /// `data:image/svg+xml` payload, for a `text/plain` one, and for a mime-less `data:` — whose mime
@@ -520,8 +607,24 @@ fn svg_options() -> usvg::Options<'static> {
 /// `load_sub_svg` for all three, and that calls `Tree::from_data`, the function that inflates. A
 /// check on the mime is therefore a check on one of three spellings of the same payload; the
 /// compression has to be seen in the bytes, at the one place they are handed over.
+///
+/// What a nested payload can cost, and what each check answers:
+///
+/// - **compressed** — usvg would inflate it with no cap at all, so it is refused on the magic;
+/// - **raster** — decoded by the renderer at the size the payload declares: bounded per payload by
+///   [`MAX_ART_EDGE`] and per document by [`MAX_NESTED_ART_PIXELS`], with an unreadable declared size
+///   refused rather than handed on;
+/// - **document** — parsed here with the same options as the top level (`load_sub_svg`), so it has
+///   to be free of entity declarations (`declares_an_xml_entity`).
+///
+/// `resvg` in this build does not decode a raster at all: its `raster-images` feature is off, so
+/// `render` logs and skips every raster image kind (see `Cargo.toml`). The raster checks therefore
+/// bound the day that changes rather than today; the document check is live either way.
 fn art_data_resolver() -> usvg::ImageHrefDataResolverFn<'static> {
    let default = usvg::ImageHrefResolver::default_data_resolver();
+   // Shared by one document's nested payloads: `svg_options` is rebuilt per render, so this budget
+   // is per document. An `Arc` because the resolver has to be `Send + Sync`.
+   let declared_pixels = Arc::new(AtomicUsize::new(0));
 
    Box::new(move |mime, data, options| {
       // The exact test `Tree::from_data` inflates on, so nothing compressed can reach the
@@ -532,18 +635,33 @@ fn art_data_resolver() -> usvg::ImageHrefDataResolverFn<'static> {
          return None;
       }
 
-      // A nested raster is decoded by resvg at render time, outside [`art_limits`], so the edge the
-      // top-level path enforces has to be applied here or not at all: bound it by the size the
-      // payload declares. A size that cannot be read is left to usvg, which drops the element
-      // itself (`ImageKind::actual_size`).
-      if let Ok(size) = imagesize::blob_size(&data)
-         && (size.width > MAX_ART_EDGE as usize || size.height > MAX_ART_EDGE as usize)
-      {
-         tracing::debug!(
-            "refusing a nested {}x{} raster image: past the {MAX_ART_EDGE}px decode edge",
-            size.width,
-            size.height
-         );
+      if nested_payload_is_raster(mime, &data) {
+         let Ok(size) = imagesize::blob_size(&data) else {
+            tracing::debug!("refusing a nested raster image whose size cannot be read");
+            return None;
+         };
+
+         if size.width > MAX_ART_EDGE as usize || size.height > MAX_ART_EDGE as usize {
+            tracing::debug!(
+               "refusing a nested {}x{} raster image: past the {MAX_ART_EDGE}px decode edge",
+               size.width,
+               size.height
+            );
+            return None;
+         }
+
+         let pixels = size.width.saturating_mul(size.height);
+         let spent = declared_pixels.fetch_add(pixels, Ordering::Relaxed).saturating_add(pixels);
+
+         if spent > MAX_NESTED_ART_PIXELS {
+            tracing::debug!(
+               "refusing a nested raster image: {spent} px declared past the \
+                {MAX_NESTED_ART_PIXELS}px budget for one document"
+            );
+            return None;
+         }
+      } else if declares_an_xml_entity(&data) {
+         tracing::debug!("refusing a nested document that declares an XML entity");
          return None;
       }
 
@@ -593,10 +711,19 @@ fn inflate_svgz_if_needed(bytes: &[u8]) -> Result<Cow<'_, [u8]>, anyhow::Error> 
 ///
 /// Only ever shrinks, matching [`render_two_sizes`]: a small picture is never upscaled.
 ///
-/// A nested document that [`svg_options`] refuses — a compressed payload, or a raster past the
-/// decode edge — is dropped by usvg rather than failing the document, so the rest of the art still
-/// renders.
+/// The one place a document reaches the parser, which is why the check that has to happen first —
+/// see [`declares_an_xml_entity`] — is here rather than at the call site.
+///
+/// A nested document that [`svg_options`] refuses — compressed, an entity declaration, a raster past
+/// the decode edge or past the document's pixel budget — is dropped by usvg rather than failing the
+/// document, so the rest of the art still renders.
 fn render_svg(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), anyhow::Error> {
+   if declares_an_xml_entity(bytes) {
+      return Err(anyhow!(
+         "SVG art declares an XML entity, refusing to parse it"
+      ));
+   }
+
    let tree = usvg::Tree::from_data(bytes, &svg_options())?;
    Ok((
       render_svg_edge(&tree, THUMB_EDGE)?,
@@ -915,6 +1042,15 @@ pub async fn fetch_nft_icon(
    // shared runtime — the same pool the RPC, proving and server tasks use — so the decode is handed
    // to the blocking pool instead: an art pipeline that saturates every worker reads as a wallet that
    // cannot talk to a node while a list loads.
+   //
+   // One slot at a time, though: every other bound in this module is per document and a list load
+   // starts many decodes at once — see [`MAX_CONCURRENT_ART_DECODES`]. The permit covers the decode
+   // alone, so the fetch above still runs as wide as before.
+   let decode_slot = ART_DECODE_SLOTS
+      .acquire()
+      .await
+      .map_err(|e| anyhow!("no art decode slot is available: {e}"))?;
+
    let prepared = RT
       .spawn_blocking(move || match prepare_image_data(&image_bytes) {
          Ok(data) => Ok(data),
@@ -930,6 +1066,8 @@ pub async fn fetch_nft_icon(
          }
       })
       .await;
+
+   drop(decode_slot);
 
    match prepared {
       // The URI is stored with the art so a later change to it can be noticed at all: the cache is
@@ -1924,6 +2062,261 @@ mod tests {
       let expanded = expand_id_placeholder(&template, U256::from(7));
       assert!(expanded.contains(&format!("{:064x}.png", 7)));
       assert!(!expanded.contains("{id}"));
+   }
+
+   /// A document nesting `payload` as an inline image, the way a collection's art carries one.
+   fn nested_document(mime: &str, payload: &[u8]) -> String {
+      format!(
+         r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><image href="data:{mime};base64,{}" x="0" y="0" width="10" height="10"/></svg>"##,
+         encode_base64(payload)
+      )
+   }
+
+   /// A document that declares an entity and references it `refs` times.
+   ///
+   /// One MiB of definition inside a document of just over a MiB, which is the shape whose cost is
+   /// `refs × entity size` rather than the document's own.
+   fn entity_bomb(refs: usize) -> String {
+      format!(
+         "<?xml version=\"1.0\"?><!DOCTYPE svg [<!ENTITY a \"{}\">]><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><text x=\"0\" y=\"5\">{}</text></svg>",
+         "A".repeat(1024 * 1024),
+         "&a;".repeat(refs)
+      )
+   }
+
+   /// An entity declaration is the one construct whose expansion roxmltree does not bound in bytes:
+   /// its guard counts references (255 per reference, 10 deep), so a document of at most
+   /// [`MAX_INFLATED_SVG`] expands to gigabytes of text — measured, 250 references of a 1 MiB entity
+   /// had to be killed at 60 s, off a 1.2 KiB download. Refused before the parser sees it.
+   #[test]
+   fn a_document_that_declares_an_entity_is_refused() {
+      let err = render_svg(entity_bomb(10).as_bytes())
+         .expect_err("a document that declares an entity must not reach the parser");
+
+      assert!(
+         err.to_string().contains("entity"),
+         "the refusal has to say what it refused: {err}"
+      );
+   }
+
+   /// The control: the prolog Inkscape-style art opens with declares no entity, so it still renders.
+   #[test]
+   fn a_doctype_prolog_without_an_entity_still_renders() {
+      let doc = format!(
+         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">\n{RED_SVG}"
+      );
+
+      let (x64, _) = render_svg(doc.as_bytes()).expect("a plain doctype declares nothing");
+      assert!(
+         draws_anything(&x64),
+         "the art must still be drawn"
+      );
+   }
+
+   /// The same refusal one level down: usvg parses an embedded document with the same options it
+   /// gives the top level, so the check has to cover the nested path too.
+   #[test]
+   fn a_nested_document_that_declares_an_entity_is_refused() {
+      let options = svg_options();
+      let resolve = &options.image_href_resolver.resolve_data;
+      let bomb = entity_bomb(10).into_bytes();
+
+      assert!(
+         resolve("image/svg+xml", Arc::new(bomb.clone()), &options).is_none(),
+         "a nested document that declares an entity must not be handed to the parser"
+      );
+      // ...and for `text/plain`, which is the spelling a mime-less `data:` gets.
+      assert!(
+         resolve("text/plain", Arc::new(bomb), &options).is_none(),
+         "the refusal must not depend on how the mime spells the document"
+      );
+
+      let bomb = nested_document("image/svg+xml", entity_bomb(10).as_bytes());
+      let prepared = prepare_image_data(bomb.as_bytes()).expect("the outer document still renders");
+
+      let (x64, _) = raster_renderings(&prepared);
+      assert!(
+         !draws_anything(x64),
+         "a nested document that declares an entity must not be parsed"
+      );
+
+      // The control: the same nesting with a document that declares nothing does draw, so this is
+      // about the declaration and not about nested documents being refused wholesale.
+      let clean = nested_document("image/svg+xml", RED_SVG.as_bytes());
+      let prepared = prepare_image_data(clean.as_bytes()).expect("the outer document renders");
+
+      let (x64, _) = raster_renderings(&prepared);
+      assert!(
+         draws_anything(x64),
+         "an inline document must still render"
+      );
+   }
+
+   /// A raster whose declared size cannot be read is refused rather than handed on: every bound in
+   /// the resolver is expressed in that size, so there would be nothing left to bound it with.
+   #[test]
+   fn a_nested_raster_without_a_readable_size_is_refused() {
+      let options = svg_options();
+      let resolve = &options.image_href_resolver.resolve_data;
+
+      assert!(
+         resolve(
+            "image/png",
+            Arc::new(b"not a picture".to_vec()),
+            &options
+         )
+         .is_none(),
+         "a raster mime whose bytes declare no size must not be handed over"
+      );
+   }
+
+   /// Nested rasters are bounded per payload by the declared edge, and per *document* by the pixel
+   /// budget: ~48 payloads of `MAX_ART_EDGE`² fit a 4 MiB document as base64, and a renderer that
+   /// decoded them would work through ~3 GiB. One full-size source is the budget.
+   #[test]
+   fn nested_raster_pixels_are_bounded_per_document() {
+      let options = svg_options();
+      let resolve = &options.image_href_resolver.resolve_data;
+      let full_size = Arc::new(encode_png(MAX_ART_EDGE, MAX_ART_EDGE));
+
+      assert!(
+         resolve("image/png", full_size.clone(), &options).is_some(),
+         "one full-size raster is exactly the budget for one document"
+      );
+      assert!(
+         resolve("image/png", full_size, &options).is_none(),
+         "the second is past it, however small the document that carries both is"
+      );
+   }
+
+   /// `resvg` is built without `raster-images` (see `Cargo.toml`), so a nested raster is resolved by
+   /// usvg and then never decoded — which is why the resolver's raster checks bound a decoder that
+   /// is not in the build. If this fails, that feature has been enabled: the per-document pixel
+   /// budget is now load-bearing and the decode it bounds now happens.
+   #[test]
+   fn a_nested_raster_is_not_decoded_in_this_build() {
+      let png = parse_data_uri(PNG_URI).expect("the fixture is a data: URI");
+      let doc = nested_document("image/png", &png);
+      let prepared = prepare_image_data(doc.as_bytes()).expect("the document renders");
+
+      let (x64, _) = raster_renderings(&prepared);
+      assert!(
+         !draws_anything(x64),
+         "CANARY: resvg/raster-images is enabled — revisit art_data_resolver's raster bounds"
+      );
+   }
+
+   /// `image` enforces the decode limits through one path (`ImageReader::decode`: `reserve` the
+   /// output, then `set_limits`, whose default impl checks the dimensions) — but the *decoders* are
+   /// what carry it, so each enabled format is pinned instead of PNG standing in for all four.
+   #[test]
+   fn the_decode_edge_cap_holds_for_every_enabled_raster_format() {
+      let over = MAX_ART_EDGE + 1;
+      let mut cases: Vec<(&str, Vec<u8>)> = vec![("png", encode_png(over, 1))];
+
+      let rgb = image::RgbImage::from_pixel(over, 1, image::Rgb([10, 20, 30]));
+      let mut jpeg = Vec::new();
+      rgb.write_to(
+         &mut Cursor::new(&mut jpeg),
+         image::ImageFormat::Jpeg,
+      )
+      .unwrap();
+      cases.push(("jpeg", jpeg));
+
+      let rgba = image::RgbaImage::from_pixel(over, 1, image::Rgba([10, 20, 30, 255]));
+      let mut gif = Vec::new();
+      rgba
+         .write_to(
+            &mut Cursor::new(&mut gif),
+            image::ImageFormat::Gif,
+         )
+         .unwrap();
+      cases.push(("gif", gif));
+
+      cases.push(("webp", wide_webp(over)));
+
+      for (name, bytes) in cases {
+         let err = render_two_sizes(&bytes).expect_err(&format!(
+            "{name} past the decode edge must not decode"
+         ));
+
+         assert!(
+            matches!(
+               err.downcast_ref::<image::ImageError>(),
+               Some(image::ImageError::Limits(_))
+            ),
+            "{name}: the decode limit has to be what refused it: {err}"
+         );
+      }
+   }
+
+   /// `testdata/tiny.webp` with the VP8 frame header's width rewritten.
+   ///
+   /// `image` has no WebP encoder to build one with, and the 14-bit field at the start of the frame
+   /// header is the only place a decoder reads the width from — the top two bits of the second byte
+   /// are the horizontal scale and are left as they are.
+   fn wide_webp(width: u32) -> Vec<u8> {
+      const WIDTH_AT: usize = 26;
+
+      let mut bytes = include_bytes!("testdata/tiny.webp").to_vec();
+      let [low, high] = (width as u16).to_le_bytes();
+      bytes[WIDTH_AT] = low;
+      bytes[WIDTH_AT + 1] = (bytes[WIDTH_AT + 1] & 0xC0) | (high & 0x3F);
+      bytes
+   }
+
+   /// How many decodes run at once is a bound of its own — see [`MAX_CONCURRENT_ART_DECODES`] — and
+   /// a decode has to wait for a slot rather than run alongside the others.
+   #[tokio::test]
+   async fn art_decodes_wait_for_a_slot() {
+      let held: Vec<_> = (0..MAX_CONCURRENT_ART_DECODES)
+         .map(|_| ART_DECODE_SLOTS.try_acquire().expect("a free slot"))
+         .collect();
+
+      assert!(
+         ART_DECODE_SLOTS.try_acquire().is_err(),
+         "there must be no slot past MAX_CONCURRENT_ART_DECODES"
+      );
+
+      // The fetch for an inline URI is instant, so this is parked at the semaphore and nothing else.
+      let waiting = tokio::time::timeout(
+         Duration::from_millis(200),
+         fetch_nft_icon(PNG_URI, U256::from(1)),
+      )
+      .await;
+      assert!(
+         waiting.is_err(),
+         "a decode must not start while every slot is held"
+      );
+
+      drop(held);
+
+      let decoded = fetch_nft_icon(PNG_URI, U256::from(1)).await.expect("the slots are back");
+      assert!(decoded.is_some(), "and the decode completes");
+   }
+
+   /// A decode that ends in an error still gives its slot back — a permit leaked on a failure path
+   /// would stall every later decode of the session.
+   #[tokio::test]
+   async fn a_failed_decode_gives_its_slot_back() {
+      let garbage = "data:image/png;base64,bm90IGEgcGljdHVyZQ==";
+      assert!(
+         fetch_nft_icon(garbage, U256::from(1))
+            .await
+            .expect("an undecodable picture is not an error")
+            .is_none()
+      );
+
+      // Other tests share this semaphore, so wait for it rather than demanding it be free at once.
+      let deadline = std::time::Instant::now() + Duration::from_secs(5);
+      while ART_DECODE_SLOTS.available_permits() < MAX_CONCURRENT_ART_DECODES {
+         assert!(
+            std::time::Instant::now() < deadline,
+            "a slot was never released: {} of {MAX_CONCURRENT_ART_DECODES} free",
+            ART_DECODE_SLOTS.available_permits()
+         );
+         tokio::time::sleep(Duration::from_millis(20)).await;
+      }
    }
 
    /// Live end-to-end check over the real gateways: tokenURI → metadata document → image → both
