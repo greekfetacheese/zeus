@@ -235,11 +235,23 @@ impl NftToken {
    }
 }
 
-/// Expand an EIP-1155 `{id}` placeholder in a metadata URI.
+/// The largest a `tokenURI` may be after `{id}` expansion.
+///
+/// Each placeholder is four bytes and each expansion is sixty-four, so a template of a few kilobytes
+/// can ask for hundreds of megabytes: the string is contract-supplied, and it should not be able to
+/// size an allocation on the user's machine. A real URI is well under a kilobyte, so anything past
+/// this is not art metadata.
+pub const MAX_EXPANDED_URI_LEN: usize = 64 * 1024;
+
+/// A `tokenURI` with its ERC-1155 `{id}` placeholders expanded.
 ///
 /// The id is substituted as lowercase hex, zero-padded to 64 characters. Every spelling of the
 /// placeholder is expanded, not only the two the EIP prints: it shows `{id}` and `{ID}`, clients are
 /// expected to treat it case-insensitively, and "id" has exactly four spellings.
+///
+/// Returns the template unchanged when expanding it would exceed [`MAX_EXPANDED_URI_LEN`]: the
+/// caller then fails to resolve it and shows a placeholder, which is a better outcome than the
+/// allocation the template was asking for.
 pub fn expand_id_placeholder(uri: &str, token_id: U256) -> String {
    if !uri.contains('{') {
       return uri.to_string();
@@ -248,6 +260,18 @@ pub fn expand_id_placeholder(uri: &str, token_id: U256) -> String {
    let hex = format!("{token_id:064x}");
    let mut out = uri.to_string();
    for placeholder in ["{id}", "{ID}", "{Id}", "{iD}"] {
+      if !out.contains(placeholder) {
+         continue;
+      }
+
+      // The bound is on the *result*: the input is bounded by the caller, and every pass grows the
+      // string it is given.
+      let occurrences = out.matches(placeholder).count() as u64;
+      let grown = out.len() as u64 + occurrences * (hex.len() as u64 - placeholder.len() as u64);
+      if grown > MAX_EXPANDED_URI_LEN as u64 {
+         return uri.to_string();
+      }
+
       out = out.replace(placeholder, &hex);
    }
 
@@ -739,6 +763,35 @@ mod tests {
 
       let plain = "ipfs://QmeSjSinHpPnmXmspMjwiXyN6zS4E9zccariGR3jxcaWtq/1";
       assert_eq!(expand_id_placeholder(plain, U256::from(1)), plain);
+   }
+
+   /// The bound is on the *result*, and a template can be small and still ask for a string no URI has
+   /// any business being.
+   #[test]
+   fn refuses_to_expand_a_template_past_the_bound() {
+      let id = U256::from(1);
+      let hex = format!("{id:064x}");
+
+      // `{id}` is four bytes and each expansion sixty-four, so a head of `MAX_EXPANDED_URI_LEN - 64`
+      // puts the result exactly on the limit, which is allowed.
+      let at_the_bound = format!("{}{{id}}", "x".repeat(MAX_EXPANDED_URI_LEN - 64));
+      let expanded = expand_id_placeholder(&at_the_bound, id);
+      assert_eq!(expanded.len(), MAX_EXPANDED_URI_LEN);
+      assert!(expanded.ends_with(&hex));
+
+      // One byte further and the template comes back untouched: the caller then resolves a URI that
+      // cannot exist and shows a placeholder, rather than sizing the allocation the template asked
+      // for.
+      let past_the_bound = format!("{}{{id}}", "x".repeat(MAX_EXPANDED_URI_LEN - 63));
+      assert_eq!(
+         expand_id_placeholder(&past_the_bound, id),
+         past_the_bound
+      );
+
+      // The same bound seen from the other direction: eight kilobytes of placeholders expand to
+      // more than the limit, which a bound on the input alone would have let through.
+      let many = "{id}".repeat(2000);
+      assert_eq!(expand_id_placeholder(&many, id), many);
    }
 
    /// Identity is the token, not its metadata: a refreshed (or not-yet-fetched) URI must not
