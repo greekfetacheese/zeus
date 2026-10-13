@@ -95,6 +95,10 @@ impl ConnectDappWindow {
       seen: Vec<Address>,
       wallets: Vec<WalletInfo>,
    ) {
+      if self.is_busy() {
+         return;
+      }
+
       self.open = true;
       self.use_new_account = remembered.is_none();
       self.selected = remembered.or_else(|| wallets.first().map(|w| w.address));

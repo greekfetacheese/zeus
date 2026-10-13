@@ -117,7 +117,7 @@ impl TxConfirmationWindow {
    ///
    /// Call under the same lock as the [`Self::is_busy`] check (`confirm_tx` does),
    /// or two flows can both pass the check. [`Self::release`] hands it back.
-   pub fn claim(&mut self) -> bool {
+   pub(crate) fn claim(&mut self) -> bool {
       if self.pending {
          return false;
       }
@@ -200,6 +200,10 @@ impl TxConfirmationWindow {
       sponsored: bool,
       prebuilt_display: Option<ClearDisplay>,
    ) {
+      if self.is_busy() {
+         return;
+      }
+
       self.sponsored = sponsored;
       self.source_is_zeus = source_is_zeus;
       // `send_transaction` polls this immediately. Confirm/Reject only `close()`

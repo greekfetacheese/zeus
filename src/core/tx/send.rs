@@ -257,7 +257,8 @@ pub async fn confirm_tx(
    // act on the one answer, broadcasting a transaction the user never reviewed.
    // The claim and the open happen under one lock, so the race has no gap.
    let busy = SHARED_GUI.write(|gui| {
-      if !gui.tx_confirmation_window.claim() {
+      // Also guard against an already open sign msg window
+      if gui.tx_confirmation_window.is_busy() || gui.sign_msg_window.is_busy() {
          return true;
       }
 
@@ -271,6 +272,12 @@ pub async fn confirm_tx(
          opts.mev_protect,
          opts.sponsored,
       );
+
+      // `open` refuses a window that is already busy, so the claim lands after it.
+      // Both happen under this one lock, so the window reads busy to another flow
+      // the moment this returns: a second send cannot slip in before the prompt is drawn.
+      gui.tx_confirmation_window.claim();
+
       gui.loading_window.reset();
       gui.bring_to_front();
       false

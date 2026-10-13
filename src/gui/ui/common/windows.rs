@@ -63,9 +63,11 @@ impl ConfirmWindow {
 
    /// Claim the window and put up the prompt, or leave it untouched when another flow holds it.
    fn open_inner(&mut self, msg: impl Into<String>, delay: bool) -> bool {
-      if !self.claim() {
+      if self.is_busy() {
          return false;
       }
+
+      let claimed = self.claim();
 
       self.open = true;
       self.msg = msg.into();
@@ -74,7 +76,7 @@ impl ConfirmWindow {
       // (connect and switch share this window).
       self.confirm = None;
       self.opened_at = if delay { Some(Instant::now()) } else { None };
-      true
+      claimed
    }
 
    pub fn close(&mut self) {
@@ -104,7 +106,7 @@ impl ConfirmWindow {
    ///
    /// Taken inside [`Self::open`] / [`Self::open_from_dapp`], under the caller's lock, so the claim
    /// and the open have no gap. [`Self::release`] hands it back.
-   pub fn claim(&mut self) -> bool {
+   fn claim(&mut self) -> bool {
       if self.pending {
          return false;
       }

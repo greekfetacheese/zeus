@@ -59,6 +59,10 @@ impl SignMsgWindow {
    }
 
    pub fn open(&mut self, dapp: String, chain: u64, msg: SignMsgType, account: Address) {
+      if self.is_busy() {
+         return;
+      }
+
       self.dapp = dapp;
       self.chain = chain.into();
       self.account = account;

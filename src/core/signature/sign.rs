@@ -37,17 +37,16 @@ pub async fn sign_message(
 
    let msg_type = SignMsgType::new(ctx.clone(), chain.id(), msg_value, msg_bytes).await?;
 
-   // One prompt at a time. Two requests racing here would share this window — the second replacing
-   // what the first displayed — and both would then act on the one answer, each signing the message
-   // it was asked for rather than the one the user read. The claim and the open happen under one
-   // lock, so the race has no gap.
+   // One prompt at a time: two racing requests would share this window and both act on one answer.
    let busy = SHARED_GUI.write(|gui| {
-      if !gui.sign_msg_window.claim() {
+      // Also guard against an already open tx window
+      if gui.sign_msg_window.is_busy() || gui.tx_confirmation_window.is_busy() {
          return true;
       }
 
       gui.loading_window.reset();
       gui.sign_msg_window.open(dapp, chain.id(), msg_type.clone(), signer_address);
+      gui.sign_msg_window.claim();
       gui.bring_to_front();
       false
    });
