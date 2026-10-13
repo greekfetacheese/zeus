@@ -23,6 +23,10 @@ use zeus_eth::{
 
 pub struct SignMsgWindow {
    open: bool,
+   /// A flow has claimed this window ([`Self::claim`]) and holds it until it is done with the
+   /// prompt. Claimed under the same lock that opens it, so a second request cannot replace the
+   /// prompt the user is reading — the phase where two flows would otherwise share one Sign click.
+   pending: bool,
    dapp: String,
    chain: ChainId,
    /// Account that will produce the signature.
@@ -38,6 +42,7 @@ impl SignMsgWindow {
    pub fn new() -> Self {
       Self {
          open: false,
+         pending: false,
          dapp: String::new(),
          chain: ChainId::default(),
          account: Address::ZERO,
@@ -64,17 +69,47 @@ impl SignMsgWindow {
       self.opened_at = Some(Instant::now());
    }
 
-   pub fn reset(&mut self) {
-      self.close();
-      *self = Self::new();
-   }
-
    pub fn close(&mut self) {
       self.open = false;
    }
 
-   pub fn is_signed(&self) -> Option<bool> {
-      self.signed
+   /// True while a signature is in flight: a flow holds the window ([`Self::pending`]) or the
+   /// prompt is up.
+   ///
+   /// `sign_message` refuses to raise a second prompt while this holds, so two requests can never
+   /// share one window — and therefore one Sign click.
+   ///
+   /// An answer still waiting in `signed` is deliberately *not* busy. The flow that owns the window
+   /// holds the claim until it has collected the answer, so an uncollected answer can only exist
+   /// once that flow is gone — and reading it as busy would let a flow that died after the user
+   /// answered wedge every later request.
+   pub fn is_busy(&self) -> bool {
+      self.pending || self.open
+   }
+
+   /// Claim the window for one flow, from just before its prompt is put up until it is done with
+   /// it. Returns false when another flow already holds it.
+   ///
+   /// Call under the same lock as the [`Self::is_busy`] check (`sign_message` does), or two flows
+   /// can both pass the check. [`Self::release`] hands it back.
+   pub fn claim(&mut self) -> bool {
+      if self.pending {
+         return false;
+      }
+      self.pending = true;
+      true
+   }
+
+   pub fn release(&mut self) {
+      self.pending = false;
+   }
+
+   /// Collect the answer, consuming it.
+   ///
+   /// Single-use on purpose: an answer that could be read twice would answer two flows from one
+   /// Sign click, and the second would produce a signature the user never reviewed.
+   pub fn take_signed(&mut self) -> Option<bool> {
+      self.signed.take()
    }
 
    /// Close without signing and answer the awaiting `sign_message` with a
@@ -238,8 +273,11 @@ impl SignMsgWindow {
                         let cancel_btn = Button::new(text).min_size(button_size);
 
                         if ui.add(cancel_btn).clicked() {
-                           self.reset();
+                           // Not `reset()`: rebuilding the struct would drop the owning flow's
+                           // claim and could lose this answer to a request that claimed the window
+                           // in the meantime, leaving both flows waiting.
                            self.signed = Some(false);
+                           self.close();
                         }
                      });
                   });
@@ -800,6 +838,41 @@ mod tests {
       window.reject();
 
       assert!(!window.is_open());
-      assert_eq!(window.is_signed(), Some(false));
+      assert_eq!(window.take_signed(), Some(false));
+   }
+
+   /// One Sign click answers exactly one flow: the answer is collected once, so a second awaiting
+   /// `sign_message` cannot read it and sign a payload the user never reviewed.
+   ///
+   /// This is the whole point of the guard — the awaiters sign their *own* message, not the one the
+   /// window is showing, so an answer that could be read twice hands a dapp a signature for a
+   /// different message than the user approved.
+   #[test]
+   fn a_signature_stays_busy_until_its_answer_is_collected() {
+      let mut window = SignMsgWindow::new();
+
+      // Nothing in flight: a flow may claim the window.
+      assert!(!window.is_busy());
+      assert!(window.claim());
+      assert!(window.is_busy());
+
+      // The claim is exclusive for as long as the flow holds it.
+      assert!(!window.claim());
+
+      // The prompt is up.
+      window.open = true;
+      assert!(window.is_busy());
+
+      // Answered, and the owning flow still holds the claim until it has collected it: still busy,
+      // and the answer is collected once and only once.
+      window.signed = Some(true);
+      window.close();
+      assert!(window.is_busy());
+      assert_eq!(window.take_signed(), Some(true));
+      assert_eq!(window.take_signed(), None);
+
+      // The owning flow releases the window when it is done with it.
+      window.release();
+      assert!(!window.is_busy());
    }
 }

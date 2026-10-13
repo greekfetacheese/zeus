@@ -60,11 +60,16 @@ pub async fn wait_tx_confirm() -> bool {
 pub async fn wait_confirm_window() -> bool {
    loop {
       tokio::time::sleep(Duration::from_millis(50)).await;
-      let confirmed = SHARED_GUI.read(|gui| gui.confirm_window.get_confirm());
+      // Collect the answer and close in one exclusive step: the answer is
+      // single-use, so one Confirm click can only ever be acted on once.
+      let confirmed = SHARED_GUI.write(|gui| {
+         let confirmed = gui.confirm_window.take_confirm();
+         if confirmed.is_some() {
+            gui.confirm_window.close();
+         }
+         confirmed
+      });
       if let Some(confirmed) = confirmed {
-         SHARED_GUI.write(|gui| {
-            gui.confirm_window.reset();
-         });
          return confirmed;
       }
    }

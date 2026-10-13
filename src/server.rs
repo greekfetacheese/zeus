@@ -6,7 +6,7 @@ use crate::core::{
    SendTxOptions, SendTxRequest, TransactionRich, WalletCall, ZeusCtx, send_transaction,
    send_wallet_calls, sign_message,
 };
-use crate::gui::ui::common::switch_chain;
+use crate::gui::ui::common::{ConfirmWindowClaim, switch_chain};
 use crate::gui::{DappAccountChoice, DappConnectResult, SHARED_GUI};
 use crate::utils::RT;
 use anyhow::anyhow;
@@ -613,11 +613,16 @@ impl RpcTxCall {
 async fn wait_for_user_confirm() -> bool {
    loop {
       tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-      let confirmed = SHARED_GUI.read(|gui| gui.confirm_window.get_confirm());
+      // Collect the answer and close in one exclusive step: the answer is
+      // single-use, so one Confirm click can only ever be acted on once.
+      let confirmed = SHARED_GUI.write(|gui| {
+         let confirmed = gui.confirm_window.take_confirm();
+         if confirmed.is_some() {
+            gui.confirm_window.close();
+         }
+         confirmed
+      });
       if let Some(confirmed) = confirmed {
-         SHARED_GUI.write(|gui| {
-            gui.confirm_window.reset();
-         });
          return confirmed;
       }
    }
@@ -1396,6 +1401,19 @@ async fn eth_sign_typed_data_v4(
       Some(_) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    }
 
+   // One signing prompt at a time. Replacing a pending prompt would leave its flow
+   // waiting on an answer the user gives to this request instead.
+   if SHARED_GUI.read(|gui| gui.sign_msg_window.is_busy()) {
+      info!(
+         "Dapp {} requested a signature while another signing prompt is pending",
+         origin
+      );
+      return Ok(JsonRpcResponse::error(
+         RESOURCE_UNAVAILABLE,
+         payload.id,
+      ));
+   }
+
    let chain = ctx.chain();
    let signature = match sign_message(
       ctx,
@@ -1486,6 +1504,18 @@ async fn personal_sign(
          return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
       }
    };
+
+   // One signing prompt at a time, as for the typed-data request.
+   if SHARED_GUI.read(|gui| gui.sign_msg_window.is_busy()) {
+      info!(
+         "Dapp {} requested a signature while another signing prompt is pending",
+         origin
+      );
+      return Ok(JsonRpcResponse::error(
+         RESOURCE_UNAVAILABLE,
+         payload.id,
+      ));
+   }
 
    let chain = ctx.chain();
    let signature = match sign_message(
@@ -1588,15 +1618,36 @@ async fn apply_chain_switch(
       return Ok(JsonRpcResponse::ok(Some(Value::Null), payload_id));
    }
 
-   SHARED_GUI.write(|gui| {
-      gui.confirm_window.open_from_dapp("Switch Network");
+   // One prompt at a time. Replacing a pending prompt would leave its flow waiting on
+   // an answer the user gives to this request instead, and the two would share the one
+   // click — `ConfirmWindow` is also what the add-token prompt and the MEV fallback use.
+   let claimed = SHARED_GUI.write(|gui| {
+      if !gui.confirm_window.open_from_dapp("Switch Network") {
+         return false;
+      }
+
       gui.confirm_window.set_msg2(format!(
          "{} wants to switch to {}",
          origin,
          chain.name()
       ));
       gui.bring_to_front();
+      true
    });
+
+   if !claimed {
+      info!(
+         "Dapp {} asked to switch network while another confirmation is pending",
+         origin
+      );
+      return Ok(JsonRpcResponse::error(
+         RESOURCE_UNAVAILABLE,
+         payload_id,
+      ));
+   }
+
+   // Held until this flow is done with the prompt, however it ends.
+   let _claim = ConfirmWindowClaim;
 
    if !wait_for_user_confirm().await {
       return Ok(JsonRpcResponse::error(
@@ -2101,14 +2152,33 @@ async fn wallet_watch_asset(
       .map(|s| s.to_string())
       .unwrap_or_else(|| address.to_string());
 
-   SHARED_GUI.write(|gui| {
-      gui.confirm_window.open_from_dapp("Add Token");
+   // One prompt at a time, as for the network switch.
+   let claimed = SHARED_GUI.write(|gui| {
+      if !gui.confirm_window.open_from_dapp("Add Token") {
+         return false;
+      }
+
       gui.confirm_window.set_msg2(format!(
          "{} wants to add {} to your wallet",
          origin, label
       ));
       gui.bring_to_front();
+      true
    });
+
+   if !claimed {
+      info!(
+         "Dapp {} asked to add a token while another confirmation is pending",
+         origin
+      );
+      return Ok(JsonRpcResponse::error(
+         RESOURCE_UNAVAILABLE,
+         payload.id,
+      ));
+   }
+
+   // Held until this flow is done with the prompt, however it ends.
+   let _claim = ConfirmWindowClaim;
 
    if !wait_for_user_confirm().await {
       return Ok(JsonRpcResponse::error(

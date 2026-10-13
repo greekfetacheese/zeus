@@ -10,6 +10,7 @@ use std::time::Duration;
 use super::finalize::{MainEvent, MinedTx, RecordPolicy, build_tx_outcome, record_and_notify};
 use crate::core::clear_signing::ClearDisplay;
 use crate::core::tx::{diffs_from_receipt, simulate_and_diff};
+use crate::gui::ui::common::ConfirmWindowClaim;
 use crate::gui::{SHARED_GUI, ui::NotificationType};
 use zeus_eth::{
    alloy_contract::private::Provider,
@@ -469,16 +470,32 @@ pub async fn send_transaction(
       match ctx.get_mev_protect_client(chain.id()).await {
          Ok(mev_client) => mev_client,
          Err(_) => {
-            SHARED_GUI.write(|gui| {
-               let msg2 = "Continue without MEV protection?";
-               if source_is_zeus {
-                  gui.confirm_window.open("No available MEV protect RPC found");
+            // One prompt at a time, as everywhere this window is used: a second flow
+            // replacing the prompt would leave the first waiting on an answer it never
+            // asked for, and both would act on the one click.
+            let claimed = SHARED_GUI.write(|gui| {
+               let opened = if source_is_zeus {
+                  gui.confirm_window.open("No available MEV protect RPC found")
                } else {
-                  gui.confirm_window.open_from_dapp("No available MEV protect RPC found");
+                  gui.confirm_window.open_from_dapp("No available MEV protect RPC found")
+               };
+
+               if opened {
+                  gui.confirm_window.set_msg2("Continue without MEV protection?");
+                  gui.request_repaint();
                }
-               gui.confirm_window.set_msg2(msg2);
-               gui.request_repaint();
+
+               opened
             });
+
+            if !claimed {
+               return Err(anyhow!(
+                  "Another prompt is already waiting for confirmation"
+               ));
+            }
+
+            // Held until this flow is done with the prompt, however it ends.
+            let _claim = ConfirmWindowClaim;
 
             if !wait_confirm_window().await {
                return Err(anyhow!("Transaction rejected"));

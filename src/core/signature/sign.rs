@@ -6,6 +6,19 @@ use zeus_eth::{alloy_primitives::Address, alloy_signer::Signature, types::ChainI
 
 use super::msg::SignMsgType;
 
+/// Releases the signing window's claim when the flow holding it ends.
+///
+/// A drop guard rather than a call at each exit point: `sign_message` must hand the window back on
+/// every path, including a future dropped mid-prompt, so a flow that dies can never wedge the next
+/// request.
+struct SignClaim;
+
+impl Drop for SignClaim {
+   fn drop(&mut self) {
+      SHARED_GUI.write(|gui| gui.sign_msg_window.release());
+   }
+}
+
 /// Prompt the user to sign a message.
 ///
 /// `signer` is the wallet that must produce the signature. Pass `None` to use
@@ -24,27 +37,50 @@ pub async fn sign_message(
 
    let msg_type = SignMsgType::new(ctx.clone(), chain.id(), msg_value, msg_bytes).await?;
 
-   SHARED_GUI.write(|gui| {
+   // One prompt at a time. Two requests racing here would share this window — the second replacing
+   // what the first displayed — and both would then act on the one answer, each signing the message
+   // it was asked for rather than the one the user read. The claim and the open happen under one
+   // lock, so the race has no gap.
+   let busy = SHARED_GUI.write(|gui| {
+      if !gui.sign_msg_window.claim() {
+         return true;
+      }
+
       gui.loading_window.reset();
       gui.sign_msg_window.open(dapp, chain.id(), msg_type.clone(), signer_address);
       gui.bring_to_front();
+      false
    });
 
-   // Wait for the user to sign or cancel
-   let mut signed = None;
-   loop {
-      tokio::time::sleep(Duration::from_millis(50)).await;
-
-      SHARED_GUI.read(|gui| {
-         signed = gui.sign_msg_window.is_signed();
-      });
-
-      if signed.is_some() {
-         break;
-      }
+   if busy {
+      return Err(anyhow::anyhow!(
+         "Another signing request is already waiting for confirmation"
+      ));
    }
 
-   let signed = signed.unwrap();
+   // Held until this flow is done with the prompt, however it ends: the claim is released on
+   // return, on error, and if the future is dropped, so a flow that dies can never wedge the next
+   // request.
+   let _claim = SignClaim;
+
+   // Wait for the user to sign or cancel
+   let signed = loop {
+      tokio::time::sleep(Duration::from_millis(50)).await;
+
+      // Collect the answer and close in one exclusive step: the answer is single-use, so one Sign
+      // click can only ever be acted on once.
+      let answer = SHARED_GUI.write(|gui| {
+         let signed = gui.sign_msg_window.take_signed();
+         if signed.is_some() {
+            gui.sign_msg_window.close();
+         }
+         signed
+      });
+
+      if let Some(signed) = answer {
+         break signed;
+      }
+   };
 
    if !signed {
       SHARED_GUI.request_repaint();

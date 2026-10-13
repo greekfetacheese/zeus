@@ -20,6 +20,10 @@ use egui_elements::{Button, Modal, Theme};
 /// A Window to prompt the user to confirm an action
 pub struct ConfirmWindow {
    open: bool,
+   /// A flow has claimed this window ([`Self::claim`]) and holds it until it is done with the
+   /// prompt. Claimed under the same lock that opens it, so a second flow cannot replace the
+   /// prompt the user is reading — several different actions share this one window.
+   pending: bool,
    pub confirm: Option<bool>,
    pub msg: String,
    pub msg2: Option<String>,
@@ -32,6 +36,7 @@ impl ConfirmWindow {
    pub fn new() -> Self {
       Self {
          open: false,
+         pending: false,
          confirm: None,
          msg: String::new(),
          msg2: None,
@@ -44,16 +49,24 @@ impl ConfirmWindow {
       self.open
    }
 
-   pub fn open(&mut self, msg: impl Into<String>) {
-      self.open_inner(msg, false);
+   /// Open this prompt for one flow, claiming the window. Returns false — and changes nothing —
+   /// when another flow already holds it.
+   pub fn open(&mut self, msg: impl Into<String>) -> bool {
+      self.open_inner(msg, false)
    }
 
-   /// Dapp-originated prompt. Confirm is delayed so a focus-steal click cannot approve it.
-   pub fn open_from_dapp(&mut self, msg: impl Into<String>) {
-      self.open_inner(msg, true);
+   /// Dapp-originated prompt. Confirm is delayed so a focus-steal click cannot approve it, and the
+   /// window is claimed so a second dapp request cannot replace what the user is reading.
+   pub fn open_from_dapp(&mut self, msg: impl Into<String>) -> bool {
+      self.open_inner(msg, true)
    }
 
-   fn open_inner(&mut self, msg: impl Into<String>, delay: bool) {
+   /// Claim the window and put up the prompt, or leave it untouched when another flow holds it.
+   fn open_inner(&mut self, msg: impl Into<String>, delay: bool) -> bool {
+      if !self.claim() {
+         return false;
+      }
+
       self.open = true;
       self.msg = msg.into();
       self.msg2 = None;
@@ -61,6 +74,7 @@ impl ConfirmWindow {
       // (connect and switch share this window).
       self.confirm = None;
       self.opened_at = if delay { Some(Instant::now()) } else { None };
+      true
    }
 
    pub fn close(&mut self) {
@@ -71,8 +85,43 @@ impl ConfirmWindow {
       self.msg2 = Some(msg.into());
    }
 
-   pub fn get_confirm(&self) -> Option<bool> {
-      self.confirm
+   /// True while a confirmation is in flight: a flow holds the window ([`Self::pending`]) or the
+   /// prompt is up.
+   ///
+   /// A flow refuses to raise a second prompt while this holds, so two flows can never share one
+   /// window — and therefore one Confirm click.
+   ///
+   /// An answer still waiting in `confirm` is deliberately *not* busy. The flow that owns the window
+   /// holds the claim until it has collected the answer, so an uncollected answer can only exist
+   /// once that flow is gone — and reading it as busy would let a flow that died after the user
+   /// answered wedge every later request.
+   pub fn is_busy(&self) -> bool {
+      self.pending || self.open
+   }
+
+   /// Claim the window for one flow, from just before its prompt is put up until it is done with
+   /// it. Returns false when another flow already holds it.
+   ///
+   /// Taken inside [`Self::open`] / [`Self::open_from_dapp`], under the caller's lock, so the claim
+   /// and the open have no gap. [`Self::release`] hands it back.
+   pub fn claim(&mut self) -> bool {
+      if self.pending {
+         return false;
+      }
+      self.pending = true;
+      true
+   }
+
+   pub fn release(&mut self) {
+      self.pending = false;
+   }
+
+   /// Collect the answer, consuming it.
+   ///
+   /// Single-use on purpose: an answer that could be read twice would answer two flows from one
+   /// Confirm click, and the second would act on a prompt the user never saw.
+   pub fn take_confirm(&mut self) -> Option<bool> {
+      self.confirm.take()
    }
 
    /// Close and answer the awaiting prompt with a rejection. Used when
@@ -80,14 +129,6 @@ impl ConfirmWindow {
    pub fn reject(&mut self) {
       self.confirm = Some(false);
       self.close();
-   }
-
-   pub fn reset(&mut self) {
-      self.close();
-      self.msg.clear();
-      self.msg2 = None;
-      self.confirm = None;
-      self.opened_at = None;
    }
 
    pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
@@ -156,6 +197,20 @@ impl ConfirmWindow {
                });
             });
          });
+   }
+}
+
+/// Releases the confirm window's claim when the flow holding it ends.
+///
+/// A drop guard rather than a call at each exit point, mirroring the transaction confirmation's:
+/// `ConfirmWindow` is shared by a dapp's network switch, a dapp's add-token, the MEV-protection
+/// fallback inside a send, and the in-app token/NFT delete prompts, so the flow that raised one
+/// must hand the window back on every path — including a future dropped mid-prompt.
+pub struct ConfirmWindowClaim;
+
+impl Drop for ConfirmWindowClaim {
+   fn drop(&mut self) {
+      SHARED_GUI.write(|gui| gui.confirm_window.release());
    }
 }
 
@@ -508,6 +563,42 @@ mod tests {
       window.reject();
 
       assert!(!window.is_open());
-      assert_eq!(window.get_confirm(), Some(false));
+      assert_eq!(window.take_confirm(), Some(false));
+   }
+
+   /// One Confirm click answers exactly one flow: the answer is collected once, so a second
+   /// awaiting flow cannot read it and act on a prompt the user never saw.
+   ///
+   /// Several actions share this window — a dapp's network switch, a dapp's add-token, the
+   /// MEV-protection fallback inside a send, and the in-app token/NFT delete prompts — so a page
+   /// that fires two of them at once used to get one click's approval for both.
+   #[test]
+   fn a_confirm_stays_busy_until_its_answer_is_collected() {
+      let mut window = ConfirmWindow::new();
+
+      // Nothing in flight: a flow may claim the window.
+      assert!(!window.is_busy());
+      assert!(window.claim());
+      assert!(window.is_busy());
+
+      // The claim is exclusive for as long as the flow holds it — including while the prompt's
+      // own state is still being set up and nothing is drawn yet.
+      assert!(!window.claim());
+
+      // The prompt is up.
+      window.open = true;
+      assert!(window.is_busy());
+
+      // Answered, and the owning flow still holds the claim until it has collected it: still busy,
+      // and the answer is collected once and only once.
+      window.confirm = Some(true);
+      window.close();
+      assert!(window.is_busy());
+      assert_eq!(window.take_confirm(), Some(true));
+      assert_eq!(window.take_confirm(), None);
+
+      // The owning flow releases the window when it is done with it.
+      window.release();
+      assert!(!window.is_busy());
    }
 }

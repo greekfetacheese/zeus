@@ -7,6 +7,7 @@ use eframe::egui::{
 
 use crate::assets::icons::Icons;
 use crate::core::{ClientKind, ZeusContext, ZeusCtx};
+use crate::gui::ui::common::ConfirmWindowClaim;
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::{
    RT, nft_icon::start_nft_art_downloads, token_icon::spawn_fetch_token_icon, truncate_address,
@@ -1171,18 +1172,41 @@ impl TokenSelectionWindow {
 
 fn delete_token(chain_id: u64, owner: Address, token: ERC20Token, privacy_mode: bool) {
    RT.spawn(async move {
-      SHARED_GUI.write(|gui| {
-         gui.confirm_window.open(format!("Delete {}?", token.name));
+      // One prompt at a time: this window is also what a dapp's network-switch/add-token
+      // and the MEV fallback use, so a refused claim means one of those is already up.
+      let claimed = SHARED_GUI.write(|gui| {
+         if !gui.confirm_window.open(format!("Delete {}?", token.name)) {
+            return false;
+         }
+
          gui.request_repaint();
+         true
       });
+
+      if !claimed {
+         SHARED_GUI.write(|gui| {
+            gui.open_msg_window(
+               "Another prompt is already open. Finish it, then delete again.".to_string(),
+            );
+         });
+         return;
+      }
+
+      // Held until this flow is done with the prompt, however it ends.
+      let _claim = ConfirmWindowClaim;
 
       let confirmed = loop {
          tokio::time::sleep(Duration::from_millis(50)).await;
-         let confirmed = SHARED_GUI.read(|gui| gui.confirm_window.get_confirm());
+         // Collect the answer and close in one exclusive step: the answer is
+         // single-use, so one Confirm click can only ever be acted on once.
+         let confirmed = SHARED_GUI.write(|gui| {
+            let confirmed = gui.confirm_window.take_confirm();
+            if confirmed.is_some() {
+               gui.confirm_window.close();
+            }
+            confirmed
+         });
          if let Some(confirmed) = confirmed {
-            SHARED_GUI.write(|gui| {
-               gui.confirm_window.reset();
-            });
             break confirmed;
          }
       };
@@ -1813,18 +1837,41 @@ fn set_nft_in_portfolio(chain_id: u64, owner: Address, token: NftToken, add: boo
 /// refetch on the next frame.
 fn delete_nft(chain_id: u64, owner: Address, token: NftToken, name: String) {
    RT.spawn(async move {
-      SHARED_GUI.write(|gui| {
-         gui.confirm_window.open(format!("Delete {name} #{}?", token.token_id));
+      // One prompt at a time: this window is also what a dapp's network-switch/add-token
+      // and the MEV fallback use, so a refused claim means one of those is already up.
+      let claimed = SHARED_GUI.write(|gui| {
+         if !gui.confirm_window.open(format!("Delete {name} #{}?", token.token_id)) {
+            return false;
+         }
+
          gui.request_repaint();
+         true
       });
+
+      if !claimed {
+         SHARED_GUI.write(|gui| {
+            gui.open_msg_window(
+               "Another prompt is already open. Finish it, then delete again.".to_string(),
+            );
+         });
+         return;
+      }
+
+      // Held until this flow is done with the prompt, however it ends.
+      let _claim = ConfirmWindowClaim;
 
       let confirmed = loop {
          tokio::time::sleep(Duration::from_millis(50)).await;
-         let confirmed = SHARED_GUI.read(|gui| gui.confirm_window.get_confirm());
+         // Collect the answer and close in one exclusive step: the answer is
+         // single-use, so one Confirm click can only ever be acted on once.
+         let confirmed = SHARED_GUI.write(|gui| {
+            let confirmed = gui.confirm_window.take_confirm();
+            if confirmed.is_some() {
+               gui.confirm_window.close();
+            }
+            confirmed
+         });
          if let Some(confirmed) = confirmed {
-            SHARED_GUI.write(|gui| {
-               gui.confirm_window.reset();
-            });
             break confirmed;
          }
       };
