@@ -1171,16 +1171,8 @@ impl ClientManager {
 
       let rpcs = self.get_rpcs(chain);
 
-      for rpc in rpcs.values() {
-         if !rpc.is_working() || !rpc.is_enabled() || !rpc.is_archive() {
-            continue;
-         }
-
-         if http && rpc.is_ws() {
-            continue;
-         }
-
-         match self.connect_to(rpc).await {
+      for rpc in archive_candidates(rpcs.values().cloned(), http) {
+         match self.connect_to(&rpc).await {
             Ok(client) => return Ok(client),
             Err(_e) => {
                #[cfg(feature = "dev")]
@@ -1208,6 +1200,13 @@ impl ClientManager {
    }
 
    /// Select the best RPC for the given chain
+   ///
+   /// A **fully-functional** endpoint always wins over a partial one. The score — latency, plus
+   /// how recently this endpoint was used (spreads concurrent load), plus a decaying penalty for
+   /// its last failure — only ranks endpoints *inside* one class, so load balancing never moves
+   /// work onto an endpoint that fails the capability checks while a fully-functional one is
+   /// enabled and working. The partials are consulted only once none of those is left, and then
+   /// the same score picks among them.
    pub fn get_best_rpc(&self, chain: u64) -> Option<Rpc> {
       let failure_penalty_max: u128 = 10_000;
       let failure_decay_secs: u64 = 60;
@@ -1245,9 +1244,16 @@ impl ClientManager {
             }
 
             let fully = rpc.is_fully_functional();
+
+            // Class first, score second: a partial endpoint never displaces a fully-functional
+            // one, however much cheaper its score is.
             let better = match best_key {
                None => true,
-               Some(_) => (fully && !best_fully) || (fully == best_fully && score < best_score),
+               Some(_) => match (fully, best_fully) {
+                  (true, false) => true,
+                  (false, true) => false,
+                  _ => score < best_score,
+               },
             };
 
             if better {
@@ -1437,6 +1443,23 @@ impl ClientManager {
 
       Err(anyhow!("Exhausted retries for chain {}", chain))
    }
+}
+
+/// Archive endpoints to dial, fully-functional ones first.
+///
+/// The sort is stable, so the caller's order (the endpoint map's) breaks ties inside a class. A
+/// historical read landing on an endpoint that fails the capability checks is what the ordering
+/// exists to avoid: the Railgun provider asks this client for old logs, and a partial endpoint
+/// answers with a smaller block range, or not at all.
+fn archive_candidates(rpcs: impl IntoIterator<Item = Rpc>, http: bool) -> Vec<Rpc> {
+   let mut candidates: Vec<Rpc> = rpcs
+      .into_iter()
+      .filter(|rpc| rpc.is_enabled() && rpc.is_working() && rpc.is_archive())
+      .filter(|rpc| !(http && rpc.is_ws()))
+      .collect();
+
+   candidates.sort_by_key(|rpc| !rpc.is_fully_functional());
+   candidates
 }
 
 /// Try to determine if the given RPC is working
@@ -2129,6 +2152,53 @@ mod tests {
       assert_eq!(&*best.url, "http://fast");
    }
 
+   #[test]
+   fn get_best_rpc_ignores_the_usage_cooldown_across_classes() {
+      // The fully-functional endpoint was used a moment ago, so it carries the whole cooldown
+      // penalty — and still beats a partial endpoint whose score is its latency alone.
+      let mut fully = rpc_for_select("http://full", true, 500);
+      fully.rps = 1;
+      fully.last_used = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
+
+      let client = client_with([fully, rpc_for_select("http://partial", false, 1)]);
+
+      assert_eq!(
+         &*client.get_best_rpc(1).unwrap().url,
+         "http://full"
+      );
+   }
+
+   #[test]
+   fn get_best_rpc_ignores_the_failure_penalty_across_classes() {
+      // A failure a second ago adds up to 10_000 ms to the score; it ranks endpoints inside a
+      // class and nothing more, so the partial endpoint stays off the wire.
+      let mut fully = rpc_for_select("http://full", true, 500);
+      fully.last_failure = Some(TimeStamp::now_as_millis().unwrap_or_default().timestamp());
+
+      let client = client_with([fully, rpc_for_select("http://partial", false, 1)]);
+
+      assert_eq!(
+         &*client.get_best_rpc(1).unwrap().url,
+         "http://full"
+      );
+   }
+
+   #[test]
+   fn get_best_rpc_load_balances_inside_the_fully_functional_class() {
+      // Both are fully functional, so the score decides: the endpoint used a moment ago loses to
+      // the idle one for as long as its cooldown lasts.
+      let mut used = rpc_for_select("http://used", true, 10);
+      used.rps = 1;
+      used.last_used = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
+
+      let client = client_with([used, rpc_for_select("http://idle", true, 80)]);
+
+      assert_eq!(
+         &*client.get_best_rpc(1).unwrap().url,
+         "http://idle"
+      );
+   }
+
    fn rpc_checked(url: &str, fully: bool) -> Rpc {
       let mut rpc = rpc_for_select(url, fully, 10);
       rpc.check.last_check = Some(1);
@@ -2167,6 +2237,13 @@ mod tests {
       if has(RpcFunctionality::ZeusStateView) {
          rpc.check.v2_pool_reserves_batch = V2_POOL_RESERVES_BATCH;
       }
+      rpc
+   }
+
+   /// An enabled, working archive endpoint (`rpc_checked` plus the archive probe).
+   fn rpc_archive(url: &str, fully: bool) -> Rpc {
+      let mut rpc = rpc_checked(url, fully);
+      rpc.check.archive = true;
       rpc
    }
 
@@ -2227,5 +2304,74 @@ mod tests {
       let client = client_with([rpc]);
 
       assert!(!client.unavailable_functionalities(1).contains(&RpcFunctionality::ZeusStateView));
+   }
+
+   #[test]
+   fn archive_candidates_put_fully_functional_endpoints_first() {
+      // Fed in the wrong order on purpose: every caller hands these over in endpoint-map order,
+      // so the sort is the only thing that can put the good endpoint in front.
+      let candidates = archive_candidates(
+         [
+            rpc_archive("http://partial", false),
+            rpc_archive("http://full", true),
+         ],
+         false,
+      );
+
+      assert_eq!(candidates.len(), 2);
+      assert_eq!(&*candidates[0].url, "http://full");
+   }
+
+   #[test]
+   fn archive_candidates_keep_only_archive_endpoints_that_can_answer() {
+      let mut not_archive = rpc_checked("http://not-archive", true);
+      not_archive.check.archive = false;
+      let mut disabled = rpc_archive("http://disabled", true);
+      disabled.enabled = false;
+      let mut not_working = rpc_archive("http://not-working", true);
+      not_working.check.working = false;
+
+      let endpoints = [
+         not_archive,
+         disabled,
+         not_working,
+         rpc_archive("http://ok", true),
+         rpc_archive("ws://ws-ok", true),
+      ];
+
+      let http_only: Vec<String> = archive_candidates(endpoints.clone(), true)
+         .iter()
+         .map(|rpc| rpc.url.to_string())
+         .collect();
+      assert_eq!(http_only, vec!["http://ok"]);
+
+      // A websocket client is fine when the caller does not ask for http.
+      assert_eq!(archive_candidates(endpoints, false).len(), 2);
+   }
+
+   #[tokio::test]
+   async fn archive_client_dials_the_fully_functional_endpoint() {
+      let client = client_with([
+         rpc_archive("http://partial-1", false),
+         rpc_archive("http://partial-2", false),
+         rpc_archive("http://partial-3", false),
+         rpc_archive("http://full", true),
+      ]);
+
+      client.get_archive_client(1, false).await.unwrap();
+
+      let cached = client.clients.read().unwrap();
+      assert_eq!(cached.len(), 1);
+      assert!(cached.keys().any(|key| &*key.url == "http://full"));
+   }
+
+   #[tokio::test]
+   async fn archive_client_falls_back_to_a_partial_archive_endpoint() {
+      let client = client_with([rpc_archive("http://partial", false)]);
+
+      client.get_archive_client(1, false).await.unwrap();
+
+      let cached = client.clients.read().unwrap();
+      assert!(cached.keys().any(|key| &*key.url == "http://partial"));
    }
 }
