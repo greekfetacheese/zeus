@@ -1122,7 +1122,7 @@ async fn live_permit2_allowances(
    out
 }
 
-/// The calldata that revokes an NFT approval, with the params as they will read once it lands.
+/// The calldata that revokes an NFT approval, with the params the manager will record for it.
 ///
 /// There is no generic "revoke": each of the three shapes is cleared a different way, and they are
 /// **not** interchangeable. `setApprovalForAll(operator, false)` against a grant that was made with
@@ -1130,26 +1130,30 @@ async fn live_permit2_allowances(
 /// has paid gas to believe they un-approved someone. So every shape is matched explicitly, and the
 /// combinations the three shapes never emit are refused rather than guessed at.
 ///
-/// The returned params are the *revoked* ones on purpose: they are what the manager records, and
-/// recording the params as they were would leave the grant looking active after its revocation.
+/// The returned params are the *cleared* ones on purpose: they are what the manager records, and
+/// recording the grant as it was would leave it looking active after its revocation. The one field
+/// that stays as it was is the ERC-721 per-token operator — see the arm below.
 fn revoke_call(params: &NftApproveParams) -> Result<(Bytes, NftApproveParams), anyhow::Error> {
-   let mut revoked = params.clone();
+   let mut recorded = params.clone();
 
    let calldata = match (params.token_id, params.approved, params.amount) {
-      // ERC-721 per-token: clear the operator to the zero address.
+      // ERC-721 per-token: clear the operator to the zero address — that is what `approve` writes on
+      // chain, and what this calldata sends. The recorded params keep the operator the grant is
+      // being taken from instead: the zero address names nobody, and this is the screen the user
+      // consents on, so `revoked` is what marks the record as a revocation.
       (Some(id), None, None) => {
-         revoked.operator = Address::ZERO;
+         recorded.revoked = true;
          erc721::encode_approve(Address::ZERO, id)
       }
       // `ApprovalForAll`: unset the flag. The operator stays, which is what lets the store find and
       // drop the very row this revokes — a collection-wide entry is keyed by its operator.
       (None, Some(_), None) => {
-         revoked.approved = Some(false);
+         recorded.approved = Some(false);
          erc721::encode_set_approval_for_all(params.operator, false)
       }
       // ERC-5216: a zero allowance for this operator and this id.
       (Some(id), None, Some(_)) => {
-         revoked.amount = Some(U256::ZERO);
+         recorded.amount = Some(U256::ZERO);
          erc1155::encode_approve(params.operator, id, U256::ZERO)
       }
       _ => {
@@ -1162,7 +1166,7 @@ fn revoke_call(params: &NftApproveParams) -> Result<(Bytes, NftApproveParams), a
       }
    };
 
-   Ok((calldata, revoked))
+   Ok((calldata, recorded))
 }
 
 /// Revoke an NFT approval on the collection that emitted it.
@@ -1546,19 +1550,27 @@ mod tests {
       NftApproveParams::from_erc1155_approval(1, &log).unwrap()
    }
 
-   /// An ERC-721 per-token grant is revoked by approving the zero address for that id.
+   /// An ERC-721 per-token grant is revoked by approving the zero address for that id. The zero
+   /// address is what the chain is told; the params the user is shown keep the operator whose grant
+   /// is being taken away, because a row naming `0x0` cannot say whose spending rights are going.
    #[test]
    fn an_erc721_grant_is_revoked_with_approve_zero() {
-      let (calldata, revoked) = revoke_call(&erc721_grant()).unwrap();
+      let grant = erc721_grant();
+      let (calldata, revoked) = revoke_call(&grant).unwrap();
 
       assert_eq!(
          calldata,
-         erc721::encode_approve(Address::ZERO, U256::from(ID))
+         erc721::encode_approve(Address::ZERO, U256::from(ID)),
+         "the chain is still told to clear the operator"
       );
       assert_eq!(
-         revoked.operator,
-         Address::ZERO,
-         "the operator is cleared"
+         revoked.operator, grant.operator,
+         "the recorded operator is the one whose rights are being removed"
+      );
+      assert!(!revoked.operator.is_zero());
+      assert!(
+         revoked.revoked,
+         "and the record says it is a revocation"
       );
       assert_eq!(revoked.token_id, Some(U256::from(ID)));
       assert!(revoked.is_revoke());

@@ -46,14 +46,32 @@ pub struct NftApproveParams {
    pub approved: Option<bool>,
    /// ERC-5216's allowance for this id. `Some(0)` is a revocation.
    pub amount: Option<U256>,
+   /// Set when this event clears a per-token ERC-721 approval.
+   ///
+   /// The one thing the three shapes cannot say through their `Option`s: `approve` writes the new
+   /// operator into the log and a revoke writes the zero address, so for this shape the log cannot
+   /// say *whose* rights it took — and the screens that show a revocation have to name them. A
+   /// revoke therefore keeps `operator` as the address the grant is being taken from and says what
+   /// it is here. The other two shapes need nothing: their own value is the answer
+   /// (`approved: false`, `amount: 0`).
+   ///
+   /// Defaulted, because a vault written before this field has records without it — and those keep
+   /// reading as revocations through the zero operator.
+   #[serde(default)]
+   pub revoked: bool,
 }
 
 impl NftApproveParams {
    /// Whether this approval grants nothing.
    ///
-   /// Each shape says "no" its own way, and none of them is a missing value: ERC-721 clears the
-   /// operator to the zero address, `ApprovalForAll` sets the flag false, ERC-5216 sets the
-   /// allowance to zero.
+   /// Each shape says "no" its own way, and none of them is a missing value: `ApprovalForAll` sets
+   /// the flag false, ERC-5216 sets the allowance to zero, and an ERC-721 per-token revoke writes
+   /// the zero address into the field that would name the operator.
+   ///
+   /// That last one is why [`Self::revoked`] exists — the zero address says *what* happened but not
+   /// whose rights went with it, so a revocation keeps the operator it is taking the grant from and
+   /// says so there. The zero check stays for a revocation decoded from a log, where that is all the
+   /// log carries, and for records written before the field existed.
    pub fn is_revoke(&self) -> bool {
       if let Some(approved) = self.approved {
          return !approved;
@@ -61,7 +79,7 @@ impl NftApproveParams {
       if let Some(amount) = &self.amount {
          return amount.is_zero();
       }
-      self.operator.is_zero()
+      self.revoked || self.operator.is_zero()
    }
 
    /// Whether this approval covers the whole collection rather than one token.
@@ -133,6 +151,10 @@ impl NftApproveParams {
          operator: decoded.approved,
          approved: None,
          amount: None,
+         // The log writes the zero address to clear the approval, and that is all it carries — so a
+         // revocation decoded here says so, and names the zero address because there is nobody else
+         // it could name.
+         revoked: decoded.approved.is_zero(),
       })
    }
 
@@ -151,6 +173,8 @@ impl NftApproveParams {
          operator: decoded.operator,
          approved: None,
          amount: Some(decoded.amount),
+         // The allowance says it: a zero allowance for this id is the revocation.
+         revoked: false,
       })
    }
 
@@ -169,6 +193,8 @@ impl NftApproveParams {
          operator: decoded.operator,
          approved: Some(decoded.approved),
          amount: None,
+         // The flag says it: an unset `ApprovalForAll` is the revocation.
+         revoked: false,
       })
    }
 
@@ -286,15 +312,36 @@ mod tests {
    }
 
    /// Clearing an ERC-721 approval sets the operator to the zero address — a revocation has no
-   /// separate event, so the zero address *is* the signal.
+   /// separate event, so the zero address *is* the signal. The decoded record says so outright as
+   /// well, so a reader does not have to know that rule to tell a revocation from a grant.
    #[test]
    fn clearing_the_zero_address_is_an_erc721_revoke() {
       let params =
          NftApproveParams::from_erc721_approval(1, &erc721_approval_log(ZERO, 7)).unwrap();
 
       assert_eq!(params.operator, Address::ZERO);
+      assert!(params.revoked);
       assert!(params.is_revoke());
       assert_eq!(params.name(), "Revoke NFT Approval");
+   }
+
+   /// The approval store is persisted inside the vault, so a record written before `revoked` existed
+   /// has to keep reading as a revocation — through the zero operator it names, which is all that
+   /// record carries.
+   #[test]
+   fn a_record_written_before_the_field_still_reads_as_a_revocation() {
+      let params =
+         NftApproveParams::from_erc721_approval(1, &erc721_approval_log(ZERO, 7)).unwrap();
+
+      let mut json = serde_json::to_value(&params).unwrap();
+      json.as_object_mut().expect("an object").remove("revoked");
+
+      let loaded: NftApproveParams = serde_json::from_value(json).unwrap();
+
+      assert!(!loaded.revoked, "the field defaults to false");
+      assert!(loaded.operator.is_zero());
+      assert!(loaded.is_revoke());
+      assert_eq!(loaded.name(), "Revoke NFT Approval");
    }
 
    #[test]
