@@ -379,9 +379,29 @@ fn permit2_single_approval(
    });
 }
 
+/// The warning to show when an EIP-2612 permit is signed for a chain other than the one
+/// the wallet is connected to, and `None` when the two agree.
+///
+/// A Permit2 prompt cannot drift this way: its `verifyingContract` is checked against the
+/// current chain when the message is parsed (`msg.rs`), so it always describes the chain
+/// the wallet is on. An EIP-2612 permit carries no such tie — it is valid on whatever
+/// chain its own domain names, and the allowance it grants lands there.
+fn cross_chain_permit_warning(permit_chain: ChainId, current_chain: ChainId) -> Option<String> {
+   if permit_chain.id() == current_chain.id() {
+      return None;
+   }
+
+   Some(format!(
+      "This permit is for {}, but your wallet is connected to {}. Approving grants the allowance on {}.",
+      permit_chain.name(),
+      current_chain.name(),
+      permit_chain.name()
+   ))
+}
+
 fn permit2612_approval(
    ctx: &mut ZeusContext,
-   chain_id: ChainId,
+   current_chain: ChainId,
    msg: &SignMsgType,
    theme: &Theme,
    icons: Arc<Icons>,
@@ -391,7 +411,17 @@ fn permit2612_approval(
    let tint = theme.image_tint_recommended;
    let icon_size = vec2(24.0, 24.0);
 
-   chain(chain_id, theme, icons.clone(), ui);
+   // Show the chain the permit is actually signed for. Its token was fetched on that
+   // chain, so it is a supported one; the wallet's own chain is only what the user
+   // happened to be connected to, and presenting it as the permit's chain describes an
+   // allowance on another chain as a signature on this one.
+   let permit_chain: ChainId = details.token.chain_id.into();
+
+   chain(permit_chain, theme, icons.clone(), ui);
+
+   if let Some(warning) = cross_chain_permit_warning(permit_chain, current_chain) {
+      ui.label(RichText::new(warning).size(theme.typography.normal).color(theme.colors.warning));
+   }
 
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -438,16 +468,23 @@ fn permit2612_approval(
 
    address(
       ctx,
-      chain_id,
+      permit_chain,
       "Token",
       details.token.address,
       theme,
       ui,
    );
-   address(ctx, chain_id, "Owner", details.owner, theme, ui);
    address(
       ctx,
-      chain_id,
+      permit_chain,
+      "Owner",
+      details.owner,
+      theme,
+      ui,
+   );
+   address(
+      ctx,
+      permit_chain,
       "Spender",
       details.spender,
       theme,
@@ -874,5 +911,25 @@ mod tests {
       // The owning flow releases the window when it is done with it.
       window.release();
       assert!(!window.is_busy());
+   }
+
+   /// An EIP-2612 permit is valid on the chain its own domain names, which is not tied to
+   /// the wallet's chain the way Permit2's checked `verifyingContract` is — so a permit
+   /// for another chain has to say so on the screen the user consents on.
+   #[test]
+   fn a_permit_signed_for_another_chain_is_flagged() {
+      assert!(cross_chain_permit_warning(ChainId::eth(), ChainId::eth()).is_none());
+
+      let warning = cross_chain_permit_warning(ChainId::base(), ChainId::eth())
+         .expect("a permit for Base while connected to Ethereum must warn");
+
+      assert!(
+         warning.contains(ChainId::base().name()),
+         "{warning}"
+      );
+      assert!(
+         warning.contains(ChainId::eth().name()),
+         "{warning}"
+      );
    }
 }

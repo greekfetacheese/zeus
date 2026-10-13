@@ -2099,6 +2099,18 @@ async fn wallet_get_calls_status(
    Ok(JsonRpcResponse::ok(Some(result), payload.id))
 }
 
+/// The token line of `wallet_watchAsset`'s consent prompt.
+///
+/// `symbol` comes from the page and is unverified: any contract can call itself "USDC".
+/// The address is what the wallet will actually track, so it is the identity on the line
+/// and the symbol is only ever shown beside it — never instead of it.
+fn watch_asset_label(address: Address, symbol: Option<&str>) -> String {
+   match symbol.filter(|symbol| !symbol.is_empty()) {
+      Some(symbol) => format!("{address} (symbol: {symbol})"),
+      None => address.to_string(),
+   }
+}
+
 async fn wallet_watch_asset(
    ctx: ZeusCtx,
    origin: String,
@@ -2147,10 +2159,9 @@ async fn wallet_watch_asset(
       return Ok(JsonRpcResponse::ok(Some(json!(true)), payload.id));
    }
 
-   let label = rpc_opt_string(options, "symbol")
-      .filter(|s| !s.is_empty())
-      .map(|s| s.to_string())
-      .unwrap_or_else(|| address.to_string());
+   // The page's `symbol` is not trusted, so it cannot be the only thing named on the
+   // line — see `watch_asset_label`.
+   let label = watch_asset_label(address, rpc_opt_string(options, "symbol"));
 
    // One prompt at a time, as for the network switch.
    let claimed = SHARED_GUI.write(|gui| {
@@ -2722,5 +2733,33 @@ mod connector_auth_tests {
       assert!(connector_port_candidates(preferred).any(|p| p == port));
       drop(listener);
       drop(occupied);
+   }
+}
+
+#[cfg(test)]
+mod watch_asset_tests {
+   use super::*;
+
+   /// The page-supplied `symbol` must never be the whole identity of the token being
+   /// added: any contract can call itself "USDC", and the token is then tracked — and
+   /// rendered in the portfolio — under whatever the contract says it is.
+   #[test]
+   fn the_token_line_always_names_the_contract_address() {
+      let address = Address::from_str("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913").unwrap();
+
+      let with_symbol = watch_asset_label(address, Some("USDC"));
+      assert!(with_symbol.contains(&address.to_string()));
+      assert_eq!(with_symbol, format!("{address} (symbol: USDC)"));
+
+      // No symbol, or an empty one, falls back to the address alone rather than to
+      // nothing.
+      assert_eq!(
+         watch_asset_label(address, None),
+         address.to_string()
+      );
+      assert_eq!(
+         watch_asset_label(address, Some("")),
+         address.to_string()
+      );
    }
 }

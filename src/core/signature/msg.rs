@@ -591,7 +591,11 @@ impl Permit2612Details {
       if let Err(e) = price_manager
          .calculate_prices(
             ctx.clone(),
-            chain,
+            // Price the token that is being shown, on the chain it lives on. The wallet's
+            // chain is the same value whenever the permit names it; a differing one would
+            // look up `(wallet_chain, token.address)`, which is a different token or none
+            // at all, so the amount would carry the wrong USD figure.
+            fields.chain,
             pool_manager,
             vec![token.clone()],
          )
