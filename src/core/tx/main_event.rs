@@ -4,7 +4,9 @@
 //! composes them into a single main event for notifications, history, and confirm UI.
 
 use super::analysis::TransactionAnalysis;
-use super::events::{DecodedEvent, SwapParams, TransferParams, UnshieldParams};
+use super::events::{
+   DecodedEvent, SwapParams, TransferParams, UniswapPositionParams, UnshieldParams,
+};
 use crate::core::{ZeusCtx, types::Dapp};
 use zeus_eth::{
    alloy_primitives::U256,
@@ -52,10 +54,13 @@ impl TransactionAnalysis {
       // `burn` on the position manager emit the position NFT's `Transfer` *plus*
       // `IncreaseLiquidity`/`DecreaseLiquidity`, so the two events are one intent — and the intent
       // worth showing is the liquidity change, not the minting of the receipt token. The guard is
-      // deliberately the op alone: `decoded_events() == 1` here is exactly what would push every
+      // deliberately the ops alone: `decoded_events() == 1` here is exactly what would push every
       // add/remove liquidity into `Other`.
-      if self.positions_ops_len() == 1 {
-         return DecodedEvent::UniswapPositionOperation(self.positions_ops()[0].clone());
+      //
+      // The ops are read as one operation rather than counted, because a removal is one call that
+      // decodes to two of them — see `position_op_intent`.
+      if let Some(op) = position_op_intent(&self.positions_ops()) {
+         return DecodedEvent::UniswapPositionOperation(op);
       }
 
       // NFT transfer / mint / burn. Like the fungible transfer above it is a simple
@@ -146,6 +151,35 @@ impl TransactionAnalysis {
    /// Stored override from [`Self::set_main_event`], if any.
    fn main_event_override(&self) -> Option<DecodedEvent> {
       self.main_event_opt().cloned()
+   }
+}
+
+/// The single Uniswap position op that carries the transaction's intent, if these ops are one
+/// operation.
+///
+/// A V3 removal is one call that emits two ops: `DecreaseLiquidity`, and the `Collect` carrying the
+/// amounts actually returned, which the per-log pass decodes into an op of its own. A removal
+/// therefore arrives as a decrease plus collections where an add arrives as a single op — so
+/// requiring exactly one op sent every removal past the position rung, to the position NFT's own
+/// `Transfer` (burned on a full removal, headlined "NFT Burn") or, when the position is only partly
+/// removed, to `Other` ("Unknown Interaction").
+///
+/// So: exactly one op that is not a collection is the intent, a collection beside it is part of it,
+/// and a lone collection is an intent of its own.
+///
+/// Ops that are *not* one operation — two positions touched in a batch, or collections on their own
+/// — are left out deliberately: there is no single intent to name, and flattening them into one
+/// would describe the transaction as an operation the user may not have performed.
+fn position_op_intent(ops: &[UniswapPositionParams]) -> Option<UniswapPositionParams> {
+   let changes: Vec<&UniswapPositionParams> =
+      ops.iter().filter(|op| !op.op_is_collect_fees()).collect();
+
+   match changes.as_slice() {
+      // One change of liquidity is the intent, and any collection beside it belongs to it.
+      [changed] => Some((*changed).clone()),
+      // No liquidity change: a collection on its own is the intent.
+      [] if ops.len() == 1 => Some(ops[0].clone()),
+      _ => None,
    }
 }
 
@@ -277,7 +311,7 @@ fn enrich_swap_received_from_transfers(
 #[cfg(test)]
 mod tests {
    use super::*;
-   use crate::core::tx::events::NftTransferParams;
+   use crate::core::tx::events::{NftTransferParams, PositionOperation};
    use crate::tests::test_ctx;
    use zeus_eth::{
       alloy_primitives::{Address, U256, address},
@@ -350,6 +384,33 @@ mod tests {
       analysis
    }
 
+   /// One position op of the given kind, built from the shared dummy.
+   fn position_op(operation: PositionOperation) -> DecodedEvent {
+      let DecodedEvent::UniswapPositionOperation(mut params) =
+         DecodedEvent::dummy_uniswap_position_operation()
+      else {
+         unreachable!("the dummy is a position operation")
+      };
+
+      params.position_operation = operation;
+      DecodedEvent::UniswapPositionOperation(params)
+   }
+
+   /// The position NFT the position manager moves when it creates or closes a position.
+   fn position_nft(is_mint: bool, is_burn: bool) -> DecodedEvent {
+      DecodedEvent::NftTransfer(NftTransferParams {
+         chain: 1,
+         standard: NftStandard::Erc721,
+         collection: Address::from([0xbc; 20]),
+         token_id: Some(U256::from(1)),
+         amount: U256::from(1),
+         from: Address::ZERO,
+         to: Address::ZERO,
+         is_mint,
+         is_burn,
+      })
+   }
+
    /// A Uniswap V3 mint arrives as the position manager's `Transfer` of the position NFT **and**
    /// `IncreaseLiquidity`. That is one intent, and the one worth showing is the liquidity change —
    /// ranking it as the NFT is what the confirm window, the history row and the notification would
@@ -359,23 +420,11 @@ mod tests {
    /// wrong answer read "NFT Mint" rather than "NFT Transfer".
    #[test]
    fn a_v3_mint_ranks_as_the_position_op_not_as_the_nft_it_mints() {
-      let minted_position = DecodedEvent::NftTransfer(NftTransferParams {
-         chain: 1,
-         standard: NftStandard::Erc721,
-         collection: Address::from([0xbc; 20]),
-         token_id: Some(U256::from(1)),
-         amount: U256::from(1),
-         from: Address::ZERO,
-         to: Address::ZERO,
-         is_mint: true,
-         is_burn: false,
-      });
-
       let analysis = analysis(
          Address::ZERO,
          vec![
-            minted_position,
-            DecodedEvent::dummy_uniswap_position_operation(),
+            position_nft(true, false),
+            position_op(PositionOperation::AddLiquidity),
          ],
       );
 
@@ -387,6 +436,64 @@ mod tests {
          main_event.name()
       );
       assert_eq!(main_event.name(), "Add Liquidity");
+   }
+
+   /// A Uniswap V3 removal is one call that decodes to **two** position ops: the position manager
+   /// emits `DecreaseLiquidity` and the `Collect` carrying the amounts actually returned, and the
+   /// per-log pass turns that `Collect` into an op of its own. Requiring exactly one op therefore
+   /// sent every removal past the position rung to the position NFT's own `Transfer` — burned when
+   /// the position is closed — so a transaction whose whole point was returning two tokens to the
+   /// user was headlined "NFT Burn".
+   #[test]
+   fn a_v3_removal_ranks_as_the_position_op_not_as_the_nft_it_burns() {
+      let analysis = analysis(
+         Address::ZERO,
+         vec![
+            position_nft(false, true),
+            position_op(PositionOperation::DecreaseLiquidity),
+            position_op(PositionOperation::CollectFees),
+         ],
+      );
+
+      let main_event = analysis.infer_main_event(test_ctx(1), 1);
+
+      assert!(
+         main_event.is_uniswap_position_op(),
+         "ranked as {}",
+         main_event.name()
+      );
+      assert_eq!(main_event.name(), "Remove Liquidity");
+   }
+
+   /// The same two ops without a burn: a partial removal leaves the position NFT alone, so there was
+   /// nothing for the rungs below to claim and the removal came out as "Unknown Interaction".
+   #[test]
+   fn a_partial_v3_removal_ranks_as_the_position_op() {
+      let analysis = analysis(
+         Address::ZERO,
+         vec![
+            position_op(PositionOperation::DecreaseLiquidity),
+            position_op(PositionOperation::CollectFees),
+         ],
+      );
+
+      let main_event = analysis.infer_main_event(test_ctx(1), 1);
+
+      assert_eq!(main_event.name(), "Remove Liquidity");
+   }
+
+   /// Collecting fees from a position is an intent of its own — the rule must not need a change of
+   /// liquidity to be present before it names the operation.
+   #[test]
+   fn a_lone_collect_fees_ranks_as_collect_fees() {
+      let analysis = analysis(
+         Address::ZERO,
+         vec![position_op(PositionOperation::CollectFees)],
+      );
+
+      let main_event = analysis.infer_main_event(test_ctx(1), 1);
+
+      assert_eq!(main_event.name(), "Collect Fees");
    }
 
    /// ETH → taxed token. The first output-token transfer is the tax
