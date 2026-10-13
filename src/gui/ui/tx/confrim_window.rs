@@ -693,7 +693,7 @@ impl TxConfirmationWindow {
          }
       }
 
-      if main_event.is_other() {
+      if main_event.is_other() && self.clear_display.is_none() {
          text = text.color(theme.colors.warning);
       }
 
