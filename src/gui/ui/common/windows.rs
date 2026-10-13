@@ -229,15 +229,31 @@ impl UpdateWindow {
                   return;
                }
 
+               // A newer release with no build for this platform is a real release the user cannot
+               // install from here. It used to be reported as "up to date" (the asset name decided
+               // which release was the newest), and once reported the button claimed the update
+               // information was missing. Both are worse than saying what is true.
+               let installable = self.info.download_url.is_some() && self.info.asset_name.is_some();
+               let version = self.info.version.as_deref().unwrap_or("a newer release");
+
                let text = "A new version of Zeus is available!";
                ui.label(RichText::new(text).size(theme.typography.large));
 
-               let text = "Would you like to update now?";
+               let text = if installable {
+                  format!("Would you like to update to {version} now?")
+               } else {
+                  format!("Zeus {version} is out, but it has no build for your platform yet.")
+               };
                ui.label(RichText::new(text).size(theme.typography.normal));
 
                let visuals = theme.button_visuals();
 
-               let text = RichText::new("Update Now").size(theme.typography.normal);
+               let label = if installable {
+                  "Update Now"
+               } else {
+                  "More Info"
+               };
+               let text = RichText::new(label).size(theme.typography.normal);
                let update_button = Button::new(text).visuals(visuals);
 
                let text = RichText::new("Later").size(theme.typography.normal);
@@ -251,9 +267,17 @@ impl UpdateWindow {
 
                         RT.spawn(async move {
                            if info.download_url.is_none() || info.asset_name.is_none() {
+                              // The window already says it; this is the detail, with somewhere to go.
+                              let version = info.version.as_deref().unwrap_or("a newer release");
+                              let releases = crate::core::urls::ZeusUrl::ZeusReleases.base();
+
                               SHARED_GUI.write(|gui| {
                                  gui.loading_window.reset();
-                                 gui.msg_window.open("Update info is missing".to_string());
+                                 gui.msg_window.open(format!(
+                                    "Zeus {version} is newer than this build, but its release has \
+                                     no build for your platform yet. You can see what it ships at \
+                                     {releases}"
+                                 ));
                               });
                               return;
                            }
