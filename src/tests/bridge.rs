@@ -148,11 +148,13 @@ mod tests {
    // an origin; destinations vary to cover the pairs the UI offers, including the newest chain.
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn ethereum_eth_to_base() {
       assert_bridge(ETHEREUM, BASE).await;
    }
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn optimism_eth_to_arbitrum() {
       assert_bridge(OPTIMISM, ARBITRUM).await;
    }
@@ -160,22 +162,26 @@ mod tests {
    /// The pair that failed in the field: ETH on Base to ETH on Robinhood, where the simulation
    /// returned logs that the bridge UI could not decode.
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn base_eth_to_robinhood() {
       assert_bridge(BASE, ROBINHOOD).await;
    }
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn arbitrum_eth_to_optimism() {
       assert_bridge(ARBITRUM, OPTIMISM).await;
    }
 
    /// Robinhood as the origin, which has not been tried in the app yet.
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn robinhood_eth_to_ethereum() {
       assert_bridge(ROBINHOOD, ETHEREUM).await;
    }
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn ethereum_eth_to_robinhood() {
       assert_bridge(ETHEREUM, ROBINHOOD).await;
    }

@@ -16,6 +16,7 @@ mod tests {
    };
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn permit2_revoke_sim_on_fork() {
       let ctx = crate::tests::unlock_ctx();
       let chain_id = 1u64;

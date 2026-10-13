@@ -57,6 +57,7 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_resolve_ens_name() {
       let ctx = ZeusCtx::new();
       let client = mainnet_client(&ctx).await;
@@ -79,6 +80,7 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_ens_name_without_address_record_is_none() {
       let ctx = ZeusCtx::new();
       let client = mainnet_client(&ctx).await;
@@ -92,6 +94,7 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_unknown_and_invalid_ens_names() {
       let ctx = ZeusCtx::new();
       let client = mainnet_client(&ctx).await;
@@ -123,6 +126,7 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_offchain_names_are_refused() {
       let ctx = ZeusCtx::new();
       let client = mainnet_client(&ctx).await;
@@ -138,6 +142,7 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_reverse_ens_lookup() {
       let ctx = ZeusCtx::new();
       let client = mainnet_client(&ctx).await;
@@ -155,6 +160,7 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_lookup_address_name_caches_ens_name_for_the_session() {
       let ctx = ctx_with_measured_mainnet_rpc().await;
 
@@ -196,6 +202,7 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_resolve_chain_labels() {
       let ctx = ZeusCtx::new();
       let client = mainnet_client(&ctx).await;
@@ -257,6 +264,7 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_resolve_name_for_chain() {
       let ctx = ZeusCtx::new();
       let client = mainnet_client(&ctx).await;
@@ -300,6 +308,7 @@ mod tests {
    }
 
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_resolve_interoperable_names() {
       let ctx = ZeusCtx::new();
       let client = mainnet_client(&ctx).await;
@@ -382,6 +391,7 @@ mod tests {
    /// chain-specific names there is no primary name at all, which is how the recipient used to end
    /// up displayed as a truncated address.
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_resolved_ens_name_is_cached_for_the_session_only() {
       let ctx = ctx_with_measured_mainnet_rpc().await;
       let client = usable_mainnet_rpc(&ctx).await.1;
@@ -425,6 +435,7 @@ mod tests {
    /// Only registrable `.eth` names have an onchain expiry, a subdomain is bounded by its
    /// registrable parent, and `takeover_at` sits exactly one grace period after `expires_at`.
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_name_expiry_reads_the_registrar() {
       let ctx = ZeusCtx::new();
       let client = mainnet_client(&ctx).await;
