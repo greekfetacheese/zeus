@@ -357,10 +357,6 @@ impl TransactionAnalysis {
       self.decoded_events.iter().filter_map(|e| e.as_unwrap_weth().cloned()).collect()
    }
 
-   pub fn positions_ops_len(&self) -> usize {
-      self.decoded_events.iter().filter(|t| t.is_uniswap_position_op()).count()
-   }
-
    pub fn positions_ops(&self) -> Vec<UniswapPositionParams> {
       self
          .decoded_events
