@@ -20,7 +20,7 @@ pub use wallet_identity::wallet_identity;
 pub use wallet_list::WalletListByValue;
 pub use wallet_select::WalletSelect;
 pub use window_frame::{WindowCtx, window_frame};
-pub use windows::{ConfirmWindow, LoadingWindow, MsgWindow, UpdateWindow};
+pub use windows::{ConfirmWindow, ConfirmWindowClaim, LoadingWindow, MsgWindow, UpdateWindow};
 
 use crate::core::ZeusContext;
 use crate::gui::{SHARED_GUI, ui::dapps::railgun::RailgunMode};

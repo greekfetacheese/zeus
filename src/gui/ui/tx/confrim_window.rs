@@ -99,13 +99,17 @@ impl TxConfirmationWindow {
    }
 
    /// True while a confirmation is in flight: a flow holds the window
-   /// ([`Self::pending`]), the prompt is up, or it was answered and the awaiting
-   /// flow has not collected the answer yet.
+   /// ([`Self::pending`]) or the prompt is up.
    ///
    /// `confirm_tx` refuses to raise a second prompt while this holds, so two sends
    /// can never share one window — and therefore one Confirm click.
+   ///
+   /// An answer still waiting in `confirmed_or_rejected` is deliberately *not* busy: the flow that
+   /// owns the window holds the claim until it has collected the answer, so an uncollected answer
+   /// can only exist once that flow is gone — and reading it as busy would let a flow that died
+   /// after the user answered wedge every later send.
    pub fn is_busy(&self) -> bool {
-      self.pending || self.open || self.confirmed_or_rejected.is_some()
+      self.pending || self.open
    }
 
    /// Claim the window for one flow, from just before its prompt is built until it

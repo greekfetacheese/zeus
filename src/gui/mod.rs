@@ -226,17 +226,21 @@ impl GUI {
    /// not be approvable, and must not resurface after unlock. The flow waiting
    /// on it (`sign_message`, `confirm_tx`, the connect server loop) then errors
    /// out instead of hanging.
+   ///
+   /// `is_busy` rather than `is_open`: a flow that claimed a window but has not
+   /// drawn its prompt yet is waiting just the same, and rejecting only the drawn
+   /// ones would leave it hanging for the whole locked period.
    pub fn cancel_pending_actions(&mut self) {
-      if self.sign_msg_window.is_open() {
+      if self.sign_msg_window.is_busy() {
          self.sign_msg_window.reject();
       }
-      if self.tx_confirmation_window.is_open() {
+      if self.tx_confirmation_window.is_busy() {
          self.tx_confirmation_window.reject();
       }
-      if self.confirm_window.is_open() {
+      if self.confirm_window.is_busy() {
          self.confirm_window.reject();
       }
-      if self.connect_dapp_window.is_open() {
+      if self.connect_dapp_window.is_busy() {
          self.connect_dapp_window.reject();
       }
    }
