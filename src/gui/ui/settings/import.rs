@@ -196,19 +196,26 @@ impl ImportDataUi {
             gui.ctx.clone()
          });
 
-         let imported =
-            match data_dir().and_then(|dir| import_data_from_zip(&zip_path, &dir, credentials)) {
-               Ok(imported) => imported,
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.loading_window.reset();
-                     gui.open_msg_window(format!("Import failed: {e}"));
-                     gui.request_repaint();
-                  });
-                  return;
-               }
-            };
+         // The key held by the vault this import is about to replace. Sealed stores already on disk
+         // are sealed with it, so it is what says whether they will still open afterwards — see
+         // `remove_stores_the_archive_omits`. On a first-run import there is no vault to compare.
+         let previous_key = ctx.read_vault(|vault| vault.wallet_state_key().ok());
+
+         let imported = match data_dir().and_then(|dir| {
+            import_data_from_zip(&zip_path, &dir, credentials, previous_key.as_ref())
+         }) {
+            Ok(imported) => imported,
+            Err(e) => {
+               SHARED_GUI.write(|gui| {
+                  gui.loading_window.reset();
+                  gui.open_msg_window(format!("Import failed: {e}"));
+                  gui.request_repaint();
+               });
+               return;
+            }
+         };
          let n = imported.files_written;
+         let removed = imported.removed.clone();
 
          SHARED_GUI.write(|gui| {
             gui.loading_window.open("Loading imported data...");
@@ -232,6 +239,10 @@ impl ImportDataUi {
                   None => None,
                };
 
+               // The reload just read the imported `security.data`, so this is the imported file's
+               // verdict — read it before `ctx` goes to `on_startup`.
+               let security_load_failed = ctx.read(|ctx| ctx.security.load_failed);
+
                let ctx = ctx.clone();
                RT.spawn(async move {
                   state::on_startup(ctx).await;
@@ -247,7 +258,25 @@ impl ImportDataUi {
                      gui.shield_ui.set_bundler_url(url);
                   }
                   gui.loading_window.reset();
-                  gui.open_msg_window(format!("Imported {n} files"));
+
+                  let mut msg = format!("Imported {n} files");
+                  if !removed.is_empty() {
+                     msg.push_str(&format!(
+                        "\n\n{} store(s) that the archive did not carry were sealed with the \
+                         replaced vault's key, so nothing could read them again. They were removed: \
+                         {}.",
+                        removed.len(),
+                        removed.join(", ")
+                     ));
+                  }
+                  if security_load_failed {
+                     msg.push_str(
+                        "\n\nYour saved auto-lock timeout could not be read, so Zeus locks on the \
+                         default until you set it again in Settings. That file was left as it is.",
+                     );
+                  }
+
+                  gui.open_msg_window(msg);
                   gui.request_repaint();
                });
             }

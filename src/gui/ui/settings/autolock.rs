@@ -40,6 +40,19 @@ impl AutoLockSettings {
             .color(theme.colors.text_muted),
          );
 
+         // The stored choice could not be read, so what is shown (and enforced) is the default.
+         // Saying so here is the only place the user can fix it, and picking a value below clears it.
+         if ctx.security.load_failed {
+            ui.label(
+               RichText::new(
+                  "Your saved auto-lock choice could not be read and is still on disk. Until you \
+                   choose below, Zeus locks on the default. Set it again to replace the file.",
+               )
+               .size(theme.typography.normal)
+               .color(theme.colors.error),
+            );
+         }
+
          let combo_visuals = theme.combo_box_visuals();
          let label_visuals = theme.label_visuals();
 
@@ -88,6 +101,9 @@ impl AutoLockSettings {
             ctx.security.autolock = chosen;
             // An explicit choice: stop the "auto-lock is not configured" nudge.
             ctx.security.autolock_changed = true;
+            // And it supersedes a file that did not read — writing the value the user just picked is
+            // what `persist` requires before it will touch that file.
+            ctx.security.load_failed = false;
             if persist(ctx) {
                self.saving = true;
             }
@@ -112,6 +128,16 @@ impl AutoLockSettings {
 /// Argon2-free save can run off the frame path. Returns whether a save was
 /// actually started — `false` leaves the combobox enabled so it cannot get stuck.
 fn persist(ctx: &ZeusContext) -> bool {
+   // Never seal the defaults over a `security.data` that did not read. Callers clear `load_failed`
+   // first, because a value the user just picked in this UI is a deliberate replacement; `false`
+   // leaves the combobox enabled so the refusal cannot get stuck.
+   if ctx.security.load_failed {
+      tracing::error!(
+         "Security settings: refusing to overwrite security.data that could not be read"
+      );
+      return false;
+   }
+
    let key = match ctx.read_vault(|vault| vault.wallet_state_key()) {
       Ok(key) => key,
       Err(e) => {

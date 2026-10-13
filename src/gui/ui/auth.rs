@@ -933,6 +933,22 @@ fn on_unlock_vault(mut vault: Vault) {
                tracing::error!("Failed to load security settings: {:?}", e);
             }
 
+            // Fail loud, because the failure is a *weaker* policy than the one the user chose: the
+            // defaults in memory are the 1 hour auto-lock, and the file it did not read is still on
+            // disk. The alternative — a silent default — is what makes the wallet lock later than
+            // asked with nothing to show for it.
+            if ctx.read(|ctx| ctx.security.load_failed) {
+               let egui_ctx = SHARED_GUI.read(|gui| gui.egui_ctx.clone());
+               Toast::new("Security settings unreadable")
+                  .description(
+                     "Your saved auto-lock timeout could not be read, so Zeus locks on the default \
+                      until you set it again in Settings. Your file was left as it is.",
+                  )
+                  .tone(BadgeTone::Danger)
+                  .persistent()
+                  .show(&egui_ctx);
+            }
+
             let bundler_url = match BundlerUrl::exists() {
                Ok(true) => match BundlerUrl::load(&key) {
                   Ok(url) => Some(url.url),
