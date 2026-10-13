@@ -185,6 +185,13 @@ pub struct TokenSelectionWindow {
    /// writes only while it still matches, so a slow fetch for a previous `(chain, owner)` cannot land its
    /// rows — or latch `nfts_loaded` — over a newer one.
    nfts_generation: u64,
+
+   /// Bumped whenever a reload supersedes the list ([`Self::begin_asset_reload`]). A fetch captures it
+   /// and writes only while it still matches, so a slow fetch for a previous `(chain, owner, privacy)`
+   /// cannot land its rows — or clear `loading` — over a newer one. The NFT list carries the same guard,
+   /// bumped where its own list is invalidated; the fungible fetch is only ever started from
+   /// `process_currencies`, so the reload it begins is the single place for this one.
+   currencies_generation: u64,
 }
 
 /// The two labels of the Tokens / NFTs switch.
@@ -269,6 +276,7 @@ impl TokenSelectionWindow {
          nfts_loading: false,
          nfts_loaded: false,
          nfts_generation: 0,
+         currencies_generation: 0,
       }
    }
 
@@ -343,17 +351,25 @@ impl TokenSelectionWindow {
    /// cannot be driven from a test; this is the part that has to hold.
    fn begin_asset_reload(&mut self) {
       self.loading = true;
+      // Invalidate a fetch still in flight: its rows belong to the context this call just left.
+      self.currencies_generation = self.currencies_generation.wrapping_add(1);
       self.clear_processed_nfts();
    }
 
    pub fn process_currencies(&mut self, privacy_mode: bool, chain_id: u64, owner: Address) {
       self.begin_asset_reload();
+      let generation = self.currencies_generation;
 
       RT.spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          if !privacy_mode {
             let currencies = process_currencies(ctx.clone(), chain_id, owner);
             SHARED_GUI.write(|gui| {
+               // A newer reload has already replaced this list: these rows are stale, and clearing
+               // `loading` here would end the newer fetch's spinner before its rows exist.
+               if gui.token_selection.currencies_generation != generation {
+                  return;
+               }
                gui.token_selection.processed_currencies = currencies;
                gui.token_selection.loading = false;
             });
@@ -366,6 +382,9 @@ impl TokenSelectionWindow {
             }
 
             SHARED_GUI.write(|gui| {
+               if gui.token_selection.currencies_generation != generation {
+                  return;
+               }
                gui.token_selection.processed_currencies = currencies;
                gui.token_selection.loading = false;
             });
@@ -960,7 +979,7 @@ impl TokenSelectionWindow {
       close_window: &mut bool,
       ui: &mut Ui,
    ) {
-      if let Ok(address) = Address::from_str(&self.search_query) {
+      if let Ok(address) = Address::from_str(self.search_query.trim()) {
          let token = ctx.currency_db.get_erc20_token(chain, address);
          if token.is_some() {
             return;
@@ -2022,12 +2041,13 @@ mod tests {
    /// Driven through `begin_asset_reload`, not `process_currencies`: the latter spawns through `RT` +
    /// `SHARED_GUI`, which a unit test cannot run (the same reason `open` is not exercised here).
    #[test]
-   fn an_asset_reload_drops_the_nft_list_and_cancels_its_fetch() {
+   fn an_asset_reload_drops_the_lists_and_cancels_their_fetches() {
       let mut picker = TokenSelectionWindow::new();
       picker.processed_nfts.push(row(1, "BoredApeYachtClub", "BAYC"));
       picker.nfts_loaded = true;
       picker.nfts_loading = true;
       let generation = picker.nfts_generation;
+      let currencies_generation = picker.currencies_generation;
 
       picker.begin_asset_reload();
 
@@ -2043,6 +2063,10 @@ mod tests {
       assert_ne!(
          picker.nfts_generation, generation,
          "a fetch already in flight belongs to the context just dropped"
+      );
+      assert_ne!(
+         picker.currencies_generation, currencies_generation,
+         "the fungible list's fetch is superseded by the same reload"
       );
       assert!(
          picker.loading,
