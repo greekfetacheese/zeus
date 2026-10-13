@@ -316,7 +316,7 @@ fn permit2_single_approval(
       // Chain
       chain(permit_chain, theme, icons.clone(), ui);
 
-      if let Some(warning) = cross_chain_permit_warning(permit_chain, current_chain) {
+      if let Some(warning) = cross_chain_message_warning(permit_chain, current_chain) {
          ui.label(RichText::new(warning).size(theme.typography.normal).color(theme.colors.warning));
       }
 
@@ -394,25 +394,34 @@ fn permit2_single_approval(
    });
 }
 
-/// The warning to show when a permit is signed for a chain other than the one the wallet is
+/// The warning to show when a message is signed for a chain other than the one the wallet is
 /// connected to, and `None` when the two agree.
 ///
-/// Both permit shapes need it, for the same reason and with no tie to lean on: a permit is valid on
-/// whatever chain its own domain names, and the allowance it grants lands there. Permit2's
-/// `verifyingContract` looks like a tie and is not one — the canonical Permit2 address is the same
-/// on every chain Zeus supports, so comparing it to the connected chain's entry compares a
-/// constant to itself. `sign_msg_window.rs` therefore renders the permit's own chain and warns when
-/// it differs, and `msg.rs` reads the permit's token on that chain rather than on the wallet's.
-fn cross_chain_permit_warning(permit_chain: ChainId, current_chain: ChainId) -> Option<String> {
-   if permit_chain.id() == current_chain.id() {
+/// Every message Zeus will sign is valid on whatever chain its own domain names, and that is where
+/// its effect lands, so the prompt names that chain and says so when it differs from the wallet's.
+/// None of the three shapes can lean on a contract address to tie them instead: Permit2's
+/// `verifyingContract` is the canonical Permit2 address on every chain Zeus supports, so comparing
+/// it against the connected chain's entry compares a constant to itself, and a clear-signed
+/// message's descriptor is looked up *by* the domain's `(chainId, verifyingContract, typeHash)` —
+/// so its chain decides the display rather than being checked against one.
+///
+/// `message_chain` is therefore the message's own chain, whichever shape named it: `msg.rs` reads a
+/// permit's token on it and `clear_sign` resolves a descriptor for it, and each prompt draws its
+/// chain row from the same value.
+///
+/// The wording names no shape: it is shared by an EIP-2612 permit, a Permit2 approval and an
+/// ERC-7730 clear-signed message, and a sentence about "the allowance it grants" would itself
+/// misdescribe a signed swap or deposit.
+fn cross_chain_message_warning(message_chain: ChainId, current_chain: ChainId) -> Option<String> {
+   if message_chain.id() == current_chain.id() {
       return None;
    }
 
    Some(format!(
-      "This permit is for {}, but your wallet is connected to {}. Approving grants the allowance on {}.",
-      permit_chain.name(),
+      "This message is signed for {}, but your wallet is connected to {}. Signing authorizes it on {}.",
+      message_chain.name(),
       current_chain.name(),
-      permit_chain.name()
+      message_chain.name()
    ))
 }
 
@@ -436,7 +445,7 @@ fn permit2612_approval(
 
    chain(permit_chain, theme, icons.clone(), ui);
 
-   if let Some(warning) = cross_chain_permit_warning(permit_chain, current_chain) {
+   if let Some(warning) = cross_chain_message_warning(permit_chain, current_chain) {
       ui.label(RichText::new(warning).size(theme.typography.normal).color(theme.colors.warning));
    }
 
@@ -511,7 +520,7 @@ fn permit2612_approval(
 
 fn clear_signed_ui(
    ctx: &mut ZeusContext,
-   chain_id: ChainId,
+   current_chain: ChainId,
    msg: &SignMsgType,
    theme: &Theme,
    icons: Arc<Icons>,
@@ -521,6 +530,12 @@ fn clear_signed_ui(
    let display = &details.display;
    let tint = theme.image_tint_recommended;
    let icon_size = vec2(24.0, 24.0);
+
+   // The chain the descriptor and every value below were resolved for: the message's own domain
+   // chain, not the chain the wallet is connected to. The display is built from
+   // `(chainId, verifyingContract, typeHash)`, so naming the wallet's chain here would describe an
+   // approval on one chain while the prompt's own fields came from another.
+   let display_chain: ChainId = details.chain.into();
 
    if let Some(owner) = display.owner.as_ref() {
       let name = match &display.contract_name {
@@ -538,12 +553,16 @@ fn clear_signed_ui(
       ui.label(RichText::new(warning).size(theme.typography.normal).color(theme.colors.warning));
    }
 
-   chain(chain_id, theme, icons.clone(), ui);
+   chain(display_chain, theme, icons.clone(), ui);
+
+   if let Some(warning) = cross_chain_message_warning(display_chain, current_chain) {
+      ui.label(RichText::new(warning).size(theme.typography.normal).color(theme.colors.warning));
+   }
 
    for field in &display.fields {
       match &field.value {
          FormattedValue::Address(addr) => {
-            address(ctx, chain_id, &field.label, *addr, theme, ui);
+            address(ctx, display_chain, &field.label, *addr, theme, ui);
          }
          FormattedValue::TokenAmount {
             amount,
@@ -937,9 +956,9 @@ mod tests {
    /// for another chain has to say so on the screen the user consents on.
    #[test]
    fn a_permit_signed_for_another_chain_is_flagged() {
-      assert!(cross_chain_permit_warning(ChainId::eth(), ChainId::eth()).is_none());
+      assert!(cross_chain_message_warning(ChainId::eth(), ChainId::eth()).is_none());
 
-      let warning = cross_chain_permit_warning(ChainId::base(), ChainId::eth())
+      let warning = cross_chain_message_warning(ChainId::base(), ChainId::eth())
          .expect("a permit for Base while connected to Ethereum must warn");
 
       assert!(

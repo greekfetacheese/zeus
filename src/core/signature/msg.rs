@@ -45,6 +45,18 @@ pub struct SignMessageData {
 pub struct ClearSignedDetails {
    pub raw: Value,
    pub display: ClearDisplay,
+   /// The chain this message is signed for — its own `domain.chainId`, which is the chain the
+   /// descriptor and every value in `display` were resolved for.
+   ///
+   /// Carried here rather than on [`ClearDisplay`] because that type is stored inside a recorded
+   /// transaction, so a field added to it would be a persisted-shape change; this wrapper is
+   /// build-to-prompt only. The prompt draws its chain row and its address labels from here.
+   ///
+   /// A clear-signed message always has one: [`try_clear_sign_typed_data`] refuses a domain without
+   /// a usable `chainId`, since the descriptor is looked up by `(chain, verifyingContract, typeHash)`.
+   ///
+   /// [`try_clear_sign_typed_data`]: crate::core::clear_signing::try_clear_sign_typed_data
+   pub chain: u64,
 }
 
 impl SignMsgType {
@@ -105,12 +117,13 @@ impl SignMsgType {
             return Ok(Self::Permit2612(details));
          }
          if let Ok(typed) = parse_typed_data(value.clone()) {
-            if let Some(display) =
-               clear_signing::try_clear_sign_typed_data(ctx, chain, &typed).await
-            {
+            if let Some(display) = clear_signing::try_clear_sign_typed_data(ctx, &typed).await {
                return Ok(Self::ClearSigned(ClearSignedDetails {
                   raw: value,
                   display,
+                  // The descriptor and every value above were resolved for the domain's chain, so
+                  // that is the chain the prompt has to name.
+                  chain: domain_chain(typed.domain.chain_id, chain),
                }));
             }
          }
@@ -281,6 +294,8 @@ impl ClearSignedDetails {
       };
       Self {
          raw: dummy_permit_json(),
+         // The fixture's own domain chain, and the chain its USDC token lives on.
+         chain: 8453,
          display: ClearDisplay {
             heading: "Permit".to_string(),
             intent: Intent::Text("Permit".to_string()),
@@ -948,6 +963,24 @@ mod tests {
       assert!(msg.is_permit2612());
       assert!(msg.is_known());
       assert_eq!(msg.title(), "Token Permit");
+   }
+
+   /// A clear-signed message carries the chain its descriptor was resolved for, and the prompt
+   /// draws its chain row and its address labels from that rather than from the wallet's chain.
+   ///
+   /// The resolution itself is structurally domain-only — `try_clear_sign_typed_data` takes no
+   /// chain, because the descriptor is looked up by `(domain chainId, verifyingContract, typeHash)`
+   /// — so what is left to pin is that the carrier is populated at the one construction site.
+   #[test]
+   fn a_clear_signed_message_carries_its_domains_chain() {
+      let msg = SignMsgType::dummy_clear_signed();
+      let clear = msg.clear_signed_details();
+
+      assert!(msg.is_clear_signed());
+      assert_eq!(
+         clear.chain, 8453,
+         "the fixture's own domain chain, which is also where its USDC lives"
+      );
    }
 
    #[tokio::test]
