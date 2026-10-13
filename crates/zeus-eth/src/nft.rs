@@ -765,6 +765,35 @@ mod tests {
       assert_eq!(expand_id_placeholder(plain, U256::from(1)), plain);
    }
 
+   /// The bound is on the *result*, and a template can be small and still ask for a string no URI has
+   /// any business being.
+   #[test]
+   fn refuses_to_expand_a_template_past_the_bound() {
+      let id = U256::from(1);
+      let hex = format!("{id:064x}");
+
+      // `{id}` is four bytes and each expansion sixty-four, so a head of `MAX_EXPANDED_URI_LEN - 64`
+      // puts the result exactly on the limit, which is allowed.
+      let at_the_bound = format!("{}{{id}}", "x".repeat(MAX_EXPANDED_URI_LEN - 64));
+      let expanded = expand_id_placeholder(&at_the_bound, id);
+      assert_eq!(expanded.len(), MAX_EXPANDED_URI_LEN);
+      assert!(expanded.ends_with(&hex));
+
+      // One byte further and the template comes back untouched: the caller then resolves a URI that
+      // cannot exist and shows a placeholder, rather than sizing the allocation the template asked
+      // for.
+      let past_the_bound = format!("{}{{id}}", "x".repeat(MAX_EXPANDED_URI_LEN - 63));
+      assert_eq!(
+         expand_id_placeholder(&past_the_bound, id),
+         past_the_bound
+      );
+
+      // The same bound seen from the other direction: eight kilobytes of placeholders expand to
+      // more than the limit, which a bound on the input alone would have let through.
+      let many = "{id}".repeat(2000);
+      assert_eq!(expand_id_placeholder(&many, id), many);
+   }
+
    /// Identity is the token, not its metadata: a refreshed (or not-yet-fetched) URI must not
    /// make the same token compare unequal, or the portfolio would accumulate duplicates.
    #[test]

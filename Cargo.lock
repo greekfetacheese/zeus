@@ -12046,6 +12046,7 @@ dependencies = [
  "futures",
  "generic-array",
  "image",
+ "imagesize",
  "lazy_static",
  "libc",
  "minisign-verify",

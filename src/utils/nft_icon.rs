@@ -102,11 +102,16 @@ fn is_public_ip(ip: IpAddr) -> bool {
          // that way — read as public.
          Some(v4) => is_public_v4(v4),
          None => {
+            let o = v6.octets();
+
             !(v6.is_loopback()
                || v6.is_unspecified()
                || v6.is_multicast()
                || v6.is_unique_local()
-               || v6.is_unicast_link_local())
+               || v6.is_unicast_link_local()
+               // `fec0::/10` is site-local (RFC 3879): deprecated and never routed off the local
+               // network, which is exactly the scope a contract's URI has no business reaching.
+               || (o[0] == 0xfe && (o[1] & 0xc0) == 0xc0))
          }
       },
    }
@@ -141,6 +146,15 @@ fn embedded_v4(v6: Ipv6Addr) -> Option<Ipv4Addr> {
       && o[4..12].iter().all(|b| *b == 0)
    {
       return Some(Ipv4Addr::new(o[12], o[13], o[14], o[15]));
+   }
+
+   // `64:ff9b:1::/48` — the local-use translation prefix (RFC 8215). RFC 6052 lays a /48 out as
+   // bits 48-63, the `u` octet, then bits 72-87, so the two halves of the embedded address sit
+   // either side of `u`; the octet itself is reserved and its value is not worth trusting, so the
+   // halves are read regardless and a non-conforming spelling is refused rather than waved through.
+   // The whole /48 is local-use, so this is the same bet the well-known prefix above is not worth.
+   if o[..6] == [0x00, 0x64, 0xff, 0x9b, 0x00, 0x01] {
+      return Some(Ipv4Addr::new(o[6], o[7], o[9], o[10]));
    }
 
    // `2002:a.b.c.d::` — 6to4 (RFC 3056): the embedded address is the 6to4 prefix's own, which is the
@@ -476,7 +490,7 @@ fn render_two_sizes(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), anyhow::Error> {
    Ok((render(THUMB_EDGE)?, render(LARGE_EDGE)?))
 }
 
-/// `usvg` options that cannot reach the machine.
+/// `usvg` options that cannot reach the machine, and cannot be made to allocate without a bound.
 ///
 /// `resolve_string` is the one hook with filesystem reach: usvg's default treats a non-`data:`
 /// `href` as a **path** and `std::fs::read`s it (usvg-0.45.1 `parser/image.rs`), so a collection
@@ -484,17 +498,66 @@ fn render_two_sizes(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), anyhow::Error> {
 /// have Zeus open it, and a referenced SVG is *drawn*, so the picture would appear as the token's
 /// art. Refusing every string reference removes that reach.
 ///
-/// The `data:` half stays at the default because it is already closed: usvg parses a nested
-/// document with `None` resolvers of its own (`load_sub_svg`), so an embedded SVG cannot name a
-/// path either — and keeping it lets art that embeds an image inline still render.
+/// `resolve_data` stays the default resolver for everything a nested document is allowed to carry —
+/// that is what lets art with an inline image still render — behind the two limits in
+/// [`art_data_resolver`]. usvg parses an embedded SVG with resolvers of its own (`load_sub_svg`), so
+/// a nested document cannot name a path either; what it can still do is inflate or decode without a
+/// bound, which is what the wrapper refuses.
 fn svg_options() -> usvg::Options<'static> {
    let mut options = usvg::Options::default();
    options.image_href_resolver = usvg::ImageHrefResolver {
-      resolve_data: usvg::ImageHrefResolver::default_data_resolver(),
+      resolve_data: art_data_resolver(),
       resolve_string: Box::new(|_, _| None),
    };
    options
 }
+
+/// usvg's `data:` resolver behind the two limits a nested payload has to pass.
+///
+/// The bytes decide, never the mime. usvg reaches its own uncapped inflate for a
+/// `data:image/svg+xml` payload, for a `text/plain` one, and for a mime-less `data:` — whose mime
+/// defaults to `text/plain` — because `parser/image.rs` matches the mime only to fall through to
+/// `load_sub_svg` for all three, and that calls `Tree::from_data`, the function that inflates. A
+/// check on the mime is therefore a check on one of three spellings of the same payload; the
+/// compression has to be seen in the bytes, at the one place they are handed over.
+fn art_data_resolver() -> usvg::ImageHrefDataResolverFn<'static> {
+   let default = usvg::ImageHrefResolver::default_data_resolver();
+
+   Box::new(move |mime, data, options| {
+      // The exact test `Tree::from_data` inflates on, so nothing compressed can reach the
+      // `read_to_end` behind it. The nested twin of [`inflate_svgz_if_needed`], which applies the
+      // same rule to the document itself.
+      if data.starts_with(&GZIP_MAGIC) {
+         tracing::debug!("refusing a nested image: a compressed payload inflates unbounded");
+         return None;
+      }
+
+      // A nested raster is decoded by resvg at render time, outside [`art_limits`], so the edge the
+      // top-level path enforces has to be applied here or not at all: bound it by the size the
+      // payload declares. A size that cannot be read is left to usvg, which drops the element
+      // itself (`ImageKind::actual_size`).
+      if let Ok(size) = imagesize::blob_size(&data)
+         && (size.width > MAX_ART_EDGE as usize || size.height > MAX_ART_EDGE as usize)
+      {
+         tracing::debug!(
+            "refusing a nested {}x{} raster image: past the {MAX_ART_EDGE}px decode edge",
+            size.width,
+            size.height
+         );
+         return None;
+      }
+
+      default(mime, data, options)
+   })
+}
+
+/// The two bytes every gzip stream starts with.
+///
+/// One definition for both places that have to recognise one: [`inflate_svgz_if_needed`], which
+/// inflates the document itself under a bound, and [`art_data_resolver`], which refuses a compressed
+/// nested payload before usvg can inflate it uncapped. It is the same test usvg makes
+/// (`parser/mod.rs::from_data`), so the two agree with it by construction.
+const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
 /// The largest an SVG may be after inflating.
 ///
@@ -510,7 +573,7 @@ const MAX_INFLATED_SVG: usize = 8 * 1024 * 1024;
 /// An error rather than a truncated document on purpose: half an SVG is not something to draw, and
 /// "too big" is the honest answer.
 fn inflate_svgz_if_needed(bytes: &[u8]) -> Result<Cow<'_, [u8]>, anyhow::Error> {
-   if !bytes.starts_with(&[0x1f, 0x8b]) {
+   if !bytes.starts_with(&GZIP_MAGIC) {
       return Ok(Cow::Borrowed(bytes));
    }
 
@@ -526,59 +589,14 @@ fn inflate_svgz_if_needed(bytes: &[u8]) -> Result<Cow<'_, [u8]>, anyhow::Error> 
    Ok(Cow::Owned(out))
 }
 
-/// Whether the document embeds a gzip-compressed SVG in a `data:` href.
-///
-/// [`svg_options`] keeps the default `data:` resolver so art that embeds an image inline still
-/// renders, and usvg parses such a document with resolvers of its own (`load_sub_svg` →
-/// `Tree::from_data` → the same unbounded inflate). Nothing Zeus can pass into usvg reaches that
-/// path, so the document is refused instead: art that embeds an SVGZ is rarer than the bomb it
-/// would let in, and a refused document is a placeholder rather than an allocation.
-fn embeds_compressed_nested_svg(svg: &str) -> bool {
-   const NEEDLE: &str = "data:image/svg+xml";
-
-   // Case-folded once for the search only. ASCII folding keeps byte offsets, so payloads are still
-   // read out of the document itself — base64's `H4sI` is case-sensitive.
-   let folded = svg.to_ascii_lowercase();
-   let mut from = 0;
-
-   while let Some(at) = folded[from..].find(NEEDLE) {
-      from = at + NEEDLE.len();
-
-      let rest = &folded[from..];
-      let end = rest.find(['"', '\'', ')']).unwrap_or(rest.len());
-      let payload = &svg[from..from + end];
-
-      // A data URI is `meta,body`: the metadata says how the body is spelled.
-      let Some((meta, body)) = payload.split_once(',') else {
-         continue;
-      };
-
-      if meta.to_ascii_lowercase().contains("base64") {
-         // `1f 8b 08` — the gzip magic, and the first three bytes of every gzip stream — is `H4sI`
-         // at the head of its base64.
-         if body.starts_with("H4sI") {
-            return true;
-         }
-      } else if body.to_ascii_lowercase().contains("%1f%8b") {
-         return true;
-      }
-   }
-
-   false
-}
-
 /// Rasterise vector art into the two renderings a view asks for.
 ///
 /// Only ever shrinks, matching [`render_two_sizes`]: a small picture is never upscaled.
+///
+/// A nested document that [`svg_options`] refuses — a compressed payload, or a raster past the
+/// decode edge — is dropped by usvg rather than failing the document, so the rest of the art still
+/// renders.
 fn render_svg(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), anyhow::Error> {
-   if let Ok(text) = std::str::from_utf8(bytes) {
-      if embeds_compressed_nested_svg(text) {
-         return Err(anyhow!(
-            "SVG art embeds a compressed nested document, refusing to render it"
-         ));
-      }
-   }
-
    let tree = usvg::Tree::from_data(bytes, &svg_options())?;
    Ok((
       render_svg_edge(&tree, THUMB_EDGE)?,
@@ -640,11 +658,20 @@ fn is_svg(bytes: &[u8]) -> bool {
 
       match skip.filter(|at| *at < rest.len()) {
          Some(at) => rest = &rest[at..],
-         // Nothing left to skip: the root element is here, or this is not SVG at all.
+         // Nothing left to skip: the root element is here, or the head ended inside a prolog.
          None => break,
       }
    }
 
+   // The root element decides — except when the head ended *inside* a prolog, which leaves the root
+   // unread and only says the document is XML: no raster format opens with `<`, and a renderer that
+   // cannot read it refuses it on its own terms. Reading that as "not vector art" is how a legal
+   // prolog longer than the head became a placeholder.
+   opens_svg_root(rest) || rest.starts_with(b"<?") || rest.starts_with(b"<!")
+}
+
+/// Whether `rest` opens with the SVG root element.
+fn opens_svg_root(rest: &[u8]) -> bool {
    rest.len() >= 4 && rest[..4].eq_ignore_ascii_case(b"<svg")
 }
 
@@ -1020,6 +1047,7 @@ pub fn spawn_fetch_nft_icon(
 #[cfg(test)]
 mod tests {
    use super::*;
+   use std::sync::Arc;
 
    #[test]
    fn an_svg_prolog_does_not_hide_the_root_element() {
@@ -1035,6 +1063,13 @@ mod tests {
       assert!(is_svg(
          b"\xEF\xBB\xBF  <?xml version=\"1.0\"?><!-- x --><!DOCTYPE svg><SVG/>"
       ));
+      // A prolog longer than the head leaves the root unread: the document is still XML, and no
+      // raster format opens with `<`.
+      let long_prolog = format!(
+         "<?xml version=\"1.0\"?><!--{}--><svg/>",
+         "x".repeat(5000)
+      );
+      assert!(is_svg(long_prolog.as_bytes()));
       // And it still rejects what is not vector art.
       assert!(!is_svg(b"\x89PNG\r\n\x1a\n"));
       assert!(!is_svg(b"<html><body><svg/></body></html>"));
@@ -1053,30 +1088,109 @@ mod tests {
       assert!(private("64:ff9b::a00:1")); // NAT64 wrapping 10.0.0.1
       assert!(private("2002:7f00:1::")); // 6to4 wrapping 127.0.0.1
       assert!(private("2002:a9fe:a9fe::")); // 6to4 wrapping 169.254.169.254
+      assert!(private("64:ff9b:1:7f00:0:1::")); // RFC 8215 local-use prefix wrapping 127.0.0.1
+      assert!(private("64:ff9b:1:a00:0:1::")); // ... wrapping 10.0.0.1
+      assert!(private("fec0::1")); // site-local, RFC 3879
       assert!(private("::1"));
       assert!(private("::"));
 
       // A 6to4 address wrapping a public one is still public, and a plain public v6 stays public.
       assert!(is_public_ip("2002:808:808::".parse().unwrap()));
+      assert!(is_public_ip(
+         "64:ff9b:1:808:0:808::".parse().unwrap()
+      ));
       assert!(is_public_ip("2606:4700::1111".parse().unwrap()));
    }
 
+   /// No compressed payload reaches usvg's uncapped inflate, whichever spelling of `data:` carries
+   /// it — asserted where the bytes are handed over, rather than on a document that spells the mime
+   /// one particular way.
    #[test]
-   fn a_compressed_nested_svg_is_refused_rather_than_inflated() {
-      // `H4sI` heads the base64 of the gzip magic; the percent-encoded form spells the same bytes.
-      assert!(embeds_compressed_nested_svg(
-         "<svg><image href=\"data:image/svg+xml;base64,H4sIAAAAAAAA\"/></svg>"
-      ));
-      assert!(embeds_compressed_nested_svg(
-         "<svg><image href=\"data:image/svg+xml,%1F%8B%08\"/></svg>"
-      ));
-      // An inline image that is not a compressed SVG is left alone: only the bomb is refused.
-      assert!(!embeds_compressed_nested_svg(
-         "<svg><image href=\"data:image/png;base64,iVBORw0KGgo=\"/></svg>"
-      ));
-      assert!(!embeds_compressed_nested_svg(
-         "<svg><image href=\"data:image/svg+xml,%3Csvg%2F%3E\"/></svg>"
-      ));
+   fn a_compressed_nested_image_is_refused_whatever_the_mime() {
+      let options = svg_options();
+      let resolve = &options.image_href_resolver.resolve_data;
+      let compressed = gzip(RED_SVG.as_bytes());
+
+      // `image/svg+xml`, and `text/plain` — which is what a mime-less `data:` becomes, and what
+      // usvg's own fallback arm uses. Both reach `load_sub_svg` → `Tree::from_data`.
+      for mime in ["image/svg+xml", "text/plain"] {
+         assert!(
+            resolve(mime, Arc::new(compressed.clone()), &options).is_none(),
+            "{mime}: a compressed nested document must not be handed to the renderer"
+         );
+      }
+
+      // The control: the same document uncompressed still resolves, so this is about the
+      // compression and not about nested documents being refused wholesale.
+      for mime in ["image/svg+xml", "text/plain"] {
+         assert!(
+            resolve(
+               mime,
+               Arc::new(RED_SVG.as_bytes().to_vec()),
+               &options
+            )
+            .is_some(),
+            "{mime}: an uncompressed nested document must still render"
+         );
+      }
+   }
+
+   /// The same refusal from the outside: a document that embeds a compressed picture renders
+   /// without it, rather than allocating for it.
+   #[test]
+   fn svg_art_does_not_inflate_a_nested_document() {
+      let nested = |mime: &str, payload: &[u8]| {
+         format!(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><image href="data:{mime};base64,{}" x="0" y="0" width="10" height="10"/></svg>"##,
+            encode_base64(payload)
+         )
+      };
+
+      let prepared = prepare_image_data(nested("text/plain", &gzip(RED_SVG.as_bytes())).as_bytes())
+         .expect("the document renders");
+      let (x64, _) = raster_renderings(&prepared);
+      assert!(
+         !draws_anything(x64),
+         "a compressed nested picture must not be drawn"
+      );
+
+      // The control: the same picture inline and uncompressed does draw, so the assertion above is
+      // about the compression rather than about the renderer being broken.
+      let prepared = prepare_image_data(nested("image/svg+xml", RED_SVG.as_bytes()).as_bytes())
+         .expect("the document renders");
+      let (x64, _) = raster_renderings(&prepared);
+      assert!(
+         draws_anything(x64),
+         "an inline picture must still render"
+      );
+   }
+
+   /// A nested raster is decoded by resvg at render time, where [`art_limits`] does not reach, so the
+   /// resolver applies the same edge to the size the payload declares — the nested twin of
+   /// `art_past_the_decode_edge_cap_is_refused`.
+   #[test]
+   fn a_nested_raster_past_the_decode_edge_is_refused() {
+      let options = svg_options();
+      let resolve = &options.image_href_resolver.resolve_data;
+
+      assert!(
+         resolve(
+            "image/png",
+            Arc::new(encode_png(MAX_ART_EDGE + 1, 1)),
+            &options
+         )
+         .is_none(),
+         "a nested raster past the decode edge must not be handed over"
+      );
+      assert!(
+         resolve(
+            "image/png",
+            Arc::new(encode_png(MAX_ART_EDGE, 1)),
+            &options
+         )
+         .is_some(),
+         "the control: a nested raster inside the edge still resolves"
+      );
    }
 
    #[test]
@@ -1108,6 +1222,35 @@ mod tests {
       let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
       encoder.write_all(bytes).unwrap();
       encoder.finish().unwrap()
+   }
+
+   /// `bytes` as standard base64, for the `data:` URIs these tests build by hand. The decoder's
+   /// own tests are `base64_decodes_every_spelling_found_in_data_uris`.
+   fn encode_base64(bytes: &[u8]) -> String {
+      const ALPHABET: &[u8; 64] =
+         b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+      let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+      for chunk in bytes.chunks(3) {
+         let high = u32::from(chunk[0]) << 16;
+         let mid = u32::from(*chunk.get(1).unwrap_or(&0)) << 8;
+         let low = u32::from(*chunk.get(2).unwrap_or(&0));
+         let n = high | mid | low;
+
+         out.push(ALPHABET[(n >> 18) as usize & 63] as char);
+         out.push(ALPHABET[(n >> 12) as usize & 63] as char);
+         out.push(if chunk.len() > 1 {
+            ALPHABET[(n >> 6) as usize & 63] as char
+         } else {
+            '='
+         });
+         out.push(if chunk.len() > 2 {
+            ALPHABET[n as usize & 63] as char
+         } else {
+            '='
+         });
+      }
+      out
    }
 
    /// A real 8×8 PNG, inline. Smaller than the thumbnail edge on purpose, so the resize tests also

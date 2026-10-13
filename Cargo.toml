@@ -56,8 +56,9 @@ eframe = { version = "=0.36", default-features = false, features = [
 ] }
 egui = { version = "=0.36", features = ["serde"] }
 egui_extras = { version = "=0.36", features = ["image", "svg"] }
-flate2 = "1.1"
+flate2 = "=1.1.9"
 image = {version = "=0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif"]}
+imagesize = "=0.13.0"
 # Vector art is rasterised in-process (`utils::nft_icon`) rather than handed to a renderer as
 # source, so the href resolver can never reach the filesystem. Spec mirrors egui_extras' own
 # `svg` feature, so no additional code or features enter the build.
