@@ -76,32 +76,25 @@ pub async fn check_for_updates() -> Result<UpdateInfo, anyhow::Error> {
 
    let target = self_update::get_target();
 
-   let latest_release = releases.into_iter().find(|r| {
-      r.assets().iter().any(|asset| {
-         let name = asset.name().to_lowercase();
-         if target.contains("windows") {
-            name.contains("windows") && name.ends_with(".zip")
-         } else if target.contains("linux") {
-            name.contains("linux") && name.ends_with(".zip")
-         } else if target.contains("darwin") || target.contains("macos") {
-            name.contains("macos") || name.contains("darwin")
-         } else {
-            false
-         }
+   // The newest release by *tag*, not the newest one carrying an asset for this platform: an asset
+   // whose name stops matching (a renamed file, a different archive format) used to move the update
+   // back to an older release, which then compared equal or lower and reported "up to date" — so a
+   // release reached nobody. Naming is a packaging detail and must not decide the newest version.
+   //
+   // Parsed rather than trusted to arrive in order, and tags that are not versions are skipped: the
+   // repository carries per-crate tags too, and one of those must not stop the check.
+   let newest = releases
+      .into_iter()
+      .filter_map(|release| {
+         let version = release.version().trim_start_matches('v').to_owned();
+         semver::Version::parse(&version).ok().map(|semver| (semver, version, release))
       })
-   });
+      .max_by(|a, b| a.0.cmp(&b.0));
 
-   let Some(release) = latest_release else {
-      return Ok(UpdateInfo {
-         available: false,
-         version: None,
-         download_url: None,
-         asset_name: None,
-      });
+   let Some((new_semver, new_version, release)) = newest else {
+      return Ok(UpdateInfo::default());
    };
 
-   let new_version = release.version().trim_start_matches('v').to_owned();
-   let new_semver = semver::Version::parse(&new_version)?;
    let current_semver = semver::Version::parse(&current_version)?;
 
    // Compare versions
@@ -113,24 +106,29 @@ pub async fn check_for_updates() -> Result<UpdateInfo, anyhow::Error> {
       });
    }
 
-   // Find the correct asset for current platform
+   // The release is newer than this build, so there is an update to report whatever this platform
+   // can install. Whether a build of it exists for this platform is a separate question, and the
+   // answer belongs to the window rather than to the version check.
    let asset = release.asset_for(target, None).or_else(|| {
       release
          .assets()
          .iter()
-         .find(|a| {
-            let n = a.name().to_lowercase();
-            (target.contains("windows") && n.contains("windows") && n.ends_with(".zip"))
-               || (target.contains("linux") && n.contains("linux"))
-               || (target.contains("darwin") && (n.contains("macos") || n.contains("darwin")))
-         })
+         .find(|a| is_build_for_platform(a.name(), target))
          .cloned()
    });
 
    let Some(asset) = asset else {
+      tracing::warn!(
+         "Zeus {new_version} is newer than {current_version}, but its release has no build for \
+          {target}. Assets offered: {}",
+         release.assets().iter().map(|asset| asset.name()).collect::<Vec<_>>().join(", ")
+      );
+
       return Ok(UpdateInfo {
-         available: false,
-         ..Default::default()
+         available: true,
+         version: Some(new_version),
+         download_url: None,
+         asset_name: None,
       });
    };
 
@@ -140,6 +138,64 @@ pub async fn check_for_updates() -> Result<UpdateInfo, anyhow::Error> {
       download_url: Some(asset.download_url().to_owned()),
       asset_name: Some(asset.name().to_owned()),
    })
+}
+
+/// Whether a release asset is a build for `target`.
+///
+/// The rule is the platform word in the file name: the release step names its archives
+/// `zeus-linux-x64.zip` and `zeus-windows-x64.zip`, and self_update's own `asset_for` cannot match
+/// those — it looks for the target triple, which the names do not carry — so this is what decides
+/// whether a download is offered. It reads a name, though, and names change, which is exactly why the
+/// *version* check no longer depends on it: see [`check_for_updates`].
+fn is_build_for_platform(asset_name: &str, target: &str) -> bool {
+   let name = asset_name.to_lowercase();
+
+   (target.contains("windows") && name.contains("windows") && name.ends_with(".zip"))
+      || (target.contains("linux") && name.contains("linux"))
+      || (target.contains("darwin") && (name.contains("macos") || name.contains("darwin")))
+}
+
+#[cfg(test)]
+mod asset_name_tests {
+   use super::*;
+
+   /// The names the releases actually carry, pinned. This rule decides whether a download is
+   /// offered, so a rename should fail here rather than quietly in a user's updater.
+   #[test]
+   fn the_platform_word_in_the_asset_name_selects_the_build() {
+      let linux = "x86_64-unknown-linux-gnu";
+      assert!(is_build_for_platform("zeus-linux-x64.zip", linux));
+      assert!(is_build_for_platform("Zeus-Linux-X64.zip", linux));
+
+      let windows = "x86_64-pc-windows-msvc";
+      assert!(is_build_for_platform(
+         "zeus-windows-x64.zip",
+         windows
+      ));
+
+      let macos = "aarch64-apple-darwin";
+      assert!(is_build_for_platform(
+         "zeus-macos-arm64.zip",
+         macos
+      ));
+
+      // Not a build for this platform. The connector ships beside Zeus but installs nothing on its
+      // own, and a name that has lost its platform word is the case that used to hide a release from
+      // every user of that platform.
+      assert!(!is_build_for_platform(
+         "wallet-connector.zip",
+         linux
+      ));
+      assert!(!is_build_for_platform("zeus-x64.zip", linux));
+      assert!(!is_build_for_platform(
+         "zeus-linux-x64.zip",
+         windows
+      ));
+      assert!(!is_build_for_platform(
+         "zeus-linux-x64.zip",
+         macos
+      ));
+   }
 }
 
 pub async fn update_zeus(download_url: &str, asset_name: &str) -> Result<(), anyhow::Error> {
