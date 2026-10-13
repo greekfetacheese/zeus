@@ -1,11 +1,12 @@
 //! NFT decoding at the app level: raw logs → `DecodedEvent` → the main event.
 //!
 //! The params themselves are unit-tested where they live (`core::tx::events::kinds::nft`, and the ABI
-//! encoders in `zeus-eth`). What can only be proven here is the **wiring between them**: that the
-//! fungible decoder keeps first refusal on the shared `Transfer` topic, that an ERC-1155 batch expands
-//! through `DecodeOutcome::Many`, and that a transaction moving an NFT ends up *described* as one —
-//! title, notification and history all come from the main event, so a gap between the decoder and the
-//! ranking is invisible until a user sees "Unknown Interaction" on their own transaction.
+//! encoders in `zeus-eth`). What can only be proven here is the **wiring between them**: that the NFT
+//! branch takes the shared `Transfer` topic *before* the fungible attempt — which would otherwise
+//! accept an ERC-721 `Transfer` as a non-ERC-20 transfer and swallow the NFT — that an ERC-1155 batch
+//! expands through `DecodeOutcome::Many`, and that a transaction moving an NFT ends up *described* as
+//! one — title, notification and history all come from the main event, so a gap between the decoder and
+//! the ranking is invisible until a user sees "Unknown Interaction" on their own transaction.
 //!
 //! These run against a configured endpoint (`test_ctx`), because the fungible side of the ladder
 //! resolves token metadata — exactly like the swap and bridge regressions.
@@ -271,6 +272,40 @@ mod tests {
          main_event.name()
       );
       assert!(!main_event.is_nft_transfer());
+   }
+
+   /// A mint is not a transfer between two accounts. The ERC-20 standard's own shape for creating
+   /// tokens is a `Transfer` from the zero address, and taken at face value it is decoded, ranked as the
+   /// main event if it is the only log (`main_event` prefers a single transfer) and read by the user as
+   /// «Transfer … from 0x0000…0000». The tokens arriving are the receipt's balance-diff business.
+   #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
+   async fn a_mint_log_is_not_a_transfer() {
+      let ctx = test_ctx(CHAIN);
+      let mint = log(
+         WETH,
+         IERC20::Transfer {
+            from: Address::ZERO,
+            to: RECIPIENT,
+            value: U256::from(1_000_000_000_000_000_000u64),
+         }
+         .encode_log_data(),
+      );
+
+      let (events, analysis) = analyse(&ctx, WETH, erc20_calldata(), vec![mint]).await;
+
+      assert!(
+         !events.iter().any(|event| event.is_erc20_transfer()),
+         "a mint is not a transfer, but the ladder decoded {:?}",
+         events.iter().map(|event| event.name()).collect::<Vec<_>>()
+      );
+
+      let main_event = analysis.infer_main_event(ctx.clone(), CHAIN);
+      assert!(
+         !main_event.is_erc20_transfer(),
+         "a lone mint must not become the headline: ranked as {}",
+         main_event.name()
+      );
    }
 
    /// An ERC-721 transfer decodes with its id and its standard, and becomes the main event — which is

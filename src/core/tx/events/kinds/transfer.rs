@@ -73,6 +73,16 @@ impl TransferParams {
       let transfer_log = transfer_log.unwrap();
       let token_address = token_address.unwrap();
 
+      // A mint is not a transfer between two accounts. The ERC-20 standard's own shape for creating
+      // tokens is a `Transfer` from the zero address, and taking that at face value names
+      // `0x0000…0000` as the sender — a participant that does not exist, on a transaction that may
+      // otherwise say nothing else (a lone mint log is ranked as the main event). The tokens arriving
+      // are what the receipt's balance diff is for. The native path refuses the same sender
+      // ([`Self::native_transfer`]), and this guard sits before the token lookup so a mint costs no RPC.
+      if transfer_log.from.is_zero() {
+         return Err(anyhow!("Transfer from zero address"));
+      }
+
       let token = ctx.get_token(chain, token_address).await?;
 
       let amount = NumericValue::format_wei(transfer_log.value, token.decimals);

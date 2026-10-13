@@ -203,7 +203,9 @@ impl NftToken {
          NftStandard::Erc1155 => erc1155::uri(collection.address, token_id, client).await.ok(),
       }
       .filter(|uri| !uri.trim().is_empty())
-      .map(|uri| expand_id_placeholder(&uri, token_id));
+      // A template that cannot be expanded within the bound is no metadata URI at all: `None`, not the
+      // unexpanded `{id}` the icon fetcher would otherwise request live.
+      .and_then(|uri| expand_id_placeholder(&uri, token_id));
 
       Ok(Self {
          chain_id: collection.chain_id,
@@ -249,12 +251,14 @@ pub const MAX_EXPANDED_URI_LEN: usize = 64 * 1024;
 /// placeholder is expanded, not only the two the EIP prints: it shows `{id}` and `{ID}`, clients are
 /// expected to treat it case-insensitively, and "id" has exactly four spellings.
 ///
-/// Returns the template unchanged when expanding it would exceed [`MAX_EXPANDED_URI_LEN`]: the
-/// caller then fails to resolve it and shows a placeholder, which is a better outcome than the
-/// allocation the template was asking for.
-pub fn expand_id_placeholder(uri: &str, token_id: U256) -> String {
+/// `None` means expanding it would exceed [`MAX_EXPANDED_URI_LEN`], and every caller treats that as
+/// *no URI* — a miss that shows a placeholder. It is never a URI to fetch: an unexpanded
+/// `https://…/{id}` still resolves as a URL, so handing the template on is a live request with a
+/// literal `{id}` in the path, repeated on every list load because a miss caches nothing. A miss is
+/// also better than the allocation the template was asking for.
+pub fn expand_id_placeholder(uri: &str, token_id: U256) -> Option<String> {
    if !uri.contains('{') {
-      return uri.to_string();
+      return Some(uri.to_string());
    }
 
    let hex = format!("{token_id:064x}");
@@ -269,13 +273,13 @@ pub fn expand_id_placeholder(uri: &str, token_id: U256) -> String {
       let occurrences = out.matches(placeholder).count() as u64;
       let grown = out.len() as u64 + occurrences * (hex.len() as u64 - placeholder.len() as u64);
       if grown > MAX_EXPANDED_URI_LEN as u64 {
-         return uri.to_string();
+         return None;
       }
 
       out = out.replace(placeholder, &hex);
    }
 
-   out
+   Some(out)
 }
 
 /// One collection the owner holds tokens in, as found by enumeration.
@@ -739,7 +743,8 @@ mod tests {
    fn expands_the_real_storefront_placeholder() {
       let uri =
          "https://api.opensea.io/api/v1/metadata/0x495f947276749Ce646f68AC8c248420045cb7b5e/0x{id}";
-      let expanded = expand_id_placeholder(uri, U256::from(1));
+      let expanded =
+         expand_id_placeholder(uri, U256::from(1)).expect("a storefront template expands");
       assert_eq!(
          expanded,
          "https://api.opensea.io/api/v1/metadata/0x495f947276749Ce646f68AC8c248420045cb7b5e/0x0000000000000000000000000000000000000000000000000000000000000001"
@@ -756,13 +761,16 @@ mod tests {
          "ipfs://cid/{iD}.json",
       ] {
          assert_eq!(
-            expand_id_placeholder(template, U256::from(0x2a)),
+            expand_id_placeholder(template, U256::from(0x2a)).expect("the template expands"),
             format!("ipfs://cid/{hex}.json")
          );
       }
 
       let plain = "ipfs://QmeSjSinHpPnmXmspMjwiXyN6zS4E9zccariGR3jxcaWtq/1";
-      assert_eq!(expand_id_placeholder(plain, U256::from(1)), plain);
+      assert_eq!(
+         expand_id_placeholder(plain, U256::from(1)).as_deref(),
+         Some(plain)
+      );
    }
 
    /// The bound is on the *result*, and a template can be small and still ask for a string no URI has
@@ -775,23 +783,28 @@ mod tests {
       // `{id}` is four bytes and each expansion sixty-four, so a head of `MAX_EXPANDED_URI_LEN - 64`
       // puts the result exactly on the limit, which is allowed.
       let at_the_bound = format!("{}{{id}}", "x".repeat(MAX_EXPANDED_URI_LEN - 64));
-      let expanded = expand_id_placeholder(&at_the_bound, id);
+      let expanded =
+         expand_id_placeholder(&at_the_bound, id).expect("exactly on the bound is allowed");
       assert_eq!(expanded.len(), MAX_EXPANDED_URI_LEN);
       assert!(expanded.ends_with(&hex));
 
-      // One byte further and the template comes back untouched: the caller then resolves a URI that
-      // cannot exist and shows a placeholder, rather than sizing the allocation the template asked
-      // for.
+      // One byte further it is `None`, which is a miss and not a URI: the callers show a placeholder
+      // and never fetch, because the template is not something to resolve — `https://…/{id}` is a
+      // perfectly good URL with a literal placeholder in its path, and asking a gateway for a
+      // document named `{id}` is what the old `String` return did.
       let past_the_bound = format!("{}{{id}}", "x".repeat(MAX_EXPANDED_URI_LEN - 63));
-      assert_eq!(
-         expand_id_placeholder(&past_the_bound, id),
-         past_the_bound
+      assert!(
+         expand_id_placeholder(&past_the_bound, id).is_none(),
+         "past the bound the template is a miss, not a URI to resolve"
       );
 
       // The same bound seen from the other direction: eight kilobytes of placeholders expand to
       // more than the limit, which a bound on the input alone would have let through.
       let many = "{id}".repeat(2000);
-      assert_eq!(expand_id_placeholder(&many, id), many);
+      assert!(
+         expand_id_placeholder(&many, id).is_none(),
+         "the bound is on the result, not on the input"
+      );
    }
 
    /// Identity is the token, not its metadata: a refreshed (or not-yet-fetched) URI must not

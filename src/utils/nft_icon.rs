@@ -1008,8 +1008,13 @@ pub async fn fetch_nft_icon(
    }
 
    // The URI may still be a raw ERC-1155 template carrying `{id}`; expanding an already-expanded
-   // URI is a no-op, so this is safe whichever layer expanded it.
-   let uri = expand_id_placeholder(metadata_uri, token_id);
+   // URI is a no-op, so this is safe whichever layer expanded it. A template that cannot be expanded
+   // within the bound is a **miss**: `resolve_uri` accepts the unexpanded form as a URL, so handing it
+   // on means asking a gateway for a document named `{id}` — on every list load, since a miss caches
+   // nothing.
+   let Some(uri) = expand_id_placeholder(metadata_uri, token_id) else {
+      return Ok(None);
+   };
 
    let Some(resolved) = resolve_uri(&uri) else {
       return Ok(None);
@@ -1025,7 +1030,12 @@ pub async fn fetch_nft_icon(
          return Ok(None);
       };
 
-      let image_uri = expand_id_placeholder(&image_uri, token_id);
+      // The same rule for the image a document points at: an expansion past the bound is a miss, not a
+      // URL to request.
+      let Some(image_uri) = expand_id_placeholder(&image_uri, token_id) else {
+         return Ok(None);
+      };
+
       let Some(resolved) = resolve_uri(&image_uri) else {
          return Ok(None);
       };
@@ -1111,7 +1121,11 @@ pub fn start_nft_art_downloads<'a>(chain_id: u64, tokens: impl Iterator<Item = &
       // it as `source_uri`), so the comparison has to be against the same form: a raw `{id}` template
       // never matches itself once expanded, which had every templated collection dropping and
       // re-downloading its art on every list load.
-      let uri = expand_id_placeholder(&uri, token.token_id);
+      // A template that cannot be expanded within the bound never has art — the fetch is a miss and
+      // caches nothing — so skipping it here is what stops that being one live request per list load.
+      let Some(uri) = expand_id_placeholder(&uri, token.token_id) else {
+         continue;
+      };
 
       // Before deciding whether this token needs a fetch, check what is cached against the URI the
       // contract reports now: without this a reveal or an upgrade would keep showing the old picture for
@@ -1186,6 +1200,7 @@ pub fn spawn_fetch_nft_icon(
 mod tests {
    use super::*;
    use std::sync::Arc;
+   use zeus_eth::nft::MAX_EXPANDED_URI_LEN;
 
    #[test]
    fn an_svg_prolog_does_not_hide_the_root_element() {
@@ -2059,9 +2074,32 @@ mod tests {
       let template = metadata_uri_with("ipfs://QmX/{id}.png");
       // Not fetchable (BareCid), but the point is that resolution sees the expanded form: an
       // unexpanded `{id}` would be a valid CID suffix instead of a placeholder.
-      let expanded = expand_id_placeholder(&template, U256::from(7));
+      let expanded = expand_id_placeholder(&template, U256::from(7)).expect("expands");
       assert!(expanded.contains(&format!("{:064x}.png", 7)));
       assert!(!expanded.contains("{id}"));
+   }
+
+   /// A template whose expansion would pass the bound is a **miss**, not a fetch. `resolve_uri` accepts
+   /// any known scheme, so the unexpanded `{id}` would be a live request with a literal placeholder in
+   /// its path — and one more on every list load, since a miss caches nothing.
+   #[tokio::test]
+   async fn a_template_past_the_expansion_bound_is_a_miss_not_a_fetch() {
+      // Loopback is refused by the SSRF guard before anything connects, so this fails pre-fix with the
+      // template *having been handed on*, and never touches the network either way.
+      let template = format!(
+         "http://127.0.0.1:9/{}{{id}}",
+         "x".repeat(MAX_EXPANDED_URI_LEN)
+      );
+      assert!(
+         expand_id_placeholder(&template, U256::from(1)).is_none(),
+         "the fixture must be past the bound"
+      );
+
+      match fetch_nft_icon(&template, U256::from(1)).await {
+         Ok(None) => {}
+         Ok(Some(_)) => panic!("a template past the bound is not a URI, and it drew something"),
+         Err(e) => panic!("the template was handed to the fetcher: {e}"),
+      }
    }
 
    /// A document nesting `payload` as an inline image, the way a collection's art carries one.

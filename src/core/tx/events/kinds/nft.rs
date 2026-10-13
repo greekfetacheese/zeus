@@ -65,8 +65,11 @@ impl NftTransferParams {
    ///
    /// Its topic0 is the same as the ERC-20 `Transfer`'s, and the two are told apart by **topic count**:
    /// ERC-721 indexes the token id (4 topics, empty data) while ERC-20 leaves the value in data (3
-   /// topics). The decode fails on the other shape, which is why the decode ladder can try the
-   /// fungible decoder first and this one right after without either shadowing the other.
+   /// topics). This is the *strict* decoder, which is why the ladder must try it **before** the
+   /// fungible attempt (`decode/topic.rs`): `TransferParams::new` is not a fungible decoder — it
+   /// accepts an ERC-721 `Transfer` as well and reports `is_erc20_transfer() == false` for it — so a
+   /// fungible attempt ahead of this branch swallows every ERC-721 transfer and this arm is never
+   /// reached at all.
    fn from_erc721_transfer(chain: u64, log: &Log) -> Option<Self> {
       let decoded = erc721::decode_transfer_log(log).ok()?;
 
