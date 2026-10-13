@@ -179,6 +179,41 @@ impl PersistedFile {
    pub const fn export_policy(self) -> ExportPolicy {
       Persisted::File(self).export_policy()
    }
+
+   /// Whether the file is sealed with the vault-held [`super::WalletStateKey`].
+   ///
+   /// A sealed file opens only with the key in [`PersistedFile::Vault`] — so replacing that vault
+   /// (an import) makes every sealed store the archive does not carry unreadable. That is what an
+   /// import has to account for; see `data_import`.
+   ///
+   /// [`PersistedFile::Vault`] is *not* listed: it is sealed with the user's credentials rather than
+   /// the key, and an import always carries it.
+   pub const fn is_sealed(self) -> bool {
+      match self {
+         Self::WalletState
+         | Self::TxHistory
+         | Self::Tokens
+         | Self::NftDb
+         | Self::PoolData
+         | Self::Providers
+         | Self::BundlerUrl
+         | Self::AddressBook
+         | Self::PriceData
+         | Self::Security => true,
+         Self::Vault
+         | Self::Theme
+         | Self::ServerPort
+         | Self::DisabledChains
+         | Self::RailgunConfig
+         | Self::MiscConfig
+         | Self::AcrossSettings
+         | Self::ClientSettings
+         | Self::Connector
+         | Self::NativeHostManifest
+         | Self::NativeHostWrapperUnix
+         | Self::NativeHostWrapperWindows => false,
+      }
+   }
 }
 
 impl PersistedTree {

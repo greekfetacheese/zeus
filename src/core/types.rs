@@ -376,12 +376,41 @@ pub struct SecuritySettings {
    /// Argon2 login, so this oracle cannot outlive the process.
    #[serde(skip)]
    pub credential_attempts: u8,
+   /// Set when `security.data` is there but did not read.
+   ///
+   /// Never persisted: it describes this process's read of the file on disk. It keeps a load failure
+   /// from turning into a silently *weaker* policy — `autolock` is a security choice, and the
+   /// defaults in memory would otherwise be sealed back over a file the user did choose. The
+   /// settings UI shows it, and [`ZeusContext::save_security_settings`] refuses to write while it is
+   /// set; a deliberate change in the UI clears it.
+   ///
+   /// [`ZeusContext::save_security_settings`]: crate::core::context::ctx::ZeusContext::save_security_settings
+   #[serde(skip)]
+   pub load_failed: bool,
 }
 
 impl SecuritySettings {
    pub fn load_from_file(key: &WalletStateKey) -> Result<Self, anyhow::Error> {
       let sealed = std::fs::read(security_dir()?)?;
       key.open_json(&sealed, SECURITY_AAD)
+   }
+
+   /// The settings to run on, given how reading `security.data` went.
+   ///
+   /// A *missing* file is a first run: the defaults are the answer, and nothing is wrong with them.
+   /// A file that is there and did not read is a different matter — `autolock` is a security choice,
+   /// so the defaults are a *weaker* policy than the one the user picked, and sealing them back
+   /// would destroy it. Those defaults are used for the session, `load_failed` carries the failure to
+   /// the UI and to the save paths that refuse while it is set, and the file is left as it is.
+   pub fn from_read(read: Result<Self, anyhow::Error>, file_present: bool) -> Self {
+      match read {
+         Ok(settings) => settings,
+         Err(_) if !file_present => Self::default(),
+         Err(_) => Self {
+            load_failed: true,
+            ..Self::default()
+         },
+      }
    }
 
    pub fn save(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
@@ -417,6 +446,7 @@ impl Default for SecuritySettings {
          autolock_changed: false,
          argon_params: Argon2::balanced(),
          credential_attempts: 0,
+         load_failed: false,
       }
    }
 }
@@ -1179,6 +1209,9 @@ mod tests {
          autolock_changed: true,
          argon_params: Argon2::new(1_024, 2, 2),
          credential_attempts: 0,
+         // A reading of the file on disk, never something the file can carry: a round-trip that
+         // brought it back would let a stale failure refuse a save forever.
+         load_failed: true,
       };
 
       let sealed = key.seal_json(&settings, SECURITY_AAD).unwrap();
@@ -1187,6 +1220,7 @@ mod tests {
       assert_eq!(loaded.autolock, AutoLock::FourHours);
       assert!(loaded.autolock_changed);
       assert_eq!(loaded.argon_params, Argon2::default());
+      assert!(!loaded.load_failed);
    }
 
    /// A `security.data` written by an older build (or hand-truncated) must still
@@ -1200,6 +1234,30 @@ mod tests {
       assert_eq!(loaded.autolock, AutoLock::OneHour);
       assert!(!loaded.autolock_changed);
       assert_eq!(loaded.credential_attempts, 0);
+   }
+
+   /// A missing `security.data` is a first run: the defaults are the answer and nothing is wrong
+   /// with them, so there is nothing to tell the user.
+   #[test]
+   fn a_missing_security_file_is_not_a_failure() {
+      let settings = SecuritySettings::from_read(
+         Err(anyhow::anyhow!("No such file or directory")),
+         false,
+      );
+
+      assert_eq!(settings.autolock, AutoLock::default());
+      assert!(!settings.load_failed);
+   }
+
+   /// A file that is there and did not read is *not* a missing one: the defaults are a weaker lock
+   /// than the user chose, so the failure is carried — the settings UI says so and the save paths
+   /// refuse on it — rather than disappearing into a silently longer idle timeout.
+   #[test]
+   fn an_unreadable_security_file_is_flagged_and_falls_back_to_defaults() {
+      let settings = SecuritySettings::from_read(Err(anyhow::anyhow!("wrong key")), true);
+
+      assert_eq!(settings.autolock, AutoLock::default());
+      assert!(settings.load_failed);
    }
 
    /// A match clears the count; `MAX_CREDENTIAL_ATTEMPTS` failures in a row

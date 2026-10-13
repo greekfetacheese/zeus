@@ -691,30 +691,48 @@ impl ZeusCtx {
 
    /// Load `data/security.data` with the vault-held key.
    ///
-   /// The file is optional: a missing or undecryptable file falls back to the
-   /// defaults. Returns an error only when the vault has no `wallet_state_key`
-   /// (i.e. it was not unlocked).
+   /// The file is optional: a missing file falls back to the defaults. Returns an error only when
+   /// the vault has no `wallet_state_key` (i.e. it was not unlocked).
+   ///
+   /// A file that is there and does *not* read is a different matter, and is not treated as a
+   /// missing one: `autolock` is a security choice, so running on the defaults is a weaker policy
+   /// than the user picked, and sealing those defaults back would destroy the choice for good. The
+   /// defaults are used for this session, the file is left exactly as it is (see
+   /// [`Self::save_security_settings`]), and `security.load_failed` carries the failure to the UI.
    pub fn load_security_settings(&self) -> Result<(), anyhow::Error> {
       let key = self.read_vault(|vault| vault.wallet_state_key())?;
+      let present = persisted::file_path(PersistedFile::Security).is_ok_and(|p| p.exists());
+      let read = SecuritySettings::load_from_file(&key);
 
-      let settings = match SecuritySettings::load_from_file(&key) {
-         Ok(settings) => settings,
-         Err(e) => {
-            if persisted::file_path(PersistedFile::Security).is_ok_and(|path| path.exists()) {
-               tracing::error!("Failed to load security settings: {:?}", e);
-            }
-            SecuritySettings::default()
+      if present {
+         if let Err(e) = &read {
+            tracing::error!("Failed to load security settings, leaving the file untouched: {e:?}");
          }
-      };
+      }
 
+      let settings = SecuritySettings::from_read(read, present);
       self.write(|ctx| ctx.security = settings);
       Ok(())
    }
 
    /// Seal and write `data/security.data` with the vault-held key.
+   ///
+   /// Refuses while `security.load_failed` is set: the settings in memory are the defaults, and
+   /// sealing them over a file that did not read would replace the user's choice with them. A
+   /// deliberate change in the security UI clears the flag and then saves.
    pub fn save_security_settings(&self) -> Result<(), anyhow::Error> {
       let key = self.read_vault(|vault| vault.wallet_state_key())?;
       let settings = self.read(|ctx| ctx.security.clone());
+
+      if settings.load_failed {
+         return Err(anyhow!(
+            "Refusing to overwrite {}: it could not be read, so these settings are the defaults",
+            persisted::file_path(PersistedFile::Security)
+               .map(|p| p.display().to_string())
+               .unwrap_or_else(|_| "security.data".to_string())
+         ));
+      }
+
       settings.save(&key)
    }
 

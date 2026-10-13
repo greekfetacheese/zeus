@@ -37,6 +37,15 @@ impl WalletStateKey {
       Ok(Self(key))
    }
 
+   /// Whether `other` holds the same key.
+   ///
+   /// Compared without an early exit, and used to tell whether sealed stores already on disk will
+   /// still open once a vault import adopts this vault's key — a store sealed under a different key
+   /// can never be read again (see `data_import`).
+   pub fn matches(&self, other: &Self) -> bool {
+      self.0.unlock(|a| other.0.unlock(|b| a.len() == b.len() && ct_eq(a, b)))
+   }
+
    /// Seal plaintext: `nonce (24) || ciphertext+tag`.
    pub fn seal(&self, plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
       self.0.unlock(|key_bytes| {
@@ -158,6 +167,11 @@ impl std::fmt::Debug for WalletStateKey {
    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
       f.write_str("WalletStateKey([redacted])")
    }
+}
+
+/// Compare two equally long byte slices without letting the position of the first difference show.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+   a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 fn brotli_compress(input: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
