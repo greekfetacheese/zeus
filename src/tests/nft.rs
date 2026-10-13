@@ -274,6 +274,40 @@ mod tests {
       assert!(!main_event.is_nft_transfer());
    }
 
+   /// A mint is not a transfer between two accounts. The ERC-20 standard's own shape for creating
+   /// tokens is a `Transfer` from the zero address, and taken at face value it is decoded, ranked as the
+   /// main event if it is the only log (`main_event` prefers a single transfer) and read by the user as
+   /// «Transfer … from 0x0000…0000». The tokens arriving are the receipt's balance-diff business.
+   #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
+   async fn a_mint_log_is_not_a_transfer() {
+      let ctx = test_ctx(CHAIN);
+      let mint = log(
+         WETH,
+         IERC20::Transfer {
+            from: Address::ZERO,
+            to: RECIPIENT,
+            value: U256::from(1_000_000_000_000_000_000u64),
+         }
+         .encode_log_data(),
+      );
+
+      let (events, analysis) = analyse(&ctx, WETH, erc20_calldata(), vec![mint]).await;
+
+      assert!(
+         !events.iter().any(|event| event.is_erc20_transfer()),
+         "a mint is not a transfer, but the ladder decoded {:?}",
+         events.iter().map(|event| event.name()).collect::<Vec<_>>()
+      );
+
+      let main_event = analysis.infer_main_event(ctx.clone(), CHAIN);
+      assert!(
+         !main_event.is_erc20_transfer(),
+         "a lone mint must not become the headline: ranked as {}",
+         main_event.name()
+      );
+   }
+
    /// An ERC-721 transfer decodes with its id and its standard, and becomes the main event — which is
    /// what decides whether the user sees an NFT transfer or "Unknown Interaction".
    #[tokio::test]
