@@ -1653,9 +1653,9 @@ async fn send_token(
 /// **collection** — an NFT is not an ERC-20 contract and the collection is what the call goes to —
 /// and `value` stays zero, since no ether moves.
 ///
-/// Deliberately no `set_main_event`: `DecodedEvent` has no NFT variant yet, so the confirm window
-/// shows what the simulation's own logs decode to. An ERC-721/1155 transfer event is the next phase's
-/// work; inventing a `Transfer` here would describe an NFT as a fungible amount.
+/// Deliberately no `set_main_event`: the simulation's own logs decode into what the confirm window
+/// shows, and an ERC-721/1155 transfer is one of them (`DecodedEvent::NftTransfer`, shown as
+/// "NFT Transfer") — so this path leaves the main event to them rather than synthesizing one.
 async fn send_nft(
    ctx: ZeusCtx,
    chain: ChainId,

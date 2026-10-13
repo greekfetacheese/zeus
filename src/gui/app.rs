@@ -478,7 +478,7 @@ impl eframe::App for ZeusApp {
 /// exceeds the configured timeout.
 ///
 /// Lives off the frame path because egui
-/// only repaints on demand, so an idle window would otherwise never check.vv
+/// only repaints on demand, so an idle window would otherwise never check.
 async fn autolock_watcher(ctx: ZeusCtx) {
    loop {
       tokio::time::sleep(Duration::from_secs(1)).await;

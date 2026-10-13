@@ -447,7 +447,7 @@ impl RecoverHDWallet {
                      "With your master wallet you can generate unlimited new wallets which can be recovered too in case you lose access to your computer.",
                      "You can also import wallets from a seed phrase or private key but those can be lost forever if you don't keep your own backups.",
                   ];
-                  
+
                   for tip in tips {
                      let text = RichText::new(tip).size(theme.typography.large);
                      ui.add(
