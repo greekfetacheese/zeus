@@ -245,6 +245,7 @@ mod tests {
    /// would be reported as an NFT. Asserted through the real ladder, then through the main event, which
    /// is what the user actually reads.
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn an_erc20_transfer_stays_an_erc20_transfer() {
       let ctx = test_ctx(CHAIN);
       let (events, analysis) = analyse(
@@ -275,6 +276,7 @@ mod tests {
    /// An ERC-721 transfer decodes with its id and its standard, and becomes the main event — which is
    /// what decides whether the user sees an NFT transfer or "Unknown Interaction".
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn an_erc721_transfer_decodes_and_is_what_the_transaction_is_described_as() {
       let ctx = test_ctx(CHAIN);
       let (events, analysis) = analyse(&ctx, BAYC, Bytes::new(), vec![erc721_transfer(1)]).await;
@@ -304,6 +306,7 @@ mod tests {
    /// A batch is one log carrying several transfers, so the ladder has to expand it — one event per id,
    /// each with its own amount, and all of them the main event's siblings.
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn an_erc1155_batch_expands_to_one_decoded_event_per_id() {
       let ctx = test_ctx(CHAIN);
       let (events, analysis) = analyse(
@@ -334,6 +337,7 @@ mod tests {
    /// the ladder does not let one kind swallow the other, and the ranking has to pick a single main
    /// event without losing what it did not pick.
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn an_nft_transfer_and_an_erc20_transfer_in_one_transaction_are_both_decoded() {
       let ctx = test_ctx(CHAIN);
       let (events, analysis) = analyse(
@@ -353,6 +357,7 @@ mod tests {
    /// `Approval` are the same signature, and only the topic count separates them — so the ladder has
    /// to keep the ERC-20 reading for a 3-topic log, exactly as it does for `Transfer`.
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn an_erc20_approval_stays_an_erc20_approval() {
       let ctx = test_ctx(CHAIN);
       let (events, analysis) = analyse(
@@ -382,6 +387,7 @@ mod tests {
    /// An ERC-721 per-token `Approval` — the 4-topic shape — decodes as an NFT approval, is *not*
    /// mistaken for the ERC-20 one it shares a topic0 with, and becomes the transaction's description.
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn an_erc721_approval_is_an_nft_approval_and_not_a_token_approval() {
       let ctx = test_ctx(CHAIN);
       let (events, analysis) = analyse(
@@ -418,6 +424,7 @@ mod tests {
    /// A cleared ERC-721 approval is the same event with the zero address, and must rank as the main
    /// event all the same — a revocation is the thing users most need to see.
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn a_revoked_erc721_approval_is_still_the_main_event() {
       let ctx = test_ctx(CHAIN);
       let (events, analysis) = analyse(
@@ -437,6 +444,7 @@ mod tests {
    /// `ApprovalForAll` goes down the NFT-approval path, not the transfer one: it is collection-wide and
    /// carries no token id, and the ranking must still pick it up.
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn an_approval_for_all_is_an_nft_approval_that_covers_the_collection() {
       let ctx = test_ctx(CHAIN);
       let (events, analysis) = analyse(
@@ -470,6 +478,7 @@ mod tests {
 
    /// An ERC-5216 allowance has a topic0 of its own, so it cannot be confused with either shape above.
    #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn an_erc5216_allowance_decodes_with_its_id_and_amount() {
       let ctx = test_ctx(CHAIN);
       let (events, analysis) = analyse(

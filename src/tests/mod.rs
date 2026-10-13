@@ -1,3 +1,21 @@
+//! End-to-end tests that talk to live chains, from this machine's own `data/` profile.
+//!
+//! They are `#[ignore]`d on purpose, for the same reason as the live suites in `zeus-eth` (see
+//! `crates/zeus-eth/src/test_utils.rs`): they read the real profile in `data/` — `unlock_ctx` below
+//! unlocks the vault with the development credentials and asserts an enabled, working RPC per chain
+//! — so whether they pass says more about the machine and the moment than about the code. Public
+//! endpoints are unreliable: several block non-browser user agents, `eth_getLogs` is unusable on
+//! most of them, and they rot.
+//!
+//! A plain `cargo test` is meant to be a self-contained signal, so these run on purpose instead:
+//!
+//! ```sh
+//! cargo test -- --ignored
+//! ```
+//!
+//! What they are still good for: exercising a real swap, bridge, ENS or NFT flow end to end against
+//! a chain, and catching the wiring that a unit test cannot see.
+
 mod bridge;
 mod connector;
 mod ens;

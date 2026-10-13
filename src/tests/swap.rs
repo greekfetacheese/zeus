@@ -440,6 +440,7 @@ mod tests {
    // ---------------------------------------------------------------------- mainnet
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn mainnet_eth_to_usdc() {
       let outcome = run_swap(SwapCase::new(
          MAINNET,
@@ -457,6 +458,7 @@ mod tests {
    /// Large enough that one pool would move too much price, so the quoter spreads it — the case that
    /// exercises several slices and the wrap/re-wrap rules that come with them.
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn mainnet_eth_to_usdc_split() {
       let outcome = run_swap(
          SwapCase::new(
@@ -478,6 +480,7 @@ mod tests {
    /// intermediate hop reverted `TRANSFER_FAILED` (a quoted amount even 1 wei above the previous hop's
    /// real output is more than the router holds, so intermediate hops must spend its balance).
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn mainnet_eth_to_usdt_two_hop_v3_then_v4() {
       let outcome = run_swap(SwapCase::new(
          MAINNET,
@@ -500,6 +503,7 @@ mod tests {
    /// spend the router's balance instead of the quoted amount — otherwise `safeTransfer` reverts
    /// `TRANSFER_FAILED` (this is the case that used to fail with `Call Failed`, 3.8M gas).
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn mainnet_eth_to_usdt_large_two_hop_v3_fee_100_then_v4() {
       let outcome = run_swap(SwapCase::new(
          MAINNET,
@@ -518,6 +522,7 @@ mod tests {
    }
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn mainnet_weth_to_usdc() {
       let outcome = run_swap(SwapCase::new(
          MAINNET,
@@ -536,6 +541,7 @@ mod tests {
    /// router pulls. The old harness never granted that allowance (`permit2_needs_approval()` is false
    /// when `permit2_info` is `None`), so every ERC-20-input case failed on the allowance, not the code.
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn mainnet_usdc_to_eth_v4() {
       let outcome = run_swap(SwapCase::new(
          MAINNET,
@@ -551,6 +557,7 @@ mod tests {
    }
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn mainnet_usdc_to_usdt_v4() {
       let outcome = run_swap(SwapCase::new(
          MAINNET,
@@ -568,6 +575,7 @@ mod tests {
    // ---------------------------------------------------------------------- other chains
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn optimism_eth_to_usdc() {
       let outcome = run_swap(SwapCase::new(
          OPTIMISM,
@@ -583,6 +591,7 @@ mod tests {
    }
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn base_eth_to_usdc() {
       let outcome = run_swap(SwapCase::new(
          BASE,
@@ -598,6 +607,7 @@ mod tests {
    }
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn arbitrum_eth_to_usdc() {
       let outcome = run_swap(SwapCase::new(
          ARBITRUM,
@@ -620,6 +630,7 @@ mod tests {
    // has to wrap the input first — that pool's SETTLE pulls WETH off the router.
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn robinhood_eth_to_usdg_v2_v3() {
       let outcome = run_swap(SwapCase::new(
          ROBINHOOD,
@@ -637,6 +648,7 @@ mod tests {
    /// The route the swap UI picked in the field: ETH wrapped into the V4 WETH/USDG pool
    /// (`fee 500 / tickSpacing 10` = `0xfcfae8fa…6593`), which reverted with empty data at ~39.9k gas.
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn robinhood_eth_to_usdg_v4_weth_pool() {
       let weth_usdg = UniswapV4Pool::from_components(
          ROBINHOOD,
@@ -696,6 +708,7 @@ mod tests {
    }
 
    #[test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    fn discovery_usdc_to_eth_mainnet() {
       assert_discovers(
          Currency::from(ERC20Token::usdc()),
@@ -704,6 +717,7 @@ mod tests {
    }
 
    #[test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    fn discovery_eth_to_link_mainnet() {
       assert_discovers(
          Currency::from(NativeCurrency::from(MAINNET)),
@@ -712,6 +726,7 @@ mod tests {
    }
 
    #[test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    fn discovery_link_to_eth_mainnet() {
       assert_discovers(
          Currency::from(ERC20Token::link()),
