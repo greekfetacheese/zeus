@@ -61,7 +61,8 @@ zeus_urls! {
    // Verified-source lookups for clear signing.
    Sourcify => "https://sourcify.dev/server",
    // ERC-7730 clear-signing registry.
-   // ? This is actually unused since the registry is built-in to Zeus binary.
+   // ? Fetched at runtime by `clear_signing/registry.rs` (purpose `ContractNames`), under the
+   // `fetch_contract_names` opt-in — the built-in registry is not the only source.
    ClearSigningRegistry => "https://raw.githubusercontent.com/ethereum/clear-signing-erc7730-registry/master",
    // Across fee API (default; user-overridable in Bridge settings).
    AcrossSuggestedFees => "https://app.across.to/api/suggested-fees",

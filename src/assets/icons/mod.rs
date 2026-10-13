@@ -251,7 +251,11 @@ fn art_bytes(cache: &HashMap<NftKey, NftIconData>) -> usize {
 /// next asked for, which is never a re-download.
 const MAX_ART_ENTRIES: usize = 512;
 
-/// The byte budget for that in-memory copy.
+/// The byte budget for that in-memory copy, counted over the two renderings ([`art_bytes`]).
+///
+/// An entry's `source_uri` — the metadata document it came from, and contract-controlled — is not part
+/// of that count, so the ceiling here is this budget plus those; each URI is bounded where it is read,
+/// at `nft_icon::MAX_URI_LEN`.
 const MAX_ART_BYTES: usize = 64 * 1024 * 1024;
 
 /// Downloaded NFT images.

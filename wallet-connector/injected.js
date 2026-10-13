@@ -155,7 +155,7 @@ function backgroundFetch(url, options) {
         setTimeout(() => {
             if (pendingRequests.has(requestId)) {
                 pendingRequests.delete(requestId);
-                reject(new Error(`Request ${requestId} timed out after 30 seconds`));
+                reject(new Error(`Request ${requestId} timed out after 5 minutes`));
             }
         }, FIVE_MINUTES);
     });
