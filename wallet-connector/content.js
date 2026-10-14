@@ -21,6 +21,14 @@ function injectScript(filePath) {
 injectScript('injected.js');
 
 
+// Connector paths the page-world provider is allowed to reach. The provider only
+// ever calls backgroundFetch('/api', ...) (injected.js), so this is the whole list.
+// Anything else the page posts is refused here rather than relayed: /status in
+// particular carries the connected-dapp origin list and needs no origin, so a
+// relaying bridge would let any site enumerate the user's connected dapps.
+const ALLOWED_FETCH_URLS = new Set(['/api']);
+
+
 // Listen for messages FROM the injected script (window.postMessage)
 window.addEventListener("message", (event) => {
     if (event.source !== window || !event.data || event.data.target !== 'content') {
@@ -31,6 +39,13 @@ window.addEventListener("message", (event) => {
     let messageToBackground = null;
 
     if (message.type === 'fetch_request') {
+        const url = message.payload && message.payload.url;
+        if (!ALLOWED_FETCH_URLS.has(url)) {
+            // Same failure shape the page already handles for a failed relay,
+            // so the provider's pending request rejects instead of hanging.
+            window.postMessage({ target: 'injected', type: 'fetch_response', success: false, error: `Blocked connector path: ${url}`, id: message.id }, "*");
+            return;
+        }
         messageToBackground = { target: 'background', type: 'fetch', payload: message.payload };
     }
 
