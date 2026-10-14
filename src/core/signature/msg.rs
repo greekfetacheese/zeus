@@ -409,8 +409,10 @@ impl Permit2Details {
       // `chain` is only where the user happened to be, and a permit naming another one grants the
       // allowance there. Everything read for this prompt — the token, its price, the addresses —
       // has to come from the permit's own chain, or the prompt describes a different token's
-      // approval than the one being signed for.
-      let chain = domain_chain(data.domain.chain_id, chain);
+      // approval than the one being signed for. Refuse a chain Zeus cannot name rather than build a
+      // prompt with it: the prompt converts it to a `ChainId`, which panics off Zeus's chains.
+      let chain = permit_chain(data.domain.chain_id, chain)
+         .ok_or_else(|| anyhow!("The permit's domain names a chain Zeus cannot name"))?;
 
       let token_address =
          message["details"]["token"].as_str().ok_or(anyhow!("Missing token address"))?;
@@ -545,6 +547,17 @@ fn domain_chain(chain_id: Option<U256>, fallback_chain: u64) -> u64 {
    chain_id.and_then(|id| u64::try_from(id).ok()).unwrap_or(fallback_chain)
 }
 
+/// The support check the chain gates share: the id itself when Zeus can name that chain, `None`
+/// otherwise.
+///
+/// It is the same check `ChainId::new` performs, and it is the one that matters: both prompts render
+/// the chain a message is signed for as a [`ChainId`], whose `From<u64>` unwraps `ChainId::new` and
+/// so panics for any id outside Zeus's seven chains.
+fn named_chain(id: u64) -> Option<u64> {
+   ChainId::new(id).ok()?;
+   Some(id)
+}
+
 /// The chain a clear-signed message is for: its own `domain.chainId`, and only when Zeus can name
 /// that chain.
 ///
@@ -556,9 +569,19 @@ fn domain_chain(chain_id: Option<U256>, fallback_chain: u64) -> u64 {
 /// chain instead would name a chain the message never did, which is exactly the misstatement this
 /// refuses. Unlike [`domain_chain`], there is no fallback.
 fn clear_sign_chain(chain_id: Option<U256>) -> Option<u64> {
-   let id = u64::try_from(chain_id?).ok()?;
-   ChainId::new(id).ok()?;
-   Some(id)
+   named_chain(u64::try_from(chain_id?).ok()?)
+}
+
+/// The chain a permit is signed for, and only when Zeus can name it.
+///
+/// Resolved from the domain like [`domain_chain`], so a domain that names no usable chain still
+/// falls back to the wallet's own — the intentional behaviour the permits keep. What this adds is
+/// the support check [`clear_sign_chain`] applies: a domain that named a chain Zeus cannot name is
+/// refused instead of carried, and the caller falls through to the raw-JSON review, which names no
+/// chain at all. The permit prompt renders this chain as a [`ChainId`] (EIP-2612 through the token
+/// it read on it), so the gate has to be here at construction.
+fn permit_chain(chain_id: Option<U256>, fallback_chain: u64) -> Option<u64> {
+   named_chain(domain_chain(chain_id, fallback_chain))
 }
 
 fn parse_permit2612_fields(
@@ -579,7 +602,10 @@ fn parse_permit2612_fields(
       .domain
       .verifying_contract
       .ok_or_else(|| anyhow!("missing verifying contract"))?;
-   let chain = domain_chain(data.domain.chain_id, fallback_chain);
+   // Refuse a chain Zeus cannot name rather than carry it into the prompt, which converts it to a
+   // `ChainId` and panics off Zeus's chains.
+   let chain = permit_chain(data.domain.chain_id, fallback_chain)
+      .ok_or_else(|| anyhow!("The permit's domain names a chain Zeus cannot name"))?;
 
    Ok(Permit2612Fields {
       owner,
@@ -1005,15 +1031,22 @@ mod tests {
       );
    }
 
-   /// The clear-signed display is only built for a chain Zeus can name, because the prompt renders
-   /// that chain as a `ChainId` and `ChainId::from(u64)` panics for anything else. The gate is this
-   /// helper, so sweeping it pins the invariant for every shape the domain can carry: a supported id
-   /// passes; an unsupported one — including the registry's own Polygon / Avalanche / Celo
-   /// descriptors — an id that does not fit a `u64`, and a missing one are all refused. Absent must
-   /// be refused rather than defaulted to the wallet's chain: naming a chain the message does not is
-   /// the misstatement this guard exists to prevent.
-   #[test]
-   fn clear_signing_requires_a_chain_zeus_can_name() {
+   /// No prompt may be built for a chain Zeus cannot name, because each renders that chain as a
+   /// `ChainId` and `ChainId::from(u64)` panics for anything else. Three construction sites share
+   /// the gate: the clear-signed branch and both permit branches (Permit2 and EIP-2612). Sweeping
+   /// the helpers pins the invariant for every shape the domain can carry: a supported id passes,
+   /// and an unsupported one — including the registry's own Polygon / Avalanche / Celo descriptors —
+   /// is refused by both. Clear-signing additionally refuses an id that does not fit a `u64` (and an
+   /// absent one) rather than defaulting to the wallet's chain, because naming a chain the message
+   /// does not is the misstatement the guard exists to prevent; the permits keep the opposite
+   /// behaviour for those two shapes — the wallet's chain is the only thing to go on — so that
+   /// fallback is asserted too.
+   ///
+   /// The two permit payloads are driven end to end because the refusal is only useful if it falls
+   /// through: an unsupported domain chain lands in the raw-JSON `Other` review, still signable and
+   /// naming no chain, instead of aborting the wallet.
+   #[tokio::test]
+   async fn clear_signing_requires_a_chain_zeus_can_name() {
       use zeus_eth::types::SUPPORTED_CHAINS;
 
       for id in SUPPORTED_CHAINS {
@@ -1021,6 +1054,11 @@ mod tests {
             clear_sign_chain(Some(U256::from(id))),
             Some(id),
             "supported chain {id} must clear-sign"
+         );
+         assert_eq!(
+            permit_chain(Some(U256::from(id)), 1),
+            Some(id),
+            "supported chain {id} must permit"
          );
       }
 
@@ -1032,6 +1070,11 @@ mod tests {
             None,
             "unsupported chain {id} must not reach ChainId::from"
          );
+         assert_eq!(
+            permit_chain(Some(U256::from(id)), 1),
+            None,
+            "unsupported chain {id} must not reach ChainId::from"
+         );
       }
 
       assert_eq!(
@@ -1039,11 +1082,39 @@ mod tests {
          None,
          "a chain id that does not fit a u64 cannot be a chain Zeus signed for"
       );
+      // A permit, unlike clear-signing, treats an id that cannot even be a `u64` as a domain that
+      // names no usable chain and keeps its fallback — [`domain_chain`]'s existing behaviour.
+      assert_eq!(
+         permit_chain(Some(U256::MAX), 1),
+         Some(1),
+         "an id that does not fit a u64 leaves the wallet's chain as the only thing to go on"
+      );
 
       assert_eq!(
          clear_sign_chain(None),
          None,
          "a domain that names no chain must be refused, not defaulted to the wallet's chain"
+      );
+      assert_eq!(
+         permit_chain(None, 1),
+         Some(1),
+         "a permit for a domain that names no chain keeps its fallback to the wallet's chain"
+      );
+
+      let mut permit2 = dummy_permit2_json();
+      permit2["domain"]["chainId"] = json!("137");
+      let msg = SignMsgType::new(ZeusCtx::new(), 1, Some(permit2), None).await.unwrap();
+      assert!(
+         msg.is_other(),
+         "a PermitSingle for an unnamed chain must fall through to the raw-JSON review, got {msg:?}"
+      );
+
+      let mut permit2612 = dummy_permit_json();
+      permit2612["domain"]["chainId"] = json!("137");
+      let msg = SignMsgType::new(ZeusCtx::new(), 1, Some(permit2612), None).await.unwrap();
+      assert!(
+         msg.is_other(),
+         "an EIP-2612 permit for an unnamed chain must fall through to the raw-JSON review, got {msg:?}"
       );
    }
 

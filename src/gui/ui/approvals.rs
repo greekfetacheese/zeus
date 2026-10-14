@@ -5,6 +5,7 @@ use crate::core::{
    DecodedEvent, NftApproveParams, PermitParams, SendTxOptions, SendTxRequest, TokenApproveParams,
    TransactionAnalysis, WalletInfo, ZeusContext, ZeusCtx, send_transaction, signature,
 };
+use crate::gui::ui::common::{chain_label, usable_chain};
 use crate::gui::{SHARED_GUI, ui::show_with_fade};
 use crate::utils::{RT, TimeStamp, simulate::simulate_for_analysis, truncate_address};
 use anyhow::anyhow;
@@ -918,14 +919,14 @@ impl ApprovalsUi {
 
                                  // Chain
                                  Self::row_cell(ui, column_widths[1], row_height, |ui| {
-                                    let chain: ChainId = row.chain.into();
-                                    let text = RichText::new(chain.name())
+                                    let chain = chain_label(row.chain);
+                                    let text = RichText::new(&chain)
                                        .size(theme.typography.normal)
                                        .color(theme.colors.text);
                                     let label = Label::new(text, None)
                                        .wrap_mode(TextWrapMode::Truncate)
                                        .visuals(label_visuals);
-                                    ui.add(label).on_hover_text(chain.name());
+                                    ui.add(label).on_hover_text(chain);
                                  });
 
                                  // Wallet
@@ -944,14 +945,26 @@ impl ApprovalsUi {
                                  Self::row_cell(ui, column_widths[3], row_height, |ui| {
                                     let name = self.spender_label(ctx, row.chain, row.spender);
 
-                                    let chain = ChainId::from(row.chain);
-                                    let explorer = chain.block_explorer();
-                                    let link =
-                                       format!("{}/address/{}", explorer, row.spender.to_string());
-                                    let text = RichText::new(&name)
-                                       .size(theme.typography.normal)
-                                       .color(theme.colors.info);
-                                    ui.hyperlink_to(text, link);
+                                    match spender_explorer_url(row.chain, row.spender) {
+                                       Some(link) => {
+                                          let text = RichText::new(&name)
+                                             .size(theme.typography.normal)
+                                             .color(theme.colors.info);
+                                          ui.hyperlink_to(text, link);
+                                       }
+                                       // No chain Zeus can name, so no correct explorer for it —
+                                       // drop the link and still show the spender.
+                                       None => {
+                                          let text = RichText::new(&name)
+                                             .size(theme.typography.normal)
+                                             .color(theme.colors.text);
+                                          let label = Label::new(text, None)
+                                             .wrap_mode(TextWrapMode::Truncate)
+                                             .visuals(label_visuals);
+                                          ui.add(label)
+                                             .on_hover_text(format!("{}\n{}", name, row.spender));
+                                       }
+                                    }
                                  });
 
                                  // Amount
@@ -1082,6 +1095,32 @@ fn permit_row_still_valid(remaining: U256, expiration: u64, now: Option<u64>) ->
    !remaining.is_zero() && !expired
 }
 
+/// The explorer link for an approval's spender, or `None` when the row names a chain Zeus has no
+/// entry for.
+///
+/// An approval row is rebuilt from the store and its chain is not re-validated on load, so the link
+/// cannot be built with the panicking `ChainId::from` — and there is no correct explorer for a chain
+/// Zeus does not know. The spender cell keeps naming the spender; only the link is dropped.
+fn spender_explorer_url(chain: u64, spender: Address) -> Option<String> {
+   let chain = usable_chain(chain)?;
+   Some(format!(
+      "{}/address/{}",
+      chain.block_explorer(),
+      spender
+   ))
+}
+
+/// The chain an approval can be revoked on, or the error every revoke flow returns before it builds
+/// any calldata, address or signature.
+///
+/// The row's chain came out of the store, and a revoke needs a real [`ChainId`] for the fork spec,
+/// the address book and the recorded params. There is nothing to guess with — the wallet's own chain
+/// would revoke on a chain the approval was never made on — so refuse by id instead.
+fn revoke_chain(chain_id: u64) -> Result<ChainId, anyhow::Error> {
+   usable_chain(chain_id)
+      .ok_or_else(|| anyhow!("this approval is on a chain Zeus cannot use ({chain_id})"))
+}
+
 // ! This may return an empty or partial map if any requests fail
 async fn live_permit2_allowances(
    ctx: ZeusCtx,
@@ -1171,6 +1210,7 @@ fn revoke_call(params: &NftApproveParams) -> Result<(Bytes, NftApproveParams), a
 
 /// Revoke an NFT approval on the collection that emitted it.
 async fn revoke_nft_approval(chain_id: u64, params: NftApproveParams) -> Result<(), anyhow::Error> {
+   let chain = revoke_chain(chain_id)?;
    let (calldata, revoked) = revoke_call(&params)?;
 
    let ctx = SHARED_GUI.write(|gui| {
@@ -1178,7 +1218,6 @@ async fn revoke_nft_approval(chain_id: u64, params: NftApproveParams) -> Result<
       gui.request_repaint();
       gui.ctx.clone()
    });
-   let chain: ChainId = chain_id.into();
 
    let value = U256::ZERO;
    let dapp = "".to_string();
@@ -1245,12 +1284,13 @@ async fn revoke_erc20_approval(
    from: Address,
    spender: Address,
 ) -> Result<(), anyhow::Error> {
+   let chain = revoke_chain(chain_id)?;
+
    let ctx = SHARED_GUI.write(|gui| {
       gui.loading_window.open("Wait while magic happens");
       gui.request_repaint();
       gui.ctx.clone()
    });
-   let chain: ChainId = chain_id.into();
 
    let calldata = token.encode_approve(spender, U256::ZERO);
    let value = U256::ZERO;
@@ -1324,13 +1364,14 @@ async fn revoke_permit2_approval(
    token: Currency,
    spender: Address,
 ) -> Result<(), anyhow::Error> {
+   let chain = revoke_chain(chain_id)?;
+
    let ctx = SHARED_GUI.write(|gui| {
       gui.loading_window.open("Preparing Permit2 revoke");
       gui.request_repaint();
       gui.ctx.clone()
    });
 
-   let chain: ChainId = chain_id.into();
    let token_addr = token.address();
 
    let permit2 = address_book::permit2_contract(chain_id)?;
@@ -1362,7 +1403,7 @@ async fn revoke_permit2_approval(
    let signature = signature::sign::sign_message(
       ctx.clone(),
       "".to_string(),
-      chain_id.into(),
+      chain,
       Some(msg),
       None,
       Some(owner),
@@ -1627,5 +1668,38 @@ mod tests {
       params.token_id = None;
 
       assert!(revoke_call(&params).is_err());
+   }
+
+   /// A row's chain comes out of the store, so the two decisions the table makes from it have to
+   /// refuse a chain Zeus cannot name — the panicking conversion is what they replaced.
+   ///
+   /// Swept over the supported set, where both must behave exactly as before (a real chain, and its
+   /// own explorer link), plus an ordinary unsupported id and one that cannot be a chain at all,
+   /// where there is no chain to act on and no explorer to point at.
+   #[test]
+   fn a_stored_chain_is_refused_when_zeus_cannot_name_it() {
+      use zeus_eth::types::SUPPORTED_CHAINS;
+
+      for id in SUPPORTED_CHAINS {
+         let chain = ChainId::new(id).unwrap();
+         assert_eq!(revoke_chain(id).unwrap().id(), id, "chain {id}");
+         assert_eq!(
+            spender_explorer_url(id, OPERATOR).unwrap(),
+            format!("{}/address/{}", chain.block_explorer(), OPERATOR),
+            "chain {id}"
+         );
+      }
+
+      for id in [137, u64::MAX] {
+         let err = revoke_chain(id).unwrap_err().to_string();
+         assert!(
+            err.contains(&id.to_string()),
+            "the refusal must name the chain it refused: {err}"
+         );
+         assert!(
+            spender_explorer_url(id, OPERATOR).is_none(),
+            "no explorer exists for chain {id}"
+         );
+      }
    }
 }

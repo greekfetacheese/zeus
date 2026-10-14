@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use egui::{Align, Id, Layout, Order, RichText, TextWrapMode, Ui, vec2};
 use egui_elements::{Button, Modal, Theme};
-use zeus_eth::types::ChainId;
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
+use crate::gui::ui::common::usable_chain;
 use crate::gui::ui::tx::chain;
 use crate::gui::ui::tx_history::private_asset_display;
 use crate::utils::TimeStamp;
@@ -91,7 +91,30 @@ impl SpentNoteWindow {
                   return;
                };
 
-               let chain_id: ChainId = row.chain.into();
+               // The row came out of the Railgun spent-note store, and nothing re-validates its chain
+               // on load. A spent note on a chain Zeus cannot name cannot be shown with its own
+               // chain's asset display, so refuse it by name instead of building the window on
+               // `ChainId::from`, which panics.
+               let Some(chain_id) = usable_chain(row.chain) else {
+                  let chain = row.chain;
+                  ui.add_space(20.0);
+                  ui.label(
+                     RichText::new(format!(
+                        "This spent note is on a chain Zeus cannot use ({chain})"
+                     ))
+                     .size(theme.typography.large),
+                  );
+                  ui.add_space(20.0);
+
+                  let size = vec2(ui.available_width() * 0.8, 45.0);
+                  let text = RichText::new("Close").size(theme.typography.normal);
+                  let close_button = Button::new(text).min_size(size);
+                  if ui.add(close_button).clicked() {
+                     self.close();
+                  }
+                  return;
+               };
+
                let frame = theme.frame2;
                let frame_size = vec2(ui.available_width() * 0.9, 45.0);
 
