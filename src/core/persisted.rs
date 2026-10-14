@@ -305,46 +305,42 @@ pub fn file_path(file: PersistedFile) -> Result<PathBuf, anyhow::Error> {
 /// Suffix a store is renamed to when it cannot be read. See [`UnreadableStores`].
 const QUARANTINE_MARKER: &str = "quarantine";
 
-/// The bytes of a store that failed to read this run, and where they were moved to.
+/// A store whose unreadable bytes are still at their path, so a save would destroy them.
 #[derive(Debug, Clone)]
-pub struct QuarantinedStore {
-   /// The file the unreadable bytes were renamed to.
+pub struct BlockedStore {
+   /// Where the unreadable bytes still sit.
    pub path: PathBuf,
    /// The load error, kept so a saver can say *why* it is skipping.
    pub reason: String,
 }
 
-/// Stores whose on-disk file failed to read this run.
+/// The stores whose unreadable bytes are still at their path this run.
 ///
-/// A failed load leaves the in-memory store at its `Default`, so the next save — an ordinary
-/// mutation, a UI action, or the shutdown flush — would seal that default over the user's real
-/// bytes. A loader therefore hands a failed read to [`quarantine_unreadable_store`], and every
-/// saver consults [`Self::save_blocked`] and skips. The record lasts for the rest of the run: a
-/// later load (a re-unlock, an import) does not make the store saveable again.
+/// A failed load leaves the in-memory store at its `Default`, so a save would seal that default
+/// over the user's real bytes. A loader hands a failed read to [`quarantine_unreadable_store`],
+/// which renames the file aside; only when that rename *fails* are the bytes still at the path, and
+/// only then is the store recorded here. Every saver consults [`Self::save_blocked`] and skips
+/// while an entry is present.
+///
+/// So the record means exactly: **a save would still destroy the bytes at this path.** Once the
+/// bytes are moved aside (or were never there), the store is not recorded and its saver may write
+/// again — which is how a deliberate format break is adopted in the same run instead of the next
+/// start. A record is not cleared by a later load; it lasts for the rest of the run.
 #[derive(Debug, Default, Clone)]
 pub struct UnreadableStores {
-   stores: HashMap<PersistedFile, QuarantinedStore>,
+   stores: HashMap<PersistedFile, BlockedStore>,
 }
 
 impl UnreadableStores {
-   /// Whether `file` failed to read this run.
-   pub fn is_unreadable(&self, file: PersistedFile) -> bool {
-      self.stores.contains_key(&file)
-   }
-
-   /// Where `file`'s unreadable bytes were moved, if it failed to read.
-   pub fn quarantined_path(&self, file: PersistedFile) -> Option<&Path> {
-      self.stores.get(&file).map(|store| store.path.as_path())
-   }
-
    /// The reason `file` must not be saved, or `None` when saving it is allowed.
    ///
-   /// A saver that gets `Some` must skip its write and log the reason: the value in memory is the
-   /// default, and writing it would replace the bytes that failed to load.
+   /// `Some` means the store's unreadable bytes are still at their path: a saver that gets it must
+   /// skip its write and log the reason. `None` means there is nothing left to protect, so the
+   /// saver may write — adopting the new format, when the failure was a deliberate format break.
    pub fn save_blocked(&self, file: PersistedFile) -> Option<String> {
       self.stores.get(&file).map(|store| {
          format!(
-            "{} could not be read this session (moved aside to {}): {}",
+            "{} could not be read and its unreadable bytes are still at {}: {}",
             file.name(),
             store.path.display(),
             store.reason
@@ -353,16 +349,18 @@ impl UnreadableStores {
    }
 
    fn record(&mut self, file: PersistedFile, path: PathBuf, reason: String) {
-      self.stores.insert(file, QuarantinedStore { path, reason });
+      self.stores.insert(file, BlockedStore { path, reason });
    }
 }
 
-/// Move an unreadable store aside and record it for the rest of the run.
+/// Move an unreadable store aside, or record it when it cannot be moved.
 ///
-/// The file is renamed (so its bytes survive and the next start is not fighting a file that cannot
-/// be read), and the failure is recorded in `stores` so every saver skips it — see
-/// [`UnreadableStores::save_blocked`]. `None` means there was nothing to protect: the file is
-/// already gone, so the store is a first run and its default may be saved.
+/// The file is renamed so its bytes survive and the next start is not fighting a file that cannot
+/// be read. After a successful rename there is nothing at the path left to protect, so the store is
+/// **not** recorded and its savers may write again — the adoption a deliberate format break needs.
+/// Only when the rename fails are the unreadable bytes still at the path, and the store is recorded
+/// so no saver destroys them — see [`UnreadableStores::save_blocked`]. `None` means nothing is
+/// blocked: the file was already gone (a first run) or it was moved aside.
 pub fn quarantine_unreadable_store(
    stores: &mut UnreadableStores,
    file: PersistedFile,
@@ -386,17 +384,19 @@ fn quarantine_unreadable_at(
 
    match quarantine_file_at(path) {
       Ok(moved) => {
+         // The bytes are no longer at `path`, so there is nothing left to protect: do not record.
+         // A store that failed on content (an old format, a corrupt blob, a torn write) may now
+         // write its default, which is how a format break is adopted in the same run.
          tracing::error!(
             "{} could not be read; moved aside to {}: {reason:?}",
             path.display(),
             moved.display()
          );
-         stores.record(file, moved.clone(), format!("{reason:?}"));
          Some(moved)
       }
       Err(e) => {
-         // The bytes could not be moved. Still record the failure: a saver that wrote defaults
-         // over a file that is right there is worse than a skipped save.
+         // The bytes could not be moved, so they are still at the path. Record the store: a saver
+         // that wrote defaults over a file that is right there is worse than a skipped save.
          tracing::error!(
             "{} could not be read and could not be moved aside ({e}); it will not be overwritten",
             path.display()
@@ -836,12 +836,12 @@ mod tests {
       dir
    }
 
-   /// A file of garbage bytes at a store's path is an unreadable store. Loading it must move it
-   /// aside and flag it, and a save through the shared record must leave the quarantined bytes
-   /// untouched.
+   /// A file of garbage bytes at a store's path is an unreadable store. When the bytes can be moved
+   /// aside they are protected by the rename, and the store is *not* blocked: a save proceeds and
+   /// adopts the new format in the same run.
    #[test]
-   fn an_unreadable_store_is_quarantined_and_its_saver_skips() {
-      let dir = scratch_dir("quarantine");
+   fn a_moved_aside_store_is_no_longer_blocked() {
+      let dir = scratch_dir("moved");
       let path = dir.join(PersistedFile::Tokens.name());
       std::fs::write(&path, b"not a sealed blob").unwrap();
 
@@ -860,26 +860,65 @@ mod tests {
          "the quarantined file holds the garbage"
       );
       assert!(
-         stores.is_unreadable(PersistedFile::Tokens),
-         "the store is flagged for the rest of the run"
-      );
-      assert_eq!(
-         stores.quarantined_path(PersistedFile::Tokens),
-         Some(moved.as_path())
+         stores.save_blocked(PersistedFile::Tokens).is_none(),
+         "after the rename there is nothing left to protect, so the store may save"
       );
 
-      // What every saver does: write only when the record allows it. The record blocks, so the
-      // store is not recreated at its original name and the quarantined bytes survive.
+      // What every saver does: write when the record allows it. Nothing blocks, so the store is
+      // written afresh — the adoption a deliberate format break needs — and the quarantined bytes
+      // survive.
       if stores.save_blocked(PersistedFile::Tokens).is_none() {
-         std::fs::write(&path, b"defaults").unwrap();
+         std::fs::write(&path, b"fresh format").unwrap();
       }
-      assert!(
-         !path.exists(),
-         "a blocked save must not recreate the store at its original name"
+      assert_eq!(
+         std::fs::read(&path).unwrap(),
+         b"fresh format",
+         "the store is written again, adopting the new format in the same run"
       );
       assert_eq!(
          std::fs::read(&moved).unwrap(),
          b"not a sealed blob"
+      );
+
+      std::fs::remove_dir_all(&dir).ok();
+   }
+
+   /// When the bytes cannot be moved they are still at the path, so the store is recorded and a save
+   /// is blocked, with a reason naming where they sit.
+   #[cfg(unix)]
+   #[test]
+   fn a_store_whose_bytes_cannot_be_moved_is_recorded_and_blocked() {
+      use std::os::unix::fs::PermissionsExt;
+
+      let dir = scratch_dir("readonly");
+      let path = dir.join(PersistedFile::Tokens.name());
+      std::fs::write(&path, b"not a sealed blob").unwrap();
+
+      // A read-only parent makes `rename` fail: moving an entry needs write permission on its
+      // directory. (This only holds for a non-root user; root bypasses directory permissions.)
+      std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+
+      let mut stores = UnreadableStores::default();
+      let err = anyhow::anyhow!("aead: aad mismatch");
+      let moved = quarantine_unreadable_at(&mut stores, PersistedFile::Tokens, &path, &err);
+
+      // Restore the directory before asserting, so a failed assertion cannot leave it undeletable.
+      std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+      assert!(
+         moved.is_none(),
+         "a rename that failed reports no quarantine path"
+      );
+      assert!(
+         path.exists(),
+         "the unreadable bytes are still at the path"
+      );
+      let reason = stores
+         .save_blocked(PersistedFile::Tokens)
+         .expect("the store is recorded while its bytes cannot be moved");
+      assert!(
+         reason.contains(&path.display().to_string()),
+         "the reason names where the bytes still are: {reason}"
       );
 
       std::fs::remove_dir_all(&dir).ok();
@@ -914,7 +953,6 @@ mod tests {
       let mut stores = UnreadableStores::default();
       let err = anyhow::anyhow!("no file");
       assert!(quarantine_unreadable_at(&mut stores, PersistedFile::NftDb, &path, &err).is_none());
-      assert!(!stores.is_unreadable(PersistedFile::NftDb));
       assert!(stores.save_blocked(PersistedFile::NftDb).is_none());
 
       std::fs::remove_dir_all(&dir).ok();

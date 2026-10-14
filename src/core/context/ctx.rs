@@ -658,10 +658,11 @@ impl ZeusCtx {
       Ok(())
    }
 
-   /// Quarantine `file` (renamed aside) and record it as unreadable for the rest of the run.
+   /// Quarantine `file` after a load failed: rename it aside, or record it if it cannot be moved.
    ///
    /// Called by a loader after a store it failed to read. The rename keeps the bytes and stops the
-   /// next start fighting a file that cannot be read; the record makes every saver skip.
+   /// next start fighting a file that cannot be read; if the rename fails the bytes are still at
+   /// the path, so the store is recorded and every saver skips it.
    fn flag_unreadable_store(&self, file: PersistedFile, err: &anyhow::Error) {
       self.write(|ctx| {
          persisted::quarantine_unreadable_store(&mut ctx.unreadable_stores, file, err);
@@ -669,12 +670,15 @@ impl ZeusCtx {
    }
 
    /// The reason `file`'s saver must skip, or `None` when it may write.
+   ///
+   /// `Some` means the store's unreadable bytes are still at their path — the rename that would
+   /// have protected them failed. `None` means a save would destroy nothing.
    fn unreadable_save_reason(&self, file: PersistedFile) -> Option<String> {
       self.read(|ctx| ctx.unreadable_stores.save_blocked(file))
    }
 
-   /// `true` when `file` failed to read this run; logs why `what` is not saved so a skip is never
-   /// silent. Savers call this and return when it is `true`.
+   /// `true` when `file`'s unreadable bytes are still at its path; logs why `what` is not saved so a
+   /// skip is never silent. Savers call this and return when it is `true`.
    fn skip_save_if_unreadable(&self, file: PersistedFile, what: &str) -> bool {
       match self.unreadable_save_reason(file) {
          Some(reason) => {
@@ -729,8 +733,9 @@ impl ZeusCtx {
    /// A file that is there and does *not* read is a different matter, and is not treated as a
    /// missing one: `autolock` is a security choice, so running on the defaults is a weaker policy
    /// than the user picked, and sealing those defaults back would destroy the choice for good. The
-   /// defaults are used for this session, the unreadable bytes are quarantined by the shared
-   /// helper so they survive, and `security.load_failed` carries the failure to the UI.
+   /// defaults are used for this session, the unreadable bytes are moved aside (or, if that fails,
+   /// protected by the shared record) so they survive, and `security.load_failed` carries the
+   /// failure to the UI.
    pub fn load_security_settings(&self) -> Result<(), anyhow::Error> {
       let key = self.read_vault(|vault| vault.wallet_state_key())?;
       let present = persisted::file_path(PersistedFile::Security).is_ok_and(|p| p.exists());
@@ -2662,8 +2667,8 @@ pub struct ZeusContext {
    /// Misc persisted settings (token icons, Sourcify names, …)
    pub misc_config: MiscConfig,
 
-   /// Stores whose on-disk file failed to read this run. While an entry is present its saver
-   /// skips, so the in-memory default is never sealed back over the bytes that failed to load.
+   /// Stores whose unreadable bytes are still at their path this run, because the quarantine rename
+   /// failed. While an entry is present its saver skips, so those bytes are never overwritten.
    pub unreadable_stores: UnreadableStores,
 }
 
