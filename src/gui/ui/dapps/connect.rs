@@ -158,20 +158,6 @@ impl ConnectDappWindow {
       self.open = false;
    }
 
-   /// Clear the prompt's contents. The claim ([`Self::pending`]) is *not* touched: it belongs to
-   /// the flow that holds it and is handed back by [`Self::release`] / [`ConnectClaim`], not by a
-   /// reset.
-   pub fn reset(&mut self) {
-      self.close();
-      self.origin.clear();
-      self.wallets.clear();
-      self.selected = None;
-      self.seen_accounts.clear();
-      self.use_new_account = true;
-      self.result = None;
-      self.opened_at = None;
-   }
-
    pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
@@ -409,9 +395,6 @@ mod tests {
       assert_eq!(window.selected, Some(last_used));
       assert_eq!(window.seen_accounts, vec![earlier, last_used]);
       assert!(!window.seen_accounts.contains(&untouched));
-
-      window.reset();
-      assert!(window.seen_accounts.is_empty());
    }
 
    /// A new app marks nothing as previously connected; the list's preselection
