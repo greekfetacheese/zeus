@@ -595,6 +595,49 @@ fn shield_event_ui(
    let tint = theme.image_tint_recommended;
    let icon_size = vec2(24.0, 24.0);
 
+   // Recipient
+   if let Some(recipient) = &params.recipient {
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            let text = RichText::new(format!("Recipient",)).size(theme.typography.large);
+            let label = Label::new(text, None).interactive(false);
+            ui.add(label);
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let wallet_opt = ctx.get_wallet_info_by_zk_address(recipient);
+            let contact_opt = ctx.get_contact_by_zk_address(recipient);
+
+            let (text, evm_address_opt) = if let Some(wallet) = wallet_opt {
+               let rich = RichText::new(wallet.name())
+                  .size(theme.typography.large)
+                  .color(theme.colors.info);
+               (rich, Some(wallet.address.to_string()))
+            } else if let Some(contact) = contact_opt {
+               let rich = RichText::new(contact.name)
+                  .size(theme.typography.large)
+                  .color(theme.colors.info);
+               (rich, Some(contact.evm_address))
+            } else {
+               // Anything too short to shorten comes back whole from the helper: the slice offsets are
+               // safe only because it has already checked the length.
+               let rich = RichText::new(truncate_address(recipient.clone()))
+                  .size(theme.typography.large)
+                  .color(theme.colors.info);
+               (rich, None)
+            };
+
+            if let Some(evm_address) = evm_address_opt {
+               let explorer = chain.block_explorer();
+               let link = format!("{}/address/{}", explorer, evm_address);
+               ui.hyperlink_to(text, link);
+            } else {
+               ui.label(text);
+            }
+         });
+      });
+   }
+
    // Amount Shielded
    ui.allocate_ui(size, |ui| {
       ui.horizontal(|ui| {
@@ -655,49 +698,6 @@ fn shield_event_ui(
          }
       });
    });
-
-   // Recipient
-   if let Some(recipient) = &params.recipient {
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            let text = RichText::new(format!("Recipient",)).size(theme.typography.large);
-            let label = Label::new(text, None).interactive(false);
-            ui.add(label);
-         });
-
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let wallet_opt = ctx.get_wallet_info_by_zk_address(recipient);
-            let contact_opt = ctx.get_contact_by_zk_address(recipient);
-
-            let (text, evm_address_opt) = if let Some(wallet) = wallet_opt {
-               let rich = RichText::new(wallet.name())
-                  .size(theme.typography.large)
-                  .color(theme.colors.info);
-               (rich, Some(wallet.address.to_string()))
-            } else if let Some(contact) = contact_opt {
-               let rich = RichText::new(contact.name)
-                  .size(theme.typography.large)
-                  .color(theme.colors.info);
-               (rich, Some(contact.evm_address))
-            } else {
-               // Anything too short to shorten comes back whole from the helper: the slice offsets are
-               // safe only because it has already checked the length.
-               let rich = RichText::new(truncate_address(recipient.clone()))
-                  .size(theme.typography.large)
-                  .color(theme.colors.info);
-               (rich, None)
-            };
-
-            if let Some(evm_address) = evm_address_opt {
-               let explorer = chain.block_explorer();
-               let link = format!("{}/address/{}", explorer, evm_address);
-               ui.hyperlink_to(text, link);
-            } else {
-               ui.label(text);
-            }
-         });
-      });
-   }
 
    // Protocol fee
    if let (Some(token), Some(fee), Some(fee_usd)) = (
