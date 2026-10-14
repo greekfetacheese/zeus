@@ -34,6 +34,20 @@ impl DeleteWalletUi {
       self.credentials_form.erase();
    }
 
+   /// Drop every secret this UI holds and close it.
+   ///
+   /// Used when Zeus auto-locks: the verified-credentials flag is what authorizes
+   /// the delete (`delete_wallet_ui` refuses to show without it and
+   /// `verified_credentials` is set once the user has proved it), so a wallet whose
+   /// credentials were verified before the lock must not be deletable after unlock
+   /// without proving them again. The carried `wallet_to_delete` goes with it.
+   pub fn lock(&mut self) {
+      self.erase();
+      self.close();
+      self.verified_credentials = false;
+      self.wallet_to_delete = None;
+   }
+
    pub fn is_open(&self) -> bool {
       self.open
    }
@@ -336,4 +350,39 @@ fn on_delete_wallet(wallet: WalletInfo, is_current: bool) {
          gui.wallet_ui.calc_wallet_value();
       });
    });
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use secure_types::SecureString;
+
+   /// The state `on_verify_credentials` leaves behind: the verification flag set, the
+   /// wallet carried, the credentials still typed into the form.
+   fn verified_form() -> DeleteWalletUi {
+      let mut ui = DeleteWalletUi::new();
+      ui.open(WalletInfo::default());
+      ui.verified_credentials = true;
+      ui.credentials_form.set_username_text(SecureString::from("user"));
+      ui.credentials_form.set_password_text(SecureString::from("pass"));
+      ui
+   }
+
+   /// `lock` is the auto-lock path: it has to drop the authorization bit as well as
+   /// the form, or a wallet verified before the lock stays deletable after unlock.
+   #[test]
+   fn lock_drops_the_verified_delete_form() {
+      let mut ui = verified_form();
+      assert!(ui.open);
+      assert!(ui.verified_credentials);
+      assert!(ui.wallet_to_delete.is_some());
+
+      ui.lock();
+
+      assert!(!ui.open);
+      assert!(!ui.verified_credentials);
+      assert!(ui.wallet_to_delete.is_none());
+      assert!(ui.credentials_form.username().is_empty());
+      assert!(ui.credentials_form.password().is_empty());
+   }
 }

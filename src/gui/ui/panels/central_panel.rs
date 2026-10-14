@@ -14,6 +14,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       // A private key / seed shown before the lock must not resurface after
       // unlock.
       gui.wallet_ui.lock(ui.ctx());
+
+      // The delegate form lives in the account panel; lock it with the rest.
+      gui.account_panel.lock();
+
       gui.lock_screen.show(ctx, &gui.theme, ui);
 
       // Informational modals (the unlock error, "saving vault…") must render on
