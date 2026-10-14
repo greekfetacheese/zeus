@@ -2307,9 +2307,22 @@ mod tests {
    /// a decode has to wait for a slot rather than run alongside the others.
    #[tokio::test]
    async fn art_decodes_wait_for_a_slot() {
-      let held: Vec<_> = (0..MAX_CONCURRENT_ART_DECODES)
-         .map(|_| ART_DECODE_SLOTS.try_acquire().expect("a free slot"))
-         .collect();
+      // Other tests in this binary share the semaphore and may be holding a slot, so wait for all
+      // of them rather than demanding they be free at once.
+      let held = tokio::time::timeout(Duration::from_secs(5), async {
+         let mut held = Vec::with_capacity(MAX_CONCURRENT_ART_DECODES);
+         for _ in 0..MAX_CONCURRENT_ART_DECODES {
+            held.push(
+               ART_DECODE_SLOTS
+                  .acquire()
+                  .await
+                  .expect("the art-decode semaphore is never closed"),
+            );
+         }
+         held
+      })
+      .await
+      .expect("shared with sibling tests: the art-decode slots never all came free");
 
       assert!(
          ART_DECODE_SLOTS.try_acquire().is_err(),
