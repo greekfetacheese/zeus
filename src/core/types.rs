@@ -14,7 +14,7 @@ use crate::core::{
       security_dir,
    },
 };
-use crate::utils::{TimeStamp, write_private, write_private_atomic};
+use crate::utils::{TimeStamp, truncate_address, write_private, write_private_atomic};
 
 use zeus_railgun::indexer::syncer::rpc::{
    DEFAULT_BLOCK_RANGE, DEFAULT_CONCURRENCY, SEPOLIA_BLOCK_RANGE,
@@ -608,16 +608,15 @@ impl Contact {
    }
 
    pub fn zk_address_truncated(&self) -> String {
-      let zk_address = if self.zk_address.is_empty() {
-         None
-      } else {
-         Some(self.zk_address.clone())
-      };
-
-      match &zk_address {
-         Some(address) => format!("{}...{}", &address[..6], &address[121..]),
-         None => ZK_ADDRESS_UNAVAILABLE.to_string(),
+      if self.zk_address.is_empty() {
+         return ZK_ADDRESS_UNAVAILABLE.to_string();
       }
+
+      // The stored value is whatever the sealed `wallet_state.data` (or an imported archive)
+      // carried and is not guaranteed to be a 127-char `0zk` address. `truncate_address` shortens
+      // at the same first-6/last-6 offsets and returns anything too short to split whole — counting
+      // in characters, so a value ending mid-codepoint cannot panic the egui thread either.
+      truncate_address(self.zk_address.clone())
    }
 }
 
@@ -1113,6 +1112,54 @@ impl WalletInfoCache {
 #[cfg(test)]
 mod tests {
    use super::*;
+
+   /// A stored `zk_address` is whatever the sealed `wallet_state.data` — or an imported archive —
+   /// carried, so it is not guaranteed to be a 127-char `0zk` address. No length may panic the
+   /// render path, and a non-empty value always renders to something non-empty.
+   #[test]
+   fn contact_zk_address_truncated_never_panics() {
+      // 120 is the boundary below which the old `[121..]` split panicked; 121 is where the old
+      // `[..6]`/`[121..]` split was still in range but produced an empty tail.
+      for len in [1usize, 5, 6, 120, 121, 122] {
+         let contact = Contact::new(
+            "alice".to_string(),
+            "0x0000000000000000000000000000000000000000".to_string(),
+            "a".repeat(len),
+         );
+
+         assert!(
+            !contact.zk_address_truncated().is_empty(),
+            "length {len} must render something"
+         );
+      }
+
+      // Empty keeps the existing "unavailable" placeholder, which is also non-empty.
+      let empty = Contact::new(
+         "alice".to_string(),
+         "0x0000000000000000000000000000000000000000".to_string(),
+         String::new(),
+      );
+      assert_eq!(
+         empty.zk_address_truncated(),
+         ZK_ADDRESS_UNAVAILABLE
+      );
+   }
+
+   /// The normal case must not change: a 127-char `0zk` address still renders first 6, "...", then
+   /// from index 121 — the string users already see.
+   #[test]
+   fn contact_zk_address_truncated_renders_a_full_address_unchanged() {
+      let address = format!("0zkAAA{}{}", "B".repeat(115), "C".repeat(6));
+      assert_eq!(address.len(), 127);
+
+      let contact = Contact::new(
+         "alice".to_string(),
+         "0x0000000000000000000000000000000000000000".to_string(),
+         address,
+      );
+
+      assert_eq!(contact.zk_address_truncated(), "0zkAAA...CCCCCC");
+   }
 
    #[test]
    fn autolock_idle_seconds() {
