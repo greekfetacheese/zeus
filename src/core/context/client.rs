@@ -576,12 +576,33 @@ pub struct ClientManager {
 #[derive(Debug)]
 struct NodeFork {
    spec: Option<SpecId>,
+   /// When the question was asked, in the monotonic clock the elapsed-time TTL is measured on.
    asked_at: Instant,
+   /// When the answer was read, in Unix seconds — the clock
+   /// [`ChainId::spec_activation_time`] is in, so the two can be compared. `asked_at` cannot: an
+   /// `Instant` has no epoch.
+   asked_at_unix: u64,
 }
 
 /// How long an answer about a node's fork is reused, and how long a missing one is.
 const NODE_FORK_TTL: Duration = Duration::from_secs(600);
 const NODE_FORK_MISS_TTL: Duration = Duration::from_secs(30);
+
+/// Whether a cached `eth_config` answer, read at `minted` (Unix seconds), was made before a fork
+/// activation Zeus knows the time of and is therefore about the fork the chain has since left.
+///
+/// `now` is Unix seconds and `activation` is [`ChainId::spec_activation_time`]. A node's answer
+/// describes the fork it ran when it was asked; once the chain reaches an activation Zeus has a
+/// timestamp for, that answer is about the previous fork and serving it would price the simulation
+/// by rules the chain has replaced. A chain Zeus has no activation time for (every L2, and the L1s
+/// before Zeus ships their next fork) has no such boundary, so nothing here ages its answer — the
+/// elapsed-time TTL is the only thing that does.
+fn answer_predates_activation(minted: u64, now: u64, activation: Option<u64>) -> bool {
+   match activation {
+      Some(activation) => now >= activation && minted < activation,
+      None => false,
+   }
+}
 
 /// The endpoints Zeus ships, per chain: `(chain, rpc urls, mev-protect urls)`.
 ///
@@ -1297,7 +1318,10 @@ impl ClientManager {
    /// place — comes back as `None` and leaves the caller on [`ChainId::spec`].
    ///
    /// Cached per chain: an answer Zeus can use is kept for [`NODE_FORK_TTL`], a missing one for
-   /// [`NODE_FORK_MISS_TTL`].
+   /// [`NODE_FORK_MISS_TTL`] — but neither outlives a fork activation Zeus knows the time of. Once
+   /// the wall clock passes that activation, an answer read before it is dropped and the node is
+   /// asked again, so a tx simulated across the boundary is not priced by the rules the chain just
+   /// replaced (see [`answer_predates_activation`]).
    pub async fn node_spec(&self, chain: u64) -> Option<SpecId> {
       let chain_id = ChainId::new(chain).ok()?;
 
@@ -1314,14 +1338,24 @@ impl ClientManager {
          .read()
          .unwrap()
          .get(&chain)
-         .map(|fork| (fork.spec, fork.asked_at));
-      if let Some((spec, asked_at)) = cached {
+         .map(|fork| (fork.spec, fork.asked_at, fork.asked_at_unix));
+      if let Some((spec, asked_at, asked_at_unix)) = cached {
          let ttl = if spec.is_some() {
             NODE_FORK_TTL
          } else {
             NODE_FORK_MISS_TTL
          };
-         if asked_at.elapsed() < ttl {
+         // A missing answer is still an answer about the pre-fork node, so the activation boundary
+         // applies to it too, ahead of its shorter TTL.
+         let now = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
+         let elapsed_within_ttl = asked_at.elapsed() < ttl;
+         if elapsed_within_ttl
+            && !answer_predates_activation(
+               asked_at_unix,
+               now,
+               chain_id.spec_activation_time(),
+            )
+         {
             return spec;
          }
       }
@@ -1367,6 +1401,7 @@ impl ClientManager {
          NodeFork {
             spec,
             asked_at: Instant::now(),
+            asked_at_unix: TimeStamp::now_as_secs().unwrap_or_default().timestamp(),
          },
       );
 
@@ -1977,6 +2012,7 @@ mod tests {
             NodeFork {
                spec: Some(SpecId::OSAKA),
                asked_at: Instant::now(),
+               asked_at_unix: TimeStamp::now_as_secs().unwrap_or_default().timestamp(),
             },
          );
       };
@@ -1993,6 +2029,71 @@ mod tests {
       reported(&client);
       client.remove_rpc(1, Arc::from("http://127.0.0.1:1"));
       assert!(!cached(&client));
+   }
+
+   /// The activation boundary is a known timestamp, not a guess: an answer read before a fork Zeus
+   /// knows the time of is superseded once the wall clock passes that fork, while an answer read at
+   /// or after it is about the fork now running. A chain with no activation time has no boundary, so
+   /// only the elapsed-time TTL ages its answer there.
+   #[test]
+   fn a_fork_activation_expires_an_answer_read_before_it() {
+      let sepolia = ChainId::EthereumSepolia.spec_activation_time().unwrap();
+
+      // Read a minute before the fork, seen a minute after: the answer is about the old fork.
+      assert!(answer_predates_activation(
+         sepolia - 60,
+         sepolia + 60,
+         Some(sepolia)
+      ));
+
+      // The activation is the boundary, not the moment after it: at `now == activation` an entry
+      // minted before it is already superseded.
+      assert!(answer_predates_activation(
+         sepolia - 1,
+         sepolia,
+         Some(sepolia)
+      ));
+
+      // Read after the activation: about the fork the chain is on, kept.
+      assert!(!answer_predates_activation(
+         sepolia + 1,
+         sepolia + 60,
+         Some(sepolia)
+      ));
+      // Read at the activation: the node was already answering about the new fork.
+      assert!(!answer_predates_activation(
+         sepolia,
+         sepolia + 60,
+         Some(sepolia)
+      ));
+
+      // No known activation (every L2): the boundary never fires, however old the entry is, and
+      // the elapsed TTL is left to decide.
+      assert!(!answer_predates_activation(0, u64::MAX, None));
+   }
+
+   /// A cached answer that postdates the chain's activation is served without a request, and the
+   /// boundary test is what a pre-activation entry must fail. Ethereum's Osaka activation is in the
+   /// past, so an entry minted now postdates it.
+   #[tokio::test]
+   async fn a_cached_node_spec_is_served_while_it_postdates_the_activation() {
+      let client = client_with([]);
+      let now = TimeStamp::now_as_secs().unwrap().timestamp();
+      let activation = ChainId::Ethereum.spec_activation_time().unwrap();
+      assert!(now >= activation);
+
+      client.node_forks.write().unwrap().insert(
+         1,
+         NodeFork {
+            spec: Some(SpecId::OSAKA),
+            asked_at: Instant::now(),
+            asked_at_unix: now,
+         },
+      );
+
+      // No endpoint is configured, so a cache miss could only report `None`; `Some(OSAKA)` must
+      // have come from the cache, on the fresh side of the activation.
+      assert_eq!(client.node_spec(1).await, Some(SpecId::OSAKA));
    }
 
    /// A profile written before a chain existed names only the chains that did. The shipped endpoints
