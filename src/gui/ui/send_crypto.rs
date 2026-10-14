@@ -1019,12 +1019,16 @@ impl SendCryptoUi {
    }
 
    fn cost(&self, ctx: &mut ZeusContext, privacy_mode: bool) -> NumericValue {
+      // The reserve sizes **Max**, so it has to be priced by the fork the confirm simulation will
+      // run on — which the chain's own node decides. `None` (no cached node answer) leaves the
+      // chain's shipped spec, exactly as the simulation does.
+      let spec = ctx.client_manager.cached_node_spec(ctx.chain.id());
       let gas_used = if privacy_mode {
-         ctx.chain.privacy_transfer_gas()
+         ctx.chain.privacy_transfer_gas(spec)
       } else if self.currency.is_native() {
-         ctx.chain.transfer_gas()
+         ctx.chain.transfer_gas(spec)
       } else {
-         ctx.chain.erc20_transfer_gas()
+         ctx.chain.erc20_transfer_gas(spec)
       };
 
       let fee = ctx.priority_fee.get(ctx.chain.id()).cloned().unwrap_or_default();
