@@ -372,13 +372,44 @@ pub fn is_allowed_clear_signing_file(name: &str) -> bool {
 }
 
 pub fn is_allowed_railgun_file(name: &str) -> bool {
-   if let Some(rest) = name.strip_prefix("railgun:") {
-      return rest.strip_suffix(".db").is_some_and(is_chain_id);
+   if is_railgun_db_file(name) {
+      return true;
    }
    if let Some(rest) = name.strip_prefix("events-snapshot:") {
       return rest.strip_suffix(".db").is_some_and(is_chain_id);
    }
    false
+}
+
+/// Whether `name` is a per-chain Railgun database (`railgun:{chain}.db`).
+///
+/// These are sealed with the vault-held Railgun DB key, but they are **not** [`PersistedFile`]s —
+/// the chain id in the name is not known at compile time. A caller that has to reason about what is
+/// *on disk* (an import deciding what a replaced vault key strands) matches them by this predicate
+/// and [`railgun_db_files`], rather than iterating chain ids or trusting `PersistedFile::ALL`.
+pub fn is_railgun_db_file(name: &str) -> bool {
+   name
+      .strip_prefix("railgun:")
+      .and_then(|rest| rest.strip_suffix(".db"))
+      .is_some_and(is_chain_id)
+}
+
+/// Names of the per-chain Railgun databases present under `<data_dir>/railgun`.
+///
+/// Read from the directory, so the result reflects what actually exists rather than a guessed set of
+/// chains. `events-snapshot:{chain}.db` is deliberately excluded: it is a public replay cache, not
+/// sealed with a vault key, so replacing the vault leaves it readable.
+pub fn railgun_db_files(data_dir: &Path) -> Vec<String> {
+   let dir = data_dir.join(PersistedTree::Railgun.dir_name());
+   let Ok(read) = std::fs::read_dir(&dir) else {
+      return Vec::new();
+   };
+   read
+      .flatten()
+      .filter(|entry| entry.file_type().map(|t| t.is_file()).unwrap_or(false))
+      .filter_map(|entry| entry.file_name().into_string().ok())
+      .filter(|name| is_railgun_db_file(name))
+      .collect()
 }
 
 pub fn is_allowed_token_icon_rel(rel: &Path) -> bool {
@@ -672,5 +703,31 @@ mod tests {
          assert_eq!(PersistedFile::from_name(file.name()), Some(*file));
       }
       assert!(PersistedFile::from_name("secret.txt").is_none());
+   }
+
+   /// The on-disk Railgun DB sweep must see the per-chain databases and nothing else: the events
+   /// snapshot is a public replay cache, not sealed with a vault key, so it must not be swept.
+   #[test]
+   fn railgun_db_files_lists_only_the_sealed_per_chain_databases() {
+      assert!(is_railgun_db_file("railgun:1.db"));
+      assert!(is_railgun_db_file("railgun:8453.db"));
+      assert!(!is_railgun_db_file("events-snapshot:1.db"));
+      assert!(!is_railgun_db_file("railgun:1.db.bak"));
+      assert!(!is_railgun_db_file("railgun:.db"));
+      assert!(!is_railgun_db_file("notes.txt"));
+
+      let dir = tempfile::tempdir().unwrap();
+      let railgun = dir.path().join("railgun");
+      std::fs::create_dir(&railgun).unwrap();
+      std::fs::write(railgun.join("railgun:1.db"), b"a").unwrap();
+      std::fs::write(railgun.join("railgun:137.db"), b"b").unwrap();
+      std::fs::write(railgun.join("events-snapshot:1.db"), b"public").unwrap();
+      std::fs::write(railgun.join("notes.txt"), b"junk").unwrap();
+
+      let mut names = railgun_db_files(dir.path());
+      names.sort_unstable();
+      assert_eq!(names, ["railgun:1.db", "railgun:137.db"]);
+
+      assert!(railgun_db_files(&dir.path().join("missing")).is_empty());
    }
 }

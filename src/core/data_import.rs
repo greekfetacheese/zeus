@@ -5,10 +5,12 @@
 //!    on export (no zip-slip, no unknown files).
 //! 2. `data/vault.data` must unlock with the credentials the user entered.
 //! 3. `data/wallet_state.data` must decrypt with the vault-held key.
-//! 4. Only then are files written over the destination `data/` directory.
+//! 4. Only then is the archive staged off to the side and, once every entry has
+//!    landed, swapped into the destination `data/` directory — nothing live is
+//!    deleted or overwritten before that.
 
 use super::data_export::{archive_rel_parts, is_allowed_archive_parts};
-use super::persisted::PersistedFile;
+use super::persisted::{PersistedFile, PersistedTree, railgun_db_files};
 use super::wallet_state_key::WalletStateKey;
 use super::{Vault, WalletState};
 use crate::utils::{restrict_dir_to_owner, write_private_from_reader};
@@ -19,26 +21,30 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
+/// Prefix of the staging directory an import writes into before it installs anything.
+const STAGING_DIR_PREFIX: &str = ".import-staging-";
+
 /// Files written plus the already-unlocked imported vault.
 pub struct ImportedData {
    pub files_written: usize,
    pub vault: Vault,
    /// Sealed stores removed from the destination because the archive did not carry them.
    ///
-   /// Empty unless the archive brought a different vault key — see
-   /// [`remove_stores_the_archive_omits`]. Reported to the user: those stores' contents are gone
-   /// with the key that sealed them.
-   pub removed: Vec<&'static str>,
+   /// Each name is the store's `data/`-relative path (a root file, or `railgun/{chain}.db`). Empty
+   /// unless the archive brought a different vault key — see [`remove_stores_the_archive_omits`].
+   /// Reported to the user: those stores' contents are gone with the key that sealed them.
+   pub removed: Vec<String>,
 }
 
-/// Verify the archive, then replace matching files under `dest_data_dir`.
+/// Verify the archive, stage it, then swap it over matching files under `dest_data_dir`.
 ///
-/// Returns the unlocked vault. Does not write anything if vault unlock
-/// or wallet-state decrypt fails.
+/// Returns the unlocked vault. Nothing in `dest_data_dir` is deleted or overwritten until every
+/// archive entry has been written successfully into a staging directory beside it, so a failure
+/// mid-copy leaves the profile exactly as it was.
 ///
 /// `previous_key` is the key held by the vault this import replaces, when it could be read. It is
 /// only used to decide whether the destination's sealed stores survive — see
-/// [`remove_stores_the_archive_omits`].
+/// [`remove_stores_the_archive_omits`], which runs *after* the swap.
 pub fn import_data_from_zip(
    zip_path: &Path,
    dest_data_dir: &Path,
@@ -61,30 +67,70 @@ pub fn import_data_from_zip(
       tracing::warn!("Failed to restrict imported data dir: {e}");
    }
 
-   // Before anything is written: a sealed store this archive does not carry cannot survive the
-   // vault it is about to be sealed against.
-   let removed = remove_stores_the_archive_omits(
-      dest_data_dir,
-      &entries,
-      &imported_key,
-      previous_key,
-   );
-
    let mut ordered = entries;
    ordered.sort_by_key(|(_, parts)| write_priority(parts));
 
+   // Stage every entry first. The `TempDir` is removed when it drops, so a read/write failure in
+   // this loop — a corrupt entry, a full disk — cleans up after itself and never touches the live
+   // profile.
+   let staging = tempfile::Builder::new()
+      .prefix(STAGING_DIR_PREFIX)
+      .tempdir_in(dest_data_dir)
+      .map_err(|e| anyhow!("Failed to create import staging dir: {e}"))?;
+   if let Err(e) = restrict_dir_to_owner(staging.path()) {
+      tracing::warn!("Failed to restrict import staging dir: {e}");
+   }
+
    for (index, parts) in &ordered {
       let mut zip_file = archive.by_index(*index)?;
+      let staged = join_parts(staging.path(), parts);
+      write_private_from_reader(&staged, &mut zip_file)?;
+      restrict_parents(staging.path(), parts);
+   }
+
+   // Every entry landed. Swap them into place. The order is `write_priority` ascending, so the
+   // vault is moved last: until that final rename the vault on disk is still the old one.
+   for (_, parts) in &ordered {
+      let staged = join_parts(staging.path(), parts);
       let dest = join_parts(dest_data_dir, parts);
-      write_private_from_reader(&dest, &mut zip_file)?;
+      if let Some(parent) = dest.parent() {
+         if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+         }
+      }
+      move_into_place(&staged, &dest)?;
       restrict_parents(dest_data_dir, parts);
    }
+
+   // Only now, with the archive fully in place, remove the sealed stores it does not carry: a store
+   // removed before the swap would be unrecoverable if the import then failed.
+   let removed = remove_stores_the_archive_omits(
+      dest_data_dir,
+      &ordered,
+      &imported_key,
+      previous_key,
+   );
 
    Ok(ImportedData {
       files_written: ordered.len(),
       vault,
       removed,
    })
+}
+
+/// Move a staged file over its destination.
+///
+/// Unix `rename` replaces an existing file atomically, so the swap is a no-op copy. Windows refuses
+/// to rename over an existing path; there we fall back to the owner-only `tmp` + rename write the
+/// rest of `data/` uses. Either way the destination is never removed before a replacement exists.
+fn move_into_place(staged: &Path, dest: &Path) -> Result<(), anyhow::Error> {
+   match std::fs::rename(staged, dest) {
+      Ok(()) => Ok(()),
+      Err(_) => {
+         let file = File::open(staged)?;
+         write_private_from_reader(dest, file)
+      }
+   }
 }
 
 /// Remove the destination's sealed stores that this archive does not carry.
@@ -100,13 +146,18 @@ pub fn import_data_from_zip(
 /// install it was taken from — a selective export, or a restore — keeps them. That is also why an
 /// unknown previous key removes nothing: it is not evidence that a store is unreadable.
 ///
-/// Returns the names removed, so the caller can tell the user what went with the old vault.
+/// The per-chain Railgun databases (`data/railgun/railgun:{chain}.db`) are sealed with a vault-held
+/// key too, but they are not [`PersistedFile`]s, so the catalog walk above never sees them. They are
+/// enumerated from disk and put through the same decision.
+///
+/// Returns the `data/`-relative paths removed, so the caller can tell the user what went with the
+/// old vault.
 fn remove_stores_the_archive_omits(
    dest_data_dir: &Path,
    entries: &[(usize, Vec<String>)],
    imported_key: &WalletStateKey,
    previous_key: Option<&WalletStateKey>,
-) -> Vec<&'static str> {
+) -> Vec<String> {
    let Some(previous_key) = previous_key else {
       return Vec::new();
    };
@@ -134,7 +185,31 @@ fn remove_stores_the_archive_omits(
                "Removed {}: sealed with the replaced vault's key and not in the archive",
                file.name()
             );
-            removed.push(file.name());
+            removed.push(file.name().to_string());
+         }
+         Err(e) => tracing::error!("Failed to remove {}: {e}", path.display()),
+      }
+   }
+
+   // `railgun:{chain}.db` is sealed with a vault-held key, but is not a `PersistedFile`: enumerate
+   // what is actually on disk and match it against the archive's `["railgun", name]` entries.
+   let railgun_dir = PersistedTree::Railgun.dir_name();
+   for name in railgun_db_files(dest_data_dir) {
+      let carried = entries
+         .iter()
+         .any(|(_, parts)| parts.as_slice() == [railgun_dir, name.as_str()]);
+
+      if carried {
+         continue;
+      }
+
+      let path = dest_data_dir.join(railgun_dir).join(&name);
+      match std::fs::remove_file(&path) {
+         Ok(()) => {
+            tracing::warn!(
+               "Removed {railgun_dir}/{name}: sealed with the replaced vault's key and not in the archive"
+            );
+            removed.push(format!("{railgun_dir}/{name}"));
          }
          Err(e) => tracing::error!("Failed to remove {}: {e}", path.display()),
       }
@@ -331,6 +406,10 @@ mod tests {
       zip.finish().unwrap();
    }
 
+   fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+      haystack.windows(needle.len()).position(|w| w == needle)
+   }
+
    #[test]
    fn import_rejects_unknown_files() {
       let dir = tempfile::tempdir().unwrap();
@@ -525,7 +604,10 @@ mod tests {
 
       let mut removed = imported.removed.clone();
       removed.sort_unstable();
-      assert_eq!(removed, vec!["security.data", "tx_history.db"]);
+      assert_eq!(
+         removed,
+         vec!["security.data".to_string(), "tx_history.db".to_string()]
+      );
       assert!(!dest.join("tx_history.db").exists());
       assert!(!dest.join("security.data").exists());
       assert_eq!(
@@ -566,6 +648,193 @@ mod tests {
          fs::read(dest.join("pool_data.data")).unwrap(),
          b"still readable",
          "the same key still opens it"
+      );
+   }
+
+   /// A Railgun DB the archive omits is sealed with the replaced vault's key exactly like a sealed
+   /// root store, so it must be removed and named. One the archive carries is replaced, not removed,
+   /// and the public events snapshot is not key-bound at all.
+   #[test]
+   fn a_railgun_db_the_archive_omits_is_removed_when_the_key_changes() {
+      let credentials = creds("user", "pass");
+      let (vault_bytes, state_bytes, _archive_key) = sample_encrypted_vault(credentials.clone());
+      let (_old_vault, _old_state, old_key) = sample_encrypted_vault(creds("other", "other"));
+
+      let dir = tempfile::tempdir().unwrap();
+      let zip_path = dir.path().join("zeus-data.zip");
+      write_zip(
+         &zip_path,
+         &[
+            ("data/vault.data", &vault_bytes),
+            ("data/wallet_state.data", &state_bytes),
+            ("data/railgun/railgun:1.db", b"archive db"),
+         ],
+      );
+
+      let dest = dir.path().join("out");
+      fs::create_dir(&dest).unwrap();
+      fs::create_dir(dest.join("railgun")).unwrap();
+      fs::write(
+         dest.join("railgun").join("railgun:1.db"),
+         b"sealed under the old key",
+      )
+      .unwrap();
+      fs::write(
+         dest.join("railgun").join("railgun:137.db"),
+         b"sealed under the old key",
+      )
+      .unwrap();
+      fs::write(
+         dest.join("railgun").join("events-snapshot:1.db"),
+         b"public cache",
+      )
+      .unwrap();
+
+      let mut imported =
+         import_data_from_zip(&zip_path, &dest, credentials, Some(&old_key)).unwrap();
+
+      imported.vault.erase();
+
+      assert_eq!(
+         imported.removed,
+         vec!["railgun/railgun:137.db".to_string()],
+         "only the omitted per-chain DB is reported"
+      );
+      assert!(
+         !dest.join("railgun").join("railgun:137.db").exists(),
+         "a Railgun DB the archive omits cannot survive the new key"
+      );
+      assert_eq!(
+         fs::read(dest.join("railgun").join("railgun:1.db")).unwrap(),
+         b"archive db",
+         "a Railgun DB the archive carries is replaced, not removed"
+      );
+      assert!(
+         dest.join("railgun").join("events-snapshot:1.db").exists(),
+         "the events snapshot is a public cache, not sealed with a vault key"
+      );
+   }
+
+   /// The same key still opens the on-disk Railgun databases, so a selective export or a restore
+   /// keeps them.
+   #[test]
+   fn a_railgun_db_the_archive_omits_is_kept_when_the_key_is_the_same() {
+      let credentials = creds("user", "pass");
+      let (vault_bytes, state_bytes, archive_key) = sample_encrypted_vault(credentials.clone());
+
+      let dir = tempfile::tempdir().unwrap();
+      let zip_path = dir.path().join("zeus-data.zip");
+      write_zip(
+         &zip_path,
+         &[
+            ("data/vault.data", &vault_bytes),
+            ("data/wallet_state.data", &state_bytes),
+         ],
+      );
+
+      let dest = dir.path().join("out");
+      fs::create_dir(&dest).unwrap();
+      fs::create_dir(dest.join("railgun")).unwrap();
+      fs::write(
+         dest.join("railgun").join("railgun:1.db"),
+         b"still readable",
+      )
+      .unwrap();
+
+      let mut imported =
+         import_data_from_zip(&zip_path, &dest, credentials, Some(&archive_key)).unwrap();
+
+      imported.vault.erase();
+
+      assert!(imported.removed.is_empty());
+      assert_eq!(
+         fs::read(dest.join("railgun").join("railgun:1.db")).unwrap(),
+         b"still readable",
+         "the same key still opens it"
+      );
+   }
+
+   /// A failure part-way through the copy must not touch the live profile. The archive is staged
+   /// off to the side, so the corrupt entry fails before any destination file is replaced — under
+   /// the old delete-then-write order the first entry would already be in place.
+   #[test]
+   fn a_failed_write_leaves_the_live_directory_untouched() {
+      let credentials = creds("user", "pass");
+      let (vault_bytes, state_bytes, _key) = sample_encrypted_vault(credentials.clone());
+
+      let dir = tempfile::tempdir().unwrap();
+      let zip_path = dir.path().join("zeus-data.zip");
+
+      let corrupt = b"CORRUPT-ME-CORRUPT-ME-CORRUPT-ME";
+      let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+      let file = File::create(&zip_path).unwrap();
+      let mut zip = ZipWriter::new(file);
+      // Written first so the old order would land it in the live profile before the corrupt entry.
+      zip.start_file("data/providers.data", options).unwrap();
+      zip.write_all(b"new providers payload").unwrap();
+      zip.start_file("data/theme.json", options).unwrap();
+      zip.write_all(corrupt).unwrap();
+      zip.start_file("data/wallet_state.data", options).unwrap();
+      zip.write_all(&state_bytes).unwrap();
+      zip.start_file("data/vault.data", options).unwrap();
+      zip.write_all(&vault_bytes).unwrap();
+      zip.finish().unwrap();
+
+      // Break the stored payload's checksum without touching the entry the vault check reads.
+      let mut raw = fs::read(&zip_path).unwrap();
+      let pos = find_subslice(&raw, corrupt).expect("the stored payload must be findable");
+      raw[pos] ^= 0xff;
+      fs::write(&zip_path, &raw).unwrap();
+
+      let dest = dir.path().join("out");
+      fs::create_dir(&dest).unwrap();
+      fs::write(
+         dest.join("providers.data"),
+         b"pre-existing providers",
+      )
+      .unwrap();
+      fs::write(dest.join("theme.json"), b"pre-existing theme").unwrap();
+      fs::write(
+         dest.join("wallet_state.data"),
+         b"pre-existing state",
+      )
+      .unwrap();
+      fs::write(dest.join("vault.data"), b"pre-existing vault").unwrap();
+
+      let err = match import_data_from_zip(&zip_path, &dest, credentials, None) {
+         Err(e) => e,
+         Ok(_) => panic!("expected the corrupt entry to fail the import"),
+      };
+      assert!(
+         err.to_string().contains("checksum"),
+         "expected a checksum failure, got: {err}"
+      );
+
+      assert_eq!(
+         fs::read(dest.join("providers.data")).unwrap(),
+         b"pre-existing providers"
+      );
+      assert_eq!(
+         fs::read(dest.join("theme.json")).unwrap(),
+         b"pre-existing theme"
+      );
+      assert_eq!(
+         fs::read(dest.join("wallet_state.data")).unwrap(),
+         b"pre-existing state"
+      );
+      assert_eq!(
+         fs::read(dest.join("vault.data")).unwrap(),
+         b"pre-existing vault"
+      );
+
+      let staging: Vec<String> = fs::read_dir(&dest)
+         .unwrap()
+         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+         .filter(|name| name.starts_with(STAGING_DIR_PREFIX))
+         .collect();
+      assert!(
+         staging.is_empty(),
+         "staging left behind: {staging:?}"
       );
    }
 }
