@@ -6,7 +6,9 @@ use crate::core::{
    SendTxOptions, SendTxRequest, TransactionRich, WalletCall, ZeusCtx, send_transaction,
    send_wallet_calls, sign_message,
 };
+use crate::gui::ui::common::windows::authorising_prompt_busy;
 use crate::gui::ui::common::{ConfirmWindowClaim, switch_chain};
+use crate::gui::ui::dapps::connect::ConnectClaim;
 use crate::gui::{DappAccountChoice, DappConnectResult, SHARED_GUI};
 use crate::utils::RT;
 use anyhow::anyhow;
@@ -775,13 +777,17 @@ async fn connect(
    let seen = ctx.dapp_seen_accounts(&origin);
    let wallets = ctx.get_all_wallets_info();
 
-   // One prompt at a time: a second request would overwrite the first one's
-   // origin and chosen account, so refuse it while a decision is pending.
+   // One prompt at a time, whatever raised it. `authorising_prompt_busy` answers for every
+   // prompt, not only this window: a second request would overwrite the first one's origin and
+   // chosen account, and — for the shared confirm/sign windows — share one click across two flows.
    let busy = SHARED_GUI.write(|gui| {
-      if gui.connect_dapp_window.is_busy() {
+      if authorising_prompt_busy(gui) {
          return true;
       }
       gui.connect_dapp_window.open(origin.clone(), remembered, seen, wallets);
+      // Claimed under this same lock, so a second request cannot slip in before the prompt is
+      // drawn. Released on drop by the `ConnectClaim` below, however this handler ends.
+      gui.connect_dapp_window.claim();
       gui.bring_to_front();
       false
    });
@@ -797,16 +803,18 @@ async fn connect(
       ));
    }
 
-   let mut decision = None;
-   loop {
-      tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-      SHARED_GUI.read(|gui| decision = gui.connect_dapp_window.get_result());
-      if decision.is_some() {
-         break;
-      }
-   }
+   // Held until this flow is done with the prompt, however it ends: a dapp that disconnects
+   // mid-prompt drops this guard, so an abandoned handler cannot leave the window busy forever.
+   let _claim = ConnectClaim;
 
-   SHARED_GUI.write(|gui| gui.connect_dapp_window.reset());
+   let decision = loop {
+      tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+      // Collect the answer and consume it: one Connect click can only ever be acted on once.
+      let decision = SHARED_GUI.write(|gui| gui.connect_dapp_window.take_result());
+      if decision.is_some() {
+         break decision;
+      }
+   };
 
    let choice = match decision {
       Some(DappConnectResult::Approved(choice)) => choice,
@@ -1402,10 +1410,12 @@ async fn eth_sign_typed_data_v4(
    }
 
    // One signing prompt at a time. Replacing a pending prompt would leave its flow
-   // waiting on an answer the user gives to this request instead.
-   if SHARED_GUI.read(|gui| gui.sign_msg_window.is_busy()) {
+   // waiting on an answer the user gives to this request instead. This answers for every
+   // authorising prompt, not just the sign window: a connect prompt or a transaction
+   // confirmation is just as much a request the user is reading.
+   if SHARED_GUI.read(authorising_prompt_busy) {
       info!(
-         "Dapp {} requested a signature while another signing prompt is pending",
+         "Dapp {} requested a signature while another prompt is pending",
          origin
       );
       return Ok(JsonRpcResponse::error(
@@ -1505,10 +1515,11 @@ async fn personal_sign(
       }
    };
 
-   // One signing prompt at a time, as for the typed-data request.
-   if SHARED_GUI.read(|gui| gui.sign_msg_window.is_busy()) {
+   // One signing prompt at a time, as for the typed-data request — and, like it, answered
+   // against every authorising prompt, not only the sign window.
+   if SHARED_GUI.read(authorising_prompt_busy) {
       info!(
-         "Dapp {} requested a signature while another signing prompt is pending",
+         "Dapp {} requested a signature while another prompt is pending",
          origin
       );
       return Ok(JsonRpcResponse::error(
@@ -1618,10 +1629,15 @@ async fn apply_chain_switch(
       return Ok(JsonRpcResponse::ok(Some(Value::Null), payload_id));
    }
 
-   // One prompt at a time. Replacing a pending prompt would leave its flow waiting on
-   // an answer the user gives to this request instead, and the two would share the one
-   // click — `ConfirmWindow` is also what the add-token prompt and the MEV fallback use.
+   // One prompt at a time, whatever raised it. Replacing a pending prompt would leave its flow
+   // waiting on an answer the user gives to this request instead, and the two would share the one
+   // click — `ConfirmWindow` is also what the add-token prompt and the MEV fallback use, and the
+   // sign-message and connect prompts are the other authorising windows.
    let claimed = SHARED_GUI.write(|gui| {
+      if authorising_prompt_busy(gui) {
+         return false;
+      }
+
       if !gui.confirm_window.open_from_dapp("Switch Network") {
          return false;
       }
@@ -1694,11 +1710,12 @@ async fn eth_send_transaction(
       return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id));
    }
 
-   // One confirmation at a time. Replacing a pending prompt would leave its flow
-   // waiting on an answer the user gives to this transaction instead.
-   if SHARED_GUI.read(|gui| gui.tx_confirmation_window.is_busy()) {
+   // One confirmation at a time, whatever raised it. Replacing a pending prompt would leave its
+   // flow waiting on an answer the user gives to this transaction instead. `authorising_prompt_busy`
+   // answers for a pending sign or connect prompt too, so this is refused rather than stacking.
+   if SHARED_GUI.read(authorising_prompt_busy) {
       info!(
-         "Dapp {} sent a transaction while another confirmation is pending",
+         "Dapp {} sent a transaction while another prompt is pending",
          origin
       );
       return Ok(JsonRpcResponse::error(
@@ -1984,11 +2001,12 @@ async fn wallet_send_calls(
       ));
    }
 
-   // One confirmation at a time. Replacing a pending prompt would leave its flow
-   // waiting on an answer the user gives to this batch instead.
-   if SHARED_GUI.read(|gui| gui.tx_confirmation_window.is_busy()) {
+   // One confirmation at a time, whatever raised it. Replacing a pending prompt would leave its
+   // flow waiting on an answer the user gives to this batch instead. `authorising_prompt_busy`
+   // answers for a pending sign or connect prompt too, so this is refused rather than stacking.
+   if SHARED_GUI.read(authorising_prompt_busy) {
       info!(
-         "Dapp {} sent a transaction batch while another confirmation is pending",
+         "Dapp {} sent a transaction batch while another prompt is pending",
          origin
       );
       return Ok(JsonRpcResponse::error(
@@ -2163,8 +2181,13 @@ async fn wallet_watch_asset(
    // line — see `watch_asset_label`.
    let label = watch_asset_label(address, rpc_opt_string(options, "symbol"));
 
-   // One prompt at a time, as for the network switch.
+   // One prompt at a time, as for the network switch — and, like it, answered against every
+   // authorising prompt, not only this window.
    let claimed = SHARED_GUI.write(|gui| {
+      if authorising_prompt_busy(gui) {
+         return false;
+      }
+
       if !gui.confirm_window.open_from_dapp("Add Token") {
          return false;
       }

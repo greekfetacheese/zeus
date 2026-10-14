@@ -11,6 +11,7 @@ use super::finalize::{MainEvent, MinedTx, RecordPolicy, build_tx_outcome, record
 use crate::core::clear_signing::ClearDisplay;
 use crate::core::tx::{diffs_from_receipt, simulate_and_diff};
 use crate::gui::ui::common::ConfirmWindowClaim;
+use crate::gui::ui::common::windows::authorising_prompt_busy;
 use crate::gui::{SHARED_GUI, ui::NotificationType};
 use zeus_eth::{
    alloy_contract::private::Provider,
@@ -252,13 +253,13 @@ pub async fn confirm_tx(
 
    let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
 
-   // One confirmation at a time. Two sends racing here would share this window —
-   // the second prompt replacing what the first displayed — and both would then
-   // act on the one answer, broadcasting a transaction the user never reviewed.
+   // One confirmation at a time, whatever raised it. Two sends racing here would share this
+   // window — the second prompt replacing what the first displayed — and both would then act on
+   // the one answer, broadcasting a transaction the user never reviewed. A pending sign or
+   // connect prompt counts too: this must not be drawn over what the user is reading.
    // The claim and the open happen under one lock, so the race has no gap.
    let busy = SHARED_GUI.write(|gui| {
-      // Also guard against an already open sign msg window
-      if gui.tx_confirmation_window.is_busy() || gui.sign_msg_window.is_busy() {
+      if authorising_prompt_busy(gui) {
          return true;
       }
 
@@ -480,7 +481,18 @@ pub async fn send_transaction(
             // One prompt at a time, as everywhere this window is used: a second flow
             // replacing the prompt would leave the first waiting on an answer it never
             // asked for, and both would act on the one click.
+            //
+            // This is the send flow's *second* prompt, and it is sequential by construction, not
+            // stacked: `confirm_tx` above has already returned, which dropped its `ConfirmClaim`
+            // and released the transaction confirmation, and that prompt's collector closed its
+            // window before the MEV lookup ran. So the predicate is false here for this flow too —
+            // no exemption is needed, and a future edit that raised this prompt while the
+            // confirmation were still unanswered would be refused rather than drawn over it.
             let claimed = SHARED_GUI.write(|gui| {
+               if authorising_prompt_busy(gui) {
+                  return false;
+               }
+
                let opened = if source_is_zeus {
                   gui.confirm_window.open("No available MEV protect RPC found")
                } else {
