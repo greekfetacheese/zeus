@@ -359,6 +359,61 @@ impl TokenSelectionWindow {
 
    pub fn process_currencies(&mut self, privacy_mode: bool, chain_id: u64, owner: Address) {
       self.begin_asset_reload();
+      self.spawn_currency_fetch(privacy_mode, chain_id, owner);
+   }
+
+   /// Apply the end of a "Sync balances" run to this picker, returning whether its list reloaded.
+   ///
+   /// `sync_context` is the `(chain, wallet)` the sync was started for; `current_context` is read
+   /// when it finishes, seconds later, so a chain or wallet switch (or a close) in between is
+   /// visible here. The picker must never be reloaded for the context the sync ran for: its rows
+   /// belong to a chain and wallet the picker may have left, and `switch_chain` / the wallet switch
+   /// already reloaded it for the new one.
+   ///
+   /// `mode` is the mode the sync ran for — what the button was pressed in — and drives which list
+   /// is refreshed. The fungible reload is only *started* here ([`Self::begin_asset_reload`]): its
+   /// fetch is spawned by the caller, so this stays runnable from a unit test.
+   fn apply_sync_writeback(
+      &mut self,
+      mode: PickerMode,
+      privacy_mode: bool,
+      sync_context: (u64, Address),
+      current_context: (u64, Address),
+   ) -> bool {
+      // A picker the user closed while the sync ran stays closed.
+      if !self.open {
+         return false;
+      }
+
+      // Privacy mode lists shielded assets, which nothing on-chain syncs; the button is hidden
+      // there, and this stays a no-op if the mode was switched on mid-sync.
+      if privacy_mode {
+         return false;
+      }
+
+      match mode {
+         // Re-read the balances under the picker's current context. A switch away from the context
+         // the sync ran for already reloaded the list, so do nothing rather than fetch the old
+         // context's rows over the new ones.
+         PickerMode::Fungible if sync_context == current_context => {
+            self.begin_asset_reload();
+            true
+         }
+         PickerMode::Fungible => false,
+         // The NFT list is rebuilt from context-free sources: dropping the rows makes the loader
+         // re-read the current chain and wallet on the next frame, exactly as before.
+         PickerMode::Nft => {
+            self.clear_processed_nfts();
+            true
+         }
+      }
+   }
+
+   /// Spawn the balance fetch for the list [`Self::begin_asset_reload`] just invalidated.
+   ///
+   /// Split out of [`Self::process_currencies`] so the sync writeback can drive the invalidation —
+   /// the part a test has to hold — without the fetch, which touches `RT` and `SHARED_GUI`.
+   fn spawn_currency_fetch(&self, privacy_mode: bool, chain_id: u64, owner: Address) {
       let generation = self.currencies_generation;
 
       RT.spawn_blocking(move || {
@@ -571,25 +626,35 @@ impl TokenSelectionWindow {
                            }
                         }
 
-                        let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
+                        // Read the picker's context now, not the one captured when Sync was
+                        // clicked: the sync ran for seconds, and the user may have switched chain
+                        // or wallet, or closed the picker, in the meantime.
+                        let (privacy_mode, current_chain, current_owner) = ctx.read(|ctx| {
+                           (
+                              ctx.privacy_mode,
+                              ctx.chain.id(),
+                              ctx.current_wallet_info().address,
+                           )
+                        });
 
                         SHARED_GUI.write(|gui| {
                            gui.token_selection.syncing_balances = false;
 
-                           if privacy_mode {
-                              return;
-                           }
+                           let reloaded = gui.token_selection.apply_sync_writeback(
+                              mode,
+                              privacy_mode,
+                              (chain.id(), owner),
+                              (current_chain, current_owner),
+                           );
 
-                           match mode {
-                              // Reopening re-reads the balances, which is what refreshes this list.
-                              PickerMode::Fungible => {
-                                 gui.token_selection.open(privacy_mode, chain.id(), owner);
-                              }
-                              // The whole NFT list is rebuilt, ownership included: the loader runs
-                              // again on the next frame because the rows are gone.
-                              PickerMode::Nft => {
-                                 gui.token_selection.clear_processed_nfts();
-                              }
+                           // The fungible fetch is spawned here, for the context the picker is on
+                           // now; the NFT branch rebuilds itself from the next frame's loader.
+                           if reloaded && mode == PickerMode::Fungible {
+                              gui.token_selection.spawn_currency_fetch(
+                                 privacy_mode,
+                                 current_chain,
+                                 current_owner,
+                              );
                            }
 
                            gui.request_repaint();
@@ -2118,6 +2183,162 @@ mod tests {
       assert!(
          picker.loading,
          "the fungible reload is marked in progress"
+      );
+   }
+
+   /// The sync runs for seconds, and the balances it re-read are keyed on the context it started
+   /// for. A writeback for the picker's own (unchanged) context refreshes the list that context
+   /// owns.
+   #[test]
+   fn a_writeback_on_the_same_context_reloads_the_list() {
+      let mut picker = TokenSelectionWindow::new();
+      picker.open = true;
+      let context = (1u64, Address::from([0xaa; 20]));
+      let generation = picker.currencies_generation;
+
+      let reloaded = picker.apply_sync_writeback(PickerMode::Fungible, false, context, context);
+
+      assert!(
+         reloaded,
+         "the picker's own context has to be refreshed"
+      );
+      assert!(
+         picker.loading,
+         "the reload is marked in progress so the list refetches"
+      );
+      assert_ne!(
+         picker.currencies_generation, generation,
+         "the fetch the reload starts must supersede any earlier one"
+      );
+   }
+
+   /// A chain switch while the sync ran already reloaded the picker for the new chain. The
+   /// writeback must not fetch the chain the sync ran for over those rows.
+   #[test]
+   fn a_writeback_after_a_chain_switch_does_not_reload_the_old_context() {
+      let mut picker = TokenSelectionWindow::new();
+      picker.open = true;
+      let sync_context = (1u64, Address::from([0xaa; 20]));
+      let current_context = (10u64, Address::from([0xaa; 20]));
+      let generation = picker.currencies_generation;
+
+      let reloaded = picker.apply_sync_writeback(
+         PickerMode::Fungible,
+         false,
+         sync_context,
+         current_context,
+      );
+
+      assert!(
+         !reloaded,
+         "the chain switch already reloaded the picker for the new chain"
+      );
+      assert_eq!(
+         picker.currencies_generation, generation,
+         "no fetch may be started for the chain the sync ran on"
+      );
+      assert!(!picker.loading);
+   }
+
+   /// The wallet half of the same switch: the owner the sync re-read balances for is not the one the
+   /// picker is showing any more.
+   #[test]
+   fn a_writeback_after_a_wallet_switch_does_not_reload_the_old_owner() {
+      let mut picker = TokenSelectionWindow::new();
+      picker.open = true;
+      let sync_context = (1u64, Address::from([0xaa; 20]));
+      let current_context = (1u64, Address::from([0xbb; 20]));
+      let generation = picker.currencies_generation;
+
+      let reloaded = picker.apply_sync_writeback(
+         PickerMode::Fungible,
+         false,
+         sync_context,
+         current_context,
+      );
+
+      assert!(
+         !reloaded,
+         "the wallet switch already reloaded the picker for the new wallet"
+      );
+      assert_eq!(picker.currencies_generation, generation);
+      assert!(!picker.loading);
+   }
+
+   /// A closed picker has nothing to refresh, and the writeback must not bring it back.
+   #[test]
+   fn a_writeback_never_reopens_a_closed_picker() {
+      let mut picker = TokenSelectionWindow::new();
+      // `open` is false: the user closed the picker while the sync ran.
+      let context = (1u64, Address::from([0xaa; 20]));
+      let generation = picker.currencies_generation;
+
+      let reloaded = picker.apply_sync_writeback(PickerMode::Fungible, false, context, context);
+
+      assert!(
+         !reloaded,
+         "a closed picker has nothing to refresh"
+      );
+      assert!(
+         !picker.is_open(),
+         "the writeback must not reopen it"
+      );
+      assert_eq!(picker.currencies_generation, generation);
+      assert!(!picker.loading);
+   }
+
+   /// Privacy mode lists shielded assets, which nothing on-chain syncs, so the writeback is a no-op
+   /// there — the button is hidden, and this holds even if the mode was switched on mid-sync.
+   #[test]
+   fn a_privacy_mode_writeback_leaves_the_list_alone() {
+      let mut picker = TokenSelectionWindow::new();
+      picker.open = true;
+      let context = (1u64, Address::from([0xaa; 20]));
+      let generation = picker.currencies_generation;
+
+      let reloaded = picker.apply_sync_writeback(PickerMode::Fungible, true, context, context);
+
+      assert!(
+         !reloaded,
+         "nothing on-chain syncs in privacy mode"
+      );
+      assert_eq!(picker.currencies_generation, generation);
+      assert!(!picker.loading);
+   }
+
+   /// The NFT branch rebuilds from context-free sources — dropping the rows makes the loader
+   /// re-read the current chain and wallet on the next frame — so a context switch does not stop it.
+   /// It must not start the fungible fetch either.
+   #[test]
+   fn the_nft_writeback_rebuilds_for_the_current_context() {
+      let mut picker = TokenSelectionWindow::new();
+      picker.open = true;
+      picker.nfts_loaded = true;
+      picker.processed_nfts.push(row(1, "BoredApeYachtClub", "BAYC"));
+      let sync_context = (1u64, Address::from([0xaa; 20]));
+      let current_context = (10u64, Address::from([0xaa; 20]));
+      let generation = picker.nfts_generation;
+
+      let reloaded = picker.apply_sync_writeback(
+         PickerMode::Nft,
+         false,
+         sync_context,
+         current_context,
+      );
+
+      assert!(
+         reloaded,
+         "the NFT list is rebuilt for the current context, so a switch does not stop it"
+      );
+      assert!(
+         picker.processed_nfts.is_empty(),
+         "the loader must rebuild the rows on the next frame"
+      );
+      assert!(!picker.nfts_loaded);
+      assert_ne!(picker.nfts_generation, generation);
+      assert!(
+         !picker.loading,
+         "the NFT branch never starts the fungible fetch"
       );
    }
 
