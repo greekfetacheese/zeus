@@ -1408,6 +1408,23 @@ impl ClientManager {
       spec
    }
 
+   /// The spec from a cached `eth_config` answer, without touching the network.
+   ///
+   /// The send screen's Max amount is sized on the frame path, where the async [`Self::node_spec`]
+   /// cannot run, so the reserve it computes reads the node's answer the same way the simulation
+   /// will: from this cache. `None` when nothing was cached, so the caller falls back to
+   /// [`ChainId::spec`] — exactly what a simulation with no node answer does.
+   ///
+   /// Deliberately does **not** re-apply [`Self::node_spec`]'s TTL or activation boundary: a stale
+   /// answer is still the node's own word about a fork Zeus can name, and serving it keeps Max on
+   /// the newer (possibly more expensive) spec rather than dropping to the shipped one — the
+   /// cheaper-hardfork shortfall this exists to prevent. The async path refreshes the entry; the
+   /// frame path cannot, and reading the freshest cached answer it has is strictly safer than
+   /// ignoring it.
+   pub fn cached_node_spec(&self, chain: u64) -> Option<SpecId> {
+      self.node_forks.read().unwrap().get(&chain).and_then(|fork| fork.spec)
+   }
+
    /// Like [`Self::request`], but takes an owned, clonable payload that is handed to `f` on every
    /// attempt. This removes the `|client| { let x = x.clone(); async move { … } }` boilerplate: pass
    /// the captured value once, and this method clones it per retry while you return the future
@@ -2094,6 +2111,41 @@ mod tests {
       // No endpoint is configured, so a cache miss could only report `None`; `Some(OSAKA)` must
       // have come from the cache, on the fresh side of the activation.
       assert_eq!(client.node_spec(1).await, Some(SpecId::OSAKA));
+   }
+
+   /// The frame path cannot run async [`ClientManager::node_spec`], so the send screen's reserve
+   /// reads the same cache synchronously. Nothing cached is `None` (the caller keeps the shipped
+   /// spec), the node's answer is served as-is, and a cached "no answer" is still no answer.
+   #[test]
+   fn a_cached_node_spec_is_read_without_the_network() {
+      let client = client_with([]);
+      assert_eq!(client.cached_node_spec(1), None);
+      assert_eq!(client.cached_node_spec(8453), None);
+
+      client.node_forks.write().unwrap().insert(
+         1,
+         NodeFork {
+            spec: Some(SpecId::AMSTERDAM),
+            asked_at: Instant::now(),
+            asked_at_unix: TimeStamp::now_as_secs().unwrap().timestamp(),
+         },
+      );
+      assert_eq!(
+         client.cached_node_spec(1),
+         Some(SpecId::AMSTERDAM)
+      );
+
+      // A cached miss stays a miss: `node_spec` records "the node said nothing" too, and it must
+      // not be mistaken for a usable answer.
+      client.node_forks.write().unwrap().insert(
+         1,
+         NodeFork {
+            spec: None,
+            asked_at: Instant::now(),
+            asked_at_unix: 0,
+         },
+      );
+      assert_eq!(client.cached_node_spec(1), None);
    }
 
    /// A profile written before a chain existed names only the chains that did. The shipped endpoints

@@ -268,22 +268,27 @@ impl ChainId {
    /// transfer that has to create the recipient's account rather than the common one: on a chain
    /// that meters state creation that transfer pays [`Self::NEW_ACCOUNT_STATE_GAS`] on top, which a
    /// 21,000 reserve cannot cover. A transfer to an account that already exists still costs 21,000.
-   pub fn transfer_gas(&self) -> u64 {
-      self.min_gas() + self.state_gas(Self::NEW_ACCOUNT_STATE_GAS)
+   /// `spec` is the hardfork the simulation will run — the chain's node answer when Zeus has one,
+   /// [`Self::spec`] otherwise — because Max has to be sized by the rules the transaction actually
+   /// executes under. `None` means "no node answer", i.e. the shipped spec and the reserve Zeus has
+   /// always quoted.
+   pub fn transfer_gas(&self, spec: Option<SpecId>) -> u64 {
+      self.min_gas() + self.state_gas(spec, Self::NEW_ACCOUNT_STATE_GAS)
    }
 
    /// Gas needed for an ERC20 Transfer
    ///
    /// This is an estimate since the actual gas cost may vary depending on the token. It carries the
    /// storage slot [`Self::NEW_SLOT_STATE_GAS`] that a transfer to a target the token has never
-   /// seen creates, for the same reason as [`Self::transfer_gas`].
-   pub fn erc20_transfer_gas(&self) -> u64 {
+   /// seen creates, for the same reason as [`Self::transfer_gas`]. `spec` is the simulated hardfork;
+   /// `None` is the shipped spec (see [`Self::transfer_gas`]).
+   pub fn erc20_transfer_gas(&self, spec: Option<SpecId>) -> u64 {
       let base = match self {
          ChainId::Arbitrum | ChainId::RobinHood => 97_818,
          _ => 50_000,
       };
 
-      base + self.state_gas(Self::NEW_SLOT_STATE_GAS)
+      base + self.state_gas(spec, Self::NEW_SLOT_STATE_GAS)
    }
 
    /// Gas needed for a private send — shielding through Railgun.
@@ -291,15 +296,18 @@ impl ChainId {
    /// The same contract as the other two: it sizes the **Max** amount, so it covers the shield that
    /// writes the most state rather than the cheapest one. A shield writes the commitment tree leaf
    /// and the token's balance entry, which a chain that meters state creation charges on top of the
-   /// execution — the figure `500_000` used to stand in for both.
-   pub fn privacy_transfer_gas(&self) -> u64 {
-      Self::SHIELD_EXECUTION_GAS + Self::SHIELD_NEW_SLOTS * self.state_gas(Self::NEW_SLOT_STATE_GAS)
+   /// execution — the figure `500_000` used to stand in for both. `spec` is the simulated hardfork;
+   /// `None` is the shipped spec (see [`Self::transfer_gas`]).
+   pub fn privacy_transfer_gas(&self, spec: Option<SpecId>) -> u64 {
+      Self::SHIELD_EXECUTION_GAS
+         + Self::SHIELD_NEW_SLOTS * self.state_gas(spec, Self::NEW_SLOT_STATE_GAS)
    }
 
-   /// `state_gas` where the chain meters state creation separately, zero where it does not
-   /// (EIP-8037 arrives with Amsterdam).
-   fn state_gas(&self, state_gas: u64) -> u64 {
-      if self.spec().is_enabled_in(SpecId::AMSTERDAM) {
+   /// `state_gas` where the simulated spec meters state creation separately, zero where it does not
+   /// (EIP-8037 arrives with Amsterdam). `spec` is the hardfork the simulation will run, and `None`
+   /// falls back to the shipped [`Self::spec`].
+   fn state_gas(&self, spec: Option<SpecId>, state_gas: u64) -> u64 {
+      if spec.unwrap_or_else(|| self.spec()).is_enabled_in(SpecId::AMSTERDAM) {
          state_gas
       } else {
          0
@@ -374,22 +382,32 @@ mod tests {
    }
 
    /// The spec is what the reserves are derived from, so a chain that meters state creation
-   /// reserves for it and one that does not keeps the legacy numbers. The Sepolia figures are what
+   /// reserves for it and one that does not keeps the legacy numbers. The reserve must be priced by
+   /// the fork the simulation will run — the node's answer — not the one Zeus shipped, so the
+   /// simulated spec is threaded in and `None` means the shipped one. The Sepolia figures are what
    /// the chain charges, measured against a node.
    #[test]
-   fn gas_reserves_follow_the_chain_spec() {
+   fn gas_reserves_follow_the_simulated_spec() {
+      // The state-gas addends, exactly as the reserves read them.
+      const NEW_ACCOUNT: u64 = NEW_ACCOUNT_BYTES * CPSB_GLAMSTERDAM;
+      const NEW_SLOT: u64 = SSTORE_SET_BYTES * CPSB_GLAMSTERDAM;
+      assert_eq!(NEW_ACCOUNT, 183_600);
+      assert_eq!(NEW_SLOT, 97_920);
+
+      // Sepolia ships Amsterdam, so its reserves carry the state gas — the figures measured against
+      // a node.
       assert_eq!(ChainId::EthereumSepolia.spec(), SpecId::AMSTERDAM);
       assert_eq!(
-         ChainId::EthereumSepolia.transfer_gas(),
-         21_000 + 183_600
+         ChainId::EthereumSepolia.transfer_gas(None),
+         21_000 + NEW_ACCOUNT
       );
       assert_eq!(
-         ChainId::EthereumSepolia.erc20_transfer_gas(),
-         50_000 + 97_920
+         ChainId::EthereumSepolia.erc20_transfer_gas(None),
+         50_000 + NEW_SLOT
       );
       assert_eq!(
-         ChainId::EthereumSepolia.privacy_transfer_gas(),
-         500_000 + 2 * 97_920,
+         ChainId::EthereumSepolia.privacy_transfer_gas(None),
+         500_000 + 2 * NEW_SLOT,
          "a shield writes two slots"
       );
 
@@ -400,26 +418,84 @@ mod tests {
          } else {
             21_000
          };
-         let state_gas = if chain.is_eth_sepolia() { 183_600 } else { 0 };
+         let erc20_base = if chain.is_arbitrum() || chain.is_robinhood() {
+            97_818
+         } else {
+            50_000
+         };
 
+         // `None` and the shipped spec are the same answer: whatever a chain reserved before the
+         // spec was threaded in, it still reserves. That covers every chain, Sepolia's Amsterdam
+         // included — the behaviour-preservation guarantee.
          assert_eq!(
-            chain.transfer_gas(),
-            base + state_gas,
+            chain.transfer_gas(None),
+            chain.transfer_gas(Some(chain.spec())),
             "{chain:?}"
          );
-         assert_eq!(chain.min_gas(), base, "{chain:?}");
-
-         let slot_gas = if chain.is_eth_sepolia() {
-            2 * 97_920
-         } else {
-            0
-         };
          assert_eq!(
-            chain.privacy_transfer_gas(),
-            500_000 + slot_gas,
+            chain.erc20_transfer_gas(None),
+            chain.erc20_transfer_gas(Some(chain.spec())),
+            "{chain:?}"
+         );
+         assert_eq!(
+            chain.privacy_transfer_gas(None),
+            chain.privacy_transfer_gas(Some(chain.spec())),
+            "{chain:?}"
+         );
+
+         // Today's numbers, derived from the shipped spec.
+         let meters_state = chain.spec().is_enabled_in(SpecId::AMSTERDAM);
+         let account = if meters_state { NEW_ACCOUNT } else { 0 };
+         let slot = if meters_state { NEW_SLOT } else { 0 };
+
+         assert_eq!(chain.min_gas(), base, "{chain:?}");
+         assert_eq!(
+            chain.transfer_gas(None),
+            base + account,
+            "{chain:?}"
+         );
+         assert_eq!(
+            chain.erc20_transfer_gas(None),
+            erc20_base + slot,
+            "{chain:?}"
+         );
+         assert_eq!(
+            chain.privacy_transfer_gas(None),
+            500_000 + 2 * slot,
             "{chain:?}"
          );
       }
+
+      // The spec that runs decides the addend, whatever the chain shipped: a pre-Amsterdam chain
+      // pays the state gas once its node reports Amsterdam — the day mainnet's node forks.
+      assert_eq!(ChainId::Ethereum.transfer_gas(None), 21_000);
+      assert_eq!(
+         ChainId::Ethereum.transfer_gas(Some(SpecId::AMSTERDAM)),
+         21_000 + NEW_ACCOUNT
+      );
+      assert_eq!(
+         ChainId::Ethereum.erc20_transfer_gas(Some(SpecId::NEXT)),
+         50_000 + NEW_SLOT
+      );
+      assert_eq!(
+         ChainId::Ethereum.privacy_transfer_gas(Some(SpecId::AMSTERDAM)),
+         500_000 + 2 * NEW_SLOT
+      );
+
+      // …and a pre-Amsterdam spec keeps the legacy numbers even on Sepolia, whose shipped spec is
+      // Amsterdam — the same threading, the other direction.
+      assert_eq!(
+         ChainId::EthereumSepolia.transfer_gas(Some(SpecId::OSAKA)),
+         21_000
+      );
+      assert_eq!(
+         ChainId::EthereumSepolia.erc20_transfer_gas(Some(SpecId::PRAGUE)),
+         50_000
+      );
+      assert_eq!(
+         ChainId::EthereumSepolia.privacy_transfer_gas(Some(SpecId::OSAKA)),
+         500_000
+      );
    }
 
    /// Mainnet is the simulation's default spec, which is what let a Sepolia simulation run as an
