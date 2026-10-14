@@ -142,17 +142,39 @@ pub async fn check_for_updates() -> Result<UpdateInfo, anyhow::Error> {
 
 /// Whether a release asset is a build for `target`.
 ///
-/// The rule is the platform word in the file name: the release step names its archives
-/// `zeus-linux-x64.zip` and `zeus-windows-x64.zip`, and self_update's own `asset_for` cannot match
-/// those — it looks for the target triple, which the names do not carry — so this is what decides
-/// whether a download is offered. It reads a name, though, and names change, which is exactly why the
-/// *version* check no longer depends on it: see [`check_for_updates`].
+/// The rule is the platform word *and* the architecture word in the file name: the release step
+/// names its archives `zeus-linux-x64.zip` and `zeus-windows-x64.zip`, and self_update's own
+/// `asset_for` cannot match those — it looks for the target triple, which the names do not carry — so
+/// this is what decides whether a download is offered. It reads a name, though, and names change,
+/// which is exactly why the *version* check no longer depends on it: see [`check_for_updates`].
+///
+/// The architecture is read too: the platform word alone matched an x64 archive on an aarch64 host,
+/// and installing that replaces the running binary with one the machine cannot exec.
 fn is_build_for_platform(asset_name: &str, target: &str) -> bool {
    let name = asset_name.to_lowercase();
 
-   (target.contains("windows") && name.contains("windows") && name.ends_with(".zip"))
-      || (target.contains("linux") && name.contains("linux"))
-      || (target.contains("darwin") && (name.contains("macos") || name.contains("darwin")))
+   let os_matches =
+      (target.contains("windows") && name.contains("windows") && name.ends_with(".zip"))
+         || (target.contains("linux") && name.contains("linux"))
+         || (target.contains("darwin") && (name.contains("macos") || name.contains("darwin")));
+
+   if !os_matches {
+      return false;
+   }
+
+   // Match the architecture as a whole token, never a substring, so `arm64` cannot satisfy an
+   // `x86_64` host and an `x64` buried in a longer word is not the architecture. An architecture
+   // Zeus does not publish for is not guessed at.
+   let arch = target.split('-').next().unwrap_or(target);
+   let accepted: &[&str] = match arch {
+      "x86_64" => &["x64", "x86_64", "amd64"],
+      "aarch64" => &["arm64", "aarch64"],
+      _ => return false,
+   };
+
+   name
+      .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+      .any(|token| accepted.contains(&token))
 }
 
 #[cfg(test)]
@@ -194,6 +216,57 @@ mod asset_name_tests {
       assert!(!is_build_for_platform(
          "zeus-linux-x64.zip",
          macos
+      ));
+   }
+
+   /// The platform word is not enough: an x64 archive must not be offered to an ARM host, because
+   /// installing it swaps the running binary for one the machine cannot exec.
+   #[test]
+   fn the_architecture_word_in_the_asset_name_selects_the_build() {
+      let linux_arm = "aarch64-unknown-linux-gnu";
+      assert!(!is_build_for_platform(
+         "zeus-linux-x64.zip",
+         linux_arm
+      ));
+      assert!(is_build_for_platform(
+         "zeus-linux-arm64.zip",
+         linux_arm
+      ));
+      assert!(is_build_for_platform(
+         "zeus-linux-aarch64.zip",
+         linux_arm
+      ));
+
+      let windows_arm = "aarch64-pc-windows-msvc";
+      assert!(!is_build_for_platform(
+         "zeus-windows-x64.zip",
+         windows_arm
+      ));
+
+      // Whole tokens only: an `x64` inside a longer word is not the architecture, and an arm64
+      // archive does not satisfy an x86_64 host.
+      let linux = "x86_64-unknown-linux-gnu";
+      assert!(is_build_for_platform(
+         "zeus-linux-amd64.zip",
+         linux
+      ));
+      assert!(is_build_for_platform(
+         "zeus-linux-x86_64.zip",
+         linux
+      ));
+      assert!(!is_build_for_platform(
+         "zeus-linux-x64bit.zip",
+         linux
+      ));
+      assert!(!is_build_for_platform(
+         "zeus-linux-arm64.zip",
+         linux
+      ));
+
+      // An architecture Zeus does not build for is not guessed at.
+      assert!(!is_build_for_platform(
+         "zeus-linux-x64.zip",
+         "riscv64gc-unknown-linux-gnu"
       ));
    }
 }
