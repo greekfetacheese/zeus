@@ -8,6 +8,7 @@ use eframe::egui::{
 use crate::assets::icons::Icons;
 use crate::core::{ClientKind, ZeusContext, ZeusCtx};
 use crate::gui::ui::common::ConfirmWindowClaim;
+use crate::gui::ui::common::windows::authorising_prompt_busy;
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::{
    RT, nft_icon::start_nft_art_downloads, token_icon::spawn_fetch_token_icon, truncate_address,
@@ -1237,9 +1238,15 @@ impl TokenSelectionWindow {
 
 fn delete_token(chain_id: u64, owner: Address, token: ERC20Token, privacy_mode: bool) {
    RT.spawn(async move {
-      // One prompt at a time: this window is also what a dapp's network-switch/add-token
-      // and the MEV fallback use, so a refused claim means one of those is already up.
+      // One prompt at a time, whatever raised it. `authorising_prompt_busy` answers for every
+      // authorising prompt: this shared window is also what a dapp's network-switch/add-token and
+      // the MEV fallback use, and the sign-message, connect and transaction-confirmation windows
+      // are the others — so a refused claim means one of them is already up.
       let claimed = SHARED_GUI.write(|gui| {
+         if authorising_prompt_busy(gui) {
+            return false;
+         }
+
          if !gui.confirm_window.open(format!("Delete {}?", token.name)) {
             return false;
          }
@@ -1902,9 +1909,15 @@ fn set_nft_in_portfolio(chain_id: u64, owner: Address, token: NftToken, add: boo
 /// refetch on the next frame.
 fn delete_nft(chain_id: u64, owner: Address, token: NftToken, name: String) {
    RT.spawn(async move {
-      // One prompt at a time: this window is also what a dapp's network-switch/add-token
-      // and the MEV fallback use, so a refused claim means one of those is already up.
+      // One prompt at a time, whatever raised it. `authorising_prompt_busy` answers for every
+      // authorising prompt: this shared window is also what a dapp's network-switch/add-token and
+      // the MEV fallback use, and the sign-message, connect and transaction-confirmation windows
+      // are the others — so a refused claim means one of them is already up.
       let claimed = SHARED_GUI.write(|gui| {
+         if authorising_prompt_busy(gui) {
+            return false;
+         }
+
          if !gui.confirm_window.open(format!("Delete {name} #{}?", token.token_id)) {
             return false;
          }
