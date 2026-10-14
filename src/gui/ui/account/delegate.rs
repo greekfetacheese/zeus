@@ -54,6 +54,18 @@ impl DelegateUi {
       self.credentials_form.erase();
    }
 
+   /// Drop every secret this UI holds and close it.
+   ///
+   /// Used when Zeus auto-locks: a half-typed password in the credentials form and
+   /// the typed delegate target must not resurface after unlock. There is no
+   /// verified flag here — a credential match delegates and closes the window at
+   /// once — so the form and the target are the whole of it.
+   pub fn lock(&mut self) {
+      self.erase();
+      self.close();
+      self.to.clear();
+   }
+
    /// Show the delegate modal and the credentials modal
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, wallet: Address, ui: &mut Ui) {
       self.show_deleg_settings_window(ctx, theme, wallet, ui);
@@ -396,5 +408,41 @@ impl DelegateUi {
             }
          });
       }
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use secure_types::SecureString;
+
+   /// The state a partly filled delegate form leaves behind: the window open, the
+   /// target typed, the credentials modal open with a typed password.
+   fn filled_form() -> DelegateUi {
+      let mut ui = DelegateUi::new();
+      ui.open();
+      ui.to = "0x0000000000000000000000000000000000000001".to_string();
+      ui.credentials_form.open();
+      ui.credentials_form.set_username_text(SecureString::from("user"));
+      ui.credentials_form.set_password_text(SecureString::from("pass"));
+      ui
+   }
+
+   /// `lock` is the auto-lock path: the typed target and the credentials form have
+   /// to be dropped, not just the window flag.
+   #[test]
+   fn lock_drops_the_delegate_form() {
+      let mut ui = filled_form();
+      assert!(ui.open);
+      assert!(!ui.to.is_empty());
+      assert!(ui.credentials_form.is_open());
+
+      ui.lock();
+
+      assert!(!ui.open);
+      assert!(ui.to.is_empty());
+      assert!(!ui.credentials_form.is_open());
+      assert!(ui.credentials_form.username().is_empty());
+      assert!(ui.credentials_form.password().is_empty());
    }
 }

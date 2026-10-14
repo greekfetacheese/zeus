@@ -106,6 +106,9 @@ impl WalletUi {
       self.close();
       self.close_rename_wallet();
       self.export_key_ui.lock(ctx);
+      // The delete form carries a verified-credentials flag that authorizes the
+      // delete; it must not survive the lock.
+      self.delete_wallet_ui.lock();
       // The import form holds the key or seed phrase as it is typed, and `erase` runs only at
       // shutdown — without this the seed is still in the form when the wallet comes back.
       self.add_wallet_ui.erase();

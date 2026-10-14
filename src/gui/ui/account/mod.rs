@@ -109,6 +109,14 @@ impl AccountPanel {
       self.delegate.erase();
    }
 
+   /// Drop the panel's dialogs' secrets on auto-lock.
+   ///
+   /// The delegate form holds a typed target and a credentials form; the shutdown
+   /// path erases it through [`Self::erase`], the lock path has to reach it too.
+   pub fn lock(&mut self) {
+      self.delegate.lock();
+   }
+
    pub fn open(&mut self) {
       self.open = true;
    }
