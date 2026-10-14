@@ -32,7 +32,12 @@ fn resolve_transact_asset(
    token_hash: &[u8],
    known_tokens: &TokenRegistry,
 ) -> Result<AssetId, NoteError> {
-   let hash = U256::from_be_slice(token_hash);
+   // A note's token-hash block is 32 bytes, and the registry is keyed by that `U256`. A longer slice is
+   // a bundle that is not shaped like a note, so it reads as an error (the caller skips the note)
+   // rather than the panic `from_be_slice` raises on a value that does not fit.
+   let hash = U256::try_from_be_slice(token_hash).ok_or(NoteError::TokenData(
+      TokenDataError::InvalidHashLength,
+   ))?;
    if let Some(asset) = known_tokens.get(&hash) {
       return Ok(*asset);
    }
@@ -127,13 +132,27 @@ impl UtxoNote {
       // random (16) | value (16)
       // memo (optional)
       let bundle = shared_key.decrypt_gcm(&transact.ciphertext)?;
-      let asset_id = resolve_transact_asset(&bundle[1], known_tokens)?;
+
+      // The bundle's blocks keep the lengths they had in the ciphertext, which arrives from a remote
+      // source: a bundle that is not shaped like a note — a missing block, or a block of the wrong
+      // size — has to read as an error the caller skips, never as an index panic.
+      let token_hash = bundle.get(1).ok_or(NoteError::TokenData(
+         TokenDataError::InvalidHashLength,
+      ))?;
+      let asset_id = resolve_transact_asset(token_hash, known_tokens)?;
+
+      let Some(block) = bundle.get(2).filter(|block| block.len() == 32) else {
+         return Err(NoteError::TokenData(
+            TokenDataError::InvalidHashLength,
+         ));
+      };
+      let (random_block, value_block) = block.split_at(16);
 
       let mut random = [0u8; 16];
-      random.copy_from_slice(&bundle[2][..16]);
+      random.copy_from_slice(random_block);
 
       let mut value_bytes = [0u8; 16];
-      value_bytes.copy_from_slice(&bundle[2][16..]);
+      value_bytes.copy_from_slice(value_block);
       let value = u128::from_be_bytes(value_bytes);
 
       let memo = if bundle.len() > 3 {
@@ -355,5 +374,106 @@ mod tests {
       assert_ne!(guessed.asset, asset);
       assert_eq!(guessed.asset.is_erc20(), true);
       assert_ne!(guessed.hash(), transfer.hash().into());
+   }
+
+   fn random_signer() -> RailgunSigner {
+      use rand::random;
+      use secure_types::SecureArray;
+
+      let seed: [u8; 64] = random();
+      let sec_array = SecureArray::from_slice(&seed).unwrap();
+      RailgunSigner::from_seed(&sec_array, 0, 1).unwrap()
+   }
+
+   /// A `Transact` whose ciphertext decrypts to exactly `blocks` under the shared key the recipient
+   /// derives from it. The blinded key is only ever used to derive that shared key, so the
+   /// recipient's own public key stands in for it and the test controls the bundle's block lengths —
+   /// which is the point: those come from a remote source.
+   fn transact_with_blocks(recipient: &RailgunSigner, blocks: &[&[u8]]) -> Transact {
+      use alloy_primitives::B256;
+
+      let blinded_sender = recipient.keys().viewing_public_key.clone();
+      let shared_key = recipient
+         .keys()
+         .viewing_private_key
+         .derive_shared_key_blinded(BlindedKey::from_bytes(*blinded_sender.as_bytes()))
+         .unwrap();
+      let ciphertext = shared_key.encrypt_gcm(blocks, &[9u8; 16]).unwrap();
+
+      Transact {
+         tree_number: 1,
+         leaf_index: 0,
+         hash: U256::ZERO,
+         ciphertext,
+         blinded_sender_viewing_key: *blinded_sender.as_bytes(),
+         blinded_receiver_viewing_key: [0u8; 32],
+         annotation_data: Vec::new(),
+         timestamp: 0,
+         tx_hash: B256::ZERO,
+      }
+   }
+
+   /// The subgraph source appends the memo to the note's `data` blocks, so a response carrying a
+   /// single `data` entry makes the memo the second block. Read as the token hash, an over-long block
+   /// has to come back as an error — the old read panicked inside `U256::from_be_slice`.
+   #[test]
+   fn a_transact_bundle_whose_second_block_is_a_memo_is_rejected() {
+      let recipient = random_signer();
+      let data_block: &[u8] = &[0u8; 32];
+      let memo: &[u8] = &[0xAB; 40];
+
+      let event = transact_with_blocks(&recipient, &[data_block, memo]);
+      let note = UtxoNote::decrypt_transact(&recipient, &event, &TokenRegistry::new());
+
+      assert!(matches!(
+         note,
+         Err(NoteError::TokenData(
+            TokenDataError::InvalidHashLength
+         ))
+      ));
+   }
+
+   /// The bundle keeps the ciphertext's block lengths, so it can arrive with fewer blocks than the
+   /// note layout has. That is a skip, not an index panic.
+   #[test]
+   fn a_transact_bundle_with_too_few_blocks_is_rejected() {
+      let recipient = random_signer();
+      let hash: &[u8] = &[0u8; 32];
+      let value: &[u8] = &[0u8; 32];
+
+      for blocks in [vec![], vec![hash], vec![hash, value]] {
+         let event = transact_with_blocks(&recipient, &blocks);
+         let note = UtxoNote::decrypt_transact(&recipient, &event, &TokenRegistry::new());
+
+         assert!(
+            matches!(
+               note,
+               Err(NoteError::TokenData(
+                  TokenDataError::InvalidHashLength
+               ))
+            ),
+            "a bundle of {} blocks must be rejected",
+            blocks.len()
+         );
+      }
+   }
+
+   /// The random/value block is two 16-byte halves, so it is exactly 32 bytes. A shorter block has no
+   /// second half and used to be a `copy_from_slice` panic.
+   #[test]
+   fn a_transact_bundle_with_a_truncated_random_value_block_is_rejected() {
+      let recipient = random_signer();
+      let hash: &[u8] = &[0u8; 32];
+      let truncated: &[u8] = &[0u8; 16];
+
+      let event = transact_with_blocks(&recipient, &[hash, hash, truncated]);
+      let note = UtxoNote::decrypt_transact(&recipient, &event, &TokenRegistry::new());
+
+      assert!(matches!(
+         note,
+         Err(NoteError::TokenData(
+            TokenDataError::InvalidHashLength
+         ))
+      ));
    }
 }
