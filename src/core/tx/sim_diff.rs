@@ -336,10 +336,15 @@ fn measure_approval_after<DB: Database>(
 
 /// The NFT half of the post-sim state, read on the fork EVM.
 ///
-/// A read that failed reads as the shape's own *nothing* rather than as a hole in the map — the same
-/// conclusion the before-state fetch draws from a dropped sub-call. `combine_diffs` drops a candidate
-/// whose either side is missing, so a hole here would silently lose a real change: a burn's `ownerOf`
-/// reverts, and the change would never reach the confirmation window.
+/// A read the fork could not answer is **unknown**, not zero: there is nothing to compare, so the key
+/// stays out and `combine_diffs` drops the row. Fabricating a zero instead would let a probe failure
+/// claim a change — a balance the wallet really holds reading as a full loss — which is the same
+/// reading the before-state fetch draws from a dropped sub-call.
+///
+/// ERC-721 is the one exception, and a deliberate one: a reverted `ownerOf` is the standard's own
+/// answer for a token that no longer exists (a burn), not a failed read, so that arm maps it to "not
+/// the signer's" rather than leaving it out. See the note on that arm for where the two are *not*
+/// told apart.
 fn measure_nft_after<DB: Database>(
    owner: Address,
    nft: &NftRequest,
@@ -352,10 +357,16 @@ fn measure_nft_after<DB: Database>(
       match candidate.standard {
          NftStandard::Erc721 => {
             // A reverted `ownerOf` after the tx means the token no longer exists — "not the signer's",
-            // which is exactly how the before-state fetch reads the same revert (`owner == Some(from)`
-            // with a dropped sub-call). Leaving the key out instead keeps that reading asymmetric:
-            // `combine_diffs` drops a candidate whose *either* side is missing, so a burn would lose the
-            // row rather than compare it.
+            // and that is the answer the row needs: dropping the key would lose a burn, since
+            // `combine_diffs` drops a candidate whose *either* side is missing.
+            //
+            // Deliberate, and narrower than it looks: this arm reads *every* `Err` from the probe as a
+            // revert, and the probe cannot be asked which it was — `erc721_owner_of` collapses a
+            // contract revert, an EVM/DB error and a decode failure into the same `anyhow::Error`. A
+            // probe that could not run (a fork read the RPC never answered) therefore still reads as
+            // "lost the token" here, which is the ERC-1155 defect this file fixes on the other arm. The
+            // before-state fetch *does* separate the two (its `Option<Address>` row is `None` only for a
+            // revert; a transport failure loses the row), so the after side is the asymmetric one.
             let owner_of = erc721_owner_of(
                after_evm,
                candidate.collection,
@@ -369,19 +380,24 @@ fn measure_nft_after<DB: Database>(
             );
          }
          NftStandard::Erc1155 => {
-            // The same reading the ERC-721 branch above applies to `ownerOf`: a probe that failed is the
-            // shape's own *nothing* — an id this contract never held — exactly as the before-state fetch
-            // reads a dropped sub-call (`unwrap_or_default`). Leaving the key out instead would drop the
-            // row in `combine_diffs`, which is the outcome the note on `measure_nft_after` argues against.
-            let balance = erc1155_balance_of(
+            // A probe that failed is *unknown*, not zero — an unreadable side claims no change. The
+            // before-state fetch drops the same failed read (only `Some(balance)` is inserted), and
+            // `combine_diffs` drops a candidate whose either side is missing, so leaving the key out is
+            // what keeps "could not read" from becoming a claimable change: a balance the wallet really
+            // holds would otherwise read as a full loss, and the failure would invent it.
+            match erc1155_balance_of(
                after_evm,
                candidate.collection,
                owner,
                candidate.token_id,
-            )
-            .unwrap_or_default();
-
-            state.balances1155.insert(key, balance);
+            ) {
+               Ok(balance) => {
+                  state.balances1155.insert(key, balance);
+               }
+               Err(e) => {
+                  tracing::warn!("ERC-1155 balanceOf after the tx failed: {:?}", e);
+               }
+            }
          }
       }
    }
@@ -2176,5 +2192,79 @@ mod tests {
          after.approvals.get(&candidate),
          Some(&NftApprovalValue::Approved(Address::ZERO))
       );
+   }
+
+   /// An EVM whose `collection` answers every call with a fixed word — the after-probe's success path.
+   fn fixed_word_collection_evm(collection: Address, word: U256) -> Evm2<InMemoryDB> {
+      let mut db = CacheDB::new(EmptyDB::default());
+      // PUSH32 <word> PUSH1 0x00 MSTORE PUSH1 0x20 PUSH1 0x00 RETURN
+      let mut code = vec![0x7f];
+      code.extend_from_slice(&word.to_be_bytes::<32>());
+      code.extend_from_slice(&[0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3]);
+      db.insert_account_info(
+         collection,
+         AccountInfo {
+            code: Some(Bytecode::new_raw(Bytes::from(code))),
+            ..Default::default()
+         },
+      );
+
+      new_evm(ChainId::Ethereum, None, db, None)
+   }
+
+   /// A failed ERC-1155 after-probe is *unknown*, so it claims no change: the key stays out of the
+   /// after-state and `combine_diffs` drops the row rather than comparing the signer's real balance
+   /// against a fabricated zero.
+   ///
+   /// Red against the old `unwrap_or_default()`: the first assertion finds `Some(&U256::ZERO)`, and the
+   /// diff then carries a full-loss row for a balance nobody measured.
+   #[test]
+   fn a_failed_1155_after_probe_claims_no_change() {
+      let collection = addr(9);
+      let owner = addr(1);
+      let key = (collection, U256::from(1));
+      let balances = balance_request(nft_candidate(collection, 1, NftStandard::Erc1155));
+
+      let mut evm = reverting_collection_evm(collection);
+      let after = measure_nft_after(owner, &balances, &mut evm);
+
+      assert!(
+         !after.balances1155.contains_key(&key),
+         "a probe that could not answer is a hole, not a zero"
+      );
+
+      let mut before = BeforeState::empty();
+      before.nft.balances1155.insert(key, U256::from(5));
+
+      let raw = combine_diffs(&[], &[], &balances, before, nft_after(after));
+
+      assert!(
+         raw.nft_balances.is_empty(),
+         "an unreadable side yields no row, so the failure cannot claim a loss"
+      );
+   }
+
+   /// The success path is unchanged: a probe that answers still produces the row it always did.
+   #[test]
+   fn an_1155_after_probe_that_answers_still_yields_the_row() {
+      let collection = addr(9);
+      let owner = addr(1);
+      let key = (collection, U256::from(3));
+      let balances = balance_request(nft_candidate(collection, 3, NftStandard::Erc1155));
+
+      let mut evm = fixed_word_collection_evm(collection, U256::from(2));
+      let after = measure_nft_after(owner, &balances, &mut evm);
+
+      assert_eq!(after.balances1155.get(&key), Some(&U256::from(2)));
+
+      let mut before = BeforeState::empty();
+      before.nft.balances1155.insert(key, U256::from(5));
+
+      let raw = combine_diffs(&[], &[], &balances, before, nft_after(after));
+
+      assert_eq!(raw.nft_balances.len(), 1);
+      assert_eq!(raw.nft_balances[0].before, U256::from(5));
+      assert_eq!(raw.nft_balances[0].after, U256::from(2));
+      assert!(!raw.nft_balances[0].is_received());
    }
 }
