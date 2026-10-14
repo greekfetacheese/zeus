@@ -32,7 +32,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use zeus_eth::alloy_primitives::{Address, U256};
-use zeus_eth::nft::{NftToken, expand_id_placeholder};
+use zeus_eth::nft::{MAX_EXPANDED_URI_LEN, NftToken, expand_id_placeholder};
 
 /// Edge of the list thumbnail. Larger pictures are shrunk to fit inside this.
 const THUMB_EDGE: u32 = 64;
@@ -47,13 +47,16 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
 /// How many redirect hops one fetch follows before giving up (reqwest's own default).
 const MAX_REDIRECTS: usize = 10;
 
-/// Cap on a metadata URI *string*, before it is expanded or fetched.
+/// Cap on the *string* of a `data:` URI, before it is decoded.
 ///
 /// The string is attacker-controlled — any contract the wallet reads can return a multi-megabyte
-/// `tokenURI` — and it is what a `data:` decode and an `{id}` expansion are sized from. Generous
-/// enough for any `data:` URI that decodes within [`MAX_BYTES`] (base64 is about three quarters of its
-/// input), and applied to the *raw* string in [`fetch_nft_icon`] as well as to the resolved one here,
-/// so a template cannot be multiplied before anything looks at it.
+/// `tokenURI` — and it is what a `data:` decode is sized from. A `data:` URI *is* its payload, so it
+/// gets the transfer cap scaled for base64 (about three quarters of its input), which is generous
+/// enough for any payload that decodes within [`MAX_BYTES`]. Every other scheme is a pointer to a
+/// document rather than the document itself, and is bounded far tighter by
+/// [`MAX_EXPANDED_URI_LEN`] in [`resolve_uri`]. Applied to the *raw* string in [`fetch_nft_icon`] as
+/// well as to the resolved one here, so a `data:` payload cannot be materialised before anything looks
+/// at it.
 const MAX_URI_LEN: usize = MAX_BYTES * 4;
 
 /// Cap on either edge of the source art handed to the raster decoder, and on what that decode may
@@ -338,11 +341,19 @@ pub fn resolve_uri(uri: &str) -> Option<ResolvedUri> {
       return None;
    }
 
-   // A `data:` URI is decoded here, before [`fetch_resolved`] can apply [`MAX_BYTES`] — and a base64
-   // payload allocates about three quarters of its input, while percent-encoded text allocates less than
-   // it. So the *string* is bounded first: it is attacker-controlled and nothing else caps it (see
-   // [`MAX_URI_LEN`]).
-   if uri.len() > MAX_URI_LEN {
+   // The string is attacker-controlled, and a `data:` URI is decoded here before [`fetch_resolved`]
+   // can apply [`MAX_BYTES`]: a base64 payload allocates about three quarters of its input, while
+   // percent-encoded text allocates less than it. So the *string* is bounded first, with the cap its
+   // shape calls for — a `data:` URI *is* its payload, while every other scheme is a pointer to a
+   // document, and a pointer past the `{id}` expansion bound ([`MAX_EXPANDED_URI_LEN`]) is not
+   // metadata. Both are also applied upstream ([`expand_id_placeholder`], [`fetch_nft_icon`]); this is
+   // the funnel every URI passes through before it is fetched.
+   let max_len = if strip_prefix_ci(uri, "data:").is_some() {
+      MAX_URI_LEN
+   } else {
+      MAX_EXPANDED_URI_LEN
+   };
+   if uri.len() > max_len {
       return None;
    }
 
@@ -1000,9 +1011,11 @@ pub async fn fetch_nft_icon(
    metadata_uri: &str,
    token_id: U256,
 ) -> Result<Option<NftIconData>, anyhow::Error> {
-   // Bounded *before* the expansion below: `expand_id_placeholder` copies the whole string once per
-   // placeholder form (four at most) while the only other bound applies to its result, so without this
-   // the copy is what grows, not the thing that is checked.
+   // The raw string is bounded before the expansion below. `expand_id_placeholder` copies the whole
+   // string once per placeholder form (four at most) and only caps its *result*, while a `data:`
+   // payload is explicitly past its pointer bound — so without this the copy of an inline multi-megabyte
+   // `tokenURI` is what grows. A brace-less pointer is additionally bounded at the tight cap *inside*
+   // `expand_id_placeholder`, before it copies.
    if metadata_uri.len() > MAX_URI_LEN {
       return Ok(None);
    }
@@ -1514,6 +1527,42 @@ mod tests {
       );
       assert_eq!(resolve_uri("ftp://example.invalid/a"), None);
       assert_eq!(resolve_uri("ipfs://"), None);
+   }
+
+   /// The pointer bound is the same one the `{id}` template path meets; a `data:` payload is not a
+   /// pointer and is left to the transfer cap.
+   ///
+   /// A brace-less URI used to have only [`MAX_URI_LEN`] (16 MiB) to clear, so a contract could park
+   /// multi-megabyte junk in the art cache's `source_uri` by never using a placeholder. A `data:` URI is
+   /// the exception, because its length *is* its content.
+   #[test]
+   fn bounds_a_pointer_tightly_but_leaves_an_inline_payload_to_the_transfer_cap() {
+      let plain = "https://example.invalid/a.json";
+      assert!(
+         resolve_uri(plain).is_some(),
+         "an ordinary URI is still resolvable"
+      );
+
+      let over = format!(
+         "https://example.invalid/{}",
+         "x".repeat(MAX_EXPANDED_URI_LEN)
+      );
+      assert_eq!(
+         resolve_uri(&over),
+         None,
+         "a brace-less pointer past the tight bound is refused"
+      );
+
+      // The same size inline is fine: it is the payload, not a pointer to one, and it decodes far
+      // inside [`MAX_BYTES`].
+      let inline = format!(
+         "data:application/octet-stream;base64,{}",
+         "A".repeat(MAX_EXPANDED_URI_LEN)
+      );
+      assert!(
+         matches!(resolve_uri(&inline), Some(ResolvedUri::Data(_))),
+         "an inline payload past the pointer bound is still a URI"
+      );
    }
 
    /// An inline `data:` payload is capped like every fetched URI.

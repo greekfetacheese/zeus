@@ -238,9 +238,15 @@ impl NftIconData {
    }
 }
 
-/// The bytes held by an in-memory art map, both renderings per entry.
+/// The bytes held by an in-memory art map: both renderings per entry, plus the metadata URI each art
+/// was read from.
 fn art_bytes(cache: &HashMap<NftKey, NftIconData>) -> usize {
-   cache.values().map(|data| data.x64.len() + data.x250.len()).sum()
+   cache
+      .values()
+      .map(|data| {
+         data.x64.len() + data.x250.len() + data.source_uri.as_ref().map_or(0, String::len)
+      })
+      .sum()
 }
 
 /// How many tokens' art is held in memory.
@@ -251,11 +257,15 @@ fn art_bytes(cache: &HashMap<NftKey, NftIconData>) -> usize {
 /// next asked for, which is never a re-download.
 const MAX_ART_ENTRIES: usize = 512;
 
-/// The byte budget for that in-memory copy, counted over the two renderings ([`art_bytes`]).
+/// The byte budget for that in-memory copy, counted over everything an entry holds ([`art_bytes`]): the
+/// two renderings **and** the `source_uri` metadata document they came from.
 ///
-/// An entry's `source_uri` — the metadata document it came from, and contract-controlled — is not part
-/// of that count, so the ceiling here is this budget plus those; each URI is bounded where it is read,
-/// at `nft_icon::MAX_URI_LEN`.
+/// Counting the URI is what makes this bound the whole map. A URI is contract-controlled, and its
+/// length is not bounded here — a `data:` URI *is* its payload, so it is bounded only by the transfer
+/// cap, `nft_icon::MAX_URI_LEN` (16 MiB). Leaving it out of the count put the real resident ceiling at
+/// this budget *plus* up to [`MAX_ART_ENTRIES`] × that cap; counting it holds the map to this budget,
+/// whatever shape the URIs take. A URI that only *points* at a document is bounded far tighter where
+/// it is read, at `zeus_eth::nft::MAX_EXPANDED_URI_LEN` (64 KiB).
 const MAX_ART_BYTES: usize = 64 * 1024 * 1024;
 
 /// Downloaded NFT images.
@@ -1052,6 +1062,38 @@ mod tests {
       assert!(
          icons.nfts.has_icon(&keys[keys.len() - 1]),
          "and the newest survives"
+      );
+   }
+
+   /// The in-memory budget counts the metadata URI as well as the renderings.
+   ///
+   /// `art_bytes` counted only `x64` and `x250`, while each entry's `source_uri` is contract-controlled
+   /// and bounded only where it is read — so the real resident ceiling was `MAX_ART_BYTES` *plus* up to
+   /// `MAX_ART_ENTRIES` URIs, which the constant's own comment spelled out. Counting the URI makes
+   /// `MAX_ART_BYTES` the whole map's budget, and the eviction decision reads it, so an entry that is
+   /// over budget only because of its URI is dropped like any other.
+   #[test]
+   fn the_art_byte_budget_counts_the_source_uri() {
+      let ctx = Context::default();
+      let icons = Icons::new(&ctx).expect("the bundled icons load");
+      let collection = Address::from([0x44; 20]);
+      let key = (collection, 1, U256::from(1));
+
+      let mut data = raster(vec![1, 2], vec![3, 4]);
+      data.source_uri = Some("x".repeat(MAX_ART_BYTES + 1));
+
+      icons.nfts.icon_data.write().unwrap().insert(key, data);
+      assert!(
+         art_bytes(&icons.nfts.icon_data.read().unwrap()) > MAX_ART_BYTES,
+         "the URI's bytes must count against the budget"
+      );
+
+      icons.nfts.art_order.write().unwrap().push_back(key);
+      icons.nfts.evict_art();
+
+      assert!(
+         icons.nfts.icon_data.read().unwrap().is_empty(),
+         "an entry over budget because of its URI is evicted"
       );
    }
 
