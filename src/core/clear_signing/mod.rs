@@ -19,11 +19,11 @@ use zeus_eth::{
 
 /// Try to clear-sign an EIP-712 payload. Returns `None` on any miss/failure
 /// so the caller can fall back to pretty JSON.
-pub async fn try_clear_sign_typed_data(
-   ctx: ZeusCtx,
-   _chain: u64,
-   typed: &TypedData,
-) -> Option<ClearDisplay> {
+///
+/// Takes no chain: the descriptor is looked up by the domain's own `(chainId, verifyingContract,
+/// typeHash)`, so the caller's chain is not an input to this and must not be assumed to be one.
+/// The domain's chain is what the returned display describes, and it is what the prompt has to name.
+pub async fn try_clear_sign_typed_data(ctx: ZeusCtx, typed: &TypedData) -> Option<ClearDisplay> {
    let verifying = typed.domain.verifying_contract?;
    let chain_id = typed.domain.chain_id.and_then(|id| u64::try_from(id).ok())?;
    let encode_type = typed.encode_type().ok()?;

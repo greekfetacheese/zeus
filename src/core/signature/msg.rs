@@ -45,6 +45,18 @@ pub struct SignMessageData {
 pub struct ClearSignedDetails {
    pub raw: Value,
    pub display: ClearDisplay,
+   /// The chain this message is signed for — its own `domain.chainId`, which is the chain the
+   /// descriptor and every value in `display` were resolved for.
+   ///
+   /// Carried here rather than on [`ClearDisplay`] because that type is stored inside a recorded
+   /// transaction, so a field added to it would be a persisted-shape change; this wrapper is
+   /// build-to-prompt only. The prompt draws its chain row and its address labels from here.
+   ///
+   /// A clear-signed message always has one: [`try_clear_sign_typed_data`] refuses a domain without
+   /// a usable `chainId`, since the descriptor is looked up by `(chain, verifyingContract, typeHash)`.
+   ///
+   /// [`try_clear_sign_typed_data`]: crate::core::clear_signing::try_clear_sign_typed_data
+   pub chain: u64,
 }
 
 impl SignMsgType {
@@ -105,12 +117,13 @@ impl SignMsgType {
             return Ok(Self::Permit2612(details));
          }
          if let Ok(typed) = parse_typed_data(value.clone()) {
-            if let Some(display) =
-               clear_signing::try_clear_sign_typed_data(ctx, chain, &typed).await
-            {
+            if let Some(display) = clear_signing::try_clear_sign_typed_data(ctx, &typed).await {
                return Ok(Self::ClearSigned(ClearSignedDetails {
                   raw: value,
                   display,
+                  // The descriptor and every value above were resolved for the domain's chain, so
+                  // that is the chain the prompt has to name.
+                  chain: domain_chain(typed.domain.chain_id, chain),
                }));
             }
          }
@@ -281,6 +294,8 @@ impl ClearSignedDetails {
       };
       Self {
          raw: dummy_permit_json(),
+         // The fixture's own domain chain, and the chain its USDC token lives on.
+         chain: 8453,
          display: ClearDisplay {
             heading: "Permit".to_string(),
             intent: Intent::Text("Permit".to_string()),
@@ -326,6 +341,14 @@ pub struct Permit2BatchDetails {
 #[derive(Debug, Clone)]
 pub struct Permit2Details {
    pub token: ERC20Token,
+   /// The chain the permit is signed for — its own `domain.chainId`, not the chain the wallet
+   /// happens to be connected to. The signature is bound to that domain, so it is the chain the
+   /// allowance lands on, and the chain the token above was read from.
+   ///
+   /// Permit2's `verifyingContract` cannot stand in for this: the canonical Permit2 address is the
+   /// same on every chain, so comparing it against the connected chain's entry ties the message to
+   /// no chain at all. The domain's `chainId` is the only thing that names one.
+   pub chain: u64,
    pub amount: NumericValue,
    pub amount_usd: Option<NumericValue>,
    pub expiration: TimeStamp,
@@ -353,8 +376,10 @@ impl Permit2Details {
    pub fn dummy() -> Self {
       let permit2 = Address::from_str("0x000000000022d473030f116ddee9f6b43ac78ba3").unwrap();
       let spender = Address::from_str("0x6ff5693b99212da76ad316178a184ab56d299b43").unwrap();
+      let token = ERC20Token::weth_base();
       Self {
-         token: ERC20Token::weth_base(),
+         chain: token.chain_id,
+         token,
          amount: NumericValue::parse_to_wei("100000000", 18),
          amount_usd: Some(NumericValue::value(1.0, 1600.0)),
          expiration: TimeStamp::now_as_secs().unwrap().saturating_add_secs(600),
@@ -373,6 +398,13 @@ impl Permit2Details {
 
       let message = &data.message;
       let domain = &data.domain;
+
+      // The chain the permit is signed for. Not `chain`, the chain the wallet is connected to:
+      // `chain` is only where the user happened to be, and a permit naming another one grants the
+      // allowance there. Everything read for this prompt — the token, its price, the addresses —
+      // has to come from the permit's own chain, or the prompt describes a different token's
+      // approval than the one being signed for.
+      let chain = domain_chain(data.domain.chain_id, chain);
 
       let token_address =
          message["details"]["token"].as_str().ok_or(anyhow!("Missing token address"))?;
@@ -419,6 +451,8 @@ impl Permit2Details {
       }
 
       Ok(Self {
+         // `chain` is the permit's own domain chain here, not the wallet's.
+         chain,
          token,
          amount,
          amount_usd: Some(amount_usd),
@@ -495,6 +529,16 @@ fn json_address(value: &Value) -> Result<Address, anyhow::Error> {
    Address::from_str(s).map_err(|e| anyhow!("{e}"))
 }
 
+/// The chain a permit is signed for: the one its own `domain.chainId` names.
+///
+/// Both permit shapes resolve their chain through here, because the domain is what the signature
+/// is bound to — it, and not the chain the wallet is connected to, is where the allowance lands.
+/// A domain that names no usable chain falls back to the wallet's own: an absent `chainId` is the
+/// ordinary case, and one that does not fit a `u64` cannot be a chain Zeus signed for.
+fn domain_chain(chain_id: Option<U256>, fallback_chain: u64) -> u64 {
+   chain_id.and_then(|id| u64::try_from(id).ok()).unwrap_or(fallback_chain)
+}
+
 fn parse_permit2612_fields(
    data: &TypedData,
    fallback_chain: u64,
@@ -513,11 +557,7 @@ fn parse_permit2612_fields(
       .domain
       .verifying_contract
       .ok_or_else(|| anyhow!("missing verifying contract"))?;
-   let chain = data
-      .domain
-      .chain_id
-      .and_then(|id| u64::try_from(id).ok())
-      .unwrap_or(fallback_chain);
+   let chain = domain_chain(data.domain.chain_id, fallback_chain);
 
    Ok(Permit2612Fields {
       owner,
@@ -760,6 +800,51 @@ mod tests {
          permit2.spender,
          Address::from_str("0x6ff5693b99212da76ad316178a184ab56d299b43").unwrap()
       );
+      // The chain this permit is signed for, taken from the fixture's `domain.chainId`. The prompt
+      // renders this and not the wallet's chain, and the token above was read on it.
+      assert_eq!(permit2.chain, 8453);
+   }
+
+   /// A permit's chain comes from its own domain, not from the chain the wallet happens to be
+   /// connected to: the domain is what the signature is bound to, and so it is where the allowance
+   /// lands. Permit2's `verifyingContract` cannot decide this — it is the same address on every
+   /// chain — which is why both permit shapes resolve their chain through here, and why one test
+   /// covers the decision they share.
+   #[test]
+   fn a_permit_takes_its_chain_from_the_domain() {
+      assert_eq!(domain_chain(Some(U256::from(8453u64)), 1), 8453);
+
+      // A domain that names no chain leaves the wallet's own as the only thing to go on.
+      assert_eq!(domain_chain(None, 1), 1);
+
+      // And one that does not fit a `u64` cannot be a chain Zeus signs for, so it is not trusted
+      // as one either.
+      assert_eq!(domain_chain(Some(U256::MAX), 1), 1);
+   }
+
+   /// A permit's token is read on the permit's own chain, not on the wallet's. Driven with the
+   /// wallet on Ethereum and a permit whose domain names Base: an address is a different token per
+   /// chain, so resolving it on the wallet's chain is exactly how a prompt ends up showing one
+   /// token's approval while the signature grants another's.
+   ///
+   /// `Permit2Details::new` is called directly rather than through `SignMsgType::new` so a failure
+   /// here is this assertion and not a fall-through decoder deciding the message is something else.
+   #[tokio::test]
+   async fn permit2_reads_its_token_on_the_permit_chain() {
+      let ctx = ZeusCtx::new();
+      // The wallet is connected to Ethereum; the permit is for Base.
+      let permit2 = Permit2Details::new(ctx, 1, dummy_permit2_json())
+         .await
+         .expect("a permit for Base must resolve its token on Base, not on the wallet's chain");
+
+      assert_eq!(
+         permit2.chain, 8453,
+         "the prompt's chain is the permit's own, not the wallet's"
+      );
+      assert_eq!(
+         permit2.token.chain_id, 8453,
+         "and the token it names was read on that chain"
+      );
    }
 
    #[test]
@@ -878,6 +963,24 @@ mod tests {
       assert!(msg.is_permit2612());
       assert!(msg.is_known());
       assert_eq!(msg.title(), "Token Permit");
+   }
+
+   /// A clear-signed message carries the chain its descriptor was resolved for, and the prompt
+   /// draws its chain row and its address labels from that rather than from the wallet's chain.
+   ///
+   /// The resolution itself is structurally domain-only — `try_clear_sign_typed_data` takes no
+   /// chain, because the descriptor is looked up by `(domain chainId, verifyingContract, typeHash)`
+   /// — so what is left to pin is that the carrier is populated at the one construction site.
+   #[test]
+   fn a_clear_signed_message_carries_its_domains_chain() {
+      let msg = SignMsgType::dummy_clear_signed();
+      let clear = msg.clear_signed_details();
+
+      assert!(msg.is_clear_signed());
+      assert_eq!(
+         clear.chain, 8453,
+         "the fixture's own domain chain, which is also where its USDC lives"
+      );
    }
 
    #[tokio::test]
