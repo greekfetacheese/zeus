@@ -7,6 +7,7 @@ use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
    nft::{NftStandard, NftToken},
+   types::ChainId,
    utils::NumericValue,
 };
 use zeus_railgun::{RailgunSigner, caip::AssetId};
@@ -411,7 +412,14 @@ async fn process_private_tokens(
    let mut nft_list: Vec<NftToken> = Vec::new();
    let mut nft_amounts: HashMap<(Address, U256), u64> = HashMap::new();
 
-   if !ctx.railgun_is_supported(chain_id.into()) || !ctx.is_railgun_enabled(chain_id) {
+   // The portfolio's chain came out of the sealed `WalletState`, and nothing re-validates it on
+   // load. A chain Zeus has no entry for has no Railgun config and no provider, so leave the private
+   // side empty rather than carrying it through the panicking `ChainId::from`.
+   let Ok(chain) = ChainId::new(chain_id) else {
+      return Ok(PrivateHoldings::default());
+   };
+
+   if !ctx.railgun_is_supported(chain) || !ctx.is_railgun_enabled(chain_id) {
       return Ok(PrivateHoldings::default());
    }
 

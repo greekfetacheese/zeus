@@ -10,8 +10,8 @@ use crate::assets::icons::Icons;
 use crate::core::clear_signing;
 use crate::core::{TransactionRich, ZeusContext};
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::common::usable_chain;
 use crate::utils::RT;
-use zeus_eth::types::ChainId;
 
 use std::sync::Arc;
 
@@ -63,6 +63,13 @@ impl TxWindow {
       let Some(tx) = self.tx.as_ref() else {
          return;
       };
+
+      // The transaction is store-fed and the chain is not re-validated on load. A chain Zeus cannot
+      // name has no descriptor registry entry either, so there is nothing to resolve — and the window
+      // refuses to show it at all, rather than decode it against another chain's contracts.
+      if usable_chain(tx.chain).is_none() {
+         return;
+      }
 
       if !tx.main_event.is_other() || tx.clear_display.is_some() {
          return;
@@ -154,7 +161,31 @@ impl TxWindow {
                }
 
                let tx = self.tx.as_ref().unwrap();
-               let chain_id: ChainId = tx.chain.into();
+
+               // `tx` came out of the sealed `tx_history.db`, and nothing re-validates its chain on
+               // load. A transaction on a chain Zeus cannot name cannot be decoded either — there is no
+               // fork spec, no contract address book and no descriptor registry for it — so refuse it
+               // by name instead of building the window on `ChainId::from`, which panics.
+               let Some(chain_id) = usable_chain(tx.chain) else {
+                  let chain = tx.chain;
+                  ui.add_space(20.0);
+                  ui.label(
+                     RichText::new(format!(
+                        "This transaction is on a chain Zeus cannot use ({chain})"
+                     ))
+                     .size(theme.typography.large),
+                  );
+                  ui.add_space(20.0);
+
+                  let size = vec2(ui.available_width() * 0.8, 45.0);
+                  let text = RichText::new("Close").size(theme.typography.normal);
+                  let close_button = Button::new(text).min_size(size);
+
+                  if ui.add(close_button).clicked() {
+                     self.close();
+                  }
+                  return;
+               };
 
                let frame = theme.frame2;
                let frame_size = vec2(ui.available_width() * 0.95, 45.0);
@@ -308,7 +339,7 @@ impl TxWindow {
 
                      tx_cost(chain_id, &tx.tx_cost, &tx.tx_cost_usd, theme, ui);
 
-                     tx_hash(tx.chain.into(), &tx.hash, theme, ui);
+                     tx_hash(chain_id, &tx.hash, theme, ui);
                   });
                });
 

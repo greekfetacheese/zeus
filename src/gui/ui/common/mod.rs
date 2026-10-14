@@ -32,17 +32,27 @@ use elegance::{Accent, Switch};
 use std::time::{Duration, Instant};
 use zeus_eth::types::ChainId;
 
-/// The name to draw for a chain id that came out of a store.
+/// The chain a stored id names, when Zeus has an entry for it.
 ///
 /// Rows rebuilt from the sealed stores — `tx_history.db`, the Railgun spent-note db, the approval
-/// manager — carry whatever chain id was persisted, and nothing re-validates it on load. That id
-/// must not go through the panicking `ChainId::from`. A chain Zeus knows is named as usual; one it
-/// has no entry for is labelled with its own id, so a row can still say what it was, rather than
-/// aborting the whole wallet.
+/// manager — carry whatever chain id was persisted, and nothing re-validates it on load. Everything
+/// that needs a real [`ChainId`] for such a row asks here first instead of converting it: a chain
+/// Zeus knows comes back, and one it has no entry for is `None` — there is no explorer, no contract
+/// address book, no fork spec, and `ChainId::from` would panic. The caller names the refused id in
+/// its own message, so the row can still say which chain it was on.
+pub fn usable_chain(id: u64) -> Option<ChainId> {
+   ChainId::new(id).ok()
+}
+
+/// The name to draw for a chain id that came out of a store.
+///
+/// A chain Zeus knows is named as usual; one it has no entry for is labelled with its own id, so a
+/// row can still say what it was, rather than aborting the whole wallet. See [`usable_chain`] for
+/// the same split where an action needs the chain itself.
 pub fn chain_label(id: u64) -> String {
-   match ChainId::new(id) {
-      Ok(chain) => chain.name().to_string(),
-      Err(_) => format!("Unknown chain ({id})"),
+   match usable_chain(id) {
+      Some(chain) => chain.name().to_string(),
+      None => format!("Unknown chain ({id})"),
    }
 }
 
@@ -224,5 +234,25 @@ mod tests {
          chain_label(u64::MAX),
          format!("Unknown chain ({})", u64::MAX)
       );
+   }
+
+   /// Every action that needs a real `ChainId` for a stored row asks this, so it has to accept
+   /// exactly Zeus's chains and refuse everything else — the refused id is what the callers name in
+   /// their message and what keeps `ChainId::from` off the path. Swept over the supported set so a
+   /// new chain is picked up, plus an ordinary unsupported id and one that cannot be a chain at all.
+   #[test]
+   fn usable_chain_accepts_exactly_zeus_chains() {
+      use zeus_eth::types::SUPPORTED_CHAINS;
+
+      for id in SUPPORTED_CHAINS {
+         assert_eq!(
+            usable_chain(id).map(|c| c.id()),
+            Some(id),
+            "chain {id}"
+         );
+      }
+
+      assert!(usable_chain(137).is_none());
+      assert!(usable_chain(u64::MAX).is_none());
    }
 }
