@@ -2,8 +2,10 @@
 //!
 //! Safety:
 //! 1. Every zip path is checked against the same persisted-name whitelist used
-//!    on export (no zip-slip, no unknown files).
-//! 2. `data/vault.data` must unlock with the credentials the user entered.
+//!    on export (no zip-slip, no unknown files), and entries that normalise to
+//!    the same `data/`-relative path are treated as one — the first wins.
+//! 2. `data/vault.data` must be long enough to be a sealed store and unlock with
+//!    the credentials the user entered.
 //! 3. `data/wallet_state.data` must decrypt with the vault-held key.
 //! 4. Only then is the archive staged off to the side and, once every entry has
 //!    landed, swapped into the destination `data/` directory — nothing live is
@@ -23,6 +25,15 @@ use zip::ZipArchive;
 
 /// Prefix of the staging directory an import writes into before it installs anything.
 const STAGING_DIR_PREFIX: &str = ".import-staging-";
+
+/// The shortest a sealed Zeus store can be on disk.
+///
+/// `ncrypt-me`'s container is an 8-byte magic header, then the encrypted-info length as a 4-byte
+/// little-endian `u32`, then the encrypted info and the ciphertext. Its `decrypt_data` indexes the
+/// header (`&data[0..8]`) before any length check, so a shorter blob panics inside the dependency —
+/// and [`Vault::decrypt_bytes`] hands the archive's bytes straight to it. Refusing anything below
+/// header + length field (8 + 4) keeps a crafted short blob out of the decryptor.
+const MIN_SEALED_BLOB_BYTES: usize = 8 + 4;
 
 /// Files written plus the already-unlocked imported vault.
 pub struct ImportedData {
@@ -86,6 +97,20 @@ pub fn import_data_from_zip(
       let staged = join_parts(staging.path(), parts);
       write_private_from_reader(&staged, &mut zip_file)?;
       restrict_parents(staging.path(), parts);
+   }
+
+   // Confirm every entry actually landed before the first install. The staging loop is the only
+   // writer, so a missing staged file means one entry could not be materialised — installing the
+   // others would leave a half-swapped profile: the archive's vault beside the previous state, or
+   // the reverse.
+   for (_, parts) in &ordered {
+      let staged = join_parts(staging.path(), parts);
+      if !staged.is_file() {
+         return Err(anyhow!(
+            "Import staging is incomplete: data/{} was not written",
+            parts.join("/")
+         ));
+      }
    }
 
    // Every entry landed. Swap them into place. The order is `write_priority` ascending, so the
@@ -253,6 +278,22 @@ fn list_allowed_entries(
          ));
       }
 
+      // Two spellings of one path — `data/x` and `data/./x` are distinct zip entries, because the
+      // central directory keys on the raw name — normalise to the same `parts`. Keep the first:
+      // both the staged file and the destination are derived from `parts`, so a later duplicate
+      // would stage over the first, and the swap would then rename that one staged file twice. The
+      // second `move_into_place` fails on the consumed source and aborts the swap, leaving the
+      // archive's `wallet_state.data` beside the previous install's `vault.data`. `index_of` reads
+      // the first occurrence during verification, so the first is the one that gets installed.
+      if entries.iter().any(|(_, existing)| existing == &parts) {
+         tracing::warn!(
+            "Ignoring duplicate archive entry {} (already present as data/{})",
+            file.name(),
+            parts.join("/")
+         );
+         continue;
+      }
+
       if parts.as_slice() == [PersistedFile::Vault.name()] {
          has_vault = true;
       }
@@ -287,6 +328,13 @@ fn verify_imported_vault(
 
    let vault_bytes = read_entry(archive, vault_idx)?;
    let state_bytes = read_entry(archive, state_idx)?;
+
+   // Refuse an implausibly short blob before any decryptor sees it: `decrypt_data` indexes the
+   // ncrypt-me header without a length check, so a blob under 12 bytes panics inside the
+   // dependency. `data/wallet_state.data` fails cleanly on its own, but the guard names it too so
+   // both archive reads are refused the same way.
+   ensure_sealed_blob_long_enough(PersistedFile::Vault.name(), &vault_bytes)?;
+   ensure_sealed_blob_long_enough(PersistedFile::WalletState.name(), &state_bytes)?;
 
    let mut vault = Vault::default();
    vault.set_credentials(credentials);
@@ -325,6 +373,20 @@ fn read_entry(archive: &mut ZipArchive<File>, index: usize) -> Result<Vec<u8>, a
    let mut buf = Vec::new();
    file.read_to_end(&mut buf)?;
    Ok(buf)
+}
+
+/// Refuse a sealed blob too short to carry `ncrypt-me`'s header.
+///
+/// `file` is the `data/`-relative name, named in the error alongside the length so the refusal
+/// identifies the entry without the caller having to map it back.
+fn ensure_sealed_blob_long_enough(file: &str, bytes: &[u8]) -> Result<(), anyhow::Error> {
+   if bytes.len() >= MIN_SEALED_BLOB_BYTES {
+      return Ok(());
+   }
+   Err(anyhow!(
+      "data/{file} is {} bytes, shorter than the {MIN_SEALED_BLOB_BYTES}-byte minimum for a sealed store",
+      bytes.len()
+   ))
 }
 
 fn index_of(entries: &[(usize, Vec<String>)], file: PersistedFile) -> Option<usize> {
@@ -835,6 +897,98 @@ mod tests {
       assert!(
          staging.is_empty(),
          "staging left behind: {staging:?}"
+      );
+   }
+
+   /// Two archive entries that normalise to one `data/`-relative path — `data/x` and `data/./x` —
+   /// are distinct zip entries (the central directory keys on the raw name) but collide once the
+   /// `./` is dropped, so both would stage into one file and the swap would rename that file twice.
+   /// The fix keeps the first, which is also the entry `index_of` verifies, so the import completes
+   /// and the first-spelled payload is the one installed. Both payload *and* vault must land: the
+   /// whole point is to avoid the half-swapped profile where the archive's `wallet_state.data` sits
+   /// beside the previous install's `vault.data` (whose key can no longer read it).
+   #[test]
+   fn two_spellings_of_one_path_import_as_one_entry() {
+      let credentials = creds("user", "pass");
+      let (vault_bytes, state_bytes, _) = sample_encrypted_vault(credentials.clone());
+
+      let later_spelling = b"the data/./wallet_state.data payload, which must lose";
+
+      let dir = tempfile::tempdir().unwrap();
+      let zip_path = dir.path().join("collision.zip");
+      write_zip(
+         &zip_path,
+         &[
+            ("data/wallet_state.data", &state_bytes),
+            (
+               "data/./wallet_state.data",
+               later_spelling.as_slice(),
+            ),
+            ("data/vault.data", &vault_bytes),
+         ],
+      );
+
+      let dest = dir.path().join("out");
+      fs::create_dir(&dest).unwrap();
+
+      let mut imported = match import_data_from_zip(&zip_path, &dest, credentials, None) {
+         Ok(imported) => imported,
+         Err(e) => panic!("the two spellings must fold into one entry, got: {e}"),
+      };
+      imported.vault.erase();
+
+      assert_eq!(
+         imported.files_written, 2,
+         "the duplicate spelling is dropped, not counted as a file"
+      );
+      assert_eq!(
+         fs::read(dest.join("wallet_state.data")).unwrap(),
+         state_bytes,
+         "the first spelling is the one installed — and the one verification read"
+      );
+      assert_eq!(
+         fs::read(dest.join("vault.data")).unwrap(),
+         vault_bytes,
+         "the vault still lands, so the profile is not left half-swapped"
+      );
+   }
+
+   /// A sealed store shorter than `ncrypt-me`'s header (8 bytes) plus its encrypted-info length
+   /// field (4) makes `decrypt_data` index `&data[0..8]` past the end: a panic inside the
+   /// dependency, not a clean error. The import must refuse it by name before any decryptor runs
+   /// and leave the live directory byte-identical.
+   #[test]
+   fn a_short_vault_blob_is_refused_before_it_reaches_a_decryptor() {
+      let credentials = creds("user", "pass");
+      let (_vault_bytes, state_bytes, _) = sample_encrypted_vault(credentials.clone());
+
+      let dir = tempfile::tempdir().unwrap();
+      let zip_path = dir.path().join("short-vault.zip");
+      write_zip(
+         &zip_path,
+         &[
+            ("data/vault.data", b"0123"),
+            ("data/wallet_state.data", &state_bytes),
+         ],
+      );
+
+      let dest = dir.path().join("out");
+      fs::create_dir(&dest).unwrap();
+      fs::write(dest.join("keep-me.txt"), b"untouched").unwrap();
+
+      let err = match import_data_from_zip(&zip_path, &dest, credentials, None) {
+         Err(e) => e,
+         Ok(_) => panic!("a 4-byte vault must be refused, not decrypted"),
+      };
+      let msg = err.to_string();
+      assert!(msg.contains("data/vault.data"), "{msg}");
+      assert!(msg.contains("4 bytes"), "{msg}");
+
+      assert!(!dest.join("vault.data").exists());
+      assert!(!dest.join("wallet_state.data").exists());
+      assert_eq!(
+         fs::read(dest.join("keep-me.txt")).unwrap(),
+         b"untouched"
       );
    }
 }
