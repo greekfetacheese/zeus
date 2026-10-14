@@ -7,6 +7,7 @@
 //! Reconnecting an app defaults to the account it was connected with before.
 
 use crate::core::WalletInfo;
+use crate::gui::SHARED_GUI;
 use crate::gui::ui::common::delayed_action_label;
 use egui::{Id, Order, RichText, ScrollArea, Sense, Ui, vec2};
 use egui_elements::{Button, Label, Modal, Theme};
@@ -34,10 +35,15 @@ const WALLET_LIST_MAX_HEIGHT: f32 = 240.0;
 
 /// Prompt shown when an app requests a connection.
 ///
-/// Mirrors [`ConfirmWindow`](crate::gui::ConfirmWindow)'s contract: the server
-/// opens it, polls [`get_result`](Self::get_result), then resets it.
+/// Mirrors [`ConfirmWindow`](crate::gui::ConfirmWindow)'s contract: the server opens it, claims it
+/// ([`Self::claim`]), polls [`take_result`](Self::take_result), and releases the claim through
+/// [`ConnectClaim`] when its handler ends — however it ends.
 pub struct ConnectDappWindow {
    open: bool,
+   /// A flow has claimed this window ([`Self::claim`]) and holds it until it is done with the
+   /// prompt. Claimed under the same lock that opens it, so a second request cannot replace the
+   /// prompt the user is reading.
+   pending: bool,
    origin: String,
    /// `true` when the default "create a new account" option is selected.
    use_new_account: bool,
@@ -57,6 +63,7 @@ impl ConnectDappWindow {
    pub fn new() -> Self {
       Self {
          open: false,
+         pending: false,
          origin: String::new(),
          use_new_account: true,
          wallets: Vec::new(),
@@ -72,13 +79,36 @@ impl ConnectDappWindow {
       self.open
    }
 
-   /// `true` while a connection is being decided: the prompt is visible, or a
-   /// decision is waiting for the server to collect it.
+   /// True while a connection is being decided: a flow holds the window ([`Self::pending`]) or the
+   /// prompt is up.
    ///
-   /// The server refuses a second connect request while busy — one shared
-   /// prompt cannot belong to two origins at once.
+   /// The server refuses a second connect request while this holds — one shared prompt cannot
+   /// belong to two origins at once.
+   ///
+   /// A decision still waiting in `result` is deliberately *not* busy on its own. The flow that
+   /// owns the window holds the claim until it has collected the answer, so an uncollected answer
+   /// can only exist once that flow is gone — and reading it as busy would let a handler that died
+   /// after the user answered (the dapp disconnected, the future was cancelled) wedge every later
+   /// `eth_requestAccounts` for the rest of the session.
    pub fn is_busy(&self) -> bool {
-      self.open || self.result.is_some()
+      self.pending || self.open
+   }
+
+   /// Claim the window for one flow, from just before its prompt is put up until it is done with
+   /// it. Returns false when another flow already holds it.
+   ///
+   /// Call under the same lock as the [`Self::is_busy`] check (`connect` does), or two flows can
+   /// both pass the check. [`Self::release`] hands it back, and [`ConnectClaim`] does so on drop.
+   pub fn claim(&mut self) -> bool {
+      if self.pending {
+         return false;
+      }
+      self.pending = true;
+      true
+   }
+
+   pub fn release(&mut self) {
+      self.pending = false;
    }
 
    /// Open the prompt for `origin`.
@@ -109,8 +139,12 @@ impl ConnectDappWindow {
       self.opened_at = Some(Instant::now());
    }
 
-   pub fn get_result(&self) -> Option<DappConnectResult> {
-      self.result
+   /// Collect the answer, consuming it.
+   ///
+   /// Single-use on purpose: an answer that could be read twice would answer two flows from one
+   /// Connect click, and the second would connect an app to an account the user never chose for it.
+   pub fn take_result(&mut self) -> Option<DappConnectResult> {
+      self.result.take()
    }
 
    /// Close and answer the server with a rejection. Used when auto-lock fires,
@@ -122,17 +156,6 @@ impl ConnectDappWindow {
 
    pub fn close(&mut self) {
       self.open = false;
-   }
-
-   pub fn reset(&mut self) {
-      self.close();
-      self.origin.clear();
-      self.wallets.clear();
-      self.selected = None;
-      self.seen_accounts.clear();
-      self.use_new_account = true;
-      self.result = None;
-      self.opened_at = None;
    }
 
    pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
@@ -325,6 +348,21 @@ impl ConnectDappWindow {
    }
 }
 
+/// Releases the connect window's claim when the flow holding it ends.
+///
+/// A drop guard rather than a call at each exit point, mirroring the other authorising prompts'
+/// guards: the server's connect loop must hand the window back on every path, including a future
+/// dropped mid-prompt because the dapp disconnected. Without it, a handler that died after the
+/// user answered would leave the window busy for the rest of the session and every later
+/// `eth_requestAccounts` would be refused with `-32002`.
+pub struct ConnectClaim;
+
+impl Drop for ConnectClaim {
+   fn drop(&mut self) {
+      SHARED_GUI.write(|gui| gui.connect_dapp_window.release());
+   }
+}
+
 #[cfg(test)]
 mod tests {
    use super::*;
@@ -357,9 +395,6 @@ mod tests {
       assert_eq!(window.selected, Some(last_used));
       assert_eq!(window.seen_accounts, vec![earlier, last_used]);
       assert!(!window.seen_accounts.contains(&untouched));
-
-      window.reset();
-      assert!(window.seen_accounts.is_empty());
    }
 
    /// A new app marks nothing as previously connected; the list's preselection
@@ -382,10 +417,10 @@ mod tests {
       assert_eq!(window.selected, Some(first));
    }
 
-   /// A prompt is busy while it is visible and until its decision is collected,
-   /// so a second connect request cannot overwrite it.
+   /// A prompt is busy while it is visible, so a second connect request cannot
+   /// overwrite it before the user has answered.
    #[test]
-   fn prompt_is_busy_from_open_until_reset() {
+   fn prompt_is_busy_while_it_is_open() {
       let mut window = ConnectDappWindow::new();
       assert!(!window.is_busy());
 
@@ -397,13 +432,91 @@ mod tests {
       );
       assert!(window.is_busy());
 
-      // A decision was taken but the server has not collected it yet: the
-      // prompt is closed, still busy.
+      // A second request cannot open while the prompt is up.
+      window.open(
+         "https://other.example".to_string(),
+         None,
+         Vec::new(),
+         Vec::new(),
+      );
+      assert_eq!(window.origin, "https://app.example");
+      assert!(window.is_busy());
+   }
+
+   /// A live claim refuses a second request even before the prompt is drawn: the
+   /// server claims the window in the same lock it opens it under.
+   #[test]
+   fn a_live_claim_refuses_a_second_request() {
+      let mut window = ConnectDappWindow::new();
+
+      assert!(window.claim());
+      assert!(window.is_busy());
+      assert!(!window.claim());
+
+      window.release();
+      assert!(!window.is_busy());
+   }
+
+   /// The wedge regression: a flow that claimed the window and is then dropped — the
+   /// dapp disconnected, the handler was cancelled — must leave the window free even
+   /// though its answer was never collected. Reading `result.is_some()` as busy made
+   /// it stay busy for the rest of the session.
+   #[test]
+   fn an_abandoned_handler_does_not_wedge_the_window() {
+      let mut window = ConnectDappWindow::new();
+      window.open(
+         "https://app.example".to_string(),
+         None,
+         Vec::new(),
+         vec![],
+      );
+      window.claim();
+      window.result = Some(DappConnectResult::Approved(
+         DappAccountChoice::NewAccount,
+      ));
+      window.close();
+
+      // The flow is gone, so its guard released the claim.
+      window.release();
+
+      assert!(!window.is_busy());
+
+      // And the next request can open the prompt again.
+      window.open(
+         "https://other.example".to_string(),
+         None,
+         Vec::new(),
+         Vec::new(),
+      );
+      assert!(window.is_open());
+   }
+
+   /// An uncollected answer is still busy — but only while its flow is alive and
+   /// holds the claim. This is the half of the rule the wedge fix must not remove.
+   #[test]
+   fn an_uncollected_answer_with_a_live_claim_is_still_busy() {
+      let mut window = ConnectDappWindow::new();
+      window.open(
+         "https://app.example".to_string(),
+         None,
+         Vec::new(),
+         Vec::new(),
+      );
+      window.claim();
       window.result = Some(DappConnectResult::Rejected);
       window.close();
-      assert!(window.is_busy());
 
-      window.reset();
+      assert!(window.is_busy());
+      assert!(!window.claim());
+
+      // The answer is collected once and only once.
+      assert_eq!(
+         window.take_result(),
+         Some(DappConnectResult::Rejected)
+      );
+      assert_eq!(window.take_result(), None);
+
+      window.release();
       assert!(!window.is_busy());
    }
 
@@ -419,11 +532,20 @@ mod tests {
          vec![wallet(address(1))],
       );
 
+      // The server claimed the prompt; auto-lock fires while it is up.
+      window.claim();
       window.reject();
 
       assert!(!window.is_open());
       assert_eq!(window.result, Some(DappConnectResult::Rejected));
-      // Still busy until the server collects the decision.
+      // Still busy until the flow collects the decision and drops its claim.
       assert!(window.is_busy());
+
+      assert_eq!(
+         window.take_result(),
+         Some(DappConnectResult::Rejected)
+      );
+      window.release();
+      assert!(!window.is_busy());
    }
 }

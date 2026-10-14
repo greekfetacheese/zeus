@@ -6,7 +6,7 @@
 //! - MsgWindow - Simple window diplaying a message, for example an error
 
 use super::delayed_action_label;
-use crate::gui::SHARED_GUI;
+use crate::gui::{GUI, SHARED_GUI};
 use crate::utils::{
    RT, TimeStamp,
    self_update::{UpdateInfo, restart_app, update_zeus},
@@ -148,8 +148,13 @@ impl ConfirmWindow {
          .heading(heading)
          .header_separator(false)
          .center_header(true)
-         .backdrop_order(Order::Tooltip)
-         .content_order(Order::Debug)
+         // Same layers as the other authorising prompts (sign message, transaction
+         // confirmation, app connect). It used to draw at `Tooltip`/`Debug`, a layer above
+         // them, so whenever it was raised over a pending sign prompt it covered it. The
+         // shared `authorising_prompt_busy` check now keeps two authorising prompts from being
+         // up at once; this stops this window being *placed* above the others as well.
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
          .max_width(self.size.0)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
@@ -214,6 +219,29 @@ impl Drop for ConfirmWindowClaim {
    fn drop(&mut self) {
       SHARED_GUI.write(|gui| gui.confirm_window.release());
    }
+}
+
+/// True while any authorising prompt — a sign-message request, a transaction confirmation, the
+/// shared confirm prompt, or an app-connect request — is in flight.
+///
+/// Every opener consults this under the same `SHARED_GUI.write` lock it uses to open (or claim) its
+/// own prompt, so the check and the open have no gap: at most one prompt can be up, and a second
+/// request can never replace what the user is reading. It answers for *all four* windows, not only
+/// the one a flow raises, which is what stops a dapp's `wallet_switchEthereumChain` (or add-token,
+/// or MEV fallback) from putting its prompt up over a pending sign-message prompt — the two used to
+/// share one window layer, so the newer one was drawn on top.
+///
+/// The one intended *sequence* is the MEV-protection fallback inside a send (`core::tx::send`): the
+/// same send raises that prompt only **after** `confirm_tx` has returned, so the transaction
+/// confirmation's claim (a `ConfirmClaim`, dropped on return) is already released and the window it
+/// used is closed. The two prompts therefore never overlap, and the fallback needs no exemption
+/// here — it consults this predicate like every other opener. A future change that raised it while
+/// the transaction prompt were still up would be refused, not silently stacked.
+pub fn authorising_prompt_busy(gui: &GUI) -> bool {
+   gui.sign_msg_window.is_busy()
+      || gui.tx_confirmation_window.is_busy()
+      || gui.confirm_window.is_busy()
+      || gui.connect_dapp_window.is_busy()
 }
 
 /// Window to prompt the user to update Zeus version
@@ -602,5 +630,35 @@ mod tests {
       // The owning flow releases the window when it is done with it.
       window.release();
       assert!(!window.is_busy());
+   }
+
+   /// The shared predicate answers for *every* authorising prompt, not only the one window a flow
+   /// happens to raise. An opener consults it under the same lock it opens its own prompt with, so
+   /// a dapp request can be refused because a signing prompt (or a connect prompt, or a transaction
+   /// confirmation) is already waiting — the case where a switch/add-token/MEV prompt used to be
+   /// drawn straight over the sign prompt the user was reading.
+   #[test]
+   fn shared_predicate_covers_every_authorising_prompt() {
+      let mut gui = GUI::default();
+      assert!(!authorising_prompt_busy(&gui));
+
+      // Each window, held by a flow, alone makes the shared answer true.
+      gui.confirm_window.claim();
+      assert!(authorising_prompt_busy(&gui));
+      gui.confirm_window.release();
+
+      gui.connect_dapp_window.claim();
+      assert!(authorising_prompt_busy(&gui));
+      gui.connect_dapp_window.release();
+
+      gui.sign_msg_window.claim();
+      assert!(authorising_prompt_busy(&gui));
+      gui.sign_msg_window.release();
+
+      gui.tx_confirmation_window.claim();
+      assert!(authorising_prompt_busy(&gui));
+      gui.tx_confirmation_window.release();
+
+      assert!(!authorising_prompt_busy(&gui));
    }
 }

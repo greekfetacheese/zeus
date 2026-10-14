@@ -1,5 +1,6 @@
 use crate::core::ZeusCtx;
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::common::windows::authorising_prompt_busy;
 use serde_json::Value;
 use std::time::Duration;
 use zeus_eth::{alloy_primitives::Address, alloy_signer::Signature, types::ChainId};
@@ -37,10 +38,10 @@ pub async fn sign_message(
 
    let msg_type = SignMsgType::new(ctx.clone(), chain.id(), msg_value, msg_bytes).await?;
 
-   // One prompt at a time: two racing requests would share this window and both act on one answer.
+   // One prompt at a time, whatever raised it: every authorising prompt counts, not only this
+   // window and the transaction confirmation it used to check by hand.
    let busy = SHARED_GUI.write(|gui| {
-      // Also guard against an already open tx window
-      if gui.sign_msg_window.is_busy() || gui.tx_confirmation_window.is_busy() {
+      if authorising_prompt_busy(gui) {
          return true;
       }
 
