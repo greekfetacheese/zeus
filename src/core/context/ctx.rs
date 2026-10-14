@@ -4,7 +4,7 @@ use super::{
    price_manager::PriceManagerHandle, tx::TxDBHandle,
 };
 
-use crate::core::persisted::{self, PersistedFile};
+use crate::core::persisted::{self, PersistedFile, UnreadableStores};
 use crate::core::{TransactionRich, WalletState, WalletValue};
 use crate::core::{Vault, WalletInfo, client::Rpc, types::*};
 use crate::server::SERVER_PORT;
@@ -658,7 +658,39 @@ impl ZeusCtx {
       Ok(())
    }
 
+   /// Quarantine `file` (renamed aside) and record it as unreadable for the rest of the run.
+   ///
+   /// Called by a loader after a store it failed to read. The rename keeps the bytes and stops the
+   /// next start fighting a file that cannot be read; the record makes every saver skip.
+   fn flag_unreadable_store(&self, file: PersistedFile, err: &anyhow::Error) {
+      self.write(|ctx| {
+         persisted::quarantine_unreadable_store(&mut ctx.unreadable_stores, file, err);
+      });
+   }
+
+   /// The reason `file`'s saver must skip, or `None` when it may write.
+   fn unreadable_save_reason(&self, file: PersistedFile) -> Option<String> {
+      self.read(|ctx| ctx.unreadable_stores.save_blocked(file))
+   }
+
+   /// `true` when `file` failed to read this run; logs why `what` is not saved so a skip is never
+   /// silent. Savers call this and return when it is `true`.
+   fn skip_save_if_unreadable(&self, file: PersistedFile, what: &str) -> bool {
+      match self.unreadable_save_reason(file) {
+         Some(reason) => {
+            tracing::error!("Not saving {what}: {reason}");
+            true
+         }
+         None => false,
+      }
+   }
+
    pub fn save_wallet_state(&self) -> Result<(), anyhow::Error> {
+      if let Some(reason) = self.unreadable_save_reason(PersistedFile::WalletState) {
+         tracing::error!("Not saving wallet state: {reason}");
+         return Err(anyhow!("Not saving wallet state: {reason}"));
+      }
+
       if self.save_wallet_state_in_progress() {
          return Err(anyhow!(
             "Saving wallet state in progress, try again later"
@@ -697,8 +729,8 @@ impl ZeusCtx {
    /// A file that is there and does *not* read is a different matter, and is not treated as a
    /// missing one: `autolock` is a security choice, so running on the defaults is a weaker policy
    /// than the user picked, and sealing those defaults back would destroy the choice for good. The
-   /// defaults are used for this session, the file is left exactly as it is (see
-   /// [`Self::save_security_settings`]), and `security.load_failed` carries the failure to the UI.
+   /// defaults are used for this session, the unreadable bytes are quarantined by the shared
+   /// helper so they survive, and `security.load_failed` carries the failure to the UI.
    pub fn load_security_settings(&self) -> Result<(), anyhow::Error> {
       let key = self.read_vault(|vault| vault.wallet_state_key())?;
       let present = persisted::file_path(PersistedFile::Security).is_ok_and(|p| p.exists());
@@ -706,7 +738,7 @@ impl ZeusCtx {
 
       if present {
          if let Err(e) = &read {
-            tracing::error!("Failed to load security settings, leaving the file untouched: {e:?}");
+            self.flag_unreadable_store(PersistedFile::Security, e);
          }
       }
 
@@ -717,14 +749,17 @@ impl ZeusCtx {
 
    /// Seal and write `data/security.data` with the vault-held key.
    ///
-   /// Refuses while `security.load_failed` is set: the settings in memory are the defaults, and
-   /// sealing them over a file that did not read would replace the user's choice with them. A
-   /// deliberate change in the security UI clears the flag and then saves.
+   /// Refuses while the settings did not read: the settings in memory are the defaults, and sealing
+   /// them over a file that did not read would replace the user's choice with them. The refusal is
+   /// `security.load_failed` (kept for the UI, which clears it when the user picks a value) or the
+   /// shared unreadable-store record, whichever flagged the failure. A deliberate change in the
+   /// security UI clears the flag and then saves.
    pub fn save_security_settings(&self) -> Result<(), anyhow::Error> {
       let key = self.read_vault(|vault| vault.wallet_state_key())?;
       let settings = self.read(|ctx| ctx.security.clone());
+      let recorded = self.unreadable_save_reason(PersistedFile::Security);
 
-      if settings.load_failed {
+      if settings.load_failed || recorded.is_some() {
          return Err(anyhow!(
             "Refusing to overwrite {}: it could not be read, so these settings are the defaults",
             persisted::file_path(PersistedFile::Security)
@@ -977,6 +1012,9 @@ impl ZeusCtx {
    }
 
    pub fn save_currency_db(&self) {
+      if self.skip_save_if_unreadable(PersistedFile::Tokens, "CurrencyDB") {
+         return;
+      }
       let key = match self.read_vault(|vault| vault.wallet_state_key()) {
          Ok(k) => k,
          Err(e) => {
@@ -1015,11 +1053,17 @@ impl ZeusCtx {
 
       match CurrencyDB::load_from_file(&key) {
          Ok(db) => self.write(|ctx| ctx.currency_db = db),
-         Err(e) => tracing::error!("Error loading CurrencyDB: {:?}", e),
+         Err(e) => {
+            tracing::error!("Error loading CurrencyDB: {:?}", e);
+            self.flag_unreadable_store(PersistedFile::Tokens, &e);
+         }
       }
    }
 
    pub fn save_nft_db(&self) {
+      if self.skip_save_if_unreadable(PersistedFile::NftDb, "NftDB") {
+         return;
+      }
       let key = match self.read_vault(|vault| vault.wallet_state_key()) {
          Ok(k) => k,
          Err(e) => {
@@ -1058,11 +1102,17 @@ impl ZeusCtx {
 
       match NftDB::load_from_file(&key) {
          Ok(db) => self.write(|ctx| ctx.nft_db = db),
-         Err(e) => tracing::error!("Error loading NftDB: {:?}", e),
+         Err(e) => {
+            tracing::error!("Error loading NftDB: {:?}", e);
+            self.flag_unreadable_store(PersistedFile::NftDb, &e);
+         }
       }
    }
 
    pub fn save_address_book(&self) {
+      if self.skip_save_if_unreadable(PersistedFile::AddressBook, "AddressBook") {
+         return;
+      }
       let key = match self.read_vault(|vault| vault.wallet_state_key()) {
          Ok(k) => k,
          Err(_) => return,
@@ -1090,7 +1140,10 @@ impl ZeusCtx {
       match AddressBookHandle::exists() {
          Ok(true) => match AddressBookHandle::load_from_file(&key) {
             Ok(loaded) => book.replace_from(&loaded),
-            Err(e) => tracing::error!("Error loading AddressBook: {:?}", e),
+            Err(e) => {
+               tracing::error!("Error loading AddressBook: {:?}", e);
+               self.flag_unreadable_store(PersistedFile::AddressBook, &e);
+            }
          },
          Ok(false) => {}
          Err(e) => {
@@ -1105,7 +1158,11 @@ impl ZeusCtx {
       let contacts = self.contacts();
       book.seed_contacts(&contacts);
 
-      if let Err(e) = book.save(&key) {
+      // Do not write the freshly seeded book back over a file that failed to read: the unreadable
+      // bytes were quarantined, and the user's names stay recoverable there.
+      if let Some(reason) = self.unreadable_save_reason(PersistedFile::AddressBook) {
+         tracing::error!("Not saving AddressBook after a failed load: {reason}");
+      } else if let Err(e) = book.save(&key) {
          tracing::error!("Error saving AddressBook: {:?}", e);
       }
    }
@@ -1119,9 +1176,13 @@ impl ZeusCtx {
          }
       };
       let client = self.get_client_manager();
-      match client.save_to_file(&key) {
-         Ok(_) => tracing::trace!("ClientManager saved"),
-         Err(e) => tracing::error!("Error saving ClientManager: {:?}", e),
+      if let Some(reason) = self.unreadable_save_reason(PersistedFile::Providers) {
+         tracing::error!("Not saving ClientManager: {reason}");
+      } else {
+         match client.save_to_file(&key) {
+            Ok(_) => tracing::trace!("ClientManager saved"),
+            Err(e) => tracing::error!("Error saving ClientManager: {:?}", e),
+         }
       }
 
       if let Err(e) = client.save_settings() {
@@ -1156,10 +1217,14 @@ impl ZeusCtx {
 
       if let Err(e) = client.load_from_file(&key) {
          tracing::error!("Error loading ClientManager: {:?}", e);
+         self.flag_unreadable_store(PersistedFile::Providers, &e);
       }
    }
 
    pub fn save_pool_manager(&self) {
+      if self.skip_save_if_unreadable(PersistedFile::PoolData, "Pool Manager") {
+         return;
+      }
       let key = match self.read_vault(|vault| vault.wallet_state_key()) {
          Ok(k) => k,
          Err(e) => {
@@ -1199,6 +1264,7 @@ impl ZeusCtx {
       let manager = self.pool_manager();
       if let Err(e) = manager.load_from_file(&key) {
          tracing::error!("Error loading Pool Manager: {:?}", e);
+         self.flag_unreadable_store(PersistedFile::PoolData, &e);
       }
    }
 
@@ -1313,6 +1379,9 @@ impl ZeusCtx {
    }
 
    pub fn save_price_manager(&self) {
+      if self.skip_save_if_unreadable(PersistedFile::PriceData, "Price Manager") {
+         return;
+      }
       let key = match self.read_vault(|vault| vault.wallet_state_key()) {
          Ok(k) => k,
          Err(e) => {
@@ -1352,6 +1421,7 @@ impl ZeusCtx {
       let manager = self.price_manager();
       if let Err(e) = manager.load_from_file(&key) {
          tracing::error!("Error loading Price Manager: {:?}", e);
+         self.flag_unreadable_store(PersistedFile::PriceData, &e);
       }
    }
 
@@ -1370,6 +1440,7 @@ impl ZeusCtx {
          Ok(db) => db,
          Err(e) => {
             tracing::error!("Error opening Tx history db: {:?}", e);
+            self.flag_unreadable_store(PersistedFile::TxHistory, &e);
             let legacy = self.read_wallet_state(|ws| ws.tx_db.clone());
             self.write(|ctx| ctx.tx_db = legacy);
             return;
@@ -2590,6 +2661,10 @@ pub struct ZeusContext {
 
    /// Misc persisted settings (token icons, Sourcify names, …)
    pub misc_config: MiscConfig,
+
+   /// Stores whose on-disk file failed to read this run. While an entry is present its saver
+   /// skips, so the in-memory default is never sealed back over the bytes that failed to load.
+   pub unreadable_stores: UnreadableStores,
 }
 
 /// `write_private` only tightens mode on the next save. Existing `0644` files
@@ -2717,6 +2792,7 @@ impl ZeusContext {
          railgun_status: RailgunStatus::new(),
          railgun_config,
          misc_config,
+         unreadable_stores: UnreadableStores::default(),
       }
    }
 

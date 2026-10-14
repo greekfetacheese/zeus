@@ -8,6 +8,7 @@
 //! `logs/` sits next to `data/` and is not part of this catalog.
 
 use crate::utils::restrict_dir_to_owner;
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
 /// Directory name for the portable data tree (cwd-relative).
@@ -299,6 +300,152 @@ pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
 
 pub fn file_path(file: PersistedFile) -> Result<PathBuf, anyhow::Error> {
    Ok(data_dir()?.join(file.name()))
+}
+
+/// Suffix a store is renamed to when it cannot be read. See [`UnreadableStores`].
+const QUARANTINE_MARKER: &str = "quarantine";
+
+/// The bytes of a store that failed to read this run, and where they were moved to.
+#[derive(Debug, Clone)]
+pub struct QuarantinedStore {
+   /// The file the unreadable bytes were renamed to.
+   pub path: PathBuf,
+   /// The load error, kept so a saver can say *why* it is skipping.
+   pub reason: String,
+}
+
+/// Stores whose on-disk file failed to read this run.
+///
+/// A failed load leaves the in-memory store at its `Default`, so the next save — an ordinary
+/// mutation, a UI action, or the shutdown flush — would seal that default over the user's real
+/// bytes. A loader therefore hands a failed read to [`quarantine_unreadable_store`], and every
+/// saver consults [`Self::save_blocked`] and skips. The record lasts for the rest of the run: a
+/// later load (a re-unlock, an import) does not make the store saveable again.
+#[derive(Debug, Default, Clone)]
+pub struct UnreadableStores {
+   stores: HashMap<PersistedFile, QuarantinedStore>,
+}
+
+impl UnreadableStores {
+   /// Whether `file` failed to read this run.
+   pub fn is_unreadable(&self, file: PersistedFile) -> bool {
+      self.stores.contains_key(&file)
+   }
+
+   /// Where `file`'s unreadable bytes were moved, if it failed to read.
+   pub fn quarantined_path(&self, file: PersistedFile) -> Option<&Path> {
+      self.stores.get(&file).map(|store| store.path.as_path())
+   }
+
+   /// The reason `file` must not be saved, or `None` when saving it is allowed.
+   ///
+   /// A saver that gets `Some` must skip its write and log the reason: the value in memory is the
+   /// default, and writing it would replace the bytes that failed to load.
+   pub fn save_blocked(&self, file: PersistedFile) -> Option<String> {
+      self.stores.get(&file).map(|store| {
+         format!(
+            "{} could not be read this session (moved aside to {}): {}",
+            file.name(),
+            store.path.display(),
+            store.reason
+         )
+      })
+   }
+
+   fn record(&mut self, file: PersistedFile, path: PathBuf, reason: String) {
+      self.stores.insert(file, QuarantinedStore { path, reason });
+   }
+}
+
+/// Move an unreadable store aside and record it for the rest of the run.
+///
+/// The file is renamed (so its bytes survive and the next start is not fighting a file that cannot
+/// be read), and the failure is recorded in `stores` so every saver skips it — see
+/// [`UnreadableStores::save_blocked`]. `None` means there was nothing to protect: the file is
+/// already gone, so the store is a first run and its default may be saved.
+pub fn quarantine_unreadable_store(
+   stores: &mut UnreadableStores,
+   file: PersistedFile,
+   reason: &anyhow::Error,
+) -> Option<PathBuf> {
+   let path = file_path(file).ok()?;
+   quarantine_unreadable_at(stores, file, &path, reason)
+}
+
+/// The path-taking half of [`quarantine_unreadable_store`], so its behaviour can be pinned by a
+/// test without moving the process working directory.
+fn quarantine_unreadable_at(
+   stores: &mut UnreadableStores,
+   file: PersistedFile,
+   path: &Path,
+   reason: &anyhow::Error,
+) -> Option<PathBuf> {
+   if !path.exists() {
+      return None;
+   }
+
+   match quarantine_file_at(path) {
+      Ok(moved) => {
+         tracing::error!(
+            "{} could not be read; moved aside to {}: {reason:?}",
+            path.display(),
+            moved.display()
+         );
+         stores.record(file, moved.clone(), format!("{reason:?}"));
+         Some(moved)
+      }
+      Err(e) => {
+         // The bytes could not be moved. Still record the failure: a saver that wrote defaults
+         // over a file that is right there is worse than a skipped save.
+         tracing::error!(
+            "{} could not be read and could not be moved aside ({e}); it will not be overwritten",
+            path.display()
+         );
+         stores.record(
+            file,
+            path.to_path_buf(),
+            format!("{reason:?} (quarantine failed: {e})"),
+         );
+         None
+      }
+   }
+}
+
+/// Rename `path` to a free quarantine name beside it and return the new path.
+///
+/// The name is `<name>.quarantine-<unix-millis>`, with `-<n>` appended until it is free. The
+/// timestamp separates quarantines from different starts; the `-<n>` tail means even two in the
+/// same millisecond cannot land on the same name, so a later failed start never clobbers an
+/// earlier quarantine. The name is not a known [`PersistedFile`], so an import zip cannot carry
+/// one.
+fn quarantine_file_at(path: &Path) -> std::io::Result<PathBuf> {
+   let file_name = path.file_name().and_then(|name| name.to_str()).ok_or_else(|| {
+      std::io::Error::new(
+         std::io::ErrorKind::InvalidInput,
+         "path has no file name",
+      )
+   })?;
+
+   let stamp = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .map(|elapsed| elapsed.as_millis())
+      .unwrap_or_default();
+
+   for attempt in 0u32.. {
+      let candidate = if attempt == 0 {
+         path.with_file_name(format!("{file_name}.{QUARANTINE_MARKER}-{stamp}"))
+      } else {
+         path.with_file_name(format!(
+            "{file_name}.{QUARANTINE_MARKER}-{stamp}-{attempt}"
+         ))
+      };
+      if !candidate.exists() {
+         std::fs::rename(path, &candidate)?;
+         return Ok(candidate);
+      }
+   }
+
+   unreachable!("a free quarantine name always exists")
 }
 
 /// Tree directory under `data/`. Creates it if missing.
@@ -672,5 +819,104 @@ mod tests {
          assert_eq!(PersistedFile::from_name(file.name()), Some(*file));
       }
       assert!(PersistedFile::from_name("secret.txt").is_none());
+   }
+
+   /// A scratch directory for the quarantine tests, unique per test and process so parallel test
+   /// threads cannot collide.
+   fn scratch_dir(tag: &str) -> PathBuf {
+      let dir = std::env::temp_dir().join(format!(
+         "zeus-persisted-{tag}-{}-{}",
+         std::process::id(),
+         std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or_default()
+      ));
+      std::fs::create_dir_all(&dir).unwrap();
+      dir
+   }
+
+   /// A file of garbage bytes at a store's path is an unreadable store. Loading it must move it
+   /// aside and flag it, and a save through the shared record must leave the quarantined bytes
+   /// untouched.
+   #[test]
+   fn an_unreadable_store_is_quarantined_and_its_saver_skips() {
+      let dir = scratch_dir("quarantine");
+      let path = dir.join(PersistedFile::Tokens.name());
+      std::fs::write(&path, b"not a sealed blob").unwrap();
+
+      let mut stores = UnreadableStores::default();
+      let err = anyhow::anyhow!("aead: aad mismatch");
+      let moved = quarantine_unreadable_at(&mut stores, PersistedFile::Tokens, &path, &err)
+         .expect("the bytes are moved aside");
+
+      assert!(
+         !path.exists(),
+         "the original name no longer holds the garbage"
+      );
+      assert_eq!(
+         std::fs::read(&moved).unwrap(),
+         b"not a sealed blob",
+         "the quarantined file holds the garbage"
+      );
+      assert!(
+         stores.is_unreadable(PersistedFile::Tokens),
+         "the store is flagged for the rest of the run"
+      );
+      assert_eq!(
+         stores.quarantined_path(PersistedFile::Tokens),
+         Some(moved.as_path())
+      );
+
+      // What every saver does: write only when the record allows it. The record blocks, so the
+      // store is not recreated at its original name and the quarantined bytes survive.
+      if stores.save_blocked(PersistedFile::Tokens).is_none() {
+         std::fs::write(&path, b"defaults").unwrap();
+      }
+      assert!(
+         !path.exists(),
+         "a blocked save must not recreate the store at its original name"
+      );
+      assert_eq!(
+         std::fs::read(&moved).unwrap(),
+         b"not a sealed blob"
+      );
+
+      std::fs::remove_dir_all(&dir).ok();
+   }
+
+   /// A second failed start must not clobber the first quarantine: the `-<n>` tail finds a free
+   /// name even when the timestamp is identical.
+   #[test]
+   fn a_second_quarantine_does_not_collide() {
+      let dir = scratch_dir("collision");
+      let path = dir.join(PersistedFile::PriceData.name());
+
+      std::fs::write(&path, b"first").unwrap();
+      let first = quarantine_file_at(&path).unwrap();
+      std::fs::write(&path, b"second").unwrap();
+      let second = quarantine_file_at(&path).unwrap();
+
+      assert_ne!(first, second);
+      assert_eq!(std::fs::read(&first).unwrap(), b"first");
+      assert_eq!(std::fs::read(&second).unwrap(), b"second");
+
+      std::fs::remove_dir_all(&dir).ok();
+   }
+
+   /// A store that was never on disk is a first run, not a failure: nothing is moved and nothing is
+   /// blocked, so its default may be written.
+   #[test]
+   fn a_missing_store_is_not_quarantined() {
+      let dir = scratch_dir("missing");
+      let path = dir.join(PersistedFile::NftDb.name());
+
+      let mut stores = UnreadableStores::default();
+      let err = anyhow::anyhow!("no file");
+      assert!(quarantine_unreadable_at(&mut stores, PersistedFile::NftDb, &path, &err).is_none());
+      assert!(!stores.is_unreadable(PersistedFile::NftDb));
+      assert!(stores.save_blocked(PersistedFile::NftDb).is_none());
+
+      std::fs::remove_dir_all(&dir).ok();
    }
 }
