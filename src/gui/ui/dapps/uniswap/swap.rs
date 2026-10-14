@@ -1224,7 +1224,9 @@ impl SwapUi {
 
       let mev_protect = settings.mev_protect;
       let deadline = settings.deadline;
-      let slippage: f64 = settings.slippage.parse().unwrap_or(0.5);
+      // The sanitised accessor, not the raw field: the value enforced here is the one the
+      // settings widget displayed. Never re-parse `settings.slippage` in the swap flow.
+      let slippage = settings.slippage_f64();
 
       RT.spawn(async move {
          let ctx = Self::open_loading();

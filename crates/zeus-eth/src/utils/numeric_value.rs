@@ -240,7 +240,16 @@ impl NumericValue {
    /// Panics if `self.wei` is `None`.
    pub fn calc_slippage(&self, slippage: f64, decimals: u8) -> Self {
       let wei = self.wei();
-      let slippage_bps = (slippage * 100.0) as u64;
+      // A non-finite slippage has no basis-point value, and the saturating `as u64` cast would
+      // silently turn it (and any negative value) into 0 bps — a zero-tolerance floor that
+      // differs from the tolerance the caller asked for. Treat non-finite as 0 bps explicitly,
+      // and clamp the rest into `[0, 10_000]` so a >100% slippage cannot underflow
+      // `denominator - slippage_bps` (panic in debug, wraparound in release).
+      let slippage_bps = if slippage.is_finite() {
+         (slippage * 100.0).clamp(0.0, 10_000.0) as u64
+      } else {
+         0
+      };
       let denominator = 10000u64;
       let factor_num = denominator - slippage_bps;
       let wei = (wei * U256::from(factor_num)) / U256::from(denominator);
@@ -375,6 +384,50 @@ mod tests {
          U256::from(900000000000000000u128)
       );
       assert_eq!(value_after_slippage.f64, 0.9);
+   }
+
+   #[test]
+   fn test_calc_slippage_normal_values() {
+      let value = NumericValue::parse_to_wei("1", 18);
+
+      // 0.5% -> 50 bps -> 9950/10000 of the quote.
+      assert_eq!(
+         value.calc_slippage(0.5, 18).wei(),
+         U256::from(995000000000000000u128)
+      );
+
+      // 1% -> 100 bps -> 9900/10000 of the quote.
+      assert_eq!(
+         value.calc_slippage(1.0, 18).wei(),
+         U256::from(990000000000000000u128)
+      );
+   }
+
+   #[test]
+   fn test_calc_slippage_edge_cases_do_not_panic() {
+      let value = NumericValue::parse_to_wei("1", 18);
+      let one_ether = U256::from(1000000000000000000u128);
+
+      // Negative, NaN and infinite slippage collapse to 0 bps: the full quote, i.e. the
+      // strictest floor, never a silently different one. No panic in any of these.
+      assert_eq!(value.calc_slippage(-1.0, 18).wei(), one_ether);
+      assert_eq!(value.calc_slippage(f64::NAN, 18).wei(), one_ether);
+      assert_eq!(
+         value.calc_slippage(f64::NEG_INFINITY, 18).wei(),
+         one_ether
+      );
+
+      // Exactly zero keeps the whole amount.
+      assert_eq!(value.calc_slippage(0.0, 18).wei(), one_ether);
+
+      // A slippage above 100% cannot underflow `denominator - bps`; it is clamped to 100%,
+      // so the floor bottoms out at zero.
+      assert_eq!(value.calc_slippage(150.0, 18).wei(), U256::ZERO);
+      assert_eq!(value.calc_slippage(100.01, 18).wei(), U256::ZERO);
+      assert_eq!(
+         value.calc_slippage(f64::MAX, 18).wei(),
+         U256::ZERO
+      );
    }
 
    #[test]

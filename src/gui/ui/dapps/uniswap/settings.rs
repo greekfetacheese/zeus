@@ -16,6 +16,22 @@ const SLIPPAGE_TIP: &str =
 
 const DEADLINE_TIP: &str = "The transaction will revert if it is pending for more than this time.";
 
+/// Single sanitisation point for the swap slippage.
+///
+/// The raw text a user types is parsed here and only here. Anything that is not a finite
+/// number is rejected in favour of [DEFAULT_SLIPPAGE]; a finite value is clamped into
+/// `[0.0, MAX_SLIPPAGE]`. The settings widget writes this value back into both the displayed
+/// string and the numeric field, and the swap flow reads that field, so the slippage the user
+/// reads is the slippage that is enforced.
+fn sanitise_slippage(raw: &str) -> f64 {
+   let parsed = match raw.parse::<f64>() {
+      Ok(value) if value.is_finite() => value,
+      _ => return DEFAULT_SLIPPAGE,
+   };
+
+   parsed.clamp(0.0, MAX_SLIPPAGE)
+}
+
 #[derive(Clone)]
 pub struct UniswapSettingsUi {
    open: bool,
@@ -72,6 +88,14 @@ impl UniswapSettingsUi {
       self.slippage_f64
    }
 
+   /// Sanitise [Self::slippage] and write the result back into both the displayed string and
+   /// the numeric field the swap flow enforces, so the two can never disagree.
+   fn apply_slippage_input(&mut self) {
+      let sanitised = sanitise_slippage(&self.slippage);
+      self.slippage_f64 = sanitised;
+      self.slippage = sanitised.to_string();
+   }
+
    pub fn show(
       &mut self,
       swap_ui_open: bool,
@@ -100,16 +124,7 @@ impl UniswapSettingsUi {
                SecureTextEdit::singleline(&mut self.slippage).desired_width(50.0).show(ui);
 
             if output.response.changed() {
-               let adjusted_slippage = self.slippage.parse().unwrap_or(DEFAULT_SLIPPAGE);
-
-               let new_slippage = if adjusted_slippage > MAX_SLIPPAGE {
-                  MAX_SLIPPAGE
-               } else {
-                  adjusted_slippage
-               };
-
-               self.slippage_f64 = new_slippage;
-               self.slippage = new_slippage.to_string();
+               self.apply_slippage_input();
             }
          });
       });
@@ -216,5 +231,50 @@ impl UniswapSettingsUi {
          ui.label(text);
          ui.add(SecureTextEdit::singleline(&mut self.days).desired_width(25.0).visuals(visuals));
       }
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn sanitise_slippage_clamps_and_rejects_invalid() {
+      // Negative tolerance is clamped to zero, not kept and not turned into a 100%-of-quote
+      // floor while the screen reports it.
+      assert_eq!(sanitise_slippage("-1"), 0.0);
+      assert_eq!(sanitise_slippage("0"), 0.0);
+      assert_eq!(sanitise_slippage("0.5"), 0.5);
+
+      // Non-finite input is rejected in favour of the default.
+      assert_eq!(sanitise_slippage("nan"), DEFAULT_SLIPPAGE);
+      assert_eq!(sanitise_slippage("inf"), DEFAULT_SLIPPAGE);
+
+      // Above the cap is clamped to the cap.
+      let above_max = (MAX_SLIPPAGE + 1.0).to_string();
+      assert_eq!(sanitise_slippage(&above_max), MAX_SLIPPAGE);
+
+      // Non-numeric text falls back to the default.
+      assert_eq!(sanitise_slippage("abc"), DEFAULT_SLIPPAGE);
+      assert_eq!(sanitise_slippage(""), DEFAULT_SLIPPAGE);
+   }
+
+   /// The bug: a negative entry left the field displaying "-1" while the swap enforced a
+   /// zero-tolerance (100%-of-quote) floor. After the write-back both agree.
+   #[test]
+   fn negative_entry_keeps_displayed_and_enforced_in_sync() {
+      let mut settings = UniswapSettingsUi::new();
+      settings.slippage = "-1".to_string();
+
+      settings.apply_slippage_input();
+
+      assert_eq!(settings.slippage, "0");
+      assert_eq!(settings.slippage_f64(), 0.0);
+
+      // The displayed string round-trips through the same sanitiser that produced the field.
+      assert_eq!(
+         sanitise_slippage(&settings.slippage),
+         settings.slippage_f64()
+      );
    }
 }
