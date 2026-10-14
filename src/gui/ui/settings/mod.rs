@@ -114,6 +114,10 @@ impl SettingsUi {
       self.open = false;
       self.size_applied = false;
       self.change_credentials_ui.reset();
+      // Drop any typed import credentials: the form redraws them unconditionally
+      // (`with_open(true)`), so a vault password left in the field would be shown
+      // again the next time Settings opens — e.g. after an auto-lock/unlock.
+      self.import.erase();
       self.contacts_ui.reset_page();
       self.network.reset_view();
    }
