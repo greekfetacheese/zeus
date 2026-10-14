@@ -154,7 +154,7 @@ impl TransactionAnalysis {
    }
 }
 
-/// The single Uniswap position op that carries the transaction's intent, if these ops are one
+/// The single Uniswap position op that carries the transaction's intent, if these ops describe one
 /// operation.
 ///
 /// A V3 removal is one call that emits two ops: `DecreaseLiquidity`, and the `Collect` carrying the
@@ -164,23 +164,32 @@ impl TransactionAnalysis {
 /// `Transfer` (burned on a full removal, headlined "NFT Burn") or, when the position is only partly
 /// removed, to `Other` ("Unknown Interaction").
 ///
-/// So: exactly one op that is not a collection is the intent, a collection beside it is part of it,
-/// and a lone collection is an intent of its own.
+/// A dapp batch can change more than one position: a rebalance removes liquidity from one and adds
+/// to another, and the decoder pushes one op per liquidity change, so both legs arrive together.
+/// The transaction is still a position operation and the leg worth headlining is the one that
+/// returns tokens to the user, so any non-empty change set yields an intent — the first decrease
+/// when there is one, otherwise the first change. Preferring the decrease is what keeps a rebalance
+/// off the position NFTs' own `Transfer` logs (the mint for the add, the burn of a full removal) and
+/// stops it reading "NFT Mint"/"NFT Burn".
 ///
-/// Ops that are *not* one operation — two positions touched in a batch, or collections on their own
-/// — are left out deliberately: there is no single intent to name, and flattening them into one
-/// would describe the transaction as an operation the user may not have performed.
+/// A lone collection with no change is an intent of its own. Multiple collections with no change, or
+/// no ops at all, are left out deliberately: there is no single intent to name.
 fn position_op_intent(ops: &[UniswapPositionParams]) -> Option<UniswapPositionParams> {
    let changes: Vec<&UniswapPositionParams> =
       ops.iter().filter(|op| !op.op_is_collect_fees()).collect();
 
-   match changes.as_slice() {
-      // One change of liquidity is the intent, and any collection beside it belongs to it.
-      [changed] => Some((*changed).clone()),
-      // No liquidity change: a collection on its own is the intent.
-      [] if ops.len() == 1 => Some(ops[0].clone()),
-      _ => None,
+   // No liquidity change: a collection on its own is the intent.
+   if changes.is_empty() {
+      return (ops.len() == 1).then(|| ops[0].clone());
    }
+
+   // Any change set is one intent. Prefer the removal leg — the tokens coming back to the user —
+   // and fall back to the first change (an add) when the batch only adds.
+   changes
+      .iter()
+      .find(|op| op.op_is_decrease_liquidity())
+      .or_else(|| changes.first())
+      .map(|op| (*op).clone())
 }
 
 fn unshield_matches_known(got: &UnshieldParams, known: &UnshieldParams) -> bool {
@@ -396,6 +405,18 @@ mod tests {
       DecodedEvent::UniswapPositionOperation(params)
    }
 
+   /// One position op's params of the given kind, for the pure `position_op_intent` sweep.
+   fn position_params(operation: PositionOperation) -> UniswapPositionParams {
+      let DecodedEvent::UniswapPositionOperation(mut params) =
+         DecodedEvent::dummy_uniswap_position_operation()
+      else {
+         unreachable!("the dummy is a position operation")
+      };
+
+      params.position_operation = operation;
+      params
+   }
+
    /// The position NFT the position manager moves when it creates or closes a position.
    fn position_nft(is_mint: bool, is_burn: bool) -> DecodedEvent {
       DecodedEvent::NftTransfer(NftTransferParams {
@@ -494,6 +515,73 @@ mod tests {
       let main_event = analysis.infer_main_event(test_ctx(1), 1);
 
       assert_eq!(main_event.name(), "Collect Fees");
+   }
+
+   /// `position_op_intent` is the whole decision, so sweep its input shapes rather than pinning one.
+   ///
+   /// A dapp batch that touches two positions — a rebalance that removes from one and adds to
+   /// another — is the shape that used to return `None` and fall through to the position NFTs' own
+   /// `Transfer` logs, so it is the case that pins the fix: a non-empty change set always yields an
+   /// intent, preferring the removal leg, and the other shapes keep their old answers.
+   #[test]
+   fn position_op_intent_prefers_the_removal_leg_of_a_mixed_batch() {
+      use PositionOperation::{AddLiquidity, CollectFees, DecreaseLiquidity};
+
+      let name = |op: &UniswapPositionParams| op.name();
+
+      // A non-empty change set always yields an intent: the first decrease when there is one,
+      // otherwise the first change.
+      assert_eq!(
+         name(&position_op_intent(&[position_params(AddLiquidity)]).unwrap()),
+         "Add Liquidity"
+      );
+      assert_eq!(
+         name(&position_op_intent(&[position_params(DecreaseLiquidity)]).unwrap()),
+         "Remove Liquidity"
+      );
+      assert_eq!(
+         name(
+            &position_op_intent(&[
+               position_params(AddLiquidity),
+               position_params(DecreaseLiquidity),
+            ])
+            .unwrap()
+         ),
+         "Remove Liquidity"
+      );
+      assert_eq!(
+         name(
+            &position_op_intent(&[
+               position_params(DecreaseLiquidity),
+               position_params(AddLiquidity),
+            ])
+            .unwrap()
+         ),
+         "Remove Liquidity"
+      );
+
+      // A lone collection is an intent of its own; a collection beside a change belongs to it.
+      assert_eq!(
+         name(&position_op_intent(&[position_params(CollectFees)]).unwrap()),
+         "Collect Fees"
+      );
+      assert_eq!(
+         name(
+            &position_op_intent(&[
+               position_params(CollectFees),
+               position_params(DecreaseLiquidity),
+            ])
+            .unwrap()
+         ),
+         "Remove Liquidity"
+      );
+
+      // Multiple collections with no change, or no ops at all, have no single intent to name.
+      assert!(
+         position_op_intent(&[position_params(CollectFees), position_params(CollectFees)])
+            .is_none()
+      );
+      assert!(position_op_intent(&[]).is_none());
    }
 
    /// ETH → taxed token. The first output-token transfer is the tax
