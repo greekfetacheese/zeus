@@ -51,8 +51,8 @@ use crate::{
 };
 
 use super::{
-   ProvedCall, RailgunAsset, SettledOp, expect_single_event, prove, railgun_ready,
-   resync_railgun_later, settle_railgun_op, simulate_proved,
+   ProvedCall, RailgunAsset, expect_single_event, prove, railgun_ready, resync_railgun_later,
+   settle_railgun_op, simulate_proved,
 };
 
 /// Default public Pimlico bundler RPC for a chain.
@@ -332,16 +332,13 @@ async fn unshield_self_broadcast(
    )
    .await?;
 
+   // The self-broadcast path never unwraps, so a fungible unshield hands the token back and only an
+   // NFT moves public ownership.
    RT.spawn(settle_railgun_op(
       ctx,
       chain,
       from,
-      match asset {
-         RailgunAsset::Fungible(currency) => {
-            SettledOp::Fungible(Some(currency.to_erc20().into_owned()))
-         }
-         RailgunAsset::Nft(_) => SettledOp::Nft,
-      },
+      asset.settled_op(false),
    ));
 
    Ok(())
@@ -975,14 +972,9 @@ async fn unshield_via_paymaster(
    record_and_notify(ctx.clone(), chain, from, &outcome)?;
 
    // Which half waits on the chain is the operation's business: an unshield of an NFT hands public
-   // ownership back, a fungible one moves a token balance.
-   let settled_op = match asset {
-      RailgunAsset::Fungible(currency) if !unwrap_to_eth => {
-         SettledOp::Fungible(Some(currency.to_erc20().into_owned()))
-      }
-      RailgunAsset::Fungible(_) => SettledOp::Fungible(None),
-      RailgunAsset::Nft(_) => SettledOp::Nft,
-   };
+   // ownership back, a fungible one moves a token balance — unless the operation unwraps it, which
+   // leaves the wallet's public wrapped-native balance where it was.
+   let settled_op = asset.settled_op(unwrap_to_eth);
 
    RT.spawn(settle_railgun_op(ctx, chain, from, settled_op));
 

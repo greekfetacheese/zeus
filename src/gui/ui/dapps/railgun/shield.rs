@@ -25,7 +25,7 @@ use super::privacy::{
    LARGE_POOL_SHARE, PoolDepth, RecipientLink, UnshieldPrivacy, assess_shield, assess_unshield,
    shallow_pool_warnings,
 };
-use super::{RailgunAsset, SettledOp, expect_single_event, railgun_ready, settle_railgun_op};
+use super::{RailgunAsset, expect_single_event, railgun_ready, settle_railgun_op};
 use crate::assets::icons::Icons;
 use crate::gui::{
    SHARED_GUI,
@@ -2163,14 +2163,9 @@ async fn shield(
       chain,
       from,
       // Which half waits on the chain is the operation's business: only an NFT shield moves public
-      // ownership, and only a fungible one has a token balance to re-read.
-      match &asset {
-         RailgunAsset::Fungible(currency) => {
-            // Always do to_erc20, there is no native balance on railgun
-            SettledOp::Fungible(Some(currency.to_erc20().into_owned()))
-         }
-         RailgunAsset::Nft(_) => SettledOp::Nft,
-      },
+      // ownership, and only an ERC-20 one has a token balance to re-read. A native-ETH shield wraps
+      // inside the Railgun contract, so the wallet's public wrapped-native balance never moves.
+      asset.settled_op(false),
    ));
 
    Ok(())
