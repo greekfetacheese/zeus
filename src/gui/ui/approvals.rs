@@ -1227,6 +1227,10 @@ async fn revoke_nft_approval(chain_id: u64, params: NftApproveParams) -> Result<
       SendTxOptions {
          dapp,
          mev_protect,
+         // A per-token ERC-721 revoke is `approve(0, id)` on chain, so the receipt log names the
+         // zero address, not the operator being cleared. Keep the flow's own intent event — the
+         // recorded params carry the operator the grant is being taken from.
+         keep_intent_event: true,
          ..Default::default()
       },
    )
