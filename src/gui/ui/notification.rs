@@ -3,6 +3,7 @@
 use crate::assets::Icons;
 use crate::core::{DecodedEvent, TransactionRich, ZeusContext, tx::events::*};
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::common::chain_label;
 use crate::gui::ui::token_selection::nft_collection_name;
 use crate::utils::{RT, TimeStamp, truncate_address};
 use egui::{Align2, Order, ProgressBar, RichText, Spinner, TextWrapMode, Ui, Window, vec2};
@@ -14,7 +15,6 @@ use std::sync::Arc;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token, NativeCurrency},
-   types::ChainId,
    utils::NumericValue,
 };
 use zeus_railgun::{abi::railgun::TokenType, caip::AssetId};
@@ -477,11 +477,14 @@ impl Notification {
       let icon_size = vec2(24.0, 24.0);
 
       ui.vertical_centered(|ui| {
-         let from_chain: ChainId = params.origin_chain.into();
+         // These ids come from a store and are not re-validated, so they are named with the
+         // fallible helper rather than converted with the panicking `ChainId::from`. The icons are
+         // looked up by raw id, which already falls back on its own.
+         let from_chain = chain_label(params.origin_chain);
          let symbol_in = params.input_currency.symbol();
          let amount_in = format_amount(&params.amount);
 
-         let to_chain: ChainId = params.destination_chain.into();
+         let to_chain = chain_label(params.destination_chain);
          let symbol_out = params.output_currency.symbol();
          let amount_out = format_amount(&params.received);
 
@@ -510,8 +513,8 @@ impl Notification {
          let multi_label = MultiLabel::new(vec![label_in, label_arrow, label_out]);
          ui.add(multi_label);
 
-         let chain_in = RichText::new(from_chain.name()).size(theme.typography.large);
-         let chain_in_icon = icons.chain_icon(from_chain.id(), tint);
+         let chain_in = RichText::new(&from_chain).size(theme.typography.large);
+         let chain_in_icon = icons.chain_icon(params.origin_chain, tint);
          let label1 = Label::new(chain_in, Some(chain_in_icon))
             .wrap_mode(TextWrapMode::Extend)
             .interactive(false);
@@ -519,8 +522,8 @@ impl Notification {
          let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
          let label_arrow = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
 
-         let chain_out = RichText::new(to_chain.name()).size(theme.typography.large);
-         let chain_out_icon = icons.chain_icon(to_chain.id(), tint);
+         let chain_out = RichText::new(&to_chain).size(theme.typography.large);
+         let chain_out_icon = icons.chain_icon(params.destination_chain, tint);
          let label2 = Label::new(chain_out, Some(chain_out_icon))
             .wrap_mode(TextWrapMode::Extend)
             .interactive(false);

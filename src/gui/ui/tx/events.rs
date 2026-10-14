@@ -5,6 +5,7 @@ use egui_elements::{Label, Modal, MultiLabel, Theme};
 
 use crate::assets::icons::Icons;
 use crate::core::{TransactionAnalysis, ZeusContext, tx::events::*};
+use crate::gui::ui::common::chain_label;
 use crate::gui::ui::token_selection::nft_collection_name;
 use crate::utils::truncate_address;
 use zeus_eth::{
@@ -1021,15 +1022,24 @@ fn bridge_event_ui(
    let tint = theme.image_tint_recommended;
    let icon_size = vec2(24.0, 24.0);
 
-   // EOA's always receive native ETH
-   let currency_in = if params.input_currency.is_native_wrapped() {
-      NativeCurrency::from(origin_chain).into()
+   // EOA's always receive native ETH.
+   //
+   // A row rebuilt from the store is not re-validated, so `NativeCurrency::from` — which unwraps
+   // `ChainId::new` — cannot be used for its chain ids. When Zeus knows the chain, show its native
+   // coin as before; otherwise keep the stored token, which still names its own symbol and chain,
+   // rather than naming a chain the row never carried.
+   let currency_in = if params.input_currency.is_native_wrapped()
+      && let Ok(native) = NativeCurrency::from_chain_id(origin_chain)
+   {
+      native.into()
    } else {
       params.input_currency.clone()
    };
 
-   let currency_out = if params.output_currency.is_native_wrapped() {
-      NativeCurrency::from(destination_chain).into()
+   let currency_out = if params.output_currency.is_native_wrapped()
+      && let Ok(native) = NativeCurrency::from_chain_id(destination_chain)
+   {
+      native.into()
    } else {
       params.output_currency.clone()
    };
@@ -1093,18 +1103,37 @@ fn bridge_event_ui(
       ui,
    );
 
-   // Safety: BridgeParams is only constructed for supported chains
-   let dest_chain = ChainId::from(params.destination_chain);
+   // Recipient.
+   //
+   // `BridgeParams` is only built for supported chains by the decoder, but a row rebuilt from the
+   // store carries whatever id was persisted and is not re-validated, so `ChainId::from` is not
+   // safe here. With a chain Zeus can name the address is shown as usual (resolved name + explorer
+   // link); without one there is no name to resolve and no correct explorer, so it is shown plainly
+   // under the label.
+   match ChainId::new(params.destination_chain) {
+      Ok(dest_chain) => address(
+         ctx,
+         dest_chain,
+         "Recipient",
+         params.recipient,
+         theme,
+         ui,
+      ),
+      Err(_) => {
+         ui.horizontal(|ui| {
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(RichText::new("Recipient").size(theme.typography.large));
+            });
 
-   // Recipient
-   address(
-      ctx,
-      dest_chain,
-      "Recipient",
-      params.recipient,
-      theme,
-      ui,
-   );
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               ui.label(
+                  RichText::new(truncate_address(params.recipient.to_string()))
+                     .size(theme.typography.large),
+               );
+            });
+         });
+      }
+   }
 
    // Origin Chain Column
    ui.horizontal(|ui| {
@@ -1113,9 +1142,8 @@ fn bridge_event_ui(
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let chain: ChainId = params.origin_chain.into();
-         let icon = icons.chain_icon(chain.id(), tint);
-         let text = RichText::new(chain.name()).size(theme.typography.large);
+         let icon = icons.chain_icon(params.origin_chain, tint);
+         let text = RichText::new(chain_label(params.origin_chain)).size(theme.typography.large);
          let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.add(label);
       });
@@ -1128,9 +1156,9 @@ fn bridge_event_ui(
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let chain: ChainId = params.destination_chain.into();
-         let icon = icons.chain_icon(chain.id(), tint);
-         let text = RichText::new(chain.name()).size(theme.typography.large);
+         let icon = icons.chain_icon(params.destination_chain, tint);
+         let text =
+            RichText::new(chain_label(params.destination_chain)).size(theme.typography.large);
          let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.add(label);
       });

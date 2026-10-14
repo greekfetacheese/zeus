@@ -4,7 +4,7 @@ use crate::core::{TransactionRich, WalletInfo, ZeusContext};
 use crate::gui::{
    SHARED_GUI,
    ui::{
-      show_with_fade,
+      chain_label, show_with_fade,
       tx::spent_note_window::{SpentHistoryRow, spent_age},
    },
 };
@@ -651,14 +651,16 @@ impl TxHistory {
                                     });
 
                                     Self::row_cell(ui, column_widths[1], row_height, |ui| {
-                                       let chain: ChainId = row.chain.into();
-                                       let text = RichText::new(chain.name())
+                                       // A spent-note row's chain comes from the Railgun store and
+                                       // is not re-validated, so it is named rather than converted.
+                                       let name = chain_label(row.chain);
+                                       let text = RichText::new(&name)
                                           .size(theme.typography.normal)
                                           .color(theme.colors.text);
                                        let label = Label::new(text, None)
                                           .wrap_mode(TextWrapMode::Truncate)
                                           .visuals(label_visuals);
-                                       ui.add(label).on_hover_text(chain.name());
+                                       ui.add(label).on_hover_text(&name);
                                     });
 
                                     Self::row_cell(ui, column_widths[2], row_height, |ui| {
@@ -728,14 +730,17 @@ impl TxHistory {
                                     });
 
                                     Self::row_cell(ui, column_widths[1], row_height, |ui| {
-                                       let chain: ChainId = row.tx.chain.into();
-                                       let text = RichText::new(chain.name())
+                                       // A stored transaction's chain is a plain serde field that
+                                       // `load_all` does not re-validate, so it is named rather
+                                       // than converted.
+                                       let name = chain_label(row.tx.chain);
+                                       let text = RichText::new(&name)
                                           .size(theme.typography.normal)
                                           .color(theme.colors.text);
                                        let label = Label::new(text, None)
                                           .wrap_mode(TextWrapMode::Truncate)
                                           .visuals(label_visuals);
-                                       ui.add(label).on_hover_text(chain.name());
+                                       ui.add(label).on_hover_text(&name);
                                     });
 
                                     Self::row_cell(ui, column_widths[2], row_height, |ui| {

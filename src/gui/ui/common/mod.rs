@@ -30,6 +30,21 @@ use egui_elements::{Button, Theme};
 use egui_lucide::Lucide;
 use elegance::{Accent, Switch};
 use std::time::{Duration, Instant};
+use zeus_eth::types::ChainId;
+
+/// The name to draw for a chain id that came out of a store.
+///
+/// Rows rebuilt from the sealed stores — `tx_history.db`, the Railgun spent-note db, the approval
+/// manager — carry whatever chain id was persisted, and nothing re-validates it on load. That id
+/// must not go through the panicking `ChainId::from`. A chain Zeus knows is named as usual; one it
+/// has no entry for is labelled with its own id, so a row can still say what it was, rather than
+/// aborting the whole wallet.
+pub fn chain_label(id: u64) -> String {
+   match ChainId::new(id) {
+      Ok(chain) => chain.name().to_string(),
+      Err(_) => format!("Unknown chain ({id})"),
+   }
+}
 
 /// Delay before Sign/Confirm is clickable after a prompt is brought to the front.
 pub const ACTION_UNLOCK_DELAY: Duration = Duration::from_secs(2);
@@ -189,5 +204,25 @@ mod tests {
       assert!(!is_user_input_event(&Event::ModifiersChanged(
          Modifiers::NONE
       )));
+   }
+
+   /// A stored chain id is named when Zeus knows the chain and labelled when it does not — never
+   /// converted with the panicking `ChainId::from`. Swept over every supported chain so a new chain
+   /// picks up its own name, and over an ordinary unsupported id and one that cannot even be a chain
+   /// id, which must fall back without panicking.
+   #[test]
+   fn chain_label_names_supported_chains_and_labels_the_rest() {
+      use zeus_eth::types::SUPPORTED_CHAINS;
+
+      for id in SUPPORTED_CHAINS {
+         let chain = ChainId::new(id).unwrap();
+         assert_eq!(chain_label(id), chain.name(), "chain {id}");
+      }
+
+      assert_eq!(chain_label(137), "Unknown chain (137)");
+      assert_eq!(
+         chain_label(u64::MAX),
+         format!("Unknown chain ({})", u64::MAX)
+      );
    }
 }
