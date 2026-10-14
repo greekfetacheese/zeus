@@ -12,6 +12,7 @@ use zeus_eth::{
    alloy_primitives::{Address, U256},
    alloy_signer::{Signature, Signer},
    currency::ERC20Token,
+   types::ChainId,
    utils::{NumericValue, address_book},
 };
 use zeus_wallet::SecureKey;
@@ -117,14 +118,19 @@ impl SignMsgType {
             return Ok(Self::Permit2612(details));
          }
          if let Ok(typed) = parse_typed_data(value.clone()) {
-            if let Some(display) = clear_signing::try_clear_sign_typed_data(ctx, &typed).await {
-               return Ok(Self::ClearSigned(ClearSignedDetails {
-                  raw: value,
-                  display,
-                  // The descriptor and every value above were resolved for the domain's chain, so
-                  // that is the chain the prompt has to name.
-                  chain: domain_chain(typed.domain.chain_id, chain),
-               }));
+            // Only clear-sign a chain Zeus can name: the prompt renders the message's chain as a
+            // `ChainId`, so an unsupported domain chain would panic there. Refusing here means the
+            // message falls through to the raw-JSON review below, which names no chain at all.
+            if let Some(clear_chain) = clear_sign_chain(typed.domain.chain_id) {
+               if let Some(display) = clear_signing::try_clear_sign_typed_data(ctx, &typed).await {
+                  return Ok(Self::ClearSigned(ClearSignedDetails {
+                     raw: value,
+                     display,
+                     // The descriptor and every value above were resolved for the domain's chain, so
+                     // that is the chain the prompt has to name.
+                     chain: clear_chain,
+                  }));
+               }
             }
          }
          return Ok(Self::Other(value));
@@ -537,6 +543,22 @@ fn json_address(value: &Value) -> Result<Address, anyhow::Error> {
 /// ordinary case, and one that does not fit a `u64` cannot be a chain Zeus signed for.
 fn domain_chain(chain_id: Option<U256>, fallback_chain: u64) -> u64 {
    chain_id.and_then(|id| u64::try_from(id).ok()).unwrap_or(fallback_chain)
+}
+
+/// The chain a clear-signed message is for: its own `domain.chainId`, and only when Zeus can name
+/// that chain.
+///
+/// A clear-signed display is not merely *about* a chain, it is rendered as one — the prompt turns
+/// this value into a [`ChainId`] — so the gate has to be the same support check that conversion
+/// performs, and it has to be here at construction. An absent `chainId`, one that does not fit a
+/// `u64`, and one Zeus has no entry for all mean "not clear-signed": the caller falls back to the
+/// raw-JSON review, which describes no chain and so cannot misstate one. Defaulting to the wallet's
+/// chain instead would name a chain the message never did, which is exactly the misstatement this
+/// refuses. Unlike [`domain_chain`], there is no fallback.
+fn clear_sign_chain(chain_id: Option<U256>) -> Option<u64> {
+   let id = u64::try_from(chain_id?).ok()?;
+   ChainId::new(id).ok()?;
+   Some(id)
 }
 
 fn parse_permit2612_fields(
@@ -980,6 +1002,48 @@ mod tests {
       assert_eq!(
          clear.chain, 8453,
          "the fixture's own domain chain, which is also where its USDC lives"
+      );
+   }
+
+   /// The clear-signed display is only built for a chain Zeus can name, because the prompt renders
+   /// that chain as a `ChainId` and `ChainId::from(u64)` panics for anything else. The gate is this
+   /// helper, so sweeping it pins the invariant for every shape the domain can carry: a supported id
+   /// passes; an unsupported one — including the registry's own Polygon / Avalanche / Celo
+   /// descriptors — an id that does not fit a `u64`, and a missing one are all refused. Absent must
+   /// be refused rather than defaulted to the wallet's chain: naming a chain the message does not is
+   /// the misstatement this guard exists to prevent.
+   #[test]
+   fn clear_signing_requires_a_chain_zeus_can_name() {
+      use zeus_eth::types::SUPPORTED_CHAINS;
+
+      for id in SUPPORTED_CHAINS {
+         assert_eq!(
+            clear_sign_chain(Some(U256::from(id))),
+            Some(id),
+            "supported chain {id} must clear-sign"
+         );
+      }
+
+      for id in [
+         137u64, 80001, 43114, 59144, 42220, 100, 146, 250, 324, 8217, 81457, 1313161554,
+      ] {
+         assert_eq!(
+            clear_sign_chain(Some(U256::from(id))),
+            None,
+            "unsupported chain {id} must not reach ChainId::from"
+         );
+      }
+
+      assert_eq!(
+         clear_sign_chain(Some(U256::MAX)),
+         None,
+         "a chain id that does not fit a u64 cannot be a chain Zeus signed for"
+      );
+
+      assert_eq!(
+         clear_sign_chain(None),
+         None,
+         "a domain that names no chain must be refused, not defaulted to the wallet's chain"
       );
    }
 
