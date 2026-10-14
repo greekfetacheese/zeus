@@ -82,6 +82,26 @@ impl RailgunAsset {
    pub fn is_native(&self) -> bool {
       matches!(self, Self::Fungible(currency) if currency.is_native())
    }
+
+   /// The public half of the settlement refresh this asset needs.
+   ///
+   /// The fungible half follows the same rule as the NFT half: the refresh only has something to wait
+   /// for when a public balance really moves. A public ERC-20 balance moves only when the moved asset
+   /// really is an ERC-20 *and* the operation does not unwrap it — a native-ETH shield wraps inside the
+   /// Railgun contract and an `unwrap_to_eth` unshield unwraps there, so the wallet's public
+   /// wrapped-native balance is identical before and after. [`SettledOp::Fungible(None)`] is the
+   /// existing «no public token moved» answer; an NFT moves public ownership and keeps its wait.
+   ///
+   /// `unwrap_to_eth` is false on the shield and self-broadcast paths, which never unwrap.
+   pub fn settled_op(&self, unwrap_to_eth: bool) -> SettledOp {
+      match self {
+         Self::Fungible(currency) if !currency.is_native() && !unwrap_to_eth => {
+            SettledOp::Fungible(Some(currency.to_erc20().into_owned()))
+         }
+         Self::Fungible(_) => SettledOp::Fungible(None),
+         Self::Nft(_) => SettledOp::Nft,
+      }
+   }
 }
 
 /// A proved Railgun transaction, reduced to the call that gets broadcast.
@@ -163,6 +183,47 @@ mod tests {
    fn only_native_currency_is_native() {
       assert!(RailgunAsset::Fungible(Currency::native(1)).is_native());
       assert!(!RailgunAsset::Fungible(Currency::from(ERC20Token::weth())).is_native());
+   }
+
+   /// A native-ETH shield wraps inside the Railgun contract and an `unwrap_to_eth` unshield unwraps
+   /// there, so the wallet's public wrapped-native balance is identical before and after: the refresh
+   /// must not spend its retry budget on it. This is the defect the mapping exists to prevent.
+   #[test]
+   fn a_native_asset_waits_on_no_public_token() {
+      assert!(matches!(
+         RailgunAsset::Fungible(Currency::native(1)).settled_op(false),
+         SettledOp::Fungible(None)
+      ));
+      assert!(matches!(
+         RailgunAsset::Fungible(Currency::native(1)).settled_op(true),
+         SettledOp::Fungible(None)
+      ));
+   }
+
+   /// A public ERC-20 balance really does move, so its refresh keeps the retry — except when the
+   /// operation unwraps it, which leaves the wallet's public wrapped-native balance put.
+   #[test]
+   fn an_erc20_asset_waits_unless_it_is_unwrapped() {
+      let weth = ERC20Token::weth();
+
+      match RailgunAsset::Fungible(Currency::from(weth.clone())).settled_op(false) {
+         SettledOp::Fungible(Some(token)) => assert_eq!(token, weth),
+         _ => panic!("an ERC-20 shield should re-read its token"),
+      }
+
+      assert!(matches!(
+         RailgunAsset::Fungible(Currency::from(weth)).settled_op(true),
+         SettledOp::Fungible(None)
+      ));
+   }
+
+   /// An NFT moves public *ownership*, so it keeps its wait in either case.
+   #[test]
+   fn an_nft_asset_waits_on_ownership() {
+      assert!(matches!(
+         RailgunAsset::Nft(nft(7, NftStandard::Erc721)).settled_op(false),
+         SettledOp::Nft
+      ));
    }
 }
 
