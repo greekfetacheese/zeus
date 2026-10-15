@@ -509,56 +509,69 @@ impl RecipientSelectionWindow {
                         // selection still uses the mainnet address.
                         if let Some(note) = chain_record_note(chain_record, address, ctx.chain.id())
                         {
-                           // headline
-                           ui.label(
-                              RichText::new(format!(
-                                 "This name sets a different address for {}:",
-                                 chain_display_name(note.chain_id)
-                              ))
-                              .size(theme.typography.normal)
-                              .color(theme.colors.warning),
-                           );
+                           let size = vec2(ui.available_width() * 0.8, 300.0);
+                           let frame = theme.frame2;
 
-                           // row 1 — the chain's own address, linked to that chain's explorer.
-                           // The gate above guarantees note.chain_id == the active chain.
-                           let chain_url = format!(
-                              "{}/address/{}",
-                              ctx.chain.block_explorer(),
-                              note.other
-                           );
-                           ui.horizontal(|ui| {
-                              ui.label(
-                                 RichText::new(format!(
-                                    "• {} address:",
-                                    chain_display_name(note.chain_id)
-                                 ))
-                                 .size(theme.typography.normal)
-                                 .color(theme.colors.warning),
-                              );
-                              let text = RichText::new(truncate_address(note.other.to_string()))
-                                 .size(theme.typography.normal)
-                                 .color(theme.colors.info);
-                              ui.hyperlink_to(text, chain_url)
-                                 .on_hover_text(note.other.to_string());
-                           });
+                           frame.show(ui, |ui| {
+                              ui.allocate_ui(size, |ui| {
+                                 ui.vertical_centered(|ui| {
+                                    // headline
+                                    ui.label(
+                                       RichText::new(format!(
+                                          "This name sets a different address for {}:",
+                                          chain_display_name(note.chain_id)
+                                       ))
+                                       .size(theme.typography.normal)
+                                       .color(theme.colors.warning),
+                                    );
 
-                           // row 2 — the address the selection actually uses (mainnet), linked to etherscan.
-                           let mainnet_url = format!(
-                              "{}/address/{}",
-                              ChainId::Ethereum.block_explorer(),
-                              note.plain
-                           );
-                           ui.horizontal(|ui| {
-                              ui.label(
-                                 RichText::new("• You will send to its mainnet address:")
-                                    .size(theme.typography.normal)
-                                    .color(theme.colors.warning),
-                              );
-                              let text = RichText::new(truncate_address(note.plain.to_string()))
-                                 .size(theme.typography.normal)
-                                 .color(theme.colors.info);
-                              ui.hyperlink_to(text, mainnet_url)
-                                 .on_hover_text(note.plain.to_string());
+                                    // row 1 — the chain's own address, linked to that chain's explorer.
+                                    // The gate above guarantees note.chain_id == the active chain.
+                                    let chain_url = format!(
+                                       "{}/address/{}",
+                                       ctx.chain.block_explorer(),
+                                       note.other
+                                    );
+
+                                    ui.horizontal(|ui| {
+                                       ui.label(
+                                          RichText::new(format!(
+                                             "• {} address:",
+                                             chain_display_name(note.chain_id)
+                                          ))
+                                          .size(theme.typography.normal)
+                                          .color(theme.colors.warning),
+                                       );
+                                       let text =
+                                          RichText::new(truncate_address(note.other.to_string()))
+                                             .size(theme.typography.normal)
+                                             .color(theme.colors.info);
+                                       ui.hyperlink_to(text, chain_url)
+                                          .on_hover_text(note.other.to_string());
+                                    });
+
+                                    // row 2 — the address the selection actually uses (mainnet), linked to etherscan.
+                                    let mainnet_url = format!(
+                                       "{}/address/{}",
+                                       ChainId::Ethereum.block_explorer(),
+                                       note.plain
+                                    );
+
+                                    ui.horizontal(|ui| {
+                                       ui.label(
+                                          RichText::new("• You will send to its mainnet address:")
+                                             .size(theme.typography.normal)
+                                             .color(theme.colors.warning),
+                                       );
+                                       let text =
+                                          RichText::new(truncate_address(note.plain.to_string()))
+                                             .size(theme.typography.normal)
+                                             .color(theme.colors.info);
+                                       ui.hyperlink_to(text, mainnet_url)
+                                          .on_hover_text(note.plain.to_string());
+                                    });
+                                 });
+                              });
                            });
                         }
                      }
