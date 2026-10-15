@@ -805,10 +805,22 @@ impl ClientManager {
       self.read(|rpcs| rpcs.get(&chain).cloned().unwrap_or_default())
    }
 
-   pub fn add_rpc(&self, chain: u64, rpc: Rpc) {
+   pub fn add_rpc(&self, chain: u64, mut rpc: Rpc) {
+      let url = rpc.url.clone();
       self.write(|rpcs| {
-         rpcs.entry(chain).or_default().insert(rpc.url.clone(), rpc);
+         let endpoints = rpcs.entry(chain).or_default();
+         // The Add form can re-add a URL already listed, and it builds its record from builder
+         // defaults: keep the user's own choices — MEV-protect and the custom rate limits — on
+         // the replaced entry.
+         if let Some(previous) = endpoints.get(&rpc.url) {
+            rpc.mev_protect = previous.mev_protect;
+            rpc.rps = previous.rps;
+            rpc.cu_per_second = previous.cu_per_second;
+         }
+         endpoints.insert(rpc.url.clone(), rpc);
       });
+      // Any connection cached for that URL was dialed with the replaced record's transport policy.
+      self.evict_client(chain, &url);
       self.forget_node_fork(chain);
    }
 
@@ -1995,6 +2007,42 @@ mod tests {
       client.set_rpc_enabled(1, "http://127.0.0.1:1", false);
       assert!(client.clients.read().unwrap().is_empty());
       assert!(!client.get_rpcs(1).values().any(|rpc| rpc.enabled));
+   }
+
+   /// A re-add of a listed URL replaces its record, so a connection cached for it was dialed with
+   /// the replaced record's transport policy and must go.
+   #[tokio::test]
+   async fn add_rpc_evicts_the_connection_of_the_url_it_replaces() {
+      let client = client_with([http_rpc("http://127.0.0.1:1")]);
+      let rpc = client.get_best_rpc(1).unwrap();
+      let _ = client.client_for(&rpc, ClientKind::Standard).await.unwrap();
+      assert_eq!(client.clients.read().unwrap().len(), 1);
+
+      client.add_rpc(1, http_rpc("http://127.0.0.1:1"));
+      assert!(client.clients.read().unwrap().is_empty());
+   }
+
+   /// The Add form builds a fresh record from builder defaults, so re-adding a URL already listed
+   /// has to keep the user's own choices on the entry.
+   #[test]
+   fn add_rpc_keeps_the_users_choices_when_replacing_a_listed_url() {
+      let client = client_with([http_rpc("http://127.0.0.1:1")]);
+      client.update_rpc(1, "http://127.0.0.1:1", |rpc| {
+         rpc.mev_protect = true;
+         rpc.rps = 7;
+         rpc.cu_per_second = 4242;
+      });
+
+      client.add_rpc(
+         1,
+         Rpc::builder("http://127.0.0.1:1", 1).enabled().build(),
+      );
+
+      let rpcs = client.get_rpcs(1);
+      let rpc = rpcs.get("http://127.0.0.1:1").unwrap();
+      assert!(rpc.mev_protect);
+      assert_eq!(rpc.rps, 7);
+      assert_eq!(rpc.cu_per_second, 4242);
    }
 
    #[tokio::test]
