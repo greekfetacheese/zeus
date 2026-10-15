@@ -272,7 +272,7 @@ impl TimeStamp {
    }
 
    pub fn to_relative(&self) -> String {
-      timestamp_to_relative_time(&self)
+      timestamp_to_relative_time(self)
    }
 
    pub fn to_date_string(&self) -> String {

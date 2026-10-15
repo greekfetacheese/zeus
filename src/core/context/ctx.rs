@@ -1992,7 +1992,7 @@ impl ZeusCtx {
       }
 
       let addr_slice = &code[3..];
-      let delegated_address = Address::from_slice(&addr_slice);
+      let delegated_address = Address::from_slice(addr_slice);
 
       self.write(|ctx| {
          ctx.delegated_wallets.add(chain, account, delegated_address);
@@ -2916,7 +2916,7 @@ impl ZeusContext {
    /// - Children wallets
    /// - Imported wallets
    pub fn all_wallets_info_ordered(&self) -> &[WalletInfo] {
-      &self.wallet_info_cache.ordered_slice()
+      self.wallet_info_cache.ordered_slice()
    }
 
    /// Is this wallet selected as the current wallet
@@ -3319,7 +3319,7 @@ mod tests {
       eprintln!("Code length: {}", code.len());
 
       let addr_slice = &code[3..];
-      let address = Address::from_slice(&addr_slice);
+      let address = Address::from_slice(addr_slice);
       eprintln!("Address: {}", address);
 
       assert_eq!(address, delegated_address);

@@ -9,7 +9,12 @@ all-features = false
 yanked = "deny"
 unmaintained = "workspace"
 unsound = "workspace"
-ignore = []
+ignore = [
+    # Unfixable upstream: object 0.32.2 requires ruzstd ^0.5 (its own manifest pins
+    # `version = "0.5.0"`) while the fix is 0.9.1. Reached only through wasmer's zstd
+    # support in the Railgun proving stack, so it is not on an untrusted-input path.
+    { id = "RUSTSEC-2026-0344", reason = "object 0.32.2 requires ruzstd ^0.5, so the fix (0.9.1) cannot be selected; reached only through wasmer's zstd support in the Railgun proving stack" },
+]
 
 [licenses]
 allow = [
