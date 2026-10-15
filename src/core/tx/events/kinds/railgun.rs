@@ -38,7 +38,7 @@ pub struct ShieldParams {
 
 impl ShieldParams {
    pub async fn from_log(ctx: ZeusCtx, chain: u64, log: &Log) -> Result<Vec<Self>, anyhow::Error> {
-      if let Ok(decoded) = <RailgunSmartWallet::Shield as SolEvent>::decode_log(&log) {
+      if let Ok(decoded) = <RailgunSmartWallet::Shield as SolEvent>::decode_log(log) {
          let mut events = Vec::new();
 
          if decoded.fees.len() != decoded.commitments.len() {
@@ -175,7 +175,7 @@ pub struct UnshieldParams {
 
 impl UnshieldParams {
    pub async fn from_log(ctx: ZeusCtx, chain: u64, log: &Log) -> Result<Self, anyhow::Error> {
-      if let Ok(decoded) = <RailgunSmartWallet::Unshield as SolEvent>::decode_log(&log) {
+      if let Ok(decoded) = <RailgunSmartWallet::Unshield as SolEvent>::decode_log(log) {
          if decoded.token.tokenType == TokenType::ERC20 {
             let erc20 = ctx.get_token(chain, decoded.token.tokenAddress).await?;
             let amount = NumericValue::format_wei(decoded.amount, erc20.decimals);

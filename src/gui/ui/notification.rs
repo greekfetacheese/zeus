@@ -622,7 +622,7 @@ impl Notification {
 
          let text = format!("{} {}", amount, currency.symbol());
          let text = RichText::new(text).size(theme.typography.large);
-         let icon = icons.currency_icon_x32(&currency, tint).fit_to_exact_size(icon_size);
+         let icon = icons.currency_icon_x32(currency, tint).fit_to_exact_size(icon_size);
 
          let label =
             Label::new(text, Some(icon)).wrap_mode(TextWrapMode::Extend).interactive(false);
