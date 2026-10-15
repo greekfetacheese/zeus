@@ -648,15 +648,66 @@ async fn status_handler(ctx: ZeusCtx) -> Result<impl warp::Reply, Infallible> {
    Ok(warp::reply::json(&res))
 }
 
-/// The account a connected app may see and transact with.
+/// How a dapp's account resolves against the vault.
+#[derive(Debug, PartialEq, Eq)]
+enum AccountResolution {
+   /// The app is connected and its recorded account still exists in the vault.
+   Live(Address),
+   /// The app is connected but has no recorded account, or the recorded one no
+   /// longer exists in the vault.
+   Stale,
+   /// The app is not connected.
+   NotConnected,
+}
+
+/// Decide which account is available to `origin`, given whether it is connected,
+/// the account recorded for it, and whether that account still exists in the
+/// vault.
+///
+/// Pure, so the decision is testable without a `ZeusCtx`; [`dapp_account`] maps
+/// the result onto the vault and the connection registry.
+fn resolve_dapp_account(
+   connected: bool,
+   recorded: Option<Address>,
+   wallet_exists: impl Fn(Address) -> bool,
+) -> AccountResolution {
+   if !connected {
+      return AccountResolution::NotConnected;
+   }
+
+   match recorded {
+      Some(address) if wallet_exists(address) => AccountResolution::Live(address),
+      _ => AccountResolution::Stale,
+   }
+}
+
+/// The account a connected app may see and transact with, or `None` when it must
+/// be treated as not connected.
 ///
 /// Each app is given its own account, so the answer is the one Zeus recorded
 /// when the app connected — not whichever account happens to be selected in the
-/// UI. A connection is only recorded once that account is persisted, so a
-/// connected origin always has one; the active-account fallback only covers an
-/// origin that has not connected (e.g. the default `from` of `eth_call`).
-fn dapp_account(ctx: &ZeusCtx, origin: &str) -> Address {
-   ctx.dapp_account(origin).unwrap_or_else(|| ctx.current_wallet_info().address)
+/// UI. A recorded account that no longer exists in the vault (profile import,
+/// deleted wallet) disconnects the origin here and resolves to `None`. The
+/// active wallet is never a fallback: every caller runs for a connected origin
+/// (the dispatcher refuses account-resolving methods for anybody else), so a
+/// fallback would only ever fire in exactly the stale-record case this guards.
+fn dapp_account(ctx: &ZeusCtx, origin: &str) -> Option<Address> {
+   match resolve_dapp_account(
+      ctx.is_dapp_connected(origin),
+      ctx.dapp_account(origin),
+      |address| ctx.wallet_exists(address),
+   ) {
+      AccountResolution::Live(address) => Some(address),
+      AccountResolution::Stale => {
+         warn!(
+            "Dapp {} is connected with an account the vault no longer has; disconnecting it",
+            origin
+         );
+         ctx.disconnect_dapp(origin);
+         None
+      }
+      AccountResolution::NotConnected => None,
+   }
 }
 
 fn request_accounts(
@@ -664,10 +715,9 @@ fn request_accounts(
    origin: &str,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let result = if ctx.is_dapp_connected(origin) {
-      json!(vec![dapp_account(&ctx, origin).to_string()])
-   } else {
-      json!([])
+   let result = match dapp_account(&ctx, origin) {
+      Some(account) => json!(vec![account.to_string()]),
+      None => json!([]),
    };
    Ok(JsonRpcResponse::ok(Some(result), payload.id))
 }
@@ -677,17 +727,18 @@ fn get_permissions(
    origin: &str,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let result = if ctx.is_dapp_connected(origin) {
-      let account = dapp_account(&ctx, origin).to_string();
-      json!([{
-          "parentCapability": "eth_accounts",
-          "caveats": [{
-              "type": "restrictReturnedAccounts",
-              "value": [account]
-          }]
-      }])
-   } else {
-      json!([])
+   let result = match dapp_account(&ctx, origin) {
+      Some(account) => {
+         let account = account.to_string();
+         json!([{
+             "parentCapability": "eth_accounts",
+             "caveats": [{
+                 "type": "restrictReturnedAccounts",
+                 "value": [account]
+             }]
+         }])
+      }
+      None => json!([]),
    };
    Ok(JsonRpcResponse::ok(Some(result), payload.id))
 }
@@ -773,7 +824,10 @@ async fn connect(
    payload: JsonRpcRequest,
    method: RequestMethod,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let remembered = ctx.dapp_account(&origin);
+   // Raw read on purpose: this flow only runs for an origin the dispatcher
+   // refuses as not connected. The filter keeps the prompt from offering an
+   // account the vault no longer has.
+   let remembered = ctx.dapp_account(&origin).filter(|address| ctx.wallet_exists(*address));
    let seen = ctx.dapp_seen_accounts(&origin);
    let wallets = ctx.get_all_wallets_info();
 
@@ -862,7 +916,8 @@ async fn connect(
    };
 
    // Record the account before connecting: if it cannot be persisted, the app
-   // would be connected with no account and fall back to the active wallet.
+   // would be connected with no account and treated as not connected on its
+   // first account-resolving call.
    if let Err(e) = ctx.set_dapp_account(&origin, address) {
       SHARED_GUI.write(|gui| {
          gui.msg_window.open(format!(
@@ -1277,11 +1332,11 @@ async fn eth_call(
       Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
-   let call = match parse_rpc_tx_call(
-      params_object,
-      dapp_account(&ctx, origin),
-      "eth_call",
-   ) {
+   let Some(from) = dapp_account(&ctx, origin) else {
+      return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id));
+   };
+
+   let call = match parse_rpc_tx_call(params_object, from, "eth_call") {
       Ok(call) => call,
       Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
@@ -1350,11 +1405,11 @@ async fn estimate_gas(
       Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
-   let call = match parse_rpc_tx_call(
-      object,
-      dapp_account(&ctx, origin),
-      "eth_estimateGas",
-   ) {
+   let Some(from) = dapp_account(&ctx, origin) else {
+      return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id));
+   };
+
+   let call = match parse_rpc_tx_call(object, from, "eth_estimateGas") {
       Ok(call) => call,
       Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
@@ -1398,7 +1453,9 @@ async fn eth_sign_typed_data_v4(
    // The requested signer must be the account the app is connected to. The
    // parameter is optional (some dapps omit it), but when present it has to
    // name that account — signing uses it either way.
-   let expected = dapp_account(&ctx, &origin);
+   let Some(expected) = dapp_account(&ctx, &origin) else {
+      return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id));
+   };
    match payload.params.get(0) {
       None => {}
       Some(Value::String(signer_str)) => match Address::from_str(signer_str) {
@@ -1500,7 +1557,9 @@ async fn personal_sign(
    };
 
    // The dapp may only sign with the account it is connected to.
-   let expected = dapp_account(&ctx, &origin);
+   let Some(expected) = dapp_account(&ctx, &origin) else {
+      return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id));
+   };
    if address != expected {
       return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id)); // Or a specific error like 4100
    }
@@ -1693,7 +1752,9 @@ async fn eth_send_transaction(
       Err(()) => return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id)),
    };
 
-   let expected = dapp_account(&ctx, &origin);
+   let Some(expected) = dapp_account(&ctx, &origin) else {
+      return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id));
+   };
 
    let RpcTxCall {
       from,
@@ -1982,7 +2043,9 @@ async fn wallet_send_calls(
    origin: String,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let expected = dapp_account(&ctx, &origin);
+   let Some(expected) = dapp_account(&ctx, &origin) else {
+      return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id));
+   };
 
    let (from, chain, calls) = match parse_wallet_send_calls(&ctx, &payload.params, expected) {
       Ok(parsed) => parsed,
@@ -2783,6 +2846,76 @@ mod watch_asset_tests {
       assert_eq!(
          watch_asset_label(address, Some("")),
          address.to_string()
+      );
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   fn test_address(byte: u8) -> Address {
+      Address::from([byte; 20])
+   }
+
+   /// A connected app whose recorded account is still in the vault gets that
+   /// account.
+   #[test]
+   fn connected_with_a_live_recorded_account_is_live() {
+      let recorded = test_address(1);
+      assert_eq!(
+         resolve_dapp_account(true, Some(recorded), |_| true),
+         AccountResolution::Live(recorded)
+      );
+   }
+
+   /// A recorded account the vault no longer has is stale — never a licence to
+   /// hand the app the active wallet.
+   #[test]
+   fn connected_with_a_recorded_account_the_vault_lost_is_stale() {
+      assert_eq!(
+         resolve_dapp_account(true, Some(test_address(1)), |_| false),
+         AccountResolution::Stale
+      );
+   }
+
+   /// A connected app with no recorded account resolves stale too: there is no
+   /// account it may see, the active wallet included.
+   #[test]
+   fn connected_without_a_recorded_account_is_stale() {
+      assert_eq!(
+         resolve_dapp_account(true, None, |_| true),
+         AccountResolution::Stale
+      );
+   }
+
+   /// Not connected stays not connected, even with a live account on record.
+   #[test]
+   fn a_disconnected_origin_is_not_connected() {
+      assert_eq!(
+         resolve_dapp_account(false, Some(test_address(1)), |_| true),
+         AccountResolution::NotConnected
+      );
+   }
+
+   /// The connect prompt only presets a remembered account the vault still has.
+   #[test]
+   fn connect_filter_drops_a_remembered_account_the_vault_no_longer_has() {
+      let live = test_address(1);
+      let gone = test_address(2);
+      let wallet_exists = |address: Address| address == live;
+
+      assert_eq!(
+         Some(live).filter(|address| wallet_exists(*address)),
+         Some(live)
+      );
+      assert_eq!(
+         Some(gone).filter(|address| wallet_exists(*address)),
+         None
+      );
+      assert_eq!(
+         None::<Address>.filter(|address| wallet_exists(*address)),
+         None
       );
    }
 }
