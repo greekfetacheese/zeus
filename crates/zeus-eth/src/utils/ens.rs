@@ -616,6 +616,40 @@ where
    Ok(Some(Address::from_slice(&raw)))
 }
 
+/// The address a plain name declares for one chain, when it differs from the mainnet `addr`
+/// record.
+///
+/// A plain name resolves to its mainnet `addr` record, but the same name may also declare an
+/// ENSIP-19 address for another chain. Silently substituting the mainnet address is the exact
+/// ambiguity ERC-7828 exists to remove, so this reports the difference for the UI to surface —
+/// it never changes what is sent.
+///
+/// `Ok(Some(other))` only when `chain_id` is not mainnet and the name's record for it holds an
+/// address other than `address`. Both an exact per-chain record and the default-EVM record as a
+/// weaker fallback count (see [`resolve_name_for_chain`]); the caller is told the address, not
+/// which record it came from. `Ok(None)` for mainnet, no record, or the same address.
+pub async fn differing_chain_address<P>(
+   client: &P,
+   name: &str,
+   chain_id: u64,
+   address: Address,
+) -> Result<Option<Address>, alloy_ens::EnsError>
+where
+   P: Provider<Ethereum>,
+{
+   // Mainnet *is* the plain spelling's chain, so there is no difference to report and no lookup
+   // to spend.
+   if chain_id == ENS_CHAIN {
+      return Ok(None);
+   }
+
+   let Some(resolved) = resolve_name_for_chain(client, name, chain_id).await? else {
+      return Ok(None);
+   };
+
+   Ok((resolved.address != address).then_some(resolved.address))
+}
+
 #[cfg(test)]
 mod tests {
    use super::*;
@@ -799,5 +833,29 @@ mod tests {
       assert!(expiry.is_trusted(1_000)); // just expired, still in grace
       assert!(expiry.is_trusted(expiry.takeover_at - 1)); // last second of grace
       assert!(!expiry.is_trusted(expiry.takeover_at)); // takeover window opens
+   }
+
+   /// The mainnet short-circuit answers without a node: `chain_id == ENS_CHAIN` is the plain
+   /// spelling's own chain, so there is no difference to look for and no lookup to spend.
+   /// `.invalid` never resolves ([RFC 2606](https://www.rfc-editor.org/rfc/rfc2606)), so a lookup
+   /// that dialed would come back as an `Err` instead of `Ok(None)`.
+   #[tokio::test]
+   async fn differing_chain_address_short_circuits_mainnet_without_a_node() {
+      use alloy_provider::ProviderBuilder;
+
+      let client =
+         ProviderBuilder::new().connect_http("http://zeus.invalid:8545".parse().expect("a url"));
+
+      assert_eq!(
+         differing_chain_address(
+            &client,
+            "vitalik.eth",
+            ENS_CHAIN,
+            Address::repeat_byte(0xaa)
+         )
+         .await
+         .unwrap(),
+         None
+      );
    }
 }

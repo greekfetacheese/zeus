@@ -33,6 +33,10 @@ enum UnknownRecipient {
       address: Address,
       /// The name's registration expiry. `None` for a name with no onchain expiry (non-`.eth`).
       expiry: Option<ens::NameExpiry>,
+      /// The address the name declares for the active chain (ENSIP-19), plus the chain it was
+      /// read for. Set only when that address differs from `address`. Warned about, never acted
+      /// on: the plain spelling still sends to the mainnet `addr` record.
+      chain_record: Option<(u64, Address)>,
    },
    /// An ERC-7828 `<address>@<chain>`. The chain is part of what the user typed, so it is
    /// carried through to the send path instead of being assumed from the active chain.
@@ -450,6 +454,7 @@ impl RecipientSelectionWindow {
                         name,
                         address,
                         expiry,
+                        chain_record,
                      } => {
                         // Past its grace period the name can be registered by anyone, so it no
                         // longer identifies this address: shown, but never selectable.
@@ -498,6 +503,18 @@ impl RecipientSelectionWindow {
                            .color(theme.colors.info);
 
                         ui.hyperlink_to(text, link);
+
+                        // A plain name sends to the mainnet `addr` record. If the name also
+                        // declares a different address for the active chain, say so — the
+                        // selection still uses the mainnet address.
+                        if let Some(note) = chain_record_note(chain_record, address, ctx.chain.id())
+                        {
+                           ui.label(
+                              RichText::new(note)
+                                 .size(theme.typography.normal)
+                                 .color(theme.colors.warning),
+                           );
+                        }
                      }
                      UnknownRecipient::Interoperable {
                         name,
@@ -949,19 +966,50 @@ fn resolve_ens_recipient(ctx: &ZeusCtx, query: &str) -> Option<UnknownRecipient>
    }
 
    let name = ens::normalize_name(query).ok()?;
+   let active_chain = ctx.chain().id();
 
    let resolved = RT.block_on(async {
       let client = ctx.get_client(ETH).await?;
-      ens::resolve_name_with_expiry(&client, &name)
+
+      let Some((address, expiry)) = ens::resolve_name_with_expiry(&client, &name)
          .await
-         .map_err(|e| anyhow::anyhow!("{:?}", e))
+         .map_err(|e| anyhow::anyhow!("{:?}", e))?
+      else {
+         return Ok(None);
+      };
+
+      // The plain spelling resolves only the mainnet `addr` record. When the active chain is not
+      // mainnet and the name declares a different address for it (ENSIP-19), record that so the
+      // row can warn — silently substituting the mainnet address is the ambiguity ERC-7828
+      // exists to remove. A failed side-check records nothing, exactly like the main lookup
+      // above; the selection is the mainnet address either way.
+      let chain_record = if active_chain == ETH {
+         None
+      } else {
+         match ens::differing_chain_address(&client, &name, active_chain, address).await {
+            Ok(Some(other)) => Some((active_chain, other)),
+            Ok(None) => None,
+            Err(e) => {
+               tracing::error!(
+                  "Could not resolve ENS {} for chain {}: {}",
+                  name,
+                  active_chain,
+                  e
+               );
+               None
+            }
+         }
+      };
+
+      Ok::<_, anyhow::Error>(Some((address, expiry, chain_record)))
    });
 
    match resolved {
-      Ok(Some((address, expiry))) => Some(UnknownRecipient::Ens {
+      Ok(Some((address, expiry, chain_record))) => Some(UnknownRecipient::Ens {
          name,
          address,
          expiry,
+         chain_record,
       }),
       Ok(None) => None,
       Err(e) => {
@@ -1049,6 +1097,37 @@ fn grace_note(expiry: ens::NameExpiry, theme: &Theme) -> RichText {
    .color(theme.colors.text_muted)
 }
 
+/// The warning for a plain-name suggestion whose name declares a different address for the chain
+/// the user is looking at.
+///
+/// `chain_record` is the chain the record was read for plus its address. Returns `None` when
+/// there is nothing to warn about: nothing was recorded, the record is for a chain the user has
+/// since switched away from, or it holds the same address the mainnet `addr` record already
+/// gives. The recipient is the mainnet address either way — the note only says what the name
+/// declares (ENSIP-19), which is why it does not name the record it came from: the chain's
+/// address may equally be a per-chain record or the default-EVM one.
+fn chain_record_note(
+   chain_record: Option<(u64, Address)>,
+   plain: Address,
+   active_chain: u64,
+) -> Option<String> {
+   let (chain, other) = chain_record?;
+
+   if chain != active_chain || other == plain {
+      return None;
+   }
+
+   let chain_name = match ChainId::new(chain) {
+      Ok(chain) => chain.name().to_string(),
+      Err(_) => format!("chain {}", chain),
+   };
+
+   Some(format!(
+      "This name sets a different address for {}: {}. Selecting it uses its mainnet address: {}.",
+      chain_name, other, plain
+   ))
+}
+
 fn valid_contact_search(contact: &Contact, privacy_mode: bool, query: &str) -> bool {
    let query = query.to_lowercase();
 
@@ -1078,5 +1157,58 @@ fn valid_wallet_search(wallet: &WalletInfo, privacy_mode: bool, query: &str) -> 
    } else {
       return wallet.name_with_source().to_lowercase().contains(&query)
          || wallet.zk_address().to_string().to_lowercase().contains(&query);
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use zeus_eth::types::BASE;
+
+   fn address(byte: u8) -> Address {
+      Address::repeat_byte(byte)
+   }
+
+   #[test]
+   fn chain_record_note_names_both_addresses_for_the_active_chain() {
+      let plain = address(0xaa);
+      let other = address(0xbb);
+
+      let note = chain_record_note(Some((BASE, other)), plain, BASE)
+         .expect("a differing address on the active chain is a warning");
+
+      assert!(
+         note.contains(&other.to_string()),
+         "note names the chain address: {note}"
+      );
+      assert!(
+         note.contains(&plain.to_string()),
+         "note names the mainnet address: {note}"
+      );
+      assert!(
+         note.contains("Base"),
+         "note names the chain: {note}"
+      );
+   }
+
+   #[test]
+   fn chain_record_note_stays_silent_when_there_is_nothing_to_say() {
+      let plain = address(0xaa);
+      let other = address(0xbb);
+
+      // Recorded for a chain the user has since switched away from.
+      assert_eq!(
+         chain_record_note(Some((BASE, other)), plain, ETH),
+         None
+      );
+
+      // The record agrees with the mainnet address.
+      assert_eq!(
+         chain_record_note(Some((BASE, plain)), plain, BASE),
+         None
+      );
+
+      // Nothing was recorded.
+      assert_eq!(chain_record_note(None, plain, BASE), None);
    }
 }
