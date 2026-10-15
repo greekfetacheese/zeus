@@ -542,6 +542,22 @@ impl Recipient {
       self.ens_takeover_at.is_none_or(|takeover_at| now_secs < takeover_at)
    }
 
+   /// Drop the name binding this recipient was built with, keeping the address that was typed.
+   ///
+   /// A recipient is named only because a name resolved to its address when it was picked (see
+   /// [`Self::from_ens_name`]), so `name`, `chain` and `ens_takeover_at` all describe *that*
+   /// address. Once the user edits the address field the address is no longer the one the name
+   /// resolved to, and the binding goes with it: otherwise the row keeps showing the old name
+   /// beside a different address and computes its lapse warning from the old name's deadline.
+   ///
+   /// `evm_address` / `zk_address` are left exactly as they are — what is sent is the address,
+   /// never the name.
+   pub fn forget_name_binding(&mut self) {
+      self.name = None;
+      self.chain = None;
+      self.ens_takeover_at = None;
+   }
+
    /// The ENS binding to re-check at the confirm step, when this recipient came from a named
    /// `.eth` name. `None` for anything else — a plain address, a contact, a wallet label, or a
    /// name with no onchain expiry — where there is no name that could go stale.
@@ -1244,6 +1260,79 @@ mod tests {
       assert!(guard.is_trusted(Some(999_999)));
       assert!(!guard.is_trusted(Some(1_000_000)));
       assert!(!guard.is_trusted(None));
+   }
+
+   /// A pick leaves name, chain and takeover all set against one address, and all three describe
+   /// that address. Editing the address must drop the whole binding without touching the address
+   /// fields — the name is display only, the address is what gets sent.
+   #[test]
+   fn forget_name_binding_clears_a_picked_name_and_keeps_the_address() {
+      let mut recipient = Recipient::from_ens_name(
+         Some("alice.eth".to_string()),
+         Address::repeat_byte(0x22),
+         Some(8453),
+         Some(1_000_000),
+      );
+
+      let evm_address = recipient.evm_address.clone();
+      let zk_address = recipient.zk_address.clone();
+
+      recipient.forget_name_binding();
+
+      assert_eq!(recipient.name, None);
+      assert_eq!(recipient.chain, None);
+      assert_eq!(recipient.ens_takeover_at, None);
+      assert_eq!(recipient.evm_address, evm_address);
+      assert_eq!(recipient.zk_address, zk_address);
+   }
+
+   /// A recipient from an unknown address never had a name, so there is nothing to forget — and
+   /// calling it must not change what `from_unknown_evm_address` produced.
+   #[test]
+   fn forget_name_binding_leaves_an_unknown_address_unchanged() {
+      let mut recipient = Recipient::from_unknown_evm_address(Address::repeat_byte(0x33));
+      let evm_address = recipient.evm_address.clone();
+
+      recipient.forget_name_binding();
+
+      assert_eq!(recipient.name, None);
+      assert_eq!(recipient.chain, None);
+      assert_eq!(recipient.ens_takeover_at, None);
+      assert_eq!(recipient.evm_address, evm_address);
+      assert!(recipient.zk_address.is_empty());
+   }
+
+   /// A recipient whose `name` is empty (`None`) and has no takeover carries no binding to drop,
+   /// so every field — including a `0zk` address — is left exactly as it was.
+   #[test]
+   fn forget_name_binding_leaves_an_unnamed_recipient_unchanged() {
+      let mut recipient = Recipient {
+         name: None,
+         evm_address: "0x1111111111111111111111111111111111111111".to_string(),
+         zk_address: "0zkunnamedrecipient".to_string(),
+         chain: None,
+         ens_takeover_at: None,
+      };
+
+      let before = (
+         recipient.name.clone(),
+         recipient.evm_address.clone(),
+         recipient.zk_address.clone(),
+         recipient.chain,
+         recipient.ens_takeover_at,
+      );
+
+      recipient.forget_name_binding();
+
+      let after = (
+         recipient.name.clone(),
+         recipient.evm_address.clone(),
+         recipient.zk_address.clone(),
+         recipient.chain,
+         recipient.ens_takeover_at,
+      );
+
+      assert_eq!(before, after);
    }
 
    /// The persisted fields round-trip; `argon_params` does not, because it is
