@@ -688,7 +688,10 @@ impl ShieldUi {
                      self.poll_privacy(chain, owner, &recipient_str, ui);
                      self.show_privacy_check(theme, ui);
                   } else {
-                     self.poll_shield_pool(chain);
+                     // The check reads Railgun's own state, so it is only armed once the chain has
+                     // synced: armed earlier it could only fail, and a failed verdict latches.
+                     let railgun_synced = ctx.railgun_status().synced(chain.id());
+                     self.poll_shield_pool(chain, railgun_synced);
                      self.show_shield_pool_check(theme, ui);
                   }
 
@@ -1313,11 +1316,26 @@ impl ShieldUi {
    /// warning lands as soon as it is known. A key computed for another token does not make the old
    /// verdict stale but wrong, so it is dropped here, and the in-flight check publishes only for the
    /// key that asked for it.
-   fn poll_shield_pool(&mut self, chain: ChainId) {
+   ///
+   /// Armed only once the chain's Railgun state has synced: a check that runs before its data exists
+   /// can only fail, and a failed verdict is latched as solidly as an answer — still silent, by design
+   /// — so an early check would silence the warning for the rest of the visit.
+   fn poll_shield_pool(&mut self, chain: ChainId, railgun_synced: bool) {
       let key = (chain.id(), self.privacy_asset_key());
 
-      // Answered, or in flight, for exactly this token: nothing to do.
-      if self.shield_pool_key.as_ref() == Some(&key) {
+      // A key change makes the old verdict wrong rather than stale, so it goes now; only the latch
+      // waits for sync.
+      if self.shield_pool_key.as_ref() != Some(&key) {
+         self.shield_pool = None;
+      }
+
+      // Not synced yet, or answered / in flight for exactly this token: nothing to do. The key is
+      // deliberately left unlatched while the chain is unsynced, so the check arms after sync.
+      if !shield_check_due(
+         self.shield_pool_key.as_ref(),
+         &key,
+         railgun_synced,
+      ) {
          return;
       }
 
@@ -1869,6 +1887,19 @@ fn spawn_privacy_check(
          gui.request_repaint();
       });
    });
+}
+
+/// Should the shield pool check be armed for `key`?
+///
+/// A latched key is already answered, or in flight, and a check is only armed once the chain's
+/// Railgun state has synced: before its data exists it can only fail, and a failed verdict is latched
+/// like any other — so it must not be armed at all until there is something for it to read.
+fn shield_check_due(
+   latched: Option<&(u64, AssetId)>,
+   key: &(u64, AssetId),
+   railgun_synced: bool,
+) -> bool {
+   railgun_synced && latched != Some(key)
 }
 
 /// Run the shield pool check for `key` and publish the verdict if the form still matches it.
@@ -2433,6 +2464,74 @@ mod tests {
       ui.currency = Currency::from(ERC20Token::weth());
       assert_eq!(native, ui.privacy_asset_key());
       assert_eq!(native, AssetId::Erc20(ERC20Token::weth().address));
+   }
+
+   /// A check that runs before its data exists can only fail, and a failed verdict latches like an
+   /// answer — so an unsynced chain arms nothing: neither a fresh key nor one already latched, whose
+   /// latch could then never be explained by a check that ran while the data was missing.
+   #[test]
+   fn an_unsynced_chain_does_not_arm_the_shield_pool_check() {
+      let key = (1u64, AssetId::Erc20(ERC20Token::weth().address));
+
+      assert!(
+         !shield_check_due(None, &key, false),
+         "an unsynced chain must not arm the check"
+      );
+      assert!(
+         !shield_check_due(Some(&key), &key, false),
+         "nor re-arm a key that is already latched"
+      );
+   }
+
+   /// Once the chain has synced the check arms for a free key, and only once: a latched key is
+   /// answered (or in flight), so asking again would discard the verdict the form is showing.
+   #[test]
+   fn a_synced_chain_arms_the_shield_pool_check_once() {
+      let key = (1u64, AssetId::Erc20(ERC20Token::weth().address));
+
+      assert!(
+         shield_check_due(None, &key, true),
+         "a synced chain arms the check for a free key"
+      );
+      assert!(
+         !shield_check_due(Some(&key), &key, true),
+         "but does not arm it again once it is latched"
+      );
+   }
+
+   /// A key change drops the old verdict immediately, synced or not: it describes another pool, so it
+   /// is wrong rather than stale. Only the *latch* waits for sync — the poll must not leave the old
+   /// key holding the form's warning while the new chain's data is still arriving.
+   #[test]
+   fn a_key_change_drops_the_old_verdict_even_while_unsynced() {
+      let mut ui = ShieldUi::new();
+      ui.set_mode(RailgunMode::Shield);
+
+      // A verdict for one asset, already latched under its key.
+      ui.currency = Currency::from(ERC20Token::weth());
+      let latched = (1u64, ui.privacy_asset_key());
+      ui.shield_pool_key = Some(latched.clone());
+      ui.shield_pool = Some(PoolDepth {
+         balance_wei: U256::from(1_000u64),
+         usd: Some(400.0),
+         share: None,
+         deposits: Some(1_224),
+      });
+
+      // The form moves to another asset while the chain is unsynced: the verdict goes now, and the
+      // latch is left alone so the check still arms once sync completes.
+      ui.currency = Currency::from(ERC20Token::usdc());
+      ui.poll_shield_pool(ChainId::new(1).unwrap(), false);
+
+      assert!(
+         ui.shield_pool.is_none(),
+         "another key's verdict must not linger"
+      );
+      assert_eq!(
+         ui.shield_pool_key.as_ref(),
+         Some(&latched),
+         "the latch waits for sync; the unsynced poll leaves it untouched"
+      );
    }
 
    /// The shield warning is at most two wrapped sentences in the slot the ERC-1155 notice already
