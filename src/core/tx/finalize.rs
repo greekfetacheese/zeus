@@ -232,6 +232,18 @@ pub async fn build_tx_outcome(
    })
 }
 
+/// Discovery is bounded per transaction: a hostile (or merely huge) `TransferBatch` must not
+/// fan out into one fetch + one whole-catalog save per id. 64 mirrors `MAX_NFT_CANDIDATES`.
+const MAX_DISCOVERED_NFTS_PER_TX: usize = 64;
+
+/// `(kept, dropped)` — the first `cap` candidates, and how many were dropped.
+fn cap_candidates(candidates: Vec<(Address, U256)>, cap: usize) -> (Vec<(Address, U256)>, usize) {
+   let dropped = candidates.len().saturating_sub(cap);
+   let mut kept = candidates;
+   kept.truncate(cap);
+   (kept, dropped)
+}
+
 /// Track the NFTs that arrived at `owner` in a transaction.
 ///
 /// This is the NFT half of what the currency DB does for ERC-20s: discovery feeds a catalog, and the
@@ -242,14 +254,40 @@ pub async fn build_tx_outcome(
 /// Best-effort: this resolves metadata over the network, and failing to reach it must not fail the
 /// transaction record, which is the part the user actually needs.
 async fn discover_nfts(ctx: ZeusCtx, chain: u64, owner: Address, transfers: &[NftTransferParams]) {
-   for (collection, token_id) in arrived_tokens(owner, transfers) {
-      // Already-cached tokens cost no network: `get_nft` answers from the db.
-      if let Err(e) = ctx.get_nft(chain, collection, token_id).await {
-         tracing::warn!(
-            "Failed to track NFT from the transaction: {:?}",
-            e
-         );
+   let (candidates, dropped) = cap_candidates(
+      arrived_tokens(owner, transfers),
+      MAX_DISCOVERED_NFTS_PER_TX,
+   );
+
+   // The overflow is deliberately not auto-tracked: pasting the collection in the picker is the
+   // explicit path for a user who wants those ids.
+   if dropped > 0 {
+      tracing::warn!(
+         "Capping NFT discovery for this transaction: {} arrived, {} tracked, {} dropped",
+         candidates.len() + dropped,
+         candidates.len(),
+         dropped
+      );
+   }
+
+   let mut fetched = false;
+   for (collection, token_id) in candidates {
+      // Live catalog answers cost no network, and this helper never persists.
+      match ctx.fetch_and_cache_nft(chain, collection, token_id).await {
+         Ok((_, was_fetched)) => fetched |= was_fetched,
+         Err(e) => {
+            tracing::warn!(
+               "Failed to track NFT from the transaction: {:?}",
+               e
+            );
+         }
       }
+   }
+
+   // One whole-catalog save per run. `save_nft_db` clones and reseals the file, so a per-token save
+   // makes a batch quadratic in catalog bytes; a run that only hit the cache saves nothing at all.
+   if fetched {
+      ctx.save_nft_db();
    }
 }
 
@@ -369,5 +407,41 @@ mod tests {
          arrived,
          vec![(COLLECTION, U256::from(1)), (COLLECTION, U256::from(2))]
       );
+   }
+
+   /// A `TransferBatch` with more ids than the cap is truncated, and the overflow is counted.
+   #[test]
+   fn cap_candidates_keeps_the_first_cap() {
+      let candidates: Vec<_> = (0u64..100).map(|id| (COLLECTION, U256::from(id))).collect();
+
+      let (kept, dropped) = cap_candidates(candidates, 64);
+
+      assert_eq!(
+         kept,
+         (0u64..64).map(|id| (COLLECTION, U256::from(id))).collect::<Vec<_>>()
+      );
+      assert_eq!(dropped, 36);
+   }
+
+   /// Under the cap nothing is dropped and the candidates come through untouched, in order.
+   #[test]
+   fn cap_candidates_below_the_cap_drops_nothing() {
+      let candidates = vec![(COLLECTION, U256::from(1)), (COLLECTION, U256::from(2))];
+
+      let (kept, dropped) = cap_candidates(candidates.clone(), 64);
+
+      assert_eq!(kept, candidates);
+      assert_eq!(dropped, 0);
+   }
+
+   /// Exactly at the cap is not over it.
+   #[test]
+   fn cap_candidates_at_the_cap_drops_nothing() {
+      let candidates: Vec<_> = (0u64..64).map(|id| (COLLECTION, U256::from(id))).collect();
+
+      let (kept, dropped) = cap_candidates(candidates, 64);
+
+      assert_eq!(kept.len(), 64);
+      assert_eq!(dropped, 0);
    }
 }

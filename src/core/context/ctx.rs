@@ -1882,15 +1882,37 @@ impl ZeusCtx {
    /// Get an NFT
    ///
    /// If it is not cached, the collection is resolved first — the standard costs an ERC-165 sweep and
-   /// cannot differ per token — and then the token itself. Both are stored in `nft_db`.
+   /// cannot differ per token — and then the token itself. Both are stored in `nft_db`, and the catalog
+   /// is persisted when the token had to be fetched.
    pub async fn get_nft(
       &self,
       chain: u64,
       collection: Address,
       token_id: U256,
    ) -> Result<NftToken, anyhow::Error> {
+      let (nft, fetched) = self.fetch_and_cache_nft(chain, collection, token_id).await?;
+
+      if fetched {
+         self.save_nft_db();
+      }
+
+      Ok(nft)
+   }
+
+   /// Resolve `token_id` of `collection` into the live `nft_db`, fetching over the network on a cache
+   /// miss.
+   ///
+   /// Returns the token and whether it came from the network (`false` = cache hit). Deliberately
+   /// does not persist the catalog: [`save_nft_db`](Self::save_nft_db) clones and reseals the whole
+   /// file, so a caller resolving many tokens saves once after its loop instead of per token.
+   pub(crate) async fn fetch_and_cache_nft(
+      &self,
+      chain: u64,
+      collection: Address,
+      token_id: U256,
+   ) -> Result<(NftToken, bool), anyhow::Error> {
       if let Some(nft) = self.read(|ctx| ctx.nft_db.get_nft(chain, collection, token_id)) {
-         return Ok(nft);
+         return Ok((nft, false));
       }
 
       let z_client = self.get_client_manager();
@@ -1904,9 +1926,8 @@ impl ZeusCtx {
          ctx.nft_db.insert_collection(chain, collection);
          ctx.nft_db.insert_nft(nft.clone());
       });
-      self.save_nft_db();
 
-      Ok(nft)
+      Ok((nft, true))
    }
 
    pub fn get_connected_dapps(&self) -> Vec<String> {
