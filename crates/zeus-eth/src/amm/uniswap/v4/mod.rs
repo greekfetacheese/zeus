@@ -80,10 +80,15 @@ impl Actions {
    pub fn abi_decode(command: u8, data: &Bytes) -> Result<Self, anyhow::Error> {
       let data = data.iter().as_slice();
       Ok(match command {
-         0x00 => Self::INCREASE_LIQUIDITY(IncreaseLiquidityParams::abi_decode(data)?),
-         0x01 => Self::DECREASE_LIQUIDITY(DecreaseLiquidityParams::abi_decode(data)?),
-         0x02 => Self::MINT_POSITION(MintPositionParams::abi_decode(data)?),
-         0x03 => Self::BURN_POSITION(BurnPositionParams::abi_decode(data)?),
+         // The liquidity params reach the position manager as `abi.encodeParams` — the deployed
+         // `CalldataDecoder` reads `tokenId` / `poolKey` straight at the params' first word — so
+         // they decode with `abi_decode_params`, the shape `abi_encode_params` writes. The swap
+         // structs below are the other way around: the router looks up an outer offset word
+         // first, which is why they keep `abi_decode`.
+         0x00 => Self::INCREASE_LIQUIDITY(IncreaseLiquidityParams::abi_decode_params(data)?),
+         0x01 => Self::DECREASE_LIQUIDITY(DecreaseLiquidityParams::abi_decode_params(data)?),
+         0x02 => Self::MINT_POSITION(MintPositionParams::abi_decode_params(data)?),
+         0x03 => Self::BURN_POSITION(BurnPositionParams::abi_decode_params(data)?),
          0x06 => Self::SWAP_EXACT_IN_SINGLE(ExactInputSingleParams::abi_decode(data)?),
          0x07 => Self::SWAP_EXACT_IN(ExactInputParams::abi_decode(data)?),
          0x08 => Self::SWAP_EXACT_OUT_SINGLE(ExactOutputSingleParams::abi_decode(data)?),
@@ -100,6 +105,41 @@ impl Actions {
          _ => return Err(anyhow::anyhow!("Invalid action")),
       })
    }
+}
+
+/// Decode the `(bytes actions, bytes[] params)` envelope a `modifyLiquidities` call carries.
+pub fn actions_from_unlock_data(unlock_data: &Bytes) -> Result<Vec<Actions>, anyhow::Error> {
+   let (actions, params) = <(Bytes, Vec<Bytes>)>::abi_decode(unlock_data)?;
+   actions_from_params(&actions, &params)
+}
+
+/// Decode the action / params arrays of a `modifyLiquidities` call.
+///
+/// Action byte `i` consumes `params[i]` (the position manager's own invariant), so a command this
+/// crate cannot decode — one the deployed contract may know but [`Actions`] does not — is skipped
+/// without losing the walk: the remaining actions still line up with their own params. `Err` when
+/// the actions buffer is empty or a listed action has no params.
+pub fn actions_from_params(
+   actions: &Bytes,
+   params: &[Bytes],
+) -> Result<Vec<Actions>, anyhow::Error> {
+   if actions.is_empty() {
+      return Err(anyhow::anyhow!("Empty V4 actions buffer"));
+   }
+
+   let mut decoded = Vec::with_capacity(actions.len());
+
+   for (i, command) in actions.iter().enumerate() {
+      let data = params
+         .get(i)
+         .ok_or_else(|| anyhow::anyhow!("Missing params for V4 action {i}"))?;
+
+      if let Ok(action) = Actions::abi_decode(*command, data) {
+         decoded.push(action);
+      }
+   }
+
+   Ok(decoded)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -211,7 +251,7 @@ mod tests {
    use crate::abi::uniswap::v4::actions::{
       ExactInputSingleParams, ExactInputSingleParamsMinHopPrice, PoolKey,
    };
-   use alloy_primitives::{U256, address};
+   use alloy_primitives::{U256, address, aliases::I24};
 
    fn weth_usdc_key() -> PoolKey {
       PoolKey {
@@ -221,6 +261,90 @@ mod tests {
          tickSpacing: 10.try_into().unwrap(),
          hooks: Address::ZERO,
       }
+   }
+
+   /// The envelope `modifyLiquidities` carries: `abi.encode(bytes actions, bytes[] params)`.
+   fn unlock_data(actions: &[u8], params: Vec<Bytes>) -> Bytes {
+      (Bytes::from(actions.to_vec()), params).abi_encode().into()
+   }
+
+   fn mint_params() -> MintPositionParams {
+      MintPositionParams {
+         poolKey: weth_usdc_key(),
+         tickLower: I24::try_from(-887_220).unwrap(),
+         tickUpper: I24::try_from(887_220).unwrap(),
+         liquidity: U256::from(1_000_000u64),
+         amount0Max: u128::MAX,
+         amount1Max: u128::MAX,
+         owner: address!("46efbaedc92067e6d60e84ed6395099723252496"),
+         hookData: Bytes::default(),
+      }
+   }
+
+   /// A routed mint is one batch: mint, settle both currencies, take both. Every action must come
+   /// back with its own params — the positional invariant — including `MINT_POSITION`, whose
+   /// params reach the position manager without an outer offset word.
+   #[test]
+   fn unlock_data_decodes_a_mint_settle_take_batch() {
+      let mint = mint_params();
+      let settle = SettlePairParams {
+         currency0: address!("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"),
+         currency1: address!("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"),
+      };
+      let take = TakeAllParams {
+         currency: address!("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"),
+         minAmount: U256::from(1_000_000u64),
+      };
+
+      let params = vec![
+         Actions::MINT_POSITION(mint.clone()).abi_encode(),
+         Actions::SETTLE_PAIR(settle.clone()).abi_encode(),
+         Actions::TAKE_ALL(take.clone()).abi_encode(),
+      ];
+
+      let decoded = actions_from_unlock_data(&unlock_data(&[0x02, 0x0d, 0x0f], params)).unwrap();
+
+      assert_eq!(
+         decoded,
+         vec![
+            Actions::MINT_POSITION(mint),
+            Actions::SETTLE_PAIR(settle),
+            Actions::TAKE_ALL(take),
+         ]
+      );
+   }
+
+   /// A command the enum does not model (0x13 `DONATE`) is skipped and the others survive: action
+   /// `i` consumes `params[i]`, so the walk never shifts.
+   #[test]
+   fn unlock_data_skips_unknown_commands_without_losing_the_walk() {
+      let mint = mint_params();
+      let take = TakeAllParams {
+         currency: weth_usdc_key().currency1,
+         minAmount: U256::from(1_000_000u64),
+      };
+
+      let params = vec![
+         Actions::MINT_POSITION(mint.clone()).abi_encode(),
+         Bytes::from(vec![0u8; 32]),
+         Actions::TAKE_ALL(take.clone()).abi_encode(),
+      ];
+
+      let decoded = actions_from_unlock_data(&unlock_data(&[0x02, 0x13, 0x0f], params)).unwrap();
+
+      assert_eq!(
+         decoded,
+         vec![Actions::MINT_POSITION(mint), Actions::TAKE_ALL(take)]
+      );
+   }
+
+   /// Malformed unlock data is an error rather than an empty action list: an empty actions buffer,
+   /// and an action whose params are missing.
+   #[test]
+   fn unlock_data_rejects_malformed_input() {
+      assert!(actions_from_unlock_data(&unlock_data(&[], vec![])).is_err());
+      assert!(actions_from_unlock_data(&unlock_data(&[0x02], vec![])).is_err());
+      assert!(actions_from_unlock_data(&Bytes::from_static(&[0u8; 8])).is_err());
    }
 
    #[test]

@@ -1,10 +1,10 @@
 pub mod actions;
 pub mod state_view;
 
-use alloy_primitives::LogData;
-use alloy_sol_types::{SolEvent, sol};
+use alloy_primitives::{Bytes, LogData};
+use alloy_sol_types::{SolCall, SolEvent, SolValue, sol};
 
-pub use IPoolManager::{Initialize, Swap};
+pub use IPoolManager::{Initialize, ModifyLiquidity, Swap};
 pub use actions::PoolKey;
 
 sol! {
@@ -54,7 +54,27 @@ sol! {
         int24 tick,
         uint24 fee
     );
+
+    /// @notice Emitted when liquidity is modified in a pool
+    /// @param id The pool id
+    /// @param sender The address that initiated the modify liquidity call
+    /// @param tickLower The lower tick of the position
+    /// @param tickUpper The upper tick of the position
+    /// @param liquidityDelta The change in liquidity (positive to add, negative to remove)
+    /// @param salt The salt used to distinguish positions with the same ticks
+    event ModifyLiquidity(
+        PoolId indexed id,
+        address indexed sender,
+        int24 tickLower,
+        int24 tickUpper,
+        int256 liquidityDelta,
+        bytes32 salt
+    );
 }
+
+    interface IPositionManager {
+        function modifyLiquidities(bytes unlockData, uint256 deadline) external payable;
+    }
 
 
 
@@ -73,4 +93,20 @@ pub fn decode_initialize(log: &LogData) -> Result<Initialize, anyhow::Error> {
 pub fn decode_swap_log(log: &LogData) -> Result<Swap, anyhow::Error> {
    let abi = IPoolManager::Swap::decode_raw_log(log.topics(), &log.data)?;
    Ok(abi)
+}
+
+pub fn decode_modify_liquidity(log: &LogData) -> Result<ModifyLiquidity, anyhow::Error> {
+   let abi = IPoolManager::ModifyLiquidity::decode_raw_log(log.topics(), &log.data)?;
+   Ok(abi)
+}
+
+/// Decode a `modifyLiquidities` call into its `(bytes actions, bytes[] params)` unlock data.
+///
+/// The 4-byte selector check is [`SolCall::abi_decode`]'s own: calldata that does not call
+/// `modifyLiquidities` is an error, which is what tells a V4 position operation apart from
+/// every other transaction.
+pub fn decode_modify_liquidities(call_data: &Bytes) -> Result<(Bytes, Vec<Bytes>), anyhow::Error> {
+   let call = IPositionManager::modifyLiquiditiesCall::abi_decode(call_data)?;
+   let (actions, params) = <(Bytes, Vec<Bytes>)>::abi_decode(&call.unlockData)?;
+   Ok((actions, params))
 }
