@@ -1700,6 +1700,14 @@ fn collection_label(
    (name, symbol)
 }
 
+/// The most URI bytes one pasted collection may add, across both stores it lands in.
+///
+/// The per-URI caps bound a single token, not the paste: [`MAX_ENUMERATED_TOKENS`] ids at the 16 MiB
+/// inline-`data:` cap still reach gigabytes, and `add_nft_collection` rewrites both stores whole
+/// (clone, brotli, re-seal) on every save. 64 MiB clears the largest ordinary list — 1000 ids at the
+/// 64 KiB pointer cap total 62.5 MiB — while refusing a `data:` flood after a few tokens.
+const MAX_TRACKED_URI_BYTES: usize = 64 * 1024 * 1024;
+
 /// What a pasted collection address turned into.
 enum CollectionAdd {
    /// Its owned ids are now tracked.
@@ -1716,6 +1724,9 @@ enum CollectionAdd {
    /// Enumerable extension. Zeus has no indexer, so this is where it stops — and it says so rather
    /// than showing an empty list.
    NotEnumerable { name: String, standard: NftStandard },
+   /// The tokens' URIs together exceed [`MAX_TRACKED_URI_BYTES`], so the paste is refused whole —
+   /// neither whole-file store is rewritten — rather than partially tracked.
+   UriBudgetExceeded { name: String, bytes: usize },
 }
 
 impl CollectionAdd {
@@ -1745,13 +1756,38 @@ impl CollectionAdd {
 
             format!("{name} cannot be listed: {kind} do not expose an owner's token ids")
          }
+         Self::UriBudgetExceeded { name, bytes } => {
+            // Whole MiB, rounded up: a total that floors to the budget itself would read as
+            // "64 MiB — over the 64 MiB budget".
+            let total = bytes.div_ceil(1024 * 1024);
+            let budget = MAX_TRACKED_URI_BYTES / (1024 * 1024);
+
+            format!(
+               "This collection's token URIs total {total} MiB — over the {budget} MiB budget for tracked collections, so nothing was added from {name}"
+            )
+         }
       }
    }
 
    /// Whether the user has to read this (a window) rather than just being told it worked (a toast).
    fn is_error(&self) -> bool {
-      matches!(self, Self::NotEnumerable { .. })
+      matches!(
+         self,
+         Self::NotEnumerable { .. } | Self::UriBudgetExceeded { .. }
+      )
    }
+}
+
+/// The tokens' total stored URI bytes, when they exceed [`MAX_TRACKED_URI_BYTES`].
+///
+/// A token whose URI was refused at admission carries `None` and contributes nothing.
+fn uri_budget_exceeded(tokens: &[NftToken]) -> Option<usize> {
+   let total: usize = tokens
+      .iter()
+      .map(|token| token.metadata_uri.as_deref().map(str::len).unwrap_or(0))
+      .sum();
+
+   (total > MAX_TRACKED_URI_BYTES).then_some(total)
 }
 
 /// Map batched `(owner, tokenURI)` answers onto one [`NftToken`] per owned id.
@@ -1790,6 +1826,8 @@ fn nft_tokens_from_lookups(
 ///
 /// Enumerable ERC-721 only. For an ERC-1155 or a plain ERC-721 there is no on-chain way to learn which
 /// ids a wallet holds, and Zeus deliberately has no indexer — guessing a range would invent tokens.
+/// A paste whose tokens' URIs together exceed [`MAX_TRACKED_URI_BYTES`] is refused whole, before
+/// either store is touched.
 async fn add_nft_collection(
    ctx: ZeusCtx,
    chain_id: u64,
@@ -1845,6 +1883,12 @@ async fn add_nft_collection(
    let lookups = get_erc721_owners_and_uris(client, refs, None).await?;
 
    let tokens = nft_tokens_from_lookups(chain_id, address, token_ids, lookups);
+
+   // Both stores are rewritten whole, so the paste as a whole — not each URI — has to fit the budget.
+   // Nothing is inserted or saved on a refusal: a partially tracked collection would be worse.
+   if let Some(bytes) = uri_budget_exceeded(&tokens) {
+      return Ok(CollectionAdd::UriBudgetExceeded { name, bytes });
+   }
 
    let count = tokens.len();
    let for_portfolio = tokens.clone();
@@ -2477,6 +2521,66 @@ mod tests {
          assert!(unlistable.message().contains("BAYC"));
          assert!(unlistable.message().contains("cannot be listed"));
       }
+   }
+
+   /// The aggregate budget is per paste, not per URI: ordinary URIs and refused (`None`) ones stay
+   /// inside it, exactly at the budget is still inside it, and a byte past it reports the total.
+   #[test]
+   fn the_uri_budget_admits_up_to_the_cap_and_refuses_past_it() {
+      let mut refused = nft(1, NftStandard::Erc721);
+      refused.metadata_uri = None;
+      let mut ordinary = nft(2, NftStandard::Erc721);
+      ordinary.metadata_uri = Some("https://example.invalid/a.json".to_string());
+
+      assert_eq!(uri_budget_exceeded(&[refused, ordinary]), None);
+
+      let mut at_budget = nft(3, NftStandard::Erc721);
+      at_budget.metadata_uri = Some("x".repeat(MAX_TRACKED_URI_BYTES));
+
+      assert_eq!(
+         uri_budget_exceeded(&[at_budget]),
+         None,
+         "exactly at the budget is still inside it"
+      );
+
+      let mut over = nft(4, NftStandard::Erc721);
+      over.metadata_uri = Some("x".repeat(MAX_TRACKED_URI_BYTES + 1));
+
+      assert_eq!(
+         uri_budget_exceeded(&[over]),
+         Some(MAX_TRACKED_URI_BYTES + 1),
+         "the reported figure is the total, so the notice can state it"
+      );
+   }
+
+   /// A paste over the aggregate budget is refused whole: the notice names both figures — never two
+   /// equal ones — and the user has to read it, the same as any other refusal.
+   #[test]
+   fn a_paste_over_the_uri_budget_is_refused_with_both_figures() {
+      let mib = 1024 * 1024;
+      let budget_mib = MAX_TRACKED_URI_BYTES / mib;
+
+      let over = CollectionAdd::UriBudgetExceeded {
+         name: "BAYC".to_string(),
+         bytes: MAX_TRACKED_URI_BYTES + 1,
+      };
+
+      let message = over.message();
+
+      assert!(message.contains("BAYC"), "{message}");
+      assert!(
+         message.contains(&format!("{budget_mib} MiB")),
+         "{message}"
+      );
+      // Rounded up, so a hair over the budget never reads as "64 MiB over the 64 MiB budget".
+      assert!(
+         message.contains(&format!("{} MiB", budget_mib + 1)),
+         "{message}"
+      );
+      assert!(
+         over.is_error(),
+         "a refusal is a window, not a toast"
+      );
    }
 
    /// Both stores are real sources: a held token that was never added, and a tracked token, both
