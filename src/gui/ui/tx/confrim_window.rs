@@ -34,7 +34,8 @@ pub struct TxConfirmationWindow {
    decoded_events: DecodedEvents,
    /// True to confirm, false to reject
    confirmed_or_rejected: Option<bool>,
-   /// Bumped on every `open`. Late clear-signing tasks must not apply to a newer prompt.
+   /// Bumped on every `open` and `close`. Late clear-signing tasks must not apply to a
+   /// newer prompt, or re-open one that has been closed.
    open_generation: u64,
    dapp: String,
    chain: ChainId,
@@ -136,6 +137,10 @@ impl TxConfirmationWindow {
 
    pub fn close(&mut self) {
       self.open = false;
+      // Invalidate an in-flight preparation (`open_inner`): its write-back is guarded on
+      // this generation, so a close — auto-lock's `reject()` included — drops it instead
+      // of letting it re-open the window as a prompt with no flow behind it after unlock.
+      self.open_generation = self.open_generation.wrapping_add(1);
    }
 
    /// Open this [TxConfirmationWindow]
@@ -728,17 +733,35 @@ impl TxConfirmationWindow {
 mod tests {
    use super::*;
 
-   /// Auto-lock cancels a pending confirmation: the window closes and the
-   /// awaiting `confirm_tx` is answered "rejected" so it errors out.
+   /// Auto-lock cancels a pending confirmation: the window closes, the awaiting
+   /// `confirm_tx` is answered "rejected" so it errors out, and any in-flight
+   /// preparation is invalidated so it cannot re-open the window after unlock.
    #[test]
    fn reject_answers_rejected_and_closes() {
       let mut window = TxConfirmationWindow::new();
       window.open = true;
 
+      let generation = window.open_generation;
       window.reject();
 
       assert!(!window.is_open());
       assert_eq!(window.take_confirmed_or_rejected(), Some(false));
+      assert_ne!(
+         window.open_generation, generation,
+         "an in-flight preparation must not survive the lock-time reject"
+      );
+   }
+
+   /// Every close path invalidates an in-flight preparation, not just the auto-lock
+   /// reject: that is why the bump lives in `close()` rather than in `reject()`.
+   #[test]
+   fn a_plain_close_invalidates_an_in_flight_preparation() {
+      let mut window = TxConfirmationWindow::new();
+
+      let generation = window.open_generation;
+      window.close();
+
+      assert_ne!(window.open_generation, generation);
    }
 
    /// One Confirm click answers exactly one flow: the answer is collected once, so
