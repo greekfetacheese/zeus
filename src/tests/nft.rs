@@ -21,20 +21,34 @@ mod tests {
       },
    };
    use crate::tests::test_ctx;
-   use alloy_sol_types::{SolCall, SolEvent};
+   use alloy_sol_types::{SolCall, SolEvent, SolValue};
    use zeus_eth::{
       abi::{
          erc20::IERC20,
          erc721::IERC721,
          erc1155::{IERC1155, IERC5216},
+         protocols::uniswap::v4::{
+            IPoolManager, IPositionManager, PoolKey,
+            actions::{
+               DecreaseLiquidityParams, ExactInputSingleParams, MintPositionParams,
+               SettleAllParams, SettlePairParams, TakePairParams, TakeParams,
+            },
+         },
       },
-      alloy_primitives::{Address, Bytes, Log, LogData, U256, address},
+      alloy_primitives::{
+         Address, B256, Bytes, I256, Log, LogData, U256, address,
+         aliases::{I24, U24},
+         keccak256,
+      },
+      amm::uniswap::v4::Actions,
       nft::NftStandard,
+      utils::{NumericValue, address_book},
    };
 
    const CHAIN: u64 = 1;
    const BAYC: Address = address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D");
    const WETH: Address = address!("C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2");
+   const USDC: Address = address!("A0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
    const OPERATOR: Address = address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266");
    const SENDER: Address = address!("46efbaedc92067e6d60e84ed6395099723252496");
    const RECIPIENT: Address = address!("000000000000000000000000000000000000dEaD");
@@ -188,6 +202,112 @@ mod tests {
          operator: OPERATOR,
          id: U256::from(id),
          amount: U256::from(amount),
+      }
+      .abi_encode()
+      .into()
+   }
+
+   /// The V4 pool the position ops below run against: native ETH + USDC, the fee tier and spacing
+   /// the position tests use, no hooks. `address(0)` sorts first, as V4 requires.
+   fn v4_pool_key() -> PoolKey {
+      PoolKey {
+         currency0: Address::ZERO,
+         currency1: USDC,
+         fee: U24::from(500u32),
+         tickSpacing: I24::try_from(10).unwrap(),
+         hooks: Address::ZERO,
+      }
+   }
+
+   /// The pool id V4 derives from the PoolKey — `keccak256(abi.encode(key))`, the same expression
+   /// as `UniswapV4Pool::id()`. A decrease names only the position NFT, so this is what leads the
+   /// decoder back to the pool's currencies.
+   fn v4_pool_id() -> B256 {
+      keccak256(
+         (
+            Address::ZERO,
+            USDC,
+            U24::from(500u32),
+            I24::try_from(10).unwrap(),
+            Address::ZERO,
+         )
+            .abi_encode(),
+      )
+   }
+
+   fn v4_pool_manager() -> Address {
+      address_book::uniswap_v4_pool_manager(CHAIN).unwrap()
+   }
+
+   fn v4_position_manager() -> Address {
+      address_book::uniswap_v4_nft_position_manager(CHAIN).unwrap()
+   }
+
+   /// The core `ModifyLiquidity` event the pool manager emits on every liquidity change: positive
+   /// delta for an add, negative for a removal.
+   fn v4_modify_liquidity_log(liquidity_delta: i64) -> Log {
+      log(
+         v4_pool_manager(),
+         IPoolManager::ModifyLiquidity {
+            id: v4_pool_id(),
+            sender: v4_position_manager(),
+            tickLower: I24::try_from(-887_220).unwrap(),
+            tickUpper: I24::try_from(887_220).unwrap(),
+            liquidityDelta: I256::try_from(liquidity_delta as i128).unwrap(),
+            salt: B256::ZERO,
+         }
+         .encode_log_data(),
+      )
+   }
+
+   /// The position NFT's own `Transfer` the position manager emits on a mint, from the zero address.
+   fn v4_position_mint_transfer(token_id: u64) -> Log {
+      log(
+         v4_position_manager(),
+         IERC721::Transfer {
+            from: Address::ZERO,
+            to: SENDER,
+            tokenId: U256::from(token_id),
+         }
+         .encode_log_data(),
+      )
+   }
+
+   /// The position NFT's burn `Transfer`, to the zero address.
+   fn v4_position_burn_transfer(token_id: u64) -> Log {
+      log(
+         v4_position_manager(),
+         IERC721::Transfer {
+            from: SENDER,
+            to: Address::ZERO,
+            tokenId: U256::from(token_id),
+         }
+         .encode_log_data(),
+      )
+   }
+
+   /// A currency `Transfer` with the emitter chosen, so a leg can be attached to USDC rather than
+   /// the WETH the existing helpers use.
+   fn erc20_transfer_of(token: Address, from: Address, to: Address, value: u64) -> Log {
+      log(
+         token,
+         IERC20::Transfer {
+            from,
+            to,
+            value: U256::from(value),
+         }
+         .encode_log_data(),
+      )
+   }
+
+   /// A `modifyLiquidities` call: `(bytes actions, bytes[] params)` as the unlock data of the
+   /// position manager call.
+   fn modify_liquidities_call(actions: &[u8], params: Vec<Bytes>) -> Bytes {
+      let unlock_data: Bytes = (Bytes::from(actions.to_vec()), params).abi_encode().into();
+
+      IPositionManager::modifyLiquiditiesCall {
+         unlockData: unlock_data,
+         deadline: U256::from(u64::MAX),
       }
       .abi_encode()
       .into()
@@ -537,5 +657,208 @@ mod tests {
       );
 
       assert!(analysis.infer_main_event(ctx.clone(), CHAIN).is_nft_approval());
+   }
+
+   /// A V4 mint is one `modifyLiquidities` batch: `MINT_POSITION`, `SETTLE_PAIR`, `TAKE_PAIR`.
+   /// The pool manager's `ModifyLiquidity` event is what proves the pool moved; without a decoder
+   /// for it the transaction is headlined by the position NFT's own mint `Transfer` ("NFT Mint") —
+   /// the receipt token, not the liquidity change the user asked for.
+   #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
+   async fn a_v4_position_mint_reads_as_add_liquidity() {
+      let ctx = test_ctx(CHAIN);
+
+      let mint = MintPositionParams {
+         poolKey: v4_pool_key(),
+         tickLower: I24::try_from(-887_220).unwrap(),
+         tickUpper: I24::try_from(887_220).unwrap(),
+         liquidity: U256::from(1_000_000u64),
+         amount0Max: u128::MAX,
+         amount1Max: u128::MAX,
+         owner: SENDER,
+         hookData: Bytes::default(),
+      };
+
+      let call_data = modify_liquidities_call(
+         &[0x02, 0x0d, 0x11],
+         vec![
+            Actions::MINT_POSITION(mint).abi_encode(),
+            Actions::SETTLE_PAIR(SettlePairParams {
+               currency0: Address::ZERO,
+               currency1: USDC,
+            })
+            .abi_encode(),
+            Actions::TAKE_PAIR(TakePairParams {
+               currency0: Address::ZERO,
+               currency1: USDC,
+               recipient: SENDER,
+            })
+            .abi_encode(),
+         ],
+      );
+
+      let position_manager = v4_position_manager();
+      let logs = vec![
+         v4_modify_liquidity_log(1_000_000),
+         v4_position_mint_transfer(1234),
+         erc20_transfer_of(USDC, SENDER, position_manager, 5_000_000),
+      ];
+
+      let (events, analysis) = analyse(&ctx, position_manager, call_data, logs).await;
+
+      assert!(
+         events.iter().any(|event| event.is_nft_transfer()),
+         "the position NFT's mint is still one of the decoded events"
+      );
+
+      let main_event = analysis.infer_main_event(ctx.clone(), CHAIN);
+      assert!(
+         main_event.is_uniswap_position_op(),
+         "ranked as {}",
+         main_event.name()
+      );
+      assert!(!main_event.is_nft_transfer());
+
+      let params = main_event.uniswap_position_params();
+      assert!(params.op_is_add_liquidity());
+      assert_eq!(params.currency0.address(), Address::ZERO);
+      assert_eq!(params.currency1.address(), USDC);
+      assert_eq!(
+         params.amount1,
+         NumericValue::parse_to_wei("5", 6),
+         "the USDC leg is the transfer into the position manager"
+      );
+      assert_eq!(
+         params.amount0,
+         NumericValue::parse_to_wei("0", 18),
+         "the harness sends no call value, so the native leg is zero"
+      );
+      assert_eq!(
+         params.min_amount0, None,
+         "a mint's amount0Max is a cap, not a minimum"
+      );
+      assert_eq!(params.min_amount1, None);
+   }
+
+   /// A removal is the mirror: a negative-delta `ModifyLiquidity` plus a decrease action. Without
+   /// the decode a burned position is headlined by the NFT's burn `Transfer` ("NFT Burn") and a
+   /// partial removal by "Unknown Interaction" — both hide the tokens coming back.
+   #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
+   async fn a_v4_position_burn_reads_as_remove_liquidity() {
+      let ctx = test_ctx(CHAIN);
+
+      let decrease = DecreaseLiquidityParams {
+         tokenId: U256::from(4321),
+         liquidity: U256::from(500_000u64),
+         amount0Min: 1_000_000_000_000_000,
+         amount1Min: 2_400_000,
+         hookData: Bytes::default(),
+      };
+
+      let call_data = modify_liquidities_call(
+         &[0x01, 0x0c, 0x0e],
+         vec![
+            Actions::DECREASE_LIQUIDITY(decrease).abi_encode(),
+            Actions::SETTLE_ALL(SettleAllParams {
+               currency: USDC,
+               maxAmount: U256::MAX,
+            })
+            .abi_encode(),
+            Actions::TAKE(TakeParams {
+               currency: USDC,
+               recipient: SENDER,
+               amount: U256::MAX,
+            })
+            .abi_encode(),
+         ],
+      );
+
+      let position_manager = v4_position_manager();
+      let logs = vec![
+         v4_modify_liquidity_log(-500_000),
+         v4_position_burn_transfer(4321),
+         erc20_transfer_of(USDC, position_manager, SENDER, 2_500_000),
+      ];
+
+      let (_events, analysis) = analyse(&ctx, position_manager, call_data, logs).await;
+
+      let main_event = analysis.infer_main_event(ctx.clone(), CHAIN);
+      assert!(
+         main_event.is_uniswap_position_op(),
+         "ranked as {}",
+         main_event.name()
+      );
+      assert!(!main_event.is_nft_transfer());
+
+      let params = main_event.uniswap_position_params();
+      assert!(params.op_is_decrease_liquidity());
+      assert_eq!(params.currency0.address(), Address::ZERO);
+      assert_eq!(params.currency1.address(), USDC);
+      assert_eq!(
+         params.amount1,
+         NumericValue::parse_to_wei("2.5", 6),
+         "the USDC leg is the payout back to the sender"
+      );
+      assert_eq!(
+         params.min_amount0,
+         Some(NumericValue::parse_to_wei("0.001", 18))
+      );
+      assert_eq!(
+         params.min_amount1,
+         Some(NumericValue::parse_to_wei("2.4", 6))
+      );
+   }
+
+   /// Swap-family actions are not a position operation: however the receipt looks — here a pool
+   /// manager `ModifyLiquidity` log and a payment into the position manager — nothing is decoded
+   /// as an add or a removal, because no action adds or removes liquidity.
+   #[tokio::test]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
+   async fn a_v4_swap_only_does_not_read_as_a_position_op() {
+      let ctx = test_ctx(CHAIN);
+
+      let swap = ExactInputSingleParams {
+         poolKey: v4_pool_key(),
+         zeroForOne: false,
+         amountIn: 1_000_000,
+         amountOutMinimum: 0,
+         hookData: Bytes::default(),
+      };
+
+      let call_data = modify_liquidities_call(
+         &[0x06, 0x0d, 0x11],
+         vec![
+            Actions::SWAP_EXACT_IN_SINGLE(swap).abi_encode(),
+            Actions::SETTLE_PAIR(SettlePairParams {
+               currency0: Address::ZERO,
+               currency1: USDC,
+            })
+            .abi_encode(),
+            Actions::TAKE_PAIR(TakePairParams {
+               currency0: Address::ZERO,
+               currency1: USDC,
+               recipient: SENDER,
+            })
+            .abi_encode(),
+         ],
+      );
+
+      let position_manager = v4_position_manager();
+      let logs = vec![
+         v4_modify_liquidity_log(1_000_000),
+         erc20_transfer_of(USDC, SENDER, position_manager, 5_000_000),
+      ];
+
+      let (events, analysis) = analyse(&ctx, position_manager, call_data, logs).await;
+
+      assert!(
+         !events.iter().any(|event| event.is_uniswap_position_op()),
+         "swap actions decoded as {:?}",
+         events.iter().map(|event| event.name()).collect::<Vec<_>>()
+      );
+
+      let main_event = analysis.infer_main_event(ctx.clone(), CHAIN);
+      assert!(!main_event.is_uniswap_position_op());
    }
 }

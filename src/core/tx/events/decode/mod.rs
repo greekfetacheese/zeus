@@ -126,5 +126,35 @@ pub async fn decode_transaction(
       known_events += 1;
    }
 
+   // The same two legs for V4, where the position manager batches actions in one
+   // `modifyLiquidities` call and the pool manager (a singleton) emits the liquidity change.
+   if let Ok(params) = UniswapPositionParams::add_liquidity_for_v4_from_logs(
+      dctx.ctx.clone(),
+      dctx.chain,
+      dctx.sender,
+      logs,
+      dctx.call_data.clone(),
+      dctx.value,
+   )
+   .await
+   {
+      decoded_events.push(DecodedEvent::UniswapPositionOperation(params));
+      known_events += 1;
+   }
+
+   if let Ok(params) = UniswapPositionParams::decrease_liquidity_for_v4_from_logs(
+      dctx.ctx.clone(),
+      dctx.chain,
+      dctx.sender,
+      logs,
+      dctx.call_data.clone(),
+      dctx.value,
+   )
+   .await
+   {
+      decoded_events.push(DecodedEvent::UniswapPositionOperation(params));
+      known_events += 1;
+   }
+
    (decoded_events, known_events)
 }
