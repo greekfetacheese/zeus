@@ -143,6 +143,15 @@ pub fn recipient_field(
                .font(FontId::proportional(theme.typography.normal)),
          );
 
+         // `changed()` is set only by the user's own input events in this frame (the widget marks
+         // it from `secure_text_edit_events`, events it only reads while focused), never by the
+         // programmatic write the picker performs when it accepts a name. So a `changed()` here
+         // means the address is no longer the one the resolved name described, and the name,
+         // its chain and its takeover deadline stop applying to it.
+         if res.changed() {
+            recipient_selection.recipient.forget_name_binding();
+         }
+
          if res.clicked() {
             recipient_selection.open();
          }
