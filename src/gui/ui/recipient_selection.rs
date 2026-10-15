@@ -8,7 +8,7 @@ use crate::core::{
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::common::switch_chain;
 use crate::gui::ui::{ContactsUi, WalletListByValue};
-use crate::utils::{RT, TimeStamp};
+use crate::utils::{RT, TimeStamp, truncate_address};
 use eframe::egui::{
    Align, Id, Layout, Margin, Order, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, vec2,
 };
@@ -509,11 +509,57 @@ impl RecipientSelectionWindow {
                         // selection still uses the mainnet address.
                         if let Some(note) = chain_record_note(chain_record, address, ctx.chain.id())
                         {
+                           // headline
                            ui.label(
-                              RichText::new(note)
+                              RichText::new(format!(
+                                 "This name sets a different address for {}:",
+                                 chain_display_name(note.chain_id)
+                              ))
+                              .size(theme.typography.normal)
+                              .color(theme.colors.warning),
+                           );
+
+                           // row 1 — the chain's own address, linked to that chain's explorer.
+                           // The gate above guarantees note.chain_id == the active chain.
+                           let chain_url = format!(
+                              "{}/address/{}",
+                              ctx.chain.block_explorer(),
+                              note.other
+                           );
+                           ui.horizontal(|ui| {
+                              ui.label(
+                                 RichText::new(format!(
+                                    "• {} address:",
+                                    chain_display_name(note.chain_id)
+                                 ))
                                  .size(theme.typography.normal)
                                  .color(theme.colors.warning),
+                              );
+                              let text = RichText::new(truncate_address(note.other.to_string()))
+                                 .size(theme.typography.normal)
+                                 .color(theme.colors.info);
+                              ui.hyperlink_to(text, chain_url)
+                                 .on_hover_text(note.other.to_string());
+                           });
+
+                           // row 2 — the address the selection actually uses (mainnet), linked to etherscan.
+                           let mainnet_url = format!(
+                              "{}/address/{}",
+                              ChainId::Ethereum.block_explorer(),
+                              note.plain
                            );
+                           ui.horizontal(|ui| {
+                              ui.label(
+                                 RichText::new("• You will send to its mainnet address:")
+                                    .size(theme.typography.normal)
+                                    .color(theme.colors.warning),
+                              );
+                              let text = RichText::new(truncate_address(note.plain.to_string()))
+                                 .size(theme.typography.normal)
+                                 .color(theme.colors.info);
+                              ui.hyperlink_to(text, mainnet_url)
+                                 .on_hover_text(note.plain.to_string());
+                           });
                         }
                      }
                      UnknownRecipient::Interoperable {
@@ -1097,35 +1143,38 @@ fn grace_note(expiry: ens::NameExpiry, theme: &Theme) -> RichText {
    .color(theme.colors.text_muted)
 }
 
-/// The warning for a plain-name suggestion whose name declares a different address for the chain
-/// the user is looking at.
-///
-/// `chain_record` is the chain the record was read for plus its address. Returns `None` when
-/// there is nothing to warn about: nothing was recorded, the record is for a chain the user has
-/// since switched away from, or it holds the same address the mainnet `addr` record already
-/// gives. The recipient is the mainnet address either way — the note only says what the name
-/// declares (ENSIP-19), which is why it does not name the record it came from: the chain's
-/// address may equally be a per-chain record or the default-EVM one.
+/// The warning for a plain-name suggestion whose name declares a different address for the
+/// chain the user is looking at.
+struct ChainRecordNote {
+   chain_id: u64,
+   other: Address,
+   plain: Address,
+}
+
 fn chain_record_note(
    chain_record: Option<(u64, Address)>,
    plain: Address,
    active_chain: u64,
-) -> Option<String> {
-   let (chain, other) = chain_record?;
+) -> Option<ChainRecordNote> {
+   let (chain_id, other) = chain_record?;
 
-   if chain != active_chain || other == plain {
+   if chain_id != active_chain || other == plain {
       return None;
    }
 
-   let chain_name = match ChainId::new(chain) {
-      Ok(chain) => chain.name().to_string(),
-      Err(_) => format!("chain {}", chain),
-   };
+   Some(ChainRecordNote {
+      chain_id,
+      other,
+      plain,
+   })
+}
 
-   Some(format!(
-      "This name sets a different address for {}: {}. Selecting it uses its mainnet address: {}.",
-      chain_name, other, plain
-   ))
+/// The chain's display name for the note, with the same fallback the sentence used.
+fn chain_display_name(chain_id: u64) -> String {
+   match ChainId::new(chain_id) {
+      Ok(chain) => chain.name().to_string(),
+      Err(_) => format!("chain {}", chain_id),
+   }
 }
 
 fn valid_contact_search(contact: &Contact, privacy_mode: bool, query: &str) -> bool {
@@ -1177,17 +1226,17 @@ mod tests {
       let note = chain_record_note(Some((BASE, other)), plain, BASE)
          .expect("a differing address on the active chain is a warning");
 
-      assert!(
-         note.contains(&other.to_string()),
-         "note names the chain address: {note}"
+      assert_eq!(
+         note.chain_id, BASE,
+         "note carries the chain it was read for"
       );
-      assert!(
-         note.contains(&plain.to_string()),
-         "note names the mainnet address: {note}"
+      assert_eq!(
+         note.other, other,
+         "note carries the name's address on that chain"
       );
-      assert!(
-         note.contains("Base"),
-         "note names the chain: {note}"
+      assert_eq!(
+         note.plain, plain,
+         "note carries the address the selection uses"
       );
    }
 
@@ -1197,18 +1246,18 @@ mod tests {
       let other = address(0xbb);
 
       // Recorded for a chain the user has since switched away from.
-      assert_eq!(
-         chain_record_note(Some((BASE, other)), plain, ETH),
-         None
-      );
+      assert!(chain_record_note(Some((BASE, other)), plain, ETH).is_none());
 
       // The record agrees with the mainnet address.
-      assert_eq!(
-         chain_record_note(Some((BASE, plain)), plain, BASE),
-         None
-      );
+      assert!(chain_record_note(Some((BASE, plain)), plain, BASE).is_none());
 
       // Nothing was recorded.
-      assert_eq!(chain_record_note(None, plain, BASE), None);
+      assert!(chain_record_note(None, plain, BASE).is_none());
+   }
+
+   #[test]
+   fn chain_display_name_names_known_and_unknown_chains() {
+      assert_eq!(chain_display_name(BASE), "Base");
+      assert_eq!(chain_display_name(999_999), "chain 999999");
    }
 }
