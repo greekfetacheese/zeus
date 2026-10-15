@@ -594,19 +594,19 @@ async fn fetch_token_before(
    from: Address,
    block_id: BlockId,
    tokens: Vec<Address>,
+   semaphore: &Arc<Semaphore>,
 ) -> HashMap<Address, U256> {
    if tokens.is_empty() {
       return HashMap::new();
    }
 
    let client = ctx.get_client_manager();
-   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
    let mut tasks = Vec::new();
 
    for chunk in tokens.chunks(TOKEN_BALANCE_BATCH) {
       let chunk = chunk.to_vec();
       let client = client.clone();
-      let semaphore = Arc::clone(&semaphore);
+      let semaphore = Arc::clone(semaphore);
 
       tasks.push(tokio::spawn(async move {
          let _permit = semaphore.acquire().await.expect("the fetch semaphore is never closed");
@@ -642,19 +642,19 @@ async fn fetch_erc20_allowance_before(
    from: Address,
    block_id: BlockId,
    pairs: Vec<(Address, Address)>,
+   semaphore: &Arc<Semaphore>,
 ) -> HashMap<(Address, Address), U256> {
    if pairs.is_empty() {
       return HashMap::new();
    }
 
    let client = ctx.get_client_manager();
-   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
    let mut tasks = Vec::new();
 
    for chunk in pairs.chunks(ALLOWANCE_PAIR_BATCH) {
       let chunk = chunk.to_vec();
       let client = client.clone();
-      let semaphore = Arc::clone(&semaphore);
+      let semaphore = Arc::clone(semaphore);
 
       tasks.push(tokio::spawn(async move {
          let _permit = semaphore.acquire().await.expect("the fetch semaphore is never closed");
@@ -690,6 +690,7 @@ async fn fetch_permit2_before(
    from: Address,
    block_id: BlockId,
    pairs: Vec<(Address, Address)>,
+   semaphore: &Arc<Semaphore>,
 ) -> HashMap<(Address, Address), (U256, u64)> {
    if pairs.is_empty() {
       return HashMap::new();
@@ -700,13 +701,12 @@ async fn fetch_permit2_before(
    };
 
    let client = ctx.get_client_manager();
-   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
    let mut tasks = Vec::new();
 
    for chunk in pairs.chunks(ALLOWANCE_PAIR_BATCH) {
       let chunk = chunk.to_vec();
       let client = client.clone();
-      let semaphore = Arc::clone(&semaphore);
+      let semaphore = Arc::clone(semaphore);
 
       tasks.push(tokio::spawn(async move {
          let _permit = semaphore.acquire().await.expect("the fetch semaphore is never closed");
@@ -749,19 +749,19 @@ async fn fetch_nft_ownership_before(
    from: Address,
    block_id: BlockId,
    refs: Vec<NftRef>,
+   semaphore: &Arc<Semaphore>,
 ) -> HashMap<(Address, U256), U256> {
    if refs.is_empty() {
       return HashMap::new();
    }
 
    let client = ctx.get_client_manager();
-   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
    let mut tasks = Vec::new();
 
    for chunk in refs.chunks(NFT_REF_BATCH) {
       let chunk = chunk.to_vec();
       let client = client.clone();
-      let semaphore = Arc::clone(&semaphore);
+      let semaphore = Arc::clone(semaphore);
 
       tasks.push(tokio::spawn(async move {
          let _permit = semaphore.acquire().await.expect("the fetch semaphore is never closed");
@@ -802,19 +802,19 @@ async fn fetch_nft_balances_before(
    from: Address,
    block_id: BlockId,
    refs: Vec<NftRef>,
+   semaphore: &Arc<Semaphore>,
 ) -> HashMap<(Address, U256), U256> {
    if refs.is_empty() {
       return HashMap::new();
    }
 
    let client = ctx.get_client_manager();
-   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
    let mut tasks = Vec::new();
 
    for chunk in refs.chunks(NFT_REF_BATCH) {
       let chunk = chunk.to_vec();
       let client = client.clone();
-      let semaphore = Arc::clone(&semaphore);
+      let semaphore = Arc::clone(semaphore);
 
       tasks.push(tokio::spawn(async move {
          let _permit = semaphore.acquire().await.expect("the fetch semaphore is never closed");
@@ -851,13 +851,13 @@ async fn fetch_nft_token_approvals_before(
    chain: u64,
    block_id: BlockId,
    candidates: Vec<NftApprovalCandidate>,
+   semaphore: &Arc<Semaphore>,
 ) -> HashMap<NftApprovalCandidate, NftApprovalValue> {
    if candidates.is_empty() {
       return HashMap::new();
    }
 
    let client = ctx.get_client_manager();
-   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
    let mut tasks = Vec::new();
 
    for chunk in candidates.chunks(NFT_REF_BATCH) {
@@ -877,7 +877,7 @@ async fn fetch_nft_token_approvals_before(
          .collect();
       let chunk = chunk.to_vec();
       let client = client.clone();
-      let semaphore = Arc::clone(&semaphore);
+      let semaphore = Arc::clone(semaphore);
 
       tasks.push(tokio::spawn(async move {
          let _permit = semaphore.acquire().await.expect("the fetch semaphore is never closed");
@@ -922,13 +922,13 @@ async fn fetch_nft_for_all_before(
    from: Address,
    block_id: BlockId,
    candidates: Vec<NftApprovalCandidate>,
+   semaphore: &Arc<Semaphore>,
 ) -> HashMap<NftApprovalCandidate, NftApprovalValue> {
    if candidates.is_empty() {
       return HashMap::new();
    }
 
    let client = ctx.get_client_manager();
-   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
    let mut tasks = Vec::new();
 
    for chunk in candidates.chunks(NFT_REF_BATCH) {
@@ -938,7 +938,7 @@ async fn fetch_nft_for_all_before(
          .collect();
       let chunk = chunk.to_vec();
       let client = client.clone();
-      let semaphore = Arc::clone(&semaphore);
+      let semaphore = Arc::clone(semaphore);
 
       tasks.push(tokio::spawn(async move {
          let _permit = semaphore.acquire().await.expect("the fetch semaphore is never closed");
@@ -983,13 +983,13 @@ async fn fetch_nft_allowances_before(
    from: Address,
    block_id: BlockId,
    candidates: Vec<NftApprovalCandidate>,
+   semaphore: &Arc<Semaphore>,
 ) -> HashMap<NftApprovalCandidate, NftApprovalValue> {
    if candidates.is_empty() {
       return HashMap::new();
    }
 
    let client = ctx.get_client_manager();
-   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
    let mut tasks = Vec::new();
 
    for chunk in candidates.chunks(NFT_REF_BATCH) {
@@ -1004,7 +1004,7 @@ async fn fetch_nft_allowances_before(
          .collect();
       let chunk = chunk.to_vec();
       let client = client.clone();
-      let semaphore = Arc::clone(&semaphore);
+      let semaphore = Arc::clone(semaphore);
 
       tasks.push(tokio::spawn(async move {
          let _permit = semaphore.acquire().await.expect("the fetch semaphore is never closed");
@@ -1045,6 +1045,7 @@ async fn fetch_nft_state(
    from: Address,
    block_id: BlockId,
    nft: &NftRequest,
+   semaphore: &Arc<Semaphore>,
 ) -> NftState {
    if nft.is_empty() {
       return NftState::default();
@@ -1071,11 +1072,38 @@ async fn fetch_nft_state(
    }
 
    let (ownership721, balances1155, token_apps, for_all_apps, allowance_apps) = tokio::join!(
-      fetch_nft_ownership_before(ctx.clone(), chain, from, block_id, refs721),
-      fetch_nft_balances_before(ctx.clone(), chain, from, block_id, refs1155),
-      fetch_nft_token_approvals_before(ctx.clone(), chain, block_id, token_approvals),
-      fetch_nft_for_all_before(ctx.clone(), chain, from, block_id, for_all),
-      fetch_nft_allowances_before(ctx, chain, from, block_id, allowances),
+      fetch_nft_ownership_before(
+         ctx.clone(),
+         chain,
+         from,
+         block_id,
+         refs721,
+         semaphore
+      ),
+      fetch_nft_balances_before(
+         ctx.clone(),
+         chain,
+         from,
+         block_id,
+         refs1155,
+         semaphore
+      ),
+      fetch_nft_token_approvals_before(
+         ctx.clone(),
+         chain,
+         block_id,
+         token_approvals,
+         semaphore
+      ),
+      fetch_nft_for_all_before(
+         ctx.clone(),
+         chain,
+         from,
+         block_id,
+         for_all,
+         semaphore
+      ),
+      fetch_nft_allowances_before(ctx, chain, from, block_id, allowances, semaphore),
    );
 
    let mut approvals = token_apps;
@@ -1098,13 +1126,35 @@ async fn fetch_before_state(
    erc20_pairs: Vec<(Address, Address)>,
    permit2_pairs: Vec<(Address, Address)>,
    nft: NftRequest,
+   semaphore: Arc<Semaphore>,
 ) -> BeforeState {
    let time = Instant::now();
 
-   let tokens_fut = fetch_token_before(ctx.clone(), chain, from, block_id, tokens);
-   let erc20_fut = fetch_erc20_allowance_before(ctx.clone(), chain, from, block_id, erc20_pairs);
-   let permit2_fut = fetch_permit2_before(ctx.clone(), chain, from, block_id, permit2_pairs);
-   let nft_fut = fetch_nft_state(ctx, chain, from, block_id, &nft);
+   let tokens_fut = fetch_token_before(
+      ctx.clone(),
+      chain,
+      from,
+      block_id,
+      tokens,
+      &semaphore,
+   );
+   let erc20_fut = fetch_erc20_allowance_before(
+      ctx.clone(),
+      chain,
+      from,
+      block_id,
+      erc20_pairs,
+      &semaphore,
+   );
+   let permit2_fut = fetch_permit2_before(
+      ctx.clone(),
+      chain,
+      from,
+      block_id,
+      permit2_pairs,
+      &semaphore,
+   );
+   let nft_fut = fetch_nft_state(ctx, chain, from, block_id, &nft, &semaphore);
 
    let (tokens, erc20, permit2, nft) = tokio::join!(tokens_fut, erc20_fut, permit2_fut, nft_fut);
 
@@ -1267,6 +1317,7 @@ pub async fn diffs_from_receipt(
    let nft = NftRequest::collect(&ctx, chain, from, interact_to, call_data, logs);
 
    let client = ctx.get_client_manager();
+   let semaphore = Arc::new(Semaphore::new(client.concurrency()));
    let native_before_fut = client.request(chain, |client| async move {
       client.get_balance(from).block_id(parent).await.map_err(|e| anyhow!("{:?}", e))
    });
@@ -1280,6 +1331,7 @@ pub async fn diffs_from_receipt(
       erc20_pairs.clone(),
       permit2_pairs.clone(),
       nft.clone(),
+      semaphore.clone(),
    );
    let after_fut = fetch_before_state(
       ctx.clone(),
@@ -1290,6 +1342,7 @@ pub async fn diffs_from_receipt(
       erc20_pairs,
       permit2_pairs,
       nft.clone(),
+      semaphore.clone(),
    );
 
    let (native_before, before, after) = tokio::join!(native_before_fut, before_fut, after_fut);
@@ -1331,6 +1384,7 @@ pub struct DiffProbe {
    known_permit2: Vec<(Address, Address)>,
    permit2: Option<Address>,
    before_handle: Option<tokio::task::JoinHandle<BeforeState>>,
+   semaphore: Arc<Semaphore>,
 }
 
 impl DiffProbe {
@@ -1345,6 +1399,8 @@ impl DiffProbe {
    ) -> Self {
       let (known_erc20, known_permit2) = known_approvals(&ctx, chain.id(), from);
       let permit2 = address_book::permit2_contract(chain.id()).ok();
+      let concurrency = ctx.get_client_manager().concurrency();
+      let semaphore = Arc::new(Semaphore::new(concurrency));
 
       let portfolio = ctx.get_portfolio(chain.id(), from);
 
@@ -1395,6 +1451,7 @@ impl DiffProbe {
                erc20_pre.clone(),
                permit2_pre.clone(),
                nft_pre.clone(),
+               semaphore.clone(),
             )))
          };
 
@@ -1410,6 +1467,7 @@ impl DiffProbe {
          known_permit2,
          permit2,
          before_handle,
+         semaphore,
       }
    }
 
@@ -1472,6 +1530,7 @@ impl DiffProbe {
             extra_erc20,
             extra_permit2,
             extra_nft,
+            self.semaphore.clone(),
          )))
       };
 
