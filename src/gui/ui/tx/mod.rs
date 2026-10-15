@@ -171,6 +171,24 @@ pub fn address(
    theme: &Theme,
    ui: &mut Ui,
 ) {
+   address_with_picked_name(ctx, chain, label, address, None, theme, ui);
+}
+
+/// [`address`] with the name the user picked for this exact address, repeated instead of
+/// whatever the address-book / cache lookup would show.
+///
+/// The recipient row of a sent transfer is drawn from the event's address, while the name comes
+/// from the picker — the one the user verified against that address. Only the caller knows both,
+/// so the name arrives already matched to this row (see `events::picked_name_for`).
+pub fn address_with_picked_name(
+   ctx: &mut ZeusContext,
+   chain: ChainId,
+   label: &str,
+   address: Address,
+   picked_name: Option<&str>,
+   theme: &Theme,
+   ui: &mut Ui,
+) {
    let is_recipient = label.contains("Recipient");
 
    let q_mark = RichText::new("?").size(theme.typography.normal);
@@ -194,15 +212,20 @@ pub fn address(
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          // Empty/whitespace names (failed Sourcify/ERC-7730 inserts) must
-         // not hide the truncated address
-         let address_name = match ctx.get_address_name(chain.id(), address) {
-            Some(name) if !name.trim().is_empty() => name.to_string(),
-            _ => {
-               if !ctx.address_name_requested(chain.id(), address) {
-                  request_address_name(chain.id(), address);
+         // not hide the truncated address — the picked name gets the same
+         // guard, since a picker row can carry one too.
+         let picked_name = picked_name.filter(|name| !name.trim().is_empty());
+         let address_name = match picked_name {
+            Some(name) => name.to_string(),
+            None => match ctx.get_address_name(chain.id(), address) {
+               Some(name) if !name.trim().is_empty() => name.to_string(),
+               _ => {
+                  if !ctx.address_name_requested(chain.id(), address) {
+                     request_address_name(chain.id(), address);
+                  }
+                  truncate_address(address.to_string())
                }
-               truncate_address(address.to_string())
-            }
+            },
          };
 
          let explorer = chain.block_explorer();

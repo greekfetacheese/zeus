@@ -47,6 +47,10 @@ pub struct TxConfirmationWindow {
    mev_protect: bool,
    /// True if the tx is sponsored by another account
    sponsored: bool,
+   /// The name the user picked for the recipient, with the address it was picked for: the main
+   /// event's recipient row repeats it instead of a reverse-lookup name. `None` for a flow with
+   /// no picked name.
+   recipient_name: Option<(Address, String)>,
    gas_used: u64,
    /// Adjust gas limit
    gas_limit: u64,
@@ -80,6 +84,7 @@ impl TxConfirmationWindow {
          priority_fee: String::new(),
          mev_protect: false,
          sponsored: false,
+         recipient_name: None,
          gas_used: 0,
          gas_limit: 0,
          adjusted_gas_limit: String::new(),
@@ -149,6 +154,7 @@ impl TxConfirmationWindow {
       priority_fee: String,
       mev_protect: bool,
       sponsored: bool,
+      recipient_name: Option<(Address, String)>,
    ) {
       self.open_inner(
          ctx,
@@ -159,6 +165,7 @@ impl TxConfirmationWindow {
          priority_fee,
          mev_protect,
          sponsored,
+         recipient_name,
          None,
       );
    }
@@ -184,6 +191,7 @@ impl TxConfirmationWindow {
          priority_fee,
          mev_protect,
          sponsored,
+         None,
          Some(display),
       );
    }
@@ -198,6 +206,7 @@ impl TxConfirmationWindow {
       priority_fee: String,
       mev_protect: bool,
       sponsored: bool,
+      recipient_name: Option<(Address, String)>,
       prebuilt_display: Option<ClearDisplay>,
    ) {
       if self.is_busy() {
@@ -206,6 +215,7 @@ impl TxConfirmationWindow {
 
       self.sponsored = sponsored;
       self.source_is_zeus = source_is_zeus;
+      self.recipient_name = recipient_name;
       // `send_transaction` polls this immediately. Confirm/Reject only `close()`
       // the window, so the previous answer stays in this field and would be
       // treated as the new prompt (auto-confirm + spinner while this task
@@ -474,6 +484,11 @@ impl TxConfirmationWindow {
 
                // Main event details
                if !main_event.is_other() {
+                  // The name the user picked for the recipient; the event renderer matches it
+                  // against the row's own address before showing it.
+                  let recipient_name =
+                     self.recipient_name.as_ref().map(|(address, name)| (*address, name.as_str()));
+
                   ui.allocate_ui(frame_size, |ui| {
                      frame.show(ui, |ui| {
                         show_event(
@@ -482,6 +497,7 @@ impl TxConfirmationWindow {
                            theme,
                            icons.clone(),
                            main_event,
+                           recipient_name,
                            ui,
                         );
                      });
@@ -827,6 +843,53 @@ mod tests {
          45_000,
          "never below what the simulation used"
       );
+   }
+
+   /// The picked name is prompt state: a fresh window has none, `open` stores it with the address
+   /// it was picked for, and the next open replaces it — a later flow must not inherit the
+   /// previous recipient's name.
+   #[test]
+   fn open_stores_the_picked_name_and_the_next_open_clears_it() {
+      let handle = ZeusCtx::new();
+      let mut window = TxConfirmationWindow::new();
+
+      assert_eq!(window.recipient_name, None);
+
+      let picked = Address::repeat_byte(0xaa);
+      window.open(
+         handle.clone(),
+         true,
+         String::new(),
+         ChainId::default(),
+         TransactionAnalysis::dummy_transfer(),
+         "1".to_string(),
+         false,
+         false,
+         Some((picked, "alice.eth".to_string())),
+      );
+
+      assert_eq!(
+         window.recipient_name.as_ref().map(|(address, name)| (*address, name.as_str())),
+         Some((picked, "alice.eth"))
+      );
+
+      // The spawn behind `open` writes back to the global window, not this one, so the local
+      // `open` flag never flips; close anyway so the second open is never refused as busy.
+      window.close();
+
+      window.open(
+         handle,
+         true,
+         String::new(),
+         ChainId::default(),
+         TransactionAnalysis::dummy_transfer(),
+         "1".to_string(),
+         false,
+         false,
+         None,
+      );
+
+      assert_eq!(window.recipient_name, None);
    }
 }
 

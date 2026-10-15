@@ -17,7 +17,7 @@ use zeus_railgun::{abi::railgun::TokenType, caip::AssetId};
 
 use std::sync::Arc;
 
-use super::address;
+use super::{address, address_with_picked_name};
 
 pub struct DecodedEvents {
    open: bool,
@@ -94,7 +94,7 @@ impl DecodedEvents {
                         frame.show(ui, |ui| {
                            ui.label(RichText::new(event.name()).size(theme.typography.heading));
 
-                           show_event(ctx, chain, theme, icons.clone(), event, ui);
+                           show_event(ctx, chain, theme, icons.clone(), event, None, ui);
                         });
                      });
                   }
@@ -267,12 +267,23 @@ pub fn token_approval_event_ui(
    address(ctx, chain, "Spender", params.spender, theme, ui);
 }
 
+/// The name the user picked for a row's address, when they picked it for this exact address.
+///
+/// The recipient row of a sent transfer is drawn from the event's address, while the name comes
+/// from the picker. Repeating it there is only correct when both are the address the name was
+/// picked for — otherwise the name would label an address the user never verified it against.
+fn picked_name_for(picked: Option<(Address, &str)>, row_addr: Address) -> Option<&str> {
+   let (picked_addr, name) = picked?;
+   (picked_addr == row_addr).then_some(name)
+}
+
 fn transfer_event_ui(
    ctx: &mut ZeusContext,
    chain: ChainId,
    theme: &Theme,
    icons: Arc<Icons>,
    params: &TransferParams,
+   recipient_name: Option<(Address, &str)>,
    ui: &mut Ui,
 ) {
    let size = vec2(ui.available_width(), 30.0);
@@ -312,11 +323,12 @@ fn transfer_event_ui(
 
    // Recipient
    ui.allocate_ui(size, |ui| {
-      address(
+      address_with_picked_name(
          ctx,
          chain,
          "Recipient",
          params.recipient,
+         picked_name_for(recipient_name, params.recipient),
          theme,
          ui,
       );
@@ -360,6 +372,7 @@ fn nft_transfer_event_ui(
    theme: &Theme,
    icons: Arc<Icons>,
    params: &NftTransferParams,
+   recipient_name: Option<(Address, &str)>,
    ui: &mut Ui,
 ) {
    let size = vec2(ui.available_width(), 30.0);
@@ -439,7 +452,15 @@ fn nft_transfer_event_ui(
    address(ctx, chain, "Sender", params.from, theme, ui);
 
    ui.allocate_ui(size, |ui| {
-      address(ctx, chain, "Recipient", params.to, theme, ui);
+      address_with_picked_name(
+         ctx,
+         chain,
+         "Recipient",
+         params.to,
+         picked_name_for(recipient_name, params.to),
+         theme,
+         ui,
+      );
    });
 }
 
@@ -1484,11 +1505,20 @@ pub fn show_event(
    theme: &Theme,
    icons: Arc<Icons>,
    event: &DecodedEvent,
+   recipient_name: Option<(Address, &str)>,
    ui: &mut Ui,
 ) {
    if event.is_native_transfer() || event.is_erc20_transfer() {
       let params = event.transfer_params();
-      transfer_event_ui(ctx, chain, theme, icons.clone(), params, ui);
+      transfer_event_ui(
+         ctx,
+         chain,
+         theme,
+         icons.clone(),
+         params,
+         recipient_name,
+         ui,
+      );
    }
 
    if event.is_token_approval() {
@@ -1553,6 +1583,37 @@ pub fn show_event(
 
    if event.is_nft_transfer() {
       let params = event.nft_transfer_params();
-      nft_transfer_event_ui(ctx, chain, theme, icons.clone(), params, ui);
+      nft_transfer_event_ui(
+         ctx,
+         chain,
+         theme,
+         icons.clone(),
+         params,
+         recipient_name,
+         ui,
+      );
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// The picked name labels a row only when the row is the address the name was picked for; a
+   /// different row's address, or no pick at all, leaves the row to the normal lookup.
+   #[test]
+   fn picked_name_matches_only_the_address_it_was_picked_for() {
+      let picked = Address::repeat_byte(0xaa);
+      let other = Address::repeat_byte(0xbb);
+
+      assert_eq!(
+         picked_name_for(Some((picked, "alice.eth")), picked),
+         Some("alice.eth")
+      );
+      assert_eq!(
+         picked_name_for(Some((picked, "alice.eth")), other),
+         None
+      );
+      assert_eq!(picked_name_for(None, picked), None);
    }
 }

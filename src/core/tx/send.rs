@@ -215,6 +215,11 @@ pub struct SendTxOptions {
    /// picked long before the confirmation, and a `.eth` name past its registration can change hands
    /// in between, so [`confirm_tx`] re-tests this. `None` for a flow with no named recipient.
    pub ens_recipient: Option<EnsRecipientGuard>,
+   /// The name the user picked for the recipient, with the address it was picked for: the
+   /// confirmation repeats it on that recipient's row instead of a reverse-lookup name. `None`
+   /// when the picker had no name. Display only — what is sent is the address, and the address is
+   /// carried so the row cannot be labeled with a name picked for a different address.
+   pub recipient_name: Option<(Address, String)>,
 }
 
 /// What the user left in the transaction confirmation window.
@@ -272,6 +277,7 @@ pub async fn confirm_tx(
          priority_fee.f64().to_string(),
          opts.mev_protect,
          opts.sponsored,
+         opts.recipient_name.clone(),
       );
 
       // `open` refuses a window that is already busy, so the claim lands after it.
