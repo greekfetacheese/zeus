@@ -1590,11 +1590,15 @@ impl ZeusCtx {
       self.read(|ctx| ctx.get_address_name(chain, address))
    }
 
-   /// Off-frame ERC-7730 / Sourcify / ENS fill. No-op if already named or already attempted.
+   /// Off-frame ERC-7730 / Sourcify / ENS fill. No-op if already named.
    ///
    /// A token or an NFT collection Zeus already has cached is named by [`Self::get_address_name`],
    /// which the UI reads first, so this never runs for one — it is the names that need a registry,
    /// Sourcify or ENS to learn.
+   ///
+   /// The once-per-session claim belongs to `address_name_requested` on the frame path — it is what
+   /// spawned this call. Re-checking that claim here used to reject every request it spawned, so
+   /// this only asks the read-only guard whether anything named the address in the meantime.
    ///
    /// Returns true if a new name was stored.
    pub async fn lookup_address_name(&self, chain: u64, address: Address) -> bool {
@@ -1607,13 +1611,14 @@ impl ZeusCtx {
       }
 
       // A reverse label whose binding has lapsed is forgotten and re-resolved once — after its
-      // grace period the name may belong to someone else. Any other address keeps the
-      // once-per-session guard, so an address with no name is never looked up on every frame.
-      let relapsed = self.ens_cache().remove_lapsed(chain, address);
+      // grace period the name may belong to someone else. Kept for direct callers; on the frame
+      // path `address_name_requested` has already consumed the lapse.
+      let cache = self.ens_cache();
+      cache.remove_lapsed(chain, address);
 
       let book = self.address_book();
 
-      if !relapsed && !book.mark_pending(chain, address) {
+      if !should_lookup_address_name(&book, &cache, chain, address) {
          return false;
       }
 
@@ -2619,6 +2624,21 @@ fn tighten_existing_secret_files() {
    }
 }
 
+/// Whether the reverse-lookup worker should proceed for `(chain, address)`.
+///
+/// Read-only on purpose: the claim that bounds an address to one lookup per session belongs to
+/// [`ZeusContext::address_name_requested`], the accessor the UI consults. A worker that re-made that
+/// claim here would reject the very request the accessor spawned. A lapsed session label has
+/// already been forgotten by the caller, so it reads as unnamed and is allowed through.
+fn should_lookup_address_name(
+   book: &AddressBookHandle,
+   cache: &EnsCache,
+   chain: u64,
+   address: Address,
+) -> bool {
+   book.get(chain, address).is_none() && cache.get(chain, address).is_none()
+}
+
 impl ZeusContext {
    pub fn new() -> Self {
       tighten_existing_secret_files();
@@ -3005,16 +3025,34 @@ impl ZeusContext {
       self.disabled_chains.is_disabled(chain)
    }
 
-   /// Check the address book to see if we have ever requested a name for this address
+   /// Is a name lookup due for this address, or has one already been requested?
    ///
-   /// # Returns
-   /// `true` if we have ever requested a name for this address
+   /// `false` means a request is due, and this call has just claimed it. `true` means a name is
+   /// already known, or the request was already made this session.
+   ///
+   /// This is the **single consumption point** for the once-per-session rule: the UI consults it
+   /// every frame, so the claim has to be made here and not in the worker, which runs once per
+   /// request. It is also where a lapsed session ENS label is forgotten, which is what makes the
+   /// address requestable exactly once more.
    pub fn address_name_requested(&self, chain: u64, address: Address) -> bool {
       if address.is_zero() {
          return true;
       }
+
+      // A known name needs no request: a wallet, contact or contract label, a live session ENS
+      // label, or token / collection metadata.
+      if self.get_address_name(chain, address).is_some() {
+         return true;
+      }
+
+      // A reverse label whose binding has lapsed is forgotten here, exactly once, so the claim
+      // below starts a fresh request for that address.
+      let relapsed = self.ens_cache.remove_lapsed(chain, address);
+
       let first = self.address_book.mark_pending(chain, address);
-      !first
+
+      // Due on the frame that claims the address, and on the frame that consumes a lapsed binding.
+      !(first || relapsed)
    }
 
    /// Check if we have any enabled and working RPCs for the given chain
@@ -3274,6 +3312,129 @@ mod tests {
       });
 
       assert_eq!(ctx.get_address_name(1, unnamed), None);
+   }
+
+   /// The bug this pins: the accessor claims an unnamed address and reports that a request is due,
+   /// and the spawned worker then has to agree to run. When the worker re-consumed that claim with
+   /// its own `mark_pending`, every request died on arrival — the reverse lookup never ran at all.
+   #[test]
+   fn ens_reverse_request_survives_the_shared_claim() {
+      let ctx = ZeusCtx::new();
+      let (chain, address) = (ENS_CHAIN, Address::repeat_byte(0x60));
+
+      // The frame path asks: the address is unnamed and unclaimed, so a request is due — and this
+      // consult has just claimed the address for the session.
+      assert!(
+         !ctx.read(|ctx| ctx.address_name_requested(chain, address)),
+         "a request is due for an unnamed address"
+      );
+
+      // The worker's guard, asked right after the request was spawned.
+      assert!(
+         should_lookup_address_name(
+            &ctx.address_book(),
+            &ctx.ens_cache(),
+            chain,
+            address
+         ),
+         "the worker must proceed for an address whose request was just spawned"
+      );
+   }
+
+   /// The accessor is one-consumption: a second consult — another row in the same frame, or the
+   /// next frame — must not report a second request for the same address.
+   #[test]
+   fn ens_reverse_claim_is_consumed_once() {
+      let ctx = ZeusCtx::new();
+      let (chain, address) = (ENS_CHAIN, Address::repeat_byte(0x61));
+
+      let requested = |ctx: &ZeusCtx| ctx.read(|ctx| ctx.address_name_requested(chain, address));
+
+      assert!(
+         !requested(&ctx),
+         "the first consult is due a request"
+      );
+      assert!(requested(&ctx), "the second consult is not");
+      assert!(requested(&ctx), "nor any later one");
+   }
+
+   /// A resolved, unexpired name is never requested — not on a second consult, not on any later
+   /// frame of the session.
+   #[test]
+   fn ens_reverse_live_name_is_never_requested() {
+      let ctx = ZeusCtx::new();
+      let (chain, address) = (ENS_CHAIN, Address::repeat_byte(0x62));
+
+      // A label with no onchain expiry, as the forward picker stores one.
+      assert!(ctx.ens_cache().insert(chain, address, "alice.eth", 0));
+
+      let requested = |ctx: &ZeusCtx| ctx.read(|ctx| ctx.address_name_requested(chain, address));
+
+      assert!(requested(&ctx));
+      assert!(requested(&ctx));
+
+      // And the worker's guard agrees there is nothing to look up.
+      assert!(!should_lookup_address_name(
+         &ctx.address_book(),
+         &ctx.ens_cache(),
+         chain,
+         address
+      ));
+   }
+
+   /// A lapsed binding makes the address requestable exactly once more — the lapse is the token,
+   /// not a licence to re-resolve on every frame.
+   #[test]
+   fn ens_reverse_lapsed_binding_is_requested_once_more() {
+      let ctx = ZeusCtx::new();
+      let (chain, address) = (ENS_CHAIN, Address::repeat_byte(0x63));
+
+      // Live for another second, then lapsed, with the state built directly — no chain is touched.
+      let takeover_at = TimeStamp::now_as_secs().unwrap().timestamp() + 1;
+      assert!(ctx.ens_cache().insert(chain, address, "lapsing.eth", takeover_at));
+
+      // While the binding is live the address is named, so no request is due.
+      assert!(ctx.read(|ctx| ctx.address_name_requested(chain, address)));
+
+      std::thread::sleep(Duration::from_millis(1_500));
+
+      assert_eq!(ctx.get_address_name(chain, address), None);
+
+      let requested = |ctx: &ZeusCtx| ctx.read(|ctx| ctx.address_name_requested(chain, address));
+
+      // The lapse is consumed: one re-resolution becomes due, and the worker's guard lets it
+      // through ...
+      assert!(
+         !requested(&ctx),
+         "a lapsed binding must be resolved once more"
+      );
+      assert!(should_lookup_address_name(
+         &ctx.address_book(),
+         &ctx.ens_cache(),
+         chain,
+         address
+      ));
+      // ... and the re-resolution is then claimed like any other.
+      assert!(requested(&ctx), "but only once");
+   }
+
+   /// An address that resolves to nothing is looked up once, not once per frame.
+   #[test]
+   fn ens_reverse_unnamed_address_is_not_re_requested() {
+      let ctx = ZeusCtx::new();
+      let (chain, address) = (ENS_CHAIN, Address::repeat_byte(0x64));
+
+      let requested = |ctx: &ZeusCtx| ctx.read(|ctx| ctx.address_name_requested(chain, address));
+
+      assert!(!requested(&ctx));
+
+      // The worker ran and found no name to store.
+      assert!(ctx.get_address_name(chain, address).is_none());
+
+      assert!(
+         requested(&ctx),
+         "an unnamed address is not asked for again"
+      );
    }
 
    #[tokio::test]
