@@ -32,8 +32,9 @@ use zeus_eth::{
    revm_utils::{
       Database, Evm2,
       simulate::{
-         erc20_allowance, erc20_balance, erc721_get_approved, erc721_is_approved_for_all,
-         erc721_owner_of, erc1155_allowance, erc1155_balance_of, permit2_allowance,
+         NftApprovalProbeError, erc20_allowance, erc20_balance, erc721_get_approved,
+         erc721_is_approved_for_all, erc721_owner_of, erc1155_allowance, erc1155_balance_of,
+         permit2_allowance,
       },
    },
    types::ChainId,
@@ -341,10 +342,10 @@ fn measure_approval_after<DB: Database>(
 /// claim a change — a balance the wallet really holds reading as a full loss — which is the same
 /// reading the before-state fetch draws from a dropped sub-call.
 ///
-/// ERC-721 is the one exception, and a deliberate one: a reverted `ownerOf` is the standard's own
-/// answer for a token that no longer exists (a burn), not a failed read, so that arm maps it to "not
-/// the signer's" rather than leaving it out. See the note on that arm for where the two are *not*
-/// told apart.
+/// The ERC-721 **ownership** arm is the one exception, and a deliberate one: a reverted `ownerOf` is
+/// the standard's own answer for a token that no longer exists (a burn), not a failed read, so that
+/// arm maps it to "not the signer's" rather than leaving it out. See the note on that arm for where
+/// the two are *not* told apart.
 fn measure_nft_after<DB: Database>(
    owner: Address,
    nft: &NftRequest,
@@ -403,40 +404,68 @@ fn measure_nft_after<DB: Database>(
    }
 
    for candidate in &nft.approvals {
-      // A probe that failed on the fork reads as the shape's own *nothing* — the zero address, `false`,
-      // zero — the same default the before-state fetch applies to a dropped sub-call
-      // (`unwrap_or_default` there too). Dropping the candidate instead is asymmetric: a token burnt in
-      // the tx reverts `getApproved`, and the before side already answered "no operator" for it, so the
-      // row would be lost rather than compared.
-      let value = match candidate.target {
-         NftApprovalTarget::Token(id) => NftApprovalValue::Approved(
-            erc721_get_approved(after_evm, candidate.collection, id).unwrap_or_default(),
-         ),
-         NftApprovalTarget::ForAll => NftApprovalValue::ForAll(
-            erc721_is_approved_for_all(
-               after_evm,
-               candidate.collection,
-               owner,
-               candidate.operator,
-            )
-            .unwrap_or_default(),
-         ),
-         NftApprovalTarget::Allowance(id) => NftApprovalValue::Allowance(
-            erc1155_allowance(
-               after_evm,
-               candidate.collection,
-               owner,
-               candidate.operator,
-               id,
-            )
-            .unwrap_or_default(),
-         ),
+      // The two ways an approval probe can fail are not the same, and the probes report which one it
+      // was. A revert is the contract's own answer — the shape's *nothing* — so it keeps the value
+      // the before-state fetch would have produced for it (the zero address, `false`, zero): a token
+      // burnt in the tx reverts `getApproved`, and the before side already answered "no operator" for
+      // it, so dropping the row would lose a change the tx really made.
+      //
+      // A read that never reached the contract is *unknown*, not that default: nothing was measured,
+      // so the key stays out and `combine_diffs` drops the candidate, exactly as the ERC-1155 balance
+      // arm drops a failed read. Letting a fork failure fabricate a value here would render a grant
+      // whose after-probe never ran as a **Revoked** row.
+      let measured = match candidate.target {
+         NftApprovalTarget::Token(id) => {
+            erc721_get_approved(after_evm, candidate.collection, id).map(NftApprovalValue::Approved)
+         }
+         NftApprovalTarget::ForAll => erc721_is_approved_for_all(
+            after_evm,
+            candidate.collection,
+            owner,
+            candidate.operator,
+         )
+         .map(NftApprovalValue::ForAll),
+         NftApprovalTarget::Allowance(id) => erc1155_allowance(
+            after_evm,
+            candidate.collection,
+            owner,
+            candidate.operator,
+            id,
+         )
+         .map(NftApprovalValue::Allowance),
       };
 
-      state.approvals.insert(*candidate, value);
+      match measured {
+         Ok(value) => {
+            state.approvals.insert(*candidate, value);
+         }
+         Err(NftApprovalProbeError::Answered(_)) => {
+            state.approvals.insert(*candidate, nft_approval_nothing(candidate.target));
+         }
+         Err(e @ NftApprovalProbeError::NeverRan(_)) => {
+            tracing::warn!(
+               "NFT approval read after the tx never ran: {:?}",
+               e
+            );
+         }
+      }
    }
 
    state
+}
+
+/// The value an approval read's own *nothing* takes: the zero address for a per-token ERC-721
+/// approval, `false` for a collection-wide one, zero for an ERC-5216 allowance.
+///
+/// The approval loop applies this to a probe the contract *answered* (a revert included), matching
+/// the same shape defaults the before-state fetch applies to a dropped sub-call — while a probe that
+/// never ran is dropped instead.
+fn nft_approval_nothing(target: NftApprovalTarget) -> NftApprovalValue {
+   match target {
+      NftApprovalTarget::Token(_) => NftApprovalValue::Approved(Address::ZERO),
+      NftApprovalTarget::ForAll => NftApprovalValue::ForAll(false),
+      NftApprovalTarget::Allowance(_) => NftApprovalValue::Allowance(U256::ZERO),
+   }
 }
 
 fn combine_diffs(
@@ -1611,7 +1640,9 @@ pub async fn simulate_and_diff(
 mod tests {
    use super::*;
    use zeus_eth::revm::database::{CacheDB, EmptyDB, InMemoryDB};
+   use zeus_eth::revm::primitives::B256;
    use zeus_eth::revm::state::{AccountInfo, Bytecode};
+   use zeus_eth::revm_utils::fork_db::error::DatabaseError;
    use zeus_eth::revm_utils::new_evm;
 
    fn addr(b: u8) -> Address {
@@ -2266,5 +2297,174 @@ mod tests {
       assert_eq!(raw.nft_balances[0].before, U256::from(5));
       assert_eq!(raw.nft_balances[0].after, U256::from(2));
       assert!(!raw.nft_balances[0].is_received());
+   }
+
+   /// A `Database` that answers nothing: every account/read access fails, which is the fork read a
+   /// post-sim probe makes when the RPC never answered. `measure_nft_after` goes through
+   /// `evm.transact`, so the probes report this as "never ran".
+   #[derive(Debug, Default)]
+   struct UnreachableDb;
+
+   impl Database for UnreachableDb {
+      type Error = DatabaseError;
+
+      fn basic(&mut self, _address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+         Err(DatabaseError::BackendFetchRequestError)
+      }
+
+      fn code_by_hash(&mut self, _code_hash: B256) -> Result<Bytecode, Self::Error> {
+         Err(DatabaseError::BackendFetchRequestError)
+      }
+
+      fn storage(&mut self, _address: Address, _index: U256) -> Result<U256, Self::Error> {
+         Err(DatabaseError::BackendFetchRequestError)
+      }
+
+      fn block_hash(&mut self, _number: u64) -> Result<B256, Self::Error> {
+         Err(DatabaseError::BackendFetchRequestError)
+      }
+   }
+
+   /// A fork read that never ran is *unknown*, not the shape's own nothing — for all three approval
+   /// probes.
+   ///
+   /// This is the defect: with the old `unwrap_or_default` every shape fabricated a value for a read
+   /// that never reached the contract, and a grant whose after-probe never ran rendered as
+   /// **Revoked**. Red against the pass-through: the first assertion finds three inserted defaults.
+   #[test]
+   fn an_approval_read_that_never_ran_claims_no_change() {
+      let collection = addr(9);
+      let owner = addr(1);
+      let token = NftApprovalCandidate {
+         collection,
+         operator: addr(7),
+         target: NftApprovalTarget::Token(U256::from(4)),
+      };
+      let for_all = NftApprovalCandidate {
+         collection,
+         operator: addr(7),
+         target: NftApprovalTarget::ForAll,
+      };
+      let allowance = NftApprovalCandidate {
+         collection,
+         operator: addr(7),
+         target: NftApprovalTarget::Allowance(U256::from(5)),
+      };
+      let request = NftRequest {
+         balances: Vec::new(),
+         approvals: vec![token, for_all, allowance],
+      };
+
+      let mut evm = new_evm(ChainId::Ethereum, None, UnreachableDb, None);
+      let after = measure_nft_after(owner, &request, &mut evm);
+
+      assert!(
+         after.approvals.is_empty(),
+         "a read that never ran is a hole, not a fabricated default: {:?}",
+         after.approvals
+      );
+
+      // With a readable before value, the failed read must not become a row.
+      let mut before = BeforeState::empty();
+      before.nft.approvals.insert(token, NftApprovalValue::Approved(addr(3)));
+      before.nft.approvals.insert(for_all, NftApprovalValue::ForAll(true));
+      before.nft.approvals.insert(
+         allowance,
+         NftApprovalValue::Allowance(U256::from(9)),
+      );
+
+      let raw = combine_diffs(&[], &[], &request, before, nft_after(after));
+
+      assert!(
+         raw.nft_approvals.is_empty(),
+         "an unreadable side yields no row, so a fork failure cannot claim a change"
+      );
+   }
+
+   /// The `ForAll` shape keeps the pinned rule: a reverted read is a real answer, so it reads as
+   /// `false` rather than a hole.
+   #[test]
+   fn a_reverted_for_all_read_after_the_tx_reads_as_false() {
+      let collection = addr(9);
+      let owner = addr(1);
+      let candidate = NftApprovalCandidate {
+         collection,
+         operator: addr(7),
+         target: NftApprovalTarget::ForAll,
+      };
+
+      let mut evm = reverting_collection_evm(collection);
+      let after = measure_nft_after(owner, &approval_request(candidate), &mut evm);
+
+      assert_eq!(
+         after.approvals.get(&candidate),
+         Some(&NftApprovalValue::ForAll(false))
+      );
+   }
+
+   /// The `Allowance` shape keeps the pinned rule: a reverted read reads as zero, not a hole.
+   #[test]
+   fn a_reverted_allowance_read_after_the_tx_reads_as_zero() {
+      let collection = addr(9);
+      let owner = addr(1);
+      let candidate = NftApprovalCandidate {
+         collection,
+         operator: addr(7),
+         target: NftApprovalTarget::Allowance(U256::from(5)),
+      };
+
+      let mut evm = reverting_collection_evm(collection);
+      let after = measure_nft_after(owner, &approval_request(candidate), &mut evm);
+
+      assert_eq!(
+         after.approvals.get(&candidate),
+         Some(&NftApprovalValue::Allowance(U256::ZERO))
+      );
+   }
+
+   /// The success path is unchanged for all three approval shapes: a probe that answers yields its
+   /// value, not the shape's nothing.
+   #[test]
+   fn an_approval_after_probe_that_answers_still_yields_the_row() {
+      let collection = addr(9);
+      let owner = addr(1);
+      let token = NftApprovalCandidate {
+         collection,
+         operator: addr(7),
+         target: NftApprovalTarget::Token(U256::from(4)),
+      };
+      let for_all = NftApprovalCandidate {
+         collection,
+         operator: addr(7),
+         target: NftApprovalTarget::ForAll,
+      };
+      let allowance = NftApprovalCandidate {
+         collection,
+         operator: addr(7),
+         target: NftApprovalTarget::Allowance(U256::from(5)),
+      };
+
+      let mut evm = fixed_word_collection_evm(collection, U256::from(11));
+      let after = measure_nft_after(owner, &approval_request(token), &mut evm);
+      assert_eq!(
+         after.approvals.get(&token),
+         Some(&NftApprovalValue::Approved(
+            Address::with_last_byte(11)
+         ))
+      );
+
+      let mut evm = fixed_word_collection_evm(collection, U256::from(1));
+      let after = measure_nft_after(owner, &approval_request(for_all), &mut evm);
+      assert_eq!(
+         after.approvals.get(&for_all),
+         Some(&NftApprovalValue::ForAll(true))
+      );
+
+      let mut evm = fixed_word_collection_evm(collection, U256::from(7));
+      let after = measure_nft_after(owner, &approval_request(allowance), &mut evm);
+      assert_eq!(
+         after.approvals.get(&allowance),
+         Some(&NftApprovalValue::Allowance(U256::from(7)))
+      );
    }
 }

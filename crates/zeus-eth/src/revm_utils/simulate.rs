@@ -31,6 +31,27 @@ fn ok_output<'a>(result: &'a ExecutionResult, call: &str) -> Result<&'a Bytes, a
    Ok(output)
 }
 
+/// Why one of the NFT-**approval** probes returned no value, split by where the failure happened.
+///
+/// The two origins are not the same thing to a caller reading a diff. [`Self::NeverRan`] means the
+/// fork could not serve the call at all — `evm.transact` failed inside the `Database` or the EVM,
+/// which for a fork read is the RPC never answering — so nothing was measured. Everything from
+/// `ok_output` on — a revert, a halt with no output, an undecodable return — is [`Self::Answered`]:
+/// the contract was reached and answered, but unusably.
+///
+/// `erc721_owner_of` deliberately does **not** use this type and keeps collapsing the two: a reverted
+/// `ownerOf` is the standard's own answer for a burned token, and the ownership arm reads any error
+/// that way. This file therefore carries two error styles on purpose.
+#[derive(Debug, thiserror::Error)]
+pub enum NftApprovalProbeError {
+   /// The fork read never reached the contract: `evm.transact` itself failed.
+   #[error("the fork read never ran: {0}")]
+   NeverRan(anyhow::Error),
+   /// The contract was reached and answered unusably: a revert, no output, or an undecodable return.
+   #[error("the contract answered unusably: {0}")]
+   Answered(anyhow::Error),
+}
+
 /// Simulate ERC-721 `ownerOf(tokenId)` (does not commit).
 ///
 /// The read half of a "did the transfer actually move it" check: called after
@@ -65,7 +86,7 @@ pub fn erc721_get_approved<DB>(
    evm: &mut Evm2<DB>,
    collection: Address,
    token_id: U256,
-) -> Result<Address, anyhow::Error>
+) -> Result<Address, NftApprovalProbeError>
 where
    DB: Database,
 {
@@ -76,9 +97,11 @@ where
    evm.tx.value = U256::ZERO;
    evm.tx.kind = TxKind::Call(collection);
 
-   let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
-   let output = ok_output(&res.result, "getApproved")?;
-   abi::erc721::decode_get_approved(output)
+   let res = evm
+      .transact(evm.tx.clone())
+      .map_err(|e| NftApprovalProbeError::NeverRan(anyhow!("{:?}", e)))?;
+   let output = ok_output(&res.result, "getApproved").map_err(NftApprovalProbeError::Answered)?;
+   abi::erc721::decode_get_approved(output).map_err(NftApprovalProbeError::Answered)
 }
 
 /// Simulate `isApprovedForAll(owner, operator)` (does not commit).
@@ -90,7 +113,7 @@ pub fn erc721_is_approved_for_all<DB>(
    collection: Address,
    owner: Address,
    operator: Address,
-) -> Result<bool, anyhow::Error>
+) -> Result<bool, NftApprovalProbeError>
 where
    DB: Database,
 {
@@ -101,9 +124,12 @@ where
    evm.tx.value = U256::ZERO;
    evm.tx.kind = TxKind::Call(collection);
 
-   let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
-   let output = ok_output(&res.result, "isApprovedForAll")?;
-   abi::erc721::decode_is_approved_for_all(output)
+   let res = evm
+      .transact(evm.tx.clone())
+      .map_err(|e| NftApprovalProbeError::NeverRan(anyhow!("{:?}", e)))?;
+   let output =
+      ok_output(&res.result, "isApprovedForAll").map_err(NftApprovalProbeError::Answered)?;
+   abi::erc721::decode_is_approved_for_all(output).map_err(NftApprovalProbeError::Answered)
 }
 
 /// Simulate the ERC-5216 `allowance(account, operator, id)` (does not commit).
@@ -116,7 +142,7 @@ pub fn erc1155_allowance<DB>(
    account: Address,
    operator: Address,
    id: U256,
-) -> Result<U256, anyhow::Error>
+) -> Result<U256, NftApprovalProbeError>
 where
    DB: Database,
 {
@@ -127,9 +153,12 @@ where
    evm.tx.value = U256::ZERO;
    evm.tx.kind = TxKind::Call(collection);
 
-   let res = evm.transact(evm.tx.clone()).map_err(|e| anyhow!("{:?}", e))?;
-   let output = ok_output(&res.result, "ERC-5216 allowance")?;
-   abi::erc1155::decode_allowance(output)
+   let res = evm
+      .transact(evm.tx.clone())
+      .map_err(|e| NftApprovalProbeError::NeverRan(anyhow!("{:?}", e)))?;
+   let output =
+      ok_output(&res.result, "ERC-5216 allowance").map_err(NftApprovalProbeError::Answered)?;
+   abi::erc1155::decode_allowance(output).map_err(NftApprovalProbeError::Answered)
 }
 
 /// Simulate ERC-1155 `balanceOf(account, id)` (does not commit).
@@ -461,14 +490,18 @@ mod tests {
    use super::*;
    use crate::{
       abi::{erc721::IERC721, erc1155::IERC1155},
+      revm_utils::fork_db::error::DatabaseError,
       revm_utils::{ForkFactory, Output, new_evm},
       test_utils::rpc_url,
       types::ChainId,
    };
+   use alloy_primitives::B256;
    use alloy_primitives::address;
    use alloy_provider::{Provider, ProviderBuilder};
    use alloy_rpc_types::BlockId;
    use revm::context_interface::result::{ResultGas, SuccessReason};
+   use revm::database::{CacheDB, EmptyDB};
+   use revm::state::{AccountInfo, Bytecode};
 
    /// The reads the NFT send path's transfer check makes, executed on a real fork and compared with the
    /// node's own answer **at the same block**.
@@ -636,6 +669,70 @@ mod tests {
          ok_output(&success, "ownerOf").unwrap(),
          &word,
          "a success must pass its output through"
+      );
+   }
+
+   /// A `Database` that answers nothing: every read fails, which is the fork a fork read never
+   /// reached. Wiring an EVM with no account data is the closest a unit test gets to the RPC that
+   /// never answered.
+   #[derive(Debug, Default)]
+   struct UnreachableDb;
+
+   impl Database for UnreachableDb {
+      type Error = DatabaseError;
+
+      fn basic(&mut self, _address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+         Err(DatabaseError::BackendFetchRequestError)
+      }
+
+      fn code_by_hash(&mut self, _code_hash: B256) -> Result<Bytecode, Self::Error> {
+         Err(DatabaseError::BackendFetchRequestError)
+      }
+
+      fn storage(&mut self, _address: Address, _index: U256) -> Result<U256, Self::Error> {
+         Err(DatabaseError::BackendFetchRequestError)
+      }
+
+      fn block_hash(&mut self, _number: u64) -> Result<B256, Self::Error> {
+         Err(DatabaseError::BackendFetchRequestError)
+      }
+   }
+
+   /// The approval probes tell the two failure origins apart: a fork the `Database` cannot serve is
+   /// [`NftApprovalProbeError::NeverRan`], while a contract that reverts has answered and is
+   /// [`NftApprovalProbeError::Answered`]. The distinction is the whole point of the type — a caller
+   /// that only sees `anyhow::Error` cannot recover it.
+   #[test]
+   fn an_approval_probe_separates_a_fork_that_never_ran_from_a_revert() {
+      let collection = address!("00000000000000000000000000000000000000aa");
+
+      let mut unreachable = new_evm(ChainId::Ethereum, None, UnreachableDb, None);
+      assert!(
+         matches!(
+            erc721_get_approved(&mut unreachable, collection, U256::ZERO),
+            Err(NftApprovalProbeError::NeverRan(_))
+         ),
+         "a fork read the Database cannot serve never ran"
+      );
+
+      let mut db = CacheDB::new(EmptyDB::default());
+      db.insert_account_info(
+         collection,
+         AccountInfo {
+            // PUSH1 0x00 PUSH1 0x00 REVERT
+            code: Some(Bytecode::new_raw(Bytes::from_static(&[
+               0x60, 0x00, 0x60, 0x00, 0xfd,
+            ]))),
+            ..Default::default()
+         },
+      );
+      let mut reverting = new_evm(ChainId::Ethereum, None, db, None);
+      assert!(
+         matches!(
+            erc721_get_approved(&mut reverting, collection, U256::ZERO),
+            Err(NftApprovalProbeError::Answered(_))
+         ),
+         "a contract that reverts was reached and answered"
       );
    }
 }
