@@ -1323,6 +1323,12 @@ impl ShieldUi {
    fn poll_shield_pool(&mut self, chain: ChainId, railgun_synced: bool) {
       let key = (chain.id(), self.privacy_asset_key());
 
+      // A key change makes the old verdict wrong rather than stale, so it goes now; only the latch
+      // waits for sync.
+      if self.shield_pool_key.as_ref() != Some(&key) {
+         self.shield_pool = None;
+      }
+
       // Not synced yet, or answered / in flight for exactly this token: nothing to do. The key is
       // deliberately left unlatched while the chain is unsynced, so the check arms after sync.
       if !shield_check_due(
@@ -2490,6 +2496,41 @@ mod tests {
       assert!(
          !shield_check_due(Some(&key), &key, true),
          "but does not arm it again once it is latched"
+      );
+   }
+
+   /// A key change drops the old verdict immediately, synced or not: it describes another pool, so it
+   /// is wrong rather than stale. Only the *latch* waits for sync — the poll must not leave the old
+   /// key holding the form's warning while the new chain's data is still arriving.
+   #[test]
+   fn a_key_change_drops_the_old_verdict_even_while_unsynced() {
+      let mut ui = ShieldUi::new();
+      ui.set_mode(RailgunMode::Shield);
+
+      // A verdict for one asset, already latched under its key.
+      ui.currency = Currency::from(ERC20Token::weth());
+      let latched = (1u64, ui.privacy_asset_key());
+      ui.shield_pool_key = Some(latched.clone());
+      ui.shield_pool = Some(PoolDepth {
+         balance_wei: U256::from(1_000u64),
+         usd: Some(400.0),
+         share: None,
+         deposits: Some(1_224),
+      });
+
+      // The form moves to another asset while the chain is unsynced: the verdict goes now, and the
+      // latch is left alone so the check still arms once sync completes.
+      ui.currency = Currency::from(ERC20Token::usdc());
+      ui.poll_shield_pool(ChainId::new(1).unwrap(), false);
+
+      assert!(
+         ui.shield_pool.is_none(),
+         "another key's verdict must not linger"
+      );
+      assert_eq!(
+         ui.shield_pool_key.as_ref(),
+         Some(&latched),
+         "the latch waits for sync; the unsynced poll leaves it untouched"
       );
    }
 
