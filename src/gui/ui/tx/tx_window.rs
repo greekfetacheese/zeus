@@ -249,6 +249,7 @@ impl TxWindow {
                                  theme,
                                  icons.clone(),
                                  main_event,
+                                 None,
                                  ui,
                               );
                            });
