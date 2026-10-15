@@ -1194,7 +1194,18 @@ fn on_finish_onboarding(config: MiscConfig, current_wallet: WalletInfo) {
          gui.ctx.clone()
       });
 
+      let now = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
+
       ctx.write(|ctx| {
+         // Fresh unlock: not locked, idle timer armed, first auto-lock
+         // notice due `first_delay` from now (see `should_warn_autolock`),
+         // exactly as on every other unlock path. Leaving `last_activity_ms`
+         // at 0 would let the auto-lock watcher lock the wallet on its first
+         // tick, a second after the wizard ends.
+         ctx.locked = false;
+         ctx.last_activity_ms = now;
+         ctx.last_autolock_notice_ms = now;
+         ctx.autolock_notice_shown = false;
          ctx.vault_exists = true;
          ctx.vault_unlocked = true;
       });
