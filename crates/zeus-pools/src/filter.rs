@@ -47,8 +47,8 @@ fn is_known_currency(currency: &Currency, quotes: &HashSet<Address>) -> bool {
    quotes.contains(&currency.address())
 }
 
-fn has_both_known_tokens(pool: &AnyUniswapPool, quotes: &HashSet<Address>) -> bool {
-   is_known_currency(pool.currency0(), quotes) && is_known_currency(pool.currency1(), quotes)
+fn has_known_token(pool: &AnyUniswapPool, quotes: &HashSet<Address>) -> bool {
+   is_known_currency(pool.currency0(), quotes) || is_known_currency(pool.currency1(), quotes)
 }
 
 fn fee_ok(pool: &AnyUniswapPool) -> bool {
@@ -77,7 +77,7 @@ pub fn prefilter_pools(
             return false;
          }
 
-         if base_tokens_only && !has_both_known_tokens(pool, &quotes) {
+         if base_tokens_only && !has_known_token(pool, &quotes) {
             dropped_base += 1;
             return false;
          }
@@ -196,6 +196,28 @@ mod tests {
          true,
       );
       assert_eq!(kept.len(), 3);
+   }
+
+   #[test]
+   fn keeps_pairs_with_a_quoted_token() {
+      let junk = ERC20Token {
+         chain_id: 1,
+         address: Address::repeat_byte(0xab),
+         decimals: 18,
+         symbol: "JUNK".into(),
+         name: "Junk".into(),
+         total_supply: Default::default(),
+      };
+      let pool = UniswapV4Pool::from_components(
+         1,
+         Currency::from(junk),
+         Currency::from(ERC20Token::usdc()),
+         FeeAmount::MEDIUM,
+         DexKind::UniswapV4,
+         Address::ZERO,
+      );
+      let kept = prefilter_pools(ChainId::Ethereum, vec![pool.into()], true);
+      assert_eq!(kept.len(), 1);
    }
 
    #[test]
