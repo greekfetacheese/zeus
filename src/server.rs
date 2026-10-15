@@ -773,6 +773,18 @@ async fn connect(
    payload: JsonRpcRequest,
    method: RequestMethod,
 ) -> Result<JsonRpcResponse, Infallible> {
+   // The vault is not loaded yet — the first-launch unlock screen, or a lock that
+   // never opened it. There is no wallet to hand out and no vault to write a new
+   // account into, and the connect prompt would be drawn over the unlock card, so
+   // refuse before opening it rather than after the user answers.
+   if !ctx.vault_unlocked() {
+      info!(
+         "Refusing connect request from '{}': vault is not unlocked",
+         origin
+      );
+      return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id));
+   }
+
    let remembered = ctx.dapp_account(&origin);
    let seen = ctx.dapp_seen_accounts(&origin);
    let wallets = ctx.get_all_wallets_info();
@@ -2539,6 +2551,37 @@ mod connector_auth_tests {
             method.as_str()
          );
       }
+   }
+
+   /// `eth_requestAccounts` before the vault is unlocked must be refused at once —
+   /// no connect prompt, no new account. The auto-lock gate does not cover this: a
+   /// context on the first-launch unlock screen is not `locked`, so the request
+   /// would otherwise reach the connect handler.
+   #[tokio::test]
+   async fn request_accounts_refused_before_unlock() {
+      let ctx = ZeusCtx::new();
+      assert!(
+         !ctx.is_locked(),
+         "the unlock screen is not the lock screen"
+      );
+
+      let payload = JsonRpcRequest {
+         jsonrpc: "2.0".to_string(),
+         id: json!(1),
+         method: "eth_requestAccounts".to_string(),
+         params: Value::Null,
+      };
+
+      let response = handle_request(
+         ctx,
+         "https://app.uniswap.org".to_string(),
+         payload,
+      )
+      .await
+      .unwrap();
+
+      let error = response.error.expect("the request is refused");
+      assert_eq!(error.code, UNAUTHORIZED);
    }
 
    /// The extension polls `/status` for every tab; an account there would be

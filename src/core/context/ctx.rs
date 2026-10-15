@@ -1955,7 +1955,17 @@ impl ZeusCtx {
    /// The wallet keeps the usual auto-generated name (e.g. `Wallet 5`) so
    /// per-app accounts stay unobtrusive in the wallet list. The vault write runs
    /// Argon2, so callers must keep this off the GUI thread.
+   ///
+   /// Refuses while the vault is not loaded. A dapp can ask to connect before
+   /// first unlock, and without this guard that path would derive a wallet from
+   /// the placeholder [`Vault::default`] and try to write it over the user's
+   /// vault — the only thing stopping it today is ncrypt-me failing on the
+   /// placeholder credentials, which is a dependency invariant, not a Zeus one.
    pub fn create_app_account(&self) -> Result<Address, anyhow::Error> {
+      if !self.vault_unlocked() {
+         return Err(anyhow::anyhow!("Zeus is locked"));
+      }
+
       let mut new_vault = self.get_vault();
       let address = new_vault.derive_child_wallet(String::new())?;
       self.encrypt_and_save_vault(Some(new_vault.clone()), None)?;
@@ -3215,6 +3225,26 @@ mod tests {
       assert!(
          err.to_string().contains("locked"),
          "unexpected error: {err}"
+      );
+   }
+
+   /// A dapp must not be able to build a wallet — or write the vault — before the
+   /// vault has been unlocked. `create_app_account` used to run against the
+   /// placeholder [`Vault::default`] and only fail because ncrypt-me rejected its
+   /// empty credentials; it must refuse on its own.
+   #[test]
+   fn create_app_account_refuses_before_unlock() {
+      let ctx = ZeusCtx::new();
+
+      assert!(
+         !ctx.vault_unlocked(),
+         "a fresh context is still on the unlock screen"
+      );
+
+      let err = ctx.create_app_account().unwrap_err();
+      assert!(
+         err.to_string().contains("locked"),
+         "expected the unlock guard, got: {err}"
       );
    }
 
