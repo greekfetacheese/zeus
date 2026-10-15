@@ -76,10 +76,13 @@ const RELATIVE_TOLERANCE: i128 = 1_000_000_000;
 /// The largest a suggested amount is rounded down to: four decimals, as railcheck reports it.
 const SUGGESTION_DECIMALS: u8 = 4;
 
-/// A set's dust leg — a part of a sum smaller than this restates a smaller set rather than being one.
+/// The unit fraction standing in for railcheck's absolute match tolerance: a hundred-thousandth of
+/// the asset's whole unit.
 ///
-/// railcheck uses twice its absolute nano-ETH tolerance; expressed here against the asset's whole
-/// unit, so it means the same thing for a 6-decimal token as for an 18-decimal one.
+/// railcheck's pool rounds amounts to nano-ETH, so its tolerance is an absolute figure; expressed
+/// here against the asset's whole unit, it means the same thing for a 6-decimal token as for an
+/// 18-decimal one. This is only that fraction — the factor that turns it into a floor belongs to
+/// [`dust_leg`], not to the divisor.
 const DUST_LEG_DIVISOR: i128 = 100_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -334,7 +337,20 @@ fn tolerance(target: i128) -> i128 {
    (target / RELATIVE_TOLERANCE).max(1)
 }
 
-/// A part of a sum smaller than this restates a smaller set instead of being a set of its own.
+/// The floor under a leg of a set: a part of a sum at or below this restates a smaller set rather
+/// than being a set of its own.
+///
+/// The floor is twice the larger of two cuts. The first is a hundred-thousandth of the asset's whole
+/// unit ([`DUST_LEG_DIVISOR`]), which scales with the asset's decimals so a 6-decimal token and an
+/// 18-decimal one mean the same thing by it — but it scales only with the unit, not with the amount,
+/// so for a 6-decimal token it is a flat ten wei however large the sum is. The second is the target's
+/// own relative match tolerance ([`tolerance`]: `target / 1e9`, floored at one wei), which scales
+/// with the amount — but on its own it collapses to a single wei for a tiny target, too fine to tell
+/// a leg from rounding. Taking the larger keeps the floor meaningful at both ends.
+///
+/// The leading `2` is applied on top of whichever cut wins, not inside [`DUST_LEG_DIVISOR`]. Whether
+/// the result reproduces railcheck's own floor is not established here; the value is deliberately
+/// left as it is.
 fn dust_leg(decimals: u8, target: i128) -> i128 {
    let unit = 10i128.saturating_pow(u32::from(decimals));
    2 * (unit / DUST_LEG_DIVISOR).max(tolerance(target))
@@ -1006,6 +1022,62 @@ mod tests {
          scored.sets.pairs.len(),
          1,
          "and the pair that is listed is the real one"
+      );
+   }
+
+   /// The floor is exactly the rule the docs state — twice the larger of the fixed unit fraction and
+   /// the target's own match tolerance — at the two decimal counts a withdrawal actually uses. This
+   /// pins what [`dust_leg`] computes, not a number chosen to make it pass.
+   #[test]
+   fn dust_leg_is_twice_the_larger_of_the_unit_fraction_and_the_tolerance() {
+      for decimals in [6u8, 18] {
+         let unit = 10i128.saturating_pow(u32::from(decimals));
+         for target in [
+            1i128,
+            1_000_000,
+            1_000_000_000_000,
+            10i128.pow(18),
+            10i128.pow(23),
+         ] {
+            assert_eq!(
+               dust_leg(decimals, target),
+               2 * (unit / DUST_LEG_DIVISOR).max(tolerance(target)),
+               "dust leg at {decimals} decimals for target {target}"
+            );
+         }
+      }
+   }
+
+   /// Which branch of that `max` governs depends on the asset's decimals and on how large the target
+   /// is, so neither cut can be dropped. Both are shown here per decimals: a target whose own
+   /// tolerance is below the unit fraction, and one large enough for the tolerance to overtake it.
+   #[test]
+   fn the_unit_fraction_governs_small_targets_and_the_tolerance_large_ones() {
+      // 6 decimals: a whole unit is 1e6 wei, so the fixed cut is 10 wei. A one-token target (1e6 wei)
+      // tolerates a single wei, so the fixed fraction wins; a million-token target (1e12 wei)
+      // tolerates 1000 wei, which wins instead.
+      assert_eq!(
+         dust_leg(6, 1_000_000),
+         20,
+         "fixed fraction: twice 10 wei, the tolerance being 1"
+      );
+      assert_eq!(
+         dust_leg(6, 1_000_000_000_000),
+         2_000,
+         "tolerance: twice 1000 wei, above the fixed 10"
+      );
+
+      // 18 decimals: the fixed cut is 1e13 wei. One ETH (1e18 wei) tolerates only 1e9 wei, so the
+      // fixed fraction still wins; at 1e23 wei the tolerance is 1e14 and overtakes it.
+      assert_eq!(
+         dust_leg(18, 1_000_000_000_000_000_000),
+         20_000_000_000_000,
+         "fixed fraction: twice 1e13 wei, the tolerance being 1e9"
+      );
+      assert_eq!(
+         dust_leg(18, 100_000_000_000_000_000_000_000),
+         200_000_000_000_000,
+         "tolerance: twice 1e14 wei, above the fixed 1e13"
       );
    }
 
