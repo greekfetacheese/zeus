@@ -47,39 +47,36 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
 /// How many redirect hops one fetch follows before giving up (reqwest's own default).
 const MAX_REDIRECTS: usize = 10;
 
-/// Cap on the *string* of a `data:` URI, before it is decoded.
+/// Cap on the *string* of a `data:` URI, before it is decoded. This is the app-side alias of
+/// [`zeus_eth::nft::MAX_URI_LEN`], which is the single definition and carries the full rationale.
 ///
-/// The string is attacker-controlled — any contract the wallet reads can return a multi-megabyte
-/// `tokenURI` — and it is what a `data:` decode is sized from. A `data:` URI *is* its payload, so it
-/// gets the transfer cap scaled for base64 (about three quarters of its input), which is generous
-/// enough for any payload that decodes within [`MAX_BYTES`]. Every other scheme is a pointer to a
-/// document rather than the document itself, and is bounded far tighter by
-/// [`MAX_EXPANDED_URI_LEN`] in [`resolve_uri`]. Applied to the *raw* string in [`fetch_nft_icon`] as
+/// A `data:` URI *is* its payload, so this is the transfer cap scaled for base64 (about three quarters
+/// of its input), which is generous enough for any payload that decodes within [`MAX_BYTES`]. Every
+/// other scheme is a pointer to a document rather than the document itself, and is bounded far tighter
+/// by [`MAX_EXPANDED_URI_LEN`] in [`resolve_uri`]. Applied to the *raw* string in [`fetch_nft_icon`] as
 /// well as to the resolved one here, so a `data:` payload cannot be materialised before anything looks
 /// at it.
-pub(crate) const MAX_URI_LEN: usize = MAX_BYTES * 4;
+pub(crate) const MAX_URI_LEN: usize = zeus_eth::nft::MAX_URI_LEN;
 
 /// The metadata URI the icon fetcher is allowed to use, or `None` when it is not admissible.
 ///
-/// This is the fetcher's own admission rule, in one place so the fetcher and the ingestion path
+/// This is the named seam its callers go through, so the fetcher and the ingestion path
 /// (`add_nft_collection`) cannot drift: a URI that fails here can never be fetched, so persisting it
-/// only grows the sealed stores that hold it. The rule is the pair of tests the fetcher has always run:
+/// only grows the sealed stores that hold it. The rule is now entirely [`expand_id_placeholder`]'s:
 ///
-/// 1. the *raw* string is within [`MAX_URI_LEN`]. `expand_id_placeholder` copies the whole string once
-///    per placeholder spelling (four at most) and only caps its *result*, while a `data:` payload is
-///    explicitly past its pointer bound, so without this the copy of an inline multi-megabyte
-///    `tokenURI` is what grows; and
-/// 2. the expansion succeeds. Every non-`data:` pointer is bounded at the tighter
-///    [`MAX_EXPANDED_URI_LEN`] before it is copied, and a template whose result would exceed that
-///    bound — or a brace-less pointer already past it — is a miss, not a URL to request.
+/// 1. the *raw* string is bounded. A non-`data:` pointer is capped at the tighter
+///    [`MAX_EXPANDED_URI_LEN`] before it is copied, while an inline `data:` payload — explicitly past
+///    that pointer bound — is capped at [`MAX_URI_LEN`], because it is what a decode is sized from; and
+/// 2. the expansion succeeds. A template whose result would exceed the expansion bound — or a
+///    brace-less pointer already past it — is a miss, not a URL to request.
+///
+/// Keeping the bounds at that one gate is what makes them hold for [`NftToken::fetch`], not only for
+/// the ingestion path. The outcome is unchanged for every caller: `expand_id_placeholder` refuses
+/// every string the raw pre-check here used to refuse, so removing it moves no behaviour.
 ///
 /// The returned value is exactly what the fetcher goes on to resolve, so the ingestion path stores
 /// the same form the fetcher would use — already `{id}`-expanded, as [`NftToken`] documents.
 pub fn admitted_uri(metadata_uri: &str, token_id: U256) -> Option<String> {
-   if metadata_uri.len() > MAX_URI_LEN {
-      return None;
-   }
-
    expand_id_placeholder(metadata_uri, token_id)
 }
 

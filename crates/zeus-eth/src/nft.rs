@@ -247,10 +247,20 @@ impl NftToken {
 /// user's machine. A real URI is well under a kilobyte, so anything past this is not art metadata.
 ///
 /// A `data:` URI is the one exception, and deliberately so: its length *is* its payload (a 4 MiB inline
-/// image is ~5.3 MiB of base64), so the raw string is bounded by the transfer cap where it is decoded
-/// rather than here. A `{id}` inside it is still expanded under this bound, so a payload cannot be
-/// amplified past it. See [`expand_id_placeholder`].
+/// image is ~5.3 MiB of base64), so this pointer bound does not apply to it. Its raw string is bounded
+/// here at admission instead, by [`MAX_URI_LEN`]. A `{id}` inside it is still expanded under this
+/// bound, so a payload cannot be amplified past it. See [`expand_id_placeholder`].
 pub const MAX_EXPANDED_URI_LEN: usize = 64 * 1024;
+
+/// The largest the *raw string* of an inline `data:` metadata URI may be.
+///
+/// A `data:` URI carries its payload inline, so the pointer bound ([`MAX_EXPANDED_URI_LEN`]) cannot
+/// apply to it: the string *is* the payload, and an inline image is sized by what it decodes to, not
+/// by how long a pointer to it would be. It is still contract-supplied, though, and it is what that
+/// payload is copied and decoded from — so it is bounded, here and not later, at four times the app's
+/// 4 MiB transfer cap: a 4 MiB image is ~5.3 MiB of base64, which that leaves generous headroom for.
+/// Every other scheme is bounded at the tighter pointer bound above.
+pub const MAX_URI_LEN: usize = 16 * 1024 * 1024;
 
 /// A `tokenURI` with its ERC-1155 `{id}` placeholders expanded.
 ///
@@ -258,28 +268,36 @@ pub const MAX_EXPANDED_URI_LEN: usize = 64 * 1024;
 /// placeholder is expanded, not only the two the EIP prints: it shows `{id}` and `{ID}`, clients are
 /// expected to treat them case-insensitively, and "id" has exactly four spellings.
 ///
-/// `None` means the URI is past [`MAX_EXPANDED_URI_LEN`] — either expanding it would exceed the bound,
-/// or, when it carries no placeholder to expand, it is already past it. Every caller treats that as
-/// *no URI* — a miss that shows a placeholder. It is never a URI to fetch: an unexpanded
-/// `https://…/{id}` still resolves as a URL, so handing the template on is a live request with a
-/// literal `{id}` in the path, repeated on every list load because a miss caches nothing. A miss is
-/// also better than the allocation the template was asking for.
+/// `None` means the URI is past its bound — [`MAX_EXPANDED_URI_LEN`] for a pointer (whether from
+/// expansion or as written) or [`MAX_URI_LEN`] for an inline `data:` string — either because expanding
+/// it would exceed the bound, or, when it carries no placeholder to expand, because it is already past
+/// it. Every caller treats that as *no URI* — a miss that shows a placeholder. It is never a URI to
+/// fetch: an unexpanded `https://…/{id}` still resolves as a URL, so handing the template on is a live
+/// request with a literal `{id}` in the path, repeated on every list load because a miss caches
+/// nothing. A miss is also better than the allocation the template was asking for.
 ///
 /// A `data:` URI is exempt from the *pointer* bound on the raw string: its length is its own payload
-/// rather than a pointer to one, and it is bounded by the transfer cap where it is decoded. It is still
-/// expanded — a `data:` document can carry a `{id}` — and that expansion meets the same bound as any
-/// other, so the payload cannot be amplified past it.
+/// rather than a pointer to one, so it is bounded by [`MAX_URI_LEN`] instead — still at admission, and
+/// still contract-supplied. It is expanded as usual — a `data:` document can carry a `{id}` — and that
+/// expansion meets the same bound as any other, so the payload cannot be amplified past it.
 pub fn expand_id_placeholder(uri: &str, token_id: U256) -> Option<String> {
-   // A `data:` URI carries its payload inline, so the bound below is not a *pointer* bound for it: it
-   // is bounded by the transfer cap where it is decoded, and it may legitimately be megabytes long. A
-   // `data:` document is also full of `{` (any JSON is), which must not be read as a placeholder.
+   // A `data:` URI carries its payload inline, so the length check below is not a *pointer* bound for
+   // it: it may legitimately be megabytes long, and it is bounded by [`MAX_URI_LEN`] rather than the
+   // tighter pointer bound. A `data:` document is also full of `{` (any JSON is), which must not be
+   // read as a placeholder.
    let is_data = uri.get(..5).is_some_and(|head| head.eq_ignore_ascii_case("data:"));
 
-   // A URI with no placeholder is not expanded, but it is still bounded: without this a brace-less
-   // `https://…` would only have to clear the transfer cap, and a contract could make the wallet hold
-   // — and fetch — a multi-megabyte "URI" simply by omitting `{`. `None` here is the same miss the
-   // template path produces.
-   if !is_data && uri.len() > MAX_EXPANDED_URI_LEN {
+   // A URI with no placeholder is not expanded, but it is still bounded — a pointer at the tight bound
+   // and an inline `data:` string at [`MAX_URI_LEN`]. Without this a brace-less `https://…` would only
+   // have to clear the transfer cap, and a contract could make the wallet hold — and fetch — a
+   // multi-megabyte "URI" simply by omitting `{`. `None` here is the same miss the template path
+   // produces.
+   let raw_bound = if is_data {
+      MAX_URI_LEN
+   } else {
+      MAX_EXPANDED_URI_LEN
+   };
+   if uri.len() > raw_bound {
       return None;
    }
 
@@ -880,6 +898,31 @@ mod tests {
          expand_id_placeholder(&inline, id).as_deref(),
          Some(inline.as_str()),
          "an inline payload past the pointer bound is still a URI"
+      );
+   }
+
+   /// Past [`MAX_URI_LEN`] an inline payload is a miss like any other URI: the raw string is
+   /// contract-supplied, and it is what a `data:` decode is sized from, so it cannot be left unbounded
+   /// just because its length is its own payload rather than a pointer to one.
+   #[test]
+   fn refuses_an_inline_data_uri_past_the_raw_bound() {
+      let id = U256::from(1);
+
+      let head = "data:application/octet-stream;base64,";
+      let at_the_bound = format!("{head}{}", "A".repeat(MAX_URI_LEN - head.len()));
+      assert_eq!(at_the_bound.len(), MAX_URI_LEN);
+      assert_eq!(
+         expand_id_placeholder(&at_the_bound, id).as_deref(),
+         Some(at_the_bound.as_str()),
+         "exactly on the raw bound is still a URI"
+      );
+
+      let past_the_bound = format!("{head}{}", "A".repeat(MAX_URI_LEN));
+      let admitted = expand_id_placeholder(&past_the_bound, id);
+      assert!(
+         admitted.is_none(),
+         "an inline payload past the raw bound is a miss, not a URI to hold (got a {}-byte URI)",
+         admitted.as_deref().map_or(0, str::len)
       );
    }
 
