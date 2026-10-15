@@ -57,7 +57,31 @@ const MAX_REDIRECTS: usize = 10;
 /// [`MAX_EXPANDED_URI_LEN`] in [`resolve_uri`]. Applied to the *raw* string in [`fetch_nft_icon`] as
 /// well as to the resolved one here, so a `data:` payload cannot be materialised before anything looks
 /// at it.
-const MAX_URI_LEN: usize = MAX_BYTES * 4;
+pub(crate) const MAX_URI_LEN: usize = MAX_BYTES * 4;
+
+/// The metadata URI the icon fetcher is allowed to use, or `None` when it is not admissible.
+///
+/// This is the fetcher's own admission rule, in one place so the fetcher and the ingestion path
+/// (`add_nft_collection`) cannot drift: a URI that fails here can never be fetched, so persisting it
+/// only grows the sealed stores that hold it. The rule is the pair of tests the fetcher has always run:
+///
+/// 1. the *raw* string is within [`MAX_URI_LEN`]. `expand_id_placeholder` copies the whole string once
+///    per placeholder spelling (four at most) and only caps its *result*, while a `data:` payload is
+///    explicitly past its pointer bound, so without this the copy of an inline multi-megabyte
+///    `tokenURI` is what grows; and
+/// 2. the expansion succeeds. Every non-`data:` pointer is bounded at the tighter
+///    [`MAX_EXPANDED_URI_LEN`] before it is copied, and a template whose result would exceed that
+///    bound — or a brace-less pointer already past it — is a miss, not a URL to request.
+///
+/// The returned value is exactly what the fetcher goes on to resolve, so the ingestion path stores
+/// the same form the fetcher would use — already `{id}`-expanded, as [`NftToken`] documents.
+pub fn admitted_uri(metadata_uri: &str, token_id: U256) -> Option<String> {
+   if metadata_uri.len() > MAX_URI_LEN {
+      return None;
+   }
+
+   expand_id_placeholder(metadata_uri, token_id)
+}
 
 /// Cap on either edge of the source art handed to the raster decoder, and on what that decode may
 /// allocate.
@@ -1011,21 +1035,11 @@ pub async fn fetch_nft_icon(
    metadata_uri: &str,
    token_id: U256,
 ) -> Result<Option<NftIconData>, anyhow::Error> {
-   // The raw string is bounded before the expansion below. `expand_id_placeholder` copies the whole
-   // string once per placeholder form (four at most) and only caps its *result*, while a `data:`
-   // payload is explicitly past its pointer bound — so without this the copy of an inline multi-megabyte
-   // `tokenURI` is what grows. A brace-less pointer is additionally bounded at the tight cap *inside*
-   // `expand_id_placeholder`, before it copies.
-   if metadata_uri.len() > MAX_URI_LEN {
-      return Ok(None);
-   }
-
-   // The URI may still be a raw ERC-1155 template carrying `{id}`; expanding an already-expanded
-   // URI is a no-op, so this is safe whichever layer expanded it. A template that cannot be expanded
-   // within the bound is a **miss**: `resolve_uri` accepts the unexpanded form as a URL, so handing it
-   // on means asking a gateway for a document named `{id}` — on every list load, since a miss caches
-   // nothing.
-   let Some(uri) = expand_id_placeholder(metadata_uri, token_id) else {
+   // The fetcher's admission rule, shared with the ingestion path so a URI that reaches a sealed store
+   // is always one this fetcher would actually use — see [`admitted_uri`]. The returned value is the
+   // expanded URI: the URI may still be a raw ERC-1155 template carrying `{id}`, and expanding an
+   // already-expanded URI is a no-op, so this is safe whichever layer expanded it.
+   let Some(uri) = admitted_uri(metadata_uri, token_id) else {
       return Ok(None);
    };
 
@@ -1583,6 +1597,74 @@ mod tests {
          fetch_resolved(under).await.expect("under the cap"),
          Some(vec![0u8; 16]),
          "and an ordinary inline payload still comes through"
+      );
+   }
+
+   /// The shared admission rule pins the pointer bound exactly: a brace-less pointer of
+   /// [`MAX_EXPANDED_URI_LEN`] bytes is admitted and one byte past it is refused. A `data:` URI is
+   /// exempt from that *pointer* bound (its length is its payload) but not from the raw
+   /// [`MAX_URI_LEN`] cap the rule applies first.
+   #[test]
+   fn admitted_uri_pins_the_pointer_bound_and_exempts_inline_payloads() {
+      let token_id = U256::from(1);
+
+      let pointer_of_len = |len: usize| {
+         let head = "https://example.invalid/";
+         format!("{head}{}", "x".repeat(len - head.len()))
+      };
+
+      assert!(
+         admitted_uri(
+            &pointer_of_len(MAX_EXPANDED_URI_LEN - 1),
+            token_id
+         )
+         .is_some(),
+         "one byte under the pointer bound is admitted"
+      );
+      assert!(
+         admitted_uri(&pointer_of_len(MAX_EXPANDED_URI_LEN), token_id).is_some(),
+         "exactly at the pointer bound is admitted"
+      );
+      assert!(
+         admitted_uri(
+            &pointer_of_len(MAX_EXPANDED_URI_LEN + 1),
+            token_id
+         )
+         .is_none(),
+         "one byte over the pointer bound is refused"
+      );
+
+      // The same size inline is a payload, not a pointer: the pointer bound does not apply.
+      let inline = format!(
+         "data:application/octet-stream;base64,{}",
+         "A".repeat(MAX_EXPANDED_URI_LEN)
+      );
+      assert!(
+         admitted_uri(&inline, token_id).is_some(),
+         "an inline payload past the pointer bound is still admissible"
+      );
+   }
+
+   /// An already-expanded URI passes admission unchanged — `expand_id_placeholder` rewrites only the
+   /// four spellings of `{id}`, and an expansion carries none. That is what lets the fetcher be handed
+   /// the expanded value the ingestion path persists. A brace that is not a placeholder is left alone
+   /// too.
+   #[test]
+   fn admitted_uri_leaves_an_already_expanded_uri_alone() {
+      let token_id = U256::from(7);
+      let expanded = format!("https://example.invalid/{token_id:064x}.json");
+
+      assert_eq!(
+         admitted_uri(&expanded, token_id).as_deref(),
+         Some(expanded.as_str()),
+         "expanding an expansion is a no-op"
+      );
+
+      let braces = "https://example.invalid/a{b}c.json";
+      assert_eq!(
+         admitted_uri(braces, token_id).as_deref(),
+         Some(braces),
+         "a brace that is not a placeholder is not touched"
       );
    }
 

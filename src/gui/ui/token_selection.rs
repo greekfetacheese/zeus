@@ -11,8 +11,10 @@ use crate::gui::ui::common::ConfirmWindowClaim;
 use crate::gui::ui::common::windows::authorising_prompt_busy;
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::{
-   RT, nft_icon::start_nft_art_downloads, token_icon::spawn_fetch_token_icon, truncate_address,
-   truncate_symbol_or_name,
+   RT,
+   nft_icon::{admitted_uri, start_nft_art_downloads},
+   token_icon::spawn_fetch_token_icon,
+   truncate_address, truncate_symbol_or_name,
 };
 use elegance::{Menu, MenuItem};
 use std::{
@@ -30,7 +32,7 @@ use zeus_eth::{
    types::ChainId,
    utils::{
       NumericValue,
-      batch::{NftRef, get_erc721_owners_and_uris},
+      batch::{Erc721Lookup, NftRef, get_erc721_owners_and_uris},
    },
 };
 
@@ -1752,6 +1754,33 @@ impl CollectionAdd {
    }
 }
 
+/// Map batched `(owner, tokenURI)` answers onto one [`NftToken`] per owned id.
+///
+/// Split out of [`add_nft_collection`] so the persisted `metadata_uri` can be driven in a test
+/// without an RPC. `tokenURI` is contract-controlled, so the raw answer is run through the icon
+/// fetcher's own admission rule ([`admitted_uri`]): a URI the fetcher would refuse — past the
+/// raw-string cap, or unable to expand within the pointer cap — becomes `None` here rather than the
+/// chain answer, so it never reaches the catalog or the portfolio. What is stored is the admitted,
+/// already-`{id}`-expanded URI, the form [`NftToken`] documents and [`NftToken::fetch`] persists.
+fn nft_tokens_from_lookups(
+   chain_id: u64,
+   collection: Address,
+   token_ids: Vec<U256>,
+   lookups: Vec<Erc721Lookup>,
+) -> Vec<NftToken> {
+   token_ids
+      .into_iter()
+      .zip(lookups)
+      .map(|(token_id, lookup)| NftToken {
+         chain_id,
+         collection,
+         token_id,
+         standard: NftStandard::Erc721,
+         metadata_uri: lookup.token_uri.and_then(|uri| admitted_uri(&uri, token_id)),
+      })
+      .collect()
+}
+
 /// Resolve a pasted collection address into the wallet's owned tokens, and track them.
 ///
 /// The NFT counterpart of `get_erc20_token`: a collection in, its owned ids out — cached collection
@@ -1815,17 +1844,7 @@ async fn add_nft_collection(
    let refs: Vec<NftRef> = token_ids.iter().map(|id| (address, *id)).collect();
    let lookups = get_erc721_owners_and_uris(client, refs, None).await?;
 
-   let tokens: Vec<NftToken> = token_ids
-      .into_iter()
-      .zip(lookups)
-      .map(|(token_id, lookup)| NftToken {
-         chain_id,
-         collection: address,
-         token_id,
-         standard: NftStandard::Erc721,
-         metadata_uri: lookup.token_uri,
-      })
-      .collect();
+   let tokens = nft_tokens_from_lookups(chain_id, address, token_ids, lookups);
 
    let count = tokens.len();
    let for_portfolio = tokens.clone();
@@ -2817,5 +2836,84 @@ mod tests {
             left + BLOCK * 0.5
          );
       }
+   }
+
+   /// `tokenURI` is contract-controlled, and `add_nft_collection` persists it into two sealed stores,
+   /// so the mapping runs every answer through the icon fetcher's own admission rule: a URI the
+   /// fetcher could never use is stored as `None` instead of the raw chain answer. No network here —
+   /// the lookups are the values `get_erc721_owners_and_uris` would have handed back.
+   #[test]
+   fn a_token_uri_the_icon_fetcher_could_not_use_is_never_stored() {
+      use crate::utils::nft_icon::MAX_URI_LEN;
+
+      let collection = Address::from([0xbc; 20]);
+      let token_ids: Vec<U256> = (1..=5).map(U256::from).collect();
+      // The id the `{id}` template below must expand to.
+      let template_id = token_ids[2];
+
+      let lookups = vec![
+         // No metadata: `batch.rs` filters an empty `tokenURI` to `None`, so this is the empty case.
+         Erc721Lookup {
+            owner: None,
+            token_uri: None,
+         },
+         // An ordinary pointer: admitted unchanged (nothing to expand).
+         Erc721Lookup {
+            owner: None,
+            token_uri: Some("https://example.invalid/a.json".to_string()),
+         },
+         // A bare `{id}` template: admitted, stored expanded — the form `NftToken` documents.
+         Erc721Lookup {
+            owner: None,
+            token_uri: Some("https://example.invalid/{id}.json".to_string()),
+         },
+         // A 70 KiB non-`data:` pointer: past `MAX_EXPANDED_URI_LEN` (64 KiB), so
+         // `expand_id_placeholder` refuses it and it is a miss.
+         Erc721Lookup {
+            owner: None,
+            token_uri: Some(format!(
+               "https://example.invalid/{}",
+               "x".repeat(70 * 1024)
+            )),
+         },
+         // An inline `data:` payload just past `MAX_URI_LEN` (16 MiB): the raw-string cap in the
+         // admission rule refuses it before anything looks at the payload.
+         Erc721Lookup {
+            owner: None,
+            token_uri: Some(format!(
+               "data:application/octet-stream;base64,{}",
+               "A".repeat(MAX_URI_LEN)
+            )),
+         },
+      ];
+
+      let tokens = nft_tokens_from_lookups(1, collection, token_ids, lookups);
+
+      // The refusals first: an absurd contract answer must not reach `metadata_uri`.
+      assert_eq!(
+         tokens[3].metadata_uri, None,
+         "a 70 KiB pointer is past MAX_EXPANDED_URI_LEN (64 KiB)"
+      );
+      assert_eq!(
+         tokens[4].metadata_uri, None,
+         "a data: URI past MAX_URI_LEN (16 MiB) is refused by the raw-string cap"
+      );
+      assert_eq!(
+         tokens[0].metadata_uri, None,
+         "no `tokenURI` at all stays `None`"
+      );
+
+      assert_eq!(
+         tokens[1].metadata_uri.as_deref(),
+         Some("https://example.invalid/a.json"),
+         "an ordinary pointer is admitted unchanged"
+      );
+
+      let expanded = format!("https://example.invalid/{template_id:064x}.json");
+      assert_eq!(
+         tokens[2].metadata_uri.as_deref(),
+         Some(expanded.as_str()),
+         "a `{{id}}` template is admitted and stored expanded"
+      );
    }
 }
