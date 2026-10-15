@@ -1053,7 +1053,16 @@ pub async fn fetch_nft_icon(
 
    // Either the URI *is* the picture, or it is a document that points at one.
    let image_bytes = if looks_like_json(&bytes) {
-      let Some(image_uri) = image_url_from_metadata(&bytes) else {
+      // Parsing the document is CPU and allocation work too: a `serde_json::Value` DOM costs many
+      // times the document's wire size, and only [`MAX_BYTES`] bounds what arrives. `fetch_nft_icon`
+      // runs on a worker of the shared runtime, so a list load would spend it parsing
+      // [`NFT_ART_FETCH_PER_LOAD`] documents — all before the decode permit below is even taken. The
+      // parse is handed to the blocking pool for the same reason the decode is.
+      let Some(image_uri) = RT
+         .spawn_blocking(move || image_url_from_metadata(&bytes))
+         .await
+         .map_err(|e| anyhow!("NFT metadata parse task failed: {e}"))?
+      else {
          return Ok(None);
       };
 
@@ -1199,16 +1208,36 @@ pub fn spawn_fetch_nft_icon(
    RT.spawn(async move {
       match fetch_nft_icon(&metadata_uri, token_id).await {
          Ok(Some(data)) => {
-            if let Err(_e) = save_nft_icon(chain_id, collection, token_id, &data) {
-               #[cfg(feature = "dev")]
-               tracing::warn!("Failed to save NFT image for {collection} #{token_id}: {_e}");
+            // Saving writes the art and then prunes the whole on-disk cache — a `readdir` walk of
+            // every chain/collection/token directory, up to [`MAX_DISK_BYTES`] — so it is blocking
+            // I/O on a worker of the shared runtime, for the same reason as the decode. The closure
+            // hands the art straight back, so the icon bytes move into the blocking pool rather than
+            // being cloned, and `insert_icon` / `finish_fetch` / the repaint stay on the async side.
+            match RT
+               .spawn_blocking(move || {
+                  if let Err(_e) = save_nft_icon(chain_id, collection, token_id, &data) {
+                     #[cfg(feature = "dev")]
+                     tracing::warn!("Failed to save NFT image for {collection} #{token_id}: {_e}");
+                  }
+                  data
+               })
+               .await
+            {
+               Ok(data) => {
+                  icons.nfts.insert_icon(key, data);
+                  icons.nfts.finish_fetch(&key, false);
+                  SHARED_GUI.write(|gui| {
+                     gui.request_repaint();
+                  });
+               }
+               // The save panicked or the runtime is shutting down: the art was fetched but its bytes
+               // went with the task. Stop asking for this token this session, exactly as the
+               // transient-fetch arm below does.
+               Err(e) => {
+                  tracing::debug!("NFT image save task failed for {collection} #{token_id}: {e}");
+                  icons.nfts.finish_fetch(&key, true);
+               }
             }
-
-            icons.nfts.insert_icon(key, data);
-            icons.nfts.finish_fetch(&key, false);
-            SHARED_GUI.write(|gui| {
-               gui.request_repaint();
-            });
          }
          // Nothing to show (no metadata, no usable image, or a format we cannot decode): stop
          // asking for this token until the next start.
@@ -1960,6 +1989,43 @@ mod tests {
 
       assert!(looks_like_json(br#"  {"a":1}"#));
       assert!(!looks_like_json(&[0x89, b'P', b'N', b'G']));
+   }
+
+   /// The parse adds no bound of its own: the transfer cap ([`MAX_BYTES`]) lives in [`fetch_resolved`],
+   /// and a document on either side of it must keep parsing exactly as it does today. A body that is
+   /// not a document never reaches the parse at all — the caller's [`looks_like_json`] gate decides
+   /// that branch — so the gate is asserted here beside the document cases.
+   #[test]
+   fn parses_metadata_on_either_side_of_the_transfer_cap() {
+      let document = |total: usize| {
+         let base = format!(r#"{{"pad":"","image":"{PNG_URI}"}}"#);
+         let pad = total - base.len();
+         format!(
+            r#"{{"pad":"{}","image":"{PNG_URI}"}}"#,
+            "a".repeat(pad)
+         )
+      };
+
+      let under = document(MAX_BYTES - 1);
+      assert_eq!(under.len(), MAX_BYTES - 1);
+      assert_eq!(
+         image_url_from_metadata(under.as_bytes()),
+         Some(PNG_URI.to_string())
+      );
+
+      let over = document(MAX_BYTES + 1);
+      assert_eq!(over.len(), MAX_BYTES + 1);
+      assert_eq!(
+         image_url_from_metadata(over.as_bytes()),
+         Some(PNG_URI.to_string())
+      );
+
+      // Not a document: the gate refuses it, and the parse would too if it were reached.
+      assert!(!looks_like_json(b"GIF89a, not a document"));
+      assert_eq!(
+         image_url_from_metadata(b"GIF89a, not a document"),
+         None
+      );
    }
 
    /// The two renderings, which is all art has been since vector art stopped being stored as source.
