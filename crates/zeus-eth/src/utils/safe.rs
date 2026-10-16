@@ -26,20 +26,36 @@ const MODERN_SINGLETONS: [Address; 8] = [
    address!("Edd160fEBBD92E350D4D398fb636302fccd67C7e"),
 ];
 
-/// Older singletons only ever deployed on Ethereum mainnet.
-const LEGACY_MAINNET_SINGLETONS: [Address; 3] = [
-   // v1.0.0
-   address!("b6029EA3B2c51D09a50B53CA8012FeEB05bDa35A"),
-   // v1.1.1
-   address!("34CfAC646f301356fAa8B21e94227e3583Fe3F5F"),
-   // v1.2.0
-   address!("6851D6fDFAfD08c0295C392436245E5bc78B0185"),
+/// Legacy singletons and the chains each one is actually deployed on. The upstream
+/// safe-deployments tables list these only on Ethereum, but live `eth_getCode` reads show
+/// genuine instances also on the chains below (verified 2026-10-16; each byte-identical to
+/// mainnet except v1.1.1 on RobinHood, where only the trailing solc metadata hash differs).
+/// A singleton is allowed only where an instance exists — elsewhere a lookalike at the
+/// same address must stay refused.
+const LEGACY_SINGLETONS: [(Address, &[u64]); 3] = [
+   // v1.0.0 — Optimism
+   (
+      address!("b6029EA3B2c51D09a50B53CA8012FeEB05bDa35A"),
+      &[1, 10],
+   ),
+   // v1.1.1 — Optimism, Base, Arbitrum One, Sepolia, RobinHood
+   (
+      address!("34CfAC646f301356fAa8B21e94227e3583Fe3F5F"),
+      &[1, 10, 8453, 42161, 11155111, 4663],
+   ),
+   // v1.2.0 — Base, Sepolia
+   (
+      address!("6851D6fDFAfD08c0295C392436245E5bc78B0185"),
+      &[1, 8453, 11155111],
+   ),
 ];
 
 /// Whether `address` is a known Safe singleton on `chain_id`.
 pub fn is_safe_singleton(chain_id: u64, address: Address) -> bool {
    MODERN_SINGLETONS.contains(&address)
-      || (chain_id == 1 && LEGACY_MAINNET_SINGLETONS.contains(&address))
+      || LEGACY_SINGLETONS
+         .iter()
+         .any(|(singleton, chains)| *singleton == address && chains.contains(&chain_id))
 }
 
 #[cfg(test)]
@@ -62,18 +78,46 @@ mod tests {
       }
    }
 
-   /// The legacy singletons only ever deployed on mainnet: known there, unknown elsewhere.
+   /// Each legacy singleton is known only on the chains where an instance is actually
+   /// deployed (verified on-chain, see the table comment): known on its chains, refused
+   /// everywhere else.
    #[test]
-   fn legacy_singletons_are_mainnet_only() {
-      for singleton in LEGACY_MAINNET_SINGLETONS {
-         assert!(
-            is_safe_singleton(1, singleton),
-            "{singleton} should be known on mainnet"
-         );
-         assert!(
-            !is_safe_singleton(10, singleton),
-            "{singleton} should not be known on Optimism"
-         );
+   fn legacy_singletons_are_known_only_where_deployed() {
+      let v1_0_0 = address!("b6029EA3B2c51D09a50B53CA8012FeEB05bDa35A");
+      let v1_1_1 = address!("34CfAC646f301356fAa8B21e94227e3583Fe3F5F");
+      let v1_2_0 = address!("6851D6fDFAfD08c0295C392436245E5bc78B0185");
+
+      let cases: [(Address, &[u64], &[u64]); 3] = [
+         (
+            v1_0_0,
+            &[1, 10],
+            &[56, 8453, 42161, 11155111, 4663],
+         ),
+         (
+            v1_1_1,
+            &[1, 10, 8453, 42161, 11155111, 4663],
+            &[56],
+         ),
+         (
+            v1_2_0,
+            &[1, 8453, 11155111],
+            &[10, 56, 42161, 4663],
+         ),
+      ];
+
+      for (singleton, known, unknown) in cases {
+         for &chain in known {
+            assert!(
+               is_safe_singleton(chain, singleton),
+               "{singleton} should be known on chain {chain}"
+            );
+         }
+         for &chain in unknown {
+            assert!(
+               !is_safe_singleton(chain, singleton),
+               "{singleton} should not be known on chain {chain}"
+            );
+         }
       }
    }
 

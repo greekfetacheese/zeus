@@ -985,23 +985,33 @@ mod tests {
       assert!(refuse_contract_recipient(recipient, account).is_ok());
    }
 
-   /// The legacy singletons are mainnet-only: a proxy pointing at one is a Safe on chain 1
-   /// and a contract anywhere else.
+   /// The legacy singletons are known only on the chains where an instance is actually
+   /// deployed: v1.1.1 is a Safe on Optimism but refused on BSC, which has no instance;
+   /// v1.2.0 has no Optimism instance and stays refused there.
    #[test]
-   fn legacy_safe_singletons_are_mainnet_only() {
+   fn legacy_safe_singletons_are_known_only_where_deployed() {
       let recipient = Address::from([2u8; 20]);
       let code = Bytes::from(vec![0x60u8, 0x80, 0x60, 0x40]);
-      let legacy = address!("6851D6fDFAfD08c0295C392436245E5bc78B0185");
+      let v1_0_0 = address!("b6029EA3B2c51D09a50B53CA8012FeEB05bDa35A");
+      let v1_1_1 = address!("34CfAC646f301356fAa8B21e94227e3583Fe3F5F");
+      let v1_2_0 = address!("6851D6fDFAfD08c0295C392436245E5bc78B0185");
 
-      assert_eq!(
-         classify_recipient(1, &code, Some(legacy), None),
-         RecipientAccount::Safe
-      );
+      let account = classify_recipient(10, &code, Some(v1_1_1), None);
+      assert_eq!(account, RecipientAccount::Safe);
+      assert!(refuse_contract_recipient(recipient, account).is_ok());
 
-      let account = classify_recipient(10, &code, Some(legacy), None);
+      let account = classify_recipient(10, &code, Some(v1_0_0), None);
+      assert_eq!(account, RecipientAccount::Safe);
+
+      // No v1.1.1 instance on BSC: still refused.
+      let account = classify_recipient(56, &code, Some(v1_1_1), None);
       assert_eq!(account, RecipientAccount::Contract);
-      let err = refuse_contract_recipient(recipient, account).expect_err("a contract is refused");
+      let err = refuse_contract_recipient(recipient, account).expect_err("not on BSC: refused");
       assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
+
+      // No v1.2.0 instance on Optimism: still refused.
+      let account = classify_recipient(10, &code, Some(v1_2_0), None);
+      assert_eq!(account, RecipientAccount::Contract);
    }
 
    /// A slot 0 that is not a known singleton does not make a Safe: still refused.
