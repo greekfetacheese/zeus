@@ -7,6 +7,7 @@ use eframe::{
 };
 use gui::app::ZeusApp;
 use std::sync::Arc;
+use utils::RT;
 
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::Registry;
@@ -87,7 +88,7 @@ fn main() -> eframe::Result {
    // which the OS reports a stale path (see `self_update::restart_target`).
    utils::self_update::remember_startup_exe();
 
-   cleanup_old_logs();
+   RT.spawn_blocking(|| cleanup_old_logs());
 
    // `zeus --install-desktop` / `--uninstall-desktop`: opt in to (or out of) the application
    // menu entry and exit, without starting the GUI. A normal launch applies the recorded
