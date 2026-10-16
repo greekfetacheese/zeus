@@ -1048,12 +1048,13 @@ fn resolve_ens_recipient(ctx: &ZeusCtx, query: &str) -> Option<UnknownRecipient>
          match ens::differing_chain_address(&client, &name, active_chain, address).await {
             Ok(Some(other)) => Some((active_chain, other)),
             Ok(None) => None,
-            Err(e) => {
+            Err(_e) => {
+               #[cfg(feature = "dev")]
                tracing::error!(
                   "Could not resolve ENS {} for chain {}: {}",
                   name,
                   active_chain,
-                  e
+                  _e
                );
                None
             }
@@ -1117,6 +1118,7 @@ fn resolve_interoperable_recipient(ctx: &ZeusCtx, query: &str) -> Option<Unknown
             });
          }
 
+         #[cfg(feature = "dev")]
          tracing::error!(
             "Could not resolve Interoperable Name {}: {}",
             query,

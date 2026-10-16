@@ -669,10 +669,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
                fee_value,
                "fee",
             );
-            debug!(
-               "Building merged fee+spend tx with fee value: {} (iter {})",
-               fee_value, iter
-            );
+            debug!("Building merged fee+spend tx (iter {})", iter);
             self
                .build_operation_with_notes(broadcast_builder, &spendable_notes, rng)
                .await?
@@ -695,10 +692,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
                   fee_value,
                   "fee",
                );
-            debug!(
-               "Building separate fee transfer with fee value: {} (iter {})",
-               fee_value, iter
-            );
+            debug!("Building separate fee transfer (iter {})", iter);
             let fee_ops =
                self.build_operation_with_notes(fee_builder, &spendable_notes, rng).await?;
 
@@ -760,8 +754,8 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
          let total_gas = signable.total_gas_limit();
          let new_fee = total_gas.saturating_mul(max_fee);
          debug!(
-            "Fee iter {}: note={} cost={} gas={} max_fee={}",
-            iter, fee_value, new_fee, total_gas, max_fee
+            "Fee iter {}: cost={} gas={} max_fee={}",
+            iter, new_fee, total_gas, max_fee
          );
 
          // Accept when the private fee note covers estimated gas cost.
@@ -769,8 +763,8 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
          // iterations without a shrink/re-prove cycle.
          if new_fee > 0 && new_fee <= fee_value {
             debug!(
-               "Fee converged at note={}, cost={}, total gas: {}",
-               fee_value, new_fee, total_gas
+               "Fee converged at cost={}, total gas: {}",
+               new_fee, total_gas
             );
             if let Some(poi_provider) = &mut self.poi_provider {
                poi_provider.register_ops(&operations).await?;
@@ -781,7 +775,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
          // Fee note too small: set next prove to cost + 5% headroom.
          let bumped = new_fee.saturating_mul(105) / 100;
          fee_value = bumped.max(100_000_000);
-         debug!("Fee updated to {} for next iteration", fee_value);
+         debug!("Fee note updated for next iteration");
       }
 
       return Err(RailgunProviderError::Other(Box::new(
@@ -823,7 +817,10 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
                annotated_notes.push((note, Some(status)));
             }
             Err(e) => {
-               warn!("Error checking POI for note {}: {}", note, e);
+               warn!(
+                  "Error checking POI for note at tree {}, leaf {}: {}",
+                  note.tree_number, note.leaf_index, e
+               );
                annotated_notes.push((note, Some(PoiStatus::Missing)));
             }
          }

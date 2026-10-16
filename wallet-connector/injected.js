@@ -101,7 +101,7 @@ window.addEventListener("message", (event) => {
             const newAccountsJson = JSON.stringify(newAccounts);
 
             if (currentAccountsJson !== newAccountsJson) {
-                console.log("Zeus: Received accountsChanged from background. Updating state:", newAccounts);
+                // console.log("Zeus: Received accountsChanged from background. Updating state:", newAccounts);
                 window.ethereum._accounts = newAccounts;
                 const wasConnected = window.ethereum._isConnected;
                 window.ethereum._isConnected = newAccounts.length > 0;

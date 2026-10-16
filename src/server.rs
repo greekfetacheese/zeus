@@ -451,6 +451,7 @@ fn rpc_params_array<'a>(
    min_len: usize,
 ) -> Result<&'a [Value], ()> {
    let Value::Array(arr) = params else {
+      #[cfg(feature = "dev")]
       error!(
          "Invalid params for {}, params is not an array {:#?}",
          method, params
@@ -486,11 +487,12 @@ fn rpc_params_object<'a>(
    }
 }
 
-fn parse_rpc_address(s: &str, method: &str) -> Result<Address, ()> {
+fn parse_rpc_address(s: &str, _method: &str) -> Result<Address, ()> {
    Address::from_str(s).map_err(|_| {
+      #[cfg(feature = "dev")]
       error!(
          "Invalid params for {}, String is not a valid ethereum address {:#?}",
-         method, s
+         _method, s
       );
    })
 }
@@ -557,6 +559,7 @@ fn parse_rpc_tx_call(
    method: &str,
 ) -> Result<RpcTxCall, ()> {
    let Some(to_str) = rpc_opt_string(object, "to") else {
+      #[cfg(feature = "dev")]
       error!(
          "Invalid params for {}, missing 'to' {:#?}",
          method, object
@@ -574,6 +577,7 @@ fn parse_rpc_tx_call(
    let data = match parse_rpc_bytes(data_val) {
       Ok(data) => data,
       Err(_) => {
+         #[cfg(feature = "dev")]
          error!(
             "Invalid params for {}, data/input is not valid bytes {:#?}",
             method, data_val
@@ -585,6 +589,7 @@ fn parse_rpc_tx_call(
    let value = match parse_rpc_u256(object.get("value")) {
       Ok(value) => value,
       Err(_) => {
+         #[cfg(feature = "dev")]
          error!(
             "Invalid params for {}, value is not a valid U256 {:#?}",
             method,
@@ -1650,6 +1655,7 @@ fn parse_requested_chain(params: &Value) -> Result<ChainId, i32> {
    let chain_id_hex_str = match object.get("chainId") {
       Some(Value::String(s)) => s,
       _ => {
+         #[cfg(feature = "dev")]
          error!(
             "Invalid params for chain switch/add: Missing or invalid 'chainId' field (must be string), got {:?}",
             object

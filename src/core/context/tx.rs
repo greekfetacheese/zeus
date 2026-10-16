@@ -200,7 +200,7 @@ impl TxDBHandle {
             continue;
          }
          if let Err(e) = delete_owner(&guard, chain, owner) {
-            tracing::error!("Failed to delete tx history for {owner} on chain {chain}: {e}");
+            tracing::error!("Failed to delete tx history on chain {chain}: {e}");
          }
       }
       removed

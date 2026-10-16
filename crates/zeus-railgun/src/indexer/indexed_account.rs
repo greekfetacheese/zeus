@@ -318,8 +318,8 @@ impl IndexedAccount {
          let expected: U256 = expected.into();
          if commitment != expected {
             warn!(
-               "Dropped Shield note at tree {}, leaf {}: commitment {} does not match the event's {}",
-               note.tree_number, note.leaf_index, commitment, expected
+               "Dropped Shield note at tree {}, leaf {}: commitment does not match the event's",
+               note.tree_number, note.leaf_index
             );
             return Ok(());
          }
@@ -376,8 +376,8 @@ impl IndexedAccount {
       let commitment: U256 = note.hash().into();
       if commitment != event.hash {
          warn!(
-            "Dropped Transact note at tree {}, leaf {}: commitment {} does not match the event's {} — unrecognized asset, only a resync retries it",
-            note.tree_number, note.leaf_index, commitment, event.hash
+            "Dropped Transact note at tree {}, leaf {}: commitment does not match the event's — unrecognized asset, only a resync retries it",
+            note.tree_number, note.leaf_index
          );
          return Ok(());
       }

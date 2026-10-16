@@ -160,11 +160,12 @@ impl TokenIcons {
                map.insert(*key, handle.clone());
                return Some(handle);
             }
-            Err(e) => {
+            Err(_e) => {
+               #[cfg(feature = "dev")]
                tracing::warn!(
                   "Failed to decode token icon x32 for {}: {}",
                   key.0,
-                  e
+                  _e
                );
             }
          }
@@ -378,8 +379,9 @@ impl NftIcons {
             cache.write().unwrap().insert(*key, handle.clone());
             Some(handle)
          }
-         Err(e) => {
-            tracing::warn!("Failed to decode NFT image for {}: {}", key.0, e);
+         Err(_e) => {
+            #[cfg(feature = "dev")]
+            tracing::warn!("Failed to decode NFT image for {}: {}", key.0, _e);
             None
          }
       }
@@ -494,22 +496,25 @@ impl NftIcons {
       match stored {
          Some(stored) if stored == current => {}
          Some(_) => {
+            #[cfg(feature = "dev")]
             tracing::debug!(
                "NFT art for {} is from an older metadata URI, refetching",
                key.0
             );
             self.remove_icon(key);
-            if let Err(e) = disk::delete_nft_icon(key.1, key.0, key.2) {
-               tracing::warn!("Failed to drop stale NFT art for {}: {e}", key.0);
+            if let Err(_e) = disk::delete_nft_icon(key.1, key.0, key.2) {
+               #[cfg(feature = "dev")]
+               tracing::warn!("Failed to drop stale NFT art for {}: {_e}", key.0);
             }
             // The re-fetch is a real download, so it starts from a clean slate rather than the session's
             // "already tried and missing" set.
             self.failed.write().unwrap().remove(key);
          }
          None => {
-            if let Err(e) = disk::save_nft_icon_source(key.1, key.0, key.2, current) {
+            if let Err(_e) = disk::save_nft_icon_source(key.1, key.0, key.2, current) {
+               #[cfg(feature = "dev")]
                tracing::debug!(
-                  "Failed to record the source URI for {}: {e}",
+                  "Failed to record the source URI for {}: {_e}",
                   key.0
                );
                return;

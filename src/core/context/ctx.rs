@@ -1703,11 +1703,12 @@ impl ZeusCtx {
          // The expiry could not be read, so the label's life cannot be bounded. Fail closed:
          // do not label the address at all rather than cache a name that can never be
          // invalidated — an unbounded label is exactly what expiry awareness exists to prevent.
-         Err(e) => {
+         Err(_e) => {
+            #[cfg(feature = "dev")]
             tracing::error!(
                "ENS expiry lookup failed for {}, not labelling: {}",
                name,
-               e
+               _e
             );
             return None;
          }

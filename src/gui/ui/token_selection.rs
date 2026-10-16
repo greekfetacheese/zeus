@@ -1630,6 +1630,7 @@ fn merge_nft_sources(tracked: Vec<NftToken>, held: Vec<NftToken>) -> Vec<NftToke
                // Identity deliberately excludes the standard, so a disagreement means one of the two
                // detections was wrong. Keep the tracked one (deterministic) but say so: both the
                // badge and the transfer encoding depend on this field.
+               #[cfg(feature = "dev")]
                tracing::warn!(
                   "NFT standard mismatch for {} #{}: tracked {:?}, held {:?}",
                   existing.collection,

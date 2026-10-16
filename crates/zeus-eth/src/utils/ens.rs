@@ -421,8 +421,7 @@ where
       Ok(expiry) => expiry,
       Err(e) => {
          tracing::warn!(
-            "ens: expiry lookup failed for {:?}, refusing to resolve: {:?}",
-            name,
+            "ens: expiry lookup failed, refusing to resolve: {:?}",
             e
          );
          return Err(e);
@@ -568,8 +567,7 @@ where
       Ok(expiry) => expiry,
       Err(e) => {
          tracing::warn!(
-            "ens: expiry lookup failed for {:?}, refusing to resolve: {:?}",
-            name,
+            "ens: expiry lookup failed, refusing to resolve: {:?}",
             e
          );
          return Err(e);
@@ -605,8 +603,7 @@ where
 
    if raw.len() != 20 {
       tracing::warn!(
-         "ens: {} returned {} bytes for coin type {}, expected 20",
-         name,
+         "ens: coin record returned {} bytes for coin type {}, expected 20",
          raw.len(),
          coin_type
       );

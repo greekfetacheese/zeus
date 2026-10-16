@@ -218,8 +218,9 @@ impl NftApproveParams {
          // The contract answered and it is not ERC-1155: for this event the candidates are ERC-721 and
          // ERC-1155, so this is an answer rather than a guess.
          Ok(_) => Some(NftStandard::Erc721),
-         Err(err) => {
-            tracing::warn!("Could not read the standard of {collection}: {err}");
+         Err(_err) => {
+            #[cfg(feature = "dev")]
+            tracing::warn!("Could not read the standard of {collection}: {_err}");
             None
          }
       }

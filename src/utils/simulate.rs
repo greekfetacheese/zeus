@@ -1018,11 +1018,12 @@ pub async fn fetch_storage(
 
       let read = match read_res {
          Ok(read) => read,
-         Err(e) => {
+         Err(_e) => {
+            #[cfg(feature = "dev")]
             tracing::error!(
                "Failed to read storage for account {}: {:?}",
                address,
-               e
+               _e
             );
             continue;
          }

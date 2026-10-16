@@ -1230,8 +1230,9 @@ pub fn spawn_fetch_nft_icon(
                // The save panicked or the runtime is shutting down: the art was fetched but its bytes
                // went with the task. Stop asking for this token this session, exactly as the
                // transient-fetch arm below does.
-               Err(e) => {
-                  tracing::debug!("NFT image save task failed for {collection} #{token_id}: {e}");
+               Err(_e) => {
+                  #[cfg(feature = "dev")]
+                  tracing::debug!("NFT image save task failed for {collection} #{token_id}: {_e}");
                   icons.nfts.finish_fetch(&key, true);
                }
             }
@@ -1241,8 +1242,9 @@ pub fn spawn_fetch_nft_icon(
          Ok(None) => icons.nfts.finish_fetch(&key, true),
          // Transient (throttled, timed out). Also stop for this session on purpose: retrying from
          // the repaint loop would hammer gateways that just asked us to slow down.
-         Err(e) => {
-            tracing::debug!("NFT image fetch failed for {collection} #{token_id}: {e}");
+         Err(_e) => {
+            #[cfg(feature = "dev")]
+            tracing::debug!("NFT image fetch failed for {collection} #{token_id}: {_e}");
             icons.nfts.finish_fetch(&key, true);
          }
       }

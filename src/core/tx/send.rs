@@ -391,16 +391,17 @@ pub async fn ensure_recipient_is_not_contract(
 
 /// The refusal decision: only a plain contract recipient is refused, with the fixed copy.
 pub fn refuse_contract_recipient(
-   recipient: Address,
+   _recipient: Address,
    account: RecipientAccount,
 ) -> Result<(), anyhow::Error> {
    if !matches!(account, RecipientAccount::Contract) {
       return Ok(());
    }
 
+   #[cfg(feature = "dev")]
    tracing::warn!(
       "Refused a funds send to contract recipient {}",
-      recipient
+      _recipient
    );
    Err(anyhow!(FUNDS_TO_CONTRACT_MSG))
 }
