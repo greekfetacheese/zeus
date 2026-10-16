@@ -6,7 +6,7 @@ use crate::core::types::EnsRecipientGuard;
 use crate::core::urls::ZeusUrl;
 use crate::core::{
    BridgeParams, DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, ZeusContext,
-   ZeusCtx, send_transaction,
+   ZeusCtx, refuse_contract_recipient, send_transaction,
 };
 use crate::gui::{
    SHARED_GUI,
@@ -1107,6 +1107,10 @@ fn request_suggested_fees(
    });
 }
 
+/// Shown when the destination-chain recipient cannot be screened: Zeus refuses the
+/// bridge rather than send funds it cannot vouch for.
+const RECIPIENT_UNVERIFIABLE_MSG: &str = "Zeus could not check the recipient on the destination chain, so the bridge was not sent. Check that network's RPC in Settings and try again.";
+
 async fn across_bridge(
    ctx: ZeusCtx,
    chain: ChainId,
@@ -1119,6 +1123,27 @@ async fn across_bridge(
    input_amount: NumericValue,
    recipient_guard: Option<EnsRecipientGuard>,
 ) -> Result<(), anyhow::Error> {
+   // First thing first: a bridge recipient lives on the destination chain, so the
+   // screen must read that chain. A recipient Zeus cannot check is refused outright —
+   // sending unscreened would make this guard depend on which RPCs happen to be up.
+   let client = ctx.get_client(dest_chain.id()).await.map_err(|e| {
+      tracing::error!(
+         "Could not open a client for the destination chain: {:?}",
+         e
+      );
+      anyhow!(RECIPIENT_UNVERIFIABLE_MSG)
+   })?;
+
+   let recipient_code = client.get_code_at(recipient).await.map_err(|e| {
+      tracing::error!(
+         "Failed to read the destination-chain recipient: {:?}",
+         e
+      );
+      anyhow!(RECIPIENT_UNVERIFIABLE_MSG)
+   })?;
+
+   refuse_contract_recipient(recipient, &recipient_code)?;
+
    // Across protocol is very fast on filling the orders
    // So we get the latest block from the destination chain now so we dont miss it and the progress window stucks
    let from_block = Arc::new(Mutex::new(None));

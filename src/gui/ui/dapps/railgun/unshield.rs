@@ -37,7 +37,8 @@ use crate::{
    core::{
       ApprovalDiff, BalanceDiff, DecodedEvent, MainEvent, MinedTx, RecordPolicy, SendTxOptions,
       SendTxRequest, TransactionAnalysis, UnshieldParams, ZeusCtx, build_tx_outcome, confirm_tx,
-      record_and_notify, send_transaction, tx::diffs_from_receipt,
+      ensure_recipient_is_not_contract, record_and_notify, send_transaction,
+      tx::diffs_from_receipt,
    },
    gui::SHARED_GUI,
    utils::{
@@ -103,6 +104,10 @@ pub async fn unshield(
 
    let recipient = Address::from_str(recipient.trim())
       .map_err(|e| anyhow!("Invalid recipient address: {}", e))?;
+
+   // Funds must never go straight to a contract: verify the recipient before any proof
+   // is generated or anything is simulated.
+   ensure_recipient_is_not_contract(ctx.clone(), chain, recipient).await?;
 
    let wallet = ctx.get_current_wallet();
    if !wallet.can_derive_zk_address() {

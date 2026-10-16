@@ -241,6 +241,39 @@ impl Drop for ConfirmClaim {
    }
 }
 
+/// The refusal shown when a funds send targets a contract. Hardcoded for now (a
+/// settings option may come later); one place so the wording cannot drift.
+const FUNDS_TO_CONTRACT_MSG: &str = "You are trying to send funds to a contract address, Zeus does not allow that. Sending directly to a contract address will lose you those funds forever";
+
+/// Read the recipient's code first and refuse a funds send to a contract before any
+/// simulation runs: the send can never proceed, so nothing expensive should start.
+///
+/// `chain` is the chain the funds land on (the destination chain for a bridge). A failed
+/// read is an error too — the guard must never skip silently.
+pub async fn ensure_recipient_is_not_contract(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   recipient: Address,
+) -> Result<(), anyhow::Error> {
+   let client = ctx.get_client(chain.id()).await?;
+   let code = client.get_code_at(recipient).await.map_err(|e| anyhow!("{:?}", e))?;
+
+   refuse_contract_recipient(recipient, &code)
+}
+
+/// The refusal decision: a recipient with code is refused with the fixed copy.
+pub fn refuse_contract_recipient(recipient: Address, code: &Bytes) -> Result<(), anyhow::Error> {
+   if code.is_empty() {
+      return Ok(());
+   }
+
+   tracing::warn!(
+      "Refused a funds send to contract recipient {}",
+      recipient
+   );
+   Err(anyhow!(FUNDS_TO_CONTRACT_MSG))
+}
+
 /// Open the transaction confirmation window, wait for the user, and hand back
 /// their edits.
 ///
@@ -773,5 +806,31 @@ mod tests {
       assert_eq!(req.value, U256::ZERO);
       assert!(req.authorization_list.is_empty());
       assert!(req.analysis.is_none());
+   }
+
+   /// The refusal decision: a recipient with no code passes, a recipient with code is
+   /// refused with the fixed copy.
+   #[test]
+   fn a_contract_recipient_is_refused_with_the_approved_copy() {
+      let recipient = Address::from([2u8; 20]);
+
+      assert!(
+         refuse_contract_recipient(recipient, &Bytes::default()).is_ok(),
+         "an EOA (no code) proceeds"
+      );
+
+      let err = refuse_contract_recipient(recipient, &Bytes::from(vec![0x60u8, 0x00]))
+         .expect_err("a recipient with code is refused");
+      assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
+   }
+
+   /// The refusal copy is the approved product text, verbatim; a drive-by edit has to
+   /// be deliberate.
+   #[test]
+   fn the_refusal_message_is_the_approved_copy() {
+      assert_eq!(
+         FUNDS_TO_CONTRACT_MSG,
+         "You are trying to send funds to a contract address, Zeus does not allow that. Sending directly to a contract address will lose you those funds forever"
+      );
    }
 }

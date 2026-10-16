@@ -13,7 +13,7 @@ use std::{
 use crate::core::types::EnsRecipientGuard;
 use crate::core::{
    DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, TransferParams, ZeusContext,
-   ZeusCtx, send_transaction,
+   ZeusCtx, ensure_recipient_is_not_contract, send_transaction,
 };
 use crate::utils::{RT, TimeStamp, estimate_tx_cost, simulate};
 
@@ -1333,6 +1333,10 @@ async fn send_eth(
    recipient_guard: Option<EnsRecipientGuard>,
    recipient_name: Option<String>,
 ) -> Result<(), anyhow::Error> {
+   // Funds must never go straight to a contract: verify the recipient before anything
+   // is simulated.
+   ensure_recipient_is_not_contract(ctx.clone(), chain, recipient).await?;
+
    let mev_protect = false;
    let dapp = "".to_string();
    let interact_to = recipient;
@@ -1517,6 +1521,10 @@ async fn send_token(
    recipient_guard: Option<EnsRecipientGuard>,
    recipient_name: Option<String>,
 ) -> Result<(), anyhow::Error> {
+   // Funds must never go straight to a contract: verify the recipient before anything
+   // is simulated.
+   ensure_recipient_is_not_contract(ctx.clone(), chain, recipient).await?;
+
    let token = currency.to_erc20().into_owned();
 
    let mev_protect = false;
