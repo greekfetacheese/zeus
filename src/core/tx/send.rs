@@ -2,7 +2,10 @@ use crate::core::types::EnsRecipientGuard;
 use crate::core::{
    ClientKind, TransactionAnalysis, TransactionRich, ZeusCtx, client::CLIENT_TIMEOUT_FOR_SENDING_TX,
 };
-use crate::utils::{TimeStamp, state::get_base_fee, wait_confirm_window, wait_tx_confirm};
+use crate::utils::{
+   TimeStamp, simulate::eip7702_implementation, state::get_base_fee, wait_confirm_window,
+   wait_tx_confirm,
+};
 use alloy_eips::eip7702::{Authorization, SignedAuthorization};
 use anyhow::anyhow;
 use std::time::Duration;
@@ -22,7 +25,15 @@ use zeus_eth::{
    alloy_rpc_types::{BlockId, TransactionReceipt, TransactionRequest},
    alloy_signer::SignerSync,
    types::ChainId,
-   utils::NumericValue,
+   utils::{
+      NumericValue,
+      client::RpcClient,
+      safe::is_safe_singleton,
+      smart_accounts::{
+         ERC1967_IMPLEMENTATION_SLOT, eip1167_clone_target, is_known_eip1167_target,
+         is_known_erc1967_implementation,
+      },
+   },
 };
 use zeus_wallet::SecureKey;
 
@@ -239,6 +250,159 @@ impl Drop for ConfirmClaim {
    fn drop(&mut self) {
       SHARED_GUI.write(|gui| gui.tx_confirmation_window.release());
    }
+}
+
+/// The refusal shown when a funds send targets a contract. Hardcoded for now (a
+/// settings option may come later); one place so the wording cannot drift.
+pub(crate) const FUNDS_TO_CONTRACT_MSG: &str = "You are trying to send funds to a contract address, Zeus does not allow that. Sending directly to a contract address will lose you those funds forever";
+
+/// What the chain says a funds recipient is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecipientAccount {
+   /// No code: a plain EOA.
+   Eoa,
+   /// `0xef0100 || implementation`: an EOA that delegated to an implementation.
+   DelegatedEoa,
+   /// A Safe proxy: storage slot 0 holds a known Safe singleton.
+   Safe,
+   /// A registered smart account: an ERC-1967 proxy to a known implementation
+   /// (Coinbase Smart Wallet, Alchemy accounts, SimpleAccount, Nexus) or an
+   /// EIP-1167 clone of a known target (Ambire).
+   SmartAccount,
+   /// Any other account with code: a contract, and funds must not go there.
+   Contract,
+}
+
+/// Classify a recipient. `singleton_at_slot0` is the recipient's storage slot 0,
+/// read only when the code alone does not decide. Pure — everything it needs is
+/// passed in.
+fn classify_recipient(
+   chain_id: u64,
+   code: &Bytes,
+   singleton_at_slot0: Option<Address>,
+   implementation_at_erc1967_slot: Option<Address>,
+) -> RecipientAccount {
+   if code.is_empty() {
+      return RecipientAccount::Eoa;
+   }
+
+   if eip7702_implementation(code).is_some() {
+      return RecipientAccount::DelegatedEoa;
+   }
+
+   if let Some(target) = eip1167_clone_target(code)
+      && is_known_eip1167_target(chain_id, target)
+   {
+      return RecipientAccount::SmartAccount;
+   }
+
+   if let Some(singleton) = singleton_at_slot0
+      && is_safe_singleton(chain_id, singleton)
+   {
+      return RecipientAccount::Safe;
+   }
+
+   if let Some(implementation) = implementation_at_erc1967_slot
+      && is_known_erc1967_implementation(chain_id, implementation)
+   {
+      return RecipientAccount::SmartAccount;
+   }
+
+   RecipientAccount::Contract
+}
+
+/// Read the code (and, only when the code alone does not decide, the storage slots the
+/// Safe and smart-account checks need) and classify the recipient. A failed read is an
+/// error too — the guard must never skip silently.
+pub async fn read_recipient_account(
+   client: &RpcClient,
+   chain_id: u64,
+   recipient: Address,
+) -> Result<RecipientAccount, anyhow::Error> {
+   let code = client.get_code_at(recipient).await.map_err(|e| anyhow!("{:?}", e))?;
+
+   if code.is_empty() || eip7702_implementation(&code).is_some() {
+      return Ok(classify_recipient(chain_id, &code, None, None));
+   }
+
+   // A registered 1167 clone is settled by its code alone — no storage reads.
+   if let Some(target) = eip1167_clone_target(&code)
+      && is_known_eip1167_target(chain_id, target)
+   {
+      return Ok(classify_recipient(chain_id, &code, None, None));
+   }
+
+   let slot0_fut = client.get_storage_at(recipient, U256::ZERO);
+   let erc1967_fut = client.get_storage_at(
+      recipient,
+      U256::from_be_slice(&ERC1967_IMPLEMENTATION_SLOT),
+   );
+   let (slot0_word, erc1967_word) = tokio::join!(slot0_fut, erc1967_fut);
+
+   let slot0_word = slot0_word.map_err(|e| anyhow!("{:?}", e))?;
+   let erc1967_word = erc1967_word.map_err(|e| anyhow!("{:?}", e))?;
+
+   let singleton = Address::from_slice(&slot0_word.to_be_bytes::<32>()[12..]);
+   let implementation = Address::from_slice(&erc1967_word.to_be_bytes::<32>()[12..]);
+
+   Ok(classify_recipient(
+      chain_id,
+      &code,
+      Some(singleton),
+      Some(implementation),
+   ))
+}
+
+/// Shown when the funds screen cannot read the recipient's account state: Zeus refuses
+/// the send rather than proceed unscreened.
+const RECIPIENT_UNVERIFIABLE_MSG: &str = "Zeus could not check the recipient, so the transaction was not sent. Check that network's RPC in Settings and try again.";
+
+/// Read the recipient's code first and refuse a funds send to a contract before any
+/// simulation runs: the send can never proceed, so nothing expensive should start. A plain
+/// EOA, an EIP-7702 delegated EOA, a Safe proxy, a registered smart-account proxy
+/// (ERC-1967) or a registered clone (EIP-1167) all pass; only a plain contract is refused.
+///
+/// `chain` is the chain the funds land on (the destination chain for a bridge). A failed
+/// read is an error too — the guard must never skip silently: it refuses with
+/// [`RECIPIENT_UNVERIFIABLE_MSG`] and logs the underlying error.
+pub async fn ensure_recipient_is_not_contract(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   recipient: Address,
+) -> Result<(), anyhow::Error> {
+   let client = ctx.get_client(chain.id()).await.map_err(|e| {
+      tracing::error!(
+         "Could not open a client for the recipient screen: {:?}",
+         e
+      );
+      anyhow!(RECIPIENT_UNVERIFIABLE_MSG)
+   })?;
+
+   let account = read_recipient_account(&client, chain.id(), recipient).await.map_err(|e| {
+      tracing::error!(
+         "Failed to read the recipient for the funds screen: {:?}",
+         e
+      );
+      anyhow!(RECIPIENT_UNVERIFIABLE_MSG)
+   })?;
+
+   refuse_contract_recipient(recipient, account)
+}
+
+/// The refusal decision: only a plain contract recipient is refused, with the fixed copy.
+pub fn refuse_contract_recipient(
+   recipient: Address,
+   account: RecipientAccount,
+) -> Result<(), anyhow::Error> {
+   if !matches!(account, RecipientAccount::Contract) {
+      return Ok(());
+   }
+
+   tracing::warn!(
+      "Refused a funds send to contract recipient {}",
+      recipient
+   );
+   Err(anyhow!(FUNDS_TO_CONTRACT_MSG))
 }
 
 /// Open the transaction confirmation window, wait for the user, and hand back
@@ -746,6 +910,7 @@ fn make_tx_request(params: &TxParams) -> TransactionRequest {
 #[cfg(test)]
 mod tests {
    use super::*;
+   use zeus_eth::alloy_primitives::{address, hex};
 
    /// `send_transaction` fills in nothing but the dapp and the MEV flag, so its
    /// callers keep the plain behavior: no sponsorship, no intent override.
@@ -773,5 +938,251 @@ mod tests {
       assert_eq!(req.value, U256::ZERO);
       assert!(req.authorization_list.is_empty());
       assert!(req.analysis.is_none());
+   }
+
+   /// The refusal decision: an EOA passes, a plain contract is refused with the fixed copy.
+   #[test]
+   fn a_contract_recipient_is_refused_with_the_approved_copy() {
+      let recipient = Address::from([2u8; 20]);
+
+      assert_eq!(
+         classify_recipient(1, &Bytes::default(), None, None),
+         RecipientAccount::Eoa
+      );
+      assert!(
+         refuse_contract_recipient(
+            recipient,
+            classify_recipient(1, &Bytes::default(), None, None)
+         )
+         .is_ok(),
+         "an EOA (no code) proceeds"
+      );
+
+      let code = Bytes::from(vec![0x60u8, 0x00]);
+      let account = classify_recipient(1, &code, Some(Address::from([2u8; 20])), None);
+      assert_eq!(account, RecipientAccount::Contract);
+
+      let err = refuse_contract_recipient(recipient, account)
+         .expect_err("a recipient with code is refused");
+      assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
+   }
+
+   /// An EIP-7702 delegated EOA is not a contract: it passes. A 23-byte code that is not
+   /// a delegation is still a contract.
+   #[test]
+   fn a_7702_delegated_eoa_is_allowed() {
+      let recipient = Address::from([2u8; 20]);
+      let delegated =
+         Bytes::from(hex::decode("ef01005a7fc11397e9a8ad41bf10bf13f22b0a63f96f6d").unwrap());
+
+      let account = classify_recipient(1, &delegated, None, None);
+      assert_eq!(account, RecipientAccount::DelegatedEoa);
+      assert!(refuse_contract_recipient(recipient, account).is_ok());
+
+      let control = Bytes::from(vec![0x60u8; 23]);
+      let account = classify_recipient(1, &control, None, None);
+      assert_eq!(account, RecipientAccount::Contract);
+      let err = refuse_contract_recipient(recipient, account).expect_err("a contract is refused");
+      assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
+   }
+
+   /// A Safe proxy — slot 0 points at a known singleton — is allowed.
+   #[test]
+   fn a_safe_proxy_is_allowed() {
+      let recipient = Address::from([2u8; 20]);
+      let code = Bytes::from(vec![0x60u8, 0x80, 0x60, 0x40]);
+
+      let v141 = address!("41675C099F32341bf84BFc5382aF534df5C7461a");
+      let account = classify_recipient(1, &code, Some(v141), None);
+      assert_eq!(account, RecipientAccount::Safe);
+      assert!(refuse_contract_recipient(recipient, account).is_ok());
+
+      let v130 = address!("d9Db270c1B5E3Bd161E8c8503c55cEABeE709552");
+      let account = classify_recipient(4663, &code, Some(v130), None);
+      assert_eq!(account, RecipientAccount::Safe);
+      assert!(refuse_contract_recipient(recipient, account).is_ok());
+   }
+
+   /// The legacy singletons are known only on the chains where an instance is actually
+   /// deployed: v1.1.1 is a Safe on Optimism but refused on BSC, which has no instance;
+   /// v1.2.0 has no Optimism instance and stays refused there.
+   #[test]
+   fn legacy_safe_singletons_are_known_only_where_deployed() {
+      let recipient = Address::from([2u8; 20]);
+      let code = Bytes::from(vec![0x60u8, 0x80, 0x60, 0x40]);
+      let v1_0_0 = address!("b6029EA3B2c51D09a50B53CA8012FeEB05bDa35A");
+      let v1_1_1 = address!("34CfAC646f301356fAa8B21e94227e3583Fe3F5F");
+      let v1_2_0 = address!("6851D6fDFAfD08c0295C392436245E5bc78B0185");
+
+      let account = classify_recipient(10, &code, Some(v1_1_1), None);
+      assert_eq!(account, RecipientAccount::Safe);
+      assert!(refuse_contract_recipient(recipient, account).is_ok());
+
+      let account = classify_recipient(10, &code, Some(v1_0_0), None);
+      assert_eq!(account, RecipientAccount::Safe);
+
+      // No v1.1.1 instance on BSC: still refused.
+      let account = classify_recipient(56, &code, Some(v1_1_1), None);
+      assert_eq!(account, RecipientAccount::Contract);
+      let err = refuse_contract_recipient(recipient, account).expect_err("not on BSC: refused");
+      assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
+
+      // No v1.2.0 instance on Optimism: still refused.
+      let account = classify_recipient(10, &code, Some(v1_2_0), None);
+      assert_eq!(account, RecipientAccount::Contract);
+   }
+
+   /// A slot 0 that is not a known singleton does not make a Safe: still refused.
+   #[test]
+   fn an_unknown_singleton_is_still_refused() {
+      let recipient = Address::from([2u8; 20]);
+      let code = Bytes::from(vec![0x60u8, 0x80, 0x60, 0x40]);
+      let unknown = address!("fcb19e6a322b27c06842a71e8c725399f049ae3a");
+
+      let account = classify_recipient(1, &code, Some(unknown), None);
+      assert_eq!(account, RecipientAccount::Contract);
+      let err = refuse_contract_recipient(recipient, account).expect_err("a contract is refused");
+      assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
+   }
+
+   /// The refusal copy is the approved product text, verbatim; a drive-by edit has to
+   /// be deliberate.
+   #[test]
+   fn the_refusal_message_is_the_approved_copy() {
+      assert_eq!(
+         FUNDS_TO_CONTRACT_MSG,
+         "You are trying to send funds to a contract address, Zeus does not allow that. Sending directly to a contract address will lose you those funds forever"
+      );
+   }
+
+   /// A Coinbase Smart Wallet proxy — its ERC-1967 slot points at a registered
+   /// implementation — is allowed on any chain the implementation is deployed on.
+   #[test]
+   fn a_coinbase_smart_wallet_is_allowed() {
+      let recipient = Address::from([2u8; 20]);
+      let code = Bytes::from(vec![0x60u8, 0x80, 0x60, 0x40]);
+      let csw_v1_1 = address!("00000110dCdEdC9581cb5eCB8467282f2926534d");
+      let csw_v1 = address!("000100abaad02f1cfC8Bbe32bD5a564817339E72");
+
+      let account = classify_recipient(1, &code, None, Some(csw_v1_1));
+      assert_eq!(account, RecipientAccount::SmartAccount);
+      assert!(refuse_contract_recipient(recipient, account).is_ok());
+
+      let account = classify_recipient(4663, &code, None, Some(csw_v1));
+      assert_eq!(account, RecipientAccount::SmartAccount);
+   }
+
+   /// Registered ERC-1967 implementations across the families Zeus pins are allowed.
+   #[test]
+   fn registered_erc1967_smart_accounts_are_allowed_across_families() {
+      let recipient = Address::from([2u8; 20]);
+      let code = Bytes::from(vec![0x60u8, 0x80, 0x60, 0x40]);
+
+      let light_v2 = address!("8E8e658E22B12ada97B402fF0b044D6A325013C7");
+      let account = classify_recipient(8453, &code, None, Some(light_v2));
+      assert_eq!(account, RecipientAccount::SmartAccount);
+      assert!(refuse_contract_recipient(recipient, account).is_ok());
+
+      let simple_v07 = address!("68641DE71cfEa5a5d0D29712449Ee254bb1400C2");
+      let account = classify_recipient(10, &code, None, Some(simple_v07));
+      assert_eq!(account, RecipientAccount::SmartAccount);
+      assert!(refuse_contract_recipient(recipient, account).is_ok());
+
+      let nexus = address!("000000004F43C49e93C970E84001853a70923B03");
+      let account = classify_recipient(42161, &code, None, Some(nexus));
+      assert_eq!(account, RecipientAccount::SmartAccount);
+      assert!(refuse_contract_recipient(recipient, account).is_ok());
+
+      let nexus_v133 = address!("0000B1c01cB3b5770D8806f0D214d50131a08a5B");
+      let account = classify_recipient(4663, &code, None, Some(nexus_v133));
+      assert_eq!(account, RecipientAccount::SmartAccount);
+      assert!(refuse_contract_recipient(recipient, account).is_ok());
+
+      let nexus_v131 = address!("54F220e4f0DEAb58Be26153df5a674668B9d7Fb2");
+      let account = classify_recipient(56, &code, None, Some(nexus_v131));
+      assert_eq!(account, RecipientAccount::Contract);
+   }
+
+   /// The legacy Alchemy LightAccount proxies were only deployed on Ethereum, Sepolia,
+   /// Optimism, Base and Arbitrum One: allowed there, refused on BSC (56) and RobinHood (4663).
+   #[test]
+   fn alchemy_legacy_light_accounts_are_known_only_where_deployed() {
+      let recipient = Address::from([2u8; 20]);
+      let code = Bytes::from(vec![0x60u8, 0x80, 0x60, 0x40]);
+      let legacy = address!("5467b1947F47d0646704EB801E075e72aeAe8113");
+
+      let account = classify_recipient(1, &code, None, Some(legacy));
+      assert_eq!(account, RecipientAccount::SmartAccount);
+      assert!(refuse_contract_recipient(recipient, account).is_ok());
+
+      let account = classify_recipient(56, &code, None, Some(legacy));
+      assert_eq!(account, RecipientAccount::Contract);
+      let err = refuse_contract_recipient(recipient, account).expect_err("not on BSC: refused");
+      assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
+
+      let account = classify_recipient(4663, &code, None, Some(legacy));
+      assert_eq!(account, RecipientAccount::Contract);
+      let err =
+         refuse_contract_recipient(recipient, account).expect_err("not on RobinHood: refused");
+      assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
+   }
+
+   /// An Ambire account is an EIP-1167 clone of the registered master: allowed on any
+   /// chain. A clone of an unregistered target is still a contract.
+   #[test]
+   fn an_ambire_account_is_allowed() {
+      let recipient = Address::from([2u8; 20]);
+      let ambire = Bytes::from(
+         hex::decode(
+            "363d3d373d3d3d363d730f2aa7bcda3d9d210df69a394b6965cb2566c8285af43d82803e903d91602b57fd5bf3",
+         )
+         .unwrap(),
+      );
+
+      for chain in [1, 4663] {
+         let account = classify_recipient(chain, &ambire, None, None);
+         assert_eq!(account, RecipientAccount::SmartAccount);
+         assert!(refuse_contract_recipient(recipient, account).is_ok());
+      }
+
+      // An old master (2023's 0x53a3…, live only on Optimism) is still a clone target —
+      // but only on the chains where the master is deployed.
+      let old_master = Bytes::from(
+         hex::decode(
+            "363d3d373d3d3d363d7353a31973ebcc225e219bb0d7c0c9324773f5b3e95af43d82803e903d91602b57fd5bf3",
+         )
+         .unwrap(),
+      );
+      let account = classify_recipient(10, &old_master, None, None);
+      assert_eq!(account, RecipientAccount::SmartAccount);
+
+      let account = classify_recipient(1, &old_master, None, None);
+      assert_eq!(account, RecipientAccount::Contract);
+
+      let usdc_clone = Bytes::from(
+         hex::decode(
+            "363d3d373d3d3d363d73a0b86991c6218b36c1d19d4a2e9eb0ce3606eb485af43d82803e903d91602b57fd5bf3",
+         )
+         .unwrap(),
+      );
+      let account = classify_recipient(1, &usdc_clone, None, None);
+      assert_eq!(account, RecipientAccount::Contract);
+      let err = refuse_contract_recipient(recipient, account)
+         .expect_err("a clone of a non-target is refused");
+      assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
+   }
+
+   /// An ERC-1967 proxy to an unregistered implementation is still a contract.
+   #[test]
+   fn an_unregistered_erc1967_smart_account_is_still_refused() {
+      let recipient = Address::from([2u8; 20]);
+      let code = Bytes::from(vec![0x60u8, 0x80, 0x60, 0x40]);
+      let unknown = address!("36d3cbd83961868398d056efbf50f5ce15528c0d");
+
+      let account = classify_recipient(8453, &code, None, Some(unknown));
+      assert_eq!(account, RecipientAccount::Contract);
+      let err =
+         refuse_contract_recipient(recipient, account).expect_err("unidentified family: refused");
+      assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
    }
 }

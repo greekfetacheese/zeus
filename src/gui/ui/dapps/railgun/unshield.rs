@@ -37,7 +37,8 @@ use crate::{
    core::{
       ApprovalDiff, BalanceDiff, DecodedEvent, MainEvent, MinedTx, RecordPolicy, SendTxOptions,
       SendTxRequest, TransactionAnalysis, UnshieldParams, ZeusCtx, build_tx_outcome, confirm_tx,
-      record_and_notify, send_transaction, tx::diffs_from_receipt,
+      ensure_recipient_is_not_contract, record_and_notify, send_transaction,
+      tx::diffs_from_receipt,
    },
    gui::SHARED_GUI,
    utils::{
@@ -103,6 +104,10 @@ pub async fn unshield(
 
    let recipient = Address::from_str(recipient.trim())
       .map_err(|e| anyhow!("Invalid recipient address: {}", e))?;
+
+   // Funds must never go straight to a contract: verify the recipient before any proof
+   // is generated or anything is simulated.
+   ensure_recipient_is_not_contract(ctx.clone(), chain, recipient).await?;
 
    let wallet = ctx.get_current_wallet();
    if !wallet.can_derive_zk_address() {
@@ -1028,4 +1033,42 @@ async fn fee_token_selection(chain: u64, from: Address) -> Result<ERC20Token, an
    let fee_token = selected_currency.to_erc20().into_owned();
 
    Ok(fee_token)
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use zeus_eth::currency::Currency;
+
+   /// The screen runs before any proof preparation: a contract recipient is refused
+   /// outright. Live chain; deleting the screen call makes this proceed into proof
+   /// generation instead of returning the refusal.
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
+   async fn unshield_refuses_a_contract_recipient() {
+      use crate::tests::test_ctx;
+
+      let ctx = test_ctx(1);
+
+      let err = unshield(
+         ctx,
+         ChainId::from(1u64),
+         RailgunAsset::Fungible(Currency::wrapped_native(1)),
+         NumericValue::parse_to_wei("0.001", 18),
+         Address::from([9u8; 20]),
+         "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48".to_string(),
+         false,
+         false,
+         String::new(),
+         String::new(),
+         None,
+      )
+      .await
+      .expect_err("a contract recipient must be refused");
+
+      assert_eq!(
+         err.to_string(),
+         crate::core::tx::send::FUNDS_TO_CONTRACT_MSG
+      );
+   }
 }

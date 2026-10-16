@@ -6,7 +6,7 @@ use crate::core::types::EnsRecipientGuard;
 use crate::core::urls::ZeusUrl;
 use crate::core::{
    BridgeParams, DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, ZeusContext,
-   ZeusCtx, send_transaction,
+   ZeusCtx, read_recipient_account, refuse_contract_recipient, send_transaction,
 };
 use crate::gui::{
    SHARED_GUI,
@@ -1107,6 +1107,10 @@ fn request_suggested_fees(
    });
 }
 
+/// Shown when the destination-chain recipient cannot be screened: Zeus refuses the
+/// bridge rather than send funds it cannot vouch for.
+const RECIPIENT_UNVERIFIABLE_MSG: &str = "Zeus could not check the recipient on the destination chain, so the bridge was not sent. Check that network's RPC in Settings and try again.";
+
 async fn across_bridge(
    ctx: ZeusCtx,
    chain: ChainId,
@@ -1119,6 +1123,28 @@ async fn across_bridge(
    input_amount: NumericValue,
    recipient_guard: Option<EnsRecipientGuard>,
 ) -> Result<(), anyhow::Error> {
+   // First thing first: a bridge recipient lives on the destination chain, so the
+   // screen must read that chain. A recipient Zeus cannot check is refused outright —
+   // sending unscreened would make this guard depend on which RPCs happen to be up.
+   let client = ctx.get_client(dest_chain.id()).await.map_err(|e| {
+      tracing::error!(
+         "Could not open a client for the destination chain: {:?}",
+         e
+      );
+      anyhow!(RECIPIENT_UNVERIFIABLE_MSG)
+   })?;
+
+   let recipient_account =
+      read_recipient_account(&client, dest_chain.id(), recipient).await.map_err(|e| {
+         tracing::error!(
+            "Failed to read the destination-chain recipient: {:?}",
+            e
+         );
+         anyhow!(RECIPIENT_UNVERIFIABLE_MSG)
+      })?;
+
+   refuse_contract_recipient(recipient, recipient_account)?;
+
    // Across protocol is very fast on filling the orders
    // So we get the latest block from the destination chain now so we dont miss it and the progress window stucks
    let from_block = Arc::new(Mutex::new(None));
@@ -1456,4 +1482,44 @@ pub async fn get_suggested_fees(
    };
 
    Ok(res)
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use zeus_eth::alloy_primitives::address;
+
+   /// The screen reads the destination chain before any deposit is built: a contract
+   /// recipient is refused outright. The refusal happens before the origin chain or the
+   /// deadline are ever read, so a cross-chain shape (Optimism → Ethereum) is enough.
+   /// Live chain; deleting the screen call makes this proceed into deposit simulation
+   /// instead of returning the refusal.
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
+   async fn a_bridge_to_a_contract_recipient_is_refused() {
+      use crate::tests::test_ctx;
+
+      let ctx = test_ctx(1);
+      let usdc = address!("a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
+
+      let err = across_bridge(
+         ctx,
+         ChainId::from(10u64),
+         ChainId::from(1u64),
+         0, // deadline: unused — the screen refuses before any deposit is built
+         Address::from([9u8; 20]),
+         usdc,
+         Address::ZERO,
+         Bytes::default(),
+         NumericValue::parse_to_wei("0.001", 18),
+         None,
+      )
+      .await
+      .expect_err("a contract recipient must be refused");
+
+      assert_eq!(
+         err.to_string(),
+         crate::core::tx::send::FUNDS_TO_CONTRACT_MSG
+      );
+   }
 }

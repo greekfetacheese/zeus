@@ -6,6 +6,8 @@ pub mod ens;
 pub mod interoperable_name;
 pub mod numeric_value;
 pub mod price_feed;
+pub mod safe;
+pub mod smart_accounts;
 
 pub use numeric_value::NumericValue;
 

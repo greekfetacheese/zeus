@@ -13,7 +13,7 @@ use std::{
 use crate::core::types::EnsRecipientGuard;
 use crate::core::{
    DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, TransferParams, ZeusContext,
-   ZeusCtx, send_transaction,
+   ZeusCtx, ensure_recipient_is_not_contract, send_transaction,
 };
 use crate::utils::{RT, TimeStamp, estimate_tx_cost, simulate};
 
@@ -1333,6 +1333,10 @@ async fn send_eth(
    recipient_guard: Option<EnsRecipientGuard>,
    recipient_name: Option<String>,
 ) -> Result<(), anyhow::Error> {
+   // Funds must never go straight to a contract: verify the recipient before anything
+   // is simulated.
+   ensure_recipient_is_not_contract(ctx.clone(), chain, recipient).await?;
+
    let mev_protect = false;
    let dapp = "".to_string();
    let interact_to = recipient;
@@ -1517,6 +1521,10 @@ async fn send_token(
    recipient_guard: Option<EnsRecipientGuard>,
    recipient_name: Option<String>,
 ) -> Result<(), anyhow::Error> {
+   // Funds must never go straight to a contract: verify the recipient before anything
+   // is simulated.
+   ensure_recipient_is_not_contract(ctx.clone(), chain, recipient).await?;
+
    let token = currency.to_erc20().into_owned();
 
    let mev_protect = false;
@@ -1943,6 +1951,8 @@ async fn update_balances(
 #[cfg(test)]
 mod tests {
    use super::*;
+   use crate::core::tx::send::FUNDS_TO_CONTRACT_MSG;
+   use zeus_eth::alloy_primitives::address;
 
    fn nft(token_id: u64, standard: NftStandard) -> NftToken {
       NftToken {
@@ -2097,5 +2107,57 @@ mod tests {
          assert_eq!(send.selected_nft, None, "hook {hook}");
          assert!(send.nft_amount.is_empty(), "hook {hook}");
       }
+   }
+
+   /// The screen is the first act of send_eth: a contract recipient is refused before
+   /// anything is simulated. Live chain; deleting the screen call makes this test proceed
+   /// into simulation instead of returning the refusal.
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
+   async fn send_eth_refuses_a_contract_recipient() {
+      use crate::tests::test_ctx;
+
+      let ctx = test_ctx(1);
+      let usdc = address!("a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
+
+      let err = send_eth(
+         ctx,
+         ChainId::from(1u64),
+         Address::from([9u8; 20]),
+         usdc,
+         NumericValue::parse_to_wei("0.001", 18),
+         Currency::native(1),
+         None,
+         None,
+      )
+      .await
+      .expect_err("a contract recipient must be refused");
+
+      assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
+   }
+
+   /// The screen is the first act of send_token: same refusal, before any token state is read.
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
+   async fn send_token_refuses_a_contract_recipient() {
+      use crate::tests::test_ctx;
+
+      let ctx = test_ctx(1);
+      let usdc = address!("a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
+
+      let err = send_token(
+         ctx,
+         ChainId::from(1u64),
+         Address::from([9u8; 20]),
+         usdc,
+         Currency::wrapped_native(1),
+         NumericValue::parse_to_wei("0.001", 18),
+         None,
+         None,
+      )
+      .await
+      .expect_err("a contract recipient must be refused");
+
+      assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
    }
 }
