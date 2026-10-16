@@ -117,7 +117,7 @@ rustls = "=0.23.46"
 
 # Misc
 brotli = "=8.0.4"
-zip = {version = "=6.0.0", default-features = false, features = ["deflate"]}
+zip = {version = "=9.0.4", default-features = false, features = ["deflate"]}
 tempfile = "=3.23.0"
 semver = "=1.0.27"
 self_update = { version = "1.2", default-features = false, features = [

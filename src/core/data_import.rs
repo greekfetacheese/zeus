@@ -258,23 +258,23 @@ fn list_allowed_entries(
       if file.is_symlink() {
          return Err(anyhow!(
             "Refusing symlink in archive: {}",
-            file.name()
+            file.name()?
          ));
       }
 
       let Some(enclosed) = file.enclosed_name() else {
-         return Err(anyhow!("Unsafe zip path: {}", file.name()));
+         return Err(anyhow!("Unsafe zip path: {}", file.name()?));
       };
       let Some(parts) = archive_rel_parts(&enclosed) else {
          return Err(anyhow!(
             "Archive path must be under data/: {}",
-            file.name()
+            file.name()?
          ));
       };
       if !is_allowed_archive_parts(&parts) {
          return Err(anyhow!(
             "Refusing unknown file in archive: {}",
-            file.name()
+            file.name()?
          ));
       }
 
@@ -288,7 +288,7 @@ fn list_allowed_entries(
       if entries.iter().any(|(_, existing)| existing == &parts) {
          tracing::warn!(
             "Ignoring duplicate archive entry {} (already present as data/{})",
-            file.name(),
+            file.name()?,
             parts.join("/")
          );
          continue;
