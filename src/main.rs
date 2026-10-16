@@ -5,6 +5,7 @@ use eframe::{
    egui_wgpu::{WgpuConfiguration, WgpuSetup, WgpuSetupCreateNew},
    wgpu::{self, InstanceDescriptor, MemoryHints, Trace},
 };
+use utils::RT;
 use gui::app::ZeusApp;
 use std::sync::Arc;
 
@@ -87,7 +88,7 @@ fn main() -> eframe::Result {
    // which the OS reports a stale path (see `self_update::restart_target`).
    utils::self_update::remember_startup_exe();
 
-   cleanup_old_logs();
+   RT.spawn_blocking( || cleanup_old_logs());
 
    // `zeus --install-desktop` / `--uninstall-desktop`: opt in to (or out of) the application
    // menu entry and exit, without starting the GUI. A normal launch applies the recorded
