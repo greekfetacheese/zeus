@@ -185,7 +185,10 @@ pub async fn on_startup(ctx: ZeusCtx) {
       ctx.on_startup_syncing = false;
    });
 
-   ctx.save_price_manager();
+   let ctx2 = ctx.clone();
+   RT.spawn_blocking(move || {
+      ctx2.save_price_manager();
+   });
 
    malloc_trim();
 
@@ -496,7 +499,11 @@ async fn state_update_interval(ctx: ZeusCtx) {
             check_delegated_status(ctx.clone(), chain).await;
          }
 
-         ctx.save_price_manager();
+         let ctx2 = ctx.clone();
+         RT.spawn_blocking(move || {
+            ctx2.save_price_manager();
+         });
+
          wallet_state_passed = Instant::now();
       }
 
