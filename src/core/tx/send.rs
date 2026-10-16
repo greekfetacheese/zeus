@@ -254,7 +254,7 @@ impl Drop for ConfirmClaim {
 
 /// The refusal shown when a funds send targets a contract. Hardcoded for now (a
 /// settings option may come later); one place so the wording cannot drift.
-const FUNDS_TO_CONTRACT_MSG: &str = "You are trying to send funds to a contract address, Zeus does not allow that. Sending directly to a contract address will lose you those funds forever";
+pub(crate) const FUNDS_TO_CONTRACT_MSG: &str = "You are trying to send funds to a contract address, Zeus does not allow that. Sending directly to a contract address will lose you those funds forever";
 
 /// What the chain says a funds recipient is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

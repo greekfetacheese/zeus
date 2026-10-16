@@ -1483,3 +1483,43 @@ pub async fn get_suggested_fees(
 
    Ok(res)
 }
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use zeus_eth::alloy_primitives::address;
+
+   /// The screen reads the destination chain before any deposit is built: a contract
+   /// recipient is refused outright. The refusal happens before the origin chain or the
+   /// deadline are ever read, so a cross-chain shape (Optimism → Ethereum) is enough.
+   /// Live chain; deleting the screen call makes this proceed into deposit simulation
+   /// instead of returning the refusal.
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
+   async fn a_bridge_to_a_contract_recipient_is_refused() {
+      use crate::tests::test_ctx;
+
+      let ctx = test_ctx(1);
+      let usdc = address!("a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
+
+      let err = across_bridge(
+         ctx,
+         ChainId::from(10u64),
+         ChainId::from(1u64),
+         0, // deadline: unused — the screen refuses before any deposit is built
+         Address::from([9u8; 20]),
+         usdc,
+         Address::ZERO,
+         Bytes::default(),
+         NumericValue::parse_to_wei("0.001", 18),
+         None,
+      )
+      .await
+      .expect_err("a contract recipient must be refused");
+
+      assert_eq!(
+         err.to_string(),
+         crate::core::tx::send::FUNDS_TO_CONTRACT_MSG
+      );
+   }
+}
