@@ -6,7 +6,7 @@ use crate::core::types::EnsRecipientGuard;
 use crate::core::urls::ZeusUrl;
 use crate::core::{
    BridgeParams, DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, ZeusContext,
-   ZeusCtx, refuse_contract_recipient, send_transaction,
+   ZeusCtx, read_recipient_account, refuse_contract_recipient, send_transaction,
 };
 use crate::gui::{
    SHARED_GUI,
@@ -1134,15 +1134,16 @@ async fn across_bridge(
       anyhow!(RECIPIENT_UNVERIFIABLE_MSG)
    })?;
 
-   let recipient_code = client.get_code_at(recipient).await.map_err(|e| {
-      tracing::error!(
-         "Failed to read the destination-chain recipient: {:?}",
-         e
-      );
-      anyhow!(RECIPIENT_UNVERIFIABLE_MSG)
-   })?;
+   let recipient_account =
+      read_recipient_account(&client, dest_chain.id(), recipient).await.map_err(|e| {
+         tracing::error!(
+            "Failed to read the destination-chain recipient: {:?}",
+            e
+         );
+         anyhow!(RECIPIENT_UNVERIFIABLE_MSG)
+      })?;
 
-   refuse_contract_recipient(recipient, &recipient_code)?;
+   refuse_contract_recipient(recipient, recipient_account)?;
 
    // Across protocol is very fast on filling the orders
    // So we get the latest block from the destination chain now so we dont miss it and the progress window stucks

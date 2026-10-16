@@ -2,7 +2,10 @@ use crate::core::types::EnsRecipientGuard;
 use crate::core::{
    ClientKind, TransactionAnalysis, TransactionRich, ZeusCtx, client::CLIENT_TIMEOUT_FOR_SENDING_TX,
 };
-use crate::utils::{TimeStamp, state::get_base_fee, wait_confirm_window, wait_tx_confirm};
+use crate::utils::{
+   TimeStamp, simulate::eip7702_implementation, state::get_base_fee, wait_confirm_window,
+   wait_tx_confirm,
+};
 use alloy_eips::eip7702::{Authorization, SignedAuthorization};
 use anyhow::anyhow;
 use std::time::Duration;
@@ -22,7 +25,7 @@ use zeus_eth::{
    alloy_rpc_types::{BlockId, TransactionReceipt, TransactionRequest},
    alloy_signer::SignerSync,
    types::ChainId,
-   utils::NumericValue,
+   utils::{NumericValue, client::RpcClient, safe::is_safe_singleton},
 };
 use zeus_wallet::SecureKey;
 
@@ -245,8 +248,73 @@ impl Drop for ConfirmClaim {
 /// settings option may come later); one place so the wording cannot drift.
 const FUNDS_TO_CONTRACT_MSG: &str = "You are trying to send funds to a contract address, Zeus does not allow that. Sending directly to a contract address will lose you those funds forever";
 
+/// What the chain says a funds recipient is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecipientAccount {
+   /// No code: a plain EOA.
+   Eoa,
+   /// `0xef0100 || implementation`: an EOA that delegated to an implementation.
+   DelegatedEoa,
+   /// A Safe proxy: storage slot 0 holds a known Safe singleton.
+   Safe,
+   /// Any other account with code: a contract, and funds must not go there.
+   Contract,
+}
+
+/// Classify a recipient. `singleton_at_slot0` is the recipient's storage slot 0,
+/// read only when the code alone does not decide. Pure — everything it needs is
+/// passed in.
+fn classify_recipient(
+   chain_id: u64,
+   code: &Bytes,
+   singleton_at_slot0: Option<Address>,
+) -> RecipientAccount {
+   if code.is_empty() {
+      return RecipientAccount::Eoa;
+   }
+
+   if eip7702_implementation(code).is_some() {
+      return RecipientAccount::DelegatedEoa;
+   }
+
+   if let Some(singleton) = singleton_at_slot0
+      && is_safe_singleton(chain_id, singleton)
+   {
+      return RecipientAccount::Safe;
+   }
+
+   RecipientAccount::Contract
+}
+
+/// Read the code (and, only when the code alone does not decide, the storage slot 0
+/// the Safe check needs) and classify the recipient. A failed read is an error too —
+/// the guard must never skip silently.
+pub async fn read_recipient_account(
+   client: &RpcClient,
+   chain_id: u64,
+   recipient: Address,
+) -> Result<RecipientAccount, anyhow::Error> {
+   let code = client.get_code_at(recipient).await.map_err(|e| anyhow!("{:?}", e))?;
+
+   let singleton = if code.is_empty() || eip7702_implementation(&code).is_some() {
+      None
+   } else {
+      let word = client
+         .get_storage_at(recipient, U256::ZERO)
+         .await
+         .map_err(|e| anyhow!("{:?}", e))?;
+      Some(Address::from_slice(
+         &word.to_be_bytes::<32>()[12..],
+      ))
+   };
+
+   Ok(classify_recipient(chain_id, &code, singleton))
+}
+
 /// Read the recipient's code first and refuse a funds send to a contract before any
-/// simulation runs: the send can never proceed, so nothing expensive should start.
+/// simulation runs: the send can never proceed, so nothing expensive should start. A plain
+/// EOA, an EIP-7702 delegated EOA and a Safe proxy all pass; only a plain contract is
+/// refused.
 ///
 /// `chain` is the chain the funds land on (the destination chain for a bridge). A failed
 /// read is an error too — the guard must never skip silently.
@@ -256,14 +324,17 @@ pub async fn ensure_recipient_is_not_contract(
    recipient: Address,
 ) -> Result<(), anyhow::Error> {
    let client = ctx.get_client(chain.id()).await?;
-   let code = client.get_code_at(recipient).await.map_err(|e| anyhow!("{:?}", e))?;
+   let account = read_recipient_account(&client, chain.id(), recipient).await?;
 
-   refuse_contract_recipient(recipient, &code)
+   refuse_contract_recipient(recipient, account)
 }
 
-/// The refusal decision: a recipient with code is refused with the fixed copy.
-pub fn refuse_contract_recipient(recipient: Address, code: &Bytes) -> Result<(), anyhow::Error> {
-   if code.is_empty() {
+/// The refusal decision: only a plain contract recipient is refused, with the fixed copy.
+pub fn refuse_contract_recipient(
+   recipient: Address,
+   account: RecipientAccount,
+) -> Result<(), anyhow::Error> {
+   if !matches!(account, RecipientAccount::Contract) {
       return Ok(());
    }
 
@@ -779,6 +850,7 @@ fn make_tx_request(params: &TxParams) -> TransactionRequest {
 #[cfg(test)]
 mod tests {
    use super::*;
+   use zeus_eth::alloy_primitives::{address, hex};
 
    /// `send_transaction` fills in nothing but the dapp and the MEV flag, so its
    /// callers keep the plain behavior: no sponsorship, no intent override.
@@ -808,19 +880,98 @@ mod tests {
       assert!(req.analysis.is_none());
    }
 
-   /// The refusal decision: a recipient with no code passes, a recipient with code is
-   /// refused with the fixed copy.
+   /// The refusal decision: an EOA passes, a plain contract is refused with the fixed copy.
    #[test]
    fn a_contract_recipient_is_refused_with_the_approved_copy() {
       let recipient = Address::from([2u8; 20]);
 
+      assert_eq!(
+         classify_recipient(1, &Bytes::default(), None),
+         RecipientAccount::Eoa
+      );
       assert!(
-         refuse_contract_recipient(recipient, &Bytes::default()).is_ok(),
+         refuse_contract_recipient(
+            recipient,
+            classify_recipient(1, &Bytes::default(), None)
+         )
+         .is_ok(),
          "an EOA (no code) proceeds"
       );
 
-      let err = refuse_contract_recipient(recipient, &Bytes::from(vec![0x60u8, 0x00]))
+      let code = Bytes::from(vec![0x60u8, 0x00]);
+      let account = classify_recipient(1, &code, Some(Address::from([2u8; 20])));
+      assert_eq!(account, RecipientAccount::Contract);
+
+      let err = refuse_contract_recipient(recipient, account)
          .expect_err("a recipient with code is refused");
+      assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
+   }
+
+   /// An EIP-7702 delegated EOA is not a contract: it passes. A 23-byte code that is not
+   /// a delegation is still a contract.
+   #[test]
+   fn a_7702_delegated_eoa_is_allowed() {
+      let recipient = Address::from([2u8; 20]);
+      let delegated =
+         Bytes::from(hex::decode("ef01005a7fc11397e9a8ad41bf10bf13f22b0a63f96f6d").unwrap());
+
+      let account = classify_recipient(1, &delegated, None);
+      assert_eq!(account, RecipientAccount::DelegatedEoa);
+      assert!(refuse_contract_recipient(recipient, account).is_ok());
+
+      let control = Bytes::from(vec![0x60u8; 23]);
+      let account = classify_recipient(1, &control, None);
+      assert_eq!(account, RecipientAccount::Contract);
+      let err = refuse_contract_recipient(recipient, account).expect_err("a contract is refused");
+      assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
+   }
+
+   /// A Safe proxy — slot 0 points at a known singleton — is allowed.
+   #[test]
+   fn a_safe_proxy_is_allowed() {
+      let recipient = Address::from([2u8; 20]);
+      let code = Bytes::from(vec![0x60u8, 0x80, 0x60, 0x40]);
+
+      let v141 = address!("41675C099F32341bf84BFc5382aF534df5C7461a");
+      let account = classify_recipient(1, &code, Some(v141));
+      assert_eq!(account, RecipientAccount::Safe);
+      assert!(refuse_contract_recipient(recipient, account).is_ok());
+
+      let v130 = address!("d9Db270c1B5E3Bd161E8c8503c55cEABeE709552");
+      let account = classify_recipient(4663, &code, Some(v130));
+      assert_eq!(account, RecipientAccount::Safe);
+      assert!(refuse_contract_recipient(recipient, account).is_ok());
+   }
+
+   /// The legacy singletons are mainnet-only: a proxy pointing at one is a Safe on chain 1
+   /// and a contract anywhere else.
+   #[test]
+   fn legacy_safe_singletons_are_mainnet_only() {
+      let recipient = Address::from([2u8; 20]);
+      let code = Bytes::from(vec![0x60u8, 0x80, 0x60, 0x40]);
+      let legacy = address!("6851D6fDFAfD08c0295C392436245E5bc78B0185");
+
+      assert_eq!(
+         classify_recipient(1, &code, Some(legacy)),
+         RecipientAccount::Safe
+      );
+
+      let account = classify_recipient(10, &code, Some(legacy));
+      assert_eq!(account, RecipientAccount::Contract);
+      let err = refuse_contract_recipient(recipient, account).expect_err("a contract is refused");
+      assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
+   }
+
+   /// A slot 0 that is not a known singleton does not make a Safe: still refused.
+   #[test]
+   fn an_unknown_singleton_is_still_refused() {
+      let recipient = Address::from([2u8; 20]);
+      let code = Bytes::from(vec![0x60u8, 0x80, 0x60, 0x40]);
+      let unknown = address!("fcb19e6a322b27c06842a71e8c725399f049ae3a");
+
+      let account = classify_recipient(1, &code, Some(unknown));
+      assert_eq!(account, RecipientAccount::Contract);
+      let err = refuse_contract_recipient(recipient, account).expect_err("a contract is refused");
       assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
    }
 
