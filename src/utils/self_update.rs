@@ -328,7 +328,7 @@ pub async fn update_zeus(download_url: &str, asset_name: &str) -> Result<(), any
 
    for i in 0..archive.len() {
       let mut file = archive.by_index(i)?;
-      let file_name = file.name().to_string();
+      let file_name = file.name()?.to_string();
       if file_name == binary_name
          || file_name.ends_with("/zeus-gui")
          || file_name.ends_with("/zeus-gui.exe")
