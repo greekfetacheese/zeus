@@ -1,8 +1,5 @@
 [workspace]
 resolver = "2"
-# `vendor/enigo` is the source of the [patch.crates-io] entry at the bottom of
-# this file — a dependency, not a member.
-exclude = ["vendor/enigo"]
 members = [
     "crates/zeus-eth",
     "crates/zeus-railgun",
@@ -203,11 +200,3 @@ dev = []
 
 [lints]
 clippy = { new_without_default = "allow", too_many_arguments = "allow", unnecessary_unwrap = "allow", needless_return = "allow", needless_borrow = "deny" }
-
-# Interim patch: enigo 0.6.1 still asks for `windows = "0.61"`, keeping a second
-# copy of the whole 0.61 helper family next to the 0.62 one the rest of the graph
-# uses. `vendor/enigo` is the published 0.6.1 with upstream's own one-line bump
-# (enigo-rs/enigo@a9da636) applied. Drop the patch and the vendored copy once a
-# release carries it — see vendor/README.md.
-[patch.crates-io]
-enigo = { path = "vendor/enigo" }
