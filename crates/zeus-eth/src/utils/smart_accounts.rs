@@ -5,7 +5,9 @@
 //! addresses — is a smart account, not a plain contract, and may receive funds. Addresses
 //! were verified present with `eth_getCode` on all Zeus chains (1, 10, 56, 8453, 42161,
 //! 11155111, 4663); one exception: the legacy Alchemy LightAccount v1.0.1/v1.0.2 proxies
-//! are absent on BSC (56).
+//! were only deployed on Ethereum, Sepolia, Optimism, Base and Arbitrum One — they are
+//! absent on BSC (56) and RobinHood (4663); allowing them elsewhere would let a lookalike
+//! contract at those addresses pass the screen.
 //!
 //! Sources:
 //! - Coinbase Smart Wallet: `github.com/coinbase/smart-wallet` (v1 = `0x000100ab…`,
@@ -58,13 +60,17 @@ const PROXY_IMPLEMENTATIONS: [Address; 12] = [
    address!("000000004F43C49e93C970E84001853a70923B03"),
 ];
 
-/// ERC-1967 implementations absent on BSC (56), present on the other six chains.
-const BSC_ABSENT_IMPLEMENTATIONS: [Address; 2] = [
+/// Deployed only on Ethereum, Sepolia, Optimism, Base and Arbitrum One — absent on
+/// BSC (56) and RobinHood (4663).
+const LIMITED_CHAIN_IMPLEMENTATIONS: [Address; 2] = [
    // Alchemy LightAccount v1.0.2
    address!("5467b1947F47d0646704EB801E075e72aeAe8113"),
    // Alchemy LightAccount v1.0.1
    address!("c1b2fc4197c9187853243e6e4eb5a4af8879a1c0"),
 ];
+
+/// Chains where the `LIMITED_CHAIN_IMPLEMENTATIONS` proxies were actually deployed.
+const LIMITED_IMPLEMENTATION_CHAINS: [u64; 5] = [1, 11155111, 10, 8453, 42161];
 
 /// EIP-1167 clone targets deployed on every chain Zeus supports.
 const CLONE_TARGETS: [Address; 1] = [
@@ -75,7 +81,8 @@ const CLONE_TARGETS: [Address; 1] = [
 /// Whether `implementation` is a known smart-account implementation (ERC-1967) on `chain_id`.
 pub fn is_known_erc1967_implementation(chain_id: u64, implementation: Address) -> bool {
    PROXY_IMPLEMENTATIONS.contains(&implementation)
-      || (chain_id != 56 && BSC_ABSENT_IMPLEMENTATIONS.contains(&implementation))
+      || (LIMITED_IMPLEMENTATION_CHAINS.contains(&chain_id)
+         && LIMITED_CHAIN_IMPLEMENTATIONS.contains(&implementation))
 }
 
 /// Whether `target` is a known smart-account clone target (EIP-1167). Present on every
@@ -161,8 +168,9 @@ mod tests {
       assert_eq!(eip1167_clone_target(&[]), None, "empty");
    }
 
-   /// All-chain implementations are known on every chain; the BSC-absent pair is known
-   /// everywhere but chain 56; the Ambire master is a known clone target; USDC is neither.
+   /// All-chain implementations are known on every chain; the legacy LightAccount pair is
+   /// known only on its deployed chains; the Ambire master is a known clone target; USDC is
+   /// neither.
    #[test]
    fn the_registry_knows_the_published_implementations() {
       assert!(is_known_erc1967_implementation(
@@ -181,6 +189,7 @@ mod tests {
       let legacy = address!("5467b1947F47d0646704EB801E075e72aeAe8113");
       assert!(is_known_erc1967_implementation(1, legacy));
       assert!(!is_known_erc1967_implementation(56, legacy));
+      assert!(!is_known_erc1967_implementation(4663, legacy));
 
       assert!(is_known_eip1167_target(address!(
          "0F2AA7bcda3d9D210dF69a394b6965CB2566c828"

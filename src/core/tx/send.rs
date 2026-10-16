@@ -1066,10 +1066,10 @@ mod tests {
       assert!(refuse_contract_recipient(recipient, account).is_ok());
    }
 
-   /// The legacy Alchemy LightAccount proxies are absent on BSC: allowed on mainnet,
-   /// refused on chain 56.
+   /// The legacy Alchemy LightAccount proxies were only deployed on Ethereum, Sepolia,
+   /// Optimism, Base and Arbitrum One: allowed there, refused on BSC (56) and RobinHood (4663).
    #[test]
-   fn alchemy_legacy_light_accounts_are_not_on_bsc() {
+   fn alchemy_legacy_light_accounts_are_known_only_where_deployed() {
       let recipient = Address::from([2u8; 20]);
       let code = Bytes::from(vec![0x60u8, 0x80, 0x60, 0x40]);
       let legacy = address!("5467b1947F47d0646704EB801E075e72aeAe8113");
@@ -1081,6 +1081,12 @@ mod tests {
       let account = classify_recipient(56, &code, None, Some(legacy));
       assert_eq!(account, RecipientAccount::Contract);
       let err = refuse_contract_recipient(recipient, account).expect_err("not on BSC: refused");
+      assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
+
+      let account = classify_recipient(4663, &code, None, Some(legacy));
+      assert_eq!(account, RecipientAccount::Contract);
+      let err =
+         refuse_contract_recipient(recipient, account).expect_err("not on RobinHood: refused");
       assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
    }
 
