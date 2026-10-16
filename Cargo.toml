@@ -126,7 +126,7 @@ self_update = { version = "1.2", default-features = false, features = [
     "rustls",
 ] }
 self-replace = "1"
-sysinfo = "=0.37.2"
+sysinfo = "=0.39.6"
 chrono = "=0.4.45"
 either = "=1.15.0"
 rayon = "=1.12.0"
