@@ -291,7 +291,7 @@ fn classify_recipient(
    }
 
    if let Some(target) = eip1167_clone_target(code)
-      && is_known_eip1167_target(target)
+      && is_known_eip1167_target(chain_id, target)
    {
       return RecipientAccount::SmartAccount;
    }
@@ -327,7 +327,7 @@ pub async fn read_recipient_account(
 
    // A registered 1167 clone is settled by its code alone — no storage reads.
    if let Some(target) = eip1167_clone_target(&code)
-      && is_known_eip1167_target(target)
+      && is_known_eip1167_target(chain_id, target)
    {
       return Ok(classify_recipient(chain_id, &code, None, None));
    }
@@ -1126,6 +1126,20 @@ mod tests {
          assert_eq!(account, RecipientAccount::SmartAccount);
          assert!(refuse_contract_recipient(recipient, account).is_ok());
       }
+
+      // An old master (2023's 0x53a3…, live only on Optimism) is still a clone target —
+      // but only on the chains where the master is deployed.
+      let old_master = Bytes::from(
+         hex::decode(
+            "363d3d373d3d3d363d7353a31973ebcc225e219bb0d7c0c9324773f5b3e95af43d82803e903d91602b57fd5bf3",
+         )
+         .unwrap(),
+      );
+      let account = classify_recipient(10, &old_master, None, None);
+      assert_eq!(account, RecipientAccount::SmartAccount);
+
+      let account = classify_recipient(1, &old_master, None, None);
+      assert_eq!(account, RecipientAccount::Contract);
 
       let usdc_clone = Bytes::from(
          hex::decode(

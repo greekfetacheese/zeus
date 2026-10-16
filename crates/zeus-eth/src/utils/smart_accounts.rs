@@ -22,7 +22,8 @@
 //!   their `accountImplementation()` getters, both factory sources use
 //!   `new ERC1967Proxy{salt}(...)`.
 //! - Ambire: `github.com/AmbireTech/ambire-common` — `src/consts/deploy.ts`
-//!   (`PROXY_AMBIRE_ACCOUNT`) + `src/libs/proxyDeploy/deploy.ts` (EIP-1167 codegen).
+//!   (`PROXY_AMBIRE_ACCOUNT`; the whole master history, each master gated to the chains
+//!   where it has live code) + `src/libs/proxyDeploy/deploy.ts` (EIP-1167 codegen).
 //!
 //! Refresh recipe: re-read the sources above and re-check every address with `eth_getCode`
 //! on each supported chain (1, 10, 56, 8453, 42161, 11155111, 4663).
@@ -97,10 +98,41 @@ const NOT_ON_4663_IMPLEMENTATIONS: [Address; 2] = [
 /// Chains where the `NOT_ON_4663_IMPLEMENTATIONS` proxies were actually deployed.
 const NOT_ON_4663_CHAINS: [u64; 6] = [1, 10, 56, 8453, 42161, 11155111];
 
-/// EIP-1167 clone targets deployed on every chain Zeus supports.
-const CLONE_TARGETS: [Address; 1] = [
-   // Ambire `AmbireAccount` v2 master (ambire-common `PROXY_AMBIRE_ACCOUNT`)
-   address!("0F2AA7bcda3d9D210dF69a394b6965CB2566c828"),
+/// Ambire masters (EIP-1167 clone targets) and the chains each one is deployed on.
+/// Ambire rotated its master ~9 times between 2023-07 and 2024-06; accounts are
+/// immutable clones, so old accounts still target old masters. Three masters never
+/// shipped and have no code on any chain (0x59CE8fD3…, 0xD0F756F5…, 0x4f25850E…).
+const CLONE_TARGETS: [(Address, &[u64]); 7] = [
+   // Current master (`PROXY_AMBIRE_ACCOUNT` in ambire-common `src/consts/deploy.ts`)
+   (
+      address!("0F2AA7bcda3d9D210dF69a394b6965CB2566c828"),
+      &[1, 10, 56, 8453, 42161, 11155111, 4663],
+   ),
+   // 2023-07 → 2024-06 historical masters (chains verified 2026-10-16)
+   (
+      address!("fF69afDE895B381eE71e17C60350aE4c70b16a92"),
+      &[1, 10, 56, 42161, 11155111],
+   ),
+   (
+      address!("0e370942ebe4d026d05d2cf477ff386338fc415a"),
+      &[1, 10, 56, 8453, 42161],
+   ),
+   (
+      address!("53a31973EBCC225E219BB0d7C0c9324773f5B3E9"),
+      &[10],
+   ),
+   (
+      address!("72D91dA2B0C316d030E1eD840B80c9cd9ae445B6"),
+      &[10],
+   ),
+   (
+      address!("2Ee4ce14a9486B62300fa7618D48D93e8eF2a587"),
+      &[10, 8453],
+   ),
+   (
+      address!("1CDE6A53e9a411EaAF9d11e3E8C653A3e379d535"),
+      &[10, 8453],
+   ),
 ];
 
 /// Whether `implementation` is a known smart-account implementation (ERC-1967) on `chain_id`.
@@ -112,10 +144,12 @@ pub fn is_known_erc1967_implementation(chain_id: u64, implementation: Address) -
          && NOT_ON_4663_IMPLEMENTATIONS.contains(&implementation))
 }
 
-/// Whether `target` is a known smart-account clone target (EIP-1167). Present on every
-/// supported chain, hence no chain parameter.
-pub fn is_known_eip1167_target(target: Address) -> bool {
-   CLONE_TARGETS.contains(&target)
+/// Whether `target` is a known smart-account clone target (EIP-1167) on `chain_id`.
+/// Masters deploy on different chains, so the target alone is not enough.
+pub fn is_known_eip1167_target(chain_id: u64, target: Address) -> bool {
+   CLONE_TARGETS
+      .iter()
+      .any(|(master, chains)| *master == target && chains.contains(&chain_id))
 }
 
 /// Strictly parse the canonical EIP-1167 runtime (exact 45 bytes; prefix
@@ -242,12 +276,29 @@ mod tests {
       assert!(!is_known_erc1967_implementation(56, legacy));
       assert!(!is_known_erc1967_implementation(4663, legacy));
 
-      assert!(is_known_eip1167_target(address!(
-         "0F2AA7bcda3d9D210dF69a394b6965CB2566c828"
-      )));
+      assert!(is_known_eip1167_target(
+         1,
+         address!("0F2AA7bcda3d9D210dF69a394b6965CB2566c828")
+      ));
+      assert!(is_known_eip1167_target(
+         10,
+         address!("53a31973EBCC225E219BB0d7C0c9324773f5B3E9")
+      ));
+      assert!(!is_known_eip1167_target(
+         1,
+         address!("53a31973EBCC225E219BB0d7C0c9324773f5B3E9")
+      ));
+      assert!(is_known_eip1167_target(
+         1,
+         address!("fF69afDE895B381eE71e17C60350aE4c70b16a92")
+      ));
+      assert!(!is_known_eip1167_target(
+         8453,
+         address!("fF69afDE895B381eE71e17C60350aE4c70b16a92")
+      ));
 
       let usdc = address!("a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
       assert!(!is_known_erc1967_implementation(1, usdc));
-      assert!(!is_known_eip1167_target(usdc));
+      assert!(!is_known_eip1167_target(1, usdc));
    }
 }
