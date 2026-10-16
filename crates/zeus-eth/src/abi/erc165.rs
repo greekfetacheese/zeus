@@ -230,9 +230,7 @@ where
    match probe_batched(client.clone(), token).await {
       Ok(support) => Ok(support),
       Err(err) => {
-         tracing::debug!(
-            "ERC-165 batch for {token} did not go through ({err:?}), asking one by one"
-         );
+         tracing::debug!("ERC-165 batch did not go through ({err:?}), asking one by one");
 
          probe_sequential(client, token).await
       }
