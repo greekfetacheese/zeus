@@ -1323,9 +1323,11 @@ impl ShieldUi {
    fn poll_shield_pool(&mut self, chain: ChainId, railgun_synced: bool) {
       let key = (chain.id(), self.privacy_asset_key());
 
-      // A key change makes the old verdict wrong rather than stale, so it goes now; only the latch
-      // waits for sync.
+      // A key change makes the old verdict wrong rather than stale, so it goes now — and the latch
+      // goes with it: a latch left behind reads as "answered" while its verdict was dropped, which
+      // would stop the check from ever re-arming for that key.
       if self.shield_pool_key.as_ref() != Some(&key) {
+         self.shield_pool_key = None;
          self.shield_pool = None;
       }
 
@@ -2500,8 +2502,8 @@ mod tests {
    }
 
    /// A key change drops the old verdict immediately, synced or not: it describes another pool, so it
-   /// is wrong rather than stale. Only the *latch* waits for sync — the poll must not leave the old
-   /// key holding the form's warning while the new chain's data is still arriving.
+   /// is wrong rather than stale, and the latch goes with it — the key is not left latched without a
+   /// verdict, which would read as answered and stall the check.
    #[test]
    fn a_key_change_drops_the_old_verdict_even_while_unsynced() {
       let mut ui = ShieldUi::new();
@@ -2518,8 +2520,8 @@ mod tests {
          deposits: Some(1_224),
       });
 
-      // The form moves to another asset while the chain is unsynced: the verdict goes now, and the
-      // latch is left alone so the check still arms once sync completes.
+      // The form moves to another asset while the chain is unsynced: the verdict and its latch both go
+      // now, so the check can arm for whichever key is picked once sync completes.
       ui.currency = Currency::from(ERC20Token::usdc());
       ui.poll_shield_pool(ChainId::new(1).unwrap(), false);
 
@@ -2528,9 +2530,48 @@ mod tests {
          "another key's verdict must not linger"
       );
       assert_eq!(
-         ui.shield_pool_key.as_ref(),
-         Some(&latched),
-         "the latch waits for sync; the unsynced poll leaves it untouched"
+         ui.shield_pool_key, None,
+         "the latch is dropped with the verdict, so the check can re-arm after sync"
+      );
+   }
+
+   /// A key round trip inside an unsynced window must not stall the check: the latch is dropped
+   /// with the verdict on the way out, so the check is due again once sync completes.
+   #[test]
+   fn a_key_round_trip_while_unsynced_still_arms_the_check_after_sync() {
+      let mut ui = ShieldUi::new();
+      ui.set_mode(RailgunMode::Shield);
+
+      // An answered check for WETH on chain 1: latched, verdict shown.
+      ui.currency = Currency::from(ERC20Token::weth());
+      let key_a = (1u64, ui.privacy_asset_key());
+      ui.shield_pool_key = Some(key_a.clone());
+      ui.shield_pool = Some(PoolDepth {
+         balance_wei: U256::from(1_000u64),
+         usd: Some(400.0),
+         share: None,
+         deposits: Some(1_224),
+      });
+
+      // The chain drops out of sync; the user compares another asset and comes back.
+      ui.currency = Currency::from(ERC20Token::usdc());
+      ui.poll_shield_pool(ChainId::new(1).unwrap(), false);
+      ui.currency = Currency::from(ERC20Token::weth());
+      ui.poll_shield_pool(ChainId::new(1).unwrap(), false);
+
+      // The latch must not survive the move: left behind it would read as "answered" while its
+      // verdict was dropped, and the check could never re-arm for it.
+      assert_eq!(
+         ui.shield_pool_key, None,
+         "a key change drops the latch so the check can re-arm after sync"
+      );
+      assert!(
+         shield_check_due(ui.shield_pool_key.as_ref(), &key_a, true),
+         "once synced, the check is due again for the returned key"
+      );
+      assert!(
+         ui.shield_pool.is_none(),
+         "and no stale verdict is shown"
       );
    }
 
