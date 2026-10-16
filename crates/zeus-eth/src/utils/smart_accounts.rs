@@ -4,18 +4,19 @@
 //! smart-account implementations — or whose EIP-1167 minimal clone targets one of these
 //! addresses — is a smart account, not a plain contract, and may receive funds. Addresses
 //! were verified present with `eth_getCode` on all Zeus chains (1, 10, 56, 8453, 42161,
-//! 11155111, 4663); one exception: the legacy Alchemy LightAccount v1.0.1/v1.0.2 proxies
-//! were only deployed on Ethereum, Sepolia, Optimism, Base and Arbitrum One — they are
-//! absent on BSC (56) and RobinHood (4663); allowing them elsewhere would let a lookalike
-//! contract at those addresses pass the screen.
+//! 11155111, 4663); two exceptions: the legacy Alchemy LightAccount v1.0.1/v1.0.2 proxies
+//! and Nexus v1.3.1 were only deployed on Ethereum, Sepolia, Optimism, Base and Arbitrum
+//! One (absent on BSC 56 and RobinHood 4663), and the two legacy Nexus v1.0.x
+//! implementations are absent on RobinHood (4663); allowing them elsewhere would let a
+//! lookalike contract at those addresses pass the screen.
 //!
 //! Sources:
 //! - Coinbase Smart Wallet: `github.com/coinbase/smart-wallet` (v1 = `0x000100ab…`,
 //!   v1.1 = `0x00000110…`).
 //! - Alchemy smart accounts:
 //!   https://www.alchemy.com/docs/wallets/smart-contracts/deployed-addresses
-//! - Biconomy Nexus: https://docs.biconomy.io/contracts-and-audits (Nexus Implementation
-//!   v1.2.0, "same across all chains").
+//! - Biconomy Nexus: https://docs.biconomy.io/contracts-and-audits — every published
+//!   implementation (v1.0.x through v1.3.3), each verified per chain with eth_getCode.
 //! - eth-infinitism: factories `0x91E60e0613810449d098b0b5Ec8b51A0FE8c8985` (v0.7) and
 //!   `0x9406Cc6185a346906296840746125a0E44976454` (v0.6); impl addresses read live from
 //!   their `accountImplementation()` getters, both factory sources use
@@ -33,7 +34,7 @@ pub const ERC1967_IMPLEMENTATION_SLOT: [u8; 32] =
    hex!("360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc");
 
 /// ERC-1967 implementations deployed on every chain Zeus supports.
-const PROXY_IMPLEMENTATIONS: [Address; 12] = [
+const PROXY_IMPLEMENTATIONS: [Address; 17] = [
    // Coinbase Smart Wallet v1.1
    address!("00000110dCdEdC9581cb5eCB8467282f2926534d"),
    // Coinbase Smart Wallet v1
@@ -58,19 +59,43 @@ const PROXY_IMPLEMENTATIONS: [Address; 12] = [
    address!("8ABB13360b87Be5EEb1B98647A016adD927a136c"),
    // Biconomy Nexus v1.2.0
    address!("000000004F43C49e93C970E84001853a70923B03"),
+   // Biconomy Nexus v1.3.3
+   address!("0000B1c01cB3b5770D8806f0D214d50131a08a5B"),
+   // Biconomy Nexus v1.3.2
+   address!("0000b1C0B95DA04652C1919667D1DCC14f46f62B"),
+   // Biconomy Nexus v1.3.1
+   address!("0000000020fe2F30453074aD916eDeB653eC7E9D"),
+   // Biconomy Nexus v1.2.0
+   address!("00000000383e8cBe298514674Ea60Ee1d1de50ac"),
+   // Biconomy Nexus v1.0.2
+   address!("000000001964d23C59962Fc7A912872EE8fB3b6A"),
 ];
 
 /// Deployed only on Ethereum, Sepolia, Optimism, Base and Arbitrum One — absent on
-/// BSC (56) and RobinHood (4663).
-const LIMITED_CHAIN_IMPLEMENTATIONS: [Address; 2] = [
+/// BSC (56) and RobinHood (4663). Alchemy LightAccount v1.0.1/v1.0.2 and Biconomy
+/// Nexus v1.3.1.
+const LIMITED_CHAIN_IMPLEMENTATIONS: [Address; 3] = [
    // Alchemy LightAccount v1.0.2
    address!("5467b1947F47d0646704EB801E075e72aeAe8113"),
    // Alchemy LightAccount v1.0.1
    address!("c1b2fc4197c9187853243e6e4eb5a4af8879a1c0"),
+   // Biconomy Nexus v1.3.1
+   address!("54F220e4f0DEAb58Be26153df5a674668B9d7Fb2"),
 ];
 
 /// Chains where the `LIMITED_CHAIN_IMPLEMENTATIONS` proxies were actually deployed.
 const LIMITED_IMPLEMENTATION_CHAINS: [u64; 5] = [1, 11155111, 10, 8453, 42161];
+
+/// Deployed on every supported chain except RobinHood (4663).
+const NOT_ON_4663_IMPLEMENTATIONS: [Address; 2] = [
+   // Biconomy Nexus v1.0.2 (MEE series)
+   address!("000000aC74357BFEa72BBD0781833631F732cf19"),
+   // Biconomy Nexus v1.0.1 production (the docs list this one without a version label)
+   address!("000000008761E87F023f65c49DC9cb1C7EdFEaaf"),
+];
+
+/// Chains where the `NOT_ON_4663_IMPLEMENTATIONS` proxies were actually deployed.
+const NOT_ON_4663_CHAINS: [u64; 6] = [1, 10, 56, 8453, 42161, 11155111];
 
 /// EIP-1167 clone targets deployed on every chain Zeus supports.
 const CLONE_TARGETS: [Address; 1] = [
@@ -83,6 +108,8 @@ pub fn is_known_erc1967_implementation(chain_id: u64, implementation: Address) -
    PROXY_IMPLEMENTATIONS.contains(&implementation)
       || (LIMITED_IMPLEMENTATION_CHAINS.contains(&chain_id)
          && LIMITED_CHAIN_IMPLEMENTATIONS.contains(&implementation))
+      || (NOT_ON_4663_CHAINS.contains(&chain_id)
+         && NOT_ON_4663_IMPLEMENTATIONS.contains(&implementation))
 }
 
 /// Whether `target` is a known smart-account clone target (EIP-1167). Present on every
@@ -168,9 +195,9 @@ mod tests {
       assert_eq!(eip1167_clone_target(&[]), None, "empty");
    }
 
-   /// All-chain implementations are known on every chain; the legacy LightAccount pair is
-   /// known only on its deployed chains; the Ambire master is a known clone target; USDC is
-   /// neither.
+   /// All-chain implementations are known on every chain; the legacy LightAccount pair and
+   /// Nexus v1.3.1 are known only on their deployed chains; the legacy Nexus v1.0.x pair is
+   /// absent on RobinHood; the Ambire master is a known clone target; USDC is neither.
    #[test]
    fn the_registry_knows_the_published_implementations() {
       assert!(is_known_erc1967_implementation(
@@ -184,6 +211,30 @@ mod tests {
       assert!(is_known_erc1967_implementation(
          4663,
          address!("000000004F43C49e93C970E84001853a70923B03")
+      ));
+      assert!(is_known_erc1967_implementation(
+         4663,
+         address!("0000B1c01cB3b5770D8806f0D214d50131a08a5B")
+      ));
+      assert!(is_known_erc1967_implementation(
+         1,
+         address!("54F220e4f0DEAb58Be26153df5a674668B9d7Fb2")
+      ));
+      assert!(!is_known_erc1967_implementation(
+         56,
+         address!("54F220e4f0DEAb58Be26153df5a674668B9d7Fb2")
+      ));
+      assert!(is_known_erc1967_implementation(
+         56,
+         address!("000000aC74357BFEa72BBD0781833631F732cf19")
+      ));
+      assert!(!is_known_erc1967_implementation(
+         4663,
+         address!("000000aC74357BFEa72BBD0781833631F732cf19")
+      ));
+      assert!(!is_known_erc1967_implementation(
+         4663,
+         address!("000000008761E87F023f65c49DC9cb1C7EdFEaaf")
       ));
 
       let legacy = address!("5467b1947F47d0646704EB801E075e72aeAe8113");

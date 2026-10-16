@@ -1074,6 +1074,15 @@ mod tests {
       let account = classify_recipient(42161, &code, None, Some(nexus));
       assert_eq!(account, RecipientAccount::SmartAccount);
       assert!(refuse_contract_recipient(recipient, account).is_ok());
+
+      let nexus_v133 = address!("0000B1c01cB3b5770D8806f0D214d50131a08a5B");
+      let account = classify_recipient(4663, &code, None, Some(nexus_v133));
+      assert_eq!(account, RecipientAccount::SmartAccount);
+      assert!(refuse_contract_recipient(recipient, account).is_ok());
+
+      let nexus_v131 = address!("54F220e4f0DEAb58Be26153df5a674668B9d7Fb2");
+      let account = classify_recipient(56, &code, None, Some(nexus_v131));
+      assert_eq!(account, RecipientAccount::Contract);
    }
 
    /// The legacy Alchemy LightAccount proxies were only deployed on Ethereum, Sepolia,
