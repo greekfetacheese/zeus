@@ -1911,15 +1911,16 @@ async fn add_nft_collection(
       ws.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
    });
 
-   // Logs internally.
-   ctx.save_nft_db();
+   RT.spawn_blocking(move || {
+      ctx.save_nft_db();
 
-   if let Err(e) = ctx.save_wallet_state() {
-      tracing::error!(
-         "Error saving wallet state after adding a collection: {:?}",
-         e
-      );
-   }
+      if let Err(e) = ctx.save_wallet_state() {
+         tracing::error!(
+            "Error saving wallet state after adding a collection: {:?}",
+            e
+         );
+      }
+   });
 
    Ok(CollectionAdd::Tracked {
       name,
@@ -2037,7 +2038,6 @@ fn delete_nft(chain_id: u64, owner: Address, token: NftToken, name: String) {
             ws.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
          });
 
-         // Logs internally.
          ctx.save_nft_db();
 
          if let Err(e) = ctx.save_wallet_state() {

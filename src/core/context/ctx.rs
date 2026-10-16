@@ -1904,7 +1904,6 @@ impl ZeusCtx {
          ctx.nft_db.insert_collection(chain, collection);
          ctx.nft_db.insert_nft(nft.clone());
       });
-      self.save_nft_db();
 
       Ok(nft)
    }

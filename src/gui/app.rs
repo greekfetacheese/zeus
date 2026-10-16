@@ -293,6 +293,7 @@ fn begin_shutdown(
 
                ctx.save_client_manager();
                ctx.save_pool_manager();
+               ctx.save_nft_db();
                ctx.save_currency_db();
                ctx.save_address_book();
                ctx.save_price_manager();

@@ -251,6 +251,10 @@ async fn discover_nfts(ctx: ZeusCtx, chain: u64, owner: Address, transfers: &[Nf
          );
       }
    }
+
+   RT.spawn_blocking(move || {
+      ctx.save_nft_db();
+   });
 }
 
 /// The tokens a transaction brought *into* `owner`'s wallet: one entry per moved token, so an
