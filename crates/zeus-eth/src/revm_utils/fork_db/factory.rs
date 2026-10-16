@@ -132,7 +132,7 @@ where
       self.initial_db.insert_account_info(address, info);
    }
 
-   /// Insert this dummy account into the fork enviroment
+   /// Insert this dummy account into the fork environment
    pub fn insert_dummy_account(&mut self, account: DummyAccount) {
       let code = match account.account_type {
          AccountType::EOA => Bytecode::default(),

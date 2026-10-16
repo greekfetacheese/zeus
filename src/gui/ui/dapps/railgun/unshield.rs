@@ -402,7 +402,7 @@ async fn unshield_via_paymaster(
    let fee_token = ERC20Token::wrapped_native_token(chain.id());
 
    // handleOps caller = any funded EOA (bundler). Use a random wallet for the sim
-   // since in the fork enviroment we dont check for gas
+   // since in the fork environment we dont check for gas
    let bundle_caller = PrivateKeySigner::random().address();
 
    // Ephemeral smart-account owner for the UserOp.
