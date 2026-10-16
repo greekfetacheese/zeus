@@ -2,7 +2,7 @@ use crate::core::ZeusCtx;
 use crate::core::serde_hashmap;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use tracing::{debug, error};
+use tracing::error;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
@@ -432,7 +432,8 @@ async fn process_private_tokens(
    };
 
    if !wallet.can_derive_zk_address() {
-      debug!(
+      #[cfg(feature = "dev")]
+      tracing::debug!(
          "Wallet {} cannot derive a zkAddress",
          wallet.name_with_id()
       );
