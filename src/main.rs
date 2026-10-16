@@ -75,9 +75,31 @@ fn main() -> eframe::Result {
    // and must NEVER fall through into the GUI, Brave/Chrome spawn this process
    // on every sendNativeMessage and kill it when the handshake ends.
    if connector::is_native_messaging_invocation() {
-      if let Err(e) = connector::run_native_messaging_host() {
-         eprintln!("zeus connector host: {e}");
-         std::process::exit(1);
+      // The host is a blocking stdio loop, so a plain thread rather than `RT.spawn_blocking`:
+      // this is a per-handshake stdio shim and must not build the multi-thread tokio runtime.
+      // Running it off `main` also means a panic inside it is reported by the panic hook
+      // instead of unwinding `main`.
+      let host = std::thread::Builder::new()
+         .name("connector-host".into())
+         .spawn(connector::run_native_messaging_host);
+      let host = match host {
+         Ok(host) => host,
+         Err(e) => {
+            eprintln!("zeus connector host: {e}");
+            std::process::exit(1);
+         }
+      };
+      match host.join() {
+         Ok(Ok(())) => {}
+         Ok(Err(e)) => {
+            eprintln!("zeus connector host: {e}");
+            std::process::exit(1);
+         }
+         // The panic hook has already printed the panic itself; this is the summary.
+         Err(_) => {
+            eprintln!("zeus connector host: the host thread panicked");
+            std::process::exit(1);
+         }
       }
       return Ok(());
    }
