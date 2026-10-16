@@ -353,20 +353,38 @@ pub async fn read_recipient_account(
    ))
 }
 
+/// Shown when the funds screen cannot read the recipient's account state: Zeus refuses
+/// the send rather than proceed unscreened.
+const RECIPIENT_UNVERIFIABLE_MSG: &str = "Zeus could not check the recipient, so the transaction was not sent. Check that network's RPC in Settings and try again.";
+
 /// Read the recipient's code first and refuse a funds send to a contract before any
 /// simulation runs: the send can never proceed, so nothing expensive should start. A plain
 /// EOA, an EIP-7702 delegated EOA, a Safe proxy, a registered smart-account proxy
 /// (ERC-1967) or a registered clone (EIP-1167) all pass; only a plain contract is refused.
 ///
 /// `chain` is the chain the funds land on (the destination chain for a bridge). A failed
-/// read is an error too — the guard must never skip silently.
+/// read is an error too — the guard must never skip silently: it refuses with
+/// [`RECIPIENT_UNVERIFIABLE_MSG`] and logs the underlying error.
 pub async fn ensure_recipient_is_not_contract(
    ctx: ZeusCtx,
    chain: ChainId,
    recipient: Address,
 ) -> Result<(), anyhow::Error> {
-   let client = ctx.get_client(chain.id()).await?;
-   let account = read_recipient_account(&client, chain.id(), recipient).await?;
+   let client = ctx.get_client(chain.id()).await.map_err(|e| {
+      tracing::error!(
+         "Could not open a client for the recipient screen: {:?}",
+         e
+      );
+      anyhow!(RECIPIENT_UNVERIFIABLE_MSG)
+   })?;
+
+   let account = read_recipient_account(&client, chain.id(), recipient).await.map_err(|e| {
+      tracing::error!(
+         "Failed to read the recipient for the funds screen: {:?}",
+         e
+      );
+      anyhow!(RECIPIENT_UNVERIFIABLE_MSG)
+   })?;
 
    refuse_contract_recipient(recipient, account)
 }
