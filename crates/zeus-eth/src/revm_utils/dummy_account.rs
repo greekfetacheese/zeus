@@ -12,7 +12,7 @@ pub enum AccountType {
    Contract(Bytecode),
 }
 
-/// Represents a dummy account we want to insert into the fork enviroment
+/// Represents a dummy account we want to insert into the fork environment
 #[derive(Clone, Debug)]
 pub struct DummyAccount {
    pub account_type: AccountType,
