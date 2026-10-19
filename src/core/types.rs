@@ -286,58 +286,84 @@ pub const MAX_HOLD_SECONDS: f32 = 1.0;
 /// would make every send feel slow. The user can still reach `1.0` s.
 pub const DEFAULT_HOLD_SECONDS: f32 = 0.6;
 
-/// Shortest completion-burst duration, in milliseconds (the crate's slider floor).
-pub const MIN_BURST_MS: f32 = 0.0;
+// The hold/burst bounds below mirror the sliders in the crate's own
+// `egui_elements::HoldSettings::body_ui` (`egui-elements/src/widgets/hold.rs`), so
+// Zeus offers exactly the ranges the crate's controls accept. Keep them in sync
+// with that function rather than guessing a range.
 
-/// Longest completion-burst duration, in milliseconds (the crate's slider ceiling).
+/// Shortest completion-burst duration, in milliseconds — mirrors the crate's own
+/// `Duration (ms)` slider floor.
+///
+/// Because the floor is `80`, a hand-edited `0` clamps to `80` instead of meaning
+/// "no burst": [`egui_elements::HoldBurst::Off`] is how the burst is disabled, and
+/// `burst_intensity = 0.0` still means "no burst" in the crate.
+pub const MIN_BURST_MS: f32 = 80.0;
+
+/// Longest completion-burst duration, in milliseconds — mirrors the crate's own
+/// `Duration (ms)` slider ceiling.
 pub const MAX_BURST_MS: f32 = 2_000.0;
 
-/// Weakest completion-burst intensity (a burst is effectively off at `0.0`).
+/// Weakest completion-burst intensity — mirrors the crate's own `Intensity` slider
+/// floor. At `0.0` the crate paints no burst.
 pub const MIN_BURST_INTENSITY: f32 = 0.0;
 
-/// Strongest completion-burst intensity accepted by the crate.
+/// Strongest completion-burst intensity — mirrors the crate's own `Intensity`
+/// slider ceiling.
 pub const MAX_BURST_INTENSITY: f32 = 1.0;
 
-/// Fewest lightning bolts a burst may strike.
+/// Fewest lightning bolts a burst may strike — mirrors the crate's own `Bolts`
+/// slider floor.
 pub const MIN_BURST_BOLTS: usize = 1;
 
-/// Most lightning bolts a burst may strike (the crate's slider ceiling).
-pub const MAX_BURST_BOLTS: usize = 8;
+/// Most lightning bolts a burst may strike — mirrors the crate's own `Bolts`
+/// slider ceiling.
+pub const MAX_BURST_BOLTS: usize = 5;
 
-/// Shallowest lightning branch recursion (`0` draws the trunk only).
+/// Shallowest lightning branch recursion (`0` draws the trunk only) — mirrors the
+/// crate's own `Branch depth` slider floor.
 pub const MIN_BRANCH_DEPTH: u32 = 0;
 
-/// Deepest lightning branch recursion accepted by the crate.
-pub const MAX_BRANCH_DEPTH: u32 = 4;
+/// Deepest lightning branch recursion — mirrors the crate's own `Branch depth`
+/// slider ceiling.
+pub const MAX_BRANCH_DEPTH: u32 = 3;
 
-/// Thinnest lightning core stroke, in pixels.
+/// Thinnest lightning core stroke, in pixels — mirrors the crate's own
+/// `Thickness (px)` slider floor.
 pub const MIN_THICKNESS: f32 = 0.5;
 
-/// Thickest lightning core stroke, in pixels (the crate's slider ceiling).
+/// Thickest lightning core stroke, in pixels — mirrors the crate's own
+/// `Thickness (px)` slider ceiling.
 pub const MAX_THICKNESS: f32 = 12.0;
 
-/// Smallest midpoint jitter, as a fraction of a lightning segment's length.
+/// Smallest midpoint jitter, as a fraction of a lightning segment's length —
+/// mirrors the crate's own `Jitter` slider floor.
 pub const MIN_JITTER: f32 = 0.0;
 
-/// Largest midpoint jitter accepted by the crate's own control.
+/// Largest midpoint jitter, as a fraction of a lightning segment's length —
+/// mirrors the crate's own `Jitter` slider ceiling.
 pub const MAX_JITTER: f32 = 0.6;
 
-/// Smallest start radius of a glow burst, as a multiple of the button's shorter side.
+/// Smallest start radius of a glow burst, as a multiple of the button's shorter
+/// side — mirrors the crate's own `Size from` slider floor.
 pub const MIN_GLOW_FROM: f32 = 0.2;
 
-/// Largest start radius of a glow burst.
+/// Largest start radius of a glow burst — mirrors the crate's own `Size from`
+/// slider ceiling.
 pub const MAX_GLOW_FROM: f32 = 4.0;
 
-/// Smallest end radius of a glow burst.
+/// Smallest end radius of a glow burst — mirrors the crate's own `Size to` slider
+/// floor.
 pub const MIN_GLOW_TO: f32 = 0.2;
 
-/// Largest end radius of a glow burst.
+/// Largest end radius of a glow burst — mirrors the crate's own `Size to` slider
+/// ceiling.
 pub const MAX_GLOW_TO: f32 = 6.0;
 
-/// Tightest glow falloff softness.
+/// Tightest glow falloff softness — mirrors the crate's own `Softness` slider
+/// floor.
 pub const MIN_GLOW_SOFTNESS: f32 = 0.2;
 
-/// Softest glow falloff accepted by the crate's own control.
+/// Softest glow falloff — mirrors the crate's own `Softness` slider ceiling.
 pub const MAX_GLOW_SOFTNESS: f32 = 3.0;
 
 /// Hold-to-confirm and completion-burst appearance settings.
@@ -1709,6 +1735,31 @@ mod tests {
          MAX_GLOW_SOFTNESS
       );
       assert!(settings.hold.burst_glow_to >= settings.hold.burst_glow_from);
+
+      // A hand-edited `0` is below the crate's slider floor, so it clamps to `80`:
+      // `HoldBurst::Off`, not a zero duration, is how the burst is disabled.
+      settings.hold.burst_ms = 0.0;
+      settings.clamp();
+      assert_eq!(settings.hold.burst_ms, MIN_BURST_MS);
+      assert_eq!(MIN_BURST_MS, 80.0);
+   }
+
+   /// The bounds are the crate's own slider ranges, not guesses: each pair must
+   /// match `HoldSettings::body_ui` in `egui-elements/src/widgets/hold.rs`.
+   #[test]
+   fn burst_bounds_mirror_the_crates_own_controls() {
+      assert_eq!((MIN_BURST_MS, MAX_BURST_MS), (80.0, 2_000.0));
+      assert_eq!(
+         (MIN_BURST_INTENSITY, MAX_BURST_INTENSITY),
+         (0.0, 1.0)
+      );
+      assert_eq!((MIN_BURST_BOLTS, MAX_BURST_BOLTS), (1, 5));
+      assert_eq!((MIN_BRANCH_DEPTH, MAX_BRANCH_DEPTH), (0, 3));
+      assert_eq!((MIN_THICKNESS, MAX_THICKNESS), (0.5, 12.0));
+      assert_eq!((MIN_JITTER, MAX_JITTER), (0.0, 0.6));
+      assert_eq!((MIN_GLOW_FROM, MAX_GLOW_FROM), (0.2, 4.0));
+      assert_eq!((MIN_GLOW_TO, MAX_GLOW_TO), (0.2, 6.0));
+      assert_eq!((MIN_GLOW_SOFTNESS, MAX_GLOW_SOFTNESS), (0.2, 3.0));
    }
 
    #[test]
