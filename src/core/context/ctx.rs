@@ -39,8 +39,8 @@ use zeus_eth::{
 use zeus_railgun::{RailgunAddress, RailgunProvider, RailgunSigner, SnapshotLoader};
 
 pub use persisted::{
-   bundler_url_dir, data_dir, disabled_chains_dir, misc_config_dir, pool_data_dir,
-   railgun_config_dir, railgun_db_file, railgun_dir, security_dir, theme_kind_dir,
+   appearance_settings_dir, bundler_url_dir, data_dir, disabled_chains_dir, misc_config_dir,
+   pool_data_dir, railgun_config_dir, railgun_db_file, railgun_dir, security_dir, theme_kind_dir,
 };
 
 /// This is the minimum USD value in a base currency that a pool needs to have in order to be considered sufficiently liquid
@@ -1300,6 +1300,10 @@ impl ZeusCtx {
       match MiscConfig::load_from_file() {
          Ok(config) => self.write(|ctx| ctx.misc_config = config),
          Err(_) => self.write(|ctx| ctx.misc_config = MiscConfig::default()),
+      }
+      match AppearanceSettings::load_from_file() {
+         Ok(config) => self.write(|ctx| ctx.appearance_settings = config),
+         Err(_) => self.write(|ctx| ctx.appearance_settings = AppearanceSettings::default()),
       }
 
       self.load_currency_db();
@@ -2595,6 +2599,9 @@ pub struct ZeusContext {
 
    /// Misc persisted settings (token icons, Sourcify names, …)
    pub misc_config: MiscConfig,
+
+   /// Hold-to-confirm and completion-burst appearance settings.
+   pub appearance_settings: AppearanceSettings,
 }
 
 /// `write_private` only tightens mode on the next save. Existing `0644` files
@@ -2681,6 +2688,14 @@ impl ZeusContext {
          }
       };
 
+      let appearance_settings = match AppearanceSettings::load_from_file() {
+         Ok(config) => config,
+         Err(e) => {
+            tracing::error!("Failed to load appearance settings: {:?}", e);
+            AppearanceSettings::default()
+         }
+      };
+
       let priority_fee = PriorityFee::default();
 
       Self {
@@ -2737,6 +2752,7 @@ impl ZeusContext {
          railgun_status: RailgunStatus::new(),
          railgun_config,
          misc_config,
+         appearance_settings,
       }
    }
 

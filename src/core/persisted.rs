@@ -107,6 +107,7 @@ persisted_files! {
    DisabledChains => "disabled_chains.json",
    RailgunConfig => "railgun_config.json",
    MiscConfig => "misc_config.json",
+   Appearance => "appearance_settings.json",
    Security => "security.data",
    AcrossSettings => "across_settings.json",
    ClientSettings => "client_settings.json",
@@ -160,6 +161,7 @@ impl Persisted {
             | PersistedFile::DisabledChains
             | PersistedFile::RailgunConfig
             | PersistedFile::MiscConfig
+            | PersistedFile::Appearance
             | PersistedFile::Security
             | PersistedFile::AcrossSettings
             | PersistedFile::ClientSettings,
@@ -206,6 +208,7 @@ impl PersistedFile {
          | Self::DisabledChains
          | Self::RailgunConfig
          | Self::MiscConfig
+         | Self::Appearance
          | Self::AcrossSettings
          | Self::ClientSettings
          | Self::Connector
@@ -347,6 +350,10 @@ pub fn railgun_config_dir() -> Result<PathBuf, anyhow::Error> {
 
 pub fn misc_config_dir() -> Result<PathBuf, anyhow::Error> {
    file_path(PersistedFile::MiscConfig)
+}
+
+pub fn appearance_settings_dir() -> Result<PathBuf, anyhow::Error> {
+   file_path(PersistedFile::Appearance)
 }
 
 pub fn security_dir() -> Result<PathBuf, anyhow::Error> {
@@ -600,6 +607,21 @@ mod tests {
          !is_allowed_rel_parts(&["security.data.bak".to_string()]),
          "only the exact file name is a known path"
       );
+   }
+
+   /// Appearance settings are user data and deliberately unencrypted, so they
+   /// travel with an export but never join the sealed stores.
+   #[test]
+   fn appearance_settings_are_a_core_unsealed_file() {
+      assert_eq!(
+         PersistedFile::Appearance.name(),
+         "appearance_settings.json"
+      );
+      assert_eq!(
+         PersistedFile::Appearance.export_policy(),
+         ExportPolicy::Core
+      );
+      assert!(!PersistedFile::Appearance.is_sealed());
    }
 
    /// NFT image paths are `nft_icons/{chain}/{collection}/{tokenId}/x*.png` and nothing else.

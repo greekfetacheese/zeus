@@ -268,6 +268,14 @@ impl SignMsgWindow {
                         let text = RichText::new(sign_label).size(normal);
                         let ok_btn = Button::new(text).min_size(button_size);
 
+                        // Copy the settings out of `ctx` first: the widget needs an
+                        // owned value, and `HoldSettings` is `Copy`.
+                        let hold = ctx.appearance_settings.button_settings();
+                        let ok_btn = match &hold {
+                           Some(settings) => ok_btn.hold_settings(settings),
+                           None => ok_btn,
+                        };
+
                         if ui.add_enabled(sign_ready, ok_btn).clicked() {
                            self.signed = Some(true);
                            self.close();

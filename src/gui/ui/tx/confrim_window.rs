@@ -672,6 +672,14 @@ impl TxConfirmationWindow {
                      let text = RichText::new(confirm_label).size(theme.typography.large);
                      let confirm = Button::new(text).min_size(button_size).visuals(button_visuals);
 
+                     // Copy the settings out of `ctx` first: the widget needs an
+                     // owned value, and `HoldSettings` is `Copy`.
+                     let hold = ctx.appearance_settings.button_settings();
+                     let confirm = match &hold {
+                        Some(settings) => confirm.hold_settings(settings),
+                        None => confirm,
+                     };
+
                      if ui.add_enabled(sufficient_balance && confirm_ready, confirm).clicked() {
                         self.confirmed_or_rejected = Some(true);
                         self.close();

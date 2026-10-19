@@ -10,8 +10,8 @@ use zeus_eth::{
 use crate::core::{
    WalletInfo, WalletStateKey, ZK_ADDRESS_UNAVAILABLE,
    context::{
-      DELEGATE_WALLET_CHECK_TIMEOUT, disabled_chains_dir, misc_config_dir, railgun_config_dir,
-      security_dir,
+      DELEGATE_WALLET_CHECK_TIMEOUT, appearance_settings_dir, disabled_chains_dir, misc_config_dir,
+      railgun_config_dir, security_dir,
    },
 };
 use crate::utils::{TimeStamp, truncate_address, write_private, write_private_atomic};
@@ -22,6 +22,7 @@ use zeus_railgun::indexer::syncer::rpc::{
 
 use serde::{Deserialize, Serialize};
 
+use egui_elements::HoldSettings;
 use ncrypt_me::Argon2;
 
 const DEFAULT_STATE_UPDATE_INTERVAL_MINUTES: u64 = 5;
@@ -267,6 +268,198 @@ impl MiscConfig {
 }
 
 impl Default for MiscConfig {
+   fn default() -> Self {
+      Self::new()
+   }
+}
+
+/// Shortest hold-to-confirm duration Zeus allows, in seconds.
+pub const MIN_HOLD_SECONDS: f32 = 0.4;
+
+/// Longest hold-to-confirm duration Zeus allows, in seconds.
+pub const MAX_HOLD_SECONDS: f32 = 1.0;
+
+/// Zeus's default hold-to-confirm duration, in seconds.
+///
+/// `0.6` s blocks a misclick without taxing every confirmation: the crate's own
+/// `1.0` s default is a demo value, and at the top of the range Zeus allows it
+/// would make every send feel slow. The user can still reach `1.0` s.
+pub const DEFAULT_HOLD_SECONDS: f32 = 0.6;
+
+/// Shortest completion-burst duration, in milliseconds (the crate's slider floor).
+pub const MIN_BURST_MS: f32 = 0.0;
+
+/// Longest completion-burst duration, in milliseconds (the crate's slider ceiling).
+pub const MAX_BURST_MS: f32 = 2_000.0;
+
+/// Weakest completion-burst intensity (a burst is effectively off at `0.0`).
+pub const MIN_BURST_INTENSITY: f32 = 0.0;
+
+/// Strongest completion-burst intensity accepted by the crate.
+pub const MAX_BURST_INTENSITY: f32 = 1.0;
+
+/// Fewest lightning bolts a burst may strike.
+pub const MIN_BURST_BOLTS: usize = 1;
+
+/// Most lightning bolts a burst may strike (the crate's slider ceiling).
+pub const MAX_BURST_BOLTS: usize = 8;
+
+/// Shallowest lightning branch recursion (`0` draws the trunk only).
+pub const MIN_BRANCH_DEPTH: u32 = 0;
+
+/// Deepest lightning branch recursion accepted by the crate.
+pub const MAX_BRANCH_DEPTH: u32 = 4;
+
+/// Thinnest lightning core stroke, in pixels.
+pub const MIN_THICKNESS: f32 = 0.5;
+
+/// Thickest lightning core stroke, in pixels (the crate's slider ceiling).
+pub const MAX_THICKNESS: f32 = 12.0;
+
+/// Smallest midpoint jitter, as a fraction of a lightning segment's length.
+pub const MIN_JITTER: f32 = 0.0;
+
+/// Largest midpoint jitter accepted by the crate's own control.
+pub const MAX_JITTER: f32 = 0.6;
+
+/// Smallest start radius of a glow burst, as a multiple of the button's shorter side.
+pub const MIN_GLOW_FROM: f32 = 0.2;
+
+/// Largest start radius of a glow burst.
+pub const MAX_GLOW_FROM: f32 = 4.0;
+
+/// Smallest end radius of a glow burst.
+pub const MIN_GLOW_TO: f32 = 0.2;
+
+/// Largest end radius of a glow burst.
+pub const MAX_GLOW_TO: f32 = 6.0;
+
+/// Tightest glow falloff softness.
+pub const MIN_GLOW_SOFTNESS: f32 = 0.2;
+
+/// Softest glow falloff accepted by the crate's own control.
+pub const MAX_GLOW_SOFTNESS: f32 = 3.0;
+
+/// Hold-to-confirm and completion-burst appearance settings.
+///
+/// Persisted as the unencrypted `appearance_settings.json`. Because the file is
+/// not sealed, every value is bounded: [`Self::clamp`] runs on load, when the
+/// settings page opens, on every save, and on every [`Self::button_settings`]
+/// copy — so a hand-edited file can never drive a slider or a particle effect
+/// out of its supported range.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct AppearanceSettings {
+   /// When true, the affirmative button in the tx and sign windows requires a
+   /// hold. Off by default: the feature is opt-in.
+   #[serde(default)]
+   pub hold_to_confirm: bool,
+   /// The crate's knobs for the hold sweep and the completion burst.
+   #[serde(default)]
+   pub hold: HoldSettings,
+}
+
+impl AppearanceSettings {
+   pub fn new() -> Self {
+      Self {
+         hold_to_confirm: false,
+         hold: HoldSettings {
+            open: false,
+            seconds: DEFAULT_HOLD_SECONDS,
+            ..HoldSettings::default()
+         },
+      }
+   }
+
+   /// Pull every numeric knob back into its supported range.
+   ///
+   /// Also pins [`HoldSettings::open`] to `false` — Zeus never opens the crate's
+   /// own settings window — and keeps the glow end radius at or above the start
+   /// radius, so the fill band never shrinks as it expands.
+   pub fn clamp(&mut self) {
+      self.hold.open = false;
+      self.hold.seconds = self.hold.seconds.clamp(MIN_HOLD_SECONDS, MAX_HOLD_SECONDS);
+      self.hold.burst_ms = self.hold.burst_ms.clamp(MIN_BURST_MS, MAX_BURST_MS);
+      self.hold.burst_intensity =
+         self.hold.burst_intensity.clamp(MIN_BURST_INTENSITY, MAX_BURST_INTENSITY);
+      self.hold.burst_bolts = self.hold.burst_bolts.clamp(MIN_BURST_BOLTS, MAX_BURST_BOLTS);
+      self.hold.burst_branch_depth =
+         self.hold.burst_branch_depth.clamp(MIN_BRANCH_DEPTH, MAX_BRANCH_DEPTH);
+      self.hold.burst_thickness = self.hold.burst_thickness.clamp(MIN_THICKNESS, MAX_THICKNESS);
+      self.hold.burst_jitter = self.hold.burst_jitter.clamp(MIN_JITTER, MAX_JITTER);
+      self.hold.burst_glow_from = self.hold.burst_glow_from.clamp(MIN_GLOW_FROM, MAX_GLOW_FROM);
+      self.hold.burst_glow_to = self
+         .hold
+         .burst_glow_to
+         .clamp(MIN_GLOW_TO, MAX_GLOW_TO)
+         .max(self.hold.burst_glow_from);
+      self.hold.burst_glow_softness =
+         self.hold.burst_glow_softness.clamp(MIN_GLOW_SOFTNESS, MAX_GLOW_SOFTNESS);
+   }
+
+   /// Parse a settings document and clamp it.
+   ///
+   /// Tests use this instead of [`Self::load_from_file`] so they never touch the
+   /// real `data/` directory, which is resolved from the process cwd.
+   pub(crate) fn from_json(data: &str) -> Result<Self, serde_json::Error> {
+      let mut settings: Self = serde_json::from_str(data)?;
+      settings.clamp();
+      Ok(settings)
+   }
+
+   pub(crate) fn to_json(&self) -> Result<String, serde_json::Error> {
+      serde_json::to_string(self)
+   }
+
+   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+      let path = appearance_settings_dir()?;
+      let data = std::fs::read_to_string(path)?;
+      Ok(Self::from_json(&data)?)
+   }
+
+   pub fn save(&self) -> Result<(), anyhow::Error> {
+      // Every write is clamped: the file is unencrypted and may be replaced by
+      // hand, so no caller can land an out-of-range value on disk.
+      let mut settings = *self;
+      settings.clamp();
+      let path = appearance_settings_dir()?;
+      let data = settings.to_json()?;
+      write_private(&path, data.as_bytes())?;
+      Ok(())
+   }
+
+   pub fn hold_to_confirm(&self) -> bool {
+      self.hold_to_confirm
+   }
+
+   pub fn set_hold_to_confirm(&mut self, enabled: bool) {
+      self.hold_to_confirm = enabled;
+   }
+
+   pub fn hold_seconds(&self) -> f32 {
+      self.hold.seconds
+   }
+
+   /// Set the hold duration, clamped to [`MIN_HOLD_SECONDS`]`..=`[`MAX_HOLD_SECONDS`].
+   pub fn set_hold_seconds(&mut self, secs: f32) {
+      self.hold.seconds = secs.clamp(MIN_HOLD_SECONDS, MAX_HOLD_SECONDS);
+   }
+
+   /// The settings a hold-to-confirm button should use, or `None` when the
+   /// feature is off so the caller leaves the button untouched.
+   ///
+   /// The returned copy is clamped and has [`HoldSettings::open`] cleared.
+   pub fn button_settings(&self) -> Option<HoldSettings> {
+      if !self.hold_to_confirm {
+         return None;
+      }
+
+      let mut settings = *self;
+      settings.clamp();
+      Some(settings.hold)
+   }
+}
+
+impl Default for AppearanceSettings {
    fn default() -> Self {
       Self::new()
    }
@@ -1433,5 +1626,160 @@ mod tests {
          settings.credential_attempts,
          MAX_CREDENTIAL_ATTEMPTS
       );
+   }
+
+   #[test]
+   fn defaults_are_off_and_sixty_milliseconds() {
+      let settings = AppearanceSettings::new();
+      assert!(!settings.hold_to_confirm());
+      assert_eq!(settings.hold_seconds(), 0.6);
+      assert_eq!(
+         settings.hold,
+         HoldSettings {
+            seconds: 0.6,
+            ..HoldSettings::default()
+         }
+      );
+      assert_eq!(settings, AppearanceSettings::default());
+   }
+
+   #[test]
+   fn clamp_pulls_every_numeric_field_into_range() {
+      let mut settings = AppearanceSettings {
+         hold_to_confirm: true,
+         hold: HoldSettings {
+            open: true,
+            seconds: 0.01,
+            fill_from: None,
+            fill_to: None,
+            burst: egui_elements::HoldBurst::Lightning,
+            burst_color: None,
+            burst_intensity: -3.0,
+            burst_ms: 999_999.0,
+            burst_bolts: 0,
+            burst_branch_depth: 99,
+            burst_thickness: -1.0,
+            burst_jitter: 5.0,
+            burst_glow_from: 0.0,
+            burst_glow_to: 99.0,
+            burst_glow_softness: 0.01,
+         },
+      };
+
+      settings.clamp();
+
+      assert!(!settings.hold.open);
+      assert_eq!(settings.hold_seconds(), MIN_HOLD_SECONDS);
+      assert_eq!(settings.hold.burst_ms, MAX_BURST_MS);
+      assert_eq!(settings.hold.burst_intensity, MIN_BURST_INTENSITY);
+      assert_eq!(settings.hold.burst_bolts, MIN_BURST_BOLTS);
+      assert_eq!(settings.hold.burst_branch_depth, MAX_BRANCH_DEPTH);
+      assert_eq!(settings.hold.burst_thickness, MIN_THICKNESS);
+      assert_eq!(settings.hold.burst_jitter, MAX_JITTER);
+      assert_eq!(settings.hold.burst_glow_from, MIN_GLOW_FROM);
+      assert_eq!(settings.hold.burst_glow_to, MAX_GLOW_TO);
+      assert_eq!(
+         settings.hold.burst_glow_softness,
+         MIN_GLOW_SOFTNESS
+      );
+      assert!(settings.hold.burst_glow_to >= settings.hold.burst_glow_from);
+
+      // Every bound is reachable from the other side too.
+      settings.hold.seconds = 99.0;
+      settings.hold.burst_ms = -1.0;
+      settings.hold.burst_intensity = 4.0;
+      settings.hold.burst_bolts = 100;
+      settings.hold.burst_thickness = 50.0;
+      settings.hold.burst_jitter = -1.0;
+      settings.hold.burst_glow_from = 9.0;
+      settings.hold.burst_glow_to = 0.0;
+      settings.hold.burst_glow_softness = 9.0;
+      settings.clamp();
+
+      assert_eq!(settings.hold_seconds(), MAX_HOLD_SECONDS);
+      assert_eq!(settings.hold.burst_ms, MIN_BURST_MS);
+      assert_eq!(settings.hold.burst_intensity, MAX_BURST_INTENSITY);
+      assert_eq!(settings.hold.burst_bolts, MAX_BURST_BOLTS);
+      assert_eq!(settings.hold.burst_thickness, MAX_THICKNESS);
+      assert_eq!(settings.hold.burst_jitter, MIN_JITTER);
+      assert_eq!(settings.hold.burst_glow_from, MAX_GLOW_FROM);
+      assert_eq!(settings.hold.burst_glow_to, MAX_GLOW_FROM);
+      assert_eq!(
+         settings.hold.burst_glow_softness,
+         MAX_GLOW_SOFTNESS
+      );
+      assert!(settings.hold.burst_glow_to >= settings.hold.burst_glow_from);
+   }
+
+   #[test]
+   fn button_settings_is_none_until_enabled_and_clamps_afterwards() {
+      let mut settings = AppearanceSettings::new();
+      assert!(settings.button_settings().is_none());
+
+      settings.set_hold_to_confirm(true);
+      settings.set_hold_seconds(0.1);
+      let hold = settings.button_settings().expect("the feature is on");
+      assert_eq!(hold.seconds, MIN_HOLD_SECONDS);
+      assert!(!hold.open);
+
+      settings.set_hold_seconds(5.0);
+      let hold = settings.button_settings().expect("the feature is on");
+      assert_eq!(hold.seconds, MAX_HOLD_SECONDS);
+      assert!(!hold.open);
+   }
+
+   #[test]
+   fn round_trips_through_json() {
+      let mut settings = AppearanceSettings::new();
+      settings.set_hold_to_confirm(true);
+      settings.hold.fill_from = Some(egui::Color32::from_rgb(1, 2, 3));
+      settings.hold.fill_to = Some(egui::Color32::from_rgb(4, 5, 6));
+      settings.hold.burst = egui_elements::HoldBurst::Glow;
+      settings.hold.burst_glow_to = 3.5;
+
+      let json = settings.to_json().expect("serialize");
+      let restored = AppearanceSettings::from_json(&json).expect("deserialize");
+      assert_eq!(restored, settings);
+   }
+
+   /// The whole point of `#[serde(default)]`: the crate gains a knob, the file on
+   /// disk predates it, and the missing field takes its crate default.
+   #[test]
+   fn a_file_missing_new_fields_still_loads() {
+      let settings = AppearanceSettings::from_json(
+         r#"{"hold_to_confirm": true, "hold": {"burst": "Lightning"}}"#,
+      )
+      .expect("a partial document loads");
+
+      assert!(settings.hold_to_confirm());
+      assert_eq!(
+         settings.hold,
+         HoldSettings {
+            burst: egui_elements::HoldBurst::Lightning,
+            ..HoldSettings::default()
+         }
+      );
+   }
+
+   #[test]
+   fn an_out_of_range_file_is_clamped_on_load() {
+      let settings =
+         AppearanceSettings::from_json(r#"{"hold": {"seconds": 9.0}}"#).expect("clamped on load");
+      assert_eq!(settings.hold_seconds(), MAX_HOLD_SECONDS);
+
+      let settings =
+         AppearanceSettings::from_json(r#"{"hold": {"seconds": 0.0}}"#).expect("clamped on load");
+      assert_eq!(settings.hold_seconds(), MIN_HOLD_SECONDS);
+   }
+
+   #[test]
+   fn an_unknown_field_is_ignored() {
+      let settings = AppearanceSettings::from_json(
+         r#"{"hold_to_confirm": true, "some_future_knob": 1, "hold": {"seconds": 0.5}}"#,
+      )
+      .expect("unknown fields are future-compatible");
+
+      assert!(settings.hold_to_confirm());
+      assert_eq!(settings.hold_seconds(), 0.5);
    }
 }
