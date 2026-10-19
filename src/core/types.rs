@@ -22,7 +22,8 @@ use zeus_railgun::indexer::syncer::rpc::{
 
 use serde::{Deserialize, Serialize};
 
-use egui_elements::HoldSettings;
+use egui::Color32;
+use egui_elements::{HoldBurst, HoldSettings};
 use ncrypt_me::Argon2;
 
 const DEFAULT_STATE_UPDATE_INTERVAL_MINUTES: u64 = 5;
@@ -286,6 +287,11 @@ pub const MAX_HOLD_SECONDS: f32 = 1.0;
 /// would make every send feel slow. The user can still reach `1.0` s.
 pub const DEFAULT_HOLD_SECONDS: f32 = 0.6;
 
+/// Alpha of the second fill colour when the user has not picked one: the theme
+/// accent at 80, so the sweep fades to roughly 31 % opacity instead of jumping
+/// to a solid colour.
+pub const SECOND_COLOUR_ALPHA: u8 = 80;
+
 // The hold/burst bounds below mirror the sliders in the crate's own
 // `egui_elements::HoldSettings::body_ui` (`egui-elements/src/widgets/hold.rs`), so
 // Zeus offers exactly the ranges the crate's controls accept. Keep them in sync
@@ -379,18 +385,45 @@ pub struct AppearanceSettings {
    /// hold. Off by default: the feature is opt-in.
    #[serde(default)]
    pub hold_to_confirm: bool,
+   /// Whether the sweep shifts to [`Self::second_colour`] as the hold fills.
+   ///
+   /// On by default, and the reason this is a separate switch: the default
+   /// second colour is the theme accent at [`SECOND_COLOUR_ALPHA`], which is not
+   /// known when the file loads.
+   #[serde(default = "default_true")]
+   pub shift_second_colour: bool,
+   /// Colour the sweep shifts to, or `None` for the accent at
+   /// [`SECOND_COLOUR_ALPHA`].
+   #[serde(default)]
+   pub second_colour: Option<Color32>,
    /// The crate's knobs for the hold sweep and the completion burst.
    #[serde(default)]
    pub hold: HoldSettings,
 }
 
 impl AppearanceSettings {
+   /// Zeus's appearance defaults.
+   ///
+   /// The burst values differ deliberately from the crate's: the crate defaults
+   /// to a soft [`HoldBurst::Glow`], while Zeus ships a lightning-first profile
+   /// (1500 ms, two bolts, no branches, a thin 1.5 px core and a light 0.1
+   /// jitter). Every value is inside the clamps in [`Self::clamp`], and
+   /// `burst_intensity` stays `1.0` with `burst_color = None` so the burst keeps
+   /// the fill's colour.
    pub fn new() -> Self {
       Self {
          hold_to_confirm: false,
+         shift_second_colour: true,
+         second_colour: None,
          hold: HoldSettings {
             open: false,
             seconds: DEFAULT_HOLD_SECONDS,
+            burst: HoldBurst::Lightning,
+            burst_ms: 1500.0,
+            burst_bolts: 2,
+            burst_branch_depth: 0,
+            burst_thickness: 1.5,
+            burst_jitter: 0.1,
             ..HoldSettings::default()
          },
       }
@@ -473,16 +506,45 @@ impl AppearanceSettings {
    /// The settings a hold-to-confirm button should use, or `None` when the
    /// feature is off so the caller leaves the button untouched.
    ///
-   /// The returned copy is clamped and has [`HoldSettings::open`] cleared.
-   pub fn button_settings(&self) -> Option<HoldSettings> {
+   /// The returned copy is clamped, has [`HoldSettings::open`] cleared, and has
+   /// [`HoldSettings::fill_to`] resolved from [`Self::shift_second_colour`] and
+   /// [`Self::second_colour`]. `accent` is the installed theme's accent, which
+   /// is why this cannot be a stored colour: `None` means "the accent at
+   /// [`SECOND_COLOUR_ALPHA`]" and has to be resolved at paint time.
+   pub fn button_settings(&self, accent: Color32) -> Option<HoldSettings> {
       if !self.hold_to_confirm {
          return None;
       }
 
+      Some(self.resolved_hold(accent))
+   }
+
+   /// The hold settings without the feature gate, used by the settings preview so
+   /// it can demonstrate the hold while the feature is off.
+   ///
+   /// This is the one place the crate's [`HoldSettings::fill_to`] is built: the
+   /// switch picks a second colour or the crate's solid fill (`None`).
+   pub(crate) fn resolved_hold(&self, accent: Color32) -> HoldSettings {
       let mut settings = *self;
       settings.clamp();
-      Some(settings.hold)
+      let mut hold = settings.hold;
+      hold.fill_to = if settings.shift_second_colour {
+         Some(settings.second_colour.unwrap_or_else(|| accent_at(accent, SECOND_COLOUR_ALPHA)))
+      } else {
+         None
+      };
+      hold
    }
+}
+
+/// `accent` at `alpha`, in unmultiplied sRGBA.
+///
+/// Deliberately not `gamma_multiply_u8`: that scales the premultiplied channels
+/// and leaves alpha at 255, so the sweep would reach a dim opaque colour instead
+/// of fading out.
+pub(crate) fn accent_at(accent: Color32, alpha: u8) -> Color32 {
+   let [r, g, b, _] = accent.to_srgba_unmultiplied();
+   Color32::from_rgba_unmultiplied(r, g, b, alpha)
 }
 
 impl Default for AppearanceSettings {
@@ -1655,24 +1717,60 @@ mod tests {
    }
 
    #[test]
-   fn defaults_are_off_and_sixty_milliseconds() {
+   fn defaults_are_lightning_with_the_second_colour_on() {
       let settings = AppearanceSettings::new();
       assert!(!settings.hold_to_confirm());
       assert_eq!(settings.hold_seconds(), 0.6);
-      assert_eq!(
-         settings.hold,
-         HoldSettings {
-            seconds: 0.6,
-            ..HoldSettings::default()
-         }
-      );
+      assert_eq!(settings.hold.burst, HoldBurst::Lightning);
+      assert_eq!(settings.hold.burst_ms, 1500.0);
+      assert_eq!(settings.hold.burst_bolts, 2);
+      assert_eq!(settings.hold.burst_branch_depth, 0);
+      assert_eq!(settings.hold.burst_thickness, 1.5);
+      assert_eq!(settings.hold.burst_jitter, 0.1);
+      assert!(settings.shift_second_colour);
+      assert_eq!(settings.second_colour, None);
+      // The burst keeps the fill's colour and the effect's own intensity.
+      assert_eq!(settings.hold.burst_intensity, 1.0);
+      assert_eq!(settings.hold.burst_color, None);
       assert_eq!(settings, AppearanceSettings::default());
+   }
+
+   #[test]
+   fn the_second_colour_defaults_to_the_accent_at_eighty_alpha() {
+      let accent = egui::Color32::from_rgb(10, 20, 30);
+      let mut settings = AppearanceSettings::new();
+      settings.set_hold_to_confirm(true);
+
+      let expected = egui::Color32::from_rgba_unmultiplied(10, 20, 30, 80);
+      let hold = settings.button_settings(accent).expect("the feature is on");
+      assert_eq!(hold.fill_to, Some(expected));
+      assert_eq!(expected.a(), 80);
+
+      settings.second_colour = Some(egui::Color32::from_rgba_unmultiplied(1, 2, 3, 4));
+      let hold = settings.button_settings(accent).expect("the feature is on");
+      assert_eq!(
+         hold.fill_to,
+         Some(egui::Color32::from_rgba_unmultiplied(1, 2, 3, 4))
+      );
+   }
+
+   #[test]
+   fn turning_the_shift_off_paints_a_solid_fill() {
+      let accent = egui::Color32::from_rgb(10, 20, 30);
+      let mut settings = AppearanceSettings::new();
+      settings.set_hold_to_confirm(true);
+      settings.shift_second_colour = false;
+
+      let hold = settings.button_settings(accent).expect("the feature is on");
+      assert_eq!(hold.fill_to, None);
    }
 
    #[test]
    fn clamp_pulls_every_numeric_field_into_range() {
       let mut settings = AppearanceSettings {
          hold_to_confirm: true,
+         shift_second_colour: true,
+         second_colour: Some(egui::Color32::from_rgba_unmultiplied(1, 2, 3, 4)),
          hold: HoldSettings {
             open: true,
             seconds: 0.01,
@@ -1742,6 +1840,12 @@ mod tests {
       settings.clamp();
       assert_eq!(settings.hold.burst_ms, MIN_BURST_MS);
       assert_eq!(MIN_BURST_MS, 80.0);
+
+      // The second colour is a colour, not a range: `clamp` leaves it alone.
+      assert_eq!(
+         settings.second_colour,
+         Some(egui::Color32::from_rgba_unmultiplied(1, 2, 3, 4))
+      );
    }
 
    /// The bounds are the crate's own slider ranges, not guesses: each pair must
@@ -1765,16 +1869,17 @@ mod tests {
    #[test]
    fn button_settings_is_none_until_enabled_and_clamps_afterwards() {
       let mut settings = AppearanceSettings::new();
-      assert!(settings.button_settings().is_none());
+      let accent = egui::Color32::from_rgb(10, 20, 30);
+      assert!(settings.button_settings(accent).is_none());
 
       settings.set_hold_to_confirm(true);
       settings.set_hold_seconds(0.1);
-      let hold = settings.button_settings().expect("the feature is on");
+      let hold = settings.button_settings(accent).expect("the feature is on");
       assert_eq!(hold.seconds, MIN_HOLD_SECONDS);
       assert!(!hold.open);
 
       settings.set_hold_seconds(5.0);
-      let hold = settings.button_settings().expect("the feature is on");
+      let hold = settings.button_settings(accent).expect("the feature is on");
       assert_eq!(hold.seconds, MAX_HOLD_SECONDS);
       assert!(!hold.open);
    }
@@ -1784,8 +1889,8 @@ mod tests {
       let mut settings = AppearanceSettings::new();
       settings.set_hold_to_confirm(true);
       settings.hold.fill_from = Some(egui::Color32::from_rgb(1, 2, 3));
-      settings.hold.fill_to = Some(egui::Color32::from_rgb(4, 5, 6));
-      settings.hold.burst = egui_elements::HoldBurst::Glow;
+      settings.second_colour = Some(egui::Color32::from_rgba_unmultiplied(4, 5, 6, 80));
+      settings.hold.burst = HoldBurst::Glow;
       settings.hold.burst_glow_to = 3.5;
 
       let json = settings.to_json().expect("serialize");
@@ -1806,10 +1911,23 @@ mod tests {
       assert_eq!(
          settings.hold,
          HoldSettings {
-            burst: egui_elements::HoldBurst::Lightning,
+            burst: HoldBurst::Lightning,
             ..HoldSettings::default()
          }
       );
+   }
+
+   /// A file written before the shift existed has no `shift_second_colour` or
+   /// `second_colour`. A plain `#[serde(default)]` would silently give `false`
+   /// and turn the feature off; `default = "default_true"` keeps it on.
+   #[test]
+   fn a_file_written_before_the_shift_existed_still_loads() {
+      let settings =
+         AppearanceSettings::from_json(r#"{"hold_to_confirm": true, "hold": {"seconds": 0.7}}"#)
+            .expect("a pre-shift document loads");
+
+      assert!(settings.shift_second_colour);
+      assert_eq!(settings.second_colour, None);
    }
 
    #[test]

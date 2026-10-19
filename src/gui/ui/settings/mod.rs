@@ -253,11 +253,11 @@ impl SettingsUi {
                      "settings_appearance_ui_fade",
                      page == SettingsPage::Appearance,
                      |ui| {
-                        self.appearance.show(ctx, theme, ui);
+                        self.theme.show(theme, ui);
                         ui.add_space(theme.spacing.xl);
                         ui.separator();
                         ui.add_space(theme.spacing.xl);
-                        self.theme.show(theme, ui);
+                        self.appearance.show(ctx, theme, ui);
                      },
                   );
 

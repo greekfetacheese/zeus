@@ -270,7 +270,7 @@ impl SignMsgWindow {
 
                         // Copy the settings out of `ctx` first: the widget needs an
                         // owned value, and `HoldSettings` is `Copy`.
-                        let hold = ctx.appearance_settings.button_settings();
+                        let hold = ctx.appearance_settings.button_settings(theme.colors.accent);
                         let ok_btn = match &hold {
                            Some(settings) => ok_btn.hold_settings(settings),
                            None => ok_btn,

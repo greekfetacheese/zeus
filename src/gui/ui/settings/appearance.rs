@@ -6,11 +6,23 @@ use crate::core::types::{
    MAX_GLOW_FROM, MAX_GLOW_SOFTNESS, MAX_GLOW_TO, MAX_HOLD_SECONDS, MAX_JITTER, MAX_THICKNESS,
    MIN_BRANCH_DEPTH, MIN_BURST_BOLTS, MIN_BURST_INTENSITY, MIN_BURST_MS, MIN_GLOW_FROM,
    MIN_GLOW_SOFTNESS, MIN_GLOW_TO, MIN_HOLD_SECONDS, MIN_JITTER, MIN_THICKNESS,
+   SECOND_COLOUR_ALPHA, accent_at,
 };
 use crate::utils::RT;
-use egui::{Align, Color32, Layout, RichText, Sense, Ui, Vec2, vec2};
+use egui::{Align, Color32, Layout, RichText, Sense, Ui, vec2};
 use egui_elements::{Button, ComboBox, HoldBurst, HoldSettings, Label, Theme};
 use elegance::{Badge, BadgeTone};
+
+/// Fixed width of a row's label column, in points.
+const LABEL_W: f32 = 150.0;
+/// Fixed width of a row's control column, in points.
+const CONTROL_W: f32 = 200.0;
+/// Fixed width of a row's value cell, in points.
+const VALUE_W: f32 = 64.0;
+/// Width shared by the preview and Reset buttons, in points.
+const PREVIEW_BUTTON_W: f32 = 220.0;
+/// Height shared by the preview and Reset buttons, in points.
+const PREVIEW_BUTTON_H: f32 = 32.0;
 
 const ENABLE_TIP: &str = "Require a hold on Confirm and Sign. Reject and Cancel stay instant. \
                           Off by default, and the sweep plus the burst only appear while it is on.";
@@ -18,8 +30,11 @@ const DURATION_TIP: &str = "How long the affirmative button must be held before 
                             A misclick is released long before this.";
 const ACCENT_TIP: &str = "Sweep with the theme's accent colour instead of a colour of your own.";
 const FILL_FROM_TIP: &str = "Colour the hold's sweep starts at.";
-const FILL_TO_TIP: &str = "Second colour the sweep shifts to as the hold completes. \
-                           Leave it off to keep the sweep one solid colour.";
+const SHIFT_TIP: &str = "Shift the sweep to a second colour as the hold completes. On by default; \
+                         turn it off for the crate's solid fill.";
+const END_COLOUR_TIP: &str = "Colour the sweep ends at. The default is the theme accent at 80 \
+                              alpha, so it fades to about a third opacity; pick a colour to \
+                              override it.";
 const BURST_TIP: &str = "Effect played when the hold completes. Off paints nothing extra.";
 const BURST_COLOR_TIP: &str = "Colour of the completion burst. Off uses the fill colour at \
                                completion, so the burst matches the sweep.";
@@ -79,7 +94,6 @@ impl AppearanceSettingsUi {
       ui.spacing_mut().button_padding = theme.button_padding;
 
       let button_visuals = theme.button_visuals();
-      let row_size = vec2(ui.available_width(), ui.spacing().interact_size.y);
       let q_mark_text = RichText::new("?").size(theme.typography.normal);
       let combo_visuals = theme.combo_box_visuals();
       let label_visuals = theme.label_visuals();
@@ -88,10 +102,17 @@ impl AppearanceSettingsUi {
 
       let mut enabled = ctx.appearance_settings.hold_to_confirm();
       let mut changed = false;
-      Self::row(ui, row_size, &q_mark_text, ENABLE_TIP, |ui| {
-         let text = RichText::new("Require a hold to confirm").size(theme.typography.normal);
-         changed = ui.checkbox(&mut enabled, text).changed();
-      });
+      Self::row(
+         ui,
+         theme,
+         &q_mark_text,
+         ENABLE_TIP,
+         "Hold to confirm",
+         None,
+         |ui| {
+            changed = ui.checkbox(&mut enabled, "").changed();
+         },
+      );
       if changed {
          ctx.appearance_settings.set_hold_to_confirm(enabled);
          self.dirty = true;
@@ -99,17 +120,25 @@ impl AppearanceSettingsUi {
 
       ui.add_enabled_ui(enabled, |ui| {
          let mut seconds = ctx.appearance_settings.hold_seconds();
+         let value = format!("{seconds:.2} s");
          let mut changed = false;
-         Self::row(ui, row_size, &q_mark_text, DURATION_TIP, |ui| {
-            ui.label(RichText::new("Duration").size(theme.typography.normal));
-            changed = ui
-               .add(
-                  egui::Slider::new(&mut seconds, MIN_HOLD_SECONDS..=MAX_HOLD_SECONDS)
-                     .step_by(0.05)
-                     .suffix(" s"),
-               )
-               .changed();
-         });
+         Self::row(
+            ui,
+            theme,
+            &q_mark_text,
+            DURATION_TIP,
+            "Duration",
+            Some(&value),
+            |ui| {
+               changed = ui
+                  .add(
+                     egui::Slider::new(&mut seconds, MIN_HOLD_SECONDS..=MAX_HOLD_SECONDS)
+                        .step_by(0.05)
+                        .show_value(false),
+                  )
+                  .changed();
+            },
+         );
          if changed {
             ctx.appearance_settings.set_hold_seconds(seconds);
             self.dirty = true;
@@ -120,10 +149,17 @@ impl AppearanceSettingsUi {
 
          let mut use_accent = ctx.appearance_settings.hold.fill_from.is_none();
          let mut changed = false;
-         Self::row(ui, row_size, &q_mark_text, ACCENT_TIP, |ui| {
-            let text = RichText::new("Use the theme accent").size(theme.typography.normal);
-            changed = ui.checkbox(&mut use_accent, text).changed();
-         });
+         Self::row(
+            ui,
+            theme,
+            &q_mark_text,
+            ACCENT_TIP,
+            "Theme accent",
+            None,
+            |ui| {
+               changed = ui.checkbox(&mut use_accent, "").changed();
+            },
+         );
          if changed {
             ctx.appearance_settings.hold.fill_from = if use_accent {
                None
@@ -137,10 +173,17 @@ impl AppearanceSettingsUi {
             let mut rgb =
                srgb(ctx.appearance_settings.hold.fill_from.unwrap_or(theme.colors.accent));
             let mut changed = false;
-            Self::row(ui, row_size, &q_mark_text, FILL_FROM_TIP, |ui| {
-               ui.label(RichText::new("Start colour").size(theme.typography.normal));
-               changed = ui.color_edit_button_srgb(&mut rgb).changed();
-            });
+            Self::row(
+               ui,
+               theme,
+               &q_mark_text,
+               FILL_FROM_TIP,
+               "Start colour",
+               None,
+               |ui| {
+                  changed = ui.color_edit_button_srgb(&mut rgb).changed();
+               },
+            );
             if changed {
                ctx.appearance_settings.hold.fill_from =
                   Some(Color32::from_rgb(rgb[0], rgb[1], rgb[2]));
@@ -148,31 +191,46 @@ impl AppearanceSettingsUi {
             }
          }
 
-         let mut shift = ctx.appearance_settings.hold.fill_to.is_some();
+         let mut shift = ctx.appearance_settings.shift_second_colour;
          let mut changed = false;
-         Self::row(ui, row_size, &q_mark_text, FILL_TO_TIP, |ui| {
-            let text = RichText::new("Shift to a second colour").size(theme.typography.normal);
-            changed = ui.checkbox(&mut shift, text).changed();
-         });
+         Self::row(
+            ui,
+            theme,
+            &q_mark_text,
+            SHIFT_TIP,
+            "Second colour",
+            None,
+            |ui| {
+               changed = ui.checkbox(&mut shift, "").changed();
+            },
+         );
          if changed {
-            ctx.appearance_settings.hold.fill_to = if shift {
-               Some(ctx.appearance_settings.hold.fill_from.unwrap_or(theme.colors.accent))
-            } else {
-               None
-            };
+            ctx.appearance_settings.shift_second_colour = shift;
             self.dirty = true;
          }
 
          if shift {
-            let mut rgb = srgb(ctx.appearance_settings.hold.fill_to.unwrap_or(theme.colors.accent));
+            let end_colour = ctx
+               .appearance_settings
+               .second_colour
+               .unwrap_or_else(|| accent_at(theme.colors.accent, SECOND_COLOUR_ALPHA));
+            let mut rgba = end_colour.to_srgba_unmultiplied();
             let mut changed = false;
-            Self::row(ui, row_size, &q_mark_text, FILL_TO_TIP, |ui| {
-               ui.label(RichText::new("End colour").size(theme.typography.normal));
-               changed = ui.color_edit_button_srgb(&mut rgb).changed();
-            });
+            Self::row(
+               ui,
+               theme,
+               &q_mark_text,
+               END_COLOUR_TIP,
+               "End colour",
+               None,
+               |ui| {
+                  changed = ui.color_edit_button_srgba_unmultiplied(&mut rgba).changed();
+               },
+            );
             if changed {
-               ctx.appearance_settings.hold.fill_to =
-                  Some(Color32::from_rgb(rgb[0], rgb[1], rgb[2]));
+               ctx.appearance_settings.second_colour = Some(Color32::from_rgba_unmultiplied(
+                  rgba[0], rgba[1], rgba[2], rgba[3],
+               ));
                self.dirty = true;
             }
          }
@@ -189,30 +247,37 @@ impl AppearanceSettingsUi {
             .interactive(true)
             .fill_width(true);
          let mut changed = false;
-         Self::row(ui, row_size, &q_mark_text, BURST_TIP, |ui| {
-            ui.label(RichText::new("Kind").size(theme.typography.normal));
-            ComboBox::new("appearance_burst_kind", kind_label)
-               .width(ui.available_width() * 0.4)
-               .visuals(combo_visuals)
-               .show_ui(ui, |ui| {
-                  ui.spacing_mut().item_spacing.y = theme.spacing.sm;
+         Self::row(
+            ui,
+            theme,
+            &q_mark_text,
+            BURST_TIP,
+            "Kind",
+            None,
+            |ui| {
+               ComboBox::new("appearance_burst_kind", kind_label)
+                  .width(CONTROL_W)
+                  .visuals(combo_visuals)
+                  .show_ui(ui, |ui| {
+                     ui.spacing_mut().item_spacing.y = theme.spacing.sm;
 
-                  for kind in [HoldBurst::Off, HoldBurst::Glow, HoldBurst::Lightning] {
-                     let text = RichText::new(kind.to_str()).size(theme.typography.normal);
-                     let option = Label::new(text, None)
-                        .visuals(label_visuals)
-                        .expand(Some(6.0))
-                        .sense(Sense::click())
-                        .interactive(true)
-                        .fill_width(true);
+                     for kind in [HoldBurst::Off, HoldBurst::Glow, HoldBurst::Lightning] {
+                        let text = RichText::new(kind.to_str()).size(theme.typography.normal);
+                        let option = Label::new(text, None)
+                           .visuals(label_visuals)
+                           .expand(Some(6.0))
+                           .sense(Sense::click())
+                           .interactive(true)
+                           .fill_width(true);
 
-                     if ui.add(option).clicked() {
-                        chosen = kind;
+                        if ui.add(option).clicked() {
+                           chosen = kind;
+                        }
                      }
-                  }
-               });
-            changed = chosen != ctx.appearance_settings.hold.burst;
-         });
+                  });
+               changed = chosen != ctx.appearance_settings.hold.burst;
+            },
+         );
          if changed {
             ctx.appearance_settings.hold.burst = chosen;
             self.dirty = true;
@@ -222,12 +287,13 @@ impl AppearanceSettingsUi {
          let mut changed = false;
          Self::row(
             ui,
-            row_size,
+            theme,
             &q_mark_text,
             BURST_COLOR_TIP,
+            "Same as fill",
+            None,
             |ui| {
-               let text = RichText::new("Same colour as the fill").size(theme.typography.normal);
-               changed = ui.checkbox(&mut same_color, text).changed();
+               changed = ui.checkbox(&mut same_color, "").changed();
             },
          );
          if changed {
@@ -236,7 +302,7 @@ impl AppearanceSettingsUi {
             } else {
                Some(
                   ctx.appearance_settings
-                     .hold
+                     .resolved_hold(theme.colors.accent)
                      .fill_to
                      .or(ctx.appearance_settings.hold.fill_from)
                      .unwrap_or(theme.colors.accent),
@@ -251,11 +317,12 @@ impl AppearanceSettingsUi {
             let mut changed = false;
             Self::row(
                ui,
-               row_size,
+               theme,
                &q_mark_text,
                BURST_COLOR_TIP,
+               "Burst colour",
+               None,
                |ui| {
-                  ui.label(RichText::new("Burst colour").size(theme.typography.normal));
                   changed = ui.color_edit_button_srgb(&mut rgb).changed();
                },
             );
@@ -266,105 +333,171 @@ impl AppearanceSettingsUi {
             }
          }
 
+         let value = format!(
+            "{:.2}",
+            ctx.appearance_settings.hold.burst_intensity
+         );
          let mut changed = false;
-         Self::row(ui, row_size, &q_mark_text, INTENSITY_TIP, |ui| {
-            ui.label(RichText::new("Intensity").size(theme.typography.normal));
-            changed = ui
-               .add(
-                  egui::Slider::new(
-                     &mut ctx.appearance_settings.hold.burst_intensity,
-                     MIN_BURST_INTENSITY..=MAX_BURST_INTENSITY,
+         Self::row(
+            ui,
+            theme,
+            &q_mark_text,
+            INTENSITY_TIP,
+            "Intensity",
+            Some(&value),
+            |ui| {
+               changed = ui
+                  .add(
+                     egui::Slider::new(
+                        &mut ctx.appearance_settings.hold.burst_intensity,
+                        MIN_BURST_INTENSITY..=MAX_BURST_INTENSITY,
+                     )
+                     .step_by(0.05)
+                     .show_value(false),
                   )
-                  .step_by(0.05),
-               )
-               .changed();
-         });
+                  .changed();
+            },
+         );
          if changed {
             ctx.appearance_settings.clamp();
             self.dirty = true;
          }
 
+         let value = format!("{:.0} ms", ctx.appearance_settings.hold.burst_ms);
          let mut changed = false;
-         Self::row(ui, row_size, &q_mark_text, BURST_MS_TIP, |ui| {
-            ui.label(RichText::new("Burst length").size(theme.typography.normal));
-            changed = ui
-               .add(
-                  egui::Slider::new(
-                     &mut ctx.appearance_settings.hold.burst_ms,
-                     MIN_BURST_MS..=MAX_BURST_MS,
+         Self::row(
+            ui,
+            theme,
+            &q_mark_text,
+            BURST_MS_TIP,
+            "Burst length",
+            Some(&value),
+            |ui| {
+               changed = ui
+                  .add(
+                     egui::Slider::new(
+                        &mut ctx.appearance_settings.hold.burst_ms,
+                        MIN_BURST_MS..=MAX_BURST_MS,
+                     )
+                     .step_by(10.0)
+                     .show_value(false),
                   )
-                  .step_by(10.0)
-                  .suffix(" ms"),
-               )
-               .changed();
-         });
+                  .changed();
+            },
+         );
          if changed {
             ctx.appearance_settings.clamp();
             self.dirty = true;
          }
 
          if ctx.appearance_settings.hold.burst == HoldBurst::Lightning {
+            let value = format!("{}", ctx.appearance_settings.hold.burst_bolts);
             let mut changed = false;
-            Self::row(ui, row_size, &q_mark_text, BOLTS_TIP, |ui| {
-               ui.label(RichText::new("Bolts").size(theme.typography.normal));
-               changed = ui
-                  .add(egui::Slider::new(
-                     &mut ctx.appearance_settings.hold.burst_bolts,
-                     MIN_BURST_BOLTS..=MAX_BURST_BOLTS,
-                  ))
-                  .changed();
-            });
-            if changed {
-               ctx.appearance_settings.clamp();
-               self.dirty = true;
-            }
-
-            let mut changed = false;
-            Self::row(ui, row_size, &q_mark_text, DEPTH_TIP, |ui| {
-               ui.label(RichText::new("Branch depth").size(theme.typography.normal));
-               changed = ui
-                  .add(egui::Slider::new(
-                     &mut ctx.appearance_settings.hold.burst_branch_depth,
-                     MIN_BRANCH_DEPTH..=MAX_BRANCH_DEPTH,
-                  ))
-                  .changed();
-            });
-            if changed {
-               ctx.appearance_settings.clamp();
-               self.dirty = true;
-            }
-
-            let mut changed = false;
-            Self::row(ui, row_size, &q_mark_text, THICKNESS_TIP, |ui| {
-               ui.label(RichText::new("Thickness").size(theme.typography.normal));
-               changed = ui
-                  .add(
-                     egui::Slider::new(
-                        &mut ctx.appearance_settings.hold.burst_thickness,
-                        MIN_THICKNESS..=MAX_THICKNESS,
+            Self::row(
+               ui,
+               theme,
+               &q_mark_text,
+               BOLTS_TIP,
+               "Bolts",
+               Some(&value),
+               |ui| {
+                  changed = ui
+                     .add(
+                        egui::Slider::new(
+                           &mut ctx.appearance_settings.hold.burst_bolts,
+                           MIN_BURST_BOLTS..=MAX_BURST_BOLTS,
+                        )
+                        .show_value(false),
                      )
-                     .step_by(0.1),
-                  )
-                  .changed();
-            });
+                     .changed();
+               },
+            );
             if changed {
                ctx.appearance_settings.clamp();
                self.dirty = true;
             }
 
+            let value = format!(
+               "{}",
+               ctx.appearance_settings.hold.burst_branch_depth
+            );
             let mut changed = false;
-            Self::row(ui, row_size, &q_mark_text, JITTER_TIP, |ui| {
-               ui.label(RichText::new("Jitter").size(theme.typography.normal));
-               changed = ui
-                  .add(
-                     egui::Slider::new(
-                        &mut ctx.appearance_settings.hold.burst_jitter,
-                        MIN_JITTER..=MAX_JITTER,
+            Self::row(
+               ui,
+               theme,
+               &q_mark_text,
+               DEPTH_TIP,
+               "Branch depth",
+               Some(&value),
+               |ui| {
+                  changed = ui
+                     .add(
+                        egui::Slider::new(
+                           &mut ctx.appearance_settings.hold.burst_branch_depth,
+                           MIN_BRANCH_DEPTH..=MAX_BRANCH_DEPTH,
+                        )
+                        .show_value(false),
                      )
-                     .step_by(0.01),
-                  )
-                  .changed();
-            });
+                     .changed();
+               },
+            );
+            if changed {
+               ctx.appearance_settings.clamp();
+               self.dirty = true;
+            }
+
+            let value = format!(
+               "{:.1}",
+               ctx.appearance_settings.hold.burst_thickness
+            );
+            let mut changed = false;
+            Self::row(
+               ui,
+               theme,
+               &q_mark_text,
+               THICKNESS_TIP,
+               "Thickness",
+               Some(&value),
+               |ui| {
+                  changed = ui
+                     .add(
+                        egui::Slider::new(
+                           &mut ctx.appearance_settings.hold.burst_thickness,
+                           MIN_THICKNESS..=MAX_THICKNESS,
+                        )
+                        .step_by(0.1)
+                        .show_value(false),
+                     )
+                     .changed();
+               },
+            );
+            if changed {
+               ctx.appearance_settings.clamp();
+               self.dirty = true;
+            }
+
+            let value = format!("{:.3}", ctx.appearance_settings.hold.burst_jitter);
+            let mut changed = false;
+            Self::row(
+               ui,
+               theme,
+               &q_mark_text,
+               JITTER_TIP,
+               "Jitter",
+               Some(&value),
+               |ui| {
+                  changed = ui
+                     .add(
+                        egui::Slider::new(
+                           &mut ctx.appearance_settings.hold.burst_jitter,
+                           MIN_JITTER..=MAX_JITTER,
+                        )
+                        .step_by(0.01)
+                        .show_value(false),
+                     )
+                     .changed();
+               },
+            );
             if changed {
                ctx.appearance_settings.clamp();
                self.dirty = true;
@@ -372,57 +505,87 @@ impl AppearanceSettingsUi {
          }
 
          if ctx.appearance_settings.hold.burst == HoldBurst::Glow {
-            let mut changed = false;
-            Self::row(ui, row_size, &q_mark_text, GLOW_FROM_TIP, |ui| {
-               ui.label(RichText::new("Glow radius").size(theme.typography.normal));
-               changed = ui
-                  .add(
-                     egui::Slider::new(
-                        &mut ctx.appearance_settings.hold.burst_glow_from,
-                        MIN_GLOW_FROM..=MAX_GLOW_FROM,
-                     )
-                     .step_by(0.1),
-                  )
-                  .changed();
-            });
-            if changed {
-               ctx.appearance_settings.clamp();
-               self.dirty = true;
-            }
-
-            let mut changed = false;
-            Self::row(ui, row_size, &q_mark_text, GLOW_TO_TIP, |ui| {
-               ui.label(RichText::new("Glow reach").size(theme.typography.normal));
-               changed = ui
-                  .add(
-                     egui::Slider::new(
-                        &mut ctx.appearance_settings.hold.burst_glow_to,
-                        MIN_GLOW_TO..=MAX_GLOW_TO,
-                     )
-                     .step_by(0.1),
-                  )
-                  .changed();
-            });
-            if changed {
-               ctx.appearance_settings.clamp();
-               self.dirty = true;
-            }
-
+            let value = format!(
+               "{:.1}",
+               ctx.appearance_settings.hold.burst_glow_from
+            );
             let mut changed = false;
             Self::row(
                ui,
-               row_size,
+               theme,
+               &q_mark_text,
+               GLOW_FROM_TIP,
+               "Glow radius",
+               Some(&value),
+               |ui| {
+                  changed = ui
+                     .add(
+                        egui::Slider::new(
+                           &mut ctx.appearance_settings.hold.burst_glow_from,
+                           MIN_GLOW_FROM..=MAX_GLOW_FROM,
+                        )
+                        .step_by(0.1)
+                        .show_value(false),
+                     )
+                     .changed();
+               },
+            );
+            if changed {
+               ctx.appearance_settings.clamp();
+               self.dirty = true;
+            }
+
+            let value = format!(
+               "{:.1}",
+               ctx.appearance_settings.hold.burst_glow_to
+            );
+            let mut changed = false;
+            Self::row(
+               ui,
+               theme,
+               &q_mark_text,
+               GLOW_TO_TIP,
+               "Glow reach",
+               Some(&value),
+               |ui| {
+                  changed = ui
+                     .add(
+                        egui::Slider::new(
+                           &mut ctx.appearance_settings.hold.burst_glow_to,
+                           MIN_GLOW_TO..=MAX_GLOW_TO,
+                        )
+                        .step_by(0.1)
+                        .show_value(false),
+                     )
+                     .changed();
+               },
+            );
+            if changed {
+               ctx.appearance_settings.clamp();
+               self.dirty = true;
+            }
+
+            let value = format!(
+               "{:.2}",
+               ctx.appearance_settings.hold.burst_glow_softness
+            );
+            let mut changed = false;
+            Self::row(
+               ui,
+               theme,
                &q_mark_text,
                GLOW_SOFTNESS_TIP,
+               "Softness",
+               Some(&value),
                |ui| {
-                  ui.label(RichText::new("Softness").size(theme.typography.normal));
                   changed = ui
                      .add(
                         egui::Slider::new(
                            &mut ctx.appearance_settings.hold.burst_glow_softness,
                            MIN_GLOW_SOFTNESS..=MAX_GLOW_SOFTNESS,
                         )
-                        .step_by(0.05),
+                        .step_by(0.05)
+                        .show_value(false),
                      )
                      .changed();
                },
@@ -437,31 +600,36 @@ impl AppearanceSettingsUi {
       ui.add_space(theme.spacing.xl);
       ui.label(RichText::new("Preview").size(theme.typography.very_large));
 
-      let preview = Self::preview_settings(ctx);
-      let text = RichText::new("Hold to confirm").size(theme.typography.large);
-      let button = Button::new(text)
-         .visuals(button_visuals)
-         .min_size(vec2(ui.available_width() * 0.5, theme.spacing.xl));
+      let preview = Self::preview_settings(ctx, theme.colors.accent);
+      let size = vec2(PREVIEW_BUTTON_W, PREVIEW_BUTTON_H);
+      ui.vertical_centered(|ui| {
+         let text = RichText::new("Hold to confirm").size(theme.typography.large);
+         let button = Button::new(text)
+            .visuals(button_visuals)
+            .min_size(size)
+            .label_align(Align::Center);
 
-      if ui.add(button.hold_settings(&preview)).clicked() {
-         self.preview_confirmed = true;
-      }
+         if ui.add(button.hold_settings(&preview)).clicked() {
+            self.preview_confirmed = true;
+         }
 
-      if self.preview_confirmed {
-         let text = RichText::new("Confirmed").size(theme.typography.normal);
-         ui.label(text.color(theme.colors.success));
-      }
+         if self.preview_confirmed {
+            let text = RichText::new("Confirmed").size(theme.typography.normal);
+            ui.label(text.color(theme.colors.success));
+         }
 
-      let text = RichText::new("Reset").size(theme.typography.large);
-      let button = Button::new(text)
-         .visuals(button_visuals)
-         .min_size(vec2(ui.available_width() * 0.5, theme.spacing.xl));
+         let text = RichText::new("Reset").size(theme.typography.large);
+         let button = Button::new(text)
+            .visuals(button_visuals)
+            .min_size(size)
+            .label_align(Align::Center);
 
-      if ui.add(button).clicked() {
-         ctx.appearance_settings = AppearanceSettings::new();
-         self.preview_confirmed = false;
-         self.dirty = true;
-      }
+         if ui.add(button).clicked() {
+            ctx.appearance_settings = AppearanceSettings::new();
+            self.preview_confirmed = false;
+            self.dirty = true;
+         }
+      });
 
       // One write per interaction: a slider drag releases the pointer before the
       // file is touched, and the value written is the clamped one the UI shows.
@@ -474,33 +642,58 @@ impl AppearanceSettingsUi {
 
    /// The preview always demonstrates the hold, even while the feature is off:
    /// it is the only way to feel the sweep and the burst without sending a tx.
-   fn preview_settings(ctx: &ZeusContext) -> HoldSettings {
-      let mut settings = ctx.appearance_settings;
-      settings.clamp();
-      settings.hold
+   fn preview_settings(ctx: &ZeusContext, accent: Color32) -> HoldSettings {
+      ctx.appearance_settings.resolved_hold(accent)
    }
 
-   /// One setting row: the control, then the question badge that explains it.
+   /// One setting row: label, control, value, then the question badge that
+   /// explains it. Every column has a fixed width so the badge lands on the same
+   /// x for sliders, the kind picker, the colour swatches and the checkboxes.
    fn row(
       ui: &mut Ui,
-      row_size: Vec2,
+      theme: &Theme,
       q_mark_text: &RichText,
       tip: &'static str,
+      label: &str,
+      value: Option<&str>,
       add: impl FnOnce(&mut Ui),
    ) {
-      let qmark = Badge::new(q_mark_text.clone(), BadgeTone::Info);
+      let height = ui.spacing().interact_size.y;
+
+      ui.horizontal(|ui| {
+         Self::cell(ui, LABEL_W, height, |ui| {
+            let text = RichText::new(label).size(theme.typography.normal);
+            ui.add(egui::Label::new(text).extend());
+         });
+
+         Self::cell(ui, CONTROL_W, height, add);
+
+         Self::cell(ui, VALUE_W, height, |ui| {
+            if let Some(value) = value {
+               let text = RichText::new(value).size(theme.typography.normal);
+               ui.add(egui::Label::new(text).extend());
+            }
+         });
+
+         let qmark = Badge::new(q_mark_text.clone(), BadgeTone::Info);
+         ui.add(qmark).on_hover_text(tip);
+      });
+   }
+
+   /// A fixed-width column inside [`Self::row`].
+   fn cell(ui: &mut Ui, width: f32, height: f32, add: impl FnOnce(&mut Ui)) {
       ui.allocate_ui_with_layout(
-         row_size,
+         vec2(width, height),
          Layout::left_to_right(Align::Center),
          |ui| {
+            ui.set_max_width(width);
             add(ui);
-            ui.add(qmark).on_hover_text(tip);
          },
       );
    }
 }
 
 fn srgb(color: Color32) -> [u8; 3] {
-   let [r, g, b, _a] = color.to_array();
+   let [r, g, b, _a] = color.to_srgba_unmultiplied();
    [r, g, b]
 }

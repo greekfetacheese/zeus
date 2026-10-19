@@ -674,7 +674,7 @@ impl TxConfirmationWindow {
 
                      // Copy the settings out of `ctx` first: the widget needs an
                      // owned value, and `HoldSettings` is `Copy`.
-                     let hold = ctx.appearance_settings.button_settings();
+                     let hold = ctx.appearance_settings.button_settings(theme.colors.accent);
                      let confirm = match &hold {
                         Some(settings) => confirm.hold_settings(settings),
                         None => confirm,
