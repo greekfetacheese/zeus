@@ -1,7 +1,4 @@
-use std::{
-   collections::{BTreeMap, BTreeSet, HashMap},
-   u64,
-};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use alloy_primitives::{Log, U256};
 use alloy_rpc_types::BlockId;
