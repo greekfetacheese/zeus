@@ -1,7 +1,7 @@
 //! Export Zeus `data/` into a zip that mirrors the on-disk layout.
 //!
 //! Only known persisted names are packed — never a blind directory walk of
-//! `data/`. Optional trees (`clear_signing`, `railgun`, `token_icons`) are
+//! `data/`. Optional trees (`railgun`, `token_icons`, `nft_icons`) are
 //! included only when requested, and each file name is checked before it
 //! enters the archive. The zip is not password-protected; at-rest data is
 //! already encrypted.
@@ -14,8 +14,8 @@
 //!   wallet_state.data
 //!   ...
 //!   railgun/            (optional)
-//!   clear_signing/      (optional)
 //!   token_icons/        (optional)
+//!   nft_icons/          (optional)
 //! ```
 
 use crate::core::persisted::{
@@ -30,8 +30,8 @@ use zip::ZipWriter;
 use zip::write::SimpleFileOptions;
 
 pub use crate::core::persisted::{
-   ExportOptions, is_allowed_clear_signing_file, is_allowed_railgun_file,
-   is_allowed_rel_parts as is_allowed_archive_parts, is_allowed_token_icon_rel,
+   ExportOptions, is_allowed_railgun_file, is_allowed_rel_parts as is_allowed_archive_parts,
+   is_allowed_token_icon_rel,
 };
 
 /// One file that passed the name check, ready to pack.
@@ -258,10 +258,6 @@ mod tests {
          b"db",
       );
       write_file(
-         &dir.path().join("clear_signing").join("index.eip712.json"),
-         b"{}",
-      );
-      write_file(
          &dir
             .path()
             .join("token_icons")
@@ -297,18 +293,6 @@ mod tests {
          b"nope",
       );
       write_file(
-         &dir.path().join("clear_signing").join("index.calldata.json"),
-         b"{}",
-      );
-      write_file(
-         &dir.path().join("clear_signing").join(&format!("{}.json", "ab".repeat(32))),
-         b"{}",
-      );
-      write_file(
-         &dir.path().join("clear_signing").join("random.json"),
-         b"nope",
-      );
-      write_file(
          &dir
             .path()
             .join("token_icons")
@@ -328,7 +312,6 @@ mod tests {
       );
 
       let options = ExportOptions {
-         clear_signing: true,
          railgun: true,
          token_icons: true,
          nft_icons: true,
@@ -343,9 +326,6 @@ mod tests {
       assert_eq!(
          names,
          vec![
-            "data/clear_signing/abababababababababababababababababababababababababababababababab.json"
-               .to_string(),
-            "data/clear_signing/index.calldata.json".to_string(),
             "data/railgun/events-snapshot:1.db".to_string(),
             "data/railgun/railgun:1.db".to_string(),
             "data/token_icons/8453/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/x32.png".to_string(),
@@ -358,9 +338,6 @@ mod tests {
    fn name_checks_reject_path_traversal_and_junk() {
       assert!(!is_allowed_railgun_file("../vault.data"));
       assert!(!is_allowed_railgun_file("railgun:1.db.bak"));
-      assert!(!is_allowed_clear_signing_file(
-         "index.eip712.json.bak"
-      ));
       assert!(!is_allowed_token_icon_rel(Path::new(
          "../vault.data"
       )));

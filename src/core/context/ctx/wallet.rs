@@ -208,13 +208,12 @@ impl ZeusCtx {
          return false;
       }
 
-      // Read the opt-in once: it gates the registry's remote fallback as well as Sourcify, while the
-      // registry's embedded descriptors answer offline either way.
+      // Read the opt-in once: it gates Sourcify's contract-name lookup, while the registry's
+      // embedded descriptors answer offline either way.
       let fetch_names = self.read(|ctx| ctx.misc_config.fetch_contract_names());
 
       let contract_name = if let Some(name) =
-         crate::core::clear_signing::registry::resolve_contract_label(chain, address, fetch_names)
-            .await
+         crate::core::clear_signing::registry::resolve_contract_label(chain, address).await
       {
          Some(name)
       } else if fetch_names {

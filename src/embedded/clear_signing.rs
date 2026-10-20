@@ -14,6 +14,8 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 const PACK_BR: &[u8] = include_bytes!("../../embedded/clear_signing/registry.bin.br");
+/// SHA-256 of the raw brotli pack bytes (`registry.bin.br`), so a rebuilt pack must change this line deliberately.
+pub const PACK_SHA256: &str = "28867e6cc735d33d8694daf49973a2299a9f33e330bbbdceb08dba73cb1ace54";
 const MAGIC: &[u8; 4] = b"Z773";
 const VERSION: u8 = 1;
 const MAX_DECODED_PACK: usize = 16 * 1024 * 1024;
@@ -116,26 +118,31 @@ impl<'a> Cursor<'a> {
 #[cfg(test)]
 mod tests {
    use super::*;
-   use crate::core::clear_signing::registry_pins::{
-      REGISTRY_PIN_COUNT, is_registry_file_pinned, pinned_registry_paths, verify_registry_pin,
-   };
+   use sha2::{Digest, Sha256};
+
+   fn hex_digest(bytes: &[u8]) -> String {
+      Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+   }
 
    #[test]
-   fn embedded_pack_matches_sha256_pins() {
+   fn embedded_pack_matches_the_pack_digest() {
+      let actual = hex_digest(PACK_BR);
+      assert_eq!(
+         actual, PACK_SHA256,
+         "embedded pack digest drifted; update PACK_SHA256 to {actual}"
+      );
+
       let files = FILES.get_or_init(load_pack);
-      assert_eq!(files.len(), REGISTRY_PIN_COUNT);
-      for (path, bytes) in files {
-         assert!(
-            is_registry_file_pinned(path),
-            "unpinned pack path {path}"
-         );
-         verify_registry_pin(path, bytes).unwrap_or_else(|e| panic!("{path}: {e}"));
-      }
-      for path in pinned_registry_paths() {
+      for path in ["index.eip712.json", "index.calldata.json"] {
          assert!(
             files.contains_key(path),
-            "pin missing from pack: {path}"
+            "embedded pack is missing {path}"
          );
       }
+      assert!(
+         files.len() > 1000,
+         "embedded pack has only {} entries",
+         files.len()
+      );
    }
 }

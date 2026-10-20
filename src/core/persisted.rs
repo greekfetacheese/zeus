@@ -13,10 +13,6 @@ use std::path::{Component, Path, PathBuf};
 /// Directory name for the portable data tree (cwd-relative).
 pub const DATA_DIR_NAME: &str = "data";
 
-/// ERC-7730 index files cached under [`PersistedTree::ClearSigning`].
-pub const CLEAR_SIGNING_INDEX_EIP712: &str = "index.eip712.json";
-pub const CLEAR_SIGNING_INDEX_CALLDATA: &str = "index.calldata.json";
-
 /// Downloaded token-icon basenames under [`PersistedTree::TokenIcons`].
 pub const TOKEN_ICON_X32: &str = "x32.png";
 pub const TOKEN_ICON_X24: &str = "x24.png";
@@ -119,7 +115,6 @@ persisted_files! {
 
 persisted_trees! {
    Railgun => "railgun",
-   ClearSigning => "clear_signing",
    TokenIcons => "token_icons",
    NftIcons => "nft_icons",
 }
@@ -229,7 +224,6 @@ impl PersistedTree {
    pub const fn export_label(self) -> &'static str {
       match self {
          Self::Railgun => "Include Railgun data",
-         Self::ClearSigning => "Include clear signing cache",
          Self::TokenIcons => "Include downloaded token icons",
          Self::NftIcons => "Include downloaded NFT images",
       }
@@ -244,12 +238,6 @@ impl PersistedTree {
             };
             is_allowed_railgun_file(name)
          }
-         Self::ClearSigning => {
-            let Some(name) = single_normal_name(rel) else {
-               return false;
-            };
-            is_allowed_clear_signing_file(name)
-         }
          Self::TokenIcons => is_allowed_token_icon_rel(rel),
          Self::NftIcons => is_allowed_nft_icon_rel(rel),
       }
@@ -259,7 +247,6 @@ impl PersistedTree {
 /// Optional trees the user can add on top of the core files.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ExportOptions {
-   pub clear_signing: bool,
    pub railgun: bool,
    pub token_icons: bool,
    pub nft_icons: bool,
@@ -269,7 +256,6 @@ impl ExportOptions {
    pub fn include_tree(self, tree: PersistedTree) -> bool {
       match tree {
          PersistedTree::Railgun => self.railgun,
-         PersistedTree::ClearSigning => self.clear_signing,
          PersistedTree::TokenIcons => self.token_icons,
          PersistedTree::NftIcons => self.nft_icons,
       }
@@ -278,7 +264,6 @@ impl ExportOptions {
    pub fn flag_mut(&mut self, tree: PersistedTree) -> &mut bool {
       match tree {
          PersistedTree::Railgun => &mut self.railgun,
-         PersistedTree::ClearSigning => &mut self.clear_signing,
          PersistedTree::TokenIcons => &mut self.token_icons,
          PersistedTree::NftIcons => &mut self.nft_icons,
       }
@@ -319,7 +304,7 @@ pub fn tree_dir(tree: PersistedTree) -> Result<PathBuf, anyhow::Error> {
             );
          }
       }
-      PersistedTree::ClearSigning | PersistedTree::TokenIcons | PersistedTree::NftIcons => {}
+      PersistedTree::TokenIcons | PersistedTree::NftIcons => {}
    }
    Ok(dir)
 }
@@ -370,12 +355,6 @@ pub fn pool_data_dir() -> Result<PathBuf, anyhow::Error> {
 
 pub fn bundler_url_dir() -> Result<PathBuf, anyhow::Error> {
    file_path(PersistedFile::BundlerUrl)
-}
-
-pub fn is_allowed_clear_signing_file(name: &str) -> bool {
-   name == CLEAR_SIGNING_INDEX_EIP712
-      || name == CLEAR_SIGNING_INDEX_CALLDATA
-      || is_keccak256_json(name)
 }
 
 pub fn is_allowed_railgun_file(name: &str) -> bool {
@@ -504,13 +483,6 @@ fn single_normal_name(rel: &Path) -> Option<&str> {
 
 fn is_chain_id(s: &str) -> bool {
    !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
-}
-
-fn is_keccak256_json(name: &str) -> bool {
-   let Some(stem) = name.strip_suffix(".json") else {
-      return false;
-   };
-   stem.len() == 64 && stem.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn is_token_address_dir(s: &str) -> bool {

@@ -271,6 +271,16 @@ fn list_allowed_entries(
             file.name()?
          ));
       };
+      // The clear-signing descriptor cache is gone: descriptors now come only from the embedded,
+      // pin-verified pack. An archive written by an older Zeus still carries it, and refusing that
+      // entry would make every pre-refactor backup unimportable on first run — skip it, don't stage.
+      if parts.first() == Some(&"clear_signing".to_string()) {
+         tracing::warn!(
+            "Skipping legacy clear-signing entry in archive: {}",
+            file.name()?
+         );
+         continue;
+      }
       if !is_allowed_archive_parts(&parts) {
          return Err(anyhow!(
             "Refusing unknown file in archive: {}",
@@ -595,6 +605,49 @@ mod tests {
       assert_eq!(
          fs::read(dest_data.join("price_data.data")).unwrap(),
          b"keep-me"
+      );
+   }
+
+   /// An archive written by an older Zeus carries `data/clear_signing/`. That cache no longer
+   /// exists, so its entry must be skipped instead of failing the whole restore on first run.
+   #[test]
+   fn legacy_descriptor_cache_entries_are_skipped() {
+      let credentials = creds("user", "pass");
+      let (vault_bytes, state_bytes, _) = sample_encrypted_vault(credentials.clone());
+
+      let dir = tempfile::tempdir().unwrap();
+      let zip_path = dir.path().join("legacy.zip");
+      write_zip(
+         &zip_path,
+         &[
+            ("data/vault.data", &vault_bytes),
+            ("data/wallet_state.data", &state_bytes),
+            ("data/clear_signing/index.eip712.json", b"{}"),
+         ],
+      );
+
+      let dest = dir.path().join("out");
+      fs::create_dir(&dest).unwrap();
+
+      let mut imported = import_data_from_zip(&zip_path, &dest, credentials, None)
+         .expect("a legacy archive must still import");
+      imported.vault.erase();
+
+      assert_eq!(
+         imported.files_written, 2,
+         "the legacy cache entry is not staged"
+      );
+      assert!(
+         !dest.join("clear_signing").exists(),
+         "the obsolete cache tree must not be recreated"
+      );
+      assert_eq!(
+         fs::read(dest.join("vault.data")).unwrap(),
+         vault_bytes
+      );
+      assert_eq!(
+         fs::read(dest.join("wallet_state.data")).unwrap(),
+         state_bytes
       );
    }
 
