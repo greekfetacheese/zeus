@@ -60,10 +60,6 @@ zeus_urls! {
    Arweave => "https://arweave.net",
    // Verified-source lookups for clear signing.
    Sourcify => "https://sourcify.dev/server",
-   // ERC-7730 clear-signing registry.
-   // ? Fetched at runtime by `clear_signing/registry.rs` (purpose `ContractNames`), under the
-   // `fetch_contract_names` opt-in — the built-in registry is not the only source.
-   ClearSigningRegistry => "https://raw.githubusercontent.com/ethereum/clear-signing-erc7730-registry/master",
    // Across fee API (default; user-overridable in Bridge settings).
    AcrossSuggestedFees => "https://app.across.to/api/suggested-fees",
    // Public Pimlico bundler base (`…/{chain}/rpc`).
@@ -119,7 +115,7 @@ impl ZeusUrl {
          | Self::IpfsIo
          | Self::IpfsDwebLink
          | Self::Arweave => UrlPurpose::AssetImages,
-         Self::Sourcify | Self::ClearSigningRegistry => UrlPurpose::ContractNames,
+         Self::Sourcify => UrlPurpose::ContractNames,
          Self::ZeusReleases => UrlPurpose::Updates,
          Self::AcrossSuggestedFees => UrlPurpose::Bridge,
          Self::PimlicoBundler => UrlPurpose::Railgun,
@@ -138,7 +134,6 @@ impl ZeusUrl {
          Self::IpfsDwebLink => "NFT metadata - IPFS (dweb.link)",
          Self::Arweave => "NFT metadata - Arweave",
          Self::Sourcify => "Verified contract names - Sourcify",
-         Self::ClearSigningRegistry => "Clear-signing descriptors - ERC-7730 registry",
          Self::AcrossSuggestedFees => "Bridge fees - Across",
          Self::PimlicoBundler => "Railgun bundler - Pimlico",
          Self::RailgunCircuitArtifacts => "Railgun circuits - GitHub artifacts",

@@ -30,14 +30,12 @@ pub async fn try_clear_sign_typed_data(ctx: ZeusCtx, typed: &TypedData) -> Optio
    let type_hash = keccak256(encode_type.as_bytes());
 
    let allowed = ctx.read(|ctx| ctx.misc_config.fetch_contract_names());
-   let mut resolved =
-      registry::resolve_eip712_descriptor(chain_id, verifying, type_hash, allowed).await;
+   let mut resolved = registry::resolve_eip712_descriptor(chain_id, verifying, type_hash).await;
 
    if resolved.is_none() && allowed {
       if let Some(impl_addr) = sourcify::implementation_address(chain_id, verifying).await {
          if impl_addr != verifying {
-            resolved =
-               registry::resolve_eip712_descriptor(chain_id, impl_addr, type_hash, allowed).await;
+            resolved = registry::resolve_eip712_descriptor(chain_id, impl_addr, type_hash).await;
          }
       }
    }
@@ -96,12 +94,12 @@ pub async fn try_clear_sign_calldata(
    selector.copy_from_slice(&calldata[..4]);
 
    let allowed = ctx.read(|ctx| ctx.misc_config.fetch_contract_names());
-   let mut resolved = registry::resolve_calldata_descriptor(chain, to, allowed).await;
+   let mut resolved = registry::resolve_calldata_descriptor(chain, to).await;
 
    if resolved.is_none() && allowed {
       if let Some(impl_addr) = sourcify::implementation_address(chain, to).await {
          if impl_addr != to {
-            resolved = registry::resolve_calldata_descriptor(chain, impl_addr, allowed).await;
+            resolved = registry::resolve_calldata_descriptor(chain, impl_addr).await;
          }
       }
    }
