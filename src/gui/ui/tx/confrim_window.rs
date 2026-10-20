@@ -672,7 +672,20 @@ impl TxConfirmationWindow {
                      let text = RichText::new(confirm_label).size(theme.typography.large);
                      let confirm = Button::new(text).min_size(button_size).visuals(button_visuals);
 
-                     if ui.add_enabled(sufficient_balance && confirm_ready, confirm).clicked() {
+                     // Copy the settings out of `ctx` first: the widget needs an
+                     // owned value, and `HoldSettings` is `Copy`.
+                     let hold = ctx.appearance_settings.button_settings(theme.colors.accent);
+                     let confirm = match &hold {
+                        Some(settings) => confirm.hold_settings(settings),
+                        None => confirm,
+                     };
+
+                     // The crate's hold reports a completed hold as a click and
+                     // ignores the widget's enabled state, so readiness is required
+                     // again at the click site: a hold that began while the wallet
+                     // could pay must not confirm after the balance drops mid-hold.
+                     let actionable = Self::confirm_actionable(sufficient_balance, confirm_ready);
+                     if ui.add_enabled(actionable, confirm).clicked() && actionable {
                         self.confirmed_or_rejected = Some(true);
                         self.close();
                      }
@@ -736,6 +749,12 @@ impl TxConfirmationWindow {
       } else {
          format!("Insufficient {}", self.native_currency.symbol)
       }
+   }
+
+   /// The confirm action is available only while the button is enabled: a hold that
+   /// began before the button disabled must not confirm afterwards.
+   fn confirm_actionable(sufficient_balance: bool, confirm_ready: bool) -> bool {
+      sufficient_balance && confirm_ready
    }
 
    fn sufficient_balance(&self, ctx: &mut ZeusContext, eth_spent: U256, sender: Address) -> bool {
@@ -821,6 +840,25 @@ mod tests {
 
       assert_eq!(window.confirm_label(true), "Confirm");
       assert_eq!(window.confirm_label(false), "Insufficient ETH");
+   }
+
+   /// A completed hold must not confirm a button that has since disabled: the crate
+   /// reports the hold as a click without checking whether the widget is enabled, so
+   /// the click site re-requires readiness.
+   #[test]
+   fn confirm_is_only_actionable_while_the_button_is_enabled() {
+      assert!(!TxConfirmationWindow::confirm_actionable(
+         false, false
+      ));
+      assert!(!TxConfirmationWindow::confirm_actionable(
+         false, true
+      ));
+      assert!(!TxConfirmationWindow::confirm_actionable(
+         true, false
+      ));
+      assert!(TxConfirmationWindow::confirm_actionable(
+         true, true
+      ));
    }
 
    /// The "Gas Limit" field is an override, not decoration. It was written and edited but never read

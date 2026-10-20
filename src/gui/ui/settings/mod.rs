@@ -13,6 +13,7 @@ use egui_elements::{Frame as Frame2, Label, Theme};
 use egui_lucide::Lucide;
 use std::sync::Arc;
 
+pub mod appearance;
 pub mod autolock;
 pub mod change_credentials;
 pub mod contacts;
@@ -24,6 +25,7 @@ pub mod networks;
 pub mod railgun;
 pub mod theme;
 
+pub use appearance::AppearanceSettingsUi;
 pub use autolock::AutoLockSettings;
 pub use change_credentials::ChangeCredentialsUi;
 pub use contacts::ContactsUi;
@@ -58,6 +60,7 @@ pub struct SettingsUi {
    size_applied: bool,
    page: SettingsPage,
    general: GeneralSettings,
+   appearance: AppearanceSettingsUi,
    pub encryption: EncryptionSettings,
    pub autolock: AutoLockSettings,
    pub network: NetworkSettings,
@@ -76,6 +79,7 @@ impl SettingsUi {
          size_applied: false,
          page: SettingsPage::General,
          general: GeneralSettings::new(ctx),
+         appearance: AppearanceSettingsUi::new(ctx),
          encryption: EncryptionSettings::new(),
          autolock: AutoLockSettings::new(),
          network: NetworkSettings::new(),
@@ -101,6 +105,7 @@ impl SettingsUi {
       if !self.open {
          self.open = true;
          self.general.sync_from_ctx(ctx);
+         self.appearance.sync_from_ctx(ctx);
          self.encryption.sync_from_ctx(ctx);
          self.autolock.sync_from_ctx(ctx);
          self.railgun.sync_from_ctx(ctx);
@@ -249,6 +254,10 @@ impl SettingsUi {
                      page == SettingsPage::Appearance,
                      |ui| {
                         self.theme.show(theme, ui);
+                        ui.add_space(theme.spacing.xl);
+                        ui.separator();
+                        ui.add_space(theme.spacing.xl);
+                        self.appearance.show(ctx, theme, ui);
                      },
                   );
 

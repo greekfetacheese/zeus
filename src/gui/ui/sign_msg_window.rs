@@ -268,7 +268,21 @@ impl SignMsgWindow {
                         let text = RichText::new(sign_label).size(normal);
                         let ok_btn = Button::new(text).min_size(button_size);
 
-                        if ui.add_enabled(sign_ready, ok_btn).clicked() {
+                        // Copy the settings out of `ctx` first: the widget needs an
+                        // owned value, and `HoldSettings` is `Copy`.
+                        let hold = ctx.appearance_settings.button_settings(theme.colors.accent);
+                        let ok_btn = match &hold {
+                           Some(settings) => ok_btn.hold_settings(settings),
+                           None => ok_btn,
+                        };
+
+                        // The crate's hold reports a completed hold as a click and
+                        // ignores the widget's enabled state. `sign_ready` only goes
+                        // `false -> true` in practice (the delayed-action countdown),
+                        // so this is symmetry with the confirm window's guard and
+                        // defence rather than a live bug.
+                        let actionable = Self::sign_actionable(sign_ready);
+                        if ui.add_enabled(actionable, ok_btn).clicked() && actionable {
                            self.signed = Some(true);
                            self.close();
                         }
@@ -288,6 +302,12 @@ impl SignMsgWindow {
                });
             });
          });
+   }
+
+   /// The sign action is available only while the button is enabled: a hold that
+   /// began before the button disabled must not sign afterwards.
+   fn sign_actionable(sign_ready: bool) -> bool {
+      sign_ready
    }
 }
 
@@ -871,6 +891,14 @@ mod tests {
 
       assert!(!window.is_open());
       assert_eq!(window.take_signed(), Some(false));
+   }
+
+   /// A completed hold must not sign a button that has since disabled: the crate
+   /// reports the hold as a click without checking whether the widget is enabled.
+   #[test]
+   fn sign_is_only_actionable_while_the_button_is_enabled() {
+      assert!(!SignMsgWindow::sign_actionable(false));
+      assert!(SignMsgWindow::sign_actionable(true));
    }
 
    /// One Sign click answers exactly one flow: the answer is collected once, so a second awaiting
