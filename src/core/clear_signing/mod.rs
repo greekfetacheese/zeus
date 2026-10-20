@@ -3,7 +3,6 @@ pub mod display;
 pub mod format;
 pub mod path;
 pub mod registry;
-pub mod registry_pins;
 pub mod sourcify;
 
 pub use display::{ClearDisplay, ClearSource, DisplayField, FormattedValue, Intent};
@@ -474,7 +473,7 @@ mod tests {
 
    #[test]
    fn include_rejects_absolute_url_and_escape() {
-      use super::registry_pins::is_allowed_registry_path;
+      use super::registry::is_allowed_registry_path;
       let url = registry::resolve_include_for_tests(
          "registry/uniswap/eip712-uniswap-permit2.json",
          "https://evil.example/x.json",

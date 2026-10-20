@@ -1,7 +1,4 @@
 use super::descriptor::{self, Descriptor};
-use super::registry_pins::{
-   RegistryPinError, is_allowed_registry_path, is_registry_file_pinned, verify_registry_pin,
-};
 use crate::embedded::clear_signing as embedded_registry;
 use serde_json::Value;
 use zeus_eth::alloy_primitives::{Address, B256};
@@ -10,17 +7,35 @@ const EIP712_INDEX_PATH: &str = "index.eip712.json";
 const CALLDATA_INDEX_PATH: &str = "index.calldata.json";
 const MAX_INCLUDE_DEPTH: usize = 3;
 
-fn ensure_pinned_path(registry_path: &str) -> Result<(), anyhow::Error> {
+/// Reject path traversal / absolute URLs before any embedded lookup.
+///
+/// Guards the shape of a registry path, not its integrity: descriptor bytes come
+/// only from the embedded pack, whose digest is pinned by
+/// [`crate::embedded::clear_signing::PACK_SHA256`].
+pub(super) fn is_allowed_registry_path(path: &str) -> bool {
+   if path.is_empty() || path.starts_with('/') || path.contains('\\') {
+      return false;
+   }
+   if !path.ends_with(".json") {
+      return false;
+   }
+   let mut parts: Vec<&str> = Vec::new();
+   for seg in path.split('/') {
+      if seg.is_empty() || seg == "." || seg == ".." {
+         return false;
+      }
+      parts.push(seg);
+   }
+   match parts[0] {
+      "index.eip712.json" | "index.calldata.json" if parts.len() == 1 => true,
+      "registry" | "ercs" if parts.len() >= 2 => true,
+      _ => false,
+   }
+}
+
+fn ensure_allowed_path(registry_path: &str) -> Result<(), anyhow::Error> {
    if !is_allowed_registry_path(registry_path) {
       anyhow::bail!("refusing registry path {registry_path}");
-   }
-   if !is_registry_file_pinned(registry_path) {
-      return Err(
-         RegistryPinError::Unpinned {
-            path: registry_path.to_string(),
-         }
-         .into(),
-      );
    }
    Ok(())
 }
@@ -29,12 +44,11 @@ fn read_embedded_json(registry_path: &str) -> Result<Option<Value>, anyhow::Erro
    let Some(bytes) = embedded_registry::get(registry_path) else {
       return Ok(None);
    };
-   verify_registry_pin(registry_path, bytes)?;
    Ok(Some(serde_json::from_slice(bytes)?))
 }
 
 async fn get_json(registry_path: &str) -> Result<Value, anyhow::Error> {
-   ensure_pinned_path(registry_path)?;
+   ensure_allowed_path(registry_path)?;
 
    if let Some(v) = read_embedded_json(registry_path)? {
       return Ok(v);
@@ -66,7 +80,7 @@ async fn fetch_calldata_index() -> Result<Value, anyhow::Error> {
 }
 
 async fn fetch_named_index(name: &str) -> Result<Value, anyhow::Error> {
-   ensure_pinned_path(name)?;
+   ensure_allowed_path(name)?;
 
    if let Some(v) = read_embedded_json(name)? {
       return Ok(v);
@@ -282,34 +296,73 @@ pub fn calldata_index_lookup_for_tests(index: &Value, chain: u64, to: Address) -
 mod tests {
    use super::*;
 
-   /// Descriptors are served only from the embedded, pin-verified pack.
+   /// Descriptors are served only from the embedded pack.
    ///
-   /// The embedded index resolves with no opt-in and no network; a path without a pin is refused
-   /// before it can be read from anywhere; and an allowed path the pack does not carry fails without
-   /// naming a URL, because there is no remote registry left to reach.
+   /// The embedded index resolves with no opt-in and no network; a path the allowlist rejects is
+   /// refused before it can be read from anywhere; and an allowed path the pack does not carry
+   /// fails without naming a URL, because there is no remote registry left to reach.
    #[tokio::test]
-   async fn descriptors_are_served_only_from_the_embedded_pinned_pack() {
+   async fn descriptors_are_served_only_from_the_embedded_pack() {
       assert!(
          get_json(EIP712_INDEX_PATH).await.is_ok(),
          "the embedded index must be served without the opt-in"
       );
 
-      let err = get_json("registry/not-a-pinned-file.json")
-         .await
-         .expect_err("a path without a pin must be refused");
-      assert!(
-         matches!(
-            err.downcast_ref::<RegistryPinError>(),
-            Some(RegistryPinError::Unpinned { .. })
-         ),
-         "{err}"
-      );
+      for path in ["../etc/passwd.json", "https://evil.example/x.json"] {
+         let err =
+            ensure_allowed_path(path).expect_err("a path the allowlist rejects must be refused");
+         assert_eq!(
+            err.to_string(),
+            format!("refusing registry path {path}")
+         );
+      }
 
       let err = get_json("ercs/absent-from-the-embedded-pack.json")
          .await
          .expect_err("an allowed path the pack does not carry must error");
       let message = err.to_string();
+      assert!(
+         message.contains("not in the embedded registry"),
+         "{message}"
+      );
       assert!(!message.contains("http"), "{message}");
       assert!(!message.contains("://"), "{message}");
+   }
+
+   /// The allowlist admits only paths that stay inside the embedded pack.
+   ///
+   /// `is_allowed_registry_path` is the live guard behind `ensure_allowed_path`: the two root
+   /// indexes and descriptors under `registry/` or `ercs/` are the only shapes the pack carries.
+   #[test]
+   fn registry_paths_outside_the_pack_are_rejected() {
+      for path in [
+         "",
+         "index.json",
+         "index.eip712.json.bak",
+         "/etc/passwd.json",
+         "registry/../index.eip712.json",
+         "../index.eip712.json",
+         "tools/foo.json",
+         "specs/x.json",
+         "registry//x.json",
+         "registry\\x.json",
+      ] {
+         assert!(
+            !is_allowed_registry_path(path),
+            "{path:?} must not be an allowed registry path"
+         );
+      }
+
+      for path in [
+         "index.eip712.json",
+         "index.calldata.json",
+         "registry/aave/calldata-lpv3.json",
+         "ercs/eip712-erc2612-permit.json",
+      ] {
+         assert!(
+            is_allowed_registry_path(path),
+            "{path:?} must be an allowed registry path"
+         );
+      }
    }
 }
