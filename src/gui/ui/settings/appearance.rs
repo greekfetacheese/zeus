@@ -27,6 +27,9 @@ use elegance::{Badge, BadgeTone};
 const LABEL_W: f32 = 150.0;
 /// Fixed width of a row's control column, in points.
 const CONTROL_W: f32 = 200.0;
+/// Width of the kind combos, narrower than the control column so the box
+/// does not fill the cell and crowd the value column.
+const COMBO_W: f32 = 150.0;
 /// Fixed width of a row's value cell, in points.
 const VALUE_W: f32 = 64.0;
 /// Width shared by the preview and Reset buttons, in points.
@@ -152,13 +155,18 @@ impl AppearanceSettingsUi {
       }
 
       ui.add_space(theme.spacing.xl);
-      ui.label(RichText::new("Preview").size(theme.typography.very_large));
+      ui.vertical_centered(|ui| {
+         ui.label(RichText::new("Preview").size(theme.typography.very_large));
+      });
 
       let preview = Self::preview_settings(ctx, theme.colors.accent);
       let size = vec2(PREVIEW_BUTTON_W, PREVIEW_BUTTON_H);
       ui.vertical_centered(|ui| {
          ui.horizontal(|ui| {
-            let pair_width = PREVIEW_BUTTON_W * 2.0 + ui.spacing().item_spacing.x;
+            // One sm step between the pair, not the page's tight xs; the pad
+            // below includes it so the pair stays centred as a unit.
+            ui.spacing_mut().item_spacing.x = theme.spacing.sm;
+            let pair_width = PREVIEW_BUTTON_W * 2.0 + theme.spacing.sm;
             let pad = ((ui.available_width() - pair_width) / 2.0).max(0.0);
             ui.add_space(pad);
 
@@ -238,6 +246,7 @@ impl AppearanceSettingsUi {
          ENABLE_TIP,
          "Hold to confirm",
          None,
+         None,
          |ui| {
             changed = ui.checkbox(&mut enabled, "").changed();
          },
@@ -258,6 +267,7 @@ impl AppearanceSettingsUi {
             DURATION_TIP,
             "Duration",
             Some(&value),
+            None,
             |ui| {
                changed = ui
                   .add(
@@ -285,6 +295,7 @@ impl AppearanceSettingsUi {
             ACCENT_TIP,
             "Theme accent",
             None,
+            None,
             |ui| {
                changed = ui.checkbox(&mut use_accent, "").changed();
             },
@@ -309,6 +320,7 @@ impl AppearanceSettingsUi {
                FILL_FROM_TIP,
                "Start colour",
                None,
+               None,
                |ui| {
                   changed = ui.color_edit_button_srgb(&mut rgb).changed();
                },
@@ -328,6 +340,7 @@ impl AppearanceSettingsUi {
             q_mark_text,
             SHIFT_TIP,
             "Second colour",
+            None,
             None,
             |ui| {
                changed = ui.checkbox(&mut shift, "").changed();
@@ -351,6 +364,7 @@ impl AppearanceSettingsUi {
                q_mark_text,
                END_COLOUR_TIP,
                "End colour",
+               None,
                None,
                |ui| {
                   changed = ui.color_edit_button_srgba_unmultiplied(&mut rgba).changed();
@@ -376,6 +390,7 @@ impl AppearanceSettingsUi {
             .interactive(true)
             .fill_width(true);
          let mut changed = false;
+         let combo_h = Self::combo_row_h(theme, ui);
          Self::row(
             ui,
             theme,
@@ -383,9 +398,10 @@ impl AppearanceSettingsUi {
             BURST_TIP,
             "Kind",
             None,
+            Some(combo_h),
             |ui| {
                ComboBox::new("appearance_burst_kind", kind_label)
-                  .width(CONTROL_W)
+                  .width(COMBO_W)
                   .visuals(combo_visuals)
                   .show_ui(ui, |ui| {
                      ui.spacing_mut().item_spacing.y = theme.spacing.sm;
@@ -421,6 +437,7 @@ impl AppearanceSettingsUi {
             BURST_COLOR_TIP,
             "Same as fill",
             None,
+            None,
             |ui| {
                changed = ui.checkbox(&mut same_color, "").changed();
             },
@@ -451,6 +468,7 @@ impl AppearanceSettingsUi {
                BURST_COLOR_TIP,
                "Burst colour",
                None,
+               None,
                |ui| {
                   changed = ui.color_edit_button_srgb(&mut rgb).changed();
                },
@@ -474,6 +492,7 @@ impl AppearanceSettingsUi {
             INTENSITY_TIP,
             "Intensity",
             Some(&value),
+            None,
             |ui| {
                changed = ui
                   .add(
@@ -501,6 +520,7 @@ impl AppearanceSettingsUi {
             BURST_MS_TIP,
             "Burst length",
             Some(&value),
+            None,
             |ui| {
                changed = ui
                   .add(
@@ -529,6 +549,7 @@ impl AppearanceSettingsUi {
                BOLTS_TIP,
                "Bolts",
                Some(&value),
+               None,
                |ui| {
                   changed = ui
                      .add(
@@ -558,6 +579,7 @@ impl AppearanceSettingsUi {
                DEPTH_TIP,
                "Branch depth",
                Some(&value),
+               None,
                |ui| {
                   changed = ui
                      .add(
@@ -587,6 +609,7 @@ impl AppearanceSettingsUi {
                THICKNESS_TIP,
                "Thickness",
                Some(&value),
+               None,
                |ui| {
                   changed = ui
                      .add(
@@ -614,6 +637,7 @@ impl AppearanceSettingsUi {
                JITTER_TIP,
                "Jitter",
                Some(&value),
+               None,
                |ui| {
                   changed = ui
                      .add(
@@ -646,6 +670,7 @@ impl AppearanceSettingsUi {
                GLOW_FROM_TIP,
                "Glow radius",
                Some(&value),
+               None,
                |ui| {
                   changed = ui
                      .add(
@@ -676,6 +701,7 @@ impl AppearanceSettingsUi {
                GLOW_TO_TIP,
                "Glow reach",
                Some(&value),
+               None,
                |ui| {
                   changed = ui
                      .add(
@@ -706,6 +732,7 @@ impl AppearanceSettingsUi {
                GLOW_SOFTNESS_TIP,
                "Softness",
                Some(&value),
+               None,
                |ui| {
                   changed = ui
                      .add(
@@ -756,6 +783,7 @@ impl AppearanceSettingsUi {
          AMBIENT_TIP,
          "Ambient particles",
          None,
+         None,
          |ui| {
             changed = ui.checkbox(&mut enabled, "").changed();
          },
@@ -784,6 +812,7 @@ impl AppearanceSettingsUi {
             .fill_width(true);
          let current = kind;
          let mut changed = false;
+         let combo_h = Self::combo_row_h(theme, ui);
          Self::row(
             ui,
             theme,
@@ -791,9 +820,10 @@ impl AppearanceSettingsUi {
             PARTICLE_TIP,
             "Particle",
             None,
+            Some(combo_h),
             |ui| {
                ComboBox::new("appearance_ambient_kind", kind_label)
-                  .width(CONTROL_W)
+                  .width(COMBO_W)
                   .visuals(combo_visuals)
                   .show_ui(ui, |ui| {
                      ui.spacing_mut().item_spacing.y = theme.spacing.sm;
@@ -848,6 +878,7 @@ impl AppearanceSettingsUi {
          SNOW_COLOUR_TIP,
          "Colour",
          None,
+         None,
          |ui| {
             changed = ui.color_edit_button_srgba(&mut ctx.appearance_settings.snow.color).changed();
          },
@@ -865,6 +896,7 @@ impl AppearanceSettingsUi {
          SNOW_DENSITY_TIP,
          "Density",
          Some(&value),
+         None,
          |ui| {
             changed = ui
                .add(
@@ -891,6 +923,7 @@ impl AppearanceSettingsUi {
          SNOW_SIZE_TIP,
          "Size max",
          None,
+         None,
          |ui| {
             changed = Self::drag_value(
                ui,
@@ -913,6 +946,7 @@ impl AppearanceSettingsUi {
          q_mark_text,
          SNOW_SPEED_TIP,
          "Speed max",
+         None,
          None,
          |ui| {
             changed = Self::drag_value(
@@ -938,6 +972,7 @@ impl AppearanceSettingsUi {
          WIND_X_TIP,
          "Wind X",
          Some(&value),
+         None,
          |ui| {
             changed = ui
                .add(
@@ -964,6 +999,7 @@ impl AppearanceSettingsUi {
          WIND_Y_TIP,
          "Wind Y",
          Some(&value),
+         None,
          |ui| {
             changed = ui
                .add(
@@ -988,6 +1024,7 @@ impl AppearanceSettingsUi {
          q_mark_text,
          SNOW_MORE_TIP,
          "",
+         None,
          None,
          |ui| {
             let text = RichText::new("More…").size(theme.typography.normal);
@@ -1022,6 +1059,7 @@ impl AppearanceSettingsUi {
          GLOW_COLOUR_TIP,
          "Colour",
          None,
+         None,
          |ui| {
             changed =
                ui.color_edit_button_srgba(&mut ctx.appearance_settings.light.color).changed();
@@ -1040,6 +1078,7 @@ impl AppearanceSettingsUi {
          GLOW_DENSITY_TIP,
          "Density",
          Some(&value),
+         None,
          |ui| {
             changed = ui
                .add(
@@ -1066,6 +1105,7 @@ impl AppearanceSettingsUi {
          GLOW_RADIUS_TIP,
          "Radius max",
          None,
+         None,
          |ui| {
             changed = Self::drag_value(
                ui,
@@ -1090,6 +1130,7 @@ impl AppearanceSettingsUi {
          GLOW_INTENSITY_TIP,
          "Intensity",
          Some(&value),
+         None,
          |ui| {
             changed = ui
                .add(
@@ -1117,6 +1158,7 @@ impl AppearanceSettingsUi {
          GLOW_FLICKER_TIP,
          "Flicker",
          Some(&value),
+         None,
          |ui| {
             changed = ui
                .add(
@@ -1142,6 +1184,7 @@ impl AppearanceSettingsUi {
          q_mark_text,
          GLOW_MORE_TIP,
          "",
+         None,
          None,
          |ui| {
             let text = RichText::new("More…").size(theme.typography.normal);
@@ -1176,6 +1219,7 @@ impl AppearanceSettingsUi {
          LIGHTNING_COLOUR_TIP,
          "Colour",
          None,
+         None,
          |ui| {
             changed = ui
                .color_edit_button_srgba(&mut ctx.appearance_settings.lightning.color)
@@ -1195,6 +1239,7 @@ impl AppearanceSettingsUi {
          LIGHTNING_BOLTS_TIP,
          "Bolts",
          Some(&value),
+         None,
          |ui| {
             changed = ui
                .add(
@@ -1224,6 +1269,7 @@ impl AppearanceSettingsUi {
          LIGHTNING_DEPTH_TIP,
          "Branch depth",
          Some(&value),
+         None,
          |ui| {
             changed = ui
                .add(
@@ -1253,6 +1299,7 @@ impl AppearanceSettingsUi {
          LIGHTNING_THICKNESS_TIP,
          "Thickness",
          Some(&value),
+         None,
          |ui| {
             changed = ui
                .add(
@@ -1280,6 +1327,7 @@ impl AppearanceSettingsUi {
          LIGHTNING_JITTER_TIP,
          "Jitter",
          Some(&value),
+         None,
          |ui| {
             changed = ui
                .add(
@@ -1310,6 +1358,7 @@ impl AppearanceSettingsUi {
          LIGHTNING_FLASH_TIP,
          "Flash intensity",
          Some(&value),
+         None,
          |ui| {
             changed = ui
                .add(
@@ -1340,6 +1389,7 @@ impl AppearanceSettingsUi {
          LIGHTNING_DURATION_TIP,
          "Duration",
          Some(&value),
+         None,
          |ui| {
             changed = ui
                .add(
@@ -1366,6 +1416,7 @@ impl AppearanceSettingsUi {
          LIGHTNING_INTERVAL_TIP,
          "Interval",
          None,
+         None,
          |ui| {
             changed = Self::drag_value(
                ui,
@@ -1390,6 +1441,7 @@ impl AppearanceSettingsUi {
          LIGHTNING_MORE_TIP,
          "",
          None,
+         None,
          |ui| {
             let text = RichText::new("More…").size(theme.typography.normal);
             more = ui.add(Button::new(text).visuals(button_visuals)).clicked();
@@ -1406,9 +1458,22 @@ impl AppearanceSettingsUi {
       dirty
    }
 
+   /// Height the crate's `ComboBox` paints for its selected item: one line of
+   /// the theme's normal text (or the disclosure icon, whichever is taller)
+   /// plus `theme.button_padding` on both sides — the same inputs its button
+   /// size is built from, so a combo row reserves exactly what it draws.
+   fn combo_row_h(theme: &Theme, ui: &Ui) -> f32 {
+      let font = egui::FontId::proportional(theme.typography.normal);
+      let line = ui.fonts_mut(|fonts| fonts.row_height(&font));
+      line.max(ui.spacing().icon_width).round() + 2.0 * theme.button_padding.y
+   }
+
    /// One setting row: label, control, value, then the question badge that
    /// explains it. Every column has a fixed width so the badge lands on the same
    /// x for sliders, the kind picker, the colour swatches and the checkboxes.
+   /// `height` overrides the cell height; combo rows pass [`Self::combo_row_h`]
+   /// because the crate's `ComboBox` paints a taller button than
+   /// `interact_size.y` and would otherwise overflow into the next row's gap.
    fn row(
       ui: &mut Ui,
       theme: &Theme,
@@ -1416,9 +1481,10 @@ impl AppearanceSettingsUi {
       tip: &'static str,
       label: &str,
       value: Option<&str>,
+      height: Option<f32>,
       add: impl FnOnce(&mut Ui),
    ) {
-      let height = ui.spacing().interact_size.y;
+      let height = height.unwrap_or_else(|| ui.spacing().interact_size.y);
 
       ui.horizontal(|ui| {
          Self::cell(ui, LABEL_W, height, |ui| {
