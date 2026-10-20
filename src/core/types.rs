@@ -505,6 +505,40 @@ pub const MAX_AMBIENT_INTERVAL_SECS: f32 = 120.0;
 /// choice, and the user can change it on the appearance page.
 pub const AMBIENT_LIGHTNING_INTERVAL_SECS: f32 = 6.0;
 
+/// The one ambient particle effect Zeus paints.
+///
+/// The crate has three independent `active` flags; Zeus replaces them with this
+/// single choice and derives the flags in [`AppearanceSettings::clamp`], so
+/// "only one ambient particle" is an invariant of the loaded file too, not just
+/// of the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AmbientKind {
+   Snow,
+   Glow,
+   Lightning,
+}
+
+impl AmbientKind {
+   /// Choices in the Appearance page's combo order.
+   pub const ALL: [Self; 3] = [Self::Snow, Self::Glow, Self::Lightning];
+
+   pub fn label(self) -> &'static str {
+      match self {
+         Self::Snow => "Snow",
+         Self::Glow => "Glow",
+         Self::Lightning => "Lightning",
+      }
+   }
+}
+
+impl Default for AmbientKind {
+   /// Snow is the calmest first impression: slow, small flakes rather than
+   /// drifting motes or a strike every few seconds.
+   fn default() -> Self {
+      Self::Snow
+   }
+}
+
 /// Appearance settings: hold-to-confirm, its completion burst, and the app-wide
 /// ambient particles.
 ///
@@ -536,6 +570,10 @@ pub struct AppearanceSettings {
    /// Master switch for the app-wide ambient particles. Off by default.
    #[serde(default)]
    pub ambient_enabled: bool,
+   /// Which ambient particle effect is drawn. [`Self::clamp`] derives the
+   /// crate's three `active` flags from this.
+   #[serde(default)]
+   pub ambient_kind: AmbientKind,
    /// Snow knobs for the app-wide ambient pass.
    #[serde(default)]
    pub snow: SnowSettings,
@@ -557,9 +595,9 @@ impl AppearanceSettings {
    /// `burst_intensity` stays `1.0` with `burst_color = None` so the burst keeps
    /// the fill's colour.
    ///
-   /// The ambient kinds keep the crate's defaults (including `active` and
-   /// `color`), with three choices stated explicitly so a reader can see them,
-   /// and why each exists, in one place:
+   /// The ambient kinds keep the crate's knobs (including `color`), with four
+   /// choices stated explicitly so a reader can see them, and why each exists,
+   /// in one place:
    ///
    /// 1. `open` starts `false` (the crate's default too — its example is what
    ///    opens the window): Zeus opens each kind's "More…" window only on
@@ -573,10 +611,16 @@ impl AppearanceSettings {
    ///    the ambient's lightning would be `active` and never fire while snow
    ///    and glow do. Six seconds is a deliberate "ambient, not a light show"
    ///    choice, and the page exposes it.
+   /// 4. Only [`Self::ambient_kind`]'s effect is `active` (snow, by default)
+   ///    and the other two start off, whereas the crate defaults all three to
+   ///    `active`. This is the fourth deliberate deviation: Zeus paints one
+   ///    ambient particle, Snow is the calmest first impression, and
+   ///    [`Self::clamp`] derives the flags so a hand-edited file cannot switch
+   ///    two on at once.
    ///
    /// Every other ambient knob is the crate's default.
    pub fn new() -> Self {
-      Self {
+      let mut settings = Self {
          hold_to_confirm: false,
          shift_second_colour: true,
          second_colour: None,
@@ -592,6 +636,7 @@ impl AppearanceSettings {
             ..HoldSettings::default()
          },
          ambient_enabled: false,
+         ambient_kind: AmbientKind::Snow,
          snow: SnowSettings {
             open: false,
             layer: ParticleLayer::Foreground,
@@ -608,7 +653,9 @@ impl AppearanceSettings {
             ambient_interval_secs: AMBIENT_LIGHTNING_INTERVAL_SECS,
             ..LightningSettings::default()
          },
-      }
+      };
+      settings.apply_ambient_kind();
+      settings
    }
 
    /// Pull every numeric knob back into its supported range.
@@ -618,7 +665,9 @@ impl AppearanceSettings {
    /// clearing them in `clamp` would close a "More…" window mid-edit. Loading
    /// and saving clear them instead — see [`Self::close_settings_windows`].
    /// Also keeps each min/max pair ordered, as the crate's own body UIs do, and
-   /// the glow end radius at or above the start radius.
+   /// the glow end radius at or above the start radius. Finally it derives the
+   /// crate's three `active` flags from [`Self::ambient_kind`], so exactly one
+   /// ambient effect is active in the loaded file.
    pub fn clamp(&mut self) {
       self.hold.seconds = self.hold.seconds.clamp(MIN_HOLD_SECONDS, MAX_HOLD_SECONDS);
       self.hold.burst_ms = self.hold.burst_ms.clamp(MIN_BURST_MS, MAX_BURST_MS);
@@ -709,6 +758,19 @@ impl AppearanceSettings {
          MIN_AMBIENT_INTERVAL_SECS,
          MAX_AMBIENT_INTERVAL_SECS,
       );
+
+      self.apply_ambient_kind();
+   }
+
+   /// Derive the crate's three `active` flags from [`Self::ambient_kind`].
+   ///
+   /// One ambient effect at a time is a property of the loaded file, not just of
+   /// the page: a hand-edited document with all three flags true normalises to
+   /// the selected kind here.
+   fn apply_ambient_kind(&mut self) {
+      self.snow.active = self.ambient_kind == AmbientKind::Snow;
+      self.light.active = self.ambient_kind == AmbientKind::Glow;
+      self.lightning.active = self.ambient_kind == AmbientKind::Lightning;
    }
 
    /// Clear the crate's transient settings-window flags.
@@ -2125,6 +2187,17 @@ mod tests {
       assert_eq!(settings.hold.burst_ms, MIN_BURST_MS);
       assert_eq!(MIN_BURST_MS, 80.0);
 
+      // One ambient kind stays active, derived from `ambient_kind`: all three
+      // crate flags true still normalise to the selected kind.
+      settings.snow.active = true;
+      settings.light.active = true;
+      settings.lightning.active = true;
+      settings.ambient_kind = AmbientKind::Glow;
+      settings.clamp();
+      assert!(!settings.snow.active);
+      assert!(settings.light.active);
+      assert!(!settings.lightning.active);
+
       // The second colour is a colour, not a range: `clamp` leaves it alone.
       assert_eq!(
          settings.second_colour,
@@ -2176,6 +2249,8 @@ mod tests {
       settings.second_colour = Some(egui::Color32::from_rgba_unmultiplied(4, 5, 6, 80));
       settings.hold.burst = HoldBurst::Glow;
       settings.hold.burst_glow_to = 3.5;
+      settings.ambient_kind = AmbientKind::Lightning;
+      settings.clamp();
 
       let json = settings.to_json().expect("serialize");
       let restored = AppearanceSettings::from_json(&json).expect("deserialize");
@@ -2199,6 +2274,12 @@ mod tests {
             ..HoldSettings::default()
          }
       );
+      // A file written before the particle combo existed defaults to Snow and
+      // normalises the three crate flags to that one kind.
+      assert_eq!(settings.ambient_kind, AmbientKind::Snow);
+      assert!(settings.snow.active);
+      assert!(!settings.light.active);
+      assert!(!settings.lightning.active);
    }
 
    /// A file written before the shift existed has no `shift_second_colour` or
@@ -2236,15 +2317,22 @@ mod tests {
       assert_eq!(settings.hold_seconds(), 0.5);
    }
 
+   /// The fourth deliberate deviation from the crate's defaults: the crate has
+   /// all three ambient kinds `active`, while Zeus paints exactly one, chosen by
+   /// [`AmbientKind`]. Snow is the calmest first impression and therefore the
+   /// default kind; glow and lightning start off, and the page has one
+   /// "Particle" combo instead of three active checkboxes.
    #[test]
    fn ambient_defaults_are_the_crates_and_off() {
       let settings = AppearanceSettings::new();
 
       assert!(!settings.ambient_enabled);
+      assert_eq!(settings.ambient_kind, AmbientKind::Snow);
       assert_eq!(
          settings.snow,
          SnowSettings {
             open: false,
+            active: true,
             layer: ParticleLayer::Foreground,
             ..SnowSettings::default()
          }
@@ -2253,6 +2341,7 @@ mod tests {
          settings.light,
          LightSettings {
             open: false,
+            active: false,
             layer: ParticleLayer::Foreground,
             ..LightSettings::default()
          }
@@ -2275,26 +2364,43 @@ mod tests {
          settings.lightning,
          LightningSettings {
             open: false,
+            active: false,
             layer: ParticleLayer::Foreground,
             ambient_interval_secs: AMBIENT_LIGHTNING_INTERVAL_SECS,
             ..LightningSettings::default()
          }
       );
 
-      // Every kind keeps the crate's `active`: turning the master switch on
-      // shows all three until the user turns one off.
+      // The fourth deliberate deviation: the crate defaults all three kinds to
+      // `active`, while Zeus paints one. Snow is the calmest first impression,
+      // so it is the default kind and the only active effect.
+      assert!(settings.snow.active);
+      assert!(!settings.light.active);
+      assert!(!settings.lightning.active);
       assert_eq!(
-         settings.snow.active,
-         SnowSettings::default().active
+         settings.ambient_kind,
+         AmbientKind::default(),
+         "Snow is the default kind"
       );
-      assert_eq!(
-         settings.light.active,
-         LightSettings::default().active
-      );
-      assert_eq!(
-         settings.lightning.active,
-         LightningSettings::default().active
-      );
+   }
+
+   /// A hand-edited file can set all three crate flags, but loading normalises
+   /// them to the single selected [`AmbientKind`].
+   #[test]
+   fn a_file_with_every_ambient_active_normalises_to_one() {
+      let mut on_disk = AppearanceSettings::new();
+      on_disk.ambient_kind = AmbientKind::Glow;
+      on_disk.snow.active = true;
+      on_disk.light.active = true;
+      on_disk.lightning.active = true;
+
+      let loaded = AppearanceSettings::from_json(&on_disk.to_json().expect("serialize"))
+         .expect("a document with every kind active loads");
+
+      assert_eq!(loaded.ambient_kind, AmbientKind::Glow);
+      assert!(!loaded.snow.active);
+      assert!(loaded.light.active);
+      assert!(!loaded.lightning.active);
    }
 
    #[test]
