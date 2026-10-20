@@ -486,7 +486,7 @@ fn loading_strike() -> LightningSettings {
       flash_intensity: 0.35,
       duration_ms: 400.0,
       ambient_interval_secs: 0.5,
-      layer: ParticleLayer::Foreground,
+      layer: ParticleLayer::Top,
    }
 }
 
