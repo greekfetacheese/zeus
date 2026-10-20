@@ -1,3 +1,4 @@
+pub mod ambient;
 pub mod app;
 pub mod tray;
 pub mod ui;

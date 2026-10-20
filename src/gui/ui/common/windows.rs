@@ -11,11 +11,11 @@ use crate::utils::{
    RT, TimeStamp,
    self_update::{UpdateInfo, restart_app, update_zeus},
 };
-use eframe::egui::{Align2, RichText, Spinner, Ui, Vec2, vec2};
+use eframe::egui::{Align2, Color32, RichText, Spinner, Ui, Vec2, vec2};
 use egui::Order;
 use std::time::{Duration, Instant};
 
-use egui_elements::{Button, Modal, Theme};
+use egui_elements::{Button, Lightning, LightningSettings, Modal, ParticleLayer, Theme};
 
 /// A Window to prompt the user to confirm an action
 pub struct ConfirmWindow {
@@ -466,6 +466,30 @@ pub struct LoadingWindow {
    pub anchor: (Align2, Vec2),
 }
 
+/// Dedicated id for the loading window's strike.
+///
+/// The app-wide lightning has its own id; sharing one would make the two fight
+/// over the same animation state in egui's temporary data.
+const LOADING_STRIKE_ID: &str = "zeus_loading_strike";
+
+/// The loading window's hardcoded strike — not user-configurable, and
+/// independent of the ambient master switch.
+fn loading_strike() -> LightningSettings {
+   LightningSettings {
+      open: false,
+      active: true,
+      color: Color32::from_rgb(190, 215, 255),
+      bolt_count: 1,
+      branch_depth: 2,
+      thickness: 2.0,
+      jitter: 0.18,
+      flash_intensity: 0.35,
+      duration_ms: 400.0,
+      ambient_interval_secs: 0.5,
+      layer: ParticleLayer::Foreground,
+   }
+}
+
 impl LoadingWindow {
    pub fn new() -> Self {
       Self {
@@ -499,6 +523,10 @@ impl LoadingWindow {
       if !self.open {
          return;
       }
+
+      // Hardcoded strike while the window is up; it schedules its own next
+      // strike, so an idle loading window requests no extra frames.
+      Lightning::from_settings(LOADING_STRIKE_ID, &loading_strike()).show(ui);
 
       let mut open = self.open;
 
@@ -660,5 +688,27 @@ mod tests {
       gui.tx_confirmation_window.release();
 
       assert!(!authorising_prompt_busy(&gui));
+   }
+
+   /// The loading window's strike is hardcoded: these eight numbers are a
+   /// deliberate look, so an edit that changes one should fail here and be
+   /// re-confirmed with Mike.
+   #[test]
+   fn the_loading_strike_has_the_specified_shape() {
+      let strike = loading_strike();
+
+      assert_eq!(strike.bolt_count, 1);
+      assert_eq!(strike.branch_depth, 2);
+      assert_eq!(strike.thickness, 2.0);
+      assert_eq!(strike.jitter, 0.18);
+      assert_eq!(strike.flash_intensity, 0.35);
+      assert_eq!(strike.duration_ms, 400.0);
+      assert_eq!(strike.ambient_interval_secs, 0.5);
+      assert_eq!(strike.color, Color32::from_rgb(190, 215, 255));
+
+      assert!(strike.active);
+      assert!(!strike.open);
+      assert_eq!(strike.layer, ParticleLayer::Foreground);
+      assert!(!LOADING_STRIKE_ID.is_empty());
    }
 }

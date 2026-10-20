@@ -2,11 +2,20 @@
 
 use crate::core::ZeusContext;
 use crate::core::types::{
-   AppearanceSettings, MAX_BRANCH_DEPTH, MAX_BURST_BOLTS, MAX_BURST_INTENSITY, MAX_BURST_MS,
-   MAX_GLOW_FROM, MAX_GLOW_SOFTNESS, MAX_GLOW_TO, MAX_HOLD_SECONDS, MAX_JITTER, MAX_THICKNESS,
-   MIN_BRANCH_DEPTH, MIN_BURST_BOLTS, MIN_BURST_INTENSITY, MIN_BURST_MS, MIN_GLOW_FROM,
-   MIN_GLOW_SOFTNESS, MIN_GLOW_TO, MIN_HOLD_SECONDS, MIN_JITTER, MIN_THICKNESS,
-   SECOND_COLOUR_ALPHA, accent_at,
+   AppearanceSettings, MAX_AMBIENT_BOLTS, MAX_AMBIENT_BRANCH_DEPTH, MAX_AMBIENT_DURATION_MS,
+   MAX_AMBIENT_FLASH_INTENSITY, MAX_AMBIENT_INTERVAL_SECS, MAX_AMBIENT_JITTER,
+   MAX_AMBIENT_LIGHT_DENSITY, MAX_AMBIENT_LIGHT_FLICKER, MAX_AMBIENT_LIGHT_INTENSITY,
+   MAX_AMBIENT_LIGHT_RADIUS, MAX_AMBIENT_SNOW_DENSITY, MAX_AMBIENT_SNOW_SIZE,
+   MAX_AMBIENT_SNOW_SPEED, MAX_AMBIENT_THICKNESS, MAX_AMBIENT_WIND_X, MAX_AMBIENT_WIND_Y,
+   MAX_BRANCH_DEPTH, MAX_BURST_BOLTS, MAX_BURST_INTENSITY, MAX_BURST_MS, MAX_GLOW_FROM,
+   MAX_GLOW_SOFTNESS, MAX_GLOW_TO, MAX_HOLD_SECONDS, MAX_JITTER, MAX_THICKNESS, MIN_AMBIENT_BOLTS,
+   MIN_AMBIENT_BRANCH_DEPTH, MIN_AMBIENT_DURATION_MS, MIN_AMBIENT_FLASH_INTENSITY,
+   MIN_AMBIENT_INTERVAL_SECS, MIN_AMBIENT_JITTER, MIN_AMBIENT_LIGHT_DENSITY,
+   MIN_AMBIENT_LIGHT_FLICKER, MIN_AMBIENT_LIGHT_INTENSITY, MIN_AMBIENT_LIGHT_RADIUS,
+   MIN_AMBIENT_SNOW_DENSITY, MIN_AMBIENT_SNOW_SIZE, MIN_AMBIENT_SNOW_SPEED, MIN_AMBIENT_THICKNESS,
+   MIN_AMBIENT_WIND_X, MIN_AMBIENT_WIND_Y, MIN_BRANCH_DEPTH, MIN_BURST_BOLTS, MIN_BURST_INTENSITY,
+   MIN_BURST_MS, MIN_GLOW_FROM, MIN_GLOW_SOFTNESS, MIN_GLOW_TO, MIN_HOLD_SECONDS, MIN_JITTER,
+   MIN_THICKNESS, SECOND_COLOUR_ALPHA, accent_at,
 };
 use crate::utils::RT;
 use egui::{Align, Color32, Layout, RichText, Sense, Ui, vec2};
@@ -52,6 +61,41 @@ const GLOW_TO_TIP: &str = "Ending radius of the glow, as a multiple of the butto
                            Kept at or above the starting radius.";
 const GLOW_SOFTNESS_TIP: &str = "How soft the glow's falloff is. Values above 1 spread the colour \
                                  further; values below 1 tighten the hot core.";
+const AMBIENT_TIP: &str = "Paint ambient particles over the whole app. Snow and glow repaint \
+                           continuously while they are on; lightning is episodic — a strike every \
+                           interval, with nothing in between. The layer is Foreground, so the \
+                           particles draw over the UI.";
+const SNOW_ACTIVE_TIP: &str = "Draw snow across the app.";
+const SNOW_COLOUR_TIP: &str = "Colour of the snowflakes.";
+const SNOW_DENSITY_TIP: &str = "How many snowflakes fall at once. The highest values cost the most \
+                                frames.";
+const SNOW_SIZE_TIP: &str = "Largest snowflake, in pixels.";
+const SNOW_SPEED_TIP: &str = "Fastest fall speed, in pixels per second.";
+const WIND_X_TIP: &str = "Horizontal wind. Positive pushes particles to the right.";
+const WIND_Y_TIP: &str = "Vertical wind. Positive pushes particles down.";
+const GLOW_ACTIVE_TIP: &str = "Draw glow motes across the app.";
+const GLOW_COLOUR_TIP: &str = "Colour of the glow motes.";
+const GLOW_DENSITY_TIP: &str = "How many motes drift at once.";
+const GLOW_RADIUS_TIP: &str = "Largest mote radius, in pixels.";
+const GLOW_INTENSITY_TIP: &str = "Strength of the glow. 1 is the effect's own profile.";
+const GLOW_FLICKER_TIP: &str = "How much each mote's brightness flickers. 0 is steady.";
+const LIGHTNING_ACTIVE_TIP: &str = "Draw lightning across the app. It is episodic: one strike per \
+                                    interval.";
+const LIGHTNING_COLOUR_TIP: &str = "Colour of the bolt and its flash.";
+const LIGHTNING_BOLTS_TIP: &str = "How many bolts strike at once.";
+const LIGHTNING_DEPTH_TIP: &str = "How many times each bolt branches. 0 draws the trunk only.";
+const LIGHTNING_THICKNESS_TIP: &str = "Thickness of the bolt's core stroke, in pixels.";
+const LIGHTNING_JITTER_TIP: &str = "How far the bolt wanders between segments, as a fraction of \
+                                    each segment's length.";
+const LIGHTNING_FLASH_TIP: &str = "Peak strength of the full-area flash.";
+const LIGHTNING_DURATION_TIP: &str = "How long a strike lasts, in milliseconds.";
+const LIGHTNING_INTERVAL_TIP: &str = "Seconds between ambient strikes. 0 disables the ambient \
+                                      scheduler.";
+const SNOW_MORE_TIP: &str = "Open the crate's full snow settings, including minimum size, minimum \
+                             speed and layer.";
+const GLOW_MORE_TIP: &str = "Open the crate's full glow settings, including motion, minimum \
+                             radius, lifetimes and layer.";
+const LIGHTNING_MORE_TIP: &str = "Open the crate's full lightning settings.";
 
 pub struct AppearanceSettingsUi {
    /// A slider drag reports `changed()` every frame; the file write waits until
@@ -81,7 +125,7 @@ impl AppearanceSettingsUi {
    }
 
    fn persist(ctx: &ZeusContext) {
-      let settings = ctx.appearance_settings;
+      let settings = ctx.appearance_settings.clone();
       RT.spawn_blocking(move || {
          if let Err(e) = settings.save() {
             tracing::error!("Failed to save appearance settings: {e}");
@@ -597,6 +641,10 @@ impl AppearanceSettingsUi {
          }
       });
 
+      if Self::ambient_block(ctx, theme, &q_mark_text, ui) {
+         self.dirty = true;
+      }
+
       ui.add_space(theme.spacing.xl);
       ui.label(RichText::new("Preview").size(theme.typography.very_large));
 
@@ -644,6 +692,684 @@ impl AppearanceSettingsUi {
    /// it is the only way to feel the sweep and the burst without sending a tx.
    fn preview_settings(ctx: &ZeusContext, accent: Color32) -> HoldSettings {
       ctx.appearance_settings.resolved_hold(accent)
+   }
+
+   /// Master switch plus the three per-kind sub-blocks. Returns whether a
+   /// persisted value changed.
+   fn ambient_block(
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      q_mark_text: &RichText,
+      ui: &mut Ui,
+   ) -> bool {
+      ui.add_space(theme.spacing.xl);
+      ui.label(RichText::new("Ambient").size(theme.typography.very_large));
+
+      let mut dirty = false;
+      let mut enabled = ctx.appearance_settings.ambient_enabled;
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         AMBIENT_TIP,
+         "Ambient particles",
+         None,
+         |ui| {
+            changed = ui.checkbox(&mut enabled, "").changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.ambient_enabled = enabled;
+         if !enabled {
+            // The per-kind blocks below are disabled with the master switch;
+            // close any crate window that was open rather than leave it
+            // interactive outside the disabled pass.
+            ctx.appearance_settings.snow.open = false;
+            ctx.appearance_settings.light.open = false;
+            ctx.appearance_settings.lightning.open = false;
+         }
+         dirty = true;
+      }
+
+      ui.add_enabled_ui(enabled, |ui| {
+         dirty |= Self::snow_block(ctx, theme, q_mark_text, ui);
+         dirty |= Self::glow_block(ctx, theme, q_mark_text, ui);
+         dirty |= Self::lightning_block(ctx, theme, q_mark_text, ui);
+      });
+
+      dirty
+   }
+
+   fn snow_block(
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      q_mark_text: &RichText,
+      ui: &mut Ui,
+   ) -> bool {
+      let mut dirty = false;
+      let button_visuals = theme.button_visuals();
+
+      let mut active = ctx.appearance_settings.snow.active;
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         SNOW_ACTIVE_TIP,
+         "Snow",
+         None,
+         |ui| {
+            changed = ui.checkbox(&mut active, "").changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.snow.active = active;
+         dirty = true;
+      }
+
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         SNOW_COLOUR_TIP,
+         "Colour",
+         None,
+         |ui| {
+            changed = ui.color_edit_button_srgba(&mut ctx.appearance_settings.snow.color).changed();
+         },
+      );
+      if changed {
+         dirty = true;
+      }
+
+      let value = format!("{}", ctx.appearance_settings.snow.density);
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         SNOW_DENSITY_TIP,
+         "Density",
+         Some(&value),
+         |ui| {
+            changed = ui
+               .add(
+                  egui::Slider::new(
+                     &mut ctx.appearance_settings.snow.density,
+                     MIN_AMBIENT_SNOW_DENSITY..=MAX_AMBIENT_SNOW_DENSITY,
+                  )
+                  .logarithmic(true)
+                  .show_value(false),
+               )
+               .changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.clamp();
+         dirty = true;
+      }
+
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         SNOW_SIZE_TIP,
+         "Size max",
+         None,
+         |ui| {
+            changed = ui
+               .add(
+                  egui::DragValue::new(&mut ctx.appearance_settings.snow.size_max)
+                     .speed(0.1)
+                     .range(MIN_AMBIENT_SNOW_SIZE..=MAX_AMBIENT_SNOW_SIZE),
+               )
+               .changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.clamp();
+         dirty = true;
+      }
+
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         SNOW_SPEED_TIP,
+         "Speed max",
+         None,
+         |ui| {
+            changed = ui
+               .add(
+                  egui::DragValue::new(&mut ctx.appearance_settings.snow.speed_max)
+                     .speed(1.0)
+                     .range(MIN_AMBIENT_SNOW_SPEED..=MAX_AMBIENT_SNOW_SPEED),
+               )
+               .changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.clamp();
+         dirty = true;
+      }
+
+      let value = format!("{:.0}", ctx.appearance_settings.snow.wind.x);
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         WIND_X_TIP,
+         "Wind X",
+         Some(&value),
+         |ui| {
+            changed = ui
+               .add(
+                  egui::Slider::new(
+                     &mut ctx.appearance_settings.snow.wind.x,
+                     MIN_AMBIENT_WIND_X..=MAX_AMBIENT_WIND_X,
+                  )
+                  .show_value(false),
+               )
+               .changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.clamp();
+         dirty = true;
+      }
+
+      let value = format!("{:.0}", ctx.appearance_settings.snow.wind.y);
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         WIND_Y_TIP,
+         "Wind Y",
+         Some(&value),
+         |ui| {
+            changed = ui
+               .add(
+                  egui::Slider::new(
+                     &mut ctx.appearance_settings.snow.wind.y,
+                     MIN_AMBIENT_WIND_Y..=MAX_AMBIENT_WIND_Y,
+                  )
+                  .show_value(false),
+               )
+               .changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.clamp();
+         dirty = true;
+      }
+
+      let mut more = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         SNOW_MORE_TIP,
+         "More settings",
+         None,
+         |ui| {
+            let text = RichText::new("More…").size(theme.typography.normal);
+            more = ui.add(Button::new(text).visuals(button_visuals)).clicked();
+         },
+      );
+      if more {
+         ctx.appearance_settings.snow.open = true;
+      }
+      if ctx.appearance_settings.snow.open {
+         ctx.appearance_settings.snow.show_window(ui.ctx());
+      }
+
+      ui.add_space(theme.spacing.md);
+      dirty
+   }
+
+   fn glow_block(
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      q_mark_text: &RichText,
+      ui: &mut Ui,
+   ) -> bool {
+      let mut dirty = false;
+      let button_visuals = theme.button_visuals();
+
+      let mut active = ctx.appearance_settings.light.active;
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         GLOW_ACTIVE_TIP,
+         "Glow",
+         None,
+         |ui| {
+            changed = ui.checkbox(&mut active, "").changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.light.active = active;
+         dirty = true;
+      }
+
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         GLOW_COLOUR_TIP,
+         "Colour",
+         None,
+         |ui| {
+            changed =
+               ui.color_edit_button_srgba(&mut ctx.appearance_settings.light.color).changed();
+         },
+      );
+      if changed {
+         dirty = true;
+      }
+
+      let value = format!("{}", ctx.appearance_settings.light.density);
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         GLOW_DENSITY_TIP,
+         "Density",
+         Some(&value),
+         |ui| {
+            changed = ui
+               .add(
+                  egui::Slider::new(
+                     &mut ctx.appearance_settings.light.density,
+                     MIN_AMBIENT_LIGHT_DENSITY..=MAX_AMBIENT_LIGHT_DENSITY,
+                  )
+                  .logarithmic(true)
+                  .show_value(false),
+               )
+               .changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.clamp();
+         dirty = true;
+      }
+
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         GLOW_RADIUS_TIP,
+         "Radius max",
+         None,
+         |ui| {
+            changed = ui
+               .add(
+                  egui::DragValue::new(&mut ctx.appearance_settings.light.radius_max)
+                     .speed(0.5)
+                     .range(MIN_AMBIENT_LIGHT_RADIUS..=MAX_AMBIENT_LIGHT_RADIUS),
+               )
+               .changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.clamp();
+         dirty = true;
+      }
+
+      let value = format!("{:.2}", ctx.appearance_settings.light.intensity);
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         GLOW_INTENSITY_TIP,
+         "Intensity",
+         Some(&value),
+         |ui| {
+            changed = ui
+               .add(
+                  egui::Slider::new(
+                     &mut ctx.appearance_settings.light.intensity,
+                     MIN_AMBIENT_LIGHT_INTENSITY..=MAX_AMBIENT_LIGHT_INTENSITY,
+                  )
+                  .step_by(0.05)
+                  .show_value(false),
+               )
+               .changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.clamp();
+         dirty = true;
+      }
+
+      let value = format!("{:.2}", ctx.appearance_settings.light.flicker);
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         GLOW_FLICKER_TIP,
+         "Flicker",
+         Some(&value),
+         |ui| {
+            changed = ui
+               .add(
+                  egui::Slider::new(
+                     &mut ctx.appearance_settings.light.flicker,
+                     MIN_AMBIENT_LIGHT_FLICKER..=MAX_AMBIENT_LIGHT_FLICKER,
+                  )
+                  .step_by(0.05)
+                  .show_value(false),
+               )
+               .changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.clamp();
+         dirty = true;
+      }
+
+      let mut more = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         GLOW_MORE_TIP,
+         "More settings",
+         None,
+         |ui| {
+            let text = RichText::new("More…").size(theme.typography.normal);
+            more = ui.add(Button::new(text).visuals(button_visuals)).clicked();
+         },
+      );
+      if more {
+         ctx.appearance_settings.light.open = true;
+      }
+      if ctx.appearance_settings.light.open {
+         ctx.appearance_settings.light.show_window(ui.ctx());
+      }
+
+      ui.add_space(theme.spacing.md);
+      dirty
+   }
+
+   fn lightning_block(
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      q_mark_text: &RichText,
+      ui: &mut Ui,
+   ) -> bool {
+      let mut dirty = false;
+      let button_visuals = theme.button_visuals();
+
+      let mut active = ctx.appearance_settings.lightning.active;
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         LIGHTNING_ACTIVE_TIP,
+         "Lightning",
+         None,
+         |ui| {
+            changed = ui.checkbox(&mut active, "").changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.lightning.active = active;
+         dirty = true;
+      }
+
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         LIGHTNING_COLOUR_TIP,
+         "Colour",
+         None,
+         |ui| {
+            changed = ui
+               .color_edit_button_srgba(&mut ctx.appearance_settings.lightning.color)
+               .changed();
+         },
+      );
+      if changed {
+         dirty = true;
+      }
+
+      let value = format!("{}", ctx.appearance_settings.lightning.bolt_count);
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         LIGHTNING_BOLTS_TIP,
+         "Bolts",
+         Some(&value),
+         |ui| {
+            changed = ui
+               .add(
+                  egui::Slider::new(
+                     &mut ctx.appearance_settings.lightning.bolt_count,
+                     MIN_AMBIENT_BOLTS..=MAX_AMBIENT_BOLTS,
+                  )
+                  .show_value(false),
+               )
+               .changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.clamp();
+         dirty = true;
+      }
+
+      let value = format!(
+         "{}",
+         ctx.appearance_settings.lightning.branch_depth
+      );
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         LIGHTNING_DEPTH_TIP,
+         "Branch depth",
+         Some(&value),
+         |ui| {
+            changed = ui
+               .add(
+                  egui::Slider::new(
+                     &mut ctx.appearance_settings.lightning.branch_depth,
+                     MIN_AMBIENT_BRANCH_DEPTH..=MAX_AMBIENT_BRANCH_DEPTH,
+                  )
+                  .show_value(false),
+               )
+               .changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.clamp();
+         dirty = true;
+      }
+
+      let value = format!(
+         "{:.1}",
+         ctx.appearance_settings.lightning.thickness
+      );
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         LIGHTNING_THICKNESS_TIP,
+         "Thickness",
+         Some(&value),
+         |ui| {
+            changed = ui
+               .add(
+                  egui::Slider::new(
+                     &mut ctx.appearance_settings.lightning.thickness,
+                     MIN_AMBIENT_THICKNESS..=MAX_AMBIENT_THICKNESS,
+                  )
+                  .step_by(0.1)
+                  .show_value(false),
+               )
+               .changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.clamp();
+         dirty = true;
+      }
+
+      let value = format!("{:.2}", ctx.appearance_settings.lightning.jitter);
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         LIGHTNING_JITTER_TIP,
+         "Jitter",
+         Some(&value),
+         |ui| {
+            changed = ui
+               .add(
+                  egui::Slider::new(
+                     &mut ctx.appearance_settings.lightning.jitter,
+                     MIN_AMBIENT_JITTER..=MAX_AMBIENT_JITTER,
+                  )
+                  .step_by(0.01)
+                  .show_value(false),
+               )
+               .changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.clamp();
+         dirty = true;
+      }
+
+      let value = format!(
+         "{:.2}",
+         ctx.appearance_settings.lightning.flash_intensity
+      );
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         LIGHTNING_FLASH_TIP,
+         "Flash intensity",
+         Some(&value),
+         |ui| {
+            changed = ui
+               .add(
+                  egui::Slider::new(
+                     &mut ctx.appearance_settings.lightning.flash_intensity,
+                     MIN_AMBIENT_FLASH_INTENSITY..=MAX_AMBIENT_FLASH_INTENSITY,
+                  )
+                  .step_by(0.05)
+                  .show_value(false),
+               )
+               .changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.clamp();
+         dirty = true;
+      }
+
+      let value = format!(
+         "{:.0} ms",
+         ctx.appearance_settings.lightning.duration_ms
+      );
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         LIGHTNING_DURATION_TIP,
+         "Duration",
+         Some(&value),
+         |ui| {
+            changed = ui
+               .add(
+                  egui::Slider::new(
+                     &mut ctx.appearance_settings.lightning.duration_ms,
+                     MIN_AMBIENT_DURATION_MS..=MAX_AMBIENT_DURATION_MS,
+                  )
+                  .step_by(10.0)
+                  .show_value(false),
+               )
+               .changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.clamp();
+         dirty = true;
+      }
+
+      let mut changed = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         LIGHTNING_INTERVAL_TIP,
+         "Interval",
+         None,
+         |ui| {
+            changed = ui
+               .add(
+                  egui::DragValue::new(
+                     &mut ctx.appearance_settings.lightning.ambient_interval_secs,
+                  )
+                  .speed(0.1)
+                  .range(MIN_AMBIENT_INTERVAL_SECS..=MAX_AMBIENT_INTERVAL_SECS)
+                  .suffix(" s"),
+               )
+               .changed();
+         },
+      );
+      if changed {
+         ctx.appearance_settings.clamp();
+         dirty = true;
+      }
+
+      let mut more = false;
+      Self::row(
+         ui,
+         theme,
+         q_mark_text,
+         LIGHTNING_MORE_TIP,
+         "More settings",
+         None,
+         |ui| {
+            let text = RichText::new("More…").size(theme.typography.normal);
+            more = ui.add(Button::new(text).visuals(button_visuals)).clicked();
+         },
+      );
+      if more {
+         ctx.appearance_settings.lightning.open = true;
+      }
+      if ctx.appearance_settings.lightning.open {
+         ctx.appearance_settings.lightning.show_window(ui.ctx());
+      }
+
+      ui.add_space(theme.spacing.md);
+      dirty
    }
 
    /// One setting row: label, control, value, then the question badge that

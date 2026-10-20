@@ -4,6 +4,7 @@ use zeus_eth::types::SUPPORTED_CHAINS;
 use crate::assets::{INTER_BOLD_18, icons::Icons};
 use crate::core::{WalletInfo, ZeusCtx};
 use crate::gui::SHARED_GUI;
+use crate::gui::ambient::Ambient;
 use crate::gui::tray::{self, Tray, TrayAction};
 use crate::gui::ui::record_input_activity;
 use crate::server::run_server;
@@ -463,6 +464,10 @@ impl eframe::App for ZeusApp {
             egui::CentralPanel::default().frame(main_frame).show(ui, |ui| {
                gui.show_central_panel(ctx, ui);
             });
+
+            // App-wide ambient particles, after the panels and on the main
+            // viewport only. The settings viewport has its own pass.
+            Ambient::show(ui, &ctx.appearance_settings);
 
             let icons = gui.icons.clone();
             let theme = &gui.theme;

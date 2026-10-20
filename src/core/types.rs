@@ -23,7 +23,9 @@ use zeus_railgun::indexer::syncer::rpc::{
 use serde::{Deserialize, Serialize};
 
 use egui::Color32;
-use egui_elements::{HoldBurst, HoldSettings};
+use egui_elements::{
+   HoldBurst, HoldSettings, LightSettings, LightningSettings, ParticleLayer, SnowSettings,
+};
 use ncrypt_me::Argon2;
 
 const DEFAULT_STATE_UPDATE_INTERVAL_MINUTES: u64 = 5;
@@ -372,14 +374,136 @@ pub const MIN_GLOW_SOFTNESS: f32 = 0.2;
 /// Softest glow falloff — mirrors the crate's own `Softness` slider ceiling.
 pub const MAX_GLOW_SOFTNESS: f32 = 3.0;
 
-/// Hold-to-confirm and completion-burst appearance settings.
+// The ambient particle bounds below mirror the controls in the crate's own
+// `SnowSettings::body_ui`, `LightSettings::body_ui` and
+// `LightningSettings::body_ui` (`egui-elements/src/widgets/particles/*/settings.rs`),
+// so Zeus's inline knobs and the crate's "More…" window offer exactly the same
+// ranges. Keep them in sync with those functions rather than guessing a range.
+
+/// Fewest snowflakes — mirrors the crate's own `Density (Count)` slider floor.
+pub const MIN_AMBIENT_SNOW_DENSITY: usize = 0;
+
+/// Most snowflakes — mirrors the crate's own `Density (Count)` slider ceiling.
+pub const MAX_AMBIENT_SNOW_DENSITY: usize = 20_000;
+
+/// Smallest snowflake — mirrors the crate's own `Size (px)` drag-value floor.
+pub const MIN_AMBIENT_SNOW_SIZE: f32 = 0.1;
+
+/// Largest snowflake — mirrors the crate's own `Size (px)` drag-value ceiling.
+pub const MAX_AMBIENT_SNOW_SIZE: f32 = 20.0;
+
+/// Slowest snowflake fall — mirrors the crate's own `Fall Speed (px/s)` floor.
+pub const MIN_AMBIENT_SNOW_SPEED: f32 = 0.0;
+
+/// Fastest snowflake fall — mirrors the crate's own `Fall Speed (px/s)` ceiling.
+pub const MAX_AMBIENT_SNOW_SPEED: f32 = 500.0;
+
+/// Leftmost horizontal wind — mirrors the crate's own `Wind Vector` horizontal
+/// slider floor.
+pub const MIN_AMBIENT_WIND_X: f32 = -200.0;
+
+/// Rightmost horizontal wind — mirrors the crate's own `Wind Vector` horizontal
+/// slider ceiling.
+pub const MAX_AMBIENT_WIND_X: f32 = 200.0;
+
+/// Lowest vertical wind — mirrors the crate's own `Wind Vector` vertical slider
+/// floor.
+pub const MIN_AMBIENT_WIND_Y: f32 = -100.0;
+
+/// Highest vertical wind — mirrors the crate's own `Wind Vector` vertical slider
+/// ceiling.
+pub const MAX_AMBIENT_WIND_Y: f32 = 100.0;
+
+/// Fewest glow motes — mirrors the crate's own `Density (Count)` slider floor.
+pub const MIN_AMBIENT_LIGHT_DENSITY: usize = 0;
+
+/// Most glow motes — mirrors the crate's own `Density (Count)` slider ceiling.
+pub const MAX_AMBIENT_LIGHT_DENSITY: usize = 2_000;
+
+/// Smallest mote radius — mirrors the crate's own `Radius (px)` drag-value floor.
+pub const MIN_AMBIENT_LIGHT_RADIUS: f32 = 1.0;
+
+/// Largest mote radius — mirrors the crate's own `Radius (px)` drag-value ceiling.
+pub const MAX_AMBIENT_LIGHT_RADIUS: f32 = 200.0;
+
+/// Weakest glow — mirrors the crate's own `Intensity` slider floor.
+pub const MIN_AMBIENT_LIGHT_INTENSITY: f32 = 0.0;
+
+/// Strongest glow — mirrors the crate's own `Intensity` slider ceiling.
+pub const MAX_AMBIENT_LIGHT_INTENSITY: f32 = 1.0;
+
+/// Least flicker — mirrors the crate's own `Flicker` slider floor.
+pub const MIN_AMBIENT_LIGHT_FLICKER: f32 = 0.0;
+
+/// Most flicker — mirrors the crate's own `Flicker` slider ceiling.
+pub const MAX_AMBIENT_LIGHT_FLICKER: f32 = 1.0;
+
+/// Shortest mote lifetime — mirrors the crate's own `Lifetime (s)` drag-value
+/// floor.
+pub const MIN_AMBIENT_LIGHT_LIFETIME: f32 = 0.5;
+
+/// Longest mote lifetime — mirrors the crate's own `Lifetime (s)` drag-value
+/// ceiling.
+pub const MAX_AMBIENT_LIGHT_LIFETIME: f32 = 60.0;
+
+/// Fewest lightning bolts — mirrors the crate's own `Bolts` slider floor.
+pub const MIN_AMBIENT_BOLTS: usize = 1;
+
+/// Most lightning bolts — mirrors the crate's own `Bolts` slider ceiling.
+pub const MAX_AMBIENT_BOLTS: usize = 8;
+
+/// Shallowest lightning branch recursion — mirrors the crate's own
+/// `Branch Depth` slider floor.
+pub const MIN_AMBIENT_BRANCH_DEPTH: u32 = 0;
+
+/// Deepest lightning branch recursion — mirrors the crate's own
+/// `Branch Depth` slider ceiling.
+pub const MAX_AMBIENT_BRANCH_DEPTH: u32 = 8;
+
+/// Thinnest lightning core stroke — mirrors the crate's own `Thickness (px)`
+/// slider floor.
+pub const MIN_AMBIENT_THICKNESS: f32 = 0.5;
+
+/// Thickest lightning core stroke — mirrors the crate's own `Thickness (px)`
+/// slider ceiling.
+pub const MAX_AMBIENT_THICKNESS: f32 = 12.0;
+
+/// Smallest midpoint jitter — mirrors the crate's own `Jitter` slider floor.
+pub const MIN_AMBIENT_JITTER: f32 = 0.0;
+
+/// Largest midpoint jitter — mirrors the crate's own `Jitter` slider ceiling.
+pub const MAX_AMBIENT_JITTER: f32 = 0.6;
+
+/// Weakest full-area flash — mirrors the crate's own `Intensity` slider floor.
+pub const MIN_AMBIENT_FLASH_INTENSITY: f32 = 0.0;
+
+/// Strongest full-area flash — mirrors the crate's own `Intensity` slider
+/// ceiling.
+pub const MAX_AMBIENT_FLASH_INTENSITY: f32 = 1.0;
+
+/// Shortest strike — mirrors the crate's own `Duration (ms)` slider floor.
+pub const MIN_AMBIENT_DURATION_MS: f32 = 80.0;
+
+/// Longest strike — mirrors the crate's own `Duration (ms)` slider ceiling.
+pub const MAX_AMBIENT_DURATION_MS: f32 = 2_000.0;
+
+/// Shortest ambient strike interval — mirrors the crate's own `Interval (s)`
+/// drag-value floor. `0.0` disables the ambient scheduler.
+pub const MIN_AMBIENT_INTERVAL_SECS: f32 = 0.0;
+
+/// Longest ambient strike interval — mirrors the crate's own `Interval (s)`
+/// drag-value ceiling.
+pub const MAX_AMBIENT_INTERVAL_SECS: f32 = 120.0;
+
+/// Appearance settings: hold-to-confirm, its completion burst, and the app-wide
+/// ambient particles.
 ///
 /// Persisted as the unencrypted `appearance_settings.json`. Because the file is
 /// not sealed, every value is bounded: [`Self::clamp`] runs on load, when the
 /// settings page opens, on every save, and on every [`Self::button_settings`]
 /// copy — so a hand-edited file can never drive a slider or a particle effect
 /// out of its supported range.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppearanceSettings {
    /// When true, the affirmative button in the tx and sign windows requires a
    /// hold. Off by default: the feature is opt-in.
@@ -399,6 +523,18 @@ pub struct AppearanceSettings {
    /// The crate's knobs for the hold sweep and the completion burst.
    #[serde(default)]
    pub hold: HoldSettings,
+   /// Master switch for the app-wide ambient particles. Off by default.
+   #[serde(default)]
+   pub ambient_enabled: bool,
+   /// Snow knobs for the app-wide ambient pass.
+   #[serde(default)]
+   pub snow: SnowSettings,
+   /// Glow (light) knobs for the app-wide ambient pass.
+   #[serde(default)]
+   pub light: LightSettings,
+   /// Lightning knobs for the app-wide ambient pass.
+   #[serde(default)]
+   pub lightning: LightningSettings,
 }
 
 impl AppearanceSettings {
@@ -410,6 +546,11 @@ impl AppearanceSettings {
    /// jitter). Every value is inside the clamps in [`Self::clamp`], and
    /// `burst_intensity` stays `1.0` with `burst_color = None` so the burst keeps
    /// the fill's colour.
+   ///
+   /// The ambient kinds keep the crate's defaults (including `active` and
+   /// `color`), with two deliberate changes: `open` starts closed, and every
+   /// kind paints on [`ParticleLayer::Foreground`] because Zeus's panels paint
+   /// opaque backgrounds that would hide a `Background` effect.
    pub fn new() -> Self {
       Self {
          hold_to_confirm: false,
@@ -426,16 +567,34 @@ impl AppearanceSettings {
             burst_jitter: 0.1,
             ..HoldSettings::default()
          },
+         ambient_enabled: false,
+         snow: SnowSettings {
+            open: false,
+            layer: ParticleLayer::Foreground,
+            ..SnowSettings::default()
+         },
+         light: LightSettings {
+            open: false,
+            layer: ParticleLayer::Foreground,
+            ..LightSettings::default()
+         },
+         lightning: LightningSettings {
+            open: false,
+            layer: ParticleLayer::Foreground,
+            ..LightningSettings::default()
+         },
       }
    }
 
    /// Pull every numeric knob back into its supported range.
    ///
-   /// Also pins [`HoldSettings::open`] to `false` — Zeus never opens the crate's
-   /// own settings window — and keeps the glow end radius at or above the start
-   /// radius, so the fill band never shrinks as it expands.
+   /// The crate's `open` flags are deliberately left alone here: they are
+   /// transient window state, and `save()` runs on every slider change, so
+   /// clearing them in `clamp` would close a "More…" window mid-edit. Loading
+   /// and saving clear them instead — see [`Self::close_settings_windows`].
+   /// Also keeps each min/max pair ordered, as the crate's own body UIs do, and
+   /// the glow end radius at or above the start radius.
    pub fn clamp(&mut self) {
-      self.hold.open = false;
       self.hold.seconds = self.hold.seconds.clamp(MIN_HOLD_SECONDS, MAX_HOLD_SECONDS);
       self.hold.burst_ms = self.hold.burst_ms.clamp(MIN_BURST_MS, MAX_BURST_MS);
       self.hold.burst_intensity =
@@ -453,15 +612,110 @@ impl AppearanceSettings {
          .max(self.hold.burst_glow_from);
       self.hold.burst_glow_softness =
          self.hold.burst_glow_softness.clamp(MIN_GLOW_SOFTNESS, MAX_GLOW_SOFTNESS);
+
+      self.snow.density =
+         self.snow.density.clamp(MIN_AMBIENT_SNOW_DENSITY, MAX_AMBIENT_SNOW_DENSITY);
+      self.snow.size_min = self.snow.size_min.clamp(MIN_AMBIENT_SNOW_SIZE, MAX_AMBIENT_SNOW_SIZE);
+      self.snow.size_max = self.snow.size_max.clamp(MIN_AMBIENT_SNOW_SIZE, MAX_AMBIENT_SNOW_SIZE);
+      if self.snow.size_min > self.snow.size_max {
+         self.snow.size_min = self.snow.size_max;
+      }
+      self.snow.speed_min =
+         self.snow.speed_min.clamp(MIN_AMBIENT_SNOW_SPEED, MAX_AMBIENT_SNOW_SPEED);
+      self.snow.speed_max =
+         self.snow.speed_max.clamp(MIN_AMBIENT_SNOW_SPEED, MAX_AMBIENT_SNOW_SPEED);
+      if self.snow.speed_min > self.snow.speed_max {
+         self.snow.speed_min = self.snow.speed_max;
+      }
+      self.snow.wind.x = self.snow.wind.x.clamp(MIN_AMBIENT_WIND_X, MAX_AMBIENT_WIND_X);
+      self.snow.wind.y = self.snow.wind.y.clamp(MIN_AMBIENT_WIND_Y, MAX_AMBIENT_WIND_Y);
+
+      self.light.density = self.light.density.clamp(
+         MIN_AMBIENT_LIGHT_DENSITY,
+         MAX_AMBIENT_LIGHT_DENSITY,
+      );
+      self.light.radius_min =
+         self.light.radius_min.clamp(MIN_AMBIENT_LIGHT_RADIUS, MAX_AMBIENT_LIGHT_RADIUS);
+      self.light.radius_max =
+         self.light.radius_max.clamp(MIN_AMBIENT_LIGHT_RADIUS, MAX_AMBIENT_LIGHT_RADIUS);
+      if self.light.radius_min > self.light.radius_max {
+         self.light.radius_min = self.light.radius_max;
+      }
+      self.light.intensity = self.light.intensity.clamp(
+         MIN_AMBIENT_LIGHT_INTENSITY,
+         MAX_AMBIENT_LIGHT_INTENSITY,
+      );
+      self.light.flicker = self.light.flicker.clamp(
+         MIN_AMBIENT_LIGHT_FLICKER,
+         MAX_AMBIENT_LIGHT_FLICKER,
+      );
+      self.light.wind.x = self.light.wind.x.clamp(MIN_AMBIENT_WIND_X, MAX_AMBIENT_WIND_X);
+      self.light.wind.y = self.light.wind.y.clamp(MIN_AMBIENT_WIND_Y, MAX_AMBIENT_WIND_Y);
+      self.light.lifetime_min = self.light.lifetime_min.clamp(
+         MIN_AMBIENT_LIGHT_LIFETIME,
+         MAX_AMBIENT_LIGHT_LIFETIME,
+      );
+      self.light.lifetime_max = self.light.lifetime_max.clamp(
+         MIN_AMBIENT_LIGHT_LIFETIME,
+         MAX_AMBIENT_LIGHT_LIFETIME,
+      );
+      if self.light.lifetime_min > self.light.lifetime_max {
+         self.light.lifetime_min = self.light.lifetime_max;
+      }
+
+      self.lightning.bolt_count =
+         self.lightning.bolt_count.clamp(MIN_AMBIENT_BOLTS, MAX_AMBIENT_BOLTS);
+      self.lightning.branch_depth = self
+         .lightning
+         .branch_depth
+         .clamp(MIN_AMBIENT_BRANCH_DEPTH, MAX_AMBIENT_BRANCH_DEPTH);
+      self.lightning.thickness =
+         self.lightning.thickness.clamp(MIN_AMBIENT_THICKNESS, MAX_AMBIENT_THICKNESS);
+      self.lightning.jitter = self.lightning.jitter.clamp(MIN_AMBIENT_JITTER, MAX_AMBIENT_JITTER);
+      self.lightning.flash_intensity = self.lightning.flash_intensity.clamp(
+         MIN_AMBIENT_FLASH_INTENSITY,
+         MAX_AMBIENT_FLASH_INTENSITY,
+      );
+      self.lightning.duration_ms = self
+         .lightning
+         .duration_ms
+         .clamp(MIN_AMBIENT_DURATION_MS, MAX_AMBIENT_DURATION_MS);
+      self.lightning.ambient_interval_secs = self.lightning.ambient_interval_secs.clamp(
+         MIN_AMBIENT_INTERVAL_SECS,
+         MAX_AMBIENT_INTERVAL_SECS,
+      );
    }
 
-   /// Parse a settings document and clamp it.
+   /// Clear the crate's transient settings-window flags.
+   ///
+   /// `open` must never come back from disk: the crate's `show_window` treats it
+   /// as "the user has this window up", so a persisted `true` would reopen a
+   /// floating window at startup. [`Self::clamp`] deliberately leaves it alone
+   /// so a save from a slider drag cannot close the window the user is editing.
+   fn close_settings_windows(&mut self) {
+      self.hold.open = false;
+      self.snow.open = false;
+      self.light.open = false;
+      self.lightning.open = false;
+   }
+
+   /// The copy [`Self::save`] writes: clamped, with every transient settings
+   /// window closed.
+   fn persisted(&self) -> Self {
+      let mut settings = self.clone();
+      settings.clamp();
+      settings.close_settings_windows();
+      settings
+   }
+
+   /// Parse a settings document, clamp it, and close transient windows.
    ///
    /// Tests use this instead of [`Self::load_from_file`] so they never touch the
    /// real `data/` directory, which is resolved from the process cwd.
    pub(crate) fn from_json(data: &str) -> Result<Self, serde_json::Error> {
       let mut settings: Self = serde_json::from_str(data)?;
       settings.clamp();
+      settings.close_settings_windows();
       Ok(settings)
    }
 
@@ -477,9 +731,9 @@ impl AppearanceSettings {
 
    pub fn save(&self) -> Result<(), anyhow::Error> {
       // Every write is clamped: the file is unencrypted and may be replaced by
-      // hand, so no caller can land an out-of-range value on disk.
-      let mut settings = *self;
-      settings.clamp();
+      // hand, so no caller can land an out-of-range value on disk. The
+      // transient `open` flags are cleared in the copy, never in `self`.
+      let settings = self.persisted();
       let path = appearance_settings_dir()?;
       let data = settings.to_json()?;
       write_private(&path, data.as_bytes())?;
@@ -525,9 +779,10 @@ impl AppearanceSettings {
    /// This is the one place the crate's [`HoldSettings::fill_to`] is built: the
    /// switch picks a second colour or the crate's solid fill (`None`).
    pub(crate) fn resolved_hold(&self, accent: Color32) -> HoldSettings {
-      let mut settings = *self;
+      let mut settings = self.clone();
       settings.clamp();
       let mut hold = settings.hold;
+      hold.open = false;
       hold.fill_to = if settings.shift_second_colour {
          Some(settings.second_colour.unwrap_or_else(|| accent_at(accent, SECOND_COLOUR_ALPHA)))
       } else {
@@ -1788,11 +2043,15 @@ mod tests {
             burst_glow_to: 99.0,
             burst_glow_softness: 0.01,
          },
+         ..AppearanceSettings::new()
       };
 
       settings.clamp();
 
-      assert!(!settings.hold.open);
+      // `open` is transient window state: `clamp` must leave it alone so a save
+      // from a slider drag does not close the window being edited. Loading and
+      // saving clear it instead.
+      assert!(settings.hold.open);
       assert_eq!(settings.hold_seconds(), MIN_HOLD_SECONDS);
       assert_eq!(settings.hold.burst_ms, MAX_BURST_MS);
       assert_eq!(settings.hold.burst_intensity, MIN_BURST_INTENSITY);
@@ -1950,5 +2209,284 @@ mod tests {
 
       assert!(settings.hold_to_confirm());
       assert_eq!(settings.hold_seconds(), 0.5);
+   }
+
+   #[test]
+   fn ambient_defaults_are_the_crates_and_off() {
+      let settings = AppearanceSettings::new();
+
+      assert!(!settings.ambient_enabled);
+      assert_eq!(
+         settings.snow,
+         SnowSettings {
+            open: false,
+            layer: ParticleLayer::Foreground,
+            ..SnowSettings::default()
+         }
+      );
+      assert_eq!(
+         settings.light,
+         LightSettings {
+            open: false,
+            layer: ParticleLayer::Foreground,
+            ..LightSettings::default()
+         }
+      );
+      assert_eq!(
+         settings.lightning,
+         LightningSettings {
+            open: false,
+            layer: ParticleLayer::Foreground,
+            ..LightningSettings::default()
+         }
+      );
+
+      // Every kind keeps the crate's `active`: turning the master switch on
+      // shows all three until the user turns one off.
+      assert_eq!(
+         settings.snow.active,
+         SnowSettings::default().active
+      );
+      assert_eq!(
+         settings.light.active,
+         LightSettings::default().active
+      );
+      assert_eq!(
+         settings.lightning.active,
+         LightningSettings::default().active
+      );
+   }
+
+   #[test]
+   fn ambient_knobs_are_clamped_to_the_crates_sliders() {
+      let mut settings = AppearanceSettings::new();
+
+      settings.snow.density = usize::MAX;
+      settings.snow.size_min = -50.0;
+      settings.snow.size_max = 500.0;
+      settings.snow.speed_min = -10.0;
+      settings.snow.speed_max = 10_000.0;
+      settings.snow.wind = egui::vec2(-9_000.0, 9_000.0);
+      settings.light.density = usize::MAX;
+      settings.light.radius_min = 0.0;
+      settings.light.radius_max = 1_000.0;
+      settings.light.intensity = -1.0;
+      settings.light.flicker = 9.0;
+      settings.light.wind = egui::vec2(9_000.0, -9_000.0);
+      settings.light.lifetime_min = 0.0;
+      settings.light.lifetime_max = 5_000.0;
+      settings.lightning.bolt_count = 99;
+      settings.lightning.branch_depth = 99;
+      settings.lightning.thickness = 0.0;
+      settings.lightning.jitter = 9.0;
+      settings.lightning.flash_intensity = 2.0;
+      settings.lightning.duration_ms = 0.0;
+      settings.lightning.ambient_interval_secs = -1.0;
+
+      settings.clamp();
+
+      assert_eq!(settings.snow.density, MAX_AMBIENT_SNOW_DENSITY);
+      assert!((MIN_AMBIENT_SNOW_SIZE..=MAX_AMBIENT_SNOW_SIZE).contains(&settings.snow.size_min));
+      assert!((MIN_AMBIENT_SNOW_SIZE..=MAX_AMBIENT_SNOW_SIZE).contains(&settings.snow.size_max));
+      assert!(settings.snow.size_min <= settings.snow.size_max);
+      assert!((MIN_AMBIENT_SNOW_SPEED..=MAX_AMBIENT_SNOW_SPEED).contains(&settings.snow.speed_min));
+      assert!((MIN_AMBIENT_SNOW_SPEED..=MAX_AMBIENT_SNOW_SPEED).contains(&settings.snow.speed_max));
+      assert!(settings.snow.speed_min <= settings.snow.speed_max);
+      assert!((MIN_AMBIENT_WIND_X..=MAX_AMBIENT_WIND_X).contains(&settings.snow.wind.x));
+      assert!((MIN_AMBIENT_WIND_Y..=MAX_AMBIENT_WIND_Y).contains(&settings.snow.wind.y));
+
+      assert_eq!(settings.light.density, MAX_AMBIENT_LIGHT_DENSITY);
+      assert!(
+         (MIN_AMBIENT_LIGHT_RADIUS..=MAX_AMBIENT_LIGHT_RADIUS).contains(&settings.light.radius_min)
+      );
+      assert!(
+         (MIN_AMBIENT_LIGHT_RADIUS..=MAX_AMBIENT_LIGHT_RADIUS).contains(&settings.light.radius_max)
+      );
+      assert!(settings.light.radius_min <= settings.light.radius_max);
+      assert!(
+         (MIN_AMBIENT_LIGHT_INTENSITY..=MAX_AMBIENT_LIGHT_INTENSITY)
+            .contains(&settings.light.intensity)
+      );
+      assert!(
+         (MIN_AMBIENT_LIGHT_FLICKER..=MAX_AMBIENT_LIGHT_FLICKER).contains(&settings.light.flicker)
+      );
+      assert!((MIN_AMBIENT_WIND_X..=MAX_AMBIENT_WIND_X).contains(&settings.light.wind.x));
+      assert!((MIN_AMBIENT_WIND_Y..=MAX_AMBIENT_WIND_Y).contains(&settings.light.wind.y));
+      assert!(
+         (MIN_AMBIENT_LIGHT_LIFETIME..=MAX_AMBIENT_LIGHT_LIFETIME)
+            .contains(&settings.light.lifetime_min)
+      );
+      assert!(
+         (MIN_AMBIENT_LIGHT_LIFETIME..=MAX_AMBIENT_LIGHT_LIFETIME)
+            .contains(&settings.light.lifetime_max)
+      );
+      assert!(settings.light.lifetime_min <= settings.light.lifetime_max);
+
+      assert_eq!(settings.lightning.bolt_count, MAX_AMBIENT_BOLTS);
+      assert_eq!(
+         settings.lightning.branch_depth,
+         MAX_AMBIENT_BRANCH_DEPTH
+      );
+      assert!(
+         (MIN_AMBIENT_THICKNESS..=MAX_AMBIENT_THICKNESS).contains(&settings.lightning.thickness)
+      );
+      assert!((MIN_AMBIENT_JITTER..=MAX_AMBIENT_JITTER).contains(&settings.lightning.jitter));
+      assert!(
+         (MIN_AMBIENT_FLASH_INTENSITY..=MAX_AMBIENT_FLASH_INTENSITY)
+            .contains(&settings.lightning.flash_intensity)
+      );
+      assert!(
+         (MIN_AMBIENT_DURATION_MS..=MAX_AMBIENT_DURATION_MS)
+            .contains(&settings.lightning.duration_ms)
+      );
+      assert!(
+         (MIN_AMBIENT_INTERVAL_SECS..=MAX_AMBIENT_INTERVAL_SECS)
+            .contains(&settings.lightning.ambient_interval_secs)
+      );
+
+      // `0` is a valid interval: the crate treats it as "ambient scheduler off".
+      settings.lightning.ambient_interval_secs = 0.0;
+      settings.clamp();
+      assert_eq!(settings.lightning.ambient_interval_secs, 0.0);
+   }
+
+   /// Each pair is copied from the control the crate's own body UI draws — see
+   /// `egui-elements/src/widgets/particles/{snow,light,lightning}/settings.rs`.
+   #[test]
+   fn the_ambient_ranges_mirror_the_crates_controls() {
+      // Snow::body_ui — density Slider 0..=20000, size DragValue 0.1..=20.0,
+      // fall speed DragValue 0.0..=500.0, wind Slider -200..=200 / -100..=100.
+      assert_eq!(
+         (MIN_AMBIENT_SNOW_DENSITY, MAX_AMBIENT_SNOW_DENSITY),
+         (0, 20_000)
+      );
+      assert_eq!(
+         (MIN_AMBIENT_SNOW_SIZE, MAX_AMBIENT_SNOW_SIZE),
+         (0.1, 20.0)
+      );
+      assert_eq!(
+         (MIN_AMBIENT_SNOW_SPEED, MAX_AMBIENT_SNOW_SPEED),
+         (0.0, 500.0)
+      );
+      assert_eq!(
+         (MIN_AMBIENT_WIND_X, MAX_AMBIENT_WIND_X),
+         (-200.0, 200.0)
+      );
+      assert_eq!(
+         (MIN_AMBIENT_WIND_Y, MAX_AMBIENT_WIND_Y),
+         (-100.0, 100.0)
+      );
+
+      // Light::body_ui — density Slider 0..=2000, radius DragValue 1.0..=200.0,
+      // intensity Slider 0.0..=1.0, flicker Slider 0.0..=1.0, lifetime
+      // DragValue 0.5..=60.0.
+      assert_eq!(
+         (
+            MIN_AMBIENT_LIGHT_DENSITY,
+            MAX_AMBIENT_LIGHT_DENSITY
+         ),
+         (0, 2_000)
+      );
+      assert_eq!(
+         (MIN_AMBIENT_LIGHT_RADIUS, MAX_AMBIENT_LIGHT_RADIUS),
+         (1.0, 200.0)
+      );
+      assert_eq!(
+         (
+            MIN_AMBIENT_LIGHT_INTENSITY,
+            MAX_AMBIENT_LIGHT_INTENSITY
+         ),
+         (0.0, 1.0)
+      );
+      assert_eq!(
+         (
+            MIN_AMBIENT_LIGHT_FLICKER,
+            MAX_AMBIENT_LIGHT_FLICKER
+         ),
+         (0.0, 1.0)
+      );
+      assert_eq!(
+         (
+            MIN_AMBIENT_LIGHT_LIFETIME,
+            MAX_AMBIENT_LIGHT_LIFETIME
+         ),
+         (0.5, 60.0)
+      );
+
+      // Lightning::body_ui — bolts Slider 1..=8, branch depth Slider 0..=8,
+      // thickness Slider 0.5..=12.0, jitter Slider 0.0..=0.6, flash intensity
+      // Slider 0.0..=1.0, duration Slider 80.0..=2000.0, interval DragValue
+      // 0.0..=120.0.
+      assert_eq!((MIN_AMBIENT_BOLTS, MAX_AMBIENT_BOLTS), (1, 8));
+      assert_eq!(
+         (MIN_AMBIENT_BRANCH_DEPTH, MAX_AMBIENT_BRANCH_DEPTH),
+         (0, 8)
+      );
+      assert_eq!(
+         (MIN_AMBIENT_THICKNESS, MAX_AMBIENT_THICKNESS),
+         (0.5, 12.0)
+      );
+      assert_eq!(
+         (MIN_AMBIENT_JITTER, MAX_AMBIENT_JITTER),
+         (0.0, 0.6)
+      );
+      assert_eq!(
+         (
+            MIN_AMBIENT_FLASH_INTENSITY,
+            MAX_AMBIENT_FLASH_INTENSITY
+         ),
+         (0.0, 1.0)
+      );
+      assert_eq!(
+         (MIN_AMBIENT_DURATION_MS, MAX_AMBIENT_DURATION_MS),
+         (80.0, 2_000.0)
+      );
+      assert_eq!(
+         (
+            MIN_AMBIENT_INTERVAL_SECS,
+            MAX_AMBIENT_INTERVAL_SECS
+         ),
+         (0.0, 120.0)
+      );
+   }
+
+   #[test]
+   fn the_settings_windows_are_closed_on_load_and_save() {
+      // A hand-edited file with every transient window flagged open. The
+      // particle settings require all their fields, so serialize a full
+      // document and flip the flags rather than hand-writing a partial one.
+      let mut on_disk = AppearanceSettings::new();
+      on_disk.hold.open = true;
+      on_disk.snow.open = true;
+      on_disk.light.open = true;
+      on_disk.lightning.open = true;
+      let loaded = AppearanceSettings::from_json(&on_disk.to_json().expect("serialize"))
+         .expect("a document with every window open loads");
+
+      assert!(!loaded.hold.open);
+      assert!(!loaded.snow.open);
+      assert!(!loaded.light.open);
+      assert!(!loaded.lightning.open);
+
+      let mut live = AppearanceSettings::new();
+      live.hold.open = true;
+      live.snow.open = true;
+      live.light.open = true;
+      live.lightning.open = true;
+
+      // A slider drag saves while the "More…" window is up: `clamp` must not
+      // close it.
+      live.clamp();
+      assert!(live.hold.open);
+      assert!(live.snow.open);
+      assert!(live.light.open);
+      assert!(live.lightning.open);
+
+      let saved = live.persisted();
+      assert!(!saved.hold.open);
+      assert!(!saved.snow.open);
+      assert!(!saved.light.open);
+      assert!(!saved.lightning.open);
+      assert!(!saved.to_json().expect("serialize the saved copy").contains("\"open\":true"));
    }
 }
