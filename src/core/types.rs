@@ -495,6 +495,16 @@ pub const MIN_AMBIENT_INTERVAL_SECS: f32 = 0.0;
 /// drag-value ceiling.
 pub const MAX_AMBIENT_INTERVAL_SECS: f32 = 120.0;
 
+/// Zeus's ambient lightning strike interval, in seconds.
+///
+/// The crate defaults `ambient_interval_secs` to `0.0`, which means "schedule no
+/// ambient strikes": the effect then only fires from a host's explicit
+/// `Lightning::strike`. With the ambient master switch on, that would leave
+/// lightning `active` but silent while snow and glow animate, so Zeus sets a
+/// real interval. Six seconds is a deliberate "ambient, not a light show"
+/// choice, and the user can change it on the appearance page.
+pub const AMBIENT_LIGHTNING_INTERVAL_SECS: f32 = 6.0;
+
 /// Appearance settings: hold-to-confirm, its completion burst, and the app-wide
 /// ambient particles.
 ///
@@ -548,9 +558,23 @@ impl AppearanceSettings {
    /// the fill's colour.
    ///
    /// The ambient kinds keep the crate's defaults (including `active` and
-   /// `color`), with two deliberate changes: `open` starts closed, and every
-   /// kind paints on [`ParticleLayer::Foreground`] because Zeus's panels paint
-   /// opaque backgrounds that would hide a `Background` effect.
+   /// `color`), with three choices stated explicitly so a reader can see them,
+   /// and why each exists, in one place:
+   ///
+   /// 1. `open` starts `false` (the crate's default too — its example is what
+   ///    opens the window): Zeus opens each kind's "More…" window only on
+   ///    demand, never at startup.
+   /// 2. `layer` is [`ParticleLayer::Foreground`] (the crate's current
+   ///    default), pinned because Zeus's panels paint opaque backgrounds that
+   ///    would hide a `Background` effect.
+   /// 3. Lightning's `ambient_interval_secs` is
+   ///    [`AMBIENT_LIGHTNING_INTERVAL_SECS`] — the one value that differs from
+   ///    the crate's default: `0.0` schedules no ambient strikes, so without it
+   ///    the ambient's lightning would be `active` and never fire while snow
+   ///    and glow do. Six seconds is a deliberate "ambient, not a light show"
+   ///    choice, and the page exposes it.
+   ///
+   /// Every other ambient knob is the crate's default.
    pub fn new() -> Self {
       Self {
          hold_to_confirm: false,
@@ -581,6 +605,7 @@ impl AppearanceSettings {
          lightning: LightningSettings {
             open: false,
             layer: ParticleLayer::Foreground,
+            ambient_interval_secs: AMBIENT_LIGHTNING_INTERVAL_SECS,
             ..LightningSettings::default()
          },
       }
@@ -2232,11 +2257,26 @@ mod tests {
             ..LightSettings::default()
          }
       );
+      // The one ambient value that differs from the crate's: `0.0` schedules
+      // no ambient strikes, so lightning would be `active` and never fire.
+      // Zeus sets a real interval, and the page exposes it.
+      assert_eq!(
+         settings.lightning.ambient_interval_secs,
+         AMBIENT_LIGHTNING_INTERVAL_SECS
+      );
+      assert_ne!(
+         settings.lightning.ambient_interval_secs,
+         LightningSettings::default().ambient_interval_secs,
+         "the crate's default interval disables ambient strikes"
+      );
+
+      // Every other lightning knob is still the crate's default.
       assert_eq!(
          settings.lightning,
          LightningSettings {
             open: false,
             layer: ParticleLayer::Foreground,
+            ambient_interval_secs: AMBIENT_LIGHTNING_INTERVAL_SECS,
             ..LightningSettings::default()
          }
       );

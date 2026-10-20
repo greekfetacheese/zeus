@@ -465,8 +465,9 @@ impl eframe::App for ZeusApp {
                gui.show_central_panel(ctx, ui);
             });
 
-            // App-wide ambient particles, after the panels and on the main
-            // viewport only. The settings viewport has its own pass.
+            // App-wide ambient particles, after the panels, on the main
+            // viewport only. The settings viewport deliberately runs no ambient
+            // pass: the ambient belongs to the main window.
             Ambient::show(ui, &ctx.appearance_settings);
 
             let icons = gui.icons.clone();
