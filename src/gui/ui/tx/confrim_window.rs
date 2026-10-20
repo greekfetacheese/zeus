@@ -405,6 +405,8 @@ impl TxConfirmationWindow {
                );
 
                let calldata = analysis.call_data.to_string();
+               // Read before `clear_display` borrows its field: this asks the whole window.
+               let descriptor_leads = self.descriptor_leads();
                let clear_display = self.clear_display.as_ref();
 
                // Calldata window
@@ -487,8 +489,10 @@ impl TxConfirmationWindow {
                   );
                }
 
+               // A bare asset movement gives way to the descriptor, which says what the call was
+               // for; the state change rows below still say what moved.
                // Main event details
-               if !main_event.is_other() {
+               if !main_event.is_other() && !descriptor_leads {
                   // The name the user picked for the recipient; the event renderer matches it
                   // against the row's own address before showing it.
                   let recipient_name =
@@ -510,7 +514,7 @@ impl TxConfirmationWindow {
                }
 
                // Clear display UI
-               if main_event.is_other() {
+               if main_event.is_other() || descriptor_leads {
                   let frame_size = vec2(ui.available_width() * AVAIL_WIDTH_MARGIN, 300.0);
 
                   if let Some(display) = self.clear_display.clone() {
@@ -703,17 +707,52 @@ impl TxConfirmationWindow {
          });
    }
 
+   /// True when a resolved ERC-7730 display should lead the window instead of the decoded main
+   /// event.
+   ///
+   /// A decoded event outranks the descriptor everywhere except one shape: a bare asset movement.
+   /// `Transfer` / `NftTransfer` say what the transaction moved, not what it was for — and when the
+   /// call's own target is not the asset contract, that movement is an effect of the call. Aave's
+   /// `supply()` pulls the token with an internal `transferFrom`, which is the only log Zeus decodes
+   /// (the aToken mint is a `Transfer` from the zero address, which the decoder refuses), so the
+   /// window headlined "ERC20 Transfer" over the descriptor that named the call "Supply". A wallet
+   /// `transfer()` / `transferFrom()` on the token itself keeps its card: there the target *is* the
+   /// asset, so the movement is the intent.
+   fn descriptor_leads(&self) -> bool {
+      let (Some(analysis), Some(main_event), Some(_)) = (
+         self.tx.as_ref(),
+         self.tx_main_event.as_ref(),
+         self.clear_display.as_ref(),
+      ) else {
+         return false;
+      };
+
+      // Only bare movements are eligible. A decoded swap, bridge, approval, position op or Railgun
+      // op names an intent of its own — one Zeus composes with amounts and prices — and stays the
+      // headline.
+      let asset = match main_event {
+         DecodedEvent::Transfer(params) if params.currency.is_erc20() => {
+            Some(params.currency.address())
+         }
+         DecodedEvent::NftTransfer(params) => Some(params.collection),
+         _ => None,
+      };
+
+      asset.is_some_and(|asset| asset != analysis.interact_to)
+   }
+
    /// The window's title: what the transaction does.
    ///
    /// A decoded main event names itself; an undecodable calldata falls back to the
-   /// ERC-7730 heading, and an unlimited approval is called out in the error colour —
-   /// the same treatment the signing window gives its own title.
+   /// ERC-7730 heading, and a resolved descriptor also leads when the main event is only an
+   /// asset movement ([`Self::descriptor_leads`]). An unlimited approval is called out in the
+   /// error colour — the same treatment the signing window gives its own title.
    fn heading(&self, theme: &Theme) -> RichText {
       let (Some(_), Some(main_event)) = (self.tx.as_ref(), self.tx_main_event.as_ref()) else {
          return RichText::new("Confirm Transaction").size(theme.typography.heading);
       };
 
-      let action_name = if main_event.is_other() {
+      let action_name = if main_event.is_other() || self.descriptor_leads() {
          self
             .clear_display
             .as_ref()
@@ -1153,5 +1192,83 @@ mod height_budget {
       handle.write(|c| window.calculate_tx_cost(c, gas_used));
 
       window
+   }
+}
+
+#[cfg(test)]
+mod descriptor_precedence {
+   use super::*;
+   use crate::core::clear_signing::ClearDisplay;
+   use crate::core::{DecodedEvent, TransactionAnalysis};
+   use crate::tests::test_ctx;
+   use egui_elements::ThemeKind;
+   use zeus_eth::currency::ERC20Token;
+   use zeus_eth::utils::address_book::universal_router_v2;
+
+   /// The reported shape: `supply()` decodes to exactly one ERC-20 `Transfer` — the `transferFrom`
+   /// the Pool made on the user's behalf.
+   fn aave_supply() -> TransactionAnalysis {
+      let mut analysis = TransactionAnalysis::dummy_clear_signed();
+      analysis.decoded_events = vec![DecodedEvent::dummy_erc20_transfer()];
+      analysis
+   }
+
+   fn window(analysis: TransactionAnalysis, display: Option<ClearDisplay>) -> TxConfirmationWindow {
+      let mut window = TxConfirmationWindow::new();
+      window.tx_main_event =
+         Some(analysis.infer_main_event(test_ctx(analysis.chain), analysis.chain));
+      window.tx = Some(analysis);
+      window.clear_display = display;
+      window
+   }
+
+   fn heading_of(window: &TxConfirmationWindow) -> String {
+      let theme = Theme::new(ThemeKind::TokyoNight);
+      window.heading(&theme).text().to_string()
+   }
+
+   #[test]
+   fn a_pulled_token_transfer_yields_to_the_descriptor() {
+      let window = window(
+         aave_supply(),
+         Some(ClearDisplay::dummy_calldata()),
+      );
+
+      assert_eq!(
+         window.tx_main_event.as_ref().unwrap().name(),
+         "ERC20 Transfer",
+         "the fixture must still rank as the bare movement it reports"
+      );
+      assert!(window.descriptor_leads());
+      assert_eq!(heading_of(&window), "Supply");
+   }
+
+   #[test]
+   fn a_direct_token_call_keeps_its_own_card() {
+      let mut analysis = aave_supply();
+      analysis.interact_to = ERC20Token::weth().address;
+      let window = window(analysis, Some(ClearDisplay::dummy_calldata()));
+
+      assert!(!window.descriptor_leads());
+      assert_eq!(heading_of(&window), "ERC20 Transfer");
+   }
+
+   #[test]
+   fn a_decoded_protocol_intent_still_leads() {
+      let mut analysis = TransactionAnalysis::dummy_swap();
+      analysis.interact_to = universal_router_v2(1).unwrap();
+      let window = window(analysis, Some(ClearDisplay::dummy_calldata()));
+      let main_event_name = window.tx_main_event.as_ref().unwrap().name();
+
+      assert!(!window.descriptor_leads());
+      assert_eq!(heading_of(&window), main_event_name);
+   }
+
+   #[test]
+   fn no_descriptor_changes_nothing() {
+      let window = window(aave_supply(), None);
+
+      assert!(!window.descriptor_leads());
+      assert_eq!(heading_of(&window), "ERC20 Transfer");
    }
 }
