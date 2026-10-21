@@ -1,5 +1,6 @@
 use super::super::{ZeusContext, ZeusCtx};
 use crate::core::types::*;
+use crate::core::ui;
 
 impl ZeusCtx {
    pub fn vault_exists(&self) -> bool {
@@ -71,10 +72,7 @@ impl ZeusCtx {
    /// so it is readable before the window closes.
    fn credential_lockout_shutdown() {
       tracing::warn!("Too many failed credential attempts, shutting Zeus down");
-      crate::gui::SHARED_GUI.write(|gui| {
-         gui.open_msg_window("Too many failed attempts. Zeus will close.");
-         gui.shutdown();
-      });
+      ui::host().lockout_and_shutdown("Too many failed attempts. Zeus will close.");
    }
 }
 

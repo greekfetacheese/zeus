@@ -5,6 +5,7 @@ pub mod balance_diff;
 pub mod events;
 pub mod finalize;
 pub mod main_event;
+pub mod notification;
 pub mod rich;
 pub mod send;
 pub mod send_calls;

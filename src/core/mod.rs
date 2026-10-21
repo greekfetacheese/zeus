@@ -8,6 +8,7 @@ pub mod signature;
 pub mod simulate;
 pub mod tx;
 pub mod types;
+pub mod ui;
 pub mod urls;
 pub mod vault;
 pub mod wallet;

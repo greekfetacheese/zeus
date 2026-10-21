@@ -117,6 +117,16 @@ impl SignMsgWindow {
       self.signed.take()
    }
 
+   /// Collect the answer and close the prompt in one step, so one Sign click can
+   /// only ever be acted on once.
+   pub fn take_answer(&mut self) -> Option<bool> {
+      let signed = self.take_signed();
+      if signed.is_some() {
+         self.close();
+      }
+      signed
+   }
+
    /// Close without signing and answer the awaiting `sign_message` with a
    /// cancel, so it errors out instead of hanging. Used when auto-lock fires.
    pub fn reject(&mut self) {

@@ -8,6 +8,7 @@ use super::{
 };
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::{self, ClearDisplay};
+use crate::core::ui::TxConfirmAnswer;
 use crate::core::{DecodedEvent, TransactionAnalysis, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::gui::appearance::AppearanceSettings;
@@ -296,6 +297,26 @@ impl TxConfirmationWindow {
    /// the user never reviewed.
    pub fn take_confirmed_or_rejected(&mut self) -> Option<bool> {
       self.confirmed_or_rejected.take()
+   }
+
+   /// Collect the answer and close the prompt in one step.
+   ///
+   /// The answer is single-use: one Confirm click must only ever be acted on once.
+   /// A rejection is reported as [`TxConfirmAnswer::rejected`], since the answer
+   /// type describes a confirmed transaction and has no separate flag.
+   pub fn take_answer(&mut self) -> Option<TxConfirmAnswer> {
+      let accepted = self.take_confirmed_or_rejected()?;
+      self.close();
+
+      Some(if accepted {
+         TxConfirmAnswer {
+            priority_fee: self.get_priority_fee(),
+            gas_limit: self.get_gas_limit(),
+            clear_display: self.get_clear_display(),
+         }
+      } else {
+         TxConfirmAnswer::rejected()
+      })
    }
 
    /// Close without confirming and record a rejection, so the awaiting

@@ -3,8 +3,8 @@
 
 use super::analysis::TransactionAnalysis;
 use super::send::{SendTxOptions, SendTxRequest, send_transaction};
+use crate::core::ui;
 use crate::core::{DecodedEvent, TokenApproveParams, ZeusCtx};
-use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use zeus_eth::{
    abi::{erc721, erc1155},
@@ -235,10 +235,8 @@ pub async fn ensure_erc721_approve(
       return Ok(false);
    }
 
-   SHARED_GUI.write(|gui| {
-      gui.loading_window.open(loading_msg);
-      gui.request_repaint();
-   });
+   ui::host().open_loading(loading_msg);
+   ui::host().request_repaint();
 
    send_erc721_approve(
       ctx, chain, owner, collection, token_id, operator, dapp,
@@ -277,10 +275,8 @@ pub async fn ensure_approval_for_all(
       return Ok(false);
    }
 
-   SHARED_GUI.write(|gui| {
-      gui.loading_window.open(loading_msg);
-      gui.request_repaint();
-   });
+   ui::host().open_loading(loading_msg);
+   ui::host().request_repaint();
 
    send_nft_approve(
       ctx, chain, owner, collection, standard, operator, dapp,
@@ -312,10 +308,8 @@ pub async fn ensure_allowance(
       return Ok(false);
    }
 
-   SHARED_GUI.write(|gui| {
-      gui.loading_window.open(loading_msg);
-      gui.request_repaint();
-   });
+   ui::host().open_loading(loading_msg);
+   ui::host().request_repaint();
 
    send_token_approve(
       ctx, chain, owner, token, spender, required, None, dapp, false,

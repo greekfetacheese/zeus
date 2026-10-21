@@ -2,20 +2,16 @@ use crate::core::types::EnsRecipientGuard;
 use crate::core::{
    ClientKind, TransactionAnalysis, TransactionRich, ZeusCtx, client::CLIENT_TIMEOUT_FOR_SENDING_TX,
 };
-use crate::utils::{
-   TimeStamp, simulate::eip7702_implementation, state::get_base_fee, wait_confirm_window,
-   wait_tx_confirm,
-};
+use crate::utils::{TimeStamp, simulate::eip7702_implementation, state::get_base_fee};
 use alloy_eips::eip7702::{Authorization, SignedAuthorization};
 use anyhow::anyhow;
 use std::time::Duration;
 
 use super::finalize::{MainEvent, MinedTx, RecordPolicy, build_tx_outcome, record_and_notify};
 use crate::core::clear_signing::ClearDisplay;
+use crate::core::tx::notification::NotificationType;
 use crate::core::tx::{diffs_from_receipt, simulate_and_diff};
-use crate::gui::ui::common::ConfirmWindowClaim;
-use crate::gui::ui::common::windows::authorising_prompt_busy;
-use crate::gui::{SHARED_GUI, ui::NotificationType};
+use crate::core::ui::{self, ConfirmRequest, PromptOpen, TxConfirmRequest};
 use zeus_eth::{
    alloy_contract::private::Provider,
    alloy_network::{
@@ -248,7 +244,19 @@ struct ConfirmClaim;
 
 impl Drop for ConfirmClaim {
    fn drop(&mut self) {
-      SHARED_GUI.write(|gui| gui.tx_confirmation_window.release());
+      ui::host().release_tx_confirm();
+   }
+}
+
+/// Releases the shared confirm prompt's claim when the flow holding it ends.
+///
+/// A drop guard rather than a call at each exit point: the MEV fallback must hand
+/// the window back on every path, including a future dropped mid-prompt.
+struct ConfirmPromptClaim;
+
+impl Drop for ConfirmPromptClaim {
+   fn drop(&mut self) {
+      ui::host().release_confirm();
    }
 }
 
@@ -428,37 +436,24 @@ pub async fn confirm_tx(
    // the one answer, broadcasting a transaction the user never reviewed. A pending sign or
    // connect prompt counts too: this must not be drawn over what the user is reading.
    // The claim and the open happen under one lock, so the race has no gap.
-   let busy = SHARED_GUI.write(|gui| {
-      if authorising_prompt_busy(gui) {
-         return true;
+   match ui::host().open_tx_confirm(TxConfirmRequest {
+      ctx: ctx.clone(),
+      source_is_zeus,
+      dapp: opts.dapp.clone(),
+      chain,
+      analysis: analysis.clone(),
+      priority_fee: priority_fee.f64().to_string(),
+      mev_protect: opts.mev_protect,
+      sponsored: opts.sponsored,
+      recipient_name: opts.recipient_name.clone(),
+   }) {
+      PromptOpen::Opened => {}
+      PromptOpen::Busy => {
+         return Err(anyhow!(
+            "Another transaction is already waiting for confirmation"
+         ));
       }
-
-      gui.tx_confirmation_window.open(
-         ctx.clone(),
-         source_is_zeus,
-         opts.dapp.clone(),
-         chain,
-         analysis.clone(),
-         priority_fee.f64().to_string(),
-         opts.mev_protect,
-         opts.sponsored,
-         opts.recipient_name.clone(),
-      );
-
-      // `open` refuses a window that is already busy, so the claim lands after it.
-      // Both happen under this one lock, so the window reads busy to another flow
-      // the moment this returns: a second send cannot slip in before the prompt is drawn.
-      gui.tx_confirmation_window.claim();
-
-      gui.loading_window.reset();
-      gui.bring_to_front();
-      false
-   });
-
-   if busy {
-      return Err(anyhow!(
-         "Another transaction is already waiting for confirmation"
-      ));
+      PromptOpen::Unavailable => return Err(anyhow!(ui::NO_UI_MSG)),
    }
 
    // Held until this flow is done with the prompt, however it ends: the claim is
@@ -466,7 +461,14 @@ pub async fn confirm_tx(
    // dies can never wedge the next confirmation.
    let _claim = ConfirmClaim;
 
-   if !wait_tx_confirm().await {
+   let answer = loop {
+      tokio::time::sleep(Duration::from_millis(50)).await;
+      if let Some(answer) = ui::host().take_tx_confirm() {
+         break answer;
+      }
+   };
+
+   if answer.is_rejected() {
       return Err(anyhow!("Transaction rejected"));
    }
 
@@ -494,11 +496,11 @@ pub async fn confirm_tx(
       }
    }
 
-   Ok(SHARED_GUI.read(|gui| ConfirmedTx {
-      priority_fee: gui.tx_confirmation_window.get_priority_fee(),
-      gas_limit: gui.tx_confirmation_window.get_gas_limit(),
-      clear_display: gui.tx_confirmation_window.get_clear_display(),
-   }))
+   Ok(ConfirmedTx {
+      priority_fee: answer.priority_fee,
+      gas_limit: answer.gas_limit,
+      clear_display: answer.clear_display,
+   })
 }
 
 /// Simulate the call unless the request already carries an analysis, ask the
@@ -525,10 +527,8 @@ pub async fn send_transaction(
       analysis,
    } = req;
 
-   SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Wait while magic happens");
-      gui.request_repaint();
-   });
+   ui::host().open_loading("Wait while magic happens");
+   ui::host().request_repaint();
 
    let client = ctx.get_client_manager();
 
@@ -614,10 +614,7 @@ pub async fn send_transaction(
 
    let notification = NotificationType::from_main_event(main_event);
 
-   SHARED_GUI.write(|gui| {
-      gui.notification.open_with_spinner(main_event_name, notification);
-      gui.request_repaint();
-   });
+   ui::host().notify_pending(&main_event_name, notification);
 
    let priority_fee = if confirmed.priority_fee.is_zero() {
       ctx.get_priority_fee(chain.id()).unwrap_or_default()
@@ -659,36 +656,30 @@ pub async fn send_transaction(
             // window before the MEV lookup ran. So the predicate is false here for this flow too —
             // no exemption is needed, and a future edit that raised this prompt while the
             // confirmation were still unanswered would be refused rather than drawn over it.
-            let claimed = SHARED_GUI.write(|gui| {
-               if authorising_prompt_busy(gui) {
-                  return false;
+            match ui::host().open_confirm(ConfirmRequest {
+               title: "No available MEV protect RPC found".into(),
+               msg2: Some("Continue without MEV protection?".into()),
+               from_dapp: !source_is_zeus,
+            }) {
+               PromptOpen::Opened => {}
+               PromptOpen::Busy => {
+                  return Err(anyhow!(
+                     "Another prompt is already waiting for confirmation"
+                  ));
                }
-
-               let opened = if source_is_zeus {
-                  gui.confirm_window.open("No available MEV protect RPC found")
-               } else {
-                  gui.confirm_window.open_from_dapp("No available MEV protect RPC found")
-               };
-
-               if opened {
-                  gui.confirm_window.set_msg2("Continue without MEV protection?");
-                  gui.request_repaint();
-               }
-
-               opened
-            });
-
-            if !claimed {
-               return Err(anyhow!(
-                  "Another prompt is already waiting for confirmation"
-               ));
+               PromptOpen::Unavailable => return Err(anyhow!(ui::NO_UI_MSG)),
             }
 
             // Held until this flow is done with the prompt, however it ends.
-            let _claim = ConfirmWindowClaim;
+            let _claim = ConfirmPromptClaim;
 
-            if !wait_confirm_window().await {
-               return Err(anyhow!("Transaction rejected"));
+            loop {
+               tokio::time::sleep(Duration::from_millis(50)).await;
+               match ui::host().take_confirm() {
+                  Some(true) => break,
+                  Some(false) => return Err(anyhow!("Transaction rejected")),
+                  None => {}
+               }
             }
 
             tx_client

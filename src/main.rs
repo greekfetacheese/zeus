@@ -103,6 +103,11 @@ fn main() -> eframe::Result {
       return Ok(());
    }
 
+   // Core raises its prompts through this port; the GUI implementation must be
+   // attached before any flow can reach one. The early returns above never open
+   // the GUI, so they deliberately install nothing.
+   crate::core::ui::install(crate::gui::ui_host::GuiHost);
+
    panic::set_hook(Box::new(|panic_info| {
       let message = panic_info.payload().downcast_ref::<&str>().map_or("Unknown panic", |s| s);
       let location = panic_info.location().map_or("Unknown location".to_string(), |loc| {

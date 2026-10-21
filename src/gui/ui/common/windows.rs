@@ -126,6 +126,16 @@ impl ConfirmWindow {
       self.confirm.take()
    }
 
+   /// Collect the answer and close the prompt in one step, so one Confirm click
+   /// can only ever be acted on once.
+   pub fn take_answer(&mut self) -> Option<bool> {
+      let confirmed = self.take_confirm();
+      if confirmed.is_some() {
+         self.close();
+      }
+      confirmed
+   }
+
    /// Close and answer the awaiting prompt with a rejection. Used when
    /// auto-lock fires, so a confirm prompt cannot be approved while locked.
    pub fn reject(&mut self) {

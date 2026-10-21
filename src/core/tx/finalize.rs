@@ -4,10 +4,11 @@ use super::analysis::TransactionAnalysis;
 use super::approval_diff::ApprovalDiff;
 use super::balance_diff::BalanceDiff;
 use super::events::{DecodedEvent, NftTransferParams};
+use super::notification::NotificationType;
 use super::rich::TransactionRich;
 use crate::core::ZeusCtx;
 use crate::core::clear_signing::{self, ClearDisplay};
-use crate::gui::{SHARED_GUI, ui::NotificationType};
+use crate::core::ui;
 use crate::utils::{RT, TimeStamp, estimate_tx_cost};
 use alloy_consensus::TxType;
 use alloy_eips::eip7702::SignedAuthorization;
@@ -294,17 +295,14 @@ pub fn record_and_notify(
    let now = TimeStamp::now_as_millis()?.timestamp();
    let finish = now + 6000;
 
-   SHARED_GUI.write(|gui| {
-      gui.notification.open_with_progress_bar(
-         now,
-         finish,
-         outcome.main_event_name.clone(),
-         outcome.notification.clone(),
-         Some(outcome.tx_rich.clone()),
-      );
-      gui.loading_window.reset();
-      gui.request_repaint();
-   });
+   ui::host().notify_mined(
+      &outcome.main_event_name,
+      outcome.notification.clone(),
+      outcome.tx_rich.clone(),
+      now,
+      finish,
+   );
+   ui::host().reset_loading();
 
    Ok(())
 }

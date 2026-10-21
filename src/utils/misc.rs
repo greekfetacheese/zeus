@@ -40,24 +40,6 @@ pub async fn wait_tx_confirm() -> bool {
    }
 }
 
-pub async fn wait_confirm_window() -> bool {
-   loop {
-      tokio::time::sleep(Duration::from_millis(50)).await;
-      // Collect the answer and close in one exclusive step: the answer is
-      // single-use, so one Confirm click can only ever be acted on once.
-      let confirmed = SHARED_GUI.write(|gui| {
-         let confirmed = gui.confirm_window.take_confirm();
-         if confirmed.is_some() {
-            gui.confirm_window.close();
-         }
-         confirmed
-      });
-      if let Some(confirmed) = confirmed {
-         return confirmed;
-      }
-   }
-}
-
 pub fn truncate_symbol_or_name(string: &str, max_chars: usize) -> String {
    if string.chars().count() > max_chars {
       // Take the first `max_chars` characters and collect them into a new String

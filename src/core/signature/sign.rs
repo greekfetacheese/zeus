@@ -1,6 +1,5 @@
 use crate::core::ZeusCtx;
-use crate::gui::SHARED_GUI;
-use crate::gui::ui::common::windows::authorising_prompt_busy;
+use crate::core::ui::{self, PromptOpen, SignRequest};
 use serde_json::Value;
 use std::time::Duration;
 use zeus_eth::{alloy_primitives::Address, alloy_signer::Signature, types::ChainId};
@@ -16,7 +15,7 @@ struct SignClaim;
 
 impl Drop for SignClaim {
    fn drop(&mut self) {
-      SHARED_GUI.write(|gui| gui.sign_msg_window.release());
+      ui::host().release_sign();
    }
 }
 
@@ -40,22 +39,19 @@ pub async fn sign_message(
 
    // One prompt at a time, whatever raised it: every authorising prompt counts, not only this
    // window and the transaction confirmation it used to check by hand.
-   let busy = SHARED_GUI.write(|gui| {
-      if authorising_prompt_busy(gui) {
-         return true;
+   match ui::host().open_sign(SignRequest {
+      dapp,
+      chain_id: chain.id(),
+      msg_type: msg_type.clone(),
+      signer: signer_address,
+   }) {
+      PromptOpen::Opened => {}
+      PromptOpen::Busy => {
+         return Err(anyhow::anyhow!(
+            "Another signing request is already waiting for confirmation"
+         ));
       }
-
-      gui.loading_window.reset();
-      gui.sign_msg_window.open(dapp, chain.id(), msg_type.clone(), signer_address);
-      gui.sign_msg_window.claim();
-      gui.bring_to_front();
-      false
-   });
-
-   if busy {
-      return Err(anyhow::anyhow!(
-         "Another signing request is already waiting for confirmation"
-      ));
+      PromptOpen::Unavailable => return Err(anyhow::anyhow!(ui::NO_UI_MSG)),
    }
 
    // Held until this flow is done with the prompt, however it ends: the claim is released on
@@ -67,23 +63,13 @@ pub async fn sign_message(
    let signed = loop {
       tokio::time::sleep(Duration::from_millis(50)).await;
 
-      // Collect the answer and close in one exclusive step: the answer is single-use, so one Sign
-      // click can only ever be acted on once.
-      let answer = SHARED_GUI.write(|gui| {
-         let signed = gui.sign_msg_window.take_signed();
-         if signed.is_some() {
-            gui.sign_msg_window.close();
-         }
-         signed
-      });
-
-      if let Some(signed) = answer {
+      if let Some(signed) = ui::host().take_sign() {
          break signed;
       }
    };
 
    if !signed {
-      SHARED_GUI.request_repaint();
+      ui::host().request_repaint();
       return Err(anyhow::anyhow!(
          "You cancelled the signing process"
       ));
@@ -96,9 +82,7 @@ pub async fn sign_message(
    let wallet = ctx.get_wallet(signer_address).ok_or(anyhow::anyhow!("Wallet not found"))?;
    let signature = msg_type.sign(wallet.key).await?;
 
-   SHARED_GUI.write(|gui| {
-      gui.request_repaint();
-   });
+   ui::host().request_repaint();
 
    Ok(signature)
 }

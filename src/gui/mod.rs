@@ -3,6 +3,7 @@ pub mod app;
 pub mod appearance;
 pub mod tray;
 pub mod ui;
+pub mod ui_host;
 
 use egui::{Context, Ui};
 use std::sync::atomic::{AtomicBool, Ordering};
