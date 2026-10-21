@@ -8,34 +8,40 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-zeus-eth      = { path = "../zeus-eth" }
-zeus-railgun  = { path = "../zeus-railgun" }
-zeus-wallet   = { path = "../zeus-wallet", features = ["serde"] }
-zeus-bip32    = { path = "../zeus-bip32", features = ["serde"] }
-userop-kit    = { path = "../zeus-userop-kit" }
+zeus-eth = { path = "../zeus-eth" }
+zeus-railgun = { path = "../zeus-railgun" }
+zeus-wallet = { path = "../zeus-wallet", features = ["serde"] }
+zeus-bip32 = { path = "../zeus-bip32", features = ["serde"] }
+userop-kit = { path = "../zeus-userop-kit" }
 
-alloy-eips        = { workspace = true }
-alloy-sol-types   = { workspace = true }
-alloy-consensus   = { workspace = true }
+alloy-eips = { workspace = true }
+alloy-sol-types = { workspace = true }
+alloy-consensus = { workspace = true }
 
-secure-types       = { version = "0.5", features = ["codec"] }
-ncrypt-me          = "0.4"
-chacha20poly1305   = "=0.10"
-brotli             = "=8.0.4"
-zip                = { version = "=9.0.4", default-features = false, features = ["deflate"] }
-redb               = "4"
-reqwest            = { version = "0.13", features = ["json", "query"] }
-serde              = { version = "=1.0.229", features = ["derive"] }
-serde_json         = "=1.0.151"
-anyhow             = "=1.0.104"
-either             = "=1.15.0"
-tracing            = "=0.1.41"
-chrono             = "=0.4.45"
-rand               = "=0.8"
-tempfile           = "=3.23.0"
+secure-types = { version = "0.5", features = ["codec"] }
+ncrypt-me = "0.4"
+chacha20poly1305 = "=0.10"
+brotli = "=8.0.4"
+zip = { version = "=9.0.4", default-features = false, features = ["deflate"] }
+redb = "4"
+reqwest = { version = "0.13", features = ["json", "query"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+anyhow = "=1.0.104"
+either = "=1.15.0"
+tracing = "=0.1.41"
+chrono = "=0.4.45"
+rand = "=0.8"
+tempfile = "=3.23.0"
 # Declared explicitly: the binary only lists `rt-multi-thread` and gets the rest by feature
 # unification from zeus-eth/zeus-railgun, which `cargo check -p zeus-core` would not.
-tokio = { version = "=1.47.1", features = ["rt-multi-thread", "sync", "time", "macros", "fs"] }
+tokio = { version = "=1.47.1", features = [
+    "rt-multi-thread",
+    "sync",
+    "time",
+    "macros",
+    "fs",
+] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.189"
