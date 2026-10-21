@@ -2,7 +2,7 @@ use super::super::{
    AddressBookHandle, ClientManager, CurrencyDB, NftDB, PoolManagerHandle, ZeusCtx,
    price_manager::PriceManagerHandle, tx::TxDBHandle,
 };
-use super::{bundler_url_dir, pool_data_dir, theme_kind_dir};
+use super::{bundler_url_dir, pool_data_dir};
 use crate::core::{
    Vault, WalletInfo, WalletState,
    persisted::{self, PersistedFile},
@@ -10,16 +10,8 @@ use crate::core::{
 };
 use crate::utils::TimeStamp;
 use anyhow::anyhow;
-use egui_elements::theme::ThemeKind;
 use ncrypt_me::Argon2;
 use std::collections::HashMap;
-
-pub fn load_theme_kind() -> Result<ThemeKind, anyhow::Error> {
-   let dir = theme_kind_dir()?;
-   let theme_kind_str = std::fs::read_to_string(dir)?;
-   let theme_kind = serde_json::from_str(&theme_kind_str)?;
-   Ok(theme_kind)
-}
 
 /// `write_private` only tightens mode on the next save. Existing `0644` files
 /// from older builds stay world-readable until then — fix them at startup.
@@ -496,10 +488,6 @@ impl ZeusCtx {
       match MiscConfig::load_from_file() {
          Ok(config) => self.write(|ctx| ctx.misc_config = config),
          Err(_) => self.write(|ctx| ctx.misc_config = MiscConfig::default()),
-      }
-      match AppearanceSettings::load_from_file() {
-         Ok(config) => self.write(|ctx| ctx.appearance_settings = config),
-         Err(_) => self.write(|ctx| ctx.appearance_settings = AppearanceSettings::default()),
       }
 
       self.load_currency_db();

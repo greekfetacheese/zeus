@@ -92,7 +92,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
                   let text = RichText::new("Network Settings").size(theme.typography.normal);
                   let button = Button::new(text).visuals(theme.button_visuals());
                   if ui.add(button).clicked() {
-                     gui.settings.open_network_settings(ctx);
+                     gui.settings.open_network_settings(ctx, &mut gui.appearance_settings);
                   }
                });
             });

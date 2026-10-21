@@ -278,7 +278,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       });
 
       if settings.response.clicked() {
-         gui.settings.open(ctx);
+         gui.settings.open(ctx, &mut gui.appearance_settings);
       }
 
       let icon = Lucide::Link.size(20.0).color(icon_color).image();

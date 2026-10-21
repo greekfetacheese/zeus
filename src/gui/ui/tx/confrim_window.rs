@@ -10,6 +10,7 @@ use crate::assets::icons::Icons;
 use crate::core::clear_signing::{self, ClearDisplay};
 use crate::core::{DecodedEvent, TransactionAnalysis, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
+use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::{delayed_action_label, wallet_identity};
 use crate::utils::{RT, estimate_tx_cost};
 use zeus_eth::{
@@ -346,7 +347,14 @@ impl TxConfirmationWindow {
       self.tx_cost_usd = cost_in_usd;
    }
 
-   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(
+      &mut self,
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      appearance: &AppearanceSettings,
+      ui: &mut Ui,
+   ) {
       if !self.open {
          return;
       }
@@ -676,9 +684,9 @@ impl TxConfirmationWindow {
                      let text = RichText::new(confirm_label).size(theme.typography.large);
                      let confirm = Button::new(text).min_size(button_size).visuals(button_visuals);
 
-                     // Copy the settings out of `ctx` first: the widget needs an
-                     // owned value, and `HoldSettings` is `Copy`.
-                     let hold = ctx.appearance_settings.button_settings(theme.colors.accent);
+                     // Copy the settings out first: the widget needs an owned
+                     // value, and `HoldSettings` is `Copy`.
+                     let hold = appearance.button_settings(theme.colors.accent);
                      let confirm = match &hold {
                         Some(settings) => confirm.hold_settings(settings),
                         None => confirm,
@@ -1106,6 +1114,7 @@ mod height_budget {
       theme.install(&egui_ctx);
       egui_extras::install_image_loaders(&egui_ctx);
       let icons = Arc::new(Icons::new(&egui_ctx).expect("icons"));
+      let appearance = AppearanceSettings::new();
 
       // How `egui_elements::Modal` registers its card: the Area id it salts with the
       // id passed to `Modal::new`.
@@ -1126,7 +1135,7 @@ mod height_budget {
             },
             |egui_ctx| {
                CentralPanel::default().show(egui_ctx, |ui| {
-                  handle.write(|c| window.show(c, &theme, icons.clone(), ui));
+                  handle.write(|c| window.show(c, &theme, icons.clone(), &appearance, ui));
                });
             },
          );

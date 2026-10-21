@@ -2,6 +2,7 @@
 
 use crate::core::{data_dir, data_import::import_data_from_zip};
 use crate::gui::SHARED_GUI;
+use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::utils::{RT, state};
 use egui::{Frame, Id, Margin, Order, RichText, Ui, vec2};
@@ -248,7 +249,16 @@ impl ImportDataUi {
                   state::on_startup(ctx).await;
                });
 
+               // The imported archive may carry its own appearance settings; the
+               // reload above no longer owns them now that the GUI does. Read
+               // before taking the GUI lock, as the reload did.
+               let appearance_settings = match AppearanceSettings::load_from_file() {
+                  Ok(settings) => settings,
+                  Err(_) => AppearanceSettings::default(),
+               };
+
                SHARED_GUI.write(|gui| {
+                  gui.appearance_settings = appearance_settings;
                   gui.settings.import.reset();
                   gui.settings.encryption.set_argon2(argon);
                   gui.account_panel.open();

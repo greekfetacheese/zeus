@@ -527,7 +527,11 @@ impl AccountPanel {
                      RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
                            gui.ctx.clone().write(|ctx| {
-                              gui.settings.open_page(SettingsPage::Railgun, ctx);
+                              gui.settings.open_page(
+                                 SettingsPage::Railgun,
+                                 ctx,
+                                 &mut gui.appearance_settings,
+                              );
                            });
                            gui.request_repaint();
                         });

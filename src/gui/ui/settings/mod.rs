@@ -3,6 +3,7 @@
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::gui::SHARED_GUI;
+use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::{
    WindowCtx, common::privacy_mode_switch, record_input_activity, show_with_fade, window_frame,
 };
@@ -73,13 +74,13 @@ pub struct SettingsUi {
 }
 
 impl SettingsUi {
-   pub fn new(ctx: &mut ZeusContext) -> Self {
+   pub fn new(ctx: &mut ZeusContext, appearance: &mut AppearanceSettings) -> Self {
       Self {
          open: false,
          size_applied: false,
          page: SettingsPage::General,
          general: GeneralSettings::new(ctx),
-         appearance: AppearanceSettingsUi::new(ctx),
+         appearance: AppearanceSettingsUi::new(appearance),
          encryption: EncryptionSettings::new(),
          autolock: AutoLockSettings::new(),
          network: NetworkSettings::new(),
@@ -101,11 +102,11 @@ impl SettingsUi {
       self.open
    }
 
-   pub fn open(&mut self, ctx: &mut ZeusContext) {
+   pub fn open(&mut self, ctx: &mut ZeusContext, appearance: &mut AppearanceSettings) {
       if !self.open {
          self.open = true;
          self.general.sync_from_ctx(ctx);
-         self.appearance.sync_from_ctx(ctx);
+         self.appearance.sync_from_settings(appearance);
          self.encryption.sync_from_ctx(ctx);
          self.autolock.sync_from_ctx(ctx);
          self.railgun.sync_from_ctx(ctx);
@@ -127,13 +128,22 @@ impl SettingsUi {
       self.network.reset_view();
    }
 
-   pub fn open_page(&mut self, page: SettingsPage, ctx: &mut ZeusContext) {
+   pub fn open_page(
+      &mut self,
+      page: SettingsPage,
+      ctx: &mut ZeusContext,
+      appearance: &mut AppearanceSettings,
+   ) {
       self.set_page(page, ctx);
-      self.open(ctx);
+      self.open(ctx, appearance);
    }
 
-   pub fn open_network_settings(&mut self, ctx: &mut ZeusContext) {
-      self.open_page(SettingsPage::Networks, ctx);
+   pub fn open_network_settings(
+      &mut self,
+      ctx: &mut ZeusContext,
+      appearance: &mut AppearanceSettings,
+   ) {
+      self.open_page(SettingsPage::Networks, ctx, appearance);
    }
 
    fn set_page(&mut self, page: SettingsPage, ctx: &mut ZeusContext) {
@@ -181,7 +191,14 @@ impl SettingsUi {
    ///
    /// Must be called from the root viewport while Settings is open. The actual
    /// paint runs later on the child viewport's own pass via [`paint_settings_viewport`].
-   pub fn show(&mut self, ctx: &mut ZeusContext, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
+   pub fn show(
+      &mut self,
+      ctx: &mut ZeusContext,
+      icons: Arc<Icons>,
+      theme: &Theme,
+      appearance: &mut AppearanceSettings,
+      ui: &mut Ui,
+   ) {
       if ctx.locked {
          // Auto-lock closes the Settings window: it is a separate OS viewport
          // and a real bypass if left interactive while the wallet is locked.
@@ -205,21 +222,35 @@ impl SettingsUi {
       // Native eframe has embed_viewports=false. If a backend embeds, the deferred
       // callback would re-enter SHARED_GUI while the parent already holds it.
       if ui.ctx().embed_viewports() {
-         self.paint(ctx, icons, theme, ui);
+         self.paint(ctx, icons, theme, appearance, ui);
          return;
       }
 
       ui.ctx().show_viewport_deferred(id, builder, paint_settings_viewport);
    }
 
-   fn paint(&mut self, ctx: &mut ZeusContext, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
+   fn paint(
+      &mut self,
+      ctx: &mut ZeusContext,
+      icons: Arc<Icons>,
+      theme: &Theme,
+      appearance: &mut AppearanceSettings,
+      ui: &mut Ui,
+   ) {
       let window_ctx = WindowCtx::settings(theme);
       window_frame(ui, window_ctx, |ui| {
-         self.show_shell(ctx, icons, theme, ui);
+         self.show_shell(ctx, icons, theme, appearance, ui);
       });
    }
 
-   fn show_shell(&mut self, ctx: &mut ZeusContext, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
+   fn show_shell(
+      &mut self,
+      ctx: &mut ZeusContext,
+      icons: Arc<Icons>,
+      theme: &Theme,
+      appearance: &mut AppearanceSettings,
+      ui: &mut Ui,
+   ) {
       let nav_bg = theme.frame1.fill;
       egui::Panel::left("settings_nav")
          .min_size(180.0)
@@ -257,7 +288,7 @@ impl SettingsUi {
                         ui.add_space(theme.spacing.xl);
                         ui.separator();
                         ui.add_space(theme.spacing.xl);
-                        self.appearance.show(ctx, theme, ui);
+                        self.appearance.show(appearance, theme, ui);
                      },
                   );
 
@@ -422,7 +453,13 @@ fn paint_settings_viewport(ui: &mut Ui, _class: ViewportClass) {
       gui.ctx.clone().write(|ctx| {
          // Interacting with the Settings window is activity too.
          record_input_activity(ui.ctx(), ctx);
-         gui.settings.paint(ctx, icons, &theme, ui);
+         gui.settings.paint(
+            ctx,
+            icons,
+            &theme,
+            &mut gui.appearance_settings,
+            ui,
+         );
       });
       // Overlay modals (msg / loading / confirm / update) are Areas on the
       // current viewport. Paint them here so they are visible on Settings.

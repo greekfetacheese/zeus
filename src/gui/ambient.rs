@@ -5,7 +5,7 @@
 //! [`AppearanceSettings::ambient_enabled`]; with it off this pass makes no crate
 //! call at all, so no effect can request a repaint.
 
-use crate::core::types::AppearanceSettings;
+use crate::gui::appearance::AppearanceSettings;
 use egui::Ui;
 use egui_elements::{Light, Lightning, Snow};
 

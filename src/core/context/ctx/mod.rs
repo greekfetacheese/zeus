@@ -178,9 +178,6 @@ pub struct ZeusContext {
 
    /// Misc persisted settings (token icons, Sourcify names, …)
    pub misc_config: MiscConfig,
-
-   /// Hold-to-confirm and completion-burst appearance settings.
-   pub appearance_settings: AppearanceSettings,
 }
 
 mod auth;
@@ -200,7 +197,6 @@ pub use persisted::{
    pool_data_dir, railgun_config_dir, railgun_db_file, railgun_dir, security_dir, theme_kind_dir,
 };
 
-pub use persist::load_theme_kind;
 pub use railgun::create_railgun_provider;
 
 impl ZeusCtx {
@@ -371,14 +367,6 @@ impl ZeusContext {
          }
       };
 
-      let appearance_settings = match AppearanceSettings::load_from_file() {
-         Ok(config) => config,
-         Err(e) => {
-            tracing::error!("Failed to load appearance settings: {:?}", e);
-            AppearanceSettings::default()
-         }
-      };
-
       let priority_fee = PriorityFee::default();
 
       Self {
@@ -435,7 +423,6 @@ impl ZeusContext {
          railgun_status: RailgunStatus::new(),
          railgun_config,
          misc_config,
-         appearance_settings,
       }
    }
 

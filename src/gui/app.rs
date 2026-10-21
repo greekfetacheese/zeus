@@ -468,11 +468,17 @@ impl eframe::App for ZeusApp {
             // App-wide ambient particles, after the panels, on the main
             // viewport only. The settings viewport deliberately runs no ambient
             // pass: the ambient belongs to the main window.
-            Ambient::show(ui, &ctx.appearance_settings);
+            Ambient::show(ui, &gui.appearance_settings);
 
             let icons = gui.icons.clone();
             let theme = &gui.theme;
-            gui.settings.show(ctx, icons, theme, ui);
+            gui.settings.show(
+               ctx,
+               icons,
+               theme,
+               &mut gui.appearance_settings,
+               ui,
+            );
 
             #[cfg(feature = "dev")]
             gui.fps_metrics.update(time.elapsed().as_secs_f64() * 1000.0);
