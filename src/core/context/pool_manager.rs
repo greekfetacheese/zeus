@@ -11,7 +11,7 @@ use zeus_eth::amm::uniswap::UniswapV4Pool;
 
 use crate::core::{WalletStateKey, ZeusCtx, context::pool_data_dir, serde_hashmap};
 use crate::embedded::POOL_DATA;
-use crate::utils::{RT, TimeStamp, write_private_atomic};
+use crate::utils::{TimeStamp, write_private_atomic};
 use zeus_eth::{
    abi::zeus::ZeusStateViewV3::{V3Pool, V4Pool},
    alloy_primitives::{Address, B256},
@@ -373,7 +373,7 @@ impl PoolManagerHandle {
          let manager = self.clone();
          let base_tokens = base_tokens.clone();
 
-         let task = RT.spawn(async move {
+         let task = ctx.rt().spawn(async move {
             let _permit = semaphore.acquire().await?;
 
             let mut v4_pools_map = HashMap::new();
@@ -917,7 +917,7 @@ async fn batch_update_state(
       let v3_chunk = batch.v3_pools.clone();
       let v4_chunk = batch.v4_pools.clone();
 
-      let task = RT.spawn(async move {
+      let task = ctx.rt().spawn(async move {
          let _permit = semaphore.acquire().await?;
          let res = zeus_client
             .request_with(

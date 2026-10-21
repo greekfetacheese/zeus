@@ -6,8 +6,8 @@ use crate::core::{DecodedEvent, SignMsgType, TransactionAnalysis, TransactionRic
 use crate::gui::ui::dev_erc20::Erc20Minting;
 use crate::gui::ui::dev_nft::{NftMinting, spawn_approve_erc721, spawn_approve_erc1155};
 use crate::gui::{SHARED_GUI, ui::notification::NotificationType};
+use crate::utils::TimeStamp;
 use crate::utils::self_update::UpdateInfo;
-use crate::utils::{RT, TimeStamp};
 use zeus_eth::currency::ERC20Token;
 use zeus_eth::types::ChainId;
 
@@ -128,7 +128,7 @@ impl DevUi {
             Button::new(RichText::new("Theme Editor").size(text_size)).min_size(button_size);
 
          if ui.add(button).clicked() {
-            RT.spawn_blocking(|| {
+            crate::runtime::rt().spawn_blocking(|| {
                SHARED_GUI.write(|gui| gui.editor.open = true);
             });
          }
@@ -137,7 +137,7 @@ impl DevUi {
             Button::new(RichText::new("FPS Metrics").size(text_size)).min_size(button_size);
 
          if ui.add(button).clicked() {
-            RT.spawn_blocking(|| {
+            crate::runtime::rt().spawn_blocking(|| {
                SHARED_GUI.write(|gui| gui.fps_metrics.open = true);
             });
          }
@@ -256,7 +256,7 @@ impl UiTesting {
          ScrollArea::vertical().show(ui, |ui| {
             let button = Button::new(RichText::new("Toast OK").size(text_size)).min_size(button_size);
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                   Toast::new("Operation success").description("Everything looks good").tone(BadgeTone::Ok).show(&gui.egui_ctx);
                   });
@@ -266,7 +266,7 @@ impl UiTesting {
             let button = Button::new(RichText::new("Toast Warning").size(text_size))
                .min_size(button_size);
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      Toast::new("Warning").description("Something might be wrong").tone(BadgeTone::Warning).show(&gui.egui_ctx);
                   });
@@ -276,7 +276,7 @@ impl UiTesting {
             let button = Button::new(RichText::new("Toast Danger").size(text_size))
                .min_size(button_size);
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      Toast::new("Error").description("Something failed").tone(BadgeTone::Danger).show(&gui.egui_ctx);
                   });
@@ -286,7 +286,7 @@ impl UiTesting {
             let button = Button::new(RichText::new("Toast Info").size(text_size))
                .min_size(button_size);
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      Toast::new("Informational").description("Something happened").tone(BadgeTone::Info).show(&gui.egui_ctx);
                   });
@@ -302,7 +302,7 @@ impl UiTesting {
             let button =
                Button::new(RichText::new("Update Window").size(text_size)).min_size(button_size);
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      let mut info = UpdateInfo::default();
                      info.available = true;
@@ -315,7 +315,7 @@ impl UiTesting {
                Button::new(RichText::new("Confirm Window").size(text_size)).min_size(button_size);
 
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      let msg2 = "Continue without MEV protection?";
                      gui.confirm_window.open("No available MEV protect RPC found");
@@ -329,7 +329,7 @@ impl UiTesting {
             let error = "Private notes are too fragmented for asset {asset}: need {value}, but at most {best_with_max} can be spent with {max_inputs} input notes ({note_count} notes available). Consider merging private notes first.";
 
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      gui.msg_window.open(error);
                   });
@@ -364,7 +364,7 @@ impl UiTesting {
             if ui.add(button).clicked() {
                let title = swap_title.clone();
                let notification_clone = swap_notification.clone();
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
 
                   SHARED_GUI.write(|gui| {
                      gui.notification.open_with_progress_bar(
@@ -383,7 +383,7 @@ impl UiTesting {
                   .min_size(button_size);
 
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      gui.notification.open_with_spinner(swap_title, swap_notification);
                   });
@@ -397,7 +397,7 @@ impl UiTesting {
             if ui.add(button).clicked() {
                let notification_clone = bridge_notification.clone();
                let title = bridge_title.clone();
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      gui.notification.open_with_progress_bar(
                         now,
@@ -415,7 +415,7 @@ impl UiTesting {
                   .min_size(button_size);
 
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      gui.notification.open_with_spinner(bridge_title, bridge_notification);
                   });
@@ -429,7 +429,7 @@ impl UiTesting {
 
             if ui.add(button).clicked() {
                let notification_clone = transfer_notification.clone();
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      gui.notification.open_with_progress_bar(
                         now,
@@ -447,7 +447,7 @@ impl UiTesting {
 
             if ui.add(button).clicked() {
                let notification_clone = approval_notification.clone();
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      gui.notification.open_with_progress_bar(
                         now,
@@ -465,7 +465,7 @@ impl UiTesting {
 
             if ui.add(button).clicked() {
                let notification_clone = shield_notification.clone();
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      gui.notification.open_with_progress_bar(
                         now,
@@ -506,7 +506,7 @@ impl UiTesting {
 
             if ui.add(button).clicked() {
                let analysis = TransactionAnalysis::dummy_unshield();
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
 
@@ -530,7 +530,7 @@ impl UiTesting {
 
             if ui.add(button).clicked() {
                let analysis = TransactionAnalysis::dummy_shield();
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
 
@@ -554,7 +554,7 @@ impl UiTesting {
 
             if ui.add(button).clicked() {
                let analysis = TransactionAnalysis::dummy_eoa_delegate();
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
 
@@ -578,7 +578,7 @@ impl UiTesting {
                   .min_size(button_size);
 
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   let analysis = TransactionAnalysis::unknown_tx_1();
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
@@ -604,7 +604,7 @@ impl UiTesting {
             .min_size(button_size);
 
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_with_diffs();
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
@@ -630,7 +630,7 @@ impl UiTesting {
             if ui.add(button).clicked() {
                let analysis = TransactionAnalysis::dummy_clear_signed();
                let display = ClearDisplay::dummy_calldata();
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
 
@@ -654,7 +654,7 @@ impl UiTesting {
 
             if ui.add(button).clicked() {
                let tx = TransactionRich::dummy_clear_signed();
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      gui.tx_window.open(Some(tx));
                   });
@@ -665,7 +665,7 @@ impl UiTesting {
                .min_size(button_size);
 
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_wrap_eth();
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
@@ -689,7 +689,7 @@ impl UiTesting {
                .min_size(button_size);
 
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_unwrap_weth();
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
@@ -713,7 +713,7 @@ impl UiTesting {
                Button::new(RichText::new("Swap Tx Analysis").size(text_size)).min_size(button_size);
 
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_swap();
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
@@ -737,7 +737,7 @@ impl UiTesting {
                .min_size(button_size);
 
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_transfer();
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
@@ -761,7 +761,7 @@ impl UiTesting {
                .min_size(button_size);
 
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_erc20_transfer();
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
@@ -785,7 +785,7 @@ impl UiTesting {
                .min_size(button_size);
 
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_token_approval();
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
@@ -808,7 +808,7 @@ impl UiTesting {
             let button =
                Button::new(RichText::new("Permit Analysis").size(text_size)).min_size(button_size);
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_permit();
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
@@ -832,7 +832,7 @@ impl UiTesting {
                Button::new(RichText::new("Uniswap AddLiquidity V3 Analysis").size(text_size))
                   .min_size(button_size);
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_uniswap_position_operation();
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
@@ -856,7 +856,7 @@ impl UiTesting {
                Button::new(RichText::new("Bridge Analysis").size(text_size)).min_size(button_size);
 
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_bridge();
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
@@ -880,7 +880,7 @@ impl UiTesting {
                Button::new(RichText::new("Sign Message").size(text_size)).min_size(button_size);
 
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   let msg = SignMsgType::dummy_permit2();
                   SHARED_GUI.write(|gui| {
                      let account = gui.ctx.current_wallet_info().address;
@@ -894,7 +894,7 @@ impl UiTesting {
                Button::new(RichText::new("Sign Permit").size(text_size)).min_size(button_size);
 
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   let msg = SignMsgType::dummy_permit2612();
                   SHARED_GUI.write(|gui| {
                      let account = gui.ctx.current_wallet_info().address;
@@ -908,7 +908,7 @@ impl UiTesting {
                Button::new(RichText::new("Sign Clear Message").size(text_size)).min_size(button_size);
 
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   let msg = SignMsgType::dummy_clear_signed();
                   SHARED_GUI.write(|gui| {
                      let account = gui.ctx.current_wallet_info().address;
@@ -923,7 +923,7 @@ impl UiTesting {
                   .min_size(button_size);
 
             if ui.add(button).clicked() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   let msg = SignMsgType::dummy_siwe();
                   SHARED_GUI.write(|gui| {
                      let account = gui.ctx.current_wallet_info().address;

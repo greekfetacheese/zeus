@@ -24,7 +24,7 @@ pub use windows::{ConfirmWindow, ConfirmWindowClaim, LoadingWindow, MsgWindow, U
 
 use crate::core::ZeusContext;
 use crate::gui::{SHARED_GUI, ui::dapps::railgun::RailgunMode};
-use crate::utils::{RT, TimeStamp};
+use crate::utils::TimeStamp;
 use egui::{Align, Layout, Response, RichText, Ui, Vec2, pos2, vec2};
 use egui_elements::{Button, Theme};
 use egui_lucide::Lucide;
@@ -135,7 +135,7 @@ pub fn privacy_mode_switch(ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
    });
 
    if clicked {
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let chain = ctx.chain();
          let owner = ctx.current_wallet_info().address;

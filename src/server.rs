@@ -10,7 +10,6 @@ use crate::gui::ui::common::windows::authorising_prompt_busy;
 use crate::gui::ui::common::{ConfirmWindowClaim, switch_chain};
 use crate::gui::ui::dapps::connect::ConnectClaim;
 use crate::gui::{DappAccountChoice, DappConnectResult, SHARED_GUI};
-use crate::utils::RT;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1857,7 +1856,7 @@ fn spawn_dapp_tx_balance_refresh(
    transact_to: Address,
    tx_rich: TransactionRich,
 ) {
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let transact_to_exists = ctx.wallet_exists(transact_to);
       let manager = ctx.balance_manager();
 

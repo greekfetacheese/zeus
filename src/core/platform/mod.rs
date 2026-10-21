@@ -1,4 +1,6 @@
 pub mod fs;
+#[cfg(test)]
+pub mod runtime;
 pub mod time;
 
 pub use fs::{

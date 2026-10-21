@@ -10,7 +10,7 @@ use crate::core::{
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::gui::ui::settings::ImportDataUi;
-use crate::utils::{RT, TimeStamp};
+use crate::utils::TimeStamp;
 use egui::{Align, Align2, FontId, Layout, Margin, RichText, ScrollArea, Ui, Window, vec2};
 use egui_elements::{Button, CredentialsForm, Label, SecureTextEdit, Theme};
 use elegance::{BadgeTone, Toast};
@@ -843,7 +843,7 @@ impl RecoverHDWallet {
 }
 
 fn on_unlock_vault(mut vault: Vault) {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       let ctx = SHARED_GUI.write(|gui| {
          gui.loading_window.open("Unlocking vault...");
          gui.request_repaint();
@@ -1015,7 +1015,7 @@ fn on_unlock_vault(mut vault: Vault) {
 }
 
 fn on_refresh_system_memory() {
-   RT.spawn_blocking(|| {
+   crate::runtime::rt().spawn_blocking(|| {
       let mut sys = sysinfo::System::new();
       sys.refresh_memory();
       let total = sys.total_memory();
@@ -1033,7 +1033,7 @@ fn on_refresh_system_memory() {
 }
 
 fn on_validate_recover_credentials(credentials: Credentials) {
-   RT.spawn_blocking(move || match credentials.is_valid() {
+   crate::runtime::rt().spawn_blocking(move || match credentials.is_valid() {
       Ok(_) => {
          SHARED_GUI.write(|gui| {
             gui.recover_wallet_ui.credentials_input = false;
@@ -1049,7 +1049,7 @@ fn on_validate_recover_credentials(credentials: Credentials) {
 }
 
 fn on_recover_hd_wallet(name: String, credentials: Credentials) {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       let ctx = SHARED_GUI.write(|gui| {
          gui.loading_window.new_size((300.0, 150.0));
          gui.loading_window
@@ -1168,7 +1168,7 @@ fn on_recover_hd_wallet(name: String, credentials: Credentials) {
 }
 
 fn on_save_railgun_config(config: RailgunConfig) {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       if let Err(e) = config.save() {
          tracing::error!("Failed to save Railgun config: {e}");
       }
@@ -1176,7 +1176,7 @@ fn on_save_railgun_config(config: RailgunConfig) {
 }
 
 fn on_finish_onboarding(config: MiscConfig, current_wallet: WalletInfo) {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       if let Err(e) = config.save() {
          tracing::error!("Failed to save misc config: {e}");
       }

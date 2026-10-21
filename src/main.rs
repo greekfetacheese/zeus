@@ -7,7 +7,6 @@ use eframe::{
 };
 use gui::app::ZeusApp;
 use std::sync::Arc;
-use utils::RT;
 
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::Registry;
@@ -21,6 +20,7 @@ pub mod connector;
 pub mod core;
 pub mod embedded;
 pub mod gui;
+pub mod runtime;
 pub mod server;
 mod tests;
 pub mod utils;
@@ -84,11 +84,16 @@ fn main() -> eframe::Result {
 
    let _tracing_guard = setup_tracing();
 
+   // The binary owns the one runtime every background task spawns on. It has to outlive
+   // `eframe::run_native` below, so it stays a local until `main` returns.
+   let runtime = runtime::build();
+   runtime::init(&runtime);
+
    // Captured now, while it is still the truth: the updater replaces the running binary, after
    // which the OS reports a stale path (see `self_update::restart_target`).
    utils::self_update::remember_startup_exe();
 
-   RT.spawn_blocking(|| cleanup_old_logs());
+   runtime::rt().spawn_blocking(|| cleanup_old_logs());
 
    // `zeus --install-desktop` / `--uninstall-desktop`: opt in to (or out of) the application
    // menu entry and exit, without starting the GUI. A normal launch applies the recorded

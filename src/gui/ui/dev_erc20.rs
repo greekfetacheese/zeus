@@ -20,7 +20,6 @@ use zeus_eth::{
 
 use crate::core::{SendTxOptions, SendTxRequest, ZeusCtx, send_transaction};
 use crate::gui::SHARED_GUI;
-use crate::utils::RT;
 
 /// `ZeusTestERC20` on Sepolia — ERC-20 + EIP-2612 permit.
 const TEST_ERC20: Address = address!("0x263cDd6d30D057A60DBEDa0a1457ef9F236eFB42");
@@ -161,7 +160,7 @@ fn mint_button(ui: &mut Ui, theme: &Theme, size: Vec2, label: &str, hint: &str) 
 
 /// Send one `mint` of `amount` to the active wallet, reporting the outcome in a toast.
 fn spawn_mint(amount: MintAmount) {
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let ctx = SHARED_GUI.write(|gui| gui.ctx.clone());
       let to = ctx.current_wallet_info().address;
 

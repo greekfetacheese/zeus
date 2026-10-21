@@ -6,7 +6,6 @@ use crate::core::{
    persisted::{ExportPolicy, PersistedTree},
 };
 use crate::gui::SHARED_GUI;
-use crate::utils::RT;
 use egui::{RichText, Ui, vec2};
 use egui_elements::{Button, Theme};
 
@@ -83,7 +82,7 @@ impl ExportDataUi {
 
       let options = self.options;
 
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          SHARED_GUI.write(|gui| {
             gui.loading_window.open("Exporting data...");
             gui.request_repaint();

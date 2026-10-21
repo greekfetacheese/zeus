@@ -1,6 +1,5 @@
 use crate::core::ZeusCtx;
 use crate::core::serde_hashmap;
-use crate::utils::RT;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::sync::{Arc, RwLock};
@@ -243,7 +242,7 @@ impl BalanceManagerHandle {
             HashMap::new()
          };
 
-         let task = RT.spawn(async move {
+         let task = ctx.rt().spawn(async move {
             for attempt in 0..=max_retries {
                let balances = {
                   let _permit = semaphore.acquire().await?;
@@ -626,7 +625,7 @@ mod tests {
 
    #[tokio::test]
    async fn test_update_tokens_balance() {
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
       let chain = 1;
 
       let manager = ctx.balance_manager();

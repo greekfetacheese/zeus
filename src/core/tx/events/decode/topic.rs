@@ -230,7 +230,7 @@ mod tests {
    #[tokio::test]
    async fn an_eth_transfer_log_decodes_from_the_log_not_the_transaction() {
       let dctx = DecodeCtx::new(
-         ZeusCtx::new(),
+         ZeusCtx::new(crate::core::platform::runtime::test_handle()),
          CHAIN,
          SENDER,
          RECIPIENT,
@@ -267,7 +267,7 @@ mod tests {
       use crate::core::tx::events::decode::decode_transaction;
 
       let logs = vec![eth_transfer_log()];
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
       let dctx = DecodeCtx::new(
          ctx.clone(),
          CHAIN,

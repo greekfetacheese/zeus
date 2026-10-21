@@ -831,7 +831,7 @@ mod tests {
 
    #[tokio::test]
    async fn test_permit2_details() {
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
       let json = dummy_permit2_json();
       let msg_type = SignMsgType::new(ctx, 8453, Some(json), None).await.unwrap();
       let permit2 = msg_type.permit2_details();
@@ -879,7 +879,7 @@ mod tests {
    /// here is this assertion and not a fall-through decoder deciding the message is something else.
    #[tokio::test]
    async fn permit2_reads_its_token_on_the_permit_chain() {
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
       // The wallet is connected to Ethereum; the permit is for Base.
       let permit2 = Permit2Details::new(ctx, 1, dummy_permit2_json())
          .await
@@ -1103,7 +1103,14 @@ mod tests {
 
       let mut permit2 = dummy_permit2_json();
       permit2["domain"]["chainId"] = json!("137");
-      let msg = SignMsgType::new(ZeusCtx::new(), 1, Some(permit2), None).await.unwrap();
+      let msg = SignMsgType::new(
+         ZeusCtx::new(crate::core::platform::runtime::test_handle()),
+         1,
+         Some(permit2),
+         None,
+      )
+      .await
+      .unwrap();
       assert!(
          msg.is_other(),
          "a PermitSingle for an unnamed chain must fall through to the raw-JSON review, got {msg:?}"
@@ -1111,7 +1118,14 @@ mod tests {
 
       let mut permit2612 = dummy_permit_json();
       permit2612["domain"]["chainId"] = json!("137");
-      let msg = SignMsgType::new(ZeusCtx::new(), 1, Some(permit2612), None).await.unwrap();
+      let msg = SignMsgType::new(
+         ZeusCtx::new(crate::core::platform::runtime::test_handle()),
+         1,
+         Some(permit2612),
+         None,
+      )
+      .await
+      .unwrap();
       assert!(
          msg.is_other(),
          "an EIP-2612 permit for an unnamed chain must fall through to the raw-JSON review, got {msg:?}"
@@ -1124,7 +1138,14 @@ mod tests {
          panic!("dummy_siwe must be a SIWE message");
       };
 
-      let msg = SignMsgType::new(ZeusCtx::new(), 1, None, Some(dummy.bytes)).await.unwrap();
+      let msg = SignMsgType::new(
+         ZeusCtx::new(crate::core::platform::runtime::test_handle()),
+         1,
+         None,
+         Some(dummy.bytes),
+      )
+      .await
+      .unwrap();
 
       assert!(matches!(msg, SignMsgType::Siwe(_)));
       assert_eq!(msg.title(), "Sign-In With Ethereum");
@@ -1133,7 +1154,14 @@ mod tests {
    #[tokio::test]
    async fn classifies_plain_message() {
       let bytes = b"Sign in to prove you own this wallet.".to_vec();
-      let msg = SignMsgType::new(ZeusCtx::new(), 1, None, Some(bytes)).await.unwrap();
+      let msg = SignMsgType::new(
+         ZeusCtx::new(crate::core::platform::runtime::test_handle()),
+         1,
+         None,
+         Some(bytes),
+      )
+      .await
+      .unwrap();
 
       assert!(msg.is_sign_message());
       assert_eq!(msg.title(), "Sign Message");

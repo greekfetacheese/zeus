@@ -16,9 +16,7 @@ use crate::gui::{
       show_with_fade,
    },
 };
-use crate::utils::{
-   RT, TimeStamp, estimate_tx_cost, simulate::simulate_for_analysis, write_private,
-};
+use crate::utils::{TimeStamp, estimate_tx_cost, simulate::simulate_for_analysis, write_private};
 use anyhow::anyhow;
 use egui::{
    Align, CornerRadius, CursorIcon, FontId, Layout, Margin, Order, RichText, Slider, Spinner, Ui,
@@ -544,7 +542,7 @@ impl AcrossBridge {
             Ok(_) => {}
             Err(e) => {
                self.sending_tx = false;
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      gui.open_msg_window(format!(
                         "Error while sending transaction: {}",
@@ -815,7 +813,7 @@ impl AcrossBridge {
                if ui.add(ok_button).clicked() {
                   self.settings.api_notice_shown = true;
                   let settings = self.settings.clone();
-                  RT.spawn_blocking(move || {
+                  crate::runtime::rt().spawn_blocking(move || {
                      if let Err(e) = save_settings(settings) {
                         tracing::error!("Error saving settings: {:?}", e);
                      }
@@ -885,7 +883,7 @@ impl AcrossBridge {
             if res.inner {
                let settings = self.settings.clone();
                self.close_settings();
-               RT.spawn_blocking(move || match save_settings(settings) {
+               crate::runtime::rt().spawn_blocking(move || match save_settings(settings) {
                   Ok(_) => {}
                   Err(e) => {
                      tracing::error!("Error saving settings: {:?}", e);
@@ -899,7 +897,7 @@ impl AcrossBridge {
       let chain = self.from_chain.chain.id();
       let ctx_clone = ctx.clone();
       self.balance_syncing = true;
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let manager = ctx_clone.balance_manager();
          match manager
             .update_eth_balance(ctx_clone.clone(), chain, vec![depositor], false)
@@ -1019,7 +1017,7 @@ impl AcrossBridge {
       let call_data = encode_deposit_v3(deposit_args.clone());
       let transact_to = address_book::across_spoke_pool_v2(from_chain.id())?;
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.write(|gui| {
             gui.loading_window.open("Wait while magic happens");
             gui.request_repaint();
@@ -1070,7 +1068,7 @@ fn request_suggested_fees(
    output_token: Address,
    amount: U256,
 ) {
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let res = match get_suggested_fees(
          input_token,
          output_token,
@@ -1151,7 +1149,7 @@ async fn across_bridge(
 
    let ctx_clone = ctx.clone();
    let from_block_clone = from_block.clone();
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       if ctx_clone.client_available(dest_chain.id()) {
          let z_client = ctx_clone.get_client_manager();
          let block = z_client
@@ -1232,7 +1230,7 @@ async fn across_bridge(
 
    // Update the sender's balance
    let ctx_clone = ctx.clone();
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let manager = ctx_clone.balance_manager();
       match manager
          .update_eth_balance(ctx_clone.clone(), chain.id(), vec![from], true)
@@ -1258,7 +1256,7 @@ async fn across_bridge(
 
    // update the recipients balance if needed
    let exists = ctx.wallet_exists(recipient);
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let manager = ctx.balance_manager();
 
       if exists {

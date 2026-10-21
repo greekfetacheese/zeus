@@ -13,7 +13,7 @@ use crate::core::{DecodedEvent, TransactionAnalysis, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::{delayed_action_label, wallet_identity};
-use crate::utils::{RT, estimate_tx_cost};
+use crate::utils::estimate_tx_cost;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::NativeCurrency,
@@ -236,7 +236,7 @@ impl TxConfirmationWindow {
          self.tx_cost_usd = NumericValue::default();
       }
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let native = NativeCurrency::from(chain.id());
          let main_event = tx.infer_main_event(ctx.clone(), chain.id());
          let gas_used = tx.gas_used;
@@ -979,7 +979,7 @@ mod tests {
    /// previous recipient's name.
    #[test]
    fn open_stores_the_picked_name_and_the_next_open_clears_it() {
-      let handle = ZeusCtx::new();
+      let handle = ZeusCtx::new(crate::runtime::test_handle());
       let mut window = TxConfirmationWindow::new();
 
       assert_eq!(window.recipient_name, None);
@@ -1194,7 +1194,7 @@ mod height_budget {
    }
 
    /// The window as the confirmation path leaves it, minus the parts of `open_inner`
-   /// that cannot run in a test (it spawns through `RT` and writes back through
+   /// that cannot run in a test (it spawns through `runtime::rt()` and writes back through
    /// `SHARED_GUI`).
    fn window_for(
       handle: &ZeusCtx,

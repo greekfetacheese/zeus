@@ -11,7 +11,6 @@ use crate::core::clear_signing;
 use crate::core::{TransactionRich, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::common::usable_chain;
-use crate::utils::RT;
 
 use std::sync::Arc;
 
@@ -88,7 +87,7 @@ impl TxWindow {
       let value = tx.value();
       let calldata = tx.call_data();
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let display =
             clear_signing::try_clear_sign_calldata(ctx, chain, from, to, value, &calldata).await;

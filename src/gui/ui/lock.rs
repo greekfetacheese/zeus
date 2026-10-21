@@ -7,7 +7,7 @@
 use crate::core::ZeusContext;
 use crate::core::types::CredentialCheck;
 use crate::gui::SHARED_GUI;
-use crate::utils::{RT, TimeStamp};
+use crate::utils::TimeStamp;
 use egui::{Align2, RichText, Ui, Window, vec2};
 use egui_elements::{Button, CredentialsForm, Theme};
 use ncrypt_me::Credentials;
@@ -92,7 +92,7 @@ impl LockScreen {
 /// not `credentials_match`, which also compares the confirm field the login
 /// form does not have.
 fn on_unlock(credentials: Credentials) {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
 
       match ctx.check_credentials(&credentials, true) {

@@ -735,7 +735,14 @@ mod tests {
       ];
 
       let analysis = analysis(user, events);
-      assert!(analysis.infer_main_event(ZeusCtx::new(), 1).is_other());
+      assert!(
+         analysis
+            .infer_main_event(
+               ZeusCtx::new(crate::core::platform::runtime::test_handle()),
+               1
+            )
+            .is_other()
+      );
 
       let resolved = analysis.resolve_unshield_event(known.clone());
       let params = resolved.unshield_params();
@@ -771,7 +778,14 @@ mod tests {
             DecodedEvent::Unshield(our_unshield),
          ],
       );
-      assert!(analysis.infer_main_event(ZeusCtx::new(), 1).is_other());
+      assert!(
+         analysis
+            .infer_main_event(
+               ZeusCtx::new(crate::core::platform::runtime::test_handle()),
+               1
+            )
+            .is_other()
+      );
 
       let resolved = analysis.resolve_unshield_event(known.clone());
       let params = resolved.unshield_params();
@@ -805,7 +819,10 @@ mod tests {
       };
 
       let analysis = analysis(user, vec![DecodedEvent::NftTransfer(params)]);
-      let main = analysis.infer_main_event(ZeusCtx::new(), 1);
+      let main = analysis.infer_main_event(
+         ZeusCtx::new(crate::core::platform::runtime::test_handle()),
+         1,
+      );
 
       assert!(
          main.is_nft_transfer(),

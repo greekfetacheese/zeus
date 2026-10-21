@@ -1,7 +1,7 @@
 //! UI that allows the user to import a wallet from a private key or a seed phrase
 
 use crate::gui::SHARED_GUI;
-use crate::utils::{RT, malloc_trim};
+use crate::utils::malloc_trim;
 use eframe::egui::{FontId, Id, Margin, Order, RichText, Ui, vec2};
 use egui_elements::{Button, Modal, SecureInputField, SecureTextEdit, Theme};
 use secure_types::SecureString;
@@ -139,7 +139,7 @@ impl ImportWallet {
 }
 
 fn on_import_wallet(name: String, from_key: bool, key_or_phrase: SecureString) {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
       let mut new_vault = ctx.get_vault();
 
@@ -194,7 +194,7 @@ fn on_import_wallet(name: String, from_key: bool, key_or_phrase: SecureString) {
       ctx.build_wallet_info_cache();
 
       let ctx_clone = ctx.clone();
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          for chain in SUPPORTED_CHAINS {
             if let Err(e) = ctx_clone.register_railgun_signers(chain, false).await {
                tracing::error!("Error registering Railgun signers: {:?}", e);
@@ -217,7 +217,7 @@ fn on_import_wallet(name: String, from_key: bool, key_or_phrase: SecureString) {
       });
 
       // Fetch the balance for the new wallet across all chains and add it to the portfolio db
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let manager = ctx.balance_manager();
          for chain in SUPPORTED_CHAINS {
             if ctx.is_chain_disabled(chain) {
@@ -247,7 +247,7 @@ fn on_import_wallet(name: String, from_key: bool, key_or_phrase: SecureString) {
 }
 
 fn on_reopen_add_wallet() {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       SHARED_GUI.write(|gui| {
          gui.wallet_ui.add_wallet_ui.open();
       });

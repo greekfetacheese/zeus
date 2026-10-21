@@ -116,7 +116,7 @@ pub struct GUI {
 
 impl GUI {
    pub fn new(icons: Arc<Icons>, theme: Theme, egui_ctx: Context) -> Self {
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::runtime::rt().clone());
 
       let mut appearance_settings = match AppearanceSettings::load_from_file() {
          Ok(config) => config,

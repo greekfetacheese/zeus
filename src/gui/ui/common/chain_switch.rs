@@ -2,7 +2,6 @@
 
 use crate::core::ZeusContext;
 use crate::gui::SHARED_GUI;
-use crate::utils::RT;
 use zeus_eth::{
    currency::{Currency, NativeCurrency},
    types::ChainId,
@@ -16,7 +15,7 @@ use zeus_eth::{
 pub fn switch_chain(ctx: &mut ZeusContext, new_chain: ChainId) {
    ctx.chain = new_chain;
 
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
       let owner = ctx.current_wallet_info().address;
       let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);

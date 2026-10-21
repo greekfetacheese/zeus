@@ -14,7 +14,7 @@ use zeus_eth::{
 #[tokio::test]
 #[should_panic]
 async fn test_must_panic_if_no_mev_protect_client() {
-   let ctx = ZeusCtx::new();
+   let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
    let _r = ctx.get_mev_protect_client(1).await.unwrap();
 }
 
@@ -25,7 +25,7 @@ fn autolock_notice_cadence() {
    const FIRST: u64 = 30_000;
    const REPEAT: u64 = 3_600_000;
 
-   let ctx = ZeusCtx::new();
+   let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
    ctx.write(|ctx| {
       ctx.security.autolock_changed = false;
       ctx.locked = false;
@@ -62,7 +62,7 @@ fn autolock_notice_cadence() {
 /// The unlock guard refuses while locked and passes while unlocked.
 #[test]
 fn ensure_unlocked_refuses_while_locked() {
-   let ctx = ZeusCtx::new();
+   let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
 
    ctx.write(|ctx| ctx.locked = false);
    assert!(ctx.ensure_unlocked().is_ok());
@@ -82,7 +82,7 @@ fn ensure_unlocked_refuses_while_locked() {
 fn get_address_name_resolves_a_cached_nft_collection() {
    use zeus_eth::nft::{NftCollection, NftStandard};
 
-   let ctx = ZeusCtx::new();
+   let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
    let collection = Address::from([0x3e; 20]);
 
    assert_eq!(ctx.get_address_name(1, collection), None);
@@ -138,7 +138,7 @@ fn get_address_name_resolves_a_cached_nft_collection() {
 /// its own `mark_pending`, every request died on arrival — the reverse lookup never ran at all.
 #[test]
 fn ens_reverse_request_survives_the_shared_claim() {
-   let ctx = ZeusCtx::new();
+   let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
    let (chain, address) = (ENS_CHAIN, Address::repeat_byte(0x60));
 
    // The frame path asks: the address is unnamed and unclaimed, so a request is due — and this
@@ -164,7 +164,7 @@ fn ens_reverse_request_survives_the_shared_claim() {
 /// next frame — must not report a second request for the same address.
 #[test]
 fn ens_reverse_claim_is_consumed_once() {
-   let ctx = ZeusCtx::new();
+   let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
    let (chain, address) = (ENS_CHAIN, Address::repeat_byte(0x61));
 
    let requested = |ctx: &ZeusCtx| ctx.read(|ctx| ctx.address_name_requested(chain, address));
@@ -181,7 +181,7 @@ fn ens_reverse_claim_is_consumed_once() {
 /// frame of the session.
 #[test]
 fn ens_reverse_live_name_is_never_requested() {
-   let ctx = ZeusCtx::new();
+   let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
    let (chain, address) = (ENS_CHAIN, Address::repeat_byte(0x62));
 
    // A label with no onchain expiry, as the forward picker stores one.
@@ -205,7 +205,7 @@ fn ens_reverse_live_name_is_never_requested() {
 /// not a licence to re-resolve on every frame.
 #[test]
 fn ens_reverse_lapsed_binding_is_requested_once_more() {
-   let ctx = ZeusCtx::new();
+   let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
    let (chain, address) = (ENS_CHAIN, Address::repeat_byte(0x63));
 
    // Live for another second, then lapsed, with the state built directly — no chain is touched.
@@ -240,7 +240,7 @@ fn ens_reverse_lapsed_binding_is_requested_once_more() {
 /// An address that resolves to nothing is looked up once, not once per frame.
 #[test]
 fn ens_reverse_unnamed_address_is_not_re_requested() {
-   let ctx = ZeusCtx::new();
+   let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
    let (chain, address) = (ENS_CHAIN, Address::repeat_byte(0x64));
 
    let requested = |ctx: &ZeusCtx| ctx.read(|ctx| ctx.address_name_requested(chain, address));
@@ -259,7 +259,7 @@ fn ens_reverse_unnamed_address_is_not_re_requested() {
 #[tokio::test]
 #[ignore = "live chain: needs a working public RPC on four chains — a manual fee read"]
 async fn test_base_fee() {
-   let ctx = ZeusCtx::new();
+   let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
 
    let client = ctx.get_client(1).await.unwrap();
    let block = client.get_block(BlockId::latest()).await.unwrap().unwrap();
@@ -286,7 +286,7 @@ async fn test_base_fee() {
 #[tokio::test]
 #[ignore = "live chain: needs a working public RPC, and pins one mainnet account's delegation"]
 async fn test_extract_delegated_address() {
-   let ctx = ZeusCtx::new();
+   let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
 
    let chain = 1;
    let account = Address::from_str("0x67d3FA6a5CF45D85F697A497b3270A06415E5BfE").unwrap();
@@ -307,7 +307,7 @@ async fn test_extract_delegated_address() {
 #[tokio::test]
 #[ignore = "live chain: needs a working public RPC on every supported chain"]
 async fn test_priority_fee_suggestion() {
-   let ctx = ZeusCtx::new();
+   let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
 
    for chain in SUPPORTED_CHAINS {
       let client = ctx.get_client(chain).await.unwrap();

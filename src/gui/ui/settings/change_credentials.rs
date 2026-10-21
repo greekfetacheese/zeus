@@ -4,7 +4,6 @@
 
 use crate::core::types::CredentialCheck;
 use crate::gui::SHARED_GUI;
-use crate::utils::RT;
 use egui::{RichText, Ui, Vec2, vec2};
 use egui_elements::{Button, CredentialsForm, Theme};
 use ncrypt_me::Credentials;
@@ -85,7 +84,7 @@ impl ChangeCredentialsUi {
 
          let credentials = Credentials::new(username, password, confirm_password);
 
-         RT.spawn_blocking(move || {
+         crate::runtime::rt().spawn_blocking(move || {
             let ctx = SHARED_GUI.write(|gui| {
                gui.loading_window.open("Checking credentials...");
                gui.request_repaint();
@@ -139,7 +138,7 @@ impl ChangeCredentialsUi {
          let password = self.credentials_form.password();
          let confirm_password = self.credentials_form.confirm_password();
 
-         RT.spawn_blocking(move || {
+         crate::runtime::rt().spawn_blocking(move || {
             let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
             let mut new_vault = ctx.get_vault();
 

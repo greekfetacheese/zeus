@@ -7,7 +7,6 @@
 use super::PANEL_ROW_WIDTH;
 use crate::gui::SHARED_GUI;
 use crate::gui::dots_button;
-use crate::utils::RT;
 use egui::{Align, Layout, Margin, RichText, TextWrapMode, Ui, vec2};
 use egui_elements::{Label, Theme};
 use elegance::{Indicator, IndicatorState, Menu, MenuItem};
@@ -71,7 +70,7 @@ impl SystemVitals {
 
       self.refreshing = true;
 
-      RT.spawn_blocking(|| {
+      crate::runtime::rt().spawn_blocking(|| {
          let vitals = Self::read();
 
          SHARED_GUI.write(|gui| {

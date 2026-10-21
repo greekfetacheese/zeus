@@ -1,7 +1,6 @@
 use egui::{Align, Layout, RichText, Slider, Ui, vec2};
 
 use crate::gui::SHARED_GUI;
-use crate::utils::RT;
 use egui_elements::{Button, SecureTextEdit, Theme};
 use egui_lucide::Lucide;
 
@@ -151,7 +150,7 @@ impl UniswapSettingsUi {
             });
 
             if res.inner.changed() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
                      let settings = &gui.uniswap.settings;
@@ -173,7 +172,7 @@ impl UniswapSettingsUi {
             });
 
             if res.inner.changed() {
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
                      let settings = &gui.uniswap.settings;
@@ -189,7 +188,7 @@ impl UniswapSettingsUi {
          let text = RichText::new("Split Routing").size(theme.typography.normal);
          let res = ui.checkbox(&mut self.split_routing_enabled, text);
          if res.changed() {
-            RT.spawn_blocking(move || {
+            crate::runtime::rt().spawn_blocking(move || {
                SHARED_GUI.write(|gui| {
                   let ctx = gui.ctx.clone();
                   let settings = &gui.uniswap.settings;
@@ -214,7 +213,7 @@ impl UniswapSettingsUi {
             let update_v2 = self.swap_on_v2 && !v2_was_on;
             let update_v3 = self.swap_on_v3 && !v3_was_on;
             let update_v4 = self.swap_on_v4 && !v4_was_on;
-            RT.spawn_blocking(move || {
+            crate::runtime::rt().spawn_blocking(move || {
                SHARED_GUI.write(|gui| {
                   gui.uniswap.swap_ui.update_pool_state(update_v2, update_v3, update_v4);
                });

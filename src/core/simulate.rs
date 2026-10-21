@@ -1,5 +1,4 @@
 use crate::core::{ClientManager, ZeusCtx};
-use crate::utils::RT;
 
 use alloy_eips::eip7702::SignedAuthorization;
 use either::Either;
@@ -718,10 +717,21 @@ pub async fn fetch_accounts_info(
    let addresses: Vec<Address> = accounts.iter().map(|a| a.address).collect();
    let eoas: Vec<Address> = accounts.iter().filter(|a| a.is_eoa).map(|a| a.address).collect();
 
-   let balances_fut =
-      fetch_eth_balances_batched(client.clone(), chain, block_id, addresses.clone());
-   let codes_fut = fetch_account_codes_batched(client.clone(), chain, block_id, addresses.clone());
-   let nonces_fut = fetch_eoa_nonces(client.clone(), chain, block_id, eoas);
+   let balances_fut = fetch_eth_balances_batched(
+      ctx.rt(),
+      client.clone(),
+      chain,
+      block_id,
+      addresses.clone(),
+   );
+   let codes_fut = fetch_account_codes_batched(
+      ctx.rt(),
+      client.clone(),
+      chain,
+      block_id,
+      addresses.clone(),
+   );
+   let nonces_fut = fetch_eoa_nonces(ctx.rt(), client.clone(), chain, block_id, eoas);
 
    let (balances, codes, nonces) = tokio::join!(balances_fut, codes_fut, nonces_fut);
 
@@ -763,6 +773,7 @@ pub async fn fetch_accounts_info(
 }
 
 async fn fetch_eth_balances_batched(
+   rt: tokio::runtime::Handle,
    client: ClientManager,
    chain: u64,
    block_id: BlockId,
@@ -778,7 +789,7 @@ async fn fetch_eth_balances_batched(
       let chunk = chunk.to_vec();
       let client = client.clone();
       let semaphore = semaphore.clone();
-      tasks.push(RT.spawn(async move {
+      tasks.push(rt.spawn(async move {
          let _permit = semaphore.acquire().await.unwrap();
          client
             .request_with(chain, chunk.clone(), |client, chunk| async move {
@@ -811,6 +822,7 @@ async fn fetch_eth_balances_batched(
 }
 
 async fn fetch_account_codes_batched(
+   rt: tokio::runtime::Handle,
    client: ClientManager,
    chain: u64,
    block_id: BlockId,
@@ -826,7 +838,7 @@ async fn fetch_account_codes_batched(
       let chunk = chunk.to_vec();
       let client = client.clone();
       let semaphore = semaphore.clone();
-      tasks.push(RT.spawn(async move {
+      tasks.push(rt.spawn(async move {
          let _permit = semaphore.acquire().await.unwrap();
          client
             .request_with(chain, chunk.clone(), |client, chunk| async move {
@@ -860,6 +872,7 @@ async fn fetch_account_codes_batched(
 }
 
 async fn fetch_eoa_nonces(
+   rt: tokio::runtime::Handle,
    client: ClientManager,
    chain: u64,
    block_id: BlockId,
@@ -878,7 +891,7 @@ async fn fetch_eoa_nonces(
       let chunk = chunk.to_vec();
       let client = client.clone();
       let semaphore = semaphore.clone();
-      tasks.push(RT.spawn(async move {
+      tasks.push(rt.spawn(async move {
          let _permit = semaphore.acquire().await.unwrap();
          client
             .request_with(chain, chunk.clone(), |client, chunk| async move {
@@ -965,7 +978,7 @@ pub async fn fetch_storage_for_pools(
       let accounts = accounts.clone();
       let semaphore = semaphore.clone();
 
-      let task = RT.spawn(async move {
+      let task = ctx.rt().spawn(async move {
          let _permit = semaphore.acquire().await.unwrap();
          let acc_info = fetch_storage(ctx.clone(), chain, block_id, acc).await;
 

@@ -20,7 +20,6 @@ use crate::core::{
    signature::Permit2Info, types::Dapp,
 };
 use crate::utils::{
-   RT,
    simulate::*,
    swap_quoter::*,
    universal_router_v2::{SwapRequest, encode_swap, swap_prefetch_accounts},
@@ -158,7 +157,7 @@ impl SimulateWindow {
                      self.set_pool_after(None);
                      let pool = self.pool_initial.clone();
                      let settings_clone = settings.clone();
-                     RT.spawn_blocking(move || {
+                     crate::runtime::rt().spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
                            let ctx = gui.ctx.clone();
                            gui.uniswap.swap_ui.pool = pool;
@@ -615,7 +614,7 @@ impl SwapUi {
    }
 
    fn spawn_get_quote(settings: UniswapSettingsUi) {
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          SHARED_GUI.write(|gui| {
             let ctx = gui.ctx.clone();
             gui.uniswap.swap_ui.get_quote(ctx, &settings);
@@ -739,7 +738,7 @@ impl SwapUi {
    }
 
    fn update_currency_balance(&self, currency: Currency) {
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.write(|gui| {
             gui.uniswap.swap_ui.balance_syncing = true;
             gui.ctx.clone()
@@ -791,7 +790,7 @@ impl SwapUi {
 
       self.syncing_pools = true;
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let pool_manager = ctx.pool_manager();
          let chain_id = ctx.chain().id();
@@ -836,7 +835,7 @@ impl SwapUi {
             }
          }
 
-         RT.spawn_blocking(move || {
+         crate::runtime::rt().spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
                let settings = &gui.uniswap.settings;
                gui.uniswap.swap_ui.get_quote(ctx.clone(), settings);
@@ -877,7 +876,7 @@ impl SwapUi {
       let currency_in = self.currency_in.clone();
       let currency_out = self.currency_out.clone();
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
 
          let pools = get_relevant_pools(
@@ -967,7 +966,7 @@ impl SwapUi {
       let swap_on_v4 = settings.swap_on_v4;
 
       let ctx_clone = ctx.clone();
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          let pools = get_relevant_pools(
             ctx.clone(),
             swap_on_v2,
@@ -1205,7 +1204,7 @@ impl SwapUi {
             self.currency_in.decimals(),
          );
          let wrap = action.is_wrap();
-         RT.spawn(async move {
+         crate::runtime::rt().spawn(async move {
             let ctx = Self::open_loading();
             let result = if wrap {
                wrap_eth(ctx, from, chain, amount_in).await
@@ -1228,7 +1227,7 @@ impl SwapUi {
       // settings widget displayed. Never re-parse `settings.slippage` in the swap flow.
       let slippage = settings.slippage_f64();
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = Self::open_loading();
          let result = swap_via_ur(
             ctx,
@@ -1486,7 +1485,7 @@ pub async fn wrap_eth(
    .await?;
 
    // update balances
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let manager = ctx.balance_manager();
       match manager
          .update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth], true)
@@ -1627,7 +1626,7 @@ pub async fn unwrap_weth(
    .await?;
 
    // update balances
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let manager = ctx.balance_manager();
       match manager
          .update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth], true)
@@ -2016,7 +2015,7 @@ async fn swap_via_ur(
    }
 
    // Update balances
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let manager = ctx.balance_manager();
       match manager
          .update_tokens_balance(

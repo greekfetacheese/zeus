@@ -9,7 +9,7 @@ use crate::core::{
    },
 };
 use crate::gui::{SHARED_GUI, ui::ChainSelect, ui::show_with_fade};
-use crate::utils::{RT, state};
+use crate::utils::state;
 use eframe::egui::{
    Align, CornerRadius, CursorIcon, FontId, InnerResponse, Layout, Margin, RichText, ScrollArea,
    Spinner, Ui, vec2,
@@ -163,7 +163,7 @@ impl NetworkSettings {
                   ctx.disable_chain(chain);
                }
 
-               RT.spawn_blocking(move || {
+               crate::runtime::rt().spawn_blocking(move || {
                   let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                   ctx.save_disabled_chains();
                   post_toggle_network(ctx, chain, disabled);
@@ -189,7 +189,7 @@ impl NetworkSettings {
                if res.clicked() {
                   self.refreshing = true;
 
-                  RT.spawn(async move {
+                  crate::runtime::rt().spawn(async move {
                      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                      let z_client = ctx.get_client_manager();
                      z_client.run_rpc_checks(ctx.clone()).await;
@@ -252,7 +252,7 @@ impl NetworkSettings {
                   z_client.set_concurrency(value);
                   self.concurrency_input = Some(z_client.concurrency().to_string());
 
-                  RT.spawn_blocking(move || {
+                  crate::runtime::rt().spawn_blocking(move || {
                      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                      ctx.save_client_manager();
                   });
@@ -351,7 +351,7 @@ impl NetworkSettings {
 
                   if !was_enabled && rpc.enabled {
                      let rpc = rpc.clone();
-                     RT.spawn(async move {
+                     crate::runtime::rt().spawn(async move {
                         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                         let z_client = ctx.get_client_manager();
                         z_client.run_check_for(ctx.clone(), rpc).await;
@@ -360,7 +360,7 @@ impl NetworkSettings {
                      });
                   }
 
-                  RT.spawn_blocking(move || {
+                  crate::runtime::rt().spawn_blocking(move || {
                      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                      ctx.save_client_manager();
                   });
@@ -401,7 +401,7 @@ impl NetworkSettings {
                      let button = Button::new(text).visuals(button_visuals);
                      if ui.add(button).clicked() {
                         let rpc_clone = rpc.clone();
-                        RT.spawn(async move {
+                        crate::runtime::rt().spawn(async move {
                            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                            let z_client = ctx.get_client_manager();
                            z_client.run_check_for(ctx, rpc_clone).await;
@@ -417,7 +417,7 @@ impl NetworkSettings {
                      let z_client = ctx.client_manager.clone();
                      z_client.remove_rpc(chain, rpc.url.clone());
 
-                     RT.spawn_blocking(move || {
+                     crate::runtime::rt().spawn_blocking(move || {
                         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                         ctx.save_client_manager();
                      });
@@ -460,7 +460,7 @@ impl NetworkSettings {
                   }
                }
             });
-            RT.spawn_blocking(move || {
+            crate::runtime::rt().spawn_blocking(move || {
                let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                ctx.save_client_manager();
             });
@@ -525,7 +525,7 @@ impl NetworkSettings {
                self.cu_input = rpc.cu_per_second.to_string();
             }
 
-            RT.spawn_blocking(move || {
+            crate::runtime::rt().spawn_blocking(move || {
                let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                ctx.save_client_manager();
             });
@@ -581,7 +581,7 @@ impl NetworkSettings {
 fn validate_rpc(chain: u64, url: String) {
    let rpc = Rpc::builder(url.clone(), chain).enabled().build();
 
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
 
       let client = match ctx.connect_to_rpc(&rpc).await {
@@ -628,7 +628,7 @@ fn validate_rpc(chain: u64, url: String) {
       z_client.run_check_for(ctx.clone(), rpc).await;
 
       let ctx_clone = ctx.clone();
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          ctx_clone.save_client_manager();
       });
 
@@ -692,7 +692,7 @@ fn post_toggle_network(ctx: ZeusCtx, chain: u64, was_disabled: bool) {
 
    if was_disabled {
       tracing::info!("Syncing state for chain {}", chain);
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          state::sync_state(ctx.clone(), chain).await;
       });
    }

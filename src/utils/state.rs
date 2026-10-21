@@ -1,7 +1,7 @@
 use crate::core::ctx::railgun_dir;
 use crate::core::urls::ZeusUrl;
 use crate::core::{WalletPortfolio, ZeusCtx};
-use crate::utils::{RT, malloc_trim, self_update};
+use crate::utils::{malloc_trim, self_update};
 use anyhow::anyhow;
 use tracing::{debug, error, info, warn};
 
@@ -48,13 +48,13 @@ pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
 
             let ctx = ctx.clone();
 
-            let task = RT.spawn(async move {
+            let task = crate::runtime::rt().spawn(async move {
                let _permit = semaphore.acquire().await.unwrap();
                client.run_check_for(ctx, rpc).await;
             });
             tasks.push(task);
          } else if rpc.is_enabled() {
-            let task = RT.spawn(async move {
+            let task = crate::runtime::rt().spawn(async move {
                let _permit = semaphore.acquire().await.unwrap();
                client.run_latency_check_for(rpc).await;
             });
@@ -160,7 +160,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
       let semaphore = Arc::new(Semaphore::new(2));
       let ctx = ctx.clone();
 
-      let task = RT.spawn(async move {
+      let task = crate::runtime::rt().spawn(async move {
          let _ = semaphore.acquire().await.unwrap();
          sync_state(ctx, chain).await;
       });
@@ -169,7 +169,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
    }
 
    let ctx2 = ctx.clone();
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       // Prefetch the ERC-7730 registry index so the first unknown typed-data sign does not wait on
       // it. The registry is embedded, so this only reads the local snapshot and contacts no host.
       crate::core::clear_signing::registry::prefetch_index().await;
@@ -185,18 +185,18 @@ pub async fn on_startup(ctx: ZeusCtx) {
    });
 
    let ctx2 = ctx.clone();
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       ctx2.save_price_manager();
    });
 
    malloc_trim();
 
    let ctx_clone = ctx.clone();
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       state_update_interval(ctx_clone).await;
    });
 
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       malloc_trim_interval().await;
    });
 
@@ -270,7 +270,7 @@ pub fn cleanup_orphaned_wallet_data(ctx: ZeusCtx) {
       token_removed
    );
 
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let wallets = ctx.read_vault(|vault| vault.clone_all_wallets());
       let mut keep_signers = Vec::new();
 
@@ -499,7 +499,7 @@ async fn state_update_interval(ctx: ZeusCtx) {
          }
 
          let ctx2 = ctx.clone();
-         RT.spawn_blocking(move || {
+         crate::runtime::rt().spawn_blocking(move || {
             ctx2.save_price_manager();
          });
 
@@ -529,7 +529,7 @@ async fn state_update_interval(ctx: ZeusCtx) {
       let railgun_sync_interval = ctx.read(|ctx| ctx.railgun_config.state_update_interval_secs());
       if railgun_sync_time_passed.elapsed().as_secs() > railgun_sync_interval {
          let ctx_clone = ctx.clone();
-         RT.spawn(async move {
+         crate::runtime::rt().spawn(async move {
             for chain in SUPPORTED_CHAINS {
                // Only do a resync if we detect an invalid root error
                let is_invalid_root =
@@ -636,7 +636,9 @@ pub async fn prefetch_railgun_circuits_if_allowed(ctx: &ZeusCtx) {
    // `prefetch_railgun_circuits` stays async because a first run downloads over the
    // async HTTP client; `block_on` on a dedicated blocking thread keeps that off the
    // async workers (same idiom as the Railgun merge flow).
-   let result = RT.spawn_blocking(|| RT.block_on(prefetch_railgun_circuits())).await;
+   let result = crate::runtime::rt()
+      .spawn_blocking(|| crate::runtime::rt().block_on(prefetch_railgun_circuits()))
+      .await;
 
    match result {
       Ok(Ok(report)) => {

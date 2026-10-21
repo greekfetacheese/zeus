@@ -9,7 +9,7 @@ use super::rich::TransactionRich;
 use crate::core::ZeusCtx;
 use crate::core::clear_signing::{self, ClearDisplay};
 use crate::core::ui;
-use crate::utils::{RT, TimeStamp, estimate_tx_cost};
+use crate::utils::{TimeStamp, estimate_tx_cost};
 use alloy_consensus::TxType;
 use alloy_eips::eip7702::SignedAuthorization;
 use anyhow::anyhow;
@@ -142,7 +142,7 @@ pub async fn build_tx_outcome(
       let transfers = analysis.nft_transfers().clone();
       let ctx2 = ctx.clone();
 
-      RT.spawn(async move {
+      ctx.rt().spawn(async move {
          discover_nfts(ctx2, chain.id(), from, &transfers).await;
       });
    }
@@ -253,7 +253,7 @@ async fn discover_nfts(ctx: ZeusCtx, chain: u64, owner: Address, transfers: &[Nf
       }
    }
 
-   RT.spawn_blocking(move || {
+   ctx.rt().spawn_blocking(move || {
       ctx.save_nft_db();
    });
 }
@@ -284,7 +284,7 @@ pub fn record_and_notify(
 ) -> Result<(), anyhow::Error> {
    let ctx_clone = ctx.clone();
    let tx = outcome.tx_rich.clone();
-   RT.spawn_blocking(move || {
+   ctx.rt().spawn_blocking(move || {
       ctx_clone.add_transaction(chain.id(), from, tx);
    });
 

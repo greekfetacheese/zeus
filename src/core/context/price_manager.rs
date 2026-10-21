@@ -8,7 +8,7 @@ use crate::core::{
    PoolManagerHandle, WalletStateKey, ZeusCtx, context::DEFAULT_POOL_MINIMUM_LIQUIDITY,
    serde_hashmap,
 };
-use crate::utils::{RT, write_private_atomic};
+use crate::utils::write_private_atomic;
 use zeus_eth::{
    alloy_primitives::{Address, B256},
    amm::uniswap::{AnyUniswapPool, UniswapPool},
@@ -444,7 +444,7 @@ impl PriceManagerHandle {
       for token in tokens {
          let client = client.clone();
 
-         let task = RT.spawn(async move {
+         let task = ctx.rt().spawn(async move {
             let price = client
                .request_with(chain, token.clone(), |client, token| async move {
                   get_base_token_price(client, token, None).await
@@ -553,7 +553,7 @@ mod tests {
    #[tokio::test]
    #[ignore = "live chain: needs working public RPCs and live price feeds"]
    async fn test_it_works() {
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
       let chain = 1;
 
       let price_manager = PriceManagerHandle::new();

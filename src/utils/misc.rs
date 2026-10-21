@@ -1,44 +1,5 @@
-use crate::gui::SHARED_GUI;
-
-use lazy_static::lazy_static;
-use std::time::Duration;
-use tokio::runtime::{Builder, Runtime};
-
 pub use crate::core::estimate_tx_cost;
 pub use crate::core::platform::{TimeStamp, malloc_trim, truncate_address, truncate_hash};
-
-lazy_static! {
-   pub static ref RT: Runtime = build_runtime();
-}
-
-fn build_runtime() -> Runtime {
-   // Tokio workers default to 2 MiB. Debug codegen keeps huge stack frames
-   // (async state machines, revm, Railgun circuits), so those workers overflow.
-   // 8 MiB matches the usual Linux pthread default and is virtual until used.
-   Builder::new_multi_thread()
-      .enable_all()
-      .thread_stack_size(8 * 1024 * 1024)
-      .build()
-      .expect("failed to build tokio runtime")
-}
-
-pub async fn wait_tx_confirm() -> bool {
-   loop {
-      tokio::time::sleep(Duration::from_millis(50)).await;
-      // Collect the answer and close in one exclusive step: the answer is
-      // single-use, so one Confirm click can only ever be acted on once.
-      let confirmed = SHARED_GUI.write(|gui| {
-         let confirmed = gui.tx_confirmation_window.take_confirmed_or_rejected();
-         if confirmed.is_some() {
-            gui.tx_confirmation_window.close();
-         }
-         confirmed
-      });
-      if let Some(confirmed) = confirmed {
-         return confirmed;
-      }
-   }
-}
 
 pub fn truncate_symbol_or_name(string: &str, max_chars: usize) -> String {
    if string.chars().count() > max_chars {

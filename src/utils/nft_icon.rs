@@ -19,7 +19,6 @@
 use crate::assets::icons::{NftIconData, save_nft_icon};
 use crate::core::urls::ZeusUrl;
 use crate::gui::SHARED_GUI;
-use crate::utils::RT;
 use anyhow::anyhow;
 use flate2::read::GzDecoder;
 use image::imageops::FilterType;
@@ -1055,7 +1054,7 @@ pub async fn fetch_nft_icon(
       // runs on a worker of the shared runtime, so a list load would spend it parsing
       // [`NFT_ART_FETCH_PER_LOAD`] documents — all before the decode permit below is even taken. The
       // parse is handed to the blocking pool for the same reason the decode is.
-      let Some(image_uri) = RT
+      let Some(image_uri) = crate::runtime::rt()
          .spawn_blocking(move || image_url_from_metadata(&bytes))
          .await
          .map_err(|e| anyhow!("NFT metadata parse task failed: {e}"))?
@@ -1094,7 +1093,7 @@ pub async fn fetch_nft_icon(
       .await
       .map_err(|e| anyhow!("no art decode slot is available: {e}"))?;
 
-   let prepared = RT
+   let prepared = crate::runtime::rt()
       .spawn_blocking(move || match prepare_image_data(&image_bytes) {
          Ok(data) => Ok(data),
          Err(e) => {
@@ -1202,7 +1201,7 @@ pub fn spawn_fetch_nft_icon(
       return;
    }
 
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       match fetch_nft_icon(&metadata_uri, token_id).await {
          Ok(Some(data)) => {
             // Saving writes the art and then prunes the whole on-disk cache — a `readdir` walk of
@@ -1210,7 +1209,7 @@ pub fn spawn_fetch_nft_icon(
             // I/O on a worker of the shared runtime, for the same reason as the decode. The closure
             // hands the art straight back, so the icon bytes move into the blocking pool rather than
             // being cloned, and `insert_icon` / `finish_fetch` / the repaint stay on the async side.
-            match RT
+            match crate::runtime::rt()
                .spawn_blocking(move || {
                   if let Err(_e) = save_nft_icon(chain_id, collection, token_id, &data) {
                      #[cfg(feature = "dev")]

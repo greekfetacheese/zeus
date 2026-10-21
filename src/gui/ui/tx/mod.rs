@@ -23,7 +23,7 @@ use crate::core::tx::{
 };
 use crate::core::{TransactionAnalysis, ZeusContext};
 use crate::gui::SHARED_GUI;
-use crate::utils::{RT, truncate_address, truncate_hash};
+use crate::utils::{truncate_address, truncate_hash};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::{Currency, NativeCurrency},
@@ -1256,7 +1256,7 @@ fn address_label(ctx: &mut ZeusContext, chain: ChainId, address: Address) -> Str
 }
 
 fn request_address_name(chain: u64, address: Address) {
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
       if ctx.lookup_address_name(chain, address).await {
          SHARED_GUI.write(|gui| {

@@ -441,7 +441,7 @@ mod tests {
       let url = std::env::var("ZEUS_ETH_RPC")
          .expect("ZEUS_ETH_RPC must point at an RPC that serves eth_call");
 
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::core::platform::runtime::test_handle());
       let mut rpc = Rpc::builder(url, 1).build();
       rpc.enabled = true;
       rpc.check.working = true;

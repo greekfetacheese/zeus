@@ -2,7 +2,6 @@
 
 use crate::core::ZeusContext;
 use crate::core::urls::{UrlPurpose, purpose_tip};
-use crate::utils::RT;
 use egui::{Align, Layout, RichText, Ui, vec2};
 use egui_elements::{Button, Theme};
 use elegance::{Badge, BadgeTone};
@@ -68,7 +67,7 @@ impl GeneralSettings {
 
    fn persist_misc(ctx: &ZeusContext) {
       let config = ctx.misc_config.clone();
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          if let Err(e) = config.save() {
             tracing::error!("Failed to save misc config: {e}");
          }
@@ -80,7 +79,8 @@ impl GeneralSettings {
    /// The only setting whose effect is file work rather than a `misc_config` field, so it
    /// never runs on the frame path.
    fn apply_desktop_integration(enabled: bool) {
-      RT.spawn_blocking(move || crate::utils::desktop_integration::apply(enabled));
+      crate::runtime::rt()
+         .spawn_blocking(move || crate::utils::desktop_integration::apply(enabled));
    }
 
    pub fn sync_from_ctx(&mut self, ctx: &mut ZeusContext) {

@@ -4,7 +4,7 @@ use crate::core::{data_dir, data_import::import_data_from_zip};
 use crate::gui::SHARED_GUI;
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::dapps::railgun::BundlerUrl;
-use crate::utils::{RT, state};
+use crate::utils::state;
 use egui::{Frame, Id, Margin, Order, RichText, Ui, vec2};
 use egui_elements::{Button, CredentialsForm, Modal, Theme};
 use ncrypt_me::Credentials;
@@ -177,7 +177,7 @@ impl ImportDataUi {
 
    fn import(&self) {
       let Some(zip_path) = self.zip_path.clone() else {
-         RT.spawn_blocking(move || {
+         crate::runtime::rt().spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
                gui.open_msg_window("Select a zip file first");
             });
@@ -190,7 +190,7 @@ impl ImportDataUi {
       let confirm_password = self.credentials_form.confirm_password();
       let credentials = Credentials::new(username, password, confirm_password);
 
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          let ctx = SHARED_GUI.write(|gui| {
             gui.loading_window.open("Verifying imported vault...");
             gui.request_repaint();
@@ -245,7 +245,7 @@ impl ImportDataUi {
                let security_load_failed = ctx.read(|ctx| ctx.security.load_failed);
 
                let ctx = ctx.clone();
-               RT.spawn(async move {
+               crate::runtime::rt().spawn(async move {
                   state::on_startup(ctx).await;
                });
 

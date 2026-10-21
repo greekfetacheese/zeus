@@ -8,7 +8,7 @@
 use super::delayed_action_label;
 use crate::gui::{GUI, SHARED_GUI};
 use crate::utils::{
-   RT, TimeStamp,
+   TimeStamp,
    self_update::{UpdateInfo, restart_app, update_zeus},
 };
 use eframe::egui::{Align2, Color32, RichText, Spinner, Ui, Vec2, vec2};
@@ -360,7 +360,7 @@ impl UpdateWindow {
                      if ui.add(update_button).clicked() {
                         let info = self.info.clone();
 
-                        RT.spawn(async move {
+                        crate::runtime::rt().spawn(async move {
                            if info.download_url.is_none() || info.asset_name.is_none() {
                               // The window already says it; this is the detail, with somewhere to go.
                               let version = info.version.as_deref().unwrap_or("a newer release");

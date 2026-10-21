@@ -3,7 +3,6 @@
 use crate::core::types::CredentialCheck;
 use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
-use crate::utils::RT;
 use eframe::egui::{Context, Id, Order, RichText, Ui, vec2};
 use egui_elements::{Button, CredentialsForm, Modal, QrImage, Theme, components::QrEncoding};
 use ncrypt_me::Credentials;
@@ -45,7 +44,7 @@ impl ExportKeyUi {
    }
 
    pub fn open(&mut self, wallet: WalletInfo) {
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let wallet_full = ctx.get_wallet(wallet.address);
 
@@ -305,7 +304,7 @@ impl ExportKeyUi {
 }
 
 fn on_verify_credentials(credentials: Credentials) {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       let ctx = SHARED_GUI.write(|gui| {
          gui.loading_window.open("Checking credentials...");
          gui.request_repaint();

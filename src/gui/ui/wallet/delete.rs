@@ -3,7 +3,6 @@
 use crate::core::types::CredentialCheck;
 use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
-use crate::utils::RT;
 use eframe::egui::{Id, Order, RichText, Ui, vec2};
 use egui_elements::{Button, CredentialsForm, Modal, Theme};
 use ncrypt_me::Credentials;
@@ -259,7 +258,7 @@ impl DeleteWalletUi {
 }
 
 fn on_verify_credentials(credentials: Credentials) {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       let ctx = SHARED_GUI.write(|gui| {
          gui.loading_window.open("Checking credentials...");
          gui.request_repaint();
@@ -296,7 +295,7 @@ fn on_verify_credentials(credentials: Credentials) {
 }
 
 fn on_delete_wallet(wallet: WalletInfo, is_current: bool) {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
       let mut new_vault = ctx.get_vault();
       new_vault.remove_wallet(wallet.address);

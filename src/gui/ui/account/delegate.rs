@@ -6,7 +6,6 @@
 use crate::core::types::CredentialCheck;
 use crate::core::{ZeusContext, delegate_to};
 use crate::gui::{SHARED_GUI, ui::tx::address};
-use crate::utils::RT;
 use egui::{CursorIcon, FontId, Id, Margin, Order, RichText, Spinner, Ui, vec2};
 use egui_elements::{Button, CredentialsForm, Modal, SecureTextEdit, Theme};
 use egui_lucide::Lucide;
@@ -142,7 +141,7 @@ impl DelegateUi {
          if res.clicked() {
             self.syncing = true;
 
-            RT.spawn(async move {
+            crate::runtime::rt().spawn(async move {
                let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                let chain = ctx.chain();
                match ctx.check_delegated_wallet_status(chain.id(), wallet).await {
@@ -201,7 +200,7 @@ impl DelegateUi {
       if ui.add(button).clicked() {
          let delegate_to_addr = self.to.clone();
          if Address::from_str(&delegate_to_addr).is_err() {
-            RT.spawn(async move {
+            crate::runtime::rt().spawn(async move {
                SHARED_GUI.write(|gui| {
                   let msg = format!(
                      "Not a valid Ethereum address: {}",
@@ -268,7 +267,7 @@ impl DelegateUi {
          let confirm_password = self.credentials_form.confirm_password();
          let credentials = Credentials::new(username, password, confirm_password);
 
-         RT.spawn_blocking(move || {
+         crate::runtime::rt().spawn_blocking(move || {
             let ctx = SHARED_GUI.write(|gui| {
                gui.loading_window.open("Checking credentials...");
                gui.request_repaint();
@@ -305,7 +304,7 @@ impl DelegateUi {
                      gui.request_repaint();
                   });
 
-                  RT.spawn(async move {
+                  crate::runtime::rt().spawn(async move {
                      let source_is_zeus = true;
                      match delegate_to(
                         ctx,
@@ -380,7 +379,7 @@ impl DelegateUi {
 
       let clicked = ui.add(button).clicked();
       if clicked {
-         RT.spawn(async move {
+         crate::runtime::rt().spawn(async move {
             let ctx = SHARED_GUI.write(|gui| {
                gui.loading_window.open("Wait while magic happens");
                gui.account_panel.delegate.close();

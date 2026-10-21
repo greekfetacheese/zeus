@@ -1,7 +1,6 @@
 use crate::assets::icons::save_token_icon;
 use crate::core::urls::smoldapp_token_icon;
 use crate::gui::SHARED_GUI;
-use crate::utils::RT;
 use anyhow::anyhow;
 use image::imageops::FilterType;
 use std::io::Cursor;
@@ -116,7 +115,7 @@ pub fn spawn_fetch_token_icon(chain_id: u64, address: Address) {
       return;
    }
 
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       match fetch_smoldapp_icon(chain_id, address).await {
          Ok(Some(icon)) => {
             if let Err(_e) = save_token_icon(chain_id, address, &icon) {

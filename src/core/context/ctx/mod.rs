@@ -26,6 +26,10 @@ pub const DELEGATE_WALLET_CHECK_TIMEOUT: u64 = 600;
 pub struct ZeusCtx(Arc<RwLock<ZeusContext>>);
 
 pub struct ZeusContext {
+   /// The tokio handle background work spawns on. The runtime itself is owned by the binary
+   /// (or by a test); core only ever holds the handle.
+   pub rt: tokio::runtime::Handle,
+
    /// Client manager that handles almost all the RPC calls in Zeus
    pub client_manager: ClientManager,
 
@@ -200,8 +204,13 @@ pub use persisted::{
 pub use railgun::create_railgun_provider;
 
 impl ZeusCtx {
-   pub fn new() -> Self {
-      Self(Arc::new(RwLock::new(ZeusContext::new())))
+   pub fn new(rt: tokio::runtime::Handle) -> Self {
+      Self(Arc::new(RwLock::new(ZeusContext::new(rt))))
+   }
+
+   /// Cheap clone of the handle background work spawns on.
+   pub fn rt(&self) -> tokio::runtime::Handle {
+      self.read(|ctx| ctx.rt.clone())
    }
 
    /// Shared access to the context
@@ -326,7 +335,7 @@ impl ZeusCtx {
 }
 
 impl ZeusContext {
-   pub fn new() -> Self {
+   pub fn new(rt: tokio::runtime::Handle) -> Self {
       tighten_existing_secret_files();
 
       let client_manager = ClientManager::default();
@@ -370,6 +379,7 @@ impl ZeusContext {
       let priority_fee = PriorityFee::default();
 
       Self {
+         rt,
          client_manager,
          chain: ChainId::new(1).unwrap(),
          privacy_mode: false,

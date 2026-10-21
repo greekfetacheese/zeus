@@ -8,7 +8,6 @@
 //! which is exactly the state the tray puts the app in.
 
 use crate::assets::{ZEUS_TRAY, decode_mark};
-use crate::utils::RT;
 use egui::Context;
 use std::sync::mpsc::{Receiver, channel};
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
@@ -173,7 +172,7 @@ mod watcher {
          return;
       }
 
-      // A plain thread rather than `RT.spawn_blocking`: this is zbus's blocking API, and
+      // A plain thread rather than `crate::runtime::rt().spawn_blocking`: this is zbus's blocking API, and
       // zbus `block_on`s a runtime of its own, which tokio refuses to nest inside a runtime
       // thread. Under `async-io` that is only a hazard on paper; running off every runtime
       // makes it a non-question.
@@ -256,7 +255,7 @@ pub fn show_window(egui_ctx: &Context) {
 /// `notify-rust` blocks, so this runs on a worker thread. A missing notification
 /// daemon is logged rather than fatal — the tray icon is still there.
 fn notify(summary: &'static str, body: &'static str) {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       let shown = notify_rust::Notification::new()
          .appname("Zeus")
          .summary(summary)

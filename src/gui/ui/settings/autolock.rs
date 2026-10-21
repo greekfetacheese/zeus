@@ -3,7 +3,6 @@
 use crate::core::ZeusContext;
 use crate::core::types::AutoLock;
 use crate::gui::SHARED_GUI;
-use crate::utils::RT;
 use egui::{RichText, Sense, Ui, vec2};
 use egui_elements::{Button, ComboBox, Label, Theme};
 
@@ -147,7 +146,7 @@ fn persist(ctx: &ZeusContext) -> bool {
    };
 
    let settings = ctx.security.clone();
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       if let Err(e) = settings.save(&key) {
          tracing::error!("Failed to save security settings: {e}");
       }

@@ -17,7 +17,6 @@ use crate::core::types::{
    MIN_THICKNESS,
 };
 use crate::gui::appearance::{AmbientKind, AppearanceSettings, SECOND_COLOUR_ALPHA, accent_at};
-use crate::utils::RT;
 use egui::{Align, CollapsingHeader, Color32, Layout, RichText, Sense, Ui, UiBuilder, vec2};
 use egui_elements::{Button, ComboBox, HoldBurst, HoldSettings, Label, Theme};
 use elegance::{Badge, BadgeTone};
@@ -127,7 +126,7 @@ impl AppearanceSettingsUi {
 
    fn persist(appearance: &AppearanceSettings) {
       let settings = appearance.clone();
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          if let Err(e) = settings.save() {
             tracing::error!("Failed to save appearance settings: {e}");
          }

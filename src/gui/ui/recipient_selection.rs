@@ -8,7 +8,7 @@ use crate::core::{
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::common::switch_chain;
 use crate::gui::ui::{ContactsUi, WalletListByValue};
-use crate::utils::{RT, TimeStamp, truncate_address};
+use crate::utils::{TimeStamp, truncate_address};
 use eframe::egui::{
    Align, Id, Layout, Margin, Order, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, vec2,
 };
@@ -141,7 +141,7 @@ impl RecipientSelectionWindow {
    pub fn calc_wallet_value(&mut self) {
       self.loading = true;
 
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let list = WalletListByValue::collect(&ctx);
 
@@ -225,7 +225,7 @@ impl RecipientSelectionWindow {
       self.ens_lookup_due_at = 0;
       self.parsing_unknown_recipient = true;
 
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let result = parse_unknown_recipient(ctx, &query, privacy_mode);
          SHARED_GUI.write(|gui| {
@@ -1027,7 +1027,7 @@ fn resolve_ens_recipient(ctx: &ZeusCtx, query: &str) -> Option<UnknownRecipient>
    let name = ens::normalize_name(query).ok()?;
    let active_chain = ctx.chain().id();
 
-   let resolved = RT.block_on(async {
+   let resolved = crate::runtime::rt().block_on(async {
       let client = ctx.get_client(ETH).await?;
 
       let Some((address, expiry)) = ens::resolve_name_with_expiry(&client, &name)
@@ -1092,7 +1092,7 @@ fn resolve_interoperable_recipient(ctx: &ZeusCtx, query: &str) -> Option<Unknown
       return None;
    }
 
-   let resolved = RT.block_on(async {
+   let resolved = crate::runtime::rt().block_on(async {
       let client = ctx.get_client(ETH).await?;
       interoperable_name::resolve(&client, query).await.map_err(anyhow::Error::new)
    });

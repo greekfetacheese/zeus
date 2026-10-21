@@ -1,6 +1,6 @@
 use crate::core::persisted::{PersistedFile, client_settings_dir, file_path};
 use crate::core::{WalletStateKey, ZeusCtx};
-use crate::utils::{RT, TimeStamp, simulate::STORAGE_FETCH_CHUNK_SIZE, write_private_atomic};
+use crate::utils::{TimeStamp, simulate::STORAGE_FETCH_CHUNK_SIZE, write_private_atomic};
 use zeus_eth::{
    abi::{
       weth9,
@@ -925,7 +925,7 @@ impl ClientManager {
             let semaphore = semaphore.clone();
             let zeus_client = self.clone();
 
-            let task = RT.spawn(async move {
+            let task = ctx.rt().spawn(async move {
                let _permit = semaphore.acquire().await.unwrap();
                zeus_client.run_latency_check_for(rpc).await;
             });
@@ -980,7 +980,7 @@ impl ClientManager {
             let semaphore = semaphore.clone();
             let zeus_client = self.clone();
 
-            let task = RT.spawn(async move {
+            let task = ctx.rt().spawn(async move {
                let _permit = semaphore.acquire().await.unwrap();
                zeus_client.run_check_for(ctx_clone, rpc).await;
             });
@@ -1876,20 +1876,22 @@ mod tests {
       for _ in 0..30 {
          let zeus_client = zeus_client.clone();
 
-         tasks.push(RT.spawn(async move {
-            let res = zeus_client
-               .request(chain, |client| async move {
-                  let block = client.get_block_number().await?;
-                  Ok(block)
-               })
-               .await;
-            match res {
-               Ok(_block) => {}
-               Err(e) => {
-                  eprintln!("error: {:?}", e);
+         tasks.push(
+            crate::core::platform::runtime::test_handle().spawn(async move {
+               let res = zeus_client
+                  .request(chain, |client| async move {
+                     let block = client.get_block_number().await?;
+                     Ok(block)
+                  })
+                  .await;
+               match res {
+                  Ok(_block) => {}
+                  Err(e) => {
+                     eprintln!("error: {:?}", e);
+                  }
                }
-            }
-         }));
+            }),
+         );
       }
 
       for task in tasks {

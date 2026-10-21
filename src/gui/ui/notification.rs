@@ -5,7 +5,7 @@ use crate::core::{TransactionRich, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::common::chain_label;
 use crate::gui::ui::token_selection::nft_collection_name;
-use crate::utils::{RT, TimeStamp, truncate_address};
+use crate::utils::{TimeStamp, truncate_address};
 use egui::{Align2, Order, ProgressBar, RichText, Spinner, TextWrapMode, Ui, Window, vec2};
 use egui_elements::{Button, Label, MultiLabel, Theme};
 use egui_lucide::Lucide;
@@ -216,7 +216,7 @@ impl Notification {
 
          if ui.add_enabled(self.tx.is_some(), button).clicked() {
             let tx = self.tx.take();
-            RT.spawn_blocking(move || {
+            crate::runtime::rt().spawn_blocking(move || {
                SHARED_GUI.write(|gui| {
                   gui.tx_window.open(tx);
                });

@@ -3,7 +3,7 @@
 use crate::assets::Icons;
 use crate::core::{DiscoveredWallets, WalletPortfolio, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
-use crate::utils::{RT, malloc_trim};
+use crate::utils::malloc_trim;
 use eframe::egui::{
    Align, Align2, FontId, Id, Layout, Margin, Order, RichText, ScrollArea, Sense, Spinner, Stroke,
    TextWrapMode, Ui, UiBuilder, vec2,
@@ -84,7 +84,7 @@ impl DiscoverChildWallets {
       self.open = true;
       self.loading = true;
 
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let vault = ctx.get_vault();
          let master = ctx.master_wallet_address();
@@ -359,7 +359,7 @@ impl DiscoverChildWallets {
 
       if was_open && !self.open {
          let wallets = self.discovered_wallets.clone();
-         RT.spawn_blocking(move || {
+         crate::runtime::rt().spawn_blocking(move || {
             let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
             ctx.write_wallet_state(|ws| ws.discovered_wallets = wallets);
 
@@ -380,7 +380,7 @@ impl DiscoverChildWallets {
       let concurrency = self.discovered_wallets.concurrency;
       self.syncing = true;
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
 
          match sync_wallets_balance(ctx, addresses, concurrency).await {
@@ -403,7 +403,7 @@ impl DiscoverChildWallets {
       let discovery_wallet = self.discovery_wallet.lock().unwrap().clone();
       let mut discovered_wallets = self.discovered_wallets.clone();
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let vault = ctx.get_vault();
 
@@ -656,7 +656,7 @@ impl DiscoverChildWallets {
                   let name = self.wallet_name.clone();
                   let balances = self.discovered_wallets.balances.clone();
 
-                  RT.spawn_blocking(move || {
+                  crate::runtime::rt().spawn_blocking(move || {
                      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
 
                      let mut new_vault = ctx.get_vault();
@@ -780,7 +780,7 @@ impl DiscoverChildWallets {
                      ctx.build_wallet_info_cache();
 
                      let ctx_clone = ctx.clone();
-                     RT.spawn(async move {
+                     crate::runtime::rt().spawn(async move {
                         for chain in SUPPORTED_CHAINS {
                            if let Err(e) = ctx_clone.register_railgun_signers(chain, false).await {
                               tracing::error!("Error registering Railgun signers: {:?}", e);
@@ -830,7 +830,7 @@ async fn sync_wallets_balance(
       let semaphore = semaphore.clone();
       let addresses = addresses.clone();
 
-      let task = RT.spawn(async move {
+      let task = crate::runtime::rt().spawn(async move {
          let _permit = semaphore.acquire().await?;
          let z_client = ctx.get_client_manager();
 
