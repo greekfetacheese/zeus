@@ -19,6 +19,7 @@
 mod bridge;
 mod connector;
 mod ens;
+mod main_event;
 mod nft;
 mod permit2_revoke;
 mod swap;

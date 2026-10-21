@@ -17,8 +17,7 @@ use tracing_subscriber::{
 
 pub mod assets;
 pub mod connector;
-pub mod core;
-pub mod embedded;
+pub use zeus_core as core;
 pub mod gui;
 pub mod runtime;
 pub mod server;

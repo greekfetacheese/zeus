@@ -1,0 +1,1784 @@
+use std::collections::{HashMap, HashSet};
+use zeus_eth::{
+   alloy_primitives::{Address, Bytes},
+   alloy_rpc_types::Block as RpcBlock,
+   types::ETH_SEPOLIA,
+   types::{ChainId, SUPPORTED_CHAINS},
+   utils::NumericValue,
+};
+
+use crate::platform::TimeStamp;
+use crate::platform::fs::{write_private, write_private_atomic};
+use crate::platform::truncate_address;
+use crate::{
+   WalletInfo, WalletStateKey, ZK_ADDRESS_UNAVAILABLE,
+   context::{
+      DELEGATE_WALLET_CHECK_TIMEOUT, disabled_chains_dir, misc_config_dir, railgun_config_dir,
+      security_dir,
+   },
+};
+
+use zeus_railgun::indexer::syncer::rpc::{
+   DEFAULT_BLOCK_RANGE, DEFAULT_CONCURRENCY, SEPOLIA_BLOCK_RANGE,
+};
+
+use serde::{Deserialize, Serialize};
+
+use ncrypt_me::Argon2;
+
+const DEFAULT_STATE_UPDATE_INTERVAL_MINUTES: u64 = 5;
+const MIN_STATE_UPDATE_INTERVAL_MINUTES: u64 = 1;
+const MAX_STATE_UPDATE_INTERVAL_MINUTES: u64 = 60;
+
+fn default_state_update_interval_minutes() -> u64 {
+   DEFAULT_STATE_UPDATE_INTERVAL_MINUTES
+}
+
+const MIN_BLOCK_RANGE: u64 = 100;
+const MAX_BLOCK_RANGE: u64 = 30_000;
+
+const MIN_CONCURRENCY: usize = 1;
+const MAX_CONCURRENCY: usize = 10;
+
+const MIN_UPDATE_INTERVAL: u64 = 1;
+const MAX_UPDATE_INTERVAL: u64 = 60;
+
+/// The local connector (wallet-extension) HTTP port; may move at bind time if taken.
+pub const DEFAULT_CONNECTOR_PORT: u16 = 65534;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RailgunConfig {
+   pub rpc_syncer_concurrency: usize,
+   pub rpc_syncer_block_range: HashMap<u64, u64>,
+   #[serde(default)]
+   pub enabled: HashMap<u64, bool>,
+   /// When false, Railgun proving uses only embedded and on-disk circuits.
+   #[serde(default)]
+   pub allow_circuit_download: bool,
+   /// How often to sync Railgun state, in minutes (1–60).
+   #[serde(default = "default_state_update_interval_minutes")]
+   pub state_update_interval_minutes: u64,
+}
+
+impl RailgunConfig {
+   pub fn min_block_range() -> u64 {
+      MIN_BLOCK_RANGE
+   }
+   pub fn max_block_range() -> u64 {
+      MAX_BLOCK_RANGE
+   }
+
+   pub fn min_concurrency() -> usize {
+      MIN_CONCURRENCY
+   }
+
+   pub fn max_concurrency() -> usize {
+      MAX_CONCURRENCY
+   }
+
+   pub fn min_state_update_interval() -> u64 {
+      MIN_UPDATE_INTERVAL
+   }
+
+   pub fn max_state_update_interval() -> u64 {
+      MAX_UPDATE_INTERVAL
+   }
+
+   pub fn new() -> Self {
+      let mut rpc_syncer_block_range = HashMap::new();
+
+      for chain in ChainId::supported_chains() {
+         let range = match chain {
+            ChainId::Ethereum => DEFAULT_BLOCK_RANGE,
+            ChainId::EthereumSepolia => SEPOLIA_BLOCK_RANGE,
+            _ => DEFAULT_BLOCK_RANGE,
+         };
+         rpc_syncer_block_range.insert(chain.id(), range);
+      }
+
+      Self {
+         rpc_syncer_concurrency: DEFAULT_CONCURRENCY,
+         rpc_syncer_block_range,
+         enabled: HashMap::new(),
+         allow_circuit_download: false,
+         state_update_interval_minutes: DEFAULT_STATE_UPDATE_INTERVAL_MINUTES,
+      }
+   }
+
+   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+      let dir = railgun_config_dir()?;
+      let data = std::fs::read_to_string(dir)?;
+      let config = serde_json::from_str(&data)?;
+
+      Ok(config)
+   }
+
+   pub fn save(&self) -> Result<(), anyhow::Error> {
+      let dir = railgun_config_dir()?;
+      let data = serde_json::to_string(self)?;
+      write_private(&dir, data.as_bytes())?;
+      Ok(())
+   }
+
+   /// Empty map (the default) means Railgun is disabled for every chain.
+   pub fn is_enabled(&self, chain: u64) -> bool {
+      self.enabled.get(&chain).copied().unwrap_or(false)
+   }
+
+   pub fn set_enabled(&mut self, chain: u64, enabled: bool) {
+      self.enabled.insert(chain, enabled);
+   }
+
+   pub fn any_enabled(&self) -> bool {
+      self.enabled.values().any(|enabled| *enabled)
+   }
+
+   pub fn allow_circuit_download(&self) -> bool {
+      self.allow_circuit_download
+   }
+
+   pub fn set_allow_circuit_download(&mut self, allow: bool) {
+      self.allow_circuit_download = allow;
+   }
+
+   pub fn rpc_syncer_block_range(&self, chain: u64) -> u64 {
+      let range = self.rpc_syncer_block_range.get(&chain).cloned().unwrap_or_default();
+      range.clamp(MIN_BLOCK_RANGE, MAX_BLOCK_RANGE)
+   }
+
+   pub fn rpc_syncer_concurrency(&self) -> usize {
+      self.rpc_syncer_concurrency.clamp(MIN_CONCURRENCY, MAX_CONCURRENCY)
+   }
+
+   /// Railgun state-update interval in seconds (clamped to 1–60 minutes).
+   pub fn state_update_interval_secs(&self) -> u64 {
+      self
+         .state_update_interval_minutes
+         .clamp(
+            MIN_STATE_UPDATE_INTERVAL_MINUTES,
+            MAX_STATE_UPDATE_INTERVAL_MINUTES,
+         )
+         .saturating_mul(60)
+   }
+}
+
+impl Default for RailgunConfig {
+   fn default() -> Self {
+      Self::new()
+   }
+}
+
+/// Serde default for flags that are on unless the user turns them off.
+///
+/// A plain `#[serde(default)]` on a `bool` yields `false`, which would flip the
+/// setting off for every `misc_config.json` written before the field existed.
+pub fn default_true() -> bool {
+   true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MiscConfig {
+   /// When true, unknown ERC-20 icons and NFT images may be downloaded from the network —
+   /// SmolDapp for tokens, the collection's own metadata URI for NFTs.
+   ///
+   /// `alias` keeps the choice of anyone who opted in before this flag was widened: without it the
+   /// rename would silently reset their setting back to "off".
+   #[serde(default, alias = "fetch_token_icons")]
+   pub fetch_asset_images: bool,
+   /// When true, unknown contract names may be fetched from Sourcify.
+   #[serde(default)]
+   pub fetch_contract_names: bool,
+   /// When true, Zeus may query GitHub for a newer release.
+   #[serde(default)]
+   pub check_for_updates: bool,
+   /// When true, minimizing the root window hides Zeus to the system tray instead of
+   /// leaving it in the taskbar. The wallet keeps running either way.
+   #[serde(default = "default_true")]
+   pub minimize_to_tray: bool,
+   /// When true, Zeus installs a per-user application-menu entry (and its icon) pointing at
+   /// this copy of the app.
+   ///
+   /// Opt-in, and the reason is the same one that makes it worth asking about: the entry
+   /// lives in `~/.local/share`, i.e. outside the folder the rest of Zeus's state stays in.
+   #[serde(default)]
+   pub desktop_integration: bool,
+}
+
+impl MiscConfig {
+   pub fn new() -> Self {
+      Self {
+         fetch_asset_images: false,
+         fetch_contract_names: false,
+         check_for_updates: false,
+         minimize_to_tray: true,
+         desktop_integration: false,
+      }
+   }
+
+   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+      let dir = misc_config_dir()?;
+      let data = std::fs::read_to_string(dir)?;
+      let config = serde_json::from_str(&data)?;
+
+      Ok(config)
+   }
+
+   pub fn save(&self) -> Result<(), anyhow::Error> {
+      let dir = misc_config_dir()?;
+      let data = serde_json::to_string(self)?;
+      write_private(&dir, data.as_bytes())?;
+      Ok(())
+   }
+
+   pub fn fetch_asset_images(&self) -> bool {
+      self.fetch_asset_images
+   }
+
+   pub fn set_fetch_asset_images(&mut self, allow: bool) {
+      self.fetch_asset_images = allow;
+   }
+
+   pub fn fetch_contract_names(&self) -> bool {
+      self.fetch_contract_names
+   }
+
+   pub fn set_fetch_contract_names(&mut self, allow: bool) {
+      self.fetch_contract_names = allow;
+   }
+
+   pub fn check_for_updates(&self) -> bool {
+      self.check_for_updates
+   }
+
+   pub fn set_check_for_updates(&mut self, allow: bool) {
+      self.check_for_updates = allow;
+   }
+
+   pub fn minimize_to_tray(&self) -> bool {
+      self.minimize_to_tray
+   }
+
+   pub fn set_minimize_to_tray(&mut self, enabled: bool) {
+      self.minimize_to_tray = enabled;
+   }
+
+   pub fn desktop_integration(&self) -> bool {
+      self.desktop_integration
+   }
+
+   pub fn set_desktop_integration(&mut self, enabled: bool) {
+      self.desktop_integration = enabled;
+   }
+}
+
+impl Default for MiscConfig {
+   fn default() -> Self {
+      Self::new()
+   }
+}
+
+/// Shortest hold-to-confirm duration Zeus allows, in seconds.
+pub const MIN_HOLD_SECONDS: f32 = 0.4;
+
+/// Longest hold-to-confirm duration Zeus allows, in seconds.
+pub const MAX_HOLD_SECONDS: f32 = 1.0;
+
+/// Zeus's default hold-to-confirm duration, in seconds.
+///
+/// `0.6` s blocks a misclick without taxing every confirmation: the crate's own
+/// `1.0` s default is a demo value, and at the top of the range Zeus allows it
+/// would make every send feel slow. The user can still reach `1.0` s.
+pub const DEFAULT_HOLD_SECONDS: f32 = 0.6;
+
+// The hold/burst bounds below mirror the sliders in the UI crate's own
+// `HoldSettings::body_ui` (its `hold` widget), so Zeus offers exactly the ranges
+// the crate's controls accept. Keep them in sync with that function rather than
+// guessing a range.
+
+/// Shortest completion-burst duration, in milliseconds — mirrors the crate's own
+/// `Duration (ms)` slider floor.
+///
+/// Because the floor is `80`, a hand-edited `0` clamps to `80` instead of meaning
+/// "no burst": `HoldBurst::Off` is how the burst is disabled, and
+/// `burst_intensity = 0.0` still means "no burst" in the crate.
+pub const MIN_BURST_MS: f32 = 80.0;
+
+/// Longest completion-burst duration, in milliseconds — mirrors the crate's own
+/// `Duration (ms)` slider ceiling.
+pub const MAX_BURST_MS: f32 = 2_000.0;
+
+/// Weakest completion-burst intensity — mirrors the crate's own `Intensity` slider
+/// floor. At `0.0` the crate paints no burst.
+pub const MIN_BURST_INTENSITY: f32 = 0.0;
+
+/// Strongest completion-burst intensity — mirrors the crate's own `Intensity`
+/// slider ceiling.
+pub const MAX_BURST_INTENSITY: f32 = 1.0;
+
+/// Fewest lightning bolts a burst may strike — mirrors the crate's own `Bolts`
+/// slider floor.
+pub const MIN_BURST_BOLTS: usize = 1;
+
+/// Most lightning bolts a burst may strike — mirrors the crate's own `Bolts`
+/// slider ceiling.
+pub const MAX_BURST_BOLTS: usize = 5;
+
+/// Shallowest lightning branch recursion (`0` draws the trunk only) — mirrors the
+/// crate's own `Branch depth` slider floor.
+pub const MIN_BRANCH_DEPTH: u32 = 0;
+
+/// Deepest lightning branch recursion — mirrors the crate's own `Branch depth`
+/// slider ceiling.
+pub const MAX_BRANCH_DEPTH: u32 = 3;
+
+/// Thinnest lightning core stroke, in pixels — mirrors the crate's own
+/// `Thickness (px)` slider floor.
+pub const MIN_THICKNESS: f32 = 0.5;
+
+/// Thickest lightning core stroke, in pixels — mirrors the crate's own
+/// `Thickness (px)` slider ceiling.
+pub const MAX_THICKNESS: f32 = 12.0;
+
+/// Smallest midpoint jitter, as a fraction of a lightning segment's length —
+/// mirrors the crate's own `Jitter` slider floor.
+pub const MIN_JITTER: f32 = 0.0;
+
+/// Largest midpoint jitter, as a fraction of a lightning segment's length —
+/// mirrors the crate's own `Jitter` slider ceiling.
+pub const MAX_JITTER: f32 = 0.6;
+
+/// Smallest start radius of a glow burst, as a multiple of the button's shorter
+/// side — mirrors the crate's own `Size from` slider floor.
+pub const MIN_GLOW_FROM: f32 = 0.2;
+
+/// Largest start radius of a glow burst — mirrors the crate's own `Size from`
+/// slider ceiling.
+pub const MAX_GLOW_FROM: f32 = 4.0;
+
+/// Smallest end radius of a glow burst — mirrors the crate's own `Size to` slider
+/// floor.
+pub const MIN_GLOW_TO: f32 = 0.2;
+
+/// Largest end radius of a glow burst — mirrors the crate's own `Size to` slider
+/// ceiling.
+pub const MAX_GLOW_TO: f32 = 6.0;
+
+/// Tightest glow falloff softness — mirrors the crate's own `Softness` slider
+/// floor.
+pub const MIN_GLOW_SOFTNESS: f32 = 0.2;
+
+/// Softest glow falloff — mirrors the crate's own `Softness` slider ceiling.
+pub const MAX_GLOW_SOFTNESS: f32 = 3.0;
+
+// The ambient particle bounds below mirror the controls in the UI crate's own
+// `SnowSettings::body_ui`, `LightSettings::body_ui` and
+// `LightningSettings::body_ui` (its `widgets/particles/*/settings.rs`), so Zeus's
+// inline knobs and the crate's "More…" window offer exactly the same ranges.
+// Keep them in sync with those functions rather than guessing a range.
+
+/// Fewest snowflakes — mirrors the crate's own `Density (Count)` slider floor.
+pub const MIN_AMBIENT_SNOW_DENSITY: usize = 0;
+
+/// Most snowflakes — mirrors the crate's own `Density (Count)` slider ceiling.
+pub const MAX_AMBIENT_SNOW_DENSITY: usize = 20_000;
+
+/// Smallest snowflake — mirrors the crate's own `Size (px)` drag-value floor.
+pub const MIN_AMBIENT_SNOW_SIZE: f32 = 0.1;
+
+/// Largest snowflake — mirrors the crate's own `Size (px)` drag-value ceiling.
+pub const MAX_AMBIENT_SNOW_SIZE: f32 = 20.0;
+
+/// Slowest snowflake fall — mirrors the crate's own `Fall Speed (px/s)` floor.
+pub const MIN_AMBIENT_SNOW_SPEED: f32 = 0.0;
+
+/// Fastest snowflake fall — mirrors the crate's own `Fall Speed (px/s)` ceiling.
+pub const MAX_AMBIENT_SNOW_SPEED: f32 = 500.0;
+
+/// Leftmost horizontal wind — mirrors the crate's own `Wind Vector` horizontal
+/// slider floor.
+pub const MIN_AMBIENT_WIND_X: f32 = -200.0;
+
+/// Rightmost horizontal wind — mirrors the crate's own `Wind Vector` horizontal
+/// slider ceiling.
+pub const MAX_AMBIENT_WIND_X: f32 = 200.0;
+
+/// Lowest vertical wind — mirrors the crate's own `Wind Vector` vertical slider
+/// floor.
+pub const MIN_AMBIENT_WIND_Y: f32 = -100.0;
+
+/// Highest vertical wind — mirrors the crate's own `Wind Vector` vertical slider
+/// ceiling.
+pub const MAX_AMBIENT_WIND_Y: f32 = 100.0;
+
+/// Fewest glow motes — mirrors the crate's own `Density (Count)` slider floor.
+pub const MIN_AMBIENT_LIGHT_DENSITY: usize = 0;
+
+/// Most glow motes — mirrors the crate's own `Density (Count)` slider ceiling.
+pub const MAX_AMBIENT_LIGHT_DENSITY: usize = 2_000;
+
+/// Smallest mote radius — mirrors the crate's own `Radius (px)` drag-value floor.
+pub const MIN_AMBIENT_LIGHT_RADIUS: f32 = 1.0;
+
+/// Largest mote radius — mirrors the crate's own `Radius (px)` drag-value ceiling.
+pub const MAX_AMBIENT_LIGHT_RADIUS: f32 = 200.0;
+
+/// Weakest glow — mirrors the crate's own `Intensity` slider floor.
+pub const MIN_AMBIENT_LIGHT_INTENSITY: f32 = 0.0;
+
+/// Strongest glow — mirrors the crate's own `Intensity` slider ceiling.
+pub const MAX_AMBIENT_LIGHT_INTENSITY: f32 = 1.0;
+
+/// Least flicker — mirrors the crate's own `Flicker` slider floor.
+pub const MIN_AMBIENT_LIGHT_FLICKER: f32 = 0.0;
+
+/// Most flicker — mirrors the crate's own `Flicker` slider ceiling.
+pub const MAX_AMBIENT_LIGHT_FLICKER: f32 = 1.0;
+
+/// Shortest mote lifetime — mirrors the crate's own `Lifetime (s)` drag-value
+/// floor.
+pub const MIN_AMBIENT_LIGHT_LIFETIME: f32 = 0.5;
+
+/// Longest mote lifetime — mirrors the crate's own `Lifetime (s)` drag-value
+/// ceiling.
+pub const MAX_AMBIENT_LIGHT_LIFETIME: f32 = 60.0;
+
+/// Fewest lightning bolts — mirrors the crate's own `Bolts` slider floor.
+pub const MIN_AMBIENT_BOLTS: usize = 1;
+
+/// Most lightning bolts — mirrors the crate's own `Bolts` slider ceiling.
+pub const MAX_AMBIENT_BOLTS: usize = 8;
+
+/// Shallowest lightning branch recursion — mirrors the crate's own
+/// `Branch Depth` slider floor.
+pub const MIN_AMBIENT_BRANCH_DEPTH: u32 = 0;
+
+/// Deepest lightning branch recursion — mirrors the crate's own
+/// `Branch Depth` slider ceiling.
+pub const MAX_AMBIENT_BRANCH_DEPTH: u32 = 8;
+
+/// Thinnest lightning core stroke — mirrors the crate's own `Thickness (px)`
+/// slider floor.
+pub const MIN_AMBIENT_THICKNESS: f32 = 0.5;
+
+/// Thickest lightning core stroke — mirrors the crate's own `Thickness (px)`
+/// slider ceiling.
+pub const MAX_AMBIENT_THICKNESS: f32 = 12.0;
+
+/// Smallest midpoint jitter — mirrors the crate's own `Jitter` slider floor.
+pub const MIN_AMBIENT_JITTER: f32 = 0.0;
+
+/// Largest midpoint jitter — mirrors the crate's own `Jitter` slider ceiling.
+pub const MAX_AMBIENT_JITTER: f32 = 0.6;
+
+/// Weakest full-area flash — mirrors the crate's own `Intensity` slider floor.
+pub const MIN_AMBIENT_FLASH_INTENSITY: f32 = 0.0;
+
+/// Strongest full-area flash — mirrors the crate's own `Intensity` slider
+/// ceiling.
+pub const MAX_AMBIENT_FLASH_INTENSITY: f32 = 1.0;
+
+/// Shortest strike — mirrors the crate's own `Duration (ms)` slider floor.
+pub const MIN_AMBIENT_DURATION_MS: f32 = 80.0;
+
+/// Longest strike — mirrors the crate's own `Duration (ms)` slider ceiling.
+pub const MAX_AMBIENT_DURATION_MS: f32 = 2_000.0;
+
+/// Shortest ambient strike interval — mirrors the crate's own `Interval (s)`
+/// drag-value floor. `0.0` disables the ambient scheduler.
+pub const MIN_AMBIENT_INTERVAL_SECS: f32 = 0.0;
+
+/// Longest ambient strike interval — mirrors the crate's own `Interval (s)`
+/// drag-value ceiling.
+pub const MAX_AMBIENT_INTERVAL_SECS: f32 = 120.0;
+
+/// Zeus's ambient lightning strike interval, in seconds.
+///
+/// The crate defaults `ambient_interval_secs` to `0.0`, which means "schedule no
+/// ambient strikes": the effect then only fires from a host's explicit
+/// `Lightning::strike`. With the ambient master switch on, that would leave
+/// lightning `active` but silent while snow and glow animate, so Zeus sets a
+/// real interval. Six seconds is a deliberate "ambient, not a light show"
+/// choice, and the user can change it on the appearance page.
+pub const AMBIENT_LIGHTNING_INTERVAL_SECS: f32 = 6.0;
+
+/// AAD bound to the sealed `security.data` slot.
+pub const SECURITY_AAD: &[u8] = b"zeus-security-v1";
+
+/// Idle period before Zeus locks the UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AutoLock {
+   TenMinutes,
+   OneHour,
+   FourHours,
+   Never,
+   /// Dev-build option. The variant is always compiled so a `security.data`
+   /// written by a dev build still deserializes in release.
+   OneMinute,
+}
+
+impl AutoLock {
+   /// Release-build choices, in menu order.
+   pub const ALL: [Self; 4] = [
+      Self::TenMinutes,
+      Self::OneHour,
+      Self::FourHours,
+      Self::Never,
+   ];
+
+   /// Dev-build choices (adds the 1-minute option first).
+   #[cfg(feature = "dev")]
+   pub const ALL_DEV: [Self; 5] = [
+      Self::OneMinute,
+      Self::TenMinutes,
+      Self::OneHour,
+      Self::FourHours,
+      Self::Never,
+   ];
+
+   pub fn label(self) -> &'static str {
+      match self {
+         Self::OneMinute => "1 minute",
+         Self::TenMinutes => "10 minutes",
+         Self::OneHour => "1 hour",
+         Self::FourHours => "4 hours",
+         Self::Never => "Never",
+      }
+   }
+
+   /// Idle seconds before locking; `None` = never lock.
+   pub fn idle_secs(self) -> Option<u64> {
+      match self {
+         Self::OneMinute => Some(60),
+         Self::TenMinutes => Some(600),
+         Self::OneHour => Some(3_600),
+         Self::FourHours => Some(14_400),
+         Self::Never => None,
+      }
+   }
+}
+
+impl Default for AutoLock {
+   fn default() -> Self {
+      Self::OneHour
+   }
+}
+
+/// How many in-memory credential checks may fail in a row before Zeus refuses
+/// further tries and shuts down.
+///
+/// The check is pure equality — there is no KDF to slow a guess — so an
+/// unlocked Zeus would otherwise be a fast brute-force oracle.
+pub const MAX_CREDENTIAL_ATTEMPTS: u8 = 5;
+
+/// Outcome of an in-memory credential check.
+///
+/// See [`SecuritySettings::note_credential_result`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CredentialCheck {
+   /// The credentials matched.
+   Matched,
+   /// They did not match; the attempt was counted.
+   Mismatch,
+   /// The attempt cap was reached: further tries are refused and Zeus shuts
+   /// down.
+   LockedOut,
+}
+
+/// Security settings, sealed in `data/security.data` with the vault's
+/// `wallet_state_key`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecuritySettings {
+   /// Idle timeout before the UI locks.
+   #[serde(default)]
+   pub autolock: AutoLock,
+   /// Whether the user ever changed `autolock` away from the default. While
+   /// false, the top bar nudges them to make a deliberate choice.
+   #[serde(default)]
+   pub autolock_changed: bool,
+   /// Argon2 params of the current vault. Persisted in `vault.data`'s header —
+   /// never duplicated here.
+   #[serde(skip)]
+   pub argon_params: Argon2,
+   /// Failed in-memory credential checks since the last success.
+   ///
+   /// Never persisted: a restart drops the vault and re-enters through the
+   /// Argon2 login, so this oracle cannot outlive the process.
+   #[serde(skip)]
+   pub credential_attempts: u8,
+   /// Set when `security.data` is there but did not read.
+   ///
+   /// Never persisted: it describes this process's read of the file on disk. It keeps a load failure
+   /// from turning into a silently *weaker* policy — `autolock` is a security choice, and the
+   /// defaults in memory would otherwise be sealed back over a file the user did choose. The
+   /// settings UI shows it, and [`ZeusContext::save_security_settings`] refuses to write while it is
+   /// set; a deliberate change in the UI clears it.
+   ///
+   /// [`ZeusContext::save_security_settings`]: crate::context::ctx::ZeusContext::save_security_settings
+   #[serde(skip)]
+   pub load_failed: bool,
+}
+
+impl SecuritySettings {
+   pub fn load_from_file(key: &WalletStateKey) -> Result<Self, anyhow::Error> {
+      let sealed = std::fs::read(security_dir()?)?;
+      key.open_json(&sealed, SECURITY_AAD)
+   }
+
+   /// The settings to run on, given how reading `security.data` went.
+   ///
+   /// A *missing* file is a first run: the defaults are the answer, and nothing is wrong with them.
+   /// A file that is there and did not read is a different matter — `autolock` is a security choice,
+   /// so the defaults are a *weaker* policy than the one the user picked, and sealing them back
+   /// would destroy it. Those defaults are used for the session, `load_failed` carries the failure to
+   /// the UI and to the save paths that refuse while it is set, and the file is left as it is.
+   pub fn from_read(read: Result<Self, anyhow::Error>, file_present: bool) -> Self {
+      match read {
+         Ok(settings) => settings,
+         Err(_) if !file_present => Self::default(),
+         Err(_) => Self {
+            load_failed: true,
+            ..Self::default()
+         },
+      }
+   }
+
+   pub fn save(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      let sealed = key.seal_json(self, SECURITY_AAD)?;
+      write_private_atomic(&security_dir()?, &sealed)?;
+      Ok(())
+   }
+
+   /// Count one in-memory credential check and report what may happen next.
+   ///
+   /// A match clears the count; `MAX_CREDENTIAL_ATTEMPTS` failures in a row
+   /// (with no success in between) end in [`CredentialCheck::LockedOut`], which
+   /// means the caller must refuse the attempt and shut Zeus down.
+   pub fn note_credential_result(&mut self, matched: bool) -> CredentialCheck {
+      if matched {
+         self.credential_attempts = 0;
+         return CredentialCheck::Matched;
+      }
+
+      self.credential_attempts = self.credential_attempts.saturating_add(1);
+      if self.credential_attempts >= MAX_CREDENTIAL_ATTEMPTS {
+         CredentialCheck::LockedOut
+      } else {
+         CredentialCheck::Mismatch
+      }
+   }
+}
+
+impl Default for SecuritySettings {
+   fn default() -> Self {
+      Self {
+         autolock: AutoLock::default(),
+         autolock_changed: false,
+         argon_params: Argon2::balanced(),
+         credential_attempts: 0,
+         load_failed: false,
+      }
+   }
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct Recipient {
+   pub name: Option<String>,
+   pub evm_address: String,
+   pub zk_address: String,
+   /// The chain an ERC-7828 name resolved for (`vitalik.eth@base` → `8453`). `None` when the
+   /// recipient is chain-agnostic — a plain address, contact, wallet or plain ENS name.
+   pub chain: Option<u64>,
+   /// When the ENS name's binding stops being trustworthy: its registration end plus the 90-day
+   /// grace period, after which a third party can take the name over. `None` when the recipient
+   /// was not derived from a name, or the name has no onchain expiry (a non-`.eth` name). A
+   /// recipient whose binding has lapsed must not be sent to on the strength of the name — see
+   /// [`Self::name_binding_trusted`].
+   pub ens_takeover_at: Option<u64>,
+}
+
+impl Recipient {
+   pub fn from_unknown_evm_address(address: Address) -> Self {
+      Self {
+         name: None,
+         evm_address: address.to_string(),
+         zk_address: String::new(),
+         chain: None,
+         ens_takeover_at: None,
+      }
+   }
+
+   pub fn from_unknown_zk_address(address: String) -> Self {
+      Self {
+         name: None,
+         evm_address: String::new(),
+         zk_address: address,
+         chain: None,
+         ens_takeover_at: None,
+      }
+   }
+
+   /// Recipient resolved from an ENS name. The address is what gets sent, the name
+   /// is display only.
+   ///
+   /// `chain` is `Some` only when the name was chain-specific (`name@chain`, ERC-7828), which is
+   /// what makes the send path refuse to go out on a different chain; `name` is `None` for a
+   /// chain-specific *raw address* (`0x…@eip155:1`).
+   ///
+   /// `takeover_at` is `Some` when the name has an onchain expiry; it is what later decides whether
+   /// the name may still be trusted — see [`Self::name_binding_trusted`].
+   pub fn from_ens_name(
+      name: Option<String>,
+      address: Address,
+      chain: Option<u64>,
+      takeover_at: Option<u64>,
+   ) -> Self {
+      Self {
+         name,
+         evm_address: address.to_string(),
+         zk_address: String::new(),
+         chain,
+         ens_takeover_at: takeover_at,
+      }
+   }
+
+   pub fn from_wallet_info(wallet_info: WalletInfo) -> Self {
+      Self {
+         name: Some(wallet_info.name_with_source()),
+         evm_address: wallet_info.address.to_string(),
+         zk_address: wallet_info.zk_address(),
+         chain: None,
+         ens_takeover_at: None,
+      }
+   }
+
+   pub fn from_contact(contact: Contact) -> Self {
+      Self {
+         name: Some(contact.name),
+         evm_address: contact.evm_address,
+         zk_address: contact.zk_address,
+         chain: None,
+         ens_takeover_at: None,
+      }
+   }
+
+   /// Is the name this recipient was derived from still trustworthy at `now_secs`?
+   ///
+   /// `true` when there is no name, or the name has no onchain expiry (`None`): the address is
+   /// then sent as-is, exactly as before. `false` once the name's binding has lapsed — a third
+   /// party can register it, so it no longer identifies `evm_address` and the name must not be
+   /// what makes the user trust the send.
+   pub fn name_binding_trusted(&self, now_secs: u64) -> bool {
+      self.ens_takeover_at.is_none_or(|takeover_at| now_secs < takeover_at)
+   }
+
+   /// Drop the name binding this recipient was built with, keeping the address that was typed.
+   ///
+   /// A recipient is named only because a name resolved to its address when it was picked (see
+   /// [`Self::from_ens_name`]), so `name`, `chain` and `ens_takeover_at` all describe *that*
+   /// address. Once the user edits the address field the address is no longer the one the name
+   /// resolved to, and the binding goes with it: otherwise the row keeps showing the old name
+   /// beside a different address and computes its lapse warning from the old name's deadline.
+   ///
+   /// `evm_address` / `zk_address` are left exactly as they are — what is sent is the address,
+   /// never the name.
+   pub fn forget_name_binding(&mut self) {
+      self.name = None;
+      self.chain = None;
+      self.ens_takeover_at = None;
+   }
+
+   /// The ENS binding to re-check at the confirm step, when this recipient came from a named
+   /// `.eth` name. `None` for anything else — a plain address, a contact, a wallet label, or a
+   /// name with no onchain expiry — where there is no name that could go stale.
+   pub fn ens_guard(&self) -> Option<EnsRecipientGuard> {
+      Some(EnsRecipientGuard {
+         name: self.name.clone()?,
+         takeover_at: self.ens_takeover_at?,
+      })
+   }
+
+   pub fn is_empty(&self, privacy_mode: bool) -> bool {
+      if privacy_mode {
+         return self.zk_address.is_empty();
+      } else {
+         return self.evm_address.is_empty();
+      }
+   }
+}
+
+/// The ENS name a recipient was derived from, carried from the picker to the confirm step.
+///
+/// A recipient is locked in when the user picks it, but the *approval* comes later — long enough
+/// for a name past its registration (plus the 90-day grace) to change hands. Nothing between the
+/// two re-checks it, so the confirmation re-tests this with the clock it reads at that moment
+/// (see `confirm_tx` in `core::tx`) — and refuses when that clock cannot be read at all, because
+/// then the name cannot be shown to still be live either way.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnsRecipientGuard {
+   /// The name as it was shown to the user, repeated back if the send is refused.
+   pub name: String,
+   /// The name's takeover time (`nameExpires + grace`), past which the binding no longer holds.
+   pub takeover_at: u64,
+}
+
+impl EnsRecipientGuard {
+   /// May the name still be trusted for the recipient at `now_secs`?
+   ///
+   /// `None` is the clock failing to be read, and that is *not* a "yes". An unreadable clock reads
+   /// as `0`, and `0 < takeover_at` holds for every name — including the ones that have changed
+   /// hands since the user picked them — so trusting it would open the very gap this guard exists
+   /// to close. No clock, no send.
+   pub fn is_trusted(&self, now_secs: Option<u64>) -> bool {
+      now_secs.is_some_and(|now_secs| now_secs < self.takeover_at)
+   }
+}
+
+/// Saved contact by the user
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
+pub struct Contact {
+   pub name: String,
+   #[serde(rename = "address")]
+   pub evm_address: String,
+   #[serde(default)]
+   pub zk_address: String,
+}
+
+impl Contact {
+   pub fn new(name: String, evm_address: String, zk_address: String) -> Self {
+      Self {
+         name,
+         evm_address,
+         zk_address,
+      }
+   }
+
+   pub fn zk_address_truncated(&self) -> String {
+      if self.zk_address.is_empty() {
+         return ZK_ADDRESS_UNAVAILABLE.to_string();
+      }
+
+      // The stored value is whatever the sealed `wallet_state.data` (or an imported archive)
+      // carried and is not guaranteed to be a 127-char `0zk` address. `truncate_address` shortens
+      // at the same first-6/last-6 offsets and returns anything too short to split whole — counting
+      // in characters, so a value ending mid-codepoint cannot panic the UI thread either.
+      truncate_address(self.zk_address.clone())
+   }
+}
+
+#[derive(Clone)]
+pub struct Block {
+   pub number: u64,
+   pub timestamp: u64,
+}
+
+impl Block {
+   pub fn new(number: u64, timestamp: u64) -> Self {
+      Self { number, timestamp }
+   }
+}
+
+#[derive(Clone)]
+pub struct EthCall {
+   pub timestamp: u64,
+   pub result: Bytes,
+}
+
+#[derive(Clone)]
+pub struct EstimateGas {
+   pub timestamp: u64,
+   pub gas: u64,
+}
+
+/// Cached block for the wallet-connector `eth_getBlockByHash` /
+/// `eth_getBlockByNumber`.
+///
+/// Unlike the small [`Block`] above, this holds the full RPC block so it can be
+/// serialized back to the dapp.
+#[derive(Clone)]
+pub struct CachedBlock {
+   pub timestamp: u64,
+   /// Whether [`Self::block`] carries full transactions (`true`) or hashes only.
+   pub hydrated: bool,
+   pub block: RpcBlock,
+}
+
+/// Cached `eth_getTransactionCount` nonce for an address.
+#[derive(Clone)]
+pub struct TransactionCount {
+   pub timestamp: u64,
+   pub count: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct BaseFee {
+   pub current: u64,
+   pub next: u64,
+}
+
+impl Default for BaseFee {
+   fn default() -> Self {
+      Self {
+         current: 1,
+         next: 1,
+      }
+   }
+}
+
+impl BaseFee {
+   pub fn new(current: u64, next: u64) -> Self {
+      Self { current, next }
+   }
+}
+
+/// A set of chains that are disabled
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DisabledChains {
+   pub chains: HashSet<u64>,
+}
+
+impl Default for DisabledChains {
+   fn default() -> Self {
+      let mut chains = HashSet::new();
+      chains.insert(ETH_SEPOLIA);
+      Self { chains }
+   }
+}
+
+impl DisabledChains {
+   pub fn new(chains: HashSet<u64>) -> Self {
+      Self { chains }
+   }
+
+   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+      let dir = disabled_chains_dir()?;
+      let data = std::fs::read(dir)?;
+      let disabled_chains = serde_json::from_slice(&data)?;
+      Ok(disabled_chains)
+   }
+
+   pub fn save_to_file(&self) -> Result<(), anyhow::Error> {
+      let data = serde_json::to_string(self)?;
+      let dir = disabled_chains_dir()?;
+      write_private(&dir, data.as_bytes())?;
+      Ok(())
+   }
+
+   pub fn disable(&mut self, chain: u64) {
+      self.chains.insert(chain);
+   }
+
+   pub fn enable(&mut self, chain: u64) {
+      self.chains.remove(&chain);
+   }
+
+   pub fn is_disabled(&self, chain: u64) -> bool {
+      self.chains.contains(&chain)
+   }
+}
+
+/// Suggested priority fees for each chain
+#[derive(Debug, Clone)]
+pub struct PriorityFee {
+   pub fee: HashMap<u64, NumericValue>,
+}
+
+impl PriorityFee {
+   pub fn get(&self, chain: u64) -> Option<&NumericValue> {
+      self.fee.get(&chain)
+   }
+}
+
+impl Default for PriorityFee {
+   fn default() -> Self {
+      let mut map = HashMap::with_capacity(SUPPORTED_CHAINS.len());
+
+      let chains = ChainId::supported_chains();
+
+      for chain in chains {
+         match chain {
+            ChainId::Ethereum => map.insert(chain.id(), NumericValue::parse_to_gwei("0.01")),
+            ChainId::EthereumSepolia => map.insert(chain.id(), NumericValue::parse_to_gwei("0.01")),
+            ChainId::Optimism => map.insert(chain.id(), NumericValue::parse_to_gwei("0.001")),
+            ChainId::BinanceSmartChain => map.insert(chain.id(), NumericValue::parse_to_gwei("0")),
+            ChainId::Base => map.insert(chain.id(), NumericValue::parse_to_gwei("0.001")),
+            ChainId::Arbitrum => map.insert(chain.id(), NumericValue::parse_to_gwei("0.001")),
+            ChainId::RobinHood => map.insert(chain.id(), NumericValue::parse_to_gwei("0.01")),
+         };
+      }
+
+      Self { fee: map }
+   }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Dapp {
+   Across,
+   Uniswap,
+}
+
+impl Dapp {
+   pub fn is_across(&self) -> bool {
+      matches!(self, Self::Across)
+   }
+
+   pub fn is_uniswap(&self) -> bool {
+      matches!(self, Self::Uniswap)
+   }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ConnectedDapps {
+   pub dapps: Vec<String>,
+}
+
+impl ConnectedDapps {
+   pub fn connected_dapps(&self) -> Vec<String> {
+      self.dapps.clone()
+   }
+
+   pub fn connect_dapp(&mut self, dapp: String) {
+      self.dapps.push(dapp);
+   }
+
+   pub fn disconnect_dapp(&mut self, dapp: &str) {
+      self.dapps.retain(|d| d != dapp);
+   }
+
+   pub fn disconnect_all(&mut self) {
+      self.dapps.clear();
+   }
+
+   pub fn is_connected(&self, dapp: &str) -> bool {
+      self.dapps.contains(&dapp.to_string())
+   }
+}
+
+/// One app's accounts: the one it currently sees, plus every one it has been
+/// given before.
+///
+/// An app is given a dedicated account so it cannot correlate the user's
+/// activity with apps connected to other accounts. Every account the app was
+/// given is kept, not just the latest, because the app still knows the earlier
+/// ones — the connect prompt has to be able to say "this wallet has been
+/// connected to this app before" for each of them, not only for the last.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DappConnection {
+   /// The account handed out the next time this app connects.
+   current: Address,
+   /// Every account this app has been given, in the order they were given.
+   seen: Vec<Address>,
+}
+
+impl DappConnection {
+   fn new(address: Address) -> Self {
+      Self {
+         current: address,
+         seen: vec![address],
+      }
+   }
+
+   /// Make `address` the account the app currently sees, remembering it if the
+   /// app has not been given it before.
+   fn record(&mut self, address: Address) {
+      self.current = address;
+
+      if !self.seen.contains(&address) {
+         self.seen.push(address);
+      }
+   }
+
+   pub fn current(&self) -> Address {
+      self.current
+   }
+
+   /// Every account this app has been given, oldest first.
+   pub fn seen(&self) -> &[Address] {
+      &self.seen
+   }
+
+   /// Drop accounts that are no longer wallets, and answer whether any are left.
+   ///
+   /// The account the app currently sees moves to the most recent one it still
+   /// has, so an app is never remembered against a deleted wallet.
+   fn retain_wallets(&mut self, wallets: &HashSet<Address>) -> bool {
+      self.seen.retain(|address| wallets.contains(address));
+
+      if self.seen.is_empty() {
+         return false;
+      }
+
+      if !wallets.contains(&self.current) {
+         if let Some(last_seen) = self.seen.last() {
+            self.current = *last_seen
+         } else {
+            tracing::warn!("Last seen is empty")
+         }
+      }
+
+      true
+   }
+}
+
+/// The accounts Zeus exposed to each app, keyed by the app origin.
+///
+/// The mapping outlives a disconnect: reconnecting an app should offer the
+/// account it had before rather than whichever account happens to be selected
+/// at the time.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DappAccounts {
+   pub accounts: HashMap<String, DappConnection>,
+}
+
+impl DappAccounts {
+   /// The account `origin` currently sees.
+   pub fn get(&self, origin: &str) -> Option<Address> {
+      self.accounts.get(origin).map(DappConnection::current)
+   }
+
+   /// Every account `origin` has been given, oldest first.
+   pub fn seen(&self, origin: &str) -> &[Address] {
+      self.accounts.get(origin).map_or(&[], DappConnection::seen)
+   }
+
+   /// Record that `origin` was connected with `address`, making it the account
+   /// the app sees from now on and adding it to the ones the app was given.
+   pub fn record(&mut self, origin: &str, address: Address) {
+      self
+         .accounts
+         .entry(origin.to_string())
+         .and_modify(|connection| connection.record(address))
+         .or_insert_with(|| DappConnection::new(address));
+   }
+
+   /// Forget every account that is no longer a wallet, dropping origins left
+   /// with none. Returns the number of origins forgotten.
+   pub fn retain_wallets(&mut self, wallets: &HashSet<Address>) -> usize {
+      let before = self.accounts.len();
+      self.accounts.retain(|_, connection| connection.retain_wallets(wallets));
+      before - self.accounts.len()
+   }
+}
+
+/// Holds addresses that are delegated to a smart contract
+#[derive(Debug, Clone)]
+pub struct DelegatedWallets {
+   /// Map of (chain, account) to delegated address
+   pub map: HashMap<(u64, Address), Address>,
+   /// Last time we checked the smart account status
+   /// Time is in UNIX timestamp
+   pub last_check: HashMap<(u64, Address), u64>,
+}
+
+impl DelegatedWallets {
+   pub fn new() -> Self {
+      Self {
+         map: HashMap::new(),
+         last_check: HashMap::new(),
+      }
+   }
+
+   pub fn add(&mut self, chain: u64, account: Address, delegated_address: Address) {
+      self.map.insert((chain, account), delegated_address);
+   }
+
+   pub fn remove(&mut self, chain: u64, account: Address) {
+      self.map.remove(&(chain, account));
+   }
+
+   pub fn should_check(&self, chain: u64, account: Address) -> bool {
+      let now = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
+      let last_check = self.last_check.get(&(chain, account)).cloned();
+      if last_check.is_none() {
+         return true;
+      }
+
+      let last_check = last_check.unwrap();
+      let time_passed = now.saturating_sub(last_check);
+      time_passed > DELEGATE_WALLET_CHECK_TIMEOUT
+   }
+
+   pub fn get(&self, chain: u64, account: Address) -> Option<Address> {
+      self.map.get(&(chain, account)).cloned()
+   }
+}
+
+pub struct RailgunStatus {
+   /// An operation in progress like shield/unshield etc..
+   pub op_in_progress: HashMap<u64, bool>,
+   pub circuits_download_in_progress: bool,
+   pub resync_in_progress: HashMap<u64, bool>,
+   pub loading_db_in_progress: HashMap<u64, bool>,
+   pub sync_in_progress: HashMap<u64, bool>,
+   pub railgun_synced: HashMap<u64, bool>,
+   pub railgun_synced_block: HashMap<u64, u64>,
+   pub railgun_sync_error: HashMap<u64, String>,
+   pub ui_can_check: HashMap<u64, bool>,
+}
+
+impl RailgunStatus {
+   pub fn new() -> Self {
+      Self {
+         op_in_progress: HashMap::new(),
+         circuits_download_in_progress: false,
+         resync_in_progress: HashMap::new(),
+         loading_db_in_progress: HashMap::new(),
+         sync_in_progress: HashMap::new(),
+         railgun_synced: HashMap::new(),
+         railgun_synced_block: HashMap::new(),
+         railgun_sync_error: HashMap::new(),
+         ui_can_check: HashMap::new(),
+      }
+   }
+
+   pub fn for_testing() -> Self {
+      let mut railgun_synced = HashMap::new();
+      railgun_synced.insert(1, true);
+
+      let mut railgun_synced_block = HashMap::new();
+      railgun_synced_block.insert(1, 25594344);
+
+      Self {
+         op_in_progress: HashMap::new(),
+         circuits_download_in_progress: false,
+         resync_in_progress: HashMap::new(),
+         loading_db_in_progress: HashMap::new(),
+         sync_in_progress: HashMap::new(),
+         railgun_synced,
+         railgun_synced_block,
+         railgun_sync_error: HashMap::new(),
+         ui_can_check: HashMap::new(),
+      }
+   }
+
+   pub fn op_in_progress(&self, chain: u64) -> bool {
+      self.op_in_progress.get(&chain).cloned().unwrap_or(false)
+   }
+
+   pub fn loading_db_in_progress(&self, chain: u64) -> bool {
+      self.loading_db_in_progress.get(&chain).cloned().unwrap_or(false)
+   }
+
+   pub fn set_loading_db_in_progress(&mut self, chain: u64, in_progress: bool) {
+      self.loading_db_in_progress.insert(chain, in_progress);
+   }
+
+   pub fn circuits_download_in_progress(&self) -> bool {
+      self.circuits_download_in_progress
+   }
+
+   pub fn set_circuits_download_in_progress(&mut self, in_progress: bool) {
+      self.circuits_download_in_progress = in_progress;
+   }
+
+   pub fn set_op_in_progress(&mut self, chain: u64, in_progress: bool) {
+      self.op_in_progress.insert(chain, in_progress);
+   }
+
+   pub fn resync_in_progress(&self, chain: u64) -> bool {
+      self.resync_in_progress.get(&chain).cloned().unwrap_or(false)
+   }
+
+   pub fn set_resync_in_progress(&mut self, chain: u64, in_progress: bool) {
+      self.resync_in_progress.insert(chain, in_progress);
+   }
+
+   pub fn set_sync_in_progress(&mut self, chain: u64, in_progress: bool) {
+      self.sync_in_progress.insert(chain, in_progress);
+   }
+
+   pub fn sync_in_progress(&self, chain: u64) -> bool {
+      self.sync_in_progress.get(&chain).cloned().unwrap_or(false)
+   }
+
+   pub fn synced(&self, chain: u64) -> bool {
+      self.railgun_synced.get(&chain).cloned().unwrap_or(false)
+   }
+
+   pub fn synced_block(&self, chain: u64) -> u64 {
+      self.railgun_synced_block.get(&chain).cloned().unwrap_or(0)
+   }
+
+   pub fn sync_error(&self, chain: u64) -> Option<String> {
+      self.railgun_sync_error.get(&chain).cloned()
+   }
+
+   pub fn is_error_invalid_root(&self, chain: u64) -> bool {
+      if let Some(error) = self.sync_error(chain) {
+         return error.contains("Invalid root");
+      }
+      false
+   }
+
+   pub fn set_synced(&mut self, chain: u64, synced: bool) {
+      self.railgun_synced.insert(chain, synced);
+   }
+
+   pub fn set_synced_block(&mut self, chain: u64, block: u64) {
+      self.railgun_synced_block.insert(chain, block);
+   }
+
+   pub fn set_sync_error(&mut self, chain: u64, error: String) {
+      self.railgun_sync_error.insert(chain, error);
+   }
+
+   pub fn clear_last_error(&mut self, chain: u64) {
+      self.railgun_sync_error.remove(&chain);
+   }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct WalletInfoCache {
+   /// Quickly access a wallet by its address
+   pub map: HashMap<Address, WalletInfo>,
+
+   /// Ordered list of wallets
+   pub ordered_vec: Vec<WalletInfo>,
+}
+
+impl WalletInfoCache {
+   pub fn new(map: HashMap<Address, WalletInfo>, ordered_vec: Vec<WalletInfo>) -> Self {
+      Self { map, ordered_vec }
+   }
+
+   pub fn clear(&mut self) {
+      self.map.clear();
+      self.ordered_vec.clear();
+   }
+
+   pub fn get(&self, address: &Address) -> Option<&WalletInfo> {
+      self.map.get(address)
+   }
+
+   pub fn ordered_slice(&self) -> &[WalletInfo] {
+      &self.ordered_vec
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// A stored `zk_address` is whatever the sealed `wallet_state.data` — or an imported archive —
+   /// carried, so it is not guaranteed to be a 127-char `0zk` address. No length may panic the
+   /// render path, and a non-empty value always renders to something non-empty.
+   #[test]
+   fn contact_zk_address_truncated_never_panics() {
+      // 120 is the boundary below which the old `[121..]` split panicked; 121 is where the old
+      // `[..6]`/`[121..]` split was still in range but produced an empty tail.
+      for len in [1usize, 5, 6, 120, 121, 122] {
+         let contact = Contact::new(
+            "alice".to_string(),
+            "0x0000000000000000000000000000000000000000".to_string(),
+            "a".repeat(len),
+         );
+
+         assert!(
+            !contact.zk_address_truncated().is_empty(),
+            "length {len} must render something"
+         );
+      }
+
+      // Empty keeps the existing "unavailable" placeholder, which is also non-empty.
+      let empty = Contact::new(
+         "alice".to_string(),
+         "0x0000000000000000000000000000000000000000".to_string(),
+         String::new(),
+      );
+      assert_eq!(
+         empty.zk_address_truncated(),
+         ZK_ADDRESS_UNAVAILABLE
+      );
+   }
+
+   /// The normal case must not change: a 127-char `0zk` address still renders first 6, "...", then
+   /// from index 121 — the string users already see.
+   #[test]
+   fn contact_zk_address_truncated_renders_a_full_address_unchanged() {
+      let address = format!("0zkAAA{}{}", "B".repeat(115), "C".repeat(6));
+      assert_eq!(address.len(), 127);
+
+      let contact = Contact::new(
+         "alice".to_string(),
+         "0x0000000000000000000000000000000000000000".to_string(),
+         address,
+      );
+
+      assert_eq!(contact.zk_address_truncated(), "0zkAAA...CCCCCC");
+   }
+
+   #[test]
+   fn autolock_idle_seconds() {
+      assert_eq!(AutoLock::OneMinute.idle_secs(), Some(60));
+      assert_eq!(AutoLock::TenMinutes.idle_secs(), Some(600));
+      assert_eq!(AutoLock::OneHour.idle_secs(), Some(3_600));
+      assert_eq!(AutoLock::FourHours.idle_secs(), Some(14_400));
+      assert_eq!(AutoLock::Never.idle_secs(), None);
+   }
+
+   #[test]
+   fn autolock_labels_are_unique() {
+      let mut labels: Vec<_> = [
+         AutoLock::OneMinute,
+         AutoLock::TenMinutes,
+         AutoLock::OneHour,
+         AutoLock::FourHours,
+         AutoLock::Never,
+      ]
+      .iter()
+      .map(|autolock| autolock.label())
+      .collect();
+
+      labels.sort_unstable();
+      labels.dedup();
+      assert_eq!(labels.len(), 5);
+   }
+
+   #[test]
+   fn autolock_defaults_to_one_hour() {
+      assert_eq!(AutoLock::default(), AutoLock::OneHour);
+      assert_eq!(
+         SecuritySettings::default().autolock,
+         AutoLock::OneHour
+      );
+      assert!(!SecuritySettings::default().autolock_changed);
+   }
+
+   /// The confirm-step guard exists only for a name *and* an onchain expiry — nothing else is
+   /// re-checked — and it stops trusting the name the moment takeover passes.
+   #[test]
+   fn ens_guard_is_only_a_named_expiring_recipient() {
+      let address = Address::repeat_byte(0x11);
+      let takeover_at = 1_000_000u64;
+
+      let named = Recipient::from_ens_name(
+         Some("alice.eth".to_string()),
+         address,
+         None,
+         Some(takeover_at),
+      );
+
+      let guard = named.ens_guard().expect("a named, expiring recipient");
+      assert_eq!(guard.name, "alice.eth");
+      assert!(guard.is_trusted(Some(takeover_at - 1)));
+      assert!(!guard.is_trusted(Some(takeover_at)));
+
+      // Nothing to re-check: a plain address, a name with no onchain expiry, and an expiry with
+      // no name (which has nothing to show the user) each build no guard.
+      assert!(Recipient::from_unknown_evm_address(address).ens_guard().is_none());
+      assert!(
+         Recipient::from_ens_name(Some("alice.xyz".to_string()), address, None, None)
+            .ens_guard()
+            .is_none()
+      );
+      assert!(
+         Recipient::from_ens_name(None, address, None, Some(takeover_at))
+            .ens_guard()
+            .is_none()
+      );
+   }
+
+   /// An unreadable clock is a refusal, never a pass: with no "now" the name cannot be shown to
+   /// still be live, and `0 < takeover_at` would trust exactly the names that have changed hands.
+   #[test]
+   fn ens_guard_refuses_an_unreadable_clock() {
+      let guard = EnsRecipientGuard {
+         name: "alice.eth".to_string(),
+         takeover_at: 1_000_000,
+      };
+
+      assert!(guard.is_trusted(Some(999_999)));
+      assert!(!guard.is_trusted(Some(1_000_000)));
+      assert!(!guard.is_trusted(None));
+   }
+
+   /// A pick leaves name, chain and takeover all set against one address, and all three describe
+   /// that address. Editing the address must drop the whole binding without touching the address
+   /// fields — the name is display only, the address is what gets sent.
+   #[test]
+   fn forget_name_binding_clears_a_picked_name_and_keeps_the_address() {
+      let mut recipient = Recipient::from_ens_name(
+         Some("alice.eth".to_string()),
+         Address::repeat_byte(0x22),
+         Some(8453),
+         Some(1_000_000),
+      );
+
+      let evm_address = recipient.evm_address.clone();
+      let zk_address = recipient.zk_address.clone();
+
+      recipient.forget_name_binding();
+
+      assert_eq!(recipient.name, None);
+      assert_eq!(recipient.chain, None);
+      assert_eq!(recipient.ens_takeover_at, None);
+      assert_eq!(recipient.evm_address, evm_address);
+      assert_eq!(recipient.zk_address, zk_address);
+   }
+
+   /// A recipient from an unknown address never had a name, so there is nothing to forget — and
+   /// calling it must not change what `from_unknown_evm_address` produced.
+   #[test]
+   fn forget_name_binding_leaves_an_unknown_address_unchanged() {
+      let mut recipient = Recipient::from_unknown_evm_address(Address::repeat_byte(0x33));
+      let evm_address = recipient.evm_address.clone();
+
+      recipient.forget_name_binding();
+
+      assert_eq!(recipient.name, None);
+      assert_eq!(recipient.chain, None);
+      assert_eq!(recipient.ens_takeover_at, None);
+      assert_eq!(recipient.evm_address, evm_address);
+      assert!(recipient.zk_address.is_empty());
+   }
+
+   /// A recipient whose `name` is empty (`None`) and has no takeover carries no binding to drop,
+   /// so every field — including a `0zk` address — is left exactly as it was.
+   #[test]
+   fn forget_name_binding_leaves_an_unnamed_recipient_unchanged() {
+      let mut recipient = Recipient {
+         name: None,
+         evm_address: "0x1111111111111111111111111111111111111111".to_string(),
+         zk_address: "0zkunnamedrecipient".to_string(),
+         chain: None,
+         ens_takeover_at: None,
+      };
+
+      let before = (
+         recipient.name.clone(),
+         recipient.evm_address.clone(),
+         recipient.zk_address.clone(),
+         recipient.chain,
+         recipient.ens_takeover_at,
+      );
+
+      recipient.forget_name_binding();
+
+      let after = (
+         recipient.name.clone(),
+         recipient.evm_address.clone(),
+         recipient.zk_address.clone(),
+         recipient.chain,
+         recipient.ens_takeover_at,
+      );
+
+      assert_eq!(before, after);
+   }
+
+   /// The persisted fields round-trip; `argon_params` does not, because it is
+   /// serde-skipped (it belongs to `vault.data`'s header).
+   #[test]
+   fn security_settings_seal_roundtrip() {
+      let key = WalletStateKey::generate().unwrap();
+      let settings = SecuritySettings {
+         autolock: AutoLock::FourHours,
+         autolock_changed: true,
+         argon_params: Argon2::new(1_024, 2, 2),
+         credential_attempts: 0,
+         // A reading of the file on disk, never something the file can carry: a round-trip that
+         // brought it back would let a stale failure refuse a save forever.
+         load_failed: true,
+      };
+
+      let sealed = key.seal_json(&settings, SECURITY_AAD).unwrap();
+      let loaded: SecuritySettings = key.open_json(&sealed, SECURITY_AAD).unwrap();
+
+      assert_eq!(loaded.autolock, AutoLock::FourHours);
+      assert!(loaded.autolock_changed);
+      assert_eq!(loaded.argon_params, Argon2::default());
+      assert!(!loaded.load_failed);
+   }
+
+   /// A `security.data` written by an older build (or hand-truncated) must still
+   /// load, falling back to the defaults for absent fields.
+   #[test]
+   fn security_settings_missing_fields_use_defaults() {
+      let key = WalletStateKey::generate().unwrap();
+      let sealed = key.seal_json(&serde_json::json!({}), SECURITY_AAD).unwrap();
+      let loaded: SecuritySettings = key.open_json(&sealed, SECURITY_AAD).unwrap();
+
+      assert_eq!(loaded.autolock, AutoLock::OneHour);
+      assert!(!loaded.autolock_changed);
+      assert_eq!(loaded.credential_attempts, 0);
+   }
+
+   /// A missing `security.data` is a first run: the defaults are the answer and nothing is wrong
+   /// with them, so there is nothing to tell the user.
+   #[test]
+   fn a_missing_security_file_is_not_a_failure() {
+      let settings = SecuritySettings::from_read(
+         Err(anyhow::anyhow!("No such file or directory")),
+         false,
+      );
+
+      assert_eq!(settings.autolock, AutoLock::default());
+      assert!(!settings.load_failed);
+   }
+
+   /// A file that is there and did not read is *not* a missing one: the defaults are a weaker lock
+   /// than the user chose, so the failure is carried — the settings UI says so and the save paths
+   /// refuse on it — rather than disappearing into a silently longer idle timeout.
+   #[test]
+   fn an_unreadable_security_file_is_flagged_and_falls_back_to_defaults() {
+      let settings = SecuritySettings::from_read(Err(anyhow::anyhow!("wrong key")), true);
+
+      assert_eq!(settings.autolock, AutoLock::default());
+      assert!(settings.load_failed);
+   }
+
+   /// A match clears the count; `MAX_CREDENTIAL_ATTEMPTS` failures in a row
+   /// (with no success in between) lock out.
+   #[test]
+   fn credential_attempts_cap_at_five() {
+      let mut settings = SecuritySettings::default();
+
+      assert_eq!(
+         settings.note_credential_result(false),
+         CredentialCheck::Mismatch
+      );
+      assert_eq!(
+         settings.note_credential_result(false),
+         CredentialCheck::Mismatch
+      );
+
+      // A success clears the run of failures.
+      assert_eq!(
+         settings.note_credential_result(true),
+         CredentialCheck::Matched
+      );
+      assert_eq!(settings.credential_attempts, 0);
+
+      for _ in 0..MAX_CREDENTIAL_ATTEMPTS - 1 {
+         assert_eq!(
+            settings.note_credential_result(false),
+            CredentialCheck::Mismatch
+         );
+      }
+
+      assert_eq!(
+         settings.note_credential_result(false),
+         CredentialCheck::LockedOut
+      );
+      assert_eq!(
+         settings.credential_attempts,
+         MAX_CREDENTIAL_ATTEMPTS
+      );
+   }
+
+   /// The bounds are the crate's own slider ranges, not guesses: each pair must
+   /// match `HoldSettings::body_ui` in the UI crate's `widgets/hold.rs`.
+   #[test]
+   fn burst_bounds_mirror_the_crates_own_controls() {
+      assert_eq!((MIN_BURST_MS, MAX_BURST_MS), (80.0, 2_000.0));
+      assert_eq!(
+         (MIN_BURST_INTENSITY, MAX_BURST_INTENSITY),
+         (0.0, 1.0)
+      );
+      assert_eq!((MIN_BURST_BOLTS, MAX_BURST_BOLTS), (1, 5));
+      assert_eq!((MIN_BRANCH_DEPTH, MAX_BRANCH_DEPTH), (0, 3));
+      assert_eq!((MIN_THICKNESS, MAX_THICKNESS), (0.5, 12.0));
+      assert_eq!((MIN_JITTER, MAX_JITTER), (0.0, 0.6));
+      assert_eq!((MIN_GLOW_FROM, MAX_GLOW_FROM), (0.2, 4.0));
+      assert_eq!((MIN_GLOW_TO, MAX_GLOW_TO), (0.2, 6.0));
+      assert_eq!((MIN_GLOW_SOFTNESS, MAX_GLOW_SOFTNESS), (0.2, 3.0));
+   }
+
+   /// Each pair is copied from the control the crate's own body UI draws — see
+   /// the UI crate's `widgets/particles/{snow,light,lightning}/settings.rs`.
+   #[test]
+   fn the_ambient_ranges_mirror_the_crates_controls() {
+      // Snow::body_ui — density Slider 0..=20000, size DragValue 0.1..=20.0,
+      // fall speed DragValue 0.0..=500.0, wind Slider -200..=200 / -100..=100.
+      assert_eq!(
+         (MIN_AMBIENT_SNOW_DENSITY, MAX_AMBIENT_SNOW_DENSITY),
+         (0, 20_000)
+      );
+      assert_eq!(
+         (MIN_AMBIENT_SNOW_SIZE, MAX_AMBIENT_SNOW_SIZE),
+         (0.1, 20.0)
+      );
+      assert_eq!(
+         (MIN_AMBIENT_SNOW_SPEED, MAX_AMBIENT_SNOW_SPEED),
+         (0.0, 500.0)
+      );
+      assert_eq!(
+         (MIN_AMBIENT_WIND_X, MAX_AMBIENT_WIND_X),
+         (-200.0, 200.0)
+      );
+      assert_eq!(
+         (MIN_AMBIENT_WIND_Y, MAX_AMBIENT_WIND_Y),
+         (-100.0, 100.0)
+      );
+
+      // Light::body_ui — density Slider 0..=2000, radius DragValue 1.0..=200.0,
+      // intensity Slider 0.0..=1.0, flicker Slider 0.0..=1.0, lifetime
+      // DragValue 0.5..=60.0.
+      assert_eq!(
+         (
+            MIN_AMBIENT_LIGHT_DENSITY,
+            MAX_AMBIENT_LIGHT_DENSITY
+         ),
+         (0, 2_000)
+      );
+      assert_eq!(
+         (MIN_AMBIENT_LIGHT_RADIUS, MAX_AMBIENT_LIGHT_RADIUS),
+         (1.0, 200.0)
+      );
+      assert_eq!(
+         (
+            MIN_AMBIENT_LIGHT_INTENSITY,
+            MAX_AMBIENT_LIGHT_INTENSITY
+         ),
+         (0.0, 1.0)
+      );
+      assert_eq!(
+         (
+            MIN_AMBIENT_LIGHT_FLICKER,
+            MAX_AMBIENT_LIGHT_FLICKER
+         ),
+         (0.0, 1.0)
+      );
+      assert_eq!(
+         (
+            MIN_AMBIENT_LIGHT_LIFETIME,
+            MAX_AMBIENT_LIGHT_LIFETIME
+         ),
+         (0.5, 60.0)
+      );
+
+      // Lightning::body_ui — bolts Slider 1..=8, branch depth Slider 0..=8,
+      // thickness Slider 0.5..=12.0, jitter Slider 0.0..=0.6, flash intensity
+      // Slider 0.0..=1.0, duration Slider 80.0..=2000.0, interval DragValue
+      // 0.0..=120.0.
+      assert_eq!((MIN_AMBIENT_BOLTS, MAX_AMBIENT_BOLTS), (1, 8));
+      assert_eq!(
+         (MIN_AMBIENT_BRANCH_DEPTH, MAX_AMBIENT_BRANCH_DEPTH),
+         (0, 8)
+      );
+      assert_eq!(
+         (MIN_AMBIENT_THICKNESS, MAX_AMBIENT_THICKNESS),
+         (0.5, 12.0)
+      );
+      assert_eq!(
+         (MIN_AMBIENT_JITTER, MAX_AMBIENT_JITTER),
+         (0.0, 0.6)
+      );
+      assert_eq!(
+         (
+            MIN_AMBIENT_FLASH_INTENSITY,
+            MAX_AMBIENT_FLASH_INTENSITY
+         ),
+         (0.0, 1.0)
+      );
+      assert_eq!(
+         (MIN_AMBIENT_DURATION_MS, MAX_AMBIENT_DURATION_MS),
+         (80.0, 2_000.0)
+      );
+      assert_eq!(
+         (
+            MIN_AMBIENT_INTERVAL_SECS,
+            MAX_AMBIENT_INTERVAL_SECS
+         ),
+         (0.0, 120.0)
+      );
+   }
+}

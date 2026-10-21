@@ -669,7 +669,7 @@ pub async fn prefetch_railgun_circuits_if_allowed(ctx: &ZeusCtx) {
 async fn prefetch_railgun_circuits() -> Result<PrefetchReport, anyhow::Error> {
    let dir = railgun_dir()?;
    let prover = Groth16Prover::new(ZeusUrl::RailgunCircuitArtifacts.base(), Some(dir))
-      .with_embedded_circuits(crate::embedded::railgun::embedded_circuits())
+      .with_embedded_circuits(crate::core::embedded::railgun::embedded_circuits())
       .with_allow_download(true);
    Ok(prover.prefetch_artifacts().await?)
 }
