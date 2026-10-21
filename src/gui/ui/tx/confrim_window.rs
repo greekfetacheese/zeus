@@ -302,14 +302,15 @@ impl TxConfirmationWindow {
    /// Collect the answer and close the prompt in one step.
    ///
    /// The answer is single-use: one Confirm click must only ever be acted on once.
-   /// A rejection is reported as [`TxConfirmAnswer::rejected`], since the answer
-   /// type describes a confirmed transaction and has no separate flag.
+   /// A rejection is reported as [`TxConfirmAnswer::rejected`], which carries its own
+   /// `accepted: false` rather than leaving the meaning to a field value.
    pub fn take_answer(&mut self) -> Option<TxConfirmAnswer> {
       let accepted = self.take_confirmed_or_rejected()?;
       self.close();
 
       Some(if accepted {
          TxConfirmAnswer {
+            accepted: true,
             priority_fee: self.get_priority_fee(),
             gas_limit: self.get_gas_limit(),
             clear_display: self.get_clear_display(),
@@ -853,6 +854,38 @@ mod tests {
          window.open_generation, generation,
          "an in-flight preparation must not survive the lock-time reject"
       );
+   }
+
+   /// A confirmed transaction whose gas limit resolves to zero is still a confirmation:
+   /// acceptance is the field, not a value of some other field.
+   #[test]
+   fn a_confirmation_with_a_zero_gas_limit_is_still_a_confirmation() {
+      let mut window = TxConfirmationWindow::new();
+      window.open = true;
+      window.gas_used = 0;
+      window.gas_limit = 0;
+      window.adjusted_gas_limit = String::new();
+      window.confirmed_or_rejected = Some(true);
+
+      let answer = window.take_answer().expect("the click is answered exactly once");
+
+      assert!(answer.accepted);
+      assert!(
+         !answer.is_rejected(),
+         "a zero gas limit must not be read as a rejection"
+      );
+   }
+
+   #[test]
+   fn a_rejection_carries_no_acceptance() {
+      let mut window = TxConfirmationWindow::new();
+      window.open = true;
+      window.confirmed_or_rejected = Some(false);
+
+      let answer = window.take_answer().expect("the click is answered exactly once");
+
+      assert!(!answer.accepted);
+      assert!(answer.is_rejected());
    }
 
    /// Every close path invalidates an in-flight preparation, not just the auto-lock

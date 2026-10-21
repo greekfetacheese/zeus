@@ -46,6 +46,11 @@ pub struct TxConfirmRequest {
 
 /// What the user left in the transaction confirmation window.
 pub struct TxConfirmAnswer {
+   /// Whether the user confirmed the prompt.
+   ///
+   /// This is the answer itself, not a proxy for it: a confirmed transaction is still a
+   /// confirmation even if its gas limit resolves to zero.
+   pub accepted: bool,
    pub priority_fee: NumericValue,
    pub gas_limit: u64,
    pub clear_display: Option<ClearDisplay>,
@@ -53,12 +58,9 @@ pub struct TxConfirmAnswer {
 
 impl TxConfirmAnswer {
    /// The answer for a rejected prompt.
-   ///
-   /// An accepted transaction always carries a gas limit — the window floors it at
-   /// the simulated gas, which is never zero — so a zero limit is the one value the
-   /// answer type cannot confuse with a confirmation.
    pub fn rejected() -> Self {
       Self {
+         accepted: false,
          priority_fee: NumericValue::default(),
          gas_limit: 0,
          clear_display: None,
@@ -67,7 +69,7 @@ impl TxConfirmAnswer {
 
    /// Whether the user rejected the prompt rather than confirming it.
    pub fn is_rejected(&self) -> bool {
-      self.gas_limit == 0
+      !self.accepted
    }
 }
 
