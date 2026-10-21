@@ -30,6 +30,15 @@ pub use vault::*;
 pub use wallet::*;
 pub use wallet_state::{WalletState, WalletStateInner, WalletStateKey};
 
+/// Whether this crate was compiled with its own `dev` feature.
+///
+/// Core gates its dev-only logging and diagnostics on `cfg(feature = "dev")` (its own flag, not the
+/// binary's). A root `dev = []` that forgets to forward `zeus-core/dev` is invisible to the type
+/// checker: the binary keeps its `dev` feature while every one of core's
+/// `#[cfg(feature = "dev")]` blocks goes dark. Exposing what core actually compiled to lets the
+/// binary assert the two flags agree.
+pub const DEV_FEATURE_ENABLED: bool = cfg!(feature = "dev");
+
 mod serde_hashmap {
    use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
    use std::collections::HashMap;

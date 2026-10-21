@@ -18,6 +18,7 @@
 
 mod bridge;
 mod connector;
+mod dev_feature;
 mod ens;
 mod main_event;
 mod nft;
