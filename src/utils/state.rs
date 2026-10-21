@@ -1,9 +1,11 @@
 use crate::core::ctx::railgun_dir;
 use crate::core::urls::ZeusUrl;
-use crate::core::{WalletPortfolio, ZeusCtx, types::BaseFee};
+use crate::core::{WalletPortfolio, ZeusCtx};
 use crate::utils::{RT, malloc_trim, self_update};
 use anyhow::anyhow;
 use tracing::{debug, error, info, warn};
+
+pub use crate::core::get_base_fee;
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -12,9 +14,8 @@ use tokio::sync::Semaphore;
 use zeus_eth::{
    alloy_primitives::U256,
    alloy_provider::Provider,
-   alloy_rpc_types::BlockId,
    types::{ChainId, SUPPORTED_CHAINS},
-   utils::{NumericValue, block::calculate_next_block_base_fee},
+   utils::NumericValue,
 };
 use zeus_railgun::{Groth16Prover, PrefetchReport, RailgunSigner};
 
@@ -566,54 +567,6 @@ async fn state_update_interval(ctx: ZeusCtx) {
 
       tokio::time::sleep(Duration::from_secs(1)).await;
    }
-}
-
-pub async fn get_base_fee(ctx: ZeusCtx, chain: u64) -> Result<BaseFee, anyhow::Error> {
-   if ctx.is_chain_disabled(chain) {
-      return Ok(BaseFee::new(0, 0));
-   }
-
-   let z_client = ctx.get_client_manager();
-   let chain = ChainId::new(chain)?;
-
-   if chain.is_ethereum() {
-      let block = z_client
-         .request(chain.id(), |client| async move {
-            client.get_block(BlockId::latest()).await.map_err(|e| anyhow!("{:?}", e))
-         })
-         .await?;
-
-      if let Some(block) = block {
-         let base_fee = block.header.base_fee_per_gas.unwrap_or_default();
-         let next_base_fee = calculate_next_block_base_fee(block);
-         ctx.update_base_fee(chain.id(), base_fee, next_base_fee);
-
-         return Ok(BaseFee::new(base_fee, next_base_fee));
-      } else {
-         return Err(anyhow!("Latest block not found"));
-      }
-   }
-
-   let gas_price = z_client
-      .request(chain.id(), |client| async move {
-         client.get_gas_price().await.map_err(|e| anyhow!("{:?}", e))
-      })
-      .await?;
-
-   let fee: u64 = gas_price.try_into()?;
-
-   #[cfg(feature = "dev")]
-   let fee_gwei = NumericValue::format_to_gwei(U256::from(fee));
-
-   #[cfg(feature = "dev")]
-   debug!(
-      "Base fee for chain {} is {}",
-      chain.id(),
-      fee_gwei.formatted()
-   );
-
-   ctx.update_base_fee(chain.id(), fee, fee);
-   Ok(BaseFee::new(fee, fee))
 }
 
 pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow::Error> {

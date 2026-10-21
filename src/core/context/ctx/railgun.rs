@@ -1,11 +1,92 @@
 use super::super::{ZeusContext, ZeusCtx};
 use super::{railgun_db_file, railgun_dir};
 use crate::core::types::*;
-use crate::utils::{create_railgun_provider, malloc_trim};
+use crate::core::urls::ZeusUrl;
+use crate::utils::malloc_trim;
 use anyhow::anyhow;
 use std::time::{Duration, Instant};
 use zeus_eth::{alloy_provider::Provider, types::ChainId, utils::client::RpcClient};
-use zeus_railgun::{RailgunProvider, RailgunSigner, SnapshotLoader};
+use zeus_railgun::{
+   ChainConfig, Groth16Prover, RailgunDbKey, RailgunProvider, RailgunSigner, RedbDatabase,
+   RootVerifier, RpcSyncer, SnapshotLoader, SubsquidSyncer, UtxoIndexer,
+};
+
+pub async fn create_railgun_provider(
+   client: RpcClient,
+   chain: u64,
+   db_key: RailgunDbKey,
+   allow_circuit_download: bool,
+) -> Result<RailgunProvider<RpcClient>, anyhow::Error> {
+   let time = std::time::Instant::now();
+
+   let db_file = railgun_db_file(chain)?;
+   let railgun_dir = railgun_dir()?;
+
+   let snapshot_loader = SnapshotLoader::new(railgun_dir.clone());
+   let chain_config = match ChainConfig::from_chain_id(chain) {
+      Some(chain_config) => chain_config,
+      None => {
+         return Err(anyhow!("Chain {} not supported", chain));
+      }
+   };
+
+   // Acquire the redb lock on the events snapshot now instead of lazily on the
+   // first sync: redb allows a single open handle per file, and a stale provider
+   // may still hold it. Opening it here surfaces that contention so the caller's
+   // retry can wait it out. A non-lock failure (e.g. corrupt file) is logged and
+   // ignored — the sync path already degrades to a fresh snapshot.
+   if let Err(e) = snapshot_loader.acquire(chain) {
+      if zeus_railgun::is_database_already_open(&e) {
+         return Err(e.context(format!("events snapshot for chain {chain}")));
+      }
+      tracing::warn!(
+         "Failed to open events snapshot for chain {} (will start fresh): {}",
+         chain,
+         e
+      );
+   }
+
+   let utxo_verifier = RootVerifier::new(client.clone(), chain_config.railgun_smart_wallet);
+   let rpc_syncer = RpcSyncer::new(
+      client.clone(),
+      chain,
+      chain_config.railgun_smart_wallet,
+   )
+   .with_snapshot_loader(snapshot_loader.clone());
+
+   let subsquid_syncer = Some(
+      SubsquidSyncer::new(&chain_config.subsquid_endpoint, chain)
+         .with_snapshot_loader(snapshot_loader.clone()),
+   );
+
+   let db = RedbDatabase::new(db_file, db_key)?;
+   let utxo_indexer = UtxoIndexer::new(db, rpc_syncer, subsquid_syncer, utxo_verifier).await?;
+
+   let prover = Groth16Prover::new(
+      ZeusUrl::RailgunCircuitArtifacts.base(),
+      Some(railgun_dir),
+   )
+   .with_embedded_circuits(crate::embedded::railgun::embedded_circuits())
+   .with_allow_download(allow_circuit_download);
+
+   let railgun_provider = RailgunProvider::new(
+      chain_config,
+      client.clone(),
+      utxo_indexer,
+      prover,
+      None,
+      snapshot_loader,
+   )
+   .await?;
+
+   tracing::info!(
+      "Railgun provider created for chain {} in {}ms",
+      chain,
+      time.elapsed().as_millis()
+   );
+
+   Ok(railgun_provider)
+}
 
 fn railgun_supported(chain: ChainId) -> bool {
    matches!(

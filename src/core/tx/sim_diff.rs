@@ -13,11 +13,11 @@ use super::balance_diff::{
    BalanceDiff, NftBalanceChange, NftCandidate, collect_nft_balance_candidates,
    collect_token_candidates, native_change, token_change,
 };
-use crate::core::{NftApproveParams, ZeusCtx};
-use crate::utils::simulate::{
+use crate::core::simulate::{
    AccountPrefetch, ForkPrefetch, ForkSim, ForkSimRequest, StoragePrefetch, eip7702_implementation,
    pinned_head, simulate_on_fork_with,
 };
+use crate::core::{NftApproveParams, ZeusCtx};
 use alloy_eips::eip7702::SignedAuthorization;
 use anyhow::anyhow;
 use std::collections::HashMap;

@@ -201,6 +201,7 @@ pub use persisted::{
 };
 
 pub use persist::load_theme_kind;
+pub use railgun::create_railgun_provider;
 
 impl ZeusCtx {
    pub fn new() -> Self {

@@ -3,7 +3,9 @@ pub mod context;
 pub mod data_export;
 pub mod data_import;
 pub mod persisted;
+pub mod platform;
 pub mod signature;
+pub mod simulate;
 pub mod tx;
 pub mod types;
 pub mod urls;
@@ -13,6 +15,10 @@ pub mod wallet_state;
 pub mod wallet_state_key;
 
 pub use context::*;
+pub use platform::{
+   TimeStamp, malloc_trim, restrict_dir_to_owner, restrict_file_to_owner, truncate_address,
+   truncate_hash, write_private, write_private_atomic, write_private_from_reader,
+};
 pub use signature::{msg::SignMsgType, sign::sign_message};
 pub use tx::{
    analysis::*, approval_diff::*, approve::*, balance_diff::*, events::*, finalize::*, rich::*,

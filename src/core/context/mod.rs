@@ -10,6 +10,7 @@ pub mod nft;
 pub mod pool_manager;
 pub mod portfolio;
 pub mod price_manager;
+pub mod state;
 pub mod tx;
 
 pub use address_book::AddressBookHandle;
@@ -25,3 +26,4 @@ pub use ctx::*;
 pub use currencies::CurrencyDB;
 pub use nft::NftDB;
 pub use pool_manager::PoolManagerHandle;
+pub use state::{estimate_tx_cost, get_base_fee};
