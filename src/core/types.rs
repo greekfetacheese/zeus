@@ -45,6 +45,9 @@ const MAX_CONCURRENCY: usize = 10;
 const MIN_UPDATE_INTERVAL: u64 = 1;
 const MAX_UPDATE_INTERVAL: u64 = 60;
 
+/// The local connector (wallet-extension) HTTP port; may move at bind time if taken.
+pub const DEFAULT_CONNECTOR_PORT: u16 = 65534;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RailgunConfig {
    pub rpc_syncer_concurrency: usize,

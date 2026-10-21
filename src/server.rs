@@ -30,9 +30,10 @@ use zeus_eth::{
    types::ChainId,
 };
 
-/// Default connector port. If it is taken, [`bind_connector_listener`] walks
-/// nearby high ports and the bound port is written to `connector.json`.
-pub const SERVER_PORT: u16 = 65534;
+/// Default connector port, re-exported from core. If it is taken,
+/// [`bind_connector_listener`] walks nearby high ports and the bound port is
+/// written to `connector.json`.
+pub use crate::core::types::DEFAULT_CONNECTOR_PORT as SERVER_PORT;
 /// Preferred port plus this many decrements (skipping 0).
 const CONNECTOR_PORT_ATTEMPTS: u16 = 32;
 

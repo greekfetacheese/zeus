@@ -2,8 +2,8 @@ use super::{
    AddressBookHandle, ApprovalManagerHandle, BalanceManagerHandle, ClientManager, CurrencyDB,
    EnsCache, NftDB, PoolManagerHandle, price_manager::PriceManagerHandle, tx::TxDBHandle,
 };
+use crate::core::types::DEFAULT_CONNECTOR_PORT;
 use crate::core::{Vault, WalletInfo, WalletState, persisted, types::*};
-use crate::server::SERVER_PORT;
 use cache::CONNECTOR_CACHE_CAP;
 use persist::tighten_existing_secret_files;
 use std::collections::HashMap;
@@ -140,7 +140,7 @@ pub struct ZeusContext {
    /// Currently delegated wallets
    pub delegated_wallets: DelegatedWallets,
 
-   /// Local connector HTTP port (default [`crate::server::SERVER_PORT`];
+   /// Local connector HTTP port (default [`crate::core::types::DEFAULT_CONNECTOR_PORT`];
    /// may change at bind time if that port is taken).
    pub server_port: u16,
 
@@ -424,7 +424,7 @@ impl ZeusContext {
          priority_fee,
          connected_dapps: ConnectedDapps::default(),
          delegated_wallets,
-         server_port: SERVER_PORT,
+         server_port: DEFAULT_CONNECTOR_PORT,
          server_running: false,
          last_checked_for_available_rpcs: HashMap::new(),
          last_checked_for_malfunction: HashMap::new(),
