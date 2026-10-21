@@ -84,11 +84,21 @@ fn main() -> eframe::Result {
 
    let _tracing_guard = setup_tracing();
 
-   // The binary owns the one runtime every background task spawns on. It has to outlive
-   // `eframe::run_native` below, so it stays a local until `main` returns.
+   // The binary owns the one runtime every background task spawns on, and every exit path
+   // below goes through one bounded shutdown instead of dropping it implicitly: a plain drop
+   // waits for every blocking-pool task still running (see `runtime::SHUTDOWN_GRACE`).
    let runtime = runtime::build();
    runtime::init(&runtime);
 
+   let result = run_gui();
+
+   runtime.shutdown_timeout(runtime::SHUTDOWN_GRACE);
+   result
+}
+
+/// Everything that needs the runtime: the desktop-integration flags, the GUI install steps and
+/// the eframe loop. Split out of `main` so no early return can bypass the shutdown that follows.
+fn run_gui() -> eframe::Result {
    // Captured now, while it is still the truth: the updater replaces the running binary, after
    // which the OS reports a stale path (see `self_update::restart_target`).
    utils::self_update::remember_startup_exe();

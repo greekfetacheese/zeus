@@ -7,6 +7,14 @@ use tokio::runtime::{Builder, Handle, Runtime};
 
 static HANDLE: OnceLock<Handle> = OnceLock::new();
 
+/// How long the runtime is given to finish in-flight blocking work at exit.
+///
+/// `Runtime::drop` waits for every blocking-pool task still running, and one of them
+/// (`prefetch_railgun_circuits_if_allowed`) can be a multi-minute artifact download, so an
+/// unbounded drop turns "Quit" into a hang with no window to show it. The vault save that
+/// must finish is awaited before the close is allowed, so this only bounds what is left.
+pub const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
 pub fn build() -> Runtime {
    Builder::new_multi_thread()
       .enable_all()
@@ -39,4 +47,35 @@ pub fn test_handle() -> Handle {
    // publishing it here keeps `rt()` valid without a `main`.
    let _ = HANDLE.set(runtime.handle().clone());
    runtime.handle().clone()
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn shutdown_timeout_does_not_wait_for_a_running_blocking_task() {
+      let rt = build();
+      let handle = rt.handle().clone();
+
+      // Prove the blocking task is actually running before the shutdown, otherwise the
+      // pool has nothing to wait for and the measurement proves nothing.
+      let (started_tx, started_rx) = std::sync::mpsc::channel();
+      handle.spawn_blocking(move || {
+         let _ = started_tx.send(());
+         std::thread::sleep(std::time::Duration::from_secs(30));
+      });
+      started_rx
+         .recv_timeout(std::time::Duration::from_secs(10))
+         .expect("the blocking task must start before the shutdown");
+
+      let begin = std::time::Instant::now();
+      rt.shutdown_timeout(SHUTDOWN_GRACE);
+      let elapsed = begin.elapsed();
+
+      assert!(
+         elapsed < std::time::Duration::from_secs(10),
+         "shutdown waited {elapsed:?} for a blocking task; a plain drop would take 30 s"
+      );
+   }
 }
