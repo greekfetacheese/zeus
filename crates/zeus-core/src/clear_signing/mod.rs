@@ -1,6 +1,7 @@
 pub mod descriptor;
 pub mod display;
 pub mod format;
+pub mod pack;
 pub mod path;
 pub mod registry;
 pub mod sourcify;

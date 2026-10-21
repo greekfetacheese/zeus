@@ -9,7 +9,7 @@ use zeus_eth::abi::zeus::ZeusStateViewV3::PoolsState;
 use zeus_eth::alloy_primitives::FixedBytes;
 use zeus_eth::amm::uniswap::UniswapV4Pool;
 
-use crate::embedded::POOL_DATA;
+use crate::assets;
 use crate::platform::TimeStamp;
 use crate::platform::fs::write_private_atomic;
 use crate::{WalletStateKey, ZeusCtx, context::pool_data_dir, serde_hashmap};
@@ -665,21 +665,14 @@ pub struct PoolManager {
 
 impl Default for PoolManager {
    fn default() -> Self {
-      let manager: PoolManager = match serde_json::from_str(POOL_DATA) {
+      let Some(data) = assets::installed().pool_data() else {
+         return Self::empty();
+      };
+      let manager: PoolManager = match serde_json::from_str(data) {
          Ok(manager) => manager,
          Err(e) => {
             tracing::error!("Failed to parse pool data: {e}");
-            PoolManager {
-               pools: HashMap::new(),
-               last_discover: HashMap::new(),
-               v4_pool_last_discover: HashMap::new(),
-               checkpoints: HashMap::new(),
-               concurrency: default_concurrency(),
-               batch_size_for_updating_pool_state: default_batch_size_for_updating_pool_state(),
-               batch_size_for_discovering_pools: default_batch_size_for_discovering_pools(),
-               discover_v4_pools: default_discover_v4_pools(),
-               ignore_chains: default_ignore_chains(),
-            }
+            return Self::empty();
          }
       };
 
@@ -698,6 +691,24 @@ impl Default for PoolManager {
 }
 
 impl PoolManager {
+   /// The manager with no pools and the default settings.
+   ///
+   /// This is both the value used when no pool snapshot was installed and the fallback for a
+   /// snapshot that fails to parse.
+   fn empty() -> Self {
+      Self {
+         pools: HashMap::new(),
+         last_discover: HashMap::new(),
+         v4_pool_last_discover: HashMap::new(),
+         checkpoints: HashMap::new(),
+         concurrency: default_concurrency(),
+         batch_size_for_updating_pool_state: default_batch_size_for_updating_pool_state(),
+         batch_size_for_discovering_pools: default_batch_size_for_discovering_pools(),
+         discover_v4_pools: default_discover_v4_pools(),
+         ignore_chains: default_ignore_chains(),
+      }
+   }
+
    fn add_last_discover(&mut self, chain: u64, token_a: Address, token_b: Address) {
       let key = (chain, token_a, token_b);
       let now = TimeStamp::now_as_secs().unwrap_or_default();

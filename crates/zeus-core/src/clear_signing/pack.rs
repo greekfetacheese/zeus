@@ -1,21 +1,17 @@
-//! Brotli-packed ERC-7730 registry snapshot.
+//! Decoder for the brotli-packed ERC-7730 registry the host installs.
 //!
-//! Layout (repo root):
-//! ```text
-//! embedded/clear_signing/registry.bin.br
-//! ```
+//! Archive (then brotli): magic `Z773`, version `1`, little-endian `u32` count, then
+//! `(u16 path_len, path, u32 json_len, json)*`. Contains `index.*.json`, `registry/**/*.json`, and
+//! `ercs/**/*.json`.
 //!
-//! Archive (then brotli): magic `Z773`, version `1`, little-endian
-//! `u32` count, then `(u16 path_len, path, u32 json_len, json)*`.
-//! Contains `index.*.json`, `registry/**/*.json`, and `ercs/**/*.json`.
+//! The pack bytes are a build artefact of the binary that ships them, so core keeps only the
+//! format here: the bounds, the parser and the one-time cache. [`get`] reads the installed bytes
+//! through [`crate::assets`]; nothing is baked into this crate.
 
 use brotli::BrotliDecompress;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-const PACK_BR: &[u8] = include_bytes!("../../../../embedded/clear_signing/registry.bin.br");
-/// SHA-256 of the raw brotli pack bytes (`registry.bin.br`), so a rebuilt pack must change this line deliberately.
-pub const PACK_SHA256: &str = "28867e6cc735d33d8694daf49973a2299a9f33e330bbbdceb08dba73cb1ace54";
 const MAGIC: &[u8; 4] = b"Z773";
 const VERSION: u8 = 1;
 const MAX_DECODED_PACK: usize = 16 * 1024 * 1024;
@@ -24,13 +20,21 @@ const MAX_PATH: usize = 256;
 
 static FILES: OnceLock<HashMap<String, Vec<u8>>> = OnceLock::new();
 
-/// Uncompressed JSON bytes for a registry path, if present in the snapshot.
+/// Uncompressed JSON bytes for a registry path, if present in the installed snapshot.
+///
+/// `None` means either that the host installed no pack or that the path is not in it; neither is
+/// an error. A corrupt pack is logged once and then behaves like an empty one.
 pub fn get(path: &str) -> Option<&'static [u8]> {
-   FILES.get_or_init(load_pack).get(path).map(Vec::as_slice)
+   let compressed = crate::assets::installed().clear_signing_pack()?;
+   files(compressed).get(path).map(Vec::as_slice)
 }
 
-fn load_pack() -> HashMap<String, Vec<u8>> {
-   match decode_pack(PACK_BR) {
+fn files(compressed: &'static [u8]) -> &'static HashMap<String, Vec<u8>> {
+   FILES.get_or_init(|| load_pack(compressed))
+}
+
+fn load_pack(compressed: &[u8]) -> HashMap<String, Vec<u8>> {
+   match decode_pack(compressed) {
       Ok(map) => map,
       Err(e) => {
          tracing::error!("ERC-7730 embedded registry pack is corrupt: {e}");
@@ -39,7 +43,12 @@ fn load_pack() -> HashMap<String, Vec<u8>> {
    }
 }
 
-fn decode_pack(compressed: &[u8]) -> Result<HashMap<String, Vec<u8>>, String> {
+/// Decode one brotli-packed archive into its path → JSON map.
+///
+/// This is the format-level entry point: the host can validate the pack it is about to ship, while
+/// core's own consumers take [`get`], which reads the installed bytes through [`crate::assets`].
+/// Every bound below is part of the archive format and an error means the pack is malformed.
+pub fn decode_pack(compressed: &[u8]) -> Result<HashMap<String, Vec<u8>>, String> {
    let mut raw = Vec::new();
    BrotliDecompress(&mut &compressed[..], &mut raw).map_err(|e| format!("brotli: {e}"))?;
    if raw.len() > MAX_DECODED_PACK {
@@ -112,37 +121,5 @@ impl<'a> Cursor<'a> {
    fn u32(&mut self) -> Result<u32, String> {
       let b = self.take(4)?;
       Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-   }
-}
-
-#[cfg(test)]
-mod tests {
-   use super::*;
-   use sha2::{Digest, Sha256};
-
-   fn hex_digest(bytes: &[u8]) -> String {
-      Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
-   }
-
-   #[test]
-   fn embedded_pack_matches_the_pack_digest() {
-      let actual = hex_digest(PACK_BR);
-      assert_eq!(
-         actual, PACK_SHA256,
-         "embedded pack digest drifted; update PACK_SHA256 to {actual}"
-      );
-
-      let files = FILES.get_or_init(load_pack);
-      for path in ["index.eip712.json", "index.calldata.json"] {
-         assert!(
-            files.contains_key(path),
-            "embedded pack is missing {path}"
-         );
-      }
-      assert!(
-         files.len() > 1000,
-         "embedded pack has only {} entries",
-         files.len()
-      );
    }
 }

@@ -1,5 +1,6 @@
 use super::super::{ZeusContext, ZeusCtx};
 use super::{railgun_db_file, railgun_dir};
+use crate::assets;
 use crate::platform::malloc_trim;
 use crate::types::*;
 use crate::urls::ZeusUrl;
@@ -66,7 +67,7 @@ pub async fn create_railgun_provider(
       ZeusUrl::RailgunCircuitArtifacts.base(),
       Some(railgun_dir),
    )
-   .with_embedded_circuits(crate::embedded::railgun::embedded_circuits())
+   .with_embedded_circuits(assets::installed().railgun_circuits())
    .with_allow_download(allow_circuit_download);
 
    let railgun_provider = RailgunProvider::new(

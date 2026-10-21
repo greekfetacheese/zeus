@@ -1,5 +1,5 @@
 use super::descriptor::{self, Descriptor};
-use crate::embedded::clear_signing as embedded_registry;
+use super::pack;
 use serde_json::Value;
 use zeus_eth::alloy_primitives::{Address, B256};
 
@@ -10,8 +10,8 @@ const MAX_INCLUDE_DEPTH: usize = 3;
 /// Reject path traversal / absolute URLs before any embedded lookup.
 ///
 /// Guards the shape of a registry path, not its integrity: descriptor bytes come
-/// only from the embedded pack, whose digest is pinned by
-/// [`crate::embedded::clear_signing::PACK_SHA256`].
+/// only from the pack the host installs, and the binary that ships that pack pins
+/// its SHA-256 in its own test — an artefact digest core cannot see.
 pub(super) fn is_allowed_registry_path(path: &str) -> bool {
    if path.is_empty() || path.starts_with('/') || path.contains('\\') {
       return false;
@@ -41,7 +41,7 @@ fn ensure_allowed_path(registry_path: &str) -> Result<(), anyhow::Error> {
 }
 
 fn read_embedded_json(registry_path: &str) -> Result<Option<Value>, anyhow::Error> {
-   let Some(bytes) = embedded_registry::get(registry_path) else {
+   let Some(bytes) = pack::get(registry_path) else {
       return Ok(None);
    };
    Ok(Some(serde_json::from_slice(bytes)?))
@@ -295,14 +295,62 @@ pub fn calldata_index_lookup_for_tests(index: &Value, chain: u64, to: Address) -
 #[cfg(test)]
 mod tests {
    use super::*;
+   use crate::assets::{self, EmbeddedAssets};
+   use brotli::{BrotliCompress, enc::BrotliEncoderParams};
+   use zeus_railgun::EmbeddedCircuit;
 
-   /// Descriptors are served only from the embedded pack.
+   /// A one-entry pack in the documented archive layout, brotli-compressed.
    ///
-   /// The embedded index resolves with no opt-in and no network; a path the allowlist rejects is
+   /// The shipped pack's own integrity is guarded in the binary that ships it; this test only
+   /// needs a pack to exist, so it installs this synthetic one through the port.
+   fn synthetic_pack() -> &'static [u8] {
+      let path = EIP712_INDEX_PATH.as_bytes();
+      let json = b"{}";
+
+      let mut archive = Vec::new();
+      archive.extend_from_slice(b"Z773");
+      archive.push(1);
+      archive.extend_from_slice(&1u32.to_le_bytes());
+      archive.extend_from_slice(&(path.len() as u16).to_le_bytes());
+      archive.extend_from_slice(path);
+      archive.extend_from_slice(&(json.len() as u32).to_le_bytes());
+      archive.extend_from_slice(json);
+
+      let mut compressed = Vec::new();
+      BrotliCompress(
+         &mut &archive[..],
+         &mut compressed,
+         &BrotliEncoderParams::default(),
+      )
+      .expect("compress the synthetic registry pack");
+      Box::leak(compressed.into_boxed_slice())
+   }
+
+   struct SyntheticAssets(&'static [u8]);
+
+   impl EmbeddedAssets for SyntheticAssets {
+      fn pool_data(&self) -> Option<&'static str> {
+         None
+      }
+
+      fn clear_signing_pack(&self) -> Option<&'static [u8]> {
+         Some(self.0)
+      }
+
+      fn railgun_circuits(&self) -> Vec<EmbeddedCircuit> {
+         Vec::new()
+      }
+   }
+
+   /// Descriptors are served only from the pack the host installs.
+   ///
+   /// The installed index resolves with no opt-in and no network; a path the allowlist rejects is
    /// refused before it can be read from anywhere; and an allowed path the pack does not carry
    /// fails without naming a URL, because there is no remote registry left to reach.
    #[tokio::test]
    async fn descriptors_are_served_only_from_the_embedded_pack() {
+      assets::install(SyntheticAssets(synthetic_pack()));
+
       assert!(
          get_json(EIP712_INDEX_PATH).await.is_ok(),
          "the embedded index must be served without the opt-in"

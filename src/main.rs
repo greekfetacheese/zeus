@@ -18,6 +18,7 @@ use tracing_subscriber::{
 pub mod assets;
 pub mod connector;
 pub use zeus_core as core;
+pub mod embedded;
 pub mod gui;
 pub mod runtime;
 pub mod server;
@@ -106,6 +107,10 @@ fn main() -> eframe::Result {
       utils::desktop_integration::set_enabled(false);
       return Ok(());
    }
+
+   // Core knows the asset formats but not the bytes; the snapshots and circuit
+   // artefacts this binary ships are installed once, before any context can read them.
+   crate::core::assets::install(crate::embedded::Assets);
 
    // Core raises its prompts through this port; the GUI implementation must be
    // attached before any flow can reach one. The early returns above never open

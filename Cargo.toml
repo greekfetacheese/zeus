@@ -170,6 +170,10 @@ libc = "=0.2.189"
 # other target — see build.rs, which returns early unless the *target* OS is Windows.
 winresource = "0.1"
 
+[dev-dependencies]
+# The binary's own test pins the digest of the ERC-7730 pack it ships.
+sha2 = "0.10"
+
 [profile.dev]
 # Default debug=2 emits full DWARF and a ~1GB zeus binary. Line tables are
 # enough for backtraces and keep incremental artifacts / linking much smaller.

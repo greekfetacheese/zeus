@@ -40,9 +40,6 @@ tokio = { version = "=1.47.1", features = ["rt-multi-thread", "sync", "time", "m
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.189"
 
-[dev-dependencies]
-sha2 = "0.10"
-
 [features]
 dev = []
 
