@@ -3,7 +3,7 @@ use super::{railgun_db_file, railgun_dir};
 use crate::assets;
 use crate::persisted::{PersistedTree, ensure_tree_dir};
 use crate::platform::malloc_trim;
-use crate::types::*;
+use crate::types::RailgunStatus;
 use crate::urls::ZeusUrl;
 use anyhow::anyhow;
 use std::time::{Duration, Instant};

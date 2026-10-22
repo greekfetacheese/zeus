@@ -18,7 +18,11 @@ use zeus_eth::{
 };
 
 use super::events::decode::{DecodeCtx, decode_transaction};
-use super::events::*;
+use super::events::{
+   BridgeParams, DecodedEvent, EOADelegateParams, NftApproveParams, NftTransferParams,
+   PermitParams, ShieldParams, SwapParams, TokenApproveParams, TransferParams,
+   UniswapPositionParams, UnshieldParams, UnwrapWETHParams, WrapETHParams,
+};
 use crate::sim::approval_diff::{
    ApprovalChange, ApprovalDiff, ApprovalKind, NftApprovalChange, NftApprovalTarget,
    NftApprovalValue,
