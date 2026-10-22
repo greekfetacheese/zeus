@@ -20,7 +20,8 @@ use zeus_eth::{
 use anyhow::anyhow;
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::{sync::Arc, time::Instant};
+use std::sync::{Arc, LazyLock};
+use std::time::Instant;
 use tokio::{
    sync::{Mutex, Semaphore},
    task::JoinHandle,
@@ -481,7 +482,7 @@ pub fn railgun_common_accounts(chain: u64) -> Vec<Address> {
    accounts
 }
 
-pub fn railgun_smart_wallet_known_slots() -> Vec<U256> {
+static RAILGUN_SMART_WALLET_KNOWN_SLOTS: LazyLock<Vec<U256>> = LazyLock::new(|| {
    vec![
       U256::from(100),
       U256::from(101),
@@ -665,6 +666,10 @@ pub fn railgun_smart_wallet_known_slots() -> Vec<U256> {
       )
       .unwrap(),
    ]
+});
+
+pub fn railgun_smart_wallet_known_slots() -> Vec<U256> {
+   RAILGUN_SMART_WALLET_KNOWN_SLOTS.clone()
 }
 
 #[derive(Clone, Copy, Debug)]

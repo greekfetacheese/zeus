@@ -54,11 +54,12 @@ impl TimeStamp {
       }
    }
 
-   pub fn cmp(&self, other: &Self) -> Ordering {
-      match (self, other) {
-         (TimeStamp::Seconds(a), TimeStamp::Seconds(b)) => a.cmp(b),
-         (TimeStamp::Millis(a), TimeStamp::Millis(b)) => a.cmp(b),
-         _ => Ordering::Equal,
+   /// Exact instant expressed in milliseconds. `u128` because scaling a `u64` second count by
+   /// 1000 can exceed `u64`.
+   fn as_millis(&self) -> u128 {
+      match self {
+         TimeStamp::Seconds(seconds) => u128::from(*seconds) * 1000,
+         TimeStamp::Millis(millis) => u128::from(*millis),
       }
    }
 
@@ -89,6 +90,18 @@ impl TimeStamp {
          Some(dt) => dt,
          None => DateTime::<Utc>::default(),
       }
+   }
+}
+
+impl PartialOrd for TimeStamp {
+   fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+      Some(self.cmp(other))
+   }
+}
+
+impl Ord for TimeStamp {
+   fn cmp(&self, other: &Self) -> Ordering {
+      self.as_millis().cmp(&other.as_millis())
    }
 }
 
@@ -152,4 +165,16 @@ fn timestamp_to_relative_time(timestamp: &TimeStamp) -> String {
    }
 
    format!("Invalid timestamp")
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn a_mixed_variant_pair_is_not_equal() {
+      let secs = TimeStamp::Seconds(1);
+      let millis = TimeStamp::Millis(1_500);
+      assert_ne!(secs.cmp(&millis), std::cmp::Ordering::Equal);
+   }
 }
