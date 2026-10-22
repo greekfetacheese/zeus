@@ -6,7 +6,7 @@ pub mod data_import;
 pub mod persisted;
 pub mod platform;
 pub mod signature;
-pub mod simulate;
+pub mod sim;
 pub mod tx;
 pub mod types;
 pub mod ui;
@@ -22,10 +22,8 @@ pub use platform::{
    truncate_hash, write_private, write_private_atomic, write_private_from_reader,
 };
 pub use signature::{msg::SignMsgType, sign::sign_message};
-pub use tx::{
-   analysis::*, approval_diff::*, approve::*, balance_diff::*, events::*, finalize::*, rich::*,
-   send::*, send_calls::*,
-};
+pub use sim::{approval_diff::*, balance_diff::*};
+pub use tx::{analysis::*, approve::*, events::*, finalize::*, rich::*, send::*, send_calls::*};
 pub use vault::*;
 pub use wallet::*;
 pub use wallet_state::{WalletState, WalletStateInner, WalletStateKey};

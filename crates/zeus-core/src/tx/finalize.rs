@@ -1,8 +1,6 @@
 //! Turn a mined transaction into the recorded model the app displays.
 
 use super::analysis::TransactionAnalysis;
-use super::approval_diff::ApprovalDiff;
-use super::balance_diff::BalanceDiff;
 use super::events::{DecodedEvent, NftTransferParams};
 use super::notification::NotificationType;
 use super::rich::TransactionRich;
@@ -10,6 +8,8 @@ use crate::ZeusCtx;
 use crate::clear_signing::{self, ClearDisplay};
 use crate::context::estimate_tx_cost;
 use crate::platform::TimeStamp;
+use crate::sim::approval_diff::ApprovalDiff;
+use crate::sim::balance_diff::BalanceDiff;
 use crate::ui;
 use alloy_consensus::TxType;
 use alloy_eips::eip7702::SignedAuthorization;

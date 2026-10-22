@@ -1,6 +1,6 @@
 use crate::context::get_base_fee;
 use crate::platform::TimeStamp;
-use crate::simulate::eip7702_implementation;
+use crate::sim::eip7702_implementation;
 use crate::types::EnsRecipientGuard;
 use crate::{
    ClientKind, TransactionAnalysis, TransactionRich, ZeusCtx, client::CLIENT_TIMEOUT_FOR_SENDING_TX,
@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use super::finalize::{MainEvent, MinedTx, RecordPolicy, build_tx_outcome, record_and_notify};
 use crate::clear_signing::ClearDisplay;
+use crate::sim::diff::{diffs_from_receipt, simulate_and_diff};
 use crate::tx::notification::NotificationType;
-use crate::tx::{diffs_from_receipt, simulate_and_diff};
 use crate::ui::{self, ConfirmRequest, PromptOpen, TxConfirmRequest};
 use zeus_eth::{
    alloy_contract::private::Provider,
