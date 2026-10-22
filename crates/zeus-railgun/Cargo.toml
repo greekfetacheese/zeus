@@ -1,8 +1,14 @@
 [package]
 name = "zeus-railgun"
+description = "Railgun shielded-pool client: keys, notes, merkle trees, Groth16 proving and indexer sync"
+readme = "README.md"
+repository = "https://github.com/greekfetacheese/zeus/tree/master/crates/zeus-railgun"
 version = "0.1.1"
 edition = "2024"
-publish = false
+authors = ["Michalis Molfetas <greekfetacheese@proton.me>"]
+license = "MIT"
+keywords = ["railgun", "privacy", "shielded-pool", "ethereum", "zero-knowledge"]
+categories = ["cryptography"]
 
 [dependencies]
 
@@ -16,8 +22,8 @@ alloy-contract = { workspace = true }
 ruint = { workspace = true, features = ["serde", "num-bigint", "ark-ff-06", "zeroize"] }
 
 # Internal
-zeus-poseidon = { path = "../zeus-poseidon" }
-zeus-userop-kit = { path = "../zeus-userop-kit" }
+zeus-poseidon = { path = "../zeus-poseidon", version = "0.1" }
+zeus-userop-kit = { path = "../zeus-userop-kit", version = "0.1" }
 
 # Crypto
 chacha20poly1305 = "0.10"
@@ -61,7 +67,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs"] }
 
 [dev-dependencies]
 bip39 = "2"
-zeus-wallet = { path = "../zeus-wallet" }
+zeus-wallet = { path = "../zeus-wallet", version = "0.1" }
 # The library's own tokio has no `net`/`time`; the artifact-download tests stand a localhost server up
 # and bound the read with a clock, so they need both — scoped here so the library's features are not.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "net", "time"] }

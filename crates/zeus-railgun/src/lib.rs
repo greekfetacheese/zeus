@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 pub mod abi;
 pub mod account;
 pub mod adapter_data;
