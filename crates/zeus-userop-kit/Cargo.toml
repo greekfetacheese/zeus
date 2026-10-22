@@ -1,8 +1,14 @@
 [package]
-name = "userop-kit"
+name = "zeus-userop-kit"
+description = "ERC-4337 user operation builder and bundler client for EntryPoint 0.7 and 0.8"
+readme = "README.md"
+repository = "https://github.com/greekfetacheese/zeus/tree/master/crates/zeus-userop-kit"
 version = "0.1.0"
 edition = "2024"
-publish = false
+authors = ["Michalis Molfetas <greekfetacheese@proton.me>"]
+license = "MIT"
+keywords = ["erc4337", "account-abstraction", "useroperation", "bundler", "ethereum"]
+categories = ["cryptography"]
 
 [dependencies]
 

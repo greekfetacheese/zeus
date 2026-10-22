@@ -4,7 +4,6 @@ use super::TransactionRich;
 use super::send::{SendTxOptions, SendTxRequest, send_transaction, signed_7702_authorization};
 use crate::ZeusCtx;
 use anyhow::anyhow;
-use userop_kit::smart_account::simple_smart_account::SIMPLE_7702_ACCOUNT;
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256},
    alloy_provider::Provider,
@@ -12,6 +11,7 @@ use zeus_eth::{
    alloy_sol_types::SolCall,
    types::ChainId,
 };
+use zeus_userop_kit::smart_account::simple_smart_account::SIMPLE_7702_ACCOUNT;
 
 /// One call from an EIP-5792 `wallet_sendCalls` request.
 #[derive(Clone, Debug, PartialEq, Eq)]

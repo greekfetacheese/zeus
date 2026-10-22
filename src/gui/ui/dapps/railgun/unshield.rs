@@ -9,10 +9,6 @@ use tokio::time::sleep;
 use alloy_consensus::TxType;
 use alloy_signer_local::PrivateKeySigner;
 use anyhow::anyhow;
-use userop_kit::{
-   bundler::PimlicoBundler,
-   smart_account::simple_smart_account::{Call, SIMPLE_7702_ACCOUNT, SimpleSmartAccount},
-};
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, KECCAK256_EMPTY, Log, U256, keccak256},
    alloy_provider::Provider,
@@ -28,6 +24,10 @@ use zeus_eth::{
 use zeus_railgun::{
    PrivateHistoryKind, RailgunSigner, adapter_data::decode_fee_from_paymaster_data, caip::AssetId,
    encode_history_memo, rand::SeedableRng, rand_chacha::ChaCha12Rng, transact::TransactionBuilder,
+};
+use zeus_userop_kit::{
+   bundler::PimlicoBundler,
+   smart_account::simple_smart_account::{Call, SIMPLE_7702_ACCOUNT, SimpleSmartAccount},
 };
 
 use crate::{
