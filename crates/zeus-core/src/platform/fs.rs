@@ -13,10 +13,10 @@ use std::path::{Path, PathBuf};
 /// replaced with a protected owner-only ACE. Other platforms fall back to
 /// [`std::fs::write`].
 pub fn write_private(path: &Path, contents: &[u8]) -> Result<(), anyhow::Error> {
-   if let Some(parent) = path.parent() {
-      if !parent.as_os_str().is_empty() {
-         std::fs::create_dir_all(parent)?;
-      }
+   if let Some(parent) = path.parent()
+      && !parent.as_os_str().is_empty()
+   {
+      std::fs::create_dir_all(parent)?;
    }
 
    #[cfg(unix)]
@@ -80,10 +80,10 @@ pub fn write_private_atomic(path: &Path, contents: &[u8]) -> Result<(), anyhow::
 ///
 /// Prefer this over buffering a large Railgun DB / snapshot in memory.
 pub fn write_private_from_reader(path: &Path, mut reader: impl Read) -> Result<(), anyhow::Error> {
-   if let Some(parent) = path.parent() {
-      if !parent.as_os_str().is_empty() {
-         std::fs::create_dir_all(parent)?;
-      }
+   if let Some(parent) = path.parent()
+      && !parent.as_os_str().is_empty()
+   {
+      std::fs::create_dir_all(parent)?;
    }
 
    let tmp = tmp_path(path);

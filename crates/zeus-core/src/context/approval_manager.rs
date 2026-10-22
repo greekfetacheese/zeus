@@ -416,9 +416,9 @@ mod tests {
    const COLLECTION: Address = address!("BC4CA0EdA7647A8aB7C2061c2E118A18a936f13D");
    const OPERATOR: Address = address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266");
 
-   /// These go through the real decoders, so the tests consume what the ladder emits rather than
-   /// hand-built lookalikes — a key that disagrees with the decoder's output would otherwise go
-   /// unnoticed here and only surface as a missing row in the UI.
+   // These go through the real decoders, so the tests consume what the ladder emits rather than
+   // hand-built lookalikes — a key that disagrees with the decoder's output would otherwise go
+   // unnoticed here and only surface as a missing row in the UI.
 
    fn per_token(owner: Address, token_id: u64, approved: Address) -> NftApproveParams {
       let log = Log {

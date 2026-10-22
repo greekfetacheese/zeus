@@ -126,16 +126,16 @@ impl SignMsgType {
             // Only clear-sign a chain Zeus can name: the prompt renders the message's chain as a
             // `ChainId`, so an unsupported domain chain would panic there. Refusing here means the
             // message falls through to the raw-JSON review below, which names no chain at all.
-            if let Some(clear_chain) = clear_sign_chain(typed.domain.chain_id) {
-               if let Some(display) = clear_signing::try_clear_sign_typed_data(ctx, &typed).await {
-                  return Ok(Self::ClearSigned(ClearSignedDetails {
-                     raw: value,
-                     display,
-                     // The descriptor and every value above were resolved for the domain's chain, so
-                     // that is the chain the prompt has to name.
-                     chain: clear_chain,
-                  }));
-               }
+            if let Some(clear_chain) = clear_sign_chain(typed.domain.chain_id)
+               && let Some(display) = clear_signing::try_clear_sign_typed_data(ctx, &typed).await
+            {
+               return Ok(Self::ClearSigned(ClearSignedDetails {
+                  raw: value,
+                  display,
+                  // The descriptor and every value above were resolved for the domain's chain, so
+                  // that is the chain the prompt has to name.
+                  chain: clear_chain,
+               }));
             }
          }
          return Ok(Self::Other(value));

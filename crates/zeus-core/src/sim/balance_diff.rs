@@ -268,18 +268,18 @@ pub fn collect_nft_balance_candidates(
          continue;
       }
 
-      if let Ok(batch) = erc1155::decode_transfer_batch_log(log) {
-         if batch.from == owner || batch.to == owner {
-            for id in batch.ids {
-               push_nft_candidate(
-                  &mut out,
-                  NftCandidate {
-                     collection: log.address,
-                     token_id: id,
-                     standard: NftStandard::Erc1155,
-                  },
-               );
-            }
+      if let Ok(batch) = erc1155::decode_transfer_batch_log(log)
+         && (batch.from == owner || batch.to == owner)
+      {
+         for id in batch.ids {
+            push_nft_candidate(
+               &mut out,
+               NftCandidate {
+                  collection: log.address,
+                  token_id: id,
+                  standard: NftStandard::Erc1155,
+               },
+            );
          }
       }
    }

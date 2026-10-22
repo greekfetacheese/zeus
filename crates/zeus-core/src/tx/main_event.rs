@@ -105,10 +105,10 @@ impl TransactionAnalysis {
       }
 
       // Multi-hop swap composition
-      if self.swaps_len() > 1 {
-         if let Some(params) = compose_multi_hop_swap(self) {
-            return DecodedEvent::SwapToken(params);
-         }
+      if self.swaps_len() > 1
+         && let Some(params) = compose_multi_hop_swap(self)
+      {
+         return DecodedEvent::SwapToken(params);
       }
 
       DecodedEvent::Other
@@ -282,10 +282,8 @@ fn compose_multi_hop_swap(analysis: &TransactionAnalysis) -> Option<SwapParams> 
 }
 
 fn apply_eth_weth_abstraction(analysis: &TransactionAnalysis, params: &mut SwapParams) {
-   if params.input_currency.is_native_wrapped() {
-      if analysis.value > U256::ZERO {
-         params.input_currency = NativeCurrency::from(analysis.chain).into();
-      }
+   if params.input_currency.is_native_wrapped() && analysis.value > U256::ZERO {
+      params.input_currency = NativeCurrency::from(analysis.chain).into();
    }
 
    if params.output_currency.is_native_wrapped() && analysis.weth_unwraps_len() == 1 {

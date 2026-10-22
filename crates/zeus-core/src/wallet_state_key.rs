@@ -175,8 +175,10 @@ fn ct_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 fn brotli_compress(input: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-   let mut params = BrotliEncoderParams::default();
-   params.quality = BROTLI_QUALITY;
+   let params = BrotliEncoderParams {
+      quality: BROTLI_QUALITY,
+      ..Default::default()
+   };
    let mut out = Vec::new();
    BrotliCompress(&mut Cursor::new(input), &mut out, &params)
       .map_err(|e| anyhow!("brotli compress wallet state: {e}"))?;

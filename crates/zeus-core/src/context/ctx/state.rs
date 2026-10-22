@@ -269,12 +269,10 @@ impl ZeusContext {
          total_private += portfolio.private_value().f64();
       }
 
-      let owner_value = WalletValue {
+      WalletValue {
          public: NumericValue::from_f64(total_public),
          private: NumericValue::from_f64(total_private),
-      };
-
-      owner_value
+      }
    }
 
    /// Disable the given chain

@@ -53,5 +53,10 @@ libc = "=0.2.189"
 dev = ["test-fixtures"]
 test-fixtures = []
 
-[lints]
-clippy = { new_without_default = "allow", too_many_arguments = "allow", unnecessary_unwrap = "allow", needless_return = "allow", needless_borrow = "deny" }
+[lints.clippy]
+new_without_default = "allow"
+too_many_arguments = "allow"
+unnecessary_unwrap = "allow"
+needless_return = "allow"
+needless_borrow = "deny"
+large_enum_variant = "allow"

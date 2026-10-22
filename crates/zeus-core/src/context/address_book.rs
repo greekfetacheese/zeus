@@ -24,7 +24,7 @@ const ADDRESS_BOOK_AAD: &[u8] = b"zeus-address-book-v2";
 
 type NameMap = HashMap<(u64, Address), Arc<str>>;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct AddressBook {
    #[serde(with = "serde_hashmap")]
    names: NameMap,
@@ -34,16 +34,6 @@ pub struct AddressBook {
    /// True after a successful load or first save.
    #[serde(skip)]
    persisted: bool,
-}
-
-impl Default for AddressBook {
-   fn default() -> Self {
-      Self {
-         names: HashMap::new(),
-         pending: HashSet::new(),
-         persisted: false,
-      }
-   }
 }
 
 #[derive(Clone)]
@@ -187,10 +177,10 @@ impl AddressBookHandle {
 
    pub fn seed_contacts<'a>(&self, contacts: impl IntoIterator<Item = &'a Contact>) {
       for contact in contacts {
-         if let Ok(address) = Address::from_str(&contact.evm_address) {
-            if !contact.name.is_empty() {
-               self.insert_identity(address, contact.name.as_str());
-            }
+         if let Ok(address) = Address::from_str(&contact.evm_address)
+            && !contact.name.is_empty()
+         {
+            self.insert_identity(address, contact.name.as_str());
          }
       }
    }

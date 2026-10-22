@@ -152,10 +152,10 @@ pub async fn build_tx_outcome(
       analysis.set_diffs(balance, approval);
    }
 
-   if policy.onchain_swap_received {
-      if let Err(e) = analysis.apply_onchain_swap_received(ctx.clone(), block).await {
-         tracing::warn!("Failed to apply on-chain swap received: {:?}", e);
-      }
+   if policy.onchain_swap_received
+      && let Err(e) = analysis.apply_onchain_swap_received(ctx.clone(), block).await
+   {
+      tracing::warn!("Failed to apply on-chain swap received: {:?}", e);
    }
 
    let main_event = match main_event {

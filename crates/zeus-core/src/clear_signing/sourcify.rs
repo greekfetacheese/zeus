@@ -62,23 +62,20 @@ pub fn parse_implementation(value: &Value) -> Option<Address> {
       .pointer("/implementation/address")
       .and_then(|v| v.as_str())
       .or_else(|| proxy.get("implementation").and_then(|v| v.as_str()))
+      && let Ok(addr) = Address::from_str(s)
+      && !addr.is_zero()
    {
-      if let Ok(addr) = Address::from_str(s) {
-         if !addr.is_zero() {
-            return Some(addr);
-         }
-      }
+      return Some(addr);
    }
 
    if let Some(arr) = proxy.get("implementations").and_then(|v| v.as_array()) {
       for item in arr {
          let s = item.get("address").and_then(|v| v.as_str()).or_else(|| item.as_str());
-         if let Some(s) = s {
-            if let Ok(addr) = Address::from_str(s) {
-               if !addr.is_zero() {
-                  return Some(addr);
-               }
-            }
+         if let Some(s) = s
+            && let Ok(addr) = Address::from_str(s)
+            && !addr.is_zero()
+         {
+            return Some(addr);
          }
       }
    }

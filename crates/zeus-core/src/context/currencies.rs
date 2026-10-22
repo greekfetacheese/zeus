@@ -69,7 +69,7 @@ impl CurrencyDB {
       let tokens = self.tokens.get(&chain_id);
 
       if let Some(tokens) = tokens {
-         for (_, token) in tokens {
+         for token in tokens.values() {
             currencies.push(Currency::from(token.clone()));
          }
       }

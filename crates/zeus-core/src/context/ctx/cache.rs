@@ -29,10 +29,10 @@ where
    K: Eq + std::hash::Hash + Clone,
 {
    map.insert(key, value);
-   if map.len() >= CONNECTOR_CACHE_CAP {
-      if let Some(oldest) = map.keys().next().cloned() {
-         map.remove(&oldest);
-      }
+   if map.len() >= CONNECTOR_CACHE_CAP
+      && let Some(oldest) = map.keys().next().cloned()
+   {
+      map.remove(&oldest);
    }
 }
 
@@ -141,7 +141,7 @@ impl ZeusCtx {
          cache_insert_capped(
             &mut ctx.storage,
             (chain, block, address, slot),
-            storage.clone(),
+            storage,
          );
       });
 
@@ -201,10 +201,10 @@ impl ZeusCtx {
       let block_time = chain.block_time_millis();
       let now = TimeStamp::now_as_millis()?.timestamp();
 
-      if let Some(res) = res {
-         if cache_elapsed_fresh(now, res.timestamp, block_time) {
-            return Ok(res.gas);
-         }
+      if let Some(res) = res
+         && cache_elapsed_fresh(now, res.timestamp, block_time)
+      {
+         return Ok(res.gas);
       }
 
       let client = self.get_client_manager();
@@ -239,10 +239,10 @@ impl ZeusCtx {
       let now = TimeStamp::now_as_millis()?.timestamp();
       let eth_call = self.read(|ctx| ctx.eth_calls.get(&(chain.id(), tx.clone())).cloned());
 
-      if let Some(eth_call) = eth_call {
-         if cache_elapsed_fresh(now, eth_call.timestamp, block_time) {
-            return Ok(eth_call);
-         }
+      if let Some(eth_call) = eth_call
+         && cache_elapsed_fresh(now, eth_call.timestamp, block_time)
+      {
+         return Ok(eth_call);
       }
 
       let z_client = self.get_client_manager();
@@ -391,10 +391,11 @@ impl ZeusCtx {
       let now = TimeStamp::now_as_millis()?.timestamp();
       let cached = self.read(|ctx| ctx.blocks_by_hash.get(&(chain.id(), hash)).cloned());
 
-      if let Some(cached) = cached {
-         if cached.hydrated == hydrated && cache_elapsed_fresh(now, cached.timestamp, block_time) {
-            return Ok(Some(cached.block));
-         }
+      if let Some(cached) = cached
+         && cached.hydrated == hydrated
+         && cache_elapsed_fresh(now, cached.timestamp, block_time)
+      {
+         return Ok(Some(cached.block));
       }
 
       let z_client = self.get_client_manager();
@@ -439,10 +440,10 @@ impl ZeusCtx {
       let now = TimeStamp::now_as_millis()?.timestamp();
       let cached = self.read(|ctx| ctx.tx_counts.get(&(chain.id(), address)).cloned());
 
-      if let Some(cached) = cached {
-         if cache_elapsed_fresh(now, cached.timestamp, block_time) {
-            return Ok(cached.count);
-         }
+      if let Some(cached) = cached
+         && cache_elapsed_fresh(now, cached.timestamp, block_time)
+      {
+         return Ok(cached.count);
       }
 
       let z_client = self.get_client_manager();

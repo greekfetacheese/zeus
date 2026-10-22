@@ -125,10 +125,10 @@ pub fn import_data_from_zip(
    for (_, parts) in &ordered {
       let staged = join_parts(staging.path(), parts);
       let dest = join_parts(dest_data_dir, parts);
-      if let Some(parent) = dest.parent() {
-         if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)?;
-         }
+      if let Some(parent) = dest.parent()
+         && !parent.as_os_str().is_empty()
+      {
+         std::fs::create_dir_all(parent)?;
       }
       move_into_place(&staged, &dest)?;
       restrict_parents(dest_data_dir, parts);

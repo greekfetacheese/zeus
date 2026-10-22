@@ -49,7 +49,7 @@ where
    evm.tx.data = call_data.clone();
    evm.tx.value = value;
 
-   if authorization_list.len() > 0 {
+   if !authorization_list.is_empty() {
       evm.tx.authorization_list = authorization_list.into_iter().map(Either::Left).collect();
       evm.tx.tx_type = 4;
    }

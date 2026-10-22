@@ -363,7 +363,7 @@ pub async fn fetch_accounts_info(
          info: AccountInfo {
             nonce,
             balance,
-            code: code.map(|bytes| Bytecode::new_raw(bytes)),
+            code: code.map(Bytecode::new_raw),
             account_id: None,
             code_hash,
          },
@@ -541,9 +541,7 @@ pub async fn fetch_storage_for_railgun(
       slots: railgun_smart_wallet_known_slots(),
    };
 
-   let account_storage = fetch_storage(ctx.clone(), chain, block_id, account).await;
-
-   account_storage
+   fetch_storage(ctx.clone(), chain, block_id, account).await
 }
 
 pub async fn fetch_storage_for_pools(
@@ -603,8 +601,7 @@ pub async fn fetch_storage_for_pools(
       }
    }
 
-   let accounts = Arc::try_unwrap(accounts).unwrap().into_inner();
-   accounts
+   Arc::try_unwrap(accounts).unwrap().into_inner()
 }
 
 pub async fn fetch_storage(

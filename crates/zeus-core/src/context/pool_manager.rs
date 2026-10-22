@@ -88,7 +88,7 @@ impl PoolManagerHandle {
 
    /// Serialize the [PoolManager] to a JSON string
    pub fn to_string(&self) -> Result<String, serde_json::Error> {
-      self.read(|manager| serde_json::to_string(manager))
+      self.read(serde_json::to_string)
    }
 
    pub fn load_from_file(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
@@ -767,9 +767,9 @@ impl PoolManager {
          if pool.chain_id() != chain_id {
             continue;
          }
-         if pool.is_currency0(currency_a) && pool.is_currency1(currency_b) {
-            pools.push(pool.clone());
-         } else if pool.is_currency0(currency_b) && pool.is_currency1(currency_a) {
+         if (pool.is_currency0(currency_a) && pool.is_currency1(currency_b))
+            || (pool.is_currency0(currency_b) && pool.is_currency1(currency_a))
+         {
             pools.push(pool.clone());
          }
       }
@@ -1087,11 +1087,11 @@ fn get_batches(
 
    // Process in concurrent batches, chunking each pool type proportionally
    // so each batch includes slices from all 3 types of pools.
-   let num_batches = (total_pools + batch_size - 1) / batch_size;
+   let num_batches = total_pools.div_ceil(batch_size);
 
-   let chunk_size_v2 = (all_v2_addresses.len() + num_batches - 1) / num_batches;
-   let chunk_size_v3 = (all_v3_pool_info.len() + num_batches - 1) / num_batches;
-   let chunk_size_v4 = (all_v4_pool_info.len() + num_batches - 1) / num_batches;
+   let chunk_size_v2 = all_v2_addresses.len().div_ceil(num_batches);
+   let chunk_size_v3 = all_v3_pool_info.len().div_ceil(num_batches);
+   let chunk_size_v4 = all_v4_pool_info.len().div_ceil(num_batches);
 
    let mut batches = Vec::new();
 

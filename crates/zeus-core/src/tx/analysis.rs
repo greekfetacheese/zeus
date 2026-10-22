@@ -122,7 +122,7 @@ impl TransactionAnalysis {
       } else {
          let client = ctx.get_client(chain).await?;
          let bytecode = client.get_code_at(interact_to).await?;
-         bytecode.len() > 0
+         !bytecode.is_empty()
       };
 
       let selector = call_data.get(0..4).unwrap_or_default();
@@ -223,26 +223,26 @@ impl TransactionAnalysis {
             currencies.push(params.output_currency.clone());
          }
 
-         if let DecodedEvent::Shield(params) = event {
-            if let Some(token) = params.erc20.as_ref() {
-               currencies.push(token.clone().into());
-            }
+         if let DecodedEvent::Shield(params) = event
+            && let Some(token) = params.erc20.as_ref()
+         {
+            currencies.push(token.clone().into());
          }
 
-         if let DecodedEvent::Unshield(params) = event {
-            if let Some(token) = params.erc20.as_ref() {
-               currencies.push(token.clone().into());
-            }
+         if let DecodedEvent::Unshield(params) = event
+            && let Some(token) = params.erc20.as_ref()
+         {
+            currencies.push(token.clone().into());
          }
 
-         if let DecodedEvent::PrivateTransfer(params) = event {
-            if let Some(token) = params.erc20.as_ref() {
-               currencies.push(token.clone().into());
-            }
+         if let DecodedEvent::PrivateTransfer(params) = event
+            && let Some(token) = params.erc20.as_ref()
+         {
+            currencies.push(token.clone().into());
          }
 
          if let DecodedEvent::Permit(params) = event {
-            currencies.push(params.token.clone().into());
+            currencies.push(params.token.clone());
          }
       }
 
@@ -298,11 +298,11 @@ impl TransactionAnalysis {
    }
 
    pub fn has_balance_diff(&self) -> bool {
-      self.balance_diff.len() > 0
+      !self.balance_diff.is_empty()
    }
 
    pub fn has_approval_diff(&self) -> bool {
-      self.approval_diff.len() > 0
+      !self.approval_diff.is_empty()
    }
 
    pub fn erc20_transfers_len(&self) -> usize {

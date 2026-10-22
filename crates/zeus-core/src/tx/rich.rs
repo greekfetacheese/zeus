@@ -57,10 +57,10 @@ impl TransactionRich {
 
    /// History / details heading. Prefers the ERC-7730 intent when the main event is unknown.
    pub fn summary_name(&self) -> String {
-      if self.main_event.is_other() {
-         if let Some(display) = &self.clear_display {
-            return display.heading.clone();
-         }
+      if self.main_event.is_other()
+         && let Some(display) = &self.clear_display
+      {
+         return display.heading.clone();
       }
       self.main_event.name()
    }

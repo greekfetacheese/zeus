@@ -439,10 +439,10 @@ fn v4_leg_amount(
          continue;
       }
 
-      if let Ok(transfer) = erc20::decode_transfer_log(log) {
-         if recipients.contains(&transfer.to) {
-            amount += transfer.value;
-         }
+      if let Ok(transfer) = erc20::decode_transfer_log(log)
+         && recipients.contains(&transfer.to)
+      {
+         amount += transfer.value;
       }
    }
 

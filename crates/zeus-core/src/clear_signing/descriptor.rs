@@ -125,14 +125,13 @@ pub fn schema_major(schema: &str) -> Option<u32> {
 }
 
 pub fn parse_descriptor(value: &Value) -> Result<Descriptor, anyhow::Error> {
-   if let Some(schema) = value.get("$schema").and_then(|v| v.as_str()) {
-      if let Some(major) = schema_major(schema) {
-         if major != 2 {
-            return Err(anyhow!(
-               "unsupported ERC-7730 schema major version {major}"
-            ));
-         }
-      }
+   if let Some(schema) = value.get("$schema").and_then(|v| v.as_str())
+      && let Some(major) = schema_major(schema)
+      && major != 2
+   {
+      return Err(anyhow!(
+         "unsupported ERC-7730 schema major version {major}"
+      ));
    }
 
    let context = parse_context(value.get("context"))?;
@@ -189,7 +188,7 @@ fn parse_eip712_context(value: &Value) -> Result<Eip712Context, anyhow::Error> {
    let domain_separator = value
       .get("domainSeparator")
       .and_then(|v| v.as_str())
-      .map(|s| B256::from_str(s))
+      .map(B256::from_str)
       .transpose()?;
 
    Ok(Eip712Context {
@@ -344,10 +343,10 @@ pub fn bind_eip712<'a>(
       }
    }
 
-   if let Some(expected) = eip712.domain_separator {
-      if typed.domain.separator() != expected {
-         return Err(anyhow!("domainSeparator does not match"));
-      }
+   if let Some(expected) = eip712.domain_separator
+      && typed.domain.separator() != expected
+   {
+      return Err(anyhow!("domainSeparator does not match"));
    }
 
    let encode_type = typed.encode_type().map_err(|e| anyhow!("{e}"))?;
@@ -364,12 +363,12 @@ pub fn bind_eip712<'a>(
 }
 
 /// Bind a contract call to this descriptor and return the matching format spec + format key.
-pub fn bind_calldata<'a>(
-   descriptor: &'a Descriptor,
+pub fn bind_calldata(
+   descriptor: &Descriptor,
    chain_id: u64,
    to: Address,
    selector: [u8; 4],
-) -> Result<(&'a str, &'a FormatSpec), anyhow::Error> {
+) -> Result<(&str, &FormatSpec), anyhow::Error> {
    let contract = descriptor
       .context
       .contract
@@ -386,10 +385,10 @@ pub fn bind_calldata<'a>(
    }
 
    for (key, spec) in &descriptor.formats {
-      if let Ok(got) = selector_from_format_key(key) {
-         if got == selector {
-            return Ok((key.as_str(), spec));
-         }
+      if let Ok(got) = selector_from_format_key(key)
+         && got == selector
+      {
+         return Ok((key.as_str(), spec));
       }
    }
 

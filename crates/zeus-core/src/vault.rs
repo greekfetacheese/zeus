@@ -49,8 +49,10 @@ const VAULT_BROTLI_QUALITY: i32 = 5;
 
 #[cfg(test)]
 fn brotli_compress(input: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-   let mut params = BrotliEncoderParams::default();
-   params.quality = VAULT_BROTLI_QUALITY;
+   let params = BrotliEncoderParams {
+      quality: VAULT_BROTLI_QUALITY,
+      ..Default::default()
+   };
    let mut out = Vec::new();
    BrotliCompress(&mut Cursor::new(input), &mut out, &params)
       .map_err(|e| anyhow!("brotli compress vault: {e}"))?;
@@ -160,9 +162,9 @@ impl VaultData {
          contacts: std::mem::take(&mut self.contacts),
          balance_manager: std::mem::take(&mut self.balance_manager),
          portfolio_db: std::mem::take(&mut self.portfolio_db),
-         tx_db: self.tx_db.take().unwrap_or_else(TxDBHandle::new),
-         approval_manager: self.approval_manager.take().unwrap_or_else(ApprovalManagerHandle::new),
-         discovered_wallets: self.discovered_wallets.take().unwrap_or_else(DiscoveredWallets::new),
+         tx_db: self.tx_db.take().unwrap_or_default(),
+         approval_manager: self.approval_manager.take().unwrap_or_default(),
+         discovered_wallets: self.discovered_wallets.take().unwrap_or_default(),
          dapp_accounts: Default::default(),
       })
    }
@@ -239,8 +241,8 @@ impl Vault {
 
    pub fn clone_all_wallets(&self) -> Vec<Wallet> {
       let mut all_wallets = vec![self.hd_wallet.master_wallet.clone()];
-      all_wallets.extend(self.hd_wallet.children.iter().map(|w| w.clone()));
-      all_wallets.extend(self.imported_wallets.iter().map(|w| w.clone()));
+      all_wallets.extend(self.hd_wallet.children.iter().cloned());
+      all_wallets.extend(self.imported_wallets.iter().cloned());
       all_wallets
    }
 
@@ -533,10 +535,7 @@ impl Vault {
          discovered_wallets: None,
       };
 
-      let vault_data = match serialize_vault_data(&data) {
-         Ok(data) => data,
-         Err(e) => return Err(e),
-      };
+      let vault_data = serialize_vault_data(&data)?;
 
       let argon_params = match new_params {
          Some(params) => params,

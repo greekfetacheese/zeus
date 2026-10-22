@@ -169,9 +169,15 @@ pub(super) struct AfterState {
    pub(super) nft: NftState,
 }
 
+/// A decoded ERC-20 approval as `(token, spender)`.
+type Erc20ApprovalPair = (Address, Address);
+
+/// A decoded Permit2 approval as `(token, spender)`.
+type Permit2ApprovalPair = (Address, Address);
+
 pub(super) fn split_approval_pairs(
    candidates: &[ApprovalCandidate],
-) -> (Vec<(Address, Address)>, Vec<(Address, Address)>) {
+) -> (Vec<Erc20ApprovalPair>, Vec<Permit2ApprovalPair>) {
    let mut erc20 = Vec::new();
    let mut permit2 = Vec::new();
    for cand in candidates {
@@ -191,7 +197,7 @@ pub(super) fn known_approvals(
    ctx: &ZeusCtx,
    chain: u64,
    owner: Address,
-) -> (Vec<(Address, Address)>, Vec<(Address, Address)>) {
+) -> (Vec<Erc20ApprovalPair>, Vec<Permit2ApprovalPair>) {
    let known_erc20 = ctx
       .approval_manager()
       .get_token_approvals(chain, owner)

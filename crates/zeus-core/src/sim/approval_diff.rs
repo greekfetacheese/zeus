@@ -15,16 +15,11 @@ use zeus_eth::{
 
 pub const MAX_APPROVAL_CANDIDATES: usize = 64;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum ApprovalKind {
+   #[default]
    Erc20,
    Permit2,
-}
-
-impl Default for ApprovalKind {
-   fn default() -> Self {
-      Self::Erc20
-   }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -264,17 +259,15 @@ pub fn collect_nft_approval_candidates(
       .iter()
       .any(|log| log.address == interact_to && erc20::decode_approve_log(log).is_ok());
 
-   if !erc20_approval_fired {
-      if let Ok((to, token_id)) = erc721::decode_approve_call(call_data) {
-         push_nft_approval_candidate(
-            &mut out,
-            NftApprovalCandidate {
-               collection: interact_to,
-               operator: to,
-               target: NftApprovalTarget::Token(token_id),
-            },
-         );
-      }
+   if !erc20_approval_fired && let Ok((to, token_id)) = erc721::decode_approve_call(call_data) {
+      push_nft_approval_candidate(
+         &mut out,
+         NftApprovalCandidate {
+            collection: interact_to,
+            operator: to,
+            target: NftApprovalTarget::Token(token_id),
+         },
+      );
    }
 
    if let Ok((operator, _approved)) = erc721::decode_set_approval_for_all_call(call_data) {
@@ -334,17 +327,17 @@ pub fn collect_nft_approval_candidates(
 
       // ERC-5216 `Approval(account, operator, id, amount)` — note the id is **not** indexed, so it
       // lives in the data beside the amount.
-      if let Ok(allowance) = erc1155::decode_approval_log(log) {
-         if allowance.account == owner {
-            push_nft_approval_candidate(
-               &mut out,
-               NftApprovalCandidate {
-                  collection: log.address,
-                  operator: allowance.operator,
-                  target: NftApprovalTarget::Allowance(allowance.id),
-               },
-            );
-         }
+      if let Ok(allowance) = erc1155::decode_approval_log(log)
+         && allowance.account == owner
+      {
+         push_nft_approval_candidate(
+            &mut out,
+            NftApprovalCandidate {
+               collection: log.address,
+               operator: allowance.operator,
+               target: NftApprovalTarget::Allowance(allowance.id),
+            },
+         );
       }
    }
 
@@ -442,15 +435,13 @@ pub fn collect_approval_candidates(
       .iter()
       .any(|log| log.address == interact_to && erc721::decode_approval_log(log).is_ok());
 
-   if !erc721_approval_fired {
-      if let Ok((spender, _amount)) = erc20::decode_approve_call(call_data) {
-         push_candidate(
-            &mut out,
-            ApprovalKind::Erc20,
-            interact_to,
-            spender,
-         );
-      }
+   if !erc721_approval_fired && let Ok((spender, _amount)) = erc20::decode_approve_call(call_data) {
+      push_candidate(
+         &mut out,
+         ApprovalKind::Erc20,
+         interact_to,
+         spender,
+      );
    }
 
    for log in logs {
@@ -476,15 +467,15 @@ pub fn collect_approval_candidates(
          }
          continue;
       }
-      if let Ok(decoded) = permit::decode_approval_log(log) {
-         if decoded.owner == owner {
-            push_candidate(
-               &mut out,
-               ApprovalKind::Permit2,
-               decoded.token,
-               decoded.spender,
-            );
-         }
+      if let Ok(decoded) = permit::decode_approval_log(log)
+         && decoded.owner == owner
+      {
+         push_candidate(
+            &mut out,
+            ApprovalKind::Permit2,
+            decoded.token,
+            decoded.spender,
+         );
       }
    }
 

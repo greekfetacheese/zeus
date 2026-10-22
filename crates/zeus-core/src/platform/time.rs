@@ -95,10 +95,7 @@ impl TimeStamp {
          TimeStamp::Millis(millis) => DateTime::<Utc>::from_timestamp_millis(*millis as i64),
       };
 
-      match opt {
-         Some(dt) => dt,
-         None => DateTime::<Utc>::default(),
-      }
+      opt.unwrap_or_default()
    }
 }
 
@@ -173,7 +170,7 @@ fn timestamp_to_relative_time(timestamp: &TimeStamp) -> String {
       }
    }
 
-   format!("Invalid timestamp")
+   "Invalid timestamp".to_string()
 }
 
 #[cfg(test)]
