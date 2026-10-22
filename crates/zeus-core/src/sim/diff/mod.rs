@@ -4,16 +4,16 @@
 //! ERC-20 / Permit2 via RPC). After-state is probed on the post-sim EVM —
 //! amounts still come from `balanceOf` / `allowance`, not logs.
 
-use super::approval_diff::{
+use crate::sim::approval_diff::{
    ApprovalCandidate, ApprovalChange, ApprovalDiff, ApprovalKind, NftApprovalCandidate,
    NftApprovalChange, NftApprovalTarget, NftApprovalValue, collect_approval_candidates,
    collect_nft_approval_candidates,
 };
-use super::balance_diff::{
+use crate::sim::balance_diff::{
    BalanceDiff, NftBalanceChange, NftCandidate, collect_nft_balance_candidates,
    collect_token_candidates, native_change, token_change,
 };
-use crate::simulate::{
+use crate::sim::{
    AccountPrefetch, ForkPrefetch, ForkSim, ForkSimRequest, StoragePrefetch, eip7702_implementation,
    pinned_head, simulate_on_fork_with,
 };

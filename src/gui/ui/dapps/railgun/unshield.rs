@@ -32,13 +32,13 @@ use zeus_railgun::{
 
 use crate::{
    // The diffs for the sponsored unshield are probed off its own fork simulation.
-   core::tx::DiffProbe,
+   core::sim::diff::DiffProbe,
    core::types::EnsRecipientGuard,
    core::{
       ApprovalDiff, BalanceDiff, DecodedEvent, MainEvent, MinedTx, RecordPolicy, SendTxOptions,
       SendTxRequest, TransactionAnalysis, UnshieldParams, ZeusCtx, build_tx_outcome, confirm_tx,
       ensure_recipient_is_not_contract, record_and_notify, send_transaction,
-      tx::diffs_from_receipt,
+      sim::diff::diffs_from_receipt,
    },
    gui::SHARED_GUI,
    utils::{

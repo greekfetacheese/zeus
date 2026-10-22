@@ -1,7 +1,7 @@
 use crate::persisted::{PersistedFile, client_settings_dir, file_path};
 use crate::platform::TimeStamp;
 use crate::platform::fs::write_private_atomic;
-use crate::simulate::STORAGE_FETCH_CHUNK_SIZE;
+use crate::sim::STORAGE_FETCH_CHUNK_SIZE;
 use crate::{WalletStateKey, ZeusCtx};
 use zeus_eth::{
    abi::{
@@ -120,7 +120,7 @@ async fn connect_rpc(rpc: &Rpc, timeout: u64) -> Result<RpcClient, anyhow::Error
 /// [`RpcCheck`] records.
 ///
 /// Every one of them is on the path that builds a transaction's before-state
-/// (`core::tx::sim_diff`) or a fork's prefetch (`utils::simulate`): an endpoint that
+/// (`core::sim::diff`) or a fork's prefetch (`utils::simulate`): an endpoint that
 /// cannot answer leaves the fetch empty or partial, so the diff the user reads loses
 /// rows and transaction eligibility is no longer trustworthy. The top panel lists the
 /// ones no endpoint can do.

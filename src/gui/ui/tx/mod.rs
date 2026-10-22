@@ -17,7 +17,7 @@ use zeus_eth::alloy_primitives::TxHash;
 
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::{ClearDisplay, FormattedValue};
-use crate::core::tx::{
+use crate::core::{
    ApprovalChange, ApprovalDiff, ApprovalKind, BalanceChange, BalanceDiff, NftApprovalChange,
    NftApprovalTarget, NftApprovalValue, NftBalanceChange,
 };
