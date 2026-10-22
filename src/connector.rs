@@ -5,7 +5,7 @@
 //! Zeus. A per-session pairing token in a user-only file, delivered to the
 //! extension via native messaging, is the capability secret.
 
-use crate::core::persisted::{PersistedFile, file_path};
+use crate::core::persisted::{PersistedFile, ensure_data_dir, file_path};
 use anyhow::anyhow;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -162,6 +162,7 @@ pub fn register_native_host(exe_path: &Path, workdir: &Path) -> Result<(), anyho
    debug_assert_eq!(file_name, format!("{NATIVE_HOST_NAME}.json"));
    // Stable copy next to the wrapper. Chrome on Windows discovers hosts via
    // HKCU, so this path is what the registry value points at.
+   ensure_data_dir()?;
    let manifest_path = file_path(PersistedFile::NativeHostManifest)?;
    std::fs::write(&manifest_path, &body)?;
 
@@ -197,6 +198,7 @@ fn write_native_host_wrapper(exe: &Path, workdir: &Path) -> Result<PathBuf, anyh
       use std::io::Write;
       use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
+      ensure_data_dir()?;
       let path = file_path(PersistedFile::NativeHostWrapperUnix)?;
       let script = format!(
          "#!/bin/sh\ncd {cwd} || exit 1\nexec {exe} --native-messaging-host\n",
@@ -220,6 +222,7 @@ fn write_native_host_wrapper(exe: &Path, workdir: &Path) -> Result<PathBuf, anyh
 
    #[cfg(windows)]
    {
+      ensure_data_dir()?;
       let path = file_path(PersistedFile::NativeHostWrapperWindows)?;
       let script = format!(
          "@echo off\r\ncd /d \"{}\"\r\n\"{}\" --native-messaging-host\r\n",

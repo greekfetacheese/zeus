@@ -1,4 +1,5 @@
 use crate::core::ctx::railgun_dir;
+use crate::core::persisted::{PersistedTree, ensure_tree_dir};
 use crate::core::urls::ZeusUrl;
 use crate::core::{WalletPortfolio, ZeusCtx};
 use crate::utils::{malloc_trim, self_update};
@@ -667,6 +668,7 @@ pub async fn prefetch_railgun_circuits_if_allowed(ctx: &ZeusCtx) {
 }
 
 async fn prefetch_railgun_circuits() -> Result<PrefetchReport, anyhow::Error> {
+   ensure_tree_dir(PersistedTree::Railgun)?;
    let dir = railgun_dir()?;
    let prover = Groth16Prover::new(ZeusUrl::RailgunCircuitArtifacts.base(), Some(dir))
       .with_embedded_circuits(crate::embedded::railgun::embedded_circuits())

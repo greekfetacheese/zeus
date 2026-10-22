@@ -2,6 +2,7 @@ use crate::connector::{
    ConnectorSession, ORIGIN_HEADER, TOKEN_HEADER, connector_session_path, generate_pairing_token,
    parse_dapp_origin, register_native_host, token_matches, write_connector_session,
 };
+use crate::core::persisted::ensure_data_dir;
 use crate::core::{
    SendTxOptions, SendTxRequest, TransactionRich, WalletCall, ZeusCtx, send_transaction,
    send_wallet_calls, sign_message,
@@ -2473,6 +2474,7 @@ pub async fn run_server(ctx: ZeusCtx) -> Result<(), Box<dyn std::error::Error>> 
       token: token.clone(),
       port,
    };
+   ensure_data_dir()?;
    let session_path = connector_session_path()?;
    write_connector_session(&session_path, &session)?;
    info!(

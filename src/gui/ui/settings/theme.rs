@@ -1,6 +1,7 @@
 //! UI that allows the user to change the theme settings.
 
 use crate::core::context::theme_kind_dir;
+use crate::core::persisted::ensure_data_dir;
 use crate::gui::SHARED_GUI;
 use egui::{RichText, Sense, Ui, vec2};
 use egui_elements::{ComboBox, Label, Theme, ThemeKind};
@@ -63,6 +64,13 @@ impl ThemeSettings {
 }
 
 fn save() {
+   if let Err(e) = ensure_data_dir() {
+      SHARED_GUI.write(|gui| {
+         gui.msg_window.open(e.to_string());
+      });
+      return;
+   }
+
    let dir = match theme_kind_dir() {
       Ok(dir) => dir,
       Err(e) => {
