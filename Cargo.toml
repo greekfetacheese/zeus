@@ -81,7 +81,7 @@ zeus-wallet = { path = "crates/zeus-wallet", features = ["serde"] }
 zeus-eth = { path = "crates/zeus-eth" }
 zeus-core = { path = "crates/zeus-core" }
 zeus-railgun = { path = "crates/zeus-railgun" }
-userop-kit = { path = "crates/zeus-userop-kit" }
+zeus-userop-kit = { path = "crates/zeus-userop-kit" }
 
 # Alloy
 alloy-consensus = { workspace = true }

@@ -11,7 +11,7 @@ use rand::Rng;
 use serde::Serialize;
 use thiserror::Error;
 use tracing::{debug, warn};
-use userop_kit::{
+use zeus_userop_kit::{
    builder::UserOperationBuilder,
    bundler::{BundlerError, PimlicoBundler},
    signable_user_operation::SignableUserOperation,

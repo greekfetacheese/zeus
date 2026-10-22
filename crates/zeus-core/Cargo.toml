@@ -12,7 +12,7 @@ zeus-eth = { path = "../zeus-eth" }
 zeus-railgun = { path = "../zeus-railgun" }
 zeus-wallet = { path = "../zeus-wallet", features = ["serde"] }
 zeus-bip32 = { path = "../zeus-bip32", features = ["serde"] }
-userop-kit = { path = "../zeus-userop-kit" }
+zeus-userop-kit = { path = "../zeus-userop-kit" }
 
 alloy-eips = { workspace = true }
 alloy-sol-types = { workspace = true }

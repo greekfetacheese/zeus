@@ -9931,29 +9931,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
-name = "userop-kit"
-version = "0.1.0"
-dependencies = [
- "alloy-dyn-abi",
- "alloy-eips",
- "alloy-primitives",
- "alloy-provider",
- "alloy-rpc-types",
- "alloy-serde",
- "alloy-signer",
- "alloy-signer-local",
- "alloy-sol-types",
- "anyhow",
- "insta",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "usvg"
 version = "0.45.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11678,7 +11655,6 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "tray-icon",
- "userop-kit",
  "warp",
  "winresource",
  "zbus",
@@ -11686,6 +11662,7 @@ dependencies = [
  "zeus-core",
  "zeus-eth",
  "zeus-railgun",
+ "zeus-userop-kit",
  "zeus-wallet",
  "zip",
 ]
@@ -11727,10 +11704,10 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
- "userop-kit",
  "zeus-bip32",
  "zeus-eth",
  "zeus-railgun",
+ "zeus-userop-kit",
  "zeus-wallet",
  "zip",
 ]
@@ -11848,9 +11825,9 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tracing",
- "userop-kit",
  "wasmer",
  "zeus-poseidon",
+ "zeus-userop-kit",
  "zeus-wallet",
 ]
 
@@ -11866,6 +11843,29 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "zeus-railgun",
+]
+
+[[package]]
+name = "zeus-userop-kit"
+version = "0.1.0"
+dependencies = [
+ "alloy-dyn-abi",
+ "alloy-eips",
+ "alloy-primitives",
+ "alloy-provider",
+ "alloy-rpc-types",
+ "alloy-serde",
+ "alloy-signer",
+ "alloy-signer-local",
+ "alloy-sol-types",
+ "anyhow",
+ "insta",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
