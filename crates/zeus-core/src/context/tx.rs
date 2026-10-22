@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 use alloy_consensus::TxType;
 use anyhow::anyhow;
@@ -12,6 +13,7 @@ use zeus_eth::{
 };
 
 use crate::clear_signing::ClearDisplay;
+use crate::context::MutexHandle;
 use crate::persisted::{PersistedFile, ensure_data_dir, file_path};
 use crate::platform::TimeStamp;
 use crate::platform::fs::restrict_file_to_owner;
@@ -33,17 +35,26 @@ struct TxRedbStore {
    key: WalletStateKey,
 }
 
-struct TxDBInner {
+/// Guarded state behind [`TxDBHandle`]. Its fields stay private to this module.
+pub struct TxDBInner {
    db: TransactionsDB,
    store: Option<TxRedbStore>,
 }
 
 #[derive(Clone)]
-pub struct TxDBHandle(Arc<Mutex<TxDBInner>>);
+pub struct TxDBHandle(MutexHandle<TxDBInner>);
 
 impl Default for TxDBHandle {
    fn default() -> Self {
       Self::new()
+   }
+}
+
+impl Deref for TxDBHandle {
+   type Target = MutexHandle<TxDBInner>;
+
+   fn deref(&self) -> &Self::Target {
+      &self.0
    }
 }
 
@@ -62,19 +73,19 @@ impl<'de> Deserialize<'de> for TxDBHandle {
       D: Deserializer<'de>,
    {
       let db = TransactionsDB::deserialize(deserializer)?;
-      Ok(Self(Arc::new(Mutex::new(TxDBInner {
+      Ok(Self(MutexHandle::new(TxDBInner {
          db,
          store: None,
-      }))))
+      })))
    }
 }
 
 impl TxDBHandle {
    pub fn new() -> Self {
-      Self(Arc::new(Mutex::new(TxDBInner {
+      Self(MutexHandle::new(TxDBInner {
          db: TransactionsDB::new(),
          store: None,
-      })))
+      }))
    }
 
    pub fn dir() -> Result<PathBuf, anyhow::Error> {
@@ -82,11 +93,11 @@ impl TxDBHandle {
    }
 
    pub fn read<R>(&self, reader: impl FnOnce(&TransactionsDB) -> R) -> R {
-      reader(&self.0.lock().unwrap().db)
+      self.0.read(|inner| reader(&inner.db))
    }
 
    pub fn write<R>(&self, writer: impl FnOnce(&mut TransactionsDB) -> R) -> R {
-      writer(&mut self.0.lock().unwrap().db)
+      self.0.write(|inner| writer(&mut inner.db))
    }
 
    /// Open `tx_history.db`, creating it if needed, and load every owner list.
@@ -121,10 +132,10 @@ impl TxDBHandle {
       };
       let db = load_all(&store)?;
 
-      Ok(Self(Arc::new(Mutex::new(TxDBInner {
+      Ok(Self(MutexHandle::new(TxDBInner {
          db,
          store: Some(store),
-      }))))
+      })))
    }
 
    /// Merge txs still embedded in WalletState. Returns true if anything was imported.
@@ -134,13 +145,14 @@ impl TxDBHandle {
          return Ok(false);
       }
 
-      let mut guard = self.0.lock().unwrap();
-      for ((chain, owner), txs) in legacy_map {
-         let entry = guard.db.txs.entry((chain, owner)).or_default();
-         merge_by_hash(entry, txs);
-         persist_owner(&guard, chain, owner)?;
-      }
-      Ok(true)
+      self.0.write(|inner| {
+         for ((chain, owner), txs) in legacy_map {
+            let entry = inner.db.txs.entry((chain, owner)).or_default();
+            merge_by_hash(entry, txs);
+            persist_owner(inner, chain, owner)?;
+         }
+         Ok(true)
+      })
    }
 
    pub fn add_tx(
@@ -149,9 +161,10 @@ impl TxDBHandle {
       owner: Address,
       tx: TransactionRich,
    ) -> Result<(), anyhow::Error> {
-      let mut guard = self.0.lock().unwrap();
-      guard.db.add_tx(chain, owner, tx)?;
-      persist_owner(&guard, chain, owner)
+      self.0.write(|inner| {
+         inner.db.add_tx(chain, owner, tx)?;
+         persist_owner(inner, chain, owner)
+      })
    }
 
    pub fn get_txs(&self, chain: u64, owner: Address) -> Option<Vec<TransactionRich>> {
@@ -191,21 +204,22 @@ impl TxDBHandle {
 
    /// Drop tx histories whose owner is not in `wallets`. Returns how many entries were removed.
    pub fn retain_wallets(&self, wallets: &HashSet<Address>) -> usize {
-      let mut guard = self.0.lock().unwrap();
-      let before_keys: Vec<(u64, Address)> = guard.db.txs.keys().copied().collect();
-      let removed = guard.db.retain_wallets(wallets);
-      if removed == 0 {
-         return 0;
-      }
-      for (chain, owner) in before_keys {
-         if wallets.contains(&owner) {
-            continue;
+      self.0.write(|inner| {
+         let before_keys: Vec<(u64, Address)> = inner.db.txs.keys().copied().collect();
+         let removed = inner.db.retain_wallets(wallets);
+         if removed == 0 {
+            return 0;
          }
-         if let Err(e) = delete_owner(&guard, chain, owner) {
-            tracing::error!("Failed to delete tx history on chain {chain}: {e}");
+         for (chain, owner) in before_keys {
+            if wallets.contains(&owner) {
+               continue;
+            }
+            if let Err(e) = delete_owner(inner, chain, owner) {
+               tracing::error!("Failed to delete tx history on chain {chain}: {e}");
+            }
          }
-      }
-      removed
+         removed
+      })
    }
 }
 

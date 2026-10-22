@@ -1,8 +1,10 @@
 use crate::ZeusCtx;
+use crate::context::RwLockHandle;
 use crate::serde_hashmap;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
-use std::sync::{Arc, RwLock};
+use std::ops::Deref;
+use std::sync::Arc;
 
 use tokio::{sync::Semaphore, time::sleep};
 use zeus_eth::{
@@ -16,45 +18,26 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-#[derive(Clone)]
-pub struct BalanceManagerHandle(Arc<RwLock<BalanceManager>>);
+#[derive(Clone, Serialize, Deserialize)]
+pub struct BalanceManagerHandle(RwLockHandle<BalanceManager>);
 
 impl Default for BalanceManagerHandle {
    fn default() -> Self {
-      Self(Arc::new(RwLock::new(BalanceManager::default())))
+      Self(RwLockHandle::new(BalanceManager::default()))
    }
 }
 
-impl Serialize for BalanceManagerHandle {
-   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-   where
-      S: serde::Serializer,
-   {
-      self.read(|m| m.serialize(serializer))
-   }
-}
+impl Deref for BalanceManagerHandle {
+   type Target = RwLockHandle<BalanceManager>;
 
-impl<'de> Deserialize<'de> for BalanceManagerHandle {
-   fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-   where
-      D: serde::Deserializer<'de>,
-   {
-      let manager = BalanceManager::deserialize(deserializer)?;
-      Ok(Self::new(manager))
+   fn deref(&self) -> &Self::Target {
+      &self.0
    }
 }
 
 impl BalanceManagerHandle {
    pub fn new(balance_manager: BalanceManager) -> Self {
-      Self(Arc::new(RwLock::new(balance_manager)))
-   }
-
-   pub fn read<R>(&self, reader: impl FnOnce(&BalanceManager) -> R) -> R {
-      reader(&self.0.read().unwrap())
-   }
-
-   pub fn write<R>(&self, writer: impl FnOnce(&mut BalanceManager) -> R) -> R {
-      writer(&mut self.0.write().unwrap())
+      Self(RwLockHandle::new(balance_manager))
    }
 
    pub fn reset_default_settings(&self) {

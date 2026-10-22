@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::ops::Deref;
+use std::sync::Arc;
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
@@ -10,6 +11,7 @@ use zeus_eth::alloy_primitives::FixedBytes;
 use zeus_eth::amm::uniswap::UniswapV4Pool;
 
 use crate::assets;
+use crate::context::RwLockHandle;
 use crate::persisted::ensure_data_dir;
 use crate::platform::TimeStamp;
 use crate::platform::fs::write_private_atomic;
@@ -63,27 +65,25 @@ impl PoolID {
 
 /// Thread-safe handle to the [PoolManager]
 #[derive(Clone, Serialize, Deserialize)]
-pub struct PoolManagerHandle(Arc<RwLock<PoolManager>>);
+pub struct PoolManagerHandle(RwLockHandle<PoolManager>);
 
 impl Default for PoolManagerHandle {
    fn default() -> Self {
-      Self(Arc::new(RwLock::new(PoolManager::default())))
+      Self(RwLockHandle::new(PoolManager::default()))
+   }
+}
+
+impl Deref for PoolManagerHandle {
+   type Target = RwLockHandle<PoolManager>;
+
+   fn deref(&self) -> &Self::Target {
+      &self.0
    }
 }
 
 impl PoolManagerHandle {
    pub fn new(pool_manager: PoolManager) -> Self {
-      Self(Arc::new(RwLock::new(pool_manager)))
-   }
-
-   /// Shared access to the pool manager
-   pub fn read<R>(&self, reader: impl FnOnce(&PoolManager) -> R) -> R {
-      reader(&self.0.read().unwrap())
-   }
-
-   /// Exclusive mutable access to the pool manager
-   pub fn write<R>(&self, writer: impl FnOnce(&mut PoolManager) -> R) -> R {
-      writer(&mut self.0.write().unwrap())
+      Self(RwLockHandle::new(pool_manager))
    }
 
    /// Serialize the [PoolManager] to a JSON string

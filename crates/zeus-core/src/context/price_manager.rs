@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::ops::Deref;
 use std::time::{Duration, Instant};
 
+use crate::context::RwLockHandle;
 use crate::persisted::{PersistedFile, ensure_data_dir, file_path};
 use crate::platform::fs::write_private_atomic;
 use crate::{
@@ -29,19 +30,19 @@ pub const POOL_STATE_UPDATE_INTERVAL: u64 = 30;
 const PRICE_DATA_AAD: &[u8] = b"zeus-price-data-v1";
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct PriceManagerHandle(Arc<RwLock<PriceManager>>);
+pub struct PriceManagerHandle(RwLockHandle<PriceManager>);
+
+impl Deref for PriceManagerHandle {
+   type Target = RwLockHandle<PriceManager>;
+
+   fn deref(&self) -> &Self::Target {
+      &self.0
+   }
+}
 
 impl PriceManagerHandle {
    pub fn new() -> Self {
-      Self(Arc::new(RwLock::new(PriceManager::new())))
-   }
-
-   pub fn read<R>(&self, reader: impl FnOnce(&PriceManager) -> R) -> R {
-      reader(&self.0.read().expect("PriceManagerHandle is poisoned"))
-   }
-
-   pub fn write<R>(&self, writer: impl FnOnce(&mut PriceManager) -> R) -> R {
-      writer(&mut self.0.write().expect("PriceManagerHandle is poisoned"))
+      Self(RwLockHandle::new(PriceManager::new()))
    }
 
    pub fn dir() -> Result<std::path::PathBuf, anyhow::Error> {

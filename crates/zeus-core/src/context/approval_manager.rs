@@ -1,9 +1,10 @@
+use crate::context::RwLockHandle;
 use crate::platform::TimeStamp;
 use crate::serde_hashmap;
 use crate::{DecodedEvent, NftApproveParams, PermitParams, TokenApproveParams, TransactionRich};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::ops::Deref;
 use zeus_eth::alloy_primitives::{Address, U256};
 use zeus_eth::utils::NumericValue;
 
@@ -20,8 +21,8 @@ pub type PermitApprovals = HashMap<(u64, Address, Address, Address), PermitParam
 /// behind — a grant on one token, since the two are revoked independently.
 pub type NftApprovals = HashMap<(u64, Address, Address, Option<U256>, Address), NftApproveParams>;
 
-#[derive(Clone)]
-pub struct ApprovalManagerHandle(Arc<RwLock<ApprovalManager>>);
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ApprovalManagerHandle(RwLockHandle<ApprovalManager>);
 
 impl Default for ApprovalManagerHandle {
    fn default() -> Self {
@@ -29,36 +30,17 @@ impl Default for ApprovalManagerHandle {
    }
 }
 
-impl Serialize for ApprovalManagerHandle {
-   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-   where
-      S: serde::Serializer,
-   {
-      self.read(|m| m.serialize(serializer))
-   }
-}
+impl Deref for ApprovalManagerHandle {
+   type Target = RwLockHandle<ApprovalManager>;
 
-impl<'de> Deserialize<'de> for ApprovalManagerHandle {
-   fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-   where
-      D: serde::Deserializer<'de>,
-   {
-      let manager = ApprovalManager::deserialize(deserializer)?;
-      Ok(Self(Arc::new(RwLock::new(manager))))
+   fn deref(&self) -> &Self::Target {
+      &self.0
    }
 }
 
 impl ApprovalManagerHandle {
    pub fn new() -> Self {
-      Self(Arc::new(RwLock::new(ApprovalManager::new())))
-   }
-
-   pub fn read<R>(&self, reader: impl FnOnce(&ApprovalManager) -> R) -> R {
-      reader(&self.0.read().unwrap())
-   }
-
-   pub fn write<R>(&self, writer: impl FnOnce(&mut ApprovalManager) -> R) -> R {
-      writer(&mut self.0.write().unwrap())
+      Self(RwLockHandle::new(ApprovalManager::new()))
    }
 
    /// Extract ERC20 / Permit2 approvals from a rich tx and store the latest state.
