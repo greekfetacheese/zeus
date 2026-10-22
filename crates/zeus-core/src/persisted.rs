@@ -270,12 +270,25 @@ impl ExportOptions {
    }
 }
 
-/// Zeus `data/` directory (cwd-relative). Creates it if missing.
+/// Zeus `data/` directory (cwd-relative).
+///
+/// Pure path resolver: it does not create the directory or probe the disk. A
+/// writer must call [`ensure_data_dir`] first; readers and `exists()` probes
+/// use this (directly or through [`file_path`]) and leave the filesystem alone.
 pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = std::env::current_dir()?.join(DATA_DIR_NAME);
+   Ok(std::env::current_dir()?.join(DATA_DIR_NAME))
+}
+
+/// Create `data/` if missing and tighten it to the owner only (`0700`).
+///
+/// Every writer under `data/` calls this before resolving the file path it
+/// writes to. A failed tightening is logged and does not fail the write, as
+/// the creating getter did before.
+pub fn ensure_data_dir() -> Result<PathBuf, anyhow::Error> {
+   let dir = data_dir()?;
 
    if !dir.exists() {
-      std::fs::create_dir_all(dir.clone())?;
+      std::fs::create_dir_all(&dir)?;
    }
 
    if let Err(e) = restrict_dir_to_owner(&dir) {
@@ -285,16 +298,34 @@ pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
    Ok(dir)
 }
 
+/// Path of a known file at the root of `data/`.
+///
+/// Pure path resolver: no I/O. See [`ensure_data_dir`] for writers.
 pub fn file_path(file: PersistedFile) -> Result<PathBuf, anyhow::Error> {
    Ok(data_dir()?.join(file.name()))
 }
 
-/// Tree directory under `data/`. Creates it if missing.
+/// Tree directory under `data/`.
+///
+/// Pure path resolver: no I/O. See [`ensure_tree_dir`] for writers.
 pub fn tree_dir(tree: PersistedTree) -> Result<PathBuf, anyhow::Error> {
-   let dir = data_dir()?.join(tree.dir_name());
+   Ok(data_dir()?.join(tree.dir_name()))
+}
+
+/// Create `data/{tree}` if missing, along with the `data/` root, and tighten
+/// them the way the old creating getter did.
+///
+/// `data/` is always owner-only. Of the trees, only `railgun/` holds secrets
+/// (address databases, event snapshots), so only it gets the explicit
+/// tightening; the icon caches keep their default mode, as before.
+pub fn ensure_tree_dir(tree: PersistedTree) -> Result<PathBuf, anyhow::Error> {
+   ensure_data_dir()?;
+   let dir = tree_dir(tree)?;
+
    if !dir.exists() {
       std::fs::create_dir_all(&dir)?;
    }
+
    match tree {
       PersistedTree::Railgun => {
          if let Err(e) = restrict_dir_to_owner(&dir) {

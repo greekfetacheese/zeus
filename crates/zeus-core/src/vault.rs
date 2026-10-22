@@ -2,7 +2,7 @@ use super::{types::Contact, wallet::*};
 use crate::context::{
    ApprovalManagerHandle, BalanceManagerHandle, DiscoveredWallets, PortfolioDB, TxDBHandle,
 };
-use crate::persisted::{PersistedFile, file_path};
+use crate::persisted::{PersistedFile, ensure_data_dir, file_path};
 use crate::platform::fs::write_private_atomic;
 use crate::wallet_state::{WalletStateInner, WalletStateKey};
 use anyhow::anyhow;
@@ -564,7 +564,10 @@ impl Vault {
    pub fn save(&self, dir: Option<PathBuf>, encrypted_data: Vec<u8>) -> Result<(), anyhow::Error> {
       let dir = match dir {
          Some(dir) => dir,
-         None => Vault::dir()?,
+         None => {
+            ensure_data_dir()?;
+            Vault::dir()?
+         }
       };
       write_private_atomic(&dir, &encrypted_data)?;
       Ok(())

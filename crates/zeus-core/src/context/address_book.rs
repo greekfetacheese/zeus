@@ -7,7 +7,7 @@
 //! it points at, so a persisted ENS label can outlive the name. They go to [`super::EnsCache`],
 //! which is never written to disk.
 
-use crate::persisted::{PersistedFile, file_path};
+use crate::persisted::{PersistedFile, ensure_data_dir, file_path};
 use crate::platform::fs::write_private_atomic;
 use crate::types::Contact;
 use crate::{WalletInfo, WalletStateKey, serde_hashmap};
@@ -144,6 +144,7 @@ impl AddressBookHandle {
    }
 
    pub fn save(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      ensure_data_dir()?;
       let sealed = self.read(|book| key.seal_json(book, ADDRESS_BOOK_AAD))?;
       write_private_atomic(&Self::dir()?, &sealed)?;
       self.write(|book| book.persisted = true);

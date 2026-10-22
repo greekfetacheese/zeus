@@ -11,7 +11,7 @@
 use crate::context::{
    ApprovalManagerHandle, BalanceManagerHandle, DiscoveredWallets, PortfolioDB, TxDBHandle,
 };
-use crate::persisted::{PersistedFile, file_path};
+use crate::persisted::{PersistedFile, ensure_data_dir, file_path};
 use crate::platform::fs::write_private_atomic;
 use crate::types::{Contact, DappAccounts};
 use anyhow::anyhow;
@@ -130,6 +130,7 @@ impl WalletState {
 
    /// Encrypt and write `wallet_state.data` (atomic replace).
    pub fn encrypt_and_save(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      ensure_data_dir()?;
       let sealed = self.encrypt_to_bytes(key)?;
       let path = Self::dir()?;
       write_private_atomic(&path, &sealed)?;

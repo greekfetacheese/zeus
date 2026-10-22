@@ -1,6 +1,6 @@
 use crate::core::persisted::{
    NFT_ICON_SOURCE, NFT_ICON_X64, NFT_ICON_X250, NFT_IMAGE_SVG, PersistedTree, TOKEN_ICON_X32,
-   tree_dir,
+   ensure_tree_dir, tree_dir,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -18,6 +18,7 @@ fn icon_dir(chain_id: u64, address: Address) -> Result<PathBuf, anyhow::Error> {
 }
 
 pub fn save_token_icon(chain_id: u64, address: Address, x32: &[u8]) -> Result<(), anyhow::Error> {
+   ensure_tree_dir(PersistedTree::TokenIcons)?;
    let dir = icon_dir(chain_id, address)?;
    std::fs::create_dir_all(&dir)?;
    std::fs::write(dir.join(TOKEN_ICON_X32), x32)?;
@@ -126,6 +127,7 @@ pub fn save_nft_icon(
    token_id: U256,
    data: &NftIconData,
 ) -> Result<(), anyhow::Error> {
+   ensure_tree_dir(PersistedTree::NftIcons)?;
    let dir = nft_icon_dir(chain_id, collection, token_id)?;
    std::fs::create_dir_all(&dir)?;
    remove_file_if_present(&dir, NFT_IMAGE_SVG);
@@ -209,6 +211,7 @@ pub fn save_nft_icon_source(
    token_id: U256,
    uri: &str,
 ) -> Result<(), anyhow::Error> {
+   ensure_tree_dir(PersistedTree::NftIcons)?;
    let dir = nft_icon_dir(chain_id, collection, token_id)?;
    std::fs::create_dir_all(&dir)?;
    std::fs::write(dir.join(NFT_ICON_SOURCE), uri)?;

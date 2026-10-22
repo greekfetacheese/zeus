@@ -12,7 +12,7 @@
 //!    deleted or overwritten before that.
 
 use super::data_export::{archive_rel_parts, is_allowed_archive_parts};
-use super::persisted::{PersistedFile, PersistedTree, railgun_db_files};
+use super::persisted::{PersistedFile, PersistedTree, data_dir, ensure_data_dir, railgun_db_files};
 use super::wallet_state_key::WalletStateKey;
 use super::{Vault, WalletState};
 use crate::platform::fs::{restrict_dir_to_owner, write_private_from_reader};
@@ -72,6 +72,13 @@ pub fn import_data_from_zip(
 
    let entries = list_allowed_entries(&mut archive)?;
    let (vault, imported_key) = verify_imported_vault(&mut archive, &entries, credentials)?;
+
+   // `data_dir()` is a pure resolver now: when the archive targets the live
+   // profile, create and tighten that root here. A destination elsewhere
+   // (tests, a restored profile) keeps the generic create below.
+   if data_dir().is_ok_and(|live| live.as_path() == dest_data_dir) {
+      ensure_data_dir()?;
+   }
 
    std::fs::create_dir_all(dest_data_dir)?;
    if let Err(e) = restrict_dir_to_owner(dest_data_dir) {

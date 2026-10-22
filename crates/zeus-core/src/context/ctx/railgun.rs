@@ -1,6 +1,7 @@
 use super::super::{ZeusContext, ZeusCtx};
 use super::{railgun_db_file, railgun_dir};
 use crate::assets;
+use crate::persisted::{PersistedTree, ensure_tree_dir};
 use crate::platform::malloc_trim;
 use crate::types::*;
 use crate::urls::ZeusUrl;
@@ -20,6 +21,7 @@ pub async fn create_railgun_provider(
 ) -> Result<RailgunProvider<RpcClient>, anyhow::Error> {
    let time = std::time::Instant::now();
 
+   ensure_tree_dir(PersistedTree::Railgun)?;
    let db_file = railgun_db_file(chain)?;
    let railgun_dir = railgun_dir()?;
 
@@ -224,6 +226,7 @@ impl ZeusCtx {
       }
 
       let res = async {
+         ensure_tree_dir(PersistedTree::Railgun)?;
          let railgun_dir = railgun_dir()?;
          let snapshot_loader = SnapshotLoader::new(railgun_dir.clone());
          let snapshot_db = railgun_dir.join(snapshot_loader.db_filename(chain));
