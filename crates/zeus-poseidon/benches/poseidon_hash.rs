@@ -8,8 +8,8 @@ fn main() {}
 mod bench {
    use ark_bn254::Fr;
    use criterion::criterion_group;
-   use poseidon_rust::poseidon_hash;
    use rand::random;
+   use zeus_poseidon::poseidon_hash;
 
    fn benchmark_poseidon(c: &mut criterion::Criterion) {
       for t in 1..=13 {

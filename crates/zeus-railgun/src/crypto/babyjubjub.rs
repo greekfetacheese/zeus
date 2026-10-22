@@ -4,9 +4,9 @@ use ark_bn254::Fr;
 use ark_ff::{AdditiveGroup, Field};
 use num_bigint::{BigInt as NumBigInt, Sign};
 use num_traits::One;
-use poseidon_rust::poseidon_hash;
 use ruint::{aliases::U256, uint};
 use secure_types::Zeroize;
+use zeus_poseidon::poseidon_hash;
 
 use super::common::{
    A, D, ORDER, Q, fr_from_u64, fr_from_u256, fr_to_num_bigint, test_bit, u256_to_num_bigint,

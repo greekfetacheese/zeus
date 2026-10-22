@@ -1,6 +1,6 @@
 # Circom Compatible Poseidon Hash
 
-> This crate was forked from [taceolabs/poseidon-rust](https://github.com/TaceoLabs/poseidon-rust) under the MIT license. The original README is available below.
+> This crate was forked from [taceolabs/poseidon-rust](https://github.com/TaceoLabs/poseidon-rust) under the MIT license. It is published on crates.io as [`zeus-poseidon`](https://crates.io/crates/zeus-poseidon). The original README is available below.
 >
 > This crate has been modified to:
 >  - Add a `poseidon_hash` function to hash an arbitrary number of field elements
@@ -43,16 +43,16 @@ where t is the statesize and r is the number of rounds. Circom uses the followin
 | 16  | 64  |
 | 17  | 68  |
 
-## Verifying commitments for the Guessing game
-
-One can recalculate the commitment for the guessing game by using the commitment.rs binary in this crate. For a guess G with the randomness R (as hex string) and the address A (as hex string), one can calculate the commitment as:
+## Usage
 
 ```rust
-cargo run --release --bin commitment -- --guess <G> --rand <R> --address <A>
+use ark_bn254::Fr;
+
+// hashes 1..=13 field elements (circom statesizes t=2..=14)
+let hash = zeus_poseidon::poseidon_hash(&[Fr::from(1u64), Fr::from(2u64)])?;
 ```
 
-Example:
+## License
 
-```rust
-cargo run --release --bin commitment -- --guess 5 --rand 0xa --address 0x70997970c51812dc3a010c7d01b50e0d17dc79c8
-```
+MIT. Copyright (c) 2024 TaceoLabs for the original work; the `poseidon_hash` addition and its
+benchmarks are part of Zeus. See `LICENCE`.

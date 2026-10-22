@@ -117,12 +117,12 @@ pub fn babyjub_shared_secret(
    Ok((rpub, shared))
 }
 
-pub fn poseidon_hash(inputs_u256: &[U256]) -> Result<U256, poseidon_rust::error::Error> {
+pub fn poseidon_hash(inputs_u256: &[U256]) -> Result<U256, zeus_poseidon::error::Error> {
    let mut inputs: Vec<Fr> = inputs_u256
       .iter()
       .map(|i| Fr::from_be_bytes_mod_order(&i.to_be_bytes::<32>()))
       .collect();
-   let hash = poseidon_rust::poseidon_hash(&inputs)?;
+   let hash = zeus_poseidon::poseidon_hash(&inputs)?;
    inputs.zeroize();
 
    Ok(hash.into_bigint().into())

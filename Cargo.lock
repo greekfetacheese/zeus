@@ -7137,22 +7137,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "poseidon-rust"
-version = "0.1.0"
-dependencies = [
- "ark-bn254",
- "ark-ff 0.6.0",
- "ark-serialize 0.6.0",
- "ark-std 0.6.0",
- "criterion",
- "itertools 0.14.0",
- "num-bigint",
- "num-traits",
- "rand 0.9.5",
- "thiserror 2.0.20",
-]
-
-[[package]]
 name = "potential_utf"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11803,6 +11787,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "zeus-poseidon"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254",
+ "ark-ff 0.6.0",
+ "ark-serialize 0.6.0",
+ "ark-std 0.6.0",
+ "criterion",
+ "itertools 0.14.0",
+ "num-bigint",
+ "num-traits",
+ "rand 0.9.5",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "zeus-railgun"
 version = "0.1.1"
 dependencies = [
@@ -11836,7 +11836,6 @@ dependencies = [
  "lazy_static",
  "num-bigint",
  "num-traits",
- "poseidon-rust",
  "rand 0.9.5",
  "rand_chacha 0.9.0",
  "redb",
@@ -11851,6 +11850,7 @@ dependencies = [
  "tracing",
  "userop-kit",
  "wasmer",
+ "zeus-poseidon",
  "zeus-wallet",
 ]
 
