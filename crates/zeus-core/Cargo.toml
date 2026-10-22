@@ -1,18 +1,21 @@
 [package]
 name = "zeus-core"
 description = "Zeus wallet domain: context, tx pipeline, vault, persistence"
+readme = "readme.md"
 repository = "https://github.com/greekfetacheese/zeus/tree/master/crates/zeus-core"
 version = "0.1.0"
 edition = "2024"
+authors = ["Michalis Molfetas <greekfetacheese@proton.me>"]
 license = "MIT OR Apache-2.0"
-publish = false
+keywords = ["wallet", "ethereum", "self-custody", "transaction", "persistence"]
+categories = ["cryptography", "finance"]
 
 [dependencies]
-zeus-eth = { path = "../zeus-eth" }
-zeus-railgun = { path = "../zeus-railgun" }
-zeus-wallet = { path = "../zeus-wallet", features = ["serde"] }
-zeus-bip32 = { path = "../zeus-bip32", features = ["serde"] }
-zeus-userop-kit = { path = "../zeus-userop-kit" }
+zeus-eth = { path = "../zeus-eth", version = "0.1.4" }
+zeus-railgun = { path = "../zeus-railgun", version = "0.1" }
+zeus-wallet = { path = "../zeus-wallet", version = "0.1", features = ["serde"] }
+zeus-bip32 = { path = "../zeus-bip32", version = "0.1", features = ["serde"] }
+zeus-userop-kit = { path = "../zeus-userop-kit", version = "0.1" }
 
 alloy-eips = { workspace = true }
 alloy-sol-types = { workspace = true }

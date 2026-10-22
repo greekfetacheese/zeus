@@ -1,3 +1,4 @@
+#![doc = include_str!("../readme.md")]
 pub mod assets;
 pub mod clear_signing;
 pub mod context;
