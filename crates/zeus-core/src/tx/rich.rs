@@ -65,6 +65,7 @@ impl TransactionRich {
       self.main_event.name()
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_clear_signed() -> Self {
       Self {
          tx_type: TxType::Eip1559,

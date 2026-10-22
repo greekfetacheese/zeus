@@ -50,7 +50,8 @@ tokio = { version = "=1.47.1", features = [
 libc = "=0.2.189"
 
 [features]
-dev = []
+dev = ["test-fixtures"]
+test-fixtures = []
 
 [lints]
 clippy = { new_without_default = "allow", too_many_arguments = "allow", unnecessary_unwrap = "allow", needless_return = "allow", needless_borrow = "deny" }

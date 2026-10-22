@@ -3,17 +3,23 @@
 use super::DecodedEvent;
 use super::kinds::*;
 
+#[cfg(any(test, feature = "test-fixtures"))]
 use crate::platform::TimeStamp;
+#[cfg(any(test, feature = "test-fixtures"))]
 use crate::types::Dapp;
+#[cfg(any(test, feature = "test-fixtures"))]
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token, NativeCurrency},
    utils::NumericValue,
 };
+#[cfg(any(test, feature = "test-fixtures"))]
 use zeus_railgun::abi::railgun::{TokenData, TokenType};
+#[cfg(any(test, feature = "test-fixtures"))]
 use zeus_railgun::caip::AssetId;
 
 impl DecodedEvent {
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_eoa_delegate() -> Self {
       let chain = 1;
       let eoa = Address::ZERO;
@@ -30,6 +36,7 @@ impl DecodedEvent {
       Self::EOADelegate(params)
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_permit() -> Self {
       let chain = 1;
       let owner = Address::ZERO;
@@ -55,6 +62,7 @@ impl DecodedEvent {
       Self::Permit(params)
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_token_approve() -> Self {
       let token = ERC20Token::weth();
       let amount = NumericValue::parse_to_wei("1000000000", 18);
@@ -74,6 +82,7 @@ impl DecodedEvent {
       Self::TokenApprove(params)
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_wrap_eth() -> Self {
       let dst = Address::ZERO;
       let eth_wrapped = NumericValue::parse_to_wei("1", 18);
@@ -87,6 +96,7 @@ impl DecodedEvent {
       })
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_unwrap_weth() -> Self {
       let src = Address::ZERO;
       let weth_unwrapped = NumericValue::parse_to_wei("1", 18);
@@ -102,6 +112,7 @@ impl DecodedEvent {
       })
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_shield() -> Self {
       let chain = 1;
       let recipient = "0zk1qy9r469tey0ptmp7unlph80w5aw3hf8z39une75a2ewd8vlmgvs2hrv7j6fe3z53lugdcpevcmd84mghtk07gd66s4qw452llcuzap2934nyh45jxz4ry55rq67".to_string();
@@ -126,6 +137,7 @@ impl DecodedEvent {
       })
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_unshield() -> Self {
       let chain = 1;
       let recipient = Address::ZERO;
@@ -171,6 +183,7 @@ impl DecodedEvent {
       })
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_uniswap_position_operation() -> Self {
       let currency0 = Currency::from(ERC20Token::weth());
       let currency1 = Currency::from(ERC20Token::dai());
@@ -202,6 +215,7 @@ impl DecodedEvent {
       Self::UniswapPositionOperation(params)
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_swap() -> Self {
       let input_token = Currency::from(ERC20Token::weth());
       let output_token = Currency::from(ERC20Token::dai());
@@ -228,6 +242,7 @@ impl DecodedEvent {
       Self::SwapToken(params)
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_bridge() -> Self {
       let input_token = Currency::from(ERC20Token::weth());
       let output_token = Currency::from(ERC20Token::weth());
@@ -251,6 +266,7 @@ impl DecodedEvent {
       Self::Bridge(params)
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_transfer() -> Self {
       let currency: Currency = NativeCurrency::from(1).into();
       let amount = NumericValue::parse_to_wei("1", 18);
@@ -269,6 +285,7 @@ impl DecodedEvent {
       Self::Transfer(params)
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_erc20_transfer() -> Self {
       let currency: Currency = ERC20Token::weth().into();
       let amount = NumericValue::parse_to_wei("1", 18);

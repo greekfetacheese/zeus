@@ -81,6 +81,7 @@ impl FormattedValue {
 
 impl ClearDisplay {
    /// Offline fixture for the confirm-window calldata UI (dev panel).
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_calldata() -> Self {
       use std::str::FromStr;
       use zeus_eth::alloy_primitives::U256;

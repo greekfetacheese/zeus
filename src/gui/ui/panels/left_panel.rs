@@ -58,6 +58,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          gui.wallet_ui.close();
          gui.tx_history.close(ctx);
          gui.across_bridge.close();
+         #[cfg(feature = "dev")]
          gui.dev.close();
          gui.shield_ui.close();
          gui.approvals.close();
@@ -83,6 +84,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          gui.wallet_ui.close();
          gui.tx_history.close(ctx);
          gui.across_bridge.close();
+         #[cfg(feature = "dev")]
          gui.dev.close();
          // This is shared, so reset it to avoid any issues
          gui.recipient_selection.reset();
@@ -123,6 +125,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          gui.wallet_ui.close();
          gui.tx_history.close(ctx);
          gui.across_bridge.close();
+         #[cfg(feature = "dev")]
          gui.dev.close();
          // This is shared, so reset it to avoid any issues
          gui.recipient_selection.reset();
@@ -148,6 +151,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          gui.wallet_ui.close();
          gui.tx_history.close(ctx);
          gui.across_bridge.close();
+         #[cfg(feature = "dev")]
          gui.dev.close();
          gui.shield_ui.close();
          gui.approvals.close();
@@ -177,6 +181,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          gui.tx_history.close(ctx);
          // This is shared, so reset it to avoid any issues
          gui.recipient_selection.reset();
+         #[cfg(feature = "dev")]
          gui.dev.close();
          gui.shield_ui.close();
          gui.approvals.close();
@@ -204,6 +209,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
          gui.tx_history.close(ctx);
          gui.across_bridge.close();
+         #[cfg(feature = "dev")]
          gui.dev.close();
          gui.shield_ui.close();
          gui.approvals.close();
@@ -231,6 +237,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
          gui.wallet_ui.close();
          gui.across_bridge.close();
+         #[cfg(feature = "dev")]
          gui.dev.close();
          gui.shield_ui.close();
          gui.approvals.close();
@@ -259,6 +266,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          gui.wallet_ui.close();
          gui.tx_history.close(ctx);
          gui.across_bridge.close();
+         #[cfg(feature = "dev")]
          gui.dev.close();
          gui.shield_ui.close();
       }
