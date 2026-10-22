@@ -1,7 +1,7 @@
 //! UI that allows the user to bridge assets between chains using the Across protocol (https://across.to)
 
 use crate::assets::icons::Icons;
-use crate::core::persisted::{PersistedFile, file_path};
+use crate::core::persisted::{PersistedFile, ensure_data_dir, file_path};
 use crate::core::types::EnsRecipientGuard;
 use crate::core::urls::ZeusUrl;
 use crate::core::{
@@ -130,6 +130,7 @@ fn load_settings() -> Result<Settings, anyhow::Error> {
 
 fn save_settings(settings: Settings) -> Result<(), anyhow::Error> {
    let data = serde_json::to_string(&settings)?;
+   ensure_data_dir()?;
    let dir = file_path(PersistedFile::AcrossSettings)?;
    write_private(&dir, data.as_bytes())?;
    Ok(())

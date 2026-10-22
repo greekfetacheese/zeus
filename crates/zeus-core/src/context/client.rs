@@ -1,4 +1,4 @@
-use crate::persisted::{PersistedFile, client_settings_dir, file_path};
+use crate::persisted::{PersistedFile, client_settings_dir, ensure_data_dir, file_path};
 use crate::platform::TimeStamp;
 use crate::platform::fs::write_private_atomic;
 use crate::sim::STORAGE_FETCH_CHUNK_SIZE;
@@ -547,6 +547,7 @@ impl ClientSettings {
    }
 
    pub fn save(&self) -> Result<(), anyhow::Error> {
+      ensure_data_dir()?;
       let dir = client_settings_dir()?;
       write_private_atomic(&dir, serde_json::to_string(self)?.as_bytes())?;
       Ok(())
@@ -763,6 +764,7 @@ impl ClientManager {
    }
 
    pub fn save_to_file(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      ensure_data_dir()?;
       let sealed = self.read(|rpcs| key.seal_json(rpcs, PROVIDER_AAD))?;
       write_private_atomic(&Self::dir()?, &sealed)?;
       Ok(())

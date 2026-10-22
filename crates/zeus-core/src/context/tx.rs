@@ -12,7 +12,7 @@ use zeus_eth::{
 };
 
 use crate::clear_signing::ClearDisplay;
-use crate::persisted::{PersistedFile, file_path};
+use crate::persisted::{PersistedFile, ensure_data_dir, file_path};
 use crate::platform::TimeStamp;
 use crate::platform::fs::restrict_file_to_owner;
 use crate::tx::{DecodedEvent, TransactionAnalysis, TransactionRich};
@@ -91,6 +91,7 @@ impl TxDBHandle {
 
    /// Open `tx_history.db`, creating it if needed, and load every owner list.
    pub fn open(key: &WalletStateKey) -> Result<Self, anyhow::Error> {
+      ensure_data_dir()?;
       Self::open_at(&Self::dir()?, key)
    }
 

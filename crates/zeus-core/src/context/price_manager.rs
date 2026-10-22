@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-use crate::persisted::{PersistedFile, file_path};
+use crate::persisted::{PersistedFile, ensure_data_dir, file_path};
 use crate::platform::fs::write_private_atomic;
 use crate::{
    PoolManagerHandle, WalletStateKey, ZeusCtx, context::DEFAULT_POOL_MINIMUM_LIQUIDITY,
@@ -60,6 +60,7 @@ impl PriceManagerHandle {
    }
 
    pub fn save_to_file(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      ensure_data_dir()?;
       let manager = self.read(|manager| manager.clone());
       let sealed = key.seal_json(&manager, PRICE_DATA_AAD)?;
       write_private_atomic(&Self::dir()?, &sealed)?;

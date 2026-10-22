@@ -161,6 +161,7 @@ impl ZeusCtx {
          ));
       }
 
+      persisted::ensure_data_dir()?;
       settings.save(&key)
    }
 

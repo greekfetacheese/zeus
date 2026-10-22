@@ -10,6 +10,7 @@ use zeus_eth::alloy_primitives::FixedBytes;
 use zeus_eth::amm::uniswap::UniswapV4Pool;
 
 use crate::assets;
+use crate::persisted::ensure_data_dir;
 use crate::platform::TimeStamp;
 use crate::platform::fs::write_private_atomic;
 use crate::{WalletStateKey, ZeusCtx, context::pool_data_dir, serde_hashmap};
@@ -99,6 +100,7 @@ impl PoolManagerHandle {
    }
 
    pub fn save_to_file(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      ensure_data_dir()?;
       let (manager, key) = self.read(|manager| (manager.clone(), key.clone()));
       let sealed = key.seal_json(&manager, POOL_DATA_AAD)?;
       let dir = pool_data_dir()?;

@@ -7,6 +7,7 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
+use crate::persisted::ensure_data_dir;
 use crate::platform::TimeStamp;
 use crate::platform::fs::{write_private, write_private_atomic};
 use crate::platform::truncate_address;
@@ -114,6 +115,7 @@ impl RailgunConfig {
    }
 
    pub fn save(&self) -> Result<(), anyhow::Error> {
+      ensure_data_dir()?;
       let dir = railgun_config_dir()?;
       let data = serde_json::to_string(self)?;
       write_private(&dir, data.as_bytes())?;
@@ -224,6 +226,7 @@ impl MiscConfig {
    }
 
    pub fn save(&self) -> Result<(), anyhow::Error> {
+      ensure_data_dir()?;
       let dir = misc_config_dir()?;
       let data = serde_json::to_string(self)?;
       write_private(&dir, data.as_bytes())?;
@@ -643,6 +646,7 @@ impl SecuritySettings {
    }
 
    pub fn save(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      ensure_data_dir()?;
       let sealed = key.seal_json(self, SECURITY_AAD)?;
       write_private_atomic(&security_dir()?, &sealed)?;
       Ok(())
@@ -957,6 +961,7 @@ impl DisabledChains {
    }
 
    pub fn save_to_file(&self) -> Result<(), anyhow::Error> {
+      ensure_data_dir()?;
       let data = serde_json::to_string(self)?;
       let dir = disabled_chains_dir()?;
       write_private(&dir, data.as_bytes())?;

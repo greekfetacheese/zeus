@@ -2,6 +2,7 @@
 //! ambient particles.
 
 use crate::core::context::{appearance_settings_dir, theme_kind_dir};
+use crate::core::persisted::ensure_data_dir;
 use crate::core::types::{
    AMBIENT_LIGHTNING_INTERVAL_SECS, DEFAULT_HOLD_SECONDS, MAX_AMBIENT_BOLTS,
    MAX_AMBIENT_BRANCH_DEPTH, MAX_AMBIENT_DURATION_MS, MAX_AMBIENT_FLASH_INTENSITY,
@@ -348,6 +349,7 @@ impl AppearanceSettings {
       // hand, so no caller can land an out-of-range value on disk. The
       // transient `open` flags are cleared in the copy, never in `self`.
       let settings = self.persisted();
+      ensure_data_dir()?;
       let path = appearance_settings_dir()?;
       let data = settings.to_json()?;
       write_private(&path, data.as_bytes())?;

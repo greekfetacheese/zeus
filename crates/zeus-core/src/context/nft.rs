@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::persisted::{PersistedFile, file_path};
+use crate::persisted::{PersistedFile, ensure_data_dir, file_path};
 use crate::platform::fs::write_private_atomic;
 use crate::{WalletStateKey, serde_hashmap};
 
@@ -59,6 +59,7 @@ impl NftDB {
    }
 
    pub fn save(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      ensure_data_dir()?;
       let sealed = key.seal_json(self, NFT_DB_AAD)?;
       let dir = Self::dir()?;
       write_private_atomic(&dir, &sealed)?;
