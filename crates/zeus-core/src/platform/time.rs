@@ -63,6 +63,15 @@ impl TimeStamp {
       }
    }
 
+   /// Tie-breaker for instants that normalize to the same millisecond while living in different
+   /// variants. The derived `PartialEq` compares variants, so ordering has to as well.
+   fn rank(&self) -> u8 {
+      match self {
+         TimeStamp::Seconds(_) => 0,
+         TimeStamp::Millis(_) => 1,
+      }
+   }
+
    pub fn to_relative(&self) -> String {
       timestamp_to_relative_time(self)
    }
@@ -101,7 +110,7 @@ impl PartialOrd for TimeStamp {
 
 impl Ord for TimeStamp {
    fn cmp(&self, other: &Self) -> Ordering {
-      self.as_millis().cmp(&other.as_millis())
+      (self.as_millis(), self.rank()).cmp(&(other.as_millis(), other.rank()))
    }
 }
 
@@ -176,5 +185,22 @@ mod tests {
       let secs = TimeStamp::Seconds(1);
       let millis = TimeStamp::Millis(1_500);
       assert_ne!(secs.cmp(&millis), std::cmp::Ordering::Equal);
+   }
+
+   #[test]
+   fn ordering_agrees_with_equality_for_mixed_units() {
+      assert_eq!(
+         TimeStamp::Seconds(1).cmp(&TimeStamp::Millis(1000)),
+         std::cmp::Ordering::Less
+      );
+      assert_ne!(TimeStamp::Seconds(1), TimeStamp::Millis(1000));
+      assert_eq!(
+         TimeStamp::Millis(1000).cmp(&TimeStamp::Seconds(1)),
+         std::cmp::Ordering::Greater
+      );
+      assert_eq!(
+         TimeStamp::Seconds(1).cmp(&TimeStamp::Millis(1500)),
+         std::cmp::Ordering::Less
+      );
    }
 }
