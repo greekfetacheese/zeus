@@ -16,7 +16,7 @@ alloy-contract = { workspace = true }
 ruint = { workspace = true, features = ["serde", "num-bigint", "ark-ff-06", "zeroize"] }
 
 # Internal
-poseidon-rust = { path = "../zeus-poseidon" }
+zeus-poseidon = { path = "../zeus-poseidon" }
 userop-kit = { path = "../zeus-userop-kit" }
 
 # Crypto
