@@ -7,7 +7,6 @@ use eframe::{
 };
 use gui::app::ZeusApp;
 use std::sync::Arc;
-use utils::RT;
 
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::Registry;
@@ -18,9 +17,10 @@ use tracing_subscriber::{
 
 pub mod assets;
 pub mod connector;
-pub mod core;
+pub use zeus_core as core;
 pub mod embedded;
 pub mod gui;
+pub mod runtime;
 pub mod server;
 mod tests;
 pub mod utils;
@@ -84,11 +84,26 @@ fn main() -> eframe::Result {
 
    let _tracing_guard = setup_tracing();
 
+   // The binary owns the one runtime every background task spawns on, and every exit path
+   // below goes through one bounded shutdown instead of dropping it implicitly: a plain drop
+   // waits for every blocking-pool task still running (see `runtime::SHUTDOWN_GRACE`).
+   let runtime = runtime::build();
+   runtime::init(&runtime);
+
+   let result = run_gui();
+
+   runtime.shutdown_timeout(runtime::SHUTDOWN_GRACE);
+   result
+}
+
+/// Everything that needs the runtime: the desktop-integration flags, the GUI install steps and
+/// the eframe loop. Split out of `main` so no early return can bypass the shutdown that follows.
+fn run_gui() -> eframe::Result {
    // Captured now, while it is still the truth: the updater replaces the running binary, after
    // which the OS reports a stale path (see `self_update::restart_target`).
    utils::self_update::remember_startup_exe();
 
-   RT.spawn_blocking(|| cleanup_old_logs());
+   runtime::rt().spawn_blocking(|| cleanup_old_logs());
 
    // `zeus --install-desktop` / `--uninstall-desktop`: opt in to (or out of) the application
    // menu entry and exit, without starting the GUI. A normal launch applies the recorded
@@ -102,6 +117,15 @@ fn main() -> eframe::Result {
       utils::desktop_integration::set_enabled(false);
       return Ok(());
    }
+
+   // Core knows the asset formats but not the bytes; the snapshots and circuit
+   // artefacts this binary ships are installed once, before any context can read them.
+   crate::core::assets::install(crate::embedded::Assets);
+
+   // Core raises its prompts through this port; the GUI implementation must be
+   // attached before any flow can reach one. The early returns above never open
+   // the GUI, so they deliberately install nothing.
+   crate::core::ui::install(crate::gui::ui_host::GuiHost);
 
    panic::set_hook(Box::new(|panic_info| {
       let message = panic_info.payload().downcast_ref::<&str>().map_or("Unknown panic", |s| s);

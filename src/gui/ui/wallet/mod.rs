@@ -4,7 +4,6 @@ use crate::gui::{
    SHARED_GUI, dots_button,
    ui::{WalletListByValue, show_with_fade},
 };
-use crate::utils::RT;
 use eframe::egui::{
    Align, Context, FontId, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner, Ui, vec2,
 };
@@ -368,7 +367,7 @@ impl WalletUi {
 }
 
 fn on_calc_wallet_value() {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
       let list = WalletListByValue::collect(&ctx);
 
@@ -382,7 +381,7 @@ fn on_calc_wallet_value() {
 }
 
 fn on_show_wallet_qr(wallet: WalletInfo) {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       SHARED_GUI.write(|gui| {
          gui.account_panel.qr_window.open(wallet);
          gui.request_repaint();
@@ -391,7 +390,7 @@ fn on_show_wallet_qr(wallet: WalletInfo) {
 }
 
 fn on_rename_wallet(new_wallet_name: String, old_wallet_addr: Address) {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
       let old_vault = ctx.get_vault();
 

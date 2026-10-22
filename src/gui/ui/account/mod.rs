@@ -21,7 +21,6 @@ use crate::gui::{
    SHARED_GUI, SettingsPage,
    ui::{ChainSelect, WalletSelect, common::*},
 };
-use crate::utils::RT;
 use egui::{
    Align, CursorIcon, FontId, Layout, Margin, OpenUrl, Rect, RichText, ScrollArea, Shadow, Stroke,
    TextWrapMode, Ui, pos2, vec2,
@@ -515,7 +514,7 @@ impl AccountPanel {
                         |e| e,
                      );
 
-                     RT.spawn_blocking(move || {
+                     crate::runtime::rt().spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
                            gui.msg_window.open(error);
                            gui.request_repaint();
@@ -524,10 +523,14 @@ impl AccountPanel {
                   }
 
                   if ui.add(MenuItem::new("Settings")).clicked() {
-                     RT.spawn_blocking(move || {
+                     crate::runtime::rt().spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
                            gui.ctx.clone().write(|ctx| {
-                              gui.settings.open_page(SettingsPage::Railgun, ctx);
+                              gui.settings.open_page(
+                                 SettingsPage::Railgun,
+                                 ctx,
+                                 &mut gui.appearance_settings,
+                              );
                            });
                            gui.request_repaint();
                         });
@@ -562,7 +565,7 @@ impl AccountPanel {
                let more = dots_button(theme, size, ui);
                Menu::new(("svc_menu", "wallet_connector_id")).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("Settings")).clicked() {
-                     RT.spawn_blocking(move || {
+                     crate::runtime::rt().spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
                            gui.msg_window.open("Not implemented yet");
                            gui.request_repaint();
@@ -607,7 +610,7 @@ impl AccountPanel {
             ctx.current_wallet = self.wallet_select.wallet.clone();
 
             // Update the state on wallet change
-            RT.spawn(async move {
+            crate::runtime::rt().spawn(async move {
                let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                let current_wallet = ctx.current_wallet_info();
                let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);

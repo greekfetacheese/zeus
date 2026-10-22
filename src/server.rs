@@ -10,7 +10,6 @@ use crate::gui::ui::common::windows::authorising_prompt_busy;
 use crate::gui::ui::common::{ConfirmWindowClaim, switch_chain};
 use crate::gui::ui::dapps::connect::ConnectClaim;
 use crate::gui::{DappAccountChoice, DappConnectResult, SHARED_GUI};
-use crate::utils::RT;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -30,9 +29,10 @@ use zeus_eth::{
    types::ChainId,
 };
 
-/// Default connector port. If it is taken, [`bind_connector_listener`] walks
-/// nearby high ports and the bound port is written to `connector.json`.
-pub const SERVER_PORT: u16 = 65534;
+/// Default connector port, re-exported from core. If it is taken,
+/// [`bind_connector_listener`] walks nearby high ports and the bound port is
+/// written to `connector.json`.
+pub use crate::core::types::DEFAULT_CONNECTOR_PORT as SERVER_PORT;
 /// Preferred port plus this many decrements (skipping 0).
 const CONNECTOR_PORT_ATTEMPTS: u16 = 32;
 
@@ -1856,7 +1856,7 @@ fn spawn_dapp_tx_balance_refresh(
    transact_to: Address,
    tx_rich: TransactionRich,
 ) {
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let transact_to_exists = ctx.wallet_exists(transact_to);
       let manager = ctx.balance_manager();
 

@@ -11656,12 +11656,9 @@ name = "zeus"
 version = "0.9.70"
 dependencies = [
  "alloy-consensus",
- "alloy-eips",
  "alloy-signer-local",
  "alloy-sol-types",
  "anyhow",
- "brotli",
- "chacha20poly1305",
  "chrono",
  "eframe",
  "egui",
@@ -11669,9 +11666,7 @@ dependencies = [
  "egui-elements",
  "egui-lucide",
  "egui_extras",
- "either",
  "flate2",
- "futures",
  "generic-array",
  "image",
  "imagesize",
@@ -11682,11 +11677,9 @@ dependencies = [
  "notify-rust",
  "rand 0.8.7",
  "rayon",
- "redb",
  "reqwest",
  "resvg",
  "rfd",
- "rustls",
  "secure-types",
  "self-replace",
  "self_update",
@@ -11706,6 +11699,7 @@ dependencies = [
  "winresource",
  "zbus",
  "zeus-bip32",
+ "zeus-core",
  "zeus-eth",
  "zeus-railgun",
  "zeus-wallet",
@@ -11724,6 +11718,37 @@ dependencies = [
  "serde",
  "sha2 0.11.0",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "zeus-core"
+version = "0.1.0"
+dependencies = [
+ "alloy-consensus",
+ "alloy-eips",
+ "alloy-sol-types",
+ "anyhow",
+ "brotli",
+ "chacha20poly1305",
+ "chrono",
+ "either",
+ "libc",
+ "ncrypt-me",
+ "rand 0.8.7",
+ "redb",
+ "reqwest",
+ "secure-types",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "userop-kit",
+ "zeus-bip32",
+ "zeus-eth",
+ "zeus-railgun",
+ "zeus-wallet",
+ "zip",
 ]
 
 [[package]]

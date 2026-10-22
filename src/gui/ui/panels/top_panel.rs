@@ -1,6 +1,6 @@
 use crate::core::{RpcFunctionality, ZeusContext};
 use crate::gui::{GUI, SHARED_GUI};
-use crate::utils::{RT, TimeStamp};
+use crate::utils::TimeStamp;
 use egui::{Align, Align2, Area, Id, Layout, Margin, Order, RichText, Spinner, Ui, vec2};
 use egui_elements::{Button, Label};
 use elegance::{BadgeTone, Toast, Toasts};
@@ -92,7 +92,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
                   let text = RichText::new("Network Settings").size(theme.typography.normal);
                   let button = Button::new(text).visuals(theme.button_visuals());
                   if ui.add(button).clicked() {
-                     gui.settings.open_network_settings(ctx);
+                     gui.settings.open_network_settings(ctx, &mut gui.appearance_settings);
                   }
                });
             });
@@ -174,7 +174,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 }
 
 fn check_railgun(chain: u64) {
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
       if !ctx.railgun_is_supported(chain.into()) || !ctx.is_railgun_enabled(chain) {
          return;

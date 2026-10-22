@@ -11,7 +11,6 @@ use crate::gui::ui::common::ConfirmWindowClaim;
 use crate::gui::ui::common::windows::authorising_prompt_busy;
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::{
-   RT,
    nft_icon::{admitted_uri, start_nft_art_downloads},
    token_icon::spawn_fetch_token_icon,
    truncate_address, truncate_symbol_or_name,
@@ -351,8 +350,8 @@ impl TokenSelectionWindow {
    /// fungibles would leave the NFT tab on the previous context's rows — and a row picked from there
    /// seeds a send with a foreign-chain token.
    ///
-   /// Split from [`Self::process_currencies`] because that one spawns through `RT` + `SHARED_GUI` and
-   /// cannot be driven from a test; this is the part that has to hold.
+   /// Split from [`Self::process_currencies`] because that one spawns through `runtime::rt()` +
+   /// `SHARED_GUI` and cannot be driven from a test; this is the part that has to hold.
    fn begin_asset_reload(&mut self) {
       self.loading = true;
       // Invalidate a fetch still in flight: its rows belong to the context this call just left.
@@ -415,11 +414,11 @@ impl TokenSelectionWindow {
    /// Spawn the balance fetch for the list [`Self::begin_asset_reload`] just invalidated.
    ///
    /// Split out of [`Self::process_currencies`] so the sync writeback can drive the invalidation —
-   /// the part a test has to hold — without the fetch, which touches `RT` and `SHARED_GUI`.
+   /// the part a test has to hold — without the fetch, which touches `runtime::rt()` and `SHARED_GUI`.
    fn spawn_currency_fetch(&self, privacy_mode: bool, chain_id: u64, owner: Address) {
       let generation = self.currencies_generation;
 
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          if !privacy_mode {
             let currencies = process_currencies(ctx.clone(), chain_id, owner);
@@ -477,7 +476,7 @@ impl TokenSelectionWindow {
       self.nfts_loading = true;
       let generation = self.nfts_generation;
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          // Read on a worker: the handle is only reachable once the frame has dropped `SHARED_GUI`.
          let ctx = SHARED_GUI.write(|gui| gui.ctx.clone());
 
@@ -617,7 +616,7 @@ impl TokenSelectionWindow {
                      let chain = ctx.chain;
                      let owner = ctx.current_wallet_info().address;
                      let mode = self.mode;
-                     RT.spawn(async move {
+                     crate::runtime::rt().spawn(async move {
                         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
 
                         match mode {
@@ -1064,7 +1063,7 @@ impl TokenSelectionWindow {
          if ui.add(button).clicked() {
             self.token_fetched = true;
 
-            RT.spawn(async move {
+            crate::runtime::rt().spawn(async move {
                let ctx = SHARED_GUI.write(|gui| {
                   gui.loading_window.open("Retrieving token...");
                   gui.request_repaint();
@@ -1152,7 +1151,7 @@ impl TokenSelectionWindow {
          return;
       }
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.write(|gui| {
             gui.loading_window.open("Reading collection...");
             gui.request_repaint();
@@ -1239,7 +1238,7 @@ impl TokenSelectionWindow {
 }
 
 fn delete_token(chain_id: u64, owner: Address, token: ERC20Token, privacy_mode: bool) {
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       // One prompt at a time, whatever raised it. `authorising_prompt_busy` answers for every
       // authorising prompt: this shared window is also what a dapp's network-switch/add-token and
       // the MEV fallback use, and the sign-message, connect and transaction-confirmation windows
@@ -1289,7 +1288,7 @@ fn delete_token(chain_id: u64, owner: Address, token: ERC20Token, privacy_mode: 
          return;
       }
 
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          ctx.write(|ctx| {
             ctx.currency_db.remove_token(chain_id, token.address);
@@ -1367,7 +1366,7 @@ async fn get_erc20_token(
    // Sync the pools for the token
    let ctx_clone = ctx.clone();
    let token_clone = token.clone();
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       ctx_clone.write(|ctx| {
          ctx.data_syncing = true;
       });
@@ -1392,7 +1391,7 @@ async fn get_erc20_token(
          tracing::error!("Error updating pool state {}", e);
       }
 
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          ctx_clone.update_public_data(chain, owner);
          ctx_clone.write(|ctx| ctx.data_syncing = false);
          ctx_clone.save_currency_db();
@@ -1912,7 +1911,7 @@ async fn add_nft_collection(
       ws.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
    });
 
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       ctx.save_nft_db();
 
       if let Err(e) = ctx.save_wallet_state() {
@@ -1937,7 +1936,7 @@ async fn add_nft_collection(
 /// portfolio UI and refreshed by the private scan. Discovery fills the catalog by itself; this is the
 /// user deciding what to keep, so the two writes stay separate.
 fn set_nft_in_portfolio(chain_id: u64, owner: Address, token: NftToken, add: bool) {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
 
       ctx.write_wallet_state(|ws| {
@@ -1973,7 +1972,7 @@ fn set_nft_in_portfolio(chain_id: u64, owner: Address, token: NftToken, add: boo
 /// one still lists the token. The list is not rebuilt here: clearing it makes the picker's own loader
 /// refetch on the next frame.
 fn delete_nft(chain_id: u64, owner: Address, token: NftToken, name: String) {
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       // One prompt at a time, whatever raised it. `authorising_prompt_busy` answers for every
       // authorising prompt: this shared window is also what a dapp's network-switch/add-token and
       // the MEV fallback use, and the sign-message, connect and transaction-confirmation windows
@@ -2026,7 +2025,7 @@ fn delete_nft(chain_id: u64, owner: Address, token: NftToken, name: String) {
       let collection = token.collection;
       let token_id = token.token_id;
 
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
 
          ctx.write(|ctx| {
@@ -2181,8 +2180,8 @@ mod tests {
    /// The picker still opens on the ERC-20 list, and the mode only ever changes when something asks
    /// for it — that is the "no breaking change" part of adding NFT mode.
    ///
-   /// `open` is not exercised here: it spawns the balance fetch through `RT` + `SHARED_GUI`, which a
-   /// unit test cannot drive. Its mode reset is the same single assignment `reset` uses.
+   /// `open` is not exercised here: it spawns the balance fetch through `runtime::rt()` + `SHARED_GUI`,
+   /// which a unit test cannot drive. Its mode reset is the same single assignment `reset` uses.
    #[test]
    fn the_picker_opens_on_tokens_and_reset_restores_it() {
       let mut picker = TokenSelectionWindow::new();
@@ -2227,8 +2226,9 @@ mod tests {
    /// privacy-mode switch that reloaded just the fungibles would leave the NFT tab on the old
    /// context's rows — and a row picked from there seeds a send with a foreign-chain token.
    ///
-   /// Driven through `begin_asset_reload`, not `process_currencies`: the latter spawns through `RT` +
-   /// `SHARED_GUI`, which a unit test cannot run (the same reason `open` is not exercised here).
+   /// Driven through `begin_asset_reload`, not `process_currencies`: the latter spawns through
+   /// `runtime::rt()` + `SHARED_GUI`, which a unit test cannot run (the same reason `open` is not
+   /// exercised here).
    #[test]
    fn an_asset_reload_drops_the_lists_and_cancels_their_fetches() {
       let mut picker = TokenSelectionWindow::new();

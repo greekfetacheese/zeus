@@ -8,7 +8,7 @@
 use super::delayed_action_label;
 use crate::gui::{GUI, SHARED_GUI};
 use crate::utils::{
-   RT, TimeStamp,
+   TimeStamp,
    self_update::{UpdateInfo, restart_app, update_zeus},
 };
 use eframe::egui::{Align2, Color32, RichText, Spinner, Ui, Vec2, vec2};
@@ -124,6 +124,16 @@ impl ConfirmWindow {
    /// Confirm click, and the second would act on a prompt the user never saw.
    pub fn take_confirm(&mut self) -> Option<bool> {
       self.confirm.take()
+   }
+
+   /// Collect the answer and close the prompt in one step, so one Confirm click
+   /// can only ever be acted on once.
+   pub fn take_answer(&mut self) -> Option<bool> {
+      let confirmed = self.take_confirm();
+      if confirmed.is_some() {
+         self.close();
+      }
+      confirmed
    }
 
    /// Close and answer the awaiting prompt with a rejection. Used when
@@ -350,7 +360,7 @@ impl UpdateWindow {
                      if ui.add(update_button).clicked() {
                         let info = self.info.clone();
 
-                        RT.spawn(async move {
+                        crate::runtime::rt().spawn(async move {
                            if info.download_url.is_none() || info.asset_name.is_none() {
                               // The window already says it; this is the detail, with somewhere to go.
                               let version = info.version.as_deref().unwrap_or("a newer release");

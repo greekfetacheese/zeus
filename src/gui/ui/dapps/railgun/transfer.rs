@@ -22,12 +22,9 @@ use crate::{
       ZeusCtx, send_transaction,
    },
    gui::SHARED_GUI,
-   utils::{
-      RT,
-      simulate::{
-         AccountPrefetch, ForkPrefetch, ForkSim, StoragePrefetch, native_balance_at, pinned_head,
-         railgun_common_accounts,
-      },
+   utils::simulate::{
+      AccountPrefetch, ForkPrefetch, ForkSim, StoragePrefetch, native_balance_at, pinned_head,
+      railgun_common_accounts,
    },
 };
 
@@ -353,7 +350,7 @@ async fn exec_private_transfer(
    )
    .await?;
 
-   RT.spawn(settle_railgun_op(
+   crate::runtime::rt().spawn(settle_railgun_op(
       ctx,
       chain,
       from,

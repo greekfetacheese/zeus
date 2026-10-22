@@ -8,7 +8,7 @@ use crate::gui::{
       tx::spent_note_window::{SpentHistoryRow, spent_age},
    },
 };
-use crate::utils::{RT, truncate_address};
+use crate::utils::truncate_address;
 use egui::{
    Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, UiBuilder,
    vec2,
@@ -186,7 +186,7 @@ impl TxHistory {
    ) {
       self.loading = true;
 
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let tx_db = ctx.tx_db();
          let tx_count = tx_db.txs_count();
@@ -248,7 +248,7 @@ impl TxHistory {
    ) {
       self.loading = true;
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let wallets = ctx.get_all_wallets_info();
          let mut rows = Vec::new();
@@ -692,7 +692,7 @@ impl TxHistory {
                                              Button::new(text).visuals(button_visuals);
                                           if ui.add(details_button).clicked() {
                                              let row = row.clone();
-                                             RT.spawn_blocking(move || {
+                                             crate::runtime::rt().spawn_blocking(move || {
                                                 SHARED_GUI.write(|gui| {
                                                    gui.spent_note_window.open(row);
                                                 });
@@ -773,7 +773,7 @@ impl TxHistory {
                                              Button::new(text).visuals(button_visuals);
                                           if ui.add(details_button).clicked() {
                                              let tx_clone = row.tx.clone();
-                                             RT.spawn_blocking(move || {
+                                             crate::runtime::rt().spawn_blocking(move || {
                                                 SHARED_GUI.write(|gui| {
                                                    gui.tx_window.open(Some(tx_clone));
                                                 });

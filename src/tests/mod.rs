@@ -18,7 +18,10 @@
 
 mod bridge;
 mod connector;
+mod dev_feature;
+mod embedded;
 mod ens;
+mod main_event;
 mod nft;
 mod permit2_revoke;
 mod swap;
@@ -30,7 +33,7 @@ pub fn unlock_ctx() -> crate::core::ZeusCtx {
    use crate::core::ZeusCtx;
    use ncrypt_me::{Credentials, secure_types::SecureString};
 
-   let ctx = ZeusCtx::new();
+   let ctx = ZeusCtx::new(crate::runtime::test_handle());
 
    let credentials = Credentials::new(
       SecureString::from("dev"),

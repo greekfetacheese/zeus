@@ -3,7 +3,6 @@
 use crate::core::{ZeusContext, types::Contact};
 use crate::gui::ui::show_with_fade;
 use crate::gui::{SHARED_GUI, dots_button};
-use crate::utils::RT;
 use egui::{
    Align, FontId, Frame, Layout, Margin, OpenUrl, RichText, ScrollArea, Spinner, Ui, vec2,
 };
@@ -694,7 +693,7 @@ fn validate_contact_addresses(contact: &Contact) -> bool {
 }
 
 fn on_add_contact(new_contact: Contact, reset_on_success: bool) {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
       if !validate_contact_addresses(&new_contact) {
          return;
@@ -740,7 +739,7 @@ fn on_add_contact(new_contact: Contact, reset_on_success: bool) {
 }
 
 fn on_delete_contact(contact_to_delete: Contact) {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
       ctx.remove_contact(&contact_to_delete.evm_address);
 
@@ -767,7 +766,7 @@ fn on_delete_contact(contact_to_delete: Contact) {
 }
 
 fn on_edit_contact(old_contact: Contact, edited_contact: Contact) {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
       if !validate_contact_addresses(&edited_contact) {
          return;
@@ -820,7 +819,7 @@ fn on_edit_contact(old_contact: Contact, edited_contact: Contact) {
 }
 
 fn on_open_contact_qr(contact: Contact) {
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       let encoding = QrEncoding {
          target_px: QR_IMAGE_SIZE,
          ..Default::default()

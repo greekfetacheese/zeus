@@ -52,12 +52,24 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
    token_selection.show(ctx, theme, icons.clone(), chain_id, owner, ui);
 
-   gui.tx_confirmation_window.show(ctx, theme, icons.clone(), ui);
+   gui.tx_confirmation_window.show(
+      ctx,
+      theme,
+      icons.clone(),
+      &gui.appearance_settings,
+      ui,
+   );
 
    gui.tx_window.show(ctx, theme, icons.clone(), ui);
    gui.spent_note_window.show(ctx, theme, icons.clone(), ui);
 
-   gui.sign_msg_window.show(ctx, theme, icons.clone(), ui);
+   gui.sign_msg_window.show(
+      ctx,
+      theme,
+      icons.clone(),
+      &gui.appearance_settings,
+      ui,
+   );
 
    gui.across_bridge.show(
       ctx,

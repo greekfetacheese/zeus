@@ -18,7 +18,7 @@ use crate::core::{
 };
 use crate::{
    gui::ui::common::show_with_fade,
-   utils::{RT, TimeStamp, write_private_atomic},
+   utils::{TimeStamp, write_private_atomic},
 };
 
 use super::privacy::{
@@ -896,7 +896,7 @@ impl ShieldUi {
                   if ui.add(button).clicked() {
                      self.bundler_url = default_bundler_url(chain_id);
                      let url = BundlerUrl::new(self.bundler_url.clone());
-                     RT.spawn_blocking(move || {
+                     crate::runtime::rt().spawn_blocking(move || {
                         persist_bundler_url(url);
                      });
                   }
@@ -908,7 +908,7 @@ impl ShieldUi {
 
                   if ui.add(button).clicked() {
                      let url = BundlerUrl::new(self.bundler_url.clone());
-                     RT.spawn_blocking(move || {
+                     crate::runtime::rt().spawn_blocking(move || {
                         persist_bundler_url(url);
                      });
                   }
@@ -1608,7 +1608,7 @@ impl ShieldUi {
       ctx.railgun_status.set_op_in_progress(chain.id(), true);
 
       if self.mode.is_shield() {
-         RT.spawn(async move {
+         crate::runtime::rt().spawn(async move {
             let ctx = SHARED_GUI.write(|gui| {
                gui.loading_window.open("Wait while magic happens");
                gui.request_repaint();
@@ -1655,16 +1655,16 @@ impl ShieldUi {
          // Unshield futures are not `Send` (`PimlicoBundler` / `&dyn Signer` across awaits).
          // Do NOT spin up a nested current_thread runtime: revm's ForkDB uses
          // `tokio::task::block_in_place`, which panics outside a multi-thread runtime.
-         // Drive the non-Send future on the existing multi-thread `RT` via `block_on`
+         // Drive the non-Send future on the process runtime via `runtime::rt().block_on`
          // from a blocking thread (no Send bound, block_in_place still works).
-         RT.spawn_blocking(move || {
+         crate::runtime::rt().spawn_blocking(move || {
             let ctx = SHARED_GUI.write(|gui| {
                gui.loading_window.open("Wait while magic happens");
                gui.request_repaint();
                gui.ctx.clone()
             });
 
-            let result = RT.block_on(unshield(
+            let result = crate::runtime::rt().block_on(unshield(
                ctx.clone(),
                chain,
                asset,
@@ -1723,7 +1723,7 @@ impl ShieldUi {
       let chain = currency.chain_id();
       let privacy = self.mode.is_unshield();
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
 
          if privacy {
@@ -1876,7 +1876,7 @@ fn spawn_privacy_check(
    recipient: Address,
    owner: Address,
 ) {
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
       let privacy = assess_unshield(ctx, chain, &asset, amount_wei, recipient, owner).await;
 
@@ -1909,7 +1909,7 @@ fn shield_check_due(
 /// Same contract as [`spawn_privacy_check`]: the context is taken inside the task, and a verdict
 /// whose key has moved on is dropped rather than shown for another token.
 fn spawn_shield_pool_check(key: (u64, AssetId), chain: ChainId, asset: RailgunAsset) {
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
       let pool = assess_shield(ctx, chain, &asset).await;
 
@@ -1951,7 +1951,7 @@ fn value(
    if should_fetch_price {
       let chain = currency.chain_id();
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let now = Instant::now();
          let ctx = SHARED_GUI.write(|gui| {
             gui.shield_ui.price_syncing = true;
@@ -2191,7 +2191,7 @@ async fn shield(
    )
    .await?;
 
-   RT.spawn(settle_railgun_op(
+   crate::runtime::rt().spawn(settle_railgun_op(
       ctx,
       chain,
       from,

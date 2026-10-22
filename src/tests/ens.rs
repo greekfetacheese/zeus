@@ -39,7 +39,7 @@ mod tests {
    /// `ZeusCtx::get_client` call inside `lookup_address_name` can pick it. The app
    /// does this measurement at startup.
    async fn ctx_with_measured_mainnet_rpc() -> ZeusCtx {
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::runtime::test_handle());
       let z_client = ctx.get_client_manager();
       let (url, _client) = usable_mainnet_rpc(&ctx).await;
 
@@ -59,7 +59,7 @@ mod tests {
    #[tokio::test]
    #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_resolve_ens_name() {
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::runtime::test_handle());
       let client = mainnet_client(&ctx).await;
 
       assert_eq!(
@@ -82,7 +82,7 @@ mod tests {
    #[tokio::test]
    #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_ens_name_without_address_record_is_none() {
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::runtime::test_handle());
       let client = mainnet_client(&ctx).await;
 
       // "ethereum.eth" has a resolver but no `addr` record. alloy-ens reports that as
@@ -96,7 +96,7 @@ mod tests {
    #[tokio::test]
    #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_unknown_and_invalid_ens_names() {
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::runtime::test_handle());
       let client = mainnet_client(&ctx).await;
 
       // No such name (resolver not found).
@@ -128,7 +128,7 @@ mod tests {
    #[tokio::test]
    #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_offchain_names_are_refused() {
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::runtime::test_handle());
       let client = mainnet_client(&ctx).await;
 
       // ERC-3668 name that only an HTTP gateway can answer. With alloy-ens's default
@@ -144,7 +144,7 @@ mod tests {
    #[tokio::test]
    #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_reverse_ens_lookup() {
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::runtime::test_handle());
       let client = mainnet_client(&ctx).await;
 
       assert_eq!(
@@ -204,7 +204,7 @@ mod tests {
    #[tokio::test]
    #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_resolve_chain_labels() {
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::runtime::test_handle());
       let client = mainnet_client(&ctx).await;
 
       // The live `on.eth` registry. Resolution has to go through the Universal Resolver:
@@ -266,7 +266,7 @@ mod tests {
    #[tokio::test]
    #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_resolve_name_for_chain() {
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::runtime::test_handle());
       let client = mainnet_client(&ctx).await;
 
       // Chain 1 uses coin type 60 — the same record the plain path reads.
@@ -310,7 +310,7 @@ mod tests {
    #[tokio::test]
    #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_resolve_interoperable_names() {
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::runtime::test_handle());
       let client = mainnet_client(&ctx).await;
 
       // Label form: `on.eth` supplies the chain, the name supplies the address.
@@ -437,7 +437,7 @@ mod tests {
    #[tokio::test]
    #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
    async fn test_name_expiry_reads_the_registrar() {
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::runtime::test_handle());
       let client = mainnet_client(&ctx).await;
 
       let now = std::time::SystemTime::now()

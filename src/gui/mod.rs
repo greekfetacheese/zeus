@@ -1,7 +1,9 @@
 pub mod ambient;
 pub mod app;
+pub mod appearance;
 pub mod tray;
 pub mod ui;
+pub mod ui_host;
 
 use egui::{Context, Ui};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,7 +11,8 @@ use std::sync::{Arc, Mutex};
 use ui::settings;
 
 use crate::assets::icons::Icons;
-use crate::core::context::{ZeusContext, ZeusCtx, load_theme_kind};
+use crate::core::context::{ZeusContext, ZeusCtx};
+use crate::gui::appearance::{AppearanceSettings, load_theme_kind};
 use egui_elements::{editor::ThemeEditor, theme::*};
 use lazy_static::lazy_static;
 
@@ -77,6 +80,7 @@ pub struct GUI {
    pub ctx: ZeusCtx,
    pub icons: Arc<Icons>,
    pub theme: Theme,
+   pub appearance_settings: AppearanceSettings,
    pub editor: ThemeEditor,
    pub shield_ui: ShieldUi,
    pub uniswap: UniswapUi,
@@ -112,7 +116,15 @@ pub struct GUI {
 
 impl GUI {
    pub fn new(icons: Arc<Icons>, theme: Theme, egui_ctx: Context) -> Self {
-      let ctx = ZeusCtx::new();
+      let ctx = ZeusCtx::new(crate::runtime::rt().clone());
+
+      let mut appearance_settings = match AppearanceSettings::load_from_file() {
+         Ok(config) => config,
+         Err(e) => {
+            tracing::error!("Failed to load appearance settings: {:?}", e);
+            AppearanceSettings::default()
+         }
+      };
 
       let token_selection = ui::TokenSelectionWindow::new();
       let recipient_selection = ui::RecipientSelectionWindow::new();
@@ -130,7 +142,7 @@ impl GUI {
       let wallet_ui = ui::WalletUi::new();
       let approvals = ApprovalsUi::new();
 
-      let settings = ctx.write(|ctx| settings::SettingsUi::new(ctx));
+      let settings = ctx.write(|ctx| settings::SettingsUi::new(ctx, &mut appearance_settings));
 
       let tx_history = ui::tx_history::TxHistory::new();
       let sign_msg_window = SignMsgWindow::new();
@@ -150,6 +162,7 @@ impl GUI {
          show_requested: AtomicBool::new(false),
          ctx: ctx.clone(),
          theme,
+         appearance_settings,
          editor: ThemeEditor::new(),
          icons,
          account_panel,

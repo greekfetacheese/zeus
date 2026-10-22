@@ -8,7 +8,7 @@ use crate::gui::ambient::Ambient;
 use crate::gui::tray::{self, Tray, TrayAction};
 use crate::gui::ui::record_input_activity;
 use crate::server::run_server;
-use crate::utils::{RT, TimeStamp, state::on_startup};
+use crate::utils::{TimeStamp, state::on_startup};
 use eframe::{
    CreationContext,
    egui::{self, Frame},
@@ -47,7 +47,7 @@ impl ZeusApp {
 
       // Lazy load the icons
       let egui_ctx2 = cc.egui_ctx.clone();
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          SHARED_GUI.write(|shared_gui| {
             shared_gui.egui_ctx = egui_ctx2.clone();
          });
@@ -93,7 +93,7 @@ impl ZeusApp {
       });
 
       let ctx_clone = ctx.clone();
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          loop {
             if ctx_clone.vault_unlocked() {
                tracing::info!("Vault unlocked, starting syncing");
@@ -105,12 +105,12 @@ impl ZeusApp {
       });
 
       let ctx_clone = ctx.clone();
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let _r = run_server(ctx_clone).await;
       });
 
       let ctx_autolock = ctx.clone();
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          autolock_watcher(ctx_autolock).await;
       });
 
@@ -118,10 +118,11 @@ impl ZeusApp {
       // metadata), which re-checks itself every launch so a moved folder heals, and the
       // application-menu entry, which is opt-in and therefore only re-applied when the user
       // has asked for it. See `utils::desktop_integration`.
-      RT.spawn_blocking(crate::utils::desktop_integration::install_file_icon);
+      crate::runtime::rt().spawn_blocking(crate::utils::desktop_integration::install_file_icon);
 
       if ctx.read(|ctx| ctx.misc_config.desktop_integration()) {
-         RT.spawn_blocking(crate::utils::desktop_integration::install_desktop_entry);
+         crate::runtime::rt()
+            .spawn_blocking(crate::utils::desktop_integration::install_desktop_entry);
       }
 
       // Built here rather than in `main` so the icon can drive the root viewport;
@@ -270,7 +271,7 @@ fn begin_shutdown(
       return;
    }
 
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let zeus_ctx = SHARED_GUI.write(|gui| {
          gui.loading_window.open("Saving vault...");
          gui.request_repaint();
@@ -280,7 +281,7 @@ fn begin_shutdown(
       let unlocked = zeus_ctx.read(|z| z.vault_unlocked);
       if unlocked {
          let ctx = zeus_ctx.clone();
-         let _ = RT
+         let _ = crate::runtime::rt()
             .spawn_blocking(move || {
                if let Err(e) = ctx.encrypt_and_save_vault(None, None) {
                   tracing::error!("Failed to save vault: {:?}", e);
@@ -468,11 +469,17 @@ impl eframe::App for ZeusApp {
             // App-wide ambient particles, after the panels, on the main
             // viewport only. The settings viewport deliberately runs no ambient
             // pass: the ambient belongs to the main window.
-            Ambient::show(ui, &ctx.appearance_settings);
+            Ambient::show(ui, &gui.appearance_settings);
 
             let icons = gui.icons.clone();
             let theme = &gui.theme;
-            gui.settings.show(ctx, icons, theme, ui);
+            gui.settings.show(
+               ctx,
+               icons,
+               theme,
+               &mut gui.appearance_settings,
+               ui,
+            );
 
             #[cfg(feature = "dev")]
             gui.fps_metrics.update(time.elapsed().as_secs_f64() * 1000.0);

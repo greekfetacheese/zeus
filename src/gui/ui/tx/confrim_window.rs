@@ -8,10 +8,12 @@ use super::{
 };
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::{self, ClearDisplay};
+use crate::core::ui::TxConfirmAnswer;
 use crate::core::{DecodedEvent, TransactionAnalysis, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
+use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::{delayed_action_label, wallet_identity};
-use crate::utils::{RT, estimate_tx_cost};
+use crate::utils::estimate_tx_cost;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::NativeCurrency,
@@ -234,7 +236,7 @@ impl TxConfirmationWindow {
          self.tx_cost_usd = NumericValue::default();
       }
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let native = NativeCurrency::from(chain.id());
          let main_event = tx.infer_main_event(ctx.clone(), chain.id());
          let gas_used = tx.gas_used;
@@ -297,6 +299,27 @@ impl TxConfirmationWindow {
       self.confirmed_or_rejected.take()
    }
 
+   /// Collect the answer and close the prompt in one step.
+   ///
+   /// The answer is single-use: one Confirm click must only ever be acted on once.
+   /// A rejection is reported as [`TxConfirmAnswer::rejected`], which carries its own
+   /// `accepted: false` rather than leaving the meaning to a field value.
+   pub fn take_answer(&mut self) -> Option<TxConfirmAnswer> {
+      let accepted = self.take_confirmed_or_rejected()?;
+      self.close();
+
+      Some(if accepted {
+         TxConfirmAnswer {
+            accepted: true,
+            priority_fee: self.get_priority_fee(),
+            gas_limit: self.get_gas_limit(),
+            clear_display: self.get_clear_display(),
+         }
+      } else {
+         TxConfirmAnswer::rejected()
+      })
+   }
+
    /// Close without confirming and record a rejection, so the awaiting
    /// `confirm_tx` errors out instead of hanging. Used when auto-lock fires.
    pub fn reject(&mut self) {
@@ -346,7 +369,14 @@ impl TxConfirmationWindow {
       self.tx_cost_usd = cost_in_usd;
    }
 
-   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(
+      &mut self,
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      appearance: &AppearanceSettings,
+      ui: &mut Ui,
+   ) {
       if !self.open {
          return;
       }
@@ -676,9 +706,9 @@ impl TxConfirmationWindow {
                      let text = RichText::new(confirm_label).size(theme.typography.large);
                      let confirm = Button::new(text).min_size(button_size).visuals(button_visuals);
 
-                     // Copy the settings out of `ctx` first: the widget needs an
-                     // owned value, and `HoldSettings` is `Copy`.
-                     let hold = ctx.appearance_settings.button_settings(theme.colors.accent);
+                     // Copy the settings out first: the widget needs an owned
+                     // value, and `HoldSettings` is `Copy`.
+                     let hold = appearance.button_settings(theme.colors.accent);
                      let confirm = match &hold {
                         Some(settings) => confirm.hold_settings(settings),
                         None => confirm,
@@ -826,6 +856,38 @@ mod tests {
       );
    }
 
+   /// A confirmed transaction whose gas limit resolves to zero is still a confirmation:
+   /// acceptance is the field, not a value of some other field.
+   #[test]
+   fn a_confirmation_with_a_zero_gas_limit_is_still_a_confirmation() {
+      let mut window = TxConfirmationWindow::new();
+      window.open = true;
+      window.gas_used = 0;
+      window.gas_limit = 0;
+      window.adjusted_gas_limit = String::new();
+      window.confirmed_or_rejected = Some(true);
+
+      let answer = window.take_answer().expect("the click is answered exactly once");
+
+      assert!(answer.accepted);
+      assert!(
+         !answer.is_rejected(),
+         "a zero gas limit must not be read as a rejection"
+      );
+   }
+
+   #[test]
+   fn a_rejection_carries_no_acceptance() {
+      let mut window = TxConfirmationWindow::new();
+      window.open = true;
+      window.confirmed_or_rejected = Some(false);
+
+      let answer = window.take_answer().expect("the click is answered exactly once");
+
+      assert!(!answer.accepted);
+      assert!(answer.is_rejected());
+   }
+
    /// Every close path invalidates an in-flight preparation, not just the auto-lock
    /// reject: that is why the bump lives in `close()` rather than in `reject()`.
    #[test]
@@ -950,7 +1012,7 @@ mod tests {
    /// previous recipient's name.
    #[test]
    fn open_stores_the_picked_name_and_the_next_open_clears_it() {
-      let handle = ZeusCtx::new();
+      let handle = ZeusCtx::new(crate::runtime::test_handle());
       let mut window = TxConfirmationWindow::new();
 
       assert_eq!(window.recipient_name, None);
@@ -1106,6 +1168,7 @@ mod height_budget {
       theme.install(&egui_ctx);
       egui_extras::install_image_loaders(&egui_ctx);
       let icons = Arc::new(Icons::new(&egui_ctx).expect("icons"));
+      let appearance = AppearanceSettings::new();
 
       // How `egui_elements::Modal` registers its card: the Area id it salts with the
       // id passed to `Modal::new`.
@@ -1126,7 +1189,7 @@ mod height_budget {
             },
             |egui_ctx| {
                CentralPanel::default().show(egui_ctx, |ui| {
-                  handle.write(|c| window.show(c, &theme, icons.clone(), ui));
+                  handle.write(|c| window.show(c, &theme, icons.clone(), &appearance, ui));
                });
             },
          );
@@ -1164,7 +1227,7 @@ mod height_budget {
    }
 
    /// The window as the confirmation path leaves it, minus the parts of `open_inner`
-   /// that cannot run in a test (it spawns through `RT` and writes back through
+   /// that cannot run in a test (it spawns through `runtime::rt()` and writes back through
    /// `SHARED_GUI`).
    fn window_for(
       handle: &ZeusCtx,

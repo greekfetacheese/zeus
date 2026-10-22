@@ -13,7 +13,7 @@ use crate::gui::{
       },
    },
 };
-use crate::utils::{RT, nft_icon::start_nft_art_downloads};
+use crate::utils::nft_icon::start_nft_art_downloads;
 use eframe::egui::{
    Align, CornerRadius, CursorIcon, Frame, Image, Layout, Margin, Order, RichText, ScrollArea,
    Spinner, TextWrapMode, Ui, vec2,
@@ -780,7 +780,7 @@ impl PortfolioUi {
    /// write-locked. It keeps no answers: those are the manager's, like the token balances. The private
    /// side needs no refresh either, because it is the shielded set that the railgun scan maintains.
    fn load_nft_list(chain_id: u64, owner: Address) {
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let portfolio = ctx.get_portfolio(chain_id, owner);
 
@@ -859,7 +859,7 @@ impl PortfolioUi {
    /// Off the frame path: `save_wallet_state` lives on the `ZeusCtx` handle, which is only reachable
    /// through `SHARED_GUI` — and the frame holds that write-locked.
    fn save_wallet_state() {
-      RT.spawn_blocking(|| {
+      crate::runtime::rt().spawn_blocking(|| {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
 
          if let Err(e) = ctx.save_wallet_state() {
@@ -873,7 +873,7 @@ impl PortfolioUi {
 
    fn refresh(&mut self, owner: Address) {
       self.show_spinner = true;
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let chain = ctx.chain().id();
          let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
@@ -952,7 +952,7 @@ impl PortfolioUi {
       self.show_spinner = true;
       let privacy_mode = ctx.privacy_mode;
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let pool_manager = ctx.pool_manager();
          let price_manager = ctx.price_manager();
@@ -1000,7 +1000,7 @@ impl PortfolioUi {
          ws.portfolio_db.insert_portfolio(chain, owner, portfolio);
       });
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          ctx.update_public_data(chain, owner);
          ctx.update_private_data(chain, owner).await;

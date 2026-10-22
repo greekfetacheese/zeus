@@ -17,10 +17,7 @@ use zeus_railgun::{
 };
 
 use crate::core::ZeusCtx;
-use crate::utils::{
-   RT,
-   simulate::{ForkPrefetch, ForkSim, ForkSimRequest, simulate_on_fork},
-};
+use crate::utils::simulate::{ForkPrefetch, ForkSim, ForkSimRequest, simulate_on_fork};
 
 pub mod merge_notes;
 pub mod privacy;
@@ -419,7 +416,7 @@ pub async fn settle_railgun_op(ctx: ZeusCtx, chain: ChainId, from: Address, op: 
 /// chain already spent. Re-reading immediately races whatever caused the
 /// disagreement, so give it a beat.
 pub fn resync_railgun_later(ctx: ZeusCtx, chain: ChainId) {
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       sleep(Duration::from_secs(1)).await;
 
       match ctx.resync_railgun(chain.id()).await {

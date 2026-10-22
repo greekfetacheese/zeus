@@ -42,7 +42,7 @@ use crate::{
    },
    gui::SHARED_GUI,
    utils::{
-      RT, malloc_trim,
+      malloc_trim,
       simulate::{
          AccountPrefetch, ForkPrefetch, ForkSim, StoragePrefetch, fetch_accounts_info,
          fetch_storage_for_railgun, native_balance_at, pinned_head, railgun_common_accounts,
@@ -339,7 +339,7 @@ async fn unshield_self_broadcast(
 
    // The self-broadcast path never unwraps, so a fungible unshield hands the token back and only an
    // NFT moves public ownership.
-   RT.spawn(settle_railgun_op(
+   crate::runtime::rt().spawn(settle_railgun_op(
       ctx,
       chain,
       from,
@@ -981,7 +981,7 @@ async fn unshield_via_paymaster(
    // leaves the wallet's public wrapped-native balance where it was.
    let settled_op = asset.settled_op(unwrap_to_eth);
 
-   RT.spawn(settle_railgun_op(ctx, chain, from, settled_op));
+   crate::runtime::rt().spawn(settle_railgun_op(ctx, chain, from, settled_op));
 
    Ok(())
 }

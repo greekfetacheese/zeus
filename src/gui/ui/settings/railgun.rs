@@ -2,7 +2,6 @@
 
 use crate::core::urls::{UrlPurpose, purpose_tip};
 use crate::gui::SHARED_GUI;
-use crate::utils::RT;
 use crate::{
    assets::Icons,
    core::{ZeusContext, types::RailgunConfig},
@@ -201,7 +200,7 @@ fn post_click(ctx: &mut ZeusContext, new_config: RailgunConfig) {
    }
 
    let new_config_clone = new_config.clone();
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let res = new_config_clone.save();
 
       match res {

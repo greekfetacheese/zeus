@@ -30,7 +30,7 @@ use zeus_eth::{
 
 use crate::core::{SendTxOptions, SendTxRequest, ZeusCtx, send_transaction};
 use crate::gui::SHARED_GUI;
-use crate::utils::{RT, truncate_address};
+use crate::utils::truncate_address;
 
 /// `NftTest721` on Sepolia — ERC-721 + Metadata + Enumerable.
 const NFT_TEST_721: Address = address!("0xaf5aa7b670ef209e23d3f7b39a8f42f84bd002ac");
@@ -245,7 +245,7 @@ fn mint_button(ui: &mut Ui, theme: &Theme, size: Vec2, label: &str, hint: &str) 
 
 /// Send one `NftTest721` mint for `branch`, reporting the outcome in a toast.
 fn spawn_mint_721(branch: Branch721) {
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let ctx = SHARED_GUI.write(|gui| gui.ctx.clone());
       let to = ctx.current_wallet_info().address;
 
@@ -282,7 +282,7 @@ fn spawn_mint_721(branch: Branch721) {
 
 /// Send one `NftTest1155` mint for `branch`, reporting the outcome in a toast.
 fn spawn_mint_1155(branch: Branch1155) {
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let ctx = SHARED_GUI.write(|gui| gui.ctx.clone());
       let to = ctx.current_wallet_info().address;
 
@@ -358,7 +358,7 @@ pub fn spawn_approve_erc1155() {
 }
 
 fn spawn_approve(standard: NftStandard) {
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let ctx = SHARED_GUI.write(|gui| gui.ctx.clone());
       let result = approve_nft(ctx, standard).await;
 

@@ -2,7 +2,6 @@
 //!
 //! It only affects the vault, it has no effect on the master wallet recovery.
 
-use crate::utils::RT;
 use crate::{core::ZeusContext, gui::SHARED_GUI};
 use egui::{RichText, Ui, vec2};
 use egui_elements::{Button, Theme};
@@ -152,7 +151,7 @@ impl EncryptionSettings {
    fn save(&self) {
       let new_params = self.argon_params.clone();
 
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          let ctx = SHARED_GUI.write(|gui| {
             gui.loading_window.open("Encrypting vault...");
             gui.request_repaint();

@@ -1,7 +1,6 @@
 use crate::core::ZeusCtx;
 use crate::core::urls::ZeusUrl;
 use crate::gui::SHARED_GUI;
-use crate::utils::RT;
 use anyhow::anyhow;
 use minisign_verify::{PublicKey, Signature};
 use self_replace::self_replace;
@@ -40,7 +39,7 @@ pub fn do_check_for_updates(ctx: ZeusCtx) {
       return;
    }
 
-   RT.spawn(async move {
+   crate::runtime::rt().spawn(async move {
       let info = match check_for_updates().await {
          Ok(info) => info,
          Err(e) => {
@@ -436,7 +435,7 @@ pub fn restart_app() {
    }
 
    // ask user to start manually
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       SHARED_GUI.write(|gui| {
          gui.update_window.auto_restart_failed();
          gui.request_repaint();
@@ -466,7 +465,7 @@ pub fn restart_app() {
       }
    }
 
-   RT.spawn_blocking(move || {
+   crate::runtime::rt().spawn_blocking(move || {
       SHARED_GUI.write(|gui| {
          gui.update_window.auto_restart_failed();
          gui.request_repaint();

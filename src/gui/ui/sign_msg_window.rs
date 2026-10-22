@@ -8,6 +8,7 @@ use egui_elements::{Button, Label, Modal, Theme};
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::FormattedValue;
 use crate::core::{SignMsgType, ZeusContext};
+use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::{delayed_action_label, wallet_identity};
 use crate::gui::ui::tx::{address, chain};
 
@@ -116,6 +117,16 @@ impl SignMsgWindow {
       self.signed.take()
    }
 
+   /// Collect the answer and close the prompt in one step, so one Sign click can
+   /// only ever be acted on once.
+   pub fn take_answer(&mut self) -> Option<bool> {
+      let signed = self.take_signed();
+      if signed.is_some() {
+         self.close();
+      }
+      signed
+   }
+
    /// Close without signing and answer the awaiting `sign_message` with a
    /// cancel, so it errors out instead of hanging. Used when auto-lock fires.
    pub fn reject(&mut self) {
@@ -123,7 +134,14 @@ impl SignMsgWindow {
       self.signed = Some(false);
    }
 
-   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(
+      &mut self,
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      appearance: &AppearanceSettings,
+      ui: &mut Ui,
+   ) {
       if !self.open {
          return;
       }
@@ -268,9 +286,9 @@ impl SignMsgWindow {
                         let text = RichText::new(sign_label).size(normal);
                         let ok_btn = Button::new(text).min_size(button_size);
 
-                        // Copy the settings out of `ctx` first: the widget needs an
-                        // owned value, and `HoldSettings` is `Copy`.
-                        let hold = ctx.appearance_settings.button_settings(theme.colors.accent);
+                        // Copy the settings out first: the widget needs an owned
+                        // value, and `HoldSettings` is `Copy`.
+                        let hold = appearance.button_settings(theme.colors.accent);
                         let ok_btn = match &hold {
                            Some(settings) => ok_btn.hold_settings(settings),
                            None => ok_btn,

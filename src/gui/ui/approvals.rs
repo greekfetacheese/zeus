@@ -7,7 +7,7 @@ use crate::core::{
 };
 use crate::gui::ui::common::{chain_label, usable_chain};
 use crate::gui::{SHARED_GUI, ui::show_with_fade};
-use crate::utils::{RT, TimeStamp, simulate::simulate_for_analysis, truncate_address};
+use crate::utils::{TimeStamp, simulate::simulate_for_analysis, truncate_address};
 use anyhow::anyhow;
 use egui::{
    Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, UiBuilder,
@@ -283,7 +283,7 @@ impl ApprovalsUi {
       let selected_chain = self.selected_chain;
       let mode = self.mode;
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let manager = ctx.approval_manager();
 
@@ -1023,7 +1023,7 @@ impl ApprovalsUi {
             let token = params.token.clone();
             let owner = params.owner;
             let spender = params.spender;
-            RT.spawn(async move {
+            crate::runtime::rt().spawn(async move {
                if let Err(e) = revoke_erc20_approval(chain, token, owner, spender).await {
                   tracing::error!("Failed to revoke ERC20 approval: {:?}", e);
                   SHARED_GUI.write(|gui| {
@@ -1045,7 +1045,7 @@ impl ApprovalsUi {
             let owner = params.owner;
             let token = params.token.clone();
             let spender = params.spender;
-            RT.spawn(async move {
+            crate::runtime::rt().spawn(async move {
                if let Err(e) = revoke_permit2_approval(chain, owner, token, spender).await {
                   tracing::error!("Failed to revoke Permit2 approval: {:?}", e);
                   SHARED_GUI.write(|gui| {
@@ -1064,7 +1064,7 @@ impl ApprovalsUi {
          }
          ApprovalKind::Nft(params) => {
             let chain = params.chain;
-            RT.spawn(async move {
+            crate::runtime::rt().spawn(async move {
                if let Err(e) = revoke_nft_approval(chain, params).await {
                   tracing::error!("Failed to revoke NFT approval: {:?}", e);
                   SHARED_GUI.write(|gui| {

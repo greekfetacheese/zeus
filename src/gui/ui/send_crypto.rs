@@ -15,7 +15,7 @@ use crate::core::{
    DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, TransferParams, ZeusContext,
    ZeusCtx, ensure_recipient_is_not_contract, send_transaction,
 };
-use crate::utils::{RT, TimeStamp, estimate_tx_cost, simulate};
+use crate::utils::{TimeStamp, estimate_tx_cost, simulate};
 
 use crate::assets::icons::Icons;
 use crate::gui::{
@@ -655,7 +655,7 @@ impl SendCryptoUi {
                Err(e) => {
                   self.sending_tx = false;
 
-                  RT.spawn_blocking(move || {
+                  crate::runtime::rt().spawn_blocking(move || {
                      SHARED_GUI.write(|gui| {
                         let msg = format!("Error while sending transaction: {}", e);
                         gui.open_msg_window(msg);
@@ -711,7 +711,7 @@ impl SendCryptoUi {
 
       let recipient_address = Address::from_str(&recipient)?;
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.write(|gui| {
             gui.loading_window.open("Wait while magic happens");
             gui.request_repaint();
@@ -773,14 +773,14 @@ impl SendCryptoUi {
 
       ctx.railgun_status.set_op_in_progress(chain.id(), true);
 
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          let ctx = SHARED_GUI.write(|gui| {
             gui.loading_window.open("Wait while magic happens");
             gui.request_repaint();
             gui.ctx.clone()
          });
 
-         let result = RT.block_on(private_transfer(
+         let result = crate::runtime::rt().block_on(private_transfer(
             ctx.clone(),
             chain,
             RailgunAsset::Nft(nft),
@@ -976,7 +976,7 @@ impl SendCryptoUi {
                Err(e) => {
                   self.sending_tx = false;
 
-                  RT.spawn_blocking(move || {
+                  crate::runtime::rt().spawn_blocking(move || {
                      SHARED_GUI.write(|gui| {
                         let msg = format!("Error while sending transaction: {}", e);
                         gui.open_msg_window(msg);
@@ -993,7 +993,7 @@ impl SendCryptoUi {
       let currency = self.currency.clone();
       let chain = currency.chain_id();
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
 
          if privacy_mode {
@@ -1126,14 +1126,14 @@ impl SendCryptoUi {
 
       ctx.railgun_status.set_op_in_progress(chain.id(), true);
 
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          let ctx = SHARED_GUI.write(|gui| {
             gui.loading_window.open("Wait while magic happens");
             gui.request_repaint();
             gui.ctx.clone()
          });
 
-         let result = RT.block_on(private_transfer(
+         let result = crate::runtime::rt().block_on(private_transfer(
             ctx.clone(),
             chain,
             RailgunAsset::Fungible(currency),
@@ -1188,7 +1188,7 @@ impl SendCryptoUi {
          self.currency.decimals(),
       );
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.write(|gui| {
             gui.loading_window.open("Wait while magic happens");
             gui.request_repaint();
@@ -1288,7 +1288,7 @@ fn value(
       let pool_manager = ctx.pool_manager.clone();
       let chain = currency.chain_id();
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.write(|gui| {
             gui.send_crypto.price_syncing = true;
             gui.send_crypto.last_price_update.insert(currency.address(), Instant::now());

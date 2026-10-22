@@ -1,0 +1,87 @@
+use crate::urls::ZeusUrl;
+use serde_json::Value;
+use std::str::FromStr;
+use std::sync::OnceLock;
+use std::time::Duration;
+use zeus_eth::alloy_primitives::Address;
+
+const FETCH_TIMEOUT: Duration = Duration::from_secs(3);
+
+fn http_client() -> &'static reqwest::Client {
+   static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+   CLIENT.get_or_init(|| {
+      reqwest::Client::builder()
+         .user_agent("zeus-wallet")
+         .timeout(FETCH_TIMEOUT)
+         .build()
+         .unwrap_or_else(|_| reqwest::Client::new())
+   })
+}
+
+/// If `address` is a proxy verified on Sourcify, return the implementation address.
+pub async fn implementation_address(chain: u64, address: Address) -> Option<Address> {
+   let url = format!(
+      "{}/v2/contract/{chain}/{address:#x}?fields=proxyResolution",
+      ZeusUrl::Sourcify.base()
+   );
+   let resp = http_client().get(&url).send().await.ok()?;
+   if !resp.status().is_success() {
+      return None;
+   }
+   let value: Value = resp.json().await.ok()?;
+   parse_implementation(&value)
+}
+
+/// Verified contract name from Sourcify, if any.
+pub async fn contract_name(chain: u64, address: Address) -> Option<String> {
+   let url = format!(
+      "{}/v2/contract/{chain}/{address:#x}?fields=name,compilation",
+      ZeusUrl::Sourcify.base()
+   );
+   let resp = http_client().get(&url).send().await.ok()?;
+   if !resp.status().is_success() {
+      return None;
+   }
+   let value: Value = resp.json().await.ok()?;
+   parse_contract_name(&value)
+}
+
+pub fn parse_contract_name(value: &Value) -> Option<String> {
+   let name = value
+      .get("name")
+      .and_then(|v| v.as_str())
+      .or_else(|| value.pointer("/compilation/name").and_then(|v| v.as_str()))
+      .filter(|s| !s.is_empty())?;
+   Some(name.to_string())
+}
+
+pub fn parse_implementation(value: &Value) -> Option<Address> {
+   let proxy = value.get("proxyResolution").unwrap_or(value);
+
+   if let Some(s) = proxy
+      .pointer("/implementation/address")
+      .and_then(|v| v.as_str())
+      .or_else(|| proxy.get("implementation").and_then(|v| v.as_str()))
+   {
+      if let Ok(addr) = Address::from_str(s) {
+         if !addr.is_zero() {
+            return Some(addr);
+         }
+      }
+   }
+
+   if let Some(arr) = proxy.get("implementations").and_then(|v| v.as_array()) {
+      for item in arr {
+         let s = item.get("address").and_then(|v| v.as_str()).or_else(|| item.as_str());
+         if let Some(s) = s {
+            if let Ok(addr) = Address::from_str(s) {
+               if !addr.is_zero() {
+                  return Some(addr);
+               }
+            }
+         }
+      }
+   }
+
+   None
+}

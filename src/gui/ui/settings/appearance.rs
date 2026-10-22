@@ -1,24 +1,22 @@
 //! Settings → Appearance: hold-to-confirm and the completion burst.
 
-use crate::core::ZeusContext;
 use crate::core::types::{
-   AmbientKind, AppearanceSettings, MAX_AMBIENT_BOLTS, MAX_AMBIENT_BRANCH_DEPTH,
-   MAX_AMBIENT_DURATION_MS, MAX_AMBIENT_FLASH_INTENSITY, MAX_AMBIENT_INTERVAL_SECS,
-   MAX_AMBIENT_JITTER, MAX_AMBIENT_LIGHT_DENSITY, MAX_AMBIENT_LIGHT_FLICKER,
-   MAX_AMBIENT_LIGHT_INTENSITY, MAX_AMBIENT_LIGHT_RADIUS, MAX_AMBIENT_SNOW_DENSITY,
-   MAX_AMBIENT_SNOW_SIZE, MAX_AMBIENT_SNOW_SPEED, MAX_AMBIENT_THICKNESS, MAX_AMBIENT_WIND_X,
-   MAX_AMBIENT_WIND_Y, MAX_BRANCH_DEPTH, MAX_BURST_BOLTS, MAX_BURST_INTENSITY, MAX_BURST_MS,
-   MAX_GLOW_FROM, MAX_GLOW_SOFTNESS, MAX_GLOW_TO, MAX_HOLD_SECONDS, MAX_JITTER, MAX_THICKNESS,
-   MIN_AMBIENT_BOLTS, MIN_AMBIENT_BRANCH_DEPTH, MIN_AMBIENT_DURATION_MS,
-   MIN_AMBIENT_FLASH_INTENSITY, MIN_AMBIENT_INTERVAL_SECS, MIN_AMBIENT_JITTER,
-   MIN_AMBIENT_LIGHT_DENSITY, MIN_AMBIENT_LIGHT_FLICKER, MIN_AMBIENT_LIGHT_INTENSITY,
-   MIN_AMBIENT_LIGHT_RADIUS, MIN_AMBIENT_SNOW_DENSITY, MIN_AMBIENT_SNOW_SIZE,
-   MIN_AMBIENT_SNOW_SPEED, MIN_AMBIENT_THICKNESS, MIN_AMBIENT_WIND_X, MIN_AMBIENT_WIND_Y,
-   MIN_BRANCH_DEPTH, MIN_BURST_BOLTS, MIN_BURST_INTENSITY, MIN_BURST_MS, MIN_GLOW_FROM,
-   MIN_GLOW_SOFTNESS, MIN_GLOW_TO, MIN_HOLD_SECONDS, MIN_JITTER, MIN_THICKNESS,
-   SECOND_COLOUR_ALPHA, accent_at,
+   MAX_AMBIENT_BOLTS, MAX_AMBIENT_BRANCH_DEPTH, MAX_AMBIENT_DURATION_MS,
+   MAX_AMBIENT_FLASH_INTENSITY, MAX_AMBIENT_INTERVAL_SECS, MAX_AMBIENT_JITTER,
+   MAX_AMBIENT_LIGHT_DENSITY, MAX_AMBIENT_LIGHT_FLICKER, MAX_AMBIENT_LIGHT_INTENSITY,
+   MAX_AMBIENT_LIGHT_RADIUS, MAX_AMBIENT_SNOW_DENSITY, MAX_AMBIENT_SNOW_SIZE,
+   MAX_AMBIENT_SNOW_SPEED, MAX_AMBIENT_THICKNESS, MAX_AMBIENT_WIND_X, MAX_AMBIENT_WIND_Y,
+   MAX_BRANCH_DEPTH, MAX_BURST_BOLTS, MAX_BURST_INTENSITY, MAX_BURST_MS, MAX_GLOW_FROM,
+   MAX_GLOW_SOFTNESS, MAX_GLOW_TO, MAX_HOLD_SECONDS, MAX_JITTER, MAX_THICKNESS, MIN_AMBIENT_BOLTS,
+   MIN_AMBIENT_BRANCH_DEPTH, MIN_AMBIENT_DURATION_MS, MIN_AMBIENT_FLASH_INTENSITY,
+   MIN_AMBIENT_INTERVAL_SECS, MIN_AMBIENT_JITTER, MIN_AMBIENT_LIGHT_DENSITY,
+   MIN_AMBIENT_LIGHT_FLICKER, MIN_AMBIENT_LIGHT_INTENSITY, MIN_AMBIENT_LIGHT_RADIUS,
+   MIN_AMBIENT_SNOW_DENSITY, MIN_AMBIENT_SNOW_SIZE, MIN_AMBIENT_SNOW_SPEED, MIN_AMBIENT_THICKNESS,
+   MIN_AMBIENT_WIND_X, MIN_AMBIENT_WIND_Y, MIN_BRANCH_DEPTH, MIN_BURST_BOLTS, MIN_BURST_INTENSITY,
+   MIN_BURST_MS, MIN_GLOW_FROM, MIN_GLOW_SOFTNESS, MIN_GLOW_TO, MIN_HOLD_SECONDS, MIN_JITTER,
+   MIN_THICKNESS,
 };
-use crate::utils::RT;
+use crate::gui::appearance::{AmbientKind, AppearanceSettings, SECOND_COLOUR_ALPHA, accent_at};
 use egui::{Align, CollapsingHeader, Color32, Layout, RichText, Sense, Ui, UiBuilder, vec2};
 use egui_elements::{Button, ComboBox, HoldBurst, HoldSettings, Label, Theme};
 use elegance::{Badge, BadgeTone};
@@ -108,34 +106,34 @@ pub struct AppearanceSettingsUi {
 }
 
 impl AppearanceSettingsUi {
-   pub fn new(ctx: &mut ZeusContext) -> Self {
+   pub fn new(appearance: &mut AppearanceSettings) -> Self {
       let mut this = Self {
          dirty: false,
          preview_confirmed: false,
       };
-      this.sync_from_ctx(ctx);
+      this.sync_from_settings(appearance);
       this
    }
 
-   /// The UI reads `ctx.appearance_settings` directly, so the only local state to
-   /// reset is the write lag and the preview. Clamping here means a hand-edited
-   /// file cannot show a value its slider cannot represent.
-   pub fn sync_from_ctx(&mut self, ctx: &mut ZeusContext) {
-      ctx.appearance_settings.clamp();
+   /// The UI reads the live settings directly, so the only local state to reset is
+   /// the write lag and the preview. Clamping here means a hand-edited file cannot
+   /// show a value its slider cannot represent.
+   pub fn sync_from_settings(&mut self, appearance: &mut AppearanceSettings) {
+      appearance.clamp();
       self.dirty = false;
       self.preview_confirmed = false;
    }
 
-   fn persist(ctx: &ZeusContext) {
-      let settings = ctx.appearance_settings.clone();
-      RT.spawn_blocking(move || {
+   fn persist(appearance: &AppearanceSettings) {
+      let settings = appearance.clone();
+      crate::runtime::rt().spawn_blocking(move || {
          if let Err(e) = settings.save() {
             tracing::error!("Failed to save appearance settings: {e}");
          }
       });
    }
 
-   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, appearance: &mut AppearanceSettings, theme: &Theme, ui: &mut Ui) {
       ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.md);
       ui.spacing_mut().button_padding = theme.button_padding;
 
@@ -143,13 +141,13 @@ impl AppearanceSettingsUi {
       let q_mark_text = RichText::new("?").size(theme.typography.normal);
 
       if Self::section(ui, theme, "Hold to confirm", |ui| {
-         Self::hold_block(ctx, theme, &q_mark_text, ui)
+         Self::hold_block(appearance, theme, &q_mark_text, ui)
       }) {
          self.dirty = true;
       }
 
       if Self::section(ui, theme, "Ambient", |ui| {
-         Self::ambient_block(ctx, theme, &q_mark_text, ui)
+         Self::ambient_block(appearance, theme, &q_mark_text, ui)
       }) {
          self.dirty = true;
       }
@@ -159,7 +157,7 @@ impl AppearanceSettingsUi {
          ui.label(RichText::new("Preview").size(theme.typography.very_large));
       });
 
-      let preview = Self::preview_settings(ctx, theme.colors.accent);
+      let preview = Self::preview_settings(appearance, theme.colors.accent);
       let size = vec2(PREVIEW_BUTTON_W, PREVIEW_BUTTON_H);
       ui.vertical_centered(|ui| {
          ui.horizontal(|ui| {
@@ -187,7 +185,7 @@ impl AppearanceSettingsUi {
                .label_align(Align::Center);
 
             if ui.add(button).clicked() {
-               ctx.appearance_settings = AppearanceSettings::new();
+               *appearance = AppearanceSettings::new();
                self.preview_confirmed = false;
                self.dirty = true;
             }
@@ -202,8 +200,8 @@ impl AppearanceSettingsUi {
       // One write per interaction: a slider drag releases the pointer before the
       // file is touched, and the value written is the clamped one the UI shows.
       if self.dirty && !ui.input(|i| i.pointer.any_down()) {
-         ctx.appearance_settings.clamp();
-         Self::persist(ctx);
+         appearance.clamp();
+         Self::persist(appearance);
          self.dirty = false;
       }
    }
@@ -228,7 +226,7 @@ impl AppearanceSettingsUi {
    ///
    /// Returns whether a persisted value changed.
    fn hold_block(
-      ctx: &mut ZeusContext,
+      appearance: &mut AppearanceSettings,
       theme: &Theme,
       q_mark_text: &RichText,
       ui: &mut Ui,
@@ -236,7 +234,7 @@ impl AppearanceSettingsUi {
       let combo_visuals = theme.combo_box_visuals();
       let label_visuals = theme.label_visuals();
 
-      let mut enabled = ctx.appearance_settings.hold_to_confirm();
+      let mut enabled = appearance.hold_to_confirm();
       let mut dirty = false;
       let mut changed = false;
       Self::row(
@@ -252,12 +250,12 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.set_hold_to_confirm(enabled);
+         appearance.set_hold_to_confirm(enabled);
          dirty = true;
       }
 
       ui.add_enabled_ui(enabled, |ui| {
-         let mut seconds = ctx.appearance_settings.hold_seconds();
+         let mut seconds = appearance.hold_seconds();
          let value = format!("{seconds:.2} s");
          let mut changed = false;
          Self::row(
@@ -279,14 +277,14 @@ impl AppearanceSettingsUi {
             },
          );
          if changed {
-            ctx.appearance_settings.set_hold_seconds(seconds);
+            appearance.set_hold_seconds(seconds);
             dirty = true;
          }
 
          ui.add_space(theme.spacing.xl);
          ui.label(RichText::new("Fill").size(theme.typography.large));
 
-         let mut use_accent = ctx.appearance_settings.hold.fill_from.is_none();
+         let mut use_accent = appearance.hold.fill_from.is_none();
          let mut changed = false;
          Self::row(
             ui,
@@ -301,7 +299,7 @@ impl AppearanceSettingsUi {
             },
          );
          if changed {
-            ctx.appearance_settings.hold.fill_from = if use_accent {
+            appearance.hold.fill_from = if use_accent {
                None
             } else {
                Some(theme.colors.accent)
@@ -310,8 +308,7 @@ impl AppearanceSettingsUi {
          }
 
          if !use_accent {
-            let mut rgb =
-               srgb(ctx.appearance_settings.hold.fill_from.unwrap_or(theme.colors.accent));
+            let mut rgb = srgb(appearance.hold.fill_from.unwrap_or(theme.colors.accent));
             let mut changed = false;
             Self::row(
                ui,
@@ -326,13 +323,12 @@ impl AppearanceSettingsUi {
                },
             );
             if changed {
-               ctx.appearance_settings.hold.fill_from =
-                  Some(Color32::from_rgb(rgb[0], rgb[1], rgb[2]));
+               appearance.hold.fill_from = Some(Color32::from_rgb(rgb[0], rgb[1], rgb[2]));
                dirty = true;
             }
          }
 
-         let mut shift = ctx.appearance_settings.shift_second_colour;
+         let mut shift = appearance.shift_second_colour;
          let mut changed = false;
          Self::row(
             ui,
@@ -347,13 +343,12 @@ impl AppearanceSettingsUi {
             },
          );
          if changed {
-            ctx.appearance_settings.shift_second_colour = shift;
+            appearance.shift_second_colour = shift;
             dirty = true;
          }
 
          if shift {
-            let end_colour = ctx
-               .appearance_settings
+            let end_colour = appearance
                .second_colour
                .unwrap_or_else(|| accent_at(theme.colors.accent, SECOND_COLOUR_ALPHA));
             let mut rgba = end_colour.to_srgba_unmultiplied();
@@ -371,7 +366,7 @@ impl AppearanceSettingsUi {
                },
             );
             if changed {
-               ctx.appearance_settings.second_colour = Some(Color32::from_rgba_unmultiplied(
+               appearance.second_colour = Some(Color32::from_rgba_unmultiplied(
                   rgba[0], rgba[1], rgba[2], rgba[3],
                ));
                dirty = true;
@@ -381,7 +376,7 @@ impl AppearanceSettingsUi {
          ui.add_space(theme.spacing.xl);
          ui.label(RichText::new("Burst").size(theme.typography.large));
 
-         let mut chosen = ctx.appearance_settings.hold.burst;
+         let mut chosen = appearance.hold.burst;
          let selected_text = RichText::new(chosen.to_str()).size(theme.typography.normal);
          let kind_label = Label::new(selected_text, None)
             .visuals(label_visuals)
@@ -420,15 +415,15 @@ impl AppearanceSettingsUi {
                         }
                      }
                   });
-               changed = chosen != ctx.appearance_settings.hold.burst;
+               changed = chosen != appearance.hold.burst;
             },
          );
          if changed {
-            ctx.appearance_settings.hold.burst = chosen;
+            appearance.hold.burst = chosen;
             dirty = true;
          }
 
-         let mut same_color = ctx.appearance_settings.hold.burst_color.is_none();
+         let mut same_color = appearance.hold.burst_color.is_none();
          let mut changed = false;
          Self::row(
             ui,
@@ -443,14 +438,14 @@ impl AppearanceSettingsUi {
             },
          );
          if changed {
-            ctx.appearance_settings.hold.burst_color = if same_color {
+            appearance.hold.burst_color = if same_color {
                None
             } else {
                Some(
-                  ctx.appearance_settings
+                  appearance
                      .resolved_hold(theme.colors.accent)
                      .fill_to
-                     .or(ctx.appearance_settings.hold.fill_from)
+                     .or(appearance.hold.fill_from)
                      .unwrap_or(theme.colors.accent),
                )
             };
@@ -458,8 +453,7 @@ impl AppearanceSettingsUi {
          }
 
          if !same_color {
-            let mut rgb =
-               srgb(ctx.appearance_settings.hold.burst_color.unwrap_or(theme.colors.accent));
+            let mut rgb = srgb(appearance.hold.burst_color.unwrap_or(theme.colors.accent));
             let mut changed = false;
             Self::row(
                ui,
@@ -474,16 +468,12 @@ impl AppearanceSettingsUi {
                },
             );
             if changed {
-               ctx.appearance_settings.hold.burst_color =
-                  Some(Color32::from_rgb(rgb[0], rgb[1], rgb[2]));
+               appearance.hold.burst_color = Some(Color32::from_rgb(rgb[0], rgb[1], rgb[2]));
                dirty = true;
             }
          }
 
-         let value = format!(
-            "{:.2}",
-            ctx.appearance_settings.hold.burst_intensity
-         );
+         let value = format!("{:.2}", appearance.hold.burst_intensity);
          let mut changed = false;
          Self::row(
             ui,
@@ -497,7 +487,7 @@ impl AppearanceSettingsUi {
                changed = ui
                   .add(
                      egui::Slider::new(
-                        &mut ctx.appearance_settings.hold.burst_intensity,
+                        &mut appearance.hold.burst_intensity,
                         MIN_BURST_INTENSITY..=MAX_BURST_INTENSITY,
                      )
                      .step_by(0.05)
@@ -507,11 +497,11 @@ impl AppearanceSettingsUi {
             },
          );
          if changed {
-            ctx.appearance_settings.clamp();
+            appearance.clamp();
             dirty = true;
          }
 
-         let value = format!("{:.0} ms", ctx.appearance_settings.hold.burst_ms);
+         let value = format!("{:.0} ms", appearance.hold.burst_ms);
          let mut changed = false;
          Self::row(
             ui,
@@ -525,7 +515,7 @@ impl AppearanceSettingsUi {
                changed = ui
                   .add(
                      egui::Slider::new(
-                        &mut ctx.appearance_settings.hold.burst_ms,
+                        &mut appearance.hold.burst_ms,
                         MIN_BURST_MS..=MAX_BURST_MS,
                      )
                      .step_by(10.0)
@@ -535,12 +525,12 @@ impl AppearanceSettingsUi {
             },
          );
          if changed {
-            ctx.appearance_settings.clamp();
+            appearance.clamp();
             dirty = true;
          }
 
-         if ctx.appearance_settings.hold.burst == HoldBurst::Lightning {
-            let value = format!("{}", ctx.appearance_settings.hold.burst_bolts);
+         if appearance.hold.burst == HoldBurst::Lightning {
+            let value = format!("{}", appearance.hold.burst_bolts);
             let mut changed = false;
             Self::row(
                ui,
@@ -554,7 +544,7 @@ impl AppearanceSettingsUi {
                   changed = ui
                      .add(
                         egui::Slider::new(
-                           &mut ctx.appearance_settings.hold.burst_bolts,
+                           &mut appearance.hold.burst_bolts,
                            MIN_BURST_BOLTS..=MAX_BURST_BOLTS,
                         )
                         .show_value(false),
@@ -563,14 +553,11 @@ impl AppearanceSettingsUi {
                },
             );
             if changed {
-               ctx.appearance_settings.clamp();
+               appearance.clamp();
                dirty = true;
             }
 
-            let value = format!(
-               "{}",
-               ctx.appearance_settings.hold.burst_branch_depth
-            );
+            let value = format!("{}", appearance.hold.burst_branch_depth);
             let mut changed = false;
             Self::row(
                ui,
@@ -584,7 +571,7 @@ impl AppearanceSettingsUi {
                   changed = ui
                      .add(
                         egui::Slider::new(
-                           &mut ctx.appearance_settings.hold.burst_branch_depth,
+                           &mut appearance.hold.burst_branch_depth,
                            MIN_BRANCH_DEPTH..=MAX_BRANCH_DEPTH,
                         )
                         .show_value(false),
@@ -593,14 +580,11 @@ impl AppearanceSettingsUi {
                },
             );
             if changed {
-               ctx.appearance_settings.clamp();
+               appearance.clamp();
                dirty = true;
             }
 
-            let value = format!(
-               "{:.1}",
-               ctx.appearance_settings.hold.burst_thickness
-            );
+            let value = format!("{:.1}", appearance.hold.burst_thickness);
             let mut changed = false;
             Self::row(
                ui,
@@ -614,7 +598,7 @@ impl AppearanceSettingsUi {
                   changed = ui
                      .add(
                         egui::Slider::new(
-                           &mut ctx.appearance_settings.hold.burst_thickness,
+                           &mut appearance.hold.burst_thickness,
                            MIN_THICKNESS..=MAX_THICKNESS,
                         )
                         .step_by(0.1)
@@ -624,11 +608,11 @@ impl AppearanceSettingsUi {
                },
             );
             if changed {
-               ctx.appearance_settings.clamp();
+               appearance.clamp();
                dirty = true;
             }
 
-            let value = format!("{:.3}", ctx.appearance_settings.hold.burst_jitter);
+            let value = format!("{:.3}", appearance.hold.burst_jitter);
             let mut changed = false;
             Self::row(
                ui,
@@ -642,7 +626,7 @@ impl AppearanceSettingsUi {
                   changed = ui
                      .add(
                         egui::Slider::new(
-                           &mut ctx.appearance_settings.hold.burst_jitter,
+                           &mut appearance.hold.burst_jitter,
                            MIN_JITTER..=MAX_JITTER,
                         )
                         .step_by(0.01)
@@ -652,16 +636,13 @@ impl AppearanceSettingsUi {
                },
             );
             if changed {
-               ctx.appearance_settings.clamp();
+               appearance.clamp();
                dirty = true;
             }
          }
 
-         if ctx.appearance_settings.hold.burst == HoldBurst::Glow {
-            let value = format!(
-               "{:.1}",
-               ctx.appearance_settings.hold.burst_glow_from
-            );
+         if appearance.hold.burst == HoldBurst::Glow {
+            let value = format!("{:.1}", appearance.hold.burst_glow_from);
             let mut changed = false;
             Self::row(
                ui,
@@ -675,7 +656,7 @@ impl AppearanceSettingsUi {
                   changed = ui
                      .add(
                         egui::Slider::new(
-                           &mut ctx.appearance_settings.hold.burst_glow_from,
+                           &mut appearance.hold.burst_glow_from,
                            MIN_GLOW_FROM..=MAX_GLOW_FROM,
                         )
                         .step_by(0.1)
@@ -685,14 +666,11 @@ impl AppearanceSettingsUi {
                },
             );
             if changed {
-               ctx.appearance_settings.clamp();
+               appearance.clamp();
                dirty = true;
             }
 
-            let value = format!(
-               "{:.1}",
-               ctx.appearance_settings.hold.burst_glow_to
-            );
+            let value = format!("{:.1}", appearance.hold.burst_glow_to);
             let mut changed = false;
             Self::row(
                ui,
@@ -706,7 +684,7 @@ impl AppearanceSettingsUi {
                   changed = ui
                      .add(
                         egui::Slider::new(
-                           &mut ctx.appearance_settings.hold.burst_glow_to,
+                           &mut appearance.hold.burst_glow_to,
                            MIN_GLOW_TO..=MAX_GLOW_TO,
                         )
                         .step_by(0.1)
@@ -716,14 +694,11 @@ impl AppearanceSettingsUi {
                },
             );
             if changed {
-               ctx.appearance_settings.clamp();
+               appearance.clamp();
                dirty = true;
             }
 
-            let value = format!(
-               "{:.2}",
-               ctx.appearance_settings.hold.burst_glow_softness
-            );
+            let value = format!("{:.2}", appearance.hold.burst_glow_softness);
             let mut changed = false;
             Self::row(
                ui,
@@ -737,7 +712,7 @@ impl AppearanceSettingsUi {
                   changed = ui
                      .add(
                         egui::Slider::new(
-                           &mut ctx.appearance_settings.hold.burst_glow_softness,
+                           &mut appearance.hold.burst_glow_softness,
                            MIN_GLOW_SOFTNESS..=MAX_GLOW_SOFTNESS,
                         )
                         .step_by(0.05)
@@ -747,7 +722,7 @@ impl AppearanceSettingsUi {
                },
             );
             if changed {
-               ctx.appearance_settings.clamp();
+               appearance.clamp();
                dirty = true;
             }
          }
@@ -757,15 +732,15 @@ impl AppearanceSettingsUi {
 
    /// The preview always demonstrates the hold, even while the feature is off:
    /// it is the only way to feel the sweep and the burst without sending a tx.
-   fn preview_settings(ctx: &ZeusContext, accent: Color32) -> HoldSettings {
-      ctx.appearance_settings.resolved_hold(accent)
+   fn preview_settings(appearance: &AppearanceSettings, accent: Color32) -> HoldSettings {
+      appearance.resolved_hold(accent)
    }
 
    /// Master switch, the one ambient-kind combo, and the chosen kind's knobs.
    ///
    /// Returns whether a persisted value changed.
    fn ambient_block(
-      ctx: &mut ZeusContext,
+      appearance: &mut AppearanceSettings,
       theme: &Theme,
       q_mark_text: &RichText,
       ui: &mut Ui,
@@ -774,7 +749,7 @@ impl AppearanceSettingsUi {
       let label_visuals = theme.label_visuals();
 
       let mut dirty = false;
-      let mut enabled = ctx.appearance_settings.ambient_enabled;
+      let mut enabled = appearance.ambient_enabled;
       let mut changed = false;
       Self::row(
          ui,
@@ -789,20 +764,20 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.ambient_enabled = enabled;
+         appearance.ambient_enabled = enabled;
          if !enabled {
             // The per-kind block below is disabled with the master switch;
             // close any crate window that was open rather than leave it
             // interactive outside the disabled pass.
-            ctx.appearance_settings.snow.open = false;
-            ctx.appearance_settings.light.open = false;
-            ctx.appearance_settings.lightning.open = false;
+            appearance.snow.open = false;
+            appearance.light.open = false;
+            appearance.lightning.open = false;
          }
          dirty = true;
       }
 
       ui.add_enabled_ui(enabled, |ui| {
-         let mut kind = ctx.appearance_settings.ambient_kind;
+         let mut kind = appearance.ambient_kind;
          let selected_text = RichText::new(kind.label()).size(theme.typography.normal);
          let kind_label = Label::new(selected_text, None)
             .visuals(label_visuals)
@@ -846,15 +821,15 @@ impl AppearanceSettingsUi {
             },
          );
          if changed {
-            ctx.appearance_settings.ambient_kind = kind;
-            ctx.appearance_settings.clamp();
+            appearance.ambient_kind = kind;
+            appearance.clamp();
             dirty = true;
          }
 
-         dirty |= match ctx.appearance_settings.ambient_kind {
-            AmbientKind::Snow => Self::snow_block(ctx, theme, q_mark_text, ui),
-            AmbientKind::Glow => Self::glow_block(ctx, theme, q_mark_text, ui),
-            AmbientKind::Lightning => Self::lightning_block(ctx, theme, q_mark_text, ui),
+         dirty |= match appearance.ambient_kind {
+            AmbientKind::Snow => Self::snow_block(appearance, theme, q_mark_text, ui),
+            AmbientKind::Glow => Self::glow_block(appearance, theme, q_mark_text, ui),
+            AmbientKind::Lightning => Self::lightning_block(appearance, theme, q_mark_text, ui),
          };
       });
 
@@ -862,7 +837,7 @@ impl AppearanceSettingsUi {
    }
 
    fn snow_block(
-      ctx: &mut ZeusContext,
+      appearance: &mut AppearanceSettings,
       theme: &Theme,
       q_mark_text: &RichText,
       ui: &mut Ui,
@@ -880,14 +855,14 @@ impl AppearanceSettingsUi {
          None,
          None,
          |ui| {
-            changed = ui.color_edit_button_srgba(&mut ctx.appearance_settings.snow.color).changed();
+            changed = ui.color_edit_button_srgba(&mut appearance.snow.color).changed();
          },
       );
       if changed {
          dirty = true;
       }
 
-      let value = format!("{}", ctx.appearance_settings.snow.density);
+      let value = format!("{}", appearance.snow.density);
       let mut changed = false;
       Self::row(
          ui,
@@ -901,7 +876,7 @@ impl AppearanceSettingsUi {
             changed = ui
                .add(
                   egui::Slider::new(
-                     &mut ctx.appearance_settings.snow.density,
+                     &mut appearance.snow.density,
                      MIN_AMBIENT_SNOW_DENSITY..=MAX_AMBIENT_SNOW_DENSITY,
                   )
                   .logarithmic(true)
@@ -911,7 +886,7 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.clamp();
+         appearance.clamp();
          dirty = true;
       }
 
@@ -927,7 +902,7 @@ impl AppearanceSettingsUi {
          |ui| {
             changed = Self::drag_value(
                ui,
-               egui::DragValue::new(&mut ctx.appearance_settings.snow.size_max)
+               egui::DragValue::new(&mut appearance.snow.size_max)
                   .speed(0.1)
                   .range(MIN_AMBIENT_SNOW_SIZE..=MAX_AMBIENT_SNOW_SIZE),
             )
@@ -935,7 +910,7 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.clamp();
+         appearance.clamp();
          dirty = true;
       }
 
@@ -951,7 +926,7 @@ impl AppearanceSettingsUi {
          |ui| {
             changed = Self::drag_value(
                ui,
-               egui::DragValue::new(&mut ctx.appearance_settings.snow.speed_max)
+               egui::DragValue::new(&mut appearance.snow.speed_max)
                   .speed(1.0)
                   .range(MIN_AMBIENT_SNOW_SPEED..=MAX_AMBIENT_SNOW_SPEED),
             )
@@ -959,11 +934,11 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.clamp();
+         appearance.clamp();
          dirty = true;
       }
 
-      let value = format!("{:.0}", ctx.appearance_settings.snow.wind.x);
+      let value = format!("{:.0}", appearance.snow.wind.x);
       let mut changed = false;
       Self::row(
          ui,
@@ -977,7 +952,7 @@ impl AppearanceSettingsUi {
             changed = ui
                .add(
                   egui::Slider::new(
-                     &mut ctx.appearance_settings.snow.wind.x,
+                     &mut appearance.snow.wind.x,
                      MIN_AMBIENT_WIND_X..=MAX_AMBIENT_WIND_X,
                   )
                   .show_value(false),
@@ -986,11 +961,11 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.clamp();
+         appearance.clamp();
          dirty = true;
       }
 
-      let value = format!("{:.0}", ctx.appearance_settings.snow.wind.y);
+      let value = format!("{:.0}", appearance.snow.wind.y);
       let mut changed = false;
       Self::row(
          ui,
@@ -1004,7 +979,7 @@ impl AppearanceSettingsUi {
             changed = ui
                .add(
                   egui::Slider::new(
-                     &mut ctx.appearance_settings.snow.wind.y,
+                     &mut appearance.snow.wind.y,
                      MIN_AMBIENT_WIND_Y..=MAX_AMBIENT_WIND_Y,
                   )
                   .show_value(false),
@@ -1013,7 +988,7 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.clamp();
+         appearance.clamp();
          dirty = true;
       }
 
@@ -1032,10 +1007,10 @@ impl AppearanceSettingsUi {
          },
       );
       if more {
-         ctx.appearance_settings.snow.open = true;
+         appearance.snow.open = true;
       }
-      if ctx.appearance_settings.snow.open {
-         ctx.appearance_settings.snow.show_window(ui.ctx());
+      if appearance.snow.open {
+         appearance.snow.show_window(ui.ctx());
       }
 
       ui.add_space(theme.spacing.md);
@@ -1043,7 +1018,7 @@ impl AppearanceSettingsUi {
    }
 
    fn glow_block(
-      ctx: &mut ZeusContext,
+      appearance: &mut AppearanceSettings,
       theme: &Theme,
       q_mark_text: &RichText,
       ui: &mut Ui,
@@ -1061,15 +1036,14 @@ impl AppearanceSettingsUi {
          None,
          None,
          |ui| {
-            changed =
-               ui.color_edit_button_srgba(&mut ctx.appearance_settings.light.color).changed();
+            changed = ui.color_edit_button_srgba(&mut appearance.light.color).changed();
          },
       );
       if changed {
          dirty = true;
       }
 
-      let value = format!("{}", ctx.appearance_settings.light.density);
+      let value = format!("{}", appearance.light.density);
       let mut changed = false;
       Self::row(
          ui,
@@ -1083,7 +1057,7 @@ impl AppearanceSettingsUi {
             changed = ui
                .add(
                   egui::Slider::new(
-                     &mut ctx.appearance_settings.light.density,
+                     &mut appearance.light.density,
                      MIN_AMBIENT_LIGHT_DENSITY..=MAX_AMBIENT_LIGHT_DENSITY,
                   )
                   .logarithmic(true)
@@ -1093,7 +1067,7 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.clamp();
+         appearance.clamp();
          dirty = true;
       }
 
@@ -1109,7 +1083,7 @@ impl AppearanceSettingsUi {
          |ui| {
             changed = Self::drag_value(
                ui,
-               egui::DragValue::new(&mut ctx.appearance_settings.light.radius_max)
+               egui::DragValue::new(&mut appearance.light.radius_max)
                   .speed(0.5)
                   .range(MIN_AMBIENT_LIGHT_RADIUS..=MAX_AMBIENT_LIGHT_RADIUS),
             )
@@ -1117,11 +1091,11 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.clamp();
+         appearance.clamp();
          dirty = true;
       }
 
-      let value = format!("{:.2}", ctx.appearance_settings.light.intensity);
+      let value = format!("{:.2}", appearance.light.intensity);
       let mut changed = false;
       Self::row(
          ui,
@@ -1135,7 +1109,7 @@ impl AppearanceSettingsUi {
             changed = ui
                .add(
                   egui::Slider::new(
-                     &mut ctx.appearance_settings.light.intensity,
+                     &mut appearance.light.intensity,
                      MIN_AMBIENT_LIGHT_INTENSITY..=MAX_AMBIENT_LIGHT_INTENSITY,
                   )
                   .step_by(0.05)
@@ -1145,11 +1119,11 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.clamp();
+         appearance.clamp();
          dirty = true;
       }
 
-      let value = format!("{:.2}", ctx.appearance_settings.light.flicker);
+      let value = format!("{:.2}", appearance.light.flicker);
       let mut changed = false;
       Self::row(
          ui,
@@ -1163,7 +1137,7 @@ impl AppearanceSettingsUi {
             changed = ui
                .add(
                   egui::Slider::new(
-                     &mut ctx.appearance_settings.light.flicker,
+                     &mut appearance.light.flicker,
                      MIN_AMBIENT_LIGHT_FLICKER..=MAX_AMBIENT_LIGHT_FLICKER,
                   )
                   .step_by(0.05)
@@ -1173,7 +1147,7 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.clamp();
+         appearance.clamp();
          dirty = true;
       }
 
@@ -1192,10 +1166,10 @@ impl AppearanceSettingsUi {
          },
       );
       if more {
-         ctx.appearance_settings.light.open = true;
+         appearance.light.open = true;
       }
-      if ctx.appearance_settings.light.open {
-         ctx.appearance_settings.light.show_window(ui.ctx());
+      if appearance.light.open {
+         appearance.light.show_window(ui.ctx());
       }
 
       ui.add_space(theme.spacing.md);
@@ -1203,7 +1177,7 @@ impl AppearanceSettingsUi {
    }
 
    fn lightning_block(
-      ctx: &mut ZeusContext,
+      appearance: &mut AppearanceSettings,
       theme: &Theme,
       q_mark_text: &RichText,
       ui: &mut Ui,
@@ -1221,16 +1195,14 @@ impl AppearanceSettingsUi {
          None,
          None,
          |ui| {
-            changed = ui
-               .color_edit_button_srgba(&mut ctx.appearance_settings.lightning.color)
-               .changed();
+            changed = ui.color_edit_button_srgba(&mut appearance.lightning.color).changed();
          },
       );
       if changed {
          dirty = true;
       }
 
-      let value = format!("{}", ctx.appearance_settings.lightning.bolt_count);
+      let value = format!("{}", appearance.lightning.bolt_count);
       let mut changed = false;
       Self::row(
          ui,
@@ -1244,7 +1216,7 @@ impl AppearanceSettingsUi {
             changed = ui
                .add(
                   egui::Slider::new(
-                     &mut ctx.appearance_settings.lightning.bolt_count,
+                     &mut appearance.lightning.bolt_count,
                      MIN_AMBIENT_BOLTS..=MAX_AMBIENT_BOLTS,
                   )
                   .show_value(false),
@@ -1253,14 +1225,11 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.clamp();
+         appearance.clamp();
          dirty = true;
       }
 
-      let value = format!(
-         "{}",
-         ctx.appearance_settings.lightning.branch_depth
-      );
+      let value = format!("{}", appearance.lightning.branch_depth);
       let mut changed = false;
       Self::row(
          ui,
@@ -1274,7 +1243,7 @@ impl AppearanceSettingsUi {
             changed = ui
                .add(
                   egui::Slider::new(
-                     &mut ctx.appearance_settings.lightning.branch_depth,
+                     &mut appearance.lightning.branch_depth,
                      MIN_AMBIENT_BRANCH_DEPTH..=MAX_AMBIENT_BRANCH_DEPTH,
                   )
                   .show_value(false),
@@ -1283,14 +1252,11 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.clamp();
+         appearance.clamp();
          dirty = true;
       }
 
-      let value = format!(
-         "{:.1}",
-         ctx.appearance_settings.lightning.thickness
-      );
+      let value = format!("{:.1}", appearance.lightning.thickness);
       let mut changed = false;
       Self::row(
          ui,
@@ -1304,7 +1270,7 @@ impl AppearanceSettingsUi {
             changed = ui
                .add(
                   egui::Slider::new(
-                     &mut ctx.appearance_settings.lightning.thickness,
+                     &mut appearance.lightning.thickness,
                      MIN_AMBIENT_THICKNESS..=MAX_AMBIENT_THICKNESS,
                   )
                   .step_by(0.1)
@@ -1314,11 +1280,11 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.clamp();
+         appearance.clamp();
          dirty = true;
       }
 
-      let value = format!("{:.2}", ctx.appearance_settings.lightning.jitter);
+      let value = format!("{:.2}", appearance.lightning.jitter);
       let mut changed = false;
       Self::row(
          ui,
@@ -1332,7 +1298,7 @@ impl AppearanceSettingsUi {
             changed = ui
                .add(
                   egui::Slider::new(
-                     &mut ctx.appearance_settings.lightning.jitter,
+                     &mut appearance.lightning.jitter,
                      MIN_AMBIENT_JITTER..=MAX_AMBIENT_JITTER,
                   )
                   .step_by(0.01)
@@ -1342,14 +1308,11 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.clamp();
+         appearance.clamp();
          dirty = true;
       }
 
-      let value = format!(
-         "{:.2}",
-         ctx.appearance_settings.lightning.flash_intensity
-      );
+      let value = format!("{:.2}", appearance.lightning.flash_intensity);
       let mut changed = false;
       Self::row(
          ui,
@@ -1363,7 +1326,7 @@ impl AppearanceSettingsUi {
             changed = ui
                .add(
                   egui::Slider::new(
-                     &mut ctx.appearance_settings.lightning.flash_intensity,
+                     &mut appearance.lightning.flash_intensity,
                      MIN_AMBIENT_FLASH_INTENSITY..=MAX_AMBIENT_FLASH_INTENSITY,
                   )
                   .step_by(0.05)
@@ -1373,14 +1336,11 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.clamp();
+         appearance.clamp();
          dirty = true;
       }
 
-      let value = format!(
-         "{:.0} ms",
-         ctx.appearance_settings.lightning.duration_ms
-      );
+      let value = format!("{:.0} ms", appearance.lightning.duration_ms);
       let mut changed = false;
       Self::row(
          ui,
@@ -1394,7 +1354,7 @@ impl AppearanceSettingsUi {
             changed = ui
                .add(
                   egui::Slider::new(
-                     &mut ctx.appearance_settings.lightning.duration_ms,
+                     &mut appearance.lightning.duration_ms,
                      MIN_AMBIENT_DURATION_MS..=MAX_AMBIENT_DURATION_MS,
                   )
                   .step_by(10.0)
@@ -1404,7 +1364,7 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.clamp();
+         appearance.clamp();
          dirty = true;
       }
 
@@ -1420,7 +1380,7 @@ impl AppearanceSettingsUi {
          |ui| {
             changed = Self::drag_value(
                ui,
-               egui::DragValue::new(&mut ctx.appearance_settings.lightning.ambient_interval_secs)
+               egui::DragValue::new(&mut appearance.lightning.ambient_interval_secs)
                   .speed(0.1)
                   .range(MIN_AMBIENT_INTERVAL_SECS..=MAX_AMBIENT_INTERVAL_SECS)
                   .suffix(" s"),
@@ -1429,7 +1389,7 @@ impl AppearanceSettingsUi {
          },
       );
       if changed {
-         ctx.appearance_settings.clamp();
+         appearance.clamp();
          dirty = true;
       }
 
@@ -1448,10 +1408,10 @@ impl AppearanceSettingsUi {
          },
       );
       if more {
-         ctx.appearance_settings.lightning.open = true;
+         appearance.lightning.open = true;
       }
-      if ctx.appearance_settings.lightning.open {
-         ctx.appearance_settings.lightning.show_window(ui.ctx());
+      if appearance.lightning.open {
+         appearance.lightning.show_window(ui.ctx());
       }
 
       ui.add_space(theme.spacing.md);

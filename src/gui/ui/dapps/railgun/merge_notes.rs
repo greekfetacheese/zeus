@@ -19,7 +19,6 @@ use zeus_railgun::{
 use crate::{
    core::ZeusContext,
    gui::{SHARED_GUI, ui::dapps::railgun::transfer::private_merge_notes},
-   utils::RT,
 };
 
 const EXPLAIN: &str = "\
@@ -84,7 +83,7 @@ impl MergeNotesWindow {
          return;
       };
 
-      RT.spawn(async move {
+      crate::runtime::rt().spawn(async move {
          let result = load_suggestion(chain_id, asset).await;
          SHARED_GUI.write(|gui| {
             let win = &mut gui.merge_notes_window;
@@ -303,9 +302,9 @@ impl MergeNotesWindow {
 
       ctx.railgun_status.set_op_in_progress(chain.id(), true);
 
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          let ctx_handle = SHARED_GUI.read(|gui| gui.ctx.clone());
-         let result = RT.block_on(private_merge_notes(
+         let result = crate::runtime::rt().block_on(private_merge_notes(
             ctx_handle.clone(),
             chain,
             currency,
@@ -371,7 +370,7 @@ async fn load_suggestion(
    // The availability check reads and hashes the whole artifact pack from disk, so run it
    // on the blocking pool — the async worker driving this task must not stall on it.
    let prover = provider.prover().clone();
-   let max_inputs = RT
+   let max_inputs = crate::runtime::rt()
       .spawn_blocking(move || prover.max_merge_inputs())
       .await
       .map_err(|e| anyhow::anyhow!("Railgun circuit availability scan failed: {e}"))?;

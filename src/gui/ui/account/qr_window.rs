@@ -5,7 +5,6 @@
 
 use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
-use crate::utils::RT;
 use egui::{Order, RichText, Spinner, Ui, vec2};
 use egui_elements::{Button, Modal, QrImage, Theme, components::QrEncoding};
 
@@ -37,7 +36,7 @@ impl QrWindow {
    pub fn open(&mut self, wallet: WalletInfo) {
       let wallet_clone = wallet.clone();
 
-      RT.spawn_blocking(move || {
+      crate::runtime::rt().spawn_blocking(move || {
          let encoding = QrEncoding {
             target_px: QR_IMAGE_SIZE,
             ..Default::default()
