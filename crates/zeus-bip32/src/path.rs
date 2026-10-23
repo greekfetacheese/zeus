@@ -6,7 +6,9 @@ use std::{
    str::FromStr,
 };
 
+/// The path prefix Zeus appends per-account indices to: `m/44'/60'/0'/0/`
 pub const DEFAULT_DERIVATION_PATH_PREFIX: &str = "m/44'/60'/0'/0/";
+/// The full default account path: `m/44'/60'/0'/0/0`
 pub const DEFAULT_DERIVATION_PATH: &str = "m/44'/60'/0'/0/0";
 
 /// The hardened derivation flag. Keys at or above this index are hardened.
@@ -76,6 +78,7 @@ impl<'de> serde::Deserialize<'de> for DerivationPath {
 }
 
 impl DerivationPath {
+   /// Render the path with a caller-chosen root label, separator and hardened suffix character.
    pub fn custom_string(&self, root: &str, joiner: char, harden: char) -> String {
       std::iter::once(root.to_owned())
          .chain(self.0.iter().map(|s| encode_index(*s, harden)))

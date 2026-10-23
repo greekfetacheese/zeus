@@ -1,9 +1,10 @@
+/// The error type returned by every fallible operation in this crate.
 #[derive(Debug)]
 pub enum Bip32Error {
    /// Error bubbled up from the backend
    BackendError(k256::ecdsa::Error),
 
-   /// Error bubbled up from the backend
+   /// A scalar or point fell outside the elliptic curve group
    EllipticCurveError(k256::elliptic_curve::Error),
 
    /// Error bubbled up from std::io

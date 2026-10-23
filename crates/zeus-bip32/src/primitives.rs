@@ -26,6 +26,7 @@ impl From<[u8; 4]> for KeyFingerprint {
 }
 
 impl KeyFingerprint {
+   /// `true` for the all-zero fingerprint every root node carries
    pub fn is_zero(&self) -> bool {
       self.0.iter().all(|b| *b == 0)
    }
@@ -46,10 +47,12 @@ impl std::fmt::Debug for KeyFingerprint {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone)]
 pub struct ChainCode {
+   /// The 32 chain-code bytes, held in secure memory
    pub data: SecureArray<u8, 32>,
 }
 
 impl ChainCode {
+   /// Build a chain code from the caller's buffer, consuming and zeroizing it
    pub fn from_slice_mut(slice: &mut [u8; 32]) -> Result<Self, Error> {
       let data = SecureArray::from_slice_mut(slice)?;
       Ok(Self { data })
@@ -77,7 +80,7 @@ pub struct XKeyInfo {
    pub index: u32,
    /// The 32-byte chain code used to generate child keys
    pub chain_code: ChainCode,
-   /// The key's stanadard output type preference
+   /// The key's standard output type preference
    pub hint: Hint,
 }
 

@@ -76,11 +76,13 @@ pub fn root_from_seed(
    Ok((sec_array, key_info))
 }
 
+/// A BIP32 eXtended Privkey
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone)]
-/// A BIP32 eXtended Privkey
 pub struct SecureXPriv {
+   /// The 32-byte private key, held in secure memory
    pub key: SecureArray<u8, 32>,
+   /// The depth, parent fingerprint, index, chain code and address-type hint
    pub xkey_info: XKeyInfo,
 }
 
@@ -92,10 +94,13 @@ impl PartialEq for SecureXPriv {
 }
 
 impl SecureXPriv {
+   /// Assemble an extended private key from its parts
    pub fn new(key: SecureArray<u8, 32>, xkey_info: XKeyInfo) -> Self {
       Self { key, xkey_info }
    }
 
+   /// Derive the curve point from the private key and wrap it as an extended public key.
+   /// Fails when the stored key is erased or not a valid scalar.
    pub fn public_key(&self) -> Result<XPub, Bip32Error> {
       Ok(XPub {
          key: self.verifying_key()?,
@@ -107,6 +112,8 @@ impl SecureXPriv {
       self.key.unlock(|key| SigningKey::from_slice(key).map_err(Into::into))
    }
 
+   /// Derive the verifying key from the private key. Fails when the stored key is erased or not
+   /// a valid scalar.
    pub fn verifying_key(&self) -> Result<VerifyingKey, Bip32Error> {
       let signing_key = self.signing_key()?;
       Ok(*signing_key.verifying_key())
@@ -212,11 +219,14 @@ impl SecureXPriv {
 /// A BIP32 eXtended Public key
 #[derive(Clone)]
 pub struct XPub {
+   /// The public curve point
    pub key: VerifyingKey,
+   /// The depth, parent fingerprint, index, chain code and address-type hint
    pub xkey_info: XKeyInfo,
 }
 
 impl XPub {
+   /// The first 4 bytes of the HASH160 of the compressed public key
    pub fn fingerprint(&self) -> KeyFingerprint {
       let compressed_pubkey = self.key.to_sec1_bytes();
 
