@@ -502,6 +502,7 @@ mod tests {
    use revm::context_interface::result::{ResultGas, SuccessReason};
    use revm::database::{CacheDB, EmptyDB};
    use revm::state::{AccountInfo, Bytecode};
+   use std::error::Error as _;
 
    /// The reads the NFT send path's transfer check makes, executed on a real fork and compared with the
    /// node's own answer **at the same block**.
@@ -696,6 +697,30 @@ mod tests {
       fn block_hash(&mut self, _number: u64) -> Result<B256, Self::Error> {
          Err(DatabaseError::BackendFetchRequestError)
       }
+   }
+
+   // The rendered messages and the (absent) sources are what a caller logs; pinned byte-exact.
+   #[test]
+   fn approval_probe_errors_render_and_expose_no_source() {
+      let never_ran = NftApprovalProbeError::NeverRan(anyhow!("the node did not answer"));
+      assert_eq!(
+         never_ran.to_string(),
+         "the fork read never ran: the node did not answer"
+      );
+      assert!(
+         never_ran.source().is_none(),
+         "NeverRan has no #[from] or transparent attribute, so it has no source"
+      );
+
+      let answered = NftApprovalProbeError::Answered(anyhow!("reverted with 0xdeadbeef"));
+      assert_eq!(
+         answered.to_string(),
+         "the contract answered unusably: reverted with 0xdeadbeef"
+      );
+      assert!(
+         answered.source().is_none(),
+         "Answered has no #[from] or transparent attribute, so it has no source"
+      );
    }
 
    /// The approval probes tell the two failure origins apart: a fork the `Database` cannot serve is
