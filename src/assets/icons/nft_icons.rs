@@ -582,7 +582,7 @@ mod tests {
 
       icons.nfts.icon_data.write(|c| c.insert(key, data));
       assert!(
-         icons.nfts.icon_data.read(|c| art_bytes(c)) > MAX_ART_BYTES,
+         icons.nfts.icon_data.read(art_bytes) > MAX_ART_BYTES,
          "the URI's bytes must count against the budget"
       );
 
