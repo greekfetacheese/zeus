@@ -21,6 +21,8 @@ use crate::{
 pub enum TokenDataError {
    #[error("Invalid token data hash length")]
    InvalidHashLength,
+   #[error("Unsupported token type byte: {0}")]
+   UnsupportedTokenType(u8),
 }
 
 impl TokenData {
@@ -42,7 +44,7 @@ impl TokenData {
       let token_type = match token_type {
          1 => TokenType::ERC721,
          2 => TokenType::ERC1155,
-         _ => unreachable!(),
+         _ => return Err(TokenDataError::UnsupportedTokenType(token_type)),
       };
       let token_address = Address::from_slice(&hash[44..64]);
       let token_sub_id =
@@ -322,7 +324,8 @@ mod tests {
    use ruint::uint;
 
    use super::{
-      BoundParams, CommitmentCiphertext, ShieldCiphertext, TokenData, TokenType, UnshieldType,
+      BoundParams, CommitmentCiphertext, ShieldCiphertext, TokenData, TokenDataError, TokenType,
+      UnshieldType,
    };
    use crate::crypto::aes::Ciphertext;
 
@@ -393,6 +396,24 @@ mod tests {
          uint!(653354349844558206886319240777917397850034746873378410801880094244109558523_U256);
 
       assert_eq!(hash, expected);
+   }
+
+   /// A 96-byte hash carries the token-type byte at index 31. Only ERC-721 (1) and ERC-1155 (2) are
+   /// defined; any other byte is malformed input and must surface as `UnsupportedTokenType`, never a
+   /// panic.
+   #[test]
+   fn from_hash_rejects_an_unknown_token_type_byte() {
+      for token_type in [0u8, 3] {
+         let mut hash = [0u8; 96];
+         hash[31] = token_type;
+         assert!(
+            matches!(
+               TokenData::from_hash(&hash),
+               Err(TokenDataError::UnsupportedTokenType(t)) if t == token_type
+            ),
+            "token type byte {token_type} must be rejected"
+         );
+      }
    }
 
    #[test]
