@@ -3,10 +3,10 @@
 use crate::assets::Icons;
 use crate::core::{DiscoveredWallets, WalletPortfolio, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::common::rows;
 use crate::utils::malloc_trim;
 use eframe::egui::{
-   Align, Align2, FontId, Id, Layout, Margin, Order, RichText, ScrollArea, Sense, Spinner, Stroke,
-   TextWrapMode, Ui, UiBuilder, vec2,
+   Align2, FontId, Id, Margin, Order, RichText, ScrollArea, Spinner, Stroke, Ui, vec2,
 };
 use egui_elements::{Button, Modal, SecureTextEdit, Theme, widgets::Window};
 use egui_lucide::Lucide;
@@ -153,16 +153,6 @@ impl DiscoverChildWallets {
       self.discovery_wallet.lock().unwrap().erase();
    }
 
-   /// Fixed-size cell. The parent always advances by `width` even if a label
-   /// wants more space — otherwise path/address shove later columns.
-   fn row_cell(ui: &mut Ui, width: f32, height: f32, add_contents: impl FnOnce(&mut Ui)) {
-      let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
-      let mut child =
-         ui.new_child(UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)));
-      child.style_mut().wrap_mode = Some(TextWrapMode::Truncate);
-      add_contents(&mut child);
-   }
-
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
@@ -287,7 +277,7 @@ impl DiscoverChildWallets {
                   for (i, header) in
                      ["Derivation Path", "Address", "Value", ""].into_iter().enumerate()
                   {
-                     Self::row_cell(ui, column_widths[i], 28.0, |ui| {
+                     rows::row_cell(ui, column_widths[i], 28.0, |ui| {
                         if !header.is_empty() {
                            ui.label(
                               RichText::new(header)
@@ -554,11 +544,11 @@ impl DiscoverChildWallets {
 
                   ui.add_enabled_ui(!exists, |ui| {
                      ui.horizontal(|ui| {
-                        Self::row_cell(ui, column_widths[0], row_height, |ui| {
+                        rows::row_cell(ui, column_widths[0], row_height, |ui| {
                            ui.label(RichText::new(&path).size(theme.typography.small));
                         });
 
-                        Self::row_cell(ui, column_widths[1], row_height, |ui| {
+                        rows::row_cell(ui, column_widths[1], row_height, |ui| {
                            ui.hyperlink_to(
                               RichText::new(&address_short)
                                  .size(theme.typography.small)
@@ -567,7 +557,7 @@ impl DiscoverChildWallets {
                            );
                         });
 
-                        Self::row_cell(ui, column_widths[2], row_height, |ui| {
+                        rows::row_cell(ui, column_widths[2], row_height, |ui| {
                            ui.spacing_mut().item_spacing.x = theme.spacing.xs;
                            for chain in &chains {
                               let icon =
@@ -581,7 +571,7 @@ impl DiscoverChildWallets {
                            );
                         });
 
-                        Self::row_cell(ui, column_widths[3], row_height, |ui| {
+                        rows::row_cell(ui, column_widths[3], row_height, |ui| {
                            let text = RichText::new("Add").size(theme.typography.normal);
                            let button = Button::new(text)
                               .visuals(button_visuals)

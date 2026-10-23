@@ -1,6 +1,7 @@
 //! UI that shows the transaction history
 
 use crate::core::{TransactionRich, WalletInfo, ZeusContext};
+use crate::gui::ui::common::rows;
 use crate::gui::{
    SHARED_GUI,
    ui::{
@@ -10,8 +11,7 @@ use crate::gui::{
 };
 use crate::utils::truncate_address;
 use egui::{
-   Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, UiBuilder,
-   vec2,
+   Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, vec2,
 };
 use egui_elements::{Button, ComboBox, Label, Theme};
 use elegance::{Badge, BadgeTone};
@@ -134,16 +134,6 @@ impl TxHistory {
       } else {
          truncate_address(address.to_string())
       }
-   }
-
-   /// Fixed-size cell. The parent always advances by `width` even if a label
-   /// wants more space — otherwise long Wallet/Action names shove later columns.
-   fn row_cell(ui: &mut Ui, width: f32, height: f32, add_contents: impl FnOnce(&mut Ui)) {
-      let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
-      let mut child =
-         ui.new_child(UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)));
-      child.style_mut().wrap_mode = Some(TextWrapMode::Truncate);
-      add_contents(&mut child);
    }
 
    fn current_cache_key(&self, privacy: bool) -> CacheKey {
@@ -598,7 +588,7 @@ impl TxHistory {
                      for (i, header) in
                         ["Wallet", "Chain", "Action", "Age", ""].into_iter().enumerate()
                      {
-                        Self::row_cell(ui, column_widths[i], 28.0, |ui| {
+                        rows::row_cell(ui, column_widths[i], 28.0, |ui| {
                            if !header.is_empty() {
                               ui.label(
                                  RichText::new(header)
@@ -630,7 +620,7 @@ impl TxHistory {
                                  ui.spacing_mut().item_spacing.x = col_spacing;
 
                                  ui.horizontal(|ui| {
-                                    Self::row_cell(ui, column_widths[0], row_height, |ui| {
+                                    rows::row_cell(ui, column_widths[0], row_height, |ui| {
                                        let name = self.wallet_name_or_address(ctx, row.wallet);
                                        let text = RichText::new(&name)
                                           .size(theme.typography.normal)
@@ -642,7 +632,7 @@ impl TxHistory {
                                           .on_hover_text(format!("{}\n{}", name, row.wallet));
                                     });
 
-                                    Self::row_cell(ui, column_widths[1], row_height, |ui| {
+                                    rows::row_cell(ui, column_widths[1], row_height, |ui| {
                                        // A spent-note row's chain comes from the Railgun store and
                                        // is not re-validated, so it is named rather than converted.
                                        let name = chain_label(row.chain);
@@ -655,7 +645,7 @@ impl TxHistory {
                                        ui.add(label).on_hover_text(&name);
                                     });
 
-                                    Self::row_cell(ui, column_widths[2], row_height, |ui| {
+                                    rows::row_cell(ui, column_widths[2], row_height, |ui| {
                                        let text = RichText::new(&row.action)
                                           .size(theme.typography.normal)
                                           .color(theme.colors.text);
@@ -665,7 +655,7 @@ impl TxHistory {
                                        ui.add(label).on_hover_text(&row.action);
                                     });
 
-                                    Self::row_cell(ui, column_widths[3], row_height, |ui| {
+                                    rows::row_cell(ui, column_widths[3], row_height, |ui| {
                                        let age = spent_age(ctx, row);
                                        let text = RichText::new(&age)
                                           .size(theme.typography.normal)
@@ -676,7 +666,7 @@ impl TxHistory {
                                        ui.add(label).on_hover_text(&age);
                                     });
 
-                                    Self::row_cell(ui, column_widths[4], row_height, |ui| {
+                                    rows::row_cell(ui, column_widths[4], row_height, |ui| {
                                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                           let text =
                                              RichText::new("Details").size(theme.typography.normal);
@@ -709,7 +699,7 @@ impl TxHistory {
                                  ui.spacing_mut().item_spacing.x = col_spacing;
 
                                  ui.horizontal(|ui| {
-                                    Self::row_cell(ui, column_widths[0], row_height, |ui| {
+                                    rows::row_cell(ui, column_widths[0], row_height, |ui| {
                                        let name = self.wallet_name_or_address(ctx, row.wallet);
                                        let text = RichText::new(&name)
                                           .size(theme.typography.normal)
@@ -721,7 +711,7 @@ impl TxHistory {
                                           .on_hover_text(format!("{}\n{}", name, row.wallet));
                                     });
 
-                                    Self::row_cell(ui, column_widths[1], row_height, |ui| {
+                                    rows::row_cell(ui, column_widths[1], row_height, |ui| {
                                        // A stored transaction's chain is a plain serde field that
                                        // `load_all` does not re-validate, so it is named rather
                                        // than converted.
@@ -735,7 +725,7 @@ impl TxHistory {
                                        ui.add(label).on_hover_text(&name);
                                     });
 
-                                    Self::row_cell(ui, column_widths[2], row_height, |ui| {
+                                    rows::row_cell(ui, column_widths[2], row_height, |ui| {
                                        let action = row.tx.summary_name();
                                        let text = RichText::new(&action)
                                           .size(theme.typography.normal)
@@ -746,7 +736,7 @@ impl TxHistory {
                                        ui.add(label).on_hover_text(&action);
                                     });
 
-                                    Self::row_cell(ui, column_widths[3], row_height, |ui| {
+                                    rows::row_cell(ui, column_widths[3], row_height, |ui| {
                                        let age = row.tx.timestamp.to_relative();
                                        let text = RichText::new(&age)
                                           .size(theme.typography.normal)
@@ -757,7 +747,7 @@ impl TxHistory {
                                        ui.add(label).on_hover_text(&age);
                                     });
 
-                                    Self::row_cell(ui, column_widths[4], row_height, |ui| {
+                                    rows::row_cell(ui, column_widths[4], row_height, |ui| {
                                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                           let text =
                                              RichText::new("Details").size(theme.typography.normal);
