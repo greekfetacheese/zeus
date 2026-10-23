@@ -316,7 +316,7 @@ impl RemoteArtifactLoader {
    }
 
    pub fn clear_mem_cache(&self) {
-      let mut cache = self.cache.lock().unwrap();
+      let mut cache = self.cache();
       *cache = Cache::new(64 * 1024 * 1024);
    }
 
@@ -554,7 +554,7 @@ impl RemoteArtifactLoader {
       let disk_path = self.artifact_path(circuit_name, filename);
 
       // 1. Memory cache (L1) — inserted only after a pin check.
-      if let Some(cached) = self.cache.lock().unwrap().get(&url) {
+      if let Some(cached) = self.cache().get(&url) {
          debug!("Artifact served from memory cache: {}", url);
          return Ok(cached);
       }
@@ -568,7 +568,7 @@ impl RemoteArtifactLoader {
          );
          verify_artifact_pin(circuit_name, filename, data)?;
          let owned = data.to_vec();
-         self.cache.lock().unwrap().insert(url, owned.clone());
+         self.cache().insert(url, owned.clone());
          return Ok(owned);
       }
 
@@ -596,7 +596,7 @@ impl RemoteArtifactLoader {
             );
             let _ = fs::remove_file(path).await;
          } else {
-            self.cache.lock().unwrap().insert(url.clone(), data.clone());
+            self.cache().insert(url.clone(), data.clone());
             return Ok(data);
          }
       }
@@ -664,8 +664,16 @@ impl RemoteArtifactLoader {
          debug!("Saved artifact to disk: {}", path.display());
       }
 
-      self.cache.lock().unwrap().insert(url, data.clone());
+      self.cache().insert(url, data.clone());
       Ok(data)
+   }
+
+   /// The in-memory artifact cache.
+   ///
+   /// The guarded `Cache` tracks its own byte accounting, so a panic that unwound mid-insert can leave
+   /// that accounting inconsistent — the one thing this cannot silently paper over. Fail loud.
+   fn cache(&self) -> std::sync::MutexGuard<'_, Cache> {
+      self.cache.lock().expect("artifact cache mutex poisoned")
    }
 
    fn embedded_bytes(&self, circuit_name: &str, filename: &str) -> Option<&'static [u8]> {
