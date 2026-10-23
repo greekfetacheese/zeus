@@ -42,15 +42,27 @@ fn ok_output<'a>(result: &'a ExecutionResult, call: &str) -> Result<&'a Bytes, a
 /// `erc721_owner_of` deliberately does **not** use this type and keeps collapsing the two: a reverted
 /// `ownerOf` is the standard's own answer for a burned token, and the ownership arm reads any error
 /// that way. This file therefore carries two error styles on purpose.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum NftApprovalProbeError {
    /// The fork read never reached the contract: `evm.transact` itself failed.
-   #[error("the fork read never ran: {0}")]
    NeverRan(anyhow::Error),
    /// The contract was reached and answered unusably: a revert, no output, or an undecodable return.
-   #[error("the contract answered unusably: {0}")]
    Answered(anyhow::Error),
 }
+
+impl std::fmt::Display for NftApprovalProbeError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         NftApprovalProbeError::NeverRan(err) => write!(f, "the fork read never ran: {err}"),
+         NftApprovalProbeError::Answered(err) => {
+            write!(f, "the contract answered unusably: {err}")
+         }
+      }
+   }
+}
+
+// Neither variant had `#[from]` or `transparent`, so neither exposes a source.
+impl std::error::Error for NftApprovalProbeError {}
 
 /// Simulate ERC-721 `ownerOf(tokenId)` (does not commit).
 ///

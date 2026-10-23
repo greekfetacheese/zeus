@@ -1,44 +1,81 @@
 use alloy_primitives::ruint::ParseError;
-use thiserror::Error;
+use std::fmt;
 
 // TODO: make these errors better, some errors in univ3 libs are just require(condition) without a message.
-#[derive(Error, Debug)]
+#[derive(Debug)]
 pub enum UniswapV3MathError {
-   #[error("Denominator is 0")]
    DenominatorIsZero,
-   #[error("Result is U256::MAX")]
    ResultIsU256MAX,
-   #[error("Sqrt price is 0")]
    SqrtPriceIsZero,
-   #[error("Sqrt price is less than or equal to quotient")]
    SqrtPriceIsLteQuotient,
-   #[error("Can not get most significant bit or least significant bit on zero value")]
    ZeroValue,
-   #[error("Liquidity is 0")]
    LiquidityIsZero,
    //TODO: Update this, shield your eyes for now
-   #[error("require((product = amount * sqrtPX96) / amount == sqrtPX96 && numerator1 > product);")]
    ProductDivAmount,
-   #[error("Denominator is less than or equal to prod_1")]
    DenominatorIsLteProdOne,
-   #[error("Liquidity Sub")]
    LiquiditySub,
-   #[error("Liquidity Add")]
    LiquidityAdd,
-   #[error("The given tick must be less than, or equal to, the maximum tick")]
    T,
-   #[error(
-      "Second inequality must be < because the price can never reach the price at the max tick"
-   )]
    R,
-   #[error("Overflow when casting to U160")]
    SafeCastToU160Overflow,
-   #[error("Tick spacing error")]
    TickSpacingError,
-   #[error("Middleware error when getting next_initialized_tick_within_one_word")]
    MiddlewareError(String),
-   #[error("Parse error")]
-   ParseError(#[from] ParseError),
+   ParseError(ParseError),
+}
+
+impl fmt::Display for UniswapV3MathError {
+   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      match self {
+         UniswapV3MathError::DenominatorIsZero => f.write_str("Denominator is 0"),
+         UniswapV3MathError::ResultIsU256MAX => f.write_str("Result is U256::MAX"),
+         UniswapV3MathError::SqrtPriceIsZero => f.write_str("Sqrt price is 0"),
+         UniswapV3MathError::SqrtPriceIsLteQuotient => {
+            f.write_str("Sqrt price is less than or equal to quotient")
+         }
+         UniswapV3MathError::ZeroValue => f.write_str(
+            "Can not get most significant bit or least significant bit on zero value",
+         ),
+         UniswapV3MathError::LiquidityIsZero => f.write_str("Liquidity is 0"),
+         UniswapV3MathError::ProductDivAmount => f.write_str(
+            "require((product = amount * sqrtPX96) / amount == sqrtPX96 && numerator1 > product);",
+         ),
+         UniswapV3MathError::DenominatorIsLteProdOne => {
+            f.write_str("Denominator is less than or equal to prod_1")
+         }
+         UniswapV3MathError::LiquiditySub => f.write_str("Liquidity Sub"),
+         UniswapV3MathError::LiquidityAdd => f.write_str("Liquidity Add"),
+         UniswapV3MathError::T => {
+            f.write_str("The given tick must be less than, or equal to, the maximum tick")
+         }
+         UniswapV3MathError::R => f.write_str(
+            "Second inequality must be < because the price can never reach the price at the max tick",
+         ),
+         UniswapV3MathError::SafeCastToU160Overflow => {
+            f.write_str("Overflow when casting to U160")
+         }
+         UniswapV3MathError::TickSpacingError => f.write_str("Tick spacing error"),
+         UniswapV3MathError::MiddlewareError(_) => {
+            f.write_str("Middleware error when getting next_initialized_tick_within_one_word")
+         }
+         // The label only: the inner error is the `source()`, not part of the message.
+         UniswapV3MathError::ParseError(_) => f.write_str("Parse error"),
+      }
+   }
+}
+
+impl std::error::Error for UniswapV3MathError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         UniswapV3MathError::ParseError(err) => Some(err),
+         _ => None,
+      }
+   }
+}
+
+impl From<ParseError> for UniswapV3MathError {
+   fn from(err: ParseError) -> Self {
+      UniswapV3MathError::ParseError(err)
+   }
 }
 
 #[cfg(test)]

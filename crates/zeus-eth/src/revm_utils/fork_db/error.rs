@@ -1,35 +1,86 @@
 use futures::channel::mpsc::{SendError, TrySendError};
 use revm::database_interface::DBErrorMarker;
+use std::fmt;
 use std::sync::{Arc, mpsc::RecvError};
 
 #[allow(dead_code)]
 // Errors that can happen when working with [`revm::Database`]
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum DatabaseError {
-   #[error("Failed to fetch AccountInfo {0:?}")]
    MissingAccount(revm::primitives::Address),
-   #[error("Could should already be loaded: {0:?}")]
    MissingCode(revm::primitives::B256),
-   #[error(transparent)]
-   Recv(#[from] RecvError),
-   #[error(transparent)]
-   Send(#[from] SendError),
-   #[error("{0}")]
+   Recv(RecvError),
+   Send(SendError),
    Message(String),
-   #[error("Failed to get account for {0:?}: {0:?}")]
    GetAccount(revm::primitives::Address, Arc<anyhow::Error>),
-   #[error("Failed to get storage for {0:?} at {1:?}: {2:?}")]
    GetStorage(
       revm::primitives::Address,
       revm::primitives::U256,
       Arc<anyhow::Error>,
    ),
-   #[error("Failed to get block hash for {0}: {1:?}")]
    GetBlockHash(revm::primitives::U256, Arc<anyhow::Error>),
-   #[error("Backend Request Error")]
    BackendFetchRequestError,
-   #[error("Channel recv error")]
    ChannelRecvError,
+}
+
+impl fmt::Display for DatabaseError {
+   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      match self {
+         DatabaseError::MissingAccount(address) => {
+            write!(f, "Failed to fetch AccountInfo {address:?}")
+         }
+         DatabaseError::MissingCode(code_hash) => {
+            write!(f, "Could should already be loaded: {code_hash:?}")
+         }
+         // `transparent`: the inner error's own Display, nothing added.
+         DatabaseError::Recv(err) => err.fmt(f),
+         DatabaseError::Send(err) => err.fmt(f),
+         DatabaseError::Message(msg) => f.write_str(msg),
+         DatabaseError::GetAccount(address, _) => {
+            write!(
+               f,
+               "Failed to get account for {address:?}: {address:?}"
+            )
+         }
+         DatabaseError::GetStorage(address, index, cause) => {
+            write!(
+               f,
+               "Failed to get storage for {address:?} at {index:?}: {cause:?}"
+            )
+         }
+         DatabaseError::GetBlockHash(number, cause) => {
+            write!(
+               f,
+               "Failed to get block hash for {number}: {cause:?}"
+            )
+         }
+         DatabaseError::BackendFetchRequestError => f.write_str("Backend Request Error"),
+         DatabaseError::ChannelRecvError => f.write_str("Channel recv error"),
+      }
+   }
+}
+
+impl std::error::Error for DatabaseError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         // `transparent` forwards the inner error's source rather than returning the inner itself.
+         DatabaseError::Recv(err) => err.source(),
+         DatabaseError::Send(err) => err.source(),
+         _ => None,
+      }
+   }
+}
+
+impl From<RecvError> for DatabaseError {
+   fn from(err: RecvError) -> Self {
+      DatabaseError::Recv(err)
+   }
+}
+
+impl From<SendError> for DatabaseError {
+   fn from(err: SendError) -> Self {
+      DatabaseError::Send(err)
+   }
 }
 
 impl<T> From<TrySendError<T>> for DatabaseError {
@@ -191,6 +242,22 @@ mod tests {
       assert!(
          matches!(err, DatabaseError::Send(_)),
          "a TrySendError must convert to DatabaseError::Send, got {err:?}"
+      );
+   }
+
+   // `#[from]` generated these; they must keep landing in the right variant.
+   #[test]
+   fn from_impls_land_in_the_right_variant() {
+      let err: DatabaseError = RecvError.into();
+      assert!(
+         matches!(err, DatabaseError::Recv(_)),
+         "RecvError must convert to DatabaseError::Recv, got {err:?}"
+      );
+
+      let err: DatabaseError = closed_channel_send_error().into();
+      assert!(
+         matches!(err, DatabaseError::Send(_)),
+         "SendError must convert to DatabaseError::Send, got {err:?}"
       );
    }
 }
