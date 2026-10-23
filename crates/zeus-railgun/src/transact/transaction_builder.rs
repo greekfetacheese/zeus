@@ -440,6 +440,8 @@ fn build_group<R: Rng>(
 }
 
 /// Helper for fitting an intent to multiple trees when it can't fit on a single tree.
+// The arguments are all named at this helper's single call site, where they read as the intent split.
+#[allow(clippy::too_many_arguments)]
 fn split_intent<R: Rng>(
    from: RailgunAddress,
    asset: AssetId,

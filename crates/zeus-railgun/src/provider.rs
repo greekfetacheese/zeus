@@ -587,6 +587,8 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
    /// transaction, with an additional fee note transfer to cover the bundler fees. The
    /// `fee_payer` is the signer that will authorize the fee note transfer to the bundler's
    /// address for the estimated fee amount in `fee_token`.
+   // The bundler API takes the UserOp as positional parts, so this keeps the protocol's shape.
+   #[allow(clippy::too_many_arguments)]
    pub async fn prepare_userop(
       &mut self,
       builder: TransactionBuilder,

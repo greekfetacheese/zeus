@@ -158,6 +158,9 @@ fn compress(h: &mut [u64; 8], block: &[u8; BLOCK], t: [u64; 2], nullt: bool) {
    }
 }
 
+// The BLAKE-512 G mixing function has a fixed protocol signature: the state, the message block, the
+// sigma row and the four state-word indices it mixes (plus the message indices picked out of sigma).
+#[allow(clippy::too_many_arguments)]
 #[inline(always)]
 fn g(
    v: &mut [u64; 16],

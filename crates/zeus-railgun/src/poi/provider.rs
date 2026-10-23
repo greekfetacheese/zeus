@@ -259,6 +259,9 @@ impl PoiProvider {
       Ok(())
    }
 
+   // One proof per pending entry needs the txid tree, the UTXO position and both trees at once; they
+   // are all the inputs `PoiCircuitInputs::from_inputs` wants, kept positional to match the circuit.
+   #[allow(clippy::too_many_arguments)]
    async fn create_proof(
       &self,
       prover: &Groth16Prover,
