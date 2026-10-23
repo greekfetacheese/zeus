@@ -143,7 +143,7 @@ fn decrypt_ctr(ciphertext: &CiphertextCtr, key: &[u8; 32]) -> Vec<Vec<u8>> {
    data
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 mod tests {
    use rand::{Rng, SeedableRng};
    use rand_chacha::ChaChaRng;

@@ -108,7 +108,7 @@ impl TryFrom<[[String; 2]; 2]> for G2Affine {
    }
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 mod tests {
    use ruint::uint;
 

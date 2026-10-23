@@ -50,7 +50,7 @@ fn decode(bytes: &[u8; 16]) -> String {
    String::from_utf8(result).unwrap()
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 mod tests {
    use super::*;
 

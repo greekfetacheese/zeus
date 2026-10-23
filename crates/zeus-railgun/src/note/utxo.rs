@@ -257,7 +257,7 @@ pub fn blinded_commitment(hash: U256, npk: U256, tree_number: u32, leaf_index: u
    .unwrap()
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 pub fn test_note() -> UtxoNote {
    use crate::account::signer::RailgunSigner;
    use secure_types::SecureArray;

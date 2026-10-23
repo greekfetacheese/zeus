@@ -89,7 +89,7 @@ impl TransferNote {
    }
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 mod tests {
    use alloy_primitives::address;
    use ruint::uint;

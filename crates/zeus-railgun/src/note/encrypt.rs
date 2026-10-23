@@ -178,7 +178,7 @@ fn concat_arrays<const A: usize, const B: usize, const C: usize>(
    out
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 mod tests {
    use alloy_primitives::address;
    use rand_chacha::{ChaChaRng, rand_core::SeedableRng};

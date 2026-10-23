@@ -134,7 +134,7 @@ impl ShieldBuilder {
    }
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 mod tests {
    use alloy_primitives::{Address, U256};
    use alloy_sol_types::SolCall;

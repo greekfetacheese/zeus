@@ -79,7 +79,7 @@ impl<'de> Deserialize<'de> for Txid {
    }
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 mod tests {
    use ruint::uint;
 

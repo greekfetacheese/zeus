@@ -320,7 +320,7 @@ impl From<CommitmentCiphertext> for Ciphertext {
    }
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 mod tests {
    use alloy_primitives::{Bytes, FixedBytes, address, b256, bytes};
    use ruint::uint;
