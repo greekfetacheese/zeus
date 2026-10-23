@@ -404,16 +404,15 @@ impl TxConfirmationWindow {
                ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
                ui.spacing_mut().button_padding = theme.button_padding;
 
-               if self.tx.is_none() {
+               let (Some(analysis), Some(main_event)) =
+                  (self.tx.as_ref(), self.tx_main_event.as_ref())
+               else {
                   ui.label(
                      RichText::new("Transaction Analysis not found, this is a bug")
                         .size(theme.typography.large),
                   );
                   return;
-               }
-
-               let analysis = self.tx.as_ref().unwrap();
-               let main_event = self.tx_main_event.as_ref().unwrap();
+               };
 
                let frame = theme.frame2;
                let frame_size = vec2(ui.available_width() * AVAIL_WIDTH_MARGIN, 45.0);

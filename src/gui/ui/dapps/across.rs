@@ -663,8 +663,7 @@ impl AcrossBridge {
          self.to_chain.chain.id(),
       ));
 
-      if cache.is_some() {
-         let cache = cache.unwrap();
+      if let Some(cache) = cache {
          let fee_pct = cache.res.suggested_fees.total_relay_fee.pct.clone();
          let fee_pct = U256::from_str(&fee_pct).unwrap_or_default();
          let fee_amount = (input_amount.wei() * fee_pct) / scale;
@@ -1149,9 +1148,9 @@ async fn across_bridge(
             })
             .await;
 
-         if block.is_ok() {
+         if let Ok(block) = block {
             let mut guard = from_block_clone.lock().await;
-            *guard = Some(block.unwrap());
+            *guard = Some(block);
          }
       }
    });
@@ -1292,11 +1291,9 @@ async fn wait_for_fill(
       tokio::time::sleep(Duration::from_millis(10)).await;
    }
 
-   if block.is_none() {
+   let Some(from_block) = block else {
       return Ok(());
-   }
-
-   let from_block = block.unwrap();
+   };
    let mut sleep_ms = dest_chain.block_time_millis();
    if dest_chain.is_arbitrum() || dest_chain.is_robinhood() {
       // set sleep time to 1 second so we don't spam the rpc
