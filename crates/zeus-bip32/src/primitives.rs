@@ -5,6 +5,7 @@ use secure_types::{Error, SecureArray};
 /// extended keys.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Eq, PartialEq, Debug, Clone, Copy)]
+#[non_exhaustive]
 pub enum Hint {
    /// Standard Bip32 hint
    Legacy,
@@ -17,6 +18,7 @@ pub enum Hint {
 /// A 4-byte key fingerprint
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Eq, PartialEq, Clone, Copy)]
+#[non_exhaustive]
 pub struct KeyFingerprint(pub [u8; 4]);
 
 impl From<[u8; 4]> for KeyFingerprint {
@@ -26,6 +28,7 @@ impl From<[u8; 4]> for KeyFingerprint {
 }
 
 impl KeyFingerprint {
+   /// `true` for the all-zero fingerprint every root node carries
    pub fn is_zero(&self) -> bool {
       self.0.iter().all(|b| *b == 0)
    }
@@ -45,11 +48,14 @@ impl std::fmt::Debug for KeyFingerprint {
 /// A 32-byte chain code
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct ChainCode {
+   /// The 32 chain-code bytes, held in secure memory
    pub data: SecureArray<u8, 32>,
 }
 
 impl ChainCode {
+   /// Build a chain code from the caller's buffer, consuming and zeroizing it
    pub fn from_slice_mut(slice: &mut [u8; 32]) -> Result<Self, Error> {
       let data = SecureArray::from_slice_mut(slice)?;
       Ok(Self { data })
@@ -65,8 +71,13 @@ impl PartialEq for ChainCode {
 }
 
 /// Info associated with an extended key
+///
+/// Equality compares `depth`, `parent`, `index` and `chain_code` but not `hint`: the hint is an
+/// address-type preference rather than part of the key's identity, and `SecureXPriv`'s equality
+/// inherits that.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct XKeyInfo {
    /// The key depth in the HD tree
    pub depth: u8,
@@ -77,7 +88,7 @@ pub struct XKeyInfo {
    pub index: u32,
    /// The 32-byte chain code used to generate child keys
    pub chain_code: ChainCode,
-   /// The key's stanadard output type preference
+   /// The key's standard output type preference
    pub hint: Hint,
 }
 
