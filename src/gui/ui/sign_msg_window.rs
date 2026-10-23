@@ -9,6 +9,7 @@ use crate::assets::icons::Icons;
 use crate::core::clear_signing::FormattedValue;
 use crate::core::{SignMsgType, ZeusContext};
 use crate::gui::appearance::AppearanceSettings;
+use crate::gui::ui::common::windows::PromptGate;
 use crate::gui::ui::common::{delayed_action_label, wallet_identity};
 use crate::gui::ui::tx::{address, chain};
 
@@ -23,10 +24,10 @@ use zeus_eth::{
 
 pub struct SignMsgWindow {
    open: bool,
-   /// A flow has claimed this window ([`Self::claim`]) and holds it until it is done with the
-   /// prompt. Claimed under the same lock that opens it, so a second request cannot replace the
+   /// A flow has claimed this window's gate ([`Self::claim`]) and holds it until it is done with
+   /// the prompt. Claimed under the same lock that opens it, so a second request cannot replace the
    /// prompt the user is reading — the phase where two flows would otherwise share one Sign click.
-   pending: bool,
+   gate: PromptGate,
    dapp: String,
    chain: ChainId,
    /// Account that will produce the signature.
@@ -42,7 +43,7 @@ impl SignMsgWindow {
    pub fn new() -> Self {
       Self {
          open: false,
-         pending: false,
+         gate: PromptGate::default(),
          dapp: String::new(),
          chain: ChainId::default(),
          account: Address::ZERO,
@@ -77,8 +78,8 @@ impl SignMsgWindow {
       self.open = false;
    }
 
-   /// True while a signature is in flight: a flow holds the window ([`Self::pending`]) or the
-   /// prompt is up.
+   /// True while a signature is in flight: a flow holds the window's gate
+   /// ([`PromptGate::pending`]) or the prompt is up.
    ///
    /// `sign_message` refuses to raise a second prompt while this holds, so two requests can never
    /// share one window — and therefore one Sign click.
@@ -88,7 +89,7 @@ impl SignMsgWindow {
    /// once that flow is gone — and reading it as busy would let a flow that died after the user
    /// answered wedge every later request.
    pub fn is_busy(&self) -> bool {
-      self.pending || self.open
+      self.gate.pending() || self.open
    }
 
    /// Claim the window for one flow, from just before its prompt is put up until it is done with
@@ -97,15 +98,11 @@ impl SignMsgWindow {
    /// Call under the same lock as the [`Self::is_busy`] check (`sign_message` does), or two flows
    /// can both pass the check. [`Self::release`] hands it back.
    pub fn claim(&mut self) -> bool {
-      if self.pending {
-         return false;
-      }
-      self.pending = true;
-      true
+      self.gate.claim()
    }
 
    pub fn release(&mut self) {
-      self.pending = false;
+      self.gate.release()
    }
 
    /// Collect the answer, consuming it.

@@ -12,6 +12,7 @@ use crate::core::ui::TxConfirmAnswer;
 use crate::core::{DecodedEvent, TransactionAnalysis, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::gui::appearance::AppearanceSettings;
+use crate::gui::ui::common::windows::PromptGate;
 use crate::gui::ui::common::{delayed_action_label, wallet_identity};
 use crate::utils::estimate_tx_cost;
 use zeus_eth::{
@@ -26,11 +27,11 @@ use std::time::{Duration, Instant};
 
 pub struct TxConfirmationWindow {
    open: bool,
-   /// A flow has claimed this window ([`Self::claim`]) and holds it until it is done
+   /// A flow has claimed this window's gate ([`Self::claim`]) and holds it until it is done
    /// with the prompt. Claimed under the same lock that checks [`Self::is_busy`], so
    /// a second flow cannot claim it while the first is still fetching the analysis
    /// for its prompt — the phase where no prompt can be shown yet.
-   pending: bool,
+   gate: PromptGate,
    /// True if the tx is coming from Zeus
    source_is_zeus: bool,
    decoded_events: DecodedEvents,
@@ -74,7 +75,7 @@ impl TxConfirmationWindow {
    pub fn new() -> Self {
       Self {
          open: false,
-         pending: false,
+         gate: PromptGate::default(),
          source_is_zeus: false,
          decoded_events: DecodedEvents::new(),
          confirmed_or_rejected: None,
@@ -106,8 +107,8 @@ impl TxConfirmationWindow {
       self.open
    }
 
-   /// True while a confirmation is in flight: a flow holds the window
-   /// ([`Self::pending`]) or the prompt is up.
+   /// True while a confirmation is in flight: a flow holds the window's gate
+   /// ([`PromptGate::pending`]) or the prompt is up.
    ///
    /// `confirm_tx` refuses to raise a second prompt while this holds, so two sends
    /// can never share one window — and therefore one Confirm click.
@@ -117,7 +118,7 @@ impl TxConfirmationWindow {
    /// can only exist once that flow is gone — and reading it as busy would let a flow that died
    /// after the user answered wedge every later send.
    pub fn is_busy(&self) -> bool {
-      self.pending || self.open
+      self.gate.pending() || self.open
    }
 
    /// Claim the window for one flow, from just before its prompt is built until it
@@ -126,15 +127,11 @@ impl TxConfirmationWindow {
    /// Call under the same lock as the [`Self::is_busy`] check (`confirm_tx` does),
    /// or two flows can both pass the check. [`Self::release`] hands it back.
    pub(crate) fn claim(&mut self) -> bool {
-      if self.pending {
-         return false;
-      }
-      self.pending = true;
-      true
+      self.gate.claim()
    }
 
    pub fn release(&mut self) {
-      self.pending = false;
+      self.gate.release()
    }
 
    pub fn reset(&mut self) {
