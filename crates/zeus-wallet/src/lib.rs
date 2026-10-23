@@ -182,8 +182,8 @@ mod tests {
          assert_eq!(&error.to_string(), expected);
       }
 
-      // A wrapped variant renders as the inner error's `Display`, both today by
-      // hand and through `#[error(transparent)]` once the derive lands.
+      // A wrapped variant renders as the inner error's own `Display`, which is what
+      // the hand-written `impl Display for Error` delegates to.
       assert_eq!(
          Error::from(Argon2Error::IncorrectParameter).to_string(),
          Argon2Error::IncorrectParameter.to_string()
