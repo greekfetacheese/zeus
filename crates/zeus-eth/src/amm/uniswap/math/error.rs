@@ -54,8 +54,11 @@ impl fmt::Display for UniswapV3MathError {
             f.write_str("Overflow when casting to U160")
          }
          UniswapV3MathError::TickSpacingError => f.write_str("Tick spacing error"),
-         UniswapV3MathError::MiddlewareError(_) => {
-            f.write_str("Middleware error when getting next_initialized_tick_within_one_word")
+         UniswapV3MathError::MiddlewareError(msg) => {
+            write!(
+               f,
+               "Middleware error when getting next_initialized_tick_within_one_word: {msg}"
+            )
          }
          // The label only: the inner error is the `source()`, not part of the message.
          UniswapV3MathError::ParseError(_) => f.write_str("Parse error"),
@@ -149,7 +152,7 @@ mod tests {
       );
       assert_eq!(
          UniswapV3MathError::MiddlewareError("boom".to_string()).to_string(),
-         "Middleware error when getting next_initialized_tick_within_one_word"
+         "Middleware error when getting next_initialized_tick_within_one_word: boom"
       );
       // `ParseError` deliberately renders only its own label, not the inner error.
       assert_eq!(

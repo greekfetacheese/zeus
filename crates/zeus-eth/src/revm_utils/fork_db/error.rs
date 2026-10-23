@@ -36,10 +36,10 @@ impl fmt::Display for DatabaseError {
          DatabaseError::Recv(err) => err.fmt(f),
          DatabaseError::Send(err) => err.fmt(f),
          DatabaseError::Message(msg) => f.write_str(msg),
-         DatabaseError::GetAccount(address, _) => {
+         DatabaseError::GetAccount(address, cause) => {
             write!(
                f,
-               "Failed to get account for {address:?}: {address:?}"
+               "Failed to get account for {address:?}: {cause:?}"
             )
          }
          DatabaseError::GetStorage(address, index, cause) => {
@@ -153,8 +153,7 @@ mod tests {
       assert_eq!(
          DatabaseError::GetAccount(address(), cause()).to_string(),
          "Failed to get account for \
-          0x1111111111111111111111111111111111111111: \
-          0x1111111111111111111111111111111111111111"
+          0x1111111111111111111111111111111111111111: boom"
       );
       assert_eq!(
          DatabaseError::GetStorage(address(), U256::from(42), cause()).to_string(),
