@@ -186,7 +186,7 @@ fn derive_hd_wallet_bip32(
    name_opt: Option<String>,
    seed: SecureVec<u8>,
 ) -> Result<SecureHDWallet, Error> {
-   let (key, key_info) = seed.unlock_slice(|slice| root_from_seed(slice, None).unwrap());
+   let (key, key_info) = seed.unlock_slice(|slice| root_from_seed(slice, None))?;
 
    let name = match name_opt {
       Some(name) => name,
