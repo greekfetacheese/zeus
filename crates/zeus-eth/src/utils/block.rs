@@ -18,12 +18,12 @@ pub fn calculate_next_block_base_fee(block: Block) -> u64 {
       let base_fee_per_gas_delta =
          current_base_fee_per_gas * gas_used_delta / current_gas_target / 8;
 
-      return current_base_fee_per_gas + base_fee_per_gas_delta;
+      current_base_fee_per_gas + base_fee_per_gas_delta
    } else {
       let gas_used_delta = current_gas_target - current_gas_used;
       let base_fee_per_gas_delta =
          current_base_fee_per_gas * gas_used_delta / current_gas_target / 8;
 
-      return current_base_fee_per_gas - base_fee_per_gas_delta;
+      current_base_fee_per_gas - base_fee_per_gas_delta
    }
 }

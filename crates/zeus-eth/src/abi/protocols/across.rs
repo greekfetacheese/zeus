@@ -1,6 +1,10 @@
 //! ABI for the Across protocol
 //! https://github.com/across-protocol/contracts
 
+// `depositV3` (12 params) and the `FilledRelay` event (15 fields) mirror the Solidity signatures
+// one-for-one; the ABI order must not be restructured.
+#![allow(clippy::too_many_arguments)]
+
 use V3SpokePoolInterface::{V3SpokePoolInterfaceCalls, depositV3Call};
 use alloy_primitives::{Address, Bytes, LogData, U256};
 use alloy_sol_types::{SolCall, SolEvent, SolInterface, sol};

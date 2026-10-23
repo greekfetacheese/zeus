@@ -73,7 +73,7 @@ where
 
 // Map BoxError (from Timeout) to TransportError
 fn map_timeout_error(e: BoxError) -> TransportError {
-   TransportErrorKind::custom_str(&format!("Request timeout {:?}", e)).into()
+   TransportErrorKind::custom_str(&format!("Request timeout {:?}", e))
 }
 
 pub fn retry_layer(
@@ -137,33 +137,28 @@ impl RpcClientBuilder {
       }
    }
 
-   #[must_use]
    pub fn retry(mut self, retry: RetryBackoffLayer) -> Self {
       self.retry = retry;
       self
    }
 
-   #[must_use]
    pub fn throttle(mut self, throttle: ThrottleLayer) -> Self {
       self.throttle = throttle;
       self
    }
 
-   #[must_use]
    pub fn timeout_secs(mut self, secs: u64) -> Self {
       self.timeout = Duration::from_secs(secs);
       self
    }
 
    /// Reconnect budget for websocket endpoints. Use [`u32::MAX`] to retry forever.
-   #[must_use]
    pub fn ws_max_retries(mut self, max_retries: u32) -> Self {
       self.ws_max_retries = max_retries;
       self
    }
 
    /// Base interval for the websocket reconnect backoff (alloy caps the delay at 30s).
-   #[must_use]
    pub fn ws_retry_interval(mut self, interval: Duration) -> Self {
       self.ws_retry_interval = interval;
       self

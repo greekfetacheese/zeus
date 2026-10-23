@@ -184,6 +184,16 @@ pub(super) fn measure_nft_after<DB: Database>(
                e
             );
          }
+         // `NftApprovalProbeError` is `#[non_exhaustive]`: an unknown future variant is a read the
+         // probe never established, so it gets the `NeverRan` treatment — warn and insert nothing.
+         // Inserting `nft_approval_nothing` here would be a claim ("no approval") that was never
+         // measured, and an absent row is dropped by `combine_diffs` instead.
+         Err(e) => {
+            tracing::warn!(
+               "NFT approval read after the tx returned an unknown error variant: {:?}",
+               e
+            );
+         }
       }
    }
 

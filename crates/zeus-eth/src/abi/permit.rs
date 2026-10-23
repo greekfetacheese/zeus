@@ -105,6 +105,10 @@ where
 }
 
 /// Encode `Permit2.permit(owner, PermitSingle, signature)` calldata.
+///
+/// The eight positional arguments mirror the Solidity `permit` tuple order one-for-one; a struct
+/// parameter would hide which field is which at the ABI boundary.
+#[allow(clippy::too_many_arguments)]
 pub fn encode_permit_single_call(
    owner: Address,
    token: Address,

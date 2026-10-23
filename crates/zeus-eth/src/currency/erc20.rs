@@ -336,42 +336,47 @@ impl ERC20Token {
 
    /// WETH (BSC)
    pub fn weth_bsc() -> ERC20Token {
-      let mut weth_token = ERC20Token::default();
-      weth_token.address = weth(BSC).unwrap();
-      weth_token.chain_id = BSC;
-      weth_token
+      ERC20Token {
+         address: weth(BSC).unwrap(),
+         chain_id: BSC,
+         ..Default::default()
+      }
    }
 
    /// WETH (Optimism)
    pub fn weth_optimism() -> ERC20Token {
-      let mut weth_token = ERC20Token::default();
-      weth_token.address = weth(OPTIMISM).unwrap();
-      weth_token.chain_id = OPTIMISM;
-      weth_token
+      ERC20Token {
+         address: weth(OPTIMISM).unwrap(),
+         chain_id: OPTIMISM,
+         ..Default::default()
+      }
    }
 
    /// WETH (Base)
    pub fn weth_base() -> ERC20Token {
-      let mut weth_token = ERC20Token::default();
-      weth_token.address = weth(BASE).unwrap();
-      weth_token.chain_id = BASE;
-      weth_token
+      ERC20Token {
+         address: weth(BASE).unwrap(),
+         chain_id: BASE,
+         ..Default::default()
+      }
    }
 
    /// WETH (Arbitrum)
    pub fn weth_arbitrum() -> ERC20Token {
-      let mut weth_token = ERC20Token::default();
-      weth_token.address = weth(ARBITRUM).unwrap();
-      weth_token.chain_id = ARBITRUM;
-      weth_token
+      ERC20Token {
+         address: weth(ARBITRUM).unwrap(),
+         chain_id: ARBITRUM,
+         ..Default::default()
+      }
    }
 
    /// WETH (Robinhood Chain)
    pub fn weth_robinhood() -> ERC20Token {
-      let mut weth_token = ERC20Token::default();
-      weth_token.address = weth(ROBIN_HOOD).unwrap();
-      weth_token.chain_id = ROBIN_HOOD;
-      weth_token
+      ERC20Token {
+         address: weth(ROBIN_HOOD).unwrap(),
+         chain_id: ROBIN_HOOD,
+         ..Default::default()
+      }
    }
 
    /// Default USDC instance (ETH)

@@ -1,3 +1,7 @@
+// The `Initialize` and `Swap` events carry 8 fields each, mirroring the Solidity event layout
+// one-for-one.
+#![allow(clippy::too_many_arguments)]
+
 pub mod actions;
 pub mod state_view;
 

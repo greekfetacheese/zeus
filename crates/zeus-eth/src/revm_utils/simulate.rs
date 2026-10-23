@@ -42,15 +42,28 @@ fn ok_output<'a>(result: &'a ExecutionResult, call: &str) -> Result<&'a Bytes, a
 /// `erc721_owner_of` deliberately does **not** use this type and keeps collapsing the two: a reverted
 /// `ownerOf` is the standard's own answer for a burned token, and the ownership arm reads any error
 /// that way. This file therefore carries two error styles on purpose.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
+#[non_exhaustive]
 pub enum NftApprovalProbeError {
    /// The fork read never reached the contract: `evm.transact` itself failed.
-   #[error("the fork read never ran: {0}")]
    NeverRan(anyhow::Error),
    /// The contract was reached and answered unusably: a revert, no output, or an undecodable return.
-   #[error("the contract answered unusably: {0}")]
    Answered(anyhow::Error),
 }
+
+impl std::fmt::Display for NftApprovalProbeError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         NftApprovalProbeError::NeverRan(err) => write!(f, "the fork read never ran: {err}"),
+         NftApprovalProbeError::Answered(err) => {
+            write!(f, "the contract answered unusably: {err}")
+         }
+      }
+   }
+}
+
+// Neither variant had `#[from]` or `transparent`, so neither exposes a source.
+impl std::error::Error for NftApprovalProbeError {}
 
 /// Simulate ERC-721 `ownerOf(tokenId)` (does not commit).
 ///
@@ -502,6 +515,7 @@ mod tests {
    use revm::context_interface::result::{ResultGas, SuccessReason};
    use revm::database::{CacheDB, EmptyDB};
    use revm::state::{AccountInfo, Bytecode};
+   use std::error::Error as _;
 
    /// The reads the NFT send path's transfer check makes, executed on a real fork and compared with the
    /// node's own answer **at the same block**.
@@ -696,6 +710,30 @@ mod tests {
       fn block_hash(&mut self, _number: u64) -> Result<B256, Self::Error> {
          Err(DatabaseError::BackendFetchRequestError)
       }
+   }
+
+   // The rendered messages and the (absent) sources are what a caller logs; pinned byte-exact.
+   #[test]
+   fn approval_probe_errors_render_and_expose_no_source() {
+      let never_ran = NftApprovalProbeError::NeverRan(anyhow!("the node did not answer"));
+      assert_eq!(
+         never_ran.to_string(),
+         "the fork read never ran: the node did not answer"
+      );
+      assert!(
+         never_ran.source().is_none(),
+         "NeverRan has no #[from] or transparent attribute, so it has no source"
+      );
+
+      let answered = NftApprovalProbeError::Answered(anyhow!("reverted with 0xdeadbeef"));
+      assert_eq!(
+         answered.to_string(),
+         "the contract answered unusably: reverted with 0xdeadbeef"
+      );
+      assert!(
+         answered.source().is_none(),
+         "Answered has no #[from] or transparent attribute, so it has no source"
+      );
    }
 
    /// The approval probes tell the two failure origins apart: a fork the `Database` cannot serve is

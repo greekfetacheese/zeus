@@ -80,10 +80,10 @@ impl Database for ForkDB {
    }
 
    fn storage(&mut self, address: Address, index: U256) -> Result<U256, Self::Error> {
-      if let Some(account) = self.db.cache.accounts.get(&address) {
-         if let Some(entry) = account.storage.get(&index) {
-            return Ok(*entry);
-         }
+      if let Some(account) = self.db.cache.accounts.get(&address)
+         && let Some(entry) = account.storage.get(&index)
+      {
+         return Ok(*entry);
       }
 
       // Only fetch account info if account is missing
