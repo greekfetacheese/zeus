@@ -6,7 +6,9 @@ use zeus_bip32::root_from_seed;
 
 /// The Argon2id memory cost, in KiB, that Zeus v1 derives the BIP32 seed with.
 ///
-/// 8_192_000 KiB is 8192 MB.
+/// 8_192_000 KiB is 8000 MiB.
+///
+/// The value is pinned: a wallet is only recoverable with this exact cost.
 pub const V1_M_COST: u32 = 8_192_000;
 /// The Argon2id iteration count that Zeus v1 derives the BIP32 seed with.
 pub const V1_T_COST: u32 = 96;

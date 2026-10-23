@@ -127,7 +127,7 @@ a method or a field is not a breaking change.
 `DeriveVersion::V1` — the scheme Zeus uses for the master wallet:
 
 - **Salt:** SHA3-512 of the username
-- **Memory cost:** 8192_000 KiB (8192 MB)
+- **Memory cost:** 8_192_000 KiB (8000 MiB)
 - **Iterations:** 96
 - **Parallelism:** 1
 - **Argon2 version:** 0x13

@@ -11,7 +11,8 @@
 //!   returns the 64-byte seed; [`Deriver::new_hd_wallet`] returns the whole
 //!   [`SecureHDWallet`].
 //! - [`SecureHDWallet`] owns the master [`Wallet`] and the children derived from it,
-//!   each at `m/44'/60'/0'/0/0/{index}`.
+//!   each at `m/44'/60'/0'/0/0/{index}` — `{index}'` (hardened) when derived through
+//!   [`SecureHDWallet::derive_child`], a raw index through the `_at` methods.
 //! - [`Wallet`] is one key: a master, a child of one, or an imported key that carries
 //!   no derivation info.
 //!
@@ -32,6 +33,9 @@ pub mod secure_key;
 /// children from a master.
 pub mod wallet;
 
+/// Re-export of the `argon2-rs` crate, so callers can build
+/// [`Argon2Params`] the wrapper does not expose without adding the dependency.
+pub use argon2_rs;
 /// The derivation API: parameters, method, version and [`Deriver`].
 pub use derive::{Argon2Params, DeriveMethod, DeriveVersion, Deriver};
 /// The secure private key wrapper.
@@ -41,9 +45,6 @@ pub use wallet::{SecureHDWallet, Wallet};
 
 use alloy_primitives::Address;
 use alloy_signer_local::LocalSignerError;
-/// Re-export of the `argon2-rs` crate, so callers can build
-/// [`Argon2Params`] the wrapper does not expose without adding the dependency.
-pub use argon2_rs;
 use argon2_rs::error::Argon2Error;
 use secure_types::Error as SecureError;
 use zeus_bip32::{DerivationPath, error::Bip32Error};
