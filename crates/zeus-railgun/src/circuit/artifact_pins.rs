@@ -437,12 +437,13 @@ const PINS: &[(&str, &str, &str)] = &[
    ),
 ];
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum ArtifactPinError {
-   #[error("no SHA-256 pin for {circuit}/{file}")]
-   Unpinned { circuit: String, file: String },
-   #[error("SHA-256 mismatch for {circuit}/{file}: expected {expected}, got {actual}")]
+   Unpinned {
+      circuit: String,
+      file: String,
+   },
    Mismatch {
       circuit: String,
       file: String,
@@ -450,6 +451,29 @@ pub enum ArtifactPinError {
       actual: String,
    },
 }
+
+impl std::fmt::Display for ArtifactPinError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::Unpinned { circuit, file } => {
+            write!(f, "no SHA-256 pin for {circuit}/{file}")
+         }
+         Self::Mismatch {
+            circuit,
+            file,
+            expected,
+            actual,
+         } => {
+            write!(
+               f,
+               "SHA-256 mismatch for {circuit}/{file}: expected {expected}, got {actual}"
+            )
+         }
+      }
+   }
+}
+
+impl std::error::Error for ArtifactPinError {}
 
 pub(crate) fn pin_digest(circuit_name: &str, filename: &str) -> Option<[u8; 32]> {
    let hex = PINS
