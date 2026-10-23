@@ -297,16 +297,16 @@ impl ApprovalsUi {
                   continue;
                }
 
-               if let Some(chain_filter) = selected_chain {
-                  if chain_filter.id() != chain {
-                     continue;
-                  }
+               if let Some(chain_filter) = selected_chain
+                  && chain_filter.id() != chain
+               {
+                  continue;
                }
 
-               if let Some(wallet) = &selected_wallet {
-                  if wallet.address != params.owner {
-                     continue;
-                  }
+               if let Some(wallet) = &selected_wallet
+                  && wallet.address != params.owner
+               {
+                  continue;
                }
 
                rows.push(ApprovalRow {
@@ -327,16 +327,16 @@ impl ApprovalsUi {
                   continue;
                }
 
-               if let Some(chain_filter) = selected_chain {
-                  if chain_filter.id() != params.chain {
-                     continue;
-                  }
+               if let Some(chain_filter) = selected_chain
+                  && chain_filter.id() != params.chain
+               {
+                  continue;
                }
 
-               if let Some(wallet) = &selected_wallet {
-                  if wallet.address != params.owner {
-                     continue;
-                  }
+               if let Some(wallet) = &selected_wallet
+                  && wallet.address != params.owner
+               {
+                  continue;
                }
 
                permit_groups.entry((params.chain, params.owner)).or_default().push(params);
@@ -382,16 +382,16 @@ impl ApprovalsUi {
                   continue;
                }
 
-               if let Some(chain_filter) = selected_chain {
-                  if chain_filter.id() != params.chain {
-                     continue;
-                  }
+               if let Some(chain_filter) = selected_chain
+                  && chain_filter.id() != params.chain
+               {
+                  continue;
                }
 
-               if let Some(wallet) = &selected_wallet {
-                  if wallet.address != params.owner {
-                     continue;
-                  }
+               if let Some(wallet) = &selected_wallet
+                  && wallet.address != params.owner
+               {
+                  continue;
                }
 
                rows.push(ApprovalRow {
@@ -605,16 +605,14 @@ impl ApprovalsUi {
                         .sense(Sense::click())
                         .expand(expansion);
 
-                     if ui.add(label).clicked() {
-                        if self.selected_wallet.is_some() {
-                           self.selected_wallet = None;
-                           self.current_page = 0;
-                        }
+                     if ui.add(label).clicked() && self.selected_wallet.is_some() {
+                        self.selected_wallet = None;
+                        self.current_page = 0;
                      }
 
                      for wallet in wallets {
                         let text =
-                           RichText::new(&wallet.name_with_source()).size(theme.typography.normal);
+                           RichText::new(wallet.name_with_source()).size(theme.typography.normal);
                         let label = Label::new(text, None)
                            .visuals(label_visuals)
                            .interactive(true)
@@ -622,13 +620,12 @@ impl ApprovalsUi {
                            .fill_width(true)
                            .expand(expansion);
 
-                        if ui.add(label).clicked() {
-                           if self.selected_wallet.as_ref().map(|w| w.address)
+                        if ui.add(label).clicked()
+                           && self.selected_wallet.as_ref().map(|w| w.address)
                               != Some(wallet.address)
-                           {
-                              self.selected_wallet = Some(wallet.clone());
-                              self.current_page = 0;
-                           }
+                        {
+                           self.selected_wallet = Some(wallet.clone());
+                           self.current_page = 0;
                         }
                      }
                   });
@@ -661,11 +658,9 @@ impl ApprovalsUi {
                         .sense(Sense::click())
                         .expand(expansion);
 
-                     if ui.add(label).clicked() {
-                        if self.selected_chain.is_some() {
-                           self.selected_chain = None;
-                           self.current_page = 0;
-                        }
+                     if ui.add(label).clicked() && self.selected_chain.is_some() {
+                        self.selected_chain = None;
+                        self.current_page = 0;
                      }
 
                      for chain in ChainId::supported_chains() {
@@ -681,11 +676,9 @@ impl ApprovalsUi {
                            .fill_width(true)
                            .expand(expansion);
 
-                        if ui.add(label).clicked() {
-                           if self.selected_chain != Some(chain) {
-                              self.selected_chain = Some(chain);
-                              self.current_page = 0;
-                           }
+                        if ui.add(label).clicked() && self.selected_chain != Some(chain) {
+                           self.selected_chain = Some(chain);
+                           self.current_page = 0;
                         }
                      }
                   });
@@ -1530,7 +1523,6 @@ mod tests {
 
    /// The params exactly as the decode ladder produces them, so these tests revoke what a real row
    /// in the table is built from.
-
    fn erc721_grant() -> NftApproveParams {
       let log = Log {
          address: COLLECTION,

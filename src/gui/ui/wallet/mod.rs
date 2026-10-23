@@ -274,7 +274,7 @@ impl WalletUi {
                ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
                let empty = WalletValue::default();
-               let value = self.wallet_value.get(&wallet.address).unwrap_or_else(|| &empty);
+               let value = self.wallet_value.get(&wallet.address).unwrap_or(&empty);
 
                let value_fmt = if ctx.privacy_mode {
                   format!("${:.10}", value.private.abbreviated())
@@ -398,7 +398,7 @@ fn on_rename_wallet(new_wallet_name: String, old_wallet_addr: Address) {
          SHARED_GUI.write(|gui| {
             gui.open_msg_window(format!(
                "Wallet with name {} already exists",
-               &new_wallet_name
+               new_wallet_name
             ));
             gui.request_repaint();
          });
@@ -482,7 +482,7 @@ fn on_rename_wallet(new_wallet_name: String, old_wallet_addr: Address) {
             SHARED_GUI.write(|gui| {
                gui.open_msg_window(format!(
                   "Failed to encrypt vault, changes reverted: {}",
-                  e.to_string()
+                  e
                ));
                gui.request_repaint();
             });

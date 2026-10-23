@@ -19,10 +19,6 @@ pub struct AddWalletUi {
    open: bool,
    pub import_wallet: ImportWallet,
    pub discover_child_wallets_ui: DiscoverChildWallets,
-   #[allow(dead_code)]
-   generate_wallet: bool,
-   #[allow(dead_code)]
-   wallet_name: String,
    size: (f32, f32),
 }
 
@@ -32,8 +28,6 @@ impl AddWalletUi {
          open: false,
          import_wallet: ImportWallet::new(),
          discover_child_wallets_ui: DiscoverChildWallets::new(),
-         generate_wallet: false,
-         wallet_name: String::new(),
          size: (450.0, 250.0),
       }
    }

@@ -235,12 +235,12 @@ impl AmountField {
                   .visuals(visuals)
                   .min_size(vec2(width, 40.0));
 
-               if ui.add(button).clicked() {
-                  if let Some(token_selection) = token_selection {
-                     token_selection.open(privacy_mode, chain_id, owner);
-                     if let Some(direction) = direction {
-                        token_selection.currency_direction = direction;
-                     }
+               if ui.add(button).clicked()
+                  && let Some(token_selection) = token_selection
+               {
+                  token_selection.open(privacy_mode, chain_id, owner);
+                  if let Some(direction) = direction {
+                     token_selection.currency_direction = direction;
                   }
                }
 

@@ -237,7 +237,7 @@ pub async fn encode_swap<P: UniswapPool + Clone>(
       let permit_info = if let Some(info) = permit2_info {
          info
       } else {
-         let info = Permit2Info::new(
+         Permit2Info::new(
             ctx.clone(),
             chain_id,
             &token_in,
@@ -245,8 +245,7 @@ pub async fn encode_swap<P: UniswapPool + Clone>(
             owner,
             router_addr,
          )
-         .await?;
-         info
+         .await?
       };
 
       if permit_info.needs_new_signature {
@@ -717,11 +716,12 @@ pub fn swap_prefetch_accounts<P: UniswapPool>(
    let last_pool = &swap_steps.last().unwrap().pool;
    let burn_addr = address!("0000000000000000000000000000000000000001");
 
-   let mut accounts = Vec::new();
-   accounts.push(AccountPrefetch::eoa(signer_address));
-   accounts.push(AccountPrefetch::contract(router_addr));
-   accounts.push(AccountPrefetch::contract(permit2_addr));
-   accounts.push(AccountPrefetch::eoa(beneficiary));
+   let mut accounts = vec![
+      AccountPrefetch::eoa(signer_address),
+      AccountPrefetch::contract(router_addr),
+      AccountPrefetch::contract(permit2_addr),
+      AccountPrefetch::eoa(beneficiary),
+   ];
 
    if currency_in.is_erc20() {
       accounts.push(AccountPrefetch::contract(currency_in.address()));
@@ -1124,7 +1124,7 @@ mod tests {
       let decoded = V3SwapExactIn::abi_decode_params(input).unwrap();
       assert!(decoded.minHopPriceX36.is_empty());
       assert_eq!(decoded.amountIn, amount_in.wei());
-      assert_eq!(decoded.permit2, false);
+      assert!(!decoded.permit2);
       assert_eq!(
          decoded.path.len(),
          43,

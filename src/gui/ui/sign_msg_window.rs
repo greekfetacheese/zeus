@@ -13,7 +13,6 @@ use crate::gui::ui::common::{delayed_action_label, wallet_identity};
 use crate::gui::ui::tx::{address, chain};
 
 use serde_json::{Value, to_string_pretty};
-use std::fmt::Write;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use zeus_eth::{
@@ -735,46 +734,32 @@ fn format_permit2_single_approval(msg: &SignMsgType) -> String {
    let details = msg.permit2_details();
    let mut formatted = String::new();
 
-   writeln!(formatted, "Permit2 Token Approval").unwrap();
-   writeln!(formatted, "===================").unwrap();
-   writeln!(formatted).unwrap();
+   formatted.push_str("Permit2 Token Approval\n");
+   formatted.push_str("===================\n");
+   formatted.push('\n');
 
    // Domain
-   writeln!(formatted, "Domain:").unwrap();
-   writeln!(formatted, "Name: {}", "Uniswap Permit2").unwrap();
-   writeln!(formatted, "Version: 2").unwrap();
+   formatted.push_str("Domain:\n");
+   formatted.push_str("Name: Uniswap Permit2\n");
+   formatted.push_str("Version: 2\n");
    // The domain's own chain, which is what the signature is bound to and where the allowance
    // lands — not the chain the wallet is connected to.
-   writeln!(formatted, "Chain: {}", details.chain).unwrap();
-   writeln!(
-      formatted,
-      "Verifying Contract: {}",
-      details.permit2_contract.to_string()
-   )
-   .unwrap();
-   writeln!(formatted).unwrap();
+   formatted.push_str(&format!("Chain: {}\n", details.chain));
+   formatted.push_str(&format!(
+      "Verifying Contract: {}\n",
+      details.permit2_contract
+   ));
+   formatted.push('\n');
 
    // Message details
-   writeln!(formatted, "Message:").unwrap();
-   writeln!(formatted, "Token: {}", details.token.address).unwrap();
-   writeln!(
-      formatted,
-      "Amount: {}",
-      details.amount.wei().to_string()
-   )
-   .unwrap();
-   writeln!(
-      formatted,
-      "Expiration: {}",
-      details.expiration.timestamp().to_string()
-   )
-   .unwrap();
-   writeln!(
-      formatted,
-      "Spender: {}",
-      details.spender.to_string()
-   )
-   .unwrap();
+   formatted.push_str("Message:\n");
+   formatted.push_str(&format!("Token: {}\n", details.token.address));
+   formatted.push_str(&format!("Amount: {}\n", details.amount.wei()));
+   formatted.push_str(&format!(
+      "Expiration: {}\n",
+      details.expiration.timestamp()
+   ));
+   formatted.push_str(&format!("Spender: {}\n", details.spender));
 
    formatted
 }
@@ -783,37 +768,17 @@ fn format_permit2612(msg: &SignMsgType) -> String {
    let details = msg.permit2612_details();
    let mut formatted = String::new();
 
-   writeln!(formatted, "{}", details.title()).unwrap();
-   writeln!(formatted, "===================").unwrap();
-   writeln!(formatted).unwrap();
+   formatted.push_str(&format!("{}\n", details.title()));
+   formatted.push_str("===================\n");
+   formatted.push('\n');
 
-   writeln!(
-      formatted,
-      "Token: {}",
-      details.token.address.to_string()
-   )
-   .unwrap();
-   writeln!(
-      formatted,
-      "Amount: {}",
-      details.amount.wei().to_string()
-   )
-   .unwrap();
+   formatted.push_str(&format!("Token: {}\n", details.token.address));
+   formatted.push_str(&format!("Amount: {}\n", details.amount.wei()));
    if !details.amount.is_zero() {
-      writeln!(
-         formatted,
-         "Deadline: {}",
-         details.deadline.to_string()
-      )
-      .unwrap();
+      formatted.push_str(&format!("Deadline: {}\n", details.deadline));
    }
-   writeln!(formatted, "Owner: {}", details.owner.to_string()).unwrap();
-   writeln!(
-      formatted,
-      "Spender: {}",
-      details.spender.to_string()
-   )
-   .unwrap();
+   formatted.push_str(&format!("Owner: {}\n", details.owner));
+   formatted.push_str(&format!("Spender: {}\n", details.spender));
 
    formatted
 }
@@ -825,69 +790,63 @@ fn format_typed_data(typed_data: &TypedData) -> String {
    let mut formatted = String::new();
 
    // Title based on primary type
-   writeln!(
-      formatted,
-      "Signing Typed Data: {}",
+   formatted.push_str(&format!(
+      "Signing Typed Data: {}\n",
       typed_data.primary_type
-   )
-   .unwrap();
-   writeln!(formatted, "=========================").unwrap();
-   writeln!(formatted).unwrap();
+   ));
+   formatted.push_str("=========================\n");
+   formatted.push('\n');
 
    // Domain section
-   writeln!(formatted, "Domain:").unwrap();
+   formatted.push_str("Domain:\n");
    if let Some(name) = &typed_data.domain.name {
-      writeln!(formatted, " Name: {}", name).unwrap();
+      formatted.push_str(&format!(" Name: {}\n", name));
    }
    if let Some(version) = &typed_data.domain.version {
-      writeln!(formatted, " Version: {}", version).unwrap();
+      formatted.push_str(&format!(" Version: {}\n", version));
    }
    if let Some(chain_id) = &typed_data.domain.chain_id {
-      writeln!(formatted, " Chain ID: {}", chain_id).unwrap();
+      formatted.push_str(&format!(" Chain ID: {}\n", chain_id));
    }
    if let Some(verifying_contract) = &typed_data.domain.verifying_contract {
-      writeln!(
-         formatted,
-         " Verifying Contract: {}",
+      formatted.push_str(&format!(
+         " Verifying Contract: {}\n",
          verifying_contract
-      )
-      .unwrap();
+      ));
    }
    if let Some(salt) = &typed_data.domain.salt {
-      writeln!(formatted, " Salt: {}", salt).unwrap();
+      formatted.push_str(&format!(" Salt: {}\n", salt));
    }
-   writeln!(formatted).unwrap();
+   formatted.push('\n');
 
    // Types section (convert Resolver to Eip712Types to access the map)
    let types: Eip712Types = (&typed_data.resolver).into();
-   writeln!(formatted, "Types:").unwrap();
+   formatted.push_str("Types:\n");
    for (type_name, props) in types.iter() {
-      writeln!(formatted, " {}", type_name).unwrap();
+      formatted.push_str(&format!(" {}\n", type_name));
       for prop in props {
-         writeln!(
-            formatted,
-            "  - {}: {}",
+         formatted.push_str(&format!(
+            "  - {}: {}\n",
             prop.name(),
             prop.type_name()
-         )
-         .unwrap();
+         ));
       }
-      writeln!(formatted).unwrap();
+      formatted.push('\n');
    }
-   writeln!(formatted).unwrap();
+   formatted.push('\n');
 
    // Message section
-   writeln!(formatted, "Message:").unwrap();
+   formatted.push_str("Message:\n");
    match to_string_pretty(&typed_data.message) {
       Ok(pretty_message) => {
          // Indent the pretty JSON for readability
          for line in pretty_message.lines() {
-            writeln!(formatted, " {}", line).unwrap();
+            formatted.push_str(&format!(" {}\n", line));
          }
       }
       Err(e) => {
          tracing::error!("Failed to pretty-print message: {}", e);
-         writeln!(formatted, " {}", typed_data.message.to_string()).unwrap();
+         formatted.push_str(&format!(" {}\n", typed_data.message));
       }
    }
 

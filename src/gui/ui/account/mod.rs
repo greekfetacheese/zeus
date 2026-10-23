@@ -393,10 +393,8 @@ impl AccountPanel {
             let size = vec2(24.0, 12.0);
             let more = dots_button(theme, size, ui);
 
-            if more.clicked() {
-               if !self.delegate.is_open() {
-                  self.delegate.open();
-               }
+            if more.clicked() && !self.delegate.is_open() {
+               self.delegate.open();
             }
          });
       });
@@ -509,10 +507,8 @@ impl AccountPanel {
                Menu::new(("svc_menu", "railgun_id")).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("View last error")).clicked() {
                      let error_opt = ctx.railgun_status().sync_error(chain.id());
-                     let error = error_opt.map_or(
-                        "No errors for now everything looks good".to_string(),
-                        |e| e,
-                     );
+                     let error =
+                        error_opt.unwrap_or("No errors for now everything looks good".to_string());
 
                      crate::runtime::rt().spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {

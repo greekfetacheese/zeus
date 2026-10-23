@@ -304,8 +304,10 @@ impl UiTesting {
             if ui.add(button).clicked() {
                crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
-                     let mut info = UpdateInfo::default();
-                     info.available = true;
+                     let info = UpdateInfo {
+                        available: true,
+                        ..Default::default()
+                     };
                      gui.update_window.open(info);
                   });
                });

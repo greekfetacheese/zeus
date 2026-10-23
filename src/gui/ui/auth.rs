@@ -868,7 +868,7 @@ fn on_unlock_vault(mut vault: Vault) {
             SHARED_GUI.write(|gui| {
                let msg = format!(
                   "Error while reading encrypted info, corrupted vault?: {}",
-                  e.to_string()
+                  e
                );
                gui.open_msg_window(msg);
                gui.loading_window.reset();
@@ -965,10 +965,10 @@ fn on_unlock_vault(mut vault: Vault) {
             };
 
             // Persist key
-            if key_generated || migrated {
-               if let Err(e) = ctx.encrypt_and_save_vault(None, None) {
-                  tracing::error!("Failed to save vault after wallet state migration: {e}");
-               }
+            if (key_generated || migrated)
+               && let Err(e) = ctx.encrypt_and_save_vault(None, None)
+            {
+               tracing::error!("Failed to save vault after wallet state migration: {e}");
             }
 
             let master_info = ctx
@@ -1006,7 +1006,7 @@ fn on_unlock_vault(mut vault: Vault) {
          }
          Err(e) => {
             SHARED_GUI.write(|gui| {
-               gui.open_msg_window(format!("Failed to load vault: {}", e.to_string()));
+               gui.open_msg_window(format!("Failed to load vault: {}", e));
                gui.loading_window.reset();
             });
          }
@@ -1070,10 +1070,7 @@ fn on_recover_hd_wallet(name: String, credentials: Credentials) {
          Err(e) => {
             SHARED_GUI.write(|gui| {
                gui.loading_window.reset();
-               gui.open_msg_window(format!(
-                  "Failed to recover wallet: {}",
-                  e.to_string()
-               ));
+               gui.open_msg_window(format!("Failed to recover wallet: {}", e));
             });
             return;
          }
@@ -1155,10 +1152,7 @@ fn on_recover_hd_wallet(name: String, credentials: Credentials) {
          }
          Err(e) => {
             SHARED_GUI.write(|gui| {
-               gui.open_msg_window(format!(
-                  "Failed to create vault: {}",
-                  e.to_string()
-               ));
+               gui.open_msg_window(format!("Failed to create vault: {}", e));
                gui.loading_window.reset();
             });
             return;

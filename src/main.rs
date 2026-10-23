@@ -103,7 +103,7 @@ fn run_gui() -> eframe::Result {
    // which the OS reports a stale path (see `self_update::restart_target`).
    utils::self_update::remember_startup_exe();
 
-   runtime::rt().spawn_blocking(|| cleanup_old_logs());
+   runtime::rt().spawn_blocking(cleanup_old_logs);
 
    // `zeus --install-desktop` / `--uninstall-desktop`: opt in to (or out of) the application
    // menu entry and exit, without starting the GUI. A normal launch applies the recorded

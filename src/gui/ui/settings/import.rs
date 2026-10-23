@@ -133,14 +133,13 @@ impl ImportDataUi {
          let btn_size = vec2(150.0, 35.0);
          let text = RichText::new("Choose a file").size(theme.typography.large);
          let button = Button::new(text).visuals(button_visuals).min_size(btn_size);
-         if ui.add(button).clicked() {
-            if let Some(path) = rfd::FileDialog::new()
+         if ui.add(button).clicked()
+            && let Some(path) = rfd::FileDialog::new()
                .set_title("Import Zeus data")
                .add_filter("ZIP archive", &["zip"])
                .pick_file()
-            {
-               self.zip_path = Some(path);
-            }
+         {
+            self.zip_path = Some(path);
          }
 
          let selected = self
@@ -252,10 +251,7 @@ impl ImportDataUi {
                // The imported archive may carry its own appearance settings; the
                // reload above no longer owns them now that the GUI does. Read
                // before taking the GUI lock, as the reload did.
-               let appearance_settings = match AppearanceSettings::load_from_file() {
-                  Ok(settings) => settings,
-                  Err(_) => AppearanceSettings::default(),
-               };
+               let appearance_settings = AppearanceSettings::load_from_file().unwrap_or_default();
 
                SHARED_GUI.write(|gui| {
                   gui.appearance_settings = appearance_settings;

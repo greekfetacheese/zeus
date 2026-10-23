@@ -492,11 +492,7 @@ impl RecipientSelectionWindow {
 
                         // Show what the name resolves to: the address is what is sent.
                         let block_explorer = ctx.chain.block_explorer();
-                        let link = format!(
-                           "{}/address/{}",
-                           block_explorer,
-                           address.to_string()
-                        );
+                        let link = format!("{}/address/{}", block_explorer, address);
 
                         let text = RichText::new(address.to_string())
                            .size(theme.typography.normal)

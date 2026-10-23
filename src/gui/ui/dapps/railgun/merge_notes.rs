@@ -322,7 +322,7 @@ impl MergeNotesWindow {
                   gui.merge_notes_window.state = MergeState::Error(e.to_string());
                   gui.loading_window.reset();
                   gui.notification.reset();
-                  gui.msg_window.open(format!("Merge Error: {}", e.to_string()));
+                  gui.msg_window.open(format!("Merge Error: {}", e));
                }
             }
             gui.request_repaint();

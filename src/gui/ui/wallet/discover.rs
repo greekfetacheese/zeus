@@ -206,7 +206,7 @@ impl DiscoverChildWallets {
                let total_pages = if items_per_page == 0 {
                   0
                } else {
-                  (len + items_per_page - 1) / items_per_page
+                  len.div_ceil(items_per_page)
                };
 
                let start = self.current_page * items_per_page;
@@ -460,10 +460,10 @@ impl DiscoverChildWallets {
 
    fn cached_child_value(&mut self, ctx: &ZeusContext, address: Address) -> (Vec<u64>, f64) {
       let now = Instant::now();
-      if let Some(cached) = self.child_value_cache.get(&address) {
-         if now.duration_since(cached.updated_at) < CHILD_VALUE_TTL {
-            return (cached.chains.clone(), cached.total_value);
-         }
+      if let Some(cached) = self.child_value_cache.get(&address)
+         && now.duration_since(cached.updated_at) < CHILD_VALUE_TTL
+      {
+         return (cached.chains.clone(), cached.total_value);
       }
 
       let mut chains = Vec::with_capacity(SUPPORTED_CHAINS.len());
@@ -475,15 +475,15 @@ impl DiscoverChildWallets {
          }
 
          let key = (chain, address);
-         if let Some(balance) = self.discovered_wallets.balances.get(&key) {
-            if !balance.is_zero() {
-               chains.push(chain);
+         if let Some(balance) = self.discovered_wallets.balances.get(&key)
+            && !balance.is_zero()
+         {
+            chains.push(chain);
 
-               let native = Currency::from(NativeCurrency::from(chain));
-               let balance = NumericValue::currency_balance(*balance, native.decimals());
-               let value = ctx.get_currency_value_for_amount(balance.f64(), &native);
-               total_value += value.f64();
-            }
+            let native = Currency::from(NativeCurrency::from(chain));
+            let balance = NumericValue::currency_balance(*balance, native.decimals());
+            let value = ctx.get_currency_value_for_amount(balance.f64(), &native);
+            total_value += value.f64();
          }
       }
 
@@ -666,10 +666,7 @@ impl DiscoverChildWallets {
                         Ok(address) => address,
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
-                              gui.open_msg_window(format!(
-                                 "Failed to add wallet: {}",
-                                 e.to_string()
-                              ));
+                              gui.open_msg_window(format!("Failed to add wallet: {}", e));
                            });
                            return;
                         }

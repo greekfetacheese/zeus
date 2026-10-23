@@ -195,10 +195,10 @@ impl TxHistory {
          let wallets = ctx.get_all_wallets_info();
 
          for wallet in wallets {
-            if let Some(selected) = &selected_wallet {
-               if selected.address != wallet.address {
-                  continue;
-               }
+            if let Some(selected) = &selected_wallet
+               && selected.address != wallet.address
+            {
+               continue;
             }
 
             let chains_to_check: Vec<ChainId> = if let Some(chain) = selected_chain {
@@ -223,7 +223,7 @@ impl TxHistory {
             }
          }
 
-         txs.sort_unstable_by(|a, b| b.tx.timestamp.cmp(&a.tx.timestamp));
+         txs.sort_unstable_by_key(|a| std::cmp::Reverse(a.tx.timestamp));
 
          SHARED_GUI.write(|gui| {
             // A superseded fetch owns nothing here, not even the flag: a newer one is in flight, and
@@ -254,10 +254,10 @@ impl TxHistory {
          let mut rows = Vec::new();
 
          for wallet in wallets {
-            if let Some(selected) = &selected_wallet {
-               if selected.address != wallet.address {
-                  continue;
-               }
+            if let Some(selected) = &selected_wallet
+               && selected.address != wallet.address
+            {
+               continue;
             }
 
             let Some(zk) = wallet.railgun_address.clone() else {
@@ -362,16 +362,14 @@ impl TxHistory {
                         .sense(Sense::click())
                         .expand(expansion);
 
-                     if ui.add(label).clicked() {
-                        if self.selected_wallet.is_some() {
-                           self.selected_wallet = None;
-                           self.current_page = 0;
-                        }
+                     if ui.add(label).clicked() && self.selected_wallet.is_some() {
+                        self.selected_wallet = None;
+                        self.current_page = 0;
                      }
 
                      for wallet in wallets {
                         let text =
-                           RichText::new(&wallet.name_with_source()).size(theme.typography.normal);
+                           RichText::new(wallet.name_with_source()).size(theme.typography.normal);
                         let label = Label::new(text, None)
                            .visuals(label_visuals)
                            .sense(Sense::click())
@@ -379,11 +377,9 @@ impl TxHistory {
                            .fill_width(true)
                            .expand(expansion);
 
-                        if ui.add(label).clicked() {
-                           if self.selected_wallet != Some(wallet.clone()) {
-                              self.selected_wallet = Some(wallet.clone());
-                              self.current_page = 0;
-                           }
+                        if ui.add(label).clicked() && self.selected_wallet != Some(wallet.clone()) {
+                           self.selected_wallet = Some(wallet.clone());
+                           self.current_page = 0;
                         }
                      }
                   });
@@ -416,11 +412,9 @@ impl TxHistory {
                         .sense(Sense::click())
                         .expand(expansion);
 
-                     if ui.add(label).clicked() {
-                        if self.selected_chain.is_some() {
-                           self.selected_chain = None;
-                           self.current_page = 0;
-                        }
+                     if ui.add(label).clicked() && self.selected_chain.is_some() {
+                        self.selected_chain = None;
+                        self.current_page = 0;
                      }
 
                      for chain in ChainId::supported_chains() {
@@ -436,11 +430,9 @@ impl TxHistory {
                            .fill_width(true)
                            .expand(expansion);
 
-                        if ui.add(label).clicked() {
-                           if self.selected_chain != Some(chain) {
-                              self.selected_chain = Some(chain);
-                              self.current_page = 0;
-                           }
+                        if ui.add(label).clicked() && self.selected_chain != Some(chain) {
+                           self.selected_chain = Some(chain);
+                           self.current_page = 0;
                         }
                      }
                   });

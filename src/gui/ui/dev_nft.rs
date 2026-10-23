@@ -449,10 +449,9 @@ async fn token_to_approve(
    for token in &candidates {
       if let Ok(token_owner) =
          erc721::owner_of(token.collection, token.token_id, client.clone()).await
+         && token_owner == owner
       {
-         if token_owner == owner {
-            return Ok(token.clone());
-         }
+         return Ok(token.clone());
       }
    }
 
@@ -463,13 +462,13 @@ async fn token_to_approve(
       .map(|holder| holder.to_string())
       .unwrap_or_else(|_| "an address that does not answer".to_string());
 
+   let token = format!(
+      "{} #{}",
+      truncate_address(first.collection.to_string()),
+      first.token_id
+   );
    Err(anyhow!(
-      "no ERC-721 in the Sepolia portfolio belongs to this wallet — {} is held by {holder}",
-      format!(
-         "{} #{}",
-         truncate_address(first.collection.to_string()),
-         first.token_id
-      )
+      "no ERC-721 in the Sepolia portfolio belongs to this wallet — {token} is held by {holder}"
    ))
 }
 

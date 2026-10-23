@@ -52,7 +52,7 @@ impl WalletSelect {
       let combo_visuals = theme.combo_box_visuals();
       let label_visuals = theme.label_visuals();
       let wallet_icon = icons.wallet_main_x24();
-      let text = RichText::new(&self.wallet.name_with_id_short()).size(theme.typography.normal);
+      let text = RichText::new(self.wallet.name_with_id_short()).size(theme.typography.normal);
 
       let current_wallet_label = Label::new(text, Some(wallet_icon))
          .image_on_left()

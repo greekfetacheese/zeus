@@ -43,12 +43,12 @@ impl QrWindow {
          };
 
          let data = wallet.address.to_string();
-         let uri = format!("bytes://receive-{}.png", &wallet.address);
+         let uri = format!("bytes://receive-{}.png", wallet.address);
          let evm_address_qr = QrImage::with_encoding(&data, uri, encoding);
 
          let zk_address_qr = if let Some(railgun_address) = &wallet.railgun_address {
             let data = railgun_address.address.to_string();
-            let uri = format!("bytes://receive-{}.png", &railgun_address.address);
+            let uri = format!("bytes://receive-{}.png", railgun_address.address);
             QrImage::with_encoding(&data, uri, encoding)
          } else {
             QrImage::empty_with_error("No zkAddress available".to_string())
@@ -144,10 +144,8 @@ impl QrWindow {
 
                ui.add_space(10.0);
 
-               if !privacy_mode {
-                  if let Some(error) = self.evm_address_qr.error() {
-                     ui.label(RichText::new(error.to_string()).size(theme.typography.large));
-                  }
+               if !privacy_mode && let Some(error) = self.evm_address_qr.error() {
+                  ui.label(RichText::new(error.to_string()).size(theme.typography.large));
                }
 
                // QR Code

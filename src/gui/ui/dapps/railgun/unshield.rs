@@ -217,16 +217,13 @@ async fn unshield_self_broadcast(
    let railgun_address = railgun_provider.railgun_address();
 
    // Prefetch accounts and storage for the sim
-   let mut accounts = Vec::new();
-   accounts.push(AccountPrefetch::eoa(from));
-   accounts.push(AccountPrefetch::eoa(recipient));
-   accounts.push(AccountPrefetch::contract(
-      asset.asset_id().address(),
-   ));
-   accounts.push(AccountPrefetch::eoa(
-      fork_block.header.beneficiary,
-   ));
-   accounts.push(AccountPrefetch::contract(railgun_address));
+   let mut accounts = vec![
+      AccountPrefetch::eoa(from),
+      AccountPrefetch::eoa(recipient),
+      AccountPrefetch::contract(asset.asset_id().address()),
+      AccountPrefetch::eoa(fork_block.header.beneficiary),
+      AccountPrefetch::contract(railgun_address),
+   ];
 
    let common_accounts = railgun_common_accounts(chain.id());
    accounts.extend(common_accounts.into_iter().map(AccountPrefetch::contract));
@@ -413,13 +410,12 @@ async fn unshield_via_paymaster(
    let entry_point = address_book::entry_point(chain.id())?;
 
    // Prefetch accounts and storage for the sim
-   let mut accounts = Vec::new();
-   accounts.push(AccountPrefetch::eoa(from));
-   accounts.push(AccountPrefetch::contract(entry_point));
-   accounts.push(AccountPrefetch::contract(SIMPLE_7702_ACCOUNT));
-   accounts.push(AccountPrefetch::eoa(
-      fork_block.header.beneficiary,
-   ));
+   let mut accounts = vec![
+      AccountPrefetch::eoa(from),
+      AccountPrefetch::contract(entry_point),
+      AccountPrefetch::contract(SIMPLE_7702_ACCOUNT),
+      AccountPrefetch::eoa(fork_block.header.beneficiary),
+   ];
 
    if let Some(pm) = chain_config.privacy_paymaster {
       accounts.push(AccountPrefetch::contract(pm));
@@ -883,7 +879,7 @@ async fn unshield_via_paymaster(
    // `UserOperationReceipt.logs` is bundler-filtered and can drop the Railgun
    // Unshield emitted during paymaster validation.
    let logs: Vec<Log> = {
-      let handle_ops: Vec<_> = receipt.receipt.logs().iter().cloned().map(Into::into).collect();
+      let handle_ops: Vec<_> = receipt.receipt.logs().to_vec();
       if handle_ops.is_empty() {
          receipt.logs.iter().map(|l| l.clone().into_inner()).collect()
       } else {

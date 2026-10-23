@@ -206,7 +206,7 @@ impl AcrossBridge {
    }
 
    pub fn set_currency(&mut self, currency: Currency) {
-      self.currency = currency.into();
+      self.currency = currency;
    }
 
    fn show_railgun_not_supported(&self, theme: &Theme, ui: &mut Ui) {
@@ -313,9 +313,11 @@ impl AcrossBridge {
                      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                         let icon = Lucide::Settings.size(20.0).color(theme.colors.text).image();
 
-                        let mut visuals = ButtonVisuals::default();
-                        visuals.bg_hover = button_visuals.bg_hover;
-                        visuals.corner_radius = CornerRadius::same(25);
+                        let visuals = ButtonVisuals {
+                           bg_hover: button_visuals.bg_hover,
+                           corner_radius: CornerRadius::same(25),
+                           ..Default::default()
+                        };
                         let button = Button::image(icon).small().visuals(visuals);
                         let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
@@ -545,10 +547,7 @@ impl AcrossBridge {
                self.sending_tx = false;
                crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window(format!(
-                        "Error while sending transaction: {}",
-                        e.to_string()
-                     ));
+                     gui.open_msg_window(format!("Error while sending transaction: {}", e));
                      gui.request_repaint();
                   });
                });
@@ -682,8 +681,7 @@ impl AcrossBridge {
          NumericValue::format_wei(amount_after_fee, self.currency.decimals())
       } else if !self.settings.use_api {
          let fee = self.settings.fee_to_pay;
-         let minimum = input_amount.calc_slippage(fee, self.currency.decimals());
-         minimum
+         input_amount.calc_slippage(fee, self.currency.decimals())
       } else {
          NumericValue::default()
       }
@@ -915,7 +913,7 @@ impl AcrossBridge {
       });
    }
 
-   fn get_suggested_fees(&mut self, ctx: &mut ZeusContext, depositor: Address, recipient: &String) {
+   fn get_suggested_fees(&mut self, ctx: &mut ZeusContext, depositor: Address, recipient: &str) {
       if !self.settings.use_api {
          return;
       }
@@ -1052,7 +1050,7 @@ impl AcrossBridge {
                   gui.across_bridge.amount_field.reset();
                   gui.notification.reset();
                   gui.loading_window.reset();
-                  gui.msg_window.open(format!("Transaction Error: {}", e.to_string()));
+                  gui.msg_window.open(format!("Transaction Error: {}", e));
                   gui.request_repaint();
                });
             }
@@ -1295,7 +1293,7 @@ async fn wait_for_fill(
 
    while time_passed.elapsed().as_secs() < BLOCK_TIMEOUT {
       let guard = from_block.lock().await;
-      block = guard.clone();
+      block = *guard;
       if block.is_some() {
          break;
       }
@@ -1337,11 +1335,11 @@ async fn wait_for_fill(
          .await?;
 
       for log in logs {
-         if let Ok(decoded) = decode_filled_relay_log(log.data()) {
-            if decoded.recipient == recipient {
-               funds_received = true;
-               break;
-            }
+         if let Ok(decoded) = decode_filled_relay_log(log.data())
+            && decoded.recipient == recipient
+         {
+            funds_received = true;
+            break;
          }
       }
 

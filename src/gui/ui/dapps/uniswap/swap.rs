@@ -647,16 +647,16 @@ impl SwapUi {
          .min_size(vec2(ui.available_width() * 0.8, 45.0))
          .visuals(visuals);
 
-      if ui.add_enabled(enabled, button).clicked() {
-         if let Some(pool) = &mut self.pool {
-            let amount_in = NumericValue::parse_to_wei(
-               &self.amount_in_field.amount,
-               self.currency_in.decimals(),
-            );
-            pool.simulate_swap_mut(&self.currency_in, amount_in.wei()).unwrap_or_default();
-            self.simulate_window.set_pool_after(Some(pool.clone()));
-            Self::spawn_get_quote(settings.clone());
-         }
+      if ui.add_enabled(enabled, button).clicked()
+         && let Some(pool) = &mut self.pool
+      {
+         let amount_in = NumericValue::parse_to_wei(
+            &self.amount_in_field.amount,
+            self.currency_in.decimals(),
+         );
+         pool.simulate_swap_mut(&self.currency_in, amount_in.wei()).unwrap_or_default();
+         self.simulate_window.set_pool_after(Some(pool.clone()));
+         Self::spawn_get_quote(settings.clone());
       }
    }
 
@@ -919,18 +919,18 @@ impl SwapUi {
    }
 
    pub fn get_quote(&mut self, ctx: ZeusCtx, settings: &UniswapSettingsUi) {
-      if settings.simulate_mode {
-         if let Some(pool) = &self.pool {
-            let amount_in = NumericValue::parse_to_wei(
-               &self.amount_in_field.amount,
-               self.currency_in.decimals(),
-            );
-            let amount_out =
-               pool.simulate_swap(&self.currency_in, amount_in.wei()).unwrap_or_default();
-            let amount = NumericValue::format_wei(amount_out, self.currency_out.decimals());
-            self.amount_out_field.amount = amount.flatten();
-            return;
-         }
+      if settings.simulate_mode
+         && let Some(pool) = &self.pool
+      {
+         let amount_in = NumericValue::parse_to_wei(
+            &self.amount_in_field.amount,
+            self.currency_in.decimals(),
+         );
+         let amount_out =
+            pool.simulate_swap(&self.currency_in, amount_in.wei()).unwrap_or_default();
+         let amount = NumericValue::format_wei(amount_out, self.currency_out.decimals());
+         self.amount_out_field.amount = amount.flatten();
+         return;
       }
 
       if self.action().is_wrap_or_unwrap() {
@@ -1332,10 +1332,8 @@ pub fn get_relevant_pools(
             if is_base_pool && pool.have(currency_out) {
                add_pool = true;
             }
-         } else if is_quote_to_quote_swap {
-            if pool.have(currency_in) || pool.have(currency_out) {
-               add_pool = true;
-            }
+         } else if is_quote_to_quote_swap && (pool.have(currency_in) || pool.have(currency_out)) {
+            add_pool = true;
          }
 
          if add_pool {
@@ -1381,12 +1379,11 @@ pub async fn wrap_eth(
    let interact_to = weth.address;
    let value = amount.wei();
 
-   let mut accounts = Vec::new();
-   accounts.push(AccountPrefetch::eoa(from));
-   accounts.push(AccountPrefetch::contract(interact_to));
-   accounts.push(AccountPrefetch::contract(
-      block.header.beneficiary,
-   ));
+   let accounts = vec![
+      AccountPrefetch::eoa(from),
+      AccountPrefetch::contract(interact_to),
+      AccountPrefetch::contract(block.header.beneficiary),
+   ];
 
    let (sim, weth_balance_after) = simulate_on_fork_with(
       ctx.clone(),
@@ -1522,12 +1519,11 @@ pub async fn unwrap_weth(
    let interact_to = weth.address;
    let value = U256::ZERO;
 
-   let mut accounts = Vec::new();
-   accounts.push(AccountPrefetch::eoa(from));
-   accounts.push(AccountPrefetch::contract(interact_to));
-   accounts.push(AccountPrefetch::contract(
-      block.header.beneficiary,
-   ));
+   let accounts = vec![
+      AccountPrefetch::eoa(from),
+      AccountPrefetch::contract(interact_to),
+      AccountPrefetch::contract(block.header.beneficiary),
+   ];
 
    let sim = simulate_on_fork(
       ctx.clone(),
@@ -1894,22 +1890,22 @@ async fn swap_via_ur(
    };
 
    // Prompt the user to sign a message if needed
-   if let Some(permit2_info) = &permit2_info_opt {
-      if permit2_info.needs_new_signature {
-         let msg = permit2_info.msg.clone().ok_or(anyhow!("No permit message found"))?;
-         let _sig = sign_message(
-            ctx.clone(),
-            "".to_string(),
-            chain,
-            Some(msg),
-            None,
-            None,
-         )
-         .await?;
-         SHARED_GUI.write(|gui| {
-            gui.request_repaint();
-         });
-      }
+   if let Some(permit2_info) = &permit2_info_opt
+      && permit2_info.needs_new_signature
+   {
+      let msg = permit2_info.msg.clone().ok_or(anyhow!("No permit message found"))?;
+      let _sig = sign_message(
+         ctx.clone(),
+         "".to_string(),
+         chain,
+         Some(msg),
+         None,
+         None,
+      )
+      .await?;
+      SHARED_GUI.write(|gui| {
+         gui.request_repaint();
+      });
    }
 
    SHARED_GUI.write(|gui| {

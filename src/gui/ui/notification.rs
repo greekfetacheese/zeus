@@ -700,10 +700,10 @@ impl Notification {
                .fit_to_exact_size(icon_size);
 
             let mut text = format!("{} #{}", name, token_id);
-            if matches!(params.asset, AssetId::Erc1155(..)) {
-               if let Some(amount) = params.amount.as_ref() {
-                  text.push_str(&format!(" × {}", amount.abbreviated()));
-               }
+            if matches!(params.asset, AssetId::Erc1155(..))
+               && let Some(amount) = params.amount.as_ref()
+            {
+               text.push_str(&format!(" × {}", amount.abbreviated()));
             }
 
             let label = Label::new(
@@ -782,10 +782,10 @@ impl Notification {
                .fit_to_exact_size(icon_size);
 
             let mut text = format!("{} #{}", name, params.token_data.tokenSubID);
-            if params.token_data.tokenType == TokenType::ERC1155 {
-               if let Some(amount) = params.amount.as_ref() {
-                  text.push_str(&format!(" × {}", amount.abbreviated()));
-               }
+            if params.token_data.tokenType == TokenType::ERC1155
+               && let Some(amount) = params.amount.as_ref()
+            {
+               text.push_str(&format!(" × {}", amount.abbreviated()));
             }
 
             let label = Label::new(
@@ -853,10 +853,10 @@ impl Notification {
                .fit_to_exact_size(icon_size);
 
             let mut text = format!("{} #{}", name, token_id);
-            if matches!(params.asset, AssetId::Erc1155(..)) {
-               if let Some(amount) = params.amount.as_ref() {
-                  text.push_str(&format!(" × {}", amount.abbreviated()));
-               }
+            if matches!(params.asset, AssetId::Erc1155(..))
+               && let Some(amount) = params.amount.as_ref()
+            {
+               text.push_str(&format!(" × {}", amount.abbreviated()));
             }
 
             let label = Label::new(

@@ -175,7 +175,7 @@ pub fn register_native_host(exe_path: &Path, workdir: &Path) -> Result<(), anyho
       }
       // Best-effort: Program Files is usually not writable without elevation.
       if let Err(e) =
-         std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(dir.join(&file_name), &body))
+         std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(dir.join(file_name), &body))
       {
          tracing::debug!("skip native host dir {}: {e}", dir.display());
       }

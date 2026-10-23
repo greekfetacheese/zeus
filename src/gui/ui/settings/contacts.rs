@@ -620,7 +620,7 @@ impl ContactsUi {
                   if ui.add(MenuItem::new("See on Block Explorer")).clicked() {
                      let chain = ctx.chain;
                      let explorer = chain.block_explorer();
-                     let link = format!("{}/address/{}", explorer, &contact.evm_address);
+                     let link = format!("{}/address/{}", explorer, contact.evm_address);
                      let url = OpenUrl::new_tab(link);
                      ui.ctx().open_url(url);
                   }
@@ -678,15 +678,15 @@ fn validate_contact_addresses(contact: &Contact) -> bool {
       return false;
    }
 
-   if !contact.zk_address.is_empty() {
-      if let Err(e) = RailgunAddress::from_zk_address(&contact.zk_address) {
-         SHARED_GUI.write(|gui| {
-            let msg = format!("Address is not a valid Railgun address: {}", e);
-            gui.open_msg_window(msg);
-            gui.request_repaint();
-         });
-         return false;
-      }
+   if !contact.zk_address.is_empty()
+      && let Err(e) = RailgunAddress::from_zk_address(&contact.zk_address)
+   {
+      SHARED_GUI.write(|gui| {
+         let msg = format!("Address is not a valid Railgun address: {}", e);
+         gui.open_msg_window(msg);
+         gui.request_repaint();
+      });
+      return false;
    }
 
    true
@@ -711,10 +711,7 @@ fn on_add_contact(new_contact: Contact, reset_on_success: bool) {
          }
          Err(e) => {
             SHARED_GUI.write(|gui| {
-               gui.open_msg_window(format!(
-                  "Failed to add contact: {}",
-                  e.to_string()
-               ));
+               gui.open_msg_window(format!("Failed to add contact: {}", e));
                gui.request_repaint();
             });
             return;
@@ -826,12 +823,12 @@ fn on_open_contact_qr(contact: Contact) {
       };
 
       let data = contact.evm_address.clone();
-      let uri = format!("bytes://contact-{}.png", &contact.evm_address);
+      let uri = format!("bytes://contact-{}.png", contact.evm_address);
       let evm_address_qr = QrImage::with_encoding(&data, uri, encoding);
 
       let zk_address_qr = if !contact.zk_address.is_empty() {
          let data = contact.zk_address.clone();
-         let uri = format!("bytes://contact-{}.png", &contact.zk_address);
+         let uri = format!("bytes://contact-{}.png", contact.zk_address);
          QrImage::with_encoding(&data, uri, encoding)
       } else {
          QrImage::empty_with_error("No zkAddress available".to_string())

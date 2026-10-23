@@ -180,9 +180,11 @@ impl NetworkSettings {
             let icon = Lucide::RefreshCw.size(20.0).color(theme.colors.text).image();
 
             if !self.refreshing {
-               let mut visuals = ButtonVisuals::default();
-               visuals.bg_hover = button_visuals.bg_hover;
-               visuals.corner_radius = CornerRadius::same(25);
+               let visuals = ButtonVisuals {
+                  bg_hover: button_visuals.bg_hover,
+                  corner_radius: CornerRadius::same(25),
+                  ..Default::default()
+               };
                let button = Button::image(icon).small().visuals(visuals);
                let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
@@ -247,16 +249,16 @@ impl NetworkSettings {
 
             let text = RichText::new("Apply").size(theme.typography.normal);
             let button = Button::new(text).visuals(button_visuals);
-            if ui.add_enabled(valid, button).clicked() {
-               if let Some(value) = parsed {
-                  z_client.set_concurrency(value);
-                  self.concurrency_input = Some(z_client.concurrency().to_string());
+            if ui.add_enabled(valid, button).clicked()
+               && let Some(value) = parsed
+            {
+               z_client.set_concurrency(value);
+               self.concurrency_input = Some(z_client.concurrency().to_string());
 
-                  crate::runtime::rt().spawn_blocking(move || {
-                     let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                     ctx.save_client_manager();
-                  });
-               }
+               crate::runtime::rt().spawn_blocking(move || {
+                  let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+                  ctx.save_client_manager();
+               });
             }
 
             if !valid {
@@ -325,7 +327,7 @@ impl NetworkSettings {
          ui.set_width(ui.available_width());
          ui.spacing_mut().item_spacing = vec2(COL_SPACING, theme.spacing.sm);
 
-         for (_url, rpc) in rpcs.iter_mut() {
+         for rpc in rpcs.values_mut() {
             ui.horizontal(|ui| {
                ui.spacing_mut().item_spacing.x = COL_SPACING;
 
@@ -386,9 +388,11 @@ impl NetworkSettings {
                   ui.spacing_mut().item_spacing.x = theme.spacing.xs;
 
                   let icon = Lucide::Settings.size(20.0).color(theme.colors.text).image();
-                  let mut visuals = ButtonVisuals::default();
-                  visuals.bg_hover = button_visuals.bg_hover;
-                  visuals.corner_radius = CornerRadius::same(15);
+                  let visuals = ButtonVisuals {
+                     bg_hover: button_visuals.bg_hover,
+                     corner_radius: CornerRadius::same(15),
+                     ..Default::default()
+                  };
                   let settings_btn = Button::image(icon).small().visuals(visuals);
                   if ui.add(settings_btn).on_hover_cursor(CursorIcon::PointingHand).clicked() {
                      self.open_rpc_settings(rpc.clone());
@@ -454,10 +458,10 @@ impl NetworkSettings {
          if clicked {
             let z_client = ctx.client_manager.clone();
             z_client.write(|rpcs_map| {
-               if let Some(rpcs) = rpcs_map.get_mut(&rpc.chain_id) {
-                  if let Some(old_rpc) = rpcs.get_mut(&rpc.url) {
-                     old_rpc.mev_protect = rpc.mev_protect;
-                  }
+               if let Some(rpcs) = rpcs_map.get_mut(&rpc.chain_id)
+                  && let Some(old_rpc) = rpcs.get_mut(&rpc.url)
+               {
+                  old_rpc.mev_protect = rpc.mev_protect;
                }
             });
             crate::runtime::rt().spawn_blocking(move || {
@@ -512,24 +516,24 @@ impl NetworkSettings {
 
       let text = RichText::new("Apply").size(theme.typography.normal);
       let button = Button::new(text).visuals(button_visuals);
-      if ui.add_enabled(valid, button).clicked() {
-         if let (Some(rps), Some(cu)) = (rps, cu) {
-            let z_client = ctx.client_manager.clone();
-            z_client.set_rpc_limits(chain, &url, rps, cu);
+      if ui.add_enabled(valid, button).clicked()
+         && let (Some(rps), Some(cu)) = (rps, cu)
+      {
+         let z_client = ctx.client_manager.clone();
+         z_client.set_rpc_limits(chain, &url, rps, cu);
 
-            if let Some(rpc) = self.rpc_to_edit.as_mut() {
-               rpc.rps = rps;
-               rpc.cu_per_second = cu;
-               rpc.clamp_limits();
-               self.rps_input = rpc.rps.to_string();
-               self.cu_input = rpc.cu_per_second.to_string();
-            }
-
-            crate::runtime::rt().spawn_blocking(move || {
-               let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-               ctx.save_client_manager();
-            });
+         if let Some(rpc) = self.rpc_to_edit.as_mut() {
+            rpc.rps = rps;
+            rpc.cu_per_second = cu;
+            rpc.clamp_limits();
+            self.rps_input = rpc.rps.to_string();
+            self.cu_input = rpc.cu_per_second.to_string();
          }
+
+         crate::runtime::rt().spawn_blocking(move || {
+            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+            ctx.save_client_manager();
+         });
       }
    }
 
@@ -568,12 +572,10 @@ impl NetworkSettings {
 
       let text = RichText::new("Add").size(theme.typography.normal);
       let button = Button::new(text).visuals(button_visuals);
-      if self.valid_url() {
-         if ui.add_enabled(!self.refreshing, button).clicked() {
-            self.refreshing = true;
-            let chain = self.chain_select.chain.id();
-            validate_rpc(chain, self.url_to_add.clone());
-         }
+      if self.valid_url() && ui.add_enabled(!self.refreshing, button).clicked() {
+         self.refreshing = true;
+         let chain = self.chain_select.chain.id();
+         validate_rpc(chain, self.url_to_add.clone());
       }
    }
 }
@@ -588,10 +590,7 @@ fn validate_rpc(chain: u64, url: String) {
          Ok(client) => client,
          Err(e) => {
             SHARED_GUI.write(|gui| {
-               gui.open_msg_window(format!(
-                  "Failed to connect to RPC: {}",
-                  e.to_string()
-               ));
+               gui.open_msg_window(format!("Failed to connect to RPC: {}", e));
                gui.settings.network.refreshing = false;
             });
             return;
@@ -602,10 +601,7 @@ fn validate_rpc(chain: u64, url: String) {
          Ok(chain) => chain,
          Err(e) => {
             SHARED_GUI.write(|gui| {
-               gui.open_msg_window(format!(
-                  "Failed to get chain ID: {}",
-                  e.to_string()
-               ));
+               gui.open_msg_window(format!("Failed to get chain ID: {}", e));
                gui.settings.network.refreshing = false;
             });
             return;

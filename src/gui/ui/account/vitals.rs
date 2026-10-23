@@ -454,9 +454,9 @@ fn memlock_limits() -> Option<Memlock> {
       return None;
    }
 
-   let infinity = libc::RLIM_INFINITY as u64;
-   let soft = format_limit(limit.rlim_cur as u64, infinity);
-   let hard = format_limit(limit.rlim_max as u64, infinity);
+   let infinity = libc::RLIM_INFINITY;
+   let soft = format_limit(limit.rlim_cur, infinity);
+   let hard = format_limit(limit.rlim_max, infinity);
 
    Some(Memlock {
       hover: format!("Soft limit on memory this process may lock (ulimit -l). Hard limit: {hard}"),

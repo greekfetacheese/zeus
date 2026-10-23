@@ -48,12 +48,12 @@ pub async fn private_transfer(
 ) -> Result<(), anyhow::Error> {
    // A fungible transfer has to move an ERC-20 — native has no note of its own to spend, so WETH stands
    // in. An NFT note *is* the asset, so there is nothing to check for it.
-   if let RailgunAsset::Fungible(currency) = &asset {
-      if !currency.is_erc20() {
-         return Err(anyhow!(
-            "Private transfer requires an ERC-20 asset (use WETH for native-equivalent)"
-         ));
-      }
+   if let RailgunAsset::Fungible(currency) = &asset
+      && !currency.is_erc20()
+   {
+      return Err(anyhow!(
+         "Private transfer requires an ERC-20 asset (use WETH for native-equivalent)"
+      ));
    }
 
    let recipient = match RailgunAddress::from_zk_address(recipient_zk.trim()) {
@@ -267,13 +267,12 @@ async fn exec_private_transfer(
 
    let railgun_address = railgun_provider.railgun_address();
 
-   let mut accounts = Vec::new();
-   accounts.push(AccountPrefetch::eoa(from));
-   accounts.push(AccountPrefetch::contract(contract));
-   accounts.push(AccountPrefetch::eoa(
-      fork_block.header.beneficiary,
-   ));
-   accounts.push(AccountPrefetch::contract(railgun_address));
+   let mut accounts = vec![
+      AccountPrefetch::eoa(from),
+      AccountPrefetch::contract(contract),
+      AccountPrefetch::eoa(fork_block.header.beneficiary),
+      AccountPrefetch::contract(railgun_address),
+   ];
 
    let common_accounts = railgun_common_accounts(chain.id());
    accounts.extend(common_accounts.into_iter().map(AccountPrefetch::contract));

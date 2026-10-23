@@ -229,7 +229,7 @@ pub fn address_with_picked_name(
          };
 
          let explorer = chain.block_explorer();
-         let link = format!("{}/address/{}", explorer, address.to_string());
+         let link = format!("{}/address/{}", explorer, address);
          ui.hyperlink_to(
             RichText::new(address_name)
                .size(theme.typography.large)
@@ -398,13 +398,13 @@ pub fn approval_change_row(
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          ui.spacing_mut().item_spacing.x = theme.spacing.xs;
 
-         if change.kind == ApprovalKind::Permit2 {
-            if let Some(expiration) = change.expiration_after {
-               let q_mark = RichText::new("?").size(theme.typography.normal);
-               let info_tip = Badge::new(q_mark, BadgeTone::Info);
-               let hover = format!("Expires {}", expiration.to_relative());
-               ui.add(info_tip).on_hover_text(hover);
-            }
+         if change.kind == ApprovalKind::Permit2
+            && let Some(expiration) = change.expiration_after
+         {
+            let q_mark = RichText::new("?").size(theme.typography.normal);
+            let info_tip = Badge::new(q_mark, BadgeTone::Info);
+            let hover = format!("Expires {}", expiration.to_relative());
+            ui.add(info_tip).on_hover_text(hover);
          }
 
          let amount_text = RichText::new(amount).size(theme.typography.large).color(color);
