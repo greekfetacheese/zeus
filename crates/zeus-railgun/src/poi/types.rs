@@ -15,15 +15,8 @@ pub struct ListKey(String);
 #[derive(Debug, Copy, Clone, PartialEq, Deserialize, Eq, Hash)]
 pub struct BlindedCommitment(U256);
 
-/// Deliberately exhaustive: a new variant must break every `match` in the consuming app, so the
-/// compiler — not a silent wildcard — forces the update. The crate owns that breakage.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum TxidVersion {
-   #[serde(rename = "V2_PoseidonMerkle")]
-   V2PoseidonMerkle,
-   #[serde(rename = "V3_PoseidonMerkle")]
-   V3PoseidonMerkle,
-}
+// The canonical type lives in `crate::types`; re-exported here so `poi::types::TxidVersion` resolves.
+pub use crate::types::TxidVersion;
 
 /// Deliberately exhaustive: a new variant must break every `match` in the consuming app, so the
 /// compiler — not a silent wildcard — forces the update. The crate owns that breakage.
