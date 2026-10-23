@@ -253,7 +253,6 @@ async fn call<P: Serialize, R: DeserializeOwned>(
       params,
    };
 
-   // let req_json = serde_json::to_string(&req).unwrap();
    // info!("Sending JSON-RPC request: {}", req_json);
 
    let resp: JsonRpcResponse<R> = http.post(url).json(&req).send().await?.json().await?;

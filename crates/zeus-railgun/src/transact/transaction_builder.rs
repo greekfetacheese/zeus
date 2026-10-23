@@ -398,7 +398,7 @@ fn build_group<R: Rng>(
       });
 
       if let Some(tree) = single {
-         *balances.get_mut(&tree).unwrap() -= intent.value;
+         *balances.get_mut(&tree).expect("tree key came from `balances` itself") -= intent.value;
          insert_operation(&mut operations, tree, intent, rng);
          continue;
       }
@@ -458,7 +458,7 @@ fn split_intent<R: Rng>(
          break;
       }
 
-      let available = *balances.get(&tree).unwrap();
+      let available = *balances.get(&tree).expect("tree key came from `balances` itself");
       if available == 0 {
          continue;
       }
@@ -471,7 +471,7 @@ fn split_intent<R: Rng>(
       }
 
       let take = remaining.min(room);
-      *balances.get_mut(&tree).unwrap() -= take;
+      *balances.get_mut(&tree).expect("tree key came from `balances` itself") -= take;
 
       let mut partial = intent.clone();
       partial.value = take;

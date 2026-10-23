@@ -52,7 +52,7 @@ lazy_static! {
 }
 
 pub fn hmac_sha512(key: &[u8], data: &[u8]) -> (Key32, ChainCode) {
-   let mut mac = Hmac::<Sha512>::new_from_slice(key).unwrap();
+   let mut mac = Hmac::<Sha512>::new_from_slice(key).expect("HMAC accepts any key length");
    mac.update(data);
 
    let mut result = mac.finalize().into_bytes();
@@ -64,8 +64,8 @@ pub fn hmac_sha512(key: &[u8], data: &[u8]) -> (Key32, ChainCode) {
 
    result.zeroize();
 
-   let key = Key32::from_slice_mut(&mut left).unwrap();
-   let chain_code = ChainCode::from_slice_mut(&mut right).unwrap();
+   let key = Key32::from_slice_mut(&mut left).expect("left is 32 bytes");
+   let chain_code = ChainCode::from_slice_mut(&mut right).expect("right is 32 bytes");
 
    (key, chain_code)
 }

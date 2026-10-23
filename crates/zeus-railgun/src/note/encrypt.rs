@@ -65,9 +65,18 @@ pub fn encrypt_note<R: RngCore + ?Sized>(
    let ctr2 = application_identifier;
    let ctr = viewing_key.encrypt_ctr(&[&ctr0, &ctr1, &ctr2], &rng.random());
 
-   let bundle_1: [u8; 32] = gcm.data[0].clone().try_into().unwrap();
-   let bundle_2: [u8; 32] = gcm.data[1].clone().try_into().unwrap();
-   let bundle_3: [u8; 32] = gcm.data[2].clone().try_into().unwrap();
+   let bundle_1: [u8; 32] = gcm.data[0]
+      .clone()
+      .try_into()
+      .expect("encrypt_gcm emits one block per plaintext block");
+   let bundle_2: [u8; 32] = gcm.data[1]
+      .clone()
+      .try_into()
+      .expect("encrypt_gcm emits one block per plaintext block");
+   let bundle_3: [u8; 32] = gcm.data[2]
+      .clone()
+      .try_into()
+      .expect("encrypt_gcm emits one block per plaintext block");
 
    Ok(CommitmentCiphertext {
       // iv (16) | tag (16)
@@ -96,7 +105,9 @@ pub fn encrypt_shield<R: Rng>(
    rng: &mut R,
 ) -> Result<ShieldRequest, EncryptError> {
    let shield_private_key: ViewingKey = rng.random();
-   let shared_key = shield_private_key.derive_shared_key(recipient.viewing_pubkey()).unwrap();
+   let shared_key = shield_private_key
+      .derive_shared_key(recipient.viewing_pubkey())
+      .expect("both viewing keys are valid curve points");
 
    let random_seed: [u8; 16] = rng.random();
    let mut npk: [u8; 32] = poseidon2(
@@ -106,14 +117,22 @@ pub fn encrypt_shield<R: Rng>(
    .to_le_bytes();
    npk.reverse();
 
-   let gcm = shared_key.encrypt_gcm(&[&random_seed], &rng.random()).unwrap();
+   let gcm = shared_key
+      .encrypt_gcm(&[&random_seed], &rng.random())
+      .expect("encrypt_gcm emits one block per plaintext block");
    let ctr = shield_private_key.encrypt_ctr(
       &[recipient.viewing_pubkey().as_bytes()],
       &rng.random(),
    );
 
-   let gcm_random: [u8; 16] = gcm.data[0].clone().try_into().unwrap();
-   let ctr_key: [u8; 32] = ctr.data[0].clone().try_into().unwrap();
+   let gcm_random: [u8; 16] = gcm.data[0]
+      .clone()
+      .try_into()
+      .expect("encrypt_gcm emits one block per plaintext block");
+   let ctr_key: [u8; 32] = ctr.data[0]
+      .clone()
+      .try_into()
+      .expect("encrypt_ctr emits one block per plaintext block");
 
    Ok(ShieldRequest {
       preimage: CommitmentPreimage {

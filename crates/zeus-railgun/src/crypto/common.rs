@@ -19,7 +19,8 @@ pub fn fr_from_u64(x: u64) -> Fr {
 }
 
 pub fn fr_from_u256(x: U256) -> Fr {
-   Fr::from_str(&x.to_string()).unwrap()
+   Fr::from_str(&x.to_string())
+      .expect("U256 is reduced mod q by from_str only below q; see from_be_bytes_mod_order")
 }
 
 pub fn u256_to_num_bigint(x: U256) -> NumBigInt {

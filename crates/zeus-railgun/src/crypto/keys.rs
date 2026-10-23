@@ -109,7 +109,8 @@ impl SpendingKey {
    }
 
    pub fn from_bytes(mut bytes: [u8; 32]) -> Self {
-      let sec_array = SecureArray::from_slice_mut(&mut bytes).unwrap();
+      let sec_array = SecureArray::from_slice_mut(&mut bytes)
+         .expect("SecureArray size matches the array passed in");
       Self(Mutex::new(sec_array))
    }
 
@@ -231,7 +232,8 @@ impl ViewingKey {
    }
 
    pub fn from_bytes(mut bytes: [u8; 32]) -> Self {
-      let sec_array = SecureArray::from_slice_mut(&mut bytes).unwrap();
+      let sec_array = SecureArray::from_slice_mut(&mut bytes)
+         .expect("SecureArray size matches the array passed in");
       Self(Mutex::new(sec_array))
    }
 
@@ -481,7 +483,8 @@ impl Distribution<ViewingKey> for StandardUniform {
    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> ViewingKey {
       let mut bytes: [u8; 32] = rng.random();
       bytes[0] &= 0x1F; // Mask for BN254 range (matching kohaku)
-      let array = SecureArray::from_slice(&bytes).expect("32 byte array is valid");
+      let array =
+         SecureArray::from_slice(&bytes).expect("SecureArray size matches the array passed in");
       ViewingKey::new(array)
    }
 }
@@ -490,7 +493,8 @@ impl Distribution<SpendingKey> for StandardUniform {
    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> SpendingKey {
       let mut bytes: [u8; 32] = rng.random();
       bytes[0] &= 0x1F; // Mask for BN254 range (matching kohaku)
-      let array = SecureArray::from_slice(&bytes).expect("32 byte array is valid");
+      let array =
+         SecureArray::from_slice(&bytes).expect("SecureArray size matches the array passed in");
       SpendingKey::new(array)
    }
 }

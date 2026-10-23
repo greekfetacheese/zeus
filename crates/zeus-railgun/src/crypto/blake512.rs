@@ -70,7 +70,7 @@ pub fn blake512(data: &[u8]) -> [u8; 64] {
    let mut chunks = data.chunks_exact(BLOCK);
    for chunk in chunks.by_ref() {
       bump_count(&mut t, BLOCK as u64);
-      let block: [u8; BLOCK] = chunk.try_into().expect("exact block");
+      let block: [u8; BLOCK] = chunk.try_into().expect("chunks_exact yields whole blocks");
       compress(&mut h, &block, t, false);
    }
 

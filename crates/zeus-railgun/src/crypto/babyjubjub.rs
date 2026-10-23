@@ -177,7 +177,7 @@ impl PointProjective {
          };
       }
 
-      let zinv = self.z.inverse().unwrap();
+      let zinv = self.z.inverse().expect("z == 0 returned above");
       Point {
          x: self.x * zinv,
          y: self.y * zinv,

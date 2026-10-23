@@ -47,7 +47,7 @@ fn decode(bytes: &[u8; 16]) -> String {
    }
 
    result.reverse();
-   String::from_utf8(result).unwrap()
+   String::from_utf8(result).expect("CHARSET is ASCII")
 }
 
 #[cfg(test)]

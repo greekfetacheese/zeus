@@ -42,7 +42,8 @@ impl TokenData {
          _ => unreachable!(),
       };
       let token_address = Address::from_slice(&hash[44..64]);
-      let token_sub_id = U256::from_be_bytes::<32>(hash[64..96].try_into().unwrap());
+      let token_sub_id =
+         U256::from_be_bytes::<32>(hash[64..96].try_into().expect("hash[64..96] is 32 bytes"));
 
       Ok(TokenData {
          tokenType: token_type,
@@ -147,7 +148,8 @@ impl Transaction {
 
 fn hash_to_scalar(data: &[u8]) -> U256 {
    let hash = keccak256_cached(data);
-   let hash_bigint = U256::from_be_bytes::<32>(hash.as_slice().try_into().unwrap());
+   let hash_bigint =
+      U256::from_be_bytes::<32>(hash.as_slice().try_into().expect("keccak256 is 32 bytes"));
    hash_bigint % SNARK_PRIME
 }
 
@@ -301,8 +303,12 @@ sol! {
 
 impl From<ShieldCiphertext> for Ciphertext {
    fn from(c: ShieldCiphertext) -> Self {
-      let iv = c.encryptedBundle[0][..16].try_into().unwrap();
-      let tag = c.encryptedBundle[0][16..].try_into().unwrap();
+      let iv = c.encryptedBundle[0][..16]
+         .try_into()
+         .expect("iv/tag occupy a fixed 16-byte half of a bytes32/uint256 slot");
+      let tag = c.encryptedBundle[0][16..]
+         .try_into()
+         .expect("iv/tag occupy a fixed 16-byte half of a bytes32/uint256 slot");
       let data = vec![c.encryptedBundle[1][..16].to_vec()];
       Ciphertext { iv, tag, data }
    }
@@ -310,8 +316,12 @@ impl From<ShieldCiphertext> for Ciphertext {
 
 impl From<CommitmentCiphertext> for Ciphertext {
    fn from(c: CommitmentCiphertext) -> Self {
-      let iv = c.ciphertext[0][..16].try_into().unwrap();
-      let tag = c.ciphertext[0][16..32].try_into().unwrap();
+      let iv = c.ciphertext[0][..16]
+         .try_into()
+         .expect("iv/tag occupy a fixed 16-byte half of a bytes32/uint256 slot");
+      let tag = c.ciphertext[0][16..32]
+         .try_into()
+         .expect("iv/tag occupy a fixed 16-byte half of a bytes32/uint256 slot");
 
       let mut data: Vec<Vec<u8>> = c.ciphertext[1..].iter().map(|chunk| chunk.to_vec()).collect();
       data.push(c.memo.to_vec());

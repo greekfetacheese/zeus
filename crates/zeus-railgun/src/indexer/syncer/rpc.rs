@@ -260,7 +260,9 @@ impl RpcSyncer {
             }
          }
 
-         let mut logs = Arc::try_unwrap(logs).unwrap().into_inner();
+         let mut logs = Arc::try_unwrap(logs)
+            .expect("every chunk task was awaited, so this holds the only Arc")
+            .into_inner();
          // Concurrent chunks finish out of order sort for deterministic parse
          // and stable leaf application.
          logs.sort_by(|a, b| {

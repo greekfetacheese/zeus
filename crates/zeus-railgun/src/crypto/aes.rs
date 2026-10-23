@@ -41,8 +41,7 @@ pub(super) fn encrypt_gcm(
    key: &[u8; 32],
    iv: &[u8; 16],
 ) -> Result<Ciphertext, AesError> {
-   //? Safe to unwrap as key length is fixed
-   let cipher = Aes256GcmU16::new_from_slice(key).unwrap();
+   let cipher = Aes256GcmU16::new_from_slice(key).expect("AES-256 key is [u8; 32]");
    let nonce = Nonce::<U16>::from_slice(iv);
 
    let mut combined = Vec::new();
@@ -66,7 +65,7 @@ pub(super) fn encrypt_gcm(
       return Err(AesError::DataTooShort);
    }
    let tag_bytes = encrypted_raw.split_off(encrypted_raw.len() - 16);
-   let tag: [u8; 16] = tag_bytes.try_into().unwrap();
+   let tag: [u8; 16] = tag_bytes.try_into().expect("split_off(16) leaves exactly 16 bytes");
 
    // Split back into per-block hex strings.
    let mut data = Vec::with_capacity(block_lengths.len());
@@ -83,8 +82,7 @@ pub(super) fn decrypt_gcm(
    ciphertext: &Ciphertext,
    key: &[u8; 32],
 ) -> Result<Vec<Vec<u8>>, AesError> {
-   //? Safe to unwrap as key length is fixed
-   let cipher = Aes256GcmU16::new_from_slice(key).unwrap();
+   let cipher = Aes256GcmU16::new_from_slice(key).expect("AES-256 key is [u8; 32]");
    let nonce = Nonce::<U16>::from_slice(&ciphertext.iv);
 
    let mut combined = Vec::new();

@@ -217,8 +217,12 @@ impl From<Commitment> for syncer::SyncEvent {
                token: preimage.token.into(),
                value: preimage.value,
                ciphertext: Ciphertext {
-                  iv: encrypted_bundle[0][..16].try_into().unwrap(),
-                  tag: encrypted_bundle[0][16..].try_into().unwrap(),
+                  iv: encrypted_bundle[0][..16]
+                     .try_into()
+                     .expect("iv/tag occupy a fixed 16-byte half of a bytes32/uint256 slot"),
+                  tag: encrypted_bundle[0][16..]
+                     .try_into()
+                     .expect("iv/tag occupy a fixed 16-byte half of a bytes32/uint256 slot"),
                   data: vec![encrypted_bundle[1][..16].to_vec()],
                },
                shield_key: shield_key.into(),

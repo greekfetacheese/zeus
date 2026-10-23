@@ -81,8 +81,12 @@ use crate::crypto::aes::Ciphertext;
 
 impl From<RailgunLegacy::CommitmentCiphertext> for Ciphertext {
    fn from(c: RailgunLegacy::CommitmentCiphertext) -> Self {
-      let iv = c.ciphertext[0][..16].try_into().unwrap();
-      let tag = c.ciphertext[0][16..32].try_into().unwrap();
+      let iv = c.ciphertext[0][..16]
+         .try_into()
+         .expect("iv/tag occupy a fixed 16-byte half of a bytes32/uint256 slot");
+      let tag = c.ciphertext[0][16..32]
+         .try_into()
+         .expect("iv/tag occupy a fixed 16-byte half of a bytes32/uint256 slot");
 
       let mut data: Vec<Vec<u8>> = c.ciphertext[1..].iter().map(|chunk| chunk.to_vec()).collect();
       data.push(c.memo.to_vec());
@@ -93,8 +97,12 @@ impl From<RailgunLegacy::CommitmentCiphertext> for Ciphertext {
 
 impl From<RailgunLegacy::ShieldCiphertext> for Ciphertext {
    fn from(c: RailgunLegacy::ShieldCiphertext) -> Self {
-      let iv = c.encryptedBundle[0][..16].try_into().unwrap();
-      let tag = c.encryptedBundle[0][16..].try_into().unwrap();
+      let iv = c.encryptedBundle[0][..16]
+         .try_into()
+         .expect("iv/tag occupy a fixed 16-byte half of a bytes32/uint256 slot");
+      let tag = c.encryptedBundle[0][16..]
+         .try_into()
+         .expect("iv/tag occupy a fixed 16-byte half of a bytes32/uint256 slot");
       let data = vec![c.encryptedBundle[1][..16].to_vec()];
       Ciphertext { iv, tag, data }
    }

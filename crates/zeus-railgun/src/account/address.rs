@@ -65,7 +65,7 @@ impl RailgunAddress {
          viewing_key.public_key(),
          chain,
       )
-      .unwrap();
+      .expect("encode_address cannot fail for a valid master/viewing key");
 
       RailgunAddress {
          address,
@@ -87,7 +87,7 @@ impl RailgunAddress {
          viewing_pubkey,
          chain,
       )
-      .unwrap();
+      .expect("encode_address cannot fail for a valid master/viewing key");
 
       RailgunAddress {
          address,
@@ -106,8 +106,8 @@ impl RailgunAddress {
       let spending_path = spending_key_path(index);
       let viewing_path = viewing_key_path(index);
 
-      let (spend_x, spend_y) =
-         compute_public_spending_key(seed, &spending_path).expect("Spending key");
+      let (spend_x, spend_y) = compute_public_spending_key(seed, &spending_path)
+         .expect("seed and spending path derive a valid public key");
 
       let viewing_priv = seed.unlock(|seed_bytes| ViewingKey::derive(seed_bytes, &viewing_path))?;
       let nullifying_key = viewing_priv.nullifying_key();
