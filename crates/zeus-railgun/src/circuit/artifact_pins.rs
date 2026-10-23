@@ -437,12 +437,13 @@ const PINS: &[(&str, &str, &str)] = &[
    ),
 ];
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum ArtifactPinError {
-   #[error("no SHA-256 pin for {circuit}/{file}")]
-   Unpinned { circuit: String, file: String },
-   #[error("SHA-256 mismatch for {circuit}/{file}: expected {expected}, got {actual}")]
+   Unpinned {
+      circuit: String,
+      file: String,
+   },
    Mismatch {
       circuit: String,
       file: String,
@@ -450,6 +451,29 @@ pub enum ArtifactPinError {
       actual: String,
    },
 }
+
+impl std::fmt::Display for ArtifactPinError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::Unpinned { circuit, file } => {
+            write!(f, "no SHA-256 pin for {circuit}/{file}")
+         }
+         Self::Mismatch {
+            circuit,
+            file,
+            expected,
+            actual,
+         } => {
+            write!(
+               f,
+               "SHA-256 mismatch for {circuit}/{file}: expected {expected}, got {actual}"
+            )
+         }
+      }
+   }
+}
+
+impl std::error::Error for ArtifactPinError {}
 
 pub(crate) fn pin_digest(circuit_name: &str, filename: &str) -> Option<[u8; 32]> {
    let hex = PINS
@@ -506,6 +530,8 @@ pub fn verify_artifact_digest(
 
 #[cfg(test)]
 mod tests {
+   use std::error::Error as _;
+
    use super::*;
    use crate::circuit::remote_artifact_loader::{
       ARTIFACT_MAX_INPUTS, ARTIFACT_MAX_OUTPUTS, all_transact_circuit_names,
@@ -571,6 +597,50 @@ mod tests {
       let blob = [0xABu8; 300];
       let err = verify_artifact_pin("railgun/01x01", "wasm.br", &blob).unwrap_err();
       assert!(matches!(err, ArtifactPinError::Mismatch { .. }));
+   }
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         ArtifactPinError::Unpinned {
+            circuit: "railgun/06x01".to_owned(),
+            file: "wasm.br".to_owned(),
+         }
+         .to_string(),
+         "no SHA-256 pin for railgun/06x01/wasm.br"
+      );
+      assert_eq!(
+         ArtifactPinError::Mismatch {
+            circuit: "railgun/01x01".to_owned(),
+            file: "wasm.br".to_owned(),
+            expected: "aa".to_owned(),
+            actual: "bb".to_owned(),
+         }
+         .to_string(),
+         "SHA-256 mismatch for railgun/01x01/wasm.br: expected aa, got bb"
+      );
+   }
+
+   #[test]
+   fn the_named_field_variants_have_no_source() {
+      assert!(
+         ArtifactPinError::Unpinned {
+            circuit: "railgun/06x01".to_owned(),
+            file: "wasm.br".to_owned(),
+         }
+         .source()
+         .is_none()
+      );
+      assert!(
+         ArtifactPinError::Mismatch {
+            circuit: "railgun/01x01".to_owned(),
+            file: "wasm.br".to_owned(),
+            expected: "aa".to_owned(),
+            actual: "bb".to_owned(),
+         }
+         .source()
+         .is_none()
+      );
    }
 
    #[test]

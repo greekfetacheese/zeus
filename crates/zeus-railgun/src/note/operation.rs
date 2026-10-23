@@ -1,5 +1,4 @@
 use alloy_primitives::Address;
-use thiserror::Error;
 
 use crate::{
    account::signer::RailgunSigner,
@@ -42,15 +41,41 @@ pub struct Operation {
    unshield_note: Option<UnshieldNote>,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum OperationVerificationError {
-   #[error("Imbalanced operation: {0} != {1} + {2}")]
    Imbalanced(u128, u128, u128),
-   #[error("Too many output notes: {0} > 13")]
    TooManyOutputNotes(usize),
-   #[error("Too many input notes: {0} > 13")]
    TooManyInputNotes(usize),
+}
+
+impl std::fmt::Display for OperationVerificationError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::Imbalanced(input, output, unshield) => {
+            write!(
+               f,
+               "Imbalanced operation: {input} != {output} + {unshield}"
+            )
+         }
+         Self::TooManyOutputNotes(count) => {
+            write!(f, "Too many output notes: {count} > 13")
+         }
+         Self::TooManyInputNotes(count) => {
+            write!(f, "Too many input notes: {count} > 13")
+         }
+      }
+   }
+}
+
+impl std::error::Error for OperationVerificationError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::Imbalanced(_, _, _) | Self::TooManyOutputNotes(_) | Self::TooManyInputNotes(_) => {
+            None
+         }
+      }
+   }
 }
 
 impl Operation {
@@ -172,5 +197,35 @@ impl Operation {
 
    pub fn out_encryptable_notes(&self) -> Vec<TransferNote> {
       self.out_notes.iter().filter(|n| n.value() > 0).cloned().collect()
+   }
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         OperationVerificationError::Imbalanced(5, 3, 1).to_string(),
+         "Imbalanced operation: 5 != 3 + 1"
+      );
+      assert_eq!(
+         OperationVerificationError::TooManyOutputNotes(14).to_string(),
+         "Too many output notes: 14 > 13"
+      );
+      assert_eq!(
+         OperationVerificationError::TooManyInputNotes(14).to_string(),
+         "Too many input notes: 14 > 13"
+      );
+   }
+
+   #[test]
+   fn the_payload_variants_have_no_source() {
+      assert!(OperationVerificationError::Imbalanced(5, 3, 1).source().is_none());
+      assert!(OperationVerificationError::TooManyOutputNotes(14).source().is_none());
+      assert!(OperationVerificationError::TooManyInputNotes(14).source().is_none());
    }
 }

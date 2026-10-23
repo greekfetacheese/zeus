@@ -114,15 +114,35 @@ impl RiskBand {
    }
 }
 
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PrivacyError {
-   #[error("enter an amount more than zero")]
    ZeroAmount,
-   #[error("this amount is too large to assess")]
    AmountTooLarge,
-   #[error("no deposits of this asset in the last {0} days")]
    NoRecentActivity(u64),
+}
+
+impl std::fmt::Display for PrivacyError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::ZeroAmount => f.write_str("enter an amount more than zero"),
+         Self::AmountTooLarge => f.write_str("this amount is too large to assess"),
+         Self::NoRecentActivity(days) => {
+            write!(
+               f,
+               "no deposits of this asset in the last {days} days"
+            )
+         }
+      }
+   }
+}
+
+impl std::error::Error for PrivacyError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::ZeroAmount | Self::AmountTooLarge | Self::NoRecentActivity(_) => None,
+      }
+   }
 }
 
 /// What the user's own history says about the requested amount.
@@ -1435,5 +1455,35 @@ mod tests {
             assert!(suggestion > 0 && suggestion < requested);
          }
       }
+   }
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         PrivacyError::ZeroAmount.to_string(),
+         "enter an amount more than zero"
+      );
+      assert_eq!(
+         PrivacyError::AmountTooLarge.to_string(),
+         "this amount is too large to assess"
+      );
+      assert_eq!(
+         PrivacyError::NoRecentActivity(30).to_string(),
+         "no deposits of this asset in the last 30 days"
+      );
+   }
+
+   #[test]
+   fn the_payload_variants_have_no_source() {
+      assert!(PrivacyError::ZeroAmount.source().is_none());
+      assert!(PrivacyError::AmountTooLarge.source().is_none());
+      assert!(PrivacyError::NoRecentActivity(30).source().is_none());
    }
 }

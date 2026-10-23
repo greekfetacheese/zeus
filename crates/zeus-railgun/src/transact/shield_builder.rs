@@ -1,5 +1,4 @@
 use rand::Rng;
-use thiserror::Error;
 
 use alloy_primitives::U256;
 use alloy_sol_types::SolCall;
@@ -25,11 +24,32 @@ pub struct ShieldBuilder {
    native_shields: Vec<(RailgunAddress, u128)>,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum ShieldError {
-   #[error("Encryption error: {0}")]
-   Encrypt(#[from] EncryptError),
+   Encrypt(EncryptError),
+}
+
+impl std::fmt::Display for ShieldError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::Encrypt(err) => write!(f, "Encryption error: {err}"),
+      }
+   }
+}
+
+impl std::error::Error for ShieldError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::Encrypt(err) => Some(err),
+      }
+   }
+}
+
+impl From<EncryptError> for ShieldError {
+   fn from(err: EncryptError) -> Self {
+      Self::Encrypt(err)
+   }
 }
 
 impl ShieldBuilder {
@@ -190,5 +210,30 @@ mod tests {
       assert_eq!(txns[0].to, chain.relay_adapt_contract);
       assert_eq!(txns[0].value, U256::from(value));
       assert!(txns[0].data.starts_with(&RelayAdapt::multicallCall::SELECTOR));
+   }
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+   use crate::crypto::aes::AesError;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      let inner = EncryptError::Aes(AesError::DataTooShort);
+      let expected = format!("Encryption error: {inner}");
+      assert_eq!(ShieldError::Encrypt(inner).to_string(), expected);
+   }
+
+   #[test]
+   fn the_encrypt_variant_delegates_its_source() {
+      let inner = EncryptError::Aes(AesError::DataTooShort);
+      let rendered = inner.to_string();
+      assert_eq!(
+         ShieldError::Encrypt(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
    }
 }

@@ -7,7 +7,6 @@ use ark_ff::BigInt;
 use ark_groth16::{Groth16, prepare_verifying_key};
 use ark_relations::gr1cs::SynthesisError;
 use ark_std::rand::random;
-use thiserror::Error;
 use tracing::debug;
 
 use crate::circuit::{
@@ -24,17 +23,54 @@ pub struct Groth16Prover {
    artifact_loader: RemoteArtifactLoader,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum Groth16ProverError {
-   #[error("Artifact loader error: {0}")]
-   ArtifactLoaderError(#[from] RemoteArtifactLoaderError),
-   #[error("Witness calculator error: {0}")]
-   WitnessCalculatorError(#[from] CalculateWitnessError),
-   #[error("Synthesis Error")]
-   SynthesisError(#[from] SynthesisError),
-   #[error("Proof verification failed")]
+   ArtifactLoaderError(RemoteArtifactLoaderError),
+   WitnessCalculatorError(CalculateWitnessError),
+   SynthesisError(SynthesisError),
    InvalidProof,
+}
+
+impl std::fmt::Display for Groth16ProverError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::ArtifactLoaderError(err) => write!(f, "Artifact loader error: {err}"),
+         Self::WitnessCalculatorError(err) => write!(f, "Witness calculator error: {err}"),
+         // The payload is deliberately not rendered; the source still carries it.
+         Self::SynthesisError(_) => f.write_str("Synthesis Error"),
+         Self::InvalidProof => f.write_str("Proof verification failed"),
+      }
+   }
+}
+
+impl std::error::Error for Groth16ProverError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::ArtifactLoaderError(err) => Some(err),
+         Self::WitnessCalculatorError(err) => Some(err),
+         Self::SynthesisError(err) => Some(err),
+         Self::InvalidProof => None,
+      }
+   }
+}
+
+impl From<RemoteArtifactLoaderError> for Groth16ProverError {
+   fn from(err: RemoteArtifactLoaderError) -> Self {
+      Self::ArtifactLoaderError(err)
+   }
+}
+
+impl From<CalculateWitnessError> for Groth16ProverError {
+   fn from(err: CalculateWitnessError) -> Self {
+      Self::WitnessCalculatorError(err)
+   }
+}
+
+impl From<SynthesisError> for Groth16ProverError {
+   fn from(err: SynthesisError) -> Self {
+      Self::SynthesisError(err)
+   }
 }
 
 impl Groth16Prover {
@@ -154,5 +190,72 @@ impl Groth16Prover {
 
       debug!("Proof verified successfully");
       Ok(proof.into())
+   }
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         Groth16ProverError::ArtifactLoaderError(RemoteArtifactLoaderError::NoCacheDir).to_string(),
+         "Artifact loader error: No on-disk cache directory configured"
+      );
+      assert_eq!(
+         Groth16ProverError::WitnessCalculatorError(CalculateWitnessError::CircomError(
+            "boom".to_owned()
+         ))
+         .to_string(),
+         "Witness calculator error: Circom error: boom"
+      );
+      assert_eq!(
+         Groth16ProverError::SynthesisError(SynthesisError::DivisionByZero).to_string(),
+         "Synthesis Error"
+      );
+      assert_eq!(
+         Groth16ProverError::InvalidProof.to_string(),
+         "Proof verification failed"
+      );
+   }
+
+   #[test]
+   fn the_artifact_loader_variant_delegates_its_source() {
+      let inner = RemoteArtifactLoaderError::NoCacheDir;
+      let rendered = inner.to_string();
+      assert_eq!(
+         Groth16ProverError::ArtifactLoaderError(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn the_witness_calculator_variant_delegates_its_source() {
+      let inner = CalculateWitnessError::CircomError("boom".to_owned());
+      let rendered = inner.to_string();
+      assert_eq!(
+         Groth16ProverError::WitnessCalculatorError(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn the_synthesis_variant_delegates_its_source() {
+      let inner = SynthesisError::Unsatisfiable;
+      let rendered = inner.to_string();
+      assert_eq!(
+         Groth16ProverError::SynthesisError(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn invalid_proof_has_no_source() {
+      assert!(Groth16ProverError::InvalidProof.source().is_none());
    }
 }

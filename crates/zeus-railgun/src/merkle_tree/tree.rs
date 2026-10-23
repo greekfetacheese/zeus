@@ -2,7 +2,6 @@ use std::{collections::BTreeSet, fmt::Debug};
 
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use tracing::warn;
 
 use super::config::{MerkleConfig, RailgunMerkleConfig};
@@ -31,13 +30,30 @@ pub struct MerkleTreeState<C: MerkleConfig> {
    phantom: std::marker::PhantomData<C>,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum MerkleTreeError {
-   #[error("Element not found in tree: {0}")]
    ElementNotFound(String),
-   #[error("Invalid proof")]
    InvalidProof,
+}
+
+impl std::fmt::Display for MerkleTreeError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::ElementNotFound(element) => {
+            write!(f, "Element not found in tree: {element}")
+         }
+         Self::InvalidProof => f.write_str("Invalid proof"),
+      }
+   }
+}
+
+impl std::error::Error for MerkleTreeError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::ElementNotFound(_) | Self::InvalidProof => None,
+      }
+   }
 }
 
 impl<C: MerkleConfig> MerkleTree<C> {
@@ -332,5 +348,30 @@ mod tests {
       let state = tree.state();
       let deserialized_tree = MerkleTree::<TestMerkleConfig>::from_state(state.clone());
       assert_eq!(tree.state(), deserialized_tree.state());
+   }
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         MerkleTreeError::ElementNotFound("leaf".to_owned()).to_string(),
+         "Element not found in tree: leaf"
+      );
+      assert_eq!(
+         MerkleTreeError::InvalidProof.to_string(),
+         "Invalid proof"
+      );
+   }
+
+   #[test]
+   fn the_payload_variants_have_no_source() {
+      assert!(MerkleTreeError::ElementNotFound("leaf".to_owned()).source().is_none());
+      assert!(MerkleTreeError::InvalidProof.source().is_none());
    }
 }

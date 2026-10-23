@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use ruint::aliases::U256;
-use thiserror::Error;
 use tracing::info;
 
 use crate::{
@@ -65,13 +64,37 @@ pub struct PoiCircuitInputs {
    poi_in_merkle_proof_path_elements: Vec<Vec<U256>>,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum PoiCircuitInputsError {
-   #[error("Merkle tree error: {0}")]
-   MerkleTree(#[from] MerkleTreeError),
-   #[error("Missing POI proofs for list key {0}")]
+   MerkleTree(MerkleTreeError),
    MissingPoiProofs(ListKey),
+}
+
+impl std::fmt::Display for PoiCircuitInputsError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::MerkleTree(err) => write!(f, "Merkle tree error: {err}"),
+         Self::MissingPoiProofs(list_key) => {
+            write!(f, "Missing POI proofs for list key {list_key}")
+         }
+      }
+   }
+}
+
+impl std::error::Error for PoiCircuitInputsError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::MerkleTree(err) => Some(err),
+         Self::MissingPoiProofs(_) => None,
+      }
+   }
+}
+
+impl From<MerkleTreeError> for PoiCircuitInputsError {
+   fn from(err: MerkleTreeError) -> Self {
+      Self::MerkleTree(err)
+   }
 }
 
 /// Determines the circuit size based on the number of nullifiers and commitments.
@@ -283,5 +306,43 @@ impl PoiCircuitInputs {
       );
 
       m
+   }
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         PoiCircuitInputsError::MerkleTree(MerkleTreeError::InvalidProof).to_string(),
+         "Merkle tree error: Invalid proof"
+      );
+      assert_eq!(
+         PoiCircuitInputsError::MissingPoiProofs(ListKey::from("list".to_owned())).to_string(),
+         "Missing POI proofs for list key ListKey(list)"
+      );
+   }
+
+   #[test]
+   fn the_merkle_tree_variant_delegates_its_source() {
+      let inner = MerkleTreeError::ElementNotFound("leaf".to_owned());
+      let rendered = inner.to_string();
+      assert_eq!(
+         PoiCircuitInputsError::MerkleTree(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn missing_poi_proofs_has_no_source() {
+      assert!(
+         PoiCircuitInputsError::MissingPoiProofs(ListKey::from("list".to_owned()))
+            .source()
+            .is_none()
+      );
    }
 }

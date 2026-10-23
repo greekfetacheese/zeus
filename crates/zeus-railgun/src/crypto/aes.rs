@@ -26,15 +26,31 @@ pub struct CiphertextCtr {
    pub data: Vec<Vec<u8>>,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum AesError {
-   #[error("encrypt error: {0}")]
    Gcm(aes_gcm::Error),
-   #[error("decrypt error: {0}")]
    Decrypt(aes_gcm::Error),
-   #[error("Encrypted data is too short")]
    DataTooShort,
+}
+
+impl std::fmt::Display for AesError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::Gcm(err) => write!(f, "encrypt error: {err}"),
+         Self::Decrypt(err) => write!(f, "decrypt error: {err}"),
+         Self::DataTooShort => f.write_str("Encrypted data is too short"),
+      }
+   }
+}
+
+impl std::error::Error for AesError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      // `aes_gcm::Error` is not a `std::error::Error`, so it cannot back a source.
+      match self {
+         Self::Gcm(_) | Self::Decrypt(_) | Self::DataTooShort => None,
+      }
+   }
 }
 
 type Aes256GcmU16 = AesGcm<Aes256, U16>;
@@ -230,5 +246,36 @@ mod tests {
       let plaintext: [&[u8]; 3] = [b"Hello, world! 1", b"Hello, world! 2", b"Hello, world! 3"];
 
       let _ciphertext = super::encrypt_ctr(&plaintext, &key, &rand.random());
+   }
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         AesError::Gcm(aes_gcm::Error).to_string(),
+         "encrypt error: aead::Error"
+      );
+      assert_eq!(
+         AesError::Decrypt(aes_gcm::Error).to_string(),
+         "decrypt error: aead::Error"
+      );
+      assert_eq!(
+         AesError::DataTooShort.to_string(),
+         "Encrypted data is too short"
+      );
+   }
+
+   #[test]
+   fn the_payload_variants_have_no_source() {
+      // `aes_gcm::Error` is not a `std::error::Error`, so it cannot back a `source()`.
+      assert!(AesError::Gcm(aes_gcm::Error).source().is_none());
+      assert!(AesError::Decrypt(aes_gcm::Error).source().is_none());
+      assert!(AesError::DataTooShort.source().is_none());
    }
 }

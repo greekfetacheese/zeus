@@ -12,7 +12,6 @@ use ed25519_dalek::SigningKey;
 use secure_types::{SecureArray, Zeroize};
 
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use super::{SecretKey32, poseidon1, poseidon3};
 use crate::{
@@ -28,13 +27,35 @@ pub struct SpendingSignature {
    pub s: U256,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum KeyError {
-   #[error("Failed to decompress public key")]
    DecompressionFailed,
-   #[error("Hex decoding error: {0}")]
-   HexDecodingError(#[from] hex::FromHexError),
+   HexDecodingError(hex::FromHexError),
+}
+
+impl std::fmt::Display for KeyError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::DecompressionFailed => f.write_str("Failed to decompress public key"),
+         Self::HexDecodingError(err) => write!(f, "Hex decoding error: {err}"),
+      }
+   }
+}
+
+impl std::error::Error for KeyError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::HexDecodingError(err) => Some(err),
+         Self::DecompressionFailed => None,
+      }
+   }
+}
+
+impl From<hex::FromHexError> for KeyError {
+   fn from(err: hex::FromHexError) -> Self {
+      Self::HexDecodingError(err)
+   }
 }
 
 /// Symmetric key for AES encryption.
@@ -610,5 +631,39 @@ mod tests {
          va < ViewingKey::from_bytes([10u8; 32]),
          "Ord must follow the bytes"
       );
+   }
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         KeyError::DecompressionFailed.to_string(),
+         "Failed to decompress public key"
+      );
+      assert_eq!(
+         KeyError::HexDecodingError(hex::FromHexError::OddLength).to_string(),
+         "Hex decoding error: Odd number of digits"
+      );
+   }
+
+   #[test]
+   fn the_hex_variant_delegates_its_source() {
+      let inner = hex::FromHexError::OddLength;
+      let rendered = inner.to_string();
+      assert_eq!(
+         KeyError::HexDecodingError(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn decompression_failed_has_no_source() {
+      assert!(KeyError::DecompressionFailed.source().is_none());
    }
 }

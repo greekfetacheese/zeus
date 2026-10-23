@@ -2,21 +2,43 @@ use std::collections::HashMap;
 
 use num_bigint::BigInt;
 use ruint::aliases::U256;
-use thiserror::Error;
 use tracing::debug;
 use wasmer::{Module, Store};
 
 use crate::circuit::remote_artifact_loader::RemoteArtifactLoader;
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum CalculateWitnessError {
-   #[error("Artifact loader error: {0}")]
-   ArtifactLoaderError(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
-   #[error("Compiler error: {0}")]
-   CompilerError(#[from] wasmer::CompileError),
-   #[error("Circom error: {0}")]
+   ArtifactLoaderError(Box<dyn std::error::Error + Send + Sync + 'static>),
+   CompilerError(wasmer::CompileError),
    CircomError(String),
+}
+
+impl std::fmt::Display for CalculateWitnessError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::ArtifactLoaderError(err) => write!(f, "Artifact loader error: {err}"),
+         Self::CompilerError(err) => write!(f, "Compiler error: {err}"),
+         Self::CircomError(message) => write!(f, "Circom error: {message}"),
+      }
+   }
+}
+
+impl std::error::Error for CalculateWitnessError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::ArtifactLoaderError(err) => Some(err.as_ref()),
+         Self::CompilerError(err) => Some(err),
+         Self::CircomError(_) => None,
+      }
+   }
+}
+
+impl From<wasmer::CompileError> for CalculateWitnessError {
+   fn from(err: wasmer::CompileError) -> Self {
+      Self::CompilerError(err)
+   }
 }
 
 pub async fn calculate_witness(
@@ -49,4 +71,41 @@ pub async fn calculate_witness(
    let witness: Vec<U256> = witness.into_iter().map(U256::from).collect();
 
    Ok(witness)
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         CalculateWitnessError::ArtifactLoaderError(Box::new(std::io::Error::other("boom")))
+            .to_string(),
+         "Artifact loader error: boom"
+      );
+      assert_eq!(
+         CalculateWitnessError::CircomError("boom".to_owned()).to_string(),
+         "Circom error: boom"
+      );
+   }
+
+   #[test]
+   fn the_artifact_loader_variant_delegates_its_source() {
+      let inner = Box::new(std::io::Error::other("boom"));
+      let rendered = inner.to_string();
+      assert_eq!(
+         CalculateWitnessError::ArtifactLoaderError(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn circom_error_has_no_source() {
+      assert!(CalculateWitnessError::CircomError("boom".to_owned()).source().is_none());
+   }
 }

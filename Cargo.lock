@@ -11774,7 +11774,6 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "rand 0.9.5",
- "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -11820,7 +11819,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
- "thiserror 2.0.20",
  "tokio",
  "tracing",
  "wasmer",
@@ -11861,7 +11859,6 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
  "tokio",
  "tracing",
 ]

@@ -234,25 +234,238 @@ impl Cache {
    }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum RemoteArtifactLoaderError {
-   #[error("HTTP error: {0}")]
-   HttpError(#[from] reqwest::Error),
-   #[error("Artifact not found (HTTP {status}): {url}")]
+   HttpError(reqwest::Error),
    NotFound { url: String, status: u16 },
-   #[error("Invalid artifact at {url}: {reason}")]
    InvalidArtifact { url: String, reason: String },
-   #[error("Deserialization error: {0}")]
-   DeserializationError(#[from] ark_serialize::SerializationError),
-   #[error("Decompression error: {0}")]
-   DecompressionError(#[from] std::io::Error),
-   #[error("No on-disk cache directory configured")]
+   DeserializationError(ark_serialize::SerializationError),
+   DecompressionError(std::io::Error),
    NoCacheDir,
-   #[error("Circuit download is disabled ({circuit} / {file})")]
    DownloadDisabled { circuit: String, file: String },
-   #[error(transparent)]
-   Pin(#[from] ArtifactPinError),
+   Pin(ArtifactPinError),
+}
+
+impl std::fmt::Display for RemoteArtifactLoaderError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::HttpError(err) => write!(f, "HTTP error: {err}"),
+         // The status leads; the url follows.
+         Self::NotFound { url, status } => {
+            write!(f, "Artifact not found (HTTP {status}): {url}")
+         }
+         Self::InvalidArtifact { url, reason } => {
+            write!(f, "Invalid artifact at {url}: {reason}")
+         }
+         Self::DeserializationError(err) => write!(f, "Deserialization error: {err}"),
+         Self::DecompressionError(err) => write!(f, "Decompression error: {err}"),
+         Self::NoCacheDir => f.write_str("No on-disk cache directory configured"),
+         Self::DownloadDisabled { circuit, file } => {
+            write!(
+               f,
+               "Circuit download is disabled ({circuit} / {file})"
+            )
+         }
+         // Transparent: the inner error's own Display, not a `"Pin: ..."` prefix.
+         Self::Pin(err) => err.fmt(f),
+      }
+   }
+}
+
+impl std::error::Error for RemoteArtifactLoaderError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::HttpError(err) => Some(err),
+         Self::DeserializationError(err) => Some(err),
+         Self::DecompressionError(err) => Some(err),
+         // Transparent: the inner error's own source, not `Some(inner)`.
+         Self::Pin(err) => err.source(),
+         Self::NotFound { .. }
+         | Self::InvalidArtifact { .. }
+         | Self::NoCacheDir
+         | Self::DownloadDisabled { .. } => None,
+      }
+   }
+}
+
+impl From<reqwest::Error> for RemoteArtifactLoaderError {
+   fn from(err: reqwest::Error) -> Self {
+      Self::HttpError(err)
+   }
+}
+
+impl From<ark_serialize::SerializationError> for RemoteArtifactLoaderError {
+   fn from(err: ark_serialize::SerializationError) -> Self {
+      Self::DeserializationError(err)
+   }
+}
+
+impl From<std::io::Error> for RemoteArtifactLoaderError {
+   fn from(err: std::io::Error) -> Self {
+      Self::DecompressionError(err)
+   }
+}
+
+impl From<ArtifactPinError> for RemoteArtifactLoaderError {
+   fn from(err: ArtifactPinError) -> Self {
+      Self::Pin(err)
+   }
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   fn http_error() -> reqwest::Error {
+      reqwest::Client::new()
+         .get("not a url")
+         .build()
+         .expect_err("the input is not a URL")
+   }
+
+   fn unpinned_error() -> ArtifactPinError {
+      ArtifactPinError::Unpinned {
+         circuit: "railgun/01x01".to_owned(),
+         file: "wasm.br".to_owned(),
+      }
+   }
+
+   fn mismatch_error() -> ArtifactPinError {
+      ArtifactPinError::Mismatch {
+         circuit: "railgun/01x01".to_owned(),
+         file: "wasm.br".to_owned(),
+         expected: "aa".to_owned(),
+         actual: "bb".to_owned(),
+      }
+   }
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      let inner = http_error();
+      assert_eq!(
+         RemoteArtifactLoaderError::HttpError(inner).to_string(),
+         format!("HTTP error: {}", http_error())
+      );
+
+      // The status leads; the url follows.
+      assert_eq!(
+         RemoteArtifactLoaderError::NotFound {
+            url: "https://example.test/wasm.br".to_owned(),
+            status: 404,
+         }
+         .to_string(),
+         "Artifact not found (HTTP 404): https://example.test/wasm.br"
+      );
+      assert_eq!(
+         RemoteArtifactLoaderError::InvalidArtifact {
+            url: "https://example.test/wasm.br".to_owned(),
+            reason: "bad magic".to_owned(),
+         }
+         .to_string(),
+         "Invalid artifact at https://example.test/wasm.br: bad magic"
+      );
+      assert_eq!(
+         RemoteArtifactLoaderError::DecompressionError(std::io::Error::other("boom")).to_string(),
+         "Decompression error: boom"
+      );
+      assert_eq!(
+         RemoteArtifactLoaderError::NoCacheDir.to_string(),
+         "No on-disk cache directory configured"
+      );
+      assert_eq!(
+         RemoteArtifactLoaderError::DownloadDisabled {
+            circuit: "railgun/01x01".to_owned(),
+            file: "wasm.br".to_owned(),
+         }
+         .to_string(),
+         "Circuit download is disabled (railgun/01x01 / wasm.br)"
+      );
+
+      // Transparent variant: Display is the inner error's own, not a `"Pin: ..."` prefix.
+      let inner = unpinned_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         RemoteArtifactLoaderError::Pin(inner).to_string(),
+         rendered
+      );
+   }
+
+   #[test]
+   fn the_from_variants_delegate_their_source() {
+      let inner = http_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         RemoteArtifactLoaderError::HttpError(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = std::io::Error::other("boom");
+      let rendered = inner.to_string();
+      assert_eq!(
+         RemoteArtifactLoaderError::DecompressionError(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn the_payload_variants_have_no_source() {
+      assert!(
+         RemoteArtifactLoaderError::NotFound {
+            url: "https://example.test/wasm.br".to_owned(),
+            status: 404,
+         }
+         .source()
+         .is_none()
+      );
+      assert!(
+         RemoteArtifactLoaderError::InvalidArtifact {
+            url: "https://example.test/wasm.br".to_owned(),
+            reason: "bad magic".to_owned(),
+         }
+         .source()
+         .is_none()
+      );
+      assert!(RemoteArtifactLoaderError::NoCacheDir.source().is_none());
+      assert!(
+         RemoteArtifactLoaderError::DownloadDisabled {
+            circuit: "railgun/01x01".to_owned(),
+            file: "wasm.br".to_owned(),
+         }
+         .source()
+         .is_none()
+      );
+   }
+
+   #[test]
+   fn pin_is_transparent_in_both_display_and_source() {
+      let unpinned = unpinned_error();
+      let unpinned_display = unpinned.to_string();
+      let unpinned_source = unpinned.source().map(ToString::to_string);
+      let err = RemoteArtifactLoaderError::Pin(unpinned_error());
+      assert_eq!(err.to_string(), unpinned_display);
+      assert_eq!(
+         err.source().map(ToString::to_string),
+         unpinned_source,
+         "a transparent source is the inner error's own source, not Some(inner)"
+      );
+      assert!(err.source().is_none());
+
+      let mismatch = mismatch_error();
+      let mismatch_display = mismatch.to_string();
+      let mismatch_source = mismatch.source().map(ToString::to_string);
+      let err = RemoteArtifactLoaderError::Pin(mismatch_error());
+      assert_eq!(err.to_string(), mismatch_display);
+      assert_eq!(
+         err.source().map(ToString::to_string),
+         mismatch_source
+      );
+      assert!(err.source().is_none());
+   }
 }
 
 impl RemoteArtifactLoader {

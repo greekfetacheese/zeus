@@ -10,14 +10,43 @@ pub struct RpcClient {
    id: AtomicU64,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum RpcClientError {
-   #[error("HTTP error: {0}")]
-   Http(#[from] reqwest::Error),
-   #[error("JSON error: {0}")]
-   Json(#[from] serde_json::Error),
-   #[error("RPC error {code}: {message}")]
+   Http(reqwest::Error),
+   Json(serde_json::Error),
    Rpc { code: i64, message: String },
+}
+
+impl std::fmt::Display for RpcClientError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::Http(err) => write!(f, "HTTP error: {err}"),
+         Self::Json(err) => write!(f, "JSON error: {err}"),
+         Self::Rpc { code, message } => write!(f, "RPC error {code}: {message}"),
+      }
+   }
+}
+
+impl std::error::Error for RpcClientError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::Http(err) => Some(err),
+         Self::Json(err) => Some(err),
+         Self::Rpc { .. } => None,
+      }
+   }
+}
+
+impl From<reqwest::Error> for RpcClientError {
+   fn from(err: reqwest::Error) -> Self {
+      Self::Http(err)
+   }
+}
+
+impl From<serde_json::Error> for RpcClientError {
+   fn from(err: serde_json::Error) -> Self {
+      Self::Json(err)
+   }
 }
 
 #[derive(Deserialize)]
@@ -70,5 +99,62 @@ impl RpcClient {
 
       let result = serde_json::from_value(resp)?;
       Ok(result)
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   fn http_error() -> reqwest::Error {
+      reqwest::Client::new()
+         .get("not a url")
+         .build()
+         .expect_err("the input is not a URL")
+   }
+
+   fn json_error() -> serde_json::Error {
+      serde_json::from_str::<serde_json::Value>("not json")
+         .expect_err("the input is not valid JSON")
+   }
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      let http = RpcClientError::Http(http_error());
+      assert_eq!(
+         http.to_string(),
+         format!("HTTP error: {}", http_error())
+      );
+
+      let json = RpcClientError::Json(json_error());
+      assert_eq!(
+         json.to_string(),
+         format!("JSON error: {}", json_error())
+      );
+
+      let rpc = RpcClientError::Rpc {
+         code: -32601,
+         message: "method not found".to_owned(),
+      };
+      assert_eq!(
+         rpc.to_string(),
+         "RPC error -32601: method not found"
+      );
+   }
+
+   #[test]
+   fn only_the_from_variants_carry_a_source() {
+      assert!(RpcClientError::Http(http_error()).source().is_some());
+      assert!(RpcClientError::Json(json_error()).source().is_some());
+      assert!(
+         RpcClientError::Rpc {
+            code: 0,
+            message: String::new(),
+         }
+         .source()
+         .is_none()
+      );
    }
 }

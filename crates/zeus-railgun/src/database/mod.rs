@@ -50,21 +50,49 @@ impl WriteBatch {
    }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum DatabaseError {
-   #[error("Serialization error: {0}")]
-   SerializationError(#[from] serde_json::Error),
-   #[error("Unsupported version: {0}")]
+   SerializationError(serde_json::Error),
    UnsupportedVersion(u32),
-   #[error("Storage error: {0}")]
    StorageError(String),
-   #[error("Encryption error: {0}")]
    EncryptionError(String),
-   #[error("Decryption error: {0}")]
    DecryptionError(String),
-   #[error("Missing Railgun DB crypto key")]
    MissingCryptoKey,
+}
+
+impl std::fmt::Display for DatabaseError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::SerializationError(err) => write!(f, "Serialization error: {err}"),
+         Self::UnsupportedVersion(version) => {
+            write!(f, "Unsupported version: {version}")
+         }
+         Self::StorageError(err) => write!(f, "Storage error: {err}"),
+         Self::EncryptionError(err) => write!(f, "Encryption error: {err}"),
+         Self::DecryptionError(err) => write!(f, "Decryption error: {err}"),
+         Self::MissingCryptoKey => f.write_str("Missing Railgun DB crypto key"),
+      }
+   }
+}
+
+impl std::error::Error for DatabaseError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::SerializationError(err) => Some(err),
+         Self::UnsupportedVersion(_)
+         | Self::StorageError(_)
+         | Self::EncryptionError(_)
+         | Self::DecryptionError(_)
+         | Self::MissingCryptoKey => None,
+      }
+   }
+}
+
+impl From<serde_json::Error> for DatabaseError {
+   fn from(err: serde_json::Error) -> Self {
+      Self::SerializationError(err)
+   }
 }
 
 /// True when `err` (or any cause in its chain) is redb refusing to open a file
@@ -89,4 +117,63 @@ pub fn is_database_already_open(err: &anyhow::Error) -> bool {
          Some(::redb::Error::DatabaseAlreadyOpen)
       )
    })
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   fn io_error() -> serde_json::Error {
+      serde_json::Error::io(std::io::Error::other("boom"))
+   }
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      let expected = format!("Serialization error: {}", io_error());
+      assert_eq!(
+         DatabaseError::SerializationError(io_error()).to_string(),
+         expected
+      );
+      assert_eq!(
+         DatabaseError::UnsupportedVersion(2).to_string(),
+         "Unsupported version: 2"
+      );
+      assert_eq!(
+         DatabaseError::StorageError("boom".to_owned()).to_string(),
+         "Storage error: boom"
+      );
+      assert_eq!(
+         DatabaseError::EncryptionError("boom".to_owned()).to_string(),
+         "Encryption error: boom"
+      );
+      assert_eq!(
+         DatabaseError::DecryptionError("boom".to_owned()).to_string(),
+         "Decryption error: boom"
+      );
+      assert_eq!(
+         DatabaseError::MissingCryptoKey.to_string(),
+         "Missing Railgun DB crypto key"
+      );
+   }
+
+   #[test]
+   fn the_serialization_variant_delegates_its_source() {
+      let inner = io_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         DatabaseError::SerializationError(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn the_payload_variants_have_no_source() {
+      assert!(DatabaseError::UnsupportedVersion(2).source().is_none());
+      assert!(DatabaseError::StorageError("boom".to_owned()).source().is_none());
+      assert!(DatabaseError::EncryptionError("boom".to_owned()).source().is_none());
+      assert!(DatabaseError::DecryptionError("boom".to_owned()).source().is_none());
+      assert!(DatabaseError::MissingCryptoKey.source().is_none());
+   }
 }

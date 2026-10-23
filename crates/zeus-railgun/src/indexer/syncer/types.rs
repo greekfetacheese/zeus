@@ -1,7 +1,6 @@
 use alloy_primitives::{B256, FixedBytes};
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use crate::{
    caip::AssetId,
@@ -97,13 +96,24 @@ pub struct Operation {
    pub utxo_out_start_index: u32,
 }
 
-#[derive(Debug, Error)]
-#[error("Syncer error: {0}")]
-pub struct SyncerError(#[source] Box<dyn std::error::Error + Send + Sync>);
+#[derive(Debug)]
+pub struct SyncerError(Box<dyn std::error::Error + Send + Sync>);
 
 impl SyncerError {
    pub fn new<E: std::error::Error + Send + Sync + 'static>(e: E) -> Self {
       SyncerError(Box::new(e))
+   }
+}
+
+impl std::fmt::Display for SyncerError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      write!(f, "Syncer error: {}", self.0)
+   }
+}
+
+impl std::error::Error for SyncerError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      Some(self.0.as_ref())
    }
 }
 
@@ -130,5 +140,33 @@ impl Shield {
          U256::from(self.value),
       )
       .into()
+   }
+}
+
+#[cfg(test)]
+mod syncer_error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_message() {
+      let err = SyncerError::new(std::io::Error::other("boom"));
+      assert_eq!(err.to_string(), "Syncer error: boom");
+   }
+
+   #[test]
+   fn delegates_its_source_to_the_boxed_error() {
+      let inner = std::io::Error::other("boom");
+      let rendered = inner.to_string();
+      let err = SyncerError::new(inner);
+      assert_eq!(
+         err.source().map(ToString::to_string),
+         Some(rendered)
+      );
+      assert_eq!(
+         err.source().map(ToString::to_string),
+         Some("boom".to_owned())
+      );
    }
 }

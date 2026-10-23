@@ -1,17 +1,30 @@
 //! Railgun Base 37 encoding and decoding implementation in Rust.
 
-use thiserror::Error;
-
 const CHARSET: &[u8] = b" 0123456789abcdefghijklmnopqrstuvwxyz";
 const BASE: u128 = CHARSET.len() as u128;
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum EncodingError {
-   #[error("invalid character: {0}")]
    InvalidCharacter(char),
-   #[error("output exceeds {0} bytes")]
    OutputTooLong(usize),
+}
+
+impl std::fmt::Display for EncodingError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::InvalidCharacter(c) => write!(f, "invalid character: {c}"),
+         Self::OutputTooLong(len) => write!(f, "output exceeds {len} bytes"),
+      }
+   }
+}
+
+impl std::error::Error for EncodingError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::InvalidCharacter(_) | Self::OutputTooLong(_) => None,
+      }
+   }
 }
 
 /// Encodes a string into a 16-byte array using Railgun's base 37 encoding.
@@ -80,5 +93,30 @@ mod tests {
          encode("HELLO"),
          Err(EncodingError::InvalidCharacter('H'))
       ));
+   }
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         EncodingError::InvalidCharacter('H').to_string(),
+         "invalid character: H"
+      );
+      assert_eq!(
+         EncodingError::OutputTooLong(16).to_string(),
+         "output exceeds 16 bytes"
+      );
+   }
+
+   #[test]
+   fn the_payload_variants_have_no_source() {
+      assert!(EncodingError::InvalidCharacter('H').source().is_none());
+      assert!(EncodingError::OutputTooLong(16).source().is_none());
    }
 }

@@ -9,7 +9,6 @@ use alloy_sol_types::SolCall;
 use anyhow::anyhow;
 use rand::Rng;
 use serde::Serialize;
-use thiserror::Error;
 use tracing::{debug, warn};
 use zeus_userop_kit::{
    builder::UserOperationBuilder,
@@ -154,35 +153,252 @@ pub struct RailgunProvider<P: Provider<Ethereum>> {
    is_verifying: Arc<RwLock<bool>>,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum RailgunProviderError {
-   #[error("Utxo indexer error: {0}")]
-   UtxoIndexer(#[from] UtxoIndexerError),
-   #[error("Build error: {0}")]
-   Build(#[from] TransactionBuilderError),
-   #[error("POI provider error: {0}")]
-   PoiProvider(#[from] PoiProviderError),
-   #[error("Unable to construct valid note configuration for fee payment")]
+   UtxoIndexer(UtxoIndexerError),
+   Build(TransactionBuilderError),
+   PoiProvider(PoiProviderError),
    FeeNoteNotFound,
-   #[error(
-      "Not enough private balance for unshield + bundler fee (asset {asset}): need {needed} wei total, have {available} wei. Leave some private WETH for the paymaster fee, or unshield a smaller amount."
-   )]
    InsufficientForFee {
       asset: AssetId,
       needed: u128,
       available: u128,
    },
-   #[error("Signer Error: {0}")]
-   Signer(#[from] alloy_signer::Error),
-   #[error("Bundler error: {0}")]
-   Bundler(#[from] BundlerError),
-   #[error("RPC error: {0}")]
-   Rpc(#[from] anyhow::Error),
-   #[error("Privacy Paymaster not configured for chain: {0}")]
+   Signer(alloy_signer::Error),
+   Bundler(BundlerError),
+   Rpc(anyhow::Error),
    PrivacyPaymasterNotConfigured(u64),
-   #[error("Other: {0}")]
    Other(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl std::fmt::Display for RailgunProviderError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::UtxoIndexer(err) => write!(f, "Utxo indexer error: {err}"),
+         Self::Build(err) => write!(f, "Build error: {err}"),
+         Self::PoiProvider(err) => write!(f, "POI provider error: {err}"),
+         Self::FeeNoteNotFound => {
+            f.write_str("Unable to construct valid note configuration for fee payment")
+         }
+         Self::InsufficientForFee {
+            asset,
+            needed,
+            available,
+         } => write!(
+            f,
+            "Not enough private balance for unshield + bundler fee (asset {asset}): need {needed} wei total, have {available} wei. Leave some private WETH for the paymaster fee, or unshield a smaller amount."
+         ),
+         Self::Signer(err) => write!(f, "Signer Error: {err}"),
+         Self::Bundler(err) => write!(f, "Bundler error: {err}"),
+         Self::Rpc(err) => write!(f, "RPC error: {err}"),
+         Self::PrivacyPaymasterNotConfigured(chain_id) => {
+            write!(
+               f,
+               "Privacy Paymaster not configured for chain: {chain_id}"
+            )
+         }
+         Self::Other(err) => write!(f, "Other: {err}"),
+      }
+   }
+}
+
+impl std::error::Error for RailgunProviderError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::UtxoIndexer(err) => Some(err),
+         Self::Build(err) => Some(err),
+         Self::PoiProvider(err) => Some(err),
+         Self::Signer(err) => Some(err),
+         Self::Bundler(err) => Some(err),
+         // `anyhow::Error` does not implement `std::error::Error`, so the source
+         // is reached through its own `as_ref()`.
+         Self::Rpc(err) => Some(err.as_ref()),
+         Self::FeeNoteNotFound
+         | Self::InsufficientForFee { .. }
+         | Self::PrivacyPaymasterNotConfigured(_)
+         | Self::Other(_) => None,
+      }
+   }
+}
+
+impl From<UtxoIndexerError> for RailgunProviderError {
+   fn from(err: UtxoIndexerError) -> Self {
+      Self::UtxoIndexer(err)
+   }
+}
+
+impl From<TransactionBuilderError> for RailgunProviderError {
+   fn from(err: TransactionBuilderError) -> Self {
+      Self::Build(err)
+   }
+}
+
+impl From<PoiProviderError> for RailgunProviderError {
+   fn from(err: PoiProviderError) -> Self {
+      Self::PoiProvider(err)
+   }
+}
+
+impl From<alloy_signer::Error> for RailgunProviderError {
+   fn from(err: alloy_signer::Error) -> Self {
+      Self::Signer(err)
+   }
+}
+
+impl From<BundlerError> for RailgunProviderError {
+   fn from(err: BundlerError) -> Self {
+      Self::Bundler(err)
+   }
+}
+
+impl From<anyhow::Error> for RailgunProviderError {
+   fn from(err: anyhow::Error) -> Self {
+      Self::Rpc(err)
+   }
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   fn utxo_indexer_error() -> UtxoIndexerError {
+      UtxoIndexerError::Timeout
+   }
+
+   fn transaction_builder_error() -> TransactionBuilderError {
+      TransactionBuilderError::NoInputNotes
+   }
+
+   fn poi_provider_error() -> PoiProviderError {
+      PoiProviderError::Database(DatabaseError::MissingCryptoKey)
+   }
+
+   fn bundler_error() -> BundlerError {
+      BundlerError::Timeout
+   }
+
+   fn signer_error() -> alloy_signer::Error {
+      alloy_signer::Error::message("boom")
+   }
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         RailgunProviderError::UtxoIndexer(utxo_indexer_error()).to_string(),
+         "Utxo indexer error: Timed out waiting for commitments"
+      );
+      assert_eq!(
+         RailgunProviderError::Build(transaction_builder_error()).to_string(),
+         "Build error: No input notes"
+      );
+      assert_eq!(
+         RailgunProviderError::PoiProvider(poi_provider_error()).to_string(),
+         "POI provider error: Database error: Missing Railgun DB crypto key"
+      );
+      assert_eq!(
+         RailgunProviderError::FeeNoteNotFound.to_string(),
+         "Unable to construct valid note configuration for fee payment"
+      );
+
+      let asset = AssetId::Erc20(alloy_primitives::Address::ZERO);
+      assert_eq!(
+         RailgunProviderError::InsufficientForFee {
+            asset,
+            needed: 1_000,
+            available: 400,
+         }
+         .to_string(),
+         format!(
+            "Not enough private balance for unshield + bundler fee (asset {asset}): need 1000 wei total, have 400 wei. Leave some private WETH for the paymaster fee, or unshield a smaller amount."
+         )
+      );
+
+      assert_eq!(
+         RailgunProviderError::Signer(signer_error()).to_string(),
+         "Signer Error: boom"
+      );
+      assert_eq!(
+         RailgunProviderError::Bundler(bundler_error()).to_string(),
+         "Bundler error: Timeout"
+      );
+      assert_eq!(
+         RailgunProviderError::Rpc(anyhow!("boom")).to_string(),
+         "RPC error: boom"
+      );
+      assert_eq!(
+         RailgunProviderError::PrivacyPaymasterNotConfigured(7).to_string(),
+         "Privacy Paymaster not configured for chain: 7"
+      );
+      assert_eq!(
+         RailgunProviderError::Other("boom".into()).to_string(),
+         "Other: boom"
+      );
+   }
+
+   #[test]
+   fn the_from_variants_delegate_their_source() {
+      let inner = utxo_indexer_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         RailgunProviderError::UtxoIndexer(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = transaction_builder_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         RailgunProviderError::Build(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = poi_provider_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         RailgunProviderError::PoiProvider(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = signer_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         RailgunProviderError::Signer(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = bundler_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         RailgunProviderError::Bundler(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      // `anyhow::Error` does not implement `std::error::Error`, so the source is
+      // reached through anyhow's own `as_ref()`.
+      let rendered = anyhow!("boom").to_string();
+      assert_eq!(
+         RailgunProviderError::Rpc(anyhow!("boom")).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn the_non_from_variants_have_no_source() {
+      assert!(RailgunProviderError::FeeNoteNotFound.source().is_none());
+      assert!(
+         RailgunProviderError::InsufficientForFee {
+            asset: AssetId::Erc20(alloy_primitives::Address::ZERO),
+            needed: 1,
+            available: 0,
+         }
+         .source()
+         .is_none()
+      );
+      assert!(RailgunProviderError::PrivacyPaymasterNotConfigured(1).source().is_none());
+      assert!(RailgunProviderError::Other("boom".into()).source().is_none());
+   }
 }
 
 impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use ruint::aliases::U256;
-use thiserror::Error;
 
 use crate::{
    account::signer::RailgunSigner,
@@ -32,19 +31,57 @@ pub struct TransactCircuitInputs {
    value_out: Vec<U256>,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum TransactCircuitInputsError {
-   #[error("Empty input notes")]
    EmptyInputNotes,
-   #[error("Merkle tree error: {0}")]
-   MerkleTree(#[from] MerkleTreeError),
-   #[error("Signing error: {0}")]
-   Signing(#[from] anyhow::Error),
-   #[error("Merkle proof does not match note or tree root")]
+   MerkleTree(MerkleTreeError),
+   Signing(anyhow::Error),
    InvalidMerkleProof,
-   #[error("Unsupported Poseidon arity for {0} transact inputs")]
    UnsupportedPoseidonArity(usize),
+}
+
+impl std::fmt::Display for TransactCircuitInputsError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::EmptyInputNotes => f.write_str("Empty input notes"),
+         Self::MerkleTree(err) => write!(f, "Merkle tree error: {err}"),
+         Self::Signing(err) => write!(f, "Signing error: {err}"),
+         Self::InvalidMerkleProof => f.write_str("Merkle proof does not match note or tree root"),
+         Self::UnsupportedPoseidonArity(arity) => {
+            write!(
+               f,
+               "Unsupported Poseidon arity for {arity} transact inputs"
+            )
+         }
+      }
+   }
+}
+
+impl std::error::Error for TransactCircuitInputsError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::MerkleTree(err) => Some(err),
+         // `anyhow::Error` is not itself a `std::error::Error`, so route through its own
+         // `as_ref()` instead of borrowing the wrapper.
+         Self::Signing(err) => Some(err.as_ref()),
+         Self::EmptyInputNotes | Self::InvalidMerkleProof | Self::UnsupportedPoseidonArity(_) => {
+            None
+         }
+      }
+   }
+}
+
+impl From<MerkleTreeError> for TransactCircuitInputsError {
+   fn from(err: MerkleTreeError) -> Self {
+      Self::MerkleTree(err)
+   }
+}
+
+impl From<anyhow::Error> for TransactCircuitInputsError {
+   fn from(err: anyhow::Error) -> Self {
+      Self::Signing(err)
+   }
 }
 
 impl TransactCircuitInputs {
@@ -173,5 +210,63 @@ impl TransactCircuitInputs {
       m.insert("npkOut".into(), self.npk_out.clone());
       m.insert("valueOut".into(), self.value_out.clone());
       m
+   }
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         TransactCircuitInputsError::EmptyInputNotes.to_string(),
+         "Empty input notes"
+      );
+      assert_eq!(
+         TransactCircuitInputsError::MerkleTree(MerkleTreeError::InvalidProof).to_string(),
+         "Merkle tree error: Invalid proof"
+      );
+      assert_eq!(
+         TransactCircuitInputsError::Signing(anyhow::anyhow!("boom")).to_string(),
+         "Signing error: boom"
+      );
+      assert_eq!(
+         TransactCircuitInputsError::InvalidMerkleProof.to_string(),
+         "Merkle proof does not match note or tree root"
+      );
+      assert_eq!(
+         TransactCircuitInputsError::UnsupportedPoseidonArity(4).to_string(),
+         "Unsupported Poseidon arity for 4 transact inputs"
+      );
+   }
+
+   #[test]
+   fn the_merkle_tree_variant_delegates_its_source() {
+      let inner = MerkleTreeError::ElementNotFound("leaf".to_owned());
+      let rendered = inner.to_string();
+      assert_eq!(
+         TransactCircuitInputsError::MerkleTree(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn the_signing_variant_delegates_its_anyhow_source() {
+      let inner = anyhow::anyhow!("boom");
+      let rendered = inner.to_string();
+      assert_eq!(
+         TransactCircuitInputsError::Signing(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn the_payloadless_variants_have_no_source() {
+      assert!(TransactCircuitInputsError::EmptyInputNotes.source().is_none());
+      assert!(TransactCircuitInputsError::InvalidMerkleProof.source().is_none());
+      assert!(TransactCircuitInputsError::UnsupportedPoseidonArity(4).source().is_none());
    }
 }

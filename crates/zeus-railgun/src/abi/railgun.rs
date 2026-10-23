@@ -7,7 +7,6 @@ use alloy_sol_types::{SolValue, sol};
 
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use crate::{
    circuit::proof::Proof,
@@ -17,13 +16,30 @@ use crate::{
    },
 };
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum TokenDataError {
-   #[error("Invalid token data hash length")]
    InvalidHashLength,
-   #[error("Unsupported token type byte: {0}")]
    UnsupportedTokenType(u8),
+}
+
+impl std::fmt::Display for TokenDataError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::InvalidHashLength => f.write_str("Invalid token data hash length"),
+         Self::UnsupportedTokenType(token_type) => {
+            write!(f, "Unsupported token type byte: {token_type}")
+         }
+      }
+   }
+}
+
+impl std::error::Error for TokenDataError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::InvalidHashLength | Self::UnsupportedTokenType(_) => None,
+      }
+   }
 }
 
 impl TokenData {
@@ -455,5 +471,30 @@ mod tests {
       };
 
       let _ciphertext: Ciphertext = commitment_ciphertext.into();
+   }
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         TokenDataError::InvalidHashLength.to_string(),
+         "Invalid token data hash length"
+      );
+      assert_eq!(
+         TokenDataError::UnsupportedTokenType(7).to_string(),
+         "Unsupported token type byte: 7"
+      );
+   }
+
+   #[test]
+   fn the_payload_variants_have_no_source() {
+      assert!(TokenDataError::InvalidHashLength.source().is_none());
+      assert!(TokenDataError::UnsupportedTokenType(7).source().is_none());
    }
 }

@@ -2,7 +2,6 @@ use std::{collections::HashMap, fmt::Display, str::FromStr};
 
 use alloy_primitives::{Address, U256, Uint};
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use crate::abi::railgun::{TokenData, TokenType};
 
@@ -128,17 +127,37 @@ impl From<TokenData> for AssetId {
    }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum AssetIdParseError {
-   #[error("Invalid format: expected 'type:address' or 'type:address/subId'")]
    InvalidFormat,
-   #[error("Unknown asset type: {0}")]
    UnknownType(String),
-   #[error("Invalid address: {0}")]
    InvalidAddress(String),
-   #[error("Invalid sub ID: {0}")]
    InvalidSubId(String),
+}
+
+impl std::fmt::Display for AssetIdParseError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::InvalidFormat => {
+            f.write_str("Invalid format: expected 'type:address' or 'type:address/subId'")
+         }
+         Self::UnknownType(asset_type) => write!(f, "Unknown asset type: {asset_type}"),
+         Self::InvalidAddress(address) => write!(f, "Invalid address: {address}"),
+         Self::InvalidSubId(sub_id) => write!(f, "Invalid sub ID: {sub_id}"),
+      }
+   }
+}
+
+impl std::error::Error for AssetIdParseError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::InvalidFormat
+         | Self::UnknownType(_)
+         | Self::InvalidAddress(_)
+         | Self::InvalidSubId(_) => None,
+      }
+   }
 }
 
 impl FromStr for AssetId {
@@ -211,5 +230,40 @@ mod tests {
    fn test_erc1155_hash_snap() {
       let erc1155 = AssetId::Erc1155(Address::from_slice(&[3u8; 20]), U256::from(456));
       let _hash = erc1155.hash();
+   }
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         AssetIdParseError::InvalidFormat.to_string(),
+         "Invalid format: expected 'type:address' or 'type:address/subId'"
+      );
+      assert_eq!(
+         AssetIdParseError::UnknownType("erc999".to_owned()).to_string(),
+         "Unknown asset type: erc999"
+      );
+      assert_eq!(
+         AssetIdParseError::InvalidAddress("nope".to_owned()).to_string(),
+         "Invalid address: nope"
+      );
+      assert_eq!(
+         AssetIdParseError::InvalidSubId("nope".to_owned()).to_string(),
+         "Invalid sub ID: nope"
+      );
+   }
+
+   #[test]
+   fn the_payload_variants_have_no_source() {
+      assert!(AssetIdParseError::InvalidFormat.source().is_none());
+      assert!(AssetIdParseError::UnknownType("erc999".to_owned()).source().is_none());
+      assert!(AssetIdParseError::InvalidAddress("nope".to_owned()).source().is_none());
+      assert!(AssetIdParseError::InvalidSubId("nope".to_owned()).source().is_none());
    }
 }

@@ -400,20 +400,131 @@ impl SubsquidSyncer {
    }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 enum SubsquidSyncerError {
-   #[error("Serde error: {0}")]
-   Serde(#[from] serde_json::Error),
-   #[error("HTTP error: {0}")]
-   Http(#[from] reqwest::Error),
-   #[error("Request failed with status {0}: {1}")]
+   Serde(serde_json::Error),
+   Http(reqwest::Error),
    Request(reqwest::StatusCode, String),
-   #[error("GraphQL error: {0}")]
    GraphQL(String),
+}
+
+impl std::fmt::Display for SubsquidSyncerError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::Serde(err) => write!(f, "Serde error: {err}"),
+         Self::Http(err) => write!(f, "HTTP error: {err}"),
+         Self::Request(status, message) => {
+            write!(
+               f,
+               "Request failed with status {status}: {message}"
+            )
+         }
+         Self::GraphQL(message) => write!(f, "GraphQL error: {message}"),
+      }
+   }
+}
+
+impl std::error::Error for SubsquidSyncerError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::Serde(err) => Some(err),
+         Self::Http(err) => Some(err),
+         Self::Request(..) | Self::GraphQL(_) => None,
+      }
+   }
+}
+
+impl From<serde_json::Error> for SubsquidSyncerError {
+   fn from(err: serde_json::Error) -> Self {
+      Self::Serde(err)
+   }
+}
+
+impl From<reqwest::Error> for SubsquidSyncerError {
+   fn from(err: reqwest::Error) -> Self {
+      Self::Http(err)
+   }
 }
 
 impl From<SubsquidSyncerError> for SyncerError {
    fn from(e: SubsquidSyncerError) -> Self {
       SyncerError::new(e)
+   }
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   fn http_error() -> reqwest::Error {
+      reqwest::Client::new()
+         .get("not a url")
+         .build()
+         .expect_err("the input is not a URL")
+   }
+
+   fn serde_error() -> serde_json::Error {
+      serde_json::from_str::<serde_json::Value>("{").expect_err("the input is not JSON")
+   }
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      let inner = serde_error();
+      assert_eq!(
+         SubsquidSyncerError::Serde(inner).to_string(),
+         format!("Serde error: {}", serde_error())
+      );
+
+      let inner = http_error();
+      assert_eq!(
+         SubsquidSyncerError::Http(inner).to_string(),
+         format!("HTTP error: {}", http_error())
+      );
+
+      // `{0}` is StatusCode's Display, not its Debug.
+      assert_eq!(
+         SubsquidSyncerError::Request(
+            reqwest::StatusCode::NOT_FOUND,
+            "not found".to_owned()
+         )
+         .to_string(),
+         "Request failed with status 404 Not Found: not found"
+      );
+      assert_eq!(
+         SubsquidSyncerError::GraphQL("boom".to_owned()).to_string(),
+         "GraphQL error: boom"
+      );
+   }
+
+   #[test]
+   fn the_from_variants_delegate_their_source() {
+      let inner = serde_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         SubsquidSyncerError::Serde(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = http_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         SubsquidSyncerError::Http(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn request_and_graphql_have_no_source() {
+      assert!(
+         SubsquidSyncerError::Request(
+            reqwest::StatusCode::NOT_FOUND,
+            "not found".to_owned()
+         )
+         .source()
+         .is_none()
+      );
+      assert!(SubsquidSyncerError::GraphQL("boom".to_owned()).source().is_none());
    }
 }
