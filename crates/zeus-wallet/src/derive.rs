@@ -4,9 +4,15 @@ use secure_types::{SecureString, SecureVec, Zeroize};
 use sha3::{Digest, Sha3_512};
 use zeus_bip32::root_from_seed;
 
-/// Argon2id parameters Zeus v1 derives the BIP32 seed with.
-pub const V1_M_COST: u32 = 8192_000;
+/// The Argon2id memory cost, in KiB, that Zeus v1 derives the BIP32 seed with.
+///
+/// 8_192_000 KiB is 8000 MiB.
+///
+/// The value is pinned: a wallet is only recoverable with this exact cost.
+pub const V1_M_COST: u32 = 8_192_000;
+/// The Argon2id iteration count that Zeus v1 derives the BIP32 seed with.
 pub const V1_T_COST: u32 = 96;
+/// The Argon2id parallelism that Zeus v1 derives the BIP32 seed with.
 pub const V1_P_COST: u32 = 1;
 
 /// The first derivation stage: the Argon2 parameters that turn a username and
@@ -15,11 +21,17 @@ pub const V1_P_COST: u32 = 1;
 pub struct Argon2Params(Argon2);
 
 impl Argon2Params {
+   /// Build parameters from an Argon2 memory cost (KiB), iteration count and
+   /// parallelism.
+   ///
+   /// For anything a user has to recover later, use [`Argon2Params::zeus_v1`] instead:
+   /// a wallet derived with arbitrary parameters is only recoverable with those exact
+   /// values.
    pub fn new(m_cost: u32, t_cost: u32, p_cost: u32) -> Self {
       Self(Argon2::new(m_cost, t_cost, p_cost))
    }
 
-   /// The Argon2 parameters of Zeus v1
+   /// The Zeus v1 parameters (see [`V1_M_COST`], [`V1_T_COST`], [`V1_P_COST`]).
    pub fn zeus_v1() -> Self {
       Self::new(V1_M_COST, V1_T_COST, V1_P_COST)
    }
@@ -32,6 +44,7 @@ impl Argon2Params {
 
 /// The second derivation stage: how the seed becomes keys and derivation paths
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DeriveMethod {
    /// The standard bip32 method from bitcoin
    BIP32,
@@ -45,6 +58,7 @@ pub enum DeriveMethod {
 /// decision here instead of silently affecting wallets derived with an older
 /// version.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DeriveVersion {
    /// Zeus v1: Argon2id with the [`V1_M_COST`] / [`V1_T_COST`] / [`V1_P_COST`]
    /// parameters, deriving keys with [`DeriveMethod::BIP32`].
@@ -87,6 +101,12 @@ pub struct Deriver {
 }
 
 impl Deriver {
+   /// Build a deriver from a version and both credentials.
+   ///
+   /// Either credential may be [`None`], in which case
+   /// [`Deriver::derive_kdf_seed`] fails with [`Error::UsernameIsMissing`] /
+   /// [`Error::PasswordIsMissing`]; set them later with
+   /// [`Deriver::set_username`] / [`Deriver::set_password`].
    pub fn new(
       version: DeriveVersion,
       username: Option<SecureString>,
@@ -99,6 +119,7 @@ impl Deriver {
       }
    }
 
+   /// A deriver for [`DeriveVersion::V1`] with no credentials set yet.
    pub fn zeus_v1() -> Self {
       Deriver {
          version: DeriveVersion::V1,
@@ -107,14 +128,18 @@ impl Deriver {
       }
    }
 
+   /// The derivation scheme this deriver pins: the Argon2 parameters *and* the
+   /// method that turn credentials into a wallet.
    pub fn version(&self) -> &DeriveVersion {
       &self.version
    }
 
+   /// Set the username the seed is derived from, replacing any previous one.
    pub fn set_username(&mut self, username: SecureString) {
       self.username = Some(username);
    }
 
+   /// Set the password the seed is derived from, replacing any previous one.
    pub fn set_password(&mut self, password: SecureString) {
       self.password = Some(password);
    }
@@ -161,7 +186,7 @@ fn derive_hd_wallet_bip32(
    name_opt: Option<String>,
    seed: SecureVec<u8>,
 ) -> Result<SecureHDWallet, Error> {
-   let (key, key_info) = seed.unlock_slice(|slice| root_from_seed(slice, None).unwrap());
+   let (key, key_info) = seed.unlock_slice(|slice| root_from_seed(slice, None))?;
 
    let name = match name_opt {
       Some(name) => name,

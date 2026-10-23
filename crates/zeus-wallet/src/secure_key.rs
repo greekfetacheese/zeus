@@ -25,10 +25,14 @@ impl SecureKey {
    }
 
    /// Return the key in a SecureString
+   ///
+   /// # Panics
+   /// Panics if the key is not a valid form of a private key
+   /// or if it has been erased
    pub fn key_string(&self) -> SecureString {
       let signer = self.to_signer();
       let mut key = signer.to_bytes();
-      let string = hex::encode(&key);
+      let string = hex::encode(key);
       key.zeroize();
       SecureString::from(string)
    }
@@ -38,10 +42,12 @@ impl SecureKey {
       self.data.erase();
    }
 
+   /// Whether the underlying 32 key bytes are all zero, i.e. the key was erased.
    pub fn is_erased(&self) -> bool {
       self.data.unlock(|slice| slice.iter().all(|byte| byte == &0))
    }
 
+   /// The Ethereum address matching this private key.
    pub fn address(&self) -> Address {
       self.address
    }
@@ -52,9 +58,7 @@ impl SecureKey {
    /// Panics if the key is not a valid form of a private key
    /// or if it has been erased
    pub fn to_signer(&self) -> PrivateKeySigner {
-      if self.is_erased() {
-         panic!("Key is erased");
-      }
+      assert!(!self.is_erased(), "Key is erased");
 
       self
          .data
@@ -121,7 +125,7 @@ impl From<SigningKey> for SecureKey {
       let mut bytes = value.to_bytes();
       let signer = PrivateKeySigner::from_slice(&bytes).expect("Key is invalid");
       let address = signer.address();
-      let data = SecureArray::from_slice_mut(bytes.as_mut()).unwrap();
+      let data = SecureArray::from_slice_mut(bytes.as_mut()).expect("Key is invalid");
 
       SecureKey { address, data }
    }

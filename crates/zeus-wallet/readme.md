@@ -121,12 +121,13 @@ assert_eq!(deriver.version().kdf_params().argon2().m_cost, m_cost);
 
 The parameters of each `DeriveVersion` are fixed, so wallets stay recoverable: changing the
 derivation cost — or the derivation method — means adding a **new** variant rather than editing an
-existing one.
+existing one. The derivation enums and the wallet types are `#[non_exhaustive]`, so adding a version,
+a method or a field is not a breaking change.
 
 `DeriveVersion::V1` — the scheme Zeus uses for the master wallet:
 
 - **Salt:** SHA3-512 of the username
-- **Memory cost:** 8192_000 KiB (8192 MB)
+- **Memory cost:** 8_192_000 KiB (8000 MiB)
 - **Iterations:** 96
 - **Parallelism:** 1
 - **Argon2 version:** 0x13
@@ -136,4 +137,4 @@ existing one.
 # Errors
 
 `zeus_wallet::Error` implements `Display` and `std::error::Error`, and converts from the underlying
-`secure_types`, `argon2-rs`, `alloy-signer-local`, `zeus-bip32` and `k256` errors.
+`secure_types`, `argon2-rs`, `alloy-signer-local` and `zeus-bip32` errors.
