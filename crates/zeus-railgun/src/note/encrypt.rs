@@ -25,19 +25,34 @@ pub enum EncryptError {
    Key(#[from] KeyError),
 }
 
+/// The named inputs to [`encrypt_note`]; `blind` picks whether the sender is blinded.
+pub struct EncryptNoteParams<'a> {
+   pub receiver: &'a RailgunAddress,
+   pub shared_random: &'a [u8; 16],
+   pub value: u128,
+   pub asset: &'a AssetId,
+   pub memo: &'a str,
+   pub viewing_key: ViewingKey,
+   pub blind: bool,
+}
+
 /// Encrypts a note into a CommitmentCiphertext
 ///
 /// TODO: Add details on blind
 pub fn encrypt_note<R: RngCore + ?Sized>(
-   receiver: &RailgunAddress,
-   shared_random: &[u8; 16],
-   value: u128,
-   asset: &AssetId,
-   memo: &str,
-   viewing_key: ViewingKey,
-   blind: bool,
+   params: EncryptNoteParams<'_>,
    rng: &mut R,
 ) -> Result<CommitmentCiphertext, EncryptError> {
+   let EncryptNoteParams {
+      receiver,
+      shared_random,
+      value,
+      asset,
+      memo,
+      viewing_key,
+      blind,
+   } = params;
+
    let output_type = 0;
    let application_identifier = railgun_base_37::encode("railgun rs")?;
    let sender_random: [u8; 15] = if blind { rng.random() } else { [0u8; 15] };
@@ -223,13 +238,15 @@ mod tests {
       let memo = "test memo";
 
       let _encrypted = encrypt_note(
-         signer.address(),
-         &shared_random,
-         value,
-         &asset,
-         memo,
-         sender_viewing_key,
-         false,
+         EncryptNoteParams {
+            receiver: signer.address(),
+            shared_random: &shared_random,
+            value,
+            asset: &asset,
+            memo,
+            viewing_key: sender_viewing_key,
+            blind: false,
+         },
          &mut rand,
       )
       .unwrap();

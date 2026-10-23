@@ -80,17 +80,29 @@ pub enum NoteError {
    Key(#[from] KeyError),
 }
 
+/// Everything a note needs apart from the key material it is built for.
+pub struct UtxoNoteParams {
+   pub tree_number: u32,
+   pub leaf_index: u32,
+   pub asset: AssetId,
+   pub value: u128,
+   pub random: [u8; 16],
+   pub memo: String,
+   pub commitment_type: BlindedCommitmentType,
+}
+
 impl UtxoNote {
-   pub fn new(
-      tree_number: u32,
-      leaf_index: u32,
-      signer: &RailgunSigner,
-      asset: AssetId,
-      value: u128,
-      random: [u8; 16],
-      memo: &str,
-      commitment_type: BlindedCommitmentType,
-   ) -> Self {
+   pub fn new(signer: &RailgunSigner, params: UtxoNoteParams) -> Self {
+      let UtxoNoteParams {
+         tree_number,
+         leaf_index,
+         asset,
+         value,
+         random,
+         memo,
+         commitment_type,
+      } = params;
+
       let spending_pubkey = signer.keys().spending_public_key;
       let viewing_pubkey = signer.keys().viewing_public_key;
       let nullifying_key = signer.keys().nullifying_key;
@@ -107,7 +119,7 @@ impl UtxoNote {
          asset,
          value,
          random,
-         memo: memo.to_string(),
+         memo,
          hash,
          note_public_key: npk,
          nullifying_key,
@@ -162,14 +174,16 @@ impl UtxoNote {
       };
 
       Ok(UtxoNote::new(
-         transact.tree_number,
-         transact.leaf_index,
          signer,
-         asset_id,
-         value,
-         random,
-         memo,
-         BlindedCommitmentType::Transact,
+         UtxoNoteParams {
+            tree_number: transact.tree_number,
+            leaf_index: transact.leaf_index,
+            asset: asset_id,
+            value,
+            random,
+            memo: memo.to_string(),
+            commitment_type: BlindedCommitmentType::Transact,
+         },
       ))
    }
 
@@ -186,14 +200,16 @@ impl UtxoNote {
       random.copy_from_slice(&decrypted[0][..16]);
 
       Ok(UtxoNote::new(
-         shield.tree_number,
-         shield.leaf_index,
          signer,
-         asset_id,
-         value.saturating_to(),
-         random,
-         "",
-         BlindedCommitmentType::Shield,
+         UtxoNoteParams {
+            tree_number: shield.tree_number,
+            leaf_index: shield.leaf_index,
+            asset: asset_id,
+            value: value.saturating_to(),
+            random,
+            memo: String::new(),
+            commitment_type: BlindedCommitmentType::Shield,
+         },
       ))
    }
 
@@ -263,16 +279,18 @@ pub fn test_note() -> UtxoNote {
    let signer = RailgunSigner::from_seed(&sec_array, 0, 1).unwrap();
 
    UtxoNote::new(
-      1,
-      0,
       &signer,
-      AssetId::Erc20(alloy_primitives::address!(
-         "0x1234567890123456789012345678901234567890"
-      )),
-      100u128,
-      [3u8; 16],
-      "test memo",
-      BlindedCommitmentType::Transact,
+      UtxoNoteParams {
+         tree_number: 1,
+         leaf_index: 0,
+         asset: AssetId::Erc20(alloy_primitives::address!(
+            "0x1234567890123456789012345678901234567890"
+         )),
+         value: 100u128,
+         random: [3u8; 16],
+         memo: "test memo".to_string(),
+         commitment_type: BlindedCommitmentType::Transact,
+      },
    )
 }
 

@@ -1379,6 +1379,7 @@ mod tests {
       indexer::indexed_account::{IndexedAccountState, NoteRecord},
       indexer::syncer::RpcSyncer,
       merkle_tree::{RailgunMerkleProof, RootVerifier, UtxoLeafHash, UtxoMerkleTree},
+      note::utxo::UtxoNoteParams,
       poi::types::BlindedCommitmentType,
    };
 
@@ -1458,14 +1459,16 @@ mod tests {
          "0xDEADDEADDEADDEADDEADDEADDEADDEADDEADDEAD"
       ));
       let note = UtxoNote::new(
-         0,
-         0,
          &signer,
-         asset,
-         1,
-         [7u8; 16],
-         "",
-         BlindedCommitmentType::Shield,
+         UtxoNoteParams {
+            tree_number: 0,
+            leaf_index: 0,
+            asset,
+            value: 1,
+            random: [7u8; 16],
+            memo: String::new(),
+            commitment_type: BlindedCommitmentType::Shield,
+         },
       );
 
       let mut tree0_leaves = vec![note.hash()];
@@ -1531,14 +1534,16 @@ mod tests {
 
    fn make_note(signer: &RailgunSigner, tree: u32, leaf: u32, value: u128) -> UtxoNote {
       UtxoNote::new(
-         tree,
-         leaf,
          signer,
-         test_asset(),
-         value,
-         [leaf as u8; 16],
-         "",
-         BlindedCommitmentType::Shield,
+         UtxoNoteParams {
+            tree_number: tree,
+            leaf_index: leaf,
+            asset: test_asset(),
+            value,
+            random: [leaf as u8; 16],
+            memo: String::new(),
+            commitment_type: BlindedCommitmentType::Shield,
+         },
       )
    }
 

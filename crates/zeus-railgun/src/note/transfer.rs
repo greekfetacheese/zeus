@@ -8,7 +8,7 @@ use crate::{
    crypto::keys::ViewingKey,
    crypto::{poseidon2, poseidon3},
    merkle_tree::UtxoLeafHash,
-   note::encrypt::{EncryptError, encrypt_note},
+   note::encrypt::{EncryptError, EncryptNoteParams, encrypt_note},
 };
 
 /// Transfer notes represent value being sent from one Railgun account to another.
@@ -43,13 +43,15 @@ impl TransferNote {
 
    pub fn encrypt(&self, rng: &mut dyn RngCore) -> Result<CommitmentCiphertext, EncryptError> {
       encrypt_note(
-         &self.to,
-         &self.random,
-         self.value,
-         &self.asset,
-         &self.memo,
-         self.from_key.clone(),
-         false,
+         EncryptNoteParams {
+            receiver: &self.to,
+            shared_random: &self.random,
+            value: self.value,
+            asset: &self.asset,
+            memo: &self.memo,
+            viewing_key: self.from_key.clone(),
+            blind: false,
+         },
          rng,
       )
    }
