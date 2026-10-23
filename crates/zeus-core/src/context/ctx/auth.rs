@@ -1,5 +1,5 @@
 use super::super::{ZeusContext, ZeusCtx};
-use crate::types::*;
+use crate::types::{CredentialCheck, MAX_CREDENTIAL_ATTEMPTS};
 use crate::ui;
 
 impl ZeusCtx {

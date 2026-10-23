@@ -7,14 +7,16 @@
 //! it points at, so a persisted ENS label can outlive the name. They go to [`super::EnsCache`],
 //! which is never written to disk.
 
+use crate::context::RwLockHandle;
 use crate::persisted::{PersistedFile, ensure_data_dir, file_path};
 use crate::platform::fs::write_private_atomic;
 use crate::types::Contact;
 use crate::{WalletInfo, WalletStateKey, serde_hashmap};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::ops::Deref;
 use std::str::FromStr;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::address_book};
 use zeus_railgun::ChainConfig;
 
@@ -22,7 +24,7 @@ const ADDRESS_BOOK_AAD: &[u8] = b"zeus-address-book-v2";
 
 type NameMap = HashMap<(u64, Address), Arc<str>>;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct AddressBook {
    #[serde(with = "serde_hashmap")]
    names: NameMap,
@@ -34,18 +36,8 @@ pub struct AddressBook {
    persisted: bool,
 }
 
-impl Default for AddressBook {
-   fn default() -> Self {
-      Self {
-         names: HashMap::new(),
-         pending: HashSet::new(),
-         persisted: false,
-      }
-   }
-}
-
 #[derive(Clone)]
-pub struct AddressBookHandle(Arc<RwLock<AddressBook>>);
+pub struct AddressBookHandle(RwLockHandle<AddressBook>);
 
 impl Default for AddressBookHandle {
    fn default() -> Self {
@@ -53,17 +45,17 @@ impl Default for AddressBookHandle {
    }
 }
 
+impl Deref for AddressBookHandle {
+   type Target = RwLockHandle<AddressBook>;
+
+   fn deref(&self) -> &Self::Target {
+      &self.0
+   }
+}
+
 impl AddressBookHandle {
    pub fn new(inner: AddressBook) -> Self {
-      Self(Arc::new(RwLock::new(inner)))
-   }
-
-   pub fn read<R>(&self, reader: impl FnOnce(&AddressBook) -> R) -> R {
-      reader(&self.0.read().unwrap())
-   }
-
-   pub fn write<R>(&self, writer: impl FnOnce(&mut AddressBook) -> R) -> R {
-      writer(&mut self.0.write().unwrap())
+      Self(RwLockHandle::new(inner))
    }
 
    pub fn dir() -> Result<std::path::PathBuf, anyhow::Error> {
@@ -185,10 +177,10 @@ impl AddressBookHandle {
 
    pub fn seed_contacts<'a>(&self, contacts: impl IntoIterator<Item = &'a Contact>) {
       for contact in contacts {
-         if let Ok(address) = Address::from_str(&contact.evm_address) {
-            if !contact.name.is_empty() {
-               self.insert_identity(address, contact.name.as_str());
-            }
+         if let Ok(address) = Address::from_str(&contact.evm_address)
+            && !contact.name.is_empty()
+         {
+            self.insert_identity(address, contact.name.as_str());
          }
       }
    }

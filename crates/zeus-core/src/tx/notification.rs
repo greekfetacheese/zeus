@@ -3,7 +3,11 @@
 //! Pure data over the decoded main event, so it lives beside the pipeline that
 //! produces it rather than in the window that renders it.
 
-use super::events::*;
+use super::events::{
+   BridgeParams, DecodedEvent, NftApproveParams, NftTransferParams, PrivateTransferParams,
+   ShieldParams, SwapParams, TokenApproveParams, TransferParams, UnshieldParams, UnwrapWETHParams,
+   WrapETHParams,
+};
 
 #[derive(Clone)]
 pub enum NotificationType {

@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::ops::Deref;
+use std::sync::Arc;
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
@@ -10,6 +11,7 @@ use zeus_eth::alloy_primitives::FixedBytes;
 use zeus_eth::amm::uniswap::UniswapV4Pool;
 
 use crate::assets;
+use crate::context::RwLockHandle;
 use crate::persisted::ensure_data_dir;
 use crate::platform::TimeStamp;
 use crate::platform::fs::write_private_atomic;
@@ -63,32 +65,30 @@ impl PoolID {
 
 /// Thread-safe handle to the [PoolManager]
 #[derive(Clone, Serialize, Deserialize)]
-pub struct PoolManagerHandle(Arc<RwLock<PoolManager>>);
+pub struct PoolManagerHandle(RwLockHandle<PoolManager>);
 
 impl Default for PoolManagerHandle {
    fn default() -> Self {
-      Self(Arc::new(RwLock::new(PoolManager::default())))
+      Self(RwLockHandle::new(PoolManager::default()))
+   }
+}
+
+impl Deref for PoolManagerHandle {
+   type Target = RwLockHandle<PoolManager>;
+
+   fn deref(&self) -> &Self::Target {
+      &self.0
    }
 }
 
 impl PoolManagerHandle {
    pub fn new(pool_manager: PoolManager) -> Self {
-      Self(Arc::new(RwLock::new(pool_manager)))
-   }
-
-   /// Shared access to the pool manager
-   pub fn read<R>(&self, reader: impl FnOnce(&PoolManager) -> R) -> R {
-      reader(&self.0.read().unwrap())
-   }
-
-   /// Exclusive mutable access to the pool manager
-   pub fn write<R>(&self, writer: impl FnOnce(&mut PoolManager) -> R) -> R {
-      writer(&mut self.0.write().unwrap())
+      Self(RwLockHandle::new(pool_manager))
    }
 
    /// Serialize the [PoolManager] to a JSON string
    pub fn to_string(&self) -> Result<String, serde_json::Error> {
-      self.read(|manager| serde_json::to_string(manager))
+      self.read(serde_json::to_string)
    }
 
    pub fn load_from_file(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
@@ -767,9 +767,9 @@ impl PoolManager {
          if pool.chain_id() != chain_id {
             continue;
          }
-         if pool.is_currency0(currency_a) && pool.is_currency1(currency_b) {
-            pools.push(pool.clone());
-         } else if pool.is_currency0(currency_b) && pool.is_currency1(currency_a) {
+         if (pool.is_currency0(currency_a) && pool.is_currency1(currency_b))
+            || (pool.is_currency0(currency_b) && pool.is_currency1(currency_a))
+         {
             pools.push(pool.clone());
          }
       }
@@ -1087,11 +1087,11 @@ fn get_batches(
 
    // Process in concurrent batches, chunking each pool type proportionally
    // so each batch includes slices from all 3 types of pools.
-   let num_batches = (total_pools + batch_size - 1) / batch_size;
+   let num_batches = total_pools.div_ceil(batch_size);
 
-   let chunk_size_v2 = (all_v2_addresses.len() + num_batches - 1) / num_batches;
-   let chunk_size_v3 = (all_v3_pool_info.len() + num_batches - 1) / num_batches;
-   let chunk_size_v4 = (all_v4_pool_info.len() + num_batches - 1) / num_batches;
+   let chunk_size_v2 = all_v2_addresses.len().div_ceil(num_batches);
+   let chunk_size_v3 = all_v3_pool_info.len().div_ceil(num_batches);
+   let chunk_size_v4 = all_v4_pool_info.len().div_ceil(num_batches);
 
    let mut batches = Vec::new();
 

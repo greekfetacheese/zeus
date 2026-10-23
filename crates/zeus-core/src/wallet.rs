@@ -40,14 +40,12 @@ impl WalletInfo {
    pub fn from_wallet(wallet: &Wallet, generate_railgun_address: bool) -> Self {
       let mut railgun_address = None;
 
-      if generate_railgun_address && wallet.can_derive_zk_address() {
-         if let Ok(seed) = wallet.seed() {
-            let res = RailgunAddress::new(&seed, 0, None);
-            match res {
-               Ok(address) => railgun_address = Some(address),
-               Err(_) => {}
-            }
-         }
+      if generate_railgun_address
+         && wallet.can_derive_zk_address()
+         && let Ok(seed) = wallet.seed()
+      {
+         let res = RailgunAddress::new(&seed, 0, None);
+         railgun_address = res.ok();
       }
 
       Self {

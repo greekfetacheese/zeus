@@ -84,10 +84,10 @@ pub fn value_as_u256(value: &Value) -> Option<U256> {
    if let Some(n) = value.as_u64() {
       return Some(U256::from(n));
    }
-   if let Some(n) = value.as_i64() {
-      if n >= 0 {
-         return Some(U256::from(n as u64));
-      }
+   if let Some(n) = value.as_i64()
+      && n >= 0
+   {
+      return Some(U256::from(n as u64));
    }
    if let Some(n) = value.as_number() {
       return parse_u256(&n.to_string());

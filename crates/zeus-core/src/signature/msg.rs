@@ -1,6 +1,8 @@
 use super::{parse_typed_data, siwe};
 use crate::ZeusCtx;
-use crate::clear_signing::{self, ClearDisplay, ClearSource, DisplayField, FormattedValue, Intent};
+use crate::clear_signing::{self, ClearDisplay};
+#[cfg(any(test, feature = "test-fixtures"))]
+use crate::clear_signing::{ClearSource, DisplayField, FormattedValue, Intent};
 use crate::platform::TimeStamp;
 use anyhow::anyhow;
 use serde_json::{Value, json};
@@ -60,18 +62,22 @@ pub struct ClearSignedDetails {
 }
 
 impl SignMsgType {
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_permit2() -> Self {
       Self::Permit2(Permit2Details::dummy())
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_permit2612() -> Self {
       Self::Permit2612(Permit2612Details::dummy())
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_clear_signed() -> Self {
       Self::ClearSigned(ClearSignedDetails::dummy())
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_siwe() -> Self {
       let account = Address::from_str("0x6ff5693b99212da76ad316178a184ab56d299b43").unwrap();
       let display = format!(
@@ -120,16 +126,16 @@ impl SignMsgType {
             // Only clear-sign a chain Zeus can name: the prompt renders the message's chain as a
             // `ChainId`, so an unsupported domain chain would panic there. Refusing here means the
             // message falls through to the raw-JSON review below, which names no chain at all.
-            if let Some(clear_chain) = clear_sign_chain(typed.domain.chain_id) {
-               if let Some(display) = clear_signing::try_clear_sign_typed_data(ctx, &typed).await {
-                  return Ok(Self::ClearSigned(ClearSignedDetails {
-                     raw: value,
-                     display,
-                     // The descriptor and every value above were resolved for the domain's chain, so
-                     // that is the chain the prompt has to name.
-                     chain: clear_chain,
-                  }));
-               }
+            if let Some(clear_chain) = clear_sign_chain(typed.domain.chain_id)
+               && let Some(display) = clear_signing::try_clear_sign_typed_data(ctx, &typed).await
+            {
+               return Ok(Self::ClearSigned(ClearSignedDetails {
+                  raw: value,
+                  display,
+                  // The descriptor and every value above were resolved for the domain's chain, so
+                  // that is the chain the prompt has to name.
+                  chain: clear_chain,
+               }));
             }
          }
          return Ok(Self::Other(value));
@@ -286,6 +292,7 @@ impl SignMsgType {
 }
 
 impl ClearSignedDetails {
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy() -> Self {
       let usdc = Address::from_str("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913").unwrap();
       let spender = Address::from_str("0x2222222222222222222222222222222222222222").unwrap();
@@ -378,6 +385,7 @@ impl Permit2Details {
       self.amount.wei() == U256::MAX
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy() -> Self {
       let permit2 = Address::from_str("0x000000000022d473030f116ddee9f6b43ac78ba3").unwrap();
       let spender = Address::from_str("0x6ff5693b99212da76ad316178a184ab56d299b43").unwrap();
@@ -643,6 +651,7 @@ impl Permit2612Details {
       TimeStamp::Seconds(secs).to_relative()
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy() -> Self {
       let token_addr = Address::from_str("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913").unwrap();
       let owner = Address::from_str("0x1111111111111111111111111111111111111111").unwrap();
@@ -720,6 +729,7 @@ impl Permit2612Details {
    }
 }
 
+#[cfg(any(test, feature = "test-fixtures"))]
 fn dummy_permit_json() -> serde_json::Value {
    serde_json::json!({
        "types": {
@@ -754,6 +764,7 @@ fn dummy_permit_json() -> serde_json::Value {
    })
 }
 
+#[cfg(any(test, feature = "test-fixtures"))]
 fn dummy_permit2_json() -> serde_json::Value {
    serde_json::json!({
        "types": {

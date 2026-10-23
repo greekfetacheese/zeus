@@ -664,7 +664,7 @@ mod tests {
          !good(&format!("1/{bayc}/1/extra/x64.png")),
          "no extra nesting"
       );
-      assert!(!good(&format!("1/not-an-address/1/x64.png")));
+      assert!(!good("1/not-an-address/1/x64.png"));
       assert!(
          !good(&format!("1/{bayc}/1/logo-32.png")),
          "only our own file names"

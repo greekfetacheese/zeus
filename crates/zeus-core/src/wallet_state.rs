@@ -29,7 +29,7 @@ fn tx_db_is_empty(db: &TxDBHandle) -> bool {
 }
 
 /// Payload held under [`WalletState`]'s lock.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct WalletStateInner {
    #[serde(default)]
    pub contacts: Vec<Contact>,
@@ -52,20 +52,6 @@ pub struct WalletStateInner {
 
    #[serde(default)]
    pub dapp_accounts: DappAccounts,
-}
-
-impl Default for WalletStateInner {
-   fn default() -> Self {
-      Self {
-         contacts: Vec::new(),
-         balance_manager: BalanceManagerHandle::default(),
-         portfolio_db: PortfolioDB::default(),
-         tx_db: TxDBHandle::new(),
-         approval_manager: ApprovalManagerHandle::new(),
-         discovered_wallets: DiscoveredWallets::new(),
-         dapp_accounts: DappAccounts::default(),
-      }
-   }
 }
 
 /// Shared handle for frequently updated wallet app state.

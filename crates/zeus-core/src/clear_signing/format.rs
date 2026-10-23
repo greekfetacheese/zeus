@@ -180,15 +180,15 @@ fn format_token_amount(
 
    let unlimited = is_unlimited(field, amount, message, metadata, container);
 
-   if let Some(addr) = token_addr {
-      if let Some(token) = data.token(chain, addr) {
-         let formatted = NumericValue::format_wei(amount, token.decimals);
-         return Ok(FormattedValue::TokenAmount {
-            amount: formatted,
-            token: token.clone(),
-            unlimited,
-         });
-      }
+   if let Some(addr) = token_addr
+      && let Some(token) = data.token(chain, addr)
+   {
+      let formatted = NumericValue::format_wei(amount, token.decimals);
+      return Ok(FormattedValue::TokenAmount {
+         amount: formatted,
+         token: token.clone(),
+         unlimited,
+      });
    }
 
    if unlimited {
@@ -214,14 +214,12 @@ fn format_enum(
    metadata: &Metadata,
 ) -> Result<FormattedValue, anyhow::Error> {
    let key = json_to_text(raw);
-   if let Some(r) = field.params.get("$ref").and_then(|v| v.as_str()) {
-      if let Some(name) = r.strip_prefix("$.metadata.enums.") {
-         if let Some(map) = metadata.enums.get(name) {
-            if let Some(label) = map.get(&key) {
-               return Ok(FormattedValue::Text(label.clone()));
-            }
-         }
-      }
+   if let Some(r) = field.params.get("$ref").and_then(|v| v.as_str())
+      && let Some(name) = r.strip_prefix("$.metadata.enums.")
+      && let Some(map) = metadata.enums.get(name)
+      && let Some(label) = map.get(&key)
+   {
+      return Ok(FormattedValue::Text(label.clone()));
    }
    Ok(FormattedValue::Text(key))
 }
@@ -248,12 +246,11 @@ fn token_chain(
    metadata: &Metadata,
    container: &Container,
 ) -> u64 {
-   if let Some(p) = field.params.get("chainIdPath").and_then(|v| v.as_str()) {
-      if let Some(v) = path::resolve_path(p, message, &metadata.constants, container) {
-         if let Some(n) = path::value_as_u256(&v) {
-            return u64::try_from(n).unwrap_or(container.chain_id);
-         }
-      }
+   if let Some(p) = field.params.get("chainIdPath").and_then(|v| v.as_str())
+      && let Some(v) = path::resolve_path(p, message, &metadata.constants, container)
+      && let Some(n) = path::value_as_u256(&v)
+   {
+      return u64::try_from(n).unwrap_or(container.chain_id);
    }
    if let Some(n) = field.params.get("chainId").and_then(json_u64_ref) {
       return n;
@@ -334,7 +331,7 @@ pub fn decode_call_args(parsed: &ParsedCallFormat, data: &[u8]) -> Result<Value,
       return Err(anyhow::anyhow!("arg count mismatch"));
    }
    let mut map = Map::new();
-   for (name, value) in parsed.arg_names.iter().zip(values.into_iter()) {
+   for (name, value) in parsed.arg_names.iter().zip(values) {
       map.insert(name.clone(), dyn_to_json(&value));
    }
    Ok(Value::Object(map))

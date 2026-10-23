@@ -13,10 +13,10 @@ use std::path::{Path, PathBuf};
 /// replaced with a protected owner-only ACE. Other platforms fall back to
 /// [`std::fs::write`].
 pub fn write_private(path: &Path, contents: &[u8]) -> Result<(), anyhow::Error> {
-   if let Some(parent) = path.parent() {
-      if !parent.as_os_str().is_empty() {
-         std::fs::create_dir_all(parent)?;
-      }
+   if let Some(parent) = path.parent()
+      && !parent.as_os_str().is_empty()
+   {
+      std::fs::create_dir_all(parent)?;
    }
 
    #[cfg(unix)]
@@ -80,10 +80,10 @@ pub fn write_private_atomic(path: &Path, contents: &[u8]) -> Result<(), anyhow::
 ///
 /// Prefer this over buffering a large Railgun DB / snapshot in memory.
 pub fn write_private_from_reader(path: &Path, mut reader: impl Read) -> Result<(), anyhow::Error> {
-   if let Some(parent) = path.parent() {
-      if !parent.as_os_str().is_empty() {
-         std::fs::create_dir_all(parent)?;
-      }
+   if let Some(parent) = path.parent()
+      && !parent.as_os_str().is_empty()
+   {
+      std::fs::create_dir_all(parent)?;
    }
 
    let tmp = tmp_path(path);
@@ -201,6 +201,12 @@ pub fn restrict_file_to_owner(path: &Path) -> Result<(), anyhow::Error> {
 }
 
 /// Protected DACL, current owner full access. No Users/Everyone/inherited ACEs.
+//
+// `std` exposes no safe API for a file DACL (only read-only inspection of metadata), so this has
+// to call Win32 directly. Lifetime contract: conversion success hands back an owned security
+// descriptor in `sd`, which is non-null exactly then and is released exactly once with
+// `LocalFree` before either later return; the conversion-failure return happens while `sd` is
+// null and owns nothing. `wide` and `sddl` outlive every call below.
 #[cfg(windows)]
 fn restrict_file_to_owner_windows(path: &Path) -> Result<(), anyhow::Error> {
    use anyhow::anyhow;
@@ -208,6 +214,12 @@ fn restrict_file_to_owner_windows(path: &Path) -> Result<(), anyhow::Error> {
    use std::ptr;
 
    #[link(name = "advapi32")]
+   // SAFETY: both declarations match the Windows SDK signatures. `ConvertStringSecurity
+   // DescriptorToSecurityDescriptorW` takes a NUL-terminated UTF-16 SDDL string, a `DWORD`
+   // revision, an out `PSECURITY_DESCRIPTOR*` and an optional out `DWORD*`, and returns `BOOL`
+   // (`i32`); `SetFileSecurityW` takes a NUL-terminated UTF-16 path, a `SECURITY_INFORMATION`
+   // `DWORD` and a `PSECURITY_DESCRIPTOR`, returning `BOOL`. All pointers are raw and no Rust
+   // type crosses by value, and `extern "system"` selects the Win32 ABI.
    unsafe extern "system" {
       fn ConvertStringSecurityDescriptorToSecurityDescriptorW(
          string_sd: *const u16,
@@ -223,6 +235,9 @@ fn restrict_file_to_owner_windows(path: &Path) -> Result<(), anyhow::Error> {
    }
 
    #[link(name = "kernel32")]
+   // SAFETY: `LocalFree` takes and returns an `HLOCAL`/`LocalAlloc` pointer-sized handle and is
+   // declared here exactly as the Windows SDK does; no Rust-owned type crosses the boundary and
+   // `extern "system"` selects the Win32 ABI.
    unsafe extern "system" {
       fn LocalFree(h: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
    }
@@ -236,6 +251,9 @@ fn restrict_file_to_owner_windows(path: &Path) -> Result<(), anyhow::Error> {
    let sddl: Vec<u16> = "D:P(A;;FA;;;OW)".encode_utf16().chain(std::iter::once(0)).collect();
 
    let mut sd: *mut std::ffi::c_void = ptr::null_mut();
+   // SAFETY: `sddl` is a live, NUL-terminated UTF-16 buffer and `&mut sd` is a valid out-pointer
+   // for the descriptor; a null size out-pointer is explicitly allowed by the API. The callee
+   // only writes through the pointers for the duration of the call.
    let converted = unsafe {
       ConvertStringSecurityDescriptorToSecurityDescriptorW(
          sddl.as_ptr(),
@@ -252,6 +270,9 @@ fn restrict_file_to_owner_windows(path: &Path) -> Result<(), anyhow::Error> {
       ));
    }
 
+   // SAFETY: the preceding check guarantees `sd` is non-null and points to a security descriptor
+   // allocated by the conversion call; `wide` is a live, NUL-terminated UTF-16 path. The API
+   // reads both for the duration of the call and takes ownership of neither.
    let set = unsafe {
       SetFileSecurityW(
          wide.as_ptr(),
@@ -260,6 +281,9 @@ fn restrict_file_to_owner_windows(path: &Path) -> Result<(), anyhow::Error> {
       )
    };
 
+   // SAFETY: `sd` is the descriptor owned by this function, allocated by the conversion call,
+   // which is the allocation `LocalFree` expects. It is freed exactly once here, before either
+   // return below, and is not read afterwards.
    unsafe {
       LocalFree(sd);
    }

@@ -3,7 +3,7 @@ use super::{railgun_db_file, railgun_dir};
 use crate::assets;
 use crate::persisted::{PersistedTree, ensure_tree_dir};
 use crate::platform::malloc_trim;
-use crate::types::*;
+use crate::types::RailgunStatus;
 use crate::urls::ZeusUrl;
 use anyhow::anyhow;
 use std::time::{Duration, Instant};
@@ -231,12 +231,11 @@ impl ZeusCtx {
          let snapshot_loader = SnapshotLoader::new(railgun_dir.clone());
          let snapshot_db = railgun_dir.join(snapshot_loader.db_filename(chain));
 
-         if attempts > 0 {
-            if let Err(e) = tokio::fs::remove_file(&snapshot_db).await {
-               if e.kind() != std::io::ErrorKind::NotFound {
-                  return Err(e.into());
-               }
-            }
+         if attempts > 0
+            && let Err(e) = tokio::fs::remove_file(&snapshot_db).await
+            && e.kind() != std::io::ErrorKind::NotFound
+         {
+            return Err(e.into());
          }
 
          let db_file = railgun_db_file(chain)?;
@@ -423,7 +422,7 @@ impl ZeusCtx {
             return Ok(provider);
          }
 
-         let has_loaded = self.read(|ctx| ctx.railgun_provider.get(&chain).is_some());
+         let has_loaded = self.read(|ctx| ctx.railgun_provider.contains_key(&chain));
          if !has_loaded {
             self.write(|ctx| {
                ctx.railgun_status.set_loading_db_in_progress(chain, true);

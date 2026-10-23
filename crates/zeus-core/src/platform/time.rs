@@ -54,11 +54,21 @@ impl TimeStamp {
       }
    }
 
-   pub fn cmp(&self, other: &Self) -> Ordering {
-      match (self, other) {
-         (TimeStamp::Seconds(a), TimeStamp::Seconds(b)) => a.cmp(b),
-         (TimeStamp::Millis(a), TimeStamp::Millis(b)) => a.cmp(b),
-         _ => Ordering::Equal,
+   /// Exact instant expressed in milliseconds. `u128` because scaling a `u64` second count by
+   /// 1000 can exceed `u64`.
+   fn as_millis(&self) -> u128 {
+      match self {
+         TimeStamp::Seconds(seconds) => u128::from(*seconds) * 1000,
+         TimeStamp::Millis(millis) => u128::from(*millis),
+      }
+   }
+
+   /// Tie-breaker for instants that normalize to the same millisecond while living in different
+   /// variants. The derived `PartialEq` compares variants, so ordering has to as well.
+   fn rank(&self) -> u8 {
+      match self {
+         TimeStamp::Seconds(_) => 0,
+         TimeStamp::Millis(_) => 1,
       }
    }
 
@@ -85,10 +95,19 @@ impl TimeStamp {
          TimeStamp::Millis(millis) => DateTime::<Utc>::from_timestamp_millis(*millis as i64),
       };
 
-      match opt {
-         Some(dt) => dt,
-         None => DateTime::<Utc>::default(),
-      }
+      opt.unwrap_or_default()
+   }
+}
+
+impl PartialOrd for TimeStamp {
+   fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+      Some(self.cmp(other))
+   }
+}
+
+impl Ord for TimeStamp {
+   fn cmp(&self, other: &Self) -> Ordering {
+      (self.as_millis(), self.rank()).cmp(&(other.as_millis(), other.rank()))
    }
 }
 
@@ -151,5 +170,34 @@ fn timestamp_to_relative_time(timestamp: &TimeStamp) -> String {
       }
    }
 
-   format!("Invalid timestamp")
+   "Invalid timestamp".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn a_mixed_variant_pair_is_not_equal() {
+      let secs = TimeStamp::Seconds(1);
+      let millis = TimeStamp::Millis(1_500);
+      assert_ne!(secs.cmp(&millis), std::cmp::Ordering::Equal);
+   }
+
+   #[test]
+   fn ordering_agrees_with_equality_for_mixed_units() {
+      assert_eq!(
+         TimeStamp::Seconds(1).cmp(&TimeStamp::Millis(1000)),
+         std::cmp::Ordering::Less
+      );
+      assert_ne!(TimeStamp::Seconds(1), TimeStamp::Millis(1000));
+      assert_eq!(
+         TimeStamp::Millis(1000).cmp(&TimeStamp::Seconds(1)),
+         std::cmp::Ordering::Greater
+      );
+      assert_eq!(
+         TimeStamp::Seconds(1).cmp(&TimeStamp::Millis(1500)),
+         std::cmp::Ordering::Less
+      );
+   }
 }

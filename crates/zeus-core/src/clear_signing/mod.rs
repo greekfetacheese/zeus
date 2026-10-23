@@ -32,12 +32,12 @@ pub async fn try_clear_sign_typed_data(ctx: ZeusCtx, typed: &TypedData) -> Optio
    let allowed = ctx.read(|ctx| ctx.misc_config.fetch_contract_names());
    let mut resolved = registry::resolve_eip712_descriptor(chain_id, verifying, type_hash).await;
 
-   if resolved.is_none() && allowed {
-      if let Some(impl_addr) = sourcify::implementation_address(chain_id, verifying).await {
-         if impl_addr != verifying {
-            resolved = registry::resolve_eip712_descriptor(chain_id, impl_addr, type_hash).await;
-         }
-      }
+   if resolved.is_none()
+      && allowed
+      && let Some(impl_addr) = sourcify::implementation_address(chain_id, verifying).await
+      && impl_addr != verifying
+   {
+      resolved = registry::resolve_eip712_descriptor(chain_id, impl_addr, type_hash).await;
    }
 
    let (path, descriptor) = resolved?;
@@ -96,25 +96,24 @@ pub async fn try_clear_sign_calldata(
    let allowed = ctx.read(|ctx| ctx.misc_config.fetch_contract_names());
    let mut resolved = registry::resolve_calldata_descriptor(chain, to).await;
 
-   if resolved.is_none() && allowed {
-      if let Some(impl_addr) = sourcify::implementation_address(chain, to).await {
-         if impl_addr != to {
-            resolved = registry::resolve_calldata_descriptor(chain, impl_addr).await;
-         }
-      }
+   if resolved.is_none()
+      && allowed
+      && let Some(impl_addr) = sourcify::implementation_address(chain, to).await
+      && impl_addr != to
+   {
+      resolved = registry::resolve_calldata_descriptor(chain, impl_addr).await;
    }
 
    let (path, descriptor) = resolved?;
    let mut bound = descriptor::bind_calldata(&descriptor, chain, to, selector);
-   if bound.is_err() {
-      if let Some(dep) = descriptor
+   if bound.is_err()
+      && let Some(dep) = descriptor
          .context
          .contract
          .as_ref()
          .and_then(|c| c.deployments.iter().find(|d| d.chain_id == chain).map(|d| d.address))
-      {
-         bound = descriptor::bind_calldata(&descriptor, chain, dep, selector);
-      }
+   {
+      bound = descriptor::bind_calldata(&descriptor, chain, dep, selector);
    }
    let (_key, spec) = bound.ok()?;
 

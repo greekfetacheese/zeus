@@ -95,10 +95,10 @@ pub fn export_data_to_zip(
       return Err(anyhow!("No persisted files found to export"));
    }
 
-   if let Some(parent) = dest.parent() {
-      if !parent.as_os_str().is_empty() {
-         std::fs::create_dir_all(parent)?;
-      }
+   if let Some(parent) = dest.parent()
+      && !parent.as_os_str().is_empty()
+   {
+      std::fs::create_dir_all(parent)?;
    }
 
    let file = File::create(dest)?;

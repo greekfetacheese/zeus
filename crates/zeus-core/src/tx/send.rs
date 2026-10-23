@@ -776,7 +776,6 @@ pub async fn send_transaction(
          // Connector / inferred swaps do not — those keep the log heuristic.
          onchain_swap_received: tx_analysis.main_event_opt().is_some_and(|e| e.is_swap()),
          priority_fee,
-         ..Default::default()
       },
    )
    .await?;

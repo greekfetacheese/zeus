@@ -120,10 +120,8 @@ pub fn lookup_index_path(
             let hit = hashes
                .iter()
                .any(|h| h.as_str().map(|s| s.eq_ignore_ascii_case(&want)).unwrap_or(false));
-            if hit {
-               if let Some(path) = item.get("path").and_then(|v| v.as_str()) {
-                  return Some(path.to_string());
-               }
+            if hit && let Some(path) = item.get("path").and_then(|v| v.as_str()) {
+               return Some(path.to_string());
             }
          }
       }
@@ -133,7 +131,7 @@ pub fn lookup_index_path(
 
 fn caip10_keys(chain: u64, address: Address) -> [String; 2] {
    [
-      format!("eip155:{chain}:{}", format!("{address:#x}")),
+      format!("eip155:{chain}:{address:#x}"),
       format!("eip155:{chain}:{}", address.to_checksum(None)),
    ]
 }
@@ -162,15 +160,15 @@ pub async fn resolve_contract_label(chain: u64, address: Address) -> Option<Stri
    if address.is_zero() {
       return None;
    }
-   if let Some(path) = lookup_calldata_path(chain, address).await {
-      if let Some(name) = label_from_descriptor_path(&path).await {
-         return Some(name);
-      }
+   if let Some(path) = lookup_calldata_path(chain, address).await
+      && let Some(name) = label_from_descriptor_path(&path).await
+   {
+      return Some(name);
    }
-   if let Some(path) = lookup_any_eip712_path(chain, address).await {
-      if let Some(name) = label_from_descriptor_path(&path).await {
-         return Some(name);
-      }
+   if let Some(path) = lookup_any_eip712_path(chain, address).await
+      && let Some(name) = label_from_descriptor_path(&path).await
+   {
+      return Some(name);
    }
    None
 }

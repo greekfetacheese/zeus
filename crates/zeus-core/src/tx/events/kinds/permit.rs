@@ -88,8 +88,7 @@ impl PermitParams {
          name = "Revoke Permit".to_string();
       }
 
-      let amount_usd =
-         ctx.get_currency_value_for_amount(amount.f64(), &Currency::from(token.clone()));
+      let amount_usd = ctx.get_currency_value_for_amount(amount.f64(), &token.clone());
 
       let actual_amount_usd = if amount_usd.is_zero() {
          let price_manager = ctx.price_manager();

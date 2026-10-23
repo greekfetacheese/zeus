@@ -508,9 +508,10 @@ pub const AMBIENT_LIGHTNING_INTERVAL_SECS: f32 = 6.0;
 pub const SECURITY_AAD: &[u8] = b"zeus-security-v1";
 
 /// Idle period before Zeus locks the UI.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum AutoLock {
    TenMinutes,
+   #[default]
    OneHour,
    FourHours,
    Never,
@@ -557,12 +558,6 @@ impl AutoLock {
          Self::FourHours => Some(14_400),
          Self::Never => None,
       }
-   }
-}
-
-impl Default for AutoLock {
-   fn default() -> Self {
-      Self::OneHour
    }
 }
 

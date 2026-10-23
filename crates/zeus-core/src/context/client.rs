@@ -312,7 +312,6 @@ pub struct Rpc {
 }
 
 impl Rpc {
-   #[must_use]
    pub fn builder(url: impl Into<Arc<str>>, chain_id: u64) -> RpcBuilder {
       RpcBuilder {
          url: url.into(),
@@ -404,33 +403,28 @@ pub struct RpcBuilder {
 
 impl RpcBuilder {
    /// Bundled endpoint shipped with Zeus (not added by the user).
-   #[must_use]
    pub fn builtin(mut self) -> Self {
       self.default = true;
       self
    }
 
-   #[must_use]
    pub fn enabled(mut self) -> Self {
       self.enabled = true;
       self
    }
 
-   #[must_use]
    pub fn mev_protect(mut self) -> Self {
       self.mev_protect = true;
       self
    }
 
    /// Requests per second allowed against this endpoint (clamped on [`RpcBuilder::build`]).
-   #[must_use]
    pub fn rps(mut self, rps: u32) -> Self {
       self.rps = rps;
       self
    }
 
    /// Compute-units-per-second budget (clamped on [`RpcBuilder::build`]).
-   #[must_use]
    pub fn cu_per_second(mut self, cu_per_second: u64) -> Self {
       self.cu_per_second = cu_per_second;
       self
@@ -1249,9 +1243,7 @@ impl ClientManager {
       let failure_decay_secs: u64 = 60;
 
       self.write(|rpcs_map| {
-         let Some(rpcs) = rpcs_map.get_mut(&chain) else {
-            return None;
-         };
+         let rpcs = rpcs_map.get_mut(&chain)?;
          let now_ms = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
          let mut best_key = None;
          let mut best_fully = false;
@@ -1300,9 +1292,7 @@ impl ClientManager {
             }
          }
 
-         let Some(key) = best_key else {
-            return None;
-         };
+         let key = best_key?;
 
          rpcs.get_mut(&key).map(|rpc| {
             rpc.last_used = now_ms;
@@ -1345,9 +1335,7 @@ impl ClientManager {
       // and its retries on every simulation to be told nothing. Only the chains whose fork schedule
       // Zeus tracks by hand have anything to ask about — the same gate `spec_from_node` applies,
       // moved ahead of the request — and they are left on the spec Zeus ships.
-      if chain_id.spec_activation_time().is_none() {
-         return None;
-      }
+      chain_id.spec_activation_time()?;
 
       let cached = self
          .node_forks

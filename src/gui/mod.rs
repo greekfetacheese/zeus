@@ -27,13 +27,15 @@ pub use crate::gui::ui::{
       railgun::{MergeNotesWindow, ShieldUi},
       uniswap::UniswapUi,
    },
-   dev::DevUi,
    panels::{central_panel::FPSMetrics, left_panel::ConnectedDappsUi},
    settings::SettingsPage,
    sign_msg_window::SignMsgWindow,
    tx::SpentNoteWindow,
    tx_history::TxHistory,
 };
+
+#[cfg(feature = "dev")]
+pub use crate::gui::ui::dev::DevUi;
 
 lazy_static! {
    pub static ref SHARED_GUI: SharedGUI = SharedGUI::default();
@@ -110,6 +112,7 @@ pub struct GUI {
    pub connected_dapps: ConnectedDappsUi,
    pub notification: Notification,
    pub update_window: UpdateWindow,
+   #[cfg(feature = "dev")]
    pub dev: DevUi,
    pub merge_notes_window: MergeNotesWindow,
 }
@@ -193,6 +196,7 @@ impl GUI {
          connected_dapps,
          notification,
          update_window,
+         #[cfg(feature = "dev")]
          dev: DevUi::new(),
          merge_notes_window,
       }

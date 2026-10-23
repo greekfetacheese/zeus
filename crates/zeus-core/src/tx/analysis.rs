@@ -6,25 +6,35 @@ use zeus_eth::{
    alloy_primitives::{Address, Bytes, Log, U256},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
-   currency::{Currency, ERC20Token, NativeCurrency},
-   nft::NftStandard,
-   utils::{
-      NumericValue,
-      address_book::{
-         across_spoke_pool_v2, permit2_contract, uniswap_v3_nft_position_manager,
-         universal_router_v2, vitalik, weth,
-      },
-   },
+   currency::{Currency, NativeCurrency},
+   utils::NumericValue,
+};
+
+#[cfg(any(test, feature = "test-fixtures"))]
+use zeus_eth::{currency::ERC20Token, nft::NftStandard};
+
+#[cfg(any(test, feature = "test-fixtures"))]
+use zeus_eth::utils::address_book::{
+   across_spoke_pool_v2, permit2_contract, uniswap_v3_nft_position_manager, universal_router_v2,
+   vitalik, weth,
 };
 
 use super::events::decode::{DecodeCtx, decode_transaction};
-use super::events::*;
-use crate::sim::approval_diff::{
-   ApprovalChange, ApprovalDiff, ApprovalKind, NftApprovalChange, NftApprovalTarget,
-   NftApprovalValue,
+use super::events::{
+   BridgeParams, DecodedEvent, EOADelegateParams, NftApproveParams, NftTransferParams,
+   PermitParams, ShieldParams, SwapParams, TokenApproveParams, TransferParams,
+   UniswapPositionParams, UnshieldParams, UnwrapWETHParams, WrapETHParams,
 };
-use crate::sim::balance_diff::{BalanceDiff, NftBalanceChange, native_change, token_change};
+use crate::sim::approval_diff::ApprovalDiff;
+#[cfg(any(test, feature = "test-fixtures"))]
+use crate::sim::approval_diff::{
+   ApprovalChange, ApprovalKind, NftApprovalChange, NftApprovalTarget, NftApprovalValue,
+};
+use crate::sim::balance_diff::BalanceDiff;
+#[cfg(any(test, feature = "test-fixtures"))]
+use crate::sim::balance_diff::{NftBalanceChange, native_change, token_change};
 
+#[cfg(any(test, feature = "test-fixtures"))]
 use std::str::FromStr;
 
 /// An analysis of all recognizable events and data within a single transaction.
@@ -112,7 +122,7 @@ impl TransactionAnalysis {
       } else {
          let client = ctx.get_client(chain).await?;
          let bytecode = client.get_code_at(interact_to).await?;
-         bytecode.len() > 0
+         !bytecode.is_empty()
       };
 
       let selector = call_data.get(0..4).unwrap_or_default();
@@ -213,26 +223,26 @@ impl TransactionAnalysis {
             currencies.push(params.output_currency.clone());
          }
 
-         if let DecodedEvent::Shield(params) = event {
-            if let Some(token) = params.erc20.as_ref() {
-               currencies.push(token.clone().into());
-            }
+         if let DecodedEvent::Shield(params) = event
+            && let Some(token) = params.erc20.as_ref()
+         {
+            currencies.push(token.clone().into());
          }
 
-         if let DecodedEvent::Unshield(params) = event {
-            if let Some(token) = params.erc20.as_ref() {
-               currencies.push(token.clone().into());
-            }
+         if let DecodedEvent::Unshield(params) = event
+            && let Some(token) = params.erc20.as_ref()
+         {
+            currencies.push(token.clone().into());
          }
 
-         if let DecodedEvent::PrivateTransfer(params) = event {
-            if let Some(token) = params.erc20.as_ref() {
-               currencies.push(token.clone().into());
-            }
+         if let DecodedEvent::PrivateTransfer(params) = event
+            && let Some(token) = params.erc20.as_ref()
+         {
+            currencies.push(token.clone().into());
          }
 
          if let DecodedEvent::Permit(params) = event {
-            currencies.push(params.token.clone().into());
+            currencies.push(params.token.clone());
          }
       }
 
@@ -288,11 +298,11 @@ impl TransactionAnalysis {
    }
 
    pub fn has_balance_diff(&self) -> bool {
-      self.balance_diff.len() > 0
+      !self.balance_diff.is_empty()
    }
 
    pub fn has_approval_diff(&self) -> bool {
-      self.approval_diff.len() > 0
+      !self.approval_diff.is_empty()
    }
 
    pub fn erc20_transfers_len(&self) -> usize {
@@ -584,9 +594,11 @@ impl TransactionAnalysis {
 
 /// Fixture block the dummy analyses below are pinned to, so the DevUI shows a
 /// simulated-at-block row just like a real simulation does.
+#[cfg(any(test, feature = "test-fixtures"))]
 const DUMMY_SIM_BLOCK: u64 = 23_000_000;
 
 impl TransactionAnalysis {
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_token_approval() -> Self {
       let main_event = DecodedEvent::dummy_token_approve();
       let token = main_event.token_approval_params().token.clone();
@@ -612,6 +624,7 @@ impl TransactionAnalysis {
       }
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_swap() -> Self {
       let main_event = DecodedEvent::dummy_swap();
       Self {
@@ -636,6 +649,7 @@ impl TransactionAnalysis {
       }
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_bridge() -> Self {
       let main_event = DecodedEvent::dummy_bridge();
       Self {
@@ -660,6 +674,7 @@ impl TransactionAnalysis {
       }
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_transfer() -> Self {
       let main_event = DecodedEvent::dummy_transfer();
       Self {
@@ -684,6 +699,7 @@ impl TransactionAnalysis {
       }
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_shield() -> Self {
       let main_event = DecodedEvent::dummy_shield();
       let calldata = Bytes::from_str("0x044a40c3000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000011c7f67dc635a4b43233eee0404407aa83eb2e21cacb163ff9825bb166ba9d88a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000fff9976782d46cc05630d1f6ebab18b2324d6b1400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000de0b6b3a7640000a837c375aac12d1c426df9bd30f8471e1ac650c458fe2f07e257e8840552988ff4badb30337e4552bd9e1c47a9602a7d78105f21d8753a8dec2771c41bcb4808fc767b7a598165b1f19f0de719008db65ffb7b80c32b388ed38a806706d108f113ab7f7ca89acdd6cbd7d306f9766a40e4a57cfc4845fa710112753e5958505e").unwrap();
@@ -709,6 +725,7 @@ impl TransactionAnalysis {
       }
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_unshield() -> Self {
       let main_event = DecodedEvent::dummy_unshield();
       Self {
@@ -733,6 +750,7 @@ impl TransactionAnalysis {
       }
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_erc20_transfer() -> Self {
       let main_event = DecodedEvent::dummy_erc20_transfer();
       let token = main_event.transfer_params().currency.address();
@@ -758,6 +776,7 @@ impl TransactionAnalysis {
       }
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_unwrap_weth() -> Self {
       let main_event = DecodedEvent::dummy_unwrap_weth();
       Self {
@@ -782,6 +801,7 @@ impl TransactionAnalysis {
       }
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_wrap_eth() -> Self {
       let main_event = DecodedEvent::dummy_wrap_eth();
       Self {
@@ -806,6 +826,7 @@ impl TransactionAnalysis {
       }
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_uniswap_position_operation() -> Self {
       let main_event = DecodedEvent::dummy_uniswap_position_operation();
       Self {
@@ -830,6 +851,7 @@ impl TransactionAnalysis {
       }
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_permit() -> Self {
       let main_event = DecodedEvent::dummy_permit();
       Self {
@@ -854,6 +876,7 @@ impl TransactionAnalysis {
       }
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_eoa_delegate() -> Self {
       let main_event = DecodedEvent::dummy_eoa_delegate();
       Self {
@@ -878,6 +901,7 @@ impl TransactionAnalysis {
       }
    }
 
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn unknown_tx_1() -> Self {
       let erc20_transfer = DecodedEvent::dummy_erc20_transfer();
       let unwrap_weth = DecodedEvent::dummy_unwrap_weth();
@@ -906,6 +930,7 @@ impl TransactionAnalysis {
    }
 
    /// Unknown contract call so the confirm UI can show ERC-7730 rows.
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_clear_signed() -> Self {
       let pool = Address::from_str("0xA238Dd80C259a72e81d7e4664a9801593F98d1c5").unwrap();
       let calldata = Bytes::from_str("0x617ba037000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda0291300000000000000000000000000000000000000000000000000000000000f424000000000000000000000000022222222222222222222222222222222222222220000000000000000000000000000000000000000000000000000000000000000").unwrap();
@@ -932,6 +957,7 @@ impl TransactionAnalysis {
    }
 
    /// Unknown tx with sample balance + approval diffs for DevUi.
+   #[cfg(any(test, feature = "test-fixtures"))]
    pub fn dummy_with_diffs() -> Self {
       let mut analysis = Self::unknown_tx_1();
       let (balance_diff, approval_diff) = dummy_balance_and_approval_diffs();
@@ -940,6 +966,7 @@ impl TransactionAnalysis {
    }
 }
 
+#[cfg(any(test, feature = "test-fixtures"))]
 fn dummy_balance_and_approval_diffs() -> (BalanceDiff, ApprovalDiff) {
    let eth_before = NumericValue::parse_to_wei("2", 18).wei();
    let eth_after = NumericValue::parse_to_wei("1.95", 18).wei();

@@ -133,8 +133,8 @@ impl TokenApproveParams {
       let spender = decoded.spender;
 
       let params = TokenApproveParams {
-         token: token,
-         amount: amount,
+         token,
+         amount,
          amount_usd: Some(amount_usd),
          owner,
          spender,

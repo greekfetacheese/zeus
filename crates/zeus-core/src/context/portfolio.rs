@@ -62,7 +62,7 @@ impl PortfolioDB {
 
    /// Get all portfolios for the given chain
    pub fn get_all(&self, chain_id: u64) -> Vec<WalletPortfolio> {
-      let mut portfolios = self.portfolios.iter().map(|(_, p)| p.clone()).collect::<Vec<_>>();
+      let mut portfolios = self.portfolios.values().cloned().collect::<Vec<_>>();
       portfolios.retain(|p| p.chain_id == chain_id);
       portfolios
    }
@@ -230,7 +230,7 @@ impl WalletPortfolio {
    }
 
    pub fn has_private_tokens(&self) -> bool {
-      self.private_tokens().len() > 0
+      !self.private_tokens().is_empty()
    }
 
    pub fn remove_token(&mut self, token: &ERC20Token) {
@@ -345,7 +345,7 @@ fn process_public_tokens(
    ctx: ZeusCtx,
    chain_id: u64,
    owner: Address,
-   tokens: &Vec<ERC20Token>,
+   tokens: &[ERC20Token],
 ) -> TokenList {
    let mut token_list: TokenList = tokens
       .iter()

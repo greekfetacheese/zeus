@@ -113,7 +113,7 @@ impl TransferParams {
       call_data: Bytes,
       value: U256,
    ) -> Result<Self, anyhow::Error> {
-      if call_data.len() != 0 {
+      if !call_data.is_empty() {
          return Err(anyhow!("Not a native transfer"));
       }
 

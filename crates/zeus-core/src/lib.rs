@@ -48,8 +48,15 @@ mod serde_hashmap {
       K: Serialize,
       V: Serialize,
    {
-      let stringified_map: HashMap<String, &V> =
-         map.iter().map(|(k, v)| (serde_json::to_string(k).unwrap(), v)).collect();
+      let stringified_map = map
+         .iter()
+         .map(|(k, v)| {
+            Ok((
+               serde_json::to_string(k).map_err(serde::ser::Error::custom)?,
+               v,
+            ))
+         })
+         .collect::<Result<HashMap<String, &V>, S::Error>>()?;
       stringified_map.serialize(serializer)
    }
 

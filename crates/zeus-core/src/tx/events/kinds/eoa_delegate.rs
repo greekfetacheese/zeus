@@ -15,7 +15,7 @@ impl EOADelegateParams {
       Self {
          chain,
          eoa,
-         address: auth.address().clone(),
+         address: *auth.address(),
          nonce: auth.nonce(),
       }
    }

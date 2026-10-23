@@ -38,6 +38,11 @@ pub fn truncate_hash(hash: String) -> String {
 #[track_caller]
 pub fn malloc_trim() {
    #[cfg(target_os = "linux")]
+   // SAFETY: `libc::malloc_trim` is glibc's allocator-reclaim entry point. A zero request only
+   // asks it to release free heap pages; it dereferences no caller pointer and imposes no
+   // aliasing or lifetime precondition on the caller. Its `int` result is compared and logged
+   // below and never used as a pointer. glibc serialises the call against its own allocator
+   // state, which is the same libc allocator Rust uses.
    unsafe {
       if libc::malloc_trim(0) == 1 {
          tracing::info!("Released free memory");

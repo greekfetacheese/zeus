@@ -3,8 +3,11 @@ pub mod approvals;
 pub mod auth;
 pub mod common;
 pub mod dapps;
+#[cfg(feature = "dev")]
 pub mod dev;
+#[cfg(feature = "dev")]
 pub mod dev_erc20;
+#[cfg(feature = "dev")]
 pub mod dev_nft;
 pub mod lock;
 pub mod notification;

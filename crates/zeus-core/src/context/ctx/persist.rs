@@ -132,10 +132,8 @@ impl ZeusCtx {
       let present = persisted::file_path(PersistedFile::Security).is_ok_and(|p| p.exists());
       let read = SecuritySettings::load_from_file(&key);
 
-      if present {
-         if let Err(e) = &read {
-            tracing::error!("Failed to load security settings, leaving the file untouched: {e:?}");
-         }
+      if present && let Err(e) = &read {
+         tracing::error!("Failed to load security settings, leaving the file untouched: {e:?}");
       }
 
       let settings = SecuritySettings::from_read(read, present);
