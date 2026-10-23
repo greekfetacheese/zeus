@@ -1,7 +1,6 @@
 use alloy_primitives::{B256, FixedBytes};
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use crate::{
    caip::AssetId,
@@ -97,13 +96,50 @@ pub struct Operation {
    pub utxo_out_start_index: u32,
 }
 
-#[derive(Debug, Error)]
-#[error("Syncer error: {0}")]
-pub struct SyncerError(#[source] Box<dyn std::error::Error + Send + Sync>);
+#[derive(Debug)]
+pub struct SyncerError(Box<dyn std::error::Error + Send + Sync>);
 
 impl SyncerError {
    pub fn new<E: std::error::Error + Send + Sync + 'static>(e: E) -> Self {
       SyncerError(Box::new(e))
+   }
+}
+
+impl std::fmt::Display for SyncerError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      write!(f, "Syncer error: {}", self.0)
+   }
+}
+
+impl std::error::Error for SyncerError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      Some(self.0.as_ref())
+   }
+}
+
+impl SyncEvent {
+   pub fn block_number(&self) -> u64 {
+      match self {
+         SyncEvent::Shield(_, b) => *b,
+         SyncEvent::Transact(_, b) => *b,
+         SyncEvent::Nullified(_, b) => *b,
+         SyncEvent::Legacy(_, b) => *b,
+      }
+   }
+}
+
+impl Shield {
+   pub fn hash(&self) -> UtxoLeafHash {
+      if let Some(hash) = self.hash {
+         return hash;
+      }
+
+      poseidon3(
+         self.npk,
+         self.token.hash(),
+         U256::from(self.value),
+      )
+      .into()
    }
 }
 
@@ -132,31 +168,5 @@ mod syncer_error_tests {
          err.source().map(ToString::to_string),
          Some("boom".to_owned())
       );
-   }
-}
-
-impl SyncEvent {
-   pub fn block_number(&self) -> u64 {
-      match self {
-         SyncEvent::Shield(_, b) => *b,
-         SyncEvent::Transact(_, b) => *b,
-         SyncEvent::Nullified(_, b) => *b,
-         SyncEvent::Legacy(_, b) => *b,
-      }
-   }
-}
-
-impl Shield {
-   pub fn hash(&self) -> UtxoLeafHash {
-      if let Some(hash) = self.hash {
-         return hash;
-      }
-
-      poseidon3(
-         self.npk,
-         self.token.hash(),
-         U256::from(self.value),
-      )
-      .into()
    }
 }

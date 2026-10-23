@@ -1,7 +1,6 @@
 use std::collections::{BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use tracing::{info, warn};
 
 use crate::{
@@ -40,84 +39,57 @@ pub struct TxidIndexerState {
    pub txid_to_txid_position: HashMap<Txid, (u32, u32)>,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum TxidIndexerError {
-   #[error("Syncer error: {0}")]
-   SyncerError(#[from] SyncerError),
-   #[error("POI client error: {0}")]
-   PoiClient(#[from] PoiClientError),
-   #[error("TXID tree root mismatch for tree {tree_number}")]
+   SyncerError(SyncerError),
+   PoiClient(PoiClientError),
    RootMismatch { tree_number: u32 },
-   #[error("Database error: {0}")]
-   DatabaseError(#[from] DatabaseError),
+   DatabaseError(DatabaseError),
 }
 
-#[cfg(test)]
-mod error_tests {
-   use std::error::Error as _;
-
-   use super::*;
-
-   fn syncer_error() -> SyncerError {
-      SyncerError::new(std::io::Error::other("boom"))
+impl std::fmt::Display for TxidIndexerError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::SyncerError(err) => write!(f, "Syncer error: {err}"),
+         Self::PoiClient(err) => write!(f, "POI client error: {err}"),
+         Self::RootMismatch { tree_number } => {
+            write!(
+               f,
+               "TXID tree root mismatch for tree {tree_number}"
+            )
+         }
+         Self::DatabaseError(err) => write!(f, "Database error: {err}"),
+      }
    }
+}
 
-   fn poi_client_error() -> PoiClientError {
-      PoiClientError::NullResult
+impl std::error::Error for TxidIndexerError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::SyncerError(err) => Some(err),
+         Self::PoiClient(err) => Some(err),
+         Self::DatabaseError(err) => Some(err),
+         Self::RootMismatch { .. } => None,
+      }
    }
+}
 
-   fn database_error() -> DatabaseError {
-      DatabaseError::MissingCryptoKey
+impl From<SyncerError> for TxidIndexerError {
+   fn from(err: SyncerError) -> Self {
+      Self::SyncerError(err)
    }
+}
 
-   #[test]
-   fn renders_the_pinned_messages() {
-      assert_eq!(
-         TxidIndexerError::SyncerError(syncer_error()).to_string(),
-         "Syncer error: Syncer error: boom"
-      );
-      assert_eq!(
-         TxidIndexerError::PoiClient(poi_client_error()).to_string(),
-         "POI client error: Null result from RPC"
-      );
-      assert_eq!(
-         TxidIndexerError::RootMismatch { tree_number: 3 }.to_string(),
-         "TXID tree root mismatch for tree 3"
-      );
-      assert_eq!(
-         TxidIndexerError::DatabaseError(database_error()).to_string(),
-         "Database error: Missing Railgun DB crypto key"
-      );
+impl From<PoiClientError> for TxidIndexerError {
+   fn from(err: PoiClientError) -> Self {
+      Self::PoiClient(err)
    }
+}
 
-   #[test]
-   fn the_from_variants_delegate_their_source() {
-      let inner = syncer_error();
-      let rendered = inner.to_string();
-      assert_eq!(
-         TxidIndexerError::SyncerError(inner).source().map(ToString::to_string),
-         Some(rendered)
-      );
-
-      let inner = poi_client_error();
-      let rendered = inner.to_string();
-      assert_eq!(
-         TxidIndexerError::PoiClient(inner).source().map(ToString::to_string),
-         Some(rendered)
-      );
-
-      let inner = database_error();
-      let rendered = inner.to_string();
-      assert_eq!(
-         TxidIndexerError::DatabaseError(inner).source().map(ToString::to_string),
-         Some(rendered)
-      );
-   }
-
-   #[test]
-   fn root_mismatch_has_no_source() {
-      assert!(TxidIndexerError::RootMismatch { tree_number: 3 }.source().is_none());
+impl From<DatabaseError> for TxidIndexerError {
+   fn from(err: DatabaseError) -> Self {
+      Self::DatabaseError(err)
    }
 }
 
@@ -352,5 +324,73 @@ impl TxidIndexer {
 
       self.dirty_chunks.clear();
       Ok(())
+   }
+}
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   fn syncer_error() -> SyncerError {
+      SyncerError::new(std::io::Error::other("boom"))
+   }
+
+   fn poi_client_error() -> PoiClientError {
+      PoiClientError::NullResult
+   }
+
+   fn database_error() -> DatabaseError {
+      DatabaseError::MissingCryptoKey
+   }
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         TxidIndexerError::SyncerError(syncer_error()).to_string(),
+         "Syncer error: Syncer error: boom"
+      );
+      assert_eq!(
+         TxidIndexerError::PoiClient(poi_client_error()).to_string(),
+         "POI client error: Null result from RPC"
+      );
+      assert_eq!(
+         TxidIndexerError::RootMismatch { tree_number: 3 }.to_string(),
+         "TXID tree root mismatch for tree 3"
+      );
+      assert_eq!(
+         TxidIndexerError::DatabaseError(database_error()).to_string(),
+         "Database error: Missing Railgun DB crypto key"
+      );
+   }
+
+   #[test]
+   fn the_from_variants_delegate_their_source() {
+      let inner = syncer_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         TxidIndexerError::SyncerError(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = poi_client_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         TxidIndexerError::PoiClient(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = database_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         TxidIndexerError::DatabaseError(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn root_mismatch_has_no_source() {
+      assert!(TxidIndexerError::RootMismatch { tree_number: 3 }.source().is_none());
    }
 }

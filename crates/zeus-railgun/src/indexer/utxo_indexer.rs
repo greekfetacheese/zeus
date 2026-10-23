@@ -4,7 +4,6 @@ use alloy_primitives::{Log, U256};
 use alloy_rpc_types::BlockId;
 use alloy_sol_types::SolEvent;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use tracing::{debug, warn};
 
 use crate::{
@@ -105,27 +104,85 @@ impl Default for UtxoIndexerState {
    }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum UtxoIndexerError {
-   #[error("Syncer error: {0}")]
-   SyncerError(#[from] SyncerError),
-   #[error("Verification error: {0}")]
-   VerificationError(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
-   #[error("Note error: {0}")]
-   NoteError(#[from] NoteError),
-   #[error("Database error: {0}")]
-   DatabaseError(#[from] DatabaseError),
-   #[error("Timed out waiting for commitments")]
+   SyncerError(SyncerError),
+   VerificationError(Box<dyn std::error::Error + Send + Sync + 'static>),
+   NoteError(NoteError),
+   DatabaseError(DatabaseError),
    Timeout,
-   #[error("Invalid root for tree {0} root {1}")]
    InvalidRoot(u32, U256),
-   #[error("UTXO tree {0} is required but is not in memory and not on disk")]
    MissingTree(u32),
-   #[error("Merkle tree error: {0}")]
-   MerkleTree(#[from] MerkleTreeError),
-   #[error("Frozen merkle proof for tree {0} leaf {1} is invalid")]
+   MerkleTree(MerkleTreeError),
    InvalidFrozenProof(u32, u32),
+}
+
+impl std::fmt::Display for UtxoIndexerError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::SyncerError(err) => write!(f, "Syncer error: {err}"),
+         Self::VerificationError(err) => write!(f, "Verification error: {err}"),
+         Self::NoteError(err) => write!(f, "Note error: {err}"),
+         Self::DatabaseError(err) => write!(f, "Database error: {err}"),
+         Self::Timeout => f.write_str("Timed out waiting for commitments"),
+         Self::InvalidRoot(tree_number, root) => {
+            write!(
+               f,
+               "Invalid root for tree {tree_number} root {root}"
+            )
+         }
+         Self::MissingTree(tree_number) => write!(
+            f,
+            "UTXO tree {tree_number} is required but is not in memory and not on disk"
+         ),
+         Self::MerkleTree(err) => write!(f, "Merkle tree error: {err}"),
+         Self::InvalidFrozenProof(tree_number, leaf_index) => write!(
+            f,
+            "Frozen merkle proof for tree {tree_number} leaf {leaf_index} is invalid"
+         ),
+      }
+   }
+}
+
+impl std::error::Error for UtxoIndexerError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::SyncerError(err) => Some(err),
+         Self::VerificationError(err) => Some(err.as_ref()),
+         Self::NoteError(err) => Some(err),
+         Self::DatabaseError(err) => Some(err),
+         Self::MerkleTree(err) => Some(err),
+         Self::Timeout
+         | Self::InvalidRoot(..)
+         | Self::MissingTree(_)
+         | Self::InvalidFrozenProof(..) => None,
+      }
+   }
+}
+
+impl From<SyncerError> for UtxoIndexerError {
+   fn from(err: SyncerError) -> Self {
+      Self::SyncerError(err)
+   }
+}
+
+impl From<NoteError> for UtxoIndexerError {
+   fn from(err: NoteError) -> Self {
+      Self::NoteError(err)
+   }
+}
+
+impl From<DatabaseError> for UtxoIndexerError {
+   fn from(err: DatabaseError) -> Self {
+      Self::DatabaseError(err)
+   }
+}
+
+impl From<MerkleTreeError> for UtxoIndexerError {
+   fn from(err: MerkleTreeError) -> Self {
+      Self::MerkleTree(err)
+   }
 }
 
 #[cfg(test)]

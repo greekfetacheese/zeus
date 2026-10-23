@@ -400,16 +400,50 @@ impl SubsquidSyncer {
    }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 enum SubsquidSyncerError {
-   #[error("Serde error: {0}")]
-   Serde(#[from] serde_json::Error),
-   #[error("HTTP error: {0}")]
-   Http(#[from] reqwest::Error),
-   #[error("Request failed with status {0}: {1}")]
+   Serde(serde_json::Error),
+   Http(reqwest::Error),
    Request(reqwest::StatusCode, String),
-   #[error("GraphQL error: {0}")]
    GraphQL(String),
+}
+
+impl std::fmt::Display for SubsquidSyncerError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::Serde(err) => write!(f, "Serde error: {err}"),
+         Self::Http(err) => write!(f, "HTTP error: {err}"),
+         Self::Request(status, message) => {
+            write!(
+               f,
+               "Request failed with status {status}: {message}"
+            )
+         }
+         Self::GraphQL(message) => write!(f, "GraphQL error: {message}"),
+      }
+   }
+}
+
+impl std::error::Error for SubsquidSyncerError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::Serde(err) => Some(err),
+         Self::Http(err) => Some(err),
+         Self::Request(..) | Self::GraphQL(_) => None,
+      }
+   }
+}
+
+impl From<serde_json::Error> for SubsquidSyncerError {
+   fn from(err: serde_json::Error) -> Self {
+      Self::Serde(err)
+   }
+}
+
+impl From<reqwest::Error> for SubsquidSyncerError {
+   fn from(err: reqwest::Error) -> Self {
+      Self::Http(err)
+   }
 }
 
 impl From<SubsquidSyncerError> for SyncerError {

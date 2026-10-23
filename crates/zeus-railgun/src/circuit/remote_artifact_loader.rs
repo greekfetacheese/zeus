@@ -234,25 +234,83 @@ impl Cache {
    }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum RemoteArtifactLoaderError {
-   #[error("HTTP error: {0}")]
-   HttpError(#[from] reqwest::Error),
-   #[error("Artifact not found (HTTP {status}): {url}")]
+   HttpError(reqwest::Error),
    NotFound { url: String, status: u16 },
-   #[error("Invalid artifact at {url}: {reason}")]
    InvalidArtifact { url: String, reason: String },
-   #[error("Deserialization error: {0}")]
-   DeserializationError(#[from] ark_serialize::SerializationError),
-   #[error("Decompression error: {0}")]
-   DecompressionError(#[from] std::io::Error),
-   #[error("No on-disk cache directory configured")]
+   DeserializationError(ark_serialize::SerializationError),
+   DecompressionError(std::io::Error),
    NoCacheDir,
-   #[error("Circuit download is disabled ({circuit} / {file})")]
    DownloadDisabled { circuit: String, file: String },
-   #[error(transparent)]
-   Pin(#[from] ArtifactPinError),
+   Pin(ArtifactPinError),
+}
+
+impl std::fmt::Display for RemoteArtifactLoaderError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::HttpError(err) => write!(f, "HTTP error: {err}"),
+         // The status leads; the url follows.
+         Self::NotFound { url, status } => {
+            write!(f, "Artifact not found (HTTP {status}): {url}")
+         }
+         Self::InvalidArtifact { url, reason } => {
+            write!(f, "Invalid artifact at {url}: {reason}")
+         }
+         Self::DeserializationError(err) => write!(f, "Deserialization error: {err}"),
+         Self::DecompressionError(err) => write!(f, "Decompression error: {err}"),
+         Self::NoCacheDir => f.write_str("No on-disk cache directory configured"),
+         Self::DownloadDisabled { circuit, file } => {
+            write!(
+               f,
+               "Circuit download is disabled ({circuit} / {file})"
+            )
+         }
+         // Transparent: the inner error's own Display, not a `"Pin: ..."` prefix.
+         Self::Pin(err) => err.fmt(f),
+      }
+   }
+}
+
+impl std::error::Error for RemoteArtifactLoaderError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::HttpError(err) => Some(err),
+         Self::DeserializationError(err) => Some(err),
+         Self::DecompressionError(err) => Some(err),
+         // Transparent: the inner error's own source, not `Some(inner)`.
+         Self::Pin(err) => err.source(),
+         Self::NotFound { .. }
+         | Self::InvalidArtifact { .. }
+         | Self::NoCacheDir
+         | Self::DownloadDisabled { .. } => None,
+      }
+   }
+}
+
+impl From<reqwest::Error> for RemoteArtifactLoaderError {
+   fn from(err: reqwest::Error) -> Self {
+      Self::HttpError(err)
+   }
+}
+
+impl From<ark_serialize::SerializationError> for RemoteArtifactLoaderError {
+   fn from(err: ark_serialize::SerializationError) -> Self {
+      Self::DeserializationError(err)
+   }
+}
+
+impl From<std::io::Error> for RemoteArtifactLoaderError {
+   fn from(err: std::io::Error) -> Self {
+      Self::DecompressionError(err)
+   }
+}
+
+impl From<ArtifactPinError> for RemoteArtifactLoaderError {
+   fn from(err: ArtifactPinError) -> Self {
+      Self::Pin(err)
+   }
 }
 
 #[cfg(test)]
@@ -326,7 +384,7 @@ mod error_tests {
          "Circuit download is disabled (railgun/01x01 / wasm.br)"
       );
 
-      // `#[error(transparent)]`: Display is the inner error's own, not `"Pin: ..."`.
+      // Transparent variant: Display is the inner error's own, not a `"Pin: ..."` prefix.
       let inner = unpinned_error();
       let rendered = inner.to_string();
       assert_eq!(
