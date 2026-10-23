@@ -11,7 +11,10 @@ use thiserror::Error;
 
 use crate::{
    circuit::proof::Proof,
-   crypto::{aes::Ciphertext, railgun_zero::SNARK_PRIME},
+   crypto::{
+      aes::{Ciphertext, ciphertext_from_commitment_slots, ciphertext_from_shield_slots},
+      railgun_zero::SNARK_PRIME,
+   },
 };
 
 #[derive(Debug, Error)]
@@ -303,30 +306,13 @@ sol! {
 
 impl From<ShieldCiphertext> for Ciphertext {
    fn from(c: ShieldCiphertext) -> Self {
-      let iv = c.encryptedBundle[0][..16]
-         .try_into()
-         .expect("iv/tag occupy a fixed 16-byte half of a bytes32/uint256 slot");
-      let tag = c.encryptedBundle[0][16..]
-         .try_into()
-         .expect("iv/tag occupy a fixed 16-byte half of a bytes32/uint256 slot");
-      let data = vec![c.encryptedBundle[1][..16].to_vec()];
-      Ciphertext { iv, tag, data }
+      ciphertext_from_shield_slots(c.encryptedBundle[0], c.encryptedBundle[1])
    }
 }
 
 impl From<CommitmentCiphertext> for Ciphertext {
    fn from(c: CommitmentCiphertext) -> Self {
-      let iv = c.ciphertext[0][..16]
-         .try_into()
-         .expect("iv/tag occupy a fixed 16-byte half of a bytes32/uint256 slot");
-      let tag = c.ciphertext[0][16..32]
-         .try_into()
-         .expect("iv/tag occupy a fixed 16-byte half of a bytes32/uint256 slot");
-
-      let mut data: Vec<Vec<u8>> = c.ciphertext[1..].iter().map(|chunk| chunk.to_vec()).collect();
-      data.push(c.memo.to_vec());
-
-      Ciphertext { iv, tag, data }
+      ciphertext_from_commitment_slots(c.ciphertext[0], &c.ciphertext[1..], &c.memo)
    }
 }
 

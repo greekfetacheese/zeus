@@ -8,6 +8,7 @@ use aes_gcm::{
    AesGcm, KeyInit, Nonce,
    aead::{Aead, Payload, consts::U16},
 };
+use alloy_primitives::{Bytes, FixedBytes};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,6 +140,38 @@ fn decrypt_ctr(ciphertext: &CiphertextCtr, key: &[u8; 32]) -> Vec<Vec<u8>> {
    }
 
    data
+}
+
+/// Split a commitment ciphertext's wire layout (`iv | tag` in the first slot, one slot per block,
+/// then the memo slots) into the crate's [`Ciphertext`].
+///
+/// Both the current and the legacy ABI structs use exactly this order, which is why this lives here
+/// once instead of in two `From` impls.
+pub(crate) fn ciphertext_from_commitment_slots(
+   iv_tag: FixedBytes<32>,
+   blocks: &[FixedBytes<32>],
+   memo: &Bytes,
+) -> Ciphertext {
+   let iv = iv_tag[..16]
+      .try_into()
+      .expect("iv is the low 16 bytes of the iv|tag slot");
+   let tag = iv_tag[16..]
+      .try_into()
+      .expect("tag is the high 16 bytes of the iv|tag slot");
+   let mut data: Vec<Vec<u8>> = blocks.iter().map(|slot| slot.to_vec()).collect();
+   data.push(memo.to_vec());
+   Ciphertext { iv, tag, data }
+}
+
+/// Split a shield ciphertext's wire layout (`iv | tag` in the first slot, the random half of the
+/// second) into the crate's [`Ciphertext`].
+pub(crate) fn ciphertext_from_shield_slots(
+   iv_tag: FixedBytes<32>,
+   random_slot: FixedBytes<32>,
+) -> Ciphertext {
+   let iv = iv_tag[..16].try_into().expect("iv is the low 16 bytes of the iv|tag slot");
+   let tag = iv_tag[16..].try_into().expect("tag is the high 16 bytes of the iv|tag slot");
+   Ciphertext { iv, tag, data: vec![random_slot[..16].to_vec()] }
 }
 
 #[cfg(test)]
