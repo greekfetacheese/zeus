@@ -486,4 +486,93 @@ mod tests {
          "error echoed the phrase: {msg}"
       );
    }
+
+   #[test]
+   fn test_child_derivation_is_pinned() {
+      let params = Argon2Params::new(TEST_M_COST, TEST_T_COST, TEST_P_COST);
+      let version = DeriveVersion::Custom(params, DeriveMethod::BIP32);
+      let deriver = Deriver::new(
+         version,
+         Some(SecureString::from("zeus")),
+         Some(SecureString::from("zeus")),
+      );
+      let mut hd_wallet = SecureHDWallet::new_from_deriver(None, deriver).unwrap();
+
+      assert_eq!(
+         hd_wallet.master_wallet.address(),
+         address!("0x7c6B09491773800D80deb32d12616411c6238878")
+      );
+      assert_eq!(
+         hd_wallet.master_wallet.derivation_path_string(),
+         "m/44'/60'/0'/0/0/0"
+      );
+
+      // `derive_child` follows `next_child_index + BIP32_HARDEN` and appends
+      let expected = [
+         (
+            "0x8FebA2067706431bD5942e7861A789Ea6432f9CE",
+            "m/44'/60'/0'/0/0/0'",
+            2_147_483_648u32,
+         ),
+         (
+            "0x7c8420215C62761aa695aF0BF293eBe97C46e6EB",
+            "m/44'/60'/0'/0/0/1'",
+            2_147_483_649,
+         ),
+         (
+            "0x23137Be5D34899cc855E43d72781A37F0b72424C",
+            "m/44'/60'/0'/0/0/2'",
+            2_147_483_650,
+         ),
+      ];
+      for (i, (expected_address, expected_path, expected_index)) in expected.iter().enumerate() {
+         let address = hd_wallet.derive_child(format!("child {i}")).unwrap();
+         let child = hd_wallet.children.last().unwrap();
+         assert_eq!(address.to_string(), *expected_address);
+         assert_eq!(child.address().to_string(), *expected_address);
+         assert_eq!(child.derivation_path_string(), *expected_path);
+         assert_eq!(child.index(), *expected_index);
+         assert!(child.is_hardened());
+         assert!(!child.is_imported());
+         assert_eq!(hd_wallet.next_child_index, i as u32 + 1);
+      }
+
+      // `derive_child_at` takes a raw index: no counter bump, no append, not hardened
+      let at_five = hd_wallet.derive_child_at("at five".to_string(), 5).unwrap();
+      assert_eq!(
+         at_five.address().to_string(),
+         "0x8FcE2Ab3719937a115EEe5d8366814D9eB7F1D73"
+      );
+      assert_eq!(
+         at_five.derivation_path_string(),
+         "m/44'/60'/0'/0/0/5"
+      );
+      assert_eq!(at_five.index(), 5);
+      assert!(!at_five.is_hardened());
+      assert_eq!(hd_wallet.children.len(), 3);
+      assert_eq!(hd_wallet.next_child_index, 3);
+
+      // `derive_child_at_mut` appends, and refuses a second wallet at the same path
+      let at_nine = hd_wallet.derive_child_at_mut("at nine".to_string(), 9).unwrap();
+      assert_eq!(
+         at_nine.address().to_string(),
+         "0xD5aE2042392b91D8d4C3bB48A294B4d61F6CA97c"
+      );
+      assert_eq!(
+         at_nine.derivation_path_string(),
+         "m/44'/60'/0'/0/0/9"
+      );
+      assert_eq!(hd_wallet.children.len(), 4);
+      assert_eq!(hd_wallet.next_child_index, 3);
+
+      // `Wallet` implements no `Debug`, so no `.unwrap_err()` — match instead
+      let duplicate = match hd_wallet.derive_child_at_mut("at nine".to_string(), 9) {
+         Ok(_) => panic!("a second wallet at the same path must be refused"),
+         Err(e) => e.to_string(),
+      };
+      assert_eq!(
+         duplicate,
+         "Wallet At m/44'/60'/0'/0/0/9 with Address 0xD5aE2042392b91D8d4C3bB48A294B4d61F6CA97c already exists"
+      );
+   }
 }
