@@ -742,7 +742,7 @@ impl UtxoIndexer {
                         self.rollback_uncommitted_step().await?;
                         let current = self.rpc_syncer.block_range().await;
                         match syncer::rpc::shrink_block_range_on_invalid_root(current) {
-                           Ok(next) => {
+                           Some(next) => {
                               debug!(
                                  "Shrinking get_logs block_range {} -> {}",
                                  current, next
@@ -750,7 +750,7 @@ impl UtxoIndexer {
                               self.rpc_syncer.set_block_range(next).await;
                               continue;
                            }
-                           Err(()) => {
+                           None => {
                               return Err(UtxoIndexerError::InvalidRoot(tree, root));
                            }
                         }

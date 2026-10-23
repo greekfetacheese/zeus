@@ -52,12 +52,12 @@ pub fn apply_dense_logs_cap(chain_id: u64, window_from: u64, block_range: u64) -
    }
 }
 
-/// `Ok(new_range)` to retry; `Err(())` to abort (already at min).
-pub fn shrink_block_range_on_invalid_root(block_range: u64) -> Result<u64, ()> {
+/// `Some(new_range)` to retry; `None` to abort (already at min).
+pub fn shrink_block_range_on_invalid_root(block_range: u64) -> Option<u64> {
    if block_range <= MIN_BLOCK_RANGE {
-      return Err(());
+      return None;
    }
-   Ok(block_range.saturating_sub(BLOCK_RANGE_DECREMENT).max(MIN_BLOCK_RANGE))
+   Some(block_range.saturating_sub(BLOCK_RANGE_DECREMENT).max(MIN_BLOCK_RANGE))
 }
 
 pub fn sync_window_end(window_from: u64, to_block: u64) -> u64 {
@@ -662,10 +662,10 @@ mod tests {
    fn shrink_block_range_on_invalid_root_decrements_then_floors() {
       assert_eq!(
          shrink_block_range_on_invalid_root(30_000),
-         Ok(29_500)
+         Some(29_500)
       );
-      assert_eq!(shrink_block_range_on_invalid_root(600), Ok(100));
-      assert_eq!(shrink_block_range_on_invalid_root(100), Err(()));
+      assert_eq!(shrink_block_range_on_invalid_root(600), Some(100));
+      assert_eq!(shrink_block_range_on_invalid_root(100), None);
    }
 
    #[test]
