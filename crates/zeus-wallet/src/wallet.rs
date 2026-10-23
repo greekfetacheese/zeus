@@ -1,6 +1,5 @@
-use super::Deriver;
-use super::Error;
 use super::secure_key::SecureKey;
+use super::{Deriver, Error};
 use alloy_primitives::Address;
 use alloy_signer_local::{
    LocalSignerError, MnemonicBuilder, PrivateKeySigner,
@@ -12,6 +11,11 @@ use std::str::FromStr;
 use zeus_bip32::{
    BIP32_HARDEN, DEFAULT_DERIVATION_PATH, DerivationPath, SecureXPriv, XKeyInfo, root_from_seed,
 };
+
+fn base_path() -> DerivationPath {
+   DerivationPath::from_str(DEFAULT_DERIVATION_PATH)
+      .expect("DEFAULT_DERIVATION_PATH is a valid path")
+}
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone)]
@@ -100,27 +104,21 @@ impl Wallet {
    }
 
    pub fn name_with_id(&self) -> String {
-      let id = if self.is_master() {
-         "(Master)"
-      } else if self.is_child() {
-         "(Child)"
-      } else {
-         "(Imported)"
-      };
-
-      format!("{} {}", self.name, id)
+      format!("{} {}", self.name, self.kind_tag().0)
    }
 
    pub fn name_with_id_short(&self) -> String {
-      let id = if self.is_master() {
-         "(M)"
-      } else if self.is_child() {
-         "(C)"
-      } else {
-         "(I)"
-      };
+      format!("{} {}", self.name, self.kind_tag().1)
+   }
 
-      format!("{} {}", self.name, id)
+   fn kind_tag(&self) -> (&'static str, &'static str) {
+      if self.is_master() {
+         ("(Master)", "(M)")
+      } else if self.is_child() {
+         ("(Child)", "(C)")
+      } else {
+         ("(Imported)", "(I)")
+      }
    }
 
    /// Create a new wallet from a random private key
@@ -169,8 +167,7 @@ impl Wallet {
    /// Return the derivation path of the wallet as a string
    pub fn derivation_path_string(&self) -> String {
       if let Some(info) = self.xkey_info.as_ref() {
-         let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH).unwrap();
-         let path = base_path.extended(info.index);
+         let path = base_path().extended(info.index);
          path.derivation_string()
       } else {
          DEFAULT_DERIVATION_PATH.to_string()
@@ -180,10 +177,9 @@ impl Wallet {
    /// Return the derivation path of the wallet
    pub fn derivation_path(&self) -> DerivationPath {
       if let Some(info) = self.xkey_info.as_ref() {
-         let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH).unwrap();
-         base_path.extended(info.index)
+         base_path().extended(info.index)
       } else {
-         DerivationPath::from_str(DEFAULT_DERIVATION_PATH).unwrap()
+         base_path()
       }
    }
 
@@ -212,7 +208,7 @@ impl Wallet {
    }
 
    pub fn is_master(&self) -> bool {
-      self.xkey_info.as_ref().map(|info| info.parent.is_zero()).unwrap_or(false)
+      self.xkey_info.as_ref().is_some_and(|info| info.parent.is_zero())
    }
 
    /// Returns true if we can derive a zkAddress from this wallet.
@@ -221,11 +217,7 @@ impl Wallet {
    }
 
    pub fn is_hardened(&self) -> bool {
-      if self.is_master() {
-         true
-      } else {
-         self.xkey_info.as_ref().map(|info| info.index >= BIP32_HARDEN).unwrap_or(false)
-      }
+      self.is_master() || self.xkey_info.as_ref().is_some_and(|info| info.index >= BIP32_HARDEN)
    }
 
    pub fn is_key_erased(&self) -> bool {
@@ -237,7 +229,7 @@ impl Wallet {
    }
 }
 
-/// Represesents a hierarchical deterministic wallet
+/// Represents a hierarchical deterministic wallet
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone)]
 pub struct SecureHDWallet {
@@ -285,7 +277,7 @@ impl SecureHDWallet {
    }
 
    pub fn contains_child(&self, address: Address) -> bool {
-      self.children.iter().find(|c| c.address() == address).is_some()
+      self.children.iter().any(|c| c.address() == address)
    }
 
    /// Create a new `SecureHDWallet` from the given deriver
@@ -294,38 +286,52 @@ impl SecureHDWallet {
       Ok(wallet)
    }
 
-   fn master_to_xpriv(&self) -> SecureXPriv {
-      SecureXPriv {
+   fn master_to_xpriv(&self) -> Result<SecureXPriv, Error> {
+      let Some(xkey_info) = self.master_wallet.xkey_info.clone() else {
+         return Err(Error::XKeyInfoIsMissing);
+      };
+
+      Ok(SecureXPriv {
          key: self.master_wallet.key.key(),
-         xkey_info: self.master_wallet.xkey_info.clone().unwrap(),
-      }
+         xkey_info,
+      })
    }
 
-   /// Derive a new child wallet using the current path
-   pub fn derive_child(&mut self, name: String) -> Result<Address, Error> {
-      let xpriv = self.master_to_xpriv();
+   fn derive_wallet_at(&self, name: &str, index: u32) -> Result<(Wallet, DerivationPath), Error> {
+      let xpriv = self.master_to_xpriv()?;
 
-      let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH)?;
-      let child_path = base_path.extended(self.next_child_index + BIP32_HARDEN);
+      let child_path = base_path().extended(index);
 
       let child = xpriv.derive_path(child_path.clone())?;
-      let pkey = child.key.unlock(PrivateKeySigner::from_slice)?;
+      let pkey = child.key.unlock(|slice| {
+         PrivateKeySigner::from_slice(slice)
+            .expect("a derived child key is a valid secp256k1 scalar")
+      });
 
-      let address = pkey.address();
-      let child_wallet = Wallet {
-         name: name.clone(),
+      let wallet = Wallet {
+         name: name.to_string(),
          seed_phrase: None,
          key: pkey.into(),
          xkey_info: Some(child.xkey_info),
       };
 
-      if self.children.contains(&child_wallet) {
+      Ok((wallet, child_path))
+   }
+
+   /// Derive a new child wallet using the current path
+   pub fn derive_child(&mut self, name: String) -> Result<Address, Error> {
+      loop {
+         let index = self.next_child_index + BIP32_HARDEN;
+         let (wallet, _) = self.derive_wallet_at(&name, index)?;
          self.next_child_index += 1;
-         self.derive_child(name)
-      } else {
-         self.children.push(child_wallet);
-         self.next_child_index += 1;
-         Ok(address)
+
+         if self.children.contains(&wallet) {
+            continue;
+         }
+
+         let address = wallet.address();
+         self.children.push(wallet);
+         return Ok(address);
       }
    }
 
@@ -333,52 +339,18 @@ impl SecureHDWallet {
    ///
    /// Does not increments the `next_child_index` nor it does save the wallet
    pub fn derive_child_at(&self, name: String, index: u32) -> Result<Wallet, Error> {
-      let xpriv = self.master_to_xpriv();
-
-      let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH)?;
-      let child_path = base_path.extended(index);
-
-      let child = xpriv.derive_path(child_path.clone())?;
-      let pkey = child.key.unlock(|slice| {
-         PrivateKeySigner::from_slice(slice)
-            .expect("a derived child key is a valid secp256k1 scalar")
-      });
-
-      let wallet = Wallet {
-         name: name.clone(),
-         seed_phrase: None,
-         key: pkey.into(),
-         xkey_info: Some(child.xkey_info),
-      };
-
-      Ok(wallet)
+      self.derive_wallet_at(&name, index).map(|(wallet, _)| wallet)
    }
 
    /// Derive a new child wallet using the given name and index
    ///
    /// Does not increments the `next_child_index` but adds the wallet to [Self::children]
    pub fn derive_child_at_mut(&mut self, name: String, index: u32) -> Result<Wallet, Error> {
-      let xpriv = self.master_to_xpriv();
-
-      let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH)?;
-      let child_path = base_path.extended(index);
-
-      let child = xpriv.derive_path(child_path.clone())?;
-      let pkey = child.key.unlock(|slice| {
-         PrivateKeySigner::from_slice(slice)
-            .expect("a derived child key is a valid secp256k1 scalar")
-      });
-
-      let wallet = Wallet {
-         name: name.clone(),
-         seed_phrase: None,
-         key: pkey.into(),
-         xkey_info: Some(child.xkey_info),
-      };
+      let (wallet, path) = self.derive_wallet_at(&name, index)?;
 
       if self.children.contains(&wallet) {
          Err(Error::ChildAlreadyExists {
-            path: child_path,
+            path,
             address: wallet.address(),
          })
       } else {
