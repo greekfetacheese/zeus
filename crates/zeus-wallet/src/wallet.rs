@@ -342,10 +342,10 @@ impl SecureHDWallet {
          return Err(Error::XKeyInfoIsMissing);
       };
 
-      Ok(SecureXPriv {
-         key: self.master_wallet.key.key(),
+      Ok(SecureXPriv::new(
+         self.master_wallet.key.key(),
          xkey_info,
-      })
+      ))
    }
 
    fn derive_wallet_at(&self, name: &str, index: u32) -> Result<(Wallet, DerivationPath), Error> {

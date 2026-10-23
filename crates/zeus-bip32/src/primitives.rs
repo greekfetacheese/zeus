@@ -5,6 +5,7 @@ use secure_types::{Error, SecureArray};
 /// extended keys.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Eq, PartialEq, Debug, Clone, Copy)]
+#[non_exhaustive]
 pub enum Hint {
    /// Standard Bip32 hint
    Legacy,
@@ -17,6 +18,7 @@ pub enum Hint {
 /// A 4-byte key fingerprint
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Eq, PartialEq, Clone, Copy)]
+#[non_exhaustive]
 pub struct KeyFingerprint(pub [u8; 4]);
 
 impl From<[u8; 4]> for KeyFingerprint {
@@ -46,6 +48,7 @@ impl std::fmt::Debug for KeyFingerprint {
 /// A 32-byte chain code
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct ChainCode {
    /// The 32 chain-code bytes, held in secure memory
    pub data: SecureArray<u8, 32>,
@@ -74,6 +77,7 @@ impl PartialEq for ChainCode {
 /// inherits that.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct XKeyInfo {
    /// The key depth in the HD tree
    pub depth: u8,

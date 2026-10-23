@@ -1,5 +1,6 @@
 /// The error type returned by every fallible operation in this crate.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Bip32Error {
    /// Error bubbled up from the backend
    BackendError(k256::ecdsa::Error),
@@ -9,6 +10,9 @@ pub enum Bip32Error {
 
    /// Error bubbled up from std::io
    IoError(std::io::Error),
+
+   /// A `secure_types` operation failed (secure allocation, locking or UTF-8).
+   SecureError(secure_types::Error),
 
    /// Master key seed generation received <16 bytes
    SeedTooShort,
@@ -56,6 +60,7 @@ impl std::fmt::Display for Bip32Error {
          Self::BackendError(_) => f.write_str("k256 error"),
          Self::EllipticCurveError(_) => f.write_str("elliptic curve error"),
          Self::IoError(e) => std::fmt::Display::fmt(e, f),
+         Self::SecureError(e) => std::fmt::Display::fmt(e, f),
          Self::SeedTooShort => f.write_str("Master key seed generation received <16 bytes"),
          Self::InvalidKey => {
             f.write_str("HMAC left segment was 0 or greater than the curve order. How?")
@@ -104,6 +109,12 @@ impl std::error::Error for Bip32Error {
 impl From<std::io::Error> for Bip32Error {
    fn from(e: std::io::Error) -> Self {
       Self::IoError(e)
+   }
+}
+
+impl From<secure_types::Error> for Bip32Error {
+   fn from(e: secure_types::Error) -> Self {
+      Self::SecureError(e)
    }
 }
 
@@ -183,6 +194,13 @@ mod tests {
       assert_eq!(
          Bip32Error::Custom("boom".to_string()).to_string(),
          "boom"
+      );
+
+      // The typed secure-types variant renders exactly what the old `Custom` stringification
+      // of the inner error produced: the inner error's own text.
+      assert_eq!(
+         Bip32Error::from(secure_types::Error::LockFailed).to_string(),
+         secure_types::Error::LockFailed.to_string()
       );
 
       // `#[error(transparent)]` handed `source()` the inner error's own source, and a plain

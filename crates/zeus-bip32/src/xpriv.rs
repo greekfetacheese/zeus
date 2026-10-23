@@ -37,7 +37,7 @@ fn hmac_and_split(
       Ok(chain_code) => chain_code,
       Err(e) => {
          left.zeroize();
-         return Err(Bip32Error::Custom(e.to_string()));
+         return Err(e.into());
       }
    };
 
@@ -62,8 +62,7 @@ pub fn root_from_seed(
    let mut bytes = key.to_bytes();
    key.zeroize();
 
-   let sec_array =
-      SecureArray::from_slice_mut(bytes.as_mut()).map_err(|e| Bip32Error::Custom(e.to_string()))?;
+   let sec_array = SecureArray::from_slice_mut(bytes.as_mut())?;
 
    let key_info = XKeyInfo {
       depth: 0,
@@ -79,6 +78,7 @@ pub fn root_from_seed(
 /// A BIP32 eXtended Privkey
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct SecureXPriv {
    /// The 32-byte private key, held in secure memory
    pub key: SecureArray<u8, 32>,
@@ -198,8 +198,7 @@ impl SecureXPriv {
       let mut bytes = tweaked_key.to_bytes();
       tweaked_key.zeroize();
 
-      let sec_array = SecureArray::from_slice_mut(bytes.as_mut())
-         .map_err(|e| Bip32Error::Custom(e.to_string()))?;
+      let sec_array = SecureArray::from_slice_mut(bytes.as_mut())?;
 
       let xkey_info = XKeyInfo {
          depth,
@@ -218,6 +217,7 @@ impl SecureXPriv {
 
 /// A BIP32 eXtended Public key
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct XPub {
    /// The public curve point
    pub key: VerifyingKey,
