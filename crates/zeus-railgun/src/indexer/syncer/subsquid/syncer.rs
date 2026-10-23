@@ -2,7 +2,10 @@ use serde::{Serialize, de::DeserializeOwned};
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
-use super::types::*;
+use crate::indexer::syncer::subsquid::types::{
+   BlockNumberResponse, CommitmentsResponse, GraphqlRequest, GraphqlResponse, NullifiersResponse,
+   OperationsResponse, QueryVars,
+};
 use crate::indexer::syncer::{self, SyncerError, snapshot::SnapshotLoader};
 
 /// Subsquid UTXO & TXID syncer.
