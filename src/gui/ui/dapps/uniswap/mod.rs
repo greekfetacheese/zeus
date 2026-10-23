@@ -183,10 +183,11 @@ impl UniswapUi {
 
       show_with_fade(ui, "swap_ui_fade", self.open, |ui| {
          if ctx.privacy_mode {
-            notices::unsupported_panel(
+            notices::notice_panel(
                theme,
                self.size,
                "Private swaps are not supported",
+               None,
                ui,
             );
             return;

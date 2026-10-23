@@ -174,21 +174,6 @@ impl SendCryptoUi {
       self.search_query = String::new();
    }
 
-   fn show_railgun_not_enabled(&self, theme: &Theme, ui: &mut Ui) {
-      ui.vertical_centered(|ui| {
-         ui.set_width(self.size.0);
-         ui.set_max_height(self.size.1);
-         ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
-
-         let text = RichText::new("Railgun is disabled").size(theme.typography.very_large);
-         ui.label(text);
-         ui.label(
-            RichText::new("Enable it in Settings/Railgun to send private transfers.")
-               .size(theme.typography.large),
-         );
-      });
-   }
-
    pub fn show(
       &mut self,
       ctx: &mut ZeusContext,
@@ -216,17 +201,24 @@ impl SendCryptoUi {
                   ui.spacing_mut().button_padding = theme.button_padding;
 
                   if privacy_mode && !ctx.railgun_is_supported(ctx.chain) {
-                     notices::unsupported_panel(
+                     notices::notice_panel(
                         theme,
                         self.size,
                         "Railgun is not supported for the selected chain",
+                        None,
                         ui,
                      );
                      return;
                   }
 
                   if privacy_mode && !ctx.is_railgun_enabled(ctx.chain.id()) {
-                     self.show_railgun_not_enabled(theme, ui);
+                     notices::notice_panel(
+                        theme,
+                        self.size,
+                        "Railgun is disabled",
+                        Some("Enable it in Settings/Railgun to send private transfers."),
+                        ui,
+                     );
                      return;
                   }
 
