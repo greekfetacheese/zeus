@@ -245,11 +245,11 @@ impl SnapshotLoader {
             meta.version = SNAP_FORMAT;
             meta.coverage_start = coverage_start
                .unwrap_or_else(|| events.first().map(|e| e.block_number()).unwrap_or(0));
-         } else if let Some(last) = meta.chunks.last().copied() {
-            if (last.event_count as usize) < CHUNK_EVENTS {
-               open = decode_chunk_locked(&guard, last.index)?;
-               meta.chunks.pop();
-            }
+         } else if let Some(last) = meta.chunks.last().copied()
+            && (last.event_count as usize) < CHUNK_EVENTS
+         {
+            open = decode_chunk_locked(&guard, last.index)?;
+            meta.chunks.pop();
          }
 
          open.extend(events);

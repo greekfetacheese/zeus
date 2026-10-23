@@ -277,7 +277,7 @@ impl RpcSyncer {
 
    pub async fn latest_block(&self) -> Result<u64, SyncerError> {
       let client = self.provider.lock().await.clone();
-      let latest = client.get_block_number().await.map_err(|e| SyncerError::new(e))?;
+      let latest = client.get_block_number().await.map_err(SyncerError::new)?;
       Ok(latest)
    }
 
@@ -391,11 +391,11 @@ impl RpcSyncer {
             from_block
          };
          let slice_to = to_block.min(events_block);
-         if slice_from <= slice_to {
-            if let Some(loader) = &self.snapshot_loader {
-               let mut ranged = loader.load_range(self.chain_id, slice_from, slice_to).await?;
-               events.append(&mut ranged);
-            }
+         if slice_from <= slice_to
+            && let Some(loader) = &self.snapshot_loader
+         {
+            let mut ranged = loader.load_range(self.chain_id, slice_from, slice_to).await?;
+            events.append(&mut ranged);
          }
       }
 

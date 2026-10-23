@@ -34,7 +34,7 @@ impl Txid {
    }
 
    pub fn from_operation(op: &ProvedOperation) -> Self {
-      let nullifiers: Vec<_> = op.inner.in_notes().iter().map(|n| n.nullifier.into()).collect();
+      let nullifiers: Vec<_> = op.inner.in_notes().iter().map(|n| n.nullifier).collect();
 
       let commitments: Vec<_> = op.inner.out_notes().iter().map(|n| n.hash().into()).collect();
 
@@ -52,9 +52,9 @@ impl From<U256> for Txid {
    }
 }
 
-impl Into<U256> for Txid {
-   fn into(self) -> U256 {
-      self.0
+impl From<Txid> for U256 {
+   fn from(val: Txid) -> Self {
+      val.0
    }
 }
 

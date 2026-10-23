@@ -205,7 +205,7 @@ mod tests {
       let memo = "test memo";
 
       let _encrypted = encrypt_note(
-         &signer.address(),
+         signer.address(),
          &shared_random,
          value,
          &asset,

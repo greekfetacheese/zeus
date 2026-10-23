@@ -24,7 +24,7 @@ pub mod vec_u256_hex {
    use ruint::aliases::U256;
    use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-   pub fn serialize<S>(values: &Vec<U256>, serializer: S) -> Result<S::Ok, S::Error>
+   pub fn serialize<S>(values: &[U256], serializer: S) -> Result<S::Ok, S::Error>
    where
       S: Serializer,
    {

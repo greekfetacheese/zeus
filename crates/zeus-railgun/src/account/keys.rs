@@ -49,7 +49,7 @@ impl RailgunKeys {
          seed.unlock(|seed_bytes| SpendingKey::derive(seed_bytes, &spending_path))?;
       let viewing_priv = seed.unlock(|seed_bytes| ViewingKey::derive(seed_bytes, &viewing_path))?;
 
-      let (spend_x, spend_y) = compute_public_spending_key(&seed, &spending_path)?;
+      let (spend_x, spend_y) = compute_public_spending_key(seed, &spending_path)?;
       let viewing_public_key = viewing_priv.public_key();
       let nullifying_key = viewing_priv.nullifying_key();
 
@@ -63,7 +63,7 @@ impl RailgunKeys {
          spending_private_key: spending_priv,
          spending_public_key,
          viewing_private_key: viewing_priv,
-         viewing_public_key: viewing_public_key,
+         viewing_public_key,
          nullifying_key,
          master_public_key,
       })

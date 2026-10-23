@@ -154,21 +154,21 @@ impl UtxoIndexer {
 
       // Only rebuild the open (highest) tree. Sealed trees stay on disk until a
       // registered account has unspent notes there (see compact_utxo_trees).
-      if let Some(open) = known_trees.iter().next_back().copied() {
-         if let Some((leaves, from_legacy)) = db.get_utxo_tree_leaves(open).await? {
-            if from_legacy {
-               legacy_trees.insert(open);
-            }
-            let tree = UtxoMerkleTree::from_leaves(open, leaves);
-            tree_summaries.insert(
-               open,
-               UtxoTreeSummary {
-                  leaf_count: tree.leaves_len(),
-                  root: tree.root(),
-               },
-            );
-            utxo_trees.insert(open, tree);
+      if let Some(open) = known_trees.iter().next_back().copied()
+         && let Some((leaves, from_legacy)) = db.get_utxo_tree_leaves(open).await?
+      {
+         if from_legacy {
+            legacy_trees.insert(open);
          }
+         let tree = UtxoMerkleTree::from_leaves(open, leaves);
+         tree_summaries.insert(
+            open,
+            UtxoTreeSummary {
+               leaf_count: tree.leaves_len(),
+               root: tree.root(),
+            },
+         );
+         utxo_trees.insert(open, tree);
       }
 
       debug!(
@@ -667,8 +667,7 @@ impl UtxoIndexer {
 
       let latest_block = if use_subsquid {
          let syncer = self.subsquid_syncer.as_ref().ok_or_else(|| {
-            SyncerError::new(std::io::Error::new(
-               std::io::ErrorKind::Other,
+            SyncerError::new(std::io::Error::other(
                "subsquid syncer not configured",
             ))
          })?;
@@ -1027,7 +1026,7 @@ impl UtxoIndexer {
       }
 
       let mut tree_leaves: HashMap<u32, Vec<(u32, UtxoLeafHash)>> = HashMap::new();
-      for (_, event) in events.iter().enumerate() {
+      for event in events.iter() {
          self.handle_event(event, &mut tree_leaves, true)?;
       }
 
@@ -1145,12 +1144,12 @@ impl UtxoIndexer {
       // (only when we have the ciphertext from legacy CommitmentBatch)
       if event.ciphertext.is_some() {
          for account in self.accounts.iter_mut() {
-            if block > account.synced_block() {
-               if let Err(e) = account.handle_legacy_event(event) {
-                  // Ignore decryption failures (not our note)
-                  if !matches!(e, NoteError::Aes(_)) {
-                     tracing::debug!("Legacy note handling error: {}", e);
-                  }
+            if block > account.synced_block()
+               && let Err(e) = account.handle_legacy_event(event)
+            {
+               // Ignore decryption failures (not our note)
+               if !matches!(e, NoteError::Aes(_)) {
+                  tracing::debug!("Legacy note handling error: {}", e);
                }
             }
          }
@@ -1219,10 +1218,10 @@ impl UtxoIndexer {
       if !self.is_sealed(tree_number) {
          return false;
       }
-      match self.tree_summaries.get(&tree_number) {
-         Some(s) if s.root == tree.root() && s.leaf_count == tree.leaves_len() => true,
-         _ => false,
-      }
+      matches!(
+         self.tree_summaries.get(&tree_number),
+         Some(s) if s.root == tree.root() && s.leaf_count == tree.leaves_len()
+      )
    }
 
    pub async fn verify(&self, block_id: Option<BlockId>) -> Result<(), UtxoIndexerError> {
@@ -1256,7 +1255,7 @@ impl UtxoIndexer {
             .utxo_verifier
             .verify_root(tree.number(), 0, tree.root(), block_id)
             .await
-            .map_err(|e| UtxoIndexerError::VerificationError(e))?;
+            .map_err(UtxoIndexerError::VerificationError)?;
 
          if !exists {
             return Err(UtxoIndexerError::InvalidRoot(
@@ -1501,7 +1500,7 @@ mod tests {
       // Sealed tree 0 is frozen then unloaded; only the open tree stays resident.
       assert_eq!(indexer.resident_trees(), vec![2]);
       assert_eq!(indexer.known_tree_numbers(), vec![0, 1, 2]);
-      let witnesses = indexer.merkle_witnesses(&[note.clone()]).unwrap();
+      let witnesses = indexer.merkle_witnesses(std::slice::from_ref(&note)).unwrap();
       assert!(witnesses.proofs.contains_key(&(0, 0)));
       assert!(witnesses.proofs[&(0, 0)].verify());
 
@@ -1735,7 +1734,7 @@ mod tests {
       indexer.register(signer_a.clone()).await.unwrap();
       indexer.register(signer_b.clone()).await.unwrap();
       assert_eq!(indexer.resident_trees(), vec![4]);
-      let reloaded = indexer.merkle_witnesses(&[note0.clone()]).unwrap();
+      let reloaded = indexer.merkle_witnesses(std::slice::from_ref(&note0)).unwrap();
       assert!(reloaded.proofs[&(0, 100)].verify());
       assert!(!indexer.utxo_trees.contains_key(&0));
 
@@ -1773,7 +1772,7 @@ mod tests {
       assert!(!indexer.utxo_trees.contains_key(&4));
 
       indexer.retain_accounts(&[signer_a.address().clone()]).await.unwrap();
-      assert!(indexer.merkle_witnesses(&[note0.clone()]).is_ok());
+      assert!(indexer.merkle_witnesses(std::slice::from_ref(&note0)).is_ok());
       assert!(
          !indexer.utxo_trees.contains_key(&2),
          "dropping signer B must not reload their sealed tree"
@@ -1789,7 +1788,7 @@ mod tests {
          Ru256::from(1u64),
          &signer_a,
          test_asset(),
-         &[note0.clone()],
+         std::slice::from_ref(&note0),
          &outs,
          &[after_roll.proofs[&(0, 100)].clone()],
       )
@@ -1812,8 +1811,8 @@ mod tests {
             .build(
                &prover,
                1,
-               &[note0.clone()],
-               &indexer.merkle_witnesses(&[note0.clone()]).unwrap(),
+               std::slice::from_ref(&note0),
+               &indexer.merkle_witnesses(std::slice::from_ref(&note0)).unwrap(),
                &mut rng,
             )
             .await
@@ -1882,7 +1881,7 @@ mod tests {
       let mut indexer = indexer_from_db(db).await;
       indexer.register(signer).await.unwrap();
       assert_eq!(indexer.resident_trees(), vec![0]);
-      let w = indexer.merkle_witnesses(&[note.clone()]).unwrap();
+      let w = indexer.merkle_witnesses(std::slice::from_ref(&note)).unwrap();
       assert!(w.proofs[&(0, 0)].verify());
       assert!(matches!(
          indexer.ensure_tree_loaded(9, false).await,

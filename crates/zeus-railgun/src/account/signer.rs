@@ -40,8 +40,8 @@ impl RailgunSigner {
       index: u32,
       chain_id: u64,
    ) -> Result<Self, anyhow::Error> {
-      let keys = RailgunKeys::new(&seed, index)?;
-      let address = RailgunAddress::new(&seed, index, None)?;
+      let keys = RailgunKeys::new(seed, index)?;
+      let address = RailgunAddress::new(seed, index, None)?;
       Ok(Self {
          keys,
          address,

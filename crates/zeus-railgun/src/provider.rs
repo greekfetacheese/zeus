@@ -778,12 +778,9 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
          debug!("Fee note updated for next iteration");
       }
 
-      return Err(RailgunProviderError::Other(Box::new(
-         std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "Failed to converge on fee estimate",
-         ),
-      )));
+      Err(RailgunProviderError::Other(Box::new(
+         std::io::Error::other("Failed to converge on fee estimate"),
+      )))
    }
 
    async fn all_unspent(&mut self) -> Vec<(UtxoNote, Option<PoiStatus>)> {
@@ -879,11 +876,11 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
 }
 
 /// Gets the operation containing the fee note
-fn get_fee_operation<'a>(
-   operations: &'a Vec<ProvedOperation>,
+fn get_fee_operation(
+   operations: &[ProvedOperation],
    fee_asset: AssetId,
    fee_value: u128,
-) -> Result<&'a ProvedOperation, RailgunProviderError> {
+) -> Result<&ProvedOperation, RailgunProviderError> {
    let Some(fee_note_pos) = operations
       .iter()
       .position(|o| o.inner.out_notes().iter().any(|n| is_fee_note(n, fee_asset, fee_value)))

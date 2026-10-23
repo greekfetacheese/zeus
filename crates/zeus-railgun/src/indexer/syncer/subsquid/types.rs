@@ -198,7 +198,7 @@ impl From<Commitment> for syncer::SyncEvent {
       match value.kind {
          CommitmentKind::Legacy => syncer::SyncEvent::Legacy(
             syncer::LegacyCommitment {
-               hash: value.hash.into(),
+               hash: value.hash,
                tree_number,
                leaf_index,
                ciphertext: None,

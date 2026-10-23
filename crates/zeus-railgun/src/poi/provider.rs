@@ -115,7 +115,7 @@ impl PoiProvider {
       Ok(Self {
          inner: Arc::new(RwLock::new(inner)),
          db,
-         poi_client: poi_client,
+         poi_client,
          txid_indexer: Arc::new(RwLock::new(txid_indexer)),
       })
    }
@@ -170,7 +170,7 @@ impl PoiProvider {
    }
 
    async fn register(&mut self, op: &ProvedOperation, list_keys: Vec<ListKey>) {
-      let spending_pubkey = op.inner.from.keys().spending_public_key.clone();
+      let spending_pubkey = op.inner.from.keys().spending_public_key;
       let txid = Txid::from_operation(op);
       let in_notes = op.inner.in_notes().to_vec();
       let out_notes = op.inner.out_notes();
@@ -183,7 +183,7 @@ impl PoiProvider {
       self.inner.write().await.pending.push(PendingPoiEntry {
          txid,
          spending_pubkey,
-         nullifying_key: op.inner.from.keys().nullifying_key.clone(),
+         nullifying_key: op.inner.from.keys().nullifying_key,
          utxo_tree_in: op.inner.utxo_tree_number,
          bound_params_hash: op.circuit_inputs.bound_params_hash,
          in_notes,
@@ -339,8 +339,8 @@ fn blinded_commitments(
    for (i, (commitment, npk)) in entry.out_commitments.iter().zip(entry.out_npks.iter()).enumerate()
    {
       let blinded_commitment = utxo::blinded_commitment(
-         commitment.clone(),
-         npk.clone(),
+         *commitment,
+         *npk,
          utxo_tree_number,
          utxo_leaf_index + i as u32,
       )

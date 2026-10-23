@@ -107,7 +107,7 @@ impl RailgunAddress {
       let viewing_path = viewing_key_path(index);
 
       let (spend_x, spend_y) =
-         compute_public_spending_key(&seed, &spending_path).expect("Spending key");
+         compute_public_spending_key(seed, &spending_path).expect("Spending key");
 
       let viewing_priv = seed.unlock(|seed_bytes| ViewingKey::derive(seed_bytes, &viewing_path))?;
       let nullifying_key = viewing_priv.nullifying_key();
@@ -262,9 +262,8 @@ mod test {
       let method = DeriveMethod::BIP32;
       let version = DeriveVersion::Custom(Argon2Params::new(m_cost, t_cost, p_cost), method);
       let deriver = Deriver::new(version, Some(username), Some(password));
-      let wallet = deriver.new_hd_wallet(None).unwrap();
 
-      wallet
+      deriver.new_hd_wallet(None).unwrap()
    }
 
    #[test]

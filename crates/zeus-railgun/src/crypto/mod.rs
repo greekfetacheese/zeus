@@ -157,8 +157,7 @@ pub fn mul_point_escalar(base: BabyJubPoint, mut e: [u8; 32]) -> BabyJubPoint {
 
    // Full 256-bit double-and-add (LSB first). Avoids BigUint and keeps bit work
    // on a stack buffer we can zeroize.
-   for byte_idx in 0..32 {
-      let mut byte = e[byte_idx];
+   for mut byte in e {
       for _bit in 0..8 {
          if byte & 1 == 1 {
             res = add_point(res, exp);

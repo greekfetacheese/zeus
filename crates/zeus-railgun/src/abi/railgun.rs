@@ -137,8 +137,8 @@ impl Transaction {
       Transaction {
          proof,
          merkleRoot: merkle_root,
-         nullifiers: nullifiers,
-         commitments: commitments,
+         nullifiers,
+         commitments,
          boundParams: bound_params,
          unshieldPreimage: unshield_preimage,
       }

@@ -145,7 +145,7 @@ impl Groth16Prover {
       debug!("Verifying proof");
       let public_inputs = &witnesses[1..matrices.num_instance_variables];
       let pvk = prepare_verifying_key(&pk.vk);
-      let verified = Groth16::<Bn254, CircomReduction>::verify_proof(&pvk, &proof, &public_inputs)?;
+      let verified = Groth16::<Bn254, CircomReduction>::verify_proof(&pvk, &proof, public_inputs)?;
 
       if !verified {
          return Err(Groth16ProverError::InvalidProof);

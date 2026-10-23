@@ -91,9 +91,9 @@ impl UtxoNote {
       memo: &str,
       commitment_type: BlindedCommitmentType,
    ) -> Self {
-      let spending_pubkey = signer.keys().spending_public_key.clone();
-      let viewing_pubkey = signer.keys().viewing_public_key.clone();
-      let nullifying_key = signer.keys().nullifying_key.clone();
+      let spending_pubkey = signer.keys().spending_public_key;
+      let viewing_pubkey = signer.keys().viewing_public_key;
+      let nullifying_key = signer.keys().nullifying_key;
       let nullifier = poseidon_hash(&[nullifying_key.to_u256(), U256::from(leaf_index)]).unwrap();
       let npk = note_public_key(spending_pubkey, nullifying_key, &random);
       let hash = note_hash(npk, asset, value);
@@ -366,14 +366,14 @@ mod tests {
 
       let note = UtxoNote::decrypt_transact(&recipient, &event, &known).unwrap();
       assert_eq!(note.asset, asset);
-      assert_eq!(note.hash(), transfer.hash().into());
+      assert_eq!(note.hash(), transfer.hash());
 
       // Without it there is nothing to recognize the asset by, and a 32-byte hash can only be read as an
       // ERC-20 address. The guess is not the asset the sender used, so the leaf does not match either.
       let guessed = UtxoNote::decrypt_transact(&recipient, &event, &TokenRegistry::new()).unwrap();
       assert_ne!(guessed.asset, asset);
-      assert_eq!(guessed.asset.is_erc20(), true);
-      assert_ne!(guessed.hash(), transfer.hash().into());
+      assert!(guessed.asset.is_erc20());
+      assert_ne!(guessed.hash(), transfer.hash());
    }
 
    fn random_signer() -> RailgunSigner {
@@ -392,7 +392,7 @@ mod tests {
    fn transact_with_blocks(recipient: &RailgunSigner, blocks: &[&[u8]]) -> Transact {
       use alloy_primitives::B256;
 
-      let blinded_sender = recipient.keys().viewing_public_key.clone();
+      let blinded_sender = recipient.keys().viewing_public_key;
       let shared_key = recipient
          .keys()
          .viewing_private_key

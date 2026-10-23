@@ -57,7 +57,7 @@ fn parse_transact(
 
    let mut events = Vec::new();
    for (i, ciphertext) in event.ciphertext.clone().into_iter().enumerate() {
-      let hash = event.hash[i].clone();
+      let hash = event.hash[i];
       let (tree_number, leaf_index) =
          normalize_tree_position(tree_number, start_position + i as u32);
 
@@ -94,8 +94,8 @@ fn parse_nullified(
    for nullifier in event.nullifier.clone().into_iter() {
       events.push(SyncEvent::Nullified(
          Nullified {
-            tree_number: tree_number,
-            nullifier: nullifier,
+            tree_number,
+            nullifier,
             timestamp,
             tx_hash,
          },
@@ -176,8 +176,7 @@ fn parse_legacy_generated_commitment_batch(
       let npk = commitment.npk;
       let value = U256::from(commitment.value);
 
-      let computed_hash =
-         poseidon_hash(&[npk, asset.hash(), value]).map_err(|e| SyncerError::new(e))?;
+      let computed_hash = poseidon_hash(&[npk, asset.hash(), value]).map_err(SyncerError::new)?;
 
       let (tree_number, leaf_index) =
          normalize_tree_position(tree_number, start_position + i as u32);
@@ -233,7 +232,7 @@ fn parse_legacy_transact(
 
    let mut events = Vec::new();
    for (i, ciphertext) in event.ciphertext.clone().into_iter().enumerate() {
-      let hash = event.hash[i].clone();
+      let hash = event.hash[i];
       let (tree_number, leaf_index) =
          normalize_tree_position(tree_number, start_position + i as u32);
 

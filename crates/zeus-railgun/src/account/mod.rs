@@ -138,7 +138,7 @@ pub fn compute_public_viewing_key(
    });
 
    // Compute scalar per Ed25519 spec (SHA-512 hash, clamp lower 32 bytes)
-   let h_view = sha2::Sha512::digest(&view_priv_bytes);
+   let h_view = sha2::Sha512::digest(view_priv_bytes);
    let mut scalar_bytes: [u8; 32] = [0; 32];
    scalar_bytes.copy_from_slice(&h_view[0..32]);
    scalar_bytes[0] &= 248;
@@ -152,7 +152,7 @@ pub fn compute_public_viewing_key(
    let view_priv_u256 = U256::from_be_bytes(view_priv_bytes);
    view_priv_bytes.zeroize();
 
-   let nullifying_key = poseidon_hash(&vec![view_priv_u256])?;
+   let nullifying_key = poseidon_hash(&[view_priv_u256])?;
 
    Ok((viewing_public_key, nullifying_key))
 }

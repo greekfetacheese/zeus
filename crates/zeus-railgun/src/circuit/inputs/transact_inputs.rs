@@ -100,7 +100,7 @@ impl TransactCircuitInputs {
       let commitments: Vec<U256> = notes_out.iter().map(|note| note.hash().into()).collect();
 
       let token = asset.hash();
-      let public_key = signer.keys().spending_public_key.clone();
+      let public_key = signer.keys().spending_public_key;
       let public_key = [public_key.x_u256(), public_key.y_u256()];
 
       let mut unsigned = vec![merkleroot.into(), bound_params_hash];

@@ -103,21 +103,21 @@ pub fn decode_history_memo(raw: &str) -> (Option<PrivateHistoryKind>, String) {
    if raw == HISTORY_KIND_UNSHIELD {
       return (Some(PrivateHistoryKind::Unshield), String::new());
    }
-   if let Some(rest) = raw.strip_prefix(HISTORY_KIND_UNSHIELD) {
-      if let Some(user) = rest.strip_prefix(HISTORY_KIND_SEP) {
-         return (
-            Some(PrivateHistoryKind::Unshield),
-            user.to_string(),
-         );
-      }
+   if let Some(rest) = raw.strip_prefix(HISTORY_KIND_UNSHIELD)
+      && let Some(user) = rest.strip_prefix(HISTORY_KIND_SEP)
+   {
+      return (
+         Some(PrivateHistoryKind::Unshield),
+         user.to_string(),
+      );
    }
    if raw == HISTORY_KIND_TRANSFER {
       return (Some(PrivateHistoryKind::Send), String::new());
    }
-   if let Some(rest) = raw.strip_prefix(HISTORY_KIND_TRANSFER) {
-      if let Some(user) = rest.strip_prefix(HISTORY_KIND_SEP) {
-         return (Some(PrivateHistoryKind::Send), user.to_string());
-      }
+   if let Some(rest) = raw.strip_prefix(HISTORY_KIND_TRANSFER)
+      && let Some(user) = rest.strip_prefix(HISTORY_KIND_SEP)
+   {
+      return (Some(PrivateHistoryKind::Send), user.to_string());
    }
    (None, raw.to_string())
 }
@@ -683,7 +683,7 @@ mod tests {
          tree_number: 1,
          leaf_index: 0,
          npk: shield.preimage.npk.into(),
-         token: shield.preimage.token.try_into().unwrap(),
+         token: shield.preimage.token.into(),
          value: U256::from(shield.preimage.value),
          ciphertext: shield.ciphertext.clone().into(),
          shield_key: *shield.ciphertext.shieldKey,
@@ -751,7 +751,7 @@ mod tests {
          tree_number: 1,
          leaf_index: 0,
          npk: shield.preimage.npk.into(),
-         token: shield.preimage.token.try_into().unwrap(),
+         token: shield.preimage.token.into(),
          value: U256::from(shield.preimage.value),
          ciphertext: shield.ciphertext.clone().into(),
          shield_key: *shield.ciphertext.shieldKey,
@@ -782,7 +782,7 @@ mod tests {
          tree_number: 1,
          leaf_index: 1,
          npk: other_shield.preimage.npk.into(),
-         token: other_shield.preimage.token.try_into().unwrap(),
+         token: other_shield.preimage.token.into(),
          value: U256::from(other_shield.preimage.value),
          ciphertext: other_shield.ciphertext.clone().into(),
          shield_key: *other_shield.ciphertext.shieldKey,
@@ -928,7 +928,7 @@ mod tests {
          tree_number: 1,
          leaf_index: 0,
          npk: shield.preimage.npk.into(),
-         token: shield.preimage.token.try_into().unwrap(),
+         token: shield.preimage.token.into(),
          value: U256::from(shield.preimage.value),
          ciphertext: shield.ciphertext.clone().into(),
          shield_key: *shield.ciphertext.shieldKey,

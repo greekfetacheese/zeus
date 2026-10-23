@@ -123,7 +123,7 @@ pub struct TransactProofData {
 
 impl ValidatedRailgunTxidStatus {
    pub fn tree(&self) -> u32 {
-      (self.index >> 16) as u32
+      self.index >> 16
    }
 
    pub fn leaf_index(&self) -> u32 {

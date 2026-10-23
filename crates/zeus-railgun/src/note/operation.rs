@@ -166,7 +166,7 @@ impl Operation {
    }
 
    pub fn unshield_note(&self) -> Option<UnshieldNote> {
-      self.unshield_note.clone()
+      self.unshield_note
    }
 
    pub fn out_encryptable_notes(&self) -> Vec<TransferNote> {

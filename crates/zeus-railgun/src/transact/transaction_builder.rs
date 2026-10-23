@@ -337,7 +337,7 @@ fn build_group<R: Rng>(
 ) -> Result<Vec<Operation>, TransactionBuilderError> {
    // Sort intents smallest to largest. Helps to ensure small intents don't
    // ever need to span across multiple trees.
-   intents.sort_by(|a, b| a.value.cmp(&b.value));
+   intents.sort_by_key(|a| a.value);
 
    // Filter notes for this asset and signer, and group by tree number.
    let tree_number = in_notes
@@ -698,8 +698,8 @@ async fn prove_operation(
    let transaction = abi::railgun::Transaction::new(
       proof.into(),
       merkleroot.into(),
-      inputs.nullifiers.iter().map(|n| n.clone().into()).collect(),
-      inputs.commitments_out.iter().map(|c| c.clone().into()).collect(),
+      inputs.nullifiers.iter().map(|n| (*n).into()).collect(),
+      inputs.commitments_out.iter().map(|c| (*c).into()).collect(),
       bound_params,
       unshield_preimage,
    );

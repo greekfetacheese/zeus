@@ -102,10 +102,10 @@ impl SubsquidSyncer {
          delta.append(&mut nullifiers);
          debug!("Tip delta events len {}", delta.len());
 
-         if let Some(loader) = &self.snapshot_loader {
-            if let Err(e) = loader.append(self.chain_id, &delta, to_block, None).await {
-               warn!("Failed to append event snapshot: {}", e);
-            }
+         if let Some(loader) = &self.snapshot_loader
+            && let Err(e) = loader.append(self.chain_id, &delta, to_block, None).await
+         {
+            warn!("Failed to append event snapshot: {}", e);
          }
 
          return Ok(delta);
@@ -168,12 +168,12 @@ impl SubsquidSyncer {
       debug!("Delta Events len {}", delta.len());
 
       if delta.is_empty() {
-         if let Some(loader) = &self.snapshot_loader {
-            if events_block > 0 && to_block > events_block {
-               if let Err(e) = loader.advance_meta(self.chain_id, to_block).await {
-                  warn!("Failed to advance event snapshot meta: {}", e);
-               }
-            }
+         if let Some(loader) = &self.snapshot_loader
+            && events_block > 0
+            && to_block > events_block
+            && let Err(e) = loader.advance_meta(self.chain_id, to_block).await
+         {
+            warn!("Failed to advance event snapshot meta: {}", e);
          }
          return Ok(events);
       }
