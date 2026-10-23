@@ -17,7 +17,7 @@ use crate::core::{
    ensure_erc721_approve, send_transaction,
 };
 use crate::{
-   gui::ui::common::show_with_fade,
+   gui::ui::common::{notices, show_with_fade},
    utils::{TimeStamp, write_private_atomic},
 };
 
@@ -312,41 +312,6 @@ impl ShieldUi {
       }
    }
 
-   fn show_not_supported(&self, theme: &Theme, ui: &mut Ui) {
-      let frame = theme.frame1;
-      ui.vertical_centered(|ui| {
-         frame.show(ui, |ui| {
-            ui.set_width(self.size.0);
-            ui.set_max_height(self.size.1);
-            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
-            ui.spacing_mut().button_padding = theme.button_padding;
-
-            let text = RichText::new("Railgun is not supported for the selected chain")
-               .size(theme.typography.very_large);
-            ui.label(text);
-         });
-      });
-   }
-
-   fn show_not_enabled(&self, theme: &Theme, ui: &mut Ui) {
-      let frame = theme.frame1;
-      ui.vertical_centered(|ui| {
-         frame.show(ui, |ui| {
-            ui.set_width(self.size.0);
-            ui.set_max_height(self.size.1);
-            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
-            ui.spacing_mut().button_padding = theme.button_padding;
-
-            let text = RichText::new("Railgun is disabled").size(theme.typography.very_large);
-            ui.label(text);
-            ui.label(
-               RichText::new("Enable it in Settings/Railgun to shield and unshield.")
-                  .size(theme.typography.large),
-            );
-         });
-      });
-   }
-
    /// True when unshield is pointed at a bundler other than the chain default.
    fn uses_custom_bundler(&self, chain_id: u64) -> bool {
       !self.self_broadcast && self.bundler_url.trim() != default_bundler_url(chain_id).as_str()
@@ -433,12 +398,24 @@ impl ShieldUi {
    ) {
       show_with_fade(ui, "shield_ui_fade", self.open, |ui| {
          if !ctx.railgun_is_supported(ctx.chain) {
-            self.show_not_supported(theme, ui);
+            notices::notice_panel(
+               theme,
+               self.size,
+               "Railgun is not supported for the selected chain",
+               None,
+               ui,
+            );
             return;
          }
 
          if !ctx.is_railgun_enabled(ctx.chain.id()) {
-            self.show_not_enabled(theme, ui);
+            notices::notice_panel(
+               theme,
+               self.size,
+               "Railgun is disabled",
+               Some("Enable it in Settings/Railgun to shield and unshield."),
+               ui,
+            );
             return;
          }
 

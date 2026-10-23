@@ -9,6 +9,7 @@
 use crate::core::WalletInfo;
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::common::delayed_action_label;
+use crate::gui::ui::common::windows::PromptGate;
 use egui::{Id, Order, RichText, ScrollArea, Sense, Ui, vec2};
 use egui_elements::{Button, Label, Modal, Theme};
 use std::time::{Duration, Instant};
@@ -40,10 +41,10 @@ const WALLET_LIST_MAX_HEIGHT: f32 = 240.0;
 /// [`ConnectClaim`] when its handler ends — however it ends.
 pub struct ConnectDappWindow {
    open: bool,
-   /// A flow has claimed this window ([`Self::claim`]) and holds it until it is done with the
-   /// prompt. Claimed under the same lock that opens it, so a second request cannot replace the
+   /// A flow has claimed this window's gate ([`Self::claim`]) and holds it until it is done with
+   /// the prompt. Claimed under the same lock that opens it, so a second request cannot replace the
    /// prompt the user is reading.
-   pending: bool,
+   gate: PromptGate,
    origin: String,
    /// `true` when the default "create a new account" option is selected.
    use_new_account: bool,
@@ -63,7 +64,7 @@ impl ConnectDappWindow {
    pub fn new() -> Self {
       Self {
          open: false,
-         pending: false,
+         gate: PromptGate::default(),
          origin: String::new(),
          use_new_account: true,
          wallets: Vec::new(),
@@ -79,8 +80,8 @@ impl ConnectDappWindow {
       self.open
    }
 
-   /// True while a connection is being decided: a flow holds the window ([`Self::pending`]) or the
-   /// prompt is up.
+   /// True while a connection is being decided: a flow holds the window's gate
+   /// ([`PromptGate::pending`]) or the prompt is up.
    ///
    /// The server refuses a second connect request while this holds — one shared prompt cannot
    /// belong to two origins at once.
@@ -91,7 +92,7 @@ impl ConnectDappWindow {
    /// after the user answered (the dapp disconnected, the future was cancelled) wedge every later
    /// `eth_requestAccounts` for the rest of the session.
    pub fn is_busy(&self) -> bool {
-      self.pending || self.open
+      self.gate.pending() || self.open
    }
 
    /// Claim the window for one flow, from just before its prompt is put up until it is done with
@@ -100,15 +101,11 @@ impl ConnectDappWindow {
    /// Call under the same lock as the [`Self::is_busy`] check (`connect` does), or two flows can
    /// both pass the check. [`Self::release`] hands it back, and [`ConnectClaim`] does so on drop.
    pub fn claim(&mut self) -> bool {
-      if self.pending {
-         return false;
-      }
-      self.pending = true;
-      true
+      self.gate.claim()
    }
 
    pub fn release(&mut self) {
-      self.pending = false;
+      self.gate.release()
    }
 
    /// Open the prompt for `origin`.

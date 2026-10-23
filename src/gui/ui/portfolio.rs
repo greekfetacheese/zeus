@@ -4,6 +4,7 @@
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
+use crate::gui::ui::common::rows;
 use crate::gui::{
    SHARED_GUI,
    ui::{
@@ -107,20 +108,6 @@ impl PortfolioUi {
       self.preview = None;
    }
 
-   /// Fixed-size cell with vertically centered content so every column
-   /// shares one baseline across framed rows.
-   fn row_cell(ui: &mut Ui, width: f32, height: f32, add_contents: impl FnOnce(&mut Ui)) {
-      ui.allocate_ui_with_layout(
-         vec2(width, height),
-         Layout::left_to_right(Align::Center),
-         |ui| {
-            ui.set_min_size(vec2(width, height));
-            ui.set_max_size(vec2(width, height));
-            add_contents(ui);
-         },
-      );
-   }
-
    /// One framed portfolio row. Returns true if Remove was clicked.
    fn asset_row(
       ui: &mut Ui,
@@ -146,7 +133,7 @@ impl PortfolioUi {
             ui.spacing_mut().item_spacing.x = 20.0;
 
             ui.horizontal(|ui| {
-               Self::row_cell(ui, column_widths[0], row_height, |ui| {
+               rows::row_cell(ui, column_widths[0], row_height, |ui| {
                   let text =
                      RichText::new(symbol).size(theme.typography.normal).color(theme.colors.text);
                   let label = Label::new(text, Some(icon))
@@ -160,25 +147,25 @@ impl PortfolioUi {
                   });
                });
 
-               Self::row_cell(ui, column_widths[1], row_height, |ui| {
+               rows::row_cell(ui, column_widths[1], row_height, |ui| {
                   ui.label(
                      RichText::new(price).size(theme.typography.normal).color(theme.colors.text),
                   );
                });
 
-               Self::row_cell(ui, column_widths[2], row_height, |ui| {
+               rows::row_cell(ui, column_widths[2], row_height, |ui| {
                   ui.label(
                      RichText::new(balance).size(theme.typography.normal).color(theme.colors.text),
                   );
                });
 
-               Self::row_cell(ui, column_widths[3], row_height, |ui| {
+               rows::row_cell(ui, column_widths[3], row_height, |ui| {
                   ui.label(
                      RichText::new(value).size(theme.typography.normal).color(theme.colors.text),
                   );
                });
 
-               Self::row_cell(ui, column_widths[4], row_height, |ui| {
+               rows::row_cell(ui, column_widths[4], row_height, |ui| {
                   if show_remove {
                      let button = Button::new(RichText::new("X").size(theme.typography.normal));
                      remove_clicked = ui.add(button).clicked();
@@ -219,11 +206,11 @@ impl PortfolioUi {
             ui.spacing_mut().item_spacing.x = col_spacing;
 
             ui.horizontal(|ui| {
-               Self::row_cell(ui, column_widths[0], row_height, |ui| {
+               rows::row_cell(ui, column_widths[0], row_height, |ui| {
                   ui.add(icon);
                });
 
-               Self::row_cell(ui, column_widths[1], row_height, |ui| {
+               rows::row_cell(ui, column_widths[1], row_height, |ui| {
                   // Two labels rather than one with a newline: `TextWrapMode::Truncate` keeps a label to
                   // a single line, so the second line of a two-line label would never be drawn.
                   ui.vertical(|ui| {
@@ -248,7 +235,7 @@ impl PortfolioUi {
                   });
                });
 
-               Self::row_cell(ui, column_widths[2], row_height, |ui| {
+               rows::row_cell(ui, column_widths[2], row_height, |ui| {
                   ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                      let visual = theme.button_visuals();
 
@@ -456,7 +443,7 @@ impl PortfolioUi {
                      for (i, header) in
                         ["Asset", "Price", "Balance", "Value", ""].into_iter().enumerate()
                      {
-                        Self::row_cell(ui, column_widths[i], 28.0, |ui| {
+                        rows::row_cell(ui, column_widths[i], 28.0, |ui| {
                            if !header.is_empty() {
                               ui.label(
                                  RichText::new(header)

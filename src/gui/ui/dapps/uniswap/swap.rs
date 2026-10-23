@@ -1,7 +1,8 @@
 use super::UniswapSettingsUi;
 use crate::core::ZeusContext;
+use crate::gui::ui::common::amount_field::{AmountField, AmountFieldParams};
 use crate::gui::ui::dapps::uniswap::ProtocolVersion;
-use crate::gui::ui::*;
+use crate::gui::ui::token_selection::{InOrOut, TokenSelectionWindow};
 use crate::utils::universal_router_v2::SwapType;
 use crate::{assets::icons::Icons, gui::SHARED_GUI};
 use egui::{Align, Grid, Id, Layout, RichText, ScrollArea, Sense, Stroke, Ui, vec2};

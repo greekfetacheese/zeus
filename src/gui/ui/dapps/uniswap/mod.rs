@@ -3,6 +3,7 @@ use egui::{Align, CornerRadius, CursorIcon, Layout, Order, RichText, Spinner, Ui
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::gui::ui::TokenSelectionWindow;
+use crate::gui::ui::common::notices;
 use crate::gui::ui::show_with_fade;
 use egui_elements::{Button, Modal, Theme, visuals::ButtonVisuals};
 use egui_lucide::Lucide;
@@ -170,21 +171,6 @@ impl UniswapUi {
       });
    }
 
-   fn show_railgun_not_supported(&self, theme: &Theme, ui: &mut Ui) {
-      let frame = theme.frame1;
-      ui.vertical_centered(|ui| {
-         frame.show(ui, |ui| {
-            ui.set_width(self.size.0);
-            ui.set_max_height(self.size.1);
-            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
-
-            let text =
-               RichText::new("Private swaps are not supported").size(theme.typography.very_large);
-            ui.label(text);
-         });
-      });
-   }
-
    pub fn show(
       &mut self,
       ctx: &mut ZeusContext,
@@ -197,7 +183,13 @@ impl UniswapUi {
 
       show_with_fade(ui, "swap_ui_fade", self.open, |ui| {
          if ctx.privacy_mode {
-            self.show_railgun_not_supported(theme, ui);
+            notices::notice_panel(
+               theme,
+               self.size,
+               "Private swaps are not supported",
+               None,
+               ui,
+            );
             return;
          }
 

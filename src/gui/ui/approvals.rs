@@ -5,13 +5,13 @@ use crate::core::{
    DecodedEvent, NftApproveParams, PermitParams, SendTxOptions, SendTxRequest, TokenApproveParams,
    TransactionAnalysis, WalletInfo, ZeusContext, ZeusCtx, send_transaction, signature,
 };
+use crate::gui::ui::common::rows;
 use crate::gui::ui::common::{chain_label, usable_chain};
 use crate::gui::{SHARED_GUI, ui::show_with_fade};
 use crate::utils::{TimeStamp, simulate::simulate_for_analysis, truncate_address};
 use anyhow::anyhow;
 use egui::{
-   Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, UiBuilder,
-   vec2,
+   Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, vec2,
 };
 use egui_elements::{Button, ComboBox, Label, Theme};
 use elegance::{Badge, BadgeTone};
@@ -495,19 +495,6 @@ impl ApprovalsUi {
       }
    }
 
-   /// Fixed-size cell. The parent always advances by `width` even if a label
-   /// wants more space — otherwise long Chain/Wallet/Spender names shove later
-   /// columns to the right.
-   fn row_cell(ui: &mut Ui, width: f32, height: f32, add_contents: impl FnOnce(&mut Ui)) {
-      let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
-      let mut child =
-         ui.new_child(UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)));
-      // Don't clip — Button chrome expands a few px and clip cuts the left
-      // edge of Revoke. Truncate wrap keeps long labels inside the cell.
-      child.style_mut().wrap_mode = Some(TextWrapMode::Truncate);
-      add_contents(&mut child);
-   }
-
    /// The Amount column: how much is approved.
    ///
    /// For an NFT that means the *scope* — which id, or the whole collection — plus the allowance on
@@ -539,7 +526,7 @@ impl ApprovalsUi {
          },
       };
 
-      Self::row_cell(ui, width, height, |ui| {
+      rows::row_cell(ui, width, height, |ui| {
          ui.spacing_mut().item_spacing.x = theme.spacing.xs;
 
          ui.label(RichText::new(text).size(theme.typography.normal).color(theme.colors.text));
@@ -817,7 +804,7 @@ impl ApprovalsUi {
                      ui.spacing_mut().item_spacing.x = col_spacing;
                      for (i, header) in headers.into_iter().enumerate() {
                         // Shorter header row — no need for full body height.
-                        Self::row_cell(ui, column_widths[i], 28.0, |ui| {
+                        rows::row_cell(ui, column_widths[i], 28.0, |ui| {
                            if !header.is_empty() {
                               ui.label(
                                  RichText::new(header)
@@ -858,7 +845,7 @@ impl ApprovalsUi {
 
                               ui.horizontal(|ui| {
                                  // Asset — a token's symbol, or the collection an NFT approval is over.
-                                 Self::row_cell(ui, column_widths[0], row_height, |ui| {
+                                 rows::row_cell(ui, column_widths[0], row_height, |ui| {
                                     let icon_width = row.asset.icon_width();
                                     let (icon, title, hover) = match &row.asset {
                                        ApprovalAsset::Token { currency, .. } => (
@@ -911,7 +898,7 @@ impl ApprovalsUi {
                                  });
 
                                  // Chain
-                                 Self::row_cell(ui, column_widths[1], row_height, |ui| {
+                                 rows::row_cell(ui, column_widths[1], row_height, |ui| {
                                     let chain = chain_label(row.chain);
                                     let text = RichText::new(&chain)
                                        .size(theme.typography.normal)
@@ -923,7 +910,7 @@ impl ApprovalsUi {
                                  });
 
                                  // Wallet
-                                 Self::row_cell(ui, column_widths[2], row_height, |ui| {
+                                 rows::row_cell(ui, column_widths[2], row_height, |ui| {
                                     let name = self.wallet_name(ctx, row.owner);
                                     let text = RichText::new(&name)
                                        .size(theme.typography.normal)
@@ -935,7 +922,7 @@ impl ApprovalsUi {
                                  });
 
                                  // Spender
-                                 Self::row_cell(ui, column_widths[3], row_height, |ui| {
+                                 rows::row_cell(ui, column_widths[3], row_height, |ui| {
                                     let name = self.spender_label(ctx, row.chain, row.spender);
 
                                     match spender_explorer_url(row.chain, row.spender) {
@@ -980,7 +967,7 @@ impl ApprovalsUi {
                                  );
 
                                  // Type
-                                 Self::row_cell(ui, column_widths[5], row_height, |ui| {
+                                 rows::row_cell(ui, column_widths[5], row_height, |ui| {
                                     ui.label(
                                        RichText::new(row.kind.type_label())
                                           .size(theme.typography.normal)
@@ -989,7 +976,7 @@ impl ApprovalsUi {
                                  });
 
                                  // Revoke — hug the right inner edge of the card.
-                                 Self::row_cell(ui, column_widths[6], row_height, |ui| {
+                                 rows::row_cell(ui, column_widths[6], row_height, |ui| {
                                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                        let text =
                                           RichText::new("Revoke").size(theme.typography.normal);

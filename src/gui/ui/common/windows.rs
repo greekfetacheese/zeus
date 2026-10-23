@@ -17,13 +17,44 @@ use std::time::{Duration, Instant};
 
 use egui_elements::{Button, Lightning, LightningSettings, Modal, ParticleLayer, Theme};
 
+/// The single-prompt gate shared by the authorising windows.
+///
+/// A flow claims the gate before raising its prompt and releases it once the answer is collected;
+/// `claim` refusing is what keeps two authorising prompts from being open at once. Every window that
+/// can block on the user shares this one implementation, so the policy cannot drift between them.
+#[derive(Default)]
+pub struct PromptGate {
+   pending: bool,
+}
+
+impl PromptGate {
+   /// Takes the gate for one flow. `false` means another flow already holds it.
+   pub fn claim(&mut self) -> bool {
+      if self.pending {
+         return false;
+      }
+      self.pending = true;
+      true
+   }
+
+   /// Gives the gate back once the flow is done with the window.
+   pub fn release(&mut self) {
+      self.pending = false;
+   }
+
+   /// Whether a flow currently holds the gate.
+   pub fn pending(&self) -> bool {
+      self.pending
+   }
+}
+
 /// A Window to prompt the user to confirm an action
 pub struct ConfirmWindow {
    open: bool,
    /// A flow has claimed this window ([`Self::claim`]) and holds it until it is done with the
    /// prompt. Claimed under the same lock that opens it, so a second flow cannot replace the
    /// prompt the user is reading — several different actions share this one window.
-   pending: bool,
+   gate: PromptGate,
    pub confirm: Option<bool>,
    pub msg: String,
    pub msg2: Option<String>,
@@ -36,7 +67,7 @@ impl ConfirmWindow {
    pub fn new() -> Self {
       Self {
          open: false,
-         pending: false,
+         gate: PromptGate::default(),
          confirm: None,
          msg: String::new(),
          msg2: None,
@@ -87,8 +118,8 @@ impl ConfirmWindow {
       self.msg2 = Some(msg.into());
    }
 
-   /// True while a confirmation is in flight: a flow holds the window ([`Self::pending`]) or the
-   /// prompt is up.
+   /// True while a confirmation is in flight: a flow holds the window's gate
+   /// ([`PromptGate::pending`]) or the prompt is up.
    ///
    /// A flow refuses to raise a second prompt while this holds, so two flows can never share one
    /// window — and therefore one Confirm click.
@@ -98,7 +129,7 @@ impl ConfirmWindow {
    /// once that flow is gone — and reading it as busy would let a flow that died after the user
    /// answered wedge every later request.
    pub fn is_busy(&self) -> bool {
-      self.pending || self.open
+      self.gate.pending() || self.open
    }
 
    /// Claim the window for one flow, from just before its prompt is put up until it is done with
@@ -107,15 +138,11 @@ impl ConfirmWindow {
    /// Taken inside [`Self::open`] / [`Self::open_from_dapp`], under the caller's lock, so the claim
    /// and the open have no gap. [`Self::release`] hands it back.
    fn claim(&mut self) -> bool {
-      if self.pending {
-         return false;
-      }
-      self.pending = true;
-      true
+      self.gate.claim()
    }
 
    pub fn release(&mut self) {
-      self.pending = false;
+      self.gate.release()
    }
 
    /// Collect the answer, consuming it.
@@ -694,6 +721,22 @@ mod tests {
       gui.tx_confirmation_window.release();
 
       assert!(!authorising_prompt_busy(&gui));
+   }
+
+   /// The gate is exclusive: one flow holds it, a second claim is refused, and releasing hands it on.
+   #[test]
+   fn the_prompt_gate_hands_out_one_claim_at_a_time() {
+      let mut gate = PromptGate::default();
+      assert!(!gate.pending(), "a fresh gate is free");
+      assert!(gate.claim(), "the first flow takes it");
+      assert!(gate.pending());
+      assert!(
+         !gate.claim(),
+         "a second flow is refused while the first holds it"
+      );
+      gate.release();
+      assert!(!gate.pending(), "releasing frees it");
+      assert!(gate.claim(), "and the next flow can take it");
    }
 
    /// The loading window's strike is hardcoded: these eight numbers are a

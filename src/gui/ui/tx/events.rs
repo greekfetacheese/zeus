@@ -157,15 +157,18 @@ pub fn permit_event_ui(
       params.amount.abbreviated()
    };
 
-   let show_usd_value = !is_unlimited && params.amount_usd.is_some();
+   let amount_usd = if is_unlimited {
+      None
+   } else {
+      params.amount_usd.as_ref()
+   };
    let expiration = params.expiration.to_relative();
 
    let tint = theme.image_tint_recommended;
    let icon_size = vec2(24.0, 24.0);
 
    let icon = icons.currency_icon_x32(&params.token, tint).fit_to_exact_size(icon_size);
-   let mut text = if show_usd_value {
-      let amount_usd = params.amount_usd.as_ref().unwrap();
+   let mut text = if let Some(amount_usd) = amount_usd {
       RichText::new(format!(
          "{:.10} {} ~ ${:.10}",
          amount,
@@ -335,8 +338,7 @@ fn transfer_event_ui(
    });
 
    // Actual amount sent
-   if params.real_amount_sent.is_some() {
-      let real_amount_sent = params.real_amount_sent.as_ref().unwrap();
+   if let Some(real_amount_sent) = params.real_amount_sent.as_ref() {
       let real_amount_sent_usd = params.real_amount_sent_usd.clone().unwrap_or_default();
 
       ui.horizontal(|ui| {
@@ -1242,15 +1244,14 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
    });
 
    // Minimum Received
-   let amount = params.min_received.clone();
-   let amount_usd = params.min_received_usd.clone();
-   if amount.is_some() && amount_usd.is_some() {
+   if let (Some(amount), Some(amount_usd)) = (
+      params.min_received.as_ref(),
+      params.min_received_usd.as_ref(),
+   ) {
       ui.horizontal(|ui| {
          ui.label(RichText::new("Minimum Received").size(theme.typography.large));
          ui.add_space(15.0);
 
-         let amount = amount.unwrap();
-         let amount_usd = amount_usd.unwrap();
          let currency = &params.output_currency;
          let amount_symbol = format!(
             "{:.10} {}",
@@ -1437,8 +1438,7 @@ fn uniswap_position_op_event_ui(
    }
 
    // Minimum Amount A and Amount & value
-   if min_amount0.is_some() {
-      let min_amount0 = min_amount0.unwrap();
+   if let Some(min_amount0) = min_amount0 {
       ui.horizontal(|ui| {
          let icon = icons.currency_icon_x32(currency0, tint).fit_to_exact_size(icon_size);
          let text = format!(
@@ -1462,8 +1462,7 @@ fn uniswap_position_op_event_ui(
    }
 
    // Minimum Amount B and Amount & value
-   if min_amount1.is_some() {
-      let min_amount1 = min_amount1.unwrap();
+   if let Some(min_amount1) = min_amount1 {
       ui.horizontal(|ui| {
          let icon = icons.currency_icon_x32(currency1, tint).fit_to_exact_size(icon_size);
          let text = format!(
@@ -1487,15 +1486,8 @@ fn uniswap_position_op_event_ui(
    }
 
    // Recipient
-   if params.recipient.is_some() {
-      address(
-         ctx,
-         chain,
-         "Recipient",
-         params.recipient.unwrap(),
-         theme,
-         ui,
-      );
+   if let Some(recipient) = params.recipient {
+      address(ctx, chain, "Recipient", recipient, theme, ui);
    }
 }
 

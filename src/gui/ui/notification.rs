@@ -616,13 +616,16 @@ impl Notification {
             format_amount(&params.amount)
          };
 
-         let show_usd_value = !is_unlimited && params.amount_usd.is_some();
+         let amount_usd = if is_unlimited {
+            None
+         } else {
+            params.amount_usd.as_ref()
+         };
 
          let icon = icons
             .currency_icon_x32(&Currency::from(params.token.clone()), tint)
             .fit_to_exact_size(icon_size);
-         let text = if show_usd_value {
-            let amount_usd = params.amount_usd.as_ref().unwrap();
+         let text = if let Some(amount_usd) = amount_usd {
             RichText::new(format!(
                "{} {} ~ ${}",
                amount,
@@ -653,16 +656,11 @@ impl Notification {
       let icon_size = vec2(24.0, 24.0);
 
       ui.vertical_centered(|ui| {
-         if params.erc20.is_some() {
-            let token = params.erc20.as_ref().unwrap();
-            let amount = params.amount.as_ref().unwrap();
-            let show_usd_value = params.amount_usd.is_some();
-
+         if let (Some(token), Some(amount)) = (&params.erc20, &params.amount) {
             let icon = icons
                .token_icon_x32(token.address, token.chain_id, tint)
                .fit_to_exact_size(icon_size);
-            let text = if show_usd_value {
-               let amount_usd = params.amount_usd.as_ref().unwrap();
+            let text = if let Some(amount_usd) = &params.amount_usd {
                RichText::new(format!(
                   "{} {} ~ ${}",
                   format_amount(amount),
@@ -730,16 +728,11 @@ impl Notification {
       let icon_size = vec2(24.0, 24.0);
 
       ui.vertical_centered(|ui| {
-         if params.erc20.is_some() {
-            let token = params.erc20.as_ref().unwrap();
-            let amount = params.amount.as_ref().unwrap();
-            let show_usd_value = params.amount_usd.is_some();
-
+         if let (Some(token), Some(amount)) = (&params.erc20, &params.amount) {
             let icon = icons
                .token_icon_x32(token.address, token.chain_id, tint)
                .fit_to_exact_size(icon_size);
-            let text = if show_usd_value {
-               let amount_usd = params.amount_usd.as_ref().unwrap();
+            let text = if let Some(amount_usd) = &params.amount_usd {
                RichText::new(format!(
                   "{} {} ~ ${}",
                   format_amount(amount),

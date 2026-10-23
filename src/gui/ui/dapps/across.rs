@@ -8,6 +8,7 @@ use crate::core::{
    BridgeParams, DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, ZeusContext,
    ZeusCtx, read_recipient_account, refuse_contract_recipient, send_transaction,
 };
+use crate::gui::ui::common::notices;
 use crate::gui::{
    SHARED_GUI,
    ui::{
@@ -209,21 +210,6 @@ impl AcrossBridge {
       self.currency = currency;
    }
 
-   fn show_railgun_not_supported(&self, theme: &Theme, ui: &mut Ui) {
-      let frame = theme.frame1;
-      ui.vertical_centered(|ui| {
-         frame.show(ui, |ui| {
-            ui.set_width(self.size.0);
-            ui.set_max_height(self.size.1);
-            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
-
-            let text = RichText::new("Bridge is not supported on Private Mode")
-               .size(theme.typography.very_large);
-            ui.label(text);
-         });
-      });
-   }
-
    pub fn show(
       &mut self,
       ctx: &mut ZeusContext,
@@ -261,7 +247,13 @@ impl AcrossBridge {
 
       show_with_fade(ui, "across_bridge_ui_fade", self.open, |ui| {
          if ctx.privacy_mode {
-            self.show_railgun_not_supported(theme, ui);
+            notices::notice_panel(
+               theme,
+               self.size,
+               "Bridge is not supported on Private Mode",
+               None,
+               ui,
+            );
             return;
          }
 
@@ -671,8 +663,7 @@ impl AcrossBridge {
          self.to_chain.chain.id(),
       ));
 
-      if cache.is_some() {
-         let cache = cache.unwrap();
+      if let Some(cache) = cache {
          let fee_pct = cache.res.suggested_fees.total_relay_fee.pct.clone();
          let fee_pct = U256::from_str(&fee_pct).unwrap_or_default();
          let fee_amount = (input_amount.wei() * fee_pct) / scale;
@@ -1157,9 +1148,9 @@ async fn across_bridge(
             })
             .await;
 
-         if block.is_ok() {
+         if let Ok(block) = block {
             let mut guard = from_block_clone.lock().await;
-            *guard = Some(block.unwrap());
+            *guard = Some(block);
          }
       }
    });
@@ -1300,11 +1291,9 @@ async fn wait_for_fill(
       tokio::time::sleep(Duration::from_millis(10)).await;
    }
 
-   if block.is_none() {
+   let Some(from_block) = block else {
       return Ok(());
-   }
-
-   let from_block = block.unwrap();
+   };
    let mut sleep_ms = dest_chain.block_time_millis();
    if dest_chain.is_arbitrum() || dest_chain.is_robinhood() {
       // set sleep time to 1 second so we don't spam the rpc
