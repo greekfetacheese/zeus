@@ -11,11 +11,12 @@ use crate::{
    crypto::{
       aes::AesError,
       keys::{BlindedKey, KeyError, ViewingKey, ViewingPublicKey},
-      poseidon_hash, railgun_base_37,
+      poseidon2, railgun_base_37,
    },
 };
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum EncryptError {
    #[error("Railgun base37 encoding error: {0}")]
    RailgunBase37(#[from] railgun_base_37::EncodingError),
@@ -25,19 +26,35 @@ pub enum EncryptError {
    Key(#[from] KeyError),
 }
 
+/// The named inputs to [`encrypt_note`]; `blind` picks whether the sender is blinded.
+#[non_exhaustive]
+pub struct EncryptNoteParams<'a> {
+   pub receiver: &'a RailgunAddress,
+   pub shared_random: &'a [u8; 16],
+   pub value: u128,
+   pub asset: &'a AssetId,
+   pub memo: &'a str,
+   pub viewing_key: ViewingKey,
+   pub blind: bool,
+}
+
 /// Encrypts a note into a CommitmentCiphertext
 ///
 /// TODO: Add details on blind
 pub fn encrypt_note<R: RngCore + ?Sized>(
-   receiver: &RailgunAddress,
-   shared_random: &[u8; 16],
-   value: u128,
-   asset: &AssetId,
-   memo: &str,
-   viewing_key: ViewingKey,
-   blind: bool,
+   params: EncryptNoteParams<'_>,
    rng: &mut R,
 ) -> Result<CommitmentCiphertext, EncryptError> {
+   let EncryptNoteParams {
+      receiver,
+      shared_random,
+      value,
+      asset,
+      memo,
+      viewing_key,
+      blind,
+   } = params;
+
    let output_type = 0;
    let application_identifier = railgun_base_37::encode("railgun rs")?;
    let sender_random: [u8; 15] = if blind { rng.random() } else { [0u8; 15] };
@@ -65,9 +82,18 @@ pub fn encrypt_note<R: RngCore + ?Sized>(
    let ctr2 = application_identifier;
    let ctr = viewing_key.encrypt_ctr(&[&ctr0, &ctr1, &ctr2], &rng.random());
 
-   let bundle_1: [u8; 32] = gcm.data[0].clone().try_into().unwrap();
-   let bundle_2: [u8; 32] = gcm.data[1].clone().try_into().unwrap();
-   let bundle_3: [u8; 32] = gcm.data[2].clone().try_into().unwrap();
+   let bundle_1: [u8; 32] = gcm.data[0]
+      .clone()
+      .try_into()
+      .expect("encrypt_gcm emits one block per plaintext block");
+   let bundle_2: [u8; 32] = gcm.data[1]
+      .clone()
+      .try_into()
+      .expect("encrypt_gcm emits one block per plaintext block");
+   let bundle_3: [u8; 32] = gcm.data[2]
+      .clone()
+      .try_into()
+      .expect("encrypt_gcm emits one block per plaintext block");
 
    Ok(CommitmentCiphertext {
       // iv (16) | tag (16)
@@ -96,25 +122,34 @@ pub fn encrypt_shield<R: Rng>(
    rng: &mut R,
 ) -> Result<ShieldRequest, EncryptError> {
    let shield_private_key: ViewingKey = rng.random();
-   let shared_key = shield_private_key.derive_shared_key(recipient.viewing_pubkey()).unwrap();
+   let shared_key = shield_private_key
+      .derive_shared_key(recipient.viewing_pubkey())
+      .expect("both viewing keys are valid curve points");
 
    let random_seed: [u8; 16] = rng.random();
-   let mut npk: [u8; 32] = poseidon_hash(&[
+   let mut npk: [u8; 32] = poseidon2(
       recipient.master_pubkey().to_u256(),
       U256::from_be_slice(&random_seed),
-   ])
-   .unwrap()
+   )
    .to_le_bytes();
    npk.reverse();
 
-   let gcm = shared_key.encrypt_gcm(&[&random_seed], &rng.random()).unwrap();
+   let gcm = shared_key
+      .encrypt_gcm(&[&random_seed], &rng.random())
+      .expect("encrypt_gcm emits one block per plaintext block");
    let ctr = shield_private_key.encrypt_ctr(
       &[recipient.viewing_pubkey().as_bytes()],
       &rng.random(),
    );
 
-   let gcm_random: [u8; 16] = gcm.data[0].clone().try_into().unwrap();
-   let ctr_key: [u8; 32] = ctr.data[0].clone().try_into().unwrap();
+   let gcm_random: [u8; 16] = gcm.data[0]
+      .clone()
+      .try_into()
+      .expect("encrypt_gcm emits one block per plaintext block");
+   let ctr_key: [u8; 32] = ctr.data[0]
+      .clone()
+      .try_into()
+      .expect("encrypt_ctr emits one block per plaintext block");
 
    Ok(ShieldRequest {
       preimage: CommitmentPreimage {
@@ -178,7 +213,7 @@ fn concat_arrays<const A: usize, const B: usize, const C: usize>(
    out
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 mod tests {
    use alloy_primitives::address;
    use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
@@ -205,13 +240,15 @@ mod tests {
       let memo = "test memo";
 
       let _encrypted = encrypt_note(
-         &signer.address(),
-         &shared_random,
-         value,
-         &asset,
-         memo,
-         sender_viewing_key,
-         false,
+         EncryptNoteParams {
+            receiver: signer.address(),
+            shared_random: &shared_random,
+            value,
+            asset: &asset,
+            memo,
+            viewing_key: sender_viewing_key,
+            blind: false,
+         },
          &mut rand,
       )
       .unwrap();

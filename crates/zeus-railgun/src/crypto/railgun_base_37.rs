@@ -6,6 +6,7 @@ const CHARSET: &[u8] = b" 0123456789abcdefghijklmnopqrstuvwxyz";
 const BASE: u128 = CHARSET.len() as u128;
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum EncodingError {
    #[error("invalid character: {0}")]
    InvalidCharacter(char),
@@ -47,10 +48,10 @@ fn decode(bytes: &[u8; 16]) -> String {
    }
 
    result.reverse();
-   String::from_utf8(result).unwrap()
+   String::from_utf8(result).expect("CHARSET is ASCII")
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 mod tests {
    use super::*;
 

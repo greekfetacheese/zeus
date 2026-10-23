@@ -15,13 +15,14 @@ use secure_types::{SecureArray, Zeroize};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::poseidon_hash;
+use super::{poseidon1, poseidon3};
 use crate::{
    account::derive_private_key,
    crypto::aes::{AesError, Ciphertext, CiphertextCtr, decrypt_gcm, encrypt_ctr, encrypt_gcm},
 };
 
 #[derive(Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct SpendingSignature {
    pub r8_x: U256,
    pub r8_y: U256,
@@ -29,6 +30,7 @@ pub struct SpendingSignature {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum KeyError {
    #[error("Failed to decompress public key")]
    DecompressionFailed,
@@ -45,6 +47,7 @@ pub struct SharedKey([u8; 32]);
 pub struct BlindedKey([u8; 32]);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ViewingPublicKey(pub [u8; 32]);
 
 /// Key for nullifier derivation.
@@ -53,6 +56,7 @@ pub struct NullifyingKey([u8; 32]);
 
 /// Master public key (wallet identifier).
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct MasterPublicKey(pub [u8; 32]);
 
 /// Private key for signing transactions (BabyJubJub curve).
@@ -109,7 +113,8 @@ impl SpendingKey {
    }
 
    pub fn from_bytes(mut bytes: [u8; 32]) -> Self {
-      let sec_array = SecureArray::from_slice_mut(&mut bytes).unwrap();
+      let sec_array = SecureArray::from_slice_mut(&mut bytes)
+         .expect("SecureArray size matches the array passed in");
       Self(Mutex::new(sec_array))
    }
 
@@ -231,7 +236,8 @@ impl ViewingKey {
    }
 
    pub fn from_bytes(mut bytes: [u8; 32]) -> Self {
-      let sec_array = SecureArray::from_slice_mut(&mut bytes).unwrap();
+      let sec_array = SecureArray::from_slice_mut(&mut bytes)
+         .expect("SecureArray size matches the array passed in");
       Self(Mutex::new(sec_array))
    }
 
@@ -317,7 +323,7 @@ impl ViewingKey {
 impl NullifyingKey {
    pub fn new(viewing_key: ViewingKey) -> Self {
       let mut vk = viewing_key.to_u256();
-      let hash = poseidon_hash(std::slice::from_ref(&vk)).unwrap();
+      let hash = poseidon1(vk);
       vk.zeroize();
       NullifyingKey::from_u256(hash)
    }
@@ -409,12 +415,11 @@ impl SharedKey {
 
 impl MasterPublicKey {
    pub(crate) fn new(spending_pubkey: SpendingPublicKey, nullifying_key: NullifyingKey) -> Self {
-      let hash = poseidon_hash(&[
+      let hash = poseidon3(
          spending_pubkey.x_u256(),
          spending_pubkey.y_u256(),
          nullifying_key.to_u256(),
-      ])
-      .unwrap();
+      );
       MasterPublicKey::from_u256(hash)
    }
 
@@ -482,7 +487,8 @@ impl Distribution<ViewingKey> for StandardUniform {
    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> ViewingKey {
       let mut bytes: [u8; 32] = rng.random();
       bytes[0] &= 0x1F; // Mask for BN254 range (matching kohaku)
-      let array = SecureArray::from_slice(&bytes).expect("32 byte array is valid");
+      let array =
+         SecureArray::from_slice(&bytes).expect("SecureArray size matches the array passed in");
       ViewingKey::new(array)
    }
 }
@@ -491,7 +497,8 @@ impl Distribution<SpendingKey> for StandardUniform {
    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> SpendingKey {
       let mut bytes: [u8; 32] = rng.random();
       bytes[0] &= 0x1F; // Mask for BN254 range (matching kohaku)
-      let array = SecureArray::from_slice(&bytes).expect("32 byte array is valid");
+      let array =
+         SecureArray::from_slice(&bytes).expect("SecureArray size matches the array passed in");
       SpendingKey::new(array)
    }
 }

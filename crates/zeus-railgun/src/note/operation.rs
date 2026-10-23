@@ -43,6 +43,7 @@ pub struct Operation {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum OperationVerificationError {
    #[error("Imbalanced operation: {0} != {1} + {2}")]
    Imbalanced(u128, u128, u128),
@@ -166,7 +167,7 @@ impl Operation {
    }
 
    pub fn unshield_note(&self) -> Option<UnshieldNote> {
-      self.unshield_note.clone()
+      self.unshield_note
    }
 
    pub fn out_encryptable_notes(&self) -> Vec<TransferNote> {

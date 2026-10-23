@@ -13,7 +13,7 @@ use crate::{
       keys::{
          BlindedKey, KeyError, MasterPublicKey, NullifyingKey, SpendingPublicKey, ViewingPublicKey,
       },
-      poseidon_hash,
+      poseidon2, poseidon3,
    },
    indexer::syncer::types::{Shield, Transact},
    merkle_tree::UtxoLeafHash,
@@ -50,6 +50,7 @@ fn resolve_transact_asset(
 
 /// Railgun UTXO note
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[non_exhaustive]
 pub struct UtxoNote {
    pub tree_number: u32,
    pub leaf_index: u32,
@@ -71,6 +72,7 @@ pub struct UtxoNote {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum NoteError {
    #[error("AES error: {0}")]
    Aes(#[from] AesError),
@@ -80,21 +82,34 @@ pub enum NoteError {
    Key(#[from] KeyError),
 }
 
+/// Everything a note needs apart from the key material it is built for.
+#[non_exhaustive]
+pub struct UtxoNoteParams {
+   pub tree_number: u32,
+   pub leaf_index: u32,
+   pub asset: AssetId,
+   pub value: u128,
+   pub random: [u8; 16],
+   pub memo: String,
+   pub commitment_type: BlindedCommitmentType,
+}
+
 impl UtxoNote {
-   pub fn new(
-      tree_number: u32,
-      leaf_index: u32,
-      signer: &RailgunSigner,
-      asset: AssetId,
-      value: u128,
-      random: [u8; 16],
-      memo: &str,
-      commitment_type: BlindedCommitmentType,
-   ) -> Self {
-      let spending_pubkey = signer.keys().spending_public_key.clone();
-      let viewing_pubkey = signer.keys().viewing_public_key.clone();
-      let nullifying_key = signer.keys().nullifying_key.clone();
-      let nullifier = poseidon_hash(&[nullifying_key.to_u256(), U256::from(leaf_index)]).unwrap();
+   pub fn new(signer: &RailgunSigner, params: UtxoNoteParams) -> Self {
+      let UtxoNoteParams {
+         tree_number,
+         leaf_index,
+         asset,
+         value,
+         random,
+         memo,
+         commitment_type,
+      } = params;
+
+      let spending_pubkey = signer.keys().spending_public_key;
+      let viewing_pubkey = signer.keys().viewing_public_key;
+      let nullifying_key = signer.keys().nullifying_key;
+      let nullifier = poseidon2(nullifying_key.to_u256(), U256::from(leaf_index));
       let npk = note_public_key(spending_pubkey, nullifying_key, &random);
       let hash = note_hash(npk, asset, value);
       let blinded_commitment = blinded_commitment(hash.into(), npk, tree_number, leaf_index);
@@ -107,7 +122,7 @@ impl UtxoNote {
          asset,
          value,
          random,
-         memo: memo.to_string(),
+         memo,
          hash,
          note_public_key: npk,
          nullifying_key,
@@ -162,14 +177,16 @@ impl UtxoNote {
       };
 
       Ok(UtxoNote::new(
-         transact.tree_number,
-         transact.leaf_index,
          signer,
-         asset_id,
-         value,
-         random,
-         memo,
-         BlindedCommitmentType::Transact,
+         UtxoNoteParams {
+            tree_number: transact.tree_number,
+            leaf_index: transact.leaf_index,
+            asset: asset_id,
+            value,
+            random,
+            memo: memo.to_string(),
+            commitment_type: BlindedCommitmentType::Transact,
+         },
       ))
    }
 
@@ -186,14 +203,16 @@ impl UtxoNote {
       random.copy_from_slice(&decrypted[0][..16]);
 
       Ok(UtxoNote::new(
-         shield.tree_number,
-         shield.leaf_index,
          signer,
-         asset_id,
-         value.saturating_to(),
-         random,
-         "",
-         BlindedCommitmentType::Shield,
+         UtxoNoteParams {
+            tree_number: shield.tree_number,
+            leaf_index: shield.leaf_index,
+            asset: asset_id,
+            value: value.saturating_to(),
+            random,
+            memo: String::new(),
+            commitment_type: BlindedCommitmentType::Shield,
+         },
       ))
    }
 
@@ -233,9 +252,7 @@ impl Display for UtxoNote {
 }
 
 fn note_hash(note_public_key: U256, asset: AssetId, value: u128) -> UtxoLeafHash {
-   poseidon_hash(&[note_public_key, asset.hash(), U256::from(value)])
-      .unwrap()
-      .into()
+   poseidon3(note_public_key, asset.hash(), U256::from(value)).into()
 }
 
 fn note_public_key(
@@ -245,19 +262,18 @@ fn note_public_key(
 ) -> U256 {
    let master_key = MasterPublicKey::new(spending_pubkey, nullifying_key);
 
-   poseidon_hash(&[master_key.to_u256(), U256::from_be_slice(random)]).unwrap()
+   poseidon2(master_key.to_u256(), U256::from_be_slice(random))
 }
 
 pub fn blinded_commitment(hash: U256, npk: U256, tree_number: u32, leaf_index: u32) -> U256 {
-   poseidon_hash(&[
+   poseidon3(
       hash,
       npk,
       U256::from((tree_number as u128) * 65536 + (leaf_index as u128)),
-   ])
-   .unwrap()
+   )
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 pub fn test_note() -> UtxoNote {
    use crate::account::signer::RailgunSigner;
    use secure_types::SecureArray;
@@ -266,16 +282,18 @@ pub fn test_note() -> UtxoNote {
    let signer = RailgunSigner::from_seed(&sec_array, 0, 1).unwrap();
 
    UtxoNote::new(
-      1,
-      0,
       &signer,
-      AssetId::Erc20(alloy_primitives::address!(
-         "0x1234567890123456789012345678901234567890"
-      )),
-      100u128,
-      [3u8; 16],
-      "test memo",
-      BlindedCommitmentType::Transact,
+      UtxoNoteParams {
+         tree_number: 1,
+         leaf_index: 0,
+         asset: AssetId::Erc20(alloy_primitives::address!(
+            "0x1234567890123456789012345678901234567890"
+         )),
+         value: 100u128,
+         random: [3u8; 16],
+         memo: "test memo".to_string(),
+         commitment_type: BlindedCommitmentType::Transact,
+      },
    )
 }
 
@@ -366,14 +384,14 @@ mod tests {
 
       let note = UtxoNote::decrypt_transact(&recipient, &event, &known).unwrap();
       assert_eq!(note.asset, asset);
-      assert_eq!(note.hash(), transfer.hash().into());
+      assert_eq!(note.hash(), transfer.hash());
 
       // Without it there is nothing to recognize the asset by, and a 32-byte hash can only be read as an
       // ERC-20 address. The guess is not the asset the sender used, so the leaf does not match either.
       let guessed = UtxoNote::decrypt_transact(&recipient, &event, &TokenRegistry::new()).unwrap();
       assert_ne!(guessed.asset, asset);
-      assert_eq!(guessed.asset.is_erc20(), true);
-      assert_ne!(guessed.hash(), transfer.hash().into());
+      assert!(guessed.asset.is_erc20());
+      assert_ne!(guessed.hash(), transfer.hash());
    }
 
    fn random_signer() -> RailgunSigner {
@@ -392,7 +410,7 @@ mod tests {
    fn transact_with_blocks(recipient: &RailgunSigner, blocks: &[&[u8]]) -> Transact {
       use alloy_primitives::B256;
 
-      let blinded_sender = recipient.keys().viewing_public_key.clone();
+      let blinded_sender = recipient.keys().viewing_public_key;
       let shared_key = recipient
          .keys()
          .viewing_private_key

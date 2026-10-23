@@ -70,7 +70,7 @@ pub fn blake512(data: &[u8]) -> [u8; 64] {
    let mut chunks = data.chunks_exact(BLOCK);
    for chunk in chunks.by_ref() {
       bump_count(&mut t, BLOCK as u64);
-      let block: [u8; BLOCK] = chunk.try_into().expect("exact block");
+      let block: [u8; BLOCK] = chunk.try_into().expect("chunks_exact yields whole blocks");
       compress(&mut h, &block, t, false);
    }
 
@@ -128,8 +128,8 @@ fn write_msglen(dst: &mut [u8], t: [u64; 2]) {
 
 fn compress(h: &mut [u64; 8], block: &[u8; BLOCK], t: [u64; 2], nullt: bool) {
    let mut m = [0u64; 16];
-   for (i, chunk) in block.chunks_exact(8).enumerate() {
-      m[i] = u64::from_be_bytes(chunk.try_into().expect("8-byte word"));
+   for (i, chunk) in block.as_chunks::<8>().0.iter().enumerate() {
+      m[i] = u64::from_be_bytes(*chunk);
    }
 
    let mut v = [0u64; 16];
@@ -158,6 +158,9 @@ fn compress(h: &mut [u64; 8], block: &[u8; BLOCK], t: [u64; 2], nullt: bool) {
    }
 }
 
+// The BLAKE-512 G mixing function has a fixed protocol signature: the state, the message block, the
+// sigma row and the four state-word indices it mixes (plus the message indices picked out of sigma).
+#[allow(clippy::too_many_arguments)]
 #[inline(always)]
 fn g(
    v: &mut [u64; 16],

@@ -899,6 +899,7 @@ fn spent_action(
       PrivateHistoryKind::Send => format!("Transfer {amount} {symbol}"),
       PrivateHistoryKind::Spend => format!("Sent {amount} {symbol}"),
       PrivateHistoryKind::Merge => "Merged notes".to_string(),
+      _ => "Unknown".to_string(),
    }
 }
 

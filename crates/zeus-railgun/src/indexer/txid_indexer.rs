@@ -31,6 +31,7 @@ pub struct TxidIndexer {
 }
 
 #[derive(Serialize, Deserialize, Default)]
+#[non_exhaustive]
 pub struct TxidIndexerState {
    pub synced_block: u64,
    pub trees: Vec<u32>,
@@ -40,6 +41,7 @@ pub struct TxidIndexerState {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum TxidIndexerError {
    #[error("Syncer error: {0}")]
    SyncerError(#[from] SyncerError),
@@ -175,9 +177,9 @@ impl TxidIndexer {
          let tree_number = total / TOTAL_LEAVES;
          let leaf_index = total % TOTAL_LEAVES;
 
-         tree_leaves.entry(tree_number).or_default().push((leaf_index as u32, leaf));
+         tree_leaves.entry(tree_number).or_default().push((leaf_index, leaf));
 
-         self.inner.txid_to_txid_position.insert(txid, (tree_number, leaf_index as u32));
+         self.inner.txid_to_txid_position.insert(txid, (tree_number, leaf_index));
          self
             .inner
             .txid_to_utxo_position

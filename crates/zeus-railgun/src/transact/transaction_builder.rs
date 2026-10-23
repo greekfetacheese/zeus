@@ -46,6 +46,7 @@ pub const MAX_CIRCUIT_OUTPUTS: usize = 5;
 
 /// How input notes are chosen when covering an intent's value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum NoteSelectionMode {
    /// Prefer larger notes, fewer inputs, smaller circuits (default spend path).
    #[default]
@@ -73,19 +74,20 @@ pub struct TransactionBuilder {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum TransactionBuilderError {
    #[error(
       "Multiple unshield operations from the same address and asset are not supported: from {from}, asset {asset}"
    )]
    MultipleUnshields {
-      from: RailgunAddress,
+      from: Box<RailgunAddress>,
       asset: AssetId,
    },
    #[error(
       "Insufficient balance for intent with from {from}, asset {asset}, value {value} (available matched notes total {available})"
    )]
    InsufficientBalance {
-      from: RailgunAddress,
+      from: Box<RailgunAddress>,
       asset: AssetId,
       value: u128,
       available: u128,
@@ -127,6 +129,7 @@ pub enum TransactionBuilderError {
 ///
 /// Sealed trees may be absent from RAM; proofs are frozen at compact time.
 #[derive(Clone, Default)]
+#[non_exhaustive]
 pub struct MerkleWitnesses {
    pub roots: BTreeMap<u32, MerkleRoot>,
    pub proofs: HashMap<(u32, u32), RailgunMerkleProof>,
@@ -191,7 +194,7 @@ impl TransactionBuilder {
    ) -> Result<Self, TransactionBuilderError> {
       if self.unshields.contains(&(from.address().clone(), asset)) {
          return Err(TransactionBuilderError::MultipleUnshields {
-            from: from.address().clone(),
+            from: Box::new(from.address().clone()),
             asset,
          });
       }
@@ -337,7 +340,7 @@ fn build_group<R: Rng>(
 ) -> Result<Vec<Operation>, TransactionBuilderError> {
    // Sort intents smallest to largest. Helps to ensure small intents don't
    // ever need to span across multiple trees.
-   intents.sort_by(|a, b| a.value.cmp(&b.value));
+   intents.sort_by_key(|a| a.value);
 
    // Filter notes for this asset and signer, and group by tree number.
    let tree_number = in_notes
@@ -369,7 +372,7 @@ fn build_group<R: Rng>(
    let intents_total: u128 = intents.iter().map(|i| i.value).sum();
    if intents_total > available_total {
       return Err(TransactionBuilderError::InsufficientBalance {
-         from,
+         from: Box::new(from),
          asset,
          value: intents_total,
          available: available_total,
@@ -398,7 +401,7 @@ fn build_group<R: Rng>(
       });
 
       if let Some(tree) = single {
-         *balances.get_mut(&tree).unwrap() -= intent.value;
+         *balances.get_mut(&tree).expect("tree key came from `balances` itself") -= intent.value;
          insert_operation(&mut operations, tree, intent, rng);
          continue;
       }
@@ -440,6 +443,8 @@ fn build_group<R: Rng>(
 }
 
 /// Helper for fitting an intent to multiple trees when it can't fit on a single tree.
+// The arguments are all named at this helper's single call site, where they read as the intent split.
+#[allow(clippy::too_many_arguments)]
 fn split_intent<R: Rng>(
    from: RailgunAddress,
    asset: AssetId,
@@ -458,7 +463,7 @@ fn split_intent<R: Rng>(
          break;
       }
 
-      let available = *balances.get(&tree).unwrap();
+      let available = *balances.get(&tree).expect("tree key came from `balances` itself");
       if available == 0 {
          continue;
       }
@@ -471,7 +476,7 @@ fn split_intent<R: Rng>(
       }
 
       let take = remaining.min(room);
-      *balances.get_mut(&tree).unwrap() -= take;
+      *balances.get_mut(&tree).expect("tree key came from `balances` itself") -= take;
 
       let mut partial = intent.clone();
       partial.value = take;
@@ -487,7 +492,7 @@ fn split_intent<R: Rng>(
          // Value available for this intent = leftover residual + what we already assigned of it.
          let available_now = residual.saturating_add(intent.value.saturating_sub(remaining));
          return Err(TransactionBuilderError::InsufficientBalance {
-            from,
+            from: Box::new(from),
             asset,
             value: intent.value,
             available: available_now.min(available_total),
@@ -584,7 +589,7 @@ fn select_notes<'a>(
    let available: u128 = notes.iter().map(|n| n.value()).sum();
    if available < value {
       return Err(TransactionBuilderError::InsufficientBalance {
-         from: from.clone(),
+         from: Box::new(from.clone()),
          asset,
          value,
          available,
@@ -698,8 +703,8 @@ async fn prove_operation(
    let transaction = abi::railgun::Transaction::new(
       proof.into(),
       merkleroot.into(),
-      inputs.nullifiers.iter().map(|n| n.clone().into()).collect(),
-      inputs.commitments_out.iter().map(|c| c.clone().into()).collect(),
+      inputs.nullifiers.iter().map(|n| (*n).into()).collect(),
+      inputs.commitments_out.iter().map(|c| (*c).into()).collect(),
       bound_params,
       unshield_preimage,
    );
@@ -709,4 +714,20 @@ async fn prove_operation(
       inputs,
       transaction,
    ))
+}
+
+#[cfg(test)]
+mod tests {
+   use super::TransactionBuilderError;
+
+   /// `result_large_err` is a real cost: every `Result<T, TransactionBuilderError>` in the public API
+   /// moves the whole enum. Keep it under the 128-byte threshold clippy uses.
+   #[test]
+   fn the_builder_error_stays_small() {
+      assert!(
+         std::mem::size_of::<TransactionBuilderError>() <= 128,
+         "TransactionBuilderError grew past 128 bytes: {}",
+         std::mem::size_of::<TransactionBuilderError>()
+      );
+   }
 }

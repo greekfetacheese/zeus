@@ -438,6 +438,7 @@ const PINS: &[(&str, &str, &str)] = &[
 ];
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ArtifactPinError {
    #[error("no SHA-256 pin for {circuit}/{file}")]
    Unpinned { circuit: String, file: String },

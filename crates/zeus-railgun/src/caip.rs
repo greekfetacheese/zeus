@@ -7,6 +7,8 @@ use thiserror::Error;
 use crate::abi::railgun::{TokenData, TokenType};
 
 /// CAIP-10 style Asset ID.  ERC721 and ERC1155 sub-id represented as hex strings.
+/// Deliberately exhaustive: a new variant must break every `match` in the consuming app, so the
+/// compiler — not a silent wildcard — forces the update. The crate owns that breakage.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum AssetId {
    Erc20(Address),
@@ -127,6 +129,7 @@ impl From<TokenData> for AssetId {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum AssetIdParseError {
    #[error("Invalid format: expected 'type:address' or 'type:address/subId'")]
    InvalidFormat,

@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use alloy_primitives::utils::keccak256_cached;
 use ruint::aliases::U256;
 
-use crate::crypto::{poseidon_hash, railgun_zero::SNARK_PRIME};
+use crate::crypto::{poseidon2, railgun_zero::SNARK_PRIME};
 
 pub const TREE_DEPTH: usize = 16;
 pub const TOTAL_LEAVES: u32 = 1 << TREE_DEPTH;
@@ -17,13 +17,14 @@ pub trait MerkleConfig: Debug + Clone + PartialEq + Eq {
 
 /// Merkle tree configuration for Railgun.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RailgunMerkleConfig;
 
 impl MerkleConfig for RailgunMerkleConfig {
    const DEPTH: usize = TREE_DEPTH;
 
    fn hash(left: U256, right: U256) -> U256 {
-      poseidon_hash(&[left, right]).unwrap()
+      poseidon2(left, right)
    }
 
    fn zero() -> U256 {
@@ -34,6 +35,7 @@ impl MerkleConfig for RailgunMerkleConfig {
 
 #[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TestMerkleConfig;
 
 #[cfg(test)]
@@ -49,7 +51,7 @@ impl MerkleConfig for TestMerkleConfig {
    }
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 mod tests {
    use super::*;
    use crate::merkle_tree::{proof::*, tree::*};

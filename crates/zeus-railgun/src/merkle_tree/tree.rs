@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::warn;
 
-use super::config::*;
-use super::proof::*;
+use super::config::{MerkleConfig, RailgunMerkleConfig};
+use super::proof::{MerkleProof, MerkleRoot};
 
 pub type RailgunMerkleTree = MerkleTree<RailgunMerkleConfig>;
 pub type RailgunMerkleTreeState = MerkleTreeState<RailgunMerkleConfig>;
@@ -32,6 +32,7 @@ pub struct MerkleTreeState<C: MerkleConfig> {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum MerkleTreeError {
    #[error("Element not found in tree: {0}")]
    ElementNotFound(String),

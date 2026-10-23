@@ -11,13 +11,19 @@ use thiserror::Error;
 
 use crate::{
    circuit::proof::Proof,
-   crypto::{aes::Ciphertext, railgun_zero::SNARK_PRIME},
+   crypto::{
+      aes::{Ciphertext, ciphertext_from_commitment_slots, ciphertext_from_shield_slots},
+      railgun_zero::SNARK_PRIME,
+   },
 };
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum TokenDataError {
    #[error("Invalid token data hash length")]
    InvalidHashLength,
+   #[error("Unsupported token type byte: {0}")]
+   UnsupportedTokenType(u8),
 }
 
 impl TokenData {
@@ -39,10 +45,11 @@ impl TokenData {
       let token_type = match token_type {
          1 => TokenType::ERC721,
          2 => TokenType::ERC1155,
-         _ => unreachable!(),
+         _ => return Err(TokenDataError::UnsupportedTokenType(token_type)),
       };
       let token_address = Address::from_slice(&hash[44..64]);
-      let token_sub_id = U256::from_be_bytes::<32>(hash[64..96].try_into().unwrap());
+      let token_sub_id =
+         U256::from_be_bytes::<32>(hash[64..96].try_into().expect("hash[64..96] is 32 bytes"));
 
       Ok(TokenData {
          tokenType: token_type,
@@ -137,8 +144,8 @@ impl Transaction {
       Transaction {
          proof,
          merkleRoot: merkle_root,
-         nullifiers: nullifiers,
-         commitments: commitments,
+         nullifiers,
+         commitments,
          boundParams: bound_params,
          unshieldPreimage: unshield_preimage,
       }
@@ -147,7 +154,8 @@ impl Transaction {
 
 fn hash_to_scalar(data: &[u8]) -> U256 {
    let hash = keccak256_cached(data);
-   let hash_bigint = U256::from_be_bytes::<32>(hash.as_slice().try_into().unwrap());
+   let hash_bigint =
+      U256::from_be_bytes::<32>(hash.as_slice().try_into().expect("keccak256 is 32 bytes"));
    hash_bigint % SNARK_PRIME
 }
 
@@ -189,6 +197,8 @@ sol! {
         ShieldCiphertext ciphertext;
     }
 
+    /// Deliberately exhaustive: a new variant must break every `match` in the consuming app, so the
+    /// compiler — not a silent wildcard — forces the update. The crate owns that breakage.
     #[derive(Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
     enum TokenType {
         #[default]
@@ -301,32 +311,24 @@ sol! {
 
 impl From<ShieldCiphertext> for Ciphertext {
    fn from(c: ShieldCiphertext) -> Self {
-      let iv = c.encryptedBundle[0][..16].try_into().unwrap();
-      let tag = c.encryptedBundle[0][16..].try_into().unwrap();
-      let data = vec![c.encryptedBundle[1][..16].to_vec()];
-      Ciphertext { iv, tag, data }
+      ciphertext_from_shield_slots(c.encryptedBundle[0], c.encryptedBundle[1])
    }
 }
 
 impl From<CommitmentCiphertext> for Ciphertext {
    fn from(c: CommitmentCiphertext) -> Self {
-      let iv = c.ciphertext[0][..16].try_into().unwrap();
-      let tag = c.ciphertext[0][16..32].try_into().unwrap();
-
-      let mut data: Vec<Vec<u8>> = c.ciphertext[1..].iter().map(|chunk| chunk.to_vec()).collect();
-      data.push(c.memo.to_vec());
-
-      Ciphertext { iv, tag, data }
+      ciphertext_from_commitment_slots(c.ciphertext[0], &c.ciphertext[1..], &c.memo)
    }
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 mod tests {
    use alloy_primitives::{Bytes, FixedBytes, address, b256, bytes};
    use ruint::uint;
 
    use super::{
-      BoundParams, CommitmentCiphertext, ShieldCiphertext, TokenData, TokenType, UnshieldType,
+      BoundParams, CommitmentCiphertext, ShieldCiphertext, TokenData, TokenDataError, TokenType,
+      UnshieldType,
    };
    use crate::crypto::aes::Ciphertext;
 
@@ -397,6 +399,24 @@ mod tests {
          uint!(653354349844558206886319240777917397850034746873378410801880094244109558523_U256);
 
       assert_eq!(hash, expected);
+   }
+
+   /// A 96-byte hash carries the token-type byte at index 31. Only ERC-721 (1) and ERC-1155 (2) are
+   /// defined; any other byte is malformed input and must surface as `UnsupportedTokenType`, never a
+   /// panic.
+   #[test]
+   fn from_hash_rejects_an_unknown_token_type_byte() {
+      for token_type in [0u8, 3] {
+         let mut hash = [0u8; 96];
+         hash[31] = token_type;
+         assert!(
+            matches!(
+               TokenData::from_hash(&hash),
+               Err(TokenDataError::UnsupportedTokenType(t)) if t == token_type
+            ),
+            "token type byte {token_type} must be rejected"
+         );
+      }
    }
 
    #[test]

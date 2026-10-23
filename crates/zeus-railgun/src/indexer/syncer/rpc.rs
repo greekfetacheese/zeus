@@ -52,12 +52,12 @@ pub fn apply_dense_logs_cap(chain_id: u64, window_from: u64, block_range: u64) -
    }
 }
 
-/// `Ok(new_range)` to retry; `Err(())` to abort (already at min).
-pub fn shrink_block_range_on_invalid_root(block_range: u64) -> Result<u64, ()> {
+/// `Some(new_range)` to retry; `None` to abort (already at min).
+pub fn shrink_block_range_on_invalid_root(block_range: u64) -> Option<u64> {
    if block_range <= MIN_BLOCK_RANGE {
-      return Err(());
+      return None;
    }
-   Ok(block_range.saturating_sub(BLOCK_RANGE_DECREMENT).max(MIN_BLOCK_RANGE))
+   Some(block_range.saturating_sub(BLOCK_RANGE_DECREMENT).max(MIN_BLOCK_RANGE))
 }
 
 pub fn sync_window_end(window_from: u64, to_block: u64) -> u64 {
@@ -65,6 +65,7 @@ pub fn sync_window_end(window_from: u64, to_block: u64) -> u64 {
 }
 
 /// Result of [`RpcSyncer::fetch`]: events to apply, plus the RPC-only delta for later persist.
+#[non_exhaustive]
 pub struct FetchedEvents {
    pub events: Vec<SyncEvent>,
    /// RPC-parsed events not already in the snapshot (prefix and/or tail).
@@ -260,7 +261,9 @@ impl RpcSyncer {
             }
          }
 
-         let mut logs = Arc::try_unwrap(logs).unwrap().into_inner();
+         let mut logs = Arc::try_unwrap(logs)
+            .expect("every chunk task was awaited, so this holds the only Arc")
+            .into_inner();
          // Concurrent chunks finish out of order sort for deterministic parse
          // and stable leaf application.
          logs.sort_by(|a, b| {
@@ -277,7 +280,7 @@ impl RpcSyncer {
 
    pub async fn latest_block(&self) -> Result<u64, SyncerError> {
       let client = self.provider.lock().await.clone();
-      let latest = client.get_block_number().await.map_err(|e| SyncerError::new(e))?;
+      let latest = client.get_block_number().await.map_err(SyncerError::new)?;
       Ok(latest)
    }
 
@@ -391,11 +394,11 @@ impl RpcSyncer {
             from_block
          };
          let slice_to = to_block.min(events_block);
-         if slice_from <= slice_to {
-            if let Some(loader) = &self.snapshot_loader {
-               let mut ranged = loader.load_range(self.chain_id, slice_from, slice_to).await?;
-               events.append(&mut ranged);
-            }
+         if slice_from <= slice_to
+            && let Some(loader) = &self.snapshot_loader
+         {
+            let mut ranged = loader.load_range(self.chain_id, slice_from, slice_to).await?;
+            events.append(&mut ranged);
          }
       }
 
@@ -660,10 +663,10 @@ mod tests {
    fn shrink_block_range_on_invalid_root_decrements_then_floors() {
       assert_eq!(
          shrink_block_range_on_invalid_root(30_000),
-         Ok(29_500)
+         Some(29_500)
       );
-      assert_eq!(shrink_block_range_on_invalid_root(600), Ok(100));
-      assert_eq!(shrink_block_range_on_invalid_root(100), Err(()));
+      assert_eq!(shrink_block_range_on_invalid_root(600), Some(100));
+      assert_eq!(shrink_block_range_on_invalid_root(100), None);
    }
 
    #[test]

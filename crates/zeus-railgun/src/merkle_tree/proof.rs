@@ -61,9 +61,9 @@ impl<C: MerkleConfig> MerkleProof<C> {
       for (i, &sibling) in self.elements.iter().enumerate() {
          let is_left_child = indices_bits[i] == 0;
          current_hash = if is_left_child {
-            C::hash(current_hash, sibling).into()
+            C::hash(current_hash, sibling)
          } else {
-            C::hash(sibling, current_hash).into()
+            C::hash(sibling, current_hash)
          };
       }
 

@@ -42,6 +42,7 @@ impl Deposit {
 /// Both ends are needed. Blocks select the snapshot range to read (cheap, indexed by chunk), while
 /// times decide membership exactly — including for the estimated timestamps above.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DepositWindow {
    pub start_ts: u64,
    pub end_ts: u64,

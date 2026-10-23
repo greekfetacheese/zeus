@@ -40,12 +40,14 @@ pub struct PoiProvider {
 }
 
 #[derive(Serialize, Deserialize, Default)]
+#[non_exhaustive]
 pub struct PoiProviderState {
    pub pending: Vec<PendingPoiEntry>,
    pub pois: HashMap<BlindedCommitment, HashMap<ListKey, PoiInfo>>,
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum PoiProviderError {
    #[error("Txid indexer error: {0}")]
    TxidIndexer(#[from] TxidIndexerError),
@@ -68,6 +70,7 @@ pub struct PoiInfo {
 ///
 /// TODO: Consider privacy / security implications of storing this data on disk.
 #[derive(Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PendingPoiEntry {
    pub txid: Txid,
    pub spending_pubkey: SpendingPublicKey,
@@ -115,7 +118,7 @@ impl PoiProvider {
       Ok(Self {
          inner: Arc::new(RwLock::new(inner)),
          db,
-         poi_client: poi_client,
+         poi_client,
          txid_indexer: Arc::new(RwLock::new(txid_indexer)),
       })
    }
@@ -170,7 +173,7 @@ impl PoiProvider {
    }
 
    async fn register(&mut self, op: &ProvedOperation, list_keys: Vec<ListKey>) {
-      let spending_pubkey = op.inner.from.keys().spending_public_key.clone();
+      let spending_pubkey = op.inner.from.keys().spending_public_key;
       let txid = Txid::from_operation(op);
       let in_notes = op.inner.in_notes().to_vec();
       let out_notes = op.inner.out_notes();
@@ -183,7 +186,7 @@ impl PoiProvider {
       self.inner.write().await.pending.push(PendingPoiEntry {
          txid,
          spending_pubkey,
-         nullifying_key: op.inner.from.keys().nullifying_key.clone(),
+         nullifying_key: op.inner.from.keys().nullifying_key,
          utxo_tree_in: op.inner.utxo_tree_number,
          bound_params_hash: op.circuit_inputs.bound_params_hash,
          in_notes,
@@ -259,6 +262,9 @@ impl PoiProvider {
       Ok(())
    }
 
+   // One proof per pending entry needs the txid tree, the UTXO position and both trees at once; they
+   // are all the inputs `PoiCircuitInputs::from_inputs` wants, kept positional to match the circuit.
+   #[allow(clippy::too_many_arguments)]
    async fn create_proof(
       &self,
       prover: &Groth16Prover,
@@ -339,8 +345,8 @@ fn blinded_commitments(
    for (i, (commitment, npk)) in entry.out_commitments.iter().zip(entry.out_npks.iter()).enumerate()
    {
       let blinded_commitment = utxo::blinded_commitment(
-         commitment.clone(),
-         npk.clone(),
+         *commitment,
+         *npk,
          utxo_tree_number,
          utxo_leaf_index + i as u32,
       )

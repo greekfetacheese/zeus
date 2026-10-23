@@ -1,10 +1,11 @@
 use alloy_primitives::{Address, aliases::U120};
 use ruint::aliases::U256;
 
-use crate::{abi, caip::AssetId, crypto::poseidon_hash, merkle_tree::UtxoLeafHash};
+use crate::{abi, caip::AssetId, crypto::poseidon3, merkle_tree::UtxoLeafHash};
 
 /// Unshield notes represent value exiting the Railgun system to an external address.
 #[derive(Debug, Copy, Clone)]
+#[non_exhaustive]
 pub struct UnshieldNote {
    pub receiver: Address,
    pub asset: AssetId,
@@ -49,12 +50,11 @@ impl UnshieldNote {
    }
 
    pub fn hash(&self) -> UtxoLeafHash {
-      poseidon_hash(&[
+      poseidon3(
          self.note_public_key(),
          self.asset.hash(),
          U256::from(self.value),
-      ])
-      .unwrap()
+      )
       .into()
    }
 
@@ -65,7 +65,7 @@ impl UnshieldNote {
    }
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 mod tests {
    use alloy_primitives::address;
    use ruint::uint;

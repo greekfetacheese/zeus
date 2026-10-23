@@ -33,6 +33,7 @@ pub struct TransactCircuitInputs {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum TransactCircuitInputsError {
    #[error("Empty input notes")]
    EmptyInputNotes,
@@ -42,6 +43,8 @@ pub enum TransactCircuitInputsError {
    Signing(#[from] anyhow::Error),
    #[error("Merkle proof does not match note or tree root")]
    InvalidMerkleProof,
+   #[error("Unsupported Poseidon arity for {0} transact inputs")]
+   UnsupportedPoseidonArity(usize),
 }
 
 impl TransactCircuitInputs {
@@ -100,13 +103,14 @@ impl TransactCircuitInputs {
       let commitments: Vec<U256> = notes_out.iter().map(|note| note.hash().into()).collect();
 
       let token = asset.hash();
-      let public_key = signer.keys().spending_public_key.clone();
+      let public_key = signer.keys().spending_public_key;
       let public_key = [public_key.x_u256(), public_key.y_u256()];
 
       let mut unsigned = vec![merkleroot.into(), bound_params_hash];
       unsigned.extend_from_slice(&nullifiers);
       unsigned.extend_from_slice(&commitments);
-      let unsigned_hash = poseidon_hash(&unsigned).unwrap();
+      let unsigned_hash = poseidon_hash(&unsigned)
+         .map_err(|_| TransactCircuitInputsError::UnsupportedPoseidonArity(unsigned.len()))?;
       let signature = signer.sign(unsigned_hash)?;
       let signature = [signature.r8_x, signature.r8_y, signature.s];
 

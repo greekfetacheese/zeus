@@ -46,7 +46,12 @@ use crate::{
 /// How many `(asset, snapshot tip)` activity lists are kept before the cache is dropped.
 const MAX_CACHED_ACTIVITY: usize = 4;
 
+/// Protocol deposits read out of the events snapshot, keyed by `(asset, snapshot tip)`, so a privacy
+/// check that only changes with the snapshot does not re-decode the window.
+type ShieldActivityCache = Arc<Mutex<HashMap<(AssetId, u64), Arc<Vec<Deposit>>>>>;
+
 #[derive(Debug, Serialize)]
+#[non_exhaustive]
 pub struct BalanceEntry {
    pub asset: AssetId,
    /// If POI is enabled, the spendability status of the note according to the POI provider.
@@ -57,6 +62,7 @@ pub struct BalanceEntry {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct NoteEntry {
    pub asset: AssetId,
    /// If POI is enabled, the spendability status of the note according to the POI provider.
@@ -92,6 +98,7 @@ impl NoteEntry {
 
 /// A spent UTXO note reconstructed from Railgun sync (Nullified + prior decrypt).
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct SpentNoteEntry {
    pub asset: AssetId,
    pub amount: u128,
@@ -142,12 +149,13 @@ pub struct RailgunProvider<P: Provider<Ethereum>> {
    ///
    /// A privacy check runs whenever the amount field changes, while decoding the snapshot window is
    /// the expensive half of it: the answer only changes when the snapshot does.
-   shield_activity: Arc<Mutex<HashMap<(AssetId, u64), Arc<Vec<Deposit>>>>>,
+   shield_activity: ShieldActivityCache,
    is_syncing: Arc<RwLock<bool>>,
    is_verifying: Arc<RwLock<bool>>,
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum RailgunProviderError {
    #[error("Utxo indexer error: {0}")]
    UtxoIndexer(#[from] UtxoIndexerError),
@@ -587,6 +595,8 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
    /// transaction, with an additional fee note transfer to cover the bundler fees. The
    /// `fee_payer` is the signer that will authorize the fee note transfer to the bundler's
    /// address for the estimated fee amount in `fee_token`.
+   // The bundler API takes the UserOp as positional parts, so this keeps the protocol's shape.
+   #[allow(clippy::too_many_arguments)]
    pub async fn prepare_userop(
       &mut self,
       builder: TransactionBuilder,
@@ -778,12 +788,9 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
          debug!("Fee note updated for next iteration");
       }
 
-      return Err(RailgunProviderError::Other(Box::new(
-         std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "Failed to converge on fee estimate",
-         ),
-      )));
+      Err(RailgunProviderError::Other(Box::new(
+         std::io::Error::other("Failed to converge on fee estimate"),
+      )))
    }
 
    async fn all_unspent(&mut self) -> Vec<(UtxoNote, Option<PoiStatus>)> {
@@ -879,11 +886,11 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
 }
 
 /// Gets the operation containing the fee note
-fn get_fee_operation<'a>(
-   operations: &'a Vec<ProvedOperation>,
+fn get_fee_operation(
+   operations: &[ProvedOperation],
    fee_asset: AssetId,
    fee_value: u128,
-) -> Result<&'a ProvedOperation, RailgunProviderError> {
+) -> Result<&ProvedOperation, RailgunProviderError> {
    let Some(fee_note_pos) = operations
       .iter()
       .position(|o| o.inner.out_notes().iter().any(|n| is_fee_note(n, fee_asset, fee_value)))

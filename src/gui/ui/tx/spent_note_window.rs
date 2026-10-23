@@ -124,6 +124,7 @@ impl SpentNoteWindow {
                      PrivateHistoryKind::Unshield => "Unshield",
                      PrivateHistoryKind::Send => "Private Transfer",
                      PrivateHistoryKind::Spend => "Private Spend",
+                     _ => "Unknown",
                   })
                   .size(theme.typography.very_large)
                   .strong(),

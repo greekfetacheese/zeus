@@ -3,6 +3,7 @@ use ark_relations::gr1cs::Matrix;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
+#[non_exhaustive]
 pub struct SerializableNpIndex<F: Field> {
    /// The number of variables that are "public instances" to the constraint
    /// system.

@@ -5,11 +5,12 @@ use thiserror::Error;
 
 use crate::{
    caip::AssetId,
-   crypto::{aes::Ciphertext, poseidon_hash},
+   crypto::{aes::Ciphertext, poseidon3},
    merkle_tree::UtxoLeafHash,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum SyncEvent {
    Shield(Shield, u64),
    Transact(Transact, u64),
@@ -36,6 +37,7 @@ pub struct Shield {
 
 /// A single transact commitment event
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Transact {
    pub tree_number: u32,
    pub leaf_index: u32,
@@ -52,6 +54,7 @@ pub struct Transact {
 
 /// A single nullified event
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Nullified {
    pub tree_number: u32,
    pub nullifier: FixedBytes<32>,
@@ -64,6 +67,7 @@ pub struct Nullified {
 /// Legacy ciphertext format from pre-Mar23 CommitmentBatch events.
 /// (ciphertext[4], ephemeralKeys[2], memo[])
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct LegacyCiphertext {
    pub ciphertext: [U256; 4],
    pub ephemeral_keys: [U256; 2],
@@ -71,6 +75,7 @@ pub struct LegacyCiphertext {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[non_exhaustive]
 pub struct LegacyCommitment {
    pub hash: U256,
    pub tree_number: u32,
@@ -81,6 +86,7 @@ pub struct LegacyCommitment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Operation {
    pub block_number: u64,
    pub nullifiers: Vec<U256>,
@@ -118,8 +124,11 @@ impl Shield {
          return hash;
       }
 
-      poseidon_hash(&[self.npk, self.token.hash(), U256::from(self.value)])
-         .unwrap()
-         .into()
+      poseidon3(
+         self.npk,
+         self.token.hash(),
+         U256::from(self.value),
+      )
+      .into()
    }
 }

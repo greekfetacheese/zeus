@@ -29,6 +29,7 @@ const PAGE_CACHE_BYTES: usize = 1024 * 1024;
 /// `coverage_start > 0`. Legacy (`coverage_start == 0`) is treated as complete
 /// history up to `block_number` (no known gap below the first stored event).
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SnapshotDbMeta {
    pub version: u32,
    /// Inclusive start of the covered block range.
@@ -48,6 +49,7 @@ impl SnapshotDbMeta {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ChunkMeta {
    pub index: u32,
    pub first_block: u64,
@@ -245,11 +247,11 @@ impl SnapshotLoader {
             meta.version = SNAP_FORMAT;
             meta.coverage_start = coverage_start
                .unwrap_or_else(|| events.first().map(|e| e.block_number()).unwrap_or(0));
-         } else if let Some(last) = meta.chunks.last().copied() {
-            if (last.event_count as usize) < CHUNK_EVENTS {
-               open = decode_chunk_locked(&guard, last.index)?;
-               meta.chunks.pop();
-            }
+         } else if let Some(last) = meta.chunks.last().copied()
+            && (last.event_count as usize) < CHUNK_EVENTS
+         {
+            open = decode_chunk_locked(&guard, last.index)?;
+            meta.chunks.pop();
          }
 
          open.extend(events);

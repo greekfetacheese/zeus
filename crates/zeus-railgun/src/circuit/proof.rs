@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 /// Serializes into a SnarkJS-compatible format, with decimal strings for all
 /// field elements and arrays for the g1 / g2 points.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Proof {
    #[serde(rename = "pi_a")]
    pub a: G1Affine,
@@ -17,6 +18,7 @@ pub struct Proof {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(into = "[String; 2]", try_from = "[String; 2]")]
+#[non_exhaustive]
 pub struct G1Affine {
    pub x: U256,
    pub y: U256,
@@ -24,6 +26,7 @@ pub struct G1Affine {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(into = "[[String; 2]; 2]", try_from = "[[String; 2]; 2]")]
+#[non_exhaustive]
 pub struct G2Affine {
    pub x: [U256; 2],
    pub y: [U256; 2],
@@ -108,7 +111,7 @@ impl TryFrom<[[String; 2]; 2]> for G2Affine {
    }
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 mod tests {
    use ruint::uint;
 

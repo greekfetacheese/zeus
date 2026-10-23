@@ -1,4 +1,4 @@
-use crate::crypto::poseidon_hash;
+use crate::crypto::poseidon3;
 use ruint::aliases::U256;
 use serde::{Serialize, Serializer};
 
@@ -31,6 +31,8 @@ pub struct TxidLeafHash(U256);
 ///
 /// Included TxIDs have defined positions based on the index of their first UTXO
 /// note in the on-chain UTXO tree. They are used when submitting to POI nodes.
+/// Deliberately exhaustive: a new variant must break every `match` in the consuming app, so the
+/// compiler — not a silent wildcard — forces the update. The crate owns that breakage.
 #[derive(Debug, Clone, Copy)]
 pub enum UtxoTreeIndex {
    /// Transactions that have been generated but not yet included on-chain (
@@ -101,12 +103,11 @@ impl TxidLeafHash {
    pub fn new(txid: Txid, utxo_tree_in: u32, out_utxo_tree_index: UtxoTreeIndex) -> Self {
       let global_position = out_utxo_tree_index.global_index();
 
-      poseidon_hash(&[
+      poseidon3(
          txid.into(),
          U256::from(utxo_tree_in),
          U256::from(global_position),
-      ])
-      .unwrap()
+      )
       .into()
    }
 }

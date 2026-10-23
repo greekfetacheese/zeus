@@ -1,0 +1,133 @@
+//! Projective (ark `Fr`-based) BabyJubJub helpers: the base point, point addition and the
+//! variable-base scalar multiplication the ECDH path uses. `crypto::babyjubjub` is the ark
+//! scalar/point module and is deliberately separate.
+
+use ark_bn254::Fr;
+use ark_ed_on_bn254::Fq;
+use ark_ff::{BigInteger, One, PrimeField, Zero};
+use lazy_static::lazy_static;
+use secure_types::Zeroize;
+use std::str::FromStr;
+
+#[derive(Clone, Copy)]
+#[non_exhaustive]
+pub struct BabyJubPoint {
+   pub x: Fr,
+   pub y: Fr,
+}
+
+impl Zeroize for BabyJubPoint {
+   fn zeroize(&mut self) {
+      self.x.zeroize();
+      self.y.zeroize();
+   }
+}
+
+const A: u64 = 168700;
+const D: u64 = 168696;
+
+lazy_static! {
+   static ref BABYJUB_A: Fr = Fr::from(A);
+   static ref BABYJUB_D: Fr = Fr::from(D);
+   static ref BASE8_X: Fr =
+      Fr::from_str("5299619240641551281634865583518297030282874472190772894086521144482721001553")
+         .expect("Invalid base8 x");
+   static ref BASE8_Y: Fr =
+      Fr::from_str("16950150798460657717958625567821834550301663161624707787222815936182638968203")
+         .expect("Invalid base8 y");
+   pub static ref BASE8: BabyJubPoint = BabyJubPoint {
+      x: *BASE8_X,
+      y: *BASE8_Y
+   };
+}
+
+pub fn babyjub_shared_secret(
+   random_priv: &[u8; 32],
+   broadcaster_viewing_pub: &[u8; 32],
+) -> Result<([u8; 32], [u8; 32]), anyhow::Error> {
+   // Re-implementation of the ECDH using the crate's BabyJub primitives (clamped priv, mul)
+   let mut priv_clamped = [0u8; 32];
+   priv_clamped.copy_from_slice(random_priv);
+   priv_clamped[0] &= 248;
+   priv_clamped[31] &= 127;
+   priv_clamped[31] |= 64;
+
+   // Treat the viewing pub as point coords for mul (simplified from prior working version)
+   let pub_x = Fq::from_be_bytes_mod_order(broadcaster_viewing_pub);
+   let pub_y = Fq::from_be_bytes_mod_order(broadcaster_viewing_pub);
+   let mut pub_point = BabyJubPoint { x: pub_x, y: pub_y };
+
+   // Prior path used BigUint::from_bytes_be, mul_point_escalar takes LE integer bytes.
+   let mut e_shared = priv_clamped;
+   e_shared.reverse();
+   let e_rpub = e_shared;
+   priv_clamped.zeroize();
+
+   let mut shared_point = mul_point_escalar(pub_point, e_shared);
+
+   let mut shared = [0u8; 32];
+   let mut sx = shared_point.x.into_bigint().to_bytes_be();
+   if sx.len() >= 32 {
+      shared.copy_from_slice(&sx[sx.len() - 32..]);
+   }
+   sx.zeroize();
+   shared_point.zeroize();
+
+   // random pub for the ECDH pair
+   let base = *BASE8;
+   let mut rpub_point = mul_point_escalar(base, e_rpub);
+   let mut rpub = [0u8; 32];
+   let mut rx = rpub_point.x.into_bigint().to_bytes_be();
+   if rx.len() >= 32 {
+      rpub.copy_from_slice(&rx[rx.len() - 32..]);
+   }
+   rx.zeroize();
+   rpub_point.zeroize();
+   pub_point.zeroize();
+
+   Ok((rpub, shared))
+}
+
+pub fn add_point(a: BabyJubPoint, b: BabyJubPoint) -> BabyJubPoint {
+   let beta = a.x * b.y;
+   let gamma = a.y * b.x;
+   let delta = (a.y - (*BABYJUB_A * a.x)) * (b.x + b.y);
+   let tau = beta * gamma;
+   let dtau = *BABYJUB_D * tau;
+
+   let x = (beta + gamma) / (Fr::one() + dtau);
+   let y = (delta + (*BABYJUB_A * beta - gamma)) / (Fr::one() - dtau);
+
+   BabyJubPoint { x, y }
+}
+
+/// Scalar multiplication: `base * e`, where `e` is a little-endian unsigned integer.
+///
+/// Takes a fixed 32-byte LE buffer (not `num_bigint::BigUint`) so the scalar can be
+/// wiped: `BigUint` limbs are private and do not implement `Zeroize`. `e` is zeroized
+/// before return, ladder intermediates (`exp`) are wiped as well. Returned `res` is
+/// left for the caller to zeroize after extracting coordinates.
+pub fn mul_point_escalar(base: BabyJubPoint, mut e: [u8; 32]) -> BabyJubPoint {
+   let mut res = BabyJubPoint {
+      x: Fr::zero(),
+      y: Fr::one(),
+   };
+
+   let mut exp = base;
+
+   // Full 256-bit double-and-add (LSB first). Avoids BigUint and keeps bit work
+   // on a stack buffer we can zeroize.
+   for mut byte in e {
+      for _bit in 0..8 {
+         if byte & 1 == 1 {
+            res = add_point(res, exp);
+         }
+         exp = add_point(exp, exp);
+         byte >>= 1;
+      }
+   }
+
+   e.zeroize();
+   exp.zeroize();
+   res
+}

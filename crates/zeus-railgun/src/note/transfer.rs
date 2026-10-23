@@ -6,13 +6,14 @@ use crate::{
    account::address::RailgunAddress,
    caip::AssetId,
    crypto::keys::ViewingKey,
-   crypto::poseidon_hash,
+   crypto::{poseidon2, poseidon3},
    merkle_tree::UtxoLeafHash,
-   note::encrypt::{EncryptError, encrypt_note},
+   note::encrypt::{EncryptError, EncryptNoteParams, encrypt_note},
 };
 
 /// Transfer notes represent value being sent from one Railgun account to another.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct TransferNote {
    pub from_key: ViewingKey,
    pub to: RailgunAddress,
@@ -43,13 +44,15 @@ impl TransferNote {
 
    pub fn encrypt(&self, rng: &mut dyn RngCore) -> Result<CommitmentCiphertext, EncryptError> {
       encrypt_note(
-         &self.to,
-         &self.random,
-         self.value,
-         &self.asset,
-         &self.memo,
-         self.from_key.clone(),
-         false,
+         EncryptNoteParams {
+            receiver: &self.to,
+            shared_random: &self.random,
+            value: self.value,
+            asset: &self.asset,
+            memo: &self.memo,
+            viewing_key: self.from_key.clone(),
+            blind: false,
+         },
          rng,
       )
    }
@@ -71,25 +74,23 @@ impl TransferNote {
    }
 
    pub fn hash(&self) -> UtxoLeafHash {
-      poseidon_hash(&[
+      poseidon3(
          self.note_public_key(),
          self.asset.hash(),
          U256::from(self.value),
-      ])
-      .unwrap()
+      )
       .into()
    }
 
    pub fn note_public_key(&self) -> U256 {
-      poseidon_hash(&[
+      poseidon2(
          self.to.master_pubkey().to_u256(),
          U256::from_be_slice(&self.random),
-      ])
-      .unwrap()
+      )
    }
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 mod tests {
    use alloy_primitives::address;
    use ruint::uint;

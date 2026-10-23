@@ -23,6 +23,7 @@ pub struct IndexedAccount {
 
 /// An owned note plus when/where it was created.
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[non_exhaustive]
 pub struct NoteRecord {
    pub note: UtxoNote,
    pub created_block: u64,
@@ -35,6 +36,7 @@ pub struct NoteRecord {
 /// `spent_block` is the chain block of the Nullified event.
 /// `spent_timestamp` is unix seconds when the RPC log provided it (0 if unknown).
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[non_exhaustive]
 pub struct SpentNote {
    pub note: UtxoNote,
    pub spent_block: u64,
@@ -46,6 +48,7 @@ pub struct SpentNote {
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
+#[non_exhaustive]
 pub struct IndexedAccountState {
    pub notes: Vec<NoteRecord>,
    pub synced_block: u64,
@@ -56,6 +59,7 @@ pub struct IndexedAccountState {
 
 /// How a grouped private spend should be shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PrivateHistoryKind {
    /// zk → zk transfer labeled via the sender's change-note memo.
    Send,
@@ -103,21 +107,21 @@ pub fn decode_history_memo(raw: &str) -> (Option<PrivateHistoryKind>, String) {
    if raw == HISTORY_KIND_UNSHIELD {
       return (Some(PrivateHistoryKind::Unshield), String::new());
    }
-   if let Some(rest) = raw.strip_prefix(HISTORY_KIND_UNSHIELD) {
-      if let Some(user) = rest.strip_prefix(HISTORY_KIND_SEP) {
-         return (
-            Some(PrivateHistoryKind::Unshield),
-            user.to_string(),
-         );
-      }
+   if let Some(rest) = raw.strip_prefix(HISTORY_KIND_UNSHIELD)
+      && let Some(user) = rest.strip_prefix(HISTORY_KIND_SEP)
+   {
+      return (
+         Some(PrivateHistoryKind::Unshield),
+         user.to_string(),
+      );
    }
    if raw == HISTORY_KIND_TRANSFER {
       return (Some(PrivateHistoryKind::Send), String::new());
    }
-   if let Some(rest) = raw.strip_prefix(HISTORY_KIND_TRANSFER) {
-      if let Some(user) = rest.strip_prefix(HISTORY_KIND_SEP) {
-         return (Some(PrivateHistoryKind::Send), user.to_string());
-      }
+   if let Some(rest) = raw.strip_prefix(HISTORY_KIND_TRANSFER)
+      && let Some(user) = rest.strip_prefix(HISTORY_KIND_SEP)
+   {
+      return (Some(PrivateHistoryKind::Send), user.to_string());
    }
    (None, raw.to_string())
 }
@@ -683,7 +687,7 @@ mod tests {
          tree_number: 1,
          leaf_index: 0,
          npk: shield.preimage.npk.into(),
-         token: shield.preimage.token.try_into().unwrap(),
+         token: shield.preimage.token.into(),
          value: U256::from(shield.preimage.value),
          ciphertext: shield.ciphertext.clone().into(),
          shield_key: *shield.ciphertext.shieldKey,
@@ -751,7 +755,7 @@ mod tests {
          tree_number: 1,
          leaf_index: 0,
          npk: shield.preimage.npk.into(),
-         token: shield.preimage.token.try_into().unwrap(),
+         token: shield.preimage.token.into(),
          value: U256::from(shield.preimage.value),
          ciphertext: shield.ciphertext.clone().into(),
          shield_key: *shield.ciphertext.shieldKey,
@@ -782,7 +786,7 @@ mod tests {
          tree_number: 1,
          leaf_index: 1,
          npk: other_shield.preimage.npk.into(),
-         token: other_shield.preimage.token.try_into().unwrap(),
+         token: other_shield.preimage.token.into(),
          value: U256::from(other_shield.preimage.value),
          ciphertext: other_shield.ciphertext.clone().into(),
          shield_key: *other_shield.ciphertext.shieldKey,
@@ -928,7 +932,7 @@ mod tests {
          tree_number: 1,
          leaf_index: 0,
          npk: shield.preimage.npk.into(),
-         token: shield.preimage.token.try_into().unwrap(),
+         token: shield.preimage.token.into(),
          value: U256::from(shield.preimage.value),
          ciphertext: shield.ciphertext.clone().into(),
          shield_key: *shield.ciphertext.shieldKey,

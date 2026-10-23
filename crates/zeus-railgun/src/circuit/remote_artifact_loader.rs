@@ -68,6 +68,7 @@ pub fn all_transact_circuit_names() -> Vec<String> {
 
 /// Result of a bulk prefetch pass.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct PrefetchReport {
    /// Circuits fully available from the binary (`include_bytes!` embeds).
    /// Prefetch does **not** write these to disk.
@@ -96,6 +97,7 @@ impl PrefetchReport {
 /// [`RemoteArtifactLoader`]. Bytes stay in the binary — they are **not** copied
 /// into the disk cache on load.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct EmbeddedCircuit {
    /// Circuit path as used by the host, e.g. `railgun/01x01`.
    pub name: &'static str,
@@ -138,6 +140,7 @@ impl EmbeddedCircuit {
 /// Snapshot of which transact circuits are usable offline
 /// (binary embeds and/or on-disk cache).
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct AvailableCircuits {
    /// Circuit names like `railgun/01x02`.
    pub names: BTreeSet<String>,
@@ -232,6 +235,7 @@ impl Cache {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum RemoteArtifactLoaderError {
    #[error("HTTP error: {0}")]
    HttpError(#[from] reqwest::Error),
@@ -316,7 +320,7 @@ impl RemoteArtifactLoader {
    }
 
    pub fn clear_mem_cache(&self) {
-      let mut cache = self.cache.lock().unwrap();
+      let mut cache = self.cache();
       *cache = Cache::new(64 * 1024 * 1024);
    }
 
@@ -554,7 +558,7 @@ impl RemoteArtifactLoader {
       let disk_path = self.artifact_path(circuit_name, filename);
 
       // 1. Memory cache (L1) — inserted only after a pin check.
-      if let Some(cached) = self.cache.lock().unwrap().get(&url) {
+      if let Some(cached) = self.cache().get(&url) {
          debug!("Artifact served from memory cache: {}", url);
          return Ok(cached);
       }
@@ -568,36 +572,36 @@ impl RemoteArtifactLoader {
          );
          verify_artifact_pin(circuit_name, filename, data)?;
          let owned = data.to_vec();
-         self.cache.lock().unwrap().insert(url, owned.clone());
+         self.cache().insert(url, owned.clone());
          return Ok(owned);
       }
 
       // 3. Disk cache (L2)
-      if let Some(ref path) = disk_path {
-         if path.exists() {
+      if let Some(ref path) = disk_path
+         && path.exists()
+      {
+         debug!(
+            "Loading artifact from disk cache: {}",
+            path.display()
+         );
+         let data = fs::read(path).await?;
+         let discard = if let Err(reason) = validate_compressed_artifact(&data) {
+            Some(reason)
+         } else if let Err(e) = verify_artifact_pin(circuit_name, filename, &data) {
+            Some(e.to_string())
+         } else {
+            None
+         };
+         if let Some(reason) = discard {
             debug!(
-               "Loading artifact from disk cache: {}",
-               path.display()
+               "Discarding invalid disk cache entry {}: {}",
+               path.display(),
+               reason
             );
-            let data = fs::read(path).await?;
-            let discard = if let Err(reason) = validate_compressed_artifact(&data) {
-               Some(reason)
-            } else if let Err(e) = verify_artifact_pin(circuit_name, filename, &data) {
-               Some(e.to_string())
-            } else {
-               None
-            };
-            if let Some(reason) = discard {
-               debug!(
-                  "Discarding invalid disk cache entry {}: {}",
-                  path.display(),
-                  reason
-               );
-               let _ = fs::remove_file(path).await;
-            } else {
-               self.cache.lock().unwrap().insert(url.clone(), data.clone());
-               return Ok(data);
-            }
+            let _ = fs::remove_file(path).await;
+         } else {
+            self.cache().insert(url.clone(), data.clone());
+            return Ok(data);
          }
       }
 
@@ -638,13 +642,13 @@ impl RemoteArtifactLoader {
          }
       }
 
-      if let Some(len) = response.content_length() {
-         if len > MAX_ARTIFACT_BYTES {
-            return Err(RemoteArtifactLoaderError::InvalidArtifact {
-               url: url.clone(),
-               reason: format!("artifact too large ({len} bytes)"),
-            });
-         }
+      if let Some(len) = response.content_length()
+         && len > MAX_ARTIFACT_BYTES
+      {
+         return Err(RemoteArtifactLoaderError::InvalidArtifact {
+            url: url.clone(),
+            reason: format!("artifact too large ({len} bytes)"),
+         });
       }
 
       let data = read_capped(response, MAX_ARTIFACT_BYTES, &url).await?;
@@ -664,8 +668,16 @@ impl RemoteArtifactLoader {
          debug!("Saved artifact to disk: {}", path.display());
       }
 
-      self.cache.lock().unwrap().insert(url, data.clone());
+      self.cache().insert(url, data.clone());
       Ok(data)
+   }
+
+   /// The in-memory artifact cache.
+   ///
+   /// The guarded `Cache` tracks its own byte accounting, so a panic that unwound mid-insert can leave
+   /// that accounting inconsistent — the one thing this cannot silently paper over. Fail loud.
+   fn cache(&self) -> std::sync::MutexGuard<'_, Cache> {
+      self.cache.lock().expect("artifact cache mutex poisoned")
    }
 
    fn embedded_bytes(&self, circuit_name: &str, filename: &str) -> Option<&'static [u8]> {
@@ -774,7 +786,7 @@ fn validate_compressed_artifact_prefix(len: u64, head: &[u8]) -> Result<(), Stri
    // Brotli streams don't have a universal magic header, but HTML almost always
    // starts with '<'. Catch the common 404 body case early.
    let head = &head[..head.len().min(ARTIFACT_HEAD_BYTES)];
-   if head.iter().any(|&b| b == b'<')
+   if head.contains(&b'<')
       && (starts_with_ignore_ws(head, b"<!DOCTYPE")
          || starts_with_ignore_ws(head, b"<html")
          || starts_with_ignore_ws(head, b"<HTML"))

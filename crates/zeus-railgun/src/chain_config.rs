@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 use crate::poi::types::ListKey;
 
 /// Chain Configurations
+/// Deliberately exhaustive: a new variant must break every `match` in the consuming app, so the
+/// compiler — not a silent wildcard — forces the update. The crate owns that breakage.
+/// Chain configs are built with named-field literals, so a new deployment field is named at every
+/// construction site instead of being defaulted behind the caller's back.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChainConfig {
@@ -54,37 +58,10 @@ pub struct ChainConfig {
    pub railgun_fee_adapter: Option<Address>,
 }
 
+/// Chain configurations are values, not constructor calls: every field is public and every deployment
+/// is written out with named fields so a transposed address is a compile error to spot, not a silent
+/// wrong contract. Adding a field is a deliberate minor break; the crate fixes its own call sites.
 impl ChainConfig {
-   pub fn new(
-      id: ChainId,
-      railgun_smart_wallet: Address,
-      unshield_fee_bps: u16,
-      relay_adapt_contract: Address,
-      wrapped_base_token: Address,
-      deployment_block: u64,
-      poi_start_block: u64,
-      subsquid_endpoint: impl Into<String>,
-      poi_endpoint: impl Into<String>,
-      list_keys: impl IntoIterator<Item: AsRef<str>>,
-      privacy_paymaster: Option<Address>,
-      railgun_fee_adapter: Option<Address>,
-   ) -> Self {
-      Self {
-         id,
-         railgun_smart_wallet,
-         unshield_fee_bps,
-         relay_adapt_contract,
-         wrapped_base_token,
-         deployment_block,
-         poi_start_block,
-         subsquid_endpoint: subsquid_endpoint.into(),
-         poi_endpoint: poi_endpoint.into(),
-         list_keys: list_keys.into_iter().map(|s| s.as_ref().into()).collect(),
-         privacy_paymaster,
-         railgun_fee_adapter,
-      }
-   }
-
    pub fn from_chain_id(chain_id: ChainId) -> Option<Self> {
       match chain_id {
          c if c == Self::mainnet().id => Some(Self::mainnet()),
@@ -94,44 +71,105 @@ impl ChainConfig {
    }
 
    pub fn mainnet() -> Self {
-      Self::new(
-         1,
-         address!("0xFA7093CDD9EE6932B4eb2c9e1cde7CE00B1FA4b9"),
-         25,
-         address!("0xAc9f360Ae85469B27aEDdEaFC579Ef2d052aD405"),
-         address!("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"),
-         14693013,
-         18514200,
-         "https://rail-squid.squids.live/squid-railgun-ethereum-v2/v/v1/graphql",
-         "https://ppoi.fdi.network/",
-         &["efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88"],
-         Some(address!(
+      Self {
+         id: 1,
+         railgun_smart_wallet: address!("0xFA7093CDD9EE6932B4eb2c9e1cde7CE00B1FA4b9"),
+         unshield_fee_bps: 25,
+         relay_adapt_contract: address!("0xAc9f360Ae85469B27aEDdEaFC579Ef2d052aD405"),
+         wrapped_base_token: address!("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"),
+         deployment_block: 14693013,
+         poi_start_block: 18514200,
+         subsquid_endpoint: "https://rail-squid.squids.live/squid-railgun-ethereum-v2/v/v1/graphql"
+            .to_string(),
+         poi_endpoint: "https://ppoi.fdi.network/".to_string(),
+         list_keys: vec![ListKey::from(
+            "efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88",
+         )],
+         privacy_paymaster: Some(address!(
             "0x5FCd478c286528aE735e8CDAEF707956469ED208"
          )),
-         Some(address!(
+         railgun_fee_adapter: Some(address!(
             "0x0Aff8d142E3655714B716bBE1d66165a060D4155"
          )),
-      )
+      }
    }
 
    pub fn sepolia() -> Self {
-      Self::new(
-         11155111,
-         address!("0xeCFCf3b4eC647c4Ca6D49108b311b7a7C9543fea"),
-         25,
-         address!("0x7e3d929EbD5bDC84d02Bd3205c777578f33A214D"),
-         address!("0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14"),
-         5784774,
-         5944700,
-         "https://rail-squid.squids.live/squid-railgun-eth-sepolia-v2/v/v1/graphql",
-         "https://ppoi.fdi.network/",
-         &["efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88"],
-         Some(address!(
+      Self {
+         id: 11155111,
+         railgun_smart_wallet: address!("0xeCFCf3b4eC647c4Ca6D49108b311b7a7C9543fea"),
+         unshield_fee_bps: 25,
+         relay_adapt_contract: address!("0x7e3d929EbD5bDC84d02Bd3205c777578f33A214D"),
+         wrapped_base_token: address!("0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14"),
+         deployment_block: 5784774,
+         poi_start_block: 5944700,
+         subsquid_endpoint:
+            "https://rail-squid.squids.live/squid-railgun-eth-sepolia-v2/v/v1/graphql".to_string(),
+         poi_endpoint: "https://ppoi.fdi.network/".to_string(),
+         list_keys: vec![ListKey::from(
+            "efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88",
+         )],
+         privacy_paymaster: Some(address!(
             "0xBb9D6507B5dE027dEb0196c83A7DC6Eef325bEe4"
          )),
-         Some(address!(
+         railgun_fee_adapter: Some(address!(
             "0xeBabF510f824a349a9Be7F40cad3486B7249b1e0"
          )),
-      )
+      }
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// The anti-transposition pin: every deployment is a struct literal of same-typed `Address`/`u64`
+   /// neighbours, so this test states the values once more in a form the compiler cannot cross-check.
+   #[test]
+   fn chain_configurations_pin_their_deployment_addresses() {
+      let mainnet = ChainConfig::mainnet();
+      assert_eq!(
+         mainnet.railgun_smart_wallet,
+         address!("0xFA7093CDD9EE6932B4eb2c9e1cde7CE00B1FA4b9")
+      );
+      assert_eq!(
+         mainnet.wrapped_base_token,
+         address!("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
+      );
+      assert_eq!(
+         mainnet.relay_adapt_contract,
+         address!("0xAc9f360Ae85469B27aEDdEaFC579Ef2d052aD405")
+      );
+      assert_eq!(
+         mainnet.privacy_paymaster,
+         Some(address!(
+            "0x5FCd478c286528aE735e8CDAEF707956469ED208"
+         ))
+      );
+      assert_eq!(
+         mainnet.railgun_fee_adapter,
+         Some(address!(
+            "0x0Aff8d142E3655714B716bBE1d66165a060D4155"
+         ))
+      );
+      assert_eq!(mainnet.deployment_block, 14693013);
+      assert_eq!(mainnet.poi_start_block, 18514200);
+      assert_eq!(mainnet.list_keys.len(), 1);
+
+      let sepolia = ChainConfig::sepolia();
+      assert_eq!(
+         sepolia.railgun_smart_wallet,
+         address!("0xeCFCf3b4eC647c4Ca6D49108b311b7a7C9543fea")
+      );
+      assert_eq!(
+         sepolia.wrapped_base_token,
+         address!("0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14")
+      );
+      assert_eq!(
+         sepolia.relay_adapt_contract,
+         address!("0x7e3d929EbD5bDC84d02Bd3205c777578f33A214D")
+      );
+      assert_eq!(sepolia.deployment_block, 5784774);
+      assert_eq!(sepolia.list_keys.len(), 1);
    }
 }

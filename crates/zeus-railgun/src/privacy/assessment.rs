@@ -86,6 +86,7 @@ const SUGGESTION_DECIMALS: u8 = 4;
 const DUST_LEG_DIVISOR: i128 = 100_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RiskBand {
    Low,
    Medium,
@@ -114,6 +115,7 @@ impl RiskBand {
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PrivacyError {
    #[error("enter an amount more than zero")]
    ZeroAmount,
@@ -156,6 +158,7 @@ impl UserExposure {
 
 /// The matching deposits a withdrawal resembles, largest set last.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MatchSets {
    pub singles: Vec<Deposit>,
    pub pairs: Vec<[Deposit; 2]>,
@@ -1416,7 +1419,7 @@ mod tests {
          assert_eq!(advice.band, RiskBand::from_score(advice.score));
          assert!(advice.score <= 100);
          assert!(advice.pool_size <= count as u32);
-         assert_eq!(advice.sets.len() <= MATCH_LIMIT, true);
+         assert!(advice.sets.len() <= MATCH_LIMIT);
          assert_eq!(
             advice.amount_score,
             advice.crowd_score.max(advice.match_score)

@@ -1106,6 +1106,7 @@ impl ShieldUi {
                   RiskBand::Medium => theme.colors.text,
                   RiskBand::High => theme.colors.warning,
                   RiskBand::Critical => theme.colors.error,
+                  _ => theme.colors.text_muted,
                };
 
                ui.add(

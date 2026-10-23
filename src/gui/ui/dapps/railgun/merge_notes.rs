@@ -383,7 +383,10 @@ async fn load_suggestion(
          // Skip notes that POI marks unspendable when POI is on.
          match n.poi_status {
             Some(PoiStatus::Valid) | None => true,
-            Some(_) => false,
+            Some(PoiStatus::ProofSubmitted)
+            | Some(PoiStatus::Missing)
+            | Some(PoiStatus::ShieldBlocked) => false,
+            _ => false,
          }
       })
       .map(|n| MergeCandidate {

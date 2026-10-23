@@ -8,9 +8,11 @@ use aes_gcm::{
    AesGcm, KeyInit, Nonce,
    aead::{Aead, Payload, consts::U16},
 };
+use alloy_primitives::{Bytes, FixedBytes};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Ciphertext {
    pub iv: [u8; 16],
    pub tag: [u8; 16],
@@ -18,12 +20,14 @@ pub struct Ciphertext {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CiphertextCtr {
    pub iv: [u8; 16],
    pub data: Vec<Vec<u8>>,
 }
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum AesError {
    #[error("encrypt error: {0}")]
    Gcm(aes_gcm::Error),
@@ -41,8 +45,7 @@ pub(super) fn encrypt_gcm(
    key: &[u8; 32],
    iv: &[u8; 16],
 ) -> Result<Ciphertext, AesError> {
-   //? Safe to unwrap as key length is fixed
-   let cipher = Aes256GcmU16::new_from_slice(key).unwrap();
+   let cipher = Aes256GcmU16::new_from_slice(key).expect("AES-256 key is [u8; 32]");
    let nonce = Nonce::<U16>::from_slice(iv);
 
    let mut combined = Vec::new();
@@ -66,7 +69,7 @@ pub(super) fn encrypt_gcm(
       return Err(AesError::DataTooShort);
    }
    let tag_bytes = encrypted_raw.split_off(encrypted_raw.len() - 16);
-   let tag: [u8; 16] = tag_bytes.try_into().unwrap();
+   let tag: [u8; 16] = tag_bytes.try_into().expect("split_off(16) leaves exactly 16 bytes");
 
    // Split back into per-block hex strings.
    let mut data = Vec::with_capacity(block_lengths.len());
@@ -83,8 +86,7 @@ pub(super) fn decrypt_gcm(
    ciphertext: &Ciphertext,
    key: &[u8; 32],
 ) -> Result<Vec<Vec<u8>>, AesError> {
-   //? Safe to unwrap as key length is fixed
-   let cipher = Aes256GcmU16::new_from_slice(key).unwrap();
+   let cipher = Aes256GcmU16::new_from_slice(key).expect("AES-256 key is [u8; 32]");
    let nonce = Nonce::<U16>::from_slice(&ciphertext.iv);
 
    let mut combined = Vec::new();
@@ -143,7 +145,39 @@ fn decrypt_ctr(ciphertext: &CiphertextCtr, key: &[u8; 32]) -> Vec<Vec<u8>> {
    data
 }
 
-#[cfg(all(test))]
+/// Split a commitment ciphertext's wire layout (`iv | tag` in the first slot, one slot per block,
+/// then the memo slots) into the crate's [`Ciphertext`].
+///
+/// Both the current and the legacy ABI structs use exactly this order, which is why this lives here
+/// once instead of in two `From` impls.
+pub(crate) fn ciphertext_from_commitment_slots(
+   iv_tag: FixedBytes<32>,
+   blocks: &[FixedBytes<32>],
+   memo: &Bytes,
+) -> Ciphertext {
+   let iv = iv_tag[..16].try_into().expect("iv is the low 16 bytes of the iv|tag slot");
+   let tag = iv_tag[16..].try_into().expect("tag is the high 16 bytes of the iv|tag slot");
+   let mut data: Vec<Vec<u8>> = blocks.iter().map(|slot| slot.to_vec()).collect();
+   data.push(memo.to_vec());
+   Ciphertext { iv, tag, data }
+}
+
+/// Split a shield ciphertext's wire layout (`iv | tag` in the first slot, the random half of the
+/// second) into the crate's [`Ciphertext`].
+pub(crate) fn ciphertext_from_shield_slots(
+   iv_tag: FixedBytes<32>,
+   random_slot: FixedBytes<32>,
+) -> Ciphertext {
+   let iv = iv_tag[..16].try_into().expect("iv is the low 16 bytes of the iv|tag slot");
+   let tag = iv_tag[16..].try_into().expect("tag is the high 16 bytes of the iv|tag slot");
+   Ciphertext {
+      iv,
+      tag,
+      data: vec![random_slot[..16].to_vec()],
+   }
+}
+
+#[cfg(test)]
 mod tests {
    use rand::{Rng, SeedableRng};
    use rand_chacha::ChaChaRng;

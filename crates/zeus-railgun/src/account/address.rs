@@ -8,7 +8,7 @@ use crate::{
       compute_public_spending_key,
       keys::{spending_key_path, viewing_key_path},
    },
-   crypto::keys::{MasterPublicKey, SpendingKey, SpendingPublicKey, ViewingKey, ViewingPublicKey},
+   crypto::keys::{MasterPublicKey, SpendingKey, ViewingKey, ViewingPublicKey},
 };
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +18,7 @@ const RAILGUN_XOR: [u8; 8] = [b'r', b'a', b'i', b'l', b'g', b'u', b'n', 0];
 const ADDRESS_VERSION: u8 = 1;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RailgunAddress {
    pub address: String,
    pub master_public_key: MasterPublicKey,
@@ -65,7 +66,7 @@ impl RailgunAddress {
          viewing_key.public_key(),
          chain,
       )
-      .unwrap();
+      .expect("encode_address cannot fail for a valid master/viewing key");
 
       RailgunAddress {
          address,
@@ -87,7 +88,7 @@ impl RailgunAddress {
          viewing_pubkey,
          chain,
       )
-      .unwrap();
+      .expect("encode_address cannot fail for a valid master/viewing key");
 
       RailgunAddress {
          address,
@@ -106,16 +107,12 @@ impl RailgunAddress {
       let spending_path = spending_key_path(index);
       let viewing_path = viewing_key_path(index);
 
-      let (spend_x, spend_y) =
-         compute_public_spending_key(&seed, &spending_path).expect("Spending key");
+      let spending_public_key = compute_public_spending_key(seed, &spending_path)
+         .expect("seed and spending path derive a valid public key");
 
       let viewing_priv = seed.unlock(|seed_bytes| ViewingKey::derive(seed_bytes, &viewing_path))?;
       let nullifying_key = viewing_priv.nullifying_key();
       let viewing_public_key = viewing_priv.public_key();
-
-      let x = spend_x.to_be_bytes();
-      let y = spend_y.to_be_bytes();
-      let spending_public_key = SpendingPublicKey::new(x, y);
 
       let master_public_key = MasterPublicKey::new(spending_public_key, nullifying_key);
 
@@ -262,9 +259,8 @@ mod test {
       let method = DeriveMethod::BIP32;
       let version = DeriveVersion::Custom(Argon2Params::new(m_cost, t_cost, p_cost), method);
       let deriver = Deriver::new(version, Some(username), Some(password));
-      let wallet = deriver.new_hd_wallet(None).unwrap();
 
-      wallet
+      deriver.new_hd_wallet(None).unwrap()
    }
 
    #[test]

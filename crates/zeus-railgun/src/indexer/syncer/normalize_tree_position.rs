@@ -24,12 +24,9 @@ mod tests {
       assert_eq!(normalize_tree_position(1, 10), (1, 10));
 
       // Overflow
+      assert_eq!(normalize_tree_position(0, TOTAL_LEAVES), (1, 0));
       assert_eq!(
-         normalize_tree_position(0, TOTAL_LEAVES as u32),
-         (1, 0)
-      );
-      assert_eq!(
-         normalize_tree_position(2, TOTAL_LEAVES as u32 + 5),
+         normalize_tree_position(2, TOTAL_LEAVES + 5),
          (3, 5)
       );
    }

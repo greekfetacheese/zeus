@@ -30,6 +30,7 @@ use crate::{
 
 /// Cached leaf count + root for a UTXO tree (resident or unloaded).
 #[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
 pub struct UtxoTreeSummary {
    pub leaf_count: usize,
    pub root: MerkleRoot,
@@ -78,6 +79,7 @@ pub struct UtxoIndexer {
 pub const UTXO_INDEXER_SCHEMA: u32 = 2;
 
 #[derive(Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct UtxoIndexerState {
    pub synced_block: u64,
    pub trees: Vec<u32>,
@@ -104,6 +106,7 @@ impl Default for UtxoIndexerState {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum UtxoIndexerError {
    #[error("Syncer error: {0}")]
    SyncerError(#[from] SyncerError),
@@ -154,21 +157,21 @@ impl UtxoIndexer {
 
       // Only rebuild the open (highest) tree. Sealed trees stay on disk until a
       // registered account has unspent notes there (see compact_utxo_trees).
-      if let Some(open) = known_trees.iter().next_back().copied() {
-         if let Some((leaves, from_legacy)) = db.get_utxo_tree_leaves(open).await? {
-            if from_legacy {
-               legacy_trees.insert(open);
-            }
-            let tree = UtxoMerkleTree::from_leaves(open, leaves);
-            tree_summaries.insert(
-               open,
-               UtxoTreeSummary {
-                  leaf_count: tree.leaves_len(),
-                  root: tree.root(),
-               },
-            );
-            utxo_trees.insert(open, tree);
+      if let Some(open) = known_trees.iter().next_back().copied()
+         && let Some((leaves, from_legacy)) = db.get_utxo_tree_leaves(open).await?
+      {
+         if from_legacy {
+            legacy_trees.insert(open);
          }
+         let tree = UtxoMerkleTree::from_leaves(open, leaves);
+         tree_summaries.insert(
+            open,
+            UtxoTreeSummary {
+               leaf_count: tree.leaves_len(),
+               root: tree.root(),
+            },
+         );
+         utxo_trees.insert(open, tree);
       }
 
       debug!(
@@ -667,8 +670,7 @@ impl UtxoIndexer {
 
       let latest_block = if use_subsquid {
          let syncer = self.subsquid_syncer.as_ref().ok_or_else(|| {
-            SyncerError::new(std::io::Error::new(
-               std::io::ErrorKind::Other,
+            SyncerError::new(std::io::Error::other(
                "subsquid syncer not configured",
             ))
          })?;
@@ -743,7 +745,7 @@ impl UtxoIndexer {
                         self.rollback_uncommitted_step().await?;
                         let current = self.rpc_syncer.block_range().await;
                         match syncer::rpc::shrink_block_range_on_invalid_root(current) {
-                           Ok(next) => {
+                           Some(next) => {
                               debug!(
                                  "Shrinking get_logs block_range {} -> {}",
                                  current, next
@@ -751,7 +753,7 @@ impl UtxoIndexer {
                               self.rpc_syncer.set_block_range(next).await;
                               continue;
                            }
-                           Err(()) => {
+                           None => {
                               return Err(UtxoIndexerError::InvalidRoot(tree, root));
                            }
                         }
@@ -1027,7 +1029,7 @@ impl UtxoIndexer {
       }
 
       let mut tree_leaves: HashMap<u32, Vec<(u32, UtxoLeafHash)>> = HashMap::new();
-      for (_, event) in events.iter().enumerate() {
+      for event in events.iter() {
          self.handle_event(event, &mut tree_leaves, true)?;
       }
 
@@ -1145,12 +1147,12 @@ impl UtxoIndexer {
       // (only when we have the ciphertext from legacy CommitmentBatch)
       if event.ciphertext.is_some() {
          for account in self.accounts.iter_mut() {
-            if block > account.synced_block() {
-               if let Err(e) = account.handle_legacy_event(event) {
-                  // Ignore decryption failures (not our note)
-                  if !matches!(e, NoteError::Aes(_)) {
-                     tracing::debug!("Legacy note handling error: {}", e);
-                  }
+            if block > account.synced_block()
+               && let Err(e) = account.handle_legacy_event(event)
+            {
+               // Ignore decryption failures (not our note)
+               if !matches!(e, NoteError::Aes(_)) {
+                  tracing::debug!("Legacy note handling error: {}", e);
                }
             }
          }
@@ -1219,10 +1221,10 @@ impl UtxoIndexer {
       if !self.is_sealed(tree_number) {
          return false;
       }
-      match self.tree_summaries.get(&tree_number) {
-         Some(s) if s.root == tree.root() && s.leaf_count == tree.leaves_len() => true,
-         _ => false,
-      }
+      matches!(
+         self.tree_summaries.get(&tree_number),
+         Some(s) if s.root == tree.root() && s.leaf_count == tree.leaves_len()
+      )
    }
 
    pub async fn verify(&self, block_id: Option<BlockId>) -> Result<(), UtxoIndexerError> {
@@ -1256,7 +1258,7 @@ impl UtxoIndexer {
             .utxo_verifier
             .verify_root(tree.number(), 0, tree.root(), block_id)
             .await
-            .map_err(|e| UtxoIndexerError::VerificationError(e))?;
+            .map_err(UtxoIndexerError::VerificationError)?;
 
          if !exists {
             return Err(UtxoIndexerError::InvalidRoot(
@@ -1380,6 +1382,7 @@ mod tests {
       indexer::indexed_account::{IndexedAccountState, NoteRecord},
       indexer::syncer::RpcSyncer,
       merkle_tree::{RailgunMerkleProof, RootVerifier, UtxoLeafHash, UtxoMerkleTree},
+      note::utxo::UtxoNoteParams,
       poi::types::BlindedCommitmentType,
    };
 
@@ -1459,14 +1462,16 @@ mod tests {
          "0xDEADDEADDEADDEADDEADDEADDEADDEADDEADDEAD"
       ));
       let note = UtxoNote::new(
-         0,
-         0,
          &signer,
-         asset,
-         1,
-         [7u8; 16],
-         "",
-         BlindedCommitmentType::Shield,
+         UtxoNoteParams {
+            tree_number: 0,
+            leaf_index: 0,
+            asset,
+            value: 1,
+            random: [7u8; 16],
+            memo: String::new(),
+            commitment_type: BlindedCommitmentType::Shield,
+         },
       );
 
       let mut tree0_leaves = vec![note.hash()];
@@ -1501,7 +1506,7 @@ mod tests {
       // Sealed tree 0 is frozen then unloaded; only the open tree stays resident.
       assert_eq!(indexer.resident_trees(), vec![2]);
       assert_eq!(indexer.known_tree_numbers(), vec![0, 1, 2]);
-      let witnesses = indexer.merkle_witnesses(&[note.clone()]).unwrap();
+      let witnesses = indexer.merkle_witnesses(std::slice::from_ref(&note)).unwrap();
       assert!(witnesses.proofs.contains_key(&(0, 0)));
       assert!(witnesses.proofs[&(0, 0)].verify());
 
@@ -1532,14 +1537,16 @@ mod tests {
 
    fn make_note(signer: &RailgunSigner, tree: u32, leaf: u32, value: u128) -> UtxoNote {
       UtxoNote::new(
-         tree,
-         leaf,
          signer,
-         test_asset(),
-         value,
-         [leaf as u8; 16],
-         "",
-         BlindedCommitmentType::Shield,
+         UtxoNoteParams {
+            tree_number: tree,
+            leaf_index: leaf,
+            asset: test_asset(),
+            value,
+            random: [leaf as u8; 16],
+            memo: String::new(),
+            commitment_type: BlindedCommitmentType::Shield,
+         },
       )
    }
 
@@ -1735,7 +1742,7 @@ mod tests {
       indexer.register(signer_a.clone()).await.unwrap();
       indexer.register(signer_b.clone()).await.unwrap();
       assert_eq!(indexer.resident_trees(), vec![4]);
-      let reloaded = indexer.merkle_witnesses(&[note0.clone()]).unwrap();
+      let reloaded = indexer.merkle_witnesses(std::slice::from_ref(&note0)).unwrap();
       assert!(reloaded.proofs[&(0, 100)].verify());
       assert!(!indexer.utxo_trees.contains_key(&0));
 
@@ -1773,7 +1780,7 @@ mod tests {
       assert!(!indexer.utxo_trees.contains_key(&4));
 
       indexer.retain_accounts(&[signer_a.address().clone()]).await.unwrap();
-      assert!(indexer.merkle_witnesses(&[note0.clone()]).is_ok());
+      assert!(indexer.merkle_witnesses(std::slice::from_ref(&note0)).is_ok());
       assert!(
          !indexer.utxo_trees.contains_key(&2),
          "dropping signer B must not reload their sealed tree"
@@ -1789,7 +1796,7 @@ mod tests {
          Ru256::from(1u64),
          &signer_a,
          test_asset(),
-         &[note0.clone()],
+         std::slice::from_ref(&note0),
          &outs,
          &[after_roll.proofs[&(0, 100)].clone()],
       )
@@ -1812,8 +1819,8 @@ mod tests {
             .build(
                &prover,
                1,
-               &[note0.clone()],
-               &indexer.merkle_witnesses(&[note0.clone()]).unwrap(),
+               std::slice::from_ref(&note0),
+               &indexer.merkle_witnesses(std::slice::from_ref(&note0)).unwrap(),
                &mut rng,
             )
             .await
@@ -1882,7 +1889,7 @@ mod tests {
       let mut indexer = indexer_from_db(db).await;
       indexer.register(signer).await.unwrap();
       assert_eq!(indexer.resident_trees(), vec![0]);
-      let w = indexer.merkle_witnesses(&[note.clone()]).unwrap();
+      let w = indexer.merkle_witnesses(std::slice::from_ref(&note)).unwrap();
       assert!(w.proofs[&(0, 0)].verify());
       assert!(matches!(
          indexer.ensure_tree_loaded(9, false).await,

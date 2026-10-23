@@ -38,14 +38,14 @@ impl RedbDatabase {
       // A payload at the current layout. `schema` gates it: one written before the marker existed
       // serialized fewer fields and fails to decode here, and one that still decodes but carries an
       // older marker is an older layout too. Either way it falls through to the resync below.
-      if let Ok(mut state) = deserialize_versioned::<UtxoIndexerState>(&bytes) {
-         if state.schema == UTXO_INDEXER_SCHEMA {
-            // ERC-20s are not registry material ([`TokenRegistry`]), but a map written before that was
-            // settled still carries one per ERC-20 ever shielded. Shed them once here instead of
-            // re-reading and re-writing them for the life of the database.
-            state.token_registry.retain(|_, asset| !asset.is_erc20());
-            return Ok(state);
-         }
+      if let Ok(mut state) = deserialize_versioned::<UtxoIndexerState>(&bytes)
+         && state.schema == UTXO_INDEXER_SCHEMA
+      {
+         // ERC-20s are not registry material ([`TokenRegistry`]), but a map written before that was
+         // settled still carries one per ERC-20 ever shielded. Shed them once here instead of
+         // re-reading and re-writing them for the life of the database.
+         state.token_registry.retain(|_, asset| !asset.is_erc20());
+         return Ok(state);
       }
 
       // No current-layout payload: it predates the `token_registry` field, or the schema marker, or was
@@ -390,6 +390,7 @@ impl Kind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct UtxoTreeDiskMeta {
    pub number: u32,
    pub leaf_count: u32,
@@ -654,7 +655,7 @@ struct BincodeEnvelope {
 fn serialize_envelope<T: Serialize>(version: u32, data: &T) -> Result<Vec<u8>, DatabaseError> {
    match version {
       // v2 and above (below encrypted) use bincode for the payload (plaintext)
-      v if v >= 2 && v < ENCRYPTED_ENVELOPE_VERSION => {
+      v if (2..ENCRYPTED_ENVELOPE_VERSION).contains(&v) => {
          let payload = encode_to_vec(data, bincode_next::config::standard())
             .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
          let env = BincodeEnvelope { v, data: payload };
@@ -778,12 +779,11 @@ fn deserialize_versioned_tree(
    // Try bincode v2+
    if let Ok((env, _)) =
       decode_from_slice::<BincodeEnvelope, _>(bytes, bincode_next::config::standard())
+      && env.v >= 2
    {
-      if env.v >= 2 {
-         let (state, _) = decode_from_slice::<_, _>(&env.data, bincode_next::config::standard())
-            .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
-         return Ok(Some(state));
-      }
+      let (state, _) = decode_from_slice::<_, _>(&env.data, bincode_next::config::standard())
+         .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+      return Ok(Some(state));
    }
 
    // Legacy JSON
