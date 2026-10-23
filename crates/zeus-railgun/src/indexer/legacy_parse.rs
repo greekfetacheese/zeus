@@ -2,7 +2,8 @@ use alloy_primitives::{B256, U256};
 
 use crate::abi::legacy::RailgunLegacy;
 use crate::indexer::syncer::{
-   SyncEvent, SyncerError, normalize_tree_position::normalize_tree_position,
+   SyncEvent, SyncerError,
+   normalize_tree_position::normalize_tree_position,
    types::{LegacyCiphertext, LegacyCommitment, Nullified, Shield, Transact},
 };
 

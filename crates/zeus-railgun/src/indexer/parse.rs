@@ -2,7 +2,8 @@ use alloy_primitives::B256;
 
 use crate::abi::railgun::RailgunSmartWallet;
 use crate::indexer::syncer::{
-   SyncEvent, SyncerError, normalize_tree_position::normalize_tree_position,
+   SyncEvent, SyncerError,
+   normalize_tree_position::normalize_tree_position,
    types::{Nullified, Shield, Transact},
 };
 

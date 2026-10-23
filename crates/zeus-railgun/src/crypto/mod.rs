@@ -13,4 +13,4 @@ pub mod serializable_np_index;
 
 pub use curve::{BASE8, BabyJubPoint, add_point, babyjub_shared_secret, mul_point_escalar};
 pub use hmac::hmac_sha512;
-pub use poseidon::{poseidon1, poseidon2, poseidon3, poseidon_hash};
+pub use poseidon::{poseidon_hash, poseidon1, poseidon2, poseidon3};

@@ -152,12 +152,8 @@ pub(crate) fn ciphertext_from_commitment_slots(
    blocks: &[FixedBytes<32>],
    memo: &Bytes,
 ) -> Ciphertext {
-   let iv = iv_tag[..16]
-      .try_into()
-      .expect("iv is the low 16 bytes of the iv|tag slot");
-   let tag = iv_tag[16..]
-      .try_into()
-      .expect("tag is the high 16 bytes of the iv|tag slot");
+   let iv = iv_tag[..16].try_into().expect("iv is the low 16 bytes of the iv|tag slot");
+   let tag = iv_tag[16..].try_into().expect("tag is the high 16 bytes of the iv|tag slot");
    let mut data: Vec<Vec<u8>> = blocks.iter().map(|slot| slot.to_vec()).collect();
    data.push(memo.to_vec());
    Ciphertext { iv, tag, data }
@@ -171,7 +167,11 @@ pub(crate) fn ciphertext_from_shield_slots(
 ) -> Ciphertext {
    let iv = iv_tag[..16].try_into().expect("iv is the low 16 bytes of the iv|tag slot");
    let tag = iv_tag[16..].try_into().expect("tag is the high 16 bytes of the iv|tag slot");
-   Ciphertext { iv, tag, data: vec![random_slot[..16].to_vec()] }
+   Ciphertext {
+      iv,
+      tag,
+      data: vec![random_slot[..16].to_vec()],
+   }
 }
 
 #[cfg(test)]
