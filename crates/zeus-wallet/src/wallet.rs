@@ -19,6 +19,7 @@ fn base_path() -> DerivationPath {
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Wallet {
    pub name: String,
    #[cfg_attr(feature = "serde", serde(default))]
@@ -133,7 +134,7 @@ impl Wallet {
    }
 
    /// Create a new wallet from a given private key
-   pub fn new_from_key_str(name: String, key_str: SecureString) -> Result<Self, LocalSignerError> {
+   pub fn new_from_key_str(name: String, key_str: SecureString) -> Result<Self, Error> {
       let signer = key_str.unlock_str(PrivateKeySigner::from_str)?;
       let key = SecureKey::from(signer);
 
@@ -232,6 +233,7 @@ impl Wallet {
 /// Represents a hierarchical deterministic wallet
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct SecureHDWallet {
    /// The master wallet used to derive the children wallets
    pub master_wallet: Wallet,
@@ -303,7 +305,12 @@ impl SecureHDWallet {
       let child_path = base_path().extended(index);
 
       let child = xpriv.derive_path(child_path.clone())?;
-      let pkey = child.key.unlock(PrivateKeySigner::from_slice)?;
+      // `from_slice` reports `k256::ecdsa::Error`; wrapping it in
+      // `LocalSignerError` keeps `Error` free of k256's error type while
+      // still propagating instead of panicking.
+      let pkey = child
+         .key
+         .unlock(|slice| PrivateKeySigner::from_slice(slice).map_err(LocalSignerError::from))?;
 
       let wallet = Wallet {
          name: name.to_string(),

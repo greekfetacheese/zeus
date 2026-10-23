@@ -32,6 +32,7 @@ impl Argon2Params {
 
 /// The second derivation stage: how the seed becomes keys and derivation paths
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DeriveMethod {
    /// The standard bip32 method from bitcoin
    BIP32,
@@ -45,6 +46,7 @@ pub enum DeriveMethod {
 /// decision here instead of silently affecting wallets derived with an older
 /// version.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DeriveVersion {
    /// Zeus v1: Argon2id with the [`V1_M_COST`] / [`V1_T_COST`] / [`V1_P_COST`]
    /// parameters, deriving keys with [`DeriveMethod::BIP32`].
