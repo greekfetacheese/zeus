@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
+use crate::core::context::handle::RwLockHandle;
 use eframe::egui::{
    ColorImage, Context, Image, ImageSource, Sense, TextureHandle, Vec2,
    epaint::textures::TextureOptions,
@@ -8,7 +9,6 @@ use eframe::egui::{
 use egui_elements::utils::TINT_1;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::RwLock;
 use zeus_eth::{ERC20Token, types::ChainId};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -45,14 +45,14 @@ impl Default for Icons {
 }
 
 pub struct TokenIcons {
-   icons_x32: RwLock<HashMap<(Address, u64), TextureHandle>>,
+   icons_x32: RwLockHandle<HashMap<(Address, u64), TextureHandle>>,
    /// Raw compressed 32×32 icon PNG bytes. Kept for lazy loading to avoid
    /// decompressing and uploading all textures at startup.
-   icon_data: RwLock<HashMap<(Address, u64), Vec<u8>>>,
+   icon_data: RwLockHandle<HashMap<(Address, u64), Vec<u8>>>,
    /// In-flight SmolDapp downloads so we don't spawn duplicates.
-   in_flight: RwLock<HashSet<(Address, u64)>>,
+   in_flight: RwLockHandle<HashSet<(Address, u64)>>,
    /// 404s this session — don't retry until restart.
-   failed: RwLock<HashSet<(Address, u64)>>,
+   failed: RwLockHandle<HashSet<(Address, u64)>>,
    egui_ctx: Context,
    pub erc20_x32: TextureHandle,
    pub bep20_x32: TextureHandle,
@@ -70,10 +70,10 @@ impl Default for TokenIcons {
       let bep20_x32 = ctx.load_texture("bep20_x32", bep20_x32, texture_options);
 
       Self {
-         icons_x32: RwLock::new(HashMap::new()),
-         icon_data: RwLock::new(HashMap::new()),
-         in_flight: RwLock::new(HashSet::new()),
-         failed: RwLock::new(HashSet::new()),
+         icons_x32: RwLockHandle::new(HashMap::new()),
+         icon_data: RwLockHandle::new(HashMap::new()),
+         in_flight: RwLockHandle::new(HashSet::new()),
+         failed: RwLockHandle::new(HashSet::new()),
          egui_ctx: ctx,
          erc20_x32,
          bep20_x32,
@@ -126,10 +126,10 @@ impl TokenIcons {
       let bep20_x32 = ctx.load_texture("bep20_x32", bep20_x32, texture_options);
 
       Ok(Self {
-         icons_x32: RwLock::new(HashMap::new()),
-         icon_data: RwLock::new(icon_bytes),
-         in_flight: RwLock::new(HashSet::new()),
-         failed: RwLock::new(HashSet::new()),
+         icons_x32: RwLockHandle::new(HashMap::new()),
+         icon_data: RwLockHandle::new(icon_bytes),
+         in_flight: RwLockHandle::new(HashSet::new()),
+         failed: RwLockHandle::new(HashSet::new()),
          egui_ctx: ctx.clone(),
          erc20_x32,
          bep20_x32,
@@ -138,26 +138,19 @@ impl TokenIcons {
 
    /// Get or lazily load the 32x32 texture for a token.
    fn get_or_load_x32(&self, key: &(Address, u64)) -> Option<TextureHandle> {
-      {
-         let map = self.icons_x32.read().unwrap();
-         if let Some(handle) = map.get(key) {
-            return Some(handle.clone());
-         }
+      if let Some(handle) = self.icons_x32.read(|map| map.get(key).cloned()) {
+         return Some(handle);
       }
 
       // Load from raw data (decompress + upload only when first used in UI)
-      let data_x32 = {
-         let icon_data = self.icon_data.read().unwrap();
-         icon_data.get(key).cloned()
-      };
+      let data_x32 = self.icon_data.read(|icon_data| icon_data.get(key).cloned());
 
       if let Some(data_x32) = data_x32 {
          match load_image(&data_x32) {
             Ok(img) => {
                let name = format!("token32_{}", key.0);
                let handle = self.egui_ctx.load_texture(name, img, TextureOptions::default());
-               let mut map = self.icons_x32.write().unwrap();
-               map.insert(*key, handle.clone());
+               self.icons_x32.write(|map| map.insert(*key, handle.clone()));
                return Some(handle);
             }
             Err(_e) => {
@@ -174,17 +167,17 @@ impl TokenIcons {
    }
 
    pub fn has_icon(&self, address: Address, chain_id: u64) -> bool {
-      self.icon_data.read().unwrap().contains_key(&(address, chain_id))
+      self.icon_data.read(|icon_data| icon_data.contains_key(&(address, chain_id)))
    }
 
    pub fn insert_icon(&self, address: Address, chain_id: u64, x32: Vec<u8>) {
-      self.icon_data.write().unwrap().insert((address, chain_id), x32);
+      self.icon_data.write(|icon_data| icon_data.insert((address, chain_id), x32));
    }
 
    pub fn remove_icon(&self, address: Address, chain_id: u64) {
       let key = (address, chain_id);
-      self.icon_data.write().unwrap().remove(&key);
-      self.icons_x32.write().unwrap().remove(&key);
+      self.icon_data.write(|icon_data| icon_data.remove(&key));
+      self.icons_x32.write(|icons_x32| icons_x32.remove(&key));
    }
 
    /// Mark a download as started. Returns false if we already have the icon,
@@ -194,18 +187,17 @@ impl TokenIcons {
       if self.has_icon(address, chain_id) {
          return false;
       }
-      if self.failed.read().unwrap().contains(&key) {
+      if self.failed.read(|failed| failed.contains(&key)) {
          return false;
       }
-      let mut in_flight = self.in_flight.write().unwrap();
-      in_flight.insert(key)
+      self.in_flight.write(|in_flight| in_flight.insert(key))
    }
 
    pub fn finish_fetch(&self, address: Address, chain_id: u64, not_found: bool) {
       let key = (address, chain_id);
-      self.in_flight.write().unwrap().remove(&key);
+      self.in_flight.write(|in_flight| in_flight.remove(&key));
       if not_found {
-         self.failed.write().unwrap().insert(key);
+         self.failed.write(|failed| failed.insert(key));
       }
    }
 }
@@ -275,19 +267,19 @@ const MAX_ART_BYTES: usize = 64 * 1024 * 1024;
 /// alone would give every token in a collection the first token's picture. Unlike token icons there
 /// is no baked-in set: every NFT image comes from the chain or not at all.
 pub struct NftIcons {
-   icons_x64: RwLock<HashMap<NftKey, TextureHandle>>,
-   icons_x250: RwLock<HashMap<NftKey, TextureHandle>>,
+   icons_x64: RwLockHandle<HashMap<NftKey, TextureHandle>>,
+   icons_x250: RwLockHandle<HashMap<NftKey, TextureHandle>>,
    /// Raw PNG bytes. Kept so textures are decompressed and uploaded only when a view asks.
-   icon_data: RwLock<HashMap<NftKey, NftIconData>>,
+   icon_data: RwLockHandle<HashMap<NftKey, NftIconData>>,
    /// The same keys, oldest touched first, so [`NftIcons::evict_art`] knows what to drop.
    ///
    /// Touched on insert rather than on every read: art is fetched in the order it is looked at, so the
    /// two orders agree without taking a write lock on the frame path.
-   art_order: RwLock<VecDeque<NftKey>>,
+   art_order: RwLockHandle<VecDeque<NftKey>>,
    /// In-flight downloads, so two views asking at once do not fetch twice.
-   in_flight: RwLock<HashSet<NftKey>>,
+   in_flight: RwLockHandle<HashSet<NftKey>>,
    /// Tokens whose image was missing this session — don't retry until restart.
-   failed: RwLock<HashSet<NftKey>>,
+   failed: RwLockHandle<HashSet<NftKey>>,
    egui_ctx: Context,
    /// Shown when a token has no image, or its download has not finished yet.
    pub placeholder: TextureHandle,
@@ -320,12 +312,12 @@ impl NftIcons {
       }
 
       let icons = Self {
-         icons_x64: RwLock::new(HashMap::new()),
-         icons_x250: RwLock::new(HashMap::new()),
-         icon_data: RwLock::new(icon_data),
-         art_order: RwLock::new(art_order),
-         in_flight: RwLock::new(HashSet::new()),
-         failed: RwLock::new(HashSet::new()),
+         icons_x64: RwLockHandle::new(HashMap::new()),
+         icons_x250: RwLockHandle::new(HashMap::new()),
+         icon_data: RwLockHandle::new(icon_data),
+         art_order: RwLockHandle::new(art_order),
+         in_flight: RwLockHandle::new(HashSet::new()),
+         failed: RwLockHandle::new(HashSet::new()),
          egui_ctx: ctx.clone(),
          placeholder,
       };
@@ -348,24 +340,27 @@ impl NftIcons {
          &self.icons_x64
       };
 
-      if let Some(handle) = cache.read().unwrap().get(key) {
-         return Some(handle.clone());
+      if let Some(handle) = cache.read(|cache| cache.get(key).cloned()) {
+         return Some(handle);
       }
 
-      let bytes = {
-         let icon_data = self.icon_data.read().unwrap();
-         let data = icon_data.get(key)?;
-         let (preferred, other) = if large {
-            (&data.x250, &data.x64)
-         } else {
-            (&data.x64, &data.x250)
-         };
-         if preferred.is_empty() {
-            other.clone()
-         } else {
-            preferred.clone()
-         }
-      };
+      // The `None` for "no art for this key" is decided here, outside the lock.
+      let bytes = self.icon_data.read(|icon_data| {
+         icon_data.get(key).map(|data| {
+            let (preferred, other) = if large {
+               (&data.x250, &data.x64)
+            } else {
+               (&data.x64, &data.x250)
+            };
+            if preferred.is_empty() {
+               other.clone()
+            } else {
+               preferred.clone()
+            }
+         })
+      });
+
+      let bytes = bytes?;
 
       if bytes.is_empty() {
          return None;
@@ -376,7 +371,7 @@ impl NftIcons {
             let size = if large { 250 } else { 64 };
             let name = format!("nft{}_{}_{}_{}", size, key.0, key.1, key.2);
             let handle = self.egui_ctx.load_texture(name, image, TextureOptions::default());
-            cache.write().unwrap().insert(*key, handle.clone());
+            cache.write(|cache| cache.insert(*key, handle.clone()));
             Some(handle)
          }
          Err(_e) => {
@@ -388,7 +383,9 @@ impl NftIcons {
    }
 
    pub fn has_icon(&self, key: &NftKey) -> bool {
-      self.icon_data.read().unwrap().get(key).is_some_and(|data| !data.is_empty())
+      self
+         .icon_data
+         .read(|icon_data| icon_data.get(key).is_some_and(|data| !data.is_empty()))
    }
 
    /// A token id of `collection` that has art cached, if any. Lowest id wins, so the choice is stable
@@ -397,14 +394,13 @@ impl NftIcons {
    /// For rows that are about a collection rather than one token — an approval log carries no token id —
    /// where asking for a fixed id (0, say) can land on a token whose art was never fetched.
    fn cached_id_for_collection(&self, chain_id: u64, collection: Address) -> Option<U256> {
-      self
-         .icon_data
-         .read()
-         .unwrap()
-         .iter()
-         .filter(|(key, data)| key.0 == collection && key.1 == chain_id && !data.is_empty())
-         .map(|(key, _)| key.2)
-         .min()
+      self.icon_data.read(|icon_data| {
+         icon_data
+            .iter()
+            .filter(|(key, data)| key.0 == collection && key.1 == chain_id && !data.is_empty())
+            .map(|(key, _)| key.2)
+            .min()
+      })
    }
 
    /// Whether this token still needs a download attempt.
@@ -414,23 +410,24 @@ impl NftIcons {
    /// nothing left to do. Both callers are off the frame path.
    pub fn needs_fetch(&self, key: &NftKey) -> bool {
       !self.hydrate(key)
-         && !self.in_flight.read().unwrap().contains(key)
-         && !self.failed.read().unwrap().contains(key)
+         && !self.in_flight.read(|in_flight| in_flight.contains(key))
+         && !self.failed.read(|failed| failed.contains(key))
    }
 
    pub fn insert_icon(&self, key: NftKey, data: NftIconData) {
-      self.icon_data.write().unwrap().insert(key, data);
+      self.icon_data.write(|icon_data| icon_data.insert(key, data));
       self.touch(&key);
       self.evict_art();
    }
 
    /// Record `key` as the most recently touched, without duplicating it in the order list.
    fn touch(&self, key: &NftKey) {
-      let mut order = self.art_order.write().unwrap();
-      if let Some(at) = order.iter().position(|existing| existing == key) {
-         order.remove(at);
-      }
-      order.push_back(*key);
+      self.art_order.write(|order| {
+         if let Some(at) = order.iter().position(|existing| existing == key) {
+            order.remove(at);
+         }
+         order.push_back(*key);
+      });
    }
 
    /// Keep the in-memory copy inside its budget, dropping the least recently touched art first.
@@ -439,18 +436,19 @@ impl NftIcons {
    /// an eviction costs a file read rather than a download. A stale purge or a failed fetch may already
    /// have removed a key from the map, in which case its place in the order list is simply skipped.
    fn evict_art(&self) {
-      let mut order = self.art_order.write().unwrap();
-      let mut cache = self.icon_data.write().unwrap();
-
-      while cache.len() > MAX_ART_ENTRIES || art_bytes(&cache) > MAX_ART_BYTES {
-         let Some(oldest) = order.pop_front() else {
-            break;
-         };
-         if cache.remove(&oldest).is_some() {
-            self.icons_x64.write().unwrap().remove(&oldest);
-            self.icons_x250.write().unwrap().remove(&oldest);
-         }
-      }
+      self.art_order.write(|order| {
+         self.icon_data.write(|cache| {
+            while cache.len() > MAX_ART_ENTRIES || art_bytes(cache) > MAX_ART_BYTES {
+               let Some(oldest) = order.pop_front() else {
+                  break;
+               };
+               if cache.remove(&oldest).is_some() {
+                  self.icons_x64.write(|icons_x64| icons_x64.remove(&oldest));
+                  self.icons_x250.write(|icons_x250| icons_x250.remove(&oldest));
+               }
+            }
+         });
+      });
    }
 
    /// Bring art that is on disk but not in memory back into memory. `true` when there is art now.
@@ -485,12 +483,10 @@ impl NftIcons {
          return;
       };
 
-      let stored = {
-         let cache = self.icon_data.read().unwrap();
-         match cache.get(key) {
-            Some(data) => data.source_uri.clone(),
-            None => return,
-         }
+      let Some(stored) =
+         self.icon_data.read(|cache| cache.get(key).map(|data| data.source_uri.clone()))
+      else {
+         return;
       };
 
       match stored {
@@ -508,7 +504,7 @@ impl NftIcons {
             }
             // The re-fetch is a real download, so it starts from a clean slate rather than the session's
             // "already tried and missing" set.
-            self.failed.write().unwrap().remove(key);
+            self.failed.write(|failed| failed.remove(key));
          }
          None => {
             if let Err(_e) = disk::save_nft_icon_source(key.1, key.0, key.2, current) {
@@ -519,17 +515,19 @@ impl NftIcons {
                );
                return;
             }
-            if let Some(data) = self.icon_data.write().unwrap().get_mut(key) {
-               data.source_uri = Some(current.to_string());
-            }
+            self.icon_data.write(|icon_data| {
+               if let Some(data) = icon_data.get_mut(key) {
+                  data.source_uri = Some(current.to_string());
+               }
+            });
          }
       }
    }
 
    pub fn remove_icon(&self, key: &NftKey) {
-      self.icon_data.write().unwrap().remove(key);
-      self.icons_x64.write().unwrap().remove(key);
-      self.icons_x250.write().unwrap().remove(key);
+      self.icon_data.write(|icon_data| icon_data.remove(key));
+      self.icons_x64.write(|icons_x64| icons_x64.remove(key));
+      self.icons_x250.write(|icons_x250| icons_x250.remove(key));
    }
 
    /// Mark a download as started. Returns false when we already have the image, one is in flight, or it
@@ -541,16 +539,16 @@ impl NftIcons {
       if self.hydrate(key) {
          return false;
       }
-      if self.failed.read().unwrap().contains(key) {
+      if self.failed.read(|failed| failed.contains(key)) {
          return false;
       }
-      self.in_flight.write().unwrap().insert(*key)
+      self.in_flight.write(|in_flight| in_flight.insert(*key))
    }
 
    pub fn finish_fetch(&self, key: &NftKey, not_found: bool) {
-      self.in_flight.write().unwrap().remove(key);
+      self.in_flight.write(|in_flight| in_flight.remove(key));
       if not_found {
-         self.failed.write().unwrap().insert(*key);
+         self.failed.write(|failed| failed.insert(*key));
       }
    }
 }
@@ -879,7 +877,7 @@ mod tests {
       // which art a row got; a texture has no URI of its own to read instead, so read the cache.
       let _ = icons.nft_collection_icon_x64(1, collection, false);
       assert!(
-         icons.nfts.icons_x64.read().unwrap().get(&key).is_some(),
+         icons.nfts.icons_x64.read(|c| c.get(&key).is_some()),
          "and that art is what the row then shows"
       );
 
@@ -915,14 +913,14 @@ mod tests {
       let other = (collection, chain_id, U256::from(1521));
       let _ = icons.nft_icon_x64(chain_id, collection, other.2, false);
       assert!(
-         icons.nfts.icons_x64.read().unwrap().get(&other).is_none(),
+         icons.nfts.icons_x64.read(|c| c.get(&other).is_none()),
          "a token's row must not show another token's art"
       );
 
       // The collection's own row — the id-less one — is where that cached art shows up.
       let _ = icons.nft_collection_icon_x64(chain_id, collection, false);
       assert!(
-         icons.nfts.icons_x64.read().unwrap().get(&cached).is_some(),
+         icons.nfts.icons_x64.read(|c| c.get(&cached).is_some()),
          "the id-less row is the one that takes the collection's art"
       );
    }
@@ -1028,7 +1026,7 @@ mod tests {
          "the art is kept, not re-fetched"
       );
       assert_eq!(
-         icons.nfts.icon_data.read().unwrap().get(&key).unwrap().source_uri,
+         icons.nfts.icon_data.read(|c| c[&key].source_uri.clone()),
          Some("ipfs://cid/4.json".to_string()),
          "with the current URI recorded as the baseline"
       );
@@ -1057,7 +1055,7 @@ mod tests {
       }
 
       assert!(
-         icons.nfts.icon_data.read().unwrap().len() <= MAX_ART_ENTRIES,
+         icons.nfts.icon_data.read(|c| c.len()) <= MAX_ART_ENTRIES,
          "the map stays inside its entry bound"
       );
       assert!(
@@ -1087,17 +1085,17 @@ mod tests {
       let mut data = raster(vec![1, 2], vec![3, 4]);
       data.source_uri = Some("x".repeat(MAX_ART_BYTES + 1));
 
-      icons.nfts.icon_data.write().unwrap().insert(key, data);
+      icons.nfts.icon_data.write(|c| c.insert(key, data));
       assert!(
-         art_bytes(&icons.nfts.icon_data.read().unwrap()) > MAX_ART_BYTES,
+         icons.nfts.icon_data.read(|c| art_bytes(c)) > MAX_ART_BYTES,
          "the URI's bytes must count against the budget"
       );
 
-      icons.nfts.art_order.write().unwrap().push_back(key);
+      icons.nfts.art_order.write(|c| c.push_back(key));
       icons.nfts.evict_art();
 
       assert!(
-         icons.nfts.icon_data.read().unwrap().is_empty(),
+         icons.nfts.icon_data.read(|c| c.is_empty()),
          "an entry over budget because of its URI is evicted"
       );
    }
