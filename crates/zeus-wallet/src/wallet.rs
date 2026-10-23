@@ -61,11 +61,9 @@ impl Wallet {
 
    /// Returns the private key + ChainCode as a 64-byte SecureArray
    pub fn full_key(&self) -> Result<SecureArray<u8, 64>, Error> {
-      if self.xkey_info.is_none() {
+      let Some(info) = self.xkey_info.as_ref() else {
          return Err(Error::XKeyInfoIsMissing);
-      }
-
-      let info = self.xkey_info.as_ref().unwrap();
+      };
 
       let key = self.key.key();
       let chain_code = info.chain_code.data.clone();
@@ -87,22 +85,18 @@ impl Wallet {
          return Ok(key);
       }
 
-      if self.seed_phrase.is_some() {
-         let seed = self.seed_phrase.as_ref().unwrap();
-         let mnemonic = seed
-            .unlock_str(|seed_str| {
-               let mnemonic = Mnemonic::<English>::new_from_phrase(seed_str);
-               mnemonic
-            })
-            .map_err(|_| Error::Custom("invalid seed phrase".to_string()))?;
-         let mut bytes = mnemonic
-            .to_seed("".into())
-            .map_err(|_| Error::Custom("failed to derive seed from phrase".to_string()))?;
-         let sec_bytes = SecureArray::from_slice_mut(&mut bytes)?;
-         return Ok(sec_bytes);
-      }
+      let Some(seed) = self.seed_phrase.as_ref() else {
+         return Err(Error::WalletIsNotChildOrMaster);
+      };
 
-      Err(Error::WalletIsNotChildOrMaster)
+      let mnemonic = seed
+         .unlock_str(Mnemonic::<English>::new_from_phrase)
+         .map_err(|_| Error::Custom("invalid seed phrase".to_string()))?;
+      let mut bytes = mnemonic
+         .to_seed("".into())
+         .map_err(|_| Error::Custom("failed to derive seed from phrase".to_string()))?;
+      let sec_bytes = SecureArray::from_slice_mut(&mut bytes)?;
+      Ok(sec_bytes)
    }
 
    pub fn name_with_id(&self) -> String {
@@ -142,7 +136,7 @@ impl Wallet {
 
    /// Create a new wallet from a given private key
    pub fn new_from_key_str(name: String, key_str: SecureString) -> Result<Self, LocalSignerError> {
-      let signer = key_str.unlock_str(|key_str| PrivateKeySigner::from_str(key_str))?;
+      let signer = key_str.unlock_str(PrivateKeySigner::from_str)?;
       let key = SecureKey::from(signer);
 
       Ok(Self {
@@ -177,9 +171,9 @@ impl Wallet {
       if let Some(info) = self.xkey_info.as_ref() {
          let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH).unwrap();
          let path = base_path.extended(info.index);
-         return path.derivation_string();
+         path.derivation_string()
       } else {
-         return DEFAULT_DERIVATION_PATH.to_string();
+         DEFAULT_DERIVATION_PATH.to_string()
       }
    }
 
@@ -187,19 +181,18 @@ impl Wallet {
    pub fn derivation_path(&self) -> DerivationPath {
       if let Some(info) = self.xkey_info.as_ref() {
          let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH).unwrap();
-         let path = base_path.extended(info.index);
-         return path;
+         base_path.extended(info.index)
       } else {
-         return DerivationPath::from_str(DEFAULT_DERIVATION_PATH).unwrap();
+         DerivationPath::from_str(DEFAULT_DERIVATION_PATH).unwrap()
       }
    }
 
    /// Return the derivation index of the wallet
    pub fn index(&self) -> u32 {
       if let Some(info) = self.xkey_info.as_ref() {
-         return info.index;
+         info.index
       } else {
-         return 0;
+         0
       }
    }
 
@@ -229,9 +222,9 @@ impl Wallet {
 
    pub fn is_hardened(&self) -> bool {
       if self.is_master() {
-         return true;
+         true
       } else {
-         return self.xkey_info.as_ref().map(|info| info.index >= BIP32_HARDEN).unwrap_or(false);
+         self.xkey_info.as_ref().map(|info| info.index >= BIP32_HARDEN).unwrap_or(false)
       }
    }
 
@@ -265,7 +258,8 @@ impl SecureHDWallet {
       let mut bytes = [0u8; 64];
       rand::rngs::OsRng.fill_bytes(&mut bytes);
 
-      let (key, key_info) = root_from_seed(&bytes, None).unwrap();
+      let (key, key_info) =
+         root_from_seed(&bytes, None).expect("64 random bytes are a valid BIP32 seed");
       bytes.zeroize();
       let signer = SecureKey::from(key);
 
@@ -315,7 +309,7 @@ impl SecureHDWallet {
       let child_path = base_path.extended(self.next_child_index + BIP32_HARDEN);
 
       let child = xpriv.derive_path(child_path.clone())?;
-      let pkey = child.key.unlock(|slice| PrivateKeySigner::from_slice(slice))?;
+      let pkey = child.key.unlock(PrivateKeySigner::from_slice)?;
 
       let address = pkey.address();
       let child_wallet = Wallet {
@@ -345,7 +339,10 @@ impl SecureHDWallet {
       let child_path = base_path.extended(index);
 
       let child = xpriv.derive_path(child_path.clone())?;
-      let pkey = child.key.unlock(|slice| PrivateKeySigner::from_slice(slice).unwrap());
+      let pkey = child.key.unlock(|slice| {
+         PrivateKeySigner::from_slice(slice)
+            .expect("a derived child key is a valid secp256k1 scalar")
+      });
 
       let wallet = Wallet {
          name: name.clone(),
@@ -367,7 +364,10 @@ impl SecureHDWallet {
       let child_path = base_path.extended(index);
 
       let child = xpriv.derive_path(child_path.clone())?;
-      let pkey = child.key.unlock(|slice| PrivateKeySigner::from_slice(slice).unwrap());
+      let pkey = child.key.unlock(|slice| {
+         PrivateKeySigner::from_slice(slice)
+            .expect("a derived child key is a valid secp256k1 scalar")
+      });
 
       let wallet = Wallet {
          name: name.clone(),
@@ -377,10 +377,10 @@ impl SecureHDWallet {
       };
 
       if self.children.contains(&wallet) {
-         return Err(Error::ChildAlreadyExists {
+         Err(Error::ChildAlreadyExists {
             path: child_path,
             address: wallet.address(),
-         });
+         })
       } else {
          self.children.push(wallet.clone());
          Ok(wallet)
@@ -390,7 +390,9 @@ impl SecureHDWallet {
    /// Create a new `SecureHDWallet` from a seed
    #[deprecated(since = "0.1.22", note = "Use new_from_deriver instead")]
    pub fn new_from_seed(name_opt: Option<String>, seed: SecureVec<u8>) -> Self {
-      let (key, key_info) = seed.unlock_slice(|slice| root_from_seed(slice, None).unwrap());
+      let (key, key_info) = seed.unlock_slice(|slice| {
+         root_from_seed(slice, None).expect("BIP32 needs a seed of at least 16 bytes")
+      });
 
       let name = match name_opt {
          Some(name) => name,
