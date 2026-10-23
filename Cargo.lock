@@ -11774,7 +11774,6 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "rand 0.9.5",
- "thiserror 2.0.20",
 ]
 
 [[package]]

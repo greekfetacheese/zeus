@@ -1,22 +1,29 @@
 //! # Error
 //! Contains the Error messages from this crate.
 
-use thiserror::Error;
-
 /// An Error enum capturing the errors produced by this crate.
-#[derive(Error, Debug)]
+#[derive(Debug)]
 pub enum Error {
    /// The provided parameters are invalid
-   #[error("The provided parameters are invalid")]
    InvalidParameters,
-   #[error("Unsupported input length: {0}")]
    UnsupportedInputLength(usize),
    /// The provided string is not a field element
-   #[error("The provided string is not a field element")]
    ParseString,
-   #[error("Err: {0}")]
    Other(String),
 }
+
+impl std::fmt::Display for Error {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::InvalidParameters => f.write_str("The provided parameters are invalid"),
+         Self::UnsupportedInputLength(len) => write!(f, "Unsupported input length: {len}"),
+         Self::ParseString => f.write_str("The provided string is not a field element"),
+         Self::Other(mes) => write!(f, "Err: {mes}"),
+      }
+   }
+}
+
+impl std::error::Error for Error {}
 
 impl From<String> for Error {
    fn from(mes: String) -> Self {
