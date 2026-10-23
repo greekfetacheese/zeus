@@ -718,7 +718,7 @@ mod tests {
 
       assert!(strike.active);
       assert!(!strike.open);
-      assert_eq!(strike.layer, ParticleLayer::Foreground);
+      assert_eq!(strike.layer, ParticleLayer::Top);
       assert!(!LOADING_STRIKE_ID.is_empty());
    }
 }
