@@ -68,6 +68,10 @@ impl PartialEq for ChainCode {
 }
 
 /// Info associated with an extended key
+///
+/// Equality compares `depth`, `parent`, `index` and `chain_code` but not `hint`: the hint is an
+/// address-type preference rather than part of the key's identity, and `SecureXPriv`'s equality
+/// inherits that.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone)]
 pub struct XKeyInfo {

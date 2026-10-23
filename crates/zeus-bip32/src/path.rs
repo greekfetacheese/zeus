@@ -107,7 +107,7 @@ impl DerivationPath {
    }
 
    /// Make an iterator over the path indices
-   pub fn iter<'a>(&'a self) -> Iter<'a, u32> {
+   pub fn iter(&self) -> Iter<'_, u32> {
       self.0.iter()
    }
 
