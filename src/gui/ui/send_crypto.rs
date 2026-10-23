@@ -18,6 +18,7 @@ use crate::core::{
 use crate::utils::{TimeStamp, estimate_tx_cost, simulate};
 
 use crate::assets::icons::Icons;
+use crate::gui::ui::common::notices;
 use crate::gui::{
    SHARED_GUI,
    ui::{
@@ -173,18 +174,6 @@ impl SendCryptoUi {
       self.search_query = String::new();
    }
 
-   fn show_railgun_not_supported(&self, theme: &Theme, ui: &mut Ui) {
-      ui.vertical_centered(|ui| {
-         ui.set_width(self.size.0);
-         ui.set_max_height(self.size.1);
-         ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
-
-         let text = RichText::new("Railgun is not supported for the selected chain")
-            .size(theme.typography.very_large);
-         ui.label(text);
-      });
-   }
-
    fn show_railgun_not_enabled(&self, theme: &Theme, ui: &mut Ui) {
       ui.vertical_centered(|ui| {
          ui.set_width(self.size.0);
@@ -227,7 +216,12 @@ impl SendCryptoUi {
                   ui.spacing_mut().button_padding = theme.button_padding;
 
                   if privacy_mode && !ctx.railgun_is_supported(ctx.chain) {
-                     self.show_railgun_not_supported(theme, ui);
+                     notices::unsupported_panel(
+                        theme,
+                        self.size,
+                        "Railgun is not supported for the selected chain",
+                        ui,
+                     );
                      return;
                   }
 

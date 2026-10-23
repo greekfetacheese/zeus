@@ -8,6 +8,7 @@ use crate::core::{
    BridgeParams, DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, ZeusContext,
    ZeusCtx, read_recipient_account, refuse_contract_recipient, send_transaction,
 };
+use crate::gui::ui::common::notices;
 use crate::gui::{
    SHARED_GUI,
    ui::{
@@ -209,21 +210,6 @@ impl AcrossBridge {
       self.currency = currency;
    }
 
-   fn show_railgun_not_supported(&self, theme: &Theme, ui: &mut Ui) {
-      let frame = theme.frame1;
-      ui.vertical_centered(|ui| {
-         frame.show(ui, |ui| {
-            ui.set_width(self.size.0);
-            ui.set_max_height(self.size.1);
-            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
-
-            let text = RichText::new("Bridge is not supported on Private Mode")
-               .size(theme.typography.very_large);
-            ui.label(text);
-         });
-      });
-   }
-
    pub fn show(
       &mut self,
       ctx: &mut ZeusContext,
@@ -261,7 +247,12 @@ impl AcrossBridge {
 
       show_with_fade(ui, "across_bridge_ui_fade", self.open, |ui| {
          if ctx.privacy_mode {
-            self.show_railgun_not_supported(theme, ui);
+            notices::unsupported_panel(
+               theme,
+               self.size,
+               "Bridge is not supported on Private Mode",
+               ui,
+            );
             return;
          }
 

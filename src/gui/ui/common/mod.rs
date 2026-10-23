@@ -4,6 +4,7 @@ pub mod amount_field;
 pub mod chain_select;
 pub mod chain_switch;
 pub mod fade;
+pub mod notices;
 pub mod recipient_field;
 pub mod rows;
 pub mod wallet_identity;
