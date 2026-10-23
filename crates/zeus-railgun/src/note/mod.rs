@@ -13,6 +13,7 @@ use crate::{
 
 /// Mixed circuit-output note: a private transfer or an unshield.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum OutputNote {
    Transfer(TransferNote),
    Unshield(UnshieldNote),

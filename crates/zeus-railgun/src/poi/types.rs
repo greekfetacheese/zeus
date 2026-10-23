@@ -15,6 +15,8 @@ pub struct ListKey(String);
 #[derive(Debug, Copy, Clone, PartialEq, Deserialize, Eq, Hash)]
 pub struct BlindedCommitment(U256);
 
+/// Deliberately exhaustive: a new variant must break every `match` in the consuming app, so the
+/// compiler — not a silent wildcard — forces the update. The crate owns that breakage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TxidVersion {
    #[serde(rename = "V2_PoseidonMerkle")]
@@ -23,6 +25,8 @@ pub enum TxidVersion {
    V3PoseidonMerkle,
 }
 
+/// Deliberately exhaustive: a new variant must break every `match` in the consuming app, so the
+/// compiler — not a silent wildcard — forces the update. The crate owns that breakage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BlindedCommitmentType {
    Shield,
@@ -31,6 +35,7 @@ pub enum BlindedCommitmentType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum PoiStatus {
    Valid,
    ProofSubmitted,

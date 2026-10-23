@@ -10,6 +10,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum SyncEvent {
    Shield(Shield, u64),
    Transact(Transact, u64),

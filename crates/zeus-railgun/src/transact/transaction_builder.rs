@@ -46,6 +46,7 @@ pub const MAX_CIRCUIT_OUTPUTS: usize = 5;
 
 /// How input notes are chosen when covering an intent's value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum NoteSelectionMode {
    /// Prefer larger notes, fewer inputs, smaller circuits (default spend path).
    #[default]

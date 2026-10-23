@@ -86,6 +86,7 @@ const SUGGESTION_DECIMALS: u8 = 4;
 const DUST_LEG_DIVISOR: i128 = 100_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RiskBand {
    Low,
    Medium,

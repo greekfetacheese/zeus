@@ -197,6 +197,8 @@ sol! {
         ShieldCiphertext ciphertext;
     }
 
+    /// Deliberately exhaustive: a new variant must break every `match` in the consuming app, so the
+    /// compiler — not a silent wildcard — forces the update. The crate owns that breakage.
     #[derive(Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
     enum TokenType {
         #[default]

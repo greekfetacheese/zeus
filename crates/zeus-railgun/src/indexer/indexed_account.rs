@@ -59,6 +59,7 @@ pub struct IndexedAccountState {
 
 /// How a grouped private spend should be shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PrivateHistoryKind {
    /// zk → zk transfer labeled via the sender's change-note memo.
    Send,

@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 use crate::poi::types::ListKey;
 
 /// Chain Configurations
+/// Deliberately exhaustive: a new variant must break every `match` in the consuming app, so the
+/// compiler — not a silent wildcard — forces the update. The crate owns that breakage.
+/// Chain configs are built with named-field literals, so a new deployment field is named at every
+/// construction site instead of being defaulted behind the caller's back.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChainConfig {

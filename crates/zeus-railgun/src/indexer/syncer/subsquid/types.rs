@@ -64,6 +64,7 @@ pub struct Commitment {
 
 #[derive(Deserialize)]
 #[serde(tag = "__typename")]
+#[non_exhaustive]
 pub enum CommitmentKind {
    ShieldCommitment {
       preimage: ShieldPreimage,

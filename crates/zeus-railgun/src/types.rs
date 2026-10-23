@@ -41,6 +41,8 @@ impl TxData {
    }
 }
 
+/// Deliberately exhaustive: a new variant must break every `match` in the consuming app, so the
+/// compiler — not a silent wildcard — forces the update. The crate owns that breakage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TxidVersion {
    #[serde(rename = "V2_PoseidonMerkle")]
@@ -58,6 +60,8 @@ impl std::fmt::Display for TxidVersion {
    }
 }
 
+/// Deliberately exhaustive: a new variant must break every `match` in the consuming app, so the
+/// compiler — not a silent wildcard — forces the update. The crate owns that breakage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Chain {
    pub type_: u8,
