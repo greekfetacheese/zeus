@@ -107,6 +107,34 @@ impl SyncerError {
    }
 }
 
+#[cfg(test)]
+mod syncer_error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_message() {
+      let err = SyncerError::new(std::io::Error::other("boom"));
+      assert_eq!(err.to_string(), "Syncer error: boom");
+   }
+
+   #[test]
+   fn delegates_its_source_to_the_boxed_error() {
+      let inner = std::io::Error::other("boom");
+      let rendered = inner.to_string();
+      let err = SyncerError::new(inner);
+      assert_eq!(
+         err.source().map(ToString::to_string),
+         Some(rendered)
+      );
+      assert_eq!(
+         err.source().map(ToString::to_string),
+         Some("boom".to_owned())
+      );
+   }
+}
+
 impl SyncEvent {
    pub fn block_number(&self) -> u64 {
       match self {

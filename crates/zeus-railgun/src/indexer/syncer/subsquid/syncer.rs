@@ -417,3 +417,80 @@ impl From<SubsquidSyncerError> for SyncerError {
       SyncerError::new(e)
    }
 }
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   fn http_error() -> reqwest::Error {
+      reqwest::Client::new()
+         .get("not a url")
+         .build()
+         .expect_err("the input is not a URL")
+   }
+
+   fn serde_error() -> serde_json::Error {
+      serde_json::from_str::<serde_json::Value>("{").expect_err("the input is not JSON")
+   }
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      let inner = serde_error();
+      assert_eq!(
+         SubsquidSyncerError::Serde(inner).to_string(),
+         format!("Serde error: {}", serde_error())
+      );
+
+      let inner = http_error();
+      assert_eq!(
+         SubsquidSyncerError::Http(inner).to_string(),
+         format!("HTTP error: {}", http_error())
+      );
+
+      // `{0}` is StatusCode's Display, not its Debug.
+      assert_eq!(
+         SubsquidSyncerError::Request(
+            reqwest::StatusCode::NOT_FOUND,
+            "not found".to_owned()
+         )
+         .to_string(),
+         "Request failed with status 404 Not Found: not found"
+      );
+      assert_eq!(
+         SubsquidSyncerError::GraphQL("boom".to_owned()).to_string(),
+         "GraphQL error: boom"
+      );
+   }
+
+   #[test]
+   fn the_from_variants_delegate_their_source() {
+      let inner = serde_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         SubsquidSyncerError::Serde(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = http_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         SubsquidSyncerError::Http(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn request_and_graphql_have_no_source() {
+      assert!(
+         SubsquidSyncerError::Request(
+            reqwest::StatusCode::NOT_FOUND,
+            "not found".to_owned()
+         )
+         .source()
+         .is_none()
+      );
+      assert!(SubsquidSyncerError::GraphQL("boom".to_owned()).source().is_none());
+   }
+}

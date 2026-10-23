@@ -128,6 +128,119 @@ pub enum UtxoIndexerError {
    InvalidFrozenProof(u32, u32),
 }
 
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use alloy_primitives::U256;
+
+   use super::*;
+
+   fn syncer_error() -> SyncerError {
+      SyncerError::new(std::io::Error::other("boom"))
+   }
+
+   fn note_error() -> NoteError {
+      NoteError::Key(crate::crypto::keys::KeyError::DecompressionFailed)
+   }
+
+   fn database_error() -> DatabaseError {
+      DatabaseError::MissingCryptoKey
+   }
+
+   fn merkle_tree_error() -> MerkleTreeError {
+      MerkleTreeError::InvalidProof
+   }
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         UtxoIndexerError::SyncerError(syncer_error()).to_string(),
+         "Syncer error: Syncer error: boom"
+      );
+      assert_eq!(
+         UtxoIndexerError::VerificationError(Box::new(std::io::Error::other("boom"))).to_string(),
+         "Verification error: boom"
+      );
+      assert_eq!(
+         UtxoIndexerError::NoteError(note_error()).to_string(),
+         "Note error: Key error: Failed to decompress public key"
+      );
+      assert_eq!(
+         UtxoIndexerError::DatabaseError(database_error()).to_string(),
+         "Database error: Missing Railgun DB crypto key"
+      );
+      assert_eq!(
+         UtxoIndexerError::Timeout.to_string(),
+         "Timed out waiting for commitments"
+      );
+
+      let root = U256::from(0x1234);
+      assert_eq!(
+         UtxoIndexerError::InvalidRoot(3, root).to_string(),
+         format!("Invalid root for tree 3 root {root}")
+      );
+      assert_eq!(
+         UtxoIndexerError::MissingTree(7).to_string(),
+         "UTXO tree 7 is required but is not in memory and not on disk"
+      );
+      assert_eq!(
+         UtxoIndexerError::MerkleTree(merkle_tree_error()).to_string(),
+         "Merkle tree error: Invalid proof"
+      );
+      assert_eq!(
+         UtxoIndexerError::InvalidFrozenProof(3, 9).to_string(),
+         "Frozen merkle proof for tree 3 leaf 9 is invalid"
+      );
+   }
+
+   #[test]
+   fn the_from_and_source_variants_delegate_their_source() {
+      let inner = syncer_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         UtxoIndexerError::SyncerError(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = Box::new(std::io::Error::other("verification failed"));
+      let rendered = inner.to_string();
+      assert_eq!(
+         UtxoIndexerError::VerificationError(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = note_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         UtxoIndexerError::NoteError(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = database_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         UtxoIndexerError::DatabaseError(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = merkle_tree_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         UtxoIndexerError::MerkleTree(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn the_payload_free_variants_have_no_source() {
+      assert!(UtxoIndexerError::Timeout.source().is_none());
+      assert!(UtxoIndexerError::InvalidRoot(3, U256::from(0x1234)).source().is_none());
+      assert!(UtxoIndexerError::MissingTree(7).source().is_none());
+      assert!(UtxoIndexerError::InvalidFrozenProof(3, 9).source().is_none());
+   }
+}
+
 impl UtxoIndexer {
    pub async fn new(
       db: RedbDatabase,

@@ -19,6 +19,43 @@ pub enum CalculateWitnessError {
    CircomError(String),
 }
 
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         CalculateWitnessError::ArtifactLoaderError(Box::new(std::io::Error::other("boom")))
+            .to_string(),
+         "Artifact loader error: boom"
+      );
+      assert_eq!(
+         CalculateWitnessError::CircomError("boom".to_owned()).to_string(),
+         "Circom error: boom"
+      );
+   }
+
+   #[test]
+   fn the_artifact_loader_variant_delegates_its_source() {
+      let inner = Box::new(std::io::Error::other("boom"));
+      let rendered = inner.to_string();
+      assert_eq!(
+         CalculateWitnessError::ArtifactLoaderError(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn circom_error_has_no_source() {
+      assert!(CalculateWitnessError::CircomError("boom".to_owned()).source().is_none());
+   }
+}
+
 pub async fn calculate_witness(
    artifact_loader: &RemoteArtifactLoader,
    circuit_name: &str,

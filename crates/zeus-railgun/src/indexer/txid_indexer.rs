@@ -53,6 +53,74 @@ pub enum TxidIndexerError {
    DatabaseError(#[from] DatabaseError),
 }
 
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   fn syncer_error() -> SyncerError {
+      SyncerError::new(std::io::Error::other("boom"))
+   }
+
+   fn poi_client_error() -> PoiClientError {
+      PoiClientError::NullResult
+   }
+
+   fn database_error() -> DatabaseError {
+      DatabaseError::MissingCryptoKey
+   }
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         TxidIndexerError::SyncerError(syncer_error()).to_string(),
+         "Syncer error: Syncer error: boom"
+      );
+      assert_eq!(
+         TxidIndexerError::PoiClient(poi_client_error()).to_string(),
+         "POI client error: Null result from RPC"
+      );
+      assert_eq!(
+         TxidIndexerError::RootMismatch { tree_number: 3 }.to_string(),
+         "TXID tree root mismatch for tree 3"
+      );
+      assert_eq!(
+         TxidIndexerError::DatabaseError(database_error()).to_string(),
+         "Database error: Missing Railgun DB crypto key"
+      );
+   }
+
+   #[test]
+   fn the_from_variants_delegate_their_source() {
+      let inner = syncer_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         TxidIndexerError::SyncerError(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = poi_client_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         TxidIndexerError::PoiClient(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = database_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         TxidIndexerError::DatabaseError(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn root_mismatch_has_no_source() {
+      assert!(TxidIndexerError::RootMismatch { tree_number: 3 }.source().is_none());
+   }
+}
+
 impl TxidIndexer {
    pub async fn new(
       db: RedbDatabase,
