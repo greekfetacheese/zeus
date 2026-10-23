@@ -457,3 +457,28 @@ mod tests {
       let _ciphertext: Ciphertext = commitment_ciphertext.into();
    }
 }
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         TokenDataError::InvalidHashLength.to_string(),
+         "Invalid token data hash length"
+      );
+      assert_eq!(
+         TokenDataError::UnsupportedTokenType(7).to_string(),
+         "Unsupported token type byte: 7"
+      );
+   }
+
+   #[test]
+   fn the_payload_variants_have_no_source() {
+      assert!(TokenDataError::InvalidHashLength.source().is_none());
+      assert!(TokenDataError::UnsupportedTokenType(7).source().is_none());
+   }
+}

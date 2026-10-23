@@ -82,3 +82,28 @@ mod tests {
       ));
    }
 }
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         EncodingError::InvalidCharacter('H').to_string(),
+         "invalid character: H"
+      );
+      assert_eq!(
+         EncodingError::OutputTooLong(16).to_string(),
+         "output exceeds 16 bytes"
+      );
+   }
+
+   #[test]
+   fn the_payload_variants_have_no_source() {
+      assert!(EncodingError::InvalidCharacter('H').source().is_none());
+      assert!(EncodingError::OutputTooLong(16).source().is_none());
+   }
+}

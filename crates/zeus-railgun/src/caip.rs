@@ -213,3 +213,38 @@ mod tests {
       let _hash = erc1155.hash();
    }
 }
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         AssetIdParseError::InvalidFormat.to_string(),
+         "Invalid format: expected 'type:address' or 'type:address/subId'"
+      );
+      assert_eq!(
+         AssetIdParseError::UnknownType("erc999".to_owned()).to_string(),
+         "Unknown asset type: erc999"
+      );
+      assert_eq!(
+         AssetIdParseError::InvalidAddress("nope".to_owned()).to_string(),
+         "Invalid address: nope"
+      );
+      assert_eq!(
+         AssetIdParseError::InvalidSubId("nope".to_owned()).to_string(),
+         "Invalid sub ID: nope"
+      );
+   }
+
+   #[test]
+   fn the_payload_variants_have_no_source() {
+      assert!(AssetIdParseError::InvalidFormat.source().is_none());
+      assert!(AssetIdParseError::UnknownType("erc999".to_owned()).source().is_none());
+      assert!(AssetIdParseError::InvalidAddress("nope".to_owned()).source().is_none());
+      assert!(AssetIdParseError::InvalidSubId("nope".to_owned()).source().is_none());
+   }
+}

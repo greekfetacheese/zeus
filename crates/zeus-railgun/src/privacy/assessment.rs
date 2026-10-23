@@ -1437,3 +1437,33 @@ mod tests {
       }
    }
 }
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         PrivacyError::ZeroAmount.to_string(),
+         "enter an amount more than zero"
+      );
+      assert_eq!(
+         PrivacyError::AmountTooLarge.to_string(),
+         "this amount is too large to assess"
+      );
+      assert_eq!(
+         PrivacyError::NoRecentActivity(30).to_string(),
+         "no deposits of this asset in the last 30 days"
+      );
+   }
+
+   #[test]
+   fn the_payload_variants_have_no_source() {
+      assert!(PrivacyError::ZeroAmount.source().is_none());
+      assert!(PrivacyError::AmountTooLarge.source().is_none());
+      assert!(PrivacyError::NoRecentActivity(30).source().is_none());
+   }
+}

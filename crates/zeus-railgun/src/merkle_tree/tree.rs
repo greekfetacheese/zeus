@@ -334,3 +334,28 @@ mod tests {
       assert_eq!(tree.state(), deserialized_tree.state());
    }
 }
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         MerkleTreeError::ElementNotFound("leaf".to_owned()).to_string(),
+         "Element not found in tree: leaf"
+      );
+      assert_eq!(
+         MerkleTreeError::InvalidProof.to_string(),
+         "Invalid proof"
+      );
+   }
+
+   #[test]
+   fn the_payload_variants_have_no_source() {
+      assert!(MerkleTreeError::ElementNotFound("leaf".to_owned()).source().is_none());
+      assert!(MerkleTreeError::InvalidProof.source().is_none());
+   }
+}

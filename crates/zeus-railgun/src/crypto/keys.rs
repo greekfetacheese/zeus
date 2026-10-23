@@ -612,3 +612,37 @@ mod tests {
       );
    }
 }
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         KeyError::DecompressionFailed.to_string(),
+         "Failed to decompress public key"
+      );
+      assert_eq!(
+         KeyError::HexDecodingError(hex::FromHexError::OddLength).to_string(),
+         "Hex decoding error: Odd number of digits"
+      );
+   }
+
+   #[test]
+   fn the_hex_variant_delegates_its_source() {
+      let inner = hex::FromHexError::OddLength;
+      let rendered = inner.to_string();
+      assert_eq!(
+         KeyError::HexDecodingError(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn decompression_failed_has_no_source() {
+      assert!(KeyError::DecompressionFailed.source().is_none());
+   }
+}

@@ -731,3 +731,169 @@ mod tests {
       );
    }
 }
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use alloy_primitives::Address;
+
+   use super::*;
+   use crate::crypto::keys::{KeyError, SpendingKey, ViewingKey};
+
+   fn sender() -> Box<RailgunAddress> {
+      Box::new(RailgunAddress::from_private_keys(
+         SpendingKey::from_bytes([1u8; 32]),
+         ViewingKey::from_bytes([2u8; 32]),
+         None,
+      ))
+   }
+
+   fn asset_id() -> AssetId {
+      AssetId::Erc20(Address::ZERO)
+   }
+
+   fn encrypt_error() -> EncryptError {
+      EncryptError::Key(KeyError::DecompressionFailed)
+   }
+
+   fn transact_input_error() -> TransactCircuitInputsError {
+      TransactCircuitInputsError::EmptyInputNotes
+   }
+
+   fn operation_error() -> OperationVerificationError {
+      OperationVerificationError::TooManyInputNotes(14)
+   }
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      let from = sender();
+      let asset = asset_id();
+      let expected = format!(
+         "Multiple unshield operations from the same address and asset are not supported: from {from}, asset {asset}"
+      );
+      assert_eq!(
+         TransactionBuilderError::MultipleUnshields { from, asset }.to_string(),
+         expected
+      );
+
+      let from = sender();
+      let asset = asset_id();
+      let expected = format!(
+         "Insufficient balance for intent with from {from}, asset {asset}, value 500 (available matched notes total 400)"
+      );
+      assert_eq!(
+         TransactionBuilderError::InsufficientBalance {
+            from,
+            asset,
+            value: 500,
+            available: 400,
+         }
+         .to_string(),
+         expected
+      );
+
+      let asset = asset_id();
+      let expected = format!(
+         "Private notes are too fragmented for asset {asset}: need 500, but at most 300 can be spent with 5 input notes (9 notes available). Consider merging private notes first."
+      );
+      assert_eq!(
+         TransactionBuilderError::NotesFragmented {
+            asset,
+            value: 500,
+            max_inputs: 5,
+            best_with_max: 300,
+            note_count: 9,
+         }
+         .to_string(),
+         expected
+      );
+
+      let asset = asset_id();
+      let expected = format!(
+         "Too many circuit outputs for asset {asset}: 6 > 5 (Zeus artifact limit). Consider merging notes first."
+      );
+      assert_eq!(
+         TransactionBuilderError::TooManyOutputs {
+            asset,
+            outputs: 6,
+            max_outputs: 5,
+         }
+         .to_string(),
+         expected
+      );
+
+      let expected = format!("Encryption error: {}", encrypt_error());
+      assert_eq!(
+         TransactionBuilderError::Encryption(encrypt_error()).to_string(),
+         expected
+      );
+      assert_eq!(
+         TransactionBuilderError::Prover(Box::new(std::io::Error::other("boom"))).to_string(),
+         "Prover error: boom"
+      );
+      assert_eq!(
+         TransactionBuilderError::MissingWitness(3, 7).to_string(),
+         "Missing merkle witness for tree 3 leaf 7"
+      );
+      assert_eq!(
+         TransactionBuilderError::NoInputNotes.to_string(),
+         "No input notes"
+      );
+      let expected = format!(
+         "Transact circuit input error: {}",
+         transact_input_error()
+      );
+      assert_eq!(
+         TransactionBuilderError::TransactCircuitInput(transact_input_error()).to_string(),
+         expected
+      );
+      let expected = format!(
+         "Operation verification error: {}",
+         operation_error()
+      );
+      assert_eq!(
+         TransactionBuilderError::OperationVerification(operation_error()).to_string(),
+         expected
+      );
+   }
+
+   #[test]
+   fn the_from_variants_delegate_their_source() {
+      let inner = encrypt_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         TransactionBuilderError::Encryption(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = transact_input_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         TransactionBuilderError::TransactCircuitInput(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = operation_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         TransactionBuilderError::OperationVerification(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn the_non_from_variants_have_no_source() {
+      assert!(
+         TransactionBuilderError::Prover(Box::new(std::io::Error::other("boom")))
+            .source()
+            .is_none()
+      );
+      assert!(TransactionBuilderError::MissingWitness(3, 7).source().is_none());
+      assert!(TransactionBuilderError::NoInputNotes.source().is_none());
+   }
+}

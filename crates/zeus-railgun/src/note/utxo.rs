@@ -495,3 +495,49 @@ mod tests {
       ));
    }
 }
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      let inner = AesError::DataTooShort;
+      let expected = format!("AES error: {inner}");
+      assert_eq!(NoteError::Aes(inner).to_string(), expected);
+
+      let inner = TokenDataError::InvalidHashLength;
+      let expected = format!("TokenData error: {inner}");
+      assert_eq!(NoteError::TokenData(inner).to_string(), expected);
+
+      let inner = KeyError::DecompressionFailed;
+      let expected = format!("Key error: {inner}");
+      assert_eq!(NoteError::Key(inner).to_string(), expected);
+   }
+
+   #[test]
+   fn the_from_variants_delegate_their_source() {
+      let inner = AesError::DataTooShort;
+      let rendered = inner.to_string();
+      assert_eq!(
+         NoteError::Aes(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = TokenDataError::InvalidHashLength;
+      let rendered = inner.to_string();
+      assert_eq!(
+         NoteError::TokenData(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = KeyError::DecompressionFailed;
+      let rendered = inner.to_string();
+      assert_eq!(
+         NoteError::Key(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+}

@@ -301,3 +301,52 @@ mod tests {
       assert_eq!(expected_shared_key, shared_key_ab.to_hex());
    }
 }
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      let inner = railgun_base_37::EncodingError::InvalidCharacter('H');
+      let expected = format!("Railgun base37 encoding error: {inner}");
+      assert_eq!(
+         EncryptError::RailgunBase37(inner).to_string(),
+         expected
+      );
+
+      let inner = AesError::DataTooShort;
+      let expected = format!("AES encryption error: {inner}");
+      assert_eq!(EncryptError::Aes(inner).to_string(), expected);
+
+      let inner = KeyError::DecompressionFailed;
+      let expected = format!("Key error: {inner}");
+      assert_eq!(EncryptError::Key(inner).to_string(), expected);
+   }
+
+   #[test]
+   fn the_from_variants_delegate_their_source() {
+      let inner = railgun_base_37::EncodingError::InvalidCharacter('H');
+      let rendered = inner.to_string();
+      assert_eq!(
+         EncryptError::RailgunBase37(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = AesError::DataTooShort;
+      let rendered = inner.to_string();
+      assert_eq!(
+         EncryptError::Aes(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = KeyError::DecompressionFailed;
+      let rendered = inner.to_string();
+      assert_eq!(
+         EncryptError::Key(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+}

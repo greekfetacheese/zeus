@@ -174,3 +174,33 @@ impl Operation {
       self.out_notes.iter().filter(|n| n.value() > 0).cloned().collect()
    }
 }
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         OperationVerificationError::Imbalanced(5, 3, 1).to_string(),
+         "Imbalanced operation: 5 != 3 + 1"
+      );
+      assert_eq!(
+         OperationVerificationError::TooManyOutputNotes(14).to_string(),
+         "Too many output notes: 14 > 13"
+      );
+      assert_eq!(
+         OperationVerificationError::TooManyInputNotes(14).to_string(),
+         "Too many input notes: 14 > 13"
+      );
+   }
+
+   #[test]
+   fn the_payload_variants_have_no_source() {
+      assert!(OperationVerificationError::Imbalanced(5, 3, 1).source().is_none());
+      assert!(OperationVerificationError::TooManyOutputNotes(14).source().is_none());
+      assert!(OperationVerificationError::TooManyInputNotes(14).source().is_none());
+   }
+}
