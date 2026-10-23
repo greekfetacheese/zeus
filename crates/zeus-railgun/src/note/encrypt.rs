@@ -11,7 +11,7 @@ use crate::{
    crypto::{
       aes::AesError,
       keys::{BlindedKey, KeyError, ViewingKey, ViewingPublicKey},
-      poseidon_hash, railgun_base_37,
+      poseidon2, railgun_base_37,
    },
 };
 
@@ -99,11 +99,10 @@ pub fn encrypt_shield<R: Rng>(
    let shared_key = shield_private_key.derive_shared_key(recipient.viewing_pubkey()).unwrap();
 
    let random_seed: [u8; 16] = rng.random();
-   let mut npk: [u8; 32] = poseidon_hash(&[
+   let mut npk: [u8; 32] = poseidon2(
       recipient.master_pubkey().to_u256(),
       U256::from_be_slice(&random_seed),
-   ])
-   .unwrap()
+   )
    .to_le_bytes();
    npk.reverse();
 

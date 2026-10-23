@@ -6,7 +6,7 @@ use crate::{
    account::address::RailgunAddress,
    caip::AssetId,
    crypto::keys::ViewingKey,
-   crypto::poseidon_hash,
+   crypto::{poseidon2, poseidon3},
    merkle_tree::UtxoLeafHash,
    note::encrypt::{EncryptError, encrypt_note},
 };
@@ -71,21 +71,19 @@ impl TransferNote {
    }
 
    pub fn hash(&self) -> UtxoLeafHash {
-      poseidon_hash(&[
+      poseidon3(
          self.note_public_key(),
          self.asset.hash(),
          U256::from(self.value),
-      ])
-      .unwrap()
+      )
       .into()
    }
 
    pub fn note_public_key(&self) -> U256 {
-      poseidon_hash(&[
+      poseidon2(
          self.to.master_pubkey().to_u256(),
          U256::from_be_slice(&self.random),
-      ])
-      .unwrap()
+      )
    }
 }
 

@@ -1,4 +1,4 @@
-use super::poseidon_hash;
+use super::{poseidon_hash, poseidon3};
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize, Serializer};
 
@@ -25,12 +25,17 @@ impl Txid {
          commitments_padded[i] = commitment;
       }
 
-      let nullifiers_hash = poseidon_hash(&nullifiers_padded).unwrap();
-      let commitments_hash = poseidon_hash(&commitments_padded).unwrap();
+      let nullifiers_hash = poseidon_hash(&nullifiers_padded)
+         .expect("13 padded inputs are a supported poseidon arity");
+      let commitments_hash = poseidon_hash(&commitments_padded)
+         .expect("13 padded inputs are a supported poseidon arity");
 
-      poseidon_hash(&[nullifiers_hash, commitments_hash, bound_params_hash])
-         .unwrap()
-         .into()
+      poseidon3(
+         nullifiers_hash,
+         commitments_hash,
+         bound_params_hash,
+      )
+      .into()
    }
 
    pub fn from_operation(op: &ProvedOperation) -> Self {

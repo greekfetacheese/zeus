@@ -15,7 +15,7 @@ use secure_types::{SecureArray, Zeroize};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::poseidon_hash;
+use super::{poseidon1, poseidon3};
 use crate::{
    account::derive_private_key,
    crypto::aes::{AesError, Ciphertext, CiphertextCtr, decrypt_gcm, encrypt_ctr, encrypt_gcm},
@@ -317,7 +317,7 @@ impl ViewingKey {
 impl NullifyingKey {
    pub fn new(viewing_key: ViewingKey) -> Self {
       let mut vk = viewing_key.to_u256();
-      let hash = poseidon_hash(std::slice::from_ref(&vk)).unwrap();
+      let hash = poseidon1(vk);
       vk.zeroize();
       NullifyingKey::from_u256(hash)
    }
@@ -409,12 +409,11 @@ impl SharedKey {
 
 impl MasterPublicKey {
    pub(crate) fn new(spending_pubkey: SpendingPublicKey, nullifying_key: NullifyingKey) -> Self {
-      let hash = poseidon_hash(&[
+      let hash = poseidon3(
          spending_pubkey.x_u256(),
          spending_pubkey.y_u256(),
          nullifying_key.to_u256(),
-      ])
-      .unwrap();
+      );
       MasterPublicKey::from_u256(hash)
    }
 

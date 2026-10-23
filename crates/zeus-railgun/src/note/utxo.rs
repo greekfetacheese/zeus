@@ -13,7 +13,7 @@ use crate::{
       keys::{
          BlindedKey, KeyError, MasterPublicKey, NullifyingKey, SpendingPublicKey, ViewingPublicKey,
       },
-      poseidon_hash,
+      poseidon2, poseidon3,
    },
    indexer::syncer::types::{Shield, Transact},
    merkle_tree::UtxoLeafHash,
@@ -94,7 +94,7 @@ impl UtxoNote {
       let spending_pubkey = signer.keys().spending_public_key;
       let viewing_pubkey = signer.keys().viewing_public_key;
       let nullifying_key = signer.keys().nullifying_key;
-      let nullifier = poseidon_hash(&[nullifying_key.to_u256(), U256::from(leaf_index)]).unwrap();
+      let nullifier = poseidon2(nullifying_key.to_u256(), U256::from(leaf_index));
       let npk = note_public_key(spending_pubkey, nullifying_key, &random);
       let hash = note_hash(npk, asset, value);
       let blinded_commitment = blinded_commitment(hash.into(), npk, tree_number, leaf_index);
@@ -233,9 +233,7 @@ impl Display for UtxoNote {
 }
 
 fn note_hash(note_public_key: U256, asset: AssetId, value: u128) -> UtxoLeafHash {
-   poseidon_hash(&[note_public_key, asset.hash(), U256::from(value)])
-      .unwrap()
-      .into()
+   poseidon3(note_public_key, asset.hash(), U256::from(value)).into()
 }
 
 fn note_public_key(
@@ -245,16 +243,15 @@ fn note_public_key(
 ) -> U256 {
    let master_key = MasterPublicKey::new(spending_pubkey, nullifying_key);
 
-   poseidon_hash(&[master_key.to_u256(), U256::from_be_slice(random)]).unwrap()
+   poseidon2(master_key.to_u256(), U256::from_be_slice(random))
 }
 
 pub fn blinded_commitment(hash: U256, npk: U256, tree_number: u32, leaf_index: u32) -> U256 {
-   poseidon_hash(&[
+   poseidon3(
       hash,
       npk,
       U256::from((tree_number as u128) * 65536 + (leaf_index as u128)),
-   ])
-   .unwrap()
+   )
 }
 
 #[cfg(test)]

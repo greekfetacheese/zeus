@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::{
    caip::AssetId,
-   crypto::{aes::Ciphertext, poseidon_hash},
+   crypto::{aes::Ciphertext, poseidon3},
    merkle_tree::UtxoLeafHash,
 };
 
@@ -118,8 +118,11 @@ impl Shield {
          return hash;
       }
 
-      poseidon_hash(&[self.npk, self.token.hash(), U256::from(self.value)])
-         .unwrap()
-         .into()
+      poseidon3(
+         self.npk,
+         self.token.hash(),
+         U256::from(self.value),
+      )
+      .into()
    }
 }

@@ -1,4 +1,4 @@
-use crate::crypto::poseidon_hash;
+use crate::crypto::poseidon3;
 use ruint::aliases::U256;
 use serde::{Serialize, Serializer};
 
@@ -101,12 +101,11 @@ impl TxidLeafHash {
    pub fn new(txid: Txid, utxo_tree_in: u32, out_utxo_tree_index: UtxoTreeIndex) -> Self {
       let global_position = out_utxo_tree_index.global_index();
 
-      poseidon_hash(&[
+      poseidon3(
          txid.into(),
          U256::from(utxo_tree_in),
          U256::from(global_position),
-      ])
-      .unwrap()
+      )
       .into()
    }
 }

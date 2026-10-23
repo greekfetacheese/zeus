@@ -42,6 +42,8 @@ pub enum TransactCircuitInputsError {
    Signing(#[from] anyhow::Error),
    #[error("Merkle proof does not match note or tree root")]
    InvalidMerkleProof,
+   #[error("Unsupported Poseidon arity for {0} transact inputs")]
+   UnsupportedPoseidonArity(usize),
 }
 
 impl TransactCircuitInputs {
@@ -106,7 +108,8 @@ impl TransactCircuitInputs {
       let mut unsigned = vec![merkleroot.into(), bound_params_hash];
       unsigned.extend_from_slice(&nullifiers);
       unsigned.extend_from_slice(&commitments);
-      let unsigned_hash = poseidon_hash(&unsigned).unwrap();
+      let unsigned_hash = poseidon_hash(&unsigned)
+         .map_err(|_| TransactCircuitInputsError::UnsupportedPoseidonArity(unsigned.len()))?;
       let signature = signer.sign(unsigned_hash)?;
       let signature = [signature.r8_x, signature.r8_y, signature.s];
 
