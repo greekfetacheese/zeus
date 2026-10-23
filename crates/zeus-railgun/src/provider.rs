@@ -185,6 +185,165 @@ pub enum RailgunProviderError {
    Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   fn utxo_indexer_error() -> UtxoIndexerError {
+      UtxoIndexerError::Timeout
+   }
+
+   fn transaction_builder_error() -> TransactionBuilderError {
+      TransactionBuilderError::NoInputNotes
+   }
+
+   fn poi_provider_error() -> PoiProviderError {
+      PoiProviderError::Database(DatabaseError::MissingCryptoKey)
+   }
+
+   fn bundler_error() -> BundlerError {
+      BundlerError::Timeout
+   }
+
+   fn signer_error() -> alloy_signer::Error {
+      alloy_signer::Error::message("boom")
+   }
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         RailgunProviderError::UtxoIndexer(utxo_indexer_error()).to_string(),
+         "Utxo indexer error: Timed out waiting for commitments"
+      );
+      assert_eq!(
+         RailgunProviderError::Build(transaction_builder_error()).to_string(),
+         "Build error: No input notes"
+      );
+      assert_eq!(
+         RailgunProviderError::PoiProvider(poi_provider_error()).to_string(),
+         "POI provider error: Database error: Missing Railgun DB crypto key"
+      );
+      assert_eq!(
+         RailgunProviderError::FeeNoteNotFound.to_string(),
+         "Unable to construct valid note configuration for fee payment"
+      );
+
+      let asset = AssetId::Erc20(alloy_primitives::Address::ZERO);
+      assert_eq!(
+         RailgunProviderError::InsufficientForFee {
+            asset,
+            needed: 1_000,
+            available: 400,
+         }
+         .to_string(),
+         format!(
+            "Not enough private balance for unshield + bundler fee (asset {asset}): need 1000 wei total, have 400 wei. Leave some private WETH for the paymaster fee, or unshield a smaller amount."
+         )
+      );
+
+      assert_eq!(
+         RailgunProviderError::Signer(signer_error()).to_string(),
+         "Signer Error: boom"
+      );
+      assert_eq!(
+         RailgunProviderError::Bundler(bundler_error()).to_string(),
+         "Bundler error: Timeout"
+      );
+      assert_eq!(
+         RailgunProviderError::Rpc(anyhow!("boom")).to_string(),
+         "RPC error: boom"
+      );
+      assert_eq!(
+         RailgunProviderError::PrivacyPaymasterNotConfigured(7).to_string(),
+         "Privacy Paymaster not configured for chain: 7"
+      );
+      assert_eq!(
+         RailgunProviderError::Other("boom".into()).to_string(),
+         "Other: boom"
+      );
+   }
+
+   #[test]
+   fn the_from_variants_delegate_their_source() {
+      let inner = utxo_indexer_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         RailgunProviderError::UtxoIndexer(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = transaction_builder_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         RailgunProviderError::Build(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = poi_provider_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         RailgunProviderError::PoiProvider(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = signer_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         RailgunProviderError::Signer(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = bundler_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         RailgunProviderError::Bundler(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+
+      // `anyhow::Error` does not implement `std::error::Error`, so the source is
+      // reached through anyhow's own `as_ref()`.
+      let rendered = anyhow!("boom").to_string();
+      assert_eq!(
+         RailgunProviderError::Rpc(anyhow!("boom"))
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn the_non_from_variants_have_no_source() {
+      assert!(RailgunProviderError::FeeNoteNotFound.source().is_none());
+      assert!(
+         RailgunProviderError::InsufficientForFee {
+            asset: AssetId::Erc20(alloy_primitives::Address::ZERO),
+            needed: 1,
+            available: 0,
+         }
+         .source()
+         .is_none()
+      );
+      assert!(
+         RailgunProviderError::PrivacyPaymasterNotConfigured(1)
+            .source()
+            .is_none()
+      );
+      assert!(RailgunProviderError::Other("boom".into()).source().is_none());
+   }
+}
+
 impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
    pub async fn new(
       chain: ChainConfig,

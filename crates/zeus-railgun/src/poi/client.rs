@@ -51,6 +51,106 @@ pub enum PoiClientError {
    ProofNotFound(ListKey, BlindedCommitment),
 }
 
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use alloy_primitives::U256;
+
+   use super::*;
+
+   fn http_error() -> reqwest::Error {
+      reqwest::Client::new()
+         .get("not a url")
+         .build()
+         .expect_err("the input is not a URL")
+   }
+
+   fn rpc_error() -> JsonRpcError {
+      JsonRpcError {
+         code: -32601,
+         message: "method not found".to_owned(),
+         data: None,
+      }
+   }
+
+   fn list_key() -> ListKey {
+      ListKey::from("0xabc")
+   }
+
+   fn commitment() -> BlindedCommitment {
+      BlindedCommitment::from(U256::from(7))
+   }
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      let http = http_error();
+      assert_eq!(
+         PoiClientError::Http(http).to_string(),
+         format!("HTTP error: {}", http_error())
+      );
+
+      assert_eq!(
+         PoiClientError::Rpc(rpc_error()).to_string(),
+         "JSON-RPC error: RPC error -32601: method not found"
+      );
+      assert_eq!(PoiClientError::NullResult.to_string(), "Null result from RPC");
+      assert_eq!(
+         PoiClientError::UnexpectedResponse("boom".to_owned()).to_string(),
+         "Unexpected response: boom"
+      );
+
+      let root = MerkleRoot::new(U256::from(0x1234));
+      assert_eq!(
+         PoiClientError::InvalidPoiMerkleRoot(list_key(), root).to_string(),
+         format!(
+            "Invalid POI Merkle root for list key {:?}: {root}",
+            list_key()
+         )
+      );
+
+      // The message leads with the blinded commitment (field 1), then the list key (field 0).
+      assert_eq!(
+         PoiClientError::ProofNotFound(list_key(), commitment()).to_string(),
+         format!(
+            "Proof not found for blinded commitment {:?} and list key {:?}",
+            commitment(),
+            list_key()
+         )
+      );
+   }
+
+   #[test]
+   fn only_the_http_variant_carries_a_source() {
+      let inner = http_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         PoiClientError::Http(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+
+      assert!(PoiClientError::Rpc(rpc_error()).source().is_none());
+      assert!(PoiClientError::NullResult.source().is_none());
+      assert!(
+         PoiClientError::UnexpectedResponse("boom".to_owned())
+            .source()
+            .is_none()
+      );
+      assert!(
+         PoiClientError::InvalidPoiMerkleRoot(list_key(), MerkleRoot::new(U256::from(1)))
+            .source()
+            .is_none()
+      );
+      assert!(
+         PoiClientError::ProofNotFound(list_key(), commitment())
+            .source()
+            .is_none()
+      );
+   }
+}
+
 #[derive(Debug, Serialize)]
 struct JsonRpcRequest<P: Serialize> {
    jsonrpc: &'static str,

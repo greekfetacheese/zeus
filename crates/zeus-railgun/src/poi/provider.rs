@@ -103,6 +103,167 @@ enum PendingPoiError {
    MissingTxidTree(u32),
 }
 
+#[cfg(test)]
+mod poi_provider_error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   fn txid_indexer_error() -> TxidIndexerError {
+      TxidIndexerError::RootMismatch { tree_number: 3 }
+   }
+
+   fn poi_client_error() -> PoiClientError {
+      PoiClientError::NullResult
+   }
+
+   fn database_error() -> DatabaseError {
+      DatabaseError::MissingCryptoKey
+   }
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         PoiProviderError::TxidIndexer(txid_indexer_error()).to_string(),
+         "Txid indexer error: TXID tree root mismatch for tree 3"
+      );
+      assert_eq!(
+         PoiProviderError::PoiClient(poi_client_error()).to_string(),
+         "POI Client error: Null result from RPC"
+      );
+
+      let commitment = BlindedCommitment::from(U256::from(7));
+      let list_key = ListKey::from("0xabc");
+      assert_eq!(
+         PoiProviderError::ProofNotFound(commitment, list_key.clone()).to_string(),
+         format!("Merkle proof not found for blinded commitment {commitment} and list key {list_key}")
+      );
+
+      assert_eq!(
+         PoiProviderError::Database(database_error()).to_string(),
+         "Database error: Missing Railgun DB crypto key"
+      );
+   }
+
+   #[test]
+   fn the_from_variants_delegate_their_source() {
+      let inner = txid_indexer_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         PoiProviderError::TxidIndexer(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = poi_client_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         PoiProviderError::PoiClient(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = database_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         PoiProviderError::Database(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn the_proof_not_found_variant_has_no_source() {
+      let err = PoiProviderError::ProofNotFound(
+         BlindedCommitment::from(U256::from(7)),
+         ListKey::from("0xabc"),
+      );
+      assert!(err.source().is_none());
+   }
+}
+
+#[cfg(test)]
+mod pending_poi_error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   fn poi_client_error() -> PoiClientError {
+      PoiClientError::NullResult
+   }
+
+   fn circuit_inputs_error() -> PoiCircuitInputsError {
+      PoiCircuitInputsError::MissingPoiProofs(ListKey::from("0xabc"))
+   }
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         PendingPoiError::PoiClient(poi_client_error()).to_string(),
+         "POI client error: Null result from RPC"
+      );
+      assert_eq!(
+         PendingPoiError::CircuitInputs(circuit_inputs_error()).to_string(),
+         "Circuit inputs error: Missing POI proofs for list key ListKey(0xabc)"
+      );
+      assert_eq!(
+         PendingPoiError::Prover("boom".into()).to_string(),
+         "Prover error: boom"
+      );
+
+      let txid = Txid::from(U256::from(7));
+      assert_eq!(
+         PendingPoiError::MissingTxid(txid).to_string(),
+         format!("Missing txid position for txid {txid:?}")
+      );
+
+      assert_eq!(
+         PendingPoiError::MissingUtxoTree(5).to_string(),
+         "Missing UTXO tree 5"
+      );
+      assert_eq!(
+         PendingPoiError::MissingTxidTree(6).to_string(),
+         "Missing TXID tree 6"
+      );
+   }
+
+   #[test]
+   fn the_from_variants_delegate_their_source() {
+      let inner = poi_client_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         PendingPoiError::PoiClient(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+
+      let inner = circuit_inputs_error();
+      let rendered = inner.to_string();
+      assert_eq!(
+         PendingPoiError::CircuitInputs(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn the_other_variants_have_no_source() {
+      assert!(PendingPoiError::Prover("boom".into()).source().is_none());
+      assert!(
+         PendingPoiError::MissingTxid(Txid::from(U256::from(7)))
+            .source()
+            .is_none()
+      );
+      assert!(PendingPoiError::MissingUtxoTree(5).source().is_none());
+      assert!(PendingPoiError::MissingTxidTree(6).source().is_none());
+   }
+}
+
 impl PoiProvider {
    pub async fn new(
       chain_id: ChainId,
