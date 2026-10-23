@@ -6,6 +6,7 @@ use std::sync::{Arc, mpsc::RecvError};
 #[allow(dead_code)]
 // Errors that can happen when working with [`revm::Database`]
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum DatabaseError {
    MissingAccount(revm::primitives::Address),
    MissingCode(revm::primitives::B256),

@@ -43,6 +43,7 @@ fn ok_output<'a>(result: &'a ExecutionResult, call: &str) -> Result<&'a Bytes, a
 /// `ownerOf` is the standard's own answer for a burned token, and the ownership arm reads any error
 /// that way. This file therefore carries two error styles on purpose.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum NftApprovalProbeError {
    /// The fork read never reached the contract: `evm.transact` itself failed.
    NeverRan(anyhow::Error),

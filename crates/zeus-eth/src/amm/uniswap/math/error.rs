@@ -3,6 +3,7 @@ use std::fmt;
 
 // TODO: make these errors better, some errors in univ3 libs are just require(condition) without a message.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum UniswapV3MathError {
    DenominatorIsZero,
    ResultIsU256MAX,
