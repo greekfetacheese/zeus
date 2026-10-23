@@ -1,4 +1,5 @@
 use crate::crypto::babyjubjub::CURVE_SEED;
+use crate::crypto::keys::SpendingPublicKey;
 use crate::crypto::{BASE8, hmac_sha512, mul_point_escalar};
 use crate::types::{Key32, Key64};
 
@@ -7,9 +8,6 @@ use anyhow::anyhow;
 use ark_ed_on_bn254::Fr as BabyJubScalar;
 use ark_ff::{BigInteger, PrimeField};
 use secure_types::Zeroize;
-
-type SpendX = U256;
-type SpendY = U256;
 
 /// Logical right-shift of a 32-byte little-endian integer by 3 bits, in place.
 ///
@@ -60,7 +58,7 @@ pub fn derive_private_key(seed: &[u8], path: &str) -> Result<Key32, anyhow::Erro
 pub fn compute_public_spending_key(
    seed: &Key64,
    path: &str,
-) -> Result<(SpendX, SpendY), anyhow::Error> {
+) -> Result<SpendingPublicKey, anyhow::Error> {
    let spending_priv_res = seed.unlock(|seed_bytes| derive_private_key(seed_bytes, path));
    let spending_priv = spending_priv_res.map_err(|e| anyhow!("Derive spending key {}", e))?;
 
@@ -112,5 +110,8 @@ pub fn compute_public_spending_key(
    spend_x_bytes.zeroize();
    spend_y_bytes.zeroize();
 
-   Ok((spend_x, spend_y))
+   let x = spend_x.to_be_bytes();
+   let y = spend_y.to_be_bytes();
+
+   Ok(SpendingPublicKey::new(x, y))
 }

@@ -8,7 +8,7 @@ use crate::{
       compute_public_spending_key,
       keys::{spending_key_path, viewing_key_path},
    },
-   crypto::keys::{MasterPublicKey, SpendingKey, SpendingPublicKey, ViewingKey, ViewingPublicKey},
+   crypto::keys::{MasterPublicKey, SpendingKey, ViewingKey, ViewingPublicKey},
 };
 use serde::{Deserialize, Serialize};
 
@@ -106,16 +106,12 @@ impl RailgunAddress {
       let spending_path = spending_key_path(index);
       let viewing_path = viewing_key_path(index);
 
-      let (spend_x, spend_y) = compute_public_spending_key(seed, &spending_path)
+      let spending_public_key = compute_public_spending_key(seed, &spending_path)
          .expect("seed and spending path derive a valid public key");
 
       let viewing_priv = seed.unlock(|seed_bytes| ViewingKey::derive(seed_bytes, &viewing_path))?;
       let nullifying_key = viewing_priv.nullifying_key();
       let viewing_public_key = viewing_priv.public_key();
-
-      let x = spend_x.to_be_bytes();
-      let y = spend_y.to_be_bytes();
-      let spending_public_key = SpendingPublicKey::new(x, y);
 
       let master_public_key = MasterPublicKey::new(spending_public_key, nullifying_key);
 

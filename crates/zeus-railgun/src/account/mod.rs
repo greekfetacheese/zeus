@@ -3,7 +3,8 @@ mod derive;
 pub mod keys;
 pub mod signer;
 
-use crate::crypto::poseidon_hash;
+use crate::crypto::keys::{NullifyingKey, ViewingPublicKey};
+use crate::crypto::poseidon1;
 use crate::types::Key64;
 
 use alloy_primitives::U256;
@@ -14,13 +15,10 @@ use sha2::Digest as ShaDigest;
 
 pub use derive::{compute_public_spending_key, derive_private_key};
 
-type NullifyingKey = U256;
-type ViewPublicKey = [u8; 32];
-
 pub fn compute_public_viewing_key(
    seed: &Key64,
    path: &str,
-) -> Result<(ViewPublicKey, NullifyingKey), anyhow::Error> {
+) -> Result<(ViewingPublicKey, NullifyingKey), anyhow::Error> {
    let viewing_priv_res = seed.unlock(|seed_bytes| derive_private_key(seed_bytes, path));
 
    let viewing_priv = viewing_priv_res.map_err(|e| anyhow!("Derive viewing key {}", e))?;
@@ -45,7 +43,8 @@ pub fn compute_public_viewing_key(
    let view_priv_u256 = U256::from_be_bytes(view_priv_bytes);
    view_priv_bytes.zeroize();
 
-   let nullifying_key = poseidon_hash(&[view_priv_u256])?;
-
-   Ok((viewing_public_key, nullifying_key))
+   Ok((
+      ViewingPublicKey(viewing_public_key),
+      NullifyingKey::from_u256(poseidon1(view_priv_u256)),
+   ))
 }
