@@ -85,3 +85,127 @@ impl From<std::convert::Infallible> for Bip32Error {
       unimplemented!("unreachable, but required by type system")
    }
 }
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn pins_rendered_messages_and_sources() {
+      assert_eq!(
+         Bip32Error::SeedTooShort.to_string(),
+         "Master key seed generation received <16 bytes"
+      );
+      assert_eq!(
+         Bip32Error::InvalidKey.to_string(),
+         "HMAC left segment was 0 or greater than the curve order. How?"
+      );
+      assert_eq!(
+         Bip32Error::HardenedDerivationFailed.to_string(),
+         "Attempted to derive the hardened child of an xpub"
+      );
+      assert_eq!(
+         Bip32Error::BadTweak.to_string(),
+         "Attempted to tweak an xpriv or xpub directly"
+      );
+      assert_eq!(
+         Bip32Error::DepthOverflow.to_string(),
+         "Derivation depth exceeds 255"
+      );
+      assert_eq!(
+         Bip32Error::BadXPrivVersionBytes([0x04, 0x88, 0xb2, 0x1e]).to_string(),
+         "Version bytes 0x[4, 88, b2, 1e] don't match any network xpriv version bytes"
+      );
+      assert_eq!(
+         Bip32Error::BadXPubVersionBytes([0x04, 0x88, 0xb2, 0x1e]).to_string(),
+         "Version bytes 0x[4, 88, b2, 1e] don't match any network xpub version bytes"
+      );
+      assert_eq!(
+         Bip32Error::BadPadding(7).to_string(),
+         "Expected 0 padding byte. Got 7"
+      );
+      assert_eq!(
+         Bip32Error::BadB58Checksum.to_string(),
+         "Checksum mismatch on b58 deserialization"
+      );
+      assert_eq!(
+         Bip32Error::MalformattedDerivation("x".to_string()).to_string(),
+         "Malformatted index during derivation: x"
+      );
+      assert_eq!(
+         Bip32Error::NoRecoveryId.to_string(),
+         "Attempted to deserialize a DER signature to a recoverable signature. Use \
+          deserialize_vrs instead"
+      );
+      assert_eq!(
+         Bip32Error::InvalidBip32Path.to_string(),
+         "Invalid Bip32 Path."
+      );
+      assert_eq!(
+         Bip32Error::Custom("boom".to_string()).to_string(),
+         "boom"
+      );
+
+      // `#[error(transparent)]` hands `source()` the inner error's own source, and a plain
+      // `std::io::Error` carries none. Pin the measured delegation, not a wrapping `Some`.
+      let io = Bip32Error::IoError(std::io::Error::new(
+         std::io::ErrorKind::Other,
+         "boom",
+      ));
+      assert_eq!(io.to_string(), "boom");
+      assert!(std::error::Error::source(&io).is_none());
+
+      // The delegation is observable once the wrapped error carries a source of its own.
+      #[derive(Debug)]
+      struct Root;
+
+      impl std::fmt::Display for Root {
+         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("root")
+         }
+      }
+
+      impl std::error::Error for Root {}
+
+      #[derive(Debug)]
+      struct WithSource(Root);
+
+      impl std::fmt::Display for WithSource {
+         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("outer")
+         }
+      }
+
+      impl std::error::Error for WithSource {
+         fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.0)
+         }
+      }
+
+      let nested = Bip32Error::IoError(std::io::Error::new(
+         std::io::ErrorKind::Other,
+         WithSource(Root),
+      ));
+      assert_eq!(nested.to_string(), "outer");
+      let source = std::error::Error::source(&nested).expect("transparent forwards the source");
+      assert_eq!(source.to_string(), "root");
+
+      assert!(std::error::Error::source(&Bip32Error::SeedTooShort).is_none());
+      assert!(matches!(
+         Bip32Error::from(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "boom"
+         )),
+         Bip32Error::IoError(_)
+      ));
+
+      assert_eq!(
+         Bip32Error::BackendError(k256::ecdsa::Error::new()).to_string(),
+         "k256 error"
+      );
+      assert_eq!(
+         Bip32Error::EllipticCurveError(k256::elliptic_curve::Error).to_string(),
+         "elliptic curve error"
+      );
+   }
+}
