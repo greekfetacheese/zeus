@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::{merkle_tree::RailgunMerkleProof, note::utxo::UtxoNote, poi::types::ListKey};
 
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct PoiNote {
    pub inner: UtxoNote,
    pub pois: HashMap<ListKey, RailgunMerkleProof>,

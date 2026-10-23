@@ -30,6 +30,7 @@ use crate::{
 
 /// Cached leaf count + root for a UTXO tree (resident or unloaded).
 #[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
 pub struct UtxoTreeSummary {
    pub leaf_count: usize,
    pub root: MerkleRoot,
@@ -78,6 +79,7 @@ pub struct UtxoIndexer {
 pub const UTXO_INDEXER_SCHEMA: u32 = 2;
 
 #[derive(Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct UtxoIndexerState {
    pub synced_block: u64,
    pub trees: Vec<u32>,
@@ -104,6 +106,7 @@ impl Default for UtxoIndexerState {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum UtxoIndexerError {
    #[error("Syncer error: {0}")]
    SyncerError(#[from] SyncerError),

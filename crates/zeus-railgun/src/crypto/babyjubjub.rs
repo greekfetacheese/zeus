@@ -20,6 +20,7 @@ const B8_X: U256 =
 const B8_Y: U256 =
    uint!(16950150798460657717958625567821834550301663161624707787222815936182638968203_U256);
 
+#[non_exhaustive]
 pub struct PrivateKey {
    pub key: [u8; 32],
 }
@@ -31,18 +32,21 @@ impl Drop for PrivateKey {
 }
 
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct Signature {
    pub r_b8: Point,
    pub s: NumBigInt,
 }
 
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct Point {
    pub x: Fr,
    pub y: Fr,
 }
 
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct PointProjective {
    pub x: Fr,
    pub y: Fr,

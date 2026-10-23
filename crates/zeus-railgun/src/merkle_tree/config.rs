@@ -17,6 +17,7 @@ pub trait MerkleConfig: Debug + Clone + PartialEq + Eq {
 
 /// Merkle tree configuration for Railgun.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RailgunMerkleConfig;
 
 impl MerkleConfig for RailgunMerkleConfig {
@@ -34,6 +35,7 @@ impl MerkleConfig for RailgunMerkleConfig {
 
 #[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TestMerkleConfig;
 
 #[cfg(test)]

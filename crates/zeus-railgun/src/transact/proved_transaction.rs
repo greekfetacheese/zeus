@@ -9,6 +9,7 @@ use crate::{
 };
 
 /// A transaction that has been proven for railgun.
+#[non_exhaustive]
 pub struct ProvedTx {
    /// Transaction data to execute this transaction on-chain in railgun.
    pub tx_data: TxData,
@@ -18,6 +19,7 @@ pub struct ProvedTx {
 
 /// A single proved operation.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct ProvedOperation {
    pub inner: Operation,
    pub circuit_inputs: TransactCircuitInputs,

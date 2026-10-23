@@ -9,24 +9,28 @@ use crate::{
 };
 
 #[derive(Serialize)]
+#[non_exhaustive]
 pub struct GraphqlRequest<V: Serialize> {
    pub query: &'static str,
    pub variables: V,
 }
 
 #[derive(Deserialize)]
+#[non_exhaustive]
 pub struct GraphqlResponse<T> {
    pub data: Option<T>,
    pub errors: Option<Vec<GraphQlError>>,
 }
 
 #[derive(Debug, Deserialize)]
+#[non_exhaustive]
 pub struct GraphQlError {
    pub message: String,
 }
 
 /// Shared query vars for commitment, nullifier, and operation queries.
 #[derive(Serialize)]
+#[non_exhaustive]
 pub struct QueryVars {
    pub id_gt: String,
    #[serde(rename = "blockNumber_gte")]
@@ -37,11 +41,13 @@ pub struct QueryVars {
 }
 
 #[derive(Deserialize)]
+#[non_exhaustive]
 pub struct CommitmentsResponse {
    pub commitments: Vec<Commitment>,
 }
 
 #[derive(Deserialize)]
+#[non_exhaustive]
 pub struct Commitment {
    pub id: String,
    #[serde(rename = "blockNumber", deserialize_with = "deserialize_string_to_u64")]
@@ -74,6 +80,7 @@ pub enum CommitmentKind {
 }
 
 #[derive(Deserialize)]
+#[non_exhaustive]
 pub struct ShieldPreimage {
    pub npk: FixedBytes<32>,
    #[serde(deserialize_with = "deserialize_decimal_string_to_u256")]
@@ -82,6 +89,7 @@ pub struct ShieldPreimage {
 }
 
 #[derive(Deserialize)]
+#[non_exhaustive]
 pub struct TokenInfo {
    #[serde(rename = "tokenAddress")]
    pub token_address: Address,
@@ -100,6 +108,7 @@ pub enum TokenType {
 }
 
 #[derive(Deserialize)]
+#[non_exhaustive]
 pub struct TransactCiphertextOuter {
    pub ciphertext: TransactCiphertextInner,
    pub memo: Bytes,
@@ -112,6 +121,7 @@ pub struct TransactCiphertextOuter {
 }
 
 #[derive(Deserialize)]
+#[non_exhaustive]
 pub struct TransactCiphertextInner {
    pub iv: FixedBytes<16>,
    pub tag: FixedBytes<16>,
@@ -119,11 +129,13 @@ pub struct TransactCiphertextInner {
 }
 
 #[derive(Deserialize)]
+#[non_exhaustive]
 pub struct NullifiersResponse {
    pub nullifiers: Vec<Nullified>,
 }
 
 #[derive(Deserialize)]
+#[non_exhaustive]
 pub struct Nullified {
    pub id: String,
    pub nullifier: U256,
@@ -134,12 +146,14 @@ pub struct Nullified {
 }
 
 #[derive(Deserialize)]
+#[non_exhaustive]
 pub struct OperationsResponse {
    #[serde(rename = "transactions")]
    pub operations: Vec<Operation>,
 }
 
 #[derive(Deserialize)]
+#[non_exhaustive]
 pub struct Operation {
    pub id: String,
    #[serde(rename = "blockNumber", deserialize_with = "deserialize_string_to_u64")]
@@ -160,11 +174,13 @@ pub struct Operation {
 }
 
 #[derive(Deserialize)]
+#[non_exhaustive]
 pub struct BlockNumberResponse {
    pub transactions: Vec<Transaction>,
 }
 
 #[derive(Debug, Deserialize)]
+#[non_exhaustive]
 pub struct Transaction {
    #[serde(rename = "blockNumber", deserialize_with = "deserialize_string_to_u64")]
    pub block_number: u64,

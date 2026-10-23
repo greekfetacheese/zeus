@@ -114,6 +114,7 @@ impl RiskBand {
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PrivacyError {
    #[error("enter an amount more than zero")]
    ZeroAmount,
@@ -156,6 +157,7 @@ impl UserExposure {
 
 /// The matching deposits a withdrawal resembles, largest set last.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MatchSets {
    pub singles: Vec<Deposit>,
    pub pairs: Vec<[Deposit; 2]>,

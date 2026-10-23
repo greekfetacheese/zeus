@@ -32,6 +32,7 @@ pub struct MerkleTreeState<C: MerkleConfig> {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum MerkleTreeError {
    #[error("Element not found in tree: {0}")]
    ElementNotFound(String),

@@ -390,6 +390,7 @@ impl Kind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct UtxoTreeDiskMeta {
    pub number: u32,
    pub leaf_count: u32,

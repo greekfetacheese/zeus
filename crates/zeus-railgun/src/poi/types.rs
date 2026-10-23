@@ -40,6 +40,7 @@ pub enum PoiStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ChainParams {
    pub chain_type: String,
    #[serde(rename = "chainID")]
@@ -49,6 +50,7 @@ pub struct ChainParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct GetPoisPerListParams {
    #[serde(flatten)]
    pub chain: ChainParams,
@@ -58,6 +60,7 @@ pub struct GetPoisPerListParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct BlindedCommitmentData {
    #[serde(rename = "type")]
    pub commitment_type: BlindedCommitmentType,
@@ -66,6 +69,7 @@ pub struct BlindedCommitmentData {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct GetMerkleProofsParams {
    #[serde(flatten)]
    pub chain: ChainParams,
@@ -74,6 +78,7 @@ pub struct GetMerkleProofsParams {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct ValidatedRailgunTxidStatus {
    #[serde(rename = "validatedTxidIndex")]
    pub index: u32,
@@ -83,6 +88,7 @@ pub struct ValidatedRailgunTxidStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ValidateTxidMerklerootParams {
    #[serde(flatten)]
    pub chain: ChainParams,
@@ -95,6 +101,7 @@ pub type PoisPerListMap = HashMap<BlindedCommitment, HashMap<ListKey, PoiStatus>
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct SubmitTransactProofParams {
    #[serde(flatten)]
    pub chain: ChainParams,
@@ -104,6 +111,7 @@ pub struct SubmitTransactProofParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct TransactProofData {
    #[serde(rename = "snarkProof")]
    pub proof: Proof,

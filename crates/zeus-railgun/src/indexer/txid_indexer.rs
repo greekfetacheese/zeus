@@ -31,6 +31,7 @@ pub struct TxidIndexer {
 }
 
 #[derive(Serialize, Deserialize, Default)]
+#[non_exhaustive]
 pub struct TxidIndexerState {
    pub synced_block: u64,
    pub trees: Vec<u32>,
@@ -40,6 +41,7 @@ pub struct TxidIndexerState {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum TxidIndexerError {
    #[error("Syncer error: {0}")]
    SyncerError(#[from] SyncerError),

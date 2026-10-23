@@ -18,6 +18,7 @@ use crate::{
 };
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum TokenDataError {
    #[error("Invalid token data hash length")]
    InvalidHashLength,

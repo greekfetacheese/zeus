@@ -66,6 +66,7 @@ pub struct PoiCircuitInputs {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum PoiCircuitInputsError {
    #[error("Merkle tree error: {0}")]
    MerkleTree(#[from] MerkleTreeError),

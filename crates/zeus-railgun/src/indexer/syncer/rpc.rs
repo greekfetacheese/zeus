@@ -65,6 +65,7 @@ pub fn sync_window_end(window_from: u64, to_block: u64) -> u64 {
 }
 
 /// Result of [`RpcSyncer::fetch`]: events to apply, plus the RPC-only delta for later persist.
+#[non_exhaustive]
 pub struct FetchedEvents {
    pub events: Vec<SyncEvent>,
    /// RPC-parsed events not already in the snapshot (prefix and/or tail).

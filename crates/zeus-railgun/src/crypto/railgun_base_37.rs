@@ -6,6 +6,7 @@ const CHARSET: &[u8] = b" 0123456789abcdefghijklmnopqrstuvwxyz";
 const BASE: u128 = CHARSET.len() as u128;
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum EncodingError {
    #[error("invalid character: {0}")]
    InvalidCharacter(char),

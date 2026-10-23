@@ -29,6 +29,7 @@ const PAGE_CACHE_BYTES: usize = 1024 * 1024;
 /// `coverage_start > 0`. Legacy (`coverage_start == 0`) is treated as complete
 /// history up to `block_number` (no known gap below the first stored event).
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SnapshotDbMeta {
    pub version: u32,
    /// Inclusive start of the covered block range.
@@ -48,6 +49,7 @@ impl SnapshotDbMeta {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ChunkMeta {
    pub index: u32,
    pub first_block: u64,

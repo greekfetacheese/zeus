@@ -16,6 +16,7 @@ use crate::{
 };
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum EncryptError {
    #[error("Railgun base37 encoding error: {0}")]
    RailgunBase37(#[from] railgun_base_37::EncodingError),
@@ -26,6 +27,7 @@ pub enum EncryptError {
 }
 
 /// The named inputs to [`encrypt_note`]; `blind` picks whether the sender is blinded.
+#[non_exhaustive]
 pub struct EncryptNoteParams<'a> {
    pub receiver: &'a RailgunAddress,
    pub shared_random: &'a [u8; 16],

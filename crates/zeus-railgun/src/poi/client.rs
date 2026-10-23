@@ -35,6 +35,7 @@ pub struct PoiClientInner {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum PoiClientError {
    #[error("HTTP error: {0}")]
    Http(#[from] reqwest::Error),
@@ -69,6 +70,7 @@ struct JsonRpcResponse<R> {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[non_exhaustive]
 pub struct JsonRpcError {
    pub code: i64,
    pub message: String,

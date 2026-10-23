@@ -19,6 +19,7 @@ pub enum WriteDurability {
 
 /// Accumulated puts/deletes applied in a single transaction when the backend supports it.
 #[derive(Debug, Default, Clone)]
+#[non_exhaustive]
 pub struct WriteBatch {
    pub puts: Vec<(Vec<u8>, Vec<u8>)>,
    pub deletes: Vec<Vec<u8>>,
@@ -47,6 +48,7 @@ impl WriteBatch {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DatabaseError {
    #[error("Serialization error: {0}")]
    SerializationError(#[from] serde_json::Error),

@@ -28,6 +28,7 @@ impl std::ops::Deref for ChainCode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct TxData {
    pub to: Address,
    pub data: Bytes,

@@ -50,6 +50,7 @@ fn resolve_transact_asset(
 
 /// Railgun UTXO note
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[non_exhaustive]
 pub struct UtxoNote {
    pub tree_number: u32,
    pub leaf_index: u32,
@@ -71,6 +72,7 @@ pub struct UtxoNote {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum NoteError {
    #[error("AES error: {0}")]
    Aes(#[from] AesError),
@@ -81,6 +83,7 @@ pub enum NoteError {
 }
 
 /// Everything a note needs apart from the key material it is built for.
+#[non_exhaustive]
 pub struct UtxoNoteParams {
    pub tree_number: u32,
    pub leaf_index: u32,

@@ -68,6 +68,7 @@ pub fn all_transact_circuit_names() -> Vec<String> {
 
 /// Result of a bulk prefetch pass.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct PrefetchReport {
    /// Circuits fully available from the binary (`include_bytes!` embeds).
    /// Prefetch does **not** write these to disk.
@@ -96,6 +97,7 @@ impl PrefetchReport {
 /// [`RemoteArtifactLoader`]. Bytes stay in the binary — they are **not** copied
 /// into the disk cache on load.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct EmbeddedCircuit {
    /// Circuit path as used by the host, e.g. `railgun/01x01`.
    pub name: &'static str,
@@ -138,6 +140,7 @@ impl EmbeddedCircuit {
 /// Snapshot of which transact circuits are usable offline
 /// (binary embeds and/or on-disk cache).
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct AvailableCircuits {
    /// Circuit names like `railgun/01x02`.
    pub names: BTreeSet<String>,
@@ -232,6 +235,7 @@ impl Cache {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum RemoteArtifactLoaderError {
    #[error("HTTP error: {0}")]
    HttpError(#[from] reqwest::Error),

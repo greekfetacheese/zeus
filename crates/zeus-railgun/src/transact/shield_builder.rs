@@ -26,6 +26,7 @@ pub struct ShieldBuilder {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum ShieldError {
    #[error("Encryption error: {0}")]
    Encrypt(#[from] EncryptError),

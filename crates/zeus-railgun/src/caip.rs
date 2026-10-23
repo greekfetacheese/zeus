@@ -127,6 +127,7 @@ impl From<TokenData> for AssetId {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum AssetIdParseError {
    #[error("Invalid format: expected 'type:address' or 'type:address/subId'")]
    InvalidFormat,

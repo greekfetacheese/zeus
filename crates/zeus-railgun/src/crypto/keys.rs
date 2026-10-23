@@ -22,6 +22,7 @@ use crate::{
 };
 
 #[derive(Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct SpendingSignature {
    pub r8_x: U256,
    pub r8_y: U256,
@@ -29,6 +30,7 @@ pub struct SpendingSignature {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum KeyError {
    #[error("Failed to decompress public key")]
    DecompressionFailed,
@@ -45,6 +47,7 @@ pub struct SharedKey([u8; 32]);
 pub struct BlindedKey([u8; 32]);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ViewingPublicKey(pub [u8; 32]);
 
 /// Key for nullifier derivation.
@@ -53,6 +56,7 @@ pub struct NullifyingKey([u8; 32]);
 
 /// Master public key (wallet identifier).
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct MasterPublicKey(pub [u8; 32]);
 
 /// Private key for signing transactions (BabyJubJub curve).

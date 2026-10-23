@@ -46,7 +46,12 @@ use crate::{
 /// How many `(asset, snapshot tip)` activity lists are kept before the cache is dropped.
 const MAX_CACHED_ACTIVITY: usize = 4;
 
+/// Protocol deposits read out of the events snapshot, keyed by `(asset, snapshot tip)`, so a privacy
+/// check that only changes with the snapshot does not re-decode the window.
+type ShieldActivityCache = Arc<Mutex<HashMap<(AssetId, u64), Arc<Vec<Deposit>>>>>;
+
 #[derive(Debug, Serialize)]
+#[non_exhaustive]
 pub struct BalanceEntry {
    pub asset: AssetId,
    /// If POI is enabled, the spendability status of the note according to the POI provider.
@@ -57,6 +62,7 @@ pub struct BalanceEntry {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct NoteEntry {
    pub asset: AssetId,
    /// If POI is enabled, the spendability status of the note according to the POI provider.
@@ -92,6 +98,7 @@ impl NoteEntry {
 
 /// A spent UTXO note reconstructed from Railgun sync (Nullified + prior decrypt).
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct SpentNoteEntry {
    pub asset: AssetId,
    pub amount: u128,
@@ -142,12 +149,13 @@ pub struct RailgunProvider<P: Provider<Ethereum>> {
    ///
    /// A privacy check runs whenever the amount field changes, while decoding the snapshot window is
    /// the expensive half of it: the answer only changes when the snapshot does.
-   shield_activity: Arc<Mutex<HashMap<(AssetId, u64), Arc<Vec<Deposit>>>>>,
+   shield_activity: ShieldActivityCache,
    is_syncing: Arc<RwLock<bool>>,
    is_verifying: Arc<RwLock<bool>>,
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum RailgunProviderError {
    #[error("Utxo indexer error: {0}")]
    UtxoIndexer(#[from] UtxoIndexerError),

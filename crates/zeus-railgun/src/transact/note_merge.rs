@@ -8,6 +8,7 @@ use crate::transact::transaction_builder::MAX_CIRCUIT_INPUTS;
 
 /// One unspent note considered for merge planning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MergeNoteRef {
    pub amount: u128,
    pub tree_number: u32,
@@ -17,6 +18,7 @@ pub struct MergeNoteRef {
 /// A single recommended merge: spend these notes via private self-transfer
 /// into one output note (exact sum → circuit `Nx01`).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MergeSuggestion {
    pub asset: AssetId,
    pub tree_number: u32,

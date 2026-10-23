@@ -5,6 +5,7 @@ use crate::{abi, caip::AssetId, crypto::poseidon3, merkle_tree::UtxoLeafHash};
 
 /// Unshield notes represent value exiting the Railgun system to an external address.
 #[derive(Debug, Copy, Clone)]
+#[non_exhaustive]
 pub struct UnshieldNote {
    pub receiver: Address,
    pub asset: AssetId,

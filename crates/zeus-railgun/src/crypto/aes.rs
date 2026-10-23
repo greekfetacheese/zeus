@@ -12,6 +12,7 @@ use alloy_primitives::{Bytes, FixedBytes};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Ciphertext {
    pub iv: [u8; 16],
    pub tag: [u8; 16],
@@ -19,12 +20,14 @@ pub struct Ciphertext {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CiphertextCtr {
    pub iv: [u8; 16],
    pub data: Vec<Vec<u8>>,
 }
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum AesError {
    #[error("encrypt error: {0}")]
    Gcm(aes_gcm::Error),

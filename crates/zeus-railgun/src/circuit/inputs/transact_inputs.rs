@@ -33,6 +33,7 @@ pub struct TransactCircuitInputs {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum TransactCircuitInputsError {
    #[error("Empty input notes")]
    EmptyInputNotes,

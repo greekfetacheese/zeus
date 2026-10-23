@@ -73,6 +73,7 @@ pub struct TransactionBuilder {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum TransactionBuilderError {
    #[error(
       "Multiple unshield operations from the same address and asset are not supported: from {from}, asset {asset}"
@@ -127,6 +128,7 @@ pub enum TransactionBuilderError {
 ///
 /// Sealed trees may be absent from RAM; proofs are frozen at compact time.
 #[derive(Clone, Default)]
+#[non_exhaustive]
 pub struct MerkleWitnesses {
    pub roots: BTreeMap<u32, MerkleRoot>,
    pub proofs: HashMap<(u32, u32), RailgunMerkleProof>,

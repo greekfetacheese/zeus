@@ -23,6 +23,7 @@ pub struct IndexedAccount {
 
 /// An owned note plus when/where it was created.
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[non_exhaustive]
 pub struct NoteRecord {
    pub note: UtxoNote,
    pub created_block: u64,
@@ -35,6 +36,7 @@ pub struct NoteRecord {
 /// `spent_block` is the chain block of the Nullified event.
 /// `spent_timestamp` is unix seconds when the RPC log provided it (0 if unknown).
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[non_exhaustive]
 pub struct SpentNote {
    pub note: UtxoNote,
    pub spent_block: u64,
@@ -46,6 +48,7 @@ pub struct SpentNote {
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
+#[non_exhaustive]
 pub struct IndexedAccountState {
    pub notes: Vec<NoteRecord>,
    pub synced_block: u64,

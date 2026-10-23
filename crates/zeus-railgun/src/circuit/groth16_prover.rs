@@ -25,6 +25,7 @@ pub struct Groth16Prover {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum Groth16ProverError {
    #[error("Artifact loader error: {0}")]
    ArtifactLoaderError(#[from] RemoteArtifactLoaderError),

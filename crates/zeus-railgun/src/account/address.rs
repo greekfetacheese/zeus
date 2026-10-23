@@ -18,6 +18,7 @@ const RAILGUN_XOR: [u8; 8] = [b'r', b'a', b'i', b'l', b'g', b'u', b'n', 0];
 const ADDRESS_VERSION: u8 = 1;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RailgunAddress {
    pub address: String,
    pub master_public_key: MasterPublicKey,

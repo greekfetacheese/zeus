@@ -43,6 +43,7 @@ pub struct Operation {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum OperationVerificationError {
    #[error("Imbalanced operation: {0} != {1} + {2}")]
    Imbalanced(u128, u128, u128),

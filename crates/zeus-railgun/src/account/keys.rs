@@ -19,6 +19,7 @@ pub fn viewing_key_path(index: u32) -> String {
 
 /// Full set of Railgun keys derived from a seed + index.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct RailgunKeys {
    /// Spending Private key for signing transactions (BabyJubJub curve).
    pub spending_private_key: SpendingKey,

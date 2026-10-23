@@ -10,6 +10,7 @@ use secure_types::Zeroize;
 use std::str::FromStr;
 
 #[derive(Clone, Copy)]
+#[non_exhaustive]
 pub struct BabyJubPoint {
    pub x: Fr,
    pub y: Fr,

@@ -40,12 +40,14 @@ pub struct PoiProvider {
 }
 
 #[derive(Serialize, Deserialize, Default)]
+#[non_exhaustive]
 pub struct PoiProviderState {
    pub pending: Vec<PendingPoiEntry>,
    pub pois: HashMap<BlindedCommitment, HashMap<ListKey, PoiInfo>>,
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum PoiProviderError {
    #[error("Txid indexer error: {0}")]
    TxidIndexer(#[from] TxidIndexerError),
@@ -68,6 +70,7 @@ pub struct PoiInfo {
 ///
 /// TODO: Consider privacy / security implications of storing this data on disk.
 #[derive(Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PendingPoiEntry {
    pub txid: Txid,
    pub spending_pubkey: SpendingPublicKey,
