@@ -303,10 +303,7 @@ impl SecureHDWallet {
       let child_path = base_path().extended(index);
 
       let child = xpriv.derive_path(child_path.clone())?;
-      let pkey = child.key.unlock(|slice| {
-         PrivateKeySigner::from_slice(slice)
-            .expect("a derived child key is a valid secp256k1 scalar")
-      });
+      let pkey = child.key.unlock(PrivateKeySigner::from_slice)?;
 
       let wallet = Wallet {
          name: name.to_string(),
