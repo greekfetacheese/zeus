@@ -4,7 +4,6 @@ use tokio::sync::RwLock;
 use alloy_primitives::ChainId;
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -46,17 +45,56 @@ pub struct PoiProviderState {
    pub pois: HashMap<BlindedCommitment, HashMap<ListKey, PoiInfo>>,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum PoiProviderError {
-   #[error("Txid indexer error: {0}")]
-   TxidIndexer(#[from] TxidIndexerError),
-   #[error("POI Client error: {0}")]
-   PoiClient(#[from] PoiClientError),
-   #[error("Merkle proof not found for blinded commitment {0} and list key {1}")]
+   TxidIndexer(TxidIndexerError),
+   PoiClient(PoiClientError),
    ProofNotFound(BlindedCommitment, ListKey),
-   #[error("Database error: {0}")]
-   Database(#[from] DatabaseError),
+   Database(DatabaseError),
+}
+
+impl std::fmt::Display for PoiProviderError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::TxidIndexer(err) => write!(f, "Txid indexer error: {err}"),
+         Self::PoiClient(err) => write!(f, "POI Client error: {err}"),
+         Self::ProofNotFound(blinded_commitment, list_key) => write!(
+            f,
+            "Merkle proof not found for blinded commitment {blinded_commitment} and list key {list_key}"
+         ),
+         Self::Database(err) => write!(f, "Database error: {err}"),
+      }
+   }
+}
+
+impl std::error::Error for PoiProviderError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::TxidIndexer(err) => Some(err),
+         Self::PoiClient(err) => Some(err),
+         Self::Database(err) => Some(err),
+         Self::ProofNotFound(..) => None,
+      }
+   }
+}
+
+impl From<TxidIndexerError> for PoiProviderError {
+   fn from(err: TxidIndexerError) -> Self {
+      Self::TxidIndexer(err)
+   }
+}
+
+impl From<PoiClientError> for PoiProviderError {
+   fn from(err: PoiClientError) -> Self {
+      Self::PoiClient(err)
+   }
+}
+
+impl From<DatabaseError> for PoiProviderError {
+   fn from(err: DatabaseError) -> Self {
+      Self::Database(err)
+   }
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -87,20 +125,55 @@ pub struct PendingPoiEntry {
    pub list_keys: Vec<ListKey>,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 enum PendingPoiError {
-   #[error("POI client error: {0}")]
-   PoiClient(#[from] PoiClientError),
-   #[error("Circuit inputs error: {0}")]
-   CircuitInputs(#[from] PoiCircuitInputsError),
-   #[error("Prover error: {0}")]
+   PoiClient(PoiClientError),
+   CircuitInputs(PoiCircuitInputsError),
    Prover(Box<dyn std::error::Error + Send + Sync>),
-   #[error("Missing txid position for txid {0:?}")]
    MissingTxid(Txid),
-   #[error("Missing UTXO tree {0}")]
    MissingUtxoTree(u32),
-   #[error("Missing TXID tree {0}")]
    MissingTxidTree(u32),
+}
+
+impl std::fmt::Display for PendingPoiError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::PoiClient(err) => write!(f, "POI client error: {err}"),
+         Self::CircuitInputs(err) => write!(f, "Circuit inputs error: {err}"),
+         Self::Prover(err) => write!(f, "Prover error: {err}"),
+         Self::MissingTxid(txid) => write!(f, "Missing txid position for txid {txid:?}"),
+         Self::MissingUtxoTree(tree_number) => write!(f, "Missing UTXO tree {tree_number}"),
+         Self::MissingTxidTree(tree_number) => write!(f, "Missing TXID tree {tree_number}"),
+      }
+   }
+}
+
+impl std::error::Error for PendingPoiError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::PoiClient(err) => Some(err),
+         Self::CircuitInputs(err) => Some(err),
+         // `Prover` deliberately exposes no source although its payload is an error:
+         // the previous derive carried no `#[source]`, so `None` here is the behaviour
+         // this impl preserves.
+         Self::Prover(_)
+         | Self::MissingTxid(_)
+         | Self::MissingUtxoTree(_)
+         | Self::MissingTxidTree(_) => None,
+      }
+   }
+}
+
+impl From<PoiClientError> for PendingPoiError {
+   fn from(err: PoiClientError) -> Self {
+      Self::PoiClient(err)
+   }
+}
+
+impl From<PoiCircuitInputsError> for PendingPoiError {
+   fn from(err: PoiCircuitInputsError) -> Self {
+      Self::CircuitInputs(err)
+   }
 }
 
 #[cfg(test)]
@@ -136,7 +209,9 @@ mod poi_provider_error_tests {
       let list_key = ListKey::from("0xabc");
       assert_eq!(
          PoiProviderError::ProofNotFound(commitment, list_key.clone()).to_string(),
-         format!("Merkle proof not found for blinded commitment {commitment} and list key {list_key}")
+         format!(
+            "Merkle proof not found for blinded commitment {commitment} and list key {list_key}"
+         )
       );
 
       assert_eq!(
@@ -150,27 +225,21 @@ mod poi_provider_error_tests {
       let inner = txid_indexer_error();
       let rendered = inner.to_string();
       assert_eq!(
-         PoiProviderError::TxidIndexer(inner)
-            .source()
-            .map(ToString::to_string),
+         PoiProviderError::TxidIndexer(inner).source().map(ToString::to_string),
          Some(rendered)
       );
 
       let inner = poi_client_error();
       let rendered = inner.to_string();
       assert_eq!(
-         PoiProviderError::PoiClient(inner)
-            .source()
-            .map(ToString::to_string),
+         PoiProviderError::PoiClient(inner).source().map(ToString::to_string),
          Some(rendered)
       );
 
       let inner = database_error();
       let rendered = inner.to_string();
       assert_eq!(
-         PoiProviderError::Database(inner)
-            .source()
-            .map(ToString::to_string),
+         PoiProviderError::Database(inner).source().map(ToString::to_string),
          Some(rendered)
       );
    }
@@ -235,18 +304,14 @@ mod pending_poi_error_tests {
       let inner = poi_client_error();
       let rendered = inner.to_string();
       assert_eq!(
-         PendingPoiError::PoiClient(inner)
-            .source()
-            .map(ToString::to_string),
+         PendingPoiError::PoiClient(inner).source().map(ToString::to_string),
          Some(rendered)
       );
 
       let inner = circuit_inputs_error();
       let rendered = inner.to_string();
       assert_eq!(
-         PendingPoiError::CircuitInputs(inner)
-            .source()
-            .map(ToString::to_string),
+         PendingPoiError::CircuitInputs(inner).source().map(ToString::to_string),
          Some(rendered)
       );
    }
@@ -254,11 +319,7 @@ mod pending_poi_error_tests {
    #[test]
    fn the_other_variants_have_no_source() {
       assert!(PendingPoiError::Prover("boom".into()).source().is_none());
-      assert!(
-         PendingPoiError::MissingTxid(Txid::from(U256::from(7)))
-            .source()
-            .is_none()
-      );
+      assert!(PendingPoiError::MissingTxid(Txid::from(U256::from(7))).source().is_none());
       assert!(PendingPoiError::MissingUtxoTree(5).source().is_none());
       assert!(PendingPoiError::MissingTxidTree(6).source().is_none());
    }

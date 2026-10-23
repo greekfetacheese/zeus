@@ -8,7 +8,6 @@ use std::{
 
 use alloy_primitives::ChainId;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use thiserror::Error;
 
 use crate::{
    merkle_tree::{MerkleRoot, RailgunMerkleProof},
@@ -34,21 +33,57 @@ pub struct PoiClientInner {
    chain: ChainId,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum PoiClientError {
-   #[error("HTTP error: {0}")]
-   Http(#[from] reqwest::Error),
-   #[error("JSON-RPC error: {0}")]
+   Http(reqwest::Error),
    Rpc(JsonRpcError),
-   #[error("Null result from RPC")]
    NullResult,
-   #[error("Unexpected response: {0}")]
    UnexpectedResponse(String),
-   #[error("Invalid POI Merkle root for list key {0:?}: {1}")]
    InvalidPoiMerkleRoot(ListKey, MerkleRoot),
-   #[error("Proof not found for blinded commitment {1:?} and list key {0:?}")]
    ProofNotFound(ListKey, BlindedCommitment),
+}
+
+impl std::fmt::Display for PoiClientError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::Http(err) => write!(f, "HTTP error: {err}"),
+         Self::Rpc(err) => write!(f, "JSON-RPC error: {err}"),
+         Self::NullResult => f.write_str("Null result from RPC"),
+         Self::UnexpectedResponse(response) => write!(f, "Unexpected response: {response}"),
+         Self::InvalidPoiMerkleRoot(list_key, root) => {
+            write!(
+               f,
+               "Invalid POI Merkle root for list key {list_key:?}: {root}"
+            )
+         }
+         // The message leads with the blinded commitment (field 1), then the list key
+         // (field 0), matching the pinned text.
+         Self::ProofNotFound(list_key, blinded_commitment) => write!(
+            f,
+            "Proof not found for blinded commitment {blinded_commitment:?} and list key {list_key:?}"
+         ),
+      }
+   }
+}
+
+impl std::error::Error for PoiClientError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::Http(err) => Some(err),
+         Self::Rpc(_)
+         | Self::NullResult
+         | Self::UnexpectedResponse(_)
+         | Self::InvalidPoiMerkleRoot(..)
+         | Self::ProofNotFound(..) => None,
+      }
+   }
+}
+
+impl From<reqwest::Error> for PoiClientError {
+   fn from(err: reqwest::Error) -> Self {
+      Self::Http(err)
+   }
 }
 
 #[cfg(test)]
@@ -94,7 +129,10 @@ mod error_tests {
          PoiClientError::Rpc(rpc_error()).to_string(),
          "JSON-RPC error: RPC error -32601: method not found"
       );
-      assert_eq!(PoiClientError::NullResult.to_string(), "Null result from RPC");
+      assert_eq!(
+         PoiClientError::NullResult.to_string(),
+         "Null result from RPC"
+      );
       assert_eq!(
          PoiClientError::UnexpectedResponse("boom".to_owned()).to_string(),
          "Unexpected response: boom"
@@ -125,29 +163,19 @@ mod error_tests {
       let inner = http_error();
       let rendered = inner.to_string();
       assert_eq!(
-         PoiClientError::Http(inner)
-            .source()
-            .map(ToString::to_string),
+         PoiClientError::Http(inner).source().map(ToString::to_string),
          Some(rendered)
       );
 
       assert!(PoiClientError::Rpc(rpc_error()).source().is_none());
       assert!(PoiClientError::NullResult.source().is_none());
-      assert!(
-         PoiClientError::UnexpectedResponse("boom".to_owned())
-            .source()
-            .is_none()
-      );
+      assert!(PoiClientError::UnexpectedResponse("boom".to_owned()).source().is_none());
       assert!(
          PoiClientError::InvalidPoiMerkleRoot(list_key(), MerkleRoot::new(U256::from(1)))
             .source()
             .is_none()
       );
-      assert!(
-         PoiClientError::ProofNotFound(list_key(), commitment())
-            .source()
-            .is_none()
-      );
+      assert!(PoiClientError::ProofNotFound(list_key(), commitment()).source().is_none());
    }
 }
 
