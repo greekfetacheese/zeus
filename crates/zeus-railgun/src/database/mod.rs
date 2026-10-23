@@ -50,21 +50,49 @@ impl WriteBatch {
    }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum DatabaseError {
-   #[error("Serialization error: {0}")]
-   SerializationError(#[from] serde_json::Error),
-   #[error("Unsupported version: {0}")]
+   SerializationError(serde_json::Error),
    UnsupportedVersion(u32),
-   #[error("Storage error: {0}")]
    StorageError(String),
-   #[error("Encryption error: {0}")]
    EncryptionError(String),
-   #[error("Decryption error: {0}")]
    DecryptionError(String),
-   #[error("Missing Railgun DB crypto key")]
    MissingCryptoKey,
+}
+
+impl std::fmt::Display for DatabaseError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::SerializationError(err) => write!(f, "Serialization error: {err}"),
+         Self::UnsupportedVersion(version) => {
+            write!(f, "Unsupported version: {version}")
+         }
+         Self::StorageError(err) => write!(f, "Storage error: {err}"),
+         Self::EncryptionError(err) => write!(f, "Encryption error: {err}"),
+         Self::DecryptionError(err) => write!(f, "Decryption error: {err}"),
+         Self::MissingCryptoKey => f.write_str("Missing Railgun DB crypto key"),
+      }
+   }
+}
+
+impl std::error::Error for DatabaseError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::SerializationError(err) => Some(err),
+         Self::UnsupportedVersion(_)
+         | Self::StorageError(_)
+         | Self::EncryptionError(_)
+         | Self::DecryptionError(_)
+         | Self::MissingCryptoKey => None,
+      }
+   }
+}
+
+impl From<serde_json::Error> for DatabaseError {
+   fn from(err: serde_json::Error) -> Self {
+      Self::SerializationError(err)
+   }
 }
 
 /// True when `err` (or any cause in its chain) is redb refusing to open a file

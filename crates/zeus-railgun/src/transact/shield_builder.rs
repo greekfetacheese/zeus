@@ -1,5 +1,4 @@
 use rand::Rng;
-use thiserror::Error;
 
 use alloy_primitives::U256;
 use alloy_sol_types::SolCall;
@@ -25,11 +24,32 @@ pub struct ShieldBuilder {
    native_shields: Vec<(RailgunAddress, u128)>,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum ShieldError {
-   #[error("Encryption error: {0}")]
-   Encrypt(#[from] EncryptError),
+   Encrypt(EncryptError),
+}
+
+impl std::fmt::Display for ShieldError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::Encrypt(err) => write!(f, "Encryption error: {err}"),
+      }
+   }
+}
+
+impl std::error::Error for ShieldError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::Encrypt(err) => Some(err),
+      }
+   }
+}
+
+impl From<EncryptError> for ShieldError {
+   fn from(err: EncryptError) -> Self {
+      Self::Encrypt(err)
+   }
 }
 
 impl ShieldBuilder {

@@ -18,7 +18,6 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use alloy_primitives::{Address, U256};
 use rand::Rng;
-use thiserror::Error;
 
 use crate::{
    abi,
@@ -73,19 +72,13 @@ pub struct TransactionBuilder {
    change_memo: Option<String>,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum TransactionBuilderError {
-   #[error(
-      "Multiple unshield operations from the same address and asset are not supported: from {from}, asset {asset}"
-   )]
    MultipleUnshields {
       from: Box<RailgunAddress>,
       asset: AssetId,
    },
-   #[error(
-      "Insufficient balance for intent with from {from}, asset {asset}, value {value} (available matched notes total {available})"
-   )]
    InsufficientBalance {
       from: Box<RailgunAddress>,
       asset: AssetId,
@@ -93,9 +86,6 @@ pub enum TransactionBuilderError {
       available: u128,
    },
    /// Enough total value exists, but not within `MAX_CIRCUIT_INPUTS` notes on one tree.
-   #[error(
-      "Private notes are too fragmented for asset {asset}: need {value}, but at most {best_with_max} can be spent with {max_inputs} input notes ({note_count} notes available). Consider merging private notes first."
-   )]
    NotesFragmented {
       asset: AssetId,
       value: u128,
@@ -103,26 +93,106 @@ pub enum TransactionBuilderError {
       best_with_max: u128,
       note_count: usize,
    },
-   #[error(
-      "Too many circuit outputs for asset {asset}: {outputs} > {max_outputs} (Zeus artifact limit). Consider merging notes first."
-   )]
    TooManyOutputs {
       asset: AssetId,
       outputs: usize,
       max_outputs: usize,
    },
-   #[error("Encryption error: {0}")]
-   Encryption(#[from] EncryptError),
-   #[error("Prover error: {0}")]
+   Encryption(EncryptError),
    Prover(Box<dyn std::error::Error + Send + Sync>),
-   #[error("Missing merkle witness for tree {0} leaf {1}")]
    MissingWitness(u32, u32),
-   #[error("No input notes")]
    NoInputNotes,
-   #[error("Transact circuit input error: {0}")]
-   TransactCircuitInput(#[from] TransactCircuitInputsError),
-   #[error("Operation verification error: {0}")]
-   OperationVerification(#[from] OperationVerificationError),
+   TransactCircuitInput(TransactCircuitInputsError),
+   OperationVerification(OperationVerificationError),
+}
+
+impl std::fmt::Display for TransactionBuilderError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::MultipleUnshields { from, asset } => write!(
+            f,
+            "Multiple unshield operations from the same address and asset are not supported: from {from}, asset {asset}"
+         ),
+         Self::InsufficientBalance {
+            from,
+            asset,
+            value,
+            available,
+         } => write!(
+            f,
+            "Insufficient balance for intent with from {from}, asset {asset}, value {value} (available matched notes total {available})"
+         ),
+         Self::NotesFragmented {
+            asset,
+            value,
+            max_inputs,
+            best_with_max,
+            note_count,
+         } => write!(
+            f,
+            "Private notes are too fragmented for asset {asset}: need {value}, but at most {best_with_max} can be spent with {max_inputs} input notes ({note_count} notes available). Consider merging private notes first."
+         ),
+         Self::TooManyOutputs {
+            asset,
+            outputs,
+            max_outputs,
+         } => write!(
+            f,
+            "Too many circuit outputs for asset {asset}: {outputs} > {max_outputs} (Zeus artifact limit). Consider merging notes first."
+         ),
+         Self::Encryption(err) => write!(f, "Encryption error: {err}"),
+         Self::Prover(err) => write!(f, "Prover error: {err}"),
+         Self::MissingWitness(tree, leaf) => {
+            write!(
+               f,
+               "Missing merkle witness for tree {tree} leaf {leaf}"
+            )
+         }
+         Self::NoInputNotes => f.write_str("No input notes"),
+         Self::TransactCircuitInput(err) => {
+            write!(f, "Transact circuit input error: {err}")
+         }
+         Self::OperationVerification(err) => {
+            write!(f, "Operation verification error: {err}")
+         }
+      }
+   }
+}
+
+impl std::error::Error for TransactionBuilderError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::Encryption(err) => Some(err),
+         Self::TransactCircuitInput(err) => Some(err),
+         Self::OperationVerification(err) => Some(err),
+         // `Prover` carries a boxed error but has no `source()` route, by design.
+         Self::MultipleUnshields { .. }
+         | Self::InsufficientBalance { .. }
+         | Self::NotesFragmented { .. }
+         | Self::TooManyOutputs { .. }
+         | Self::Prover(_)
+         | Self::MissingWitness(_, _)
+         | Self::NoInputNotes => None,
+      }
+   }
+}
+
+impl From<EncryptError> for TransactionBuilderError {
+   fn from(err: EncryptError) -> Self {
+      Self::Encryption(err)
+   }
+}
+
+impl From<TransactCircuitInputsError> for TransactionBuilderError {
+   fn from(err: TransactCircuitInputsError) -> Self {
+      Self::TransactCircuitInput(err)
+   }
+}
+
+impl From<OperationVerificationError> for TransactionBuilderError {
+   fn from(err: OperationVerificationError) -> Self {
+      Self::OperationVerification(err)
+   }
 }
 
 /// Merkle root + inclusion proofs for notes being spent.

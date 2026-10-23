@@ -2,7 +2,6 @@ use std::fmt::{Debug, Display};
 
 use alloy_primitives::U256;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use crate::{
    abi::railgun::{TokenData, TokenDataError},
@@ -71,15 +70,50 @@ pub struct UtxoNote {
    pub commitment_type: BlindedCommitmentType,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum NoteError {
-   #[error("AES error: {0}")]
-   Aes(#[from] AesError),
-   #[error("TokenData error: {0}")]
-   TokenData(#[from] TokenDataError),
-   #[error("Key error: {0}")]
-   Key(#[from] KeyError),
+   Aes(AesError),
+   TokenData(TokenDataError),
+   Key(KeyError),
+}
+
+impl std::fmt::Display for NoteError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::Aes(err) => write!(f, "AES error: {err}"),
+         Self::TokenData(err) => write!(f, "TokenData error: {err}"),
+         Self::Key(err) => write!(f, "Key error: {err}"),
+      }
+   }
+}
+
+impl std::error::Error for NoteError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::Aes(err) => Some(err),
+         Self::TokenData(err) => Some(err),
+         Self::Key(err) => Some(err),
+      }
+   }
+}
+
+impl From<AesError> for NoteError {
+   fn from(err: AesError) -> Self {
+      Self::Aes(err)
+   }
+}
+
+impl From<TokenDataError> for NoteError {
+   fn from(err: TokenDataError) -> Self {
+      Self::TokenData(err)
+   }
+}
+
+impl From<KeyError> for NoteError {
+   fn from(err: KeyError) -> Self {
+      Self::Key(err)
+   }
 }
 
 /// Everything a note needs apart from the key material it is built for.

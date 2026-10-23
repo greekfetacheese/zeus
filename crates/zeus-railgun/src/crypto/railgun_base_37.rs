@@ -1,17 +1,30 @@
 //! Railgun Base 37 encoding and decoding implementation in Rust.
 
-use thiserror::Error;
-
 const CHARSET: &[u8] = b" 0123456789abcdefghijklmnopqrstuvwxyz";
 const BASE: u128 = CHARSET.len() as u128;
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum EncodingError {
-   #[error("invalid character: {0}")]
    InvalidCharacter(char),
-   #[error("output exceeds {0} bytes")]
    OutputTooLong(usize),
+}
+
+impl std::fmt::Display for EncodingError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::InvalidCharacter(c) => write!(f, "invalid character: {c}"),
+         Self::OutputTooLong(len) => write!(f, "output exceeds {len} bytes"),
+      }
+   }
+}
+
+impl std::error::Error for EncodingError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::InvalidCharacter(_) | Self::OutputTooLong(_) => None,
+      }
+   }
 }
 
 /// Encodes a string into a 16-byte array using Railgun's base 37 encoding.

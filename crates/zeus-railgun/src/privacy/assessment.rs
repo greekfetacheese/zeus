@@ -114,15 +114,35 @@ impl RiskBand {
    }
 }
 
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PrivacyError {
-   #[error("enter an amount more than zero")]
    ZeroAmount,
-   #[error("this amount is too large to assess")]
    AmountTooLarge,
-   #[error("no deposits of this asset in the last {0} days")]
    NoRecentActivity(u64),
+}
+
+impl std::fmt::Display for PrivacyError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::ZeroAmount => f.write_str("enter an amount more than zero"),
+         Self::AmountTooLarge => f.write_str("this amount is too large to assess"),
+         Self::NoRecentActivity(days) => {
+            write!(
+               f,
+               "no deposits of this asset in the last {days} days"
+            )
+         }
+      }
+   }
+}
+
+impl std::error::Error for PrivacyError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::ZeroAmount | Self::AmountTooLarge | Self::NoRecentActivity(_) => None,
+      }
+   }
 }
 
 /// What the user's own history says about the requested amount.

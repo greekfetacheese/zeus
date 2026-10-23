@@ -2,7 +2,6 @@ use std::{collections::BTreeSet, fmt::Debug};
 
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use tracing::warn;
 
 use super::config::{MerkleConfig, RailgunMerkleConfig};
@@ -31,13 +30,30 @@ pub struct MerkleTreeState<C: MerkleConfig> {
    phantom: std::marker::PhantomData<C>,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum MerkleTreeError {
-   #[error("Element not found in tree: {0}")]
    ElementNotFound(String),
-   #[error("Invalid proof")]
    InvalidProof,
+}
+
+impl std::fmt::Display for MerkleTreeError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::ElementNotFound(element) => {
+            write!(f, "Element not found in tree: {element}")
+         }
+         Self::InvalidProof => f.write_str("Invalid proof"),
+      }
+   }
+}
+
+impl std::error::Error for MerkleTreeError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::ElementNotFound(_) | Self::InvalidProof => None,
+      }
+   }
 }
 
 impl<C: MerkleConfig> MerkleTree<C> {

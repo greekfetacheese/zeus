@@ -2,7 +2,6 @@ use curve25519_dalek::{Scalar, edwards::CompressedEdwardsY};
 use rand::{Rng, RngCore};
 use ruint::{Uint, aliases::U256};
 use sha2::{Digest, Sha512};
-use thiserror::Error;
 
 use crate::{
    abi::railgun::{CommitmentCiphertext, CommitmentPreimage, ShieldCiphertext, ShieldRequest},
@@ -15,15 +14,52 @@ use crate::{
    },
 };
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum EncryptError {
-   #[error("Railgun base37 encoding error: {0}")]
-   RailgunBase37(#[from] railgun_base_37::EncodingError),
-   #[error("AES encryption error: {0}")]
-   Aes(#[from] AesError),
-   #[error("Key error: {0}")]
-   Key(#[from] KeyError),
+   RailgunBase37(railgun_base_37::EncodingError),
+   Aes(AesError),
+   Key(KeyError),
+}
+
+impl std::fmt::Display for EncryptError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::RailgunBase37(err) => {
+            write!(f, "Railgun base37 encoding error: {err}")
+         }
+         Self::Aes(err) => write!(f, "AES encryption error: {err}"),
+         Self::Key(err) => write!(f, "Key error: {err}"),
+      }
+   }
+}
+
+impl std::error::Error for EncryptError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::RailgunBase37(err) => Some(err),
+         Self::Aes(err) => Some(err),
+         Self::Key(err) => Some(err),
+      }
+   }
+}
+
+impl From<railgun_base_37::EncodingError> for EncryptError {
+   fn from(err: railgun_base_37::EncodingError) -> Self {
+      Self::RailgunBase37(err)
+   }
+}
+
+impl From<AesError> for EncryptError {
+   fn from(err: AesError) -> Self {
+      Self::Aes(err)
+   }
+}
+
+impl From<KeyError> for EncryptError {
+   fn from(err: KeyError) -> Self {
+      Self::Key(err)
+   }
 }
 
 /// The named inputs to [`encrypt_note`]; `blind` picks whether the sender is blinded.

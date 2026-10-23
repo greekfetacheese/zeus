@@ -26,15 +26,31 @@ pub struct CiphertextCtr {
    pub data: Vec<Vec<u8>>,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum AesError {
-   #[error("encrypt error: {0}")]
    Gcm(aes_gcm::Error),
-   #[error("decrypt error: {0}")]
    Decrypt(aes_gcm::Error),
-   #[error("Encrypted data is too short")]
    DataTooShort,
+}
+
+impl std::fmt::Display for AesError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::Gcm(err) => write!(f, "encrypt error: {err}"),
+         Self::Decrypt(err) => write!(f, "decrypt error: {err}"),
+         Self::DataTooShort => f.write_str("Encrypted data is too short"),
+      }
+   }
+}
+
+impl std::error::Error for AesError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      // `aes_gcm::Error` is not a `std::error::Error`, so it cannot back a source.
+      match self {
+         Self::Gcm(_) | Self::Decrypt(_) | Self::DataTooShort => None,
+      }
+   }
 }
 
 type Aes256GcmU16 = AesGcm<Aes256, U16>;
