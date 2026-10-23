@@ -3,8 +3,29 @@ use secure_types::SecureArray;
 use serde::{Deserialize, Serialize};
 
 pub type Key32 = SecureArray<u8, 32>;
-pub type ChainCode = SecureArray<u8, 32>;
 pub type Key64 = SecureArray<u8, 64>;
+
+/// The HMAC chain code of one BIP32-style derivation step.
+///
+/// A newtype rather than `pub type ChainCode = Key32`: the two are the same 32-byte secret and a
+/// derivation step threads both through the same tuple, so without a distinct type a transposed
+/// `(key, chain_code)` compiles and silently derives the wrong key.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ChainCode(Key32);
+
+impl ChainCode {
+   pub fn new(key: Key32) -> Self {
+      Self(key)
+   }
+}
+
+impl std::ops::Deref for ChainCode {
+   type Target = Key32;
+   fn deref(&self) -> &Key32 {
+      &self.0
+   }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TxData {
