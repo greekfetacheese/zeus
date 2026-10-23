@@ -500,11 +500,10 @@ impl ShieldUi {
                   if self.mode.is_unshield() {
                      let default_for_chain = default_bundler_url(chain.id());
                      let looks_like_default = self.bundler_url.contains("public.pimlico.io");
-                     if self.bundler_url.is_empty() || looks_like_default {
-                        if !self.bundler_url.contains(&format!("/{}/rpc", chain.id())) {
+                     if (self.bundler_url.is_empty() || looks_like_default)
+                        && !self.bundler_url.contains(&format!("/{}/rpc", chain.id())) {
                            self.bundler_url = default_for_chain;
                         }
-                     }
                   }
 
                   ui.add_space(theme.spacing.md);
@@ -1342,7 +1341,7 @@ impl ShieldUi {
          return;
       }
 
-      self.shield_pool_key = Some(key.clone());
+      self.shield_pool_key = Some(key);
       self.shield_pool = None;
 
       spawn_shield_pool_check(key, chain, self.privacy_asset());
@@ -1464,9 +1463,7 @@ impl ShieldUi {
             let max = self.nft.as_ref().and_then(|nft| Self::nft_max(nft, self.mode, ctx, owner));
 
             // An unknown ceiling is not a refusal: only a chain that has spoken can say «not enough».
-            quantity.map_or(false, |quantity| {
-               max.map_or(true, |max| quantity <= max)
-            })
+            quantity.is_some_and(|quantity| max.is_none_or(|max| quantity <= max))
          }
          None => self.sufficient_balance(ctx, owner),
       };
@@ -1637,7 +1634,7 @@ impl ShieldUi {
                      gui.shield_ui.sending_tx = false;
                      gui.notification.reset();
                      gui.loading_window.reset();
-                     gui.msg_window.open(format!("Transaction Error: {}", e.to_string()));
+                     gui.msg_window.open(format!("Transaction Error: {}", e));
                      gui.request_repaint();
                   });
                }
@@ -1692,7 +1689,7 @@ impl ShieldUi {
                      gui.shield_ui.sending_tx = false;
                      gui.notification.reset();
                      gui.loading_window.reset();
-                     gui.msg_window.open(format!("Unshield Error: {}", e.to_string()));
+                     gui.msg_window.open(format!("Unshield Error: {}", e));
                      gui.request_repaint();
                   });
                }
@@ -2098,15 +2095,14 @@ async fn shield(
    let eth_balance_before_fut = native_balance_at(ctx.clone(), chain, from, block_id);
 
    // Prefetch accounts and storage for the sim
-   let mut accounts = Vec::new();
-   accounts.push(AccountPrefetch::eoa(from));
-   accounts.push(AccountPrefetch::contract(
-      asset.asset_id().address(),
-   ));
-   accounts.push(AccountPrefetch::contract(railgun_address));
-   accounts.push(AccountPrefetch::contract(interact_to));
-   accounts.push(AccountPrefetch::contract(relay_adapt));
-   accounts.push(AccountPrefetch::eoa(block.header.beneficiary));
+   let mut accounts = vec![
+      AccountPrefetch::eoa(from),
+      AccountPrefetch::contract(asset.asset_id().address()),
+      AccountPrefetch::contract(railgun_address),
+      AccountPrefetch::contract(interact_to),
+      AccountPrefetch::contract(relay_adapt),
+      AccountPrefetch::eoa(block.header.beneficiary),
+   ];
 
    let common_accounts = railgun_common_accounts(chain.id());
    accounts.extend(common_accounts.into_iter().map(AccountPrefetch::contract));
@@ -2513,7 +2509,7 @@ mod tests {
       // A verdict for one asset, already latched under its key.
       ui.currency = Currency::from(ERC20Token::weth());
       let latched = (1u64, ui.privacy_asset_key());
-      ui.shield_pool_key = Some(latched.clone());
+      ui.shield_pool_key = Some(latched);
       ui.shield_pool = Some(PoolDepth {
          balance_wei: U256::from(1_000u64),
          usd: Some(400.0),
@@ -2546,7 +2542,7 @@ mod tests {
       // An answered check for WETH on chain 1: latched, verdict shown.
       ui.currency = Currency::from(ERC20Token::weth());
       let key_a = (1u64, ui.privacy_asset_key());
-      ui.shield_pool_key = Some(key_a.clone());
+      ui.shield_pool_key = Some(key_a);
       ui.shield_pool = Some(PoolDepth {
          balance_wei: U256::from(1_000u64),
          usd: Some(400.0),

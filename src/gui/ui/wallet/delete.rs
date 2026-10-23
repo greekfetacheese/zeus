@@ -331,10 +331,7 @@ fn on_delete_wallet(wallet: WalletInfo, is_current: bool) {
          Err(e) => {
             SHARED_GUI.write(|gui| {
                gui.loading_window.reset();
-               gui.open_msg_window(format!(
-                  "Failed to encrypt vault: {}",
-                  e.to_string()
-               ));
+               gui.open_msg_window(format!("Failed to encrypt vault: {}", e));
                gui.request_repaint();
             });
             return;

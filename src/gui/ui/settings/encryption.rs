@@ -12,7 +12,7 @@ const MIN_M_COST: u32 = 512_000;
 const MIN_T_COST: u32 = 8;
 const MIN_P_COST: u32 = 1;
 
-const MAX_M_COST: u32 = 8192_000;
+const MAX_M_COST: u32 = 8_192_000;
 const MAX_T_COST: u32 = 2048;
 const MAX_P_COST: u32 = 1;
 

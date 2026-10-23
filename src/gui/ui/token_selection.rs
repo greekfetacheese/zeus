@@ -49,16 +49,6 @@ pub enum InOrOut {
    Out,
 }
 
-impl InOrOut {
-   pub fn to_string(&self) -> String {
-      (match self {
-         Self::In => "Sell",
-         Self::Out => "Buy",
-      })
-      .to_string()
-   }
-}
-
 /// What the picker is listing.
 ///
 /// An enum rather than the two `bool`s `recipient_selection.rs` uses for its tabs: a mode is exactly
@@ -789,17 +779,17 @@ impl TokenSelectionWindow {
                                           ui.ctx().copy_text(token_address.to_string());
                                        }
 
-                                       if !currency.is_base() {
-                                          if ui.add(MenuItem::new("Delete Token")).clicked() {
-                                             more_clicked = true;
-                                             if let Some(token) = currency.erc20_opt() {
-                                                delete_token(
-                                                   chain_id,
-                                                   owner,
-                                                   token.clone(),
-                                                   ctx.privacy_mode,
-                                                );
-                                             }
+                                       if !currency.is_base()
+                                          && ui.add(MenuItem::new("Delete Token")).clicked()
+                                       {
+                                          more_clicked = true;
+                                          if let Some(token) = currency.erc20_opt() {
+                                             delete_token(
+                                                chain_id,
+                                                owner,
+                                                token.clone(),
+                                                ctx.privacy_mode,
+                                             );
                                           }
                                        }
 
@@ -1226,12 +1216,11 @@ impl TokenSelectionWindow {
          return true;
       }
 
-      if let Ok(address) = Address::from_str(&query) {
-         if currency.is_erc20() {
-            if let Some(token) = currency.erc20_opt() {
-               return token.address == address;
-            }
-         }
+      if let Ok(address) = Address::from_str(&query)
+         && currency.is_erc20()
+         && let Some(token) = currency.erc20_opt()
+      {
+         return token.address == address;
       }
       false
    }

@@ -123,8 +123,10 @@ pub enum RequestMethod {
    WalletWatchAsset,
 }
 
-impl RequestMethod {
-   pub fn from_str(s: &str) -> Result<Self, anyhow::Error> {
+impl std::str::FromStr for RequestMethod {
+   type Err = anyhow::Error;
+
+   fn from_str(s: &str) -> Result<Self, Self::Err> {
       match s {
          "wallet_addEthereumChain" => Ok(RequestMethod::WalletAddEthereumChain),
          "wallet_switchEthereumChain" => Ok(RequestMethod::WalletSwitchEthereumChain),
@@ -157,7 +159,9 @@ impl RequestMethod {
          _ => Err(anyhow!("Invalid Request Method: {:?}", s)),
       }
    }
+}
 
+impl RequestMethod {
    pub fn as_str(&self) -> &'static str {
       match self {
          RequestMethod::WalletAddEthereumChain => "wallet_addEthereumChain",
@@ -2308,7 +2312,7 @@ async fn handle_request(
    origin: String,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let method = match RequestMethod::from_str(&payload.method) {
+   let method = match payload.method.parse::<RequestMethod>() {
       Ok(method) => method,
       Err(e) => {
          error!("Unsupported method: {:?}", e);
@@ -2727,11 +2731,11 @@ mod connector_auth_tests {
    #[test]
    fn wallet_send_calls_methods_are_recognized() {
       assert_eq!(
-         RequestMethod::from_str("wallet_sendCalls").unwrap(),
+         "wallet_sendCalls".parse::<RequestMethod>().unwrap(),
          RequestMethod::WalletSendCalls
       );
       assert_eq!(
-         RequestMethod::from_str("wallet_getCallsStatus").unwrap(),
+         "wallet_getCallsStatus".parse::<RequestMethod>().unwrap(),
          RequestMethod::WalletGetCallsStatus
       );
    }
@@ -2770,7 +2774,7 @@ mod connector_auth_tests {
             RequestMethod::WalletWatchAsset,
          ),
       ] {
-         let method = RequestMethod::from_str(raw).unwrap();
+         let method = raw.parse::<RequestMethod>().unwrap();
          assert_eq!(method, expected);
          assert_eq!(method.as_str(), raw);
       }
@@ -2798,11 +2802,11 @@ mod connector_auth_tests {
    #[test]
    fn curve_rpc_methods_are_recognized() {
       assert_eq!(
-         RequestMethod::from_str("eth_maxPriorityFeePerGas").unwrap(),
+         "eth_maxPriorityFeePerGas".parse::<RequestMethod>().unwrap(),
          RequestMethod::EthMaxPriorityFeePerGas
       );
       assert_eq!(
-         RequestMethod::from_str("eth_getBlockByNumber").unwrap(),
+         "eth_getBlockByNumber".parse::<RequestMethod>().unwrap(),
          RequestMethod::EthGetBlockByNumber
       );
    }

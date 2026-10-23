@@ -158,10 +158,10 @@ pub fn prune_nft_icons() -> Result<usize, anyhow::Error> {
 
 fn remove_file_if_present(dir: &std::path::Path, name: &str) {
    let path = dir.join(name);
-   if path.exists() {
-      if let Err(e) = std::fs::remove_file(path) {
-         tracing::warn!("Failed to remove {name}: {e}");
-      }
+   if path.exists()
+      && let Err(e) = std::fs::remove_file(path)
+   {
+      tracing::warn!("Failed to remove {name}: {e}");
    }
 }
 
@@ -596,7 +596,7 @@ mod tests {
          std::fs::create_dir_all(&legacy_dir).unwrap();
          std::fs::write(legacy_dir.join(NFT_IMAGE_SVG), b"<svg/>").unwrap();
          assert!(
-            loaded_icons(64).get(&(collection, 1, legacy_only)).is_none(),
+            !loaded_icons(64).contains_key(&(collection, 1, legacy_only)),
             "a vector-only directory is not art"
          );
 
@@ -619,7 +619,7 @@ mod tests {
          );
 
          delete_nft_icon(1, collection, token).unwrap();
-         assert!(loaded_icons(64).get(&key).is_none());
+         assert!(!loaded_icons(64).contains_key(&key));
       });
 
       std::env::set_current_dir(previous).unwrap();

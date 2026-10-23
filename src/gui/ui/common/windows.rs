@@ -438,11 +438,7 @@ impl UpdateWindow {
       ui.label(text);
 
       let current_unix = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
-      let restart_in = if current_unix < self.restart_in {
-         self.restart_in - current_unix
-      } else {
-         0
-      };
+      let restart_in = self.restart_in.saturating_sub(current_unix);
 
       let text = if restart_in == 0 {
          "Restarting now...".to_owned()

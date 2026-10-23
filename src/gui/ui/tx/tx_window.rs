@@ -100,10 +100,11 @@ impl TxWindow {
          };
 
          SHARED_GUI.write(|gui| {
-            if let Some(open_tx) = gui.tx_window.tx.as_mut() {
-               if open_tx.hash == hash && open_tx.clear_display.is_none() {
-                  open_tx.clear_display = Some(display);
-               }
+            if let Some(open_tx) = gui.tx_window.tx.as_mut()
+               && open_tx.hash == hash
+               && open_tx.clear_display.is_none()
+            {
+               open_tx.clear_display = Some(display);
             }
             gui.tx_window.loading = false;
             gui.request_repaint();

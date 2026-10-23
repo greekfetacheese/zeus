@@ -741,7 +741,7 @@ fn format_permit2_single_approval(msg: &SignMsgType) -> String {
 
    // Domain
    writeln!(formatted, "Domain:").unwrap();
-   writeln!(formatted, "Name: {}", "Uniswap Permit2").unwrap();
+   writeln!(formatted, "Name: Uniswap Permit2").unwrap();
    writeln!(formatted, "Version: 2").unwrap();
    // The domain's own chain, which is what the signature is bound to and where the allowance
    // lands — not the chain the wallet is connected to.
@@ -749,7 +749,7 @@ fn format_permit2_single_approval(msg: &SignMsgType) -> String {
    writeln!(
       formatted,
       "Verifying Contract: {}",
-      details.permit2_contract.to_string()
+      details.permit2_contract
    )
    .unwrap();
    writeln!(formatted).unwrap();
@@ -757,24 +757,14 @@ fn format_permit2_single_approval(msg: &SignMsgType) -> String {
    // Message details
    writeln!(formatted, "Message:").unwrap();
    writeln!(formatted, "Token: {}", details.token.address).unwrap();
-   writeln!(
-      formatted,
-      "Amount: {}",
-      details.amount.wei().to_string()
-   )
-   .unwrap();
+   writeln!(formatted, "Amount: {}", details.amount.wei()).unwrap();
    writeln!(
       formatted,
       "Expiration: {}",
-      details.expiration.timestamp().to_string()
+      details.expiration.timestamp()
    )
    .unwrap();
-   writeln!(
-      formatted,
-      "Spender: {}",
-      details.spender.to_string()
-   )
-   .unwrap();
+   writeln!(formatted, "Spender: {}", details.spender).unwrap();
 
    formatted
 }
@@ -787,33 +777,13 @@ fn format_permit2612(msg: &SignMsgType) -> String {
    writeln!(formatted, "===================").unwrap();
    writeln!(formatted).unwrap();
 
-   writeln!(
-      formatted,
-      "Token: {}",
-      details.token.address.to_string()
-   )
-   .unwrap();
-   writeln!(
-      formatted,
-      "Amount: {}",
-      details.amount.wei().to_string()
-   )
-   .unwrap();
+   writeln!(formatted, "Token: {}", details.token.address).unwrap();
+   writeln!(formatted, "Amount: {}", details.amount.wei()).unwrap();
    if !details.amount.is_zero() {
-      writeln!(
-         formatted,
-         "Deadline: {}",
-         details.deadline.to_string()
-      )
-      .unwrap();
+      writeln!(formatted, "Deadline: {}", details.deadline).unwrap();
    }
-   writeln!(formatted, "Owner: {}", details.owner.to_string()).unwrap();
-   writeln!(
-      formatted,
-      "Spender: {}",
-      details.spender.to_string()
-   )
-   .unwrap();
+   writeln!(formatted, "Owner: {}", details.owner).unwrap();
+   writeln!(formatted, "Spender: {}", details.spender).unwrap();
 
    formatted
 }
@@ -887,7 +857,7 @@ fn format_typed_data(typed_data: &TypedData) -> String {
       }
       Err(e) => {
          tracing::error!("Failed to pretty-print message: {}", e);
-         writeln!(formatted, " {}", typed_data.message.to_string()).unwrap();
+         writeln!(formatted, " {}", typed_data.message).unwrap();
       }
    }
 

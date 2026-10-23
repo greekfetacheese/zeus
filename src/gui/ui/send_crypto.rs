@@ -638,30 +638,30 @@ impl SendCryptoUi {
          .min_size(vec2(ui.available_width() * 0.8, 45.0))
          .visuals(button_visuals);
 
-      if ui.add_enabled(valid_inputs, send).clicked() {
-         if let (Some(nft), Some(amount)) = (nft, amount) {
-            self.sending_tx = true;
+      if ui.add_enabled(valid_inputs, send).clicked()
+         && let (Some(nft), Some(amount)) = (nft, amount)
+      {
+         self.sending_tx = true;
 
-            match self.send_nft_transaction(
-               ctx,
-               nft,
-               amount,
-               recipient,
-               privacy_mode,
-               recipient_guard,
-               recipient_name,
-            ) {
-               Ok(_) => {}
-               Err(e) => {
-                  self.sending_tx = false;
+         match self.send_nft_transaction(
+            ctx,
+            nft,
+            amount,
+            recipient,
+            privacy_mode,
+            recipient_guard,
+            recipient_name,
+         ) {
+            Ok(_) => {}
+            Err(e) => {
+               self.sending_tx = false;
 
-                  crate::runtime::rt().spawn_blocking(move || {
-                     SHARED_GUI.write(|gui| {
-                        let msg = format!("Error while sending transaction: {}", e);
-                        gui.open_msg_window(msg);
-                     });
+               crate::runtime::rt().spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                     let msg = format!("Error while sending transaction: {}", e);
+                     gui.open_msg_window(msg);
                   });
-               }
+               });
             }
          }
       }
@@ -1376,10 +1376,11 @@ async fn send_eth(
    let sender_eth_balance_before = &eth_balance_before[0].balance;
    let recipient_eth_balance_before = &eth_balance_before[1].balance;
 
-   let mut prefetch_accounts = Vec::new();
-   prefetch_accounts.push(AccountPrefetch::eoa(from));
-   prefetch_accounts.push(AccountPrefetch::eoa(recipient));
-   prefetch_accounts.push(AccountPrefetch::eoa(block.header.beneficiary));
+   let prefetch_accounts = vec![
+      AccountPrefetch::eoa(from),
+      AccountPrefetch::eoa(recipient),
+      AccountPrefetch::eoa(block.header.beneficiary),
+   ];
 
    let accounts_info = fetch_accounts_info(
       ctx.clone(),
@@ -1550,11 +1551,12 @@ async fn send_token(
       )
       .await?;
 
-   let mut accounts = Vec::new();
-   accounts.push(AccountPrefetch::eoa(from));
-   accounts.push(AccountPrefetch::eoa(recipient));
-   accounts.push(AccountPrefetch::contract(token.address));
-   accounts.push(AccountPrefetch::eoa(block.header.beneficiary));
+   let accounts = vec![
+      AccountPrefetch::eoa(from),
+      AccountPrefetch::eoa(recipient),
+      AccountPrefetch::contract(token.address),
+      AccountPrefetch::eoa(block.header.beneficiary),
+   ];
 
    let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), block_id, accounts).await;
 
@@ -1719,11 +1721,12 @@ async fn send_nft(
 
    let eth_balance_before = native_balance_at(ctx.clone(), chain, from, block_id).await?;
 
-   let mut accounts = Vec::new();
-   accounts.push(AccountPrefetch::eoa(from));
-   accounts.push(AccountPrefetch::eoa(recipient));
-   accounts.push(AccountPrefetch::contract(nft.collection));
-   accounts.push(AccountPrefetch::eoa(block.header.beneficiary));
+   let accounts = vec![
+      AccountPrefetch::eoa(from),
+      AccountPrefetch::eoa(recipient),
+      AccountPrefetch::contract(nft.collection),
+      AccountPrefetch::eoa(block.header.beneficiary),
+   ];
 
    let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), block_id, accounts).await;
 

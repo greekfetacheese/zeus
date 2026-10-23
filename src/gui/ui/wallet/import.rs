@@ -149,10 +149,7 @@ fn on_import_wallet(name: String, from_key: bool, key_or_phrase: SecureString) {
             Ok(address) => address,
             Err(e) => {
                SHARED_GUI.write(|gui| {
-                  gui.open_msg_window(format!(
-                     "Failed to import wallet: {}",
-                     e.to_string()
-                  ));
+                  gui.open_msg_window(format!("Failed to import wallet: {}", e));
                   gui.wallet_ui.add_wallet_ui.import_wallet.input_field.erase();
                   gui.request_repaint();
                });
@@ -179,10 +176,7 @@ fn on_import_wallet(name: String, from_key: bool, key_or_phrase: SecureString) {
          Err(e) => {
             SHARED_GUI.write(|gui| {
                gui.loading_window.reset();
-               gui.open_msg_window(format!(
-                  "Failed to encrypt account: {}",
-                  e.to_string()
-               ));
+               gui.open_msg_window(format!("Failed to encrypt account: {}", e));
                gui.wallet_ui.add_wallet_ui.import_wallet.input_field.erase();
                gui.request_repaint();
             });

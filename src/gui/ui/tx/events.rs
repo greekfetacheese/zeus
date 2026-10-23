@@ -621,7 +621,7 @@ fn shield_event_ui(
    if let Some(recipient) = &params.recipient {
       ui.horizontal(|ui| {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            let text = RichText::new(format!("Recipient",)).size(theme.typography.large);
+            let text = RichText::new("Recipient".to_string()).size(theme.typography.large);
             let label = Label::new(text, None).interactive(false);
             ui.add(label);
          });
@@ -669,7 +669,7 @@ fn shield_event_ui(
             params.amount_usd.as_ref(),
          ) {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               let text = RichText::new(format!("Shield",)).size(theme.typography.large);
+               let text = RichText::new("Shield".to_string()).size(theme.typography.large);
                let label = Label::new(text, None).interactive(false);
                ui.add(label);
             });
@@ -783,7 +783,7 @@ fn unshield_event_ui(
             params.amount_usd.as_ref(),
          ) {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               let text = RichText::new(format!("Receive",)).size(theme.typography.large);
+               let text = RichText::new("Receive".to_string()).size(theme.typography.large);
                let label = Label::new(text, None).interactive(false);
                ui.add(label);
             });

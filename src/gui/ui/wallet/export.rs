@@ -317,10 +317,7 @@ fn on_verify_credentials(credentials: Credentials) {
                gui.wallet_ui.export_key_ui.wallet_to_export.as_ref().map(|wallet| {
                   (
                      wallet.key_string(),
-                     format!(
-                        "bytes://key-{}.png",
-                        &wallet.address().to_string()
-                     ),
+                     format!("bytes://key-{}.png", wallet.address()),
                   )
                })
             });

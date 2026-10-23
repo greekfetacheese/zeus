@@ -36,7 +36,7 @@ impl Version {
       matches!(self, Self::V4)
    }
 
-   fn to_str(&self) -> &'static str {
+   fn to_str(self) -> &'static str {
       match self {
          Self::All => "All",
          Self::V2 => "V2",

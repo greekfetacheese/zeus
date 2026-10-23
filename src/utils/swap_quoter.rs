@@ -613,10 +613,10 @@ fn allocate_chunks(
 
    let allocated = allocations.iter().copied().fold(U256::ZERO, |sum, amount| sum + amount);
    let leftover = total.saturating_sub(allocated);
-   if !leftover.is_zero() {
-      if let Some((best, _)) = allocations.iter().enumerate().max_by_key(|(_, amt)| *amt) {
-         allocations[best] += leftover;
-      }
+   if !leftover.is_zero()
+      && let Some((best, _)) = allocations.iter().enumerate().max_by_key(|(_, amt)| *amt)
+   {
+      allocations[best] += leftover;
    }
 
    allocations
@@ -651,7 +651,7 @@ fn split_direct_pools(
          Some((i, out))
       })
       .collect();
-   ranked.sort_by(|a, b| b.1.cmp(&a.1));
+   ranked.sort_by_key(|a| std::cmp::Reverse(a.1));
    ranked.truncate(max_split_routes);
 
    if ranked.len() < 2 {
@@ -716,10 +716,10 @@ fn split_direct_pools(
       estimate_gas_cost_for_route(eth_price, base_fee, priority_fee, used.len());
    let split_net = split_out.f64() * currency_out_price.f64() - split_gas_usd.f64();
 
-   if let Some(single) = best_single {
-      if single.net_value(currency_out_price) >= split_net {
-         return build_quote_from_route(single, currency_in.clone(), currency_out.clone());
-      }
+   if let Some(single) = best_single
+      && single.net_value(currency_out_price) >= split_net
+   {
+      return build_quote_from_route(single, currency_in.clone(), currency_out.clone());
    }
 
    Quote {

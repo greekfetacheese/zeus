@@ -360,13 +360,12 @@ pub async fn settle_railgun_op(ctx: ZeusCtx, chain: ChainId, from: Address, op: 
       _ => None,
    };
 
-   if let Some(token) = token {
-      if let Err(e) = manager
+   if let Some(token) = token
+      && let Err(e) = manager
          .update_tokens_balance(ctx.clone(), chain.id(), from, vec![token], true)
          .await
-      {
-         tracing::error!("Error updating token balance: {:?}", e);
-      }
+   {
+      tracing::error!("Error updating token balance: {:?}", e);
    }
 
    // The NFT half of the same refresh. An NFT has no balance, only an owner, so what moves here is
@@ -376,8 +375,8 @@ pub async fn settle_railgun_op(ctx: ZeusCtx, chain: ChainId, from: Address, op: 
    // settled one. For anything else nothing public moved — the private side needs no wait either, since
    // the scan below is what maintains it.
    let nfts = ctx.get_portfolio(chain.id(), from).nfts().clone();
-   if !nfts.is_empty() {
-      if let Err(e) = manager
+   if !nfts.is_empty()
+      && let Err(e) = manager
          .update_nft_balances(
             ctx.clone(),
             chain.id(),
@@ -386,9 +385,8 @@ pub async fn settle_railgun_op(ctx: ZeusCtx, chain: ChainId, from: Address, op: 
             retry_nft_balances,
          )
          .await
-      {
-         tracing::error!("Error updating NFT balances: {:?}", e);
-      }
+   {
+      tracing::error!("Error updating NFT balances: {:?}", e);
    }
 
    if let Err(e) = manager.update_eth_balance(ctx.clone(), chain.id(), vec![from], true).await {

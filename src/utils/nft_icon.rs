@@ -601,12 +601,13 @@ fn declares_an_xml_entity(bytes: &[u8]) -> bool {
 /// a nested document cannot name a path either; what it can still do is inflate, declare entities or
 /// decode without a bound, which is what the wrapper refuses.
 fn svg_options() -> usvg::Options<'static> {
-   let mut options = usvg::Options::default();
-   options.image_href_resolver = usvg::ImageHrefResolver {
-      resolve_data: art_data_resolver(),
-      resolve_string: Box::new(|_, _| None),
-   };
-   options
+   usvg::Options {
+      image_href_resolver: usvg::ImageHrefResolver {
+         resolve_data: art_data_resolver(),
+         resolve_string: Box::new(|_, _| None),
+      },
+      ..Default::default()
+   }
 }
 
 /// Whether usvg hands a nested payload to its raster decoder rather than to its SVG parser.
@@ -930,10 +931,10 @@ async fn get_with_cap(url: &str, max: usize) -> Result<Option<Vec<u8>>, anyhow::
 
       // A declared length is a hint, not the cap: a chunked response declares none, and a hostile one
       // can lie. The early exit is worth taking, but [`read_body`] is what enforces the limit.
-      if let Some(len) = response.content_length() {
-         if len as usize > max {
-            return Err(anyhow!("{url} is too large ({len} bytes)"));
-         }
+      if let Some(len) = response.content_length()
+         && len as usize > max
+      {
+         return Err(anyhow!("{url} is too large ({len} bytes)"));
       }
 
       return read_body(&mut response, max, url.as_str()).await;

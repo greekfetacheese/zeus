@@ -299,7 +299,7 @@ pub fn cleanup_orphaned_wallet_data(ctx: ZeusCtx) {
                break;
             }
 
-            let ready = ctx.read(|ctx| ctx.railgun_provider.get(&chain.id()).is_some());
+            let ready = ctx.read(|ctx| ctx.railgun_provider.contains_key(&chain.id()));
 
             if !ready {
                tokio::time::sleep(Duration::from_millis(500)).await;

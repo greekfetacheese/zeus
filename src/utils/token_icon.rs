@@ -57,10 +57,10 @@ async fn fetch_smoldapp_icon(
       return Err(anyhow!("SmolDapp returned {}", response.status()));
    }
 
-   if let Some(len) = response.content_length() {
-      if len as usize > MAX_ICON_BYTES {
-         return Err(anyhow!("icon too large ({len} bytes)"));
-      }
+   if let Some(len) = response.content_length()
+      && len as usize > MAX_ICON_BYTES
+   {
+      return Err(anyhow!("icon too large ({len} bytes)"));
    }
 
    // Streamed rather than buffered: `Response::bytes` would take whatever the host sends before the

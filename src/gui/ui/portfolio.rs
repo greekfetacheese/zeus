@@ -366,9 +366,11 @@ impl PortfolioUi {
                         let icon = Lucide::RefreshCw.size(20.0).color(theme.colors.text).image();
 
                         if !self.show_spinner {
-                           let mut visuals = ButtonVisuals::default();
-                           visuals.bg_hover = button_visuals.bg_hover;
-                           visuals.corner_radius = CornerRadius::same(25);
+                           let visuals = ButtonVisuals {
+                              bg_hover: button_visuals.bg_hover,
+                              corner_radius: CornerRadius::same(25),
+                              ..Default::default()
+                           };
                            let button = Button::image(icon).small().visuals(visuals);
                            let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
