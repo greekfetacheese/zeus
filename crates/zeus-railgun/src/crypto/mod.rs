@@ -9,8 +9,10 @@ pub mod poseidon;
 pub mod railgun_base_37;
 pub mod railgun_txid;
 pub mod railgun_zero;
+mod secret;
 pub mod serializable_np_index;
 
 pub use curve::{BASE8, BabyJubPoint, add_point, babyjub_shared_secret, mul_point_escalar};
 pub use hmac::hmac_sha512;
 pub use poseidon::{poseidon_hash, poseidon1, poseidon2, poseidon3};
+pub(crate) use secret::SecretKey32;

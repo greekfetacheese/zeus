@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField};
 use num_bigint::{BigInt as NumBigInt, Sign};
@@ -19,8 +17,7 @@ pub fn fr_from_u64(x: u64) -> Fr {
 }
 
 pub fn fr_from_u256(x: U256) -> Fr {
-   Fr::from_str(&x.to_string())
-      .expect("U256 is reduced mod q by from_str only below q; see from_be_bytes_mod_order")
+   Fr::from_be_bytes_mod_order(&x.to_be_bytes::<32>())
 }
 
 pub fn u256_to_num_bigint(x: U256) -> NumBigInt {
@@ -34,4 +31,31 @@ pub fn fr_to_num_bigint(f: Fr) -> NumBigInt {
 
 pub fn test_bit(bytes: &[u8], i: usize) -> bool {
    bytes[i / 8] & (1 << (i % 8)) != 0
+}
+
+#[cfg(test)]
+mod tests {
+   use std::str::FromStr;
+
+   use alloy_primitives::U256;
+   use ark_bn254::Fr;
+
+   use super::{Q, fr_from_u256};
+
+   /// The conversion must agree with the decimal parse it replaced, on every value the callers pass
+   /// and on the values either side of the field modulus.
+   #[test]
+   fn fr_from_u256_matches_the_decimal_parse_it_replaced() {
+      for v in [
+         U256::ZERO,
+         U256::from(1),
+         Q - U256::from(1),
+         Q,
+         Q + U256::from(1),
+         U256::MAX,
+      ] {
+         let expected = Fr::from_str(&v.to_string()).expect("from_str reduces every U256");
+         assert_eq!(fr_from_u256(v), expected, "mismatch for {v}");
+      }
+   }
 }

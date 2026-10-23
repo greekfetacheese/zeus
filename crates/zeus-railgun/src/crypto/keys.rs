@@ -3,7 +3,6 @@ use rand::Rng;
 use rand::distr::{Distribution, StandardUniform};
 use sha2::{Digest, Sha256, Sha512};
 use std::hash::Hash;
-use std::sync::Mutex;
 
 use alloy_primitives::U256;
 use ark_bn254::Fr;
@@ -15,7 +14,7 @@ use secure_types::{SecureArray, Zeroize};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::{poseidon1, poseidon3};
+use super::{SecretKey32, poseidon1, poseidon3};
 use crate::{
    account::derive_private_key,
    crypto::aes::{AesError, Ciphertext, CiphertextCtr, decrypt_gcm, encrypt_ctr, encrypt_gcm},
@@ -60,12 +59,11 @@ pub struct NullifyingKey([u8; 32]);
 pub struct MasterPublicKey(pub [u8; 32]);
 
 /// Private key for signing transactions (BabyJubJub curve).
-pub struct SpendingKey(Mutex<SecureArray<u8, 32>>);
+pub struct SpendingKey(SecretKey32);
 
 impl Clone for SpendingKey {
    fn clone(&self) -> Self {
-      let inner = self.0.lock().expect("SpendingKey poisoned").clone();
-      Self(Mutex::new(inner))
+      Self(self.0.clone())
    }
 }
 
@@ -73,23 +71,13 @@ impl Eq for SpendingKey {}
 
 impl PartialEq for SpendingKey {
    fn eq(&self, other: &Self) -> bool {
-      let mut a = copy_key32(&self.0);
-      let mut b = copy_key32(&other.0);
-      let eq = a == b;
-      a.zeroize();
-      b.zeroize();
-      eq
+      self.0 == other.0
    }
 }
 
 impl Ord for SpendingKey {
    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-      let mut a = copy_key32(&self.0);
-      let mut b = copy_key32(&other.0);
-      let ord = a.cmp(&b);
-      a.zeroize();
-      b.zeroize();
-      ord
+      self.0.cmp(&other.0)
    }
 }
 
@@ -101,31 +89,29 @@ impl PartialOrd for SpendingKey {
 
 impl Hash for SpendingKey {
    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-      let mut bytes = copy_key32(&self.0);
-      state.write(&bytes);
-      bytes.zeroize();
+      self.0.hash(state)
    }
 }
 
 impl SpendingKey {
    pub fn new(key: SecureArray<u8, 32>) -> Self {
-      Self(Mutex::new(key))
+      Self(SecretKey32::new(key))
    }
 
    pub fn from_bytes(mut bytes: [u8; 32]) -> Self {
       let sec_array = SecureArray::from_slice_mut(&mut bytes)
          .expect("SecureArray size matches the array passed in");
-      Self(Mutex::new(sec_array))
+      Self(SecretKey32::new(sec_array))
    }
 
    pub fn derive(seed: &[u8], path: &str) -> Result<Self, anyhow::Error> {
       let key = derive_private_key(seed, path)?;
 
-      Ok(Self(Mutex::new(key)))
+      Ok(Self(SecretKey32::new(key)))
    }
 
    fn unlock<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
-      self.0.lock().expect("SpendingKey poisoned").unlock(f)
+      self.0.unlock(f)
    }
 
    pub fn public_key(&self) -> SpendingPublicKey {
@@ -171,12 +157,11 @@ impl SpendingKey {
 }
 
 /// Private key for viewing transactions and ECDH.
-pub struct ViewingKey(Mutex<SecureArray<u8, 32>>);
+pub struct ViewingKey(SecretKey32);
 
 impl Clone for ViewingKey {
    fn clone(&self) -> Self {
-      let inner = self.0.lock().expect("ViewingKey poisoned").clone();
-      Self(Mutex::new(inner))
+      Self(self.0.clone())
    }
 }
 
@@ -190,23 +175,13 @@ impl Eq for ViewingKey {}
 
 impl PartialEq for ViewingKey {
    fn eq(&self, other: &Self) -> bool {
-      let mut a = copy_key32(&self.0);
-      let mut b = copy_key32(&other.0);
-      let eq = a == b;
-      a.zeroize();
-      b.zeroize();
-      eq
+      self.0 == other.0
    }
 }
 
 impl Ord for ViewingKey {
    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-      let mut a = copy_key32(&self.0);
-      let mut b = copy_key32(&other.0);
-      let ord = a.cmp(&b);
-      a.zeroize();
-      b.zeroize();
-      ord
+      self.0.cmp(&other.0)
    }
 }
 
@@ -218,31 +193,29 @@ impl PartialOrd for ViewingKey {
 
 impl Hash for ViewingKey {
    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-      let mut bytes = copy_key32(&self.0);
-      state.write(&bytes);
-      bytes.zeroize();
+      self.0.hash(state)
    }
 }
 
 impl ViewingKey {
    pub fn new(key: SecureArray<u8, 32>) -> Self {
-      Self(Mutex::new(key))
+      Self(SecretKey32::new(key))
    }
 
    pub fn derive(seed: &[u8], path: &str) -> Result<Self, anyhow::Error> {
       let key = derive_private_key(seed, path)?;
 
-      Ok(Self(Mutex::new(key)))
+      Ok(Self(SecretKey32::new(key)))
    }
 
    pub fn from_bytes(mut bytes: [u8; 32]) -> Self {
       let sec_array = SecureArray::from_slice_mut(&mut bytes)
          .expect("SecureArray size matches the array passed in");
-      Self(Mutex::new(sec_array))
+      Self(SecretKey32::new(sec_array))
    }
 
    fn unlock<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
-      self.0.lock().expect("ViewingKey poisoned").unlock(f)
+      self.0.unlock(f)
    }
 
    pub fn public_key(&self) -> ViewingPublicKey {
@@ -503,14 +476,6 @@ impl Distribution<SpendingKey> for StandardUniform {
    }
 }
 
-fn copy_key32(key: &Mutex<SecureArray<u8, 32>>) -> [u8; 32] {
-   key.lock().expect("secret mutex poisoned").unlock(|slice| {
-      let mut arr = [0u8; 32];
-      arr.copy_from_slice(slice);
-      arr
-   })
-}
-
 fn fr_to_be_bytes(f: Fr) -> [u8; 32] {
    let mut out = [0u8; 32];
    let le = f.into_bigint().to_bytes_le();
@@ -611,5 +576,39 @@ mod tests {
       assert_eq!(expected_r8_x, signature.r8_x);
       assert_eq!(expected_r8_y, signature.r8_y);
       assert_eq!(expected_s, signature.s);
+   }
+
+   /// The comparisons are the one thing this refactor could silently change: `Eq`/`Ord`/`Hash` must
+   /// still agree with the bytes, and `Clone` must produce an equal secret rather than a shared handle.
+   #[test]
+   fn secret_keys_compare_clone_and_hash_by_value() {
+      use std::hash::{DefaultHasher, Hash, Hasher};
+
+      fn digest<T: Hash>(value: &T) -> u64 {
+         let mut h = DefaultHasher::new();
+         value.hash(&mut h);
+         h.finish()
+      }
+
+      let a = SpendingKey::from_bytes([7u8; 32]);
+      let b = SpendingKey::from_bytes([7u8; 32]);
+      // `SpendingKey` has no `Debug`, so these compare without `assert_eq!`'s formatting.
+      assert!(a == b, "equal bytes must compare equal");
+      assert!(a.clone() == a, "a clone must equal its original");
+      assert!(
+         digest(&a) == digest(&b),
+         "equal secrets must hash equal"
+      );
+      assert!(a != SpendingKey::from_bytes([8u8; 32]));
+
+      let va = ViewingKey::from_bytes([9u8; 32]);
+      let vb = ViewingKey::from_bytes([9u8; 32]);
+      assert_eq!(va, vb);
+      assert_eq!(va.clone(), va);
+      assert_eq!(digest(&va), digest(&vb));
+      assert!(
+         va < ViewingKey::from_bytes([10u8; 32]),
+         "Ord must follow the bytes"
+      );
    }
 }
