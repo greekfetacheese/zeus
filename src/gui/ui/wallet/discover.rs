@@ -1,6 +1,7 @@
 //! UI that allows the user to discover and derive child wallets from a master wallet (BIP32 HD)
 
 use crate::assets::Icons;
+use crate::core::context::handle::MutexHandle;
 use crate::core::{DiscoveredWallets, WalletPortfolio, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::common::rows;
@@ -22,7 +23,7 @@ use zeus_eth::{
 use zeus_wallet::SecureHDWallet;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::{sync::Semaphore, task::JoinHandle};
 
@@ -40,9 +41,9 @@ struct ChildValueCache {
 /// updated in memory, it is written when the vault is saved (shutdown / vault ops).
 pub struct DiscoverChildWallets {
    open: bool,
-   hd_wallet: Mutex<SecureHDWallet>,
+   hd_wallet: MutexHandle<SecureHDWallet>,
    /// A clone of the HD Wallet just to discover wallets
-   discovery_wallet: Mutex<SecureHDWallet>,
+   discovery_wallet: MutexHandle<SecureHDWallet>,
    discovered_wallets: DiscoveredWallets,
    syncing: bool,
    adding_wallet: HashSet<Address>,
@@ -60,8 +61,8 @@ impl DiscoverChildWallets {
    pub fn new() -> Self {
       Self {
          open: false,
-         hd_wallet: Mutex::new(SecureHDWallet::random()),
-         discovery_wallet: Mutex::new(SecureHDWallet::random()),
+         hd_wallet: MutexHandle::new(SecureHDWallet::random()),
+         discovery_wallet: MutexHandle::new(SecureHDWallet::random()),
          discovered_wallets: DiscoveredWallets::new(),
          syncing: false,
          adding_wallet: HashSet::new(),
@@ -136,11 +137,11 @@ impl DiscoverChildWallets {
    }
 
    pub fn set_hd_wallet(&mut self, hd_wallet: SecureHDWallet) {
-      *self.hd_wallet.lock().unwrap() = hd_wallet;
+      self.hd_wallet.write(|stored| *stored = hd_wallet);
    }
 
    pub fn set_discovery_wallet(&mut self, discovery_wallet: SecureHDWallet) {
-      *self.discovery_wallet.lock().unwrap() = discovery_wallet;
+      self.discovery_wallet.write(|stored| *stored = discovery_wallet);
    }
 
    pub fn reset(&mut self) {
@@ -149,8 +150,8 @@ impl DiscoverChildWallets {
    }
 
    pub fn erase(&mut self) {
-      self.hd_wallet.lock().unwrap().erase();
-      self.discovery_wallet.lock().unwrap().erase();
+      self.hd_wallet.write(|hd_wallet| hd_wallet.erase());
+      self.discovery_wallet.write(|discovery_wallet| discovery_wallet.erase());
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -390,7 +391,7 @@ impl DiscoverChildWallets {
       self.syncing = true;
       let mut addresses = Vec::new();
       let concurrency = self.discovered_wallets.concurrency;
-      let discovery_wallet = self.discovery_wallet.lock().unwrap().clone();
+      let discovery_wallet = self.discovery_wallet.read(|wallet| wallet.clone());
       let mut discovered_wallets = self.discovered_wallets.clone();
 
       crate::runtime::rt().spawn(async move {
@@ -521,7 +522,7 @@ impl DiscoverChildWallets {
             let path = self.discovered_wallets.wallets[i].path.derivation_string();
 
             // If child already exists it will displayed as disabled in the Ui
-            let exists = self.hd_wallet.lock().unwrap().contains_child(child_address);
+            let exists = self.hd_wallet.read(|hd_wallet| hd_wallet.contains_child(child_address));
             let wallet_is_beign_added = self.adding_wallet.contains(&child_address);
             let (chains, total_value) = self.cached_child_value(ctx, child_address);
 
