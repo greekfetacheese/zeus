@@ -7,9 +7,9 @@ use chacha20poly1305::{
 use rand::RngCore;
 use secure_types::{SecureArray, Zeroize};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::sync::Mutex;
 
 use super::DatabaseError;
+use crate::crypto::SecretKey32;
 
 /// Envelope payload version: bincode plaintext sealed with [`RailgunDbKey`].
 pub const ENCRYPTED_ENVELOPE_VERSION: u32 = 4;
@@ -17,12 +17,11 @@ pub const ENCRYPTED_ENVELOPE_VERSION: u32 = 4;
 const NONCE_LEN: usize = 24;
 
 /// 32-byte session key for AEAD of sensitive Railgun DB blobs.
-pub struct RailgunDbKey(Mutex<SecureArray<u8, 32>>);
+pub struct RailgunDbKey(SecretKey32);
 
 impl Clone for RailgunDbKey {
    fn clone(&self) -> Self {
-      let inner = self.0.lock().expect("RailgunDbKey poisoned").clone();
-      Self(Mutex::new(inner))
+      Self(self.0.clone())
    }
 }
 
@@ -31,7 +30,7 @@ impl Serialize for RailgunDbKey {
    where
       S: Serializer,
    {
-      self.0.lock().expect("RailgunDbKey poisoned").serialize(serializer)
+      self.0.lock().serialize(serializer)
    }
 }
 
@@ -41,7 +40,7 @@ impl<'de> Deserialize<'de> for RailgunDbKey {
       D: Deserializer<'de>,
    {
       let inner = SecureArray::<u8, 32>::deserialize(deserializer)?;
-      Ok(Self(Mutex::new(inner)))
+      Ok(Self(SecretKey32::new(inner)))
    }
 }
 
@@ -52,11 +51,11 @@ impl RailgunDbKey {
       rand::rng().fill_bytes(&mut bytes);
       let key = SecureArray::from_slice_mut(&mut bytes)
          .map_err(|e| DatabaseError::StorageError(format!("railgun db key: {e}")))?;
-      Ok(Self(Mutex::new(key)))
+      Ok(Self(SecretKey32::new(key)))
    }
 
    fn lock(&self) -> std::sync::MutexGuard<'_, SecureArray<u8, 32>> {
-      self.0.lock().expect("RailgunDbKey poisoned")
+      self.0.lock()
    }
 
    /// Seal plaintext: `nonce (24) || ciphertext+tag`.
