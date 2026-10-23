@@ -20,8 +20,8 @@
 //!
 //! Fallible entry points return [`Error`]. It converts [`From`] each underlying error
 //! (`secure_types`, `argon2-rs`, `alloy-signer-local`, `zeus-bip32`) and implements
-//! [`std::error::Error`], so it composes with `anyhow` and exposes the wrapped cause
-//! through [`std::error::Error::source`].
+//! [`std::error::Error`] by hand, so it composes with `anyhow`. The wrapped variants
+//! render as the inner error's own message.
 #![warn(missing_docs)]
 
 /// The derivation stages: the Argon2 parameters, the key-derivation method, the
@@ -51,38 +51,28 @@ use zeus_bip32::{DerivationPath, error::Bip32Error};
 
 /// Everything this crate can fail with.
 ///
-/// Wrapped variants keep the underlying error as their [`std::error::Error::source`],
-/// so an `anyhow` chain shows both the outer and the inner message.
-#[derive(Debug, thiserror::Error)]
+/// Wrapped variants render as the underlying error's own message, so an `anyhow`
+/// report reads the same as the cause it wraps.
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
    /// A required username was set, but it is empty.
-   #[error("Username is empty")]
    UsernameIsEmpty,
    /// A required password was set, but it is empty.
-   #[error("Password is empty")]
    PasswordIsEmpty,
    /// No username was given to the deriver.
-   #[error("Username is missing")]
    UsernameIsMissing,
    /// No password was given to the deriver.
-   #[error("Password is missing")]
    PasswordIsMissing,
    /// The KDF produced a seed that is not the 64 bytes BIP32 expects.
-   #[error("Seed is not 64 bytes long")]
    SeedLengthTooShort,
    /// The wallet needs its [`zeus_bip32::XKeyInfo`] (path and chain code) but has none.
-   #[error("XKeyInfo is missing")]
    XKeyInfoIsMissing,
    /// A seed was requested from a wallet that neither derives from a master nor
    /// carries an imported seed phrase, so there is nothing to derive it from.
-   #[error(
-      "Could not derive seed, The wallet must be either Master/Child or imported from a seed phrase"
-   )]
    WalletIsNotChildOrMaster,
    /// [`SecureHDWallet::derive_child_at_mut`] was called for a path already
    /// present in `children`; no second wallet was added.
-   #[error("Wallet At {} with Address {} already exists", path.derivation_string(), address)]
    ChildAlreadyExists {
       /// The derivation path of the wallet that already exists.
       path: DerivationPath,
@@ -90,20 +80,69 @@ pub enum Error {
       address: Address,
    },
    /// A [`secure_types`] operation failed.
-   #[error(transparent)]
-   SecureError(#[from] SecureError),
+   SecureError(SecureError),
    /// Hashing the credentials with Argon2 failed.
-   #[error(transparent)]
-   Argon2Error(#[from] Argon2Error),
+   Argon2Error(Argon2Error),
    /// Parsing or handling a local signer key failed.
-   #[error(transparent)]
-   LocalSignerError(#[from] LocalSignerError),
+   LocalSignerError(LocalSignerError),
    /// Building or deriving a BIP32 key failed.
-   #[error(transparent)]
-   Bip32Error(#[from] Bip32Error),
+   Bip32Error(Bip32Error),
    /// A crate-specific failure whose message is built at the call site.
-   #[error("{0}")]
    Custom(String),
+}
+
+impl std::fmt::Display for Error {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Error::UsernameIsEmpty => write!(f, "Username is empty"),
+         Error::PasswordIsEmpty => write!(f, "Password is empty"),
+         Error::UsernameIsMissing => write!(f, "Username is missing"),
+         Error::PasswordIsMissing => write!(f, "Password is missing"),
+         Error::SeedLengthTooShort => write!(f, "Seed is not 64 bytes long"),
+         Error::XKeyInfoIsMissing => write!(f, "XKeyInfo is missing"),
+         Error::WalletIsNotChildOrMaster => write!(
+            f,
+            "Could not derive seed, The wallet must be either Master/Child or imported from a seed phrase"
+         ),
+         Error::ChildAlreadyExists { path, address } => write!(
+            f,
+            "Wallet At {} with Address {} already exists",
+            path.derivation_string(),
+            address
+         ),
+         Error::SecureError(e) => write!(f, "{}", e),
+         Error::Argon2Error(e) => write!(f, "{}", e),
+         Error::LocalSignerError(e) => write!(f, "{}", e),
+         Error::Bip32Error(e) => write!(f, "{}", e),
+         Error::Custom(s) => write!(f, "{}", s),
+      }
+   }
+}
+
+impl std::error::Error for Error {}
+
+impl From<SecureError> for Error {
+   fn from(e: SecureError) -> Self {
+      Error::SecureError(e)
+   }
+}
+
+impl From<Argon2Error> for Error {
+   fn from(e: Argon2Error) -> Self {
+      Error::Argon2Error(e)
+   }
+}
+
+impl From<LocalSignerError> for Error {
+   fn from(e: LocalSignerError) -> Self {
+      Error::LocalSignerError(e)
+   }
+}
+
+impl From<Bip32Error> for Error {
+   fn from(e: Bip32Error) -> Self {
+      Error::Bip32Error(e)
+   }
 }
 
 #[cfg(test)]
