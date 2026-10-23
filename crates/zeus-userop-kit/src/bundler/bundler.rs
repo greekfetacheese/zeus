@@ -1,11 +1,31 @@
-use thiserror::Error;
-
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum BundlerError {
-   #[error("Timeout")]
    Timeout,
-   #[error("Other: {0}")]
-   Other(#[from] Box<dyn std::error::Error + Send + Sync>),
+   Other(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl std::fmt::Display for BundlerError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::Timeout => f.write_str("Timeout"),
+         Self::Other(err) => write!(f, "Other: {err}"),
+      }
+   }
+}
+
+impl std::error::Error for BundlerError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::Timeout => None,
+         Self::Other(err) => Some(&**err),
+      }
+   }
+}
+
+impl From<Box<dyn std::error::Error + Send + Sync>> for BundlerError {
+   fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
+      Self::Other(err)
+   }
 }
 
 #[cfg(test)]

@@ -1,9 +1,32 @@
 use anyhow::Error as AnyhowError;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum SmartAccountError {
-   #[error("provider error: {0}")]
-   Provider(#[from] AnyhowError),
+   Provider(AnyhowError),
+}
+
+impl std::fmt::Display for SmartAccountError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::Provider(err) => write!(f, "provider error: {err}"),
+      }
+   }
+}
+
+impl std::error::Error for SmartAccountError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         // `anyhow::Error` does not implement `std::error::Error`, so the
+         // source is reached through its own `as_ref()`.
+         Self::Provider(err) => Some(err.as_ref()),
+      }
+   }
+}
+
+impl From<AnyhowError> for SmartAccountError {
+   fn from(err: AnyhowError) -> Self {
+      Self::Provider(err)
+   }
 }
 
 #[cfg(test)]

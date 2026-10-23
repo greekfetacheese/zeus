@@ -10,14 +10,43 @@ pub struct RpcClient {
    id: AtomicU64,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum RpcClientError {
-   #[error("HTTP error: {0}")]
-   Http(#[from] reqwest::Error),
-   #[error("JSON error: {0}")]
-   Json(#[from] serde_json::Error),
-   #[error("RPC error {code}: {message}")]
+   Http(reqwest::Error),
+   Json(serde_json::Error),
    Rpc { code: i64, message: String },
+}
+
+impl std::fmt::Display for RpcClientError {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::Http(err) => write!(f, "HTTP error: {err}"),
+         Self::Json(err) => write!(f, "JSON error: {err}"),
+         Self::Rpc { code, message } => write!(f, "RPC error {code}: {message}"),
+      }
+   }
+}
+
+impl std::error::Error for RpcClientError {
+   fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+      match self {
+         Self::Http(err) => Some(err),
+         Self::Json(err) => Some(err),
+         Self::Rpc { .. } => None,
+      }
+   }
+}
+
+impl From<reqwest::Error> for RpcClientError {
+   fn from(err: reqwest::Error) -> Self {
+      Self::Http(err)
+   }
+}
+
+impl From<serde_json::Error> for RpcClientError {
+   fn from(err: serde_json::Error) -> Self {
+      Self::Json(err)
+   }
 }
 
 #[derive(Deserialize)]
