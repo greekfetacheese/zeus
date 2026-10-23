@@ -78,14 +78,14 @@ pub enum TransactionBuilderError {
       "Multiple unshield operations from the same address and asset are not supported: from {from}, asset {asset}"
    )]
    MultipleUnshields {
-      from: RailgunAddress,
+      from: Box<RailgunAddress>,
       asset: AssetId,
    },
    #[error(
       "Insufficient balance for intent with from {from}, asset {asset}, value {value} (available matched notes total {available})"
    )]
    InsufficientBalance {
-      from: RailgunAddress,
+      from: Box<RailgunAddress>,
       asset: AssetId,
       value: u128,
       available: u128,
@@ -191,7 +191,7 @@ impl TransactionBuilder {
    ) -> Result<Self, TransactionBuilderError> {
       if self.unshields.contains(&(from.address().clone(), asset)) {
          return Err(TransactionBuilderError::MultipleUnshields {
-            from: from.address().clone(),
+            from: Box::new(from.address().clone()),
             asset,
          });
       }
@@ -369,7 +369,7 @@ fn build_group<R: Rng>(
    let intents_total: u128 = intents.iter().map(|i| i.value).sum();
    if intents_total > available_total {
       return Err(TransactionBuilderError::InsufficientBalance {
-         from,
+         from: Box::new(from),
          asset,
          value: intents_total,
          available: available_total,
@@ -487,7 +487,7 @@ fn split_intent<R: Rng>(
          // Value available for this intent = leftover residual + what we already assigned of it.
          let available_now = residual.saturating_add(intent.value.saturating_sub(remaining));
          return Err(TransactionBuilderError::InsufficientBalance {
-            from,
+            from: Box::new(from),
             asset,
             value: intent.value,
             available: available_now.min(available_total),
@@ -584,7 +584,7 @@ fn select_notes<'a>(
    let available: u128 = notes.iter().map(|n| n.value()).sum();
    if available < value {
       return Err(TransactionBuilderError::InsufficientBalance {
-         from: from.clone(),
+         from: Box::new(from.clone()),
          asset,
          value,
          available,
@@ -709,4 +709,20 @@ async fn prove_operation(
       inputs,
       transaction,
    ))
+}
+
+#[cfg(test)]
+mod tests {
+   use super::TransactionBuilderError;
+
+   /// `result_large_err` is a real cost: every `Result<T, TransactionBuilderError>` in the public API
+   /// moves the whole enum. Keep it under the 128-byte threshold clippy uses.
+   #[test]
+   fn the_builder_error_stays_small() {
+      assert!(
+         std::mem::size_of::<TransactionBuilderError>() <= 128,
+         "TransactionBuilderError grew past 128 bytes: {}",
+         std::mem::size_of::<TransactionBuilderError>()
+      );
+   }
 }
