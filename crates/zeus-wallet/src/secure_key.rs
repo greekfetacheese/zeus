@@ -42,10 +42,12 @@ impl SecureKey {
       self.data.erase();
    }
 
+   /// Whether the underlying 32 key bytes are all zero, i.e. the key was erased.
    pub fn is_erased(&self) -> bool {
       self.data.unlock(|slice| slice.iter().all(|byte| byte == &0))
    }
 
+   /// The Ethereum address matching this private key.
    pub fn address(&self) -> Address {
       self.address
    }

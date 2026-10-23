@@ -17,14 +17,29 @@ fn base_path() -> DerivationPath {
       .expect("DEFAULT_DERIVATION_PATH is a valid path")
 }
 
+/// A single wallet: a private key plus what is known about where it came from.
+///
+/// A wallet is one of three kinds: the master of a [`SecureHDWallet`] (no parent,
+/// so [`Wallet::is_master`]), a child of that master ([`Wallet::is_child`], carrying
+/// an [`XKeyInfo`]), or an imported key with no derivation info at all
+/// ([`Wallet::is_imported`]). Only the first two can be reproduced from credentials.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct Wallet {
+   /// Human-readable label, e.g. `"Master Wallet"` or the name given to a child.
    pub name: String,
+   /// The mnemonic this wallet was imported from, if it was imported from one.
+   ///
+   /// [`None`] for wallets derived from a seed, since their master can re-derive them.
    #[cfg_attr(feature = "serde", serde(default))]
    pub seed_phrase: Option<SecureString>,
+   /// The private key and its address.
    pub key: SecureKey,
+   /// The BIP32 derivation info: the child index and the chain code.
+   ///
+   /// [`None`] means the wallet is imported and was not derived from this crate's
+   /// master, which is exactly what [`Wallet::is_imported`] reports.
    pub xkey_info: Option<XKeyInfo>,
 }
 
@@ -37,6 +52,10 @@ impl PartialEq for Wallet {
 impl Eq for Wallet {}
 
 impl Wallet {
+   /// Build a wallet from its parts.
+   ///
+   /// `xkey_info` decides which kind it is: [`None`] makes it imported, [`Some`] makes
+   /// it a master or a child depending on that info's parent.
    pub fn new(
       name: String,
       seed_phrase: Option<SecureString>,
@@ -104,10 +123,12 @@ impl Wallet {
       Ok(sec_bytes)
    }
 
+   /// The name followed by `(Master)`, `(Child)` or `(Imported)`.
    pub fn name_with_id(&self) -> String {
       format!("{} {}", self.name, self.kind_tag().0)
    }
 
+   /// The name followed by the one-letter kind tag `(M)`, `(C)` or `(I)`.
    pub fn name_with_id_short(&self) -> String {
       format!("{} {}", self.name, self.kind_tag().1)
    }
@@ -193,6 +214,7 @@ impl Wallet {
       }
    }
 
+   /// The Ethereum address of this wallet's key.
    pub fn address(&self) -> Address {
       self.key.address()
    }
@@ -204,10 +226,16 @@ impl Wallet {
       self.xkey_info.is_none()
    }
 
+   /// Whether this wallet is a non-master child of an [`XKeyInfo`] parent.
+   ///
+   /// Equivalent to having an `xkey_info` whose `parent` is non-zero.
    pub fn is_child(&self) -> bool {
       self.xkey_info.is_some() && !self.is_master()
    }
 
+   /// Whether this wallet sits at the root of the tree.
+   ///
+   /// True when its `xkey_info` records a `parent` of zero (`parent == 0`).
    pub fn is_master(&self) -> bool {
       self.xkey_info.as_ref().is_some_and(|info| info.parent.is_zero())
    }
@@ -217,20 +245,34 @@ impl Wallet {
       self.xkey_info.is_some() || self.seed_phrase.is_some()
    }
 
+   /// Whether this wallet's index is in the hardened range.
+   ///
+   /// True when `index >= BIP32_HARDEN`; a master wallet is always true, since it has
+   /// no non-zero index to compare.
    pub fn is_hardened(&self) -> bool {
       self.is_master() || self.xkey_info.as_ref().is_some_and(|info| info.index >= BIP32_HARDEN)
    }
 
+   /// Whether [`Wallet::erase`] (or the key's own erase) zeroed the private key.
    pub fn is_key_erased(&self) -> bool {
       self.key.is_erased()
    }
 
+   /// The private key as a hex [`SecureString`].
+   ///
+   /// # Panics
+   ///
+   /// Panics if the key has been erased or is otherwise not a valid secp256k1 scalar.
    pub fn key_string(&self) -> SecureString {
       self.key.key_string()
    }
 }
 
-/// Represents a hierarchical deterministic wallet
+/// A hierarchical deterministic tree: one master wallet and the children derived from it.
+///
+/// The master comes from a [`Deriver`] (or [`SecureHDWallet::random`]); children come
+/// from [`SecureHDWallet::derive_child`], which walks the hardened range, or from
+/// [`SecureHDWallet::derive_child_at`] / `_at_mut` for an explicit index.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone)]
 #[non_exhaustive]
@@ -243,11 +285,16 @@ pub struct SecureHDWallet {
 
    /// Keep track of the next child index to derive
    ///
-   /// We do `next_child_index + BIP32_HARDEN`
+   /// [`SecureHDWallet::derive_child`] derives at `next_child_index + BIP32_HARDEN` and then
+   /// increments this counter; the `_at` methods leave it untouched.
    pub next_child_index: u32,
 }
 
 impl SecureHDWallet {
+   /// Build a wallet tree from 64 fresh random bytes instead of user credentials.
+   ///
+   /// The bytes are zeroized after the master is derived; the result cannot be
+   /// reproduced unless the caller saved something first.
    pub fn random() -> Self {
       let mut bytes = [0u8; 64];
       rand::rngs::OsRng.fill_bytes(&mut bytes);
@@ -271,6 +318,7 @@ impl SecureHDWallet {
       }
    }
 
+   /// Erase the master key and every child key, plus any stored seed phrases.
    pub fn erase(&mut self) {
       self.master_wallet.erase();
       for child in self.children.iter_mut() {
@@ -278,6 +326,7 @@ impl SecureHDWallet {
       }
    }
 
+   /// Whether any wallet in [`Self::children`] has this address.
    pub fn contains_child(&self, address: Address) -> bool {
       self.children.iter().any(|c| c.address() == address)
    }
