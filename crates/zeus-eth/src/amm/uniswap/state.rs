@@ -13,18 +13,13 @@ use tokio::{
    task::JoinHandle,
 };
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub enum State {
    V2(PoolReserves),
    /// Also used for V4
    V3(V3PoolState),
+   #[default]
    None,
-}
-
-impl Default for State {
-   fn default() -> Self {
-      Self::None
-   }
 }
 
 impl State {
@@ -465,18 +460,18 @@ where
                pool.liquidity_amount1 = data.tokenBBalance;
             });
          }
-      } else if pool.dex_kind().is_v4() {
-         if let Some(data) = v4_by_id.get(&pool.id()) {
-            let state = V3PoolState::for_v4(pool, data.clone())?;
-            pool.set_state(State::v3(state));
-            match pool.compute_virtual_reserves() {
-               Ok(_) => {}
-               Err(e) => {
-                  tracing::error!(target: "zeus_eth::amm::uniswap::state","Error computing virtual reserves for pool {} / {} ID: {} {:?}",
+      } else if pool.dex_kind().is_v4()
+         && let Some(data) = v4_by_id.get(&pool.id())
+      {
+         let state = V3PoolState::for_v4(pool, data.clone())?;
+         pool.set_state(State::v3(state));
+         match pool.compute_virtual_reserves() {
+            Ok(_) => {}
+            Err(e) => {
+               tracing::error!(target: "zeus_eth::amm::uniswap::state","Error computing virtual reserves for pool {} / {} ID: {} {:?}",
                    pool.currency0().symbol(),
                     pool.currency1().symbol(),
                      pool.id(), e);
-               }
             }
          }
       }

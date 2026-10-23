@@ -16,9 +16,10 @@ pub const SUPPORTED_CHAINS: [u64; 7] =
 
 const ERR_MSG: &str = "Supported chains are: Ethereum(1), Ethereum Sepolia(11155111), Optimism(10), Binance Smart Chain(56), Base(8453), Arbitrum(42161), RobinHood(4663)";
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[repr(u64)]
 pub enum ChainId {
+   #[default]
    Ethereum = 1,
    EthereumSepolia = 11155111,
    Optimism = 10,
@@ -26,12 +27,6 @@ pub enum ChainId {
    Base = 8453,
    Arbitrum = 42161,
    RobinHood = 4663,
-}
-
-impl Default for ChainId {
-   fn default() -> Self {
-      ChainId::Ethereum
-   }
 }
 
 impl From<u64> for ChainId {

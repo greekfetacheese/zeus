@@ -278,6 +278,11 @@ where
 }
 
 /// Get all possible pools based on the token pairs and fee tiers
+///
+/// The six discovery arguments are forwarded positionally to
+/// `ZeusStateViewV3.getPools(v2factory, v3factory, stateView, v4pools, baseTokens, quoteToken)`;
+/// bundling them would break the one-to-one order with the contract signature.
+#[allow(clippy::too_many_arguments)]
 pub async fn get_pools<P, N>(
    client: P,
    chain: u64,

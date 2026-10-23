@@ -82,7 +82,7 @@ where
       initial_db: Option<InMemoryDB>,
       fork_block: Option<BlockId>,
    ) -> Self {
-      let initial_db = initial_db.unwrap_or_else(|| InMemoryDB::default());
+      let initial_db = initial_db.unwrap_or_default();
       let (shared, handler) = Self::new(provider, chain_id, initial_db, fork_block);
 
       // spawn a light-weight thread with a thread-local async runtime just for

@@ -285,7 +285,7 @@ where
    } else if dex.is_v4() {
       v4_pools_from_log_batch(client, chain_id, dex, logs).await
    } else {
-      return Err(anyhow::anyhow!("Unknown dex: {:?}", dex));
+      Err(anyhow::anyhow!("Unknown dex: {:?}", dex))
    }
 }
 

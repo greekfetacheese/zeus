@@ -105,8 +105,8 @@ where
    ///
    /// We always check:
    ///  1. if the requested value is already stored in the cache, then answer the sender
-   ///  2. otherwise, fetch it via the provider but check if a request for that value is already in
-   /// progress (e.g. another Sender just requested the same account)
+   ///  2. otherwise, fetch it via the provider but check if a request for that value is already
+   ///     in progress (e.g. another Sender just requested the same account)
    fn on_request(&mut self, req: BackendFetchRequest) {
       match req {
          BackendFetchRequest::Basic(addr, sender) => {
@@ -284,7 +284,7 @@ where
                      let acc = AccountInfo {
                         nonce,
                         balance,
-                        code: code.map(|bytes| Bytecode::new_raw(bytes)),
+                        code: code.map(Bytecode::new_raw),
                         account_id: None,
                         code_hash,
                      };

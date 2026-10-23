@@ -1,3 +1,6 @@
+// `IUniswapV2Pair.permit` takes 7 arguments that mirror the Solidity signature one-for-one.
+#![allow(clippy::too_many_arguments)]
+
 use alloy_primitives::{Address, Bytes, LogData, U256};
 use alloy_rpc_types::BlockId;
 use alloy_sol_types::{SolCall, SolEvent, sol};

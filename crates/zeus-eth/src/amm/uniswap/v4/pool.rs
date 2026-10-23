@@ -100,6 +100,10 @@ impl UniswapV4Pool {
    }
 
    /// Create a V4 pool with an explicit on-chain tick spacing (from `Initialize`).
+   ///
+   /// The eight positional fields follow the `Initialize` event / `PoolKey` order and are
+   /// forwarded verbatim by `new` and `from_components*`; a struct argument would obscure that.
+   #[allow(clippy::too_many_arguments)]
    pub fn new_with_spacing(
       chain_id: u64,
       fee: FeeAmount,
@@ -942,10 +946,10 @@ mod tests {
 
       let currency0 = pool.is_currency0(&eth);
       let currency1 = pool.is_currency1(&uni);
-      assert_eq!(currency0, true);
-      assert_eq!(currency1, true);
+      assert!(currency0);
+      assert!(currency1);
 
       let base_exists = pool.base_currency_exists();
-      assert_eq!(base_exists, true);
+      assert!(base_exists);
    }
 }

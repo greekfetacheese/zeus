@@ -253,16 +253,16 @@ impl NumericValue {
       let denominator = 10000u64;
       let factor_num = denominator - slippage_bps;
       let wei = (wei * U256::from(factor_num)) / U256::from(denominator);
-      let value = NumericValue::format_wei(wei, decimals);
-      value
+
+      NumericValue::format_wei(wei, decimals)
    }
 
    /// Calculate the new amount based on the given percentage
    pub fn calc_percent(&self, percent: f64, decimals: u8) -> Self {
       let wei = self.wei();
       let wei = (wei * U256::from(percent)) / U256::from(100.0);
-      let value = NumericValue::format_wei(wei, decimals);
-      value
+
+      NumericValue::format_wei(wei, decimals)
    }
 
    /// Create a new NumericValue to represent a currency balance
@@ -331,13 +331,13 @@ mod tests {
    #[test]
    fn test_zero() {
       let value = NumericValue::currency_balance(U256::ZERO, 18);
-      assert_eq!(value.is_zero(), true);
+      assert!(value.is_zero());
    }
 
    #[test]
    fn test_unlimited() {
       let value = NumericValue::currency_balance(U256::MAX, 18);
-      assert_eq!(value.is_abbreviated_unlimited(), true);
+      assert!(value.is_abbreviated_unlimited());
    }
 
    #[test]
@@ -434,7 +434,7 @@ mod tests {
    fn test_parse_to_wei() {
       // 1 ETH
       let amount = "1";
-      let value = NumericValue::parse_to_wei(&amount.to_string(), 18);
+      let value = NumericValue::parse_to_wei(amount, 18);
       assert_eq!(value.wei(), U256::from(1000000000000000000u128));
       assert_eq!(value.f64, 1.0);
    }
@@ -442,7 +442,7 @@ mod tests {
    #[test]
    fn test_parse_to_wei_very_low_amount() {
       let amount = "0.00000001";
-      let value = NumericValue::parse_to_wei(&amount.to_string(), 18);
+      let value = NumericValue::parse_to_wei(amount, 18);
       assert_eq!(value.wei(), U256::from(10000000000u128));
       assert_eq!(value.f64, 0.00000001);
    }
@@ -450,7 +450,7 @@ mod tests {
    #[test]
    fn test_formatting_very_low_amounts() {
       let amount = "0.00000100";
-      let value = NumericValue::parse_to_wei(&amount.to_string(), 18);
+      let value = NumericValue::parse_to_wei(amount, 18);
       assert_eq!(value.wei(), U256::from(1000000000000u128));
       assert_eq!(value.f64, 0.000001);
 
@@ -461,12 +461,12 @@ mod tests {
    #[test]
    fn test_parse_to_gwei() {
       let amount = "1";
-      let value = NumericValue::parse_to_gwei(&amount.to_string());
+      let value = NumericValue::parse_to_gwei(amount);
       assert_eq!(value.wei(), U256::from(1000000000u128));
       assert_eq!(value.f64, 1.0);
 
       let amount = "0.000000070";
-      let value = NumericValue::parse_to_gwei(&amount.to_string());
+      let value = NumericValue::parse_to_gwei(amount);
       assert_eq!(value.wei(), U256::from(70u128));
       assert_eq!(value.f64, 0.000000070);
    }
@@ -483,7 +483,7 @@ mod tests {
    fn test_high_amount_value() {
       let amount = parse_ether("2133.073141862605681577").unwrap();
       let value = NumericValue::currency_balance(amount, 18);
-      assert_eq!(value.f64, 2133.073141862605681577);
+      assert_eq!(value.f64, 2_133.073_141_862_605_6);
       assert_eq!(value.flatten(), "2133.0731418626056");
    }
 
@@ -594,7 +594,7 @@ mod tests {
       }
       let one_sextillion = 1_000_000_000_000_000_000_000.0;
       if n > one_sextillion {
-         return Some(format!("Unlimited"));
+         return Some("Unlimited".to_string());
       }
       let suffixes = ["", "K", "M", "B", "T", "Q", "Q", "S"];
       let magnitude = (n.log10() / 3.0).floor() as usize;

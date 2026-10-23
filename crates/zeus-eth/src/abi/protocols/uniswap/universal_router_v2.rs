@@ -331,14 +331,13 @@ pub fn encode_v2_swap_exact_in(
 }
 
 pub fn encode_permit2_transfer_from(token: Address, recipient: Address, amount: U256) -> Bytes {
-   let data = Permit2TransferFrom {
+   Permit2TransferFrom {
       token,
       recipient,
       amount: U160::from(amount),
    }
    .abi_encode_params()
-   .into();
-   data
+   .into()
 }
 
 pub fn encode_permit2_permit(

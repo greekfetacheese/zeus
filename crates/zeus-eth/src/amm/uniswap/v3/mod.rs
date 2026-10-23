@@ -307,8 +307,10 @@ pub fn calculate_swap_mut(
    let mut amount_calculated = I256::ZERO;
 
    while amount_specified_remaining != I256::ZERO && state.sqrt_price != sqrt_price_limit_x_96 {
-      let mut step = StepComputations::default();
-      step.sqrt_price_start_x_96 = state.sqrt_price;
+      let mut step = StepComputations {
+         sqrt_price_start_x_96: state.sqrt_price,
+         ..Default::default()
+      };
 
       (step.tick_next, step.initialized) = tick_bitmap::next_initialized_tick_within_one_word(
          &state.tick_bitmap,
@@ -465,23 +467,21 @@ pub fn get_liquidity_for_amounts(
    amount0_desired: U256,
    amount1_desired: U256,
 ) -> Result<u128, anyhow::Error> {
-   let liquidity: u128;
-
    if sqrt_ratio_ax96 > sqrt_ratio_bx96 {
       (sqrt_ratio_ax96, sqrt_ratio_bx96) = (sqrt_ratio_bx96, sqrt_ratio_ax96)
    }
 
-   if sqrt_price_x96 <= sqrt_ratio_ax96 {
-      liquidity = get_liquidity_for_amount0(sqrt_ratio_ax96, sqrt_ratio_bx96, amount0_desired)?;
+   let liquidity: u128 = if sqrt_price_x96 <= sqrt_ratio_ax96 {
+      get_liquidity_for_amount0(sqrt_ratio_ax96, sqrt_ratio_bx96, amount0_desired)?
    } else if sqrt_price_x96 < sqrt_ratio_bx96 {
       let liquidity0 =
          get_liquidity_for_amount0(sqrt_ratio_ax96, sqrt_ratio_bx96, amount0_desired)?;
       let liquidity1 =
          get_liquidity_for_amount1(sqrt_ratio_ax96, sqrt_ratio_bx96, amount1_desired)?;
-      liquidity = liquidity0.min(liquidity1);
+      liquidity0.min(liquidity1)
    } else {
-      liquidity = get_liquidity_for_amount1(sqrt_ratio_ax96, sqrt_ratio_bx96, amount1_desired)?;
-   }
+      get_liquidity_for_amount1(sqrt_ratio_ax96, sqrt_ratio_bx96, amount1_desired)?
+   };
 
    Ok(liquidity)
 }
