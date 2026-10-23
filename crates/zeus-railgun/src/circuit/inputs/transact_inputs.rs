@@ -175,3 +175,61 @@ impl TransactCircuitInputs {
       m
    }
 }
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         TransactCircuitInputsError::EmptyInputNotes.to_string(),
+         "Empty input notes"
+      );
+      assert_eq!(
+         TransactCircuitInputsError::MerkleTree(MerkleTreeError::InvalidProof).to_string(),
+         "Merkle tree error: Invalid proof"
+      );
+      assert_eq!(
+         TransactCircuitInputsError::Signing(anyhow::anyhow!("boom")).to_string(),
+         "Signing error: boom"
+      );
+      assert_eq!(
+         TransactCircuitInputsError::InvalidMerkleProof.to_string(),
+         "Merkle proof does not match note or tree root"
+      );
+      assert_eq!(
+         TransactCircuitInputsError::UnsupportedPoseidonArity(4).to_string(),
+         "Unsupported Poseidon arity for 4 transact inputs"
+      );
+   }
+
+   #[test]
+   fn the_merkle_tree_variant_delegates_its_source() {
+      let inner = MerkleTreeError::ElementNotFound("leaf".to_owned());
+      let rendered = inner.to_string();
+      assert_eq!(
+         TransactCircuitInputsError::MerkleTree(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn the_signing_variant_delegates_its_anyhow_source() {
+      let inner = anyhow::anyhow!("boom");
+      let rendered = inner.to_string();
+      assert_eq!(
+         TransactCircuitInputsError::Signing(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn the_payloadless_variants_have_no_source() {
+      assert!(TransactCircuitInputsError::EmptyInputNotes.source().is_none());
+      assert!(TransactCircuitInputsError::InvalidMerkleProof.source().is_none());
+      assert!(TransactCircuitInputsError::UnsupportedPoseidonArity(4).source().is_none());
+   }
+}

@@ -285,3 +285,41 @@ impl PoiCircuitInputs {
       m
    }
 }
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         PoiCircuitInputsError::MerkleTree(MerkleTreeError::InvalidProof).to_string(),
+         "Merkle tree error: Invalid proof"
+      );
+      assert_eq!(
+         PoiCircuitInputsError::MissingPoiProofs(ListKey::from("list".to_owned())).to_string(),
+         "Missing POI proofs for list key ListKey(list)"
+      );
+   }
+
+   #[test]
+   fn the_merkle_tree_variant_delegates_its_source() {
+      let inner = MerkleTreeError::ElementNotFound("leaf".to_owned());
+      let rendered = inner.to_string();
+      assert_eq!(
+         PoiCircuitInputsError::MerkleTree(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn missing_poi_proofs_has_no_source() {
+      assert!(
+         PoiCircuitInputsError::MissingPoiProofs(ListKey::from("list".to_owned()))
+            .source()
+            .is_none()
+      );
+   }
+}

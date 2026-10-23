@@ -156,3 +156,70 @@ impl Groth16Prover {
       Ok(proof.into())
    }
 }
+
+#[cfg(test)]
+mod error_tests {
+   use std::error::Error as _;
+
+   use super::*;
+
+   #[test]
+   fn renders_the_pinned_messages() {
+      assert_eq!(
+         Groth16ProverError::ArtifactLoaderError(RemoteArtifactLoaderError::NoCacheDir).to_string(),
+         "Artifact loader error: No on-disk cache directory configured"
+      );
+      assert_eq!(
+         Groth16ProverError::WitnessCalculatorError(CalculateWitnessError::CircomError(
+            "boom".to_owned()
+         ))
+         .to_string(),
+         "Witness calculator error: Circom error: boom"
+      );
+      assert_eq!(
+         Groth16ProverError::SynthesisError(SynthesisError::DivisionByZero).to_string(),
+         "Synthesis Error"
+      );
+      assert_eq!(
+         Groth16ProverError::InvalidProof.to_string(),
+         "Proof verification failed"
+      );
+   }
+
+   #[test]
+   fn the_artifact_loader_variant_delegates_its_source() {
+      let inner = RemoteArtifactLoaderError::NoCacheDir;
+      let rendered = inner.to_string();
+      assert_eq!(
+         Groth16ProverError::ArtifactLoaderError(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn the_witness_calculator_variant_delegates_its_source() {
+      let inner = CalculateWitnessError::CircomError("boom".to_owned());
+      let rendered = inner.to_string();
+      assert_eq!(
+         Groth16ProverError::WitnessCalculatorError(inner)
+            .source()
+            .map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn the_synthesis_variant_delegates_its_source() {
+      let inner = SynthesisError::Unsatisfiable;
+      let rendered = inner.to_string();
+      assert_eq!(
+         Groth16ProverError::SynthesisError(inner).source().map(ToString::to_string),
+         Some(rendered)
+      );
+   }
+
+   #[test]
+   fn invalid_proof_has_no_source() {
+      assert!(Groth16ProverError::InvalidProof.source().is_none());
+   }
+}
