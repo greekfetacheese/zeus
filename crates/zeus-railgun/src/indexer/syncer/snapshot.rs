@@ -268,15 +268,15 @@ impl SnapshotLoader {
          );
 
          let mut next_index = meta.chunks.last().map(|c| c.index + 1).unwrap_or(0);
-         let mut writes: Vec<(u32, Vec<u8>, ChunkMeta)> = Vec::new();
+         let mut writes: Vec<(u32, super::chunk_codec::SealedChunk, ChunkMeta)> = Vec::new();
          while open.len() >= CHUNK_EVENTS {
             let chunk: Vec<SyncEvent> = open.drain(..CHUNK_EVENTS).collect();
             let cm = chunk_meta(next_index, &chunk);
             let bytes = encode_to_vec(&chunk, bincode_next::config::standard())
                .map_err(|e| anyhow!("bincode encode error: {e}"))?;
             // Sealed chunks are never rewritten → pay the compression once.
-            let bytes = super::chunk_codec::seal_payload(bytes, true);
-            writes.push((next_index, bytes, cm));
+            let sealed = super::chunk_codec::seal_chunk(bytes, true);
+            writes.push((next_index, sealed, cm));
             next_index += 1;
          }
          if !open.is_empty() {
@@ -284,8 +284,8 @@ impl SnapshotLoader {
             let bytes = encode_to_vec(&open, bincode_next::config::standard())
                .map_err(|e| anyhow!("bincode encode error: {e}"))?;
             // The open tail is rewritten on every append → keep it raw.
-            let bytes = super::chunk_codec::seal_payload(bytes, false);
-            writes.push((next_index, bytes, cm));
+            let sealed = super::chunk_codec::seal_chunk(bytes, false);
+            writes.push((next_index, sealed, cm));
          }
 
          if to_block > meta.block_number {
@@ -296,9 +296,8 @@ impl SnapshotLoader {
          tx.set_durability(Durability::Immediate)?;
          {
             let mut table = tx.open_table(SNAP_TABLE)?;
-            for (index, bytes, cm) in writes {
-               let key = chunk_key(index);
-               table.insert(key.as_slice(), bytes.as_slice())?;
+            for (index, sealed, cm) in writes {
+               insert_chunk(&mut table, index, &sealed.parts)?;
                meta.chunks.push(cm);
             }
             let meta_bytes = encode_to_vec(&meta, bincode_next::config::standard())
@@ -384,11 +383,10 @@ impl SnapshotLoader {
                table.remove(key.as_slice())?;
             }
             for (index, bytes) in chunk_bytes.into_iter().enumerate() {
-               let key = chunk_key(index as u32);
                // A full chunk is sealed; a short trailing chunk is the open tail.
                let sealed = meta.chunks[index].event_count as usize == CHUNK_EVENTS;
-               let bytes = super::chunk_codec::seal_payload(bytes, sealed);
-               table.insert(key.as_slice(), bytes.as_slice())?;
+               let sealed = super::chunk_codec::seal_chunk(bytes, sealed);
+               insert_chunk(&mut table, index as u32, &sealed.parts)?;
             }
             table.insert(meta_key(), meta_bytes.as_slice())?;
          }
@@ -517,12 +515,64 @@ impl SnapshotLoader {
       .map_err(|e| anyhow!("snapshot db join: {e}"))?
    }
 
+   /// Test-only: read `c:{index}:{part}` (part 0 reads `c:{index}`).
+   #[cfg(test)]
+   async fn raw_piece(
+      &self,
+      chain_id: u64,
+      index: u32,
+      part: u32,
+   ) -> Result<Option<Vec<u8>>, anyhow::Error> {
+      let Some(db) = self.db_handle(chain_id, false)? else {
+         return Ok(None);
+      };
+      task::spawn_blocking(
+         move || -> Result<Option<Vec<u8>>, anyhow::Error> {
+            let guard = db.inner.read().map_err(|e| anyhow!("snapshot db lock: {e}"))?;
+            let tx = guard.begin_read()?;
+            let table: redb::ReadOnlyTable<&[u8], &[u8]> = tx.open_table(SNAP_TABLE)?;
+            let key = if part == 0 {
+               chunk_key(index)
+            } else {
+               piece_key(index, part)
+            };
+            match table.get(key.as_slice())? {
+               Some(v) => Ok(Some(v.value().to_vec())),
+               None => Ok(None),
+            }
+         },
+      )
+      .await
+      .map_err(|e| anyhow!("snapshot db join: {e}"))?
+   }
+
+   /// Test-only: stored part count for a chunk (1 when the value is not pieced).
+   #[cfg(test)]
+   async fn piece_count(&self, chain_id: u64, index: u32) -> Result<u32, anyhow::Error> {
+      let Some(first) = self.raw_piece(chain_id, index, 0).await? else {
+         return Ok(0);
+      };
+      Ok(super::chunk_codec::pieced_part_count(&first)?.unwrap_or(1) as u32)
+   }
+
    /// Test-only: write a chunk value verbatim (used to fabricate a v1 file).
    #[cfg(test)]
    async fn put_raw_chunk(
       &self,
       chain_id: u64,
       index: u32,
+      bytes: &[u8],
+   ) -> Result<(), anyhow::Error> {
+      self.put_raw_piece(chain_id, index, 0, bytes).await
+   }
+
+   /// Test-only: write `c:{index}:{part}` verbatim (part 0 is `c:{index}`).
+   #[cfg(test)]
+   async fn put_raw_piece(
+      &self,
+      chain_id: u64,
+      index: u32,
+      part: u32,
       bytes: &[u8],
    ) -> Result<(), anyhow::Error> {
       let db = self
@@ -535,7 +585,12 @@ impl SnapshotLoader {
          tx.set_durability(Durability::Immediate)?;
          {
             let mut table = tx.open_table(SNAP_TABLE)?;
-            table.insert(chunk_key(index).as_slice(), value.as_slice())?;
+            let key = if part == 0 {
+               chunk_key(index)
+            } else {
+               piece_key(index, part)
+            };
+            table.insert(key.as_slice(), value.as_slice())?;
          }
          tx.commit()?;
          Ok(())
@@ -634,6 +689,26 @@ fn chunk_key(index: u32) -> Vec<u8> {
    format!("c:{index}").into_bytes()
 }
 
+fn piece_key(index: u32, part: u32) -> Vec<u8> {
+   format!("c:{index}:{part}").into_bytes()
+}
+
+/// Write one chunk as `c:{index}` plus, when sealed, `c:{index}:{j}` continuations.
+fn insert_chunk(
+   table: &mut redb::Table<'_, &'static [u8], &'static [u8]>,
+   index: u32,
+   parts: &[Vec<u8>],
+) -> Result<(), redb::StorageError> {
+   let key = chunk_key(index);
+   let (first, rest) = parts.split_first().expect("a chunk has at least one part");
+   table.insert(key.as_slice(), first.as_slice())?;
+   for (j, part) in rest.iter().enumerate() {
+      let key = piece_key(index, j as u32 + 1);
+      table.insert(key.as_slice(), part.as_slice())?;
+   }
+   Ok(())
+}
+
 fn chunk_meta(index: u32, events: &[SyncEvent]) -> ChunkMeta {
    ChunkMeta {
       index,
@@ -673,7 +748,18 @@ fn decode_chunk_locked(inner: &RedbInner, index: u32) -> Result<Vec<SyncEvent>, 
    let Some(v) = table.get(key.as_slice())? else {
       return Err(anyhow!("missing snapshot chunk {index}"));
    };
-   let raw = super::chunk_codec::open_payload(v.value())?;
+   let first = v.value().to_vec();
+   let count = super::chunk_codec::pieced_part_count(&first)?.unwrap_or(1);
+   let mut parts = Vec::with_capacity(count);
+   parts.push(first);
+   for j in 1..count {
+      let key = piece_key(index, j as u32);
+      let Some(v) = table.get(key.as_slice())? else {
+         return Err(anyhow!("missing snapshot chunk {index} part {j}"));
+      };
+      parts.push(v.value().to_vec());
+   }
+   let raw = super::chunk_codec::open_chunk(&parts)?;
    let (events, _) = decode_from_slice::<Vec<SyncEvent>, _>(&raw, bincode_next::config::standard())
       .map_err(|e| anyhow!("bincode decode error: {e}"))?;
    Ok(events)
@@ -721,7 +807,10 @@ mod tip_sync_tests {
 
 #[cfg(test)]
 mod redb_meta_tests {
+   use super::redb_chunk_tests::null_at;
    use super::*;
+   use crate::crypto::aes::Ciphertext;
+   use crate::indexer::syncer::types::Transact;
    use std::time::{SystemTime, UNIX_EPOCH};
 
    fn unique_dir() -> PathBuf {
@@ -735,12 +824,41 @@ mod redb_meta_tests {
       dir
    }
 
-   fn null_at(block: u64) -> SyncEvent {
-      SyncEvent::Nullified(
-         crate::indexer::syncer::types::Nullified {
+   /// Deterministic xorshift bytes: high entropy, so a chunk of them cannot be
+   /// compressed below `PIECE_MAX`.
+   fn pseudo_random_bytes(len: usize, seed: u64) -> Vec<u8> {
+      let mut state = 0x9E37_79B9_7F4A_7C15_u64 ^ seed.wrapping_mul(0xD1B5_4A32_D192_ED03);
+      let mut out = Vec::with_capacity(len);
+      while out.len() < len {
+         state ^= state << 13;
+         state ^= state >> 7;
+         state ^= state << 17;
+         out.extend_from_slice(&state.to_le_bytes());
+      }
+      out.truncate(len);
+      out
+   }
+
+   fn array32(seed: u64) -> [u8; 32] {
+      pseudo_random_bytes(32, seed).try_into().unwrap()
+   }
+
+   /// 2048 of these compress past `PIECE_MAX`, so the sealed chunk must be pieced.
+   fn bulky_at(block: u64) -> SyncEvent {
+      SyncEvent::Transact(
+         Transact {
             tree_number: 0,
-            nullifier: Default::default(),
-            timestamp: 0,
+            leaf_index: block as u32,
+            hash: alloy_primitives::U256::from(block),
+            ciphertext: Ciphertext {
+               iv: pseudo_random_bytes(16, block).try_into().unwrap(),
+               tag: pseudo_random_bytes(16, block ^ 0xA5).try_into().unwrap(),
+               data: vec![pseudo_random_bytes(96, block)],
+            },
+            blinded_sender_viewing_key: array32(block ^ 0x11),
+            blinded_receiver_viewing_key: array32(block ^ 0x22),
+            annotation_data: pseudo_random_bytes(62, block ^ 0x33),
+            timestamp: block,
             tx_hash: Default::default(),
          },
          block,
@@ -948,6 +1066,115 @@ mod redb_meta_tests {
       drop(loader);
       let _ = std::fs::remove_dir_all(&dir);
    }
+
+   #[tokio::test]
+   async fn sealed_chunk_splits_into_pieces() {
+      use super::super::chunk_codec::PIECE_MAX;
+      let loader = SnapshotLoader::in_memory();
+      let full: Vec<_> = (1..=CHUNK_EVENTS as u64).map(bulky_at).collect();
+      loader.append(1, &full, CHUNK_EVENTS as u64, Some(1)).await.unwrap();
+
+      let count = loader.piece_count(1, 0).await.unwrap();
+      assert!(
+         count > 1,
+         "a bulky sealed chunk must be split, got {count} part(s)"
+      );
+      let mut sizes = Vec::new();
+      for part in 0..count {
+         let bytes = loader
+            .raw_piece(1, 0, part)
+            .await
+            .unwrap()
+            .unwrap_or_else(|| panic!("chunk 0 part {part}"));
+         assert!(
+            bytes.len() <= PIECE_MAX,
+            "part {part} is {} B, above PIECE_MAX",
+            bytes.len()
+         );
+         sizes.push(bytes.len());
+      }
+      eprintln!("chunk 0 piece_count={count} part sizes={sizes:?}");
+
+      let loaded = loader.load_range(1, 0, u64::MAX).await.unwrap();
+      assert_eq!(loaded.len(), CHUNK_EVENTS);
+      assert_eq!(
+         loaded.iter().map(SyncEvent::block_number).collect::<Vec<_>>(),
+         (1..=CHUNK_EVENTS as u64).collect::<Vec<_>>()
+      );
+   }
+
+   #[tokio::test]
+   async fn pieced_chunks_round_trip_through_rewrite() {
+      use super::super::chunk_codec::CHUNK_ESCAPE;
+      let loader = SnapshotLoader::in_memory();
+      let mut all: Vec<_> = (1..=CHUNK_EVENTS as u64).map(bulky_at).collect();
+      all.push(null_at(CHUNK_EVENTS as u64 + 1));
+      loader.rewrite(1, &all, CHUNK_EVENTS as u64 + 1, 1).await.unwrap();
+
+      assert!(
+         loader.piece_count(1, 0).await.unwrap() > 1,
+         "the sealed chunk must be pieced"
+      );
+      let tail = loader.raw_chunk(1, 1).await.unwrap().expect("chunk 1");
+      assert_ne!(
+         tail.first(),
+         Some(&CHUNK_ESCAPE),
+         "the short tail stays a single raw value"
+      );
+      assert_eq!(loader.piece_count(1, 1).await.unwrap(), 1);
+
+      let loaded = loader.load_range(1, 0, u64::MAX).await.unwrap();
+      assert_eq!(loaded.len(), CHUNK_EVENTS + 1);
+      assert_eq!(
+         loaded.first().map(SyncEvent::block_number),
+         Some(1)
+      );
+      assert_eq!(
+         loaded.last().map(SyncEvent::block_number),
+         Some(CHUNK_EVENTS as u64 + 1)
+      );
+   }
+
+   #[tokio::test]
+   async fn single_piece_chunks_stay_single_value() {
+      let loader = SnapshotLoader::in_memory();
+      loader.append(1, &[null_at(1), null_at(2)], 2, Some(1)).await.unwrap();
+
+      assert_eq!(loader.piece_count(1, 0).await.unwrap(), 1);
+      assert!(
+         loader.raw_piece(1, 0, 1).await.unwrap().is_none(),
+         "a single-value chunk must not write a continuation key"
+      );
+   }
+
+   #[tokio::test]
+   async fn piece_count_mismatch_is_an_error() {
+      use super::super::chunk_codec::CHUNK_ESCAPE;
+      let loader = SnapshotLoader::in_memory();
+      // A pieced header that claims 3 parts, stored with part 0 only.
+      let mut first = vec![CHUNK_ESCAPE, 2, 3];
+      first.extend_from_slice(&[0u8; 16]);
+      loader.put_raw_piece(1, 0, 0, &first).await.unwrap();
+      loader
+         .put_meta(
+            1,
+            &SnapshotDbMeta {
+               version: SNAP_FORMAT,
+               coverage_start: 1,
+               block_number: 1,
+               chunks: vec![ChunkMeta {
+                  index: 0,
+                  first_block: 1,
+                  last_block: 1,
+                  event_count: 1,
+               }],
+            },
+         )
+         .await
+         .unwrap();
+
+      assert!(loader.load_range(1, 0, u64::MAX).await.is_err());
+   }
 }
 
 #[cfg(test)]
@@ -955,7 +1182,7 @@ mod redb_chunk_tests {
    use super::*;
    use crate::indexer::syncer::types::Nullified;
 
-   fn null_at(block: u64) -> SyncEvent {
+   pub(super) fn null_at(block: u64) -> SyncEvent {
       SyncEvent::Nullified(
          Nullified {
             tree_number: 0,
