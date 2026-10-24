@@ -18,6 +18,9 @@ pub struct SpentHistoryRow {
    pub wallet: Address,
    pub chain: u64,
    pub action: String,
+   /// The vault wallet that sent a `Receive` row, when it is another of our accounts. `None` for
+   /// every spend row, and for a receive from an outside 0zk (which a note cannot identify).
+   pub from: Option<Address>,
    pub spent_block: u64,
    pub spent_timestamp: u64,
    pub entry: PrivateHistoryEntry,
@@ -58,7 +61,7 @@ impl SpentNoteWindow {
          return;
       }
 
-      let title = RichText::new("Spent Note").size(theme.typography.heading);
+      let title = RichText::new("Note Details").size(theme.typography.heading);
       let id = Id::new("spent_note_window");
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let mut open = self.open;
@@ -124,6 +127,7 @@ impl SpentNoteWindow {
                      PrivateHistoryKind::Unshield => "Unshield",
                      PrivateHistoryKind::Send => "Private Transfer",
                      PrivateHistoryKind::Spend => "Private Spend",
+                     PrivateHistoryKind::Receive => "Received",
                      _ => "Unknown",
                   })
                   .size(theme.typography.very_large)
@@ -157,8 +161,20 @@ impl SpentNoteWindow {
                         );
                      }
 
+                     if row.entry.kind == PrivateHistoryKind::Receive {
+                        let from = row
+                           .from
+                           .map(|address| wallet_label(ctx, address))
+                           .unwrap_or_else(|| "another 0zk account".to_string());
+                        kv_row("From", &from, theme, ui);
+                     }
+
                      kv_row(
-                        "Notes spent",
+                        if row.entry.kind == PrivateHistoryKind::Receive {
+                           "Notes received"
+                        } else {
+                           "Notes spent"
+                        },
                         &row.entry.input_count.to_string(),
                         theme,
                         ui,
@@ -171,7 +187,11 @@ impl SpentNoteWindow {
                      kv_row("Age", &spent_age(ctx, row), theme, ui);
 
                      kv_row(
-                        "Spent block",
+                        if row.entry.kind == PrivateHistoryKind::Receive {
+                           "Block"
+                        } else {
+                           "Spent block"
+                        },
                         &row.spent_block.to_string(),
                         theme,
                         ui,

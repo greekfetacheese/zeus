@@ -1,5 +1,7 @@
 //! UI that shows the transaction history
 
+use std::collections::HashMap;
+
 use crate::core::{TransactionRich, WalletInfo, ZeusContext};
 use crate::gui::ui::common::rows;
 use crate::gui::{
@@ -16,7 +18,7 @@ use egui::{
 use egui_elements::{Button, ComboBox, Label, Theme};
 use elegance::{Badge, BadgeTone};
 use zeus_eth::{
-   alloy_primitives::{Address, U256},
+   alloy_primitives::{Address, B256, U256},
    currency::Currency,
    types::ChainId,
    utils::NumericValue,
@@ -28,8 +30,8 @@ const DEFAULT_TXS_PER_PAGE: usize = 10;
 const ZEUS_TIP: &str = "Zeus only shows transactions that have been been made in-app.\n
 It cannot track transactions made from other wallets.";
 
-const RAILGUN_TIP: &str = "Private history shows what actually left your 0zk.\n
-Change from spent UTXOs is subtracted so a 1 USDC transfer shows as 1 USDC.";
+const RAILGUN_TIP: &str = "Private history is rebuilt from your own Railgun notes:\n
+what left your 0zk, what came back as change, and what arrived from another 0zk account.";
 
 pub struct TxHistory {
    open: bool,
@@ -243,43 +245,75 @@ impl TxHistory {
          let wallets = ctx.get_all_wallets_info();
          let mut rows = Vec::new();
 
-         for wallet in wallets {
-            if let Some(selected) = &selected_wallet
-               && selected.address != wallet.address
+         let chains_to_check: Vec<ChainId> = if let Some(chain) = selected_chain {
+            vec![chain]
+         } else {
+            ChainId::supported_chains()
+         };
+
+         for chain in chains_to_check {
+            if ctx.is_chain_disabled(chain.id())
+               || !ctx.railgun_is_supported(chain)
+               || !ctx.is_railgun_enabled(chain.id())
             {
                continue;
             }
 
-            let Some(zk) = wallet.railgun_address.clone() else {
+            let Ok(provider) = ctx.get_railgun_provider(chain.id(), false).await else {
                continue;
             };
 
-            let chains_to_check: Vec<ChainId> = if let Some(chain) = selected_chain {
-               vec![chain]
-            } else {
-               ChainId::supported_chains()
-            };
+            // Every vault wallet's history on this chain: one provider, in-memory reads. Wallets outside
+            // the filter are still read — they are how a receive from our own account gets named.
+            let mut per_wallet: Vec<(Address, Vec<PrivateHistoryEntry>)> = Vec::new();
+            for wallet in &wallets {
+               let Some(zk) = wallet.railgun_address.clone() else {
+                  continue;
+               };
+               let entries = provider.private_history(zk).await;
+               if !entries.is_empty() {
+                  per_wallet.push((wallet.address, entries));
+               }
+            }
 
-            for chain in chains_to_check {
-               if ctx.is_chain_disabled(chain.id())
-                  || !ctx.railgun_is_supported(chain)
-                  || !ctx.is_railgun_enabled(chain.id())
+            // (chain, tx) -> vault wallets that spent in it.
+            let mut senders: HashMap<(u64, B256), Vec<Address>> = HashMap::new();
+            for (address, entries) in &per_wallet {
+               for entry in entries {
+                  if entry.kind == PrivateHistoryKind::Receive || entry.tx_hash == B256::ZERO {
+                     continue;
+                  }
+                  let list = senders.entry((chain.id(), entry.tx_hash)).or_default();
+                  if !list.contains(address) {
+                     list.push(*address);
+                  }
+               }
+            }
+
+            for (address, entries) in per_wallet {
+               if let Some(selected) = &selected_wallet
+                  && selected.address != address
                {
                   continue;
                }
 
-               let Ok(provider) = ctx.get_railgun_provider(chain.id(), false).await else {
-                  continue;
-               };
+               for entry in entries {
+                  let action = private_action(&ctx, chain.id(), &entry);
+                  // A receive from our own vault names that wallet; an outside sender's 0zk is not
+                  // recoverable from the note itself, so it stays anonymous.
+                  let from = if entry.kind == PrivateHistoryKind::Receive {
+                     senders
+                        .get(&(chain.id(), entry.tx_hash))
+                        .and_then(|senders| senders.iter().copied().find(|a| *a != address))
+                  } else {
+                     None
+                  };
 
-               let notes = provider.private_history(zk.clone()).await;
-
-               for entry in notes {
-                  let action = spent_action(&ctx, chain.id(), &entry);
                   rows.push(SpentHistoryRow {
-                     wallet: wallet.address,
+                     wallet: address,
                      chain: chain.id(),
                      action,
+                     from,
                      spent_block: entry.spent_block,
                      spent_timestamp: entry.spent_timestamp,
                      entry,
@@ -532,7 +566,7 @@ impl TxHistory {
 
                ui.label(
                   RichText::new(if privacy {
-                     format!("{} spent notes found", total_txs)
+                     format!("{} private history entries", total_txs)
                   } else {
                      format!("{} transactions found", total_txs)
                   })
@@ -863,7 +897,7 @@ pub(crate) fn private_asset_display(
    }
 }
 
-fn spent_action(
+fn private_action(
    ctx: &crate::core::context::ZeusCtx,
    chain: u64,
    entry: &PrivateHistoryEntry,
@@ -880,6 +914,7 @@ fn spent_action(
       PrivateHistoryKind::Unshield => format!("Unshield {amount} {symbol}"),
       PrivateHistoryKind::Send => format!("Transfer {amount} {symbol}"),
       PrivateHistoryKind::Spend => format!("Sent {amount} {symbol}"),
+      PrivateHistoryKind::Receive => format!("Received {amount} {symbol}"),
       PrivateHistoryKind::Merge => "Merged notes".to_string(),
       _ => "Unknown".to_string(),
    }
@@ -913,7 +948,7 @@ mod tests {
          kind: PrivateHistoryKind::Spend,
       };
 
-      let action = spent_action(&ctx, 11155111, &entry);
+      let action = private_action(&ctx, 11155111, &entry);
       println!("action = {action}");
 
       assert!(action.starts_with("Sent 1 "), "{action}");

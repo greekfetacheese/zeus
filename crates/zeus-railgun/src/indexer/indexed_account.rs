@@ -57,7 +57,7 @@ pub struct IndexedAccountState {
    pub spent_notes: Vec<SpentNote>,
 }
 
-/// How a grouped private spend should be shown.
+/// How a grouped private history row should be shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PrivateHistoryKind {
@@ -69,6 +69,9 @@ pub enum PrivateHistoryKind {
    Merge,
    /// Spend we cannot classify (legacy notes, paymaster fee, exact-amount with no change).
    Spend,
+   /// A note this account received from another 0zk, derived from the decrypted note — never
+   /// authored into a memo by this wallet.
+   Receive,
 }
 
 const HISTORY_KIND_TRANSFER: &str = "Private Transfer";
@@ -83,6 +86,10 @@ pub fn encode_history_memo(kind: PrivateHistoryKind, user_memo: &str) -> String 
    let kind_s = match kind {
       PrivateHistoryKind::Unshield => HISTORY_KIND_UNSHIELD,
       PrivateHistoryKind::Merge => "Merged notes",
+      PrivateHistoryKind::Receive => {
+         debug_assert!(false, "a Receive has no authored memo");
+         HISTORY_KIND_TRANSFER
+      }
       PrivateHistoryKind::Send | PrivateHistoryKind::Spend => HISTORY_KIND_TRANSFER,
    };
    let user = user_memo.trim();
@@ -126,7 +133,12 @@ pub fn decode_history_memo(raw: &str) -> (Option<PrivateHistoryKind>, String) {
    (None, raw.to_string())
 }
 
-/// One user-facing private spend: input UTXOs minus change that came back.
+/// One user-facing private history row: a spend's inputs minus change, or a received note.
+///
+/// The field names are shared by both kinds: `amount` is the net value for a spend and the full
+/// note value(s) for a Receive; `input_count` is the inputs spent or the notes received;
+/// `spent_block` / `spent_timestamp` are the spend's block and time, or for a Receive the block and
+/// unix time of the creating tx; `tx_hash` is the spending tx, or for a Receive the creating tx.
 #[derive(Debug, Clone)]
 pub struct PrivateHistoryEntry {
    pub asset: AssetId,
@@ -450,10 +462,7 @@ impl IndexedAccount {
    }
 }
 
-fn reconstruct_private_history(
-   unspent: &[NoteRecord],
-   spent: &[SpentNote],
-) -> Vec<PrivateHistoryEntry> {
+fn private_spends(unspent: &[NoteRecord], spent: &[SpentNote]) -> Vec<PrivateHistoryEntry> {
    use std::collections::BTreeMap;
 
    #[derive(Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -571,12 +580,103 @@ fn reconstruct_private_history(
       });
    }
 
+   out
+}
+
+fn reconstruct_private_history(
+   unspent: &[NoteRecord],
+   spent: &[SpentNote],
+) -> Vec<PrivateHistoryEntry> {
+   let mut out = private_spends(unspent, spent);
+   out.extend(received_notes(unspent, spent));
    out.sort_by(|a, b| {
       b.spent_timestamp
          .cmp(&a.spent_timestamp)
          .then_with(|| b.spent_block.cmp(&a.spent_block))
    });
    out
+}
+
+/// Notes this account **received** from another 0zk.
+///
+/// A note we can decrypt, of `commitment_type == Transact`, whose creating tx is not one of our own
+/// spends: change and self-transfer outputs are created by a tx we spent in, so they are excluded, and
+/// a `Shield` commitment is a public deposit, not a transfer. `spent_notes` is scanned as well as
+/// `notes` — a received note that was later spent moves there and must still produce its receive row.
+/// Notes from before `created_tx_hash` was recorded carry `B256::ZERO` and cannot be classified.
+fn received_notes(unspent: &[NoteRecord], spent: &[SpentNote]) -> Vec<PrivateHistoryEntry> {
+   use std::collections::{BTreeMap, HashSet};
+
+   let spent_txs: HashSet<B256> =
+      spent.iter().map(|s| s.spent_tx_hash).filter(|h| *h != B256::ZERO).collect();
+
+   struct Received {
+      amount: u128,
+      notes: usize,
+      memo: String,
+      block: u64,
+      timestamp: u64,
+   }
+
+   let mut groups: BTreeMap<(B256, AssetId), Received> = BTreeMap::new();
+
+   let records = unspent
+      .iter()
+      .map(|r| {
+         (
+            &r.note,
+            r.created_block,
+            r.created_timestamp,
+            r.created_tx_hash,
+         )
+      })
+      .chain(spent.iter().map(|s| {
+         (
+            &s.note,
+            s.created_block,
+            s.created_timestamp,
+            s.created_tx_hash,
+         )
+      }));
+
+   for (note, created_block, created_ts, created_tx) in records {
+      if note.commitment_type != BlindedCommitmentType::Transact {
+         continue;
+      }
+      if created_tx == B256::ZERO || spent_txs.contains(&created_tx) {
+         continue;
+      }
+
+      let group = groups.entry((created_tx, note.asset)).or_insert_with(|| Received {
+         amount: 0,
+         notes: 0,
+         memo: String::new(),
+         block: created_block,
+         timestamp: created_ts,
+      });
+      group.amount = group.amount.saturating_add(note.value);
+      group.notes += 1;
+      group.block = group.block.max(created_block);
+      group.timestamp = group.timestamp.max(created_ts);
+      if group.memo.is_empty() && !note.memo.is_empty() {
+         group.memo = note.memo.clone();
+      }
+   }
+
+   groups
+      .into_iter()
+      .map(|((tx_hash, asset), group)| PrivateHistoryEntry {
+         asset,
+         amount: group.amount,
+         change_amount: 0,
+         input_count: group.notes,
+         spent_block: group.block,
+         spent_timestamp: group.timestamp,
+         tx_hash,
+         memo: group.memo,
+         kind: PrivateHistoryKind::Receive,
+      })
+      .collect()
 }
 
 #[cfg(test)]
@@ -987,6 +1087,278 @@ mod tests {
       assert_eq!(history[0].amount, 100);
       assert_eq!(history[0].change_amount, 133);
       assert_eq!(history[0].input_count, 1);
+      assert!(history.iter().all(|e| e.kind != PrivateHistoryKind::Receive));
+   }
+
+   fn test_signer() -> RailgunSigner {
+      let seed: [u8; 64] = random();
+      let sec_array = SecureArray::from_slice(&seed).unwrap();
+      RailgunSigner::from_seed(&sec_array, 0, 1).unwrap()
+   }
+
+   fn test_asset() -> AssetId {
+      AssetId::erc20(address!(
+         "0xDEADDEADDEADDEADDEADDEADDEADDEADDEADDEAD"
+      ))
+   }
+
+   fn account_for(signer: &RailgunSigner) -> IndexedAccount {
+      IndexedAccount {
+         signer: signer.clone(),
+         inner: Default::default(),
+         dirty: false,
+      }
+   }
+
+   fn transact_event(
+      sender: &RailgunSigner,
+      recipient: &RailgunSigner,
+      asset: AssetId,
+      value: u128,
+      memo: &str,
+      leaf_index: u32,
+      timestamp: u64,
+      tx_hash: B256,
+   ) -> syncer::Transact {
+      let rng = &mut rand::rng();
+      let transfer = TransferNote::new(
+         sender.keys().viewing_private_key.clone(),
+         recipient.address().clone(),
+         asset,
+         value,
+         random(),
+         memo,
+      );
+      let ciphertext = transfer.encrypt(rng).unwrap();
+      syncer::Transact {
+         tree_number: 1,
+         leaf_index,
+         hash: transfer.hash().into(),
+         ciphertext: ciphertext.clone().into(),
+         blinded_sender_viewing_key: *ciphertext.blindedSenderViewingKey,
+         blinded_receiver_viewing_key: *ciphertext.blindedReceiverViewingKey,
+         annotation_data: ciphertext.annotationData.to_vec(),
+         timestamp,
+         tx_hash,
+      }
+   }
+
+   fn shield_event(
+      recipient: &RailgunSigner,
+      asset: AssetId,
+      value: u128,
+      leaf_index: u32,
+      timestamp: u64,
+      tx_hash: B256,
+   ) -> syncer::Shield {
+      let rng = &mut rand::rng();
+      let shield = encrypt_shield(recipient.address().clone(), asset, value, rng).unwrap();
+      syncer::Shield {
+         tree_number: 1,
+         leaf_index,
+         npk: shield.preimage.npk.into(),
+         token: shield.preimage.token.into(),
+         value: U256::from(shield.preimage.value),
+         ciphertext: shield.ciphertext.clone().into(),
+         shield_key: *shield.ciphertext.shieldKey,
+         hash: None,
+         timestamp,
+         tx_hash,
+      }
+   }
+
+   #[test]
+   fn received_note_from_a_foreign_transact_is_one_row() {
+      let sender = test_signer();
+      let recipient = test_signer();
+      let asset = test_asset();
+      let tx_hash = B256::from([7u8; 32]);
+      let mut account = account_for(&recipient);
+
+      let event = transact_event(
+         &sender,
+         &recipient,
+         asset,
+         100,
+         "lunch",
+         0,
+         1_700_000_000,
+         tx_hash,
+      );
+      account.handle_transact_event(&event, 20, &TokenRegistry::default()).unwrap();
+
+      let history = account.private_history();
+      assert_eq!(history.len(), 1);
+      let entry = &history[0];
+      assert_eq!(entry.kind, PrivateHistoryKind::Receive);
+      assert_eq!(entry.asset, asset);
+      assert_eq!(entry.amount, 100);
+      assert_eq!(entry.change_amount, 0);
+      assert_eq!(entry.input_count, 1);
+      assert_eq!(entry.spent_block, 20);
+      assert_eq!(entry.spent_timestamp, 1_700_000_000);
+      assert_eq!(entry.tx_hash, tx_hash);
+      assert_eq!(entry.memo, "lunch");
+   }
+
+   #[test]
+   fn a_shield_note_is_not_received() {
+      let recipient = test_signer();
+      let asset = test_asset();
+      let mut account = account_for(&recipient);
+
+      let event = shield_event(
+         &recipient,
+         asset,
+         100,
+         0,
+         1_700_000_000,
+         B256::from([1u8; 32]),
+      );
+      account.handle_shield_event(&event, 20).unwrap();
+
+      assert_eq!(account.unspent().len(), 1);
+      assert!(
+         account.private_history().is_empty(),
+         "a public deposit is not a private transfer"
+      );
+   }
+
+   #[test]
+   fn a_change_note_is_not_received() {
+      let sender = test_signer();
+      let asset = test_asset();
+      let spend_tx = B256::from([9u8; 32]);
+      let mut account = account_for(&sender);
+
+      let shield = shield_event(&sender, asset, 233, 0, 1, B256::from([1u8; 32]));
+      account.handle_shield_event(&shield, 10).unwrap();
+      let spent_note = account.unspent()[0].clone();
+      account.handle_nullified_event(
+         &syncer::Nullified {
+            tree_number: 1,
+            nullifier: spent_note.nullifier.into(),
+            timestamp: 100,
+            tx_hash: spend_tx,
+         },
+         20,
+      );
+
+      let change = transact_event(
+         &sender,
+         &sender,
+         asset,
+         133,
+         &encode_history_memo(PrivateHistoryKind::Send, ""),
+         5,
+         100,
+         spend_tx,
+      );
+      account.handle_transact_event(&change, 20, &TokenRegistry::default()).unwrap();
+
+      let history = account.private_history();
+      assert_eq!(history.len(), 1);
+      assert_eq!(history[0].kind, PrivateHistoryKind::Send);
+      assert_eq!(history[0].amount, 100);
+      assert_eq!(history[0].change_amount, 133);
+      assert!(history.iter().all(|e| e.kind != PrivateHistoryKind::Receive));
+   }
+
+   #[test]
+   fn a_received_note_spent_later_shows_both_rows() {
+      let sender = test_signer();
+      let recipient = test_signer();
+      let asset = test_asset();
+      let receive_tx = B256::from([7u8; 32]);
+      let spend_tx = B256::from([8u8; 32]);
+      let mut account = account_for(&recipient);
+
+      let event = transact_event(
+         &sender, &recipient, asset, 100, "lunch", 0, 1_000, receive_tx,
+      );
+      account.handle_transact_event(&event, 20, &TokenRegistry::default()).unwrap();
+
+      let note = account.unspent()[0].clone();
+      account.handle_nullified_event(
+         &syncer::Nullified {
+            tree_number: 1,
+            nullifier: note.nullifier.into(),
+            timestamp: 2_000,
+            tx_hash: spend_tx,
+         },
+         30,
+      );
+
+      let history = account.private_history();
+      assert_eq!(history.len(), 2);
+      let receive = history
+         .iter()
+         .find(|e| e.kind == PrivateHistoryKind::Receive)
+         .expect("the received note still owes its Receive row after being spent");
+      assert_eq!(receive.tx_hash, receive_tx);
+      assert_eq!(receive.amount, 100);
+      let spend = history
+         .iter()
+         .find(|e| e.kind == PrivateHistoryKind::Spend)
+         .expect("the nullification is a spend row");
+      assert_eq!(spend.tx_hash, spend_tx);
+   }
+
+   #[test]
+   fn two_notes_received_in_one_tx_are_one_row() {
+      let sender = test_signer();
+      let recipient = test_signer();
+      let asset = test_asset();
+      let tx_hash = B256::from([7u8; 32]);
+      let mut account = account_for(&recipient);
+
+      for (leaf_index, value) in [(0u32, 10u128), (1, 20)] {
+         let event = transact_event(
+            &sender, &recipient, asset, value, "", leaf_index, 500, tx_hash,
+         );
+         account.handle_transact_event(&event, 20, &TokenRegistry::default()).unwrap();
+      }
+
+      let history = account.private_history();
+      assert_eq!(history.len(), 1);
+      assert_eq!(history[0].kind, PrivateHistoryKind::Receive);
+      assert_eq!(history[0].asset, asset);
+      assert_eq!(history[0].amount, 30);
+      assert_eq!(history[0].input_count, 2);
+      assert_eq!(history[0].tx_hash, tx_hash);
+   }
+
+   #[test]
+   fn a_note_without_a_creating_tx_is_not_received() {
+      let signer = test_signer();
+      let asset = test_asset();
+      let mut account = account_for(&signer);
+
+      let note = UtxoNote::new(
+         &signer,
+         crate::note::utxo::UtxoNoteParams {
+            tree_number: 1,
+            leaf_index: 0,
+            asset,
+            value: 100,
+            random: random(),
+            memo: "lunch".to_string(),
+            commitment_type: BlindedCommitmentType::Transact,
+         },
+      );
+      account.inner.notes.push(NoteRecord {
+         note,
+         created_block: 20,
+         created_timestamp: 1_700_000_000,
+         created_tx_hash: B256::ZERO,
+      });
+
+      let history = account.private_history();
+      assert!(
+         history.iter().all(|e| e.kind != PrivateHistoryKind::Receive),
+         "a note from before created_tx_hash was recorded cannot be classified"
+      );
+      assert!(history.is_empty());
    }
 
    #[test]
