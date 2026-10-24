@@ -19,7 +19,9 @@ pub const CHUNK_ESCAPE: u8 = 0xFF;
 
 /// Payload bytes a single stored value may hold. redb allocates a value a buddy
 /// page run of the next power of two, so a value must stay under 16 KiB - 24 B
-/// (its per-value overhead) to cost a 16 KiB run: measured 16,360 B -> 16,469 B.
+/// (its per-value overhead) to cost a 16 KiB run. Measured on redb 4.2.0 (64
+/// values, key `c:{i}`): the 16 KiB allocation class holds up to 16,368 B, and
+/// 16,369 B doubles to ~31 KiB per value - so this leaves 8 bytes of headroom.
 pub const PIECE_MAX: usize = 16_360;
 
 const CODEC_DEFLATE: u8 = 1;
@@ -52,17 +54,21 @@ pub fn seal_chunk(raw: Vec<u8>, compress: bool) -> SealedChunk {
       value.extend_from_slice(&packed);
       return SealedChunk { parts: vec![value] };
    }
-   let mut body = Vec::with_capacity(packed.len() + 11);
+   pieced_body(packed)
+}
+
+/// Envelope + payload, split into parts of at most [`PIECE_MAX`] bytes.
+fn pieced_body(packed: Vec<u8>) -> SealedChunk {
+   let count = pieced_count(packed.len());
+   let mut body = Vec::with_capacity(packed.len() + 2 + varint_len(count));
    body.push(CHUNK_ESCAPE);
    body.push(CODEC_DEFLATE_PIECED);
-   push_varint(
-      &mut body,
-      ceil_div(packed.len(), PIECE_MAX) as u64,
-   );
+   push_varint(&mut body, count);
    body.extend_from_slice(&packed);
-   SealedChunk {
-      parts: split_evenly(body, PIECE_MAX),
-   }
+   debug_assert_eq!(body.len(), packed.len() + 2 + varint_len(count));
+   let parts = split_evenly(body, PIECE_MAX);
+   debug_assert_eq!(parts.len(), count as usize);
+   SealedChunk { parts }
 }
 
 /// Reassemble a chunk from `parts` (part 0 first) and return the bincode bytes.
@@ -136,6 +142,31 @@ fn inflate(input: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
       .read_to_end(&mut out)
       .map_err(|e| anyhow!("snapshot chunk decompress: {e}"))?;
    Ok(out)
+}
+
+/// Bytes a bincode-next varint occupies for `value`.
+fn varint_len(value: u64) -> usize {
+   if value <= 0xFA {
+      1
+   } else if value <= u64::from(u16::MAX) {
+      3
+   } else if value <= u64::from(u32::MAX) {
+      5
+   } else {
+      9
+   }
+}
+
+/// Part count such that `header + packed` splits into exactly this many parts.
+fn pieced_count(packed_len: usize) -> u64 {
+   let mut count = packed_len.div_ceil(PIECE_MAX) as u64;
+   loop {
+      let actual = (packed_len + 2 + varint_len(count)).div_ceil(PIECE_MAX) as u64;
+      if actual == count {
+         return count;
+      }
+      count = actual;
+   }
 }
 
 /// bincode-next's varint: `<= 0xFA` is a literal, then `0xFB`/`0xFC`/`0xFD`
@@ -288,5 +319,23 @@ mod tests {
          Some(sealed.parts.len())
       );
       assert_eq!(open_chunk(&sealed.parts).unwrap(), raw);
+   }
+
+   #[test]
+   fn header_part_count_matches_the_split() {
+      // Framing sweep over the whole boundary range, no compression: the declared
+      // count must always equal the number of parts the body actually splits into.
+      for n in 0..=200_000 {
+         let sealed = pieced_body(vec![0u8; n]);
+         assert!(
+            sealed.parts.iter().all(|part| part.len() <= PIECE_MAX),
+            "payload {n}: a part exceeds PIECE_MAX"
+         );
+         assert_eq!(
+            pieced_part_count(&sealed.parts[0]).unwrap(),
+            Some(sealed.parts.len()),
+            "payload {n}: declared count disagrees with the split"
+         );
+      }
    }
 }
