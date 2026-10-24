@@ -11805,6 +11805,7 @@ dependencies = [
  "ctr",
  "curve25519-dalek",
  "ed25519-dalek",
+ "flate2",
  "hex",
  "hmac 0.13.0",
  "lazy_static",
