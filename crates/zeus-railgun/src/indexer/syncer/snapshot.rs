@@ -15,7 +15,14 @@ use super::types::{SyncEvent, SyncerError};
 const SNAP_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("snap");
 
 /// On-disk `SnapshotDbMeta` version. Bump if the meta / chunk envelope changes.
-pub const SNAP_FORMAT: u32 = 1;
+///
+/// - `1` chunk values are bare bincode
+/// - `2` chunk values may carry the `[0xFF, codec, ..]` envelope
+pub const SNAP_FORMAT: u32 = 2;
+
+/// Oldest file this build still reads. A v1 chunk is byte-identical to a v2 chunk
+/// stored raw, so no migration is needed: the next append rewrites the tail only.
+const SNAP_FORMAT_LEGACY: u32 = 1;
 
 /// Sealed chunk size (event count). Last chunk may be smaller.
 const CHUNK_EVENTS: usize = 2048;
@@ -267,6 +274,8 @@ impl SnapshotLoader {
             let cm = chunk_meta(next_index, &chunk);
             let bytes = encode_to_vec(&chunk, bincode_next::config::standard())
                .map_err(|e| anyhow!("bincode encode error: {e}"))?;
+            // Sealed chunks are never rewritten → pay the compression once.
+            let bytes = super::chunk_codec::seal_payload(bytes, true);
             writes.push((next_index, bytes, cm));
             next_index += 1;
          }
@@ -274,6 +283,8 @@ impl SnapshotLoader {
             let cm = chunk_meta(next_index, &open);
             let bytes = encode_to_vec(&open, bincode_next::config::standard())
                .map_err(|e| anyhow!("bincode encode error: {e}"))?;
+            // The open tail is rewritten on every append → keep it raw.
+            let bytes = super::chunk_codec::seal_payload(bytes, false);
             writes.push((next_index, bytes, cm));
          }
 
@@ -372,8 +383,11 @@ impl SnapshotLoader {
             for key in &stale {
                table.remove(key.as_slice())?;
             }
-            for (index, bytes) in chunk_bytes.iter().enumerate() {
+            for (index, bytes) in chunk_bytes.into_iter().enumerate() {
                let key = chunk_key(index as u32);
+               // A full chunk is sealed; a short trailing chunk is the open tail.
+               let sealed = meta.chunks[index].event_count as usize == CHUNK_EVENTS;
+               let bytes = super::chunk_codec::seal_payload(bytes, sealed);
                table.insert(key.as_slice(), bytes.as_slice())?;
             }
             table.insert(meta_key(), meta_bytes.as_slice())?;
@@ -503,6 +517,33 @@ impl SnapshotLoader {
       .map_err(|e| anyhow!("snapshot db join: {e}"))?
    }
 
+   /// Test-only: write a chunk value verbatim (used to fabricate a v1 file).
+   #[cfg(test)]
+   async fn put_raw_chunk(
+      &self,
+      chain_id: u64,
+      index: u32,
+      bytes: &[u8],
+   ) -> Result<(), anyhow::Error> {
+      let db = self
+         .db_handle(chain_id, true)?
+         .ok_or_else(|| anyhow!("failed to open snapshot db for chain {chain_id}"))?;
+      let value = bytes.to_vec();
+      task::spawn_blocking(move || -> Result<(), anyhow::Error> {
+         let guard = db.inner.write().map_err(|e| anyhow!("snapshot db lock: {e}"))?;
+         let mut tx = guard.begin_write()?;
+         tx.set_durability(Durability::Immediate)?;
+         {
+            let mut table = tx.open_table(SNAP_TABLE)?;
+            table.insert(chunk_key(index).as_slice(), value.as_slice())?;
+         }
+         tx.commit()?;
+         Ok(())
+      })
+      .await
+      .map_err(|e| anyhow!("snapshot db join: {e}"))?
+   }
+
    async fn read_db_meta(&self, chain_id: u64) -> Result<Option<SnapshotDbMeta>, SyncerError> {
       let Some(db) = self
          .db_handle(chain_id, false)
@@ -605,10 +646,11 @@ fn chunk_meta(index: u32, events: &[SyncEvent]) -> ChunkMeta {
 fn decode_meta(bytes: &[u8]) -> Result<SnapshotDbMeta, anyhow::Error> {
    let (meta, _) = decode_from_slice::<SnapshotDbMeta, _>(bytes, bincode_next::config::standard())
       .map_err(|e| anyhow!("bincode decode error: {e}"))?;
-   if meta.version != SNAP_FORMAT {
+   if meta.version != SNAP_FORMAT && meta.version != SNAP_FORMAT_LEGACY {
       return Err(anyhow!(
-         "unsupported events snapshot format version {} (expected {})",
+         "unsupported events snapshot format version {} (expected {} or {})",
          meta.version,
+         SNAP_FORMAT_LEGACY,
          SNAP_FORMAT
       ));
    }
@@ -631,9 +673,9 @@ fn decode_chunk_locked(inner: &RedbInner, index: u32) -> Result<Vec<SyncEvent>, 
    let Some(v) = table.get(key.as_slice())? else {
       return Err(anyhow!("missing snapshot chunk {index}"));
    };
-   let (events, _) =
-      decode_from_slice::<Vec<SyncEvent>, _>(v.value(), bincode_next::config::standard())
-         .map_err(|e| anyhow!("bincode decode error: {e}"))?;
+   let raw = super::chunk_codec::open_payload(v.value())?;
+   let (events, _) = decode_from_slice::<Vec<SyncEvent>, _>(&raw, bincode_next::config::standard())
+      .map_err(|e| anyhow!("bincode decode error: {e}"))?;
    Ok(events)
 }
 
@@ -691,6 +733,18 @@ mod redb_meta_tests {
       ));
       std::fs::create_dir_all(&dir).unwrap();
       dir
+   }
+
+   fn null_at(block: u64) -> SyncEvent {
+      SyncEvent::Nullified(
+         crate::indexer::syncer::types::Nullified {
+            tree_number: 0,
+            nullifier: Default::default(),
+            timestamp: 0,
+            tx_hash: Default::default(),
+         },
+         block,
+      )
    }
 
    #[tokio::test]
@@ -800,6 +854,98 @@ mod redb_meta_tests {
       assert!(!meta.exists());
       assert!(keep.exists());
 
+      let _ = std::fs::remove_dir_all(&dir);
+   }
+
+   #[tokio::test]
+   async fn sealed_chunk_is_stored_compressed_and_reads_back() {
+      use super::super::chunk_codec::CHUNK_ESCAPE;
+      let loader = SnapshotLoader::in_memory();
+      let full: Vec<_> = (1..=CHUNK_EVENTS as u64).map(null_at).collect();
+      loader.append(1, &full, CHUNK_EVENTS as u64, Some(1)).await.unwrap();
+
+      let raw = loader.raw_chunk(1, 0).await.unwrap().expect("chunk 0");
+      assert_eq!(
+         raw.first(),
+         Some(&CHUNK_ESCAPE),
+         "sealed chunk must be sealed"
+      );
+
+      let loaded = loader.load_range(1, 0, u64::MAX).await.unwrap();
+      assert_eq!(loaded.len(), CHUNK_EVENTS);
+      assert_eq!(
+         loaded.first().map(SyncEvent::block_number),
+         Some(1)
+      );
+   }
+
+   #[tokio::test]
+   async fn open_tail_stays_raw() {
+      use super::super::chunk_codec::CHUNK_ESCAPE;
+      let loader = SnapshotLoader::in_memory();
+      loader.append(1, &[null_at(10), null_at(11)], 11, Some(10)).await.unwrap();
+
+      let raw = loader.raw_chunk(1, 0).await.unwrap().expect("chunk 0");
+      assert_ne!(
+         raw.first(),
+         Some(&CHUNK_ESCAPE),
+         "the open tail must stay raw"
+      );
+      assert_eq!(
+         loader.load_range(1, 0, u64::MAX).await.unwrap().len(),
+         2
+      );
+   }
+
+   #[tokio::test]
+   async fn rewrite_seals_full_chunks() {
+      use super::super::chunk_codec::CHUNK_ESCAPE;
+      let loader = SnapshotLoader::in_memory();
+      let mut all: Vec<_> = (1..=CHUNK_EVENTS as u64).map(null_at).collect();
+      all.push(null_at(CHUNK_EVENTS as u64 + 1));
+      loader.rewrite(1, &all, CHUNK_EVENTS as u64 + 1, 1).await.unwrap();
+
+      let sealed = loader.raw_chunk(1, 0).await.unwrap().expect("chunk 0");
+      let tail = loader.raw_chunk(1, 1).await.unwrap().expect("chunk 1");
+      assert_eq!(sealed.first(), Some(&CHUNK_ESCAPE));
+      assert_ne!(
+         tail.first(),
+         Some(&CHUNK_ESCAPE),
+         "the tail stays raw"
+      );
+      assert_eq!(
+         loader.load_range(1, 0, u64::MAX).await.unwrap().len(),
+         CHUNK_EVENTS + 1
+      );
+   }
+
+   #[tokio::test]
+   async fn legacy_v1_chunk_still_loads() {
+      let dir = unique_dir();
+      let loader = SnapshotLoader::new(dir.clone());
+      let events = vec![null_at(7), null_at(8)];
+      let raw =
+         bincode_next::serde::encode_to_vec(&events, bincode_next::config::standard()).unwrap();
+
+      loader.put_raw_chunk(1, 0, &raw).await.unwrap();
+      let meta = SnapshotDbMeta {
+         version: SNAP_FORMAT_LEGACY,
+         coverage_start: 7,
+         block_number: 8,
+         chunks: vec![ChunkMeta {
+            index: 0,
+            first_block: 7,
+            last_block: 8,
+            event_count: 2,
+         }],
+      };
+      loader.put_meta(1, &meta).await.unwrap();
+
+      assert_eq!(
+         loader.load_range(1, 0, u64::MAX).await.unwrap().len(),
+         2
+      );
+      drop(loader);
       let _ = std::fs::remove_dir_all(&dir);
    }
 }
