@@ -340,9 +340,15 @@ mod tests {
 
    #[test]
    fn header_part_count_matches_the_split() {
-      // Framing sweep over the whole boundary range, no compression: the declared
-      // count must always equal the number of parts the body actually splits into.
-      for n in 0..=200_000 {
+      // The declared count and the actual split can only disagree within the few
+      // bytes that push the 3-byte framing header over a page boundary, so sweep
+      // the neighbourhood of every boundary (plus the tiny-body edge) instead of
+      // every length in between.
+      // Boundaries first: the tiny bodies below exercise the same framing edge
+      // from the other side.
+      let lengths = (1..=24).flat_map(|k| (k * PIECE_MAX - 4)..=(k * PIECE_MAX + 4)).chain(0..=64);
+
+      for n in lengths {
          let sealed = pieced_body(vec![0u8; n]);
          assert!(
             sealed.parts.iter().all(|part| part.len() <= PIECE_MAX),
