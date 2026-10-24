@@ -247,11 +247,13 @@ impl SnapshotLoader {
       task::spawn_blocking(move || -> Result<(), anyhow::Error> {
          let guard = db.inner.write().map_err(|e| anyhow!("snapshot db lock: {e}"))?;
          let mut meta = read_meta_locked(&guard)?.unwrap_or_default();
+         // Every append below writes sealed v2 chunks, so the marker is stamped on
+         // every append - not only when seeding a new file. No-op for a v2 file.
+         meta.version = SNAP_FORMAT;
          let seeding = meta.chunks.is_empty() && meta.block_number == 0;
 
          let mut open = Vec::new();
          if seeding {
-            meta.version = SNAP_FORMAT;
             meta.coverage_start = coverage_start
                .unwrap_or_else(|| events.first().map(|e| e.block_number()).unwrap_or(0));
          } else if let Some(last) = meta.chunks.last().copied()
@@ -1068,6 +1070,40 @@ mod redb_meta_tests {
    }
 
    #[tokio::test]
+   async fn legacy_v1_append_stamps_v2() {
+      let dir = unique_dir();
+      let loader = SnapshotLoader::new(dir.clone());
+      let events = vec![null_at(7), null_at(8)];
+      let raw =
+         bincode_next::serde::encode_to_vec(&events, bincode_next::config::standard()).unwrap();
+
+      loader.put_raw_chunk(1, 0, &raw).await.unwrap();
+      let meta = SnapshotDbMeta {
+         version: SNAP_FORMAT_LEGACY,
+         coverage_start: 7,
+         block_number: 8,
+         chunks: vec![ChunkMeta {
+            index: 0,
+            first_block: 7,
+            last_block: 8,
+            event_count: 2,
+         }],
+      };
+      loader.put_meta(1, &meta).await.unwrap();
+
+      // Appending to an existing v1 file writes sealed v2 chunks, so the marker
+      // must be upgraded with them: a downgrade then trips the version gate.
+      loader.append(1, &[null_at(9)], 9, Some(7)).await.unwrap();
+      assert_eq!(
+         loader.coverage(1).await.unwrap().version,
+         SNAP_FORMAT
+      );
+
+      drop(loader);
+      let _ = std::fs::remove_dir_all(&dir);
+   }
+
+   #[tokio::test]
    async fn sealed_chunk_splits_into_pieces() {
       use super::super::chunk_codec::PIECE_MAX;
       let loader = SnapshotLoader::in_memory();
@@ -1174,6 +1210,44 @@ mod redb_meta_tests {
          .unwrap();
 
       assert!(loader.load_range(1, 0, u64::MAX).await.is_err());
+   }
+
+   #[tokio::test]
+   async fn out_of_range_part_count_is_an_error() {
+      use super::super::chunk_codec::CHUNK_ESCAPE;
+      let loader = SnapshotLoader::in_memory();
+      // A pieced header declaring 1_000_000 parts: a corrupt header must be
+      // rejected before the reader allocates anything for it.
+      let mut first = vec![CHUNK_ESCAPE, 2, 0xFC];
+      first.extend_from_slice(&1_000_000u32.to_le_bytes());
+      first.extend_from_slice(&[0u8; 16]);
+      loader.put_raw_piece(1, 0, 0, &first).await.unwrap();
+      loader
+         .put_meta(
+            1,
+            &SnapshotDbMeta {
+               version: SNAP_FORMAT,
+               coverage_start: 1,
+               block_number: 1,
+               chunks: vec![ChunkMeta {
+                  index: 0,
+                  first_block: 1,
+                  last_block: 1,
+                  event_count: 1,
+               }],
+            },
+         )
+         .await
+         .unwrap();
+
+      let err = loader.load_range(1, 0, u64::MAX).await.unwrap_err();
+      let msg = err.to_string();
+      assert!(msg.contains("1000000"), "unexpected error: {msg}");
+      assert!(msg.contains("65536"), "unexpected error: {msg}");
+      assert!(
+         !msg.contains("missing snapshot chunk"),
+         "the bound must fire before any part is fetched: {msg}"
+      );
    }
 }
 

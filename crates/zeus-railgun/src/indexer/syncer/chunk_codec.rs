@@ -24,6 +24,10 @@ pub const CHUNK_ESCAPE: u8 = 0xFF;
 /// 16,369 B doubles to ~31 KiB per value - so this leaves 8 bytes of headroom.
 pub const PIECE_MAX: usize = 16_360;
 
+/// Part count a pieced envelope may declare. A real chunk is ~24 parts; 512 MB
+/// of values would be 4,294, so anything above this is a corrupt header.
+pub(crate) const MAX_PIECED_PARTS: usize = 65_536;
+
 const CODEC_DEFLATE: u8 = 1;
 const CODEC_DEFLATE_PIECED: u8 = 2;
 
@@ -127,6 +131,11 @@ pub(crate) fn pieced_part_count(first: &[u8]) -> Result<Option<usize>, anyhow::E
       return Ok(None);
    }
    let (count, _) = read_varint(body)?;
+   if count > MAX_PIECED_PARTS as u64 {
+      return Err(anyhow!(
+         "snapshot chunk declares {count} parts, more than {MAX_PIECED_PARTS}"
+      ));
+   }
    Ok(Some(count as usize))
 }
 
@@ -138,9 +147,17 @@ fn deflate(input: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
 
 fn inflate(input: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
    let mut out = Vec::new();
-   ZlibDecoder::new(input)
+   let mut decoder = ZlibDecoder::new(input);
+   decoder
       .read_to_end(&mut out)
       .map_err(|e| anyhow!("snapshot chunk decompress: {e}"))?;
+   let consumed = decoder.total_in();
+   if consumed != input.len() as u64 {
+      return Err(anyhow!(
+         "snapshot chunk deflate consumed {consumed} of {} B",
+         input.len()
+      ));
+   }
    Ok(out)
 }
 
@@ -337,5 +354,28 @@ mod tests {
             "payload {n}: declared count disagrees with the split"
          );
       }
+   }
+
+   #[test]
+   fn trailing_bytes_after_the_stream_are_an_error() {
+      let raw = vec![0u8; 64 * 1024];
+      let mut sealed = seal_chunk(raw, true);
+      assert_eq!(
+         sealed.parts.len(),
+         1,
+         "expected a single-part chunk"
+      );
+      // The stream is everything after the two envelope header bytes.
+      let body_len = sealed.parts[0].len() - 2;
+      sealed.parts[0].push(0);
+
+      let err = open_chunk(&sealed.parts).unwrap_err();
+      assert!(
+         err.to_string().contains(&format!(
+            "consumed {body_len} of {} B",
+            body_len + 1
+         )),
+         "unexpected error: {err}"
+      );
    }
 }
