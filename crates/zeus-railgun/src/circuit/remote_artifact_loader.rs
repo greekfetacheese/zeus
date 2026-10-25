@@ -1086,13 +1086,25 @@ fn starts_with_ignore_ws(data: &[u8], prefix: &[u8]) -> bool {
 
 fn decompress(data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
    let mut out = Vec::new();
-   brotli::BrotliDecompress(&mut &data[..], &mut out)?;
+   brotli_decompressor::BrotliDecompress(&mut &data[..], &mut out)?;
    Ok(out)
 }
 
 #[cfg(test)]
 mod tests {
    use super::*;
+
+   #[test]
+   fn decompress_reads_a_brotli_stream() {
+      // Brotli stream (quality 5, lgwin 22) for `b"zeus circuit artifact fixture\n"`.
+      const FIXTURE_BR: [u8; 32] = [
+         0x1b, 0x1d, 0x00, 0x00, 0x44, 0x6f, 0xf8, 0x7b, 0xae, 0xdd, 0xef, 0x12, 0xe5, 0x65, 0x4a,
+         0xaa, 0x15, 0x89, 0xc2, 0xf3, 0xb1, 0x03, 0xb3, 0x00, 0x5b, 0x95, 0x74, 0x21, 0xeb, 0xb4,
+         0x1d, 0x06,
+      ];
+      let out = decompress(&FIXTURE_BR).expect("decompress");
+      assert_eq!(out, b"zeus circuit artifact fixture\n");
+   }
 
    #[test]
    fn circuit_name_padding() {
