@@ -373,7 +373,6 @@ impl ConnectedDappsUi {
          .show(ui.ctx(), |ui| {
             ui.spacing_mut().item_spacing.y = theme.spacing.xl;
             ui.spacing_mut().button_padding = theme.button_padding;
-            ui.set_max_width(self.size.0);
             ui.set_max_height(self.size.1);
 
             let dapps = ctx.connected_dapps();

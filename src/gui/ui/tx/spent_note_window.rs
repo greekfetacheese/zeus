@@ -76,7 +76,6 @@ impl SpentNoteWindow {
          .frame(frame)
          .max_width(self.size.0)
          .show(ui.ctx(), |ui| {
-            ui.set_max_width(self.size.0);
             ui.set_max_height(self.size.1);
 
             ui.vertical_centered(|ui| {
