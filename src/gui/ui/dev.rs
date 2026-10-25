@@ -2,12 +2,14 @@ use eframe::egui::{Align2, Frame, Order, RichText, ScrollArea, Ui, Window, vec2}
 
 use crate::assets::Icons;
 use crate::core::clear_signing::ClearDisplay;
+use crate::core::tx::{FeeTiers, PriorityTier};
 use crate::core::{DecodedEvent, SignMsgType, TransactionAnalysis, TransactionRich, ZeusContext};
 use crate::gui::ui::dev_erc20::Erc20Minting;
 use crate::gui::ui::dev_nft::{NftMinting, spawn_approve_erc721, spawn_approve_erc1155};
 use crate::gui::{SHARED_GUI, ui::notification::NotificationType};
 use crate::utils::TimeStamp;
 use crate::utils::self_update::UpdateInfo;
+use zeus_eth::alloy_primitives::U256;
 use zeus_eth::currency::ERC20Token;
 use zeus_eth::types::ChainId;
 
@@ -519,6 +521,8 @@ impl UiTesting {
                         ctx.chain(),
                         analysis,
                         "1".to_string(),
+                        None,
+                        PriorityTier::default(),
                         false,
                         true,
                         None,
@@ -543,6 +547,8 @@ impl UiTesting {
                         ctx.chain(),
                         analysis,
                         "1".to_string(),
+                        None,
+                        PriorityTier::default(),
                         false,
                         false,
                         None,
@@ -567,6 +573,8 @@ impl UiTesting {
                         ctx.chain(),
                         analysis,
                         "1".to_string(),
+                        None,
+                        PriorityTier::default(),
                         false,
                         false,
                         None,
@@ -592,6 +600,8 @@ impl UiTesting {
                         ctx.chain(),
                         analysis,
                         "1".to_string(),
+                        None,
+                        PriorityTier::default(),
                         true,
                         false,
                         None,
@@ -618,6 +628,8 @@ impl UiTesting {
                         ctx.chain(),
                         analysis,
                         "1".to_string(),
+                        None,
+                        PriorityTier::default(),
                         true,
                         false,
                         None,
@@ -679,6 +691,8 @@ impl UiTesting {
                         ctx.chain(),
                         analysis,
                         "1".to_string(),
+                        None,
+                        PriorityTier::default(),
                         true,
                         false,
                         None,
@@ -703,6 +717,8 @@ impl UiTesting {
                         ctx.chain(),
                         analysis,
                         "1".to_string(),
+                        None,
+                        PriorityTier::default(),
                         true,
                         false,
                         None,
@@ -727,6 +743,8 @@ impl UiTesting {
                         ctx.chain(),
                         analysis,
                         "1".to_string(),
+                        None,
+                        PriorityTier::default(),
                         true,
                         false,
                         None,
@@ -751,6 +769,8 @@ impl UiTesting {
                         ctx.chain(),
                         analysis,
                         "1".to_string(),
+                        Some(dev_fee_tiers()),
+                        PriorityTier::default(),
                         true,
                         false,
                         None,
@@ -775,6 +795,8 @@ impl UiTesting {
                         ctx.chain(),
                         analysis,
                         "1".to_string(),
+                        None,
+                        PriorityTier::default(),
                         true,
                         false,
                         None,
@@ -799,6 +821,8 @@ impl UiTesting {
                         ctx.chain(),
                         analysis,
                         "1".to_string(),
+                        None,
+                        PriorityTier::default(),
                         true,
                         false,
                         None,
@@ -822,6 +846,8 @@ impl UiTesting {
                         ctx.chain(),
                         analysis,
                         "1".to_string(),
+                        None,
+                        PriorityTier::default(),
                         true,
                         false,
                         None,
@@ -846,6 +872,8 @@ impl UiTesting {
                         ctx.chain(),
                         analysis,
                         "1".to_string(),
+                        None,
+                        PriorityTier::default(),
                         true,
                         false,
                         None,
@@ -870,6 +898,8 @@ impl UiTesting {
                         ctx.chain(),
                         analysis,
                         "1".to_string(),
+                        None,
+                        PriorityTier::default(),
                         true,
                         false,
                         None,
@@ -988,5 +1018,17 @@ impl UiTesting {
          });
 
       self.icon_window_open = open;
+   }
+}
+
+/// Fixed presets for the dev menu: the four rungs a real mainnet window showed on 2026-10-25, so the
+/// preset control can be reviewed without spending a real transaction to see it.
+fn dev_fee_tiers() -> FeeTiers {
+   let gwei = 1_000_000_000u64;
+   FeeTiers {
+      slow: U256::from(gwei / 100),         // 0.01 gwei
+      normal: U256::from(gwei * 15 / 1000), // 0.015 gwei
+      fast: U256::from(gwei * 19 / 100),    // 0.19 gwei
+      very_fast: U256::from(gwei),          // 1 gwei
    }
 }
