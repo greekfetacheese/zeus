@@ -307,7 +307,7 @@ impl RecipientSelectionWindow {
 
       let frame = theme.window_frame.fill(theme.colors.bg);
       let title = RichText::new("Recipient").size(theme.typography.heading);
-      let id = Id::new("recipient_selection_window");
+      let id = Id::unique("recipient_selection_window");
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)

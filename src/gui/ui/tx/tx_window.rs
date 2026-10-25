@@ -118,7 +118,7 @@ impl TxWindow {
       }
 
       let title = RichText::new("Transaction Details").size(theme.typography.heading);
-      let id = Id::new("tx_window");
+      let id = Id::unique("tx_window");
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let mut open = self.open;
 

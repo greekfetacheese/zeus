@@ -48,15 +48,15 @@ publish = false
 [dependencies]
 
 # GUI
-eframe = { version = "=0.36", default-features = false, features = [
+eframe = { version = "=0.37", default-features = false, features = [
     "wgpu",
     "default_fonts",
     "links",
     "wayland",
     "x11",
 ] }
-egui = { version = "=0.36", features = ["serde"] }
-egui_extras = { version = "=0.36", features = ["image", "svg"] }
+egui = { version = "=0.37", features = ["serde", "monochrome_emoji_fonts"] }
+egui_extras = { version = "=0.37", features = ["image", "svg"] }
 flate2 = "=1.1.9"
 image = {version = "=0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif"]}
 imagesize = "=0.13.0"
@@ -70,9 +70,9 @@ imagesize = "=0.13.0"
 # bounds a nested raster for the day that changes, and `a_nested_raster_is_not_decoded_in_this_build`
 # is the canary that says when it has.
 resvg = {version = "=0.45.1", default-features = false}
-egui-elegance = "=0.16"
-egui-lucide = "0.1"
-egui-elements = {version = "=1.3.20", features = ["full"]}
+egui-elegance = "=0.17"
+egui-lucide = "0.2"
+egui-elements = {version = "=1.4.0", features = ["full"]}
 rfd = "=0.17.2"
 
 # Zeus Crates

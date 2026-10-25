@@ -749,7 +749,7 @@ impl ShieldUi {
          .size(theme.typography.large)
          .color(theme.colors.text);
 
-      let id = Id::new("shield_ui_advanced_broadcast_options");
+      let id = Id::unique("shield_ui_advanced_broadcast_options");
       let mut open = self.open_broadcast_options;
       let mut ok_clicked = false;
 
@@ -1365,7 +1365,7 @@ impl ShieldUi {
          .size(theme.typography.large)
          .color(theme.colors.text);
 
-      let id = Id::new("shield_ui_privacy_tips");
+      let id = Id::unique("shield_ui_privacy_tips");
       let mut open = self.privacy_tips_open;
 
       Modal::new(id, &mut open)
@@ -2642,8 +2642,8 @@ mod tests {
       };
 
       // The card's Area, as the modal registers it: `elegance_modal_window` salted with the id.
-      let area = eframe::egui::Id::new("elegance_modal_window").with(eframe::egui::Id::new(
-         eframe::egui::Id::new("shield_ui_privacy_tips"),
+      let area = eframe::egui::Id::unique("elegance_modal_window").with(eframe::egui::Id::unique(
+         eframe::egui::Id::unique("shield_ui_privacy_tips"),
       ));
 
       let mut rects = Vec::new();
@@ -2701,8 +2701,8 @@ mod tests {
       };
 
       // `Modal::new` salts with an id it hashes once more, so the area is a double wrap.
-      let area = eframe::egui::Id::new("elegance_modal_window").with(eframe::egui::Id::new(
-         eframe::egui::Id::new("shield_ui_advanced_broadcast_options"),
+      let area = eframe::egui::Id::unique("elegance_modal_window").with(eframe::egui::Id::unique(
+         eframe::egui::Id::unique("shield_ui_advanced_broadcast_options"),
       ));
 
       let mut rects = Vec::new();

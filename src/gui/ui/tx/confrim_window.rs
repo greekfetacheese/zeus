@@ -379,7 +379,7 @@ impl TxConfirmationWindow {
       }
 
       let mut open = self.open;
-      let id = Id::new("tx_confirmation_window");
+      let id = Id::unique("tx_confirmation_window");
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let heading = self.heading(theme);
 
@@ -1168,7 +1168,8 @@ mod height_budget {
 
       // How `egui_elements::Modal` registers its card: the Area id it salts with the
       // id passed to `Modal::new`.
-      let card = Id::new("elegance_modal_window").with(Id::new(Id::new("tx_confirmation_window")));
+      let card =
+         Id::unique("elegance_modal_window").with(Id::unique(Id::unique("tx_confirmation_window")));
 
       let mut height = 0.0;
 

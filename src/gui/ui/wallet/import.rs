@@ -60,7 +60,7 @@ impl ImportWallet {
 
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let title = RichText::new("Import Wallet").size(theme.typography.heading);
-      let id = Id::new("import_wallet_window");
+      let id = Id::unique("import_wallet_window");
 
       Modal::new(id, &mut is_open)
          .backdrop_order(Order::Middle)

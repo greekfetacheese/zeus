@@ -128,7 +128,7 @@ impl SimulateWindow {
       let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new("Simulate")
-         .id(Id::new("swap_ui_simulate_window"))
+         .id(Id::unique("swap_ui_simulate_window"))
          .resizable(true)
          .collapsible(true)
          .movable(true)

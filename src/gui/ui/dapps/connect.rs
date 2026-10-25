@@ -183,7 +183,7 @@ impl ConnectDappWindow {
          ui.add(label).clicked()
       };
 
-      Modal::new(Id::new("connect_dapp_window"), &mut open)
+      Modal::new(Id::unique("connect_dapp_window"), &mut open)
          .backdrop_order(Order::Middle)
          .content_order(Order::Foreground)
          .heading(title)

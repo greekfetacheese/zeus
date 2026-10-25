@@ -125,7 +125,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
       if let Some(msg) = status_msg {
          // Paint above modal backdrops (Middle) so the pill stays full-bright
-         Area::new(Id::new("top_panel_status"))
+         Area::new(Id::unique("top_panel_status"))
             .order(Order::Debug)
             .anchor(Align2::RIGHT_TOP, vec2(-12.0, 12.0))
             .interactable(false)

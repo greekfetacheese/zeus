@@ -548,7 +548,7 @@ impl TokenSelectionWindow {
       let mut close_window = false;
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let title = RichText::new(&self.title).size(theme.typography.heading);
-      let id = Id::new("token_selection_window");
+      let id = Id::unique("token_selection_window");
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)

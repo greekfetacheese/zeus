@@ -79,7 +79,7 @@ impl ImportDataUi {
 
       let mut open = self.open;
       let title = RichText::new("Import Data").size(theme.typography.heading);
-      let id = Id::new("import_data_window");
+      let id = Id::unique("import_data_window");
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)

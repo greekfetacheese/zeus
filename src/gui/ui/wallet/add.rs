@@ -67,7 +67,7 @@ impl AddWalletUi {
 
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let title = RichText::new("Add a new Wallet").size(theme.typography.heading);
-      let id = Id::new("add_wallet_window");
+      let id = Id::unique("add_wallet_window");
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)
