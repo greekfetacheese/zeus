@@ -41,7 +41,7 @@ pub struct TxConfirmRequest {
    pub chain: ChainId,
    pub analysis: TransactionAnalysis,
    pub priority_fee: String,
-   /// The four-tier recommendation, mainnet only. `None` keeps the window on the single value.
+   /// The three-tier recommendation, mainnet only. `None` keeps the window on the single value.
    pub tiers: Option<FeeTiers>,
    /// The tier to preselect.
    pub default_tier: PriorityTier,

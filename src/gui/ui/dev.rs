@@ -1021,12 +1021,11 @@ impl UiTesting {
    }
 }
 
-/// Fixed presets for the dev menu: the four rungs a real mainnet window showed on 2026-10-25, so the
+/// Fixed presets for the dev menu: the three rungs a real mainnet window showed on 2026-10-25, so the
 /// preset control can be reviewed without spending a real transaction to see it.
 fn dev_fee_tiers() -> FeeTiers {
    let gwei = 1_000_000_000u64;
    FeeTiers {
-      slow: U256::from(gwei / 100),         // 0.01 gwei
       normal: U256::from(gwei * 15 / 1000), // 0.015 gwei
       fast: U256::from(gwei * 19 / 100),    // 0.19 gwei
       very_fast: U256::from(gwei),          // 1 gwei

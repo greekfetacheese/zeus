@@ -1001,7 +1001,7 @@ pub struct PriorityFee {
    /// The single value every non-window consumer reads (dapp `eth_maxPriorityFeePerGas`, swap,
    /// Across). On mainnet this is the Normal tier; elsewhere it is the node's estimate.
    pub fee: HashMap<u64, NumericValue>,
-   /// The four-tier recommendation. Mainnet only — absent means the window offers the single value.
+   /// The three-tier recommendation. Mainnet only — absent means the window offers the single value.
    pub tiers: HashMap<u64, FeeTiers>,
    /// When each chain's recommendation was last read, for the window's staleness check.
    pub updated: HashMap<u64, Instant>,

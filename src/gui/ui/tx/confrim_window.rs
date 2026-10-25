@@ -48,7 +48,7 @@ pub struct TxConfirmationWindow {
    /// Tx to be confirmed and sent to the network
    tx: Option<TransactionAnalysis>,
    tx_main_event: Option<DecodedEvent>,
-   /// The four-tier recommendation this prompt was opened with, if the chain has one.
+   /// The three-tier recommendation this prompt was opened with, if the chain has one.
    tiers: Option<FeeTiers>,
    /// The tier the user picked.
    tier: PriorityTier,
@@ -70,6 +70,10 @@ pub struct TxConfirmationWindow {
    adjusted_gas_limit: String,
    tx_cost: NumericValue,
    tx_cost_usd: NumericValue,
+   /// Each rung's cost in the native currency's USD, in `PriorityTier::ALL` order. Recomputed with the
+   /// rest of the cost, and like `tx_cost` it prices the simulated gas — the gas-limit override moves
+   /// neither.
+   tier_costs_usd: Vec<NumericValue>,
    show_calldata: bool,
    show_diffs: bool,
    /// Priority fee / gas limit / MEV status
@@ -106,6 +110,7 @@ impl TxConfirmationWindow {
          adjusted_gas_limit: String::new(),
          tx_cost: NumericValue::default(),
          tx_cost_usd: NumericValue::default(),
+         tier_costs_usd: Vec::new(),
          show_calldata: false,
          show_diffs: false,
          show_tx_options: false,
@@ -403,6 +408,14 @@ impl TxConfirmationWindow {
       let (cost_in_wei, cost_in_usd) = estimate_tx_cost(ctx, chain.id(), gas_used, fee.wei());
       self.tx_cost = cost_in_wei;
       self.tx_cost_usd = cost_in_usd;
+
+      self.tier_costs_usd.clear();
+      if let Some(tiers) = self.tiers {
+         self.tier_costs_usd = PriorityTier::ALL
+            .into_iter()
+            .map(|tier| estimate_tx_cost(ctx, chain.id(), gas_used, tiers.tip(tier)).1)
+            .collect();
+      }
    }
 
    pub fn show(
@@ -506,6 +519,7 @@ impl TxConfirmationWindow {
                   tier: &mut self.tier,
                   custom: &mut self.custom,
                   custom_value: &mut self.priority_fee,
+                  costs_usd: &self.tier_costs_usd,
                };
 
                let fee_change = show_tx_options_modal(
