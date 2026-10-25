@@ -6,7 +6,7 @@ use crate::persisted::{PersistedFile, ensure_data_dir, file_path};
 use crate::platform::fs::write_private_atomic;
 use crate::wallet_state::{WalletStateInner, WalletStateKey};
 use anyhow::anyhow;
-use brotli::BrotliDecompress;
+use brotli_decompressor::BrotliDecompress;
 
 #[cfg(test)]
 use brotli::{BrotliCompress, enc::BrotliEncoderParams};

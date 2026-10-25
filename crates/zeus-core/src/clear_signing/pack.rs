@@ -8,7 +8,7 @@
 //! format here: the bounds, the parser and the one-time cache. [`get`] reads the installed bytes
 //! through [`crate::assets`]; nothing is baked into this crate.
 
-use brotli::BrotliDecompress;
+use brotli_decompressor::BrotliDecompress;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 

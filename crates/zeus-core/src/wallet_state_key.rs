@@ -4,25 +4,35 @@
 //! without a `wallet_state` ↔ `context::tx` import cycle.
 
 use anyhow::anyhow;
-use brotli::{BrotliCompress, BrotliDecompress, enc::BrotliEncoderParams};
+#[cfg(test)]
+use brotli::{BrotliCompress, enc::BrotliEncoderParams};
+use brotli_decompressor::BrotliDecompress;
 use chacha20poly1305::{
    XChaCha20Poly1305, XNonce,
    aead::{Aead, AeadCore, KeyInit, OsRng, Payload},
 };
+use flate2::{Compression, read::ZlibDecoder, write::ZlibEncoder};
 use rand::RngCore;
 use secure_types::{SecureArray, Zeroize};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+#[cfg(test)]
 use std::io::Cursor;
+use std::io::{Read, Write};
 
 /// Plaintext payload encoding (first byte after AEAD open).
 ///
 /// - `0` raw JSON
-/// - `1` brotli-compressed JSON
+/// - `1` brotli-compressed JSON (legacy: still read, no longer written)
+/// - `2` zlib-compressed JSON (current write format)
 const PAYLOAD_RAW_JSON: u8 = 0;
 const PAYLOAD_BROTLI: u8 = 1;
+const PAYLOAD_ZLIB: u8 = 2;
 
 const NONCE_LEN: usize = 24;
-const BROTLI_QUALITY: i32 = 5;
+
+/// These stores are small and grow slowly, so level 9 costs little and keeps them as small as
+/// possible.
+const ZLIB_LEVEL: u32 = 9;
 
 /// 32-byte AEAD key for [`super::WalletState`], persisted inside [super::Vault].
 #[derive(Clone, Serialize, Deserialize)]
@@ -111,7 +121,7 @@ impl WalletStateKey {
       self.0.erase();
    }
 
-   /// Serialize `value` as brotli-compressed JSON and seal it.
+   /// Serialize `value` as zlib-compressed JSON and seal it.
    pub fn seal_json<T: Serialize>(&self, value: &T, aad: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
       let mut json =
          serde_json::to_vec(value).map_err(|e| anyhow!("serialize sealed json: {e}"))?;
@@ -174,9 +184,10 @@ fn ct_eq(a: &[u8], b: &[u8]) -> bool {
    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
+#[cfg(test)]
 fn brotli_compress(input: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
    let params = BrotliEncoderParams {
-      quality: BROTLI_QUALITY,
+      quality: 5,
       ..Default::default()
    };
    let mut out = Vec::new();
@@ -192,10 +203,26 @@ fn brotli_decompress(input: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
    Ok(out)
 }
 
+fn zlib_compress(input: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+   let mut encoder = ZlibEncoder::new(Vec::new(), Compression::new(ZLIB_LEVEL));
+   encoder
+      .write_all(input)
+      .map_err(|e| anyhow!("zlib compress wallet state: {e}"))?;
+   encoder.finish().map_err(|e| anyhow!("zlib compress wallet state: {e}"))
+}
+
+fn zlib_decompress(input: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+   let mut out = Vec::new();
+   ZlibDecoder::new(input)
+      .read_to_end(&mut out)
+      .map_err(|e| anyhow!("zlib decompress wallet state: {e}"))?;
+   Ok(out)
+}
+
 fn encode_payload(json: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
-   let compressed = brotli_compress(json)?;
+   let compressed = zlib_compress(json)?;
    let mut out = Vec::with_capacity(1 + compressed.len());
-   out.push(PAYLOAD_BROTLI);
+   out.push(PAYLOAD_ZLIB);
    out.extend_from_slice(&compressed);
    Ok(out)
 }
@@ -215,6 +242,7 @@ fn decode_payload(data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
    match version {
       PAYLOAD_RAW_JSON => Ok(payload.to_vec()),
       PAYLOAD_BROTLI => brotli_decompress(payload),
+      PAYLOAD_ZLIB => zlib_decompress(payload),
       other => Err(anyhow!(
          "unknown wallet state payload version: {other}"
       )),
@@ -237,11 +265,46 @@ mod tests {
    }
 
    #[test]
-   fn payload_brotli_roundtrip() {
+   fn legacy_brotli_payload_still_decodes() {
       let json = br#"{"contacts":[]}"#;
-      let encoded = encode_payload(json).unwrap();
+      let mut encoded = vec![PAYLOAD_BROTLI];
+      encoded.extend_from_slice(&brotli_compress(json).unwrap());
       assert_eq!(encoded[0], PAYLOAD_BROTLI);
       let decoded = decode_payload(&encoded).unwrap();
       assert_eq!(decoded, json);
+   }
+
+   #[test]
+   fn encode_payload_writes_zlib() {
+      let json = br#"{"contacts":[]}"#;
+      let encoded = encode_payload(json).unwrap();
+      assert_eq!(encoded[0], PAYLOAD_ZLIB);
+      assert_ne!(encoded[0], PAYLOAD_BROTLI);
+      let decoded = decode_payload(&encoded).unwrap();
+      assert_eq!(decoded, json);
+   }
+
+   #[test]
+   fn unknown_payload_version_is_an_error() {
+      let err = decode_payload(&[9, 0, 0]).unwrap_err();
+      assert_eq!(
+         err.to_string(),
+         "unknown wallet state payload version: 9"
+      );
+   }
+
+   #[test]
+   fn legacy_sealed_blob_opens() {
+      let key = WalletStateKey::generate().unwrap();
+      let json = br#"{"contacts":["0xabc"],"currency":"ETH"}"#;
+      let mut payload = vec![PAYLOAD_BROTLI];
+      payload.extend_from_slice(&brotli_compress(json).unwrap());
+
+      let sealed = key.seal(&payload, AAD).unwrap();
+      let opened = key.open_json::<serde_json::Value>(&sealed, AAD).unwrap();
+      assert_eq!(
+         opened,
+         serde_json::from_slice::<serde_json::Value>(json).unwrap()
+      );
    }
 }

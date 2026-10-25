@@ -24,7 +24,8 @@ alloy-consensus = { workspace = true }
 secure-types = { version = "0.5", features = ["codec"] }
 ncrypt-me = "0.4"
 chacha20poly1305 = "=0.10"
-brotli = "=8.0.4"
+brotli-decompressor = "5"
+flate2 = "=1.1.9"
 zip = { version = "=9.0.4", default-features = false, features = ["deflate"] }
 redb = "4"
 reqwest = { version = "0.13", features = ["json", "query"] }
@@ -45,6 +46,10 @@ tokio = { version = "=1.47.1", features = [
     "macros",
     "fs",
 ] }
+
+[dev-dependencies]
+# Test-only: builds the legacy v1 brotli blobs the production code must keep decoding.
+brotli = "=8.0.4"
 
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.189"
