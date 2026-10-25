@@ -41,9 +41,15 @@ use eframe::egui::{Id, Ui, emath};
 /// });
 /// ```
 #[inline]
-pub fn panel_fade(ui: &Ui, id: impl Into<Id>, open: bool) -> Option<f32> {
+pub fn panel_fade(
+   ui: &Ui,
+   id: impl core::hash::Hash + core::fmt::Debug,
+   open: bool,
+) -> Option<f32> {
    // Always tick the animator so close resets toward 0 without painting.
-   let opacity = ui.ctx().animate_bool_with_easing(id.into(), open, emath::easing::cubic_out);
+   let opacity = ui
+      .ctx()
+      .animate_bool_with_easing(Id::unique(id), open, emath::easing::cubic_out);
 
    // Instant hide — no fade-out paint (avoids stacking with the next panel).
    if !open || opacity <= 0.0 {
@@ -61,7 +67,7 @@ pub fn panel_fade(ui: &Ui, id: impl Into<Id>, open: bool) -> Option<f32> {
 #[inline]
 pub fn show_with_fade(
    ui: &mut Ui,
-   id: impl Into<Id>,
+   id: impl core::hash::Hash + core::fmt::Debug,
    open: bool,
    add_contents: impl FnOnce(&mut Ui),
 ) {
