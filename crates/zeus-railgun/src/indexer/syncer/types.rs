@@ -43,7 +43,13 @@ pub struct Transact {
    pub hash: U256,
    pub ciphertext: Ciphertext,
    pub blinded_sender_viewing_key: [u8; 32],
+   /// Same status as `annotation_data` (~6.5% of the payload): write-only here.
+   /// POI is the only plausible future consumer.
    pub blinded_receiver_viewing_key: [u8; 32],
+   /// Not read by Zeus today: no decoder touches it (`decrypt_transact` reads the
+   /// sender key, and the memo comes from ciphertext block 3). Kept because dropping
+   /// it would leave future annotation consumers needing an RPC refetch; it is
+   /// ~12.8% of the events snapshot payload. Revisit when POI is wired.
    pub annotation_data: Vec<u8>,
    #[serde(default)]
    pub timestamp: u64,

@@ -1,3 +1,4 @@
+pub(crate) mod chunk_codec;
 pub mod normalize_tree_position;
 pub mod rpc;
 pub mod snapshot;
