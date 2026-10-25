@@ -62,7 +62,7 @@ impl SpentNoteWindow {
       }
 
       let title = RichText::new("Note Details").size(theme.typography.heading);
-      let id = Id::new("spent_note_window");
+      let id = Id::unique("spent_note_window");
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let mut open = self.open;
 

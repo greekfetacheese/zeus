@@ -160,7 +160,7 @@ impl AccountPanel {
       let animate = target > 0.0;
       let height = if animate {
          ui.ctx().animate_value_with_time(
-            ui.id().with("panel_body_height"),
+            ui.scope_id().with("panel_body_height"),
             target,
             ui.style().animation_time,
          )

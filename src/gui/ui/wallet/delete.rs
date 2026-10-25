@@ -82,7 +82,7 @@ impl DeleteWalletUi {
 
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let title = RichText::new("Verify Credentials").size(theme.typography.heading);
-      let id = Id::new("verify_credentials_delete_wallet_ui");
+      let id = Id::unique("verify_credentials_delete_wallet_ui");
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)
@@ -142,7 +142,7 @@ impl DeleteWalletUi {
       let mut clicked = false;
       let mut cancel = false;
 
-      let id = Id::new("delete_wallet_ui_delete_wallet");
+      let id = Id::unique("delete_wallet_ui_delete_wallet");
 
       Modal::new(id, &mut open)
       .backdrop_order(Order::Middle)

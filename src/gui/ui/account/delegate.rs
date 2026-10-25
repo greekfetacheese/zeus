@@ -92,7 +92,7 @@ impl DelegateUi {
       };
       let title = RichText::new(heading).size(theme.typography.heading);
       let frame = theme.window_frame.fill(theme.frame1.fill);
-      let id = Id::new("delegate_settings_window");
+      let id = Id::unique("delegate_settings_window");
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)
@@ -226,7 +226,7 @@ impl DelegateUi {
       let mut clicked = false;
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let title = RichText::new("Verify Credentials").size(theme.typography.heading);
-      let id = Id::new("verify_credentials_delegate_ui");
+      let id = Id::unique("verify_credentials_delegate_ui");
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)

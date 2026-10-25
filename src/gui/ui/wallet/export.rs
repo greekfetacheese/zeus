@@ -144,7 +144,7 @@ impl ExportKeyUi {
       let mut open = self.show_key;
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let title = RichText::new("Export Key").size(theme.typography.heading);
-      let id = Id::new("show_key_export_ui");
+      let id = Id::unique("show_key_export_ui");
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)
@@ -251,7 +251,7 @@ impl ExportKeyUi {
       let mut open = self.credentials_form.is_open();
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let title = RichText::new("Verify Credentials").size(theme.typography.heading);
-      let id = Id::new("verify_credentials_window");
+      let id = Id::unique("verify_credentials_window");
       let mut clicked = false;
 
       Modal::new(id, &mut open)

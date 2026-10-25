@@ -360,7 +360,7 @@ impl ConnectedDappsUi {
       let chain_id = ctx.chain.id();
 
       let title = RichText::new("Connected Dapps").size(theme.typography.heading);
-      let id = Id::new("connected_dapps_window");
+      let id = Id::unique("connected_dapps_window");
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)

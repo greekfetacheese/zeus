@@ -73,7 +73,7 @@ fn title_bar_ui(ui: &mut Ui, window: &WindowCtx, title_bar_rect: Rect) {
 
    let title_bar_response = ui.interact(
       title_bar_rect,
-      Id::new("settings_title_bar"),
+      Id::unique("settings_title_bar"),
       Sense::click_and_drag(),
    );
 

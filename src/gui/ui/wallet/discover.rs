@@ -166,7 +166,7 @@ impl DiscoverChildWallets {
 
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let title = RichText::new("Discover Wallets").size(theme.typography.heading);
-      let id = Id::new("discover_wallets_window");
+      let id = Id::unique("discover_wallets_window");
 
       Modal::new(id, &mut is_open)
          .backdrop_order(Order::Middle)
@@ -613,7 +613,7 @@ impl DiscoverChildWallets {
       let title_frame = window_frame.stroke(Stroke::NONE);
 
       Window::new(title)
-         .id(Id::new("discover_wallets_add_wallet_window"))
+         .id(Id::unique("discover_wallets_add_wallet_window"))
          .open(&mut open)
          .resizable(false)
          .collapsible(false)

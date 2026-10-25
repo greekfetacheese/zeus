@@ -153,7 +153,7 @@ impl SignMsgWindow {
          title = title.color(theme.colors.error);
       }
 
-      let id = Id::new("sign_msg_window");
+      let id = Id::unique("sign_msg_window");
       let frame = theme.window_frame.fill(theme.frame1.fill);
 
       Modal::new(id, &mut open)

@@ -57,7 +57,7 @@ impl DecodedEvents {
       }
 
       let title = RichText::new("Decoded Events").size(theme.typography.heading);
-      let id = Id::new("decoded_events_window");
+      let id = Id::unique("decoded_events_window");
       let modal_frame = theme.window_frame.fill(theme.frame1.fill);
       let mut open = self.open;
 

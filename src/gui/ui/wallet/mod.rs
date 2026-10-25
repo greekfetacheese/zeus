@@ -314,7 +314,7 @@ impl WalletUi {
 
       let title = RichText::new("Rename Wallet").size(theme.typography.heading);
       let frame = theme.window_frame.fill(theme.frame1.fill);
-      let id = Id::new("rename_wallet_window");
+      let id = Id::unique("rename_wallet_window");
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)
