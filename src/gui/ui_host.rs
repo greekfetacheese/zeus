@@ -41,6 +41,7 @@ impl UiHost for GuiHost {
             req.chain,
             req.analysis,
             req.priority_fee,
+            req.tiers,
             req.mev_protect,
             req.sponsored,
             req.recipient_name,

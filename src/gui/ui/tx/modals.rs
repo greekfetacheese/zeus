@@ -2,26 +2,40 @@
 //! display.
 
 use egui::{
-   Align, FontId, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui,
+   Align, FontId, Id, Layout, Margin, Order, Rect, RichText, ScrollArea, TextEdit, Ui, emath, pos2,
    scroll_area::ScrollBarVisibility, vec2,
 };
 use egui_elements::{
    Button, Label, Modal, SecureTextEdit, Theme,
    widgets::{Badge as CornerBadge, BadgeCorner},
 };
-use elegance::{Indicator, IndicatorState};
+use elegance::{Indicator, IndicatorState, Switch};
 
 use super::address;
 use super::rows::{show_approval_diff_rows, show_balance_diff_rows};
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::{ClearDisplay, FormattedValue};
+use crate::core::tx::{FeeTiers, PriorityTier};
 use crate::core::{ApprovalDiff, BalanceDiff, TransactionAnalysis, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::truncate_hash;
 use zeus_eth::alloy_primitives::{Address, TxHash};
 use zeus_eth::types::ChainId;
+use zeus_eth::utils::NumericValue;
 
 use std::sync::Arc;
+
+/// What the options modal may change about the fee.
+pub struct FeeSelection<'a> {
+   /// The recommendation, or `None` for a chain that has none (every chain but mainnet).
+   pub tiers: Option<FeeTiers>,
+   pub tier: &'a mut PriorityTier,
+   /// Whether the free-text value overrides the tier.
+   pub custom: &'a mut bool,
+   pub custom_value: &'a mut String,
+   /// Each rung's USD cost, in `PriorityTier::ALL` order.
+   pub costs_usd: &'a [NumericValue],
+}
 
 /// Show the trasnsaction hash with a hyperlink to the block explorer
 /// in a horizontal layout from left to right
@@ -211,13 +225,13 @@ pub fn show_tx_diffs_modal(
 ///
 /// They used to hold a frame of their own in the confirmation window, where two
 /// rarely-touched fields competed for height with what the transaction actually does.
-/// Returns `true` when the priority fee was edited, so the caller can recompute the
-/// cost it shows.
+/// Returns whether the fee the transaction will use was edited, so the caller can
+/// recompute the shown cost.
 pub fn show_tx_options_modal(
    open: &mut bool,
    theme: &Theme,
    chain: ChainId,
-   priority_fee: &mut String,
+   fee: &mut FeeSelection<'_>,
    gas_limit: &mut String,
    gas_used: u64,
    mev_protect: bool,
@@ -242,10 +256,11 @@ pub fn show_tx_options_modal(
          ui.set_width(ui.available_width());
          ui.spacing_mut().item_spacing.y = theme.spacing.md;
 
-         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = theme.spacing.md;
-            let field_width = (ui.available_width() - theme.spacing.md) * 0.5;
+         // The preset rows carry a label and a value on one line, so they need the whole modal
+         // width; a chain without a recommendation keeps the original two-column layout.
+         let field_width = (ui.available_width() - theme.spacing.md) * 0.5;
 
+         if fee.tiers.is_some() {
             ui.vertical(|ui| {
                ui.label(RichText::new("Priority Fee (Gwei)").size(theme.typography.large));
 
@@ -254,16 +269,116 @@ pub fn show_tx_options_modal(
                   ui.disable();
                }
 
-               let res = ui.add(
-                  SecureTextEdit::singleline(priority_fee)
-                     .visuals(text_edit_visuals)
-                     .margin(Margin::same(10))
-                     .desired_width(field_width)
-                     .font(FontId::proportional(theme.typography.large)),
-               );
+               if let Some(tiers) = fee.tiers {
+                  for (index, tier) in PriorityTier::ALL.into_iter().enumerate() {
+                     let selected = *fee.tier == tier && !*fee.custom;
+                     let gwei = NumericValue::format_to_gwei(tiers.tip(tier));
+                     let usd = fee.costs_usd.get(index).cloned().unwrap_or_default();
+                     let right = if usd.is_zero() {
+                        format!("{} gwei", gwei.formatted)
+                     } else {
+                        format!(
+                           "{} gwei  ·  ${}",
+                           gwei.formatted,
+                           usd.abbreviated()
+                        )
+                     };
+                     let row = Button::selectable(
+                        selected,
+                        RichText::new(tier.label()).size(theme.typography.large),
+                     )
+                     .right_text(right)
+                     .min_size(vec2(ui.available_width(), 32.0));
 
-               if res.changed() {
-                  fee_changed = true;
+                     if ui.add(row).clicked() {
+                        *fee.tier = tier;
+                        *fee.custom = false;
+                        fee_changed = true;
+                     }
+                  }
+
+                  if ui.add(Switch::new(fee.custom, "Custom fee")).changed() {
+                     fee_changed = true;
+                  }
+
+                  // The field slides open instead of jumping: the consumed space animates, a body
+                  // held at its natural height is clipped to that space, and the text edit is
+                  // never squeezed.
+                  let custom_id = Id::unique("tx_options_custom_fee");
+                  let unclipped = ui.clip_rect();
+                  let top = ui.cursor().top();
+                  // The field's natural height, measured in a scratch ui that never touches the
+                  // modal's cursor: the text edit's own layout must not be squeezed while it
+                  // slides.
+                  let natural = {
+                     let mut scratch = ui.new_child(
+                        egui::UiBuilder::new().id_salt(custom_id.with("measure")).max_rect(
+                           Rect::from_min_size(ui.cursor().min, ui.max_rect().size()),
+                        ),
+                     );
+                     scratch.set_invisible();
+                     scratch
+                        .add(
+                           SecureTextEdit::singleline(fee.custom_value)
+                              .id_source(custom_id.with("measure_field"))
+                              .visuals(text_edit_visuals)
+                              .margin(Margin::same(10))
+                              .desired_width(field_width)
+                              .font(FontId::proportional(theme.typography.large)),
+                        )
+                        .rect
+                        .height()
+                  };
+
+                  // Ticked every frame, closed included: an animator that never sees `false`
+                  // snaps the next time it opens.
+                  let reveal = ui.ctx().animate_bool_with_time_and_easing(
+                     custom_id.with("reveal"),
+                     *fee.custom,
+                     ui.style().animation_time,
+                     emath::easing::cubic_out,
+                  );
+                  let height = ui.ctx().animate_value_with_time(
+                     custom_id.with("height"),
+                     if *fee.custom { natural } else { 0.0 },
+                     ui.style().animation_time,
+                  );
+
+                  // Hidden, the field still takes an interaction pass on the frame that turns the
+                  // switch off; the fade is already zero there, so it stays unseen.
+                  if reveal > 0.0 || *fee.custom {
+                     // Hold the body at its natural height and clip the painted output to the
+                     // animated space: egui never clips a child on its own. The child's own rect
+                     // is discarded and only the animated height is consumed, so the Gas Limit
+                     // block below rides the same slide instead of jumping at its end.
+                     let area = Rect::from_min_size(
+                        pos2(ui.cursor().min.x, top),
+                        vec2(ui.available_width(), height),
+                     );
+
+                     let mut reveal_ui = ui.new_child(egui::UiBuilder::new().max_rect(area));
+                     reveal_ui.set_clip_rect(Rect::from_min_max(
+                        unclipped.min,
+                        pos2(unclipped.max.x, top + height),
+                     ));
+                     reveal_ui.multiply_opacity(reveal);
+                     reveal_ui.set_min_height(natural);
+
+                     let res = reveal_ui.add(
+                        SecureTextEdit::singleline(fee.custom_value)
+                           .id_source(custom_id.with("field"))
+                           .visuals(text_edit_visuals)
+                           .margin(Margin::same(10))
+                           .desired_width(field_width)
+                           .font(FontId::proportional(theme.typography.large)),
+                     );
+
+                     if res.changed() {
+                        fee_changed = true;
+                     }
+
+                     ui.advance_cursor_after_rect(area);
+                  }
                }
             });
 
@@ -278,7 +393,44 @@ pub fn show_tx_options_modal(
                      .font(FontId::proportional(theme.typography.large)),
                );
             });
-         });
+         } else {
+            // Unchanged: today's two-column layout for chains with no recommendation.
+            ui.horizontal(|ui| {
+               ui.spacing_mut().item_spacing.x = theme.spacing.md;
+
+               ui.vertical(|ui| {
+                  ui.label(RichText::new("Priority Fee (Gwei)").size(theme.typography.large));
+
+                  if chain.is_bsc() {
+                     ui.disable();
+                  }
+
+                  let res = ui.add(
+                     SecureTextEdit::singleline(fee.custom_value)
+                        .visuals(text_edit_visuals)
+                        .margin(Margin::same(10))
+                        .desired_width(field_width)
+                        .font(FontId::proportional(theme.typography.large)),
+                  );
+
+                  if res.changed() {
+                     fee_changed = true;
+                  }
+               });
+
+               ui.vertical(|ui| {
+                  ui.label(RichText::new("Gas Limit").size(theme.typography.large));
+
+                  ui.add(
+                     SecureTextEdit::singleline(gas_limit)
+                        .visuals(text_edit_visuals)
+                        .margin(Margin::same(10))
+                        .desired_width(field_width)
+                        .font(FontId::proportional(theme.typography.large)),
+                  );
+               });
+            });
+         }
 
          let hint = format!(
             "Simulated gas: {gas_used} — raise the limit if the transaction runs out of gas"

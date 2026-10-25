@@ -1,4 +1,4 @@
-use crate::context::get_base_fee;
+use crate::context::{self, get_base_fee};
 use crate::platform::TimeStamp;
 use crate::sim::eip7702_implementation;
 use crate::types::EnsRecipientGuard;
@@ -67,6 +67,8 @@ pub struct TxParams {
    pub miner_tip: U256,
    /// The base fee of the next block.
    pub base_fee: u64,
+   /// Headroom on `(tip + base fee)`, in basis points: see `PriorityTier::fee_ceiling_bps`.
+   pub ceiling_bps: u32,
    pub call_data: Bytes,
    pub gas_limit: u64,
    pub authorization_list: Vec<SignedAuthorization>,
@@ -95,18 +97,19 @@ impl TxParams {
          chain,
          miner_tip: U256::ZERO,
          base_fee: 0,
+         ceiling_bps: 11_000,
          call_data,
          gas_limit: 0,
          authorization_list: Vec::new(),
       }
    }
 
-   /// The two fee inputs. Both are plain numbers that cannot be told apart once
-   /// they are in the struct, so they are set together and by name.
+   /// The fee inputs. All three must agree, so they are set together and by name.
    #[must_use]
-   pub fn fees(mut self, miner_tip: U256, base_fee: u64) -> Self {
+   pub fn fees(mut self, miner_tip: U256, base_fee: u64, ceiling_bps: u32) -> Self {
       self.miner_tip = miner_tip;
       self.base_fee = base_fee;
+      self.ceiling_bps = ceiling_bps;
       self
    }
 
@@ -125,8 +128,10 @@ impl TxParams {
 
    pub fn max_fee_per_gas(&self) -> U256 {
       let fee = self.miner_tip + U256::from(self.base_fee);
-      // add a 10% tolerance
-      fee * U256::from(110) / U256::from(100)
+      // The ceiling bounds what may be charged, not what is charged: the sender pays the base fee
+      // plus the tip actually used. A margin narrower than a block's base-fee growth makes the tx
+      // *invalid* instead of merely slow, so the window's tier decides it.
+      fee * U256::from(self.ceiling_bps) / U256::from(10_000u32)
    }
 }
 
@@ -235,6 +240,8 @@ pub struct SendTxOptions {
 pub struct ConfirmedTx {
    pub priority_fee: NumericValue,
    pub gas_limit: u64,
+   /// The max-fee ceiling the chosen tier carries, in basis points.
+   pub fee_ceiling_bps: u32,
    pub clear_display: Option<ClearDisplay>,
 }
 
@@ -431,7 +438,13 @@ pub async fn confirm_tx(
    // A locked wallet never confirms: refuse before opening the prompt.
    ctx.ensure_unlocked()?;
 
+   // A recommendation is a snapshot: the 300 s loop can leave it minutes old, and a stale tip is
+   // the thing this path exists to stop showing. Failure is not fatal — the window falls back to
+   // the value already stored.
+   context::ensure_priority_fee_fresh(ctx.clone(), chain.id()).await;
+
    let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
+   let tiers = ctx.get_fee_tiers(chain.id());
 
    // One confirmation at a time, whatever raised it. Two sends racing here would share this
    // window — the second prompt replacing what the first displayed — and both would then act on
@@ -445,6 +458,7 @@ pub async fn confirm_tx(
       chain,
       analysis: analysis.clone(),
       priority_fee: priority_fee.f64().to_string(),
+      tiers,
       mev_protect: opts.mev_protect,
       sponsored: opts.sponsored,
       recipient_name: opts.recipient_name.clone(),
@@ -501,6 +515,7 @@ pub async fn confirm_tx(
    Ok(ConfirmedTx {
       priority_fee: answer.priority_fee,
       gas_limit: answer.gas_limit,
+      fee_ceiling_bps: answer.fee_ceiling_bps,
       clear_display: answer.clear_display,
    })
 }
@@ -636,7 +651,11 @@ pub async fn send_transaction(
       value,
       call_data.clone(),
    )
-   .fees(priority_fee.wei(), base_fee.next)
+   .fees(
+      priority_fee.wei(),
+      base_fee.next,
+      confirmed.fee_ceiling_bps,
+   )
    .gas_limit(confirmed.gas_limit)
    .authorization_list(authorization_list.clone());
 
@@ -1177,5 +1196,40 @@ mod tests {
       let err =
          refuse_contract_recipient(recipient, account).expect_err("unidentified family: refused");
       assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
+   }
+
+   /// The max-fee ceiling follows the tier: the sender pays the base fee plus the tip actually
+   /// used, but the ceiling has to outlast the base fee's +12.5%/block growth or the tx is
+   /// invalid rather than merely slow.
+   #[test]
+   fn max_fee_per_gas_scales_with_the_ceiling() {
+      let gwei = U256::from(1_000_000_000u64);
+      let tip = gwei;
+      let base_fee = 10 * 1_000_000_000u64;
+
+      let params = TxParams::new(
+         SecureKey::random(),
+         ChainId::Ethereum,
+         Address::from([2u8; 20]),
+         0,
+         U256::ZERO,
+         Bytes::default(),
+      );
+
+      let mut previous = U256::ZERO;
+
+      for bps in [11_000u32, 11_500, 13_000, 16_000, 20_000] {
+         let max_fee = params.clone().fees(tip, base_fee, bps).max_fee_per_gas();
+
+         assert_eq!(
+            max_fee,
+            (tip + U256::from(base_fee)) * U256::from(bps) / U256::from(10_000)
+         );
+         assert!(
+            max_fee > previous,
+            "the ceiling must grow with the tier"
+         );
+         previous = max_fee;
+      }
    }
 }

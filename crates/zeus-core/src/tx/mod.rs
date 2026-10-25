@@ -1,6 +1,7 @@
 pub mod analysis;
 pub mod approve;
 pub mod events;
+pub mod fees;
 pub mod finalize;
 pub mod main_event;
 pub mod notification;
@@ -14,6 +15,7 @@ pub use approve::{
    send_nft_approve, send_token_approve,
 };
 pub use events::DecodedEvent;
+pub use fees::{FeeTiers, PriorityTier};
 pub use finalize::{
    MainEvent, MinedTx, RecordPolicy, TxOutcome, build_tx_outcome, record_and_notify,
 };

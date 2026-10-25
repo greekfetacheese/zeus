@@ -28,4 +28,4 @@ pub use ctx::*;
 pub use currencies::CurrencyDB;
 pub use nft::NftDB;
 pub use pool_manager::PoolManagerHandle;
-pub use state::{estimate_tx_cost, get_base_fee};
+pub use state::{ensure_priority_fee_fresh, estimate_tx_cost, get_base_fee, update_priority_fee};

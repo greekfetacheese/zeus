@@ -3,21 +3,16 @@ use crate::core::persisted::{PersistedTree, ensure_tree_dir};
 use crate::core::urls::ZeusUrl;
 use crate::core::{WalletPortfolio, ZeusCtx};
 use crate::utils::{malloc_trim, self_update};
-use anyhow::anyhow;
 use tracing::{debug, error, info, warn};
 
 pub use crate::core::get_base_fee;
+pub use crate::core::update_priority_fee;
 
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
-use zeus_eth::{
-   alloy_primitives::U256,
-   alloy_provider::Provider,
-   types::{ChainId, SUPPORTED_CHAINS},
-   utils::NumericValue,
-};
+use zeus_eth::types::{ChainId, SUPPORTED_CHAINS};
 use zeus_railgun::{Groth16Prover, PrefetchReport, RailgunSigner};
 
 const MALLOC_TRIM_INTERVAL: u64 = 300;
@@ -568,53 +563,6 @@ async fn state_update_interval(ctx: ZeusCtx) {
 
       tokio::time::sleep(Duration::from_secs(1)).await;
    }
-}
-
-pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow::Error> {
-   if ctx.is_chain_disabled(chain) {
-      return Ok(());
-   }
-
-   let z_client = ctx.get_client_manager();
-   let chain = ChainId::new(chain)?;
-   if chain.supports_type_2_tx() {
-      let fee = z_client
-         .request(chain.id(), |client| async move {
-            client.get_max_priority_fee_per_gas().await.map_err(|e| anyhow!("{:?}", e))
-         })
-         .await?;
-
-      let mut fee_u256 = U256::from(fee);
-
-      // Set a minimum fee for Ethereum so txs dont timeout
-      if chain.is_ethereum() {
-         let min = NumericValue::parse_to_gwei("0.01");
-
-         if fee_u256 < min.wei() {
-            fee_u256 = min.wei();
-         }
-      }
-
-      let fee_fmt = NumericValue::format_to_gwei(fee_u256);
-
-      if fee_fmt.is_zero() {
-         return Err(anyhow!(
-            "Rpc returned bad data, Fee (Wei) {} For Chain: {}",
-            fee,
-            chain.id()
-         ));
-      }
-
-      #[cfg(feature = "dev")]
-      debug!(
-         "Priority fee for chain {} is {}",
-         chain.id(),
-         fee_fmt.formatted()
-      );
-
-      ctx.update_priority_fee(chain.id(), fee_fmt);
-   }
-   Ok(())
 }
 
 /// Prefetch pack circuits (`railgun/01x01` ..= `05x05`) into the Zeus

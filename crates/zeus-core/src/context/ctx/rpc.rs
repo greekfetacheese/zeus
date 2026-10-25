@@ -1,6 +1,7 @@
 use super::super::{ClientKind, RpcFunctionality, ZeusContext, ZeusCtx};
-use crate::{client::Rpc, types::*};
+use crate::{client::Rpc, tx::fees::FeeTiers, types::*};
 use anyhow::anyhow;
+use std::time::Instant;
 use zeus_eth::{
    alloy_primitives::{Address, FixedBytes, U256},
    amm::uniswap::{
@@ -74,7 +75,33 @@ impl ZeusCtx {
    pub fn update_priority_fee(&self, chain: u64, fee: NumericValue) {
       self.write(|ctx| {
          ctx.priority_fee.fee.insert(chain, fee);
+         ctx.priority_fee.updated.insert(chain, Instant::now());
       });
+   }
+
+   /// Store a recommendation, stamping it and keeping the single value in step: every consumer
+   /// outside the window reads `fee`, so it must carry the calibrated Normal tier rather than the
+   /// node's guess.
+   pub fn update_fee_tiers(&self, chain: u64, tiers: FeeTiers) {
+      self.write(|ctx| {
+         ctx.priority_fee.fee.insert(chain, NumericValue::format_to_gwei(tiers.normal));
+         ctx.priority_fee.tiers.insert(chain, tiers);
+         ctx.priority_fee.updated.insert(chain, Instant::now());
+      });
+   }
+
+   pub fn get_fee_tiers(&self, chain: u64) -> Option<FeeTiers> {
+      self.read(|ctx| ctx.priority_fee.tiers(chain))
+   }
+
+   /// Whether a chain's recommendation is younger than `ttl_secs`.
+   pub fn is_priority_fee_fresh(&self, chain: u64, ttl_secs: u64) -> bool {
+      self.read(|ctx| {
+         ctx.priority_fee
+            .updated
+            .get(&chain)
+            .is_some_and(|at| at.elapsed().as_secs() < ttl_secs)
+      })
    }
 
    /// Get the V2 pool for the given address
