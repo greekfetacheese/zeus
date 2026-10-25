@@ -2,12 +2,13 @@ use egui::{Align, CollapsingHeader, Id, Layout, Order, RichText, ScrollArea, Ui,
 use egui_elements::{Button, Modal, Theme};
 
 use super::{
-   AVAIL_WIDTH_MARGIN, address, chain_chip, clear_display_ui, events::*, show_analysis_buttons,
-   show_calldata_modal, show_state_changes_block, show_tx_diffs_modal, show_tx_options_modal,
-   simulated_block, tx_cost, value,
+   AVAIL_WIDTH_MARGIN, FeeSelection, address, chain_chip, clear_display_ui, events::*,
+   show_analysis_buttons, show_calldata_modal, show_state_changes_block, show_tx_diffs_modal,
+   show_tx_options_modal, simulated_block, tx_cost, value,
 };
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::{self, ClearDisplay};
+use crate::core::tx::{FeeTiers, PriorityTier};
 use crate::core::ui::TxConfirmAnswer;
 use crate::core::{DecodedEvent, TransactionAnalysis, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
@@ -15,6 +16,7 @@ use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::windows::PromptGate;
 use crate::gui::ui::common::{delayed_action_label, wallet_identity};
 use crate::utils::estimate_tx_cost;
+use tracing::warn;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::NativeCurrency,
@@ -46,7 +48,14 @@ pub struct TxConfirmationWindow {
    /// Tx to be confirmed and sent to the network
    tx: Option<TransactionAnalysis>,
    tx_main_event: Option<DecodedEvent>,
-   /// Adjust priority fee
+   /// The four-tier recommendation this prompt was opened with, if the chain has one.
+   tiers: Option<FeeTiers>,
+   /// The tier the user picked.
+   tier: PriorityTier,
+   /// Whether the free-text value overrides the tier.
+   custom: bool,
+   /// The free-text priority fee in gwei — the Custom escape hatch, and the only path where
+   /// `tiers` is absent.
    priority_fee: String,
    mev_protect: bool,
    /// True if the tx is sponsored by another account
@@ -85,6 +94,9 @@ impl TxConfirmationWindow {
          native_currency: NativeCurrency::default(),
          tx: None,
          tx_main_event: None,
+         tiers: None,
+         tier: PriorityTier::default(),
+         custom: false,
          priority_fee: String::new(),
          mev_protect: false,
          sponsored: false,
@@ -156,6 +168,8 @@ impl TxConfirmationWindow {
       chain: ChainId,
       tx: TransactionAnalysis,
       priority_fee: String,
+      tiers: Option<FeeTiers>,
+      tier: PriorityTier,
       mev_protect: bool,
       sponsored: bool,
       recipient_name: Option<(Address, String)>,
@@ -167,6 +181,8 @@ impl TxConfirmationWindow {
          chain,
          tx,
          priority_fee,
+         tiers,
+         tier,
          mev_protect,
          sponsored,
          recipient_name,
@@ -193,6 +209,8 @@ impl TxConfirmationWindow {
          chain,
          tx,
          priority_fee,
+         None,
+         PriorityTier::default(),
          mev_protect,
          sponsored,
          None,
@@ -208,6 +226,8 @@ impl TxConfirmationWindow {
       chain: ChainId,
       tx: TransactionAnalysis,
       priority_fee: String,
+      tiers: Option<FeeTiers>,
+      tier: PriorityTier,
       mev_protect: bool,
       sponsored: bool,
       recipient_name: Option<(Address, String)>,
@@ -220,6 +240,10 @@ impl TxConfirmationWindow {
       self.sponsored = sponsored;
       self.source_is_zeus = source_is_zeus;
       self.recipient_name = recipient_name;
+      // A fresh prompt starts on the caller's tier and on the tier path: a previous prompt's
+      // Custom toggle must not leak into this one.
+      self.custom = false;
+      self.tier = tier;
       // `send_transaction` polls this immediately. Confirm/Reject only `close()`
       // the window, so the previous answer stays in this field and would be
       // treated as the new prompt (auto-confirm + spinner while this task
@@ -262,6 +286,8 @@ impl TxConfirmationWindow {
 
             gui.tx_confirmation_window.dapp = dapp;
             gui.tx_confirmation_window.priority_fee = priority_fee;
+            gui.tx_confirmation_window.tiers = tiers;
+            gui.tx_confirmation_window.tier = tier;
             gui.tx_confirmation_window.mev_protect = mev_protect;
             gui.tx_confirmation_window.gas_used = gas_used;
             gui.tx_confirmation_window.gas_limit = gas_limit;
@@ -310,6 +336,7 @@ impl TxConfirmationWindow {
             accepted: true,
             priority_fee: self.get_priority_fee(),
             gas_limit: self.get_gas_limit(),
+            fee_ceiling_bps: self.get_fee_ceiling_bps(),
             clear_display: self.get_clear_display(),
          }
       } else {
@@ -325,7 +352,19 @@ impl TxConfirmationWindow {
    }
 
    pub fn get_priority_fee(&self) -> NumericValue {
-      NumericValue::parse_to_gwei(&self.priority_fee)
+      match (self.tiers, self.custom) {
+         (Some(tiers), false) => NumericValue::format_to_gwei(tiers.tip(self.tier)),
+         _ => NumericValue::parse_to_gwei(&self.priority_fee),
+      }
+   }
+
+   /// The max-fee headroom the answer carries: the tier's, or the pre-existing 10% margin for a
+   /// custom value and for chains with no recommendation.
+   pub fn get_fee_ceiling_bps(&self) -> u32 {
+      match (self.tiers, self.custom) {
+         (Some(_), false) => self.tier.fee_ceiling_bps(),
+         _ => 11_000,
+      }
    }
 
    /// The gas limit the transaction is sent with.
@@ -354,7 +393,7 @@ impl TxConfirmationWindow {
       }
 
       let chain = self.chain;
-      let fee = NumericValue::parse_to_gwei(&self.priority_fee);
+      let fee = self.get_priority_fee();
       let fee = if fee.is_zero() && chain.supports_type_2_tx() {
          NumericValue::parse_to_gwei("1")
       } else {
@@ -461,11 +500,19 @@ impl TxConfirmationWindow {
                // Priority fee, gas limit and the MEV status live behind this modal: the
                // fields are set once in a while, and the height they used to hold is
                // worth more to what the transaction does.
-               let fee_changed = show_tx_options_modal(
+               let tier_before = self.tier;
+               let mut fee = FeeSelection {
+                  tiers: self.tiers,
+                  tier: &mut self.tier,
+                  custom: &mut self.custom,
+                  custom_value: &mut self.priority_fee,
+               };
+
+               let fee_change = show_tx_options_modal(
                   &mut self.show_tx_options,
                   theme,
                   self.chain,
-                  &mut self.priority_fee,
+                  &mut fee,
                   &mut self.adjusted_gas_limit,
                   self.gas_used,
                   self.mev_protect,
@@ -473,6 +520,13 @@ impl TxConfirmationWindow {
                      || main_event.is_other_or_eoa_delegate(),
                   ui,
                );
+
+               if fee_change.tier && self.tier != tier_before {
+                  ctx.misc_config.set_tx_fee_tier(self.tier);
+                  if let Err(e) = ctx.misc_config.save() {
+                     warn!("Could not save the fee tier: {:?}", e);
+                  }
+               }
 
                // The wallet that signs this transaction, on the chain it goes out on
                ui.allocate_ui(frame_size, |ui| {
@@ -668,7 +722,7 @@ impl TxConfirmationWindow {
                let sender = analysis.sender;
                let value_sent = analysis.value_sent().wei();
 
-               if fee_changed {
+               if fee_change.fee {
                   self.calculate_tx_cost(ctx, self.gas_used);
                }
 
@@ -1021,6 +1075,8 @@ mod tests {
          ChainId::default(),
          TransactionAnalysis::dummy_transfer(),
          "1".to_string(),
+         None,
+         PriorityTier::default(),
          false,
          false,
          Some((picked, "alice.eth".to_string())),
@@ -1042,6 +1098,8 @@ mod tests {
          ChainId::default(),
          TransactionAnalysis::dummy_transfer(),
          "1".to_string(),
+         None,
+         PriorityTier::default(),
          false,
          false,
          None,

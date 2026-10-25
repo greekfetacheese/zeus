@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 use zeus_eth::{
-   alloy_primitives::{Address, Bytes},
+   alloy_primitives::{Address, Bytes, U256},
    alloy_rpc_types::Block as RpcBlock,
    types::ETH_SEPOLIA,
    types::{ChainId, SUPPORTED_CHAINS},
@@ -11,6 +12,7 @@ use crate::persisted::ensure_data_dir;
 use crate::platform::TimeStamp;
 use crate::platform::fs::{write_private, write_private_atomic};
 use crate::platform::truncate_address;
+use crate::tx::fees::{FeeTiers, PriorityTier};
 use crate::{
    WalletInfo, WalletStateKey, ZK_ADDRESS_UNAVAILABLE,
    context::{
@@ -204,6 +206,14 @@ pub struct MiscConfig {
    /// lives in `~/.local/share`, i.e. outside the folder the rest of Zeus's state stays in.
    #[serde(default)]
    pub desktop_integration: bool,
+   /// The fee preset picked last, as `PriorityTier::name`. Unencrypted JSON, so it is read through
+   /// a fallback: a hand-edited value must not reset the rest of this file.
+   #[serde(default = "default_fee_tier")]
+   pub tx_fee_tier: String,
+}
+
+fn default_fee_tier() -> String {
+   PriorityTier::Normal.name().to_string()
 }
 
 impl MiscConfig {
@@ -214,6 +224,7 @@ impl MiscConfig {
          check_for_updates: false,
          minimize_to_tray: true,
          desktop_integration: false,
+         tx_fee_tier: default_fee_tier(),
       }
    }
 
@@ -271,6 +282,14 @@ impl MiscConfig {
 
    pub fn set_desktop_integration(&mut self, enabled: bool) {
       self.desktop_integration = enabled;
+   }
+
+   pub fn tx_fee_tier(&self) -> PriorityTier {
+      PriorityTier::from_name(&self.tx_fee_tier).unwrap_or_default()
+   }
+
+   pub fn set_tx_fee_tier(&mut self, tier: PriorityTier) {
+      self.tx_fee_tier = tier.name().to_string();
    }
 }
 
@@ -976,37 +995,55 @@ impl DisabledChains {
    }
 }
 
-/// Suggested priority fees for each chain
+/// Suggested priority fees for each chain.
 #[derive(Debug, Clone)]
 pub struct PriorityFee {
+   /// The single value every non-window consumer reads (dapp `eth_maxPriorityFeePerGas`, swap,
+   /// Across). On mainnet this is the Normal tier; elsewhere it is the node's estimate.
    pub fee: HashMap<u64, NumericValue>,
+   /// The four-tier recommendation. Mainnet only — absent means the window offers the single value.
+   pub tiers: HashMap<u64, FeeTiers>,
+   /// When each chain's recommendation was last read, for the window's staleness check.
+   pub updated: HashMap<u64, Instant>,
 }
 
 impl PriorityFee {
    pub fn get(&self, chain: u64) -> Option<&NumericValue> {
       self.fee.get(&chain)
    }
+
+   pub fn tiers(&self, chain: u64) -> Option<FeeTiers> {
+      self.tiers.get(&chain).copied()
+   }
+
+   /// The per-chain floor a recommendation must never go under. `Default` builds from it, and so
+   /// does every recommendation path — one table, not two.
+   pub fn minimum(chain: u64) -> U256 {
+      let gwei = match ChainId::new(chain) {
+         Ok(ChainId::Ethereum | ChainId::EthereumSepolia | ChainId::RobinHood) => "0.01",
+         Ok(ChainId::BinanceSmartChain) => "0",
+         _ => "0.001",
+      };
+      NumericValue::parse_to_gwei(gwei).wei()
+   }
 }
 
 impl Default for PriorityFee {
    fn default() -> Self {
-      let mut map = HashMap::with_capacity(SUPPORTED_CHAINS.len());
+      let mut fee = HashMap::with_capacity(SUPPORTED_CHAINS.len());
 
-      let chains = ChainId::supported_chains();
-
-      for chain in chains {
-         match chain {
-            ChainId::Ethereum => map.insert(chain.id(), NumericValue::parse_to_gwei("0.01")),
-            ChainId::EthereumSepolia => map.insert(chain.id(), NumericValue::parse_to_gwei("0.01")),
-            ChainId::Optimism => map.insert(chain.id(), NumericValue::parse_to_gwei("0.001")),
-            ChainId::BinanceSmartChain => map.insert(chain.id(), NumericValue::parse_to_gwei("0")),
-            ChainId::Base => map.insert(chain.id(), NumericValue::parse_to_gwei("0.001")),
-            ChainId::Arbitrum => map.insert(chain.id(), NumericValue::parse_to_gwei("0.001")),
-            ChainId::RobinHood => map.insert(chain.id(), NumericValue::parse_to_gwei("0.01")),
-         };
+      for chain in ChainId::supported_chains() {
+         fee.insert(
+            chain.id(),
+            NumericValue::format_to_gwei(Self::minimum(chain.id())),
+         );
       }
 
-      Self { fee: map }
+      Self {
+         fee,
+         tiers: HashMap::with_capacity(SUPPORTED_CHAINS.len()),
+         updated: HashMap::with_capacity(SUPPORTED_CHAINS.len()),
+      }
    }
 }
 
