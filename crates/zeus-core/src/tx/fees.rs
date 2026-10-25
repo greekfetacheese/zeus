@@ -54,20 +54,6 @@ impl PriorityTier {
       }
    }
 
-   /// The stable name written to `MiscConfig`. Never a `Debug`/`Display` spelling: the store is
-   /// unencrypted JSON and a rename would silently reset the user's choice.
-   pub fn name(self) -> &'static str {
-      match self {
-         Self::Normal => "normal",
-         Self::Fast => "fast",
-         Self::VeryFast => "very_fast",
-      }
-   }
-
-   pub fn from_name(name: &str) -> Option<Self> {
-      Self::ALL.into_iter().find(|tier| tier.name() == name)
-   }
-
    /// Multiplier for the transaction's max-fee ceiling, in basis points (10 000 = 1x).
    ///
    /// The ceiling only bounds what may be charged — the sender pays the base fee plus the tip

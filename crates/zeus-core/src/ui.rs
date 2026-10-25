@@ -14,9 +14,7 @@
 use crate::ZeusCtx;
 use crate::clear_signing::ClearDisplay;
 use crate::signature::msg::SignMsgType;
-use crate::tx::{
-   FeeTiers, PriorityTier, TransactionAnalysis, TransactionRich, notification::NotificationType,
-};
+use crate::tx::{FeeTiers, TransactionAnalysis, TransactionRich, notification::NotificationType};
 use std::sync::OnceLock;
 use zeus_eth::{alloy_primitives::Address, types::ChainId, utils::NumericValue};
 
@@ -43,8 +41,6 @@ pub struct TxConfirmRequest {
    pub priority_fee: String,
    /// The three-tier recommendation, mainnet only. `None` keeps the window on the single value.
    pub tiers: Option<FeeTiers>,
-   /// The tier to preselect.
-   pub default_tier: PriorityTier,
    pub mev_protect: bool,
    pub sponsored: bool,
    pub recipient_name: Option<(Address, String)>,

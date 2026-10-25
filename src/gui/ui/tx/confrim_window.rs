@@ -16,7 +16,6 @@ use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::windows::PromptGate;
 use crate::gui::ui::common::{delayed_action_label, wallet_identity};
 use crate::utils::estimate_tx_cost;
-use tracing::warn;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::NativeCurrency,
@@ -174,7 +173,6 @@ impl TxConfirmationWindow {
       tx: TransactionAnalysis,
       priority_fee: String,
       tiers: Option<FeeTiers>,
-      tier: PriorityTier,
       mev_protect: bool,
       sponsored: bool,
       recipient_name: Option<(Address, String)>,
@@ -187,7 +185,6 @@ impl TxConfirmationWindow {
          tx,
          priority_fee,
          tiers,
-         tier,
          mev_protect,
          sponsored,
          recipient_name,
@@ -215,7 +212,6 @@ impl TxConfirmationWindow {
          tx,
          priority_fee,
          None,
-         PriorityTier::default(),
          mev_protect,
          sponsored,
          None,
@@ -232,7 +228,6 @@ impl TxConfirmationWindow {
       tx: TransactionAnalysis,
       priority_fee: String,
       tiers: Option<FeeTiers>,
-      tier: PriorityTier,
       mev_protect: bool,
       sponsored: bool,
       recipient_name: Option<(Address, String)>,
@@ -245,10 +240,10 @@ impl TxConfirmationWindow {
       self.sponsored = sponsored;
       self.source_is_zeus = source_is_zeus;
       self.recipient_name = recipient_name;
-      // A fresh prompt starts on the caller's tier and on the tier path: a previous prompt's
+      // A fresh prompt starts on the default tier and on the tier path: a previous prompt's
       // Custom toggle must not leak into this one.
       self.custom = false;
-      self.tier = tier;
+      self.tier = PriorityTier::default();
       // `send_transaction` polls this immediately. Confirm/Reject only `close()`
       // the window, so the previous answer stays in this field and would be
       // treated as the new prompt (auto-confirm + spinner while this task
@@ -292,7 +287,7 @@ impl TxConfirmationWindow {
             gui.tx_confirmation_window.dapp = dapp;
             gui.tx_confirmation_window.priority_fee = priority_fee;
             gui.tx_confirmation_window.tiers = tiers;
-            gui.tx_confirmation_window.tier = tier;
+            gui.tx_confirmation_window.tier = PriorityTier::default();
             gui.tx_confirmation_window.mev_protect = mev_protect;
             gui.tx_confirmation_window.gas_used = gas_used;
             gui.tx_confirmation_window.gas_limit = gas_limit;
@@ -513,7 +508,6 @@ impl TxConfirmationWindow {
                // Priority fee, gas limit and the MEV status live behind this modal: the
                // fields are set once in a while, and the height they used to hold is
                // worth more to what the transaction does.
-               let tier_before = self.tier;
                let mut fee = FeeSelection {
                   tiers: self.tiers,
                   tier: &mut self.tier,
@@ -522,7 +516,7 @@ impl TxConfirmationWindow {
                   costs_usd: &self.tier_costs_usd,
                };
 
-               let fee_change = show_tx_options_modal(
+               let fee_changed = show_tx_options_modal(
                   &mut self.show_tx_options,
                   theme,
                   self.chain,
@@ -534,13 +528,6 @@ impl TxConfirmationWindow {
                      || main_event.is_other_or_eoa_delegate(),
                   ui,
                );
-
-               if fee_change.tier && self.tier != tier_before {
-                  ctx.misc_config.set_tx_fee_tier(self.tier);
-                  if let Err(e) = ctx.misc_config.save() {
-                     warn!("Could not save the fee tier: {:?}", e);
-                  }
-               }
 
                // The wallet that signs this transaction, on the chain it goes out on
                ui.allocate_ui(frame_size, |ui| {
@@ -736,7 +723,7 @@ impl TxConfirmationWindow {
                let sender = analysis.sender;
                let value_sent = analysis.value_sent().wei();
 
-               if fee_change.fee {
+               if fee_changed {
                   self.calculate_tx_cost(ctx, self.gas_used);
                }
 
@@ -1090,7 +1077,6 @@ mod tests {
          TransactionAnalysis::dummy_transfer(),
          "1".to_string(),
          None,
-         PriorityTier::default(),
          false,
          false,
          Some((picked, "alice.eth".to_string())),
@@ -1113,7 +1099,6 @@ mod tests {
          TransactionAnalysis::dummy_transfer(),
          "1".to_string(),
          None,
-         PriorityTier::default(),
          false,
          false,
          None,

@@ -445,7 +445,6 @@ pub async fn confirm_tx(
 
    let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
    let tiers = ctx.get_fee_tiers(chain.id());
-   let default_tier = ctx.read(|ctx| ctx.misc_config.tx_fee_tier());
 
    // One confirmation at a time, whatever raised it. Two sends racing here would share this
    // window — the second prompt replacing what the first displayed — and both would then act on
@@ -460,7 +459,6 @@ pub async fn confirm_tx(
       analysis: analysis.clone(),
       priority_fee: priority_fee.f64().to_string(),
       tiers,
-      default_tier,
       mev_protect: opts.mev_protect,
       sponsored: opts.sponsored,
       recipient_name: opts.recipient_name.clone(),

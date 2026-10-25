@@ -37,13 +37,6 @@ pub struct FeeSelection<'a> {
    pub costs_usd: &'a [NumericValue],
 }
 
-/// What the modal changed, so the caller can recompute the shown cost and persist the tier.
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
-pub struct FeeChange {
-   pub fee: bool,
-   pub tier: bool,
-}
-
 /// Show the trasnsaction hash with a hyperlink to the block explorer
 /// in a horizontal layout from left to right
 pub fn tx_hash(chain: ChainId, tx_hash: &TxHash, theme: &Theme, ui: &mut Ui) {
@@ -232,8 +225,8 @@ pub fn show_tx_diffs_modal(
 ///
 /// They used to hold a frame of their own in the confirmation window, where two
 /// rarely-touched fields competed for height with what the transaction actually does.
-/// Returns what was edited, so the caller can recompute the shown cost and persist a
-/// tier change.
+/// Returns whether the fee the transaction will use was edited, so the caller can
+/// recompute the shown cost.
 pub fn show_tx_options_modal(
    open: &mut bool,
    theme: &Theme,
@@ -244,8 +237,8 @@ pub fn show_tx_options_modal(
    mev_protect: bool,
    show_mev_protect: bool,
    ui: &mut Ui,
-) -> FeeChange {
-   let mut fee_change = FeeChange::default();
+) -> bool {
+   let mut fee_changed = false;
 
    let heading = RichText::new("Transaction Options").size(theme.typography.heading);
    let modal_frame = theme.window_frame.fill(theme.frame1.fill);
@@ -300,18 +293,12 @@ pub fn show_tx_options_modal(
                      if ui.add(row).clicked() {
                         *fee.tier = tier;
                         *fee.custom = false;
-                        fee_change = FeeChange {
-                           fee: true,
-                           tier: true,
-                        };
+                        fee_changed = true;
                      }
                   }
 
                   if ui.add(Switch::new(fee.custom, "Custom fee")).changed() {
-                     fee_change = FeeChange {
-                        fee: true,
-                        tier: false,
-                     };
+                     fee_changed = true;
                   }
 
                   // The field slides open instead of jumping: the consumed space animates, a body
@@ -387,7 +374,7 @@ pub fn show_tx_options_modal(
                      );
 
                      if res.changed() {
-                        fee_change.fee = true;
+                        fee_changed = true;
                      }
 
                      ui.advance_cursor_after_rect(area);
@@ -427,7 +414,7 @@ pub fn show_tx_options_modal(
                   );
 
                   if res.changed() {
-                     fee_change.fee = true;
+                     fee_changed = true;
                   }
                });
 
@@ -477,7 +464,7 @@ pub fn show_tx_options_modal(
          }
       });
 
-   fee_change
+   fee_changed
 }
 
 pub fn clear_display_ui(

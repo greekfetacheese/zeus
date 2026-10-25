@@ -42,7 +42,6 @@ impl UiHost for GuiHost {
             req.analysis,
             req.priority_fee,
             req.tiers,
-            req.default_tier,
             req.mev_protect,
             req.sponsored,
             req.recipient_name,

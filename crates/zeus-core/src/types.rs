@@ -12,7 +12,7 @@ use crate::persisted::ensure_data_dir;
 use crate::platform::TimeStamp;
 use crate::platform::fs::{write_private, write_private_atomic};
 use crate::platform::truncate_address;
-use crate::tx::fees::{FeeTiers, PriorityTier};
+use crate::tx::fees::FeeTiers;
 use crate::{
    WalletInfo, WalletStateKey, ZK_ADDRESS_UNAVAILABLE,
    context::{
@@ -206,14 +206,6 @@ pub struct MiscConfig {
    /// lives in `~/.local/share`, i.e. outside the folder the rest of Zeus's state stays in.
    #[serde(default)]
    pub desktop_integration: bool,
-   /// The fee preset picked last, as `PriorityTier::name`. Unencrypted JSON, so it is read through
-   /// a fallback: a hand-edited value must not reset the rest of this file.
-   #[serde(default = "default_fee_tier")]
-   pub tx_fee_tier: String,
-}
-
-fn default_fee_tier() -> String {
-   PriorityTier::Normal.name().to_string()
 }
 
 impl MiscConfig {
@@ -224,7 +216,6 @@ impl MiscConfig {
          check_for_updates: false,
          minimize_to_tray: true,
          desktop_integration: false,
-         tx_fee_tier: default_fee_tier(),
       }
    }
 
@@ -282,14 +273,6 @@ impl MiscConfig {
 
    pub fn set_desktop_integration(&mut self, enabled: bool) {
       self.desktop_integration = enabled;
-   }
-
-   pub fn tx_fee_tier(&self) -> PriorityTier {
-      PriorityTier::from_name(&self.tx_fee_tier).unwrap_or_default()
-   }
-
-   pub fn set_tx_fee_tier(&mut self, tier: PriorityTier) {
-      self.tx_fee_tier = tier.name().to_string();
    }
 }
 
