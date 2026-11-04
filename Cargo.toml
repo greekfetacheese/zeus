@@ -53,6 +53,7 @@ eframe = { version = "=0.37", default-features = false, features = [
     "default_fonts",
     "links",
     "wayland",
+    "clipboard",
     "x11",
 ] }
 egui = { version = "=0.37", features = ["serde", "monochrome_emoji_fonts"] }
