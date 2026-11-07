@@ -9,7 +9,7 @@ use crate::assets::icons::Icons;
 use crate::core::{ClientKind, ZeusContext, ZeusCtx};
 use crate::gui::ui::common::ConfirmWindowClaim;
 use crate::gui::ui::common::windows::authorising_prompt_busy;
-use crate::gui::{SHARED_GUI, dots_button, menu_item, more_menu};
+use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::{
    nft_icon::{admitted_uri, start_nft_art_downloads},
    token_icon::spawn_fetch_token_icon,
@@ -36,8 +36,8 @@ use zeus_eth::{
 
 use anyhow::{anyhow, bail};
 use egui_elements::{
-   Button, Chip, ChipRole, Label, Modal, SecureTextEdit, Tabs, TabsStyle, Theme, Toast,
-   utils::frame as frame_fn,
+   Button, Chip, ChipRole, Label, Menu, MenuItem, Modal, SecureTextEdit, Tabs, TabsStyle, Theme,
+   Toast, utils::frame as frame_fn,
 };
 
 /// Currency direction for [`TokenSelectionWindow`].
@@ -777,13 +777,13 @@ impl TokenSelectionWindow {
                                     }
 
                                     let id = format!("{}_more_options", token_address);
-                                    more_menu(id, &more, ui, |ui| {
-                                       if menu_item(ui, "Copy Address").clicked() {
+                                    Menu::new(id).show_below(&more, |ui| {
+                                       if ui.add(MenuItem::new("Copy Address")).clicked() {
                                           ui.ctx().copy_text(token_address.to_string());
                                        }
 
                                        if !currency.is_base()
-                                          && menu_item(ui, "Delete Token").clicked()
+                                          && ui.add(MenuItem::new("Delete Token")).clicked()
                                        {
                                           more_clicked = true;
                                           if let Some(token) = currency.erc20_opt() {
@@ -796,7 +796,7 @@ impl TokenSelectionWindow {
                                           }
                                        }
 
-                                       if menu_item(ui, "See on Block Explorer").clicked() {
+                                       if ui.add(MenuItem::new("See on Block Explorer")).clicked() {
                                           let chain = ChainId::from(chain_id);
                                           let explorer = chain.block_explorer();
                                           let link =
@@ -980,16 +980,16 @@ impl TokenSelectionWindow {
                         row.ownership_badge(ui);
 
                         let menu_id = format!("{collection}_{token_id}_nft_more_options");
-                        more_menu(menu_id, &more, ui, |ui| {
-                           if menu_item(ui, "Copy Collection").clicked() {
+                        Menu::new(menu_id).show_below(&more, |ui| {
+                           if ui.add(MenuItem::new("Copy Collection")).clicked() {
                               ui.ctx().copy_text(collection.to_string());
                            }
 
-                           if menu_item(ui, "Copy Token ID").clicked() {
+                           if ui.add(MenuItem::new("Copy Token ID")).clicked() {
                               ui.ctx().copy_text(token_id.to_string());
                            }
 
-                           if menu_item(ui, "See on Block Explorer").clicked() {
+                           if ui.add(MenuItem::new("See on Block Explorer")).clicked() {
                               let url = chain.nft_url(collection, token_id);
                               ui.ctx().open_url(OpenUrl::new_tab(url));
                            }
@@ -1001,7 +1001,7 @@ impl TokenSelectionWindow {
                               false => "Add to Portfolio",
                            };
 
-                           if menu_item(ui, portfolio_item).clicked() {
+                           if ui.add(MenuItem::new(portfolio_item)).clicked() {
                               more_clicked = true;
                               set_nft_in_portfolio(
                                  chain_id,
@@ -1011,7 +1011,7 @@ impl TokenSelectionWindow {
                               );
                            }
 
-                           if menu_item(ui, "Delete NFT").clicked() {
+                           if ui.add(MenuItem::new("Delete NFT")).clicked() {
                               more_clicked = true;
                               delete_nft(
                                  chain_id,

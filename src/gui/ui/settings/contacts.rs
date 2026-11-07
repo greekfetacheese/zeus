@@ -2,12 +2,13 @@
 
 use crate::core::{ZeusContext, types::Contact};
 use crate::gui::ui::show_with_fade;
-use crate::gui::{SHARED_GUI, dots_button, menu_item, more_menu};
+use crate::gui::{SHARED_GUI, dots_button};
 use egui::{
    Align, FontId, Frame, Layout, Margin, OpenUrl, RichText, ScrollArea, Spinner, Ui, vec2,
 };
 use egui_elements::{
-   Button, InputField, Label, QrImage, SecureTextEdit, Theme, components::QrEncoding,
+   Button, InputField, Label, Menu, MenuItem, QrImage, SecureTextEdit, Theme,
+   components::QrEncoding,
 };
 use std::str::FromStr;
 use zeus_eth::alloy_primitives::Address;
@@ -600,23 +601,23 @@ impl ContactsUi {
                let more = dots_button(theme, size, ui);
                let id = format!("{}_more_options", contact.evm_address);
 
-               more_menu(id, &more, ui, |ui| {
-                  if menu_item(ui, "Edit").clicked() {
+               Menu::new(id).show_below(&more, |ui| {
+                  if ui.add(MenuItem::new("Edit")).clicked() {
                      self.view = ContactsPageView::Edit;
                      self.edit_contact.begin(contact.clone());
                   }
 
-                  if menu_item(ui, "Delete").clicked() {
+                  if ui.add(MenuItem::new("Delete")).clicked() {
                      self.view = ContactsPageView::Delete;
                      self.delete_contact.contact_to_delete = contact.clone();
                   }
 
-                  if menu_item(ui, "Show QR Code").clicked() {
+                  if ui.add(MenuItem::new("Show QR Code")).clicked() {
                      self.view = ContactsPageView::Qr;
                      self.qr_window.open(contact.clone());
                   }
 
-                  if menu_item(ui, "See on Block Explorer").clicked() {
+                  if ui.add(MenuItem::new("See on Block Explorer")).clicked() {
                      let chain = ctx.chain;
                      let explorer = chain.block_explorer();
                      let link = format!("{}/address/{}", explorer, contact.evm_address);

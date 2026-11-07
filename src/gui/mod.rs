@@ -20,7 +20,7 @@ pub use crate::gui::ui::{
    AccountPanel, ApprovalsUi, ConfirmWindow, LoadingWindow, LockScreen, MsgWindow, Notification,
    PortfolioUi, RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi,
    TokenSelectionWindow, TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
-   common::{dots_button, menu_item, menu_item_enabled, more_menu},
+   common::dots_button,
    dapps::{
       across::AcrossBridge,
       connect::{ConnectDappWindow, DappAccountChoice, DappConnectResult},

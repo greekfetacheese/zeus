@@ -1,14 +1,14 @@
 use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, WalletValue, ZeusContext};
 use crate::gui::{
-   SHARED_GUI, dots_button, menu_item, menu_item_enabled, more_menu,
+   SHARED_GUI, dots_button,
    ui::{WalletListByValue, show_with_fade},
 };
 use eframe::egui::{
    Align, Context, FontId, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner, Ui, vec2,
 };
 use egui_elements::Modal;
-use egui_elements::{Button, ChipRole, Label, SecureTextEdit, Theme, Toast};
+use egui_elements::{Button, ChipRole, Label, Menu, MenuItem, SecureTextEdit, Theme, Toast};
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::alloy_primitives::Address;
@@ -235,20 +235,20 @@ impl WalletUi {
                let more = dots_button(theme, size, ui);
                let enabled = !wallet.is_master();
 
-               more_menu(id, &more, ui, |ui| {
-                  if menu_item(ui, "Export").clicked() {
+               Menu::new(id).show_below(&more, |ui| {
+                  if ui.add(MenuItem::new("Export")).clicked() {
                      self.export_key_ui.open(wallet.clone());
                   }
 
-                  if menu_item(ui, "Rename").clicked() {
+                  if ui.add(MenuItem::new("Rename")).clicked() {
                      self.open_rename_wallet(Some(wallet.clone()));
                   }
 
-                  if menu_item(ui, "Show QR Code").clicked() {
+                  if ui.add(MenuItem::new("Show QR Code")).clicked() {
                      on_show_wallet_qr(wallet.clone());
                   }
 
-                  if menu_item_enabled(ui, enabled, "Delete").clicked() {
+                  if ui.add_enabled(enabled, MenuItem::new("Delete")).clicked() {
                      self.delete_wallet_ui.open(wallet.clone());
                   }
                });

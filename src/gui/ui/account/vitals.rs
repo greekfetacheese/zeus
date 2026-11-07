@@ -6,9 +6,9 @@
 
 use super::PANEL_ROW_WIDTH;
 use crate::gui::SHARED_GUI;
-use crate::gui::{dots_button, menu_item, more_menu};
+use crate::gui::dots_button;
 use egui::{Align, Layout, Margin, RichText, TextWrapMode, Ui, vec2};
-use egui_elements::{Indicator, IndicatorState, Label, Theme};
+use egui_elements::{Indicator, IndicatorState, Label, Menu, MenuItem, Theme};
 use std::time::{Duration, Instant};
 use sysinfo::{
    CpuRefreshKind, MINIMUM_CPU_UPDATE_INTERVAL, ProcessesToUpdate, System, get_current_pid,
@@ -273,8 +273,8 @@ fn heading(theme: &Theme, ui: &mut Ui, vitals: &SystemVitals) {
          let size = vec2(24.0, 12.0);
          let more = dots_button(theme, size, ui);
 
-         more_menu(("vitals_menu", "local_vitals"), &more, ui, |ui| {
-            if menu_item(ui, "Copy report").clicked() {
+         Menu::new(("vitals_menu", "local_vitals")).show_below(&more, |ui| {
+            if ui.add(MenuItem::new("Copy report")).clicked() {
                ui.ctx().copy_text(vitals.report());
             }
          });
