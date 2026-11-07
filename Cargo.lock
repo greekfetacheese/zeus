@@ -3486,7 +3486,7 @@ dependencies = [
 [[package]]
 name = "egui-elements"
 version = "1.4.0"
-source = "git+https://github.com/greekfetacheese/egui-elements?branch=fix%2Ftheme-io-send-sync#674e48ecda9e362873118cd8b392c588ca3b1db9"
+source = "git+https://github.com/greekfetacheese/egui-elements#ca7cdebb8465c828e751b43adfcb0f87a3a794d2"
 dependencies = [
  "egui",
  "egui-lucide",

@@ -74,7 +74,7 @@ resvg = {version = "=0.45.1", default-features = false}
 egui-lucide = "0.2"
 # Consumed from git until a release carries the widget set the app needs. The feature list is
 # `full` minus `elegance`, so egui-elegance leaves the dependency graph entirely.
-egui-elements = { git = "https://github.com/greekfetacheese/egui-elements", branch = "fix/theme-io-send-sync", features = [
+egui-elements = { git = "https://github.com/greekfetacheese/egui-elements", features = [
     "serde",
     "qr-scanner",
     "secure-types",
