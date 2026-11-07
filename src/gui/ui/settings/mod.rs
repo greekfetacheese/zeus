@@ -10,7 +10,7 @@ use crate::gui::ui::{
 use egui::{
    RichText, ScrollArea, Shadow, Stroke, Ui, ViewportBuilder, ViewportClass, ViewportId, vec2,
 };
-use egui_elements::{Frame as Frame2, Label, Theme};
+use egui_elements::{Fill, Frame as Frame2, Label, Theme};
 use egui_lucide::Lucide;
 use std::sync::Arc;
 
@@ -360,7 +360,7 @@ impl SettingsUi {
       let text_size = theme.typography.normal;
       let icon_color = theme.colors.text;
       let mut visuals = theme.frame2_visuals();
-      visuals.bg = theme.frame1.fill;
+      visuals.bg = Fill::Solid(theme.frame1.fill);
       visuals.border = Stroke::NONE;
       visuals.shadow = Shadow::NONE;
 

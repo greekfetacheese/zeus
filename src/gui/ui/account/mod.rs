@@ -28,9 +28,8 @@ use egui::{
 use std::sync::Arc;
 use zeus_eth::types::ChainId;
 
-use egui_elements::{Button, Label, Theme};
+use egui_elements::{Button, Indicator, IndicatorState, Label, Tabs, TabsStyle, Theme};
 use egui_lucide::Lucide;
-use elegance::{Indicator, IndicatorState, Menu, MenuItem, TabBar};
 
 const DELEGATE_TIP1: &str = "This wallet has been temporarily upgraded to a smart contract";
 const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
@@ -196,10 +195,14 @@ impl AccountPanel {
 
          ui.vertical(|ui| {
             // Tab strip: Overview (wallet/chain) and Diagnostics.
-            ui.add(TabBar::new(
+            Tabs::new(
+               "account_tabs",
                &mut self.tab,
                ["Overview", "Diagnostics"],
-            ));
+            )
+            .style(TabsStyle::Underline)
+            .fill_width(false)
+            .show(ui);
 
             ui.add_space(5.0);
 
@@ -504,8 +507,8 @@ impl AccountPanel {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                let size = vec2(24.0, 12.0);
                let more = dots_button(theme, size, ui);
-               Menu::new(("svc_menu", "railgun_id")).show_below(&more, |ui| {
-                  if ui.add(MenuItem::new("View last error")).clicked() {
+               more_menu(("svc_menu", "railgun_id"), &more, ui, |ui| {
+                  if menu_item(ui, "View last error").clicked() {
                      let error_opt = ctx.railgun_status().sync_error(chain.id());
                      let error =
                         error_opt.unwrap_or("No errors for now everything looks good".to_string());
@@ -518,7 +521,7 @@ impl AccountPanel {
                      });
                   }
 
-                  if ui.add(MenuItem::new("Settings")).clicked() {
+                  if menu_item(ui, "Settings").clicked() {
                      crate::runtime::rt().spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
                            gui.ctx.clone().write(|ctx| {
@@ -559,16 +562,21 @@ impl AccountPanel {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                let size = vec2(24.0, 12.0);
                let more = dots_button(theme, size, ui);
-               Menu::new(("svc_menu", "wallet_connector_id")).show_below(&more, |ui| {
-                  if ui.add(MenuItem::new("Settings")).clicked() {
-                     crate::runtime::rt().spawn_blocking(move || {
-                        SHARED_GUI.write(|gui| {
-                           gui.msg_window.open("Not implemented yet");
-                           gui.request_repaint();
+               more_menu(
+                  ("svc_menu", "wallet_connector_id"),
+                  &more,
+                  ui,
+                  |ui| {
+                     if menu_item(ui, "Settings").clicked() {
+                        crate::runtime::rt().spawn_blocking(move || {
+                           SHARED_GUI.write(|gui| {
+                              gui.msg_window.open("Not implemented yet");
+                              gui.request_repaint();
+                           });
                         });
-                     });
-                  }
-               });
+                     }
+                  },
+               );
             });
          });
       });

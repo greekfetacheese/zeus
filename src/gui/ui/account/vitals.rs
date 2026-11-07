@@ -6,10 +6,9 @@
 
 use super::PANEL_ROW_WIDTH;
 use crate::gui::SHARED_GUI;
-use crate::gui::dots_button;
+use crate::gui::{dots_button, menu_item, more_menu};
 use egui::{Align, Layout, Margin, RichText, TextWrapMode, Ui, vec2};
-use egui_elements::{Label, Theme};
-use elegance::{Indicator, IndicatorState, Menu, MenuItem};
+use egui_elements::{Indicator, IndicatorState, Label, Theme};
 use std::time::{Duration, Instant};
 use sysinfo::{
    CpuRefreshKind, MINIMUM_CPU_UPDATE_INTERVAL, ProcessesToUpdate, System, get_current_pid,
@@ -19,7 +18,7 @@ use sysinfo::{
 /// move slowly; polling harder would only cost wakeups.
 const REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 
-/// Diameter of an elegance `Indicator` at its default size, so the row that shows one
+/// Diameter of an `Indicator` at its default size, so the row that shows one
 /// insets its label by a known amount.
 const INDICATOR_SIZE: f32 = 10.0;
 
@@ -274,8 +273,8 @@ fn heading(theme: &Theme, ui: &mut Ui, vitals: &SystemVitals) {
          let size = vec2(24.0, 12.0);
          let more = dots_button(theme, size, ui);
 
-         Menu::new(("vitals_menu", "local_vitals")).show_below(&more, |ui| {
-            if ui.add(MenuItem::new("Copy report")).clicked() {
+         more_menu(("vitals_menu", "local_vitals"), &more, ui, |ui| {
+            if menu_item(ui, "Copy report").clicked() {
                ui.ctx().copy_text(vitals.report());
             }
          });

@@ -13,8 +13,7 @@ use zeus_eth::alloy_primitives::U256;
 use zeus_eth::currency::ERC20Token;
 use zeus_eth::types::ChainId;
 
-use egui_elements::{Button, Label, Theme};
-use elegance::{BadgeTone, Toast};
+use egui_elements::{Button, ChipRole, Label, Theme, Toast};
 use std::sync::Arc;
 
 pub struct DevUi {
@@ -260,7 +259,7 @@ impl UiTesting {
             if ui.add(button).clicked() {
                crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
-                  Toast::new("Operation success").description("Everything looks good").tone(BadgeTone::Ok).show(&gui.egui_ctx);
+                  Toast::new("Operation success").description("Everything looks good").tone(ChipRole::Success).show(&gui.egui_ctx);
                   });
                });
             }
@@ -270,7 +269,7 @@ impl UiTesting {
             if ui.add(button).clicked() {
                crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
-                     Toast::new("Warning").description("Something might be wrong").tone(BadgeTone::Warning).show(&gui.egui_ctx);
+                     Toast::new("Warning").description("Something might be wrong").tone(ChipRole::Warning).show(&gui.egui_ctx);
                   });
                });
             }
@@ -280,7 +279,7 @@ impl UiTesting {
             if ui.add(button).clicked() {
                crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
-                     Toast::new("Error").description("Something failed").tone(BadgeTone::Danger).show(&gui.egui_ctx);
+                     Toast::new("Error").description("Something failed").tone(ChipRole::Error).show(&gui.egui_ctx);
                   });
                });
             }
@@ -290,7 +289,7 @@ impl UiTesting {
             if ui.add(button).clicked() {
                crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
-                     Toast::new("Informational").description("Something happened").tone(BadgeTone::Info).show(&gui.egui_ctx);
+                     Toast::new("Informational").description("Something happened").tone(ChipRole::Info).show(&gui.egui_ctx);
                   });
                });
             }

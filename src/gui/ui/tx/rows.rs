@@ -4,9 +4,8 @@ use egui::{
    Align, CursorIcon, FontId, Layout, Margin, OpenUrl, RichText, ScrollArea, Sense, TextWrapMode,
    Ui, vec2,
 };
-use egui_elements::{Label, MultiLabel, Theme};
+use egui_elements::{Chip, ChipRole, Label, MultiLabel, Theme};
 use egui_lucide::Lucide;
-use elegance::{Badge, BadgeTone};
 
 use super::modals::request_address_name;
 use crate::assets::icons::Icons;
@@ -153,7 +152,7 @@ pub fn address_with_picked_name(
    let is_recipient = label.contains("Recipient");
 
    let q_mark = RichText::new("?").size(theme.typography.normal);
-   let danger = Badge::new(q_mark, BadgeTone::Danger);
+   let danger = Chip::new(q_mark).role(ChipRole::Error);
    let tip_text = RichText::new(NULL_ADDRESS_TIP).size(theme.typography.large);
 
    ui.horizontal(|ui| {
@@ -362,7 +361,7 @@ pub fn approval_change_row(
             && let Some(expiration) = change.expiration_after
          {
             let q_mark = RichText::new("?").size(theme.typography.normal);
-            let info_tip = Badge::new(q_mark, BadgeTone::Info);
+            let info_tip = Chip::new(q_mark).role(ChipRole::Info);
             let hover = format!("Expires {}", expiration.to_relative());
             ui.add(info_tip).on_hover_text(hover);
          }

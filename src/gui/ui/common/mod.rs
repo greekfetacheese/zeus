@@ -27,10 +27,9 @@ pub use windows::{ConfirmWindow, ConfirmWindowClaim, LoadingWindow, MsgWindow, U
 use crate::core::ZeusContext;
 use crate::gui::{SHARED_GUI, ui::dapps::railgun::RailgunMode};
 use crate::utils::TimeStamp;
-use egui::{Align, Layout, Response, RichText, Ui, Vec2, pos2, vec2};
-use egui_elements::{Button, Theme};
+use egui::{Align, IdSalt, Layout, Response, RichText, Ui, Vec2, WidgetText, pos2, vec2};
+use egui_elements::{Button, Popover, Switch, Theme, ToggleVisuals};
 use egui_lucide::Lucide;
-use elegance::{Accent, Switch};
 use std::time::{Duration, Instant};
 use zeus_eth::types::ChainId;
 
@@ -123,7 +122,13 @@ pub fn privacy_mode_switch(ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
 
    let rich_text = RichText::new(text).size(theme.typography.normal);
 
-   let switch = Switch::new(&mut ctx.privacy_mode, rich_text).accent(Accent::Green);
+   let green = ToggleVisuals {
+      bg_checked: theme.colors.success,
+      border_checked: theme.colors.success,
+      mark: theme.colors.ink_on(theme.colors.success),
+      ..ToggleVisuals::from_theme(theme.colors)
+   };
+   let switch = Switch::new(&mut ctx.privacy_mode, rich_text).visuals(green);
 
    let size = vec2(150.0, 20.0);
    let mut clicked = false;
@@ -181,6 +186,63 @@ pub fn dots_button(theme: &Theme, size: Vec2, ui: &mut Ui) -> Response {
       }
    }
    resp
+}
+
+/// A themed action menu anchored under `button`.
+///
+/// The open flag lives in egui's memory keyed by the trigger, so the menu persists between frames the
+/// way the replaced `Menu` did. A click inside the card dismisses it, matching the old close-on-click
+/// behaviour; clicks outside and `Esc` are the [`Popover`]'s own.
+pub fn more_menu(
+   id_salt: impl std::hash::Hash + std::fmt::Debug,
+   button: &Response,
+   ui: &mut Ui,
+   body: impl FnOnce(&mut Ui),
+) {
+   let state_id = button.id.with_salt(IdSalt::new(&id_salt));
+   let mut open = ui.data(|data| data.get_temp::<bool>(state_id)).unwrap_or_default();
+
+   if button.clicked() {
+      open = !open;
+   }
+
+   let shown = Popover::new(id_salt, &mut open).show(ui.ctx(), button.rect, |ui| {
+      // The replaced Menu's own metrics: one 180-point column, tight stacking between rows.
+      ui.set_min_width(180.0);
+      ui.spacing_mut().item_spacing.y = 2.0;
+      body(ui);
+   });
+
+   let clicked_inside = shown.is_some_and(|shown| {
+      ui.ctx().input(|input| {
+         input.pointer.any_click()
+            && input
+               .pointer
+               .interact_pos()
+               .is_some_and(|pos| shown.response.rect.contains(pos))
+      })
+   });
+
+   if clicked_inside {
+      open = false;
+   }
+
+   ui.data_mut(|data| data.insert_temp(state_id, open));
+}
+
+/// One full-width, left-aligned row inside [`more_menu`].
+pub fn menu_item(ui: &mut Ui, text: impl Into<WidgetText>) -> Response {
+   let width = ui.available_width();
+   ui.add(Button::new(text).label_align(Align::Min).min_size(vec2(width, 0.0)))
+}
+
+/// A disabled-aware [`menu_item`].
+pub fn menu_item_enabled(ui: &mut Ui, enabled: bool, text: impl Into<WidgetText>) -> Response {
+   let width = ui.available_width();
+   ui.add_enabled(
+      enabled,
+      Button::new(text).label_align(Align::Min).min_size(vec2(width, 0.0)),
+   )
 }
 
 #[cfg(test)]

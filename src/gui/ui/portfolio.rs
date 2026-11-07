@@ -22,9 +22,8 @@ use eframe::egui::{
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use egui_elements::{Button, Label, Modal, Theme, visuals::ButtonVisuals};
+use egui_elements::{Button, Label, Modal, Tabs, TabsStyle, Theme, visuals::ButtonVisuals};
 use egui_lucide::Lucide;
-use elegance::TabBar;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
@@ -301,7 +300,10 @@ impl PortfolioUi {
                      let mode = self.mode;
                      let mut tab = usize::from(mode == PortfolioMode::Nfts);
 
-                     ui.add(TabBar::new(&mut tab, ["Tokens", "NFTs"]));
+                     Tabs::new("portfolio_tabs", &mut tab, ["Tokens", "NFTs"])
+                        .style(TabsStyle::Underline)
+                        .fill_width(false)
+                        .show(ui);
 
                      let picked = match tab {
                         0 => PortfolioMode::Tokens,

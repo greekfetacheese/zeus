@@ -14,9 +14,10 @@ use eframe::egui::{
    Align, CornerRadius, CursorIcon, FontId, InnerResponse, Layout, Margin, RichText, ScrollArea,
    Spinner, Ui, vec2,
 };
-use egui_elements::{Button, SecureTextEdit, Theme, visuals::ButtonVisuals};
+use egui_elements::{
+   Button, Indicator, IndicatorState, SecureTextEdit, Theme, visuals::ButtonVisuals,
+};
 use egui_lucide::Lucide;
-use elegance::{Indicator, IndicatorState};
 use std::sync::Arc;
 use zeus_eth::alloy_provider::Provider;
 

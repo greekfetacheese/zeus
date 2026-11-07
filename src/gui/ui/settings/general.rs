@@ -3,8 +3,7 @@
 use crate::core::ZeusContext;
 use crate::core::urls::{UrlPurpose, purpose_tip};
 use egui::{Align, Layout, RichText, Ui, vec2};
-use egui_elements::{Button, Theme};
-use elegance::{Badge, BadgeTone};
+use egui_elements::{Button, Chip, ChipRole, Theme};
 use std::sync::OnceLock;
 
 const ICONS_TIP: &str = "Allow Zeus to download token icons and NFT images";
@@ -117,7 +116,7 @@ impl GeneralSettings {
       ui.label(header);
 
       let q_mark_text = RichText::new("?").size(theme.typography.normal);
-      let qmark = Badge::new(q_mark_text.clone(), BadgeTone::Info);
+      let qmark = Chip::new(q_mark_text.clone()).role(ChipRole::Info);
 
       let ui_size = vec2(ui.available_width() * 0.3, 30.0);
       let icons_text =
@@ -137,7 +136,7 @@ impl GeneralSettings {
       );
 
       let names_text = RichText::new("Fetch Contract Names").size(theme.typography.normal);
-      let qmark = Badge::new(q_mark_text.clone(), BadgeTone::Info);
+      let qmark = Chip::new(q_mark_text.clone()).role(ChipRole::Info);
 
       ui.allocate_ui_with_layout(
          ui_size,
@@ -152,7 +151,7 @@ impl GeneralSettings {
       );
 
       let updates_text = RichText::new("Check for Updates").size(theme.typography.normal);
-      let qmark = Badge::new(q_mark_text.clone(), BadgeTone::Info);
+      let qmark = Chip::new(q_mark_text.clone()).role(ChipRole::Info);
 
       ui.allocate_ui_with_layout(
          ui_size,
@@ -173,7 +172,7 @@ impl GeneralSettings {
       ui.label(header);
 
       let tray_text = RichText::new("Minimize to Tray").size(theme.typography.normal);
-      let qmark = Badge::new(q_mark_text.clone(), BadgeTone::Info);
+      let qmark = Chip::new(q_mark_text.clone()).role(ChipRole::Info);
 
       ui.allocate_ui_with_layout(
          ui_size,
@@ -198,7 +197,7 @@ impl GeneralSettings {
          ui.label(header);
 
          let desktop_text = RichText::new("Add to Application Menu").size(theme.typography.normal);
-         let qmark = Badge::new(q_mark_text.clone(), BadgeTone::Info);
+         let qmark = Chip::new(q_mark_text.clone()).role(ChipRole::Info);
 
          ui.allocate_ui_with_layout(
             ui_size,

@@ -13,7 +13,7 @@ use eframe::{
    CreationContext,
    egui::{self, Frame},
 };
-use elegance::{BadgeTone, Toast};
+use egui_elements::{ChipRole, Toast};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -59,7 +59,7 @@ impl ZeusApp {
                let err = format!("Failed to load icons: {e}");
                Toast::new(title)
                   .description(err)
-                  .tone(BadgeTone::Danger)
+                  .tone(ChipRole::Error)
                   .persistent()
                   .show(&egui_ctx2);
                tracing::error!("Failed to load icons: {e}");

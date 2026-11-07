@@ -17,8 +17,7 @@
 
 use anyhow::anyhow;
 use eframe::egui::{RichText, ScrollArea, Ui, Vec2, vec2};
-use egui_elements::{Button, Theme};
-use elegance::{BadgeTone, Toast};
+use egui_elements::{Button, ChipRole, Theme, Toast};
 use zeus_eth::{
    abi::{erc721, erc1155},
    alloy_primitives::{Address, Bytes, U256, address},
@@ -532,13 +531,13 @@ fn dev_toast(
          Ok(label) => {
             Toast::new(format!("{verb} — {label}"))
                .description(description)
-               .tone(BadgeTone::Ok)
+               .tone(ChipRole::Success)
                .show(&gui.egui_ctx);
          }
          Err(e) => {
             Toast::new(err_title)
                .description(e.to_string())
-               .tone(BadgeTone::Danger)
+               .tone(ChipRole::Error)
                .show(&gui.egui_ctx);
          }
       };

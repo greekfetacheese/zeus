@@ -6,10 +6,9 @@ use egui::{
    scroll_area::ScrollBarVisibility, vec2,
 };
 use egui_elements::{
-   Button, Label, Modal, SecureTextEdit, Theme,
+   Button, Indicator, IndicatorState, Label, Modal, SecureTextEdit, Switch, Theme,
    widgets::{Badge as CornerBadge, BadgeCorner},
 };
-use elegance::{Indicator, IndicatorState, Switch};
 
 use super::address;
 use super::rows::{show_approval_diff_rows, show_balance_diff_rows};

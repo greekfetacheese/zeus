@@ -8,8 +8,7 @@ use crate::{
    gui::ui::chain_select::ChainSelect,
 };
 use egui::{Align, Layout, RichText, Ui, vec2};
-use egui_elements::{Button, Theme};
-use elegance::{Badge, BadgeTone, Slider};
+use egui_elements::{Button, Chip, ChipRole, Slider, Theme};
 use zeus_eth::types::SUPPORTED_CHAINS;
 use zeus_railgun::indexer::syncer::rpc::DEFAULT_BLOCK_RANGE;
 
@@ -95,7 +94,7 @@ impl RailgunSettings {
 
       let mut allow_download = self.config.allow_circuit_download();
       let download_text = RichText::new("Allow Circuit Download").size(theme.typography.normal);
-      let circuit_tip = Badge::new(q_mark.clone(), BadgeTone::Info);
+      let circuit_tip = Chip::new(q_mark.clone()).role(ChipRole::Info);
       ui.horizontal(|ui| {
          if ui.checkbox(&mut allow_download, download_text).changed() {
             self.config.set_allow_circuit_download(allow_download);
@@ -103,7 +102,7 @@ impl RailgunSettings {
          ui.add(circuit_tip).on_hover_text(circuit_download_tip());
       });
 
-      let info_tip = Badge::new(q_mark, BadgeTone::Info);
+      let info_tip = Chip::new(q_mark).role(ChipRole::Info);
 
       ui.allocate_ui(slider_size, |ui| {
          ui.horizontal(|ui| {
@@ -118,7 +117,7 @@ impl RailgunSettings {
 
       let changed = ui
          .allocate_ui(slider_size, |ui| {
-            ui.add(Slider::new(&mut block_range, min..=max).desired_width(slider_size.x))
+            ui.add(Slider::new(&mut block_range, min..=max).width(slider_size.x))
          })
          .inner
          .changed();
@@ -134,7 +133,7 @@ impl RailgunSettings {
 
       let changed = ui
          .allocate_ui(slider_size, |ui| {
-            ui.add(Slider::new(&mut concurrency, min..=max).desired_width(slider_size.x))
+            ui.add(Slider::new(&mut concurrency, min..=max).width(slider_size.x))
          })
          .inner
          .changed();
@@ -150,7 +149,7 @@ impl RailgunSettings {
 
       let changed = ui
          .allocate_ui(slider_size, |ui| {
-            ui.add(Slider::new(&mut interval, min..=max).desired_width(slider_size.x))
+            ui.add(Slider::new(&mut interval, min..=max).width(slider_size.x))
          })
          .inner
          .changed();

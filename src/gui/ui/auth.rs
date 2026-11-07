@@ -12,8 +12,7 @@ use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::gui::ui::settings::ImportDataUi;
 use crate::utils::TimeStamp;
 use egui::{Align, Align2, FontId, Layout, Margin, RichText, ScrollArea, Ui, Window, vec2};
-use egui_elements::{Button, CredentialsForm, Label, SecureTextEdit, Theme};
-use elegance::{BadgeTone, Toast};
+use egui_elements::{Button, ChipRole, CredentialsForm, Label, SecureTextEdit, Theme, Toast};
 use ncrypt_me::{Argon2, Credentials};
 use std::time::Instant;
 use zeus_eth::types::ChainId;
@@ -944,7 +943,7 @@ fn on_unlock_vault(mut vault: Vault) {
                      "Your saved auto-lock timeout could not be read, so Zeus locks on the default \
                       until you set it again in Settings. Your file was left as it is.",
                   )
-                  .tone(BadgeTone::Danger)
+                  .tone(ChipRole::Error)
                   .persistent()
                   .show(&egui_ctx);
             }
@@ -1093,7 +1092,7 @@ fn on_recover_hd_wallet(name: String, credentials: Credentials) {
          let err = format!("Failed to generate Railgun DB key: {e}");
          Toast::new(title)
             .description(err)
-            .tone(BadgeTone::Danger)
+            .tone(ChipRole::Error)
             .persistent()
             .show(&egui_ctx);
          tracing::error!("Failed to generate Railgun DB key: {e}");
@@ -1103,7 +1102,7 @@ fn on_recover_hd_wallet(name: String, credentials: Credentials) {
          let err = format!("Failed to generate WalletState key: {e}");
          Toast::new(title)
             .description(err)
-            .tone(BadgeTone::Danger)
+            .tone(ChipRole::Error)
             .persistent()
             .show(&egui_ctx);
          tracing::error!("Failed to generate WalletState key: {e}");
@@ -1135,7 +1134,7 @@ fn on_recover_hd_wallet(name: String, credentials: Credentials) {
                let err = format!("Failed to save wallet state: {e}");
                Toast::new(title)
                   .description(err)
-                  .tone(BadgeTone::Danger)
+                  .tone(ChipRole::Error)
                   .persistent()
                   .show(&egui_ctx);
                tracing::error!("Failed to save initial wallet state: {e}");

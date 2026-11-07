@@ -1,15 +1,14 @@
 use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, WalletValue, ZeusContext};
 use crate::gui::{
-   SHARED_GUI, dots_button,
+   SHARED_GUI, dots_button, menu_item, menu_item_enabled, more_menu,
    ui::{WalletListByValue, show_with_fade},
 };
 use eframe::egui::{
    Align, Context, FontId, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner, Ui, vec2,
 };
 use egui_elements::Modal;
-use egui_elements::{Button, Label, SecureTextEdit, Theme};
-use elegance::{BadgeTone, Menu, MenuItem, Toast};
+use egui_elements::{Button, ChipRole, Label, SecureTextEdit, Theme, Toast};
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::alloy_primitives::Address;
@@ -236,20 +235,20 @@ impl WalletUi {
                let more = dots_button(theme, size, ui);
                let enabled = !wallet.is_master();
 
-               Menu::new(id).show_below(&more, |ui| {
-                  if ui.add(MenuItem::new("Export")).clicked() {
+               more_menu(id, &more, ui, |ui| {
+                  if menu_item(ui, "Export").clicked() {
                      self.export_key_ui.open(wallet.clone());
                   }
 
-                  if ui.add(MenuItem::new("Rename")).clicked() {
+                  if menu_item(ui, "Rename").clicked() {
                      self.open_rename_wallet(Some(wallet.clone()));
                   }
 
-                  if ui.add(MenuItem::new("Show QR Code")).clicked() {
+                  if menu_item(ui, "Show QR Code").clicked() {
                      on_show_wallet_qr(wallet.clone());
                   }
 
-                  if ui.add_enabled(enabled, MenuItem::new("Delete")).clicked() {
+                  if menu_item_enabled(ui, enabled, "Delete").clicked() {
                      self.delete_wallet_ui.open(wallet.clone());
                   }
                });
@@ -471,7 +470,7 @@ fn on_rename_wallet(new_wallet_name: String, old_wallet_addr: Address) {
                gui.wallet_ui.close_rename_wallet();
 
                Toast::new("Vault saved")
-                  .tone(BadgeTone::Ok)
+                  .tone(ChipRole::Success)
                   .description("Wallet renamed successfully")
                   .duration(Duration::from_secs(5))
                   .show(&gui.egui_ctx);

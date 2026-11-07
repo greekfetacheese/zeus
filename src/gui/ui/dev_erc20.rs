@@ -10,8 +10,7 @@
 //! the wallet you are testing with, rather than being a quiet background write.
 
 use eframe::egui::{RichText, ScrollArea, Ui, Vec2, vec2};
-use egui_elements::{Button, Theme};
-use elegance::{BadgeTone, Toast};
+use egui_elements::{Button, ChipRole, Theme, Toast};
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256, address},
    alloy_sol_types::SolCall,
@@ -209,13 +208,13 @@ fn mint_toast(result: Result<(), anyhow::Error>, label: &str) {
          Ok(()) => {
             Toast::new(format!("Minted {label}"))
                .description("Sepolia, to the active wallet")
-               .tone(BadgeTone::Ok)
+               .tone(ChipRole::Success)
                .show(&gui.egui_ctx);
          }
          Err(e) => {
             Toast::new(format!("Mint failed — {label}"))
                .description(e.to_string())
-               .tone(BadgeTone::Danger)
+               .tone(ChipRole::Error)
                .show(&gui.egui_ctx);
          }
       };
