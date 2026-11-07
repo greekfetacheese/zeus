@@ -4,7 +4,6 @@
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
-use crate::gui::ui::common::rows;
 use crate::gui::{
    SHARED_GUI,
    ui::{
@@ -22,7 +21,11 @@ use eframe::egui::{
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use egui_elements::{Button, Label, Modal, Tabs, TabsStyle, Theme, visuals::ButtonVisuals};
+use egui_elements::{
+   Button, Label, Modal, Tabs, TabsStyle, Theme,
+   layout::{Column, Table},
+   visuals::ButtonVisuals,
+};
 use egui_lucide::Lucide;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -41,15 +44,6 @@ enum PortfolioMode {
    Nfts,
 }
 
-/// What an NFT row's buttons asked for.
-#[derive(Default)]
-struct NftRowAction {
-   /// Open the artwork at inspection size.
-   view: bool,
-   /// Drop the NFT from the portfolio.
-   remove: bool,
-}
-
 /// The artwork modal's contents: the token, and the collection it belongs to.
 ///
 /// The collection is resolved when the preview *opens* rather than in the modal's body: the modal is
@@ -59,6 +53,21 @@ struct NftRowAction {
 struct NftPreview {
    token: NftToken,
    collection: Option<NftCollection>,
+}
+
+/// One row of the portfolio's token list: the strings a row shows, plus what its icon and Remove need.
+///
+/// The table is data-driven, so the list is resolved once per frame instead of inside a cell closure
+/// that runs twice on the frame it measures.
+struct TokenRow {
+   symbol: String,
+   name: String,
+   price: String,
+   balance: String,
+   value: String,
+   icon: Image<'static>,
+   /// The token `Remove` drops; `None` for the chain's native currency, which cannot be removed.
+   token: Option<ERC20Token>,
 }
 
 pub struct PortfolioUi {
@@ -105,157 +114,6 @@ impl PortfolioUi {
       self.open = false;
       // A reopen starts a new list; the previous session's preview must not re-appear over it.
       self.preview = None;
-   }
-
-   /// One framed portfolio row. Returns true if Remove was clicked.
-   fn asset_row(
-      ui: &mut Ui,
-      theme: &Theme,
-      column_widths: [f32; 5],
-      row_width: f32,
-      row_height: f32,
-      icon: Image<'static>,
-      symbol: &str,
-      name: &str,
-      price: &str,
-      balance: &str,
-      value: &str,
-      show_remove: bool,
-   ) -> bool {
-      let label_visuals = theme.label_visuals();
-      let row_frame = theme.frame1.outer_margin(Margin::ZERO);
-      let mut remove_clicked = false;
-
-      ui.allocate_ui(vec2(row_width, row_height + 16.0), |ui| {
-         row_frame.show(ui, |ui| {
-            ui.set_width(row_width);
-            ui.spacing_mut().item_spacing.x = 20.0;
-
-            ui.horizontal(|ui| {
-               rows::row_cell(ui, column_widths[0], row_height, |ui| {
-                  let text =
-                     RichText::new(symbol).size(theme.typography.normal).color(theme.colors.text);
-                  let label = Label::new(text, Some(icon))
-                     .image_on_left()
-                     .wrap()
-                     .visuals(label_visuals)
-                     .interactive(false);
-                  ui.scope(|ui| {
-                     ui.set_max_width(column_widths[0] - 40.0);
-                     ui.add(label).on_hover_text(name);
-                  });
-               });
-
-               rows::row_cell(ui, column_widths[1], row_height, |ui| {
-                  ui.label(
-                     RichText::new(price).size(theme.typography.normal).color(theme.colors.text),
-                  );
-               });
-
-               rows::row_cell(ui, column_widths[2], row_height, |ui| {
-                  ui.label(
-                     RichText::new(balance).size(theme.typography.normal).color(theme.colors.text),
-                  );
-               });
-
-               rows::row_cell(ui, column_widths[3], row_height, |ui| {
-                  ui.label(
-                     RichText::new(value).size(theme.typography.normal).color(theme.colors.text),
-                  );
-               });
-
-               rows::row_cell(ui, column_widths[4], row_height, |ui| {
-                  if show_remove {
-                     let button = Button::new(RichText::new("X").size(theme.typography.normal));
-                     remove_clicked = ui.add(button).clicked();
-                  }
-               });
-            });
-         });
-      });
-
-      remove_clicked
-   }
-
-   /// One framed row of the NFT list: the artwork, what it is, and what can be done with it.
-   ///
-   /// No price, balance or value cells — an NFT has none of those, so those columns exist only for
-   /// tokens. The artwork cell is the thumbnail the icon store keeps for lists; the picture at
-   /// inspection size lives in the preview modal.
-   fn nft_row(
-      ui: &mut Ui,
-      theme: &Theme,
-      column_widths: [f32; 3],
-      col_spacing: f32,
-      row_width: f32,
-      row_height: f32,
-      icon: Image<'static>,
-      title: &str,
-      subtitle: &str,
-      owned: Option<bool>,
-      amount: u64,
-   ) -> NftRowAction {
-      let label_visuals = theme.label_visuals();
-      let row_frame = theme.frame1.outer_margin(Margin::ZERO);
-      let mut action = NftRowAction::default();
-
-      ui.allocate_ui(vec2(row_width, row_height + 16.0), |ui| {
-         row_frame.show(ui, |ui| {
-            ui.set_width(row_width);
-            ui.spacing_mut().item_spacing.x = col_spacing;
-
-            ui.horizontal(|ui| {
-               rows::row_cell(ui, column_widths[0], row_height, |ui| {
-                  ui.add(icon);
-               });
-
-               rows::row_cell(ui, column_widths[1], row_height, |ui| {
-                  // Two labels rather than one with a newline: `TextWrapMode::Truncate` keeps a label to
-                  // a single line, so the second line of a two-line label would never be drawn.
-                  ui.vertical(|ui| {
-                     ui.spacing_mut().item_spacing.y = theme.spacing.xs;
-
-                     let title_text =
-                        RichText::new(title).size(theme.typography.normal).color(theme.colors.text);
-                     let title_label = Label::new(title_text, None)
-                        .wrap_mode(TextWrapMode::Truncate)
-                        .visuals(label_visuals)
-                        .interactive(false);
-                     ui.add(title_label).on_hover_text(title);
-
-                     let subtitle_text = RichText::new(subtitle)
-                        .size(theme.typography.small)
-                        .color(theme.colors.text_muted);
-                     let subtitle_label = Label::new(subtitle_text, None)
-                        .wrap_mode(TextWrapMode::Truncate)
-                        .visuals(label_visuals)
-                        .interactive(false);
-                     ui.add(subtitle_label);
-                  });
-               });
-
-               rows::row_cell(ui, column_widths[2], row_height, |ui| {
-                  ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                     let visual = theme.button_visuals();
-
-                     let view = Button::new(RichText::new("View").size(theme.typography.normal))
-                        .visuals(visual);
-                     action.view = ui.add(view).clicked();
-
-                     let remove = Button::new(RichText::new("X").size(theme.typography.normal))
-                        .visuals(visual);
-                     action.remove = ui.add(remove).clicked();
-
-                     // Left of the two buttons: whether this wallet really holds the token. The
-                     // portfolio is a claim about what it holds, and the chain is what settles it.
-                     ownership_badge(ui, owned, amount);
-                  });
-               });
-            });
-         });
-      });
-
-      action
    }
 
    pub fn show(
@@ -425,120 +283,141 @@ impl PortfolioUi {
                   );
                } else {
                   // Token List
-                  let row_height = 40.0;
-                  let col_spacing = 20.0;
-                  let column_widths = [
-                     ui.available_width() * 0.22, // Asset
-                     ui.available_width() * 0.18, // Price
-                     ui.available_width() * 0.18, // Balance
-                     ui.available_width() * 0.18, // Value
-                     ui.available_width() * 0.10, // Remove
-                  ];
-                  let row_width: f32 = column_widths.iter().sum::<f32>()
-                     + col_spacing * (column_widths.len() as f32 - 1.0);
-                  let row_height_sans_spacing = row_height + 16.0;
-
-                  // --- Header (same widths as body cells; not inside a frame) ---
-                  ui.horizontal(|ui| {
-                     ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0);
-                     ui.spacing_mut().item_spacing.x = col_spacing;
-                     for (i, header) in
-                        ["Asset", "Price", "Balance", "Value", ""].into_iter().enumerate()
-                     {
-                        rows::row_cell(ui, column_widths[i], 28.0, |ui| {
-                           if !header.is_empty() {
-                              ui.label(
-                                 RichText::new(header)
-                                    .strong()
-                                    .size(theme.typography.large)
-                                    .color(theme.colors.text),
-                              );
-                           }
-                        });
-                     }
-                  });
-
-                  ui.add_space(8.0);
-
                   let token_list = if privacy_mode {
                      portfolio.private_tokens()
                   } else {
                      portfolio.public_tokens()
                   };
-                  let show_native = !privacy_mode;
-                  let num_rows = token_list.len() + usize::from(show_native);
+
+                  // The native currency has no portfolio entry, so it is prepended rather than listed.
+                  let mut rows = Vec::with_capacity(token_list.len() + 1);
+                  if !privacy_mode {
+                     let native = Currency::native(chain_id);
+                     rows.push(TokenRow {
+                        symbol: native.symbol().to_string(),
+                        name: native.name().to_string(),
+                        price: format!(
+                           "${:.10}",
+                           ctx.get_currency_price(&native).abbreviated()
+                        ),
+                        balance: format!(
+                           "{:.10}",
+                           ctx.get_currency_balance(chain_id, owner, &native).abbreviated()
+                        ),
+                        value: format!(
+                           "${:.10}",
+                           ctx.get_currency_value_for_owner(chain_id, owner, &native).abbreviated()
+                        ),
+                        icon: icons.currency_icon_x32(&native, tint),
+                        token: None,
+                     });
+                  }
+
+                  for (token, balance, value, price) in token_list {
+                     rows.push(TokenRow {
+                        symbol: token.symbol.to_string(),
+                        name: token.name.to_string(),
+                        price: format!("${:.10}", price.abbreviated()),
+                        balance: format!("{:.10}", balance.abbreviated()),
+                        value: format!("${:.10}", value.abbreviated()),
+                        icon: icons.token_icon_x32(token.address, token.chain_id, tint),
+                        token: Some(token.clone()),
+                     });
+                  }
+
+                  let mut remove_request: Option<ERC20Token> = None;
 
                   ui.spacing_mut().item_spacing.y = theme.spacing.sm;
-                  ScrollArea::vertical().auto_shrink([false; 2]).content_margin(5).show_rows(
-                     ui,
-                     row_height_sans_spacing,
-                     num_rows,
-                     |ui, row_range| {
-                        ui.vertical_centered(|ui| {
-                           ui.spacing_mut().item_spacing.y = theme.spacing.md;
-                           ui.spacing_mut().button_padding =
-                              vec2(theme.spacing.sm, theme.spacing.xs);
+                  ScrollArea::vertical().auto_shrink([false; 2]).content_margin(5).show(ui, |ui| {
+                     ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
 
-                           for row_index in row_range {
-                              if show_native && row_index == 0 {
-                                 let native_currency = Currency::native(chain_id);
-                                 let price = ctx.get_currency_price(&native_currency);
-                                 let balance =
-                                    ctx.get_currency_balance(chain_id, owner, &native_currency);
-                                 let value = ctx.get_currency_value_for_owner(
-                                    chain_id,
-                                    owner,
-                                    &native_currency,
-                                 );
-                                 let price_text = format!("${:.10}", price.abbreviated());
-                                 let balance_text = format!("{:.10}", balance.abbreviated());
-                                 let value_text = format!("${:.10}", value.abbreviated());
-                                 let _ = Self::asset_row(
-                                    ui,
-                                    theme,
-                                    column_widths,
-                                    row_width,
-                                    row_height,
-                                    icons.currency_icon_x32(&native_currency, tint),
-                                    native_currency.symbol(),
-                                    native_currency.name(),
-                                    &price_text,
-                                    &balance_text,
-                                    &value_text,
-                                    false,
-                                 );
-                                 continue;
+                     Table::new("portfolio_tokens", &rows)
+                        .columns([
+                           Column::Fr(2.2), // Asset
+                           Column::Fr(1.8), // Price
+                           Column::Fr(1.8), // Balance
+                           Column::Fr(1.8), // Value
+                           Column::Auto,    // Remove
+                        ])
+                        .gap(20.0)
+                        // 12 pt, not xs: a themed `Button` paints ~6 pt above and below its band.
+                        .row_gap(theme.spacing.md)
+                        .header_rule(true)
+                        .key((chain_id, privacy_mode, rows.len()))
+                        .show(ui, |t| {
+                           t.header(|h| {
+                              for header in ["Asset", "Price", "Balance", "Value", ""] {
+                                 h.cell(|ui| {
+                                    if !header.is_empty() {
+                                       ui.label(
+                                          RichText::new(header)
+                                             .strong()
+                                             .size(theme.typography.large)
+                                             .color(theme.colors.text),
+                                       );
+                                    }
+                                 });
+                              }
+                           });
+
+                           t.rows(|r, row| {
+                              if r.index() % 2 == 1 {
+                                 r.fill(theme.colors.widget_bg);
                               }
 
-                              let token_idx = row_index - usize::from(show_native);
-                              let Some((token, balance, value, price)) = token_list.get(token_idx)
-                              else {
-                                 continue;
-                              };
+                              r.cell(|ui| {
+                                 let text = RichText::new(&row.symbol)
+                                    .size(theme.typography.normal)
+                                    .color(theme.colors.text);
+                                 let label = Label::new(text, Some(row.icon.clone()))
+                                    .image_on_left()
+                                    .wrap()
+                                    .visuals(theme.label_visuals())
+                                    .interactive(false);
+                                 ui.add(label).on_hover_text(&row.name);
+                              });
 
-                              let price_text = format!("${:.10}", price.abbreviated());
-                              let balance_text = format!("{:.10}", balance.abbreviated());
-                              let value_text = format!("${:.10}", value.abbreviated());
-                              if Self::asset_row(
-                                 ui,
-                                 theme,
-                                 column_widths,
-                                 row_width,
-                                 row_height,
-                                 icons.token_icon_x32(token.address, token.chain_id, tint),
-                                 &token.symbol,
-                                 &token.name,
-                                 &price_text,
-                                 &balance_text,
-                                 &value_text,
-                                 true,
-                              ) {
-                                 self.remove_token(ctx, owner, token);
-                              }
-                           }
+                              r.cell(|ui| {
+                                 ui.label(
+                                    RichText::new(&row.price)
+                                       .size(theme.typography.normal)
+                                       .color(theme.colors.text),
+                                 );
+                              });
+
+                              r.cell(|ui| {
+                                 ui.label(
+                                    RichText::new(&row.balance)
+                                       .size(theme.typography.normal)
+                                       .color(theme.colors.text),
+                                 );
+                              });
+
+                              r.cell(|ui| {
+                                 ui.label(
+                                    RichText::new(&row.value)
+                                       .size(theme.typography.normal)
+                                       .color(theme.colors.text),
+                                 );
+                              });
+
+                              r.cell(|ui| {
+                                 let Some(token) = &row.token else {
+                                    return;
+                                 };
+
+                                 let text = RichText::new("X").size(theme.typography.normal);
+                                 if ui.add(Button::new(text)).clicked() {
+                                    remove_request = Some(token.clone());
+                                 }
+                              });
+                           });
                         });
-                     },
-                  );
+                  });
+
+                  if let Some(token) = remove_request {
+                     self.remove_token(ctx, owner, &token);
+                  }
                }
 
                let currency = token_selection.get_selected_currency();
@@ -575,7 +454,7 @@ impl PortfolioUi {
 
    /// The NFT list: the wallet's own NFTs, or the shielded ones in privacy mode.
    ///
-   /// Virtualized like the token list, but with no column header: there is one column that means
+   /// The same table as the token list, but with no column header: there is one column that means
    /// anything here, and «Price / Balance / Value» would have nothing underneath them.
    ///
    /// `privacy_mode` picks which side of the holdings the rows read: the badges must agree with the list
@@ -596,16 +475,6 @@ impl PortfolioUi {
    ) {
       let collections = cached_collections(ctx.nft_db.get_collections(chain_id));
 
-      let col_spacing = 20.0;
-      let row_height = 64.0;
-      let row_height_sans_spacing = row_height + 16.0;
-      let row_width = ui.available_width();
-      let column_widths = [
-         row_height,       // the artwork, thumbnail-sized
-         row_width * 0.62, // what it is
-         row_width * 0.18, // inspect / remove
-      ];
-
       if nfts.is_empty() {
          ui.add_space(theme.spacing.md);
          ui.label(
@@ -619,32 +488,36 @@ impl PortfolioUi {
       let mut preview_request: Option<NftToken> = None;
       let mut remove_request: Option<NftToken> = None;
 
-      ui.spacing_mut().item_spacing.y = theme.spacing.sm;
-      ScrollArea::vertical().auto_shrink([false; 2]).content_margin(5).show_rows(
-         ui,
-         row_height_sans_spacing,
-         nfts.len(),
-         |ui, row_range| {
-            ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = theme.spacing.md;
-               ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
+      let label_visuals = theme.label_visuals();
+      let button_visuals = theme.button_visuals();
 
-               for row_index in row_range {
-                  let Some(token) = nfts.get(row_index) else {
-                     continue;
-                  };
+      ui.spacing_mut().item_spacing.y = theme.spacing.sm;
+      ScrollArea::vertical().auto_shrink([false; 2]).content_margin(5).show(ui, |ui| {
+         ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
+
+         Table::new("portfolio_nfts", nfts)
+            // The artwork's thumbnail size is the row height this list was laid out for.
+            .columns([Column::Fixed(64.0), Column::Fr(1.0), Column::Auto])
+            .gap(20.0)
+            .row_gap(theme.spacing.md)
+            .key((chain_id, privacy_mode, nfts.len()))
+            .show(ui, |t| {
+               t.rows(|r, token| {
+                  if r.index() % 2 == 1 {
+                     r.fill(theme.colors.widget_bg);
+                  }
 
                   let collection = collections.get(&token.collection);
-                  // The id is part of the title, not an afterthought: a collection is many tokens, and
-                  // which one this row is is the first thing to read.
+                  // The id is part of the title, not an afterthought: a collection is many tokens,
+                  // and which one this row is is the first thing to read.
                   let title = format!(
                      "{} #{}",
                      nft_collection_name(collection, token.collection),
                      token.token_id
                   );
                   let subtitle = Self::nft_subtitle(collection, token.standard);
-                  // Public ownership is the balance manager's, the same store the token rows read; the
-                  // private side is «in `private_nfts` ⇒ held», with the count its note carried.
+                  // Public ownership is the balance manager's, the same store the token rows read;
+                  // the private side is «in `private_nfts` ⇒ held», with the count its note carried.
                   let holding = match privacy_mode {
                      true => Some(
                         private_amounts
@@ -657,38 +530,66 @@ impl PortfolioUi {
                      }
                   };
 
-                  let icon = icons.nft_icon_x64(
-                     token.chain_id,
-                     token.collection,
-                     token.token_id,
-                     tint,
-                  );
+                  r.cell(|ui| {
+                     ui.add(icons.nft_icon_x64(
+                        token.chain_id,
+                        token.collection,
+                        token.token_id,
+                        tint,
+                     ));
+                  });
 
-                  let action = Self::nft_row(
-                     ui,
-                     theme,
-                     column_widths,
-                     col_spacing,
-                     row_width,
-                     row_height,
-                     icon,
-                     &title,
-                     &subtitle,
-                     holding.map(|amount| amount > 0),
-                     holding.unwrap_or(0),
-                  );
+                  r.cell(|ui| {
+                     // Two labels rather than one with a newline: `TextWrapMode::Truncate` keeps a
+                     // label to a single line, so the second line of a two-line label would never
+                     // be drawn.
+                     ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = theme.spacing.xs;
 
-                  if action.view {
-                     preview_request = Some(token.clone());
-                  }
+                        let title_text = RichText::new(&title)
+                           .size(theme.typography.normal)
+                           .color(theme.colors.text);
+                        let title_label = Label::new(title_text, None)
+                           .wrap_mode(TextWrapMode::Truncate)
+                           .visuals(label_visuals)
+                           .interactive(false);
+                        ui.add(title_label).on_hover_text(&title);
 
-                  if action.remove {
-                     remove_request = Some(token.clone());
-                  }
-               }
+                        let subtitle_text = RichText::new(&subtitle)
+                           .size(theme.typography.small)
+                           .color(theme.colors.text_muted);
+                        let subtitle_label = Label::new(subtitle_text, None)
+                           .wrap_mode(TextWrapMode::Truncate)
+                           .visuals(label_visuals)
+                           .interactive(false);
+                        ui.add(subtitle_label);
+                     });
+                  });
+
+                  r.cell(|ui| {
+                     // Left of the two buttons: whether this wallet really holds the token. The
+                     // portfolio is a claim about what it holds, and the chain is what settles it.
+                     ownership_badge(
+                        ui,
+                        holding.map(|amount| amount > 0),
+                        holding.unwrap_or(0),
+                     );
+
+                     let remove = Button::new(RichText::new("X").size(theme.typography.normal))
+                        .visuals(button_visuals);
+                     if ui.add(remove).clicked() {
+                        remove_request = Some(token.clone());
+                     }
+
+                     let view = Button::new(RichText::new("View").size(theme.typography.normal))
+                        .visuals(button_visuals);
+                     if ui.add(view).clicked() {
+                        preview_request = Some(token.clone());
+                     }
+                  });
+               });
             });
-         },
-      );
+      });
 
       // Applied after the list: a removal rewrites the portfolio, and doing that from inside the row
       // loop would change the list it is iterating.

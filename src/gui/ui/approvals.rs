@@ -5,7 +5,6 @@ use crate::core::{
    DecodedEvent, NftApproveParams, PermitParams, SendTxOptions, SendTxRequest, TokenApproveParams,
    TransactionAnalysis, WalletInfo, ZeusContext, ZeusCtx, send_transaction, signature,
 };
-use crate::gui::ui::common::rows;
 use crate::gui::ui::common::{chain_label, usable_chain};
 use crate::gui::{SHARED_GUI, ui::show_with_fade};
 use crate::utils::{TimeStamp, simulate::simulate_for_analysis, truncate_address};
@@ -13,7 +12,10 @@ use anyhow::anyhow;
 use egui::{
    Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, vec2,
 };
-use egui_elements::{Button, Chip, ChipRole, ComboBox, Label, Theme};
+use egui_elements::{
+   Button, Chip, ChipRole, ComboBox, Label, Theme,
+   layout::{Column, Table},
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 use zeus_eth::{
@@ -33,15 +35,6 @@ It cannot track approvals made from other wallets.";
 
 const DEFAULT_ROWS_PER_PAGE: usize = 10;
 
-/// Row height for a fungible approval, sized for its 32 px token icon.
-const ROW_HEIGHT: f32 = 40.0;
-
-/// Row height for an NFT approval.
-///
-/// Its thumbnail is 64 px — the icon store's list size, which is what an NFT row draws — so a row
-/// shorter than that lets the art spill out over the card, which is exactly what a 40 px row did.
-const NFT_ROW_HEIGHT: f32 = 64.0;
-
 /// Max `(token, spender)` allowance pairs per Multicall3 aggregate so the eth_call stays under gas limits.
 const ALLOWANCE_PAIR_BATCH: usize = 20;
 
@@ -50,7 +43,7 @@ const ALLOWANCE_PAIR_BATCH: usize = 20;
 /// An enum rather than a `bool` for the same reason the token picker's `PickerMode` is one: a mode is
 /// exactly one of these, so "neither" and "both" cannot be represented. `Fungible` is the default and
 /// what `open` restores, which keeps the ERC-20 view the one the page lands on.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
 enum ApprovalMode {
    #[default]
    Fungible,
@@ -126,18 +119,6 @@ impl ApprovalAsset {
          Self::Nft { collection, .. } => collection.to_string(),
       }
    }
-
-   /// The width of the thumbnail this row draws.
-   ///
-   /// The label beside it has to leave room for exactly this much — an NFT's art is 64 px where a
-   /// token's icon is 32, so a cap sized for the smaller one lets a long collection name run over the
-   /// icon and out of the cell.
-   fn icon_width(&self) -> f32 {
-      match self {
-         Self::Token { .. } => 32.0,
-         Self::Nft { .. } => 64.0,
-      }
-   }
 }
 
 #[derive(Debug, Clone)]
@@ -150,20 +131,7 @@ struct ApprovalRow {
    kind: ApprovalKind,
 }
 
-impl ApprovalRow {
-   /// Tall enough for this row's thumbnail — see [`NFT_ROW_HEIGHT`].
-   ///
-   /// The mode switch means a table holds one kind of row or the other, so the two heights never
-   /// interleave; a NFT-mode page is uniformly tall and a token-mode page uniformly compact.
-   fn height(&self) -> f32 {
-      match self.asset {
-         ApprovalAsset::Token { .. } => ROW_HEIGHT,
-         ApprovalAsset::Nft { .. } => NFT_ROW_HEIGHT,
-      }
-   }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 struct CacheKey {
    wallet: Option<Address>,
    chain: Option<u64>,
@@ -498,14 +466,7 @@ impl ApprovalsUi {
    ///
    /// For an NFT that means the *scope* — which id, or the whole collection — plus the allowance on
    /// the one shape that has one (ERC-5216), since "approved: yes" is not a number.
-   fn amount_cell(
-      ui: &mut Ui,
-      width: f32,
-      height: f32,
-      asset: &ApprovalAsset,
-      expire: Option<String>,
-      theme: &Theme,
-   ) {
+   fn amount_cell(ui: &mut Ui, asset: &ApprovalAsset, expire: Option<String>, theme: &Theme) {
       let text = match asset {
          ApprovalAsset::Token { amount, .. } => Self::amount_label(amount),
          ApprovalAsset::Nft {
@@ -525,18 +486,16 @@ impl ApprovalsUi {
          },
       };
 
-      rows::row_cell(ui, width, height, |ui| {
-         ui.spacing_mut().item_spacing.x = theme.spacing.xs;
+      ui.spacing_mut().item_spacing.x = theme.spacing.xs;
 
-         ui.label(RichText::new(text).size(theme.typography.normal).color(theme.colors.text));
+      ui.label(RichText::new(text).size(theme.typography.normal).color(theme.colors.text));
 
-         if let Some(text) = expire {
-            let expire_text = RichText::new(text).size(theme.typography.normal);
-            let q_mark = RichText::new("?").size(theme.typography.normal);
-            let info_tip = Chip::new(q_mark).role(ChipRole::Info);
-            ui.add(info_tip).on_hover_text(expire_text);
-         }
-      });
+      if let Some(text) = expire {
+         let expire_text = RichText::new(text).size(theme.typography.normal);
+         let q_mark = RichText::new("?").size(theme.typography.normal);
+         let info_tip = Chip::new(q_mark).role(ChipRole::Info);
+         ui.add(info_tip).on_hover_text(expire_text);
+      }
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -759,34 +718,14 @@ impl ApprovalsUi {
                .show(ui, |ui| {
                   ui.set_width(ui.available_width());
 
-                  // Fixed content height for every column.
-                  // Size columns from the *inner* card width (after frame2
-                  // padding) so header cells line up with body cells and the
-                  // row actually fills the card — leftover used to live after
-                  // Revoke because body spacing/padding did not match the header.
-                  let col_spacing = 20.0;
-                  let n_cols = 7.0;
-                  let row_frame = theme.frame1.outer_margin(Margin::ZERO);
-                  let inner_left = row_frame.inner_margin.leftf();
-                  let inner_right = row_frame.inner_margin.rightf();
-                  let inner_y = row_frame.inner_margin.topf() + row_frame.inner_margin.bottomf();
-                  let row_width = ui.available_width();
-                  let inner_width = (row_width - inner_left - inner_right).max(0.0);
-                  let usable = (inner_width - col_spacing * (n_cols - 1.0)).max(0.0);
-                  // Compact action column; remaining width goes to the data columns.
-                  let revoke_w = 100.0_f32.min(usable);
-                  let rest = (usable - revoke_w).max(0.0);
-                  let column_widths = [
-                     rest * 0.20, // Asset
-                     rest * 0.13, // Chain
-                     rest * 0.16, // Wallet
-                     rest * 0.22, // Spender
-                     rest * 0.16, // Amount (+ expire)
-                     rest * 0.13, // Type
-                     revoke_w,    // Revoke
-                  ];
+                  let start = self.current_page * self.rows_per_page;
+                  let end = start.saturating_add(self.rows_per_page).min(total_rows);
+                  let rows: &[ApprovalRow] = if start < end {
+                     &self.cached_rows[start..end]
+                  } else {
+                     &[]
+                  };
 
-                  // --- Header (same widths + left inset as body cells) ---
                   // The trusted-address column is "Operator" in NFT mode: it is the same slot, but an
                   // NFT approval grants an operator, which is the word the rest of the UI uses for it.
                   let headers = match self.mode {
@@ -798,198 +737,174 @@ impl ApprovalsUi {
                      }
                   };
 
-                  ui.horizontal(|ui| {
-                     ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0 + inner_left);
-                     ui.spacing_mut().item_spacing.x = col_spacing;
-                     for (i, header) in headers.into_iter().enumerate() {
-                        // Shorter header row — no need for full body height.
-                        rows::row_cell(ui, column_widths[i], 28.0, |ui| {
-                           if !header.is_empty() {
-                              ui.label(
-                                 RichText::new(header)
-                                    .strong()
-                                    .size(theme.typography.large)
-                                    .color(theme.colors.text),
-                              );
+                  let mut revoke_request: Option<ApprovalRow> = None;
+
+                  Table::new("approvals", rows)
+                     .columns([
+                        Column::Fr(2.0),      // Asset
+                        Column::Fr(1.3),      // Chain
+                        Column::Fr(1.6),      // Wallet
+                        Column::Fr(2.2),      // Spender / Operator
+                        Column::Fr(1.6),      // Amount
+                        Column::Fr(1.3),      // Type
+                        Column::Fixed(100.0), // Revoke
+                     ])
+                     .gap(20.0)
+                     // 12 pt, not xs: a themed `Button` paints ~6 pt above and below its band.
+                     .row_gap(theme.spacing.md)
+                     .header_rule(true)
+                     .key((&self.cache_key, self.current_page))
+                     .show(ui, |t| {
+                        t.header(|h| {
+                           for text in headers {
+                              h.cell(|ui| {
+                                 if !text.is_empty() {
+                                    ui.label(
+                                       RichText::new(text)
+                                          .strong()
+                                          .size(theme.typography.large)
+                                          .color(theme.colors.text),
+                                    );
+                                 }
+                              });
                            }
                         });
-                     }
-                  });
 
-                  ui.add_space(8.0);
+                        t.rows(|r, row| {
+                           if r.index() % 2 == 1 {
+                              r.fill(theme.colors.widget_bg);
+                           }
 
-                  // --- Body: one frame2 card per approval ---
-                  // Do NOT put Frame inside a Grid cell — Frame becomes a single
-                  // cell and every column collapses into the first one.
-                  let start = self.current_page * self.rows_per_page;
-                  let end = start.saturating_add(self.rows_per_page).min(total_rows);
-                  let rows = if start < end {
-                     self.cached_rows[start..end].to_vec()
-                  } else {
-                     Vec::new()
-                  };
-
-                  ui.vertical_centered(|ui| {
-                     ui.spacing_mut().item_spacing.y = theme.spacing.md;
-
-                     for row in rows {
-                        // An NFT row is as tall as its 64 px thumbnail; a fungible row keeps the
-                        // height its 32 px icon was laid out for.
-                        let row_height = row.height();
-
-                        ui.allocate_ui(vec2(row_width, row_height + inner_y), |ui| {
-                           row_frame.show(ui, |ui| {
-                              ui.set_width(inner_width);
-                              ui.spacing_mut().item_spacing.x = col_spacing;
-
-                              ui.horizontal(|ui| {
-                                 // Asset — a token's symbol, or the collection an NFT approval is over.
-                                 rows::row_cell(ui, column_widths[0], row_height, |ui| {
-                                    let icon_width = row.asset.icon_width();
-                                    let (icon, title, hover) = match &row.asset {
-                                       ApprovalAsset::Token { currency, .. } => (
-                                          icons.currency_icon_x32(currency, tint),
-                                          currency.symbol().to_string(),
-                                          currency.name().to_string(),
-                                       ),
-                                       ApprovalAsset::Nft {
-                                          collection,
-                                          token_id,
-                                          ..
-                                       } => {
-                                          // A collection-wide approval has no id, so any of the
-                                          // collection's cached art is what identifies it — asking
-                                          // for a fixed id usually lands on art that was never
-                                          // fetched and shows the placeholder instead.
-                                          let icon = match token_id {
-                                             Some(id) => icons.nft_icon_x64(
-                                                row.chain,
-                                                *collection,
-                                                *id,
-                                                tint,
-                                             ),
-                                             None => icons.nft_collection_icon_x64(
-                                                row.chain,
-                                                *collection,
-                                                tint,
-                                             ),
-                                          };
-                                          let name =
-                                             self.collection_label(ctx, row.chain, *collection);
-                                          let hover = format!("{}\n{}", name, collection);
-                                          (icon, name, hover)
+                           // Asset — a token's symbol, or the collection an NFT approval is over.
+                           r.cell(|ui| {
+                              let (icon, title, hover) = match &row.asset {
+                                 ApprovalAsset::Token { currency, .. } => (
+                                    icons.currency_icon_x32(currency, tint),
+                                    currency.symbol().to_string(),
+                                    currency.name().to_string(),
+                                 ),
+                                 ApprovalAsset::Nft {
+                                    collection,
+                                    token_id,
+                                    ..
+                                 } => {
+                                    // A collection-wide approval has no id, so any of the
+                                    // collection's cached art is what identifies it — asking for a
+                                    // fixed id usually lands on art that was never fetched and shows
+                                    // the placeholder instead.
+                                    let icon = match token_id {
+                                       Some(id) => {
+                                          icons.nft_icon_x64(row.chain, *collection, *id, tint)
                                        }
+                                       None => icons.nft_collection_icon_x64(
+                                          row.chain,
+                                          *collection,
+                                          tint,
+                                       ),
                                     };
+                                    let name = self.collection_label(ctx, row.chain, *collection);
+                                    let hover = format!("{}\n{}", name, collection);
+                                    (icon, name, hover)
+                                 }
+                              };
 
-                                    ui.add(icon);
-                                    let text = RichText::new(title)
+                              ui.add(icon);
+                              let text = RichText::new(title)
+                                 .size(theme.typography.normal)
+                                 .color(theme.colors.text);
+                              let label = Label::new(text, None).wrap().visuals(label_visuals);
+                              ui.add(label).on_hover_text(hover);
+                           });
+
+                           // Chain
+                           r.cell(|ui| {
+                              let chain = chain_label(row.chain);
+                              let text = RichText::new(&chain)
+                                 .size(theme.typography.normal)
+                                 .color(theme.colors.text);
+                              let label = Label::new(text, None)
+                                 .wrap_mode(TextWrapMode::Truncate)
+                                 .visuals(label_visuals);
+                              ui.add(label).on_hover_text(chain);
+                           });
+
+                           // Wallet
+                           r.cell(|ui| {
+                              let name = self.wallet_name(ctx, row.owner);
+                              let text = RichText::new(&name)
+                                 .size(theme.typography.normal)
+                                 .color(theme.colors.text);
+                              let label = Label::new(text, None)
+                                 .wrap_mode(TextWrapMode::Truncate)
+                                 .visuals(label_visuals);
+                              ui.add(label).on_hover_text(format!("{}\n{}", name, row.owner));
+                           });
+
+                           // Spender
+                           r.cell(|ui| {
+                              let name = self.spender_label(ctx, row.chain, row.spender);
+
+                              match spender_explorer_url(row.chain, row.spender) {
+                                 Some(link) => {
+                                    let text = RichText::new(&name)
                                        .size(theme.typography.normal)
-                                       .color(theme.colors.text);
-                                    let label =
-                                       Label::new(text, None).wrap().visuals(label_visuals);
-                                    ui.scope(|ui| {
-                                       ui.set_max_width(
-                                          (column_widths[0] - icon_width - theme.spacing.xs)
-                                             .max(0.0),
-                                       );
-                                       ui.add(label).on_hover_text(hover);
-                                    });
-                                 });
-
-                                 // Chain
-                                 rows::row_cell(ui, column_widths[1], row_height, |ui| {
-                                    let chain = chain_label(row.chain);
-                                    let text = RichText::new(&chain)
-                                       .size(theme.typography.normal)
-                                       .color(theme.colors.text);
-                                    let label = Label::new(text, None)
-                                       .wrap_mode(TextWrapMode::Truncate)
-                                       .visuals(label_visuals);
-                                    ui.add(label).on_hover_text(chain);
-                                 });
-
-                                 // Wallet
-                                 rows::row_cell(ui, column_widths[2], row_height, |ui| {
-                                    let name = self.wallet_name(ctx, row.owner);
+                                       .color(theme.colors.info);
+                                    ui.hyperlink_to(text, link);
+                                 }
+                                 // No chain Zeus can name, so no correct explorer for it — drop the
+                                 // link and still show the spender.
+                                 None => {
                                     let text = RichText::new(&name)
                                        .size(theme.typography.normal)
                                        .color(theme.colors.text);
                                     let label = Label::new(text, None)
                                        .wrap_mode(TextWrapMode::Truncate)
                                        .visuals(label_visuals);
-                                    ui.add(label).on_hover_text(format!("{}\n{}", name, row.owner));
-                                 });
+                                    ui.add(label)
+                                       .on_hover_text(format!("{}\n{}", name, row.spender));
+                                 }
+                              }
+                           });
 
-                                 // Spender
-                                 rows::row_cell(ui, column_widths[3], row_height, |ui| {
-                                    let name = self.spender_label(ctx, row.chain, row.spender);
+                           // Amount
+                           let expire = if row.kind.is_permit2() {
+                              Some(format!(
+                                 "Expires {}",
+                                 row.kind.expiration().to_relative()
+                              ))
+                           } else {
+                              None
+                           };
 
-                                    match spender_explorer_url(row.chain, row.spender) {
-                                       Some(link) => {
-                                          let text = RichText::new(&name)
-                                             .size(theme.typography.normal)
-                                             .color(theme.colors.info);
-                                          ui.hyperlink_to(text, link);
-                                       }
-                                       // No chain Zeus can name, so no correct explorer for it —
-                                       // drop the link and still show the spender.
-                                       None => {
-                                          let text = RichText::new(&name)
-                                             .size(theme.typography.normal)
-                                             .color(theme.colors.text);
-                                          let label = Label::new(text, None)
-                                             .wrap_mode(TextWrapMode::Truncate)
-                                             .visuals(label_visuals);
-                                          ui.add(label)
-                                             .on_hover_text(format!("{}\n{}", name, row.spender));
-                                       }
-                                    }
-                                 });
+                           r.cell(|ui| {
+                              Self::amount_cell(ui, &row.asset, expire, theme);
+                           });
 
-                                 // Amount
-                                 let expire = if row.kind.is_permit2() {
-                                    Some(format!(
-                                       "Expires {}",
-                                       row.kind.expiration().to_relative()
-                                    ))
-                                 } else {
-                                    None
-                                 };
+                           // Type
+                           r.cell(|ui| {
+                              ui.label(
+                                 RichText::new(row.kind.type_label())
+                                    .size(theme.typography.normal)
+                                    .color(theme.colors.text),
+                              );
+                           });
 
-                                 Self::amount_cell(
-                                    ui,
-                                    column_widths[4],
-                                    row_height,
-                                    &row.asset,
-                                    expire,
-                                    theme,
-                                 );
-
-                                 // Type
-                                 rows::row_cell(ui, column_widths[5], row_height, |ui| {
-                                    ui.label(
-                                       RichText::new(row.kind.type_label())
-                                          .size(theme.typography.normal)
-                                          .color(theme.colors.text),
-                                    );
-                                 });
-
-                                 // Revoke — hug the right inner edge of the card.
-                                 rows::row_cell(ui, column_widths[6], row_height, |ui| {
-                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                       let text =
-                                          RichText::new("Revoke").size(theme.typography.normal);
-                                       let button = Button::new(text).visuals(button_visuals);
-                                       if ui.add(button).clicked() {
-                                          self.revoke(row);
-                                       }
-                                    });
-                                 });
+                           // Revoke — hug the right inner edge of the row.
+                           r.cell(|ui| {
+                              ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                 let text = RichText::new("Revoke").size(theme.typography.normal);
+                                 let button = Button::new(text).visuals(button_visuals);
+                                 if ui.add(button).clicked() {
+                                    revoke_request = Some(row.clone());
+                                 }
                               });
                            });
                         });
-                     }
-                  });
+                     });
+
+                  if let Some(row) = revoke_request {
+                     self.revoke(row);
+                  }
                });
          });
       });
