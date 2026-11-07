@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 
 use crate::core::{TransactionRich, WalletInfo, ZeusContext};
-use crate::gui::ui::common::rows;
 use crate::gui::{
    SHARED_GUI,
    ui::{
@@ -13,9 +12,14 @@ use crate::gui::{
 };
 use crate::utils::truncate_address;
 use egui::{
-   Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, vec2,
+   Align, Frame, Layout, Margin, Response, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui,
+   vec2,
 };
-use egui_elements::{Button, Chip, ChipRole, ComboBox, Label, Theme};
+use egui_elements::{
+   Button, Chip, ChipRole, ComboBox, Label, Theme,
+   layout::{Column, Table, TableHeader},
+   visuals::ButtonVisuals,
+};
 use zeus_eth::{
    alloy_primitives::{Address, B256, U256},
    currency::Currency,
@@ -60,7 +64,7 @@ struct PublicHistoryRow {
    tx: TransactionRich,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 struct CacheKey {
    wallet: Option<Address>,
    chain: Option<u64>,
@@ -590,222 +594,178 @@ impl TxHistory {
                   let start = self.current_page * self.txs_per_page;
                   let end = start.saturating_add(self.txs_per_page).min(total_txs);
 
-                  // Size columns from the *inner* card width (after frame2
-                  // padding) so header cells line up with body cells and the
-                  // row fills the card — same recipe as ApprovalsUi.
-                  let row_height = 40.0;
-                  let col_spacing = 20.0;
-                  let n_cols = 5.0;
-                  let row_frame = theme.frame1.outer_margin(Margin::ZERO);
-                  let inner_left = row_frame.inner_margin.leftf();
-                  let inner_right = row_frame.inner_margin.rightf();
-                  let inner_y = row_frame.inner_margin.topf() + row_frame.inner_margin.bottomf();
-                  let row_width = ui.available_width();
-                  let inner_width = (row_width - inner_left - inner_right).max(0.0);
-                  let usable = (inner_width - col_spacing * (n_cols - 1.0)).max(0.0);
-                  let details_w = 100.0_f32.min(usable);
-                  let rest = (usable - details_w).max(0.0);
-                  let column_widths = [
-                     rest * 0.22, // Wallet
-                     rest * 0.16, // Chain
-                     rest * 0.40, // Action
-                     rest * 0.22, // Age
-                     details_w,   // Details
+                  let columns = [
+                     Column::Fr(2.2),      // Wallet
+                     Column::Fr(1.6),      // Chain
+                     Column::Fr(4.0),      // Action
+                     Column::Auto,         // Age
+                     Column::Fixed(100.0), // Details
                   ];
-                  let label_visuals = theme.label_visuals();
 
-                  // --- Header (same widths + left inset as body cells) ---
-                  ui.horizontal(|ui| {
-                     ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0 + inner_left);
-                     ui.spacing_mut().item_spacing.x = col_spacing;
-                     for (i, header) in
-                        ["Wallet", "Chain", "Action", "Age", ""].into_iter().enumerate()
-                     {
-                        rows::row_cell(ui, column_widths[i], 28.0, |ui| {
-                           if !header.is_empty() {
-                              ui.label(
-                                 RichText::new(header)
-                                    .strong()
-                                    .size(theme.typography.large)
-                                    .color(theme.colors.text),
-                              );
-                           }
-                        });
-                     }
-                  });
+                  let mut details_tx: Option<TransactionRich> = None;
+                  let mut details_spent: Option<SpentHistoryRow> = None;
 
-                  ui.add_space(8.0);
-
-                  // --- Body: one frame2 card per row ---
-                  ui.vertical_centered(|ui| {
-                     ui.spacing_mut().item_spacing.y = theme.spacing.md;
-
-                     if privacy {
-                        let rows_on_page = if start < end {
-                           &self.cached_spent[start..end]
-                        } else {
-                           &[]
-                        };
-                        for row in rows_on_page {
-                           ui.allocate_ui(vec2(row_width, row_height + inner_y), |ui| {
-                              row_frame.show(ui, |ui| {
-                                 ui.set_width(inner_width);
-                                 ui.spacing_mut().item_spacing.x = col_spacing;
-
-                                 ui.horizontal(|ui| {
-                                    rows::row_cell(ui, column_widths[0], row_height, |ui| {
-                                       let name = self.wallet_name_or_address(ctx, row.wallet);
-                                       let text = RichText::new(&name)
-                                          .size(theme.typography.normal)
-                                          .color(theme.colors.text);
-                                       let label = Label::new(text, None)
-                                          .wrap_mode(TextWrapMode::Truncate)
-                                          .visuals(label_visuals);
-                                       ui.add(label)
-                                          .on_hover_text(format!("{}\n{}", name, row.wallet));
-                                    });
-
-                                    rows::row_cell(ui, column_widths[1], row_height, |ui| {
-                                       // A spent-note row's chain comes from the Railgun store and
-                                       // is not re-validated, so it is named rather than converted.
-                                       let name = chain_label(row.chain);
-                                       let text = RichText::new(&name)
-                                          .size(theme.typography.normal)
-                                          .color(theme.colors.text);
-                                       let label = Label::new(text, None)
-                                          .wrap_mode(TextWrapMode::Truncate)
-                                          .visuals(label_visuals);
-                                       ui.add(label).on_hover_text(&name);
-                                    });
-
-                                    rows::row_cell(ui, column_widths[2], row_height, |ui| {
-                                       let text = RichText::new(&row.action)
-                                          .size(theme.typography.normal)
-                                          .color(theme.colors.text);
-                                       let label = Label::new(text, None)
-                                          .wrap_mode(TextWrapMode::Truncate)
-                                          .visuals(label_visuals);
-                                       ui.add(label).on_hover_text(&row.action);
-                                    });
-
-                                    rows::row_cell(ui, column_widths[3], row_height, |ui| {
-                                       let age = spent_age(ctx, row);
-                                       let text = RichText::new(&age)
-                                          .size(theme.typography.normal)
-                                          .color(theme.colors.text);
-                                       let label = Label::new(text, None)
-                                          .wrap_mode(TextWrapMode::Truncate)
-                                          .visuals(label_visuals);
-                                       ui.add(label).on_hover_text(&age);
-                                    });
-
-                                    rows::row_cell(ui, column_widths[4], row_height, |ui| {
-                                       ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                          let text =
-                                             RichText::new("Details").size(theme.typography.normal);
-                                          let details_button =
-                                             Button::new(text).visuals(button_visuals);
-                                          if ui.add(details_button).clicked() {
-                                             let row = row.clone();
-                                             crate::runtime::rt().spawn_blocking(move || {
-                                                SHARED_GUI.write(|gui| {
-                                                   gui.spent_note_window.open(row);
-                                                });
-                                             });
-                                          }
-                                       });
-                                    });
-                                 });
-                              });
-                           });
-                        }
+                  if privacy {
+                     let rows: &[SpentHistoryRow] = if start < end {
+                        &self.cached_spent[start..end]
                      } else {
-                        let txs_on_page = if start < end {
-                           &self.cached_txs[start..end]
-                        } else {
-                           &[]
-                        };
-                        for row in txs_on_page {
-                           ui.allocate_ui(vec2(row_width, row_height + inner_y), |ui| {
-                              row_frame.show(ui, |ui| {
-                                 ui.set_width(inner_width);
-                                 ui.spacing_mut().item_spacing.x = col_spacing;
+                        &[]
+                     };
 
-                                 ui.horizontal(|ui| {
-                                    rows::row_cell(ui, column_widths[0], row_height, |ui| {
-                                       let name = self.wallet_name_or_address(ctx, row.wallet);
-                                       let text = RichText::new(&name)
-                                          .size(theme.typography.normal)
-                                          .color(theme.colors.text);
-                                       let label = Label::new(text, None)
-                                          .wrap_mode(TextWrapMode::Truncate)
-                                          .visuals(label_visuals);
-                                       ui.add(label)
-                                          .on_hover_text(format!("{}\n{}", name, row.wallet));
-                                    });
+                     Table::new("tx_history_spent", rows)
+                        .columns(columns)
+                        .gap(20.0)
+                        // 12 pt, not xs: a themed `Button` paints ~6 pt above and below its band.
+                        .row_gap(theme.spacing.md)
+                        .header_rule(true)
+                        .key((&self.cache_key, self.current_page))
+                        .show(ui, |t| {
+                           t.header(|h| history_header(theme, h));
 
-                                    rows::row_cell(ui, column_widths[1], row_height, |ui| {
-                                       // A stored transaction's chain is a plain serde field that
-                                       // `load_all` does not re-validate, so it is named rather
-                                       // than converted.
-                                       let name = chain_label(row.tx.chain);
-                                       let text = RichText::new(&name)
-                                          .size(theme.typography.normal)
-                                          .color(theme.colors.text);
-                                       let label = Label::new(text, None)
-                                          .wrap_mode(TextWrapMode::Truncate)
-                                          .visuals(label_visuals);
-                                       ui.add(label).on_hover_text(&name);
-                                    });
+                           t.rows(|r, row| {
+                              if r.index() % 2 == 1 {
+                                 r.fill(theme.colors.widget_bg);
+                              }
 
-                                    rows::row_cell(ui, column_widths[2], row_height, |ui| {
-                                       let action = row.tx.summary_name();
-                                       let text = RichText::new(&action)
-                                          .size(theme.typography.normal)
-                                          .color(theme.colors.text);
-                                       let label = Label::new(text, None)
-                                          .wrap_mode(TextWrapMode::Truncate)
-                                          .visuals(label_visuals);
-                                       ui.add(label).on_hover_text(&action);
-                                    });
+                              r.cell(|ui| {
+                                 let name = self.wallet_name_or_address(ctx, row.wallet);
+                                 history_cell(ui, theme, &name)
+                                    .on_hover_text(format!("{}\n{}", name, row.wallet));
+                              });
 
-                                    rows::row_cell(ui, column_widths[3], row_height, |ui| {
-                                       let age = row.tx.timestamp.to_relative();
-                                       let text = RichText::new(&age)
-                                          .size(theme.typography.normal)
-                                          .color(theme.colors.text);
-                                       let label = Label::new(text, None)
-                                          .wrap_mode(TextWrapMode::Truncate)
-                                          .visuals(label_visuals);
-                                       ui.add(label).on_hover_text(&age);
-                                    });
+                              r.cell(|ui| {
+                                 // A spent-note row's chain comes from the Railgun store and is not
+                                 // re-validated, so it is named rather than converted.
+                                 let name = chain_label(row.chain);
+                                 history_cell(ui, theme, &name).on_hover_text(&name);
+                              });
 
-                                    rows::row_cell(ui, column_widths[4], row_height, |ui| {
-                                       ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                          let text =
-                                             RichText::new("Details").size(theme.typography.normal);
-                                          let details_button =
-                                             Button::new(text).visuals(button_visuals);
-                                          if ui.add(details_button).clicked() {
-                                             let tx_clone = row.tx.clone();
-                                             crate::runtime::rt().spawn_blocking(move || {
-                                                SHARED_GUI.write(|gui| {
-                                                   gui.tx_window.open(Some(tx_clone));
-                                                });
-                                             });
-                                          }
-                                       });
-                                    });
-                                 });
+                              r.cell(|ui| {
+                                 history_cell(ui, theme, &row.action).on_hover_text(&row.action);
+                              });
+
+                              r.cell(|ui| {
+                                 let age = spent_age(ctx, row);
+                                 history_cell(ui, theme, &age).on_hover_text(&age);
+                              });
+
+                              r.cell(|ui| {
+                                 if details_cell(ui, theme, button_visuals) {
+                                    details_spent = Some(row.clone());
+                                 }
                               });
                            });
-                        }
-                     }
-                  });
+                        });
+                  } else {
+                     let rows: &[PublicHistoryRow] = if start < end {
+                        &self.cached_txs[start..end]
+                     } else {
+                        &[]
+                     };
+
+                     Table::new("tx_history_public", rows)
+                        .columns(columns)
+                        .gap(20.0)
+                        .row_gap(theme.spacing.md)
+                        .header_rule(true)
+                        .key((&self.cache_key, self.current_page))
+                        .show(ui, |t| {
+                           t.header(|h| history_header(theme, h));
+
+                           t.rows(|r, row| {
+                              if r.index() % 2 == 1 {
+                                 r.fill(theme.colors.widget_bg);
+                              }
+
+                              r.cell(|ui| {
+                                 let name = self.wallet_name_or_address(ctx, row.wallet);
+                                 history_cell(ui, theme, &name)
+                                    .on_hover_text(format!("{}\n{}", name, row.wallet));
+                              });
+
+                              r.cell(|ui| {
+                                 // A stored transaction's chain is a plain serde field that
+                                 // `load_all` does not re-validate, so it is named rather than converted.
+                                 let name = chain_label(row.tx.chain);
+                                 history_cell(ui, theme, &name).on_hover_text(&name);
+                              });
+
+                              r.cell(|ui| {
+                                 let action = row.tx.summary_name();
+                                 history_cell(ui, theme, &action).on_hover_text(&action);
+                              });
+
+                              r.cell(|ui| {
+                                 let age = row.tx.timestamp.to_relative();
+                                 history_cell(ui, theme, &age).on_hover_text(&age);
+                              });
+
+                              r.cell(|ui| {
+                                 if details_cell(ui, theme, button_visuals) {
+                                    details_tx = Some(row.tx.clone());
+                                 }
+                              });
+                           });
+                        });
+                  }
+
+                  if let Some(row) = details_spent {
+                     crate::runtime::rt().spawn_blocking(move || {
+                        SHARED_GUI.write(|gui| {
+                           gui.spent_note_window.open(row);
+                        });
+                     });
+                  }
+
+                  if let Some(tx) = details_tx {
+                     crate::runtime::rt().spawn_blocking(move || {
+                        SHARED_GUI.write(|gui| {
+                           gui.tx_window.open(Some(tx));
+                        });
+                     });
+                  }
                });
          });
       });
    }
+}
+
+/// One text cell of the history tables: themed, truncating, and the full value on hover.
+fn history_cell(ui: &mut Ui, theme: &Theme, text: &str) -> Response {
+   ui.add(
+      Label::new(
+         RichText::new(text).size(theme.typography.normal).color(theme.colors.text),
+         None,
+      )
+      .wrap_mode(TextWrapMode::Truncate)
+      .visuals(theme.label_visuals()),
+   )
+}
+
+/// The header line both history tables share.
+fn history_header(theme: &Theme, header: &mut TableHeader<'_>) {
+   for text in ["Wallet", "Chain", "Action", "Age", ""] {
+      header.cell(|ui| {
+         if !text.is_empty() {
+            ui.label(
+               RichText::new(text)
+                  .strong()
+                  .size(theme.typography.large)
+                  .color(theme.colors.text),
+            );
+         }
+      });
+   }
+}
+
+/// The Details button both history tables carry, hugging the right edge of its column.
+fn details_cell(ui: &mut Ui, theme: &Theme, visuals: ButtonVisuals) -> bool {
+   let mut clicked = false;
+   ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+      let text = RichText::new("Details").size(theme.typography.normal);
+      clicked = ui.add(Button::new(text).visuals(visuals)).clicked();
+   });
+   clicked
 }
 
 /// How a private-history amount reads: the value, the name it goes by, and the token when Zeus prices
