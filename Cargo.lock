@@ -3484,23 +3484,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "egui-elegance"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "298f385138a7c4f05cfda9889584fc407148ad34d421e35ee0ecb4a7a98b32d5"
-dependencies = [
- "egui",
- "js-sys",
-]
-
-[[package]]
 name = "egui-elements"
 version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38ac286cbd68cfa72a30cd5cf1c7e1aacab54a7e3981408fbfc82e682f9d485e"
+source = "git+https://github.com/greekfetacheese/egui-elements#e0ac1ad103a33b8dfb92560aa36d8b1f65fd76b9"
 dependencies = [
  "egui",
- "egui-elegance",
  "egui-lucide",
  "enigo",
  "image",
@@ -11699,7 +11687,6 @@ dependencies = [
  "chrono",
  "eframe",
  "egui",
- "egui-elegance",
  "egui-elements",
  "egui-lucide",
  "egui_extras",

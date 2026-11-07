@@ -23,9 +23,10 @@ use egui::{
    Align, CornerRadius, CursorIcon, FontId, Layout, Margin, Order, RichText, Slider, Spinner, Ui,
    vec2,
 };
-use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme, visuals::ButtonVisuals};
+use egui_elements::{
+   Button, Chip, ChipRole, Label, Modal, SecureTextEdit, Theme, visuals::ButtonVisuals,
+};
 use egui_lucide::Lucide;
-use elegance::{Badge, BadgeTone};
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 use zeus_eth::currency::ERC20Token;
@@ -294,7 +295,7 @@ impl AcrossBridge {
                               ui.spacing_mut().item_spacing.x = theme.spacing.xs;
                               ui.label(warning_text2);
                               let q_mark = RichText::new("?").size(theme.typography.normal);
-                              let badge = Badge::new(q_mark, BadgeTone::Warning);
+                              let badge = Chip::new(q_mark).role(ChipRole::Warning);
                               let tip_text =
                                  RichText::new(ACROSS_RISK_TIP).size(theme.typography.normal);
                               ui.add(badge).on_hover_text(tip_text);

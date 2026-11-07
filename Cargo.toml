@@ -71,9 +71,16 @@ imagesize = "=0.13.0"
 # bounds a nested raster for the day that changes, and `a_nested_raster_is_not_decoded_in_this_build`
 # is the canary that says when it has.
 resvg = {version = "=0.45.1", default-features = false}
-egui-elegance = "=0.17"
 egui-lucide = "0.2"
-egui-elements = {version = "=1.4.0", features = ["full"]}
+# Consumed from git until a release carries the widget set the app needs. The feature list is
+# `full` minus `elegance`, so egui-elegance leaves the dependency graph entirely.
+egui-elements = { git = "https://github.com/greekfetacheese/egui-elements", features = [
+    "serde",
+    "qr-scanner",
+    "secure-types",
+    "qr-image",
+    "lucide",
+] }
 rfd = "=0.17.2"
 
 # Zeus Crates

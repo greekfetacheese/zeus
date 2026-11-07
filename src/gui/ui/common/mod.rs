@@ -28,9 +28,8 @@ use crate::core::ZeusContext;
 use crate::gui::{SHARED_GUI, ui::dapps::railgun::RailgunMode};
 use crate::utils::TimeStamp;
 use egui::{Align, Layout, Response, RichText, Ui, Vec2, pos2, vec2};
-use egui_elements::{Button, Theme};
+use egui_elements::{Button, Switch, Theme, ToggleVisuals};
 use egui_lucide::Lucide;
-use elegance::{Accent, Switch};
 use std::time::{Duration, Instant};
 use zeus_eth::types::ChainId;
 
@@ -123,7 +122,13 @@ pub fn privacy_mode_switch(ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
 
    let rich_text = RichText::new(text).size(theme.typography.normal);
 
-   let switch = Switch::new(&mut ctx.privacy_mode, rich_text).accent(Accent::Green);
+   let green = ToggleVisuals {
+      bg_checked: theme.colors.success,
+      border_checked: theme.colors.success,
+      mark: theme.colors.ink_on(theme.colors.success),
+      ..ToggleVisuals::from_theme(theme.colors)
+   };
+   let switch = Switch::new(&mut ctx.privacy_mode, rich_text).visuals(green);
 
    let size = vec2(150.0, 20.0);
    let mut clicked = false;

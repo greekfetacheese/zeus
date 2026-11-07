@@ -28,9 +28,10 @@ use egui::{
 use std::sync::Arc;
 use zeus_eth::types::ChainId;
 
-use egui_elements::{Button, Label, Theme};
+use egui_elements::{
+   Button, Indicator, IndicatorState, Label, Menu, MenuItem, Tabs, TabsStyle, Theme,
+};
 use egui_lucide::Lucide;
-use elegance::{Indicator, IndicatorState, Menu, MenuItem, TabBar};
 
 const DELEGATE_TIP1: &str = "This wallet has been temporarily upgraded to a smart contract";
 const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
@@ -196,10 +197,14 @@ impl AccountPanel {
 
          ui.vertical(|ui| {
             // Tab strip: Overview (wallet/chain) and Diagnostics.
-            ui.add(TabBar::new(
+            Tabs::new(
+               "account_tabs",
                &mut self.tab,
                ["Overview", "Diagnostics"],
-            ));
+            )
+            .style(TabsStyle::Underline)
+            .fill_width(false)
+            .show(ui);
 
             ui.add_space(5.0);
 

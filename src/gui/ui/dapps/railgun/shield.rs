@@ -39,8 +39,7 @@ use crate::utils::simulate::{
    AccountPrefetch, ForkPrefetch, ForkSim, ForkSimRequest, StoragePrefetch, native_balance_at,
    pinned_head, railgun_common_accounts, simulate_on_fork,
 };
-use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme};
-use elegance::{Badge, BadgeTone};
+use egui_elements::{Button, Chip, ChipRole, Label, Modal, SecureTextEdit, Theme};
 
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -719,7 +718,7 @@ impl ShieldUi {
                ui.add_space(10.0);
 
                let q_mark = RichText::new("Self-broadcast").size(theme.typography.normal);
-               let badge = Badge::new(q_mark, BadgeTone::Warning);
+               let badge = Chip::new(q_mark).role(ChipRole::Warning);
                let tip_text = RichText::new(SELF_BROADCAST_TIP).size(theme.typography.normal);
                ui.add(badge).on_hover_text(tip_text);
             }
@@ -730,7 +729,7 @@ impl ShieldUi {
                ui.add_space(10.0);
 
                let text = RichText::new("Unwrap to ETH").size(theme.typography.normal);
-               let badge = Badge::new(text, BadgeTone::Info);
+               let badge = Chip::new(text).role(ChipRole::Info);
                let tip_text = RichText::new(UNWRAP_TO_ETH_TIP).size(theme.typography.normal);
                ui.add(badge).on_hover_text(tip_text);
             }
@@ -777,7 +776,7 @@ impl ShieldUi {
                ui.add_space(10.0);
 
                let q_mark = RichText::new("Breaks Anonymity").size(theme.typography.large);
-               let badge = Badge::new(q_mark, BadgeTone::Warning);
+               let badge = Chip::new(q_mark).role(ChipRole::Warning);
                let tip_text = RichText::new(SELF_BROADCAST_TIP).size(theme.typography.normal);
                ui.add(badge).on_hover_text(tip_text);
             });
@@ -794,7 +793,7 @@ impl ShieldUi {
 
                   let text = RichText::new("For empty wallets without funds for gas")
                      .size(theme.typography.normal);
-                  let badge = Badge::new(text, BadgeTone::Info);
+                  let badge = Chip::new(text).role(ChipRole::Info);
                   let tip_text = RichText::new(UNWRAP_TO_ETH_TIP).size(theme.typography.normal);
                   ui.add(badge).on_hover_text(tip_text);
                });
@@ -841,7 +840,7 @@ impl ShieldUi {
                      // What the default bundler is, who pays the fee and how to stop relying on it: a
                      // hover, because it is reference material rather than a decision.
                      let mark = RichText::new("?").size(theme.typography.normal);
-                     let badge = Badge::new(mark, BadgeTone::Info);
+                     let badge = Chip::new(mark).role(ChipRole::Info);
                      let tip_text = RichText::new(PAYMASTER_TIP).size(theme.typography.normal);
                      ui.add(badge).on_hover_text(tip_text);
 

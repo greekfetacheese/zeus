@@ -4,8 +4,7 @@
 
 use crate::{core::ZeusContext, gui::SHARED_GUI};
 use egui::{RichText, Ui, vec2};
-use egui_elements::{Button, Theme};
-use elegance::{Badge, BadgeTone, Slider};
+use egui_elements::{Button, Chip, ChipRole, Slider, Theme};
 use ncrypt_me::Argon2;
 
 const MIN_M_COST: u32 = 512_000;
@@ -84,13 +83,13 @@ impl EncryptionSettings {
             MAX_P_COST
          };
 
-         let mem_fmt = |mb: f64| format!("{:.0}", mb / 1000.0);
+         let mem_fmt = |mb: f64, _: std::ops::RangeInclusive<usize>| format!("{:.0}", mb / 1000.0);
 
          let q_mark = RichText::new("?").size(theme.typography.normal);
 
          ui.allocate_ui(slider_size, |ui| {
             ui.horizontal(|ui| {
-               let info_tip = Badge::new(q_mark.clone(), BadgeTone::Info);
+               let info_tip = Chip::new(q_mark.clone()).role(ChipRole::Info);
                ui.label(RichText::new("Memory cost (MB):").size(theme.typography.normal));
                ui.add(info_tip).on_hover_text(M_COST_TIP);
             });
@@ -102,13 +101,13 @@ impl EncryptionSettings {
                   &mut self.argon_params.m_cost,
                   min_m_cost..=MAX_M_COST,
                )
-               .value_fmt(mem_fmt),
+               .custom_formatter(mem_fmt),
             );
          });
 
          ui.allocate_ui(slider_size, |ui| {
             ui.horizontal(|ui| {
-               let info_tip = Badge::new(q_mark.clone(), BadgeTone::Info);
+               let info_tip = Chip::new(q_mark.clone()).role(ChipRole::Info);
                ui.label(RichText::new("Iterations:").size(theme.typography.normal));
                ui.add(info_tip).on_hover_text(T_COST_TIP);
             });
@@ -123,7 +122,7 @@ impl EncryptionSettings {
 
          ui.allocate_ui(slider_size, |ui| {
             ui.horizontal(|ui| {
-               let info_tip = Badge::new(q_mark, BadgeTone::Info);
+               let info_tip = Chip::new(q_mark).role(ChipRole::Info);
                ui.label(RichText::new("Parallelism:").size(theme.typography.normal));
                ui.add(info_tip).on_hover_text(P_COST_TIP);
             });

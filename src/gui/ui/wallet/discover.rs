@@ -9,9 +9,8 @@ use crate::utils::malloc_trim;
 use eframe::egui::{
    Align2, FontId, Id, Margin, Order, RichText, ScrollArea, Spinner, Stroke, Ui, vec2,
 };
-use egui_elements::{Button, Modal, SecureTextEdit, Theme, widgets::Window};
+use egui_elements::{Button, ChipRole, Modal, SecureTextEdit, Theme, Toast, widgets::Window};
 use egui_lucide::Lucide;
-use elegance::{BadgeTone, Toast};
 
 use zeus_bip32::BIP32_HARDEN;
 use zeus_eth::{
@@ -725,7 +724,7 @@ impl DiscoverChildWallets {
                                  .set_hd_wallet(hd_wallet);
 
                               Toast::new("Wallet Added")
-                                 .tone(BadgeTone::Ok)
+                                 .tone(ChipRole::Success)
                                  .description("Wallet added successfully")
                                  .duration(Duration::from_secs(5))
                                  .show(&gui.egui_ctx);
@@ -755,7 +754,7 @@ impl DiscoverChildWallets {
                                  .set_hd_wallet(hd_wallet);
 
                               Toast::new("Failed to encrypt vault")
-                                 .tone(BadgeTone::Danger)
+                                 .tone(ChipRole::Error)
                                  .description(e.to_string())
                                  .duration(Duration::from_secs(5))
                                  .show(&gui.egui_ctx);

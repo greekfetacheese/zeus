@@ -8,8 +8,7 @@ use eframe::egui::{
    Align, Context, FontId, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner, Ui, vec2,
 };
 use egui_elements::Modal;
-use egui_elements::{Button, Label, SecureTextEdit, Theme};
-use elegance::{BadgeTone, Menu, MenuItem, Toast};
+use egui_elements::{Button, ChipRole, Label, Menu, MenuItem, SecureTextEdit, Theme, Toast};
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::alloy_primitives::Address;
@@ -471,7 +470,7 @@ fn on_rename_wallet(new_wallet_name: String, old_wallet_addr: Address) {
                gui.wallet_ui.close_rename_wallet();
 
                Toast::new("Vault saved")
-                  .tone(BadgeTone::Ok)
+                  .tone(ChipRole::Success)
                   .description("Wallet renamed successfully")
                   .duration(Duration::from_secs(5))
                   .show(&gui.egui_ctx);

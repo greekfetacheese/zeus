@@ -15,7 +15,6 @@ use crate::utils::{
    token_icon::spawn_fetch_token_icon,
    truncate_address, truncate_symbol_or_name,
 };
-use elegance::{Menu, MenuItem};
 use std::{
    collections::{HashMap, HashSet},
    str::FromStr,
@@ -36,8 +35,10 @@ use zeus_eth::{
 };
 
 use anyhow::{anyhow, bail};
-use egui_elements::{Button, Label, Modal, SecureTextEdit, Theme, utils::frame as frame_fn};
-use elegance::{Badge, BadgeTone, TabBar, Toast};
+use egui_elements::{
+   Button, Chip, ChipRole, Label, Menu, MenuItem, Modal, SecureTextEdit, Tabs, TabsStyle, Theme,
+   Toast, utils::frame as frame_fn,
+};
 
 /// Currency direction for [`TokenSelectionWindow`].
 ///
@@ -114,12 +115,12 @@ impl NftRow {
 /// `owned` is `None` when the chain could not be asked, and an absent badge is the honest answer
 /// there: "not owned" is a claim, and a wrong one would invite the user to believe a token they hold
 /// has gone. An ERC-1155's ownership is a quantity, so say how many; an ERC-721's is a flag.
-fn ownership_label(owned: Option<bool>, amount: u64) -> Option<(String, BadgeTone)> {
+fn ownership_label(owned: Option<bool>, amount: u64) -> Option<(String, ChipRole)> {
    match (owned, amount) {
       (None, _) => None,
-      (Some(true), amount) if amount > 1 => Some((format!("Owned ×{amount}"), BadgeTone::Ok)),
-      (Some(true), _) => Some(("Owned".to_string(), BadgeTone::Ok)),
-      (Some(false), _) => Some(("Not owned".to_string(), BadgeTone::Neutral)),
+      (Some(true), amount) if amount > 1 => Some((format!("Owned ×{amount}"), ChipRole::Success)),
+      (Some(true), _) => Some(("Owned".to_string(), ChipRole::Success)),
+      (Some(false), _) => Some(("Not owned".to_string(), ChipRole::Neutral)),
    }
 }
 
@@ -129,7 +130,7 @@ fn ownership_label(owned: Option<bool>, amount: u64) -> Option<(String, BadgeTon
 /// both have to say which is which.
 pub(crate) fn ownership_badge(ui: &mut Ui, owned: Option<bool>, amount: u64) {
    if let Some((text, tone)) = ownership_label(owned, amount) {
-      ui.add(Badge::new(text, tone));
+      ui.add(Chip::new(text).role(tone));
    }
 }
 
@@ -197,35 +198,37 @@ const MODE_TABS: [&str; 2] = ["Tokens", "NFTs"];
 const SYNC_LABEL: &str = "Sync balances";
 const SYNC_BUTTON_MIN_SIZE: Vec2 = Vec2::new(70.0, 25.0);
 
-/// How wide the Tokens / NFTs [`TabBar`] renders, so the row that holds it can centre it.
+/// How wide the Tokens / NFTs [`Tabs`] strip renders, so the row that holds it can centre it.
 ///
-/// `TabBar` is content-sized but packs its cells at the left edge of whatever region it is handed,
-/// however wide that region is — so centring it means giving it a band exactly as wide as the two
-/// tabs, and letting the parent centre *that*. Elegance lays a tab out as `text + 2 *
-/// control_padding_x`, with the label in `typography.button` and no item spacing between the cells
-/// (`TabBar` zeroes it), and it reads both numbers from the elegance theme the app injects — so this
-/// has to read them from the same theme rather than guess. Pinned against what the bar actually
-/// paints in every theme by `the_mode_tabs_width_matches_what_the_tab_bar_renders`.
+/// `Tabs` is content-sized under `fill_width(false)` but packs its cells at the left edge of whatever
+/// region it is handed, however wide that region is — so centring it means giving it a band exactly as
+/// wide as the two tabs, and letting the parent centre *that*. Each cell is `text + 2 * pad_x`, with the
+/// label in the theme's `normal` size, `pad_x` the frame's button padding floored at 10 points, and the
+/// cells `theme.spacing.md` apart. Pinned against what the strip actually paints in every theme by
+/// `the_mode_tabs_width_matches_what_the_tab_bar_renders`.
 fn mode_tabs_width(ui: &Ui) -> f32 {
-   let tab_theme = elegance::Theme::current(ui.ctx());
+   let theme = Theme::current(ui.ctx());
+   let pad_x = ui.spacing().button_padding.x.max(10.0);
+   let font = FontId::proportional(theme.typography.normal);
 
-   MODE_TABS
+   let cells: f32 = MODE_TABS
       .iter()
       .map(|label| {
-         let text = ui.ctx().fonts_mut(|fonts| {
-            fonts
-               .layout_no_wrap(
-                  (*label).to_owned(),
-                  FontId::proportional(tab_theme.typography.button),
-                  Color32::PLACEHOLDER,
-               )
-               .size()
-               .x
-         });
+         let text = ui
+            .painter()
+            .layout_no_wrap(
+               (*label).to_owned(),
+               font.clone(),
+               Color32::PLACEHOLDER,
+            )
+            .size()
+            .x;
 
-         text + 2.0 * tab_theme.control_padding_x
+         text + 2.0 * pad_x
       })
-      .sum()
+      .sum();
+
+   cells + theme.spacing.md * (MODE_TABS.len() - 1) as f32
 }
 
 /// How wide the sync button renders, so the row that holds it can centre it together with the spinner
@@ -842,7 +845,7 @@ impl TokenSelectionWindow {
       }
    }
 
-   /// The Tokens / NFTs switch: an elegance [`TabBar`], the widget the account panel and the
+   /// The Tokens / NFTs switch: a [`Tabs`] strip, the widget the account panel and the
    /// portfolio use for their own mode switches.
    ///
    /// The bar draws the active tab as an accent underline, and packs its cells at the left of the
@@ -854,10 +857,13 @@ impl TokenSelectionWindow {
 
       // Zero height: the band takes the tabs' own height.
       ui.allocate_ui(vec2(mode_tabs_width(ui), 0.0), |ui| {
-         ui.add(TabBar::new(&mut tab, MODE_TABS));
+         Tabs::new("mode_tabs", &mut tab, MODE_TABS)
+            .style(TabsStyle::Underline)
+            .fill_width(false)
+            .show(ui);
       });
 
-      // `TabBar` writes the clicked index into `tab`, and a click on the active tab leaves it alone.
+      // `Tabs` writes the clicked index into `tab`, and a click on the active tab leaves it alone.
       let picked = match tab {
          0 => PickerMode::Fungible,
          _ => PickerMode::Nft,
@@ -1158,7 +1164,7 @@ impl TokenSelectionWindow {
                Ok(add) if add.is_error() => gui.open_msg_window(add.message()),
                Ok(add) => Toast::new("Collection")
                   .description(add.message())
-                  .tone(BadgeTone::Ok)
+                  .tone(ChipRole::Success)
                   .show(&gui.egui_ctx),
                Err(e) => gui.open_msg_window(format!("Failed to add collection: {e}")),
             }
@@ -2068,21 +2074,21 @@ mod tests {
 
       assert_eq!(
          ownership_label(Some(true), 1),
-         Some(("Owned".to_string(), BadgeTone::Ok))
+         Some(("Owned".to_string(), ChipRole::Success))
       );
       assert_eq!(
          ownership_label(Some(true), 3),
-         Some(("Owned ×3".to_string(), BadgeTone::Ok))
+         Some(("Owned ×3".to_string(), ChipRole::Success))
       );
       assert_eq!(
          ownership_label(Some(false), 0),
-         Some(("Not owned".to_string(), BadgeTone::Neutral))
+         Some(("Not owned".to_string(), ChipRole::Neutral))
       );
 
       // A not-owned row must never advertise a quantity, whatever the balance field happens to hold.
       assert_eq!(
          ownership_label(Some(false), 7),
-         Some(("Not owned".to_string(), BadgeTone::Neutral))
+         Some(("Not owned".to_string(), ChipRole::Neutral))
       );
    }
 
@@ -2770,7 +2776,7 @@ mod tests {
 
    /// The switch is centred by handing the tab bar a band exactly as wide as its two cells, so that
    /// width has to be the width the bar actually renders: every theme's typography and the injected
-   /// elegance padding move the number, and a band wider than the cells is not centred at all — the
+   /// padding move the number, and a band wider than the cells is not centred at all — the
    /// cells pack at its left edge. Both halves are measured here, in every theme: the bar paints the
    /// band's width, and the band sits in the middle of the row.
    #[test]
@@ -2804,9 +2810,13 @@ mod tests {
                CentralPanel::default().show(ctx, |ui| {
                   let mut tab = 0usize;
 
-                  // A `TabBar`'s rect is its content width however wide the region it is given, so this
+                  // A `Tabs` strip's rect is its content width however wide the region it is given, so this
                   // is the width it paints — the number `mode_tabs_width` has to reproduce.
-                  let painted = ui.add(TabBar::new(&mut tab, MODE_TABS)).rect;
+                  let painted = Tabs::new("mode_tabs", &mut tab, MODE_TABS)
+                     .style(TabsStyle::Underline)
+                     .fill_width(false)
+                     .show(ui)
+                     .rect;
 
                   // The block the band is centred in. `allocate_ui` reports the child's *content* rect,
                   // which is not the width it was handed, so the centre comes from the block's own left
@@ -2819,7 +2829,10 @@ mod tests {
 
                         band = ui
                            .allocate_ui(vec2(measured, 0.0), |ui| {
-                              ui.add(TabBar::new(&mut tab, MODE_TABS))
+                              Tabs::new("mode_tabs", &mut tab, MODE_TABS)
+                                 .style(TabsStyle::Underline)
+                                 .fill_width(false)
+                                 .show(ui);
                            })
                            .response
                            .rect;

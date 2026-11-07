@@ -7,9 +7,9 @@ use egui::{
    Align, FontId, Frame, Layout, Margin, OpenUrl, RichText, ScrollArea, Spinner, Ui, vec2,
 };
 use egui_elements::{
-   Button, InputField, Label, QrImage, SecureTextEdit, Theme, components::QrEncoding,
+   Button, InputField, Label, Menu, MenuItem, QrImage, SecureTextEdit, Theme,
+   components::QrEncoding,
 };
-use elegance::{Menu, MenuItem};
 use std::str::FromStr;
 use zeus_eth::alloy_primitives::Address;
 use zeus_railgun::RailgunAddress;

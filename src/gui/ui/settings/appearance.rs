@@ -18,8 +18,7 @@ use crate::core::types::{
 };
 use crate::gui::appearance::{AmbientKind, AppearanceSettings, SECOND_COLOUR_ALPHA, accent_at};
 use egui::{Align, CollapsingHeader, Color32, Layout, RichText, Sense, Ui, UiBuilder, vec2};
-use egui_elements::{Button, ComboBox, HoldBurst, HoldSettings, Label, Theme};
-use elegance::{Badge, BadgeTone};
+use egui_elements::{Button, Chip, ChipRole, ComboBox, HoldBurst, HoldSettings, Label, Theme};
 
 /// Fixed width of a row's label column, in points.
 const LABEL_W: f32 = 150.0;
@@ -1461,7 +1460,7 @@ impl AppearanceSettingsUi {
             }
          });
 
-         let qmark = Badge::new(q_mark_text.clone(), BadgeTone::Info);
+         let qmark = Chip::new(q_mark_text.clone()).role(ChipRole::Info);
          ui.add(qmark).on_hover_text(tip);
       });
    }

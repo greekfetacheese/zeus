@@ -2,8 +2,7 @@ use crate::core::{RpcFunctionality, ZeusContext};
 use crate::gui::{GUI, SHARED_GUI};
 use crate::utils::TimeStamp;
 use egui::{Align, Align2, Area, Id, Layout, Margin, Order, RichText, Spinner, Ui, vec2};
-use egui_elements::{Button, Label};
-use elegance::{BadgeTone, Toast, Toasts};
+use egui_elements::{Button, ChipRole, Label, Toast, Toasts};
 use std::time::Duration;
 
 const DATA_SYNCING_MSG: &str = "Zeus is still syncing important data";
@@ -145,7 +144,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       let missing = ctx.unavailable_rpc_functionalities(chain.id());
 
       Toast::new("Check your network settings")
-         .tone(BadgeTone::Warning)
+         .tone(ChipRole::Warning)
          .description(malfunction_description(&missing))
          .duration(Duration::from_secs(
             MALFUNCTION_TOAST_DURATION_SECS,
@@ -159,7 +158,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       AUTOLOCK_NOTICE_REPEAT_MS,
    ) {
       Toast::new("Auto-lock is not configured")
-         .tone(BadgeTone::Warning)
+         .tone(ChipRole::Warning)
          .description(
             "Zeus is on the default 1 hour auto-lock. Choose a timeout in Settings/Security.",
          )

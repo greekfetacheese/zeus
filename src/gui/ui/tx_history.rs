@@ -15,8 +15,7 @@ use crate::utils::truncate_address;
 use egui::{
    Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, vec2,
 };
-use egui_elements::{Button, ComboBox, Label, Theme};
-use elegance::{Badge, BadgeTone};
+use egui_elements::{Button, Chip, ChipRole, ComboBox, Label, Theme};
 use zeus_eth::{
    alloy_primitives::{Address, B256, U256},
    currency::Currency,
@@ -512,7 +511,7 @@ impl TxHistory {
                   );
 
                   let q_mark = RichText::new("?").size(theme.typography.normal);
-                  let info_tip = Badge::new(q_mark, BadgeTone::Info);
+                  let info_tip = Chip::new(q_mark).role(ChipRole::Info);
                   ui.add(info_tip).on_hover_text(tip);
                });
                return;
@@ -575,7 +574,7 @@ impl TxHistory {
                );
 
                let q_mark = RichText::new("?").size(theme.typography.normal);
-               let info_tip = Badge::new(q_mark, BadgeTone::Info);
+               let info_tip = Chip::new(q_mark).role(ChipRole::Info);
                ui.add(info_tip).on_hover_text(tip);
             });
 

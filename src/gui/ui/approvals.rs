@@ -13,8 +13,7 @@ use anyhow::anyhow;
 use egui::{
    Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, vec2,
 };
-use egui_elements::{Button, ComboBox, Label, Theme};
-use elegance::{Badge, BadgeTone};
+use egui_elements::{Button, Chip, ChipRole, ComboBox, Label, Theme};
 use std::collections::HashMap;
 use std::sync::Arc;
 use zeus_eth::{
@@ -534,7 +533,7 @@ impl ApprovalsUi {
          if let Some(text) = expire {
             let expire_text = RichText::new(text).size(theme.typography.normal);
             let q_mark = RichText::new("?").size(theme.typography.normal);
-            let info_tip = Badge::new(q_mark, BadgeTone::Info);
+            let info_tip = Chip::new(q_mark).role(ChipRole::Info);
             ui.add(info_tip).on_hover_text(expire_text);
          }
       });
@@ -692,7 +691,7 @@ impl ApprovalsUi {
                   );
 
                   let q_mark = RichText::new("?").size(theme.typography.normal);
-                  let info_tip = Badge::new(q_mark, BadgeTone::Info);
+                  let info_tip = Chip::new(q_mark).role(ChipRole::Info);
                   ui.add(info_tip).on_hover_text(ZEUS_TIP);
                });
                return;
@@ -744,7 +743,7 @@ impl ApprovalsUi {
                );
 
                let q_mark = RichText::new("?").size(theme.typography.normal);
-               let info_tip = Badge::new(q_mark, BadgeTone::Info);
+               let info_tip = Chip::new(q_mark).role(ChipRole::Info);
                ui.add(info_tip).on_hover_text(ZEUS_TIP);
             });
 

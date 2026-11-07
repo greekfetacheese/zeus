@@ -6,7 +6,7 @@ use crate::gui::{
 };
 use eframe::egui::{Id, Order, RichText, ScrollArea, Ui, vec2};
 use egui::{Align, FontId, Layout, Margin, Shadow, Stroke};
-use egui_elements::{Button, Frame as Frame2, Label, Modal, SecureTextEdit, Theme};
+use egui_elements::{Button, Fill, Frame as Frame2, Label, Modal, SecureTextEdit, Theme};
 use egui_lucide::Lucide;
 use std::sync::Arc;
 
@@ -29,7 +29,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       let text_size = gui.theme.typography.normal;
       let icon_color = theme.colors.text;
       let mut visuals = theme.frame2_visuals();
-      visuals.bg = theme.frame1.fill;
+      visuals.bg = Fill::Solid(theme.frame1.fill);
       visuals.border = Stroke::NONE;
       visuals.shadow = Shadow::NONE;
 

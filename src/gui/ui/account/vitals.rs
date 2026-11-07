@@ -8,8 +8,7 @@ use super::PANEL_ROW_WIDTH;
 use crate::gui::SHARED_GUI;
 use crate::gui::dots_button;
 use egui::{Align, Layout, Margin, RichText, TextWrapMode, Ui, vec2};
-use egui_elements::{Label, Theme};
-use elegance::{Indicator, IndicatorState, Menu, MenuItem};
+use egui_elements::{Indicator, IndicatorState, Label, Menu, MenuItem, Theme};
 use std::time::{Duration, Instant};
 use sysinfo::{
    CpuRefreshKind, MINIMUM_CPU_UPDATE_INTERVAL, ProcessesToUpdate, System, get_current_pid,
@@ -19,7 +18,7 @@ use sysinfo::{
 /// move slowly; polling harder would only cost wakeups.
 const REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 
-/// Diameter of an elegance `Indicator` at its default size, so the row that shows one
+/// Diameter of an `Indicator` at its default size, so the row that shows one
 /// insets its label by a known amount.
 const INDICATOR_SIZE: f32 = 10.0;
 
