@@ -1,6 +1,4 @@
-use eframe::egui::{
-   Align, Checkbox, FontId, Id, Layout, Margin, Order, RichText, Spinner, Ui, vec2,
-};
+use eframe::egui::{Align, FontId, Id, Layout, Margin, Order, RichText, Ui, vec2};
 
 use std::{
    collections::HashMap,
@@ -39,7 +37,9 @@ use crate::utils::simulate::{
    AccountPrefetch, ForkPrefetch, ForkSim, ForkSimRequest, StoragePrefetch, native_balance_at,
    pinned_head, railgun_common_accounts, simulate_on_fork,
 };
-use egui_elements::{Button, Chip, ChipRole, Label, Modal, SecureTextEdit, Theme};
+use egui_elements::{
+   Button, Checkbox, Chip, ChipRole, Label, Modal, SecureTextEdit, Spinner, Theme,
+};
 
 use zeus_eth::{
    alloy_primitives::{Address, U256},

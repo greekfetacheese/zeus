@@ -12,10 +12,11 @@ use crate::gui::{SHARED_GUI, ui::ChainSelect, ui::show_with_fade};
 use crate::utils::state;
 use eframe::egui::{
    Align, CornerRadius, CursorIcon, FontId, InnerResponse, Layout, Margin, RichText, ScrollArea,
-   Spinner, Ui, vec2,
+   Ui, vec2,
 };
 use egui_elements::{
-   Button, Indicator, IndicatorState, SecureTextEdit, Theme, visuals::ButtonVisuals,
+   Button, Checkbox, Indicator, IndicatorState, SecureTextEdit, Spinner, Theme,
+   visuals::ButtonVisuals,
 };
 use egui_lucide::Lucide;
 use std::sync::Arc;
@@ -345,7 +346,7 @@ impl NetworkSettings {
 
                let was_enabled = rpc.enabled;
                let res = rpc_col(ui, ENABLED_W, ROW_H, |ui| {
-                  ui.checkbox(&mut rpc.enabled, "")
+                  ui.add(Checkbox::without_text(&mut rpc.enabled))
                });
 
                if res.inner.clicked() {
@@ -454,7 +455,7 @@ impl NetworkSettings {
 
          let text = RichText::new("MEV Protect").size(theme.typography.normal);
          ui.label(text);
-         let clicked = ui.checkbox(&mut rpc.mev_protect, "").clicked();
+         let clicked = ui.add(Checkbox::without_text(&mut rpc.mev_protect)).clicked();
 
          if clicked {
             let z_client = ctx.client_manager.clone();

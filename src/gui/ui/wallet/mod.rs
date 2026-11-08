@@ -5,10 +5,12 @@ use crate::gui::{
    ui::{WalletListByValue, show_with_fade},
 };
 use eframe::egui::{
-   Align, Context, FontId, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner, Ui, vec2,
+   Align, Context, FontId, Id, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2,
 };
 use egui_elements::Modal;
-use egui_elements::{Button, ChipRole, Label, Menu, MenuItem, SecureTextEdit, Theme, Toast};
+use egui_elements::{
+   Button, ChipRole, Label, Menu, MenuItem, SecureTextEdit, Spinner, Theme, Toast,
+};
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::alloy_primitives::Address;

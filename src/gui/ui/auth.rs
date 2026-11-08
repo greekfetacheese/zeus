@@ -12,7 +12,9 @@ use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::gui::ui::settings::ImportDataUi;
 use crate::utils::TimeStamp;
 use egui::{Align, Align2, FontId, Layout, Margin, RichText, ScrollArea, Ui, Window, vec2};
-use egui_elements::{Button, ChipRole, CredentialsForm, Label, SecureTextEdit, Theme, Toast};
+use egui_elements::{
+   Button, Checkbox, ChipRole, CredentialsForm, Label, SecureTextEdit, Theme, Toast,
+};
 use ncrypt_me::{Argon2, Credentials};
 use std::time::Instant;
 use zeus_eth::types::ChainId;
@@ -548,11 +550,11 @@ impl RecoverHDWallet {
                   );
 
                   let enable_text = RichText::new("Enable Railgun").size(theme.typography.large);
-                  ui.checkbox(&mut self.enable_railgun, enable_text);
+                  ui.add(Checkbox::new(&mut self.enable_railgun, enable_text));
 
                   let download_text =
                      RichText::new("Allow Circuit Download").size(theme.typography.large);
-                  ui.checkbox(&mut self.allow_circuit_download, download_text);
+                  ui.add(Checkbox::new(&mut self.allow_circuit_download, download_text));
                });
             });
 
@@ -714,13 +716,16 @@ impl RecoverHDWallet {
                   }
 
                   let icons_text = RichText::new("Download Token Icons & NFT Images").size(large);
-                  ui.checkbox(&mut self.fetch_asset_images, icons_text);
+                  let checkbox = Checkbox::new(&mut self.fetch_asset_images, icons_text);
+                  ui.add(checkbox);
 
                   let names_text = RichText::new("Fetch Contract Names").size(large);
-                  ui.checkbox(&mut self.fetch_contract_names, names_text);
+                  let checkbox = Checkbox::new(&mut self.fetch_contract_names, names_text);
+                  ui.add(checkbox);
 
                   let updates_text = RichText::new("Check for Updates").size(large);
-                  ui.checkbox(&mut self.check_for_updates, updates_text);
+                  let checkbox = Checkbox::new(&mut self.check_for_updates, updates_text);
+                  ui.add(checkbox);
                });
             });
 
@@ -807,7 +812,8 @@ impl RecoverHDWallet {
                   paragraph(ui, "You can change this later in Settings.");
 
                   let desktop_text = RichText::new("Add Zeus to the Application Menu").size(large);
-                  ui.checkbox(&mut self.desktop_integration, desktop_text);
+                  let checkbox = Checkbox::new(&mut self.desktop_integration, desktop_text);
+                  ui.add(checkbox);
                });
             });
 

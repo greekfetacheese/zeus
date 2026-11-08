@@ -8,7 +8,7 @@ use crate::{
    gui::ui::chain_select::ChainSelect,
 };
 use egui::{Align, Layout, RichText, Ui, vec2};
-use egui_elements::{Button, Chip, ChipRole, Slider, Theme};
+use egui_elements::{Button, Checkbox, Chip, ChipRole, Slider, Theme};
 use zeus_eth::types::SUPPORTED_CHAINS;
 use zeus_railgun::indexer::syncer::rpc::DEFAULT_BLOCK_RANGE;
 
@@ -86,7 +86,7 @@ impl RailgunSettings {
       let chain = self.chain_select.chain.id();
       let mut enabled = self.config.is_enabled(chain);
       let enable_text = RichText::new("Enable Railgun").size(theme.typography.normal);
-      if ui.checkbox(&mut enabled, enable_text).changed() {
+      if ui.add(Checkbox::new(&mut enabled, enable_text)).changed() {
          self.config.set_enabled(chain, enabled);
       }
 
@@ -96,7 +96,7 @@ impl RailgunSettings {
       let download_text = RichText::new("Allow Circuit Download").size(theme.typography.normal);
       let circuit_tip = Chip::new(q_mark.clone()).role(ChipRole::Info);
       ui.horizontal(|ui| {
-         if ui.checkbox(&mut allow_download, download_text).changed() {
+         if ui.add(Checkbox::new(&mut allow_download, download_text)).changed() {
             self.config.set_allow_circuit_download(allow_download);
          }
          ui.add(circuit_tip).on_hover_text(circuit_download_tip());

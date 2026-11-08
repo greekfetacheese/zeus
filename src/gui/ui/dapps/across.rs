@@ -19,12 +19,10 @@ use crate::gui::{
 };
 use crate::utils::{TimeStamp, estimate_tx_cost, simulate::simulate_for_analysis, write_private};
 use anyhow::anyhow;
-use egui::{
-   Align, CornerRadius, CursorIcon, FontId, Layout, Margin, Order, RichText, Slider, Spinner, Ui,
-   vec2,
-};
+use egui::{Align, CornerRadius, CursorIcon, FontId, Layout, Margin, Order, RichText, Ui, vec2};
 use egui_elements::{
-   Button, Chip, ChipRole, Label, Modal, SecureTextEdit, Theme, visuals::ButtonVisuals,
+   Button, Checkbox, Chip, ChipRole, Label, Modal, SecureTextEdit, Slider, Spinner, Theme,
+   visuals::ButtonVisuals,
 };
 use egui_lucide::Lucide;
 use std::time::Duration;
@@ -847,7 +845,7 @@ impl AcrossBridge {
                ui.horizontal_centered(|ui| {
                   ui.label(RichText::new("Use API").size(theme.typography.normal));
                   ui.add_space(10.0);
-                  ui.checkbox(&mut self.settings.use_api, "");
+                  ui.add(Checkbox::without_text(&mut self.settings.use_api));
                });
             });
 
@@ -856,10 +854,10 @@ impl AcrossBridge {
                   ui.horizontal_centered(|ui| {
                      ui.label(RichText::new("Fee to pay %").size(theme.typography.normal));
                      ui.add_space(10.0);
-                     ui.add(Slider::new(
-                        &mut self.settings.fee_to_pay,
-                        0.01..=1.0,
-                     ));
+                     ui.add(
+                        Slider::new(&mut self.settings.fee_to_pay, 0.01..=1.0)
+                           .width(ui.spacing().slider_width),
+                     );
                   });
                });
             }

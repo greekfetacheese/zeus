@@ -1,7 +1,7 @@
 //! Merge Notes window consolidate fragmented private UTXOs via self-transfer.
 
-use egui::{Order, RichText, ScrollArea, Spinner, Ui, vec2};
-use egui_elements::{Button, Modal, Theme};
+use egui::{Order, RichText, ScrollArea, Ui, vec2};
+use egui_elements::{Button, Modal, Spinner, Theme};
 
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -140,7 +140,7 @@ impl MergeNotesWindow {
 
                match &self.state {
                   MergeState::Idle | MergeState::Loading => {
-                     ui.add(Spinner::new().size(28.0));
+                     ui.add(Spinner::new().size(28.0).color(theme.colors.text));
                      ui.label(
                         RichText::new("Scanning private notes…")
                            .size(theme.typography.normal),

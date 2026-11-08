@@ -15,14 +15,14 @@ use crate::gui::{
 };
 use crate::utils::nft_icon::start_nft_art_downloads;
 use eframe::egui::{
-   Align, CornerRadius, CursorIcon, Frame, Image, Layout, Margin, Order, RichText, Spinner,
-   TextWrapMode, Ui, vec2,
+   Align, CornerRadius, CursorIcon, Frame, Image, Layout, Margin, Order, RichText, TextWrapMode,
+   Ui, vec2,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use egui_elements::{
-   Button, Label, Modal, Tabs, TabsStyle, Theme,
+   Button, Label, Modal, Spinner, Tabs, TabsStyle, Theme,
    layout::{Column, Table, TableScroll},
    visuals::ButtonVisuals,
 };

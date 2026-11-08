@@ -10,9 +10,9 @@ use crate::gui::ui::common::switch_chain;
 use crate::gui::ui::{ContactsUi, WalletListByValue};
 use crate::utils::{TimeStamp, truncate_address};
 use eframe::egui::{
-   Align, Id, Layout, Margin, Order, RichText, ScrollArea, Sense, Spinner, TextWrapMode, Ui, vec2,
+   Align, Id, Layout, Margin, Order, RichText, ScrollArea, Sense, TextWrapMode, Ui, vec2,
 };
-use egui_elements::{Button, InputField, Label, Modal, Theme, utils::frame as frame_fn};
+use egui_elements::{Button, InputField, Label, Modal, Spinner, Theme, utils::frame as frame_fn};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;

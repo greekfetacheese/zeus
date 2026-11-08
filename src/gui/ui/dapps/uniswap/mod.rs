@@ -1,11 +1,11 @@
-use egui::{Align, CornerRadius, CursorIcon, Layout, Order, RichText, Spinner, Ui, vec2};
+use egui::{Align, CornerRadius, CursorIcon, Layout, Order, RichText, Ui, vec2};
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::gui::ui::TokenSelectionWindow;
 use crate::gui::ui::common::notices;
 use crate::gui::ui::show_with_fade;
-use egui_elements::{Button, Modal, Theme, visuals::ButtonVisuals};
+use egui_elements::{Button, Modal, Spinner, Theme, visuals::ButtonVisuals};
 use egui_lucide::Lucide;
 use std::str::FromStr;
 use std::sync::Arc;

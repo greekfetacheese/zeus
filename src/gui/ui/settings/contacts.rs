@@ -3,11 +3,9 @@
 use crate::core::{ZeusContext, types::Contact};
 use crate::gui::ui::show_with_fade;
 use crate::gui::{SHARED_GUI, dots_button};
-use egui::{
-   Align, FontId, Frame, Layout, Margin, OpenUrl, RichText, ScrollArea, Spinner, Ui, vec2,
-};
+use egui::{Align, FontId, Frame, Layout, Margin, OpenUrl, RichText, ScrollArea, Ui, vec2};
 use egui_elements::{
-   Button, InputField, Label, Menu, MenuItem, QrImage, SecureTextEdit, Theme,
+   Button, InputField, Label, Menu, MenuItem, QrImage, SecureTextEdit, Spinner, Theme,
    components::QrEncoding,
 };
 use std::str::FromStr;
