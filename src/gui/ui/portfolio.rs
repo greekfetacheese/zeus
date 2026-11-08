@@ -15,15 +15,15 @@ use crate::gui::{
 };
 use crate::utils::nft_icon::start_nft_art_downloads;
 use eframe::egui::{
-   Align, CornerRadius, CursorIcon, Frame, Image, Layout, Margin, Order, RichText, ScrollArea,
-   Spinner, TextWrapMode, Ui, vec2,
+   Align, CornerRadius, CursorIcon, Frame, Image, Layout, Margin, Order, RichText, Spinner,
+   TextWrapMode, Ui, vec2,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use egui_elements::{
    Button, Label, Modal, Tabs, TabsStyle, Theme,
-   layout::{Column, Table},
+   layout::{Column, Table, TableScroll},
    visuals::ButtonVisuals,
 };
 use egui_lucide::Lucide;
@@ -68,25 +68,6 @@ struct TokenRow {
    icon: Image<'static>,
    /// The token `Remove` drops; `None` for the chain's native currency, which cannot be removed.
    token: Option<ERC20Token>,
-}
-
-/// The token list's table, from its column map to its row gap.
-///
-/// The header above the scroll area and the rows inside it are both built from this. A
-/// [`Column::Auto`] would resolve a different extent in each — the header band has no rows to
-/// measure — so the map is `Fixed`/`Fr` only and the two lines line up by construction.
-fn token_table<'a>(theme: &Theme, rows: &'a [TokenRow]) -> Table<'a, TokenRow> {
-   Table::new("portfolio_tokens", rows)
-      .columns([
-         Column::Fr(2.2),     // Asset
-         Column::Fr(1.8),     // Price
-         Column::Fr(1.8),     // Balance
-         Column::Fr(1.8),     // Value
-         Column::Fixed(32.0), // Remove
-      ])
-      .gap(20.0)
-      // 12 pt, not xs: a themed `Button` paints ~6 pt above and below its band.
-      .row_gap(theme.spacing.md)
 }
 
 pub struct PortfolioUi {
@@ -346,89 +327,91 @@ impl PortfolioUi {
 
                   let mut remove_request: Option<ERC20Token> = None;
 
-                  ui.spacing_mut().item_spacing.y = theme.spacing.md;
-
-                  // The header is drawn above the scroll area, so it stays put while the rows scroll
-                  // under it. Both bands come from `token_table`, and the header carries the scroll
-                  // area's horizontal margin: the same width is what keeps their columns aligned.
-                  Frame::new().inner_margin(Margin::symmetric(5, 0)).show(ui, |ui| {
-                     token_table(theme, &[]).header_rule(true).show(ui, |t| {
-                        t.header(|h| {
-                           for header in ["Asset", "Price", "Balance", "Value", ""] {
-                              h.cell(|ui| {
-                                 if !header.is_empty() {
-                                    ui.label(
-                                       RichText::new(header)
-                                          .strong()
-                                          .size(theme.typography.large)
-                                          .color(theme.colors.text),
-                                    );
-                                 }
-                              });
-                           }
-                        });
-                     });
-                  });
-
-                  ScrollArea::vertical().auto_shrink([false; 2]).content_margin(5).show(ui, |ui| {
+                  ui.spacing_mut().item_spacing.y = theme.spacing.sm;
+                  ui.scope(|ui| {
                      ui.spacing_mut().button_padding =
                         vec2(theme.spacing.xs, theme.spacing.xs / 2.0);
 
-                     let table_key = (chain_id, privacy_mode, rows.len());
-                     token_table(theme, &rows).key(table_key).show(ui, |t| {
-                        t.rows(|r, row| {
-                           if r.index() % 2 == 1 {
-                              r.fill(theme.colors.widget_bg);
-                           }
-
-                           r.cell(|ui| {
-                              let text = RichText::new(&row.symbol)
-                                 .size(theme.typography.normal)
-                                 .color(theme.colors.text);
-                              let label = Label::new(text, Some(row.icon.clone()))
-                                 .image_on_left()
-                                 .wrap()
-                                 .visuals(theme.label_visuals())
-                                 .interactive(false);
-                              ui.add(label).on_hover_text(&row.name);
-                           });
-
-                           r.cell(|ui| {
-                              ui.label(
-                                 RichText::new(&row.price)
-                                    .size(theme.typography.normal)
-                                    .color(theme.colors.text),
-                              );
-                           });
-
-                           r.cell(|ui| {
-                              ui.label(
-                                 RichText::new(&row.balance)
-                                    .size(theme.typography.normal)
-                                    .color(theme.colors.text),
-                              );
-                           });
-
-                           r.cell(|ui| {
-                              ui.label(
-                                 RichText::new(&row.value)
-                                    .size(theme.typography.normal)
-                                    .color(theme.colors.text),
-                              );
-                           });
-
-                           r.cell(|ui| {
-                              let Some(token) = &row.token else {
-                                 return;
-                              };
-
-                              let text = RichText::new("X").size(theme.typography.normal);
-                              if ui.add(Button::new(text)).clicked() {
-                                 remove_request = Some(token.clone());
+                     Table::new("portfolio_tokens", &rows)
+                        .columns([
+                           Column::Fr(2.2), // Asset
+                           Column::Fr(1.8), // Price
+                           Column::Fr(1.8), // Balance
+                           Column::Fr(1.8), // Value
+                           Column::Auto,    // Remove
+                        ])
+                        .gap(20.0)
+                        // 12 pt, not xs: a themed `Button` paints ~6 pt above and below its band.
+                        .row_gap(theme.spacing.md)
+                        .scroll(TableScroll::new().auto_shrink([false; 2]).content_margin(15))
+                        .row_divider(true)
+                        .header_rule(true)
+                        .key((chain_id, privacy_mode, rows.len()))
+                        .show(ui, |t| {
+                           t.header(|h| {
+                              for header in ["Asset", "Price", "Balance", "Value", ""] {
+                                 h.cell(|ui| {
+                                    if !header.is_empty() {
+                                       ui.label(
+                                          RichText::new(header)
+                                             .strong()
+                                             .size(theme.typography.large)
+                                             .color(theme.colors.text),
+                                       );
+                                    }
+                                 });
                               }
                            });
+
+                           t.rows(|r, row| {
+                              r.cell(|ui| {
+                                 let text = RichText::new(&row.symbol)
+                                    .size(theme.typography.normal)
+                                    .color(theme.colors.text);
+                                 let label = Label::new(text, Some(row.icon.clone()))
+                                    .image_on_left()
+                                    .wrap()
+                                    .visuals(theme.label_visuals())
+                                    .interactive(false);
+                                 ui.add(label).on_hover_text(&row.name);
+                              });
+
+                              r.cell(|ui| {
+                                 ui.label(
+                                    RichText::new(&row.price)
+                                       .size(theme.typography.normal)
+                                       .color(theme.colors.text),
+                                 );
+                              });
+
+                              r.cell(|ui| {
+                                 ui.label(
+                                    RichText::new(&row.balance)
+                                       .size(theme.typography.normal)
+                                       .color(theme.colors.text),
+                                 );
+                              });
+
+                              r.cell(|ui| {
+                                 ui.label(
+                                    RichText::new(&row.value)
+                                       .size(theme.typography.normal)
+                                       .color(theme.colors.text),
+                                 );
+                              });
+
+                              r.cell(|ui| {
+                                 let Some(token) = &row.token else {
+                                    return;
+                                 };
+
+                                 let text = RichText::new("X").size(theme.typography.normal);
+                                 if ui.add(Button::new(text)).clicked() {
+                                    remove_request = Some(token.clone());
+                                 }
+                              });
+                           });
                         });
-                     });
                   });
 
                   if let Some(token) = remove_request {
@@ -508,7 +491,7 @@ impl PortfolioUi {
       let button_visuals = theme.button_visuals();
 
       ui.spacing_mut().item_spacing.y = theme.spacing.sm;
-      ScrollArea::vertical().auto_shrink([false; 2]).content_margin(5).show(ui, |ui| {
+      ui.scope(|ui| {
          ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
 
          Table::new("portfolio_nfts", nfts)
@@ -516,13 +499,11 @@ impl PortfolioUi {
             .columns([Column::Fixed(64.0), Column::Fr(1.0), Column::Auto])
             .gap(20.0)
             .row_gap(theme.spacing.md)
+            .scroll(TableScroll::new().auto_shrink([false; 2]).content_margin(15))
+            .row_divider(true)
             .key((chain_id, privacy_mode, nfts.len()))
             .show(ui, |t| {
                t.rows(|r, token| {
-                  if r.index() % 2 == 1 {
-                     r.fill(theme.colors.widget_bg);
-                  }
-
                   let collection = collections.get(&token.collection);
                   // The id is part of the title, not an afterthought: a collection is many tokens,
                   // and which one this row is is the first thing to read.
