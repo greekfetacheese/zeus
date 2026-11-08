@@ -131,6 +131,27 @@ struct ApprovalRow {
    kind: ApprovalKind,
 }
 
+/// The approvals table's column map, gap and row gap.
+///
+/// The pinned header above the scroll area and the rows inside it are both built from this, and the
+/// map is `Fr`/`Fixed` only: an `Auto` column would resolve a different extent in each band, because
+/// the header has no rows to measure.
+fn approvals_table<'a>(theme: &Theme, rows: &'a [ApprovalRow]) -> Table<'a, ApprovalRow> {
+   Table::new("approvals", rows)
+      .columns([
+         Column::Fr(2.0),      // Asset
+         Column::Fr(1.3),      // Chain
+         Column::Fr(1.6),      // Wallet
+         Column::Fr(2.2),      // Spender / Operator
+         Column::Fr(1.6),      // Amount
+         Column::Fr(1.3),      // Type
+         Column::Fixed(100.0), // Revoke
+      ])
+      .gap(20.0)
+      // 12 pt, not xs: a themed `Button` paints ~6 pt above and below its band.
+      .row_gap(theme.spacing.md)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 struct CacheKey {
    wallet: Option<Address>,
@@ -711,6 +732,37 @@ impl ApprovalsUi {
             let label_visuals = theme.label_visuals();
             let tint = theme.image_tint_recommended;
 
+            // The trusted-address column is "Operator" in NFT mode: it is the same slot, but an
+            // NFT approval grants an operator, which is the word the rest of the UI uses for it.
+            let headers = match self.mode {
+               ApprovalMode::Fungible => {
+                  ["Asset", "Chain", "Wallet", "Spender", "Amount", "Type", ""]
+               }
+               ApprovalMode::Nft => ["Asset", "Chain", "Wallet", "Operator", "Amount", "Type", ""],
+            };
+
+            // The gap the pinned header leaves before the first row.
+            ui.spacing_mut().item_spacing.y = theme.spacing.md;
+
+            // The header is drawn above the scroll area, so it does not scroll away with the rows.
+            // Both bands come from `approvals_table`, which is what keeps their columns aligned.
+            approvals_table(theme, &[]).header_rule(true).show(ui, |t| {
+               t.header(|h| {
+                  for text in headers {
+                     h.cell(|ui| {
+                        if !text.is_empty() {
+                           ui.label(
+                              RichText::new(text)
+                                 .strong()
+                                 .size(theme.typography.large)
+                                 .color(theme.colors.text),
+                           );
+                        }
+                     });
+                  }
+               });
+            });
+
             ScrollArea::vertical()
                .id_salt("approvals_scroll_area")
                .auto_shrink([false; 2])
@@ -726,181 +778,138 @@ impl ApprovalsUi {
                      &[]
                   };
 
-                  // The trusted-address column is "Operator" in NFT mode: it is the same slot, but an
-                  // NFT approval grants an operator, which is the word the rest of the UI uses for it.
-                  let headers = match self.mode {
-                     ApprovalMode::Fungible => {
-                        ["Asset", "Chain", "Wallet", "Spender", "Amount", "Type", ""]
-                     }
-                     ApprovalMode::Nft => {
-                        ["Asset", "Chain", "Wallet", "Operator", "Amount", "Type", ""]
-                     }
-                  };
-
                   let mut revoke_request: Option<ApprovalRow> = None;
 
-                  Table::new("approvals", rows)
-                     .columns([
-                        Column::Fr(2.0),      // Asset
-                        Column::Fr(1.3),      // Chain
-                        Column::Fr(1.6),      // Wallet
-                        Column::Fr(2.2),      // Spender / Operator
-                        Column::Fr(1.6),      // Amount
-                        Column::Fr(1.3),      // Type
-                        Column::Fixed(100.0), // Revoke
-                     ])
-                     .gap(20.0)
-                     // 12 pt, not xs: a themed `Button` paints ~6 pt above and below its band.
-                     .row_gap(theme.spacing.md)
-                     .header_rule(true)
-                     .key((&self.cache_key, self.current_page))
-                     .show(ui, |t| {
-                        t.header(|h| {
-                           for text in headers {
-                              h.cell(|ui| {
-                                 if !text.is_empty() {
-                                    ui.label(
-                                       RichText::new(text)
-                                          .strong()
-                                          .size(theme.typography.large)
-                                          .color(theme.colors.text),
-                                    );
-                                 }
-                              });
+                  let table_key = (&self.cache_key, self.current_page);
+                  approvals_table(theme, rows).key(table_key).show(ui, |t| {
+                     t.rows(|r, row| {
+                        if r.index() % 2 == 1 {
+                           r.fill(theme.colors.widget_bg);
+                        }
+
+                        // Asset — a token's symbol, or the collection an NFT approval is over.
+                        r.cell(|ui| {
+                           let (icon, title, hover) = match &row.asset {
+                              ApprovalAsset::Token { currency, .. } => (
+                                 icons.currency_icon_x32(currency, tint),
+                                 currency.symbol().to_string(),
+                                 currency.name().to_string(),
+                              ),
+                              ApprovalAsset::Nft {
+                                 collection,
+                                 token_id,
+                                 ..
+                              } => {
+                                 // A collection-wide approval has no id, so any of the
+                                 // collection's cached art is what identifies it — asking for a
+                                 // fixed id usually lands on art that was never fetched and shows
+                                 // the placeholder instead.
+                                 let icon = match token_id {
+                                    Some(id) => {
+                                       icons.nft_icon_x64(row.chain, *collection, *id, tint)
+                                    }
+                                    None => {
+                                       icons.nft_collection_icon_x64(row.chain, *collection, tint)
+                                    }
+                                 };
+                                 let name = self.collection_label(ctx, row.chain, *collection);
+                                 let hover = format!("{}\n{}", name, collection);
+                                 (icon, name, hover)
+                              }
+                           };
+
+                           ui.add(icon);
+                           let text = RichText::new(title)
+                              .size(theme.typography.normal)
+                              .color(theme.colors.text);
+                           let label = Label::new(text, None).wrap().visuals(label_visuals);
+                           ui.add(label).on_hover_text(hover);
+                        });
+
+                        // Chain
+                        r.cell(|ui| {
+                           let chain = chain_label(row.chain);
+                           let text = RichText::new(&chain)
+                              .size(theme.typography.normal)
+                              .color(theme.colors.text);
+                           let label = Label::new(text, None)
+                              .wrap_mode(TextWrapMode::Truncate)
+                              .visuals(label_visuals);
+                           ui.add(label).on_hover_text(chain);
+                        });
+
+                        // Wallet
+                        r.cell(|ui| {
+                           let name = self.wallet_name(ctx, row.owner);
+                           let text = RichText::new(&name)
+                              .size(theme.typography.normal)
+                              .color(theme.colors.text);
+                           let label = Label::new(text, None)
+                              .wrap_mode(TextWrapMode::Truncate)
+                              .visuals(label_visuals);
+                           ui.add(label).on_hover_text(format!("{}\n{}", name, row.owner));
+                        });
+
+                        // Spender
+                        r.cell(|ui| {
+                           let name = self.spender_label(ctx, row.chain, row.spender);
+
+                           match spender_explorer_url(row.chain, row.spender) {
+                              Some(link) => {
+                                 let text = RichText::new(&name)
+                                    .size(theme.typography.normal)
+                                    .color(theme.colors.info);
+                                 ui.hyperlink_to(text, link);
+                              }
+                              // No chain Zeus can name, so no correct explorer for it — drop the
+                              // link and still show the spender.
+                              None => {
+                                 let text = RichText::new(&name)
+                                    .size(theme.typography.normal)
+                                    .color(theme.colors.text);
+                                 let label = Label::new(text, None)
+                                    .wrap_mode(TextWrapMode::Truncate)
+                                    .visuals(label_visuals);
+                                 ui.add(label).on_hover_text(format!("{}\n{}", name, row.spender));
+                              }
                            }
                         });
 
-                        t.rows(|r, row| {
-                           if r.index() % 2 == 1 {
-                              r.fill(theme.colors.widget_bg);
-                           }
+                        // Amount
+                        let expire = if row.kind.is_permit2() {
+                           Some(format!(
+                              "Expires {}",
+                              row.kind.expiration().to_relative()
+                           ))
+                        } else {
+                           None
+                        };
 
-                           // Asset — a token's symbol, or the collection an NFT approval is over.
-                           r.cell(|ui| {
-                              let (icon, title, hover) = match &row.asset {
-                                 ApprovalAsset::Token { currency, .. } => (
-                                    icons.currency_icon_x32(currency, tint),
-                                    currency.symbol().to_string(),
-                                    currency.name().to_string(),
-                                 ),
-                                 ApprovalAsset::Nft {
-                                    collection,
-                                    token_id,
-                                    ..
-                                 } => {
-                                    // A collection-wide approval has no id, so any of the
-                                    // collection's cached art is what identifies it — asking for a
-                                    // fixed id usually lands on art that was never fetched and shows
-                                    // the placeholder instead.
-                                    let icon = match token_id {
-                                       Some(id) => {
-                                          icons.nft_icon_x64(row.chain, *collection, *id, tint)
-                                       }
-                                       None => icons.nft_collection_icon_x64(
-                                          row.chain,
-                                          *collection,
-                                          tint,
-                                       ),
-                                    };
-                                    let name = self.collection_label(ctx, row.chain, *collection);
-                                    let hover = format!("{}\n{}", name, collection);
-                                    (icon, name, hover)
-                                 }
-                              };
+                        r.cell(|ui| {
+                           Self::amount_cell(ui, &row.asset, expire, theme);
+                        });
 
-                              ui.add(icon);
-                              let text = RichText::new(title)
+                        // Type
+                        r.cell(|ui| {
+                           ui.label(
+                              RichText::new(row.kind.type_label())
                                  .size(theme.typography.normal)
-                                 .color(theme.colors.text);
-                              let label = Label::new(text, None).wrap().visuals(label_visuals);
-                              ui.add(label).on_hover_text(hover);
-                           });
+                                 .color(theme.colors.text),
+                           );
+                        });
 
-                           // Chain
-                           r.cell(|ui| {
-                              let chain = chain_label(row.chain);
-                              let text = RichText::new(&chain)
-                                 .size(theme.typography.normal)
-                                 .color(theme.colors.text);
-                              let label = Label::new(text, None)
-                                 .wrap_mode(TextWrapMode::Truncate)
-                                 .visuals(label_visuals);
-                              ui.add(label).on_hover_text(chain);
-                           });
-
-                           // Wallet
-                           r.cell(|ui| {
-                              let name = self.wallet_name(ctx, row.owner);
-                              let text = RichText::new(&name)
-                                 .size(theme.typography.normal)
-                                 .color(theme.colors.text);
-                              let label = Label::new(text, None)
-                                 .wrap_mode(TextWrapMode::Truncate)
-                                 .visuals(label_visuals);
-                              ui.add(label).on_hover_text(format!("{}\n{}", name, row.owner));
-                           });
-
-                           // Spender
-                           r.cell(|ui| {
-                              let name = self.spender_label(ctx, row.chain, row.spender);
-
-                              match spender_explorer_url(row.chain, row.spender) {
-                                 Some(link) => {
-                                    let text = RichText::new(&name)
-                                       .size(theme.typography.normal)
-                                       .color(theme.colors.info);
-                                    ui.hyperlink_to(text, link);
-                                 }
-                                 // No chain Zeus can name, so no correct explorer for it — drop the
-                                 // link and still show the spender.
-                                 None => {
-                                    let text = RichText::new(&name)
-                                       .size(theme.typography.normal)
-                                       .color(theme.colors.text);
-                                    let label = Label::new(text, None)
-                                       .wrap_mode(TextWrapMode::Truncate)
-                                       .visuals(label_visuals);
-                                    ui.add(label)
-                                       .on_hover_text(format!("{}\n{}", name, row.spender));
-                                 }
+                        // Revoke — hug the right inner edge of the row.
+                        r.cell(|ui| {
+                           ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                              let text = RichText::new("Revoke").size(theme.typography.normal);
+                              let button = Button::new(text).visuals(button_visuals);
+                              if ui.add(button).clicked() {
+                                 revoke_request = Some(row.clone());
                               }
-                           });
-
-                           // Amount
-                           let expire = if row.kind.is_permit2() {
-                              Some(format!(
-                                 "Expires {}",
-                                 row.kind.expiration().to_relative()
-                              ))
-                           } else {
-                              None
-                           };
-
-                           r.cell(|ui| {
-                              Self::amount_cell(ui, &row.asset, expire, theme);
-                           });
-
-                           // Type
-                           r.cell(|ui| {
-                              ui.label(
-                                 RichText::new(row.kind.type_label())
-                                    .size(theme.typography.normal)
-                                    .color(theme.colors.text),
-                              );
-                           });
-
-                           // Revoke — hug the right inner edge of the row.
-                           r.cell(|ui| {
-                              ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                 let text = RichText::new("Revoke").size(theme.typography.normal);
-                                 let button = Button::new(text).visuals(button_visuals);
-                                 if ui.add(button).clicked() {
-                                    revoke_request = Some(row.clone());
-                                 }
-                              });
                            });
                         });
                      });
+                  });
 
                   if let Some(row) = revoke_request {
                      self.revoke(row);
