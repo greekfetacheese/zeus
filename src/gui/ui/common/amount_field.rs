@@ -2,7 +2,7 @@
 
 use crate::assets::icons::Icons;
 use crate::gui::ui::token_selection::{InOrOut, TokenSelectionWindow};
-use egui::{Align, FontId, Layout, Margin, RichText, Ui, vec2};
+use egui::{Align, Color32, FontId, Layout, Margin, RichText, Sense, Ui, UiBuilder, vec2};
 use std::sync::Arc;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -168,12 +168,7 @@ impl AmountField {
 
             if show_slider {
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  let amount_percent = self.amount_percent;
-
-                  let text =
-                     RichText::new(format!("{amount_percent:.0}%")).size(theme.typography.normal);
-
-                  ui.label(text);
+                  percent_label(ui, theme, self.amount_percent);
 
                   ui.add_space(5.0);
 
@@ -261,5 +256,72 @@ impl AmountField {
          });
       });
       amount_changed
+   }
+}
+
+/// Draw the amount percent in a cell sized for the widest label.
+///
+/// The row is right-to-left, so the label's width decides where the slider starts: a label that
+/// grows from "9%" to "10%" to "100%" used to drag the whole slider left mid-drag. Reserving the
+/// width of "100%" once, and right-aligning the text inside it, keeps the slider's x fixed.
+fn percent_label(ui: &mut Ui, theme: &Theme, amount_percent: f64) {
+   let font = FontId::proportional(theme.typography.normal);
+
+   let (width, height) = ui.fonts_mut(|fonts| {
+      let width = fonts
+         .layout_no_wrap(
+            "100%".to_owned(),
+            font.clone(),
+            Color32::PLACEHOLDER,
+         )
+         .size()
+         .x;
+
+      (width, fonts.row_height(&font))
+   });
+
+   let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+   let layout = Layout::right_to_left(Align::Min);
+   let mut cell = ui.new_child(UiBuilder::new().max_rect(rect).layout(layout));
+   let text = RichText::new(format!("{amount_percent:.0}%")).size(theme.typography.normal);
+
+   cell.label(text);
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// The percent label grows from "9%" to "10%" to "100%", and because the row is right-to-left
+   /// the slider used to take the width left over and jump left mid-drag. A cell sized for "100%"
+   /// keeps the slider's x independent of the value.
+   #[test]
+   fn the_percent_label_does_not_move_the_slider() {
+      egui::__run_test_ui(|ui| {
+         let theme = Theme::current(ui.ctx());
+
+         let slider_left = |ui: &mut Ui, percent: f64| {
+            let mut left = None;
+
+            ui.horizontal(|ui| {
+               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                  percent_label(ui, &theme, percent);
+
+                  let (rect, _) = ui.allocate_exact_size(vec2(80.0, 20.0), Sense::hover());
+                  left = Some(rect.left());
+               });
+            });
+
+            left.unwrap()
+         };
+
+         let one_digit = slider_left(ui, 9.0);
+         let three_digits = slider_left(ui, 100.0);
+
+         assert_eq!(
+            one_digit, three_digits,
+            "the slider must not move when the percent label gains a digit"
+         );
+      });
    }
 }
