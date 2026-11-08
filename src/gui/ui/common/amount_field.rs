@@ -2,7 +2,7 @@
 
 use crate::assets::icons::Icons;
 use crate::gui::ui::token_selection::{InOrOut, TokenSelectionWindow};
-use egui::{Align, Color32, FontId, Layout, Margin, RichText, Sense, Ui, UiBuilder, vec2};
+use egui::{Align, Color32, FontId, Layout, Margin, Response, RichText, Ui, vec2};
 use std::sync::Arc;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -10,7 +10,8 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
-use egui_elements::{Button, Label, SecureTextEdit, Slider, Spinner, Theme};
+use egui_elements::layout::{CrossAlign, Justify};
+use egui_elements::{Button, Flex, Item, Label, SecureTextEdit, Slider, Spinner, Theme};
 use egui_lucide::Lucide;
 
 /// Arguments for [`AmountField::show`].
@@ -167,33 +168,20 @@ impl AmountField {
             }
 
             if show_slider {
-               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  percent_label(ui, theme, self.amount_percent);
+               let (slider, _) = percent_slider(ui, theme, &mut self.amount_percent);
 
-                  ui.add_space(5.0);
-
-                  let res = ui.horizontal(|ui| {
-                     ui.add(
-                        Slider::new(&mut self.amount_percent, 0.0..=100.0)
-                           .step_by(1.0)
-                           .show_value(false)
-                           .width(ui.spacing().slider_width),
-                     )
-                  });
-
-                  if res.inner.changed() {
-                     if self.amount_percent == 100.0 {
-                        self.amount = max_amount.f64().to_string();
-                        self.amount_wei = max_amount.wei();
-                     } else {
-                        let new_amount =
-                           balance.calc_percent(self.amount_percent, currency.decimals());
-                        self.amount = new_amount.f64().to_string();
-                        self.amount_wei = new_amount.wei();
-                     }
-                     amount_changed = true;
+               if slider.changed() {
+                  if self.amount_percent == 100.0 {
+                     self.amount = max_amount.f64().to_string();
+                     self.amount_wei = max_amount.wei();
+                  } else {
+                     let new_amount =
+                        balance.calc_percent(self.amount_percent, currency.decimals());
+                     self.amount = new_amount.f64().to_string();
+                     self.amount_wei = new_amount.wei();
                   }
-               });
+                  amount_changed = true;
+               }
             }
          });
 
@@ -259,69 +247,114 @@ impl AmountField {
    }
 }
 
-/// Draw the amount percent in a cell sized for the widest label.
+/// The width the row reserves for the percent label: the widest label it can show ("100%").
 ///
-/// The row is right-to-left, so the label's width decides where the slider starts: a label that
-/// grows from "9%" to "10%" to "100%" used to drag the whole slider left mid-drag. Reserving the
-/// width of "100%" once, and right-aligning the text inside it, keeps the slider's x fixed.
-fn percent_label(ui: &mut Ui, theme: &Theme, amount_percent: f64) {
+/// The row is right-aligned, so the label's width decides where the slider starts: a label that
+/// grows from "9%" to "10%" to "100%" would drag the slider left mid-drag. egui has no `ch` unit,
+/// so the width comes from the theme's font.
+fn percent_width(ui: &Ui, theme: &Theme) -> f32 {
    let font = FontId::proportional(theme.typography.normal);
 
-   let (width, height) = ui.fonts_mut(|fonts| {
-      let width = fonts
-         .layout_no_wrap(
-            "100%".to_owned(),
-            font.clone(),
-            Color32::PLACEHOLDER,
-         )
+   ui.fonts_mut(|fonts| {
+      fonts
+         .layout_no_wrap("100%".to_owned(), font, Color32::PLACEHOLDER)
          .size()
-         .x;
+         .x
+   })
+}
 
-      (width, fonts.row_height(&font))
-   });
-
-   let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
-   let layout = Layout::right_to_left(Align::Min);
-   let mut cell = ui.new_child(UiBuilder::new().max_rect(rect).layout(layout));
+/// Draw the amount percent, right-aligned in the cell [`percent_slider`] reserves for it.
+fn percent_label(ui: &mut Ui, theme: &Theme, amount_percent: f64) -> Response {
    let text = RichText::new(format!("{amount_percent:.0}%")).size(theme.typography.normal);
 
-   cell.label(text);
+   ui.with_layout(Layout::right_to_left(Align::Center), |ui| ui.label(text))
+      .inner
+}
+
+/// Draw the percent slider and its label as one row, right-aligned and cross-aligned.
+///
+/// Returns the slider's and the label's responses.
+fn percent_slider(ui: &mut Ui, theme: &Theme, amount_percent: &mut f64) -> (Response, Response) {
+   let label_width = percent_width(ui, theme);
+   let slider_width = ui.spacing().slider_width;
+
+   Flex::row(ui.auto_id_with("amount_percent"))
+      .gap(5.0)
+      .justify(Justify::End)
+      .align_items(CrossAlign::Center)
+      .show(ui, |flex| {
+         let slider = flex.item(Item::fixed(slider_width), |ui| {
+            ui.add(
+               Slider::new(amount_percent, 0.0..=100.0)
+                  .step_by(1.0)
+                  .show_value(false)
+                  .width(slider_width),
+            )
+         });
+
+         let label = flex.item(Item::fixed(label_width), |ui| {
+            percent_label(ui, theme, *amount_percent)
+         });
+
+         (slider.inner, label.inner)
+      })
+      .inner
 }
 
 #[cfg(test)]
 mod tests {
    use super::*;
 
-   /// The percent label grows from "9%" to "10%" to "100%", and because the row is right-to-left
-   /// the slider used to take the width left over and jump left mid-drag. A cell sized for "100%"
-   /// keeps the slider's x independent of the value.
+   /// The percent label grows from "9%" to "10%" to "100%". A fixed-width label cell keeps the
+   /// slider's x independent of the digit count, and the flex row centres the label on the
+   /// slider's cross axis: the built-in horizontal layout only centres against `interact_size.y`
+   /// (20 points), so it leaves the short label high above the taller slider.
+   ///
+   /// A flex row measures its items on the first frame and places them on the next pass, so the
+   /// test reads the geometry after a few frames.
    #[test]
    fn the_percent_label_does_not_move_the_slider() {
-      egui::__run_test_ui(|ui| {
-         let theme = Theme::current(ui.ctx());
+      let ctx = egui::Context::default();
+      let mut rows = [(egui::Rect::NOTHING, egui::Rect::NOTHING); 2];
 
-         let slider_left = |ui: &mut Ui, percent: f64| {
-            let mut left = None;
-
-            ui.horizontal(|ui| {
-               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  percent_label(ui, &theme, percent);
-
-                  let (rect, _) = ui.allocate_exact_size(vec2(80.0, 20.0), Sense::hover());
-                  left = Some(rect.left());
-               });
-            });
-
-            left.unwrap()
+      for _ in 0..3 {
+         let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(600.0, 240.0))),
+            ..Default::default()
          };
 
-         let one_digit = slider_left(ui, 9.0);
-         let three_digits = slider_left(ui, 100.0);
+         let mut output = ctx.run_ui(input, |ui| {
+            let theme = Theme::current(ui.ctx());
+            let mut one_digit = 9.0;
+            let mut three_digits = 100.0;
 
-         assert_eq!(
-            one_digit, three_digits,
-            "the slider must not move when the percent label gains a digit"
+            let (slider, label) = percent_slider(ui, &theme, &mut one_digit);
+            rows[0] = (slider.rect, label.rect);
+
+            let (slider, label) = percent_slider(ui, &theme, &mut three_digits);
+            rows[1] = (slider.rect, label.rect);
+         });
+
+         output.textures_delta.clear();
+      }
+
+      let (one_digit_slider, one_digit_label) = rows[0];
+      let (three_digit_slider, three_digit_label) = rows[1];
+
+      assert_eq!(
+         one_digit_slider.left(),
+         three_digit_slider.left(),
+         "the slider must not move when the percent label gains a digit"
+      );
+      for (label, slider) in [
+         (one_digit_label, one_digit_slider),
+         (three_digit_label, three_digit_slider),
+      ] {
+         let off = (label.center().y - slider.center().y).abs();
+         assert!(
+            off < 0.5,
+            "the label must be centred on the slider's cross axis, off by {off}"
          );
-      });
+      }
    }
 }
