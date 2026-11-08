@@ -7,8 +7,9 @@
 use super::PANEL_ROW_WIDTH;
 use crate::gui::SHARED_GUI;
 use crate::gui::dots_button;
-use egui::{Align, Layout, Margin, RichText, TextWrapMode, Ui, vec2};
-use egui_elements::{Indicator, IndicatorState, Label, Menu, MenuItem, Theme};
+use egui::{Margin, RichText, TextWrapMode, Ui, vec2};
+use egui_elements::layout::CrossAlign;
+use egui_elements::{Flex, Indicator, IndicatorState, Item, Label, Menu, MenuItem, Theme};
 use std::time::{Duration, Instant};
 use sysinfo::{
    CpuRefreshKind, MINIMUM_CPU_UPDATE_INTERVAL, ProcessesToUpdate, System, get_current_pid,
@@ -261,22 +262,15 @@ pub fn card(theme: &Theme, ui: &mut Ui, vitals: &SystemVitals) {
 
 /// The card's title, the machine's uptime, and the `Copy report` menu.
 fn heading(theme: &Theme, ui: &mut Ui, vitals: &SystemVitals) {
-   ui.horizontal(|ui| {
-      let title = RichText::new("VITALS")
-         .size(theme.typography.small)
-         .color(theme.colors.text_muted);
-      ui.label(title);
-
-      ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-         ui.spacing_mut().item_spacing.x = theme.spacing.sm;
-
-         let size = vec2(24.0, 12.0);
-         let more = dots_button(theme, size, ui);
-
-         Menu::new(("vitals_menu", "local_vitals")).show_below(&more, |ui| {
-            if ui.add(MenuItem::new("Copy report")).clicked() {
-               ui.ctx().copy_text(vitals.report());
-            }
+   Flex::row("vitals_heading")
+      .gap(theme.spacing.sm)
+      .align_items(CrossAlign::Center)
+      .show(ui, |flex| {
+         let title = RichText::new("VITALS")
+            .size(theme.typography.small)
+            .color(theme.colors.text_muted);
+         flex.item(Item::grow(1.0), |ui| {
+            ui.label(title);
          });
 
          // The machine's uptime rides here rather than in a row of its own: the card has
@@ -285,10 +279,22 @@ fn heading(theme: &Theme, ui: &mut Ui, vitals: &SystemVitals) {
             let uptime = RichText::new(format!("up {}", vitals.uptime))
                .size(theme.typography.small)
                .color(theme.colors.text_muted);
-            ui.label(uptime).on_hover_text("How long this machine has been up.");
+            flex.item(Item::new(), |ui| {
+               ui.label(uptime).on_hover_text("How long this machine has been up.");
+            });
          }
+
+         flex.item(Item::new(), |ui| {
+            let size = vec2(24.0, 12.0);
+            let more = dots_button(theme, size, ui);
+
+            Menu::new(("vitals_menu", "local_vitals")).show_below(&more, |ui| {
+               if ui.add(MenuItem::new("Copy report")).clicked() {
+                  ui.ctx().copy_text(vitals.report());
+               }
+            });
+         });
       });
-   });
 }
 
 /// One line of the readout: an optional indicator, the label, and the value
@@ -328,31 +334,37 @@ impl<'a> Row<'a> {
    }
 
    fn show(&self, theme: &Theme, ui: &mut Ui) {
-      ui.horizontal(|ui| {
-         // No slot is held for a missing dot: only the row that has one is inset, so
-         // every other label starts at the card's edge instead of in an empty gutter.
-         if let Some(state) = self.indicator {
-            ui.add(Indicator::new(state).size(INDICATOR_SIZE));
-            ui.add_space(theme.spacing.sm);
-         }
-
-         let label = RichText::new(self.label).size(theme.typography.very_small);
-         let label = ui.add(Label::new(label, None));
-
-         if let Some(hover) = self.label_hover {
-            label.on_hover_text(hover);
-         }
-
-         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let value = RichText::new(self.value).size(theme.typography.very_small);
-
-            let value = ui.add(Label::new(value, None).wrap_mode(TextWrapMode::Truncate));
-
-            if let Some(hover) = self.value_hover {
-               value.on_hover_text(hover);
+      Flex::row(("vitals_row", self.label))
+         .gap(theme.spacing.sm)
+         .align_items(CrossAlign::Center)
+         .show(ui, |flex| {
+            // No slot is held for a missing dot: only the row that has one is inset, so
+            // every other label starts at the card's edge instead of in an empty gutter.
+            if let Some(state) = self.indicator {
+               flex.item(Item::new(), |ui| {
+                  ui.add(Indicator::new(state).size(INDICATOR_SIZE));
+               });
             }
+
+            flex.item(Item::grow(1.0), |ui| {
+               let label = RichText::new(self.label).size(theme.typography.very_small);
+               let label = ui.add(Label::new(label, None));
+
+               if let Some(hover) = self.label_hover {
+                  label.on_hover_text(hover);
+               }
+            });
+
+            flex.item(Item::new(), |ui| {
+               let value = RichText::new(self.value).size(theme.typography.very_small);
+
+               let value = ui.add(Label::new(value, None).wrap_mode(TextWrapMode::Truncate));
+
+               if let Some(hover) = self.value_hover {
+                  value.on_hover_text(hover);
+               }
+            });
          });
-      });
    }
 }
 

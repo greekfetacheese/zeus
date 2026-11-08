@@ -22,14 +22,16 @@ use crate::gui::{
    ui::{ChainSelect, WalletSelect, common::*},
 };
 use egui::{
-   Align, CursorIcon, FontId, Layout, Margin, OpenUrl, Rect, RichText, ScrollArea, Shadow, Stroke,
-   TextWrapMode, Ui, pos2, vec2,
+   CursorIcon, Margin, OpenUrl, Rect, RichText, ScrollArea, Sense, Shadow, Stroke, TextWrapMode,
+   Ui, pos2, vec2,
 };
 use std::sync::Arc;
 use zeus_eth::types::ChainId;
 
+use egui_elements::layout::{CrossAlign, Justify};
 use egui_elements::{
-   Button, Indicator, IndicatorState, Label, Menu, MenuItem, Tabs, TabsStyle, Theme,
+   Button, Flex, Indicator, IndicatorState, Item, Label, Menu, MenuItem, Motion, Tabs, TabsStyle,
+   Theme, animate_from,
 };
 use egui_lucide::Lucide;
 
@@ -155,15 +157,19 @@ impl AccountPanel {
       let frame_margins = frame2.inner_margin.sum().y + frame2.outer_margin.sum().y;
       let panel_top = ui.cursor().top();
 
-      // Slide to the tab's height instead of jumping. A tab that has not been laid out
-      // yet has no height to slide to, so the first visit renders naturally.
+      // Slide to the tab's height instead of jumping. `animate_from` seeds the first sight at its own
+      // target, so a tab that has not been laid out yet has no height to slide to and renders
+      // naturally; a switch to a measured tab retargets from the height currently on screen, on the
+      // installed style's clock.
       let target = self.body_heights[self.tab];
       let animate = target > 0.0;
       let height = if animate {
-         ui.ctx().animate_value_with_time(
+         animate_from(
+            ui,
             ui.scope_id().with("panel_body_height"),
             target,
-            ui.style().animation_time,
+            target,
+            Motion::from_ui(ui),
          )
       } else {
          0.0
@@ -274,134 +280,128 @@ impl AccountPanel {
       frame2.show(ui, |ui| {
          ui.set_width(row_width);
 
-         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = theme.spacing.xs;
+         let address = match privacy_mode {
+            false => wallet.evm_address_truncated(),
+            true => wallet.zk_address_truncated(),
+         };
 
-            let address = match privacy_mode {
-               false => wallet.evm_address_truncated(),
-               true => wallet.zk_address_truncated(),
-            };
+         let full_address = match privacy_mode {
+            false => wallet.address.to_string(),
+            true => wallet.zk_address(),
+         };
 
-            let full_address = match privacy_mode {
-               false => wallet.address.to_string(),
-               true => wallet.zk_address(),
-            };
+         Flex::row("account_address_row")
+            .gap(theme.spacing.xs)
+            .align_items(CrossAlign::Center)
+            .justify(Justify::SpaceBetween)
+            .show(ui, |flex| {
+               // Privacy mode on a wallet we cannot derive a zk address for: the row is a muted
+               // note. The copy / QR / explorer actions would act on the note instead of an
+               // address, so they are hidden. The note is drawn with the address's own widget, so
+               // hiding them cannot shift the rows below: the height comes from the button's
+               // padding rather than being recomputed here.
+               if privacy_mode && !wallet.has_zk_address() {
+                  let text = RichText::new(address).size(normal).color(theme.colors.text_muted);
 
-            // Privacy mode on a wallet we cannot derive a zk address for: the row is
-            // a muted note. The copy / QR / explorer actions would act on the note
-            // instead of an address, so they are hidden.
-            if privacy_mode && !wallet.has_zk_address() {
-               let text = RichText::new(address).size(normal).color(theme.colors.text_muted);
+                  flex.item(Item::new(), |ui| {
+                     let note = Button::selectable(false, text)
+                        .visuals(btn_visuals)
+                        .sense(Sense::focusable_noninteractive());
+                     ui.add(note);
+                  });
 
-               // Keep the clickable label's height so hiding the actions does not
-               // shift the rows below.
-               let text_height =
-                  ui.ctx().fonts_mut(|f| f.row_height(&FontId::proportional(normal)));
-               let height = (text_height + 2.0 * ui.spacing().button_padding.y)
-                  .max(ui.spacing().interact_size.y);
-
-               ui.allocate_ui_with_layout(
-                  vec2(ui.available_width(), height),
-                  Layout::left_to_right(Align::Center),
-                  |ui| {
-                     // Same inset as the clickable label's button padding.
-                     ui.add_space(ui.spacing().button_padding.x);
-                     ui.add(Label::new(text, None).interactive(false));
-                  },
-               );
-
-               return;
-            }
-
-            let address_text = RichText::new(address).size(normal);
-            let label = Button::selectable(false, address_text);
-
-            if ui.add(label).clicked() {
-               ui.ctx().copy_text(full_address);
-            }
-
-            // The QR / block-explorer actions, and the separators before them, are
-            // anchored to the row's right edge: laid out after the text they would
-            // follow its width, and the zk address is shorter than the evm one, so
-            // they would slide out of line with the rows below. Right-to-left, so
-            // they are added rightmost first.
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-               // Block explorer link
-               let block_explorer = chain.block_explorer();
-               let link = format!("{}/address/{}", block_explorer, wallet.address);
-               let icon = Lucide::ExternalLink.size(18.0).color(icon_color).image();
-
-               let button = Button::image(icon).visuals(btn_visuals).small();
-               let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
-
-               if res.clicked() {
-                  let url = OpenUrl::new_tab(link);
-                  ui.ctx().open_url(url);
+                  return;
                }
 
-               ui.separator();
+               flex.item(Item::new(), |ui| {
+                  let address_text = RichText::new(address).size(normal);
+                  let label = Button::selectable(false, address_text);
 
-               let icon = Lucide::QrCode.size(18.0).color(icon_color).image();
+                  if ui.add(label).clicked() {
+                     ui.ctx().copy_text(full_address);
+                  }
+               });
 
-               let button = Button::image(icon).visuals(btn_visuals).small();
-               let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+               // The QR / block-explorer actions, and the separators before them, stay on the row's
+               // right edge: laid out after the text they would follow its width, and the zk address
+               // is shorter than the evm one, so they would slide out of line with the rows below.
+               flex.item(Item::new(), |ui| {
+                  ui.separator();
 
-               // QR Code Window
-               if res.clicked() {
-                  self.qr_window.open(wallet.clone());
-               }
+                  let icon = Lucide::QrCode.size(18.0).color(icon_color).image();
 
-               ui.separator();
+                  let button = Button::image(icon).visuals(btn_visuals).small();
+                  let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+
+                  // QR Code Window
+                  if res.clicked() {
+                     self.qr_window.open(wallet.clone());
+                  }
+
+                  ui.separator();
+
+                  // Block explorer link
+                  let block_explorer = chain.block_explorer();
+                  let link = format!("{}/address/{}", block_explorer, wallet.address);
+                  let icon = Lucide::ExternalLink.size(18.0).color(icon_color).image();
+
+                  let button = Button::image(icon).visuals(btn_visuals).small();
+                  let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+
+                  if res.clicked() {
+                     let url = OpenUrl::new_tab(link);
+                     ui.ctx().open_url(url);
+                  }
+               });
             });
-         });
       });
 
       // Wallet delegated status
       frame2.show(ui, |ui| {
          ui.set_width(row_width);
 
-         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = theme.spacing.sm;
+         let delegated = ctx.delegated_wallets.get(chain.id(), wallet.address).is_some();
 
-            let deleg_addr = ctx.delegated_wallets.get(chain.id(), wallet.address);
+         Flex::row("account_delegated_row")
+            .gap(theme.spacing.sm)
+            .align_items(CrossAlign::Center)
+            .show(ui, |flex| {
+               let state = match delegated {
+                  true => IndicatorState::Off,
+                  false => IndicatorState::On,
+               };
 
-            let text = match deleg_addr.is_some() {
-               true => RichText::new("Delegated").size(normal),
-               false => RichText::new("Not Delegated").size(normal),
-            };
+               flex.item(Item::new(), |ui| {
+                  ui.add(Indicator::new(state).size(12.0));
+               });
 
-            let label = Label::new(text, None).interactive(false);
+               let text = match delegated {
+                  true => RichText::new("Delegated").size(normal),
+                  false => RichText::new("Not Delegated").size(normal),
+               };
 
-            let tip = if deleg_addr.is_some() {
-               DELEGATE_TIP1
-            } else {
-               DELEGATE_TIP2
-            };
+               let tip = if delegated {
+                  DELEGATE_TIP1
+               } else {
+                  DELEGATE_TIP2
+               };
 
-            let tip_text = RichText::new(tip).size(normal);
+               flex.item(Item::grow(1.0), |ui| {
+                  let label = Label::new(text, None).interactive(false);
+                  ui.add(label).on_hover_text(RichText::new(tip).size(normal));
+               });
 
-            let state = match deleg_addr.is_some() {
-               true => IndicatorState::Off,
-               false => IndicatorState::On,
-            };
+               flex.item(Item::new(), |ui| {
+                  ui.separator();
 
-            let indicator = Indicator::new(state).size(12.0);
+                  let size = vec2(24.0, 12.0);
+                  let more = dots_button(theme, size, ui);
 
-            ui.add(indicator);
-            ui.add(label).on_hover_text(tip_text);
-
-            // Align this separator with the one above it.
-            ui.add_space(1.2);
-
-            ui.separator();
-
-            let size = vec2(24.0, 12.0);
-            let more = dots_button(theme, size, ui);
-
-            if more.clicked() && !self.delegate.is_open() {
-               self.delegate.open();
-            }
-         });
+                  if more.clicked() && !self.delegate.is_open() {
+                     self.delegate.open();
+                  }
+               });
+            });
       });
 
       frame2.show(ui, |ui| {
@@ -467,79 +467,90 @@ impl AccountPanel {
 
       let frame = theme.frame1.inner_margin(Margin::same(5));
       let frame_height = 40.0;
-      let frame_width = self.body_width - 50.0;
+      // The frame paints its inner margin outside its content box, so the content asks for the
+      // painted row width minus that margin — derived, not a second hand-written number.
+      let frame_width = PANEL_ROW_WIDTH - frame.inner_margin.sum().x;
 
       // Railgun Status
       frame.show(ui, |ui| {
          ui.set_max_width(frame_width);
          ui.set_height(frame_height);
 
-         ui.horizontal(|ui| {
-            let railgun_synced = ctx.railgun_status().synced(chain.id());
-            let mut sync_state = match railgun_synced {
-               true => IndicatorState::On,
-               false => IndicatorState::Connecting,
-            };
+         let mut sync_state = match ctx.railgun_status().synced(chain.id()) {
+            true => IndicatorState::On,
+            false => IndicatorState::Connecting,
+         };
 
-            if !railgun_is_supported || !ctx.is_railgun_enabled(chain.id()) {
-               sync_state = IndicatorState::Off;
-            }
+         if !railgun_is_supported || !ctx.is_railgun_enabled(chain.id()) {
+            sync_state = IndicatorState::Off;
+         }
 
-            ui.add(Indicator::new(sync_state));
+         let block = ctx.railgun_status().synced_block(chain.id());
 
-            ui.add_space(10.0);
+         Flex::row("account_railgun_row")
+            .gap(theme.spacing.md)
+            .align_items(CrossAlign::Center)
+            .show(ui, |flex| {
+               flex.item(Item::new(), |ui| {
+                  ui.add(Indicator::new(sync_state));
+               });
 
-            let label = RichText::new("Railgun").size(theme.typography.small);
-            ui.label(label);
+               let label = RichText::new("Railgun").size(theme.typography.small);
 
-            ui.add_space(10.0);
+               flex.item(Item::new(), |ui| {
+                  ui.label(label);
+               });
 
-            ui.vertical(|ui| {
-               ui.spacing_mut().item_spacing.y = 0.0;
-               let text = RichText::new("Synced block")
-                  .size(theme.typography.small)
-                  .color(theme.colors.text_muted);
-               ui.label(text);
+               // The caption sits over its value in one cell instead of a nested column.
+               flex.item(Item::new().stack(), |ui| {
+                  ui.spacing_mut().item_spacing.y = 0.0;
 
-               let block = ctx.railgun_status().synced_block(chain.id());
-               let text = RichText::new(format!("{}", block)).size(theme.typography.small);
-               ui.label(text);
-            });
+                  let text = RichText::new("Synced block")
+                     .size(theme.typography.small)
+                     .color(theme.colors.text_muted);
+                  ui.label(text);
 
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-               let size = vec2(24.0, 12.0);
-               let more = dots_button(theme, size, ui);
-               Menu::new(("svc_menu", "railgun_id")).show_below(&more, |ui| {
-                  if ui.add(MenuItem::new("View last error")).clicked() {
-                     let error_opt = ctx.railgun_status().sync_error(chain.id());
-                     let error =
-                        error_opt.unwrap_or("No errors for now everything looks good".to_string());
+                  let text = RichText::new(format!("{}", block)).size(theme.typography.small);
+                  ui.label(text);
+               });
 
-                     crate::runtime::rt().spawn_blocking(move || {
-                        SHARED_GUI.write(|gui| {
-                           gui.msg_window.open(error);
-                           gui.request_repaint();
-                        });
-                     });
-                  }
+               // Keeps the menu on the row's right edge whatever the cells before it measure.
+               flex.item(Item::grow(1.0), |_ui| {});
 
-                  if ui.add(MenuItem::new("Settings")).clicked() {
-                     crate::runtime::rt().spawn_blocking(move || {
-                        SHARED_GUI.write(|gui| {
-                           gui.ctx.clone().write(|ctx| {
-                              gui.settings.open_page(
-                                 SettingsPage::Railgun,
-                                 ctx,
-                                 &mut gui.appearance_settings,
-                              );
+               flex.item(Item::new(), |ui| {
+                  let size = vec2(24.0, 12.0);
+                  let more = dots_button(theme, size, ui);
+                  Menu::new(("svc_menu", "railgun_id")).show_below(&more, |ui| {
+                     if ui.add(MenuItem::new("View last error")).clicked() {
+                        let error_opt = ctx.railgun_status().sync_error(chain.id());
+                        let error = error_opt
+                           .unwrap_or("No errors for now everything looks good".to_string());
+
+                        crate::runtime::rt().spawn_blocking(move || {
+                           SHARED_GUI.write(|gui| {
+                              gui.msg_window.open(error);
+                              gui.request_repaint();
                            });
-                           gui.request_repaint();
                         });
-                     });
-                  }
+                     }
+
+                     if ui.add(MenuItem::new("Settings")).clicked() {
+                        crate::runtime::rt().spawn_blocking(move || {
+                           SHARED_GUI.write(|gui| {
+                              gui.ctx.clone().write(|ctx| {
+                                 gui.settings.open_page(
+                                    SettingsPage::Railgun,
+                                    ctx,
+                                    &mut gui.appearance_settings,
+                                 );
+                              });
+                              gui.request_repaint();
+                           });
+                        });
+                     }
+                  });
                });
             });
-         });
       });
 
       // Wallet Connector Status
@@ -547,35 +558,40 @@ impl AccountPanel {
          ui.set_max_width(frame_width);
          ui.set_height(frame_height);
 
-         ui.horizontal(|ui| {
-            let running = ctx.server_running;
-            let state = match running {
-               true => IndicatorState::On,
-               false => IndicatorState::Connecting,
-            };
+         let state = match ctx.server_running {
+            true => IndicatorState::On,
+            false => IndicatorState::Connecting,
+         };
 
-            ui.add(Indicator::new(state));
+         Flex::row("account_connector_row")
+            .gap(theme.spacing.md)
+            .align_items(CrossAlign::Center)
+            .show(ui, |flex| {
+               flex.item(Item::new(), |ui| {
+                  ui.add(Indicator::new(state));
+               });
 
-            ui.add_space(10.0);
+               let label = RichText::new("Wallet Connector").size(theme.typography.small);
 
-            let label = RichText::new("Wallet Connector").size(theme.typography.small);
-            ui.label(label);
+               flex.item(Item::grow(1.0), |ui| {
+                  ui.label(label);
+               });
 
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-               let size = vec2(24.0, 12.0);
-               let more = dots_button(theme, size, ui);
-               Menu::new(("svc_menu", "wallet_connector_id")).show_below(&more, |ui| {
-                  if ui.add(MenuItem::new("Settings")).clicked() {
-                     crate::runtime::rt().spawn_blocking(move || {
-                        SHARED_GUI.write(|gui| {
-                           gui.msg_window.open("Not implemented yet");
-                           gui.request_repaint();
+               flex.item(Item::new(), |ui| {
+                  let size = vec2(24.0, 12.0);
+                  let more = dots_button(theme, size, ui);
+                  Menu::new(("svc_menu", "wallet_connector_id")).show_below(&more, |ui| {
+                     if ui.add(MenuItem::new("Settings")).clicked() {
+                        crate::runtime::rt().spawn_blocking(move || {
+                           SHARED_GUI.write(|gui| {
+                              gui.msg_window.open("Not implemented yet");
+                              gui.request_repaint();
+                           });
                         });
-                     });
-                  }
+                     }
+                  });
                });
             });
-         });
       });
 
       // Local vitals
