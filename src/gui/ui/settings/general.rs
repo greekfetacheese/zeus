@@ -3,7 +3,7 @@
 use crate::core::ZeusContext;
 use crate::core::urls::{UrlPurpose, purpose_tip};
 use egui::{Align, Layout, RichText, Ui, vec2};
-use egui_elements::{Button, Chip, ChipRole, Theme};
+use egui_elements::{Button, Checkbox, Chip, ChipRole, Slider, Theme};
 use std::sync::OnceLock;
 
 const ICONS_TIP: &str = "Allow Zeus to download token icons and NFT images";
@@ -126,7 +126,8 @@ impl GeneralSettings {
          ui_size,
          Layout::left_to_right(Align::Center),
          |ui| {
-            if ui.checkbox(&mut self.fetch_asset_images, icons_text).changed() {
+            let checkbox = Checkbox::new(&mut self.fetch_asset_images, icons_text);
+            if ui.add(checkbox).changed() {
                ctx.misc_config.set_fetch_asset_images(self.fetch_asset_images);
                Self::persist_misc(ctx);
             }
@@ -142,7 +143,8 @@ impl GeneralSettings {
          ui_size,
          Layout::left_to_right(Align::Center),
          |ui| {
-            if ui.checkbox(&mut self.fetch_contract_names, names_text).changed() {
+            let checkbox = Checkbox::new(&mut self.fetch_contract_names, names_text);
+            if ui.add(checkbox).changed() {
                ctx.misc_config.set_fetch_contract_names(self.fetch_contract_names);
                Self::persist_misc(ctx);
             }
@@ -157,7 +159,8 @@ impl GeneralSettings {
          ui_size,
          Layout::left_to_right(Align::Center),
          |ui| {
-            if ui.checkbox(&mut self.check_for_updates, updates_text).changed() {
+            let checkbox = Checkbox::new(&mut self.check_for_updates, updates_text);
+            if ui.add(checkbox).changed() {
                ctx.misc_config.set_check_for_updates(self.check_for_updates);
                Self::persist_misc(ctx);
             }
@@ -178,7 +181,8 @@ impl GeneralSettings {
          ui_size,
          Layout::left_to_right(Align::Center),
          |ui| {
-            if ui.checkbox(&mut self.minimize_to_tray, tray_text).changed() {
+            let checkbox = Checkbox::new(&mut self.minimize_to_tray, tray_text);
+            if ui.add(checkbox).changed() {
                ctx.misc_config.set_minimize_to_tray(self.minimize_to_tray);
                Self::persist_misc(ctx);
             }
@@ -203,7 +207,8 @@ impl GeneralSettings {
             ui_size,
             Layout::left_to_right(Align::Center),
             |ui| {
-               if ui.checkbox(&mut self.desktop_integration, desktop_text).changed() {
+               let checkbox = Checkbox::new(&mut self.desktop_integration, desktop_text);
+               if ui.add(checkbox).changed() {
                   ctx.misc_config.set_desktop_integration(self.desktop_integration);
                   Self::persist_misc(ctx);
                   Self::apply_desktop_integration(self.desktop_integration);
@@ -231,18 +236,24 @@ impl GeneralSettings {
             .size(theme.typography.normal),
       );
       ui.allocate_ui(slider_size, |ui| {
-         ui.add(egui::Slider::new(
-            &mut self.concurrency_for_discovering_pools,
-            1..=10,
-         ));
+         ui.add(
+            Slider::new(
+               &mut self.concurrency_for_discovering_pools,
+               1..=10,
+            )
+            .width(ui.spacing().slider_width),
+         );
       });
 
       ui.label(RichText::new("Batch Size when updating pools state").size(theme.typography.normal));
       ui.allocate_ui(slider_size, |ui| {
-         ui.add(egui::Slider::new(
-            &mut self.batch_size_for_updating_pools_state,
-            1..=50,
-         ));
+         ui.add(
+            Slider::new(
+               &mut self.batch_size_for_updating_pools_state,
+               1..=50,
+            )
+            .width(ui.spacing().slider_width),
+         );
       });
 
       ui.separator();
@@ -253,18 +264,18 @@ impl GeneralSettings {
 
       ui.label(RichText::new("Concurrency for syncing balances").size(theme.typography.normal));
       ui.allocate_ui(slider_size, |ui| {
-         ui.add(egui::Slider::new(
-            &mut self.concurrency_for_syncing_balances,
-            1..=10,
-         ));
+         ui.add(
+            Slider::new(&mut self.concurrency_for_syncing_balances, 1..=10)
+               .width(ui.spacing().slider_width),
+         );
       });
 
       ui.label(RichText::new("Batch Size for syncing balances").size(theme.typography.normal));
       ui.allocate_ui(slider_size, |ui| {
-         ui.add(egui::Slider::new(
-            &mut self.batch_size_for_syncing_balances,
-            1..=50,
-         ));
+         ui.add(
+            Slider::new(&mut self.batch_size_for_syncing_balances, 1..=50)
+               .width(ui.spacing().slider_width),
+         );
       });
    }
 

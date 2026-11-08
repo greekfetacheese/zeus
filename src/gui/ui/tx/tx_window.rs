@@ -1,5 +1,5 @@
-use egui::{Id, Order, RichText, ScrollArea, Spinner, Ui, vec2};
-use egui_elements::{Button, Modal, Theme};
+use egui::{Id, Order, RichText, ScrollArea, Ui, vec2};
+use egui_elements::{Button, Modal, Spinner, Theme};
 
 use super::{
    address, chain, clear_display_ui, eth_received, events::*, show_analysis_buttons,

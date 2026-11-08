@@ -1,8 +1,8 @@
 //! A Window that allows the user to select a token
 
 use eframe::egui::{
-   Align, Color32, FontId, Id, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Sense,
-   Spinner, Ui, Vec2, emath::Vec2b, vec2,
+   Align, Color32, FontId, Id, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Sense, Ui,
+   Vec2, emath::Vec2b, vec2,
 };
 
 use crate::assets::icons::Icons;
@@ -36,8 +36,8 @@ use zeus_eth::{
 
 use anyhow::{anyhow, bail};
 use egui_elements::{
-   Button, Chip, ChipRole, Label, Menu, MenuItem, Modal, SecureTextEdit, Tabs, TabsStyle, Theme,
-   Toast, utils::frame as frame_fn,
+   Button, Chip, ChipRole, Label, Menu, MenuItem, Modal, SecureTextEdit, Spinner, Tabs, TabsStyle,
+   Theme, Toast, utils::frame as frame_fn,
 };
 
 /// Currency direction for [`TokenSelectionWindow`].

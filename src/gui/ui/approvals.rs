@@ -9,9 +9,9 @@ use crate::gui::ui::common::{chain_label, usable_chain};
 use crate::gui::{SHARED_GUI, ui::show_with_fade};
 use crate::utils::{TimeStamp, simulate::simulate_for_analysis, truncate_address};
 use anyhow::anyhow;
-use egui::{Align, Frame, Layout, Margin, RichText, Sense, Spinner, TextWrapMode, Ui, vec2};
+use egui::{Align, Frame, Layout, Margin, RichText, Sense, TextWrapMode, Ui, vec2};
 use egui_elements::{
-   Button, Chip, ChipRole, ComboBox, Label, Theme,
+   Button, Chip, ChipRole, ComboBox, Label, Spinner, Theme,
    layout::{Column, Table, TableScroll},
 };
 use std::collections::HashMap;

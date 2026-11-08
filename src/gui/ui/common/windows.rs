@@ -11,11 +11,11 @@ use crate::utils::{
    TimeStamp,
    self_update::{UpdateInfo, restart_app, update_zeus},
 };
-use eframe::egui::{Align2, Color32, RichText, Spinner, Ui, Vec2, vec2};
+use eframe::egui::{Align2, Color32, RichText, Ui, Vec2, vec2};
 use egui::Order;
 use std::time::{Duration, Instant};
 
-use egui_elements::{Button, Lightning, LightningSettings, Modal, ParticleLayer, Theme};
+use egui_elements::{Button, Lightning, LightningSettings, Modal, ParticleLayer, Spinner, Theme};
 
 /// The single-prompt gate shared by the authorising windows.
 ///

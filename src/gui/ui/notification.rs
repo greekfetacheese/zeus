@@ -6,8 +6,8 @@ use crate::gui::SHARED_GUI;
 use crate::gui::ui::common::chain_label;
 use crate::gui::ui::token_selection::nft_collection_name;
 use crate::utils::{TimeStamp, truncate_address};
-use egui::{Align2, Order, ProgressBar, RichText, Spinner, TextWrapMode, Ui, Window, vec2};
-use egui_elements::{Button, Label, MultiLabel, Theme};
+use egui::{Align2, Order, ProgressBar, RichText, TextWrapMode, Ui, Window, vec2};
+use egui_elements::{Button, Label, MultiLabel, Spinner, Theme};
 use egui_lucide::Lucide;
 
 use std::sync::Arc;

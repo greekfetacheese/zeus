@@ -7,7 +7,7 @@ use crate::core::{
 };
 use crate::gui::SHARED_GUI;
 use egui::{RichText, Ui, vec2};
-use egui_elements::{Button, Theme};
+use egui_elements::{Button, Checkbox, Theme};
 
 pub struct ExportDataUi {
    options: ExportOptions,
@@ -55,7 +55,7 @@ impl ExportDataUi {
                continue;
             }
             let text = RichText::new(tree.export_label()).size(theme.typography.normal);
-            ui.checkbox(self.options.flag_mut(*tree), text);
+            ui.add(Checkbox::new(self.options.flag_mut(*tree), text));
          }
 
          ui.add_space(12.0);

@@ -2,7 +2,7 @@
 
 use crate::assets::icons::Icons;
 use crate::gui::ui::token_selection::{InOrOut, TokenSelectionWindow};
-use egui::{Align, FontId, Layout, Margin, RichText, Slider, Spinner, Ui, vec2};
+use egui::{Align, FontId, Layout, Margin, RichText, Ui, vec2};
 use std::sync::Arc;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -10,7 +10,7 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
-use egui_elements::{Button, Label, SecureTextEdit, Theme};
+use egui_elements::{Button, Label, SecureTextEdit, Slider, Spinner, Theme};
 use egui_lucide::Lucide;
 
 /// Arguments for [`AmountField::show`].
@@ -178,7 +178,11 @@ impl AmountField {
                   ui.add_space(5.0);
 
                   let res = ui.horizontal(|ui| {
-                     ui.add(Slider::new(&mut self.amount_percent, 0.0..=100.0).show_value(false))
+                     ui.add(
+                        Slider::new(&mut self.amount_percent, 0.0..=100.0)
+                           .show_value(false)
+                           .width(ui.spacing().slider_width),
+                     )
                   });
 
                   if res.inner.changed() {

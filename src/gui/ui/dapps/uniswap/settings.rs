@@ -1,7 +1,7 @@
-use egui::{Align, Layout, RichText, Slider, Ui, vec2};
+use egui::{Align, Layout, RichText, Ui, vec2};
 
 use crate::gui::SHARED_GUI;
-use egui_elements::{Button, SecureTextEdit, Theme};
+use egui_elements::{Button, Checkbox, SecureTextEdit, Slider, Theme};
 use egui_lucide::Lucide;
 
 const DEFAULT_SLIPPAGE: f64 = 0.05;
@@ -135,7 +135,11 @@ impl UniswapSettingsUi {
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             ui.label(RichText::new(self.deadline.to_string()).size(theme.typography.normal));
-            ui.add(Slider::new(&mut self.deadline, MIN_DEADLINE..=MAX_DEADLINE).show_value(false));
+            ui.add(
+               Slider::new(&mut self.deadline, MIN_DEADLINE..=MAX_DEADLINE)
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
+            );
          });
       });
 
@@ -146,7 +150,11 @@ impl UniswapSettingsUi {
 
             let res = ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                ui.label(RichText::new(self.max_hops.to_string()).size(theme.typography.normal));
-               ui.add(Slider::new(&mut self.max_hops, 1..=10).show_value(false))
+               ui.add(
+                  Slider::new(&mut self.max_hops, 1..=10)
+                     .show_value(false)
+                     .width(ui.spacing().slider_width),
+               )
             });
 
             if res.inner.changed() {
@@ -168,7 +176,11 @@ impl UniswapSettingsUi {
                ui.label(
                   RichText::new(self.max_split_routes.to_string()).size(theme.typography.normal),
                );
-               ui.add(Slider::new(&mut self.max_split_routes, 1..=10).show_value(false))
+               ui.add(
+                  Slider::new(&mut self.max_split_routes, 1..=10)
+                     .show_value(false)
+                     .width(ui.spacing().slider_width),
+               )
             });
 
             if res.inner.changed() {
@@ -183,10 +195,11 @@ impl UniswapSettingsUi {
          });
 
          let text = RichText::new("MEV Protect").size(theme.typography.normal);
-         ui.checkbox(&mut self.mev_protect, text);
+         ui.add(Checkbox::new(&mut self.mev_protect, text));
 
          let text = RichText::new("Split Routing").size(theme.typography.normal);
-         let res = ui.checkbox(&mut self.split_routing_enabled, text);
+         let checkbox = Checkbox::new(&mut self.split_routing_enabled, text);
+         let res = ui.add(checkbox);
          if res.changed() {
             crate::runtime::rt().spawn_blocking(move || {
                SHARED_GUI.write(|gui| {
@@ -199,15 +212,15 @@ impl UniswapSettingsUi {
 
          let text = RichText::new("Swap on V2").size(theme.typography.normal);
          let v2_was_on = self.swap_on_v2;
-         let v2_res = ui.checkbox(&mut self.swap_on_v2, text);
+         let v2_res = ui.add(Checkbox::new(&mut self.swap_on_v2, text));
 
          let text = RichText::new("Swap on V3").size(theme.typography.normal);
          let v3_was_on = self.swap_on_v3;
-         let v3_res = ui.checkbox(&mut self.swap_on_v3, text);
+         let v3_res = ui.add(Checkbox::new(&mut self.swap_on_v3, text));
 
          let text = RichText::new("Swap on V4").size(theme.typography.normal);
          let v4_was_on = self.swap_on_v4;
-         let v4_res = ui.checkbox(&mut self.swap_on_v4, text);
+         let v4_res = ui.add(Checkbox::new(&mut self.swap_on_v4, text));
 
          if v2_res.changed() || v3_res.changed() || v4_res.changed() {
             let update_v2 = self.swap_on_v2 && !v2_was_on;
@@ -221,7 +234,7 @@ impl UniswapSettingsUi {
          }
 
          let text = RichText::new("Simulate Mode").size(theme.typography.normal);
-         ui.checkbox(&mut self.simulate_mode, text);
+         ui.add(Checkbox::new(&mut self.simulate_mode, text));
       }
 
       if view_position_open {

@@ -5,9 +5,9 @@ use crate::core::context::handle::MutexHandle;
 use crate::core::{DiscoveredWallets, WalletPortfolio, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::malloc_trim;
-use eframe::egui::{Align2, FontId, Id, Margin, Order, RichText, Spinner, Stroke, Ui, vec2};
+use eframe::egui::{Align2, FontId, Id, Margin, Order, RichText, Stroke, Ui, vec2};
 use egui_elements::{
-   Button, ChipRole, Modal, SecureTextEdit, Theme, Toast,
+   Button, ChipRole, Modal, SecureTextEdit, Spinner, Theme, Toast,
    layout::{Column, Table, TableScroll},
    widgets::Window,
 };

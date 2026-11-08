@@ -18,7 +18,9 @@ use crate::core::types::{
 };
 use crate::gui::appearance::{AmbientKind, AppearanceSettings, SECOND_COLOUR_ALPHA, accent_at};
 use egui::{Align, CollapsingHeader, Color32, Layout, RichText, Sense, Ui, UiBuilder, vec2};
-use egui_elements::{Button, Chip, ChipRole, ComboBox, HoldBurst, HoldSettings, Label, Theme};
+use egui_elements::{
+   Button, Checkbox, Chip, ChipRole, ComboBox, HoldBurst, HoldSettings, Label, Slider, Theme,
+};
 
 /// Fixed width of a row's label column, in points.
 const LABEL_W: f32 = 150.0;
@@ -29,6 +31,13 @@ const CONTROL_W: f32 = 200.0;
 const COMBO_W: f32 = 150.0;
 /// Fixed width of a row's value cell, in points.
 const VALUE_W: f32 = 64.0;
+
+/// Thumb diameter of [`Slider`] at its default, in points.
+const SLIDER_THUMB: f32 = 18.0;
+
+/// Row height of [`Slider`] as a ratio of its thumb; 1.55 in the crate.
+const SLIDER_ROW_RATIO: f32 = 1.55;
+
 /// Width shared by the preview and Reset buttons, in points.
 const PREVIEW_BUTTON_W: f32 = 170.0;
 /// Height shared by the preview and Reset buttons, in points.
@@ -245,7 +254,7 @@ impl AppearanceSettingsUi {
          None,
          None,
          |ui| {
-            changed = ui.checkbox(&mut enabled, "").changed();
+            changed = ui.add(Checkbox::without_text(&mut enabled)).changed();
          },
       );
       if changed {
@@ -264,13 +273,14 @@ impl AppearanceSettingsUi {
             DURATION_TIP,
             "Duration",
             Some(&value),
-            None,
+            Some(Self::slider_row_h(ui)),
             |ui| {
                changed = ui
                   .add(
-                     egui::Slider::new(&mut seconds, MIN_HOLD_SECONDS..=MAX_HOLD_SECONDS)
+                     Slider::new(&mut seconds, MIN_HOLD_SECONDS..=MAX_HOLD_SECONDS)
                         .step_by(0.05)
-                        .show_value(false),
+                        .show_value(false)
+                        .width(ui.spacing().slider_width),
                   )
                   .changed();
             },
@@ -294,7 +304,7 @@ impl AppearanceSettingsUi {
             None,
             None,
             |ui| {
-               changed = ui.checkbox(&mut use_accent, "").changed();
+               changed = ui.add(Checkbox::without_text(&mut use_accent)).changed();
             },
          );
          if changed {
@@ -338,7 +348,7 @@ impl AppearanceSettingsUi {
             None,
             None,
             |ui| {
-               changed = ui.checkbox(&mut shift, "").changed();
+               changed = ui.add(Checkbox::without_text(&mut shift)).changed();
             },
          );
          if changed {
@@ -433,7 +443,7 @@ impl AppearanceSettingsUi {
             None,
             None,
             |ui| {
-               changed = ui.checkbox(&mut same_color, "").changed();
+               changed = ui.add(Checkbox::without_text(&mut same_color)).changed();
             },
          );
          if changed {
@@ -481,16 +491,17 @@ impl AppearanceSettingsUi {
             INTENSITY_TIP,
             "Intensity",
             Some(&value),
-            None,
+            Some(Self::slider_row_h(ui)),
             |ui| {
                changed = ui
                   .add(
-                     egui::Slider::new(
+                     Slider::new(
                         &mut appearance.hold.burst_intensity,
                         MIN_BURST_INTENSITY..=MAX_BURST_INTENSITY,
                      )
                      .step_by(0.05)
-                     .show_value(false),
+                     .show_value(false)
+                     .width(ui.spacing().slider_width),
                   )
                   .changed();
             },
@@ -509,16 +520,17 @@ impl AppearanceSettingsUi {
             BURST_MS_TIP,
             "Burst length",
             Some(&value),
-            None,
+            Some(Self::slider_row_h(ui)),
             |ui| {
                changed = ui
                   .add(
-                     egui::Slider::new(
+                     Slider::new(
                         &mut appearance.hold.burst_ms,
                         MIN_BURST_MS..=MAX_BURST_MS,
                      )
                      .step_by(10.0)
-                     .show_value(false),
+                     .show_value(false)
+                     .width(ui.spacing().slider_width),
                   )
                   .changed();
             },
@@ -538,15 +550,16 @@ impl AppearanceSettingsUi {
                BOLTS_TIP,
                "Bolts",
                Some(&value),
-               None,
+               Some(Self::slider_row_h(ui)),
                |ui| {
                   changed = ui
                      .add(
-                        egui::Slider::new(
+                        Slider::new(
                            &mut appearance.hold.burst_bolts,
                            MIN_BURST_BOLTS..=MAX_BURST_BOLTS,
                         )
-                        .show_value(false),
+                        .show_value(false)
+                        .width(ui.spacing().slider_width),
                      )
                      .changed();
                },
@@ -565,15 +578,16 @@ impl AppearanceSettingsUi {
                DEPTH_TIP,
                "Branch depth",
                Some(&value),
-               None,
+               Some(Self::slider_row_h(ui)),
                |ui| {
                   changed = ui
                      .add(
-                        egui::Slider::new(
+                        Slider::new(
                            &mut appearance.hold.burst_branch_depth,
                            MIN_BRANCH_DEPTH..=MAX_BRANCH_DEPTH,
                         )
-                        .show_value(false),
+                        .show_value(false)
+                        .width(ui.spacing().slider_width),
                      )
                      .changed();
                },
@@ -592,16 +606,17 @@ impl AppearanceSettingsUi {
                THICKNESS_TIP,
                "Thickness",
                Some(&value),
-               None,
+               Some(Self::slider_row_h(ui)),
                |ui| {
                   changed = ui
                      .add(
-                        egui::Slider::new(
+                        Slider::new(
                            &mut appearance.hold.burst_thickness,
                            MIN_THICKNESS..=MAX_THICKNESS,
                         )
                         .step_by(0.1)
-                        .show_value(false),
+                        .show_value(false)
+                        .width(ui.spacing().slider_width),
                      )
                      .changed();
                },
@@ -620,16 +635,17 @@ impl AppearanceSettingsUi {
                JITTER_TIP,
                "Jitter",
                Some(&value),
-               None,
+               Some(Self::slider_row_h(ui)),
                |ui| {
                   changed = ui
                      .add(
-                        egui::Slider::new(
+                        Slider::new(
                            &mut appearance.hold.burst_jitter,
                            MIN_JITTER..=MAX_JITTER,
                         )
                         .step_by(0.01)
-                        .show_value(false),
+                        .show_value(false)
+                        .width(ui.spacing().slider_width),
                      )
                      .changed();
                },
@@ -650,16 +666,17 @@ impl AppearanceSettingsUi {
                GLOW_FROM_TIP,
                "Glow radius",
                Some(&value),
-               None,
+               Some(Self::slider_row_h(ui)),
                |ui| {
                   changed = ui
                      .add(
-                        egui::Slider::new(
+                        Slider::new(
                            &mut appearance.hold.burst_glow_from,
                            MIN_GLOW_FROM..=MAX_GLOW_FROM,
                         )
                         .step_by(0.1)
-                        .show_value(false),
+                        .show_value(false)
+                        .width(ui.spacing().slider_width),
                      )
                      .changed();
                },
@@ -678,16 +695,17 @@ impl AppearanceSettingsUi {
                GLOW_TO_TIP,
                "Glow reach",
                Some(&value),
-               None,
+               Some(Self::slider_row_h(ui)),
                |ui| {
                   changed = ui
                      .add(
-                        egui::Slider::new(
+                        Slider::new(
                            &mut appearance.hold.burst_glow_to,
                            MIN_GLOW_TO..=MAX_GLOW_TO,
                         )
                         .step_by(0.1)
-                        .show_value(false),
+                        .show_value(false)
+                        .width(ui.spacing().slider_width),
                      )
                      .changed();
                },
@@ -706,16 +724,17 @@ impl AppearanceSettingsUi {
                GLOW_SOFTNESS_TIP,
                "Softness",
                Some(&value),
-               None,
+               Some(Self::slider_row_h(ui)),
                |ui| {
                   changed = ui
                      .add(
-                        egui::Slider::new(
+                        Slider::new(
                            &mut appearance.hold.burst_glow_softness,
                            MIN_GLOW_SOFTNESS..=MAX_GLOW_SOFTNESS,
                         )
                         .step_by(0.05)
-                        .show_value(false),
+                        .show_value(false)
+                        .width(ui.spacing().slider_width),
                      )
                      .changed();
                },
@@ -759,7 +778,7 @@ impl AppearanceSettingsUi {
          None,
          None,
          |ui| {
-            changed = ui.checkbox(&mut enabled, "").changed();
+            changed = ui.add(Checkbox::without_text(&mut enabled)).changed();
          },
       );
       if changed {
@@ -870,16 +889,16 @@ impl AppearanceSettingsUi {
          SNOW_DENSITY_TIP,
          "Density",
          Some(&value),
-         None,
+         Some(Self::slider_row_h(ui)),
          |ui| {
             changed = ui
                .add(
-                  egui::Slider::new(
+                  Slider::new(
                      &mut appearance.snow.density,
                      MIN_AMBIENT_SNOW_DENSITY..=MAX_AMBIENT_SNOW_DENSITY,
                   )
-                  .logarithmic(true)
-                  .show_value(false),
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
                )
                .changed();
          },
@@ -946,15 +965,16 @@ impl AppearanceSettingsUi {
          WIND_X_TIP,
          "Wind X",
          Some(&value),
-         None,
+         Some(Self::slider_row_h(ui)),
          |ui| {
             changed = ui
                .add(
-                  egui::Slider::new(
+                  Slider::new(
                      &mut appearance.snow.wind.x,
                      MIN_AMBIENT_WIND_X..=MAX_AMBIENT_WIND_X,
                   )
-                  .show_value(false),
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
                )
                .changed();
          },
@@ -973,15 +993,16 @@ impl AppearanceSettingsUi {
          WIND_Y_TIP,
          "Wind Y",
          Some(&value),
-         None,
+         Some(Self::slider_row_h(ui)),
          |ui| {
             changed = ui
                .add(
-                  egui::Slider::new(
+                  Slider::new(
                      &mut appearance.snow.wind.y,
                      MIN_AMBIENT_WIND_Y..=MAX_AMBIENT_WIND_Y,
                   )
-                  .show_value(false),
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
                )
                .changed();
          },
@@ -1051,16 +1072,16 @@ impl AppearanceSettingsUi {
          GLOW_DENSITY_TIP,
          "Density",
          Some(&value),
-         None,
+         Some(Self::slider_row_h(ui)),
          |ui| {
             changed = ui
                .add(
-                  egui::Slider::new(
+                  Slider::new(
                      &mut appearance.light.density,
                      MIN_AMBIENT_LIGHT_DENSITY..=MAX_AMBIENT_LIGHT_DENSITY,
                   )
-                  .logarithmic(true)
-                  .show_value(false),
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
                )
                .changed();
          },
@@ -1103,16 +1124,17 @@ impl AppearanceSettingsUi {
          GLOW_INTENSITY_TIP,
          "Intensity",
          Some(&value),
-         None,
+         Some(Self::slider_row_h(ui)),
          |ui| {
             changed = ui
                .add(
-                  egui::Slider::new(
+                  Slider::new(
                      &mut appearance.light.intensity,
                      MIN_AMBIENT_LIGHT_INTENSITY..=MAX_AMBIENT_LIGHT_INTENSITY,
                   )
                   .step_by(0.05)
-                  .show_value(false),
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
                )
                .changed();
          },
@@ -1131,16 +1153,17 @@ impl AppearanceSettingsUi {
          GLOW_FLICKER_TIP,
          "Flicker",
          Some(&value),
-         None,
+         Some(Self::slider_row_h(ui)),
          |ui| {
             changed = ui
                .add(
-                  egui::Slider::new(
+                  Slider::new(
                      &mut appearance.light.flicker,
                      MIN_AMBIENT_LIGHT_FLICKER..=MAX_AMBIENT_LIGHT_FLICKER,
                   )
                   .step_by(0.05)
-                  .show_value(false),
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
                )
                .changed();
          },
@@ -1210,15 +1233,16 @@ impl AppearanceSettingsUi {
          LIGHTNING_BOLTS_TIP,
          "Bolts",
          Some(&value),
-         None,
+         Some(Self::slider_row_h(ui)),
          |ui| {
             changed = ui
                .add(
-                  egui::Slider::new(
+                  Slider::new(
                      &mut appearance.lightning.bolt_count,
                      MIN_AMBIENT_BOLTS..=MAX_AMBIENT_BOLTS,
                   )
-                  .show_value(false),
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
                )
                .changed();
          },
@@ -1237,15 +1261,16 @@ impl AppearanceSettingsUi {
          LIGHTNING_DEPTH_TIP,
          "Branch depth",
          Some(&value),
-         None,
+         Some(Self::slider_row_h(ui)),
          |ui| {
             changed = ui
                .add(
-                  egui::Slider::new(
+                  Slider::new(
                      &mut appearance.lightning.branch_depth,
                      MIN_AMBIENT_BRANCH_DEPTH..=MAX_AMBIENT_BRANCH_DEPTH,
                   )
-                  .show_value(false),
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
                )
                .changed();
          },
@@ -1264,16 +1289,17 @@ impl AppearanceSettingsUi {
          LIGHTNING_THICKNESS_TIP,
          "Thickness",
          Some(&value),
-         None,
+         Some(Self::slider_row_h(ui)),
          |ui| {
             changed = ui
                .add(
-                  egui::Slider::new(
+                  Slider::new(
                      &mut appearance.lightning.thickness,
                      MIN_AMBIENT_THICKNESS..=MAX_AMBIENT_THICKNESS,
                   )
                   .step_by(0.1)
-                  .show_value(false),
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
                )
                .changed();
          },
@@ -1292,16 +1318,17 @@ impl AppearanceSettingsUi {
          LIGHTNING_JITTER_TIP,
          "Jitter",
          Some(&value),
-         None,
+         Some(Self::slider_row_h(ui)),
          |ui| {
             changed = ui
                .add(
-                  egui::Slider::new(
+                  Slider::new(
                      &mut appearance.lightning.jitter,
                      MIN_AMBIENT_JITTER..=MAX_AMBIENT_JITTER,
                   )
                   .step_by(0.01)
-                  .show_value(false),
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
                )
                .changed();
          },
@@ -1320,16 +1347,17 @@ impl AppearanceSettingsUi {
          LIGHTNING_FLASH_TIP,
          "Flash intensity",
          Some(&value),
-         None,
+         Some(Self::slider_row_h(ui)),
          |ui| {
             changed = ui
                .add(
-                  egui::Slider::new(
+                  Slider::new(
                      &mut appearance.lightning.flash_intensity,
                      MIN_AMBIENT_FLASH_INTENSITY..=MAX_AMBIENT_FLASH_INTENSITY,
                   )
                   .step_by(0.05)
-                  .show_value(false),
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
                )
                .changed();
          },
@@ -1348,16 +1376,17 @@ impl AppearanceSettingsUi {
          LIGHTNING_DURATION_TIP,
          "Duration",
          Some(&value),
-         None,
+         Some(Self::slider_row_h(ui)),
          |ui| {
             changed = ui
                .add(
-                  egui::Slider::new(
+                  Slider::new(
                      &mut appearance.lightning.duration_ms,
                      MIN_AMBIENT_DURATION_MS..=MAX_AMBIENT_DURATION_MS,
                   )
                   .step_by(10.0)
-                  .show_value(false),
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
                )
                .changed();
          },
@@ -1415,6 +1444,18 @@ impl AppearanceSettingsUi {
 
       ui.add_space(theme.spacing.md);
       dirty
+   }
+
+   /// The height one [`Slider`] row reserves.
+   ///
+   /// The crate's slider sizes its row as `thumb * 1.55`, floored at `interact_size.y`, so a row
+   /// sized to `interact_size.y` alone leaves the control overflowing into the next row's gap
+   /// (the same trap [`Self::combo_row_h`] exists for). The two numbers are the widget's own:
+   /// `DEFAULT_SIZE` and `ROW_RATIO` in `egui_elements::widgets::Slider`. The result is rounded
+   /// up to a whole point because egui pixel-snaps the widget's rect, which can land a fraction
+   /// above the arithmetic.
+   fn slider_row_h(ui: &Ui) -> f32 {
+      (SLIDER_THUMB * SLIDER_ROW_RATIO).max(ui.spacing().interact_size.y).ceil()
    }
 
    /// Height the crate's `ComboBox` paints for its selected item: one line of
@@ -1493,6 +1534,29 @@ fn srgb(color: Color32) -> [u8; 3] {
 #[cfg(test)]
 mod tests {
    use super::*;
+
+   /// A slider row must reserve the slider's own height. The crate's slider sizes itself as
+   /// `thumb * 1.55` floored at `interact_size.y`, which is taller than the plain
+   /// `interact_size.y` row every other control gets — a row that reserves the plain height
+   /// lets the control paint into the next row's gap. Measured against the widget rather than
+   /// against the two constants, so a change to the crate's ratios fails here.
+   #[test]
+   fn a_slider_row_reserves_the_sliders_height() {
+      egui::__run_test_ui(|ui| {
+         let mut value = 50.0;
+         let slider = ui.add(
+            Slider::new(&mut value, 0.0..=100.0)
+               .show_value(false)
+               .width(ui.spacing().slider_width),
+         );
+         let reserved = AppearanceSettingsUi::slider_row_h(ui);
+         assert!(
+            reserved >= slider.rect.height(),
+            "row reserves {reserved} but the slider draws {}",
+            slider.rect.height()
+         );
+      });
+   }
 
    /// Mike's alignment bug: the old cell child shrank to its content, so a
    /// 150 pt cell only moved the cursor as far as its label ended and every

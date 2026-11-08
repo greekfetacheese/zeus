@@ -6,8 +6,8 @@
 use crate::core::types::CredentialCheck;
 use crate::core::{ZeusContext, delegate_to};
 use crate::gui::{SHARED_GUI, ui::tx::address};
-use egui::{CursorIcon, FontId, Id, Margin, Order, RichText, Spinner, Ui, vec2};
-use egui_elements::{Button, CredentialsForm, Modal, SecureTextEdit, Theme};
+use egui::{CursorIcon, FontId, Id, Margin, Order, RichText, Ui, vec2};
+use egui_elements::{Button, CredentialsForm, Modal, SecureTextEdit, Spinner, Theme};
 use egui_lucide::Lucide;
 use ncrypt_me::Credentials;
 use std::str::FromStr;

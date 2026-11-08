@@ -5,8 +5,8 @@
 
 use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
-use egui::{Order, RichText, Spinner, Ui, vec2};
-use egui_elements::{Button, Modal, QrImage, Theme, components::QrEncoding};
+use egui::{Order, RichText, Ui, vec2};
+use egui_elements::{Button, Modal, QrImage, Spinner, Theme, components::QrEncoding};
 
 const QR_IMAGE_SIZE: u32 = 250;
 

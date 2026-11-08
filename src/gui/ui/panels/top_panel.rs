@@ -1,8 +1,8 @@
 use crate::core::{RpcFunctionality, ZeusContext};
 use crate::gui::{GUI, SHARED_GUI};
 use crate::utils::TimeStamp;
-use egui::{Align, Align2, Area, Id, Layout, Margin, Order, RichText, Spinner, Ui, vec2};
-use egui_elements::{Button, ChipRole, Label, Toast, Toasts};
+use egui::{Align, Align2, Area, Id, Layout, Margin, Order, RichText, Ui, vec2};
+use egui_elements::{Button, ChipRole, Label, Spinner, Toast, Toasts};
 use std::time::Duration;
 
 const DATA_SYNCING_MSG: &str = "Zeus is still syncing important data";

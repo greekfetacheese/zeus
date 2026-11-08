@@ -11,11 +11,9 @@ use crate::gui::{
    },
 };
 use crate::utils::truncate_address;
-use egui::{
-   Align, Frame, Layout, Margin, Response, RichText, Sense, Spinner, TextWrapMode, Ui, vec2,
-};
+use egui::{Align, Frame, Layout, Margin, Response, RichText, Sense, TextWrapMode, Ui, vec2};
 use egui_elements::{
-   Button, Chip, ChipRole, ComboBox, Label, Theme,
+   Button, Chip, ChipRole, ComboBox, Label, Spinner, Theme,
    layout::{Column, Table, TableHeader, TableScroll},
    visuals::ButtonVisuals,
 };
