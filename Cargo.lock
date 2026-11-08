@@ -3486,7 +3486,7 @@ dependencies = [
 [[package]]
 name = "egui-elements"
 version = "1.4.0"
-source = "git+https://github.com/greekfetacheese/egui-elements#ea4fd68736b6936d75a9e33fb043d6b699ec1f46"
+source = "git+https://github.com/greekfetacheese/egui-elements#f181597bc02ec942ed62dbc4514a29d4037bdb99"
 dependencies = [
  "egui",
  "egui-lucide",
