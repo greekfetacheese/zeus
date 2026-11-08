@@ -1,10 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use eframe::{
-   egui,
-   egui_wgpu::{WgpuConfiguration, WgpuSetup, WgpuSetupCreateNew},
-   wgpu::{self, InstanceDescriptor, MemoryHints, Trace},
-};
 use gui::app::ZeusApp;
 use std::sync::Arc;
 
@@ -135,19 +130,6 @@ fn run_gui() -> eframe::Result {
       tracing::error!("Panic occurred: '{}' at {}", message, location);
    }));
 
-   let wgpu_setup = WgpuSetup::CreateNew(WgpuSetupCreateNew {
-      device_descriptor: Arc::new(wgpu_device_descriptor),
-      instance_descriptor: InstanceDescriptor::new_without_display_handle(),
-      display_handle: None,
-      native_adapter_selector: None,
-      power_preference: wgpu::PowerPreference::None,
-   });
-
-   let wgpu_config = WgpuConfiguration {
-      wgpu_setup,
-      ..Default::default()
-   };
-
    // The mark for the taskbar, Alt-Tab list and title bar. Without it eframe substitutes
    // its own placeholder "e" icon. Wayland has no window-icon protocol, so winit ignores
    // this there and the icon comes from a `.desktop` file instead (not shipped yet).
@@ -172,7 +154,7 @@ fn run_gui() -> eframe::Result {
       .with_decorations(true)
       .with_inner_size([1280.0, 900.0])
       .with_min_inner_size([1280.0, 900.0])
-      .with_transparent(false)
+      .with_transparent(true)
       .with_resizable(true);
 
    if let Some(icon) = icon {
@@ -180,10 +162,8 @@ fn run_gui() -> eframe::Result {
    }
 
    let options = eframe::NativeOptions {
-      renderer: eframe::Renderer::Wgpu,
-      wgpu_options: wgpu_config,
+      renderer: eframe::Renderer::Glow,
       viewport,
-
       ..Default::default()
    };
 
@@ -206,39 +186,6 @@ fn run_gui() -> eframe::Result {
          Ok(Box::new(app))
       }),
    )
-}
-
-/// Request default/downlevel limits, then clamp anything the adapter cannot provide.
-/// Incomplete virtual GPUs (eg. VirtualBox SVGA3D) advertise `max_compute_* = 0`; wgpu
-/// rejects `Limits::default()` (65535) with "better than allowed 0" and never opens
-/// a window. egui only needs raster, so clamping is safe.
-fn wgpu_device_descriptor(adapter: &wgpu::Adapter) -> wgpu::DeviceDescriptor<'static> {
-   let adapter_limits = adapter.limits();
-   let base_limits = if adapter.get_info().backend == wgpu::Backend::Gl {
-      wgpu::Limits::downlevel_webgl2_defaults()
-   } else {
-      wgpu::Limits::default()
-   };
-
-   let desired_limits = wgpu::Limits {
-      max_texture_dimension_2d: 8192,
-      ..base_limits
-   };
-
-   if !desired_limits.check_limits(&adapter_limits) {
-      tracing::warn!(
-         "wgpu adapter {:?} does not meet default limits; clamping to adapter.limits()",
-         adapter.get_info()
-      );
-   }
-
-   wgpu::DeviceDescriptor {
-      label: Some("zeus wgpu device"),
-      required_limits: desired_limits.or_worse_values_from(&adapter_limits),
-      memory_hints: MemoryHints::MemoryUsage,
-      trace: Trace::Off,
-      ..Default::default()
-   }
 }
 
 /// Daily rotated logs (`output.log.YYYY-MM-DD`, `trace.log.YYYY-MM-DD`)
