@@ -464,7 +464,7 @@ impl DiscoverChildWallets {
          .gap(theme.spacing.md)
          // 12 pt, not xs: a themed `Button` paints ~6 pt above and below its band.
          .row_gap(theme.spacing.md)
-         .scroll(TableScroll::new().auto_shrink([false; 2]).content_margin(5))
+         .scroll(TableScroll::new().auto_shrink([false; 2]).content_margin(15))
          .row_divider(true)
          .header_rule(true)
          .key((self.current_page, page.len()))

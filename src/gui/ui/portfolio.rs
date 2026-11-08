@@ -343,7 +343,7 @@ impl PortfolioUi {
                         .gap(20.0)
                         // 12 pt, not xs: a themed `Button` paints ~6 pt above and below its band.
                         .row_gap(theme.spacing.md)
-                        .scroll(TableScroll::new().auto_shrink([false; 2]).content_margin(5))
+                        .scroll(TableScroll::new().auto_shrink([false; 2]).content_margin(15))
                         .row_divider(true)
                         .header_rule(true)
                         .key((chain_id, privacy_mode, rows.len()))
@@ -499,7 +499,7 @@ impl PortfolioUi {
             .columns([Column::Fixed(64.0), Column::Fr(1.0), Column::Auto])
             .gap(20.0)
             .row_gap(theme.spacing.md)
-            .scroll(TableScroll::new().auto_shrink([false; 2]).content_margin(5))
+            .scroll(TableScroll::new().auto_shrink([false; 2]).content_margin(15))
             .row_divider(true)
             .key((chain_id, privacy_mode, nfts.len()))
             .show(ui, |t| {

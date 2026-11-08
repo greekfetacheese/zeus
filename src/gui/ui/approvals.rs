@@ -744,6 +744,7 @@ impl ApprovalsUi {
                .scroll(
                   TableScroll::new()
                      .auto_shrink([false; 2])
+                     .content_margin(15)
                      .max_height(ui.available_height() * 0.9),
                )
                .row_divider(true)

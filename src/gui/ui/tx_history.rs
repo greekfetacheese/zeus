@@ -612,6 +612,7 @@ impl TxHistory {
                   .scroll(
                      TableScroll::new()
                         .auto_shrink([false; 2])
+                        .content_margin(15)
                         .max_height(ui.available_height() * 0.85),
                   )
                   .row_divider(true)
@@ -664,6 +665,7 @@ impl TxHistory {
                   .scroll(
                      TableScroll::new()
                         .auto_shrink([false; 2])
+                        .content_margin(15)
                         .max_height(ui.available_height() * 0.85),
                   )
                   .row_divider(true)
