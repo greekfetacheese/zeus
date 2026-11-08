@@ -329,7 +329,8 @@ impl PortfolioUi {
 
                   ui.spacing_mut().item_spacing.y = theme.spacing.sm;
                   ScrollArea::vertical().auto_shrink([false; 2]).content_margin(5).show(ui, |ui| {
-                     ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
+                     ui.spacing_mut().button_padding =
+                        vec2(theme.spacing.xs, theme.spacing.xs / 2.0);
 
                      Table::new("portfolio_tokens", &rows)
                         .columns([
