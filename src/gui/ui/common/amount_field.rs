@@ -171,7 +171,7 @@ impl AmountField {
                   let amount_percent = self.amount_percent;
 
                   let text =
-                     RichText::new(format!("{}%", amount_percent)).size(theme.typography.normal);
+                     RichText::new(format!("{amount_percent:.0}%")).size(theme.typography.normal);
 
                   ui.label(text);
 
@@ -180,6 +180,7 @@ impl AmountField {
                   let res = ui.horizontal(|ui| {
                      ui.add(
                         Slider::new(&mut self.amount_percent, 0.0..=100.0)
+                           .step_by(1.0)
                            .show_value(false)
                            .width(ui.spacing().slider_width),
                      )
