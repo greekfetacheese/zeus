@@ -6,7 +6,7 @@ use crate::core::{DiscoveredWallets, WalletPortfolio, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::malloc_trim;
 use eframe::egui::{
-   Align2, FontId, Id, Margin, Order, RichText, ScrollArea, Spinner, Stroke, Ui, vec2,
+   Align2, FontId, Frame, Id, Margin, Order, RichText, ScrollArea, Spinner, Stroke, Ui, vec2,
 };
 use egui_elements::{
    Button, ChipRole, Modal, SecureTextEdit, Theme, Toast,
@@ -57,6 +57,24 @@ pub struct DiscoverChildWallets {
    items_per_page: usize,
    size: (f32, f32),
    child_value_cache: HashMap<Address, ChildValueCache>,
+}
+
+/// The child-wallet table's column map, gap and row gap.
+///
+/// The pinned header above the scroll area and the rows inside it are both built from this, so their
+/// column bands line up: the map is `Fr`/`Fixed` only, because an `Auto` column would measure the
+/// header band's own (rowless) content and resolve a different extent.
+fn wallets_table<'a, T>(theme: &Theme, rows: &'a [T]) -> Table<'a, T> {
+   Table::new("discover_wallets", rows)
+      .columns([
+         Column::Fr(3.4),     // Derivation Path
+         Column::Fr(3.4),     // Address
+         Column::Fr(3.2),     // Value
+         Column::Fixed(80.0), // Add
+      ])
+      .gap(theme.spacing.md)
+      // 12 pt, not xs: a themed `Button` paints ~6 pt above and below its band.
+      .row_gap(theme.spacing.md)
 }
 
 impl DiscoverChildWallets {
@@ -255,6 +273,16 @@ impl DiscoverChildWallets {
 
                ui.add_space(10.0);
 
+               // The gap the pinned header leaves before the first row.
+               ui.spacing_mut().item_spacing.y = theme.spacing.md;
+
+               // The header is drawn above the scroll area, so it does not scroll away with the rows.
+               // Both bands come from `wallets_table`, and the header carries the scroll area's
+               // horizontal margin: the same width is what keeps their columns aligned.
+               Frame::new().inner_margin(Margin::symmetric(5, 0)).show(ui, |ui| {
+                  self.show_wallets_header(theme, ui);
+               });
+
                ScrollArea::vertical()
                   .id_salt("children_wallets_in_discovery")
                   .auto_shrink([false; 2])
@@ -441,6 +469,26 @@ impl DiscoverChildWallets {
       (chains, total_value)
    }
 
+   /// The wallet list's header, drawn above the scroll area so it stays put while the rows scroll.
+   fn show_wallets_header(&self, theme: &Theme, ui: &mut Ui) {
+      wallets_table::<()>(theme, &[]).header_rule(true).show(ui, |t| {
+         t.header(|h| {
+            for text in ["Derivation Path", "Address", "Value", ""] {
+               h.cell(|ui| {
+                  if !text.is_empty() {
+                     ui.label(
+                        RichText::new(text)
+                           .strong()
+                           .size(theme.typography.normal)
+                           .color(theme.colors.text),
+                     );
+                  }
+               });
+            }
+         });
+      });
+   }
+
    /// The discovered wallets table: its derivation path, address, holdings, and `Add`.
    ///
    /// The page is cloned out of the discovery store first: resolving a row's value and adding it both
@@ -463,113 +511,85 @@ impl DiscoverChildWallets {
       let mut add_wallet_clicked = false;
       let mut index_to_add = 0;
 
-      Table::new("discover_wallets", &page)
-         .columns([
-            Column::Fr(3.4),     // Derivation Path
-            Column::Fr(3.4),     // Address
-            Column::Fr(3.2),     // Value
-            Column::Fixed(80.0), // Add
-         ])
-         .gap(theme.spacing.md)
-         // 12 pt, not xs: a themed `Button` paints ~6 pt above and below its band.
-         .row_gap(theme.spacing.md)
-         .header_rule(true)
-         .key((self.current_page, page.len()))
-         .show(ui, |t| {
-            t.header(|h| {
-               for text in ["Derivation Path", "Address", "Value", ""] {
-                  h.cell(|ui| {
-                     if !text.is_empty() {
-                        ui.label(
-                           RichText::new(text)
-                              .strong()
-                              .size(theme.typography.normal)
-                              .color(theme.colors.text),
-                        );
-                     }
-                  });
+      wallets_table(theme, &page).key((self.current_page, page.len())).show(ui, |t| {
+         t.rows(|r, wallet| {
+            if r.index() % 2 == 1 {
+               r.fill(theme.colors.widget_bg);
+            }
+
+            let child_address = wallet.address;
+            let child_index = wallet.index;
+            let path = wallet.path.derivation_string();
+
+            // A child that is already in the wallet is displayed as disabled in the Ui.
+            let enabled = !self.hd_wallet.read(|hd_wallet| hd_wallet.contains_child(child_address));
+            let wallet_is_being_added = self.adding_wallet.contains(&child_address);
+            let (chains, total_value) = self.cached_child_value(ctx, child_address);
+
+            let value = if !enabled {
+               NumericValue::from_f64(total_value)
+            } else {
+               let include_testnets = ctx.chain.is_testnet();
+               ctx.get_total_value(child_address, include_testnets).public
+            };
+
+            let address = child_address.to_string();
+            let address_short = truncate_address(&address, 20);
+            let explorer = current_chain.block_explorer();
+            let link = format!("{}/address/{}", explorer, address);
+
+            r.cell(|ui| {
+               if !enabled {
+                  ui.disable();
                }
+               ui.label(RichText::new(&path).size(theme.typography.small));
             });
 
-            t.rows(|r, wallet| {
-               if r.index() % 2 == 1 {
-                  r.fill(theme.colors.widget_bg);
+            r.cell(|ui| {
+               if !enabled {
+                  ui.disable();
                }
+               ui.hyperlink_to(
+                  RichText::new(&address_short)
+                     .size(theme.typography.small)
+                     .color(theme.colors.info),
+                  &link,
+               );
+            });
 
-               let child_address = wallet.address;
-               let child_index = wallet.index;
-               let path = wallet.path.derivation_string();
+            r.cell(|ui| {
+               if !enabled {
+                  ui.disable();
+               }
+               ui.spacing_mut().item_spacing.x = theme.spacing.xs;
+               for chain in &chains {
+                  let icon = icons.chain_icon(*chain, tint).fit_to_exact_size(vec2(16.0, 16.0));
+                  ui.add(icon);
+               }
+               ui.label(
+                  RichText::new(format!("${:.10}", value.abbreviated()))
+                     .color(theme.colors.text_muted)
+                     .size(theme.typography.small),
+               );
+            });
 
-               // A child that is already in the wallet is displayed as disabled in the Ui.
-               let enabled =
-                  !self.hd_wallet.read(|hd_wallet| hd_wallet.contains_child(child_address));
-               let wallet_is_being_added = self.adding_wallet.contains(&child_address);
-               let (chains, total_value) = self.cached_child_value(ctx, child_address);
+            r.cell(|ui| {
+               if !enabled {
+                  ui.disable();
+               }
+               let text = RichText::new("Add").size(theme.typography.normal);
+               let button = Button::new(text).visuals(button_visuals).min_size(vec2(80.0, 32.0));
+               let spinner = Spinner::new().size(20.0).color(theme.colors.text);
 
-               let value = if !enabled {
-                  NumericValue::from_f64(total_value)
-               } else {
-                  let include_testnets = ctx.chain.is_testnet();
-                  ctx.get_total_value(child_address, include_testnets).public
-               };
-
-               let address = child_address.to_string();
-               let address_short = truncate_address(&address, 20);
-               let explorer = current_chain.block_explorer();
-               let link = format!("{}/address/{}", explorer, address);
-
-               r.cell(|ui| {
-                  if !enabled {
-                     ui.disable();
-                  }
-                  ui.label(RichText::new(&path).size(theme.typography.small));
-               });
-
-               r.cell(|ui| {
-                  if !enabled {
-                     ui.disable();
-                  }
-                  ui.hyperlink_to(
-                     RichText::new(&address_short)
-                        .size(theme.typography.small)
-                        .color(theme.colors.info),
-                     &link,
-                  );
-               });
-
-               r.cell(|ui| {
-                  if !enabled {
-                     ui.disable();
-                  }
-                  ui.spacing_mut().item_spacing.x = theme.spacing.xs;
-                  for chain in &chains {
-                     let icon = icons.chain_icon(*chain, tint).fit_to_exact_size(vec2(16.0, 16.0));
-                     ui.add(icon);
-                  }
-                  ui.label(
-                     RichText::new(format!("${:.10}", value.abbreviated()))
-                        .color(theme.colors.text_muted)
-                        .size(theme.typography.small),
-                  );
-               });
-
-               r.cell(|ui| {
-                  if !enabled {
-                     ui.disable();
-                  }
-                  let text = RichText::new("Add").size(theme.typography.normal);
-                  let button = Button::new(text).visuals(button_visuals).min_size(vec2(80.0, 32.0));
-                  let spinner = Spinner::new().size(20.0).color(theme.colors.text);
-
-                  if wallet_is_being_added {
-                     ui.add(spinner);
-                  } else if ui.add(button).clicked() {
-                     add_wallet_clicked = true;
-                     index_to_add = child_index;
-                  }
-               });
+               if wallet_is_being_added {
+                  ui.add(spinner);
+               } else if ui.add(button).clicked() {
+                  add_wallet_clicked = true;
+                  index_to_add = child_index;
+               }
             });
          });
+      });
 
       if add_wallet_clicked {
          self.open_add_wallet_window(index_to_add);
