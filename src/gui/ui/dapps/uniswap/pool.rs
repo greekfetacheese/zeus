@@ -1,11 +1,26 @@
-use egui::{FontId, Frame, Grid, Margin, RichText, ScrollArea, Sense, TextEdit, Ui, vec2};
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
+
+use egui::{Align, FontId, Grid, Id, Layout, Margin, Order, RichText, Sense, Ui, vec2};
 
 use crate::assets::icons::Icons;
-use crate::core::ZeusContext;
+use crate::core::{ZeusContext, ZeusCtx};
+use crate::gui::SHARED_GUI;
 use crate::utils::truncate_symbol_or_name;
-use egui_elements::{ComboBox, Label, Theme};
-use std::sync::Arc;
-use zeus_eth::amm::uniswap::{AnyUniswapPool, UniswapPool};
+use egui_elements::{
+   Button, ChipRole, ComboBox, Label, Modal, SecureTextEdit, Spinner, Theme, Toast,
+   layout::{Column, Table, TableScroll},
+};
+use zeus_eth::{
+   alloy_primitives::Address,
+   amm::uniswap::{
+      AnyUniswapPool, DexKind, FEE_TIERS, FeeAmount, UniswapPool, UniswapV2Pool, UniswapV3Pool,
+      UniswapV4Pool,
+   },
+   currency::{Currency, ERC20Token},
+   utils::batch,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Version {
@@ -18,6 +33,10 @@ enum Version {
 impl Version {
    fn all() -> Vec<Self> {
       vec![Self::All, Self::V2, Self::V3, Self::V4]
+   }
+
+   fn add_options() -> Vec<Self> {
+      vec![Self::V2, Self::V3, Self::V4]
    }
 
    fn is_all(&self) -> bool {
@@ -46,10 +65,131 @@ impl Version {
    }
 }
 
+struct PoolRow {
+   token0: String,
+   token1: String,
+   icon0: egui::Image<'static>,
+   icon1: egui::Image<'static>,
+   protocol: &'static str,
+   fee: String,
+}
+
+/// What the add-pool form asks the background task to build.
+#[derive(Clone, Copy)]
+enum AddPoolRequest {
+   V2 {
+      token_a: Address,
+      token_b: Address,
+   },
+   V3 {
+      token_a: Address,
+      token_b: Address,
+      fee: u32,
+   },
+   V4 {
+      token_a: Address,
+      token_b: Address,
+      fee: u32,
+      tick_spacing: i32,
+      hooks: Address,
+   },
+}
+
+struct AddPoolForm {
+   open: bool,
+   version: Version,
+   token_a: String,
+   token_b: String,
+   fee: u32,
+   tick_spacing: String,
+   hooks: String,
+   adding: bool,
+   error: Option<String>,
+}
+
+impl Default for AddPoolForm {
+   fn default() -> Self {
+      Self {
+         open: false,
+         version: Version::V3,
+         token_a: String::new(),
+         token_b: String::new(),
+         fee: FeeAmount::MEDIUM.fee(),
+         tick_spacing: String::new(),
+         hooks: String::new(),
+         adding: false,
+         error: None,
+      }
+   }
+}
+
+impl AddPoolForm {
+   fn open(&mut self) {
+      *self = Self {
+         open: true,
+         ..Self::default()
+      };
+   }
+
+   fn reset(&mut self) {
+      self.token_a.clear();
+      self.token_b.clear();
+      self.tick_spacing.clear();
+      self.hooks.clear();
+      self.error = None;
+      self.adding = false;
+   }
+
+   fn request(&self) -> Result<AddPoolRequest, String> {
+      if self.version == Version::All {
+         return Err("Choose a pool version".to_string());
+      }
+
+      let token_a = parse_address(&self.token_a, "token A address")?;
+      let token_b = parse_address(&self.token_b, "token B address")?;
+
+      if token_a == token_b {
+         return Err("Token A and Token B must be different".to_string());
+      }
+
+      match self.version {
+         Version::V2 => Ok(AddPoolRequest::V2 { token_a, token_b }),
+         Version::V3 => Ok(AddPoolRequest::V3 {
+            token_a,
+            token_b,
+            fee: self.fee,
+         }),
+         Version::V4 => {
+            let tick_spacing = match self.tick_spacing.trim() {
+               "" => 0,
+               text => text
+                  .parse::<i32>()
+                  .map_err(|_| "Tick spacing must be a whole number".to_string())?,
+            };
+
+            let hooks = match self.hooks.trim() {
+               "" => Address::ZERO,
+               text => parse_address(text, "hooks address")?,
+            };
+
+            Ok(AddPoolRequest::V4 {
+               token_a,
+               token_b,
+               fee: self.fee,
+               tick_spacing,
+               hooks,
+            })
+         }
+         Version::All => unreachable!(),
+      }
+   }
+}
+
 pub struct PoolsUi {
    pub open: bool,
    pub search_query: String,
    version: Option<Version>,
+   add_form: AddPoolForm,
    pub size: (f32, f32),
 }
 
@@ -59,33 +199,29 @@ impl PoolsUi {
          open: false,
          search_query: String::new(),
          version: None,
+         add_form: AddPoolForm::default(),
          size: (600.0, 500.0),
       }
    }
 
    fn select_version(&mut self, theme: &Theme, ui: &mut Ui) {
-      let all_versions = Version::all();
-      let selected_text = self.version.map(|v| v.to_str()).unwrap_or("Select Version");
-      let selected_text = RichText::new(selected_text).size(theme.typography.normal);
-      let selected_label = Label::new(selected_text, None).sense(Sense::click()).interactive(true);
-
-      ComboBox::new("pool_explore_combobox", selected_label)
-         .width(200.0)
-         .show_ui(ui, |ui| {
-            for version in all_versions {
-               let text = RichText::new(version.to_str()).size(theme.typography.normal);
-               let label = Label::new(text, None).sense(Sense::click()).interactive(true);
-               if ui.add(label).clicked() {
-                  self.version = Some(version);
-               }
-            }
-         });
+      if let Some(version) = version_combo(
+         theme,
+         ui,
+         "pool_explore_combobox",
+         self.version,
+         &Version::all(),
+      ) {
+         self.version = Some(version);
+      }
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
+
+      let chain = ctx.chain.id();
 
       ui.vertical_centered(|ui| {
          ui.set_width(self.size.0);
@@ -94,147 +230,578 @@ impl PoolsUi {
          ui.spacing_mut().button_padding = theme.button_padding;
          let ui_width = ui.available_width();
 
-         TextEdit::singleline(&mut self.search_query)
-            .hint_text(RichText::new("Search pools"))
+         let hint = RichText::new("Search pools")
+            .color(theme.colors.text_muted)
+            .size(theme.typography.normal);
+
+         SecureTextEdit::singleline(&mut self.search_query)
+            .visuals(theme.text_edit_visuals())
+            .hint_text(hint)
             .desired_width(ui_width * 0.5)
             .margin(Margin::same(10))
             .font(FontId::proportional(theme.typography.normal))
             .show(ui);
 
-         ui.scope(|ui| {
-            self.select_version(theme, ui);
-         });
+         ui.allocate_ui_with_layout(
+            vec2(360.0, 36.0),
+            Layout::left_to_right(Align::Center),
+            |ui| {
+               self.select_version(theme, ui);
+               ui.add_space(theme.spacing.sm);
+
+               let text = RichText::new("Add Pool").size(theme.typography.normal);
+               let button = Button::new(text).visuals(theme.button_visuals());
+               if ui.add(button).clicked() {
+                  self.add_form.open();
+               }
+            },
+         );
 
          ui.add_space(20.0);
 
+         let selected_version = self.version.unwrap_or(Version::All);
+         let tint = theme.image_tint_recommended;
+         let query = self.search_query.as_str();
          let manager = ctx.pool_manager.clone();
 
-         let column_width = ui_width / 5.0;
-         let query = &self.search_query;
+         let rows: Vec<PoolRow> = manager.read(|manager| {
+            let mut rows: Vec<PoolRow> = manager
+               .pools
+               .values()
+               .filter(|pool| pool.chain_id() == chain)
+               .filter(|pool| {
+                  selected_version.is_all()
+                     || selected_version.is_v2() && pool.dex_kind().is_v2()
+                     || selected_version.is_v3() && pool.dex_kind().is_v3()
+                     || selected_version.is_v4() && pool.dex_kind().is_v4()
+               })
+               .filter(|pool| valid_search(pool, query))
+               .map(|pool| {
+                  let token0 = pool.currency0();
+                  let token1 = pool.currency1();
 
-         ScrollArea::vertical().show(ui, |ui| {
-            ui.set_width(ui_width);
+                  PoolRow {
+                     token0: truncate_symbol_or_name(token0.symbol(), 10),
+                     token1: truncate_symbol_or_name(token1.symbol(), 10),
+                     icon0: icons.currency_icon_x32(token0, tint),
+                     icon1: icons.currency_icon_x32(token1, tint),
+                     protocol: protocol_str(pool),
+                     fee: format!("{}%", pool.fee().fee_percent()),
+                  }
+               })
+               .collect();
 
-            Grid::new("pools_ui").spacing(vec2(25.0, 15.0)).show(ui, |ui| {
-               // Header
+            rows.sort_by(|a, b| a.token0.cmp(&b.token0).then_with(|| a.token1.cmp(&b.token1)));
 
-               // Pool
-               ui.label(RichText::new("Pool").size(theme.typography.large));
+            rows
+         });
 
-               // Protocol
-               ui.label(RichText::new("Protocol").size(theme.typography.large));
+         if rows.is_empty() {
+            ui.add_space(theme.spacing.lg);
+            ui.label(
+               RichText::new("No pools match this filter.")
+                  .size(theme.typography.normal)
+                  .color(theme.colors.text_muted),
+            );
+            return;
+         }
 
-               // Fee
-               ui.label(RichText::new("Fee").size(theme.typography.large));
+         let table_height = (ui.available_height() - theme.spacing.sm).max(140.0);
 
-               ui.label(RichText::new("Has State").size(theme.typography.large));
+         Table::new("pools_ui", &rows)
+            .columns([
+               Column::Fr(3.2), // Pool
+               Column::Fr(1.0), // Protocol
+               Column::Fr(1.0), // Fee
+            ])
+            .gap(20.0)
+            .row_gap(theme.spacing.md)
+            .scroll(
+               TableScroll::new()
+                  .auto_shrink([false; 2])
+                  .content_margin(15)
+                  .max_height(table_height),
+            )
+            .row_divider(true)
+            .header_rule(true)
+            .key((chain, selected_version.to_str(), rows.len()))
+            .show(ui, |t| {
+               t.header(|h| {
+                  for text in ["Pool", "Protocol", "Fee"] {
+                     h.cell(|ui| {
+                        ui.label(
+                           RichText::new(text)
+                              .strong()
+                              .size(theme.typography.large)
+                              .color(theme.colors.text),
+                        );
+                     });
+                  }
+               });
 
-               ui.end_row();
-
-               let selected_version = self.version.unwrap_or(Version::All);
-               let chain = ctx.chain.id();
-
-               manager.read(|manager| {
-                  let pools = manager.pools.iter().filter(|(_, pool)| {
-                     selected_version.is_all() && pool.chain_id() == chain
-                        || selected_version.is_v2()
-                           && pool.dex_kind().is_v2()
-                           && pool.chain_id() == chain
-                        || selected_version.is_v3()
-                           && pool.dex_kind().is_v3()
-                           && pool.chain_id() == chain
-                        || selected_version.is_v4()
-                           && pool.dex_kind().is_v4()
-                           && pool.chain_id() == chain
-                  });
-
-                  for (_key, pool) in pools {
-                     let valid_search = valid_search(pool, query);
-                     if !valid_search {
-                        continue;
-                     }
-
-                     // Pool
-                     ui.scope(|ui| {
-                        ui.set_width(column_width);
+               t.rows(|r, row| {
+                  r.cell(|ui| {
+                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = theme.spacing.xs;
-                        let tint = theme.image_tint_recommended;
-
-                        let token0 = pool.currency0();
-                        let token1 = pool.currency1();
-
-                        let icon0 = icons.currency_icon_x32(token0, tint);
-                        let icon1 = icons.currency_icon_x32(token1, tint);
-
-                        let token0_symbol = truncate_symbol_or_name(token0.symbol(), 10);
-                        let token1_symbol = truncate_symbol_or_name(token1.symbol(), 10);
 
                         let label0 = Label::new(
-                           RichText::new(token0_symbol).size(theme.typography.normal),
-                           Some(icon0),
+                           RichText::new(&row.token0).size(theme.typography.normal),
+                           Some(row.icon0.clone()),
                         )
                         .image_on_left()
                         .interactive(false);
 
                         let label1 = Label::new(
-                           RichText::new(token1_symbol).size(theme.typography.normal),
-                           Some(icon1),
+                           RichText::new(&row.token1).size(theme.typography.normal),
+                           Some(row.icon1.clone()),
                         )
+                        .image_on_left()
                         .interactive(false);
 
-                        Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
-                           ui.horizontal(|ui| {
-                              ui.add(label0);
-                              ui.add(
-                                 Label::new(
-                                    RichText::new("/").size(theme.typography.normal),
-                                    None,
-                                 )
-                                 .interactive(false),
-                              );
-                              ui.add(label1);
-                           });
-                        });
+                        ui.add(label0);
+                        ui.add(
+                           Label::new(
+                              RichText::new("/").size(theme.typography.normal),
+                              None,
+                           )
+                           .interactive(false),
+                        );
+                        ui.add(label1);
                      });
+                  });
 
-                     // Protocol Version
-                     ui.scope(|ui| {
-                        ui.set_width(column_width);
-                        let text = if pool.dex_kind().is_v2() {
-                           RichText::new("V2").size(theme.typography.normal)
-                        } else if pool.dex_kind().is_v3() {
-                           RichText::new("V3").size(theme.typography.normal)
-                        } else {
-                           RichText::new("V4").size(theme.typography.normal)
-                        };
-                        ui.label(text);
-                     });
+                  r.cell(|ui| {
+                     ui.label(RichText::new(row.protocol).size(theme.typography.normal));
+                  });
 
-                     // Fee
-                     ui.scope(|ui| {
-                        ui.set_width(column_width);
+                  r.cell(|ui| {
+                     ui.label(RichText::new(&row.fee).size(theme.typography.normal));
+                  });
+               });
+            });
+      });
 
-                        let fee = pool.fee().fee_percent();
-                        let text = RichText::new(format!("{fee}%")).size(theme.typography.normal);
-                        ui.label(text);
-                     });
+      self.add_pool_modal(chain, theme, ui);
+   }
 
-                     ui.scope(|ui| {
-                        ui.set_width(column_width);
+   fn add_pool_modal(&mut self, chain: u64, theme: &Theme, ui: &mut Ui) {
+      if !self.add_form.open {
+         return;
+      }
 
-                        let has_state = pool.state().is_some();
-                        let text = RichText::new(if has_state { "Yes" } else { "No" })
-                           .size(theme.typography.normal);
-                        ui.label(text);
-                     });
+      let mut open = self.add_form.open;
+      let adding = self.add_form.adding;
+      let form = &mut self.add_form;
+      let mut submit: Option<Result<AddPoolRequest, String>> = None;
 
+      let frame = theme.window_frame.fill(theme.frame1.fill);
+      let title = RichText::new("Add Pool").size(theme.typography.heading);
+      let id = Id::unique("add_pool_modal");
+
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         .closable(!adding)
+         .frame(frame)
+         .show(ui.ctx(), |ui| {
+            ui.set_width(460.0);
+            ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
+            ui.spacing_mut().button_padding = theme.button_padding;
+
+            ui.horizontal(|ui| {
+               ui.label(RichText::new("Pool version").size(theme.typography.large));
+
+               if let Some(version) = version_combo(
+                  theme,
+                  ui,
+                  "add_pool_version_combo",
+                  Some(form.version),
+                  &Version::add_options(),
+               ) {
+                  form.version = version;
+               }
+            });
+
+            let field_width = 320.0;
+
+            Grid::new("add_pool_fields")
+               .num_columns(2)
+               .spacing(vec2(theme.spacing.md, theme.spacing.sm))
+               .show(ui, |ui| {
+                  ui.label(RichText::new("Token A").size(theme.typography.large));
+                  form_text_field(theme, ui, &mut form.token_a, "0x…", field_width);
+                  ui.end_row();
+
+                  ui.label(RichText::new("Token B").size(theme.typography.large));
+                  form_text_field(theme, ui, &mut form.token_b, "0x…", field_width);
+                  ui.end_row();
+
+                  if !form.version.is_v2() {
+                     ui.label(RichText::new("Fee").size(theme.typography.large));
+                     fee_combo(theme, ui, &mut form.fee);
+                     ui.end_row();
+                  }
+
+                  if form.version.is_v4() {
+                     ui.label(RichText::new("Tick spacing").size(theme.typography.large));
+                     form_text_field(
+                        theme,
+                        ui,
+                        &mut form.tick_spacing,
+                        "Optional, defaults to the fee tier",
+                        field_width,
+                     );
+                     ui.end_row();
+
+                     ui.label(RichText::new("Hooks").size(theme.typography.large));
+                     form_text_field(
+                        theme,
+                        ui,
+                        &mut form.hooks,
+                        "Optional, defaults to no hooks",
+                        field_width,
+                     );
                      ui.end_row();
                   }
                });
-            });
+
+            let note = if form.version.is_v4() {
+               "Use the zero address for native ETH. The pool is validated on chain before it is added."
+            } else {
+               "The pair is looked up on chain before it is added."
+            };
+
+            ui.label(
+               RichText::new(note)
+                  .size(theme.typography.normal)
+                  .color(theme.colors.text_muted),
+            );
+
+            if let Some(error) = &form.error {
+               ui.label(
+                  RichText::new(error)
+                     .size(theme.typography.normal)
+                     .color(theme.colors.error),
+               );
+            }
+
+            ui.add_space(theme.spacing.sm);
+
+            if adding {
+               ui.vertical_centered(|ui| {
+                  ui.add(Spinner::new().size(20.0).color(theme.colors.text));
+                  ui.label(
+                     RichText::new("Looking up the pool on chain…")
+                        .size(theme.typography.normal)
+                        .color(theme.colors.text_muted),
+                  );
+               });
+            } else {
+               let text = RichText::new("Add Pool").size(theme.typography.large);
+               let button = Button::new(text)
+                  .visuals(theme.button_visuals())
+                  .min_size(vec2(field_width, 42.0));
+
+               if ui.add(button).clicked() {
+                  submit = Some(form.request());
+               }
+            }
+         });
+
+      self.add_form.open = open;
+
+      if let Some(result) = submit {
+         match result {
+            Ok(request) => self.start_add(chain, request),
+            Err(error) => self.add_form.error = Some(error),
+         }
+      }
+   }
+
+   fn start_add(&mut self, chain: u64, request: AddPoolRequest) {
+      self.add_form.adding = true;
+      self.add_form.error = None;
+
+      crate::runtime::rt().spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let result = insert_pool(ctx, chain, request).await;
+
+         SHARED_GUI.write(|gui| {
+            let toast = gui.uniswap.pools_ui.finish_add(result);
+
+            if let Some(message) = toast {
+               Toast::new("Pool added")
+                  .description(message)
+                  .tone(ChipRole::Success)
+                  .duration(Duration::from_secs(5))
+                  .show(&gui.egui_ctx);
+            }
+
+            gui.request_repaint();
          });
       });
    }
+
+   fn finish_add(&mut self, result: Result<String, String>) -> Option<String> {
+      self.add_form.adding = false;
+
+      match result {
+         Ok(message) => {
+            self.add_form.open = false;
+            self.add_form.reset();
+            Some(message)
+         }
+         Err(error) => {
+            self.add_form.error = Some(error);
+            None
+         }
+      }
+   }
+}
+
+fn version_combo(
+   theme: &Theme,
+   ui: &mut Ui,
+   id: &str,
+   current: Option<Version>,
+   versions: &[Version],
+) -> Option<Version> {
+   let selected_text = current.map(|v| v.to_str()).unwrap_or("Select Version");
+   let selected_text = RichText::new(selected_text).size(theme.typography.normal);
+   let selected_label = Label::new(selected_text, None).sense(Sense::click()).interactive(true);
+
+   let mut selected = None;
+
+   ComboBox::new(id, selected_label).width(200.0).show_ui(ui, |ui| {
+      for version in versions {
+         let text = RichText::new(version.to_str()).size(theme.typography.normal);
+         let label = Label::new(text, None).sense(Sense::click()).interactive(true);
+
+         if ui.add(label).clicked() {
+            selected = Some(*version);
+         }
+      }
+   });
+
+   selected
+}
+
+fn form_text_field(theme: &Theme, ui: &mut Ui, value: &mut String, hint: &str, width: f32) {
+   let hint = RichText::new(hint).color(theme.colors.text_muted).size(theme.typography.normal);
+   let visuals = theme.text_edit_visuals();
+
+   ui.allocate_ui(vec2(width, 40.0), |ui| {
+      SecureTextEdit::singleline(value)
+         .visuals(visuals)
+         .hint_text(hint)
+         .margin(Margin::same(10))
+         .font(FontId::proportional(theme.typography.normal))
+         .desired_width(ui.available_width())
+         .show(ui);
+   });
+}
+
+fn fee_combo(theme: &Theme, ui: &mut Ui, fee: &mut u32) {
+   let selected_text = RichText::new(format!("{}%", FeeAmount::new(*fee).fee_percent()))
+      .size(theme.typography.normal);
+   let selected_label = Label::new(selected_text, None).sense(Sense::click()).interactive(true);
+
+   ComboBox::new("add_pool_fee_combo", selected_label)
+      .width(160.0)
+      .show_ui(ui, |ui| {
+         for tier in FEE_TIERS {
+            let text = RichText::new(format!("{}%", FeeAmount::new(tier).fee_percent()))
+               .size(theme.typography.normal);
+            let label = Label::new(text, None).sense(Sense::click()).interactive(true);
+
+            if ui.add(label).clicked() {
+               *fee = tier;
+            }
+         }
+      });
+}
+
+fn parse_address(text: &str, field: &str) -> Result<Address, String> {
+   Address::from_str(text.trim()).map_err(|_| format!("Enter a valid {field}"))
+}
+
+fn protocol_str(pool: &AnyUniswapPool) -> &'static str {
+   if pool.dex_kind().is_v2() {
+      "V2"
+   } else if pool.dex_kind().is_v3() {
+      "V3"
+   } else {
+      "V4"
+   }
+}
+
+async fn resolve_currency(ctx: &ZeusCtx, chain: u64, address: Address) -> Result<Currency, String> {
+   if address.is_zero() {
+      return Ok(Currency::native(chain));
+   }
+
+   let token = ctx.get_token(chain, address).await.map_err(|e| e.to_string())?;
+   Ok(Currency::from(token))
+}
+
+/// Resolve both sides of a V2/V3 pair as ERC20 tokens.
+///
+/// Native ETH is wrapped, because V2/V3 pools hold WETH rather than the native asset.
+async fn resolve_token_pair(
+   ctx: &ZeusCtx,
+   chain: u64,
+   token_a: Address,
+   token_b: Address,
+) -> Result<(ERC20Token, ERC20Token), String> {
+   let currency_a = resolve_currency(ctx, chain, token_a).await?;
+   let currency_b = resolve_currency(ctx, chain, token_b).await?;
+   let token_a = currency_a.to_erc20().into_owned();
+   let token_b = currency_b.to_erc20().into_owned();
+
+   if token_a.address == token_b.address {
+      return Err("Token A and Token B must be different".to_string());
+   }
+
+   Ok((token_a, token_b))
+}
+
+async fn insert_pool(ctx: ZeusCtx, chain: u64, request: AddPoolRequest) -> Result<String, String> {
+   let pool = match request {
+      AddPoolRequest::V2 { token_a, token_b } => {
+         let (token_a, token_b) = resolve_token_pair(&ctx, chain, token_a, token_b).await?;
+         let client = ctx.get_client_manager();
+
+         let pool = client
+            .request(chain, |client| {
+               let token_a = token_a.clone();
+               let token_b = token_b.clone();
+
+               async move {
+                  UniswapV2Pool::from_components(
+                     client,
+                     chain,
+                     token_a,
+                     token_b,
+                     DexKind::UniswapV2,
+                  )
+                  .await
+               }
+            })
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "No V2 pool exists for this pair".to_string())?;
+
+         AnyUniswapPool::from_pool(pool)
+      }
+      AddPoolRequest::V3 {
+         token_a,
+         token_b,
+         fee,
+      } => {
+         let (token_a, token_b) = resolve_token_pair(&ctx, chain, token_a, token_b).await?;
+         let client = ctx.get_client_manager();
+
+         let pool = client
+            .request(chain, |client| {
+               let token_a = token_a.clone();
+               let token_b = token_b.clone();
+
+               async move {
+                  UniswapV3Pool::from_components(
+                     client,
+                     chain,
+                     fee,
+                     token_a,
+                     token_b,
+                     DexKind::UniswapV3,
+                  )
+                  .await
+               }
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+
+         AnyUniswapPool::from_pool(pool)
+      }
+      AddPoolRequest::V4 {
+         token_a,
+         token_b,
+         fee,
+         tick_spacing,
+         hooks,
+      } => {
+         let currency_a = resolve_currency(&ctx, chain, token_a).await?;
+         let currency_b = resolve_currency(&ctx, chain, token_b).await?;
+
+         if currency_a.address() == currency_b.address() {
+            return Err("Token A and Token B must be different".to_string());
+         }
+
+         let fee = FeeAmount::new(fee);
+         let tick_spacing = if tick_spacing == 0 {
+            fee.tick_spacing_i32()
+         } else {
+            tick_spacing
+         };
+
+         if FeeAmount::i24_tick_spacing(tick_spacing).is_none() {
+            return Err("Tick spacing is out of range".to_string());
+         }
+
+         let pool = UniswapV4Pool::from_components_with_spacing(
+            chain,
+            currency_a,
+            currency_b,
+            fee,
+            tick_spacing,
+            DexKind::UniswapV4,
+            hooks,
+         );
+
+         let client = ctx.get_client_manager();
+         let pool_id = pool.id();
+
+         let valid = client
+            .request(chain, |client| async move {
+               batch::validate_v4_pools(client, chain, vec![pool_id]).await
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+
+         if valid.is_empty() {
+            return Err("The V4 pool is not initialized on chain".to_string());
+         }
+
+         AnyUniswapPool::V4(pool)
+      }
+   };
+
+   let label = format!(
+      "{}/{}",
+      truncate_symbol_or_name(pool.currency0().symbol(), 10),
+      truncate_symbol_or_name(pool.currency1().symbol(), 10)
+   );
+
+   let currencies = [pool.currency0().clone(), pool.currency1().clone()];
+   let manager = ctx.pool_manager();
+
+   manager
+      .update_state_for_pools(ctx.clone(), chain, vec![pool])
+      .await
+      .map_err(|e| e.to_string())?;
+
+   ctx.write(|ctx| {
+      for currency in currencies {
+         ctx.currency_db.insert_currency(chain, currency);
+      }
+   });
+
+   ctx.save_pool_manager();
+
+   Ok(format!("{label} added to the pool list"))
 }
 
 fn valid_search(pool: &AnyUniswapPool, query: &str) -> bool {
@@ -263,4 +830,55 @@ fn valid_search(pool: &AnyUniswapPool, query: &str) -> bool {
    };
 
    false
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   const TOKEN_A: &str = "0x0000000000000000000000000000000000000001";
+   const TOKEN_B: &str = "0x0000000000000000000000000000000000000002";
+
+   fn form(version: Version) -> AddPoolForm {
+      AddPoolForm {
+         version,
+         token_a: TOKEN_A.to_string(),
+         token_b: TOKEN_B.to_string(),
+         ..Default::default()
+      }
+   }
+
+   #[test]
+   fn add_pool_form_parses_v2_pair() {
+      assert!(matches!(
+         form(Version::V2).request(),
+         Ok(AddPoolRequest::V2 { .. })
+      ));
+   }
+
+   #[test]
+   fn add_pool_form_parses_v4_pair() {
+      assert!(matches!(
+         form(Version::V4).request(),
+         Ok(AddPoolRequest::V4 {
+            tick_spacing: 0,
+            hooks: Address::ZERO,
+            ..
+         })
+      ));
+   }
+
+   #[test]
+   fn add_pool_form_rejects_matching_tokens() {
+      let mut form = form(Version::V3);
+      form.token_b = TOKEN_A.to_string();
+      assert!(form.request().is_err());
+   }
+
+   #[test]
+   fn add_pool_form_rejects_bad_tick_spacing() {
+      let mut form = form(Version::V4);
+      form.tick_spacing = "abc".to_string();
+      assert!(form.request().is_err());
+   }
 }
