@@ -5,8 +5,8 @@ use std::time::Instant;
 use zeus_eth::{
    alloy_primitives::{Address, FixedBytes, U256},
    amm::uniswap::{
-      AnyUniswapPool, DexKind, FeeAmount, State, UniswapPool, UniswapV2Pool, UniswapV3Pool,
-      UniswapV4Pool,
+      AnyUniswapPool, DexKind, State, UniswapPool, UniswapV2Pool, UniswapV3Pool, UniswapV4Pool,
+      V4_FEE_CANDIDATES, v4_fee_spacing_candidates,
    },
    currency::{Currency, NativeCurrency, erc20::ERC20Token},
    nft::{NftCollection, NftToken},
@@ -171,6 +171,9 @@ impl ZeusCtx {
    ///
    /// `fee` is typically the Swap-event fee (charged LP + protocol). That is **not**
    /// the PoolKey fee — e.g. Base ETH/VIRTUAL is PoolKey.fee=500 but Swap.fee=625.
+   ///
+   /// Fee 0 pools are legal in V4, and a hooked pool cannot be found by id search at
+   /// all: `hooks` is part of the hashed key and is not derivable.
    pub async fn get_v4_pool(
       &self,
       chain: u64,
@@ -183,16 +186,13 @@ impl ZeusCtx {
          return Ok(pool);
       }
 
-      let mut fees = vec![100u32, 500, 3000, 10000, fee];
+      let mut fees = V4_FEE_CANDIDATES.to_vec();
+      // The Swap-event fee is not the PoolKey fee, but it can be one; keep it as a candidate.
+      fees.push(fee);
       fees.sort_unstable();
       fees.dedup();
 
-      let spacings_for = |f: u32| -> Vec<i32> {
-         let mut spacings = vec![1, 10, 60, 200, FeeAmount::new(f).tick_spacing_i32()];
-         spacings.sort_unstable();
-         spacings.dedup();
-         spacings
-      };
+      let candidates = v4_fee_spacing_candidates(&fees);
 
       let mut base_tokens = ERC20Token::base_tokens(chain);
 
@@ -216,24 +216,22 @@ impl ZeusCtx {
                continue;
             }
 
-            for &cand_fee in &fees {
-               for spacing in spacings_for(cand_fee) {
-                  let pool = UniswapV4Pool::new_with_spacing(
-                     chain,
-                     FeeAmount::new(cand_fee),
-                     spacing,
-                     DexKind::UniswapV4,
-                     base_currency.clone(),
-                     quote_currency.clone(),
-                     State::none(),
-                     Address::ZERO,
-                  );
+            for (cand_fee, spacing) in candidates.iter() {
+               let pool = UniswapV4Pool::new_with_spacing(
+                  chain,
+                  *cand_fee,
+                  *spacing,
+                  DexKind::UniswapV4,
+                  base_currency.clone(),
+                  quote_currency.clone(),
+                  State::none(),
+                  Address::ZERO,
+               );
 
-                  if pool.id() == expected_id {
-                     let pool_manager = self.pool_manager();
-                     pool_manager.add_pool(pool.clone());
-                     return Ok(pool.into());
-                  }
+               if pool.id() == expected_id {
+                  let pool_manager = self.pool_manager();
+                  pool_manager.add_pool(pool.clone());
+                  return Ok(pool.into());
                }
             }
          }

@@ -20,9 +20,11 @@ use zeus_eth::{
    abi::zeus::ZeusStateViewV3::{V3Pool, V4Pool},
    alloy_primitives::{Address, B256},
    amm::uniswap::{
-      AnyUniswapPool, DexKind, FEE_TIERS, FeeAmount, UniswapPool, UniswapV2Pool, UniswapV3Pool,
+      AnyUniswapPool, DexKind, FeeAmount, UniswapPool, UniswapV2Pool, UniswapV3Pool,
+      V4_FEE_CANDIDATES,
       state::{State, V3PoolState},
       sync::Checkpoint,
+      v4_fee_spacing_candidates,
    },
    currency::{Currency, ERC20Token},
    types::*,
@@ -382,6 +384,8 @@ impl PoolManagerHandle {
             let mut v4_pools_map = HashMap::new();
             let mut v4_pool_ids = Vec::new();
             let mut bases_to_discover = Vec::new();
+            // The V4 key grid is pair-independent, so build it once per token.
+            let v4_candidates = v4_fee_spacing_candidates(&V4_FEE_CANDIDATES);
 
             for base_token in &base_tokens {
                if base_token.address == token.address {
@@ -403,11 +407,11 @@ impl PoolManagerHandle {
 
                bases_to_discover.push(base_token.clone());
 
-               for fee in FEE_TIERS.iter() {
-                  let fee_amount = FeeAmount::new(*fee);
-                  let pool = UniswapV4Pool::new(
+               for (fee_amount, tick_spacing) in &v4_candidates {
+                  let pool = UniswapV4Pool::new_with_spacing(
                      chain,
-                     fee_amount,
+                     *fee_amount,
+                     *tick_spacing,
                      DexKind::UniswapV4,
                      Currency::from(base_token.clone()),
                      Currency::from(token.clone()),
@@ -415,8 +419,11 @@ impl PoolManagerHandle {
                      Address::ZERO,
                   );
 
-                  v4_pool_ids.push(pool.id());
-                  v4_pools_map.insert(pool.id(), pool);
+                  // The grid can repeat an id; keep `v4_pool_ids` aligned and duplicate-free.
+                  let id = pool.id();
+                  if v4_pools_map.insert(id, pool).is_none() {
+                     v4_pool_ids.push(id);
+                  }
                }
             }
 
