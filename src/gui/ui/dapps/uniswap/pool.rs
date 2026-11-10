@@ -161,8 +161,10 @@ impl AddPoolForm {
          .parse::<u32>()
          .map_err(|_| "Custom fee must be a whole number".to_string())?;
 
-      if fee == 0 || fee > 0x00FF_FFFF {
-         return Err("Custom fee must be between 1 and 16777215".to_string());
+      // A static fee of 0 is legal in V4: `LPFeeLibrary.isValid` only bounds the fee
+      // above, so a zero-fee pool must stay addable by hand.
+      if fee > 0x00FF_FFFF {
+         return Err("Custom fee must be between 0 and 16777215".to_string());
       }
 
       Ok(fee)
@@ -506,7 +508,7 @@ impl PoolsUi {
                            theme,
                            ui,
                            &mut form.custom_fee,
-                           "Hundredths of a bip, e.g. 2500 = 0.25%",
+                           "Hundredths of a bip, e.g. 2500 = 0.25%, 0 = no fee",
                            field_width,
                         );
                         ui.end_row();
@@ -538,7 +540,7 @@ impl PoolsUi {
 
             let note = match (form.version.is_v4(), form.v4_custom_fee) {
                (true, true) => {
-                  "Custom fees are hundredths of a bip: 2500 = 0.25%, 8388608 = dynamic fee. Dynamic pools need their on-chain tick spacing."
+                  "Custom fees are hundredths of a bip: 2500 = 0.25%, 0 = no fee, 8388608 = dynamic fee. Dynamic pools need their on-chain tick spacing."
                }
                (true, false) => {
                   "Leave a token field empty (or use the zero address) for native ETH. The pool is validated on chain before it is added."
@@ -1047,6 +1049,22 @@ mod tests {
    }
 
    #[test]
+   fn add_pool_form_accepts_zero_v4_fee() {
+      let mut form = form(Version::V4);
+      form.v4_custom_fee = true;
+      form.custom_fee = "0".to_string();
+      form.tick_spacing = "60".to_string();
+      assert!(matches!(
+         form.request(),
+         Ok(AddPoolRequest::V4 {
+            fee: 0,
+            tick_spacing: 60,
+            ..
+         })
+      ));
+   }
+
+   #[test]
    fn add_pool_form_accepts_dynamic_v4_fee() {
       let mut form = form(Version::V4);
       form.v4_custom_fee = true;
@@ -1074,7 +1092,7 @@ mod tests {
 
    #[test]
    fn add_pool_form_rejects_invalid_custom_fee() {
-      for value in ["0", "16777216", "abc"] {
+      for value in ["16777216", "abc"] {
          let mut form = form(Version::V4);
          form.v4_custom_fee = true;
          form.custom_fee = value.to_string();
