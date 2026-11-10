@@ -151,21 +151,18 @@ impl UniswapUi {
                ui.add(Spinner::new().size(17.0).color(theme.colors.text));
             }
 
-            #[cfg(feature = "dev")]
-            {
-               let text = RichText::new("Swap").size(theme.typography.large);
-               let swap_button = Button::new(text).visuals(button_visuals);
-               if ui.add(swap_button).clicked() {
-                  self.swap_ui.open();
-                  self.pools_ui.open = false;
-               }
+            let text = RichText::new("Swap").size(theme.typography.large);
+            let swap_button = Button::new(text).visuals(button_visuals);
+            if ui.add(swap_button).clicked() {
+               self.swap_ui.open();
+               self.pools_ui.open = false;
+            }
 
-               let text = RichText::new("Pools").size(theme.typography.large);
-               let pools_button = Button::new(text).visuals(button_visuals);
-               if ui.add(pools_button).clicked() {
-                  self.pools_ui.open = true;
-                  self.swap_ui.close();
-               }
+            let text = RichText::new("Pools").size(theme.typography.large);
+            let pools_button = Button::new(text).visuals(button_visuals);
+            if ui.add(pools_button).clicked() {
+               self.pools_ui.open = true;
+               self.swap_ui.close();
             }
          });
       });
