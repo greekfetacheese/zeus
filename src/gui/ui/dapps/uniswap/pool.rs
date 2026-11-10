@@ -173,8 +173,8 @@ impl AddPoolForm {
          return Err("Choose a pool version".to_string());
       }
 
-      let token_a = parse_address(&self.token_a, "token A address")?;
-      let token_b = parse_address(&self.token_b, "token B address")?;
+      let token_a = parse_token_address(&self.token_a, "token A address")?;
+      let token_b = parse_token_address(&self.token_b, "token B address")?;
 
       if token_a == token_b {
          return Err("Token A and Token B must be different".to_string());
@@ -284,7 +284,8 @@ impl PoolsUi {
                ui.add_space(theme.spacing.sm);
 
                let text = RichText::new("Add Pool").size(theme.typography.normal);
-               let button = Button::new(text).visuals(theme.button_visuals());
+               let button =
+                  Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
                if ui.add(button).clicked() {
                   self.add_form.open();
                }
@@ -349,7 +350,7 @@ impl PoolsUi {
                Column::Fr(1.0), // Fee
             ])
             .gap(20.0)
-            .row_gap(theme.spacing.md)
+            .row_gap(theme.spacing.lg + theme.spacing.xs)
             .scroll(
                TableScroll::new()
                   .auto_shrink([false; 2])
@@ -466,11 +467,23 @@ impl PoolsUi {
                .spacing(vec2(theme.spacing.md, theme.spacing.sm))
                .show(ui, |ui| {
                   ui.label(RichText::new("Token A").size(theme.typography.large));
-                  form_text_field(theme, ui, &mut form.token_a, "0x…", field_width);
+                  form_text_field(
+                     theme,
+                     ui,
+                     &mut form.token_a,
+                     "0x… (empty = native ETH)",
+                     field_width,
+                  );
                   ui.end_row();
 
                   ui.label(RichText::new("Token B").size(theme.typography.large));
-                  form_text_field(theme, ui, &mut form.token_b, "0x…", field_width);
+                  form_text_field(
+                     theme,
+                     ui,
+                     &mut form.token_b,
+                     "0x… (empty = native ETH)",
+                     field_width,
+                  );
                   ui.end_row();
 
                   if !form.version.is_v2() {
@@ -528,7 +541,7 @@ impl PoolsUi {
                   "Custom fees are hundredths of a bip: 2500 = 0.25%, 8388608 = dynamic fee. Dynamic pools need their on-chain tick spacing."
                }
                (true, false) => {
-                  "Use the zero address for native ETH. The pool is validated on chain before it is added."
+                  "Leave a token field empty (or use the zero address) for native ETH. The pool is validated on chain before it is added."
                }
                (false, _) => "The pair is looked up on chain before it is added.",
             };
@@ -562,7 +575,8 @@ impl PoolsUi {
                let text = RichText::new("Add Pool").size(theme.typography.large);
                let button = Button::new(text)
                   .visuals(theme.button_visuals())
-                  .min_size(vec2(field_width, 42.0));
+                  .min_size(vec2(field_width, 42.0))
+                  .label_align(Align::Center);
 
                if ui.add(button).clicked() {
                   submit = Some(form.request());
@@ -637,7 +651,12 @@ fn version_combo(
    ComboBox::new(id, selected_label).width(200.0).show_ui(ui, |ui| {
       for version in versions {
          let text = RichText::new(version.to_str()).size(theme.typography.normal);
-         let label = Label::new(text, None).sense(Sense::click()).interactive(true);
+         let label = Label::new(text, None)
+            .expand(Some(4.0))
+            .fill_width(true)
+            .visuals(theme.label_visuals())
+            .sense(Sense::click())
+            .interactive(true);
 
          if ui.add(label).clicked() {
             selected = Some(*version);
@@ -684,7 +703,12 @@ fn fee_combo(
       .show_ui(ui, |ui| {
          for tier in FEE_TIERS {
             let text = RichText::new(fee_label(tier)).size(theme.typography.normal);
-            let label = Label::new(text, None).sense(Sense::click()).interactive(true);
+            let label = Label::new(text, None)
+               .expand(Some(4.0))
+               .fill_width(true)
+               .visuals(theme.label_visuals())
+               .sense(Sense::click())
+               .interactive(true);
 
             if ui.add(label).clicked() {
                *fee = tier;
@@ -694,7 +718,12 @@ fn fee_combo(
 
          if allow_custom {
             let text = RichText::new("Custom").size(theme.typography.normal);
-            let label = Label::new(text, None).sense(Sense::click()).interactive(true);
+            let label = Label::new(text, None)
+               .expand(Some(4.0))
+               .fill_width(true)
+               .visuals(theme.label_visuals())
+               .sense(Sense::click())
+               .interactive(true);
 
             if ui.add(label).clicked() {
                *custom = true;
@@ -724,6 +753,15 @@ fn custom_fee_label(text: &str) -> String {
 
 fn parse_address(text: &str, field: &str) -> Result<Address, String> {
    Address::from_str(text.trim()).map_err(|_| format!("Enter a valid {field}"))
+}
+
+/// Token fields treat an empty input as the native currency (the zero address).
+fn parse_token_address(text: &str, field: &str) -> Result<Address, String> {
+   if text.trim().is_empty() {
+      Ok(Address::ZERO)
+   } else {
+      parse_address(text, field)
+   }
 }
 
 fn protocol_str(pool: &AnyUniswapPool) -> &'static str {
@@ -970,6 +1008,23 @@ mod tests {
    fn add_pool_form_rejects_matching_tokens() {
       let mut form = form(Version::V3);
       form.token_b = TOKEN_A.to_string();
+      assert!(form.request().is_err());
+   }
+
+   #[test]
+   fn add_pool_form_treats_empty_token_as_native() {
+      let mut form = form(Version::V4);
+      form.token_a = String::new();
+
+      assert!(matches!(
+         form.request(),
+         Ok(AddPoolRequest::V4 {
+            token_a: Address::ZERO,
+            ..
+         })
+      ));
+
+      form.token_b = String::new();
       assert!(form.request().is_err());
    }
 
