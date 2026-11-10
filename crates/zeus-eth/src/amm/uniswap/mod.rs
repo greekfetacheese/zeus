@@ -26,7 +26,49 @@ pub mod v4;
 
 pub use state::State;
 
+/// Fee tiers of the **V3 factory** (`feeAmountTickSpacing`).
+///
+/// This mirrors the V3 factory whitelist and is still used for V2/V3 discovery and
+/// the create-pool UI. It is **not** the V4 candidate set: V4 has no fee-tier
+/// whitelist, see [`V4_FEE_CANDIDATES`].
 pub const FEE_TIERS: [u32; 4] = [100, 500, 3000, 10000];
+
+/// Fees a Uniswap V4 `PoolKey` may carry.
+///
+/// V4 does not whitelist fee tiers: `LPFeeLibrary.isValid` only enforces an upper
+/// bound (`fee <= 1_000_000`), so `0` is a legal static fee and real pools use it.
+/// Keep this separate from `FEE_TIERS`: that one mirrors the V3 factory tiers and
+/// is also used for V2/V3 discovery and the create-pool UI.
+pub const V4_FEE_CANDIDATES: [u32; 5] = [0, 100, 500, 3000, 10000];
+
+/// Tick spacings probed when reconstructing a V4 pool id.
+///
+/// `PoolKey.tickSpacing` is independent of `fee` in V4, so a fee-only table cannot
+/// derive an id: fee 0 is legal and its `fee / 50` heuristic yields 1, while real
+/// pools pair it with a coarser spacing.
+pub const V4_TICK_SPACING_CANDIDATES: [i32; 4] = [1, 10, 60, 200];
+
+/// `(fee, tickSpacing)` pairs to probe when searching for a V4 pool id.
+///
+/// Every fee is combined with `V4_TICK_SPACING_CANDIDATES` plus that fee's own
+/// `fee / 50` heuristic, because V4 does not tie the two fields together. Hooked
+/// pools are out of reach by construction: `hooks` is part of the hashed key.
+pub fn v4_fee_spacing_candidates(fees: &[u32]) -> Vec<(FeeAmount, i32)> {
+   let mut out: Vec<(FeeAmount, i32)> = Vec::new();
+   for &fee in fees {
+      let mut spacings = V4_TICK_SPACING_CANDIDATES.to_vec();
+      spacings.push(FeeAmount::new(fee).tick_spacing_i32());
+      spacings.sort_unstable();
+      spacings.dedup();
+      for spacing in spacings {
+         let candidate = (FeeAmount::new(fee), spacing);
+         if !out.contains(&candidate) {
+            out.push(candidate);
+         }
+      }
+   }
+   out
+}
 
 /// The default factory enabled fee amounts, denominated in hundredths of bips.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

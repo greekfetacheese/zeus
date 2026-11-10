@@ -760,6 +760,7 @@ impl UniswapV4Pool {
 #[cfg(test)]
 mod tests {
    use super::*;
+   use crate::amm::uniswap::{V4_FEE_CANDIDATES, v4_fee_spacing_candidates};
    use alloy_primitives::B256;
    use alloy_provider::ProviderBuilder;
    use std::str::FromStr;
@@ -935,6 +936,17 @@ mod tests {
       println!("UNI in terms of ETH: {}", uni_in_eth);
       println!("ETH in terms of UNI: {}", eth_in_uni);
       println!("ETH Liquidity: {}", eth_balance.f64());
+   }
+
+   #[test]
+   fn fee_spacing_candidates_include_zero_fee_with_standard_spacings() {
+      let candidates = v4_fee_spacing_candidates(&V4_FEE_CANDIDATES);
+
+      assert!(candidates.contains(&(FeeAmount::new(0), 60)));
+      assert!(candidates.contains(&(FeeAmount::new(0), 1)));
+      assert!(candidates.contains(&(FeeAmount::new(3000), 60)));
+      // The fee/50 heuristic is still probed for non-standard fees.
+      assert_eq!(FeeAmount::new(3000).tick_spacing_i32(), 60);
    }
 
    #[test]
