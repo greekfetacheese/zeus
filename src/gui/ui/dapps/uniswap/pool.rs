@@ -65,6 +65,9 @@ impl Version {
    }
 }
 
+/// Uniswap V4 `LPFeeLibrary.DYNAMIC_FEE_FLAG`: the hook supplies the fee.
+const DYNAMIC_FEE_FLAG: u32 = 0x80_0000;
+
 struct PoolRow {
    token0: String,
    token1: String,
@@ -101,6 +104,8 @@ struct AddPoolForm {
    token_a: String,
    token_b: String,
    fee: u32,
+   v4_custom_fee: bool,
+   custom_fee: String,
    tick_spacing: String,
    hooks: String,
    adding: bool,
@@ -115,6 +120,8 @@ impl Default for AddPoolForm {
          token_a: String::new(),
          token_b: String::new(),
          fee: FeeAmount::MEDIUM.fee(),
+         v4_custom_fee: false,
+         custom_fee: String::new(),
          tick_spacing: String::new(),
          hooks: String::new(),
          adding: false,
@@ -134,10 +141,31 @@ impl AddPoolForm {
    fn reset(&mut self) {
       self.token_a.clear();
       self.token_b.clear();
+      self.custom_fee.clear();
+      self.v4_custom_fee = false;
       self.tick_spacing.clear();
       self.hooks.clear();
       self.error = None;
       self.adding = false;
+   }
+
+   /// The fee for a V4 pool: the selected standard tier, or the custom value.
+   fn v4_fee(&self) -> Result<u32, String> {
+      if !self.v4_custom_fee {
+         return Ok(self.fee);
+      }
+
+      let fee = self
+         .custom_fee
+         .trim()
+         .parse::<u32>()
+         .map_err(|_| "Custom fee must be a whole number".to_string())?;
+
+      if fee == 0 || fee > 0x00FF_FFFF {
+         return Err("Custom fee must be between 1 and 16777215".to_string());
+      }
+
+      Ok(fee)
    }
 
    fn request(&self) -> Result<AddPoolRequest, String> {
@@ -160,12 +188,18 @@ impl AddPoolForm {
             fee: self.fee,
          }),
          Version::V4 => {
+            let fee = self.v4_fee()?;
+
             let tick_spacing = match self.tick_spacing.trim() {
                "" => 0,
                text => text
                   .parse::<i32>()
                   .map_err(|_| "Tick spacing must be a whole number".to_string())?,
             };
+
+            if fee == DYNAMIC_FEE_FLAG && tick_spacing == 0 {
+               return Err("Dynamic fee pools need an explicit tick spacing".to_string());
+            }
 
             let hooks = match self.hooks.trim() {
                "" => Address::ZERO,
@@ -175,7 +209,7 @@ impl AddPoolForm {
             Ok(AddPoolRequest::V4 {
                token_a,
                token_b,
-               fee: self.fee,
+               fee,
                tick_spacing,
                hooks,
             })
@@ -286,7 +320,7 @@ impl PoolsUi {
                      icon0: icons.currency_icon_x32(token0, tint),
                      icon1: icons.currency_icon_x32(token1, tint),
                      protocol: protocol_str(pool),
-                     fee: format!("{}%", pool.fee().fee_percent()),
+                     fee: fee_label(pool.fee().fee()),
                   }
                })
                .collect();
@@ -440,9 +474,30 @@ impl PoolsUi {
                   ui.end_row();
 
                   if !form.version.is_v2() {
+                     let allow_custom = form.version.is_v4();
+
                      ui.label(RichText::new("Fee").size(theme.typography.large));
-                     fee_combo(theme, ui, &mut form.fee);
+                     fee_combo(
+                        theme,
+                        ui,
+                        &mut form.fee,
+                        &mut form.v4_custom_fee,
+                        &mut form.custom_fee,
+                        allow_custom,
+                     );
                      ui.end_row();
+
+                     if allow_custom && form.v4_custom_fee {
+                        ui.label(RichText::new("Custom fee").size(theme.typography.large));
+                        form_text_field(
+                           theme,
+                           ui,
+                           &mut form.custom_fee,
+                           "Hundredths of a bip, e.g. 2500 = 0.25%",
+                           field_width,
+                        );
+                        ui.end_row();
+                     }
                   }
 
                   if form.version.is_v4() {
@@ -468,10 +523,14 @@ impl PoolsUi {
                   }
                });
 
-            let note = if form.version.is_v4() {
-               "Use the zero address for native ETH. The pool is validated on chain before it is added."
-            } else {
-               "The pair is looked up on chain before it is added."
+            let note = match (form.version.is_v4(), form.v4_custom_fee) {
+               (true, true) => {
+                  "Custom fees are hundredths of a bip: 2500 = 0.25%, 8388608 = dynamic fee. Dynamic pools need their on-chain tick spacing."
+               }
+               (true, false) => {
+                  "Use the zero address for native ETH. The pool is validated on chain before it is added."
+               }
+               (false, _) => "The pair is looked up on chain before it is added.",
             };
 
             ui.label(
@@ -604,24 +663,63 @@ fn form_text_field(theme: &Theme, ui: &mut Ui, value: &mut String, hint: &str, w
    });
 }
 
-fn fee_combo(theme: &Theme, ui: &mut Ui, fee: &mut u32) {
-   let selected_text = RichText::new(format!("{}%", FeeAmount::new(*fee).fee_percent()))
-      .size(theme.typography.normal);
+fn fee_combo(
+   theme: &Theme,
+   ui: &mut Ui,
+   fee: &mut u32,
+   custom: &mut bool,
+   custom_fee: &mut String,
+   allow_custom: bool,
+) {
+   let selected_text = if allow_custom && *custom {
+      custom_fee_label(custom_fee)
+   } else {
+      fee_label(*fee)
+   };
+   let selected_text = RichText::new(selected_text).size(theme.typography.normal);
    let selected_label = Label::new(selected_text, None).sense(Sense::click()).interactive(true);
 
    ComboBox::new("add_pool_fee_combo", selected_label)
       .width(160.0)
       .show_ui(ui, |ui| {
          for tier in FEE_TIERS {
-            let text = RichText::new(format!("{}%", FeeAmount::new(tier).fee_percent()))
-               .size(theme.typography.normal);
+            let text = RichText::new(fee_label(tier)).size(theme.typography.normal);
             let label = Label::new(text, None).sense(Sense::click()).interactive(true);
 
             if ui.add(label).clicked() {
                *fee = tier;
+               *custom = false;
+            }
+         }
+
+         if allow_custom {
+            let text = RichText::new("Custom").size(theme.typography.normal);
+            let label = Label::new(text, None).sense(Sense::click()).interactive(true);
+
+            if ui.add(label).clicked() {
+               *custom = true;
+
+               if custom_fee.trim().is_empty() {
+                  *custom_fee = fee.to_string();
+               }
             }
          }
       });
+}
+
+fn fee_label(fee: u32) -> String {
+   if fee == DYNAMIC_FEE_FLAG {
+      "Dynamic".to_string()
+   } else {
+      format!("{}%", FeeAmount::new(fee).fee_percent())
+   }
+}
+
+fn custom_fee_label(text: &str) -> String {
+   match text.trim().parse::<u32>() {
+      Ok(fee) => format!("Custom ({})", fee_label(fee)),
+      Err(_) => "Custom".to_string(),
+   }
 }
 
 fn parse_address(text: &str, field: &str) -> Result<Address, String> {
@@ -880,5 +978,55 @@ mod tests {
       let mut form = form(Version::V4);
       form.tick_spacing = "abc".to_string();
       assert!(form.request().is_err());
+   }
+
+   #[test]
+   fn add_pool_form_parses_custom_v4_fee() {
+      let mut form = form(Version::V4);
+      form.v4_custom_fee = true;
+      form.custom_fee = "2500".to_string();
+      assert!(matches!(
+         form.request(),
+         Ok(AddPoolRequest::V4 { fee: 2500, .. })
+      ));
+   }
+
+   #[test]
+   fn add_pool_form_accepts_dynamic_v4_fee() {
+      let mut form = form(Version::V4);
+      form.v4_custom_fee = true;
+      form.custom_fee = DYNAMIC_FEE_FLAG.to_string();
+      form.tick_spacing = "60".to_string();
+      assert!(matches!(
+         form.request(),
+         Ok(AddPoolRequest::V4 {
+            fee: DYNAMIC_FEE_FLAG,
+            ..
+         })
+      ));
+   }
+
+   #[test]
+   fn add_pool_form_requires_spacing_for_dynamic_fee() {
+      let mut form = form(Version::V4);
+      form.v4_custom_fee = true;
+      form.custom_fee = DYNAMIC_FEE_FLAG.to_string();
+      assert!(form.request().is_err());
+
+      form.tick_spacing = "60".to_string();
+      assert!(form.request().is_ok());
+   }
+
+   #[test]
+   fn add_pool_form_rejects_invalid_custom_fee() {
+      for value in ["0", "16777216", "abc"] {
+         let mut form = form(Version::V4);
+         form.v4_custom_fee = true;
+         form.custom_fee = value.to_string();
+         assert!(
+            form.request().is_err(),
+            "{value} should be rejected"
+         );
+      }
    }
 }
