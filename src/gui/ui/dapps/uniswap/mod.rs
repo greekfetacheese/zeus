@@ -6,7 +6,7 @@ use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
 use crate::gui::ui::common::notices;
 use crate::gui::ui::show_with_fade;
-use egui_elements::{Button, Modal, Spinner, Theme, visuals::ButtonVisuals};
+use egui_elements::{Button, Modal, Spinner, Tabs, Theme, visuals::ButtonVisuals};
 use egui_lucide::Lucide;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -18,6 +18,11 @@ pub mod swap;
 use pool::PoolsUi;
 use settings::UniswapSettingsUi;
 use swap::SwapUi;
+
+/// The Uniswap card's views, in the order the tab strip shows them.
+const TAB_POOLS: usize = 0;
+const TAB_SWAP: usize = 1;
+const TAB_SETTINGS: usize = 2;
 
 #[derive(Clone, Default, Copy, Debug, PartialEq)]
 pub enum ProtocolVersion {
@@ -106,67 +111,100 @@ impl UniswapUi {
    }
 
    fn header(&mut self, _ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
-      let size = vec2(ui.available_width() * 0.95, 30.0);
+      // The card is as wide as the view it holds: 600 for the pools table, 400 for the swap form.
+      // A strip centred inside a narrower block than the card reads as off-centre, which is what
+      // the old right-aligned button pair looked like.
+      let width = if self.pools_ui.open {
+         self.pools_ui.size.0
+      } else {
+         self.size.0
+      };
+      // One button's height, so the strip and the icon beside it share a line.
+      let height = theme.typography.normal + 2.0 * theme.button_padding.y;
+      // Three even segments, centred, with the refresh outside them on the right.
+      let strip = (width * 0.7).min(360.0);
 
-      ui.allocate_ui(size, |ui| {
-         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            // Swap - Pool - Settings Buttons
-            ui.set_width(self.size.0);
+      ui.allocate_ui_with_layout(
+         vec2(width, height),
+         Layout::left_to_right(Align::Center),
+         |ui| {
             ui.spacing_mut().item_spacing.x = theme.spacing.sm;
+            ui.add_space(((width - strip) * 0.5).max(0.0));
 
-            let button_visuals = theme.button_visuals();
+            ui.allocate_ui_with_layout(
+               vec2(strip, height),
+               Layout::left_to_right(Align::Center),
+               |ui| {
+                  // The strip carries its own motion: the pill travels to the segment that is picked
+                  // and stretches between the two while it is in flight, so switching view reads as
+                  // one move instead of a repaint.
+                  let mut selected = if self.settings.is_open() {
+                     TAB_SETTINGS
+                  } else if self.pools_ui.open {
+                     TAB_POOLS
+                  } else {
+                     TAB_SWAP
+                  };
 
-            let icon = Lucide::Settings.size(20.0).color(theme.colors.text).image();
+                  let response = Tabs::new(
+                     "uniswap_view_tabs",
+                     &mut selected,
+                     ["Pools", "Swap", "Settings"],
+                  )
+                  .fill_width(true)
+                  .height(height)
+                  .show(ui);
 
-            let visuals = ButtonVisuals {
-               bg_hover: button_visuals.bg_hover,
-               corner_radius: CornerRadius::same(25),
-               ..Default::default()
-            };
-            let button = Button::image(icon).small().visuals(visuals);
-            let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+                  if !response.changed() {
+                     return;
+                  }
 
-            if res.clicked() {
-               self.settings.open();
-            }
+                  match selected {
+                     TAB_POOLS => {
+                        self.settings.close();
+                        self.swap_ui.close();
+                        self.pools_ui.open = true;
+                     }
+                     TAB_SWAP => {
+                        self.settings.close();
+                        self.pools_ui.open = false;
+                        self.swap_ui.open();
+                     }
+                     _ => self.settings.open(),
+                  }
+               },
+            );
 
-            let icon = Lucide::RefreshCw.size(20.0).color(theme.colors.text).image();
-
-            let syncing = self.swap_ui.pool_data_syncing
-               || self.swap_ui.syncing_pools
-               || self.swap_ui.balance_syncing;
-
-            if !syncing {
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+               let button_visuals = theme.button_visuals();
                let visuals = ButtonVisuals {
                   bg_hover: button_visuals.bg_hover,
                   corner_radius: CornerRadius::same(25),
                   ..Default::default()
                };
-               let button = Button::image(icon).small().visuals(visuals);
-               let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
-               if res.clicked() && self.swap_ui.is_open() {
+               let syncing = self.swap_ui.pool_data_syncing
+                  || self.swap_ui.syncing_pools
+                  || self.swap_ui.balance_syncing;
+
+               if syncing {
+                  ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+                  return;
+               }
+
+               let icon = Lucide::RefreshCw.size(20.0).color(theme.colors.text).image();
+               let button = Button::image(icon).small().visuals(visuals);
+               let response = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+
+               if response.clicked() && self.swap_ui.is_open() {
                   self.swap_ui.refresh(&self.settings);
                }
-            } else {
-               ui.add(Spinner::new().size(17.0).color(theme.colors.text));
-            }
+            });
+         },
+      );
 
-            let text = RichText::new("Swap").size(theme.typography.large);
-            let swap_button = Button::new(text).visuals(button_visuals);
-            if ui.add(swap_button).clicked() {
-               self.swap_ui.open();
-               self.pools_ui.open = false;
-            }
-
-            let text = RichText::new("Pools").size(theme.typography.large);
-            let pools_button = Button::new(text).visuals(button_visuals);
-            if ui.add(pools_button).clicked() {
-               self.pools_ui.open = true;
-               self.swap_ui.close();
-            }
-         });
-      });
+      // A little more air between the strip and the first line the view puts under it.
+      ui.add_space(theme.spacing.md);
    }
 
    pub fn show(

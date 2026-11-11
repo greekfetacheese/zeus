@@ -315,6 +315,8 @@ impl PoolsUi {
          // the run will actually use.
          let block_range = ctx.pool_manager.v4_sync_block_range();
 
+         // All five actions on one line: the card is 600 wide and the buttons come to ~577 at the
+         // tighter gap, so the catalog's own accounting gets the row under them.
          ui.allocate_ui_with_layout(
             vec2(ui_width, 36.0),
             Layout::left_to_right(Align::Center),
@@ -326,13 +328,15 @@ impl PoolsUi {
                   self.add_form.open();
                }
 
-               ui.add_space(theme.spacing.sm);
+               ui.add_space(theme.spacing.xs);
 
                // The sync walks history from the stored checkpoint: minutes of RPC, one at a time,
                // and the label says so while it runs. Every run in this window touches the same
-               // catalog, so all three disable each other.
+               // catalog, so all four disable each other.
                let syncing = self.is_v4_syncing(chain);
-               let busy = syncing || self.is_v4_cleaning(chain) || self.is_v4_loading(chain);
+               let cleaning = self.is_v4_cleaning(chain);
+               let loading = self.is_v4_loading(chain);
+               let busy = syncing || cleaning || loading;
                let label = if syncing {
                   "Syncing..."
                } else {
@@ -355,7 +359,7 @@ impl PoolsUi {
                   self.start_v4_sync(ctx, chain, ui.ctx());
                }
 
-               ui.add_space(theme.spacing.sm);
+               ui.add_space(theme.spacing.xs);
 
                // The way back from an over-eager cleanup: dropping the checkpoint makes the run walk
                // the whole history again, so a pool the catalog no longer holds is found again.
@@ -380,19 +384,8 @@ impl PoolsUi {
                if clicked {
                   self.start_v4_resync(ctx, chain, ui.ctx());
                }
-            },
-         );
 
-         // The catalog's accounting on the left, the two maintenance actions on the right: one row,
-         // so neither the status block nor the buttons push the window wider.
-         ui.horizontal(|ui| {
-            self.v4_sync_status(&*ctx, theme, ui);
-
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-               let syncing = self.is_v4_syncing(chain);
-               let cleaning = self.is_v4_cleaning(chain);
-               let loading = self.is_v4_loading(chain);
-               let busy = syncing || cleaning || loading;
+               ui.add_space(theme.spacing.xs);
 
                let label = if cleaning {
                   "Cleaning up..."
@@ -418,10 +411,10 @@ impl PoolsUi {
                   self.start_v4_cleanup(ctx, chain);
                }
 
-               ui.add_space(theme.spacing.sm);
+               ui.add_space(theme.spacing.xs);
 
-               // The catalog's cold rows are the pools nobody can see yet. Reading them resolves the tokens
-               // they hold, which is how a dead pair gets judged by eye instead of by rule.
+               // The catalog's cold rows are the pools nobody can see yet. Reading them resolves the
+               // tokens they hold, which is how a dead pair gets judged by eye instead of by rule.
                let label = if loading {
                   "Loading..."
                } else {
@@ -443,7 +436,14 @@ impl PoolsUi {
                if clicked {
                   self.start_load_catalog(ctx, chain);
                }
-            });
+            },
+         );
+
+         // The accounting alone on its line now that the actions share the one above; the width is
+         // pinned so it stays flush left instead of centring with its own text.
+         ui.horizontal(|ui| {
+            ui.set_width(ui_width);
+            self.v4_sync_status(&*ctx, theme, ui);
          });
 
          ui.add_space(20.0);
