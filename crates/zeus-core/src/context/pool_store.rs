@@ -258,6 +258,14 @@ impl PoolStore {
       self.insert_rows(&[(checkpoint_key(chain, dex), sealed)])
    }
 
+   /// Forget one checkpoint, so the next sync of that chain starts from its creation block.
+   ///
+   /// The row is the resume point: leaving it behind would make a "from scratch" sync pick up where
+   /// the old one stopped.
+   pub fn remove_checkpoint(&self, chain: u64, dex: DexKind) -> Result<(), anyhow::Error> {
+      self.remove_rows(&[checkpoint_key(chain, dex)])
+   }
+
    pub fn load_v2_v3_pools(&self) -> Result<Vec<AnyUniswapPool>, anyhow::Error> {
       self.scan_map(None, b'p', |key, value| {
          if key.len() != 30 || dex_at(key, 29).is_none() {

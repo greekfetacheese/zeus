@@ -242,6 +242,9 @@ pub struct PoolsUi {
 
    /// Chains with a catalog load running, keyed by chain.
    v4_loading: HashMap<u64, bool>,
+
+   /// Chains whose running sync is a resync, keyed by chain: the label says which one it is.
+   v4_resyncing: HashMap<u64, bool>,
 }
 
 impl PoolsUi {
@@ -255,6 +258,7 @@ impl PoolsUi {
          v4_syncing: HashMap::new(),
          v4_cleaning: HashMap::new(),
          v4_loading: HashMap::new(),
+         v4_resyncing: HashMap::new(),
       }
    }
 
@@ -405,6 +409,32 @@ impl PoolsUi {
 
                if clicked {
                   self.start_load_catalog(ctx, chain);
+               }
+
+               ui.add_space(theme.spacing.sm);
+
+               // The way back from an over-eager cleanup: dropping the checkpoint makes the run walk
+               // the whole history again, so a pool the catalog no longer holds is found again.
+               let label = if self.is_v4_resyncing(chain) {
+                  "Resyncing..."
+               } else {
+                  "Resync"
+               };
+               let text = RichText::new(label).size(theme.typography.normal);
+               let button =
+                  Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
+
+               let clicked = ui
+                  .add_enabled_ui(!busy, |ui| {
+                     ui.add(button).on_hover_text(
+                        "Forgets the last synced block and scans this chain's V4 pools from the start, so pools an earlier cleanup deleted are discovered again. Takes as long as the first sync.",
+                     )
+                  })
+                  .inner
+                  .clicked();
+
+               if clicked {
+                  self.start_v4_resync(ctx, chain, ui.ctx());
                }
             });
          });
@@ -711,12 +741,34 @@ impl PoolsUi {
       }
    }
 
-   /// Start a V4 log sync for `chain`, or say why it cannot run.
-   ///
-   /// The archive check is deliberate: the sync reads historic log ranges, so without an archive
-   /// endpoint it would fail inside the first step instead of explaining itself here.
+   /// Whether a V4 sync or resync is running on `chain`.
    fn is_v4_syncing(&self, chain: u64) -> bool {
       self.v4_syncing.get(&chain).copied().unwrap_or(false)
+   }
+
+   /// Whether the running V4 run is a resync rather than a checkpointed sync.
+   fn is_v4_resyncing(&self, chain: u64) -> bool {
+      self.v4_resyncing.get(&chain).copied().unwrap_or(false)
+   }
+
+   /// The archive check both V4 log runs share.
+   ///
+   /// Deliberate: they read historic log ranges, so without an archive endpoint they would fail
+   /// inside the first step instead of explaining themselves here.
+   fn v4_archive_ready(&self, ctx: &ZeusContext, chain: u64, egui_ctx: &egui::Context) -> bool {
+      if ctx.client_manager.rpc_archive_available(chain) {
+         return true;
+      }
+
+      Toast::new("No archive RPC available")
+         .description(format!(
+            "Syncing V4 pools reads past logs, so it needs an archive endpoint for chain {chain}."
+         ))
+         .tone(ChipRole::Error)
+         .duration(Duration::from_secs(6))
+         .show(egui_ctx);
+
+      false
    }
 
    fn start_v4_sync(&mut self, ctx: &mut ZeusContext, chain: u64, egui_ctx: &egui::Context) {
@@ -724,14 +776,7 @@ impl PoolsUi {
          return;
       }
 
-      if !ctx.client_manager.rpc_archive_available(chain) {
-         Toast::new("No archive RPC available")
-            .description(format!(
-               "Syncing V4 pools reads past logs, so it needs an archive endpoint for chain {chain}."
-            ))
-            .tone(ChipRole::Error)
-            .duration(Duration::from_secs(6))
-            .show(egui_ctx);
+      if !self.v4_archive_ready(ctx, chain, egui_ctx) {
          return;
       }
 
@@ -757,7 +802,54 @@ impl PoolsUi {
          }
 
          SHARED_GUI.write(|gui| {
-            let (title, message, tone) = gui.uniswap.pools_ui.finish_v4_sync(chain, result);
+            let (title, message, tone) = gui.uniswap.pools_ui.finish_v4_sync(chain, false, result);
+
+            Toast::new(title)
+               .description(message)
+               .tone(tone)
+               .duration(Duration::from_secs(6))
+               .show(&gui.egui_ctx);
+
+            gui.request_repaint();
+         });
+      });
+   }
+
+   /// Re-sync `chain` from its V4 creation block, so pools an earlier cleanup deleted can come back.
+   ///
+   /// The checkpoint is dropped before the scan, which is what makes this "from scratch": every pool
+   /// the chain ever emitted is discovered again and judged by the current cleanup rules.
+   fn start_v4_resync(&mut self, ctx: &mut ZeusContext, chain: u64, egui_ctx: &egui::Context) {
+      if self.is_v4_syncing(chain) || self.is_v4_cleaning(chain) || self.is_v4_loading(chain) {
+         return;
+      }
+
+      if !self.v4_archive_ready(ctx, chain, egui_ctx) {
+         return;
+      }
+
+      self.v4_syncing.insert(chain, true);
+      self.v4_resyncing.insert(chain, true);
+
+      // The same indicator and the same lock as a sync: this is a sync that starts further back.
+      let claimed = !ctx.state_sync.get(&chain).copied().unwrap_or(false);
+      if claimed {
+         ctx.state_sync.insert(chain, true);
+      }
+
+      crate::runtime::rt().spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let result = ctx
+            .pool_manager()
+            .resync_v4_pools(ctx.clone(), chain, V4SyncConfig::default())
+            .await;
+
+         if claimed {
+            ctx.set_chain_syncing(chain, false);
+         }
+
+         SHARED_GUI.write(|gui| {
+            let (title, message, tone) = gui.uniswap.pools_ui.finish_v4_sync(chain, true, result);
 
             Toast::new(title)
                .description(message)
@@ -773,28 +865,75 @@ impl PoolsUi {
    fn finish_v4_sync(
       &mut self,
       chain: u64,
+      resync: bool,
       result: Result<V4SyncReport, anyhow::Error>,
    ) -> (&'static str, String, ChipRole) {
       self.v4_syncing.insert(chain, false);
+      self.v4_resyncing.insert(chain, false);
 
-      match result {
-         Ok(report) => (
-            "V4 pools synced",
-            format!(
-               "{} new pools ({} hot, {} cold) up to block {}",
-               report.hot + report.cold,
-               report.hot,
-               report.cold,
-               report.to_block
-            ),
-            ChipRole::Success,
-         ),
-         Err(e) => (
-            "V4 sync failed",
-            format!("{e:?}"),
+      let report = match result {
+         Ok(report) => report,
+         Err(e) => {
+            let title = if resync {
+               "V4 resync failed"
+            } else {
+               "V4 sync failed"
+            };
+
+            return (title, format!("{e:?}"), ChipRole::Error);
+         }
+      };
+
+      let mut message = if resync {
+         format!(
+            "Scanned from block {} to {}: {} new pools ({} hot, {} cold)",
+            report.from_block,
+            report.to_block,
+            report.hot + report.cold,
+            report.hot,
+            report.cold
+         )
+      } else {
+         format!(
+            "{} new pools ({} hot, {} cold) up to block {}",
+            report.hot + report.cold,
+            report.hot,
+            report.cold,
+            report.to_block
+         )
+      };
+
+      // The cleanup runs inside the sync, so its result belongs in this toast: a pool that vanished
+      // is explained here, not in the log.
+      if let Some(error) = &report.cleanup_error {
+         return (
+            "V4 cleanup failed",
+            format!("{message}; {error}"),
             ChipRole::Error,
-         ),
+         );
       }
+
+      if let Some(cleanup) = &report.cleanup {
+         message.push_str(&format!(
+            "; {} of {} deleted ({} high fee, {} base-asset fee, {} no base asset, {} dead, {} illiquid), {} unjudged",
+            cleanup.removed(),
+            cleanup.scanned,
+            cleanup.removed_by_fee,
+            cleanup.removed_by_base_fee,
+            cleanup.removed_no_base,
+            cleanup.removed_dead,
+            cleanup.removed_illiquid,
+            cleanup.unjudged(),
+         ));
+      }
+
+      let title = if resync {
+         "V4 pools resynced"
+      } else {
+         "V4 pools synced"
+      };
+
+      (title, message, ChipRole::Success)
    }
 
    fn is_v4_cleaning(&self, chain: u64) -> bool {

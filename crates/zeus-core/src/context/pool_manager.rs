@@ -159,7 +159,7 @@ impl Default for V4SyncConfig {
 }
 
 /// What one [`PoolManagerHandle::sync_v4_pools`] run covered.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct V4SyncReport {
    pub from_block: u64,
    pub to_block: u64,
@@ -170,6 +170,10 @@ pub struct V4SyncReport {
    pub hot: usize,
    /// New pools that stay on disk until a token they hold is imported.
    pub cold: usize,
+   /// The cleanup the run ended with: a sync deletes what its own steps discovered.
+   pub cleanup: Option<V4CleanupReport>,
+   /// Why that cleanup failed. Every step above is durable, so this is reported rather than returned.
+   pub cleanup_error: Option<String>,
 }
 
 /// The knobs of one [`PoolManagerHandle::cleanup_v4_pools`] run.
@@ -1194,6 +1198,8 @@ impl PoolManagerHandle {
       };
 
       if from > tip {
+         (report.cleanup, report.cleanup_error) = self.cleanup_after_sync(ctx, chain).await;
+
          return Ok(report);
       }
 
@@ -1303,7 +1309,64 @@ impl PoolManagerHandle {
          );
       }
 
+      (report.cleanup, report.cleanup_error) = self.cleanup_after_sync(ctx, chain).await;
+
       Ok(report)
+   }
+
+   /// Clean the catalog after a sync.
+   ///
+   /// A sync's own steps are the newest junk in the catalog, and every row that survives them is a
+   /// row on disk at the next start. A failure comes back as a message rather than an `Err`: every
+   /// step above already committed, so a node that cannot be read must not turn a durable sync into
+   /// a failed one.
+   async fn cleanup_after_sync(
+      &self,
+      ctx: ZeusCtx,
+      chain: u64,
+   ) -> (Option<V4CleanupReport>, Option<String>) {
+      match self.cleanup_v4_pools(ctx, chain, V4CleanupConfig::default()).await {
+         Ok(report) => (Some(report), None),
+         Err(e) => {
+            tracing::error!("V4 cleanup after sync on chain {chain} failed: {e:?}");
+            (None, Some(format!("{e:?}")))
+         }
+      }
+   }
+
+   /// Sync `chain` from its V4 creation block again, forgetting the saved checkpoint first.
+   ///
+   /// The catalog is kept. A cleanup deletes rows, and only the full log scan can bring back a pool
+   /// it judged too eagerly; the rows that survived are already where they belong. The run ends with
+   /// the sync's own cleanup, which judges everything it re-discovered by the current rules.
+   pub async fn resync_v4_pools(
+      &self,
+      ctx: ZeusCtx,
+      chain: u64,
+      config: V4SyncConfig,
+   ) -> Result<V4SyncReport, anyhow::Error> {
+      // Before the checkpoint goes: a chain with no usable endpoint fails here instead of after it
+      // has lost the block it would have resumed from.
+      ctx.get_client(chain).await?;
+
+      self.forget_v4_checkpoint(chain)?;
+      self.sync_v4_pools(ctx, chain, config).await
+   }
+
+   /// Forget this chain's V4 checkpoint in memory and in the catalog, so the next sync starts over.
+   fn forget_v4_checkpoint(&self, chain: u64) -> Result<(), anyhow::Error> {
+      let store = self.write(|manager| {
+         let key = (chain, DexKind::UniswapV4);
+         manager.checkpoints.remove(&key);
+         manager.dirty_checkpoints.remove(&key);
+
+         manager.store.clone()
+      });
+
+      match store {
+         Some(store) => store.remove_checkpoint(chain, DexKind::UniswapV4),
+         None => Ok(()),
+      }
    }
 
    /// Delete the V4 pools on `chain` that no one would ever swap through, for good.
@@ -3035,6 +3098,50 @@ mod tests {
       assert!(
          source.read(|manager| manager.dirty_pools.is_empty()),
          "a flush clears its dirty marks"
+      );
+   }
+
+   #[test]
+   fn forgetting_a_checkpoint_makes_the_next_sync_start_over() {
+      let dir = tempdir().unwrap();
+      let path = dir.path().join("pool_data.data");
+      let key = WalletStateKey::generate().unwrap();
+      let store = PoolStore::open_at(&path, &key).unwrap();
+
+      let handle = PoolManagerHandle::new(PoolManager::empty());
+      handle.write(|manager| manager.store = Some(store.clone()));
+
+      handle.add_checkpoint(
+         1,
+         DexKind::UniswapV4,
+         Checkpoint::new(1, 5_000, DexKind::UniswapV4),
+      );
+      handle.add_checkpoint(
+         1,
+         DexKind::UniswapV2,
+         Checkpoint::new(1, 4_000, DexKind::UniswapV2),
+      );
+      handle.save_to_store(&store).unwrap();
+      assert_eq!(store.checkpoints().unwrap().len(), 2);
+
+      handle.forget_v4_checkpoint(1).unwrap();
+
+      assert!(
+         handle.read(|manager| !manager.checkpoints.contains_key(&(1, DexKind::UniswapV4))),
+         "the resume point is gone, so the next sync starts from the creation block"
+      );
+      assert!(
+         store
+            .checkpoints()
+            .unwrap()
+            .iter()
+            .all(|(_, dex, _)| *dex != DexKind::UniswapV4),
+         "and so is the catalog row, or a restart would resume from it"
+      );
+      assert_eq!(
+         store.checkpoints().unwrap().len(),
+         1,
+         "another dex's checkpoint is untouched"
       );
    }
 
