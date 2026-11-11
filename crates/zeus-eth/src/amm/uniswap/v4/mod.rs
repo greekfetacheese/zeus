@@ -1,5 +1,5 @@
 pub mod pool;
-pub use pool::{DYNAMIC_FEE_FLAG, UniswapV4Pool, v4_pool_id};
+pub use pool::{DYNAMIC_FEE_FLAG, UniswapV4Pool, v4_pool_id, v4_virtual_reserves};
 
 use crate::abi::uniswap::v4::actions::*;
 use alloy_primitives::{Address, Bytes};

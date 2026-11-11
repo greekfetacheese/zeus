@@ -5,15 +5,18 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
-use tokio::{sync::Semaphore, task::JoinHandle};
+use tokio::{
+   sync::{Semaphore, mpsc},
+   task::JoinHandle,
+};
 use tracing::info;
-use zeus_eth::abi::zeus::ZeusStateViewV3::PoolsState;
+use zeus_eth::abi::zeus::ZeusStateViewV3::{PoolsState, V4PoolData};
 use zeus_eth::alloy_primitives::FixedBytes;
 use zeus_eth::amm::uniswap::UniswapV4Pool;
 
 use crate::assets;
 use crate::context::{
-   CurrencyDB, RwLockHandle,
+   CurrencyDB, DEFAULT_POOL_MINIMUM_LIQUIDITY, RwLockHandle,
    pool_store::{POOL_DB_FORMAT, PoolDbMeta, PoolStore, V4PoolRecord},
 };
 use crate::persisted::ensure_data_dir;
@@ -21,20 +24,20 @@ use crate::platform::TimeStamp;
 use crate::{WalletStateKey, ZeusCtx, context::pool_data_dir, serde_hashmap};
 use zeus_eth::{
    abi::zeus::ZeusStateViewV3::{V3Pool, V4Pool},
-   alloy_primitives::{Address, B256},
+   alloy_primitives::{Address, B256, U256},
    alloy_provider::Provider,
    amm::uniswap::{
       AnyUniswapPool, DexKind, FeeAmount, UniswapPool, UniswapV2Pool, UniswapV3Pool,
       V4_FEE_CANDIDATES,
       state::{State, V3PoolState},
       sync::{Checkpoint, v4_pools_from_logs},
-      v4::DYNAMIC_FEE_FLAG,
+      v4::{DYNAMIC_FEE_FLAG, v4_virtual_reserves},
       v4_fee_spacing_candidates,
    },
    currency::{Currency, ERC20Token, NativeCurrency},
    types::*,
    utils::{
-      GET_LOGS_MAX_RETRIES,
+      GET_LOGS_MAX_RETRIES, NumericValue,
       address_book::{uniswap_v2_factory, uniswap_v3_factory, uniswap_v4_stateview},
       batch, is_base_token,
    },
@@ -110,6 +113,13 @@ fn clamp_fee_percent(percent: f32, default: f32) -> f32 {
 /// row.
 const V4_CLEANUP_DELETE_BATCH: usize = 2_048;
 
+/// Pools per `getV4PoolState` call. The view reads ~8 storage slots per pool, so a hundred of them
+/// stays well inside an RPC's eth_call gas cap.
+const V4_CLEANUP_STATE_BATCH: usize = 100;
+
+/// Pools between progress lines while the cleanup walks the catalog.
+const V4_CLEANUP_PROGRESS_STEP: usize = 20_000;
+
 /// The knobs of one [`PoolManagerHandle::sync_v4_pools`] run.
 ///
 /// A `0` means "use the default": [`V4_SYNC_STEP_BLOCKS`], [`V4_SYNC_BLOCK_RANGE`] and the client
@@ -169,6 +179,8 @@ pub struct V4CleanupReport {
    pub removed_by_fee: usize,
    /// Deleted for charging more than the base-asset ceiling.
    pub removed_by_base_fee: usize,
+   /// Deleted for having no in-range liquidity at all.
+   pub removed_dead: usize,
    /// Deleted for holding less than `crate::context::DEFAULT_POOL_MINIMUM_LIQUIDITY` of value.
    pub removed_illiquid: usize,
    /// Hot pools whose state or price could not be read, so they were kept.
@@ -177,7 +189,7 @@ pub struct V4CleanupReport {
 
 impl V4CleanupReport {
    pub fn removed(&self) -> usize {
-      self.removed_by_fee + self.removed_by_base_fee + self.removed_illiquid
+      self.removed_by_fee + self.removed_by_base_fee + self.removed_dead + self.removed_illiquid
    }
 }
 
@@ -1174,13 +1186,14 @@ impl PoolManagerHandle {
    ///    flag rather than a tier;
    /// 2. a fee above `max_base_fee_percent` (default 1%) when either side is a base asset, since a real
    ///    ETH, WETH or USDC pool never charges that much;
-   /// 3. a hot pool whose base balance is worth less than
-   ///    `crate::context::DEFAULT_POOL_MINIMUM_LIQUIDITY`.
+   /// 3. a pool whose state says nobody can swap through it: no in-range liquidity at all, or a
+   ///    base-side balance worth less than `crate::context::DEFAULT_POOL_MINIMUM_LIQUIDITY`.
    ///
    /// The first two are answered by the 68-byte record alone, so the bulk of a scam-laden catalog goes
-   /// without a single RPC call. Liquidity needs pool state, so it runs last and only over the pools
-   /// held in memory. Deletions are durable chunk by chunk: a crash mid-run leaves the catalog valid
-   /// and the next run picks up the remainder.
+   /// without a single RPC call. The third reads `getV4PoolState` for every surviving record --
+   /// including the cold ones this wallet cannot name, because that call takes a pool id and a tick
+   /// spacing and nothing else. Deletions are durable chunk by chunk: a crash mid-run leaves the
+   /// catalog valid and the next run picks up the remainder.
    pub async fn cleanup_v4_pools(
       &self,
       ctx: ZeusCtx,
@@ -1199,6 +1212,10 @@ impl PoolManagerHandle {
                .ok_or_else(|| anyhow!("the pool catalog was not attached"))?
          }
       };
+
+      // Fetched before the first deletion: a chain with no RPC must fail cleanly instead of leaving
+      // the catalog half cleaned.
+      let client = ctx.get_client(chain).await?;
 
       let max_fee_percent = match config.max_fee_percent {
          0.0 => self.v4_max_fee_percent(),
@@ -1227,103 +1244,187 @@ impl PoolManagerHandle {
          ..Default::default()
       };
 
-      // Which records are held in memory: only those cost a map scan to forget, and the catalog
-      // holds a quarter of a million rows.
-      let hot = self.read(|manager| {
-         manager
-            .pools
-            .values()
-            .filter(|pool| pool.chain_id() == chain && pool.dex_kind().is_v4())
-            .map(|pool| pool.id())
-            .collect::<HashSet<B256>>()
-      });
+      // Rules 1 and 2, straight from the records: no currency resolution, no RPC.
+      let mut doomed = Vec::with_capacity(V4_CLEANUP_DELETE_BATCH);
+      for (record, reason) in plan.remove {
+         doomed.push((record, reason));
 
-      for chunk in plan.remove.chunks(V4_CLEANUP_DELETE_BATCH) {
-         let ids = chunk.iter().map(|(record, _)| record.id()).collect::<Vec<_>>();
-         store.remove_v4_records(chain, &ids)?;
-
-         let forgotten = chunk
-            .iter()
-            .filter(|(record, _)| hot.contains(&record.id()))
-            .map(|(record, _)| *record)
-            .collect::<Vec<_>>();
-         if !forgotten.is_empty() {
-            self.write(|manager| manager.forget_v4_records(chain, &forgotten));
-         }
-
-         for (_, reason) in chunk {
-            match reason {
-               V4RemovalReason::Fee => report.removed_by_fee += 1,
-               V4RemovalReason::BaseFee => report.removed_by_base_fee += 1,
-            }
+         if doomed.len() == V4_CLEANUP_DELETE_BATCH {
+            self.drop_v4_records(&store, chain, &doomed, &mut report)?;
+            doomed.clear();
          }
       }
+      self.drop_v4_records(&store, chain, &doomed, &mut report)?;
 
-      // Rule 3 needs state, so only the pools this wallet holds can be judged.
-      let candidates = self.read(|manager| {
-         manager
-            .pools
-            .values()
-            .filter(|pool| pool.chain_id() == chain && pool.dex_kind().is_v4())
-            .cloned()
-            .collect::<Vec<_>>()
-      });
+      let kept = plan.keep.len();
+      if kept == 0 {
+         tracing::info!(
+            "V4 cleanup chain {}: {} of {} pools deleted ({} fee, {} base-asset fee), {} dynamic",
+            chain,
+            report.removed(),
+            report.scanned,
+            report.removed_by_fee,
+            report.removed_by_base_fee,
+            report.dynamic_skipped
+         );
 
-      let batch = self.batch_size_for_updating_pools_state().max(1);
-      for chunk in candidates.chunks(batch) {
-         let updated = match self.update_state_for_pools(ctx.clone(), chain, chunk.to_vec()).await {
-            Ok(updated) => updated,
+         return Ok(report);
+      }
+
+      // Rule 3 reads the state of every survivor, cold rows included: `getV4PoolState` takes a pool id
+      // and a tick spacing, not a `Currency`, so a pool this wallet cannot name is still judged.
+      let record_by_id = plan
+         .keep
+         .iter()
+         .map(|record| (record.id(), *record))
+         .collect::<HashMap<B256, V4PoolRecord>>();
+
+      let concurrency = ctx.get_client_manager().concurrency().max(1);
+      let semaphore = Arc::new(Semaphore::new(concurrency));
+      let (tx, mut rx) = mpsc::channel::<Result<Vec<V4PoolData>, anyhow::Error>>(concurrency);
+
+      for chunk in plan.keep.chunks(V4_CLEANUP_STATE_BATCH) {
+         let client = client.clone();
+         let tx = tx.clone();
+         let semaphore = semaphore.clone();
+
+         let mut pools = Vec::with_capacity(chunk.len());
+         for record in chunk {
+            // A pool whose tick spacing is 0 cannot exist on chain, so it cannot be read either.
+            let Some(tick_spacing) = FeeAmount::i24_tick_spacing(record.tick_spacing) else {
+               continue;
+            };
+
+            pools.push(V4Pool {
+               pool: record.id(),
+               tickSpacing: tick_spacing,
+            });
+         }
+
+         ctx.rt().spawn(async move {
+            let Ok(_permit) = semaphore.acquire_owned().await else {
+               return;
+            };
+
+            let result = batch::get_v4_pool_state(client, chain, pools).await;
+            let _ = tx.send(result).await;
+         });
+      }
+
+      drop(tx);
+
+      let mut judged = HashSet::new();
+      let mut next_log = V4_CLEANUP_PROGRESS_STEP;
+
+      while let Some(result) = rx.recv().await {
+         let data = match result {
+            Ok(data) => data,
             Err(e) => {
-               tracing::warn!(
-                  "V4 cleanup: state for {} pools failed: {:?}",
-                  chunk.len(),
-                  e
-               );
-               report.unjudged += chunk.len();
+               // A request that failed is not a verdict: those pools stay and the run carries on.
+               tracing::warn!("V4 cleanup: pool state request failed: {:?}", e);
                continue;
             }
          };
 
-         let mut illiquid = Vec::new();
-         for pool in &updated {
-            match ctx.pool_has_sufficient_liquidity(pool) {
-               Some(true) => {}
-               // A zero base price is a missing feed, not a worthless pool.
-               Some(false) if pool_base_price_known(&ctx, pool) => illiquid.push(pool.clone()),
-               _ => report.unjudged += 1,
+         for pool in data {
+            let Some(record) = record_by_id.get(&pool.pool) else {
+               continue;
+            };
+            judged.insert(pool.pool);
+
+            // No in-range liquidity: nothing can be swapped through this pool at any price, so no
+            // price feed is needed to condemn it.
+            if pool.liquidity == 0 {
+               doomed.push((*record, V4RemovalReason::Dead));
+               continue;
+            }
+
+            let price_of = |token: &ERC20Token| ctx.get_token_price(token).f64();
+            let sqrt_price = U256::from(pool.sqrtPriceX96);
+            match v4_base_value(
+               chain,
+               record,
+               pool.liquidity,
+               sqrt_price,
+               price_of,
+            ) {
+               // Holds value, but far less than the wallet's floor.
+               Some(value) if value < DEFAULT_POOL_MINIMUM_LIQUIDITY => {
+                  doomed.push((*record, V4RemovalReason::Illiquid));
+               }
+               Some(_) => {}
+               // No base asset, or no price for it: a missing feed is not zero liquidity.
+               None => report.unjudged += 1,
             }
          }
 
-         let records = illiquid
-            .iter()
-            .filter_map(|pool| match pool {
-               AnyUniswapPool::V4(pool) => Some(V4PoolRecord::from_pool(pool)),
-               _ => None,
-            })
-            .collect::<Vec<_>>();
-         if records.is_empty() {
-            continue;
+         if judged.len() >= next_log {
+            tracing::info!(
+               "V4 cleanup chain {}: {} of {} pools judged",
+               chain,
+               judged.len(),
+               kept
+            );
+            next_log += V4_CLEANUP_PROGRESS_STEP;
          }
 
-         let ids = records.iter().map(|record| record.id()).collect::<Vec<_>>();
-         store.remove_v4_records(chain, &ids)?;
-         self.write(|manager| manager.forget_v4_records(chain, &records));
-         report.removed_illiquid += records.len();
+         if doomed.len() >= V4_CLEANUP_DELETE_BATCH {
+            self.drop_v4_records(&store, chain, &doomed, &mut report)?;
+            doomed.clear();
+         }
       }
 
+      self.drop_v4_records(&store, chain, &doomed, &mut report)?;
+
+      // Records we never got state for: a failed request, or a spacing that cannot exist.
+      report.unjudged += kept.saturating_sub(judged.len());
+
       tracing::info!(
-         "V4 cleanup chain {}: {} of {} pools deleted ({} fee, {} base-asset fee, {} illiquid), {} dynamic, {} unjudged",
+         "V4 cleanup chain {}: {} of {} pools deleted ({} fee, {} base-asset fee, {} dead, {} illiquid), {} dynamic, {} unjudged",
          chain,
          report.removed(),
          report.scanned,
          report.removed_by_fee,
          report.removed_by_base_fee,
+         report.removed_dead,
          report.removed_illiquid,
          report.dynamic_skipped,
          report.unjudged
       );
 
       Ok(report)
+   }
+
+   /// Delete a chunk of V4 records from the catalog and from memory, and count them by reason.
+   fn drop_v4_records(
+      &self,
+      store: &PoolStore,
+      chain: u64,
+      records: &[(V4PoolRecord, V4RemovalReason)],
+      report: &mut V4CleanupReport,
+   ) -> Result<(), anyhow::Error> {
+      if records.is_empty() {
+         return Ok(());
+      }
+
+      let ids = records.iter().map(|(record, _)| record.id()).collect::<Vec<_>>();
+      store.remove_v4_records(chain, &ids)?;
+
+      self.write(|manager| {
+         let forgotten = records.iter().map(|(record, _)| *record).collect::<Vec<_>>();
+         manager.forget_v4_records(chain, &forgotten);
+      });
+
+      for (_, reason) in records {
+         match reason {
+            V4RemovalReason::Fee => report.removed_by_fee += 1,
+            V4RemovalReason::BaseFee => report.removed_by_base_fee += 1,
+            V4RemovalReason::Dead => report.removed_dead += 1,
+            V4RemovalReason::Illiquid => report.removed_illiquid += 1,
+         }
+      }
+
+      Ok(())
    }
 
    /// Reclaim the catalog's free pages. Blocking; call on shutdown only.
@@ -1851,6 +1952,10 @@ fn v4_pool_from_record(
 enum V4RemovalReason {
    Fee,
    BaseFee,
+   /// No in-range liquidity: nothing can be swapped through the pool.
+   Dead,
+   /// In-range liquidity, but the base side is worth less than the wallet's floor.
+   Illiquid,
 }
 
 /// The split a cleanup applies, computed without touching the catalog or the network.
@@ -1906,9 +2011,50 @@ fn record_has_base_currency(chain: u64, record: &V4PoolRecord) -> bool {
       .any(|address| address.is_zero() || is_base_token(chain, address))
 }
 
-/// Whether the price behind `pool_has_sufficient_liquidity` produced a number at all.
-fn pool_base_price_known(ctx: &ZeusCtx, pool: &AnyUniswapPool) -> bool {
-   ctx.get_token_price(&pool.base_currency().to_erc20()).f64() > 0.0
+/// The base asset on a V4 record's side, as the ERC20 the wallet prices it by (native becomes its
+/// wrapped token), plus whether that side is `currency0`.
+fn base_side(chain: u64, record: &V4PoolRecord) -> Option<(ERC20Token, bool)> {
+   for (address, is_currency0) in [(record.currency0, true), (record.currency1, false)] {
+      if address.is_zero() {
+         let native = NativeCurrency::from_chain_id(chain).ok()?;
+         return Some((
+            Currency::from(native).to_erc20().into_owned(),
+            is_currency0,
+         ));
+      }
+
+      if let Some(token) = ERC20Token::base_token(chain, address) {
+         return Some((token, is_currency0));
+      }
+   }
+
+   None
+}
+
+/// What the base side of a V4 pool is worth, from its state alone.
+///
+/// This is `ZeusCtx::pool_has_sufficient_liquidity` without the pool: the same base side, the same
+/// decimals, the same price and the same floor, which is what lets a cold record be judged. `None`
+/// when the record has no base asset or that asset has no price: a missing feed is not zero
+/// liquidity, and the deletion is permanent.
+fn v4_base_value(
+   chain: u64,
+   record: &V4PoolRecord,
+   liquidity: u128,
+   sqrt_price: U256,
+   price_of: impl Fn(&ERC20Token) -> f64,
+) -> Option<f64> {
+   let (token, is_currency0) = base_side(chain, record)?;
+
+   let price = price_of(&token);
+   if price <= 0.0 {
+      return None;
+   }
+
+   let (amount0, amount1) = v4_virtual_reserves(liquidity, sqrt_price).ok()?;
+   let amount = if is_currency0 { amount0 } else { amount1 };
+
+   Some(NumericValue::format_wei(amount, token.decimals).f64() * price)
 }
 
 /// One-time import of the pre-redb `pool_data.data` (sealed with `POOL_DATA_AAD`).
@@ -2496,6 +2642,34 @@ mod tests {
          ]
       );
       assert_eq!(plan.keep, vec![unknown_pair, ok, at_ceiling]);
+   }
+
+   /// A cold pool has no `Currency`, so the liquidity rule used to skip it entirely. The state is
+   /// enough: the base side comes from the record, its decimals from the base token itself.
+   #[test]
+   fn cleanup_weighs_the_base_side_from_state_alone() {
+      let weth = ERC20Token::weth();
+      let other = Address::repeat_byte(0x44);
+      let q96 = U256::from(1u128 << 96);
+      let one_weth = 1_000_000_000_000_000_000u128;
+
+      // One WETH at $3 000, from a pool whose other side this wallet cannot name.
+      let record = record_for(weth.address, other);
+      let value = v4_base_value(1, &record, one_weth, q96, |_| 3_000.0).expect("a price is known");
+      assert!((value - 3_000.0).abs() < 1.0, "value was {value}");
+
+      // Native is priced as its wrapped token, so it keeps the 18 decimals.
+      let native = record_for(Address::ZERO, other);
+      let value =
+         v4_base_value(1, &native, one_weth, q96, |_| 3_000.0).expect("native is a base asset");
+      assert!((value - 3_000.0).abs() < 1.0);
+
+      // A pair with no base asset has nothing to weigh.
+      let unknown = record_for(other, Address::repeat_byte(0x55));
+      assert!(v4_base_value(1, &unknown, one_weth, q96, |_| 3_000.0).is_none());
+
+      // A zero price is a missing feed, not zero liquidity.
+      assert!(v4_base_value(1, &record, one_weth, q96, |_| 0.0).is_none());
    }
 
    #[test]

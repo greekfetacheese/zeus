@@ -363,7 +363,7 @@ impl PoolsUi {
                let clicked = ui
                   .add_enabled_ui(!(syncing || cleaning), |ui| {
                      ui.add(button).on_hover_text(format!(
-                        "Permanently deletes V4 pools above {}% fee, above {}% when one side is ETH, WETH, USDC, USDT or DAI, and pools holding less than the minimum liquidity.",
+                        "Permanently deletes V4 pools above {}% fee, above {}% when one side is ETH, WETH, USDC, USDT or DAI, pools with no in-range liquidity, and pools holding less than the minimum liquidity.",
                         ctx.pool_manager.v4_max_fee_percent(),
                         ctx.pool_manager.v4_max_base_fee_percent(),
                      ))
@@ -823,11 +823,12 @@ impl PoolsUi {
          Ok(report) => (
             "Pools cleaned",
             format!(
-               "{} of {} V4 pools deleted ({} high fee, {} base-asset fee, {} illiquid)",
+               "{} of {} V4 pools deleted ({} high fee, {} base-asset fee, {} dead, {} illiquid)",
                report.removed(),
                report.scanned,
                report.removed_by_fee,
                report.removed_by_base_fee,
+               report.removed_dead,
                report.removed_illiquid
             ),
             ChipRole::Success,

@@ -234,6 +234,31 @@ pub fn v4_pool_id(
    keccak256((address0, address1, fee.fee_u24(), spacing, hooks).abi_encode())
 }
 
+/// The virtual reserves of a V4 pool at `sqrt_price` for its in-range `liquidity`.
+///
+/// Amounts are raw (wei); each side's decimals are applied by the caller, which is what lets a pool
+/// nobody has a `Currency` for still be weighed. Zero liquidity is two zero reserves: a pool nobody
+/// can swap through.
+pub fn v4_virtual_reserves(
+   liquidity: u128,
+   sqrt_price: U256,
+) -> Result<(U256, U256), anyhow::Error> {
+   if liquidity == 0 {
+      return Ok((U256::ZERO, U256::ZERO));
+   }
+
+   if sqrt_price.is_zero() {
+      return Err(anyhow!("Invalid state: sqrt_price is zero"));
+   }
+
+   let liquidity = U256::from(liquidity);
+
+   Ok((
+      (liquidity * Q96) / sqrt_price,
+      (liquidity * sqrt_price) / Q96,
+   ))
+}
+
 impl UniswapPool for UniswapV4Pool {
    fn chain_id(&self) -> u64 {
       self.chain_id
@@ -409,45 +434,7 @@ impl UniswapPool for UniswapV4Pool {
          .v3_state()
          .ok_or_else(|| anyhow::anyhow!("Pool state has not been initialized"))?;
 
-      let liquidity = state.liquidity;
-
-      if liquidity == 0 {
-         self.liquidity_amount0 = U256::ZERO;
-         self.liquidity_amount1 = U256::ZERO;
-         return Ok(());
-      }
-
-      let sqrt_price_x96 = state.sqrt_price;
-
-      if sqrt_price_x96.is_zero() {
-         return Err(anyhow::anyhow!(
-            "Invalid state: sqrt_price is zero"
-         ));
-      }
-
-      let liquidity_u256 = U256::from(liquidity);
-
-      // virtual amount of token0
-      let amount0 = (liquidity_u256 * Q96) / sqrt_price_x96;
-
-      // virtual amount of token1
-      let amount1 = (liquidity_u256 * sqrt_price_x96) / Q96;
-
-      // let amnt0 = NumericValue::format_wei(amount0, self.currency0().decimals());
-      // let amnt1 = NumericValue::format_wei(amount1, self.currency1().decimals());
-
-      /*
-      eprintln!(
-         "Pool {} / {} ({}) Virtual Reserves {} {} - {} {}",
-         self.quote_currency().symbol(),
-         self.base_currency().symbol(),
-         self.fee().fee_percent(),
-         self.currency0().symbol(),
-         amnt0.abbreviated(),
-         self.currency1().symbol(),
-         amnt1.abbreviated()
-      );
-      */
+      let (amount0, amount1) = v4_virtual_reserves(state.liquidity, state.sqrt_price)?;
 
       self.liquidity_amount0 = amount0;
       self.liquidity_amount1 = amount1;
