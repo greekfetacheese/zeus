@@ -288,31 +288,37 @@ impl PoolsUi {
          ui.spacing_mut().button_padding = theme.button_padding;
          let ui_width = ui.available_width();
 
-         let hint = RichText::new("Search pools")
-            .color(theme.colors.text_muted)
-            .size(theme.typography.normal);
-
-         SecureTextEdit::singleline(&mut self.search_query)
-            .visuals(theme.text_edit_visuals())
-            .hint_text(hint)
-            .desired_width(ui_width * 0.5)
-            .margin(Margin::same(10))
-            .font(FontId::proportional(theme.typography.normal))
-            .show(ui);
-
-         // The span lives in the catalog (the settings modal writes it), so the tooltip states what
-         // the run will actually use.
-         let block_range = ctx.pool_manager.v4_sync_block_range();
-
-         // Wider than the old 360 box so the third control fits without pushing the row past
-         // the window edge, still centred under the search box.
+         // The version filter shares the first line with the search, so the second line has room for
+         // the three run buttons without pushing either row past the card edge.
          ui.allocate_ui_with_layout(
-            vec2(ui_width.min(480.0), 36.0),
+            vec2(ui_width, 36.0),
             Layout::left_to_right(Align::Center),
             |ui| {
                self.select_version(theme, ui);
                ui.add_space(theme.spacing.sm);
 
+               let hint = RichText::new("Search pools")
+                  .color(theme.colors.text_muted)
+                  .size(theme.typography.normal);
+
+               SecureTextEdit::singleline(&mut self.search_query)
+                  .visuals(theme.text_edit_visuals())
+                  .hint_text(hint)
+                  .desired_width(ui.available_width())
+                  .margin(Margin::same(10))
+                  .font(FontId::proportional(theme.typography.normal))
+                  .show(ui);
+            },
+         );
+
+         // The span lives in the catalog (the settings modal writes it), so the tooltip states what
+         // the run will actually use.
+         let block_range = ctx.pool_manager.v4_sync_block_range();
+
+         ui.allocate_ui_with_layout(
+            vec2(ui_width, 36.0),
+            Layout::left_to_right(Align::Center),
+            |ui| {
                let text = RichText::new("Add Pool").size(theme.typography.normal);
                let button =
                   Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
@@ -322,10 +328,11 @@ impl PoolsUi {
 
                ui.add_space(theme.spacing.sm);
 
-               // The span lives in the catalog (the settings modal writes it), so the tooltip
-               // states what the run will actually use. The sync walks history from the stored
-               // checkpoint: minutes of RPC, one at a time, and the label says so while it runs.
+               // The sync walks history from the stored checkpoint: minutes of RPC, one at a time,
+               // and the label says so while it runs. Every run in this window touches the same
+               // catalog, so all three disable each other.
                let syncing = self.is_v4_syncing(chain);
+               let busy = syncing || self.is_v4_cleaning(chain) || self.is_v4_loading(chain);
                let label = if syncing {
                   "Syncing..."
                } else {
@@ -336,7 +343,7 @@ impl PoolsUi {
                   Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
 
                let clicked = ui
-                  .add_enabled_ui(!syncing, |ui| {
+                  .add_enabled_ui(!busy, |ui| {
                      ui.add(button).on_hover_text(format!(
                         "Resumes from the last synced block, {block_range} blocks per log request."
                      ))
@@ -347,11 +354,37 @@ impl PoolsUi {
                if clicked {
                   self.start_v4_sync(ctx, chain, ui.ctx());
                }
+
+               ui.add_space(theme.spacing.sm);
+
+               // The way back from an over-eager cleanup: dropping the checkpoint makes the run walk
+               // the whole history again, so a pool the catalog no longer holds is found again.
+               let label = if self.is_v4_resyncing(chain) {
+                  "Resyncing..."
+               } else {
+                  "Resync"
+               };
+               let text = RichText::new(label).size(theme.typography.normal);
+               let button =
+                  Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
+
+               let clicked = ui
+                  .add_enabled_ui(!busy, |ui| {
+                     ui.add(button).on_hover_text(
+                        "Forgets the last synced block and scans this chain's V4 pools from the start, so pools an earlier cleanup deleted are discovered again. Takes as long as the first sync.",
+                     )
+                  })
+                  .inner
+                  .clicked();
+
+               if clicked {
+                  self.start_v4_resync(ctx, chain, ui.ctx());
+               }
             },
          );
 
-         // Status on the left, the destructive action on the right: one row, so the fourth control
-         // does not push the window wider.
+         // The catalog's accounting on the left, the two maintenance actions on the right: one row,
+         // so neither the status block nor the buttons push the window wider.
          ui.horizontal(|ui| {
             self.v4_sync_status(&*ctx, theme, ui);
 
@@ -409,32 +442,6 @@ impl PoolsUi {
 
                if clicked {
                   self.start_load_catalog(ctx, chain);
-               }
-
-               ui.add_space(theme.spacing.sm);
-
-               // The way back from an over-eager cleanup: dropping the checkpoint makes the run walk
-               // the whole history again, so a pool the catalog no longer holds is found again.
-               let label = if self.is_v4_resyncing(chain) {
-                  "Resyncing..."
-               } else {
-                  "Resync"
-               };
-               let text = RichText::new(label).size(theme.typography.normal);
-               let button =
-                  Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
-
-               let clicked = ui
-                  .add_enabled_ui(!busy, |ui| {
-                     ui.add(button).on_hover_text(
-                        "Forgets the last synced block and scans this chain's V4 pools from the start, so pools an earlier cleanup deleted are discovered again. Takes as long as the first sync.",
-                     )
-                  })
-                  .inner
-                  .clicked();
-
-               if clicked {
-                  self.start_v4_resync(ctx, chain, ui.ctx());
                }
             });
          });
@@ -1078,10 +1085,12 @@ impl PoolsUi {
       }
    }
 
-   /// Where the last V4 sync stopped, linked to that block on the chain's explorer.
+   /// Where the last V4 sync stopped, linked to that block on the chain's explorer, then what the
+   /// catalog holds underneath it.
    ///
    /// The checkpoint is what the next run resumes from, so showing it is the only way to tell
-   /// "already synced" from "never ran".
+   /// "already synced" from "never ran". The three lines below are the catalog's own accounting: a
+   /// cold record is a 68-byte row on disk with an id in the index, a hot pool is a live struct.
    fn v4_sync_status(&self, ctx: &ZeusContext, theme: &Theme, ui: &mut Ui) {
       let chain = ctx.chain.id();
       let last_sync = ctx.pool_manager.read(|manager| {
@@ -1090,34 +1099,55 @@ impl PoolsUi {
             .get(&(chain, DexKind::UniswapV4))
             .map(|checkpoint| checkpoint.block)
       });
+      let stats = ctx.pool_manager.v4_catalog_stats(chain);
 
-      ui.horizontal(|ui| {
-         ui.spacing_mut().item_spacing.x = theme.spacing.xs;
+      ui.vertical(|ui| {
+         ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, 2.0);
 
-         ui.label(
-            RichText::new("Last synced block:")
-               .size(theme.typography.small)
-               .color(theme.colors.text_muted),
-         );
+         ui.horizontal(|ui| {
+            ui.label(
+               RichText::new("Last synced block:")
+                  .size(theme.typography.small)
+                  .color(theme.colors.text_muted),
+            );
 
-         match last_sync {
-            Some(block) => {
-               // `block_explorer` carries a trailing slash for some chains.
-               let explorer = ctx.chain.block_explorer().trim_end_matches('/');
-               ui.hyperlink_to(
-                  RichText::new(block.to_string())
-                     .size(theme.typography.small)
-                     .color(theme.colors.info),
-                  format!("{explorer}/block/{block}"),
-               );
+            match last_sync {
+               Some(block) => {
+                  // `block_explorer` carries a trailing slash for some chains.
+                  let explorer = ctx.chain.block_explorer().trim_end_matches('/');
+                  ui.hyperlink_to(
+                     RichText::new(block.to_string())
+                        .size(theme.typography.small)
+                        .color(theme.colors.info),
+                     format!("{explorer}/block/{block}"),
+                  );
+               }
+               None => {
+                  ui.label(
+                     RichText::new("never")
+                        .size(theme.typography.small)
+                        .color(theme.colors.text_muted),
+                  );
+               }
             }
-            None => {
-               ui.label(
-                  RichText::new("never")
-                     .size(theme.typography.small)
-                     .color(theme.colors.text_muted),
-               );
-            }
+         });
+
+         for text in [
+            format!("{} pools in the db", stats.total),
+            format!(
+               "{} cold ({} in memory)",
+               stats.cold,
+               human_bytes(stats.cold_bytes)
+            ),
+            format!(
+               "{} hot ({} in memory)",
+               stats.hot,
+               human_bytes(stats.hot_bytes)
+            ),
+         ] {
+            ui.label(
+               RichText::new(text).size(theme.typography.small).color(theme.colors.text_muted),
+            );
          }
       });
    }
@@ -1160,6 +1190,20 @@ impl PoolsUi {
             None
          }
       }
+   }
+}
+
+/// A byte count the pools window can show: whole bytes, then one decimal above a kilobyte.
+fn human_bytes(bytes: usize) -> String {
+   const KB: f64 = 1024.0;
+   let bytes = bytes as f64;
+
+   if bytes < KB {
+      format!("{bytes:.0} B")
+   } else if bytes < KB * KB {
+      format!("{:.1} KB", bytes / KB)
+   } else {
+      format!("{:.1} MB", bytes / (KB * KB))
    }
 }
 
@@ -1499,6 +1543,13 @@ fn valid_search(pool: &AnyUniswapPool, query: &str) -> bool {
 #[cfg(test)]
 mod tests {
    use super::*;
+
+   #[test]
+   fn human_bytes_picks_a_unit() {
+      assert_eq!(human_bytes(512), "512 B");
+      assert_eq!(human_bytes(1536), "1.5 KB");
+      assert_eq!(human_bytes(6 * 1024 * 1024), "6.0 MB");
+   }
 
    const TOKEN_A: &str = "0x0000000000000000000000000000000000000001";
    const TOKEN_B: &str = "0x0000000000000000000000000000000000000002";

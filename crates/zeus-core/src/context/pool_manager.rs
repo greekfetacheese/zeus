@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::mem::size_of;
 use std::ops::Deref;
 use std::path::Path;
 use std::sync::Arc;
@@ -224,6 +225,21 @@ impl V4CleanupReport {
    pub fn unjudged(&self) -> usize {
       self.unjudged_no_price + self.unjudged_no_state
    }
+}
+
+/// What the V4 side of one chain's catalog holds, for the pools window's own accounting.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct V4CatalogStats {
+   /// Rows the catalog holds for the chain: a hot pool and a cold record are both one row.
+   pub total: usize,
+   /// Cold records: the 68-byte row on disk, its id in the index.
+   pub cold: usize,
+   /// Hot pools: the row plus the whole pool in memory.
+   pub hot: usize,
+   /// Approximate bytes the cold index costs: its keys, the id vectors and their buckets.
+   pub cold_bytes: usize,
+   /// Approximate bytes the hot pools cost: the enum slot and the key it hangs under.
+   pub hot_bytes: usize,
 }
 
 /// A simple struct to identify a V2/V3/V4 pool
@@ -1153,6 +1169,12 @@ impl PoolManagerHandle {
       Ok(())
    }
 
+   /// The V4 side of this chain's catalog: how many rows the window shows, and roughly what they
+   /// cost in memory.
+   pub fn v4_catalog_stats(&self, chain: u64) -> V4CatalogStats {
+      self.read(|manager| manager.v4_catalog_stats(chain))
+   }
+
    /// Discover V4 pools from `Initialize` logs, committing one checkpointed step at a time.
    ///
    /// The checkpoint is the resume point: a step's pools and its checkpoint land in one transaction,
@@ -1892,6 +1914,39 @@ impl PoolManager {
       for record in records {
          self.unindex_cold_v4(chain, record);
       }
+   }
+
+   /// Count this chain's V4 rows and approximate what they cost.
+   ///
+   /// The cold index keeps ids, not records -- the 68-byte row is read from the catalog on a hit --
+   /// and every record is indexed under both of its currencies, so half the id count is the number
+   /// of cold pools. A hot pool's token metadata is shared (`Arc<str>` behind `ERC20Token`), so the
+   /// per-pool cost is the enum itself plus the key it hangs under, not its names.
+   fn v4_catalog_stats(&self, chain: u64) -> V4CatalogStats {
+      let mut stats = V4CatalogStats::default();
+
+      for ((pool_chain, _), ids) in &self.cold_v4 {
+         if *pool_chain != chain {
+            continue;
+         }
+
+         stats.cold += ids.len();
+         stats.cold_bytes +=
+            size_of::<((u64, Address), Vec<B256>)>() + ids.capacity() * size_of::<B256>();
+      }
+      stats.cold /= 2;
+
+      for (key, pool) in &self.pools {
+         if key.0 != chain || !matches!(pool, AnyUniswapPool::V4(_)) {
+            continue;
+         }
+
+         stats.hot += 1;
+         stats.hot_bytes += size_of::<AnyUniswapPool>() + size_of::<PoolKey>();
+      }
+
+      stats.total = stats.cold + stats.hot;
+      stats
    }
 
    /// Everything in this manager, in the shape [`PoolStore::write_catalog`] takes.
@@ -3142,6 +3197,50 @@ mod tests {
          store.checkpoints().unwrap().len(),
          1,
          "another dex's checkpoint is untouched"
+      );
+   }
+
+   #[test]
+   fn catalog_stats_split_hot_from_cold() {
+      let handle = PoolManagerHandle::new(PoolManager::empty());
+
+      handle.add_pool(AnyUniswapPool::V4(
+         UniswapV4Pool::new_with_spacing(
+            1,
+            FeeAmount::LOW,
+            10,
+            DexKind::UniswapV4,
+            Currency::native(1),
+            Currency::from(ERC20Token::weth()),
+            State::none(),
+            Address::ZERO,
+         ),
+      ));
+
+      let cold = V4PoolRecord {
+         currency0: ERC20Token::weth().address,
+         currency1: Address::repeat_byte(0xab),
+         fee: 3000,
+         tick_spacing: 60,
+         hooks: Address::ZERO,
+      };
+      handle.write(|manager| manager.index_cold_v4(1, &cold));
+
+      let stats = handle.v4_catalog_stats(1);
+      assert_eq!(stats.hot, 1);
+      assert_eq!(
+         stats.cold, 1,
+         "a record sits under both of its currencies, so half the ids is the pool count"
+      );
+      assert_eq!(
+         stats.total, 2,
+         "a hot pool and a cold record are one row each"
+      );
+      assert!(stats.cold_bytes > 0 && stats.hot_bytes > 0);
+      assert_eq!(
+         handle.v4_catalog_stats(2).total,
+         0,
+         "another chain is not counted"
       );
    }
 
