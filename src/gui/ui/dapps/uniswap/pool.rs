@@ -1133,7 +1133,7 @@ impl PoolsUi {
          });
 
          for text in [
-            format!("{} pools in the db", stats.total),
+            format!("{} V4 pools in the db", stats.total),
             format!(
                "{} cold ({} in memory)",
                stats.cold,
