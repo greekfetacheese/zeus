@@ -1187,11 +1187,23 @@ impl Default for PoolManager {
          }
       };
 
+      Self::from_snapshot(manager)
+   }
+}
+
+impl PoolManager {
+   /// The embedded snapshot's pools, without the discovering run's transient state.
+   ///
+   /// The snapshot is built by `zeus-pools` from a log sync of its own, so its checkpoints and
+   /// discovery timestamps describe *that* run, not this wallet. Inheriting the checkpoint would
+   /// make a fresh install claim a sync it never ran, and `sync_v4_pools` would resume from it and
+   /// skip every block below it. Only the pools are taken.
+   fn from_snapshot(snapshot: PoolManager) -> Self {
       Self {
-         pools: manager.pools,
+         pools: snapshot.pools,
          last_discover: HashMap::new(),
          v4_pool_last_discover: HashMap::new(),
-         checkpoints: manager.checkpoints,
+         checkpoints: HashMap::new(),
          concurrency: default_concurrency(),
          batch_size_for_updating_pool_state: default_batch_size_for_updating_pool_state(),
          batch_size_for_discovering_pools: default_batch_size_for_discovering_pools(),
@@ -1205,9 +1217,7 @@ impl Default for PoolManager {
          cold_v4: HashMap::new(),
       }
    }
-}
 
-impl PoolManager {
    /// The manager with no pools and the default settings.
    ///
    /// This is both the value used when no pool snapshot was installed and the fallback for a
@@ -1928,6 +1938,40 @@ mod tests {
 
       assert_eq!(sync_steps(5, 5, 100_000), vec![(5, 5)]);
       assert!(sync_steps(10, 9, 100_000).is_empty());
+   }
+
+   /// The snapshot is built by `zeus-pools` from its own log sync, so its checkpoint describes that
+   /// run, not this wallet. Inheriting it made a fresh install report a "last synced block"
+   /// (mainnet 25_909_538) and made `sync_v4_pools` resume from it, skipping every block below.
+   #[test]
+   fn snapshot_checkpoints_are_not_inherited() {
+      let mut snapshot = PoolManager::empty();
+      snapshot.add_pool(UniswapV4Pool::eth_uni());
+      snapshot.checkpoints.insert(
+         (1, DexKind::UniswapV4),
+         Checkpoint::new(1, 25_909_538, DexKind::UniswapV4),
+      );
+      snapshot.last_discover.insert(
+         (
+            1,
+            ERC20Token::weth().address,
+            ERC20Token::usdc().address,
+         ),
+         1,
+      );
+
+      let manager = PoolManager::from_snapshot(snapshot);
+
+      assert_eq!(
+         manager.pools.len(),
+         1,
+         "the pools are the point of the snapshot"
+      );
+      assert!(
+         manager.checkpoints.is_empty(),
+         "a snapshot checkpoint is not this wallet's sync and must not be resumed from"
+      );
+      assert!(manager.last_discover.is_empty());
    }
 
    #[test]
