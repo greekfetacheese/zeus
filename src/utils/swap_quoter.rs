@@ -767,7 +767,7 @@ fn build_quote_from_route(
    }
 }
 
-fn same_asset(a: &Currency, b: &Currency) -> bool {
+pub(crate) fn same_asset(a: &Currency, b: &Currency) -> bool {
    if a == b {
       return true;
    }
