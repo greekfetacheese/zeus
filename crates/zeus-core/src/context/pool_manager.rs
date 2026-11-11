@@ -56,7 +56,11 @@ pub const V4_SYNC_BLOCK_RANGE: u64 = 5_000;
 /// Blocks per checkpointed step: 1_000_000 blocks => 10 commits.
 pub const V4_SYNC_STEP_BLOCKS: u64 = 100_000;
 
-/// The knobs of one [`PoolManagerHandle::sync_v4_pools`] run. A `0` means "use the default".
+/// The knobs of one [`PoolManagerHandle::sync_v4_pools`] run.
+///
+/// A `0` means "use the default": [`V4_SYNC_STEP_BLOCKS`], [`V4_SYNC_BLOCK_RANGE`] and the client
+/// manager's RPC concurrency — the sync is a log fan-out, so that setting governs it rather than the
+/// pool-discovery knob.
 #[derive(Debug, Clone, Copy)]
 pub struct V4SyncConfig {
    pub step_blocks: u64,
@@ -933,8 +937,10 @@ impl PoolManagerHandle {
          0 => V4_SYNC_BLOCK_RANGE,
          range => range,
       };
+      // This is a log fan-out, so the RPC concurrency setting governs it, not the pool-discovery
+      // knob. `max(1)` because a zero would wedge `get_logs_for`'s semaphore.
       let concurrency = match config.concurrency {
-         0 => self.concurrency(),
+         0 => ctx.get_client_manager().concurrency().max(1),
          concurrency => concurrency,
       };
 

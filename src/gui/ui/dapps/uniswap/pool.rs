@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -228,8 +229,11 @@ pub struct PoolsUi {
    version: Option<Version>,
    add_form: AddPoolForm,
    pub size: (f32, f32),
-   /// A V4 log sync is running. It can take minutes, so the button stays disabled until it returns.
-   v4_syncing: bool,
+   /// Chains with a V4 log sync running, keyed by chain.
+   ///
+   /// Per chain on purpose: a run takes minutes, and switching chain while it works must not show
+   /// the other chain as busy (or let a second run start on the same one).
+   v4_syncing: HashMap<u64, bool>,
 }
 
 impl PoolsUi {
@@ -240,7 +244,7 @@ impl PoolsUi {
          version: None,
          add_form: AddPoolForm::default(),
          size: (600.0, 500.0),
-         v4_syncing: false,
+         v4_syncing: HashMap::new(),
       }
    }
 
@@ -302,7 +306,8 @@ impl PoolsUi {
 
                // The sync walks history from the stored checkpoint: minutes of RPC, one at a
                // time, and the label says so while it runs.
-               let label = if self.v4_syncing {
+               let syncing = self.is_v4_syncing(chain);
+               let label = if syncing {
                   "Syncing..."
                } else {
                   "Sync V4 Pools"
@@ -311,8 +316,7 @@ impl PoolsUi {
                let button =
                   Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
 
-               let clicked =
-                  ui.add_enabled_ui(!self.v4_syncing, |ui| ui.add(button)).inner.clicked();
+               let clicked = ui.add_enabled_ui(!syncing, |ui| ui.add(button)).inner.clicked();
 
                if clicked {
                   self.start_v4_sync(ctx, chain, ui.ctx());
@@ -628,8 +632,12 @@ impl PoolsUi {
    ///
    /// The archive check is deliberate: the sync reads historic log ranges, so without an archive
    /// endpoint it would fail inside the first step instead of explaining itself here.
+   fn is_v4_syncing(&self, chain: u64) -> bool {
+      self.v4_syncing.get(&chain).copied().unwrap_or(false)
+   }
+
    fn start_v4_sync(&mut self, ctx: &mut ZeusContext, chain: u64, egui_ctx: &egui::Context) {
-      if self.v4_syncing {
+      if self.is_v4_syncing(chain) {
          return;
       }
 
@@ -644,7 +652,15 @@ impl PoolsUi {
          return;
       }
 
-      self.v4_syncing = true;
+      self.v4_syncing.insert(chain, true);
+
+      // The top panel reads this flag as "this chain is syncing", and the wallet's own state sync
+      // treats it as a lock. Claim it only when nobody else holds it, so a run of ours can never
+      // clear the flag of a state sync that started first.
+      let claimed = !ctx.state_sync.get(&chain).copied().unwrap_or(false);
+      if claimed {
+         ctx.state_sync.insert(chain, true);
+      }
 
       crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
@@ -653,8 +669,12 @@ impl PoolsUi {
             .sync_v4_pools(ctx.clone(), chain, V4SyncConfig::default())
             .await;
 
+         if claimed {
+            ctx.set_chain_syncing(chain, false);
+         }
+
          SHARED_GUI.write(|gui| {
-            let (title, message, tone) = gui.uniswap.pools_ui.finish_v4_sync(result);
+            let (title, message, tone) = gui.uniswap.pools_ui.finish_v4_sync(chain, result);
 
             Toast::new(title)
                .description(message)
@@ -669,9 +689,10 @@ impl PoolsUi {
 
    fn finish_v4_sync(
       &mut self,
+      chain: u64,
       result: Result<V4SyncReport, anyhow::Error>,
    ) -> (&'static str, String, ChipRole) {
-      self.v4_syncing = false;
+      self.v4_syncing.insert(chain, false);
 
       match result {
          Ok(report) => (
