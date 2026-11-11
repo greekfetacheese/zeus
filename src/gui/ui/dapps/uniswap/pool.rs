@@ -823,13 +823,14 @@ impl PoolsUi {
          Ok(report) => (
             "Pools cleaned",
             format!(
-               "{} of {} V4 pools deleted ({} high fee, {} base-asset fee, {} dead, {} illiquid)",
+               "{} of {} V4 pools deleted ({} high fee, {} base-asset fee, {} dead, {} illiquid), {} unjudged",
                report.removed(),
                report.scanned,
                report.removed_by_fee,
                report.removed_by_base_fee,
                report.removed_dead,
-               report.removed_illiquid
+               report.removed_illiquid,
+               report.unjudged(),
             ),
             ChipRole::Success,
          ),

@@ -183,13 +183,22 @@ pub struct V4CleanupReport {
    pub removed_dead: usize,
    /// Deleted for holding less than `crate::context::DEFAULT_POOL_MINIMUM_LIQUIDITY` of value.
    pub removed_illiquid: usize,
-   /// Hot pools whose state or price could not be read, so they were kept.
-   pub unjudged: usize,
+   /// Kept because neither side is a base asset, so there is nothing to weigh the balance against.
+   pub unjudged_no_base: usize,
+   /// Kept because their base asset had no price: a missing feed is not zero liquidity.
+   pub unjudged_no_price: usize,
+   /// Kept because their state could not be read (a failed request, or a spacing that cannot exist).
+   pub unjudged_no_state: usize,
 }
 
 impl V4CleanupReport {
    pub fn removed(&self) -> usize {
       self.removed_by_fee + self.removed_by_base_fee + self.removed_dead + self.removed_illiquid
+   }
+
+   /// Pools kept because nothing could be said about their liquidity.
+   pub fn unjudged(&self) -> usize {
+      self.unjudged_no_base + self.unjudged_no_price + self.unjudged_no_state
    }
 }
 
@@ -1255,8 +1264,17 @@ impl PoolManagerHandle {
          }
       }
       self.drop_v4_records(&store, chain, &doomed, &mut report)?;
+      doomed.clear();
 
-      let kept = plan.keep.len();
+      // Rule 3 skips dynamic-fee pools too: their economics belong to the hook, and "skip dynamic for
+      // now" has to mean every rule, not just the fee ones.
+      let candidates = plan
+         .keep
+         .into_iter()
+         .filter(|record| record.fee != DYNAMIC_FEE_FLAG)
+         .collect::<Vec<_>>();
+
+      let kept = candidates.len();
       if kept == 0 {
          tracing::info!(
             "V4 cleanup chain {}: {} of {} pools deleted ({} fee, {} base-asset fee), {} dynamic",
@@ -1273,8 +1291,7 @@ impl PoolManagerHandle {
 
       // Rule 3 reads the state of every survivor, cold rows included: `getV4PoolState` takes a pool id
       // and a tick spacing, not a `Currency`, so a pool this wallet cannot name is still judged.
-      let record_by_id = plan
-         .keep
+      let record_by_id = candidates
          .iter()
          .map(|record| (record.id(), *record))
          .collect::<HashMap<B256, V4PoolRecord>>();
@@ -1283,7 +1300,7 @@ impl PoolManagerHandle {
       let semaphore = Arc::new(Semaphore::new(concurrency));
       let (tx, mut rx) = mpsc::channel::<Result<Vec<V4PoolData>, anyhow::Error>>(concurrency);
 
-      for chunk in plan.keep.chunks(V4_CLEANUP_STATE_BATCH) {
+      for chunk in candidates.chunks(V4_CLEANUP_STATE_BATCH) {
          let client = client.clone();
          let tx = tx.clone();
          let semaphore = semaphore.clone();
@@ -1349,12 +1366,13 @@ impl PoolManagerHandle {
                price_of,
             ) {
                // Holds value, but far less than the wallet's floor.
-               Some(value) if value < DEFAULT_POOL_MINIMUM_LIQUIDITY => {
+               Ok(value) if value < DEFAULT_POOL_MINIMUM_LIQUIDITY => {
                   doomed.push((*record, V4RemovalReason::Illiquid));
                }
-               Some(_) => {}
-               // No base asset, or no price for it: a missing feed is not zero liquidity.
-               None => report.unjudged += 1,
+               Ok(_) => {}
+               Err(V4ValueGap::NoBaseAsset) => report.unjudged_no_base += 1,
+               Err(V4ValueGap::NoPrice) => report.unjudged_no_price += 1,
+               Err(V4ValueGap::BadState) => report.unjudged_no_state += 1,
             }
          }
 
@@ -1377,10 +1395,10 @@ impl PoolManagerHandle {
       self.drop_v4_records(&store, chain, &doomed, &mut report)?;
 
       // Records we never got state for: a failed request, or a spacing that cannot exist.
-      report.unjudged += kept.saturating_sub(judged.len());
+      report.unjudged_no_state += kept.saturating_sub(judged.len());
 
       tracing::info!(
-         "V4 cleanup chain {}: {} of {} pools deleted ({} fee, {} base-asset fee, {} dead, {} illiquid), {} dynamic, {} unjudged",
+         "V4 cleanup chain {}: {} of {} pools deleted ({} fee, {} base-asset fee, {} dead, {} illiquid), {} dynamic skipped, {} unjudged ({} no base asset, {} no price, {} no state)",
          chain,
          report.removed(),
          report.scanned,
@@ -1389,7 +1407,10 @@ impl PoolManagerHandle {
          report.removed_dead,
          report.removed_illiquid,
          report.dynamic_skipped,
-         report.unjudged
+         report.unjudged(),
+         report.unjudged_no_base,
+         report.unjudged_no_price,
+         report.unjudged_no_state
       );
 
       Ok(report)
@@ -2031,30 +2052,42 @@ fn base_side(chain: u64, record: &V4PoolRecord) -> Option<(ERC20Token, bool)> {
    None
 }
 
+/// Why a pool's base side could not be weighed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum V4ValueGap {
+   /// Neither side is a base asset, so the wallet knows a price for neither.
+   NoBaseAsset,
+   /// The base asset itself has no price in the wallet's price database.
+   NoPrice,
+   /// The state is unusable: liquidity without a sqrt price.
+   BadState,
+}
+
 /// What the base side of a V4 pool is worth, from its state alone.
 ///
 /// This is `ZeusCtx::pool_has_sufficient_liquidity` without the pool: the same base side, the same
-/// decimals, the same price and the same floor, which is what lets a cold record be judged. `None`
-/// when the record has no base asset or that asset has no price: a missing feed is not zero
-/// liquidity, and the deletion is permanent.
+/// decimals, the same price and the same floor, which is what lets a cold record be judged. The error
+/// names what was missing rather than returning zero, because a missing feed is not zero liquidity
+/// and a deletion is permanent.
 fn v4_base_value(
    chain: u64,
    record: &V4PoolRecord,
    liquidity: u128,
    sqrt_price: U256,
    price_of: impl Fn(&ERC20Token) -> f64,
-) -> Option<f64> {
-   let (token, is_currency0) = base_side(chain, record)?;
+) -> Result<f64, V4ValueGap> {
+   let (token, is_currency0) = base_side(chain, record).ok_or(V4ValueGap::NoBaseAsset)?;
 
    let price = price_of(&token);
    if price <= 0.0 {
-      return None;
+      return Err(V4ValueGap::NoPrice);
    }
 
-   let (amount0, amount1) = v4_virtual_reserves(liquidity, sqrt_price).ok()?;
+   let (amount0, amount1) =
+      v4_virtual_reserves(liquidity, sqrt_price).map_err(|_| V4ValueGap::BadState)?;
    let amount = if is_currency0 { amount0 } else { amount1 };
 
-   Some(NumericValue::format_wei(amount, token.decimals).f64() * price)
+   Ok(NumericValue::format_wei(amount, token.decimals).f64() * price)
 }
 
 /// One-time import of the pre-redb `pool_data.data` (sealed with `POOL_DATA_AAD`).
@@ -2666,10 +2699,16 @@ mod tests {
 
       // A pair with no base asset has nothing to weigh.
       let unknown = record_for(other, Address::repeat_byte(0x55));
-      assert!(v4_base_value(1, &unknown, one_weth, q96, |_| 3_000.0).is_none());
+      assert_eq!(
+         v4_base_value(1, &unknown, one_weth, q96, |_| 3_000.0),
+         Err(V4ValueGap::NoBaseAsset)
+      );
 
       // A zero price is a missing feed, not zero liquidity.
-      assert!(v4_base_value(1, &record, one_weth, q96, |_| 0.0).is_none());
+      assert_eq!(
+         v4_base_value(1, &record, one_weth, q96, |_| 0.0),
+         Err(V4ValueGap::NoPrice)
+      );
    }
 
    #[test]
