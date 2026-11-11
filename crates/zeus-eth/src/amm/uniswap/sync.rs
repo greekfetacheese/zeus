@@ -22,7 +22,7 @@ use crate::currency::{Currency, NativeCurrency, erc20::ERC20Token};
 
 use serde::{Deserialize, Serialize};
 
-use crate::utils::{address_book, get_logs_for};
+use crate::utils::{GET_LOGS_MAX_RETRIES, address_book, get_logs_for};
 use anyhow::anyhow;
 use tracing::{error, trace};
 
@@ -225,8 +225,10 @@ where
       vec![target_addr],
       events,
       from_block,
+      synced_block,
       concurrency,
       block_range,
+      GET_LOGS_MAX_RETRIES,
    )
    .await?;
 

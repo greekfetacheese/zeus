@@ -1693,8 +1693,10 @@ async fn get_logs_check(
       vec![weth_address],
       vec![weth9::Deposit::SIGNATURE],
       from_block,
+      latest_block,
       1,
       block_range,
+      2,
    )
    .await;
 

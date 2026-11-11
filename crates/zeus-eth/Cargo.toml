@@ -41,7 +41,7 @@ revm = { version = "43.0.3", features = [
 ] }
 
 # Async
-tokio = {version = "1", features = ["rt-multi-thread", "sync"]}
+tokio = {version = "1", features = ["rt-multi-thread", "sync", "time"]}
 futures = "0.3"
 tower = "0.5"
 # `CcipReadGateway` is declared with `async_trait` in alloy-provider, so the
