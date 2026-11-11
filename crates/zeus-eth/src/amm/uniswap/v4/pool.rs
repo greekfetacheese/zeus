@@ -205,6 +205,28 @@ impl UniswapV4Pool {
    }
 }
 
+/// `keccak256(abi.encode(currency0, currency1, fee, tickSpacing, hooks))`.
+///
+/// Takes raw addresses so a decoded `Initialize` log can compute its pool id without
+/// materialising a `Currency` (which needs token metadata).
+pub fn v4_pool_id(
+   currency_a: Address,
+   currency_b: Address,
+   fee: FeeAmount,
+   tick_spacing: i32,
+   hooks: Address,
+) -> B256 {
+   let (address0, address1) = if currency_a < currency_b {
+      (currency_a, currency_b)
+   } else {
+      (currency_b, currency_a)
+   };
+
+   let spacing = FeeAmount::i24_tick_spacing(tick_spacing).unwrap_or_else(|| fee.tick_spacing());
+
+   keccak256((address0, address1, fee.fee_u24(), spacing, hooks).abi_encode())
+}
+
 impl UniswapPool for UniswapV4Pool {
    fn chain_id(&self) -> u64 {
       self.chain_id
@@ -228,27 +250,12 @@ impl UniswapPool for UniswapV4Pool {
    }
 
    fn id(&self) -> B256 {
-      let (address0, address1) = if self.currency0().address() < self.currency1().address() {
-         (
-            self.currency0().address(),
-            self.currency1().address(),
-         )
-      } else {
-         (
-            self.currency1().address(),
-            self.currency0().address(),
-         )
-      };
-
-      keccak256(
-         (
-            address0,
-            address1,
-            self.fee.fee_u24(),
-            self.tick_spacing(),
-            self.hooks,
-         )
-            .abi_encode(),
+      v4_pool_id(
+         self.currency0().address(),
+         self.currency1().address(),
+         self.fee,
+         self.resolved_tick_spacing(),
+         self.hooks,
       )
    }
 
