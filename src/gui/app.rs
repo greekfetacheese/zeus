@@ -295,6 +295,11 @@ fn begin_shutdown(
 
                ctx.save_client_manager();
                ctx.save_pool_manager();
+
+               if let Err(e) = ctx.pool_manager().compact() {
+                  tracing::error!("Failed to compact pool db: {:?}", e);
+               }
+
                ctx.save_nft_db();
                ctx.save_currency_db();
                ctx.save_address_book();

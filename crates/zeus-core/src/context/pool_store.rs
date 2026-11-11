@@ -7,11 +7,11 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use anyhow::{anyhow, bail};
 use redb::{Database as RedbInner, Durability, ReadableDatabase, ReadableTable, TableDefinition};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use zeus_eth::{
    alloy_primitives::{Address, B256},
    amm::uniswap::{AnyUniswapPool, DexKind, FeeAmount, UniswapPool, UniswapV4Pool, v4_pool_id},
@@ -98,7 +98,35 @@ impl V4PoolRecord {
 /// commits a handful of rows instead of rewriting the catalog.
 pub(crate) struct PoolStore {
    inner: Arc<RwLock<RedbInner>>,
-   key: WalletStateKey,
+   key: SharedKey,
+}
+
+/// The sealing key of a [`PoolStore`].
+///
+/// `WalletStateKey` is `Send` but not `Sync`, and this store is held inside `PoolManager`, which
+/// sits behind an `RwLock` that needs `Sync`. The key is only read under this mutex, so the
+/// call sites below are unchanged.
+#[derive(Debug)]
+struct SharedKey(Mutex<WalletStateKey>);
+
+impl SharedKey {
+   fn seal_json<T: Serialize>(&self, value: &T, aad: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+      self.lock().seal_json(value, aad)
+   }
+
+   fn open_json<T: DeserializeOwned>(&self, sealed: &[u8], aad: &[u8]) -> Result<T, anyhow::Error> {
+      self.lock().open_json(sealed, aad)
+   }
+
+   fn lock(&self) -> MutexGuard<'_, WalletStateKey> {
+      self.0.lock().expect("the pool store key lock was poisoned")
+   }
+}
+
+impl Clone for SharedKey {
+   fn clone(&self) -> Self {
+      Self(Mutex::new(self.lock().clone()))
+   }
 }
 
 impl Clone for PoolStore {
@@ -139,7 +167,7 @@ impl PoolStore {
 
       let store = Self {
          inner: Arc::new(RwLock::new(inner)),
-         key: key.clone(),
+         key: SharedKey(Mutex::new(key.clone())),
       };
 
       if let Some(meta) = store.load_meta()? {
@@ -226,6 +254,14 @@ impl PoolStore {
       self.insert_rows(&[(key, sealed)])
    }
 
+   /// Write one V4 record on its own, sealed and with the same durability as every other row.
+   pub fn put_v4_record(&self, chain: u64, record: &V4PoolRecord) -> Result<(), anyhow::Error> {
+      let sealed = self.key.seal_json(record, AAD_V4)?;
+      self.insert_rows(&[(v4_key(chain, record.id()), sealed)])
+   }
+
+   /// Test surface only: nothing deletes a pool yet (a token-prune path would be the first caller).
+   #[cfg(test)]
    pub fn remove_pool(
       &self,
       chain: u64,
@@ -251,6 +287,8 @@ impl PoolStore {
       })
    }
 
+   /// Test surface only: the live paths read V4 records in bulk or only ask [`Self::has_v4`].
+   #[cfg(test)]
    pub fn v4_record(&self, chain: u64, id: B256) -> Result<Option<V4PoolRecord>, anyhow::Error> {
       let guard = self.read_guard()?;
       let tx = guard.begin_read().map_err(|e| anyhow!("pool store read txn: {e}"))?;
@@ -452,6 +490,7 @@ impl PoolStore {
       tx.commit().map_err(|e| anyhow!("pool store commit: {e}"))
    }
 
+   #[cfg(test)]
    fn remove_row(&self, key: &[u8]) -> Result<(), anyhow::Error> {
       let guard = self.write_guard()?;
       let mut tx = guard.begin_write().map_err(|e| anyhow!("pool store write txn: {e}"))?;
