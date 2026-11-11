@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use egui::{Align, FontId, Grid, Id, Layout, Margin, Order, RichText, Sense, Ui, vec2};
 
-use super::settings::UniswapSettingsUi;
 use crate::assets::icons::Icons;
 use crate::core::context::pool_manager::{V4SyncConfig, V4SyncReport};
 use crate::core::{ZeusContext, ZeusCtx};
@@ -261,14 +260,7 @@ impl PoolsUi {
       }
    }
 
-   pub fn show(
-      &mut self,
-      ctx: &mut ZeusContext,
-      theme: &Theme,
-      icons: Arc<Icons>,
-      settings: &UniswapSettingsUi,
-      ui: &mut Ui,
-   ) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -294,6 +286,10 @@ impl PoolsUi {
             .font(FontId::proportional(theme.typography.normal))
             .show(ui);
 
+         // The span lives in the catalog (the settings modal writes it), so the tooltip states what
+         // the run will actually use.
+         let block_range = ctx.pool_manager.v4_sync_block_range();
+
          // Wider than the old 360 box so the third control fits without pushing the row past
          // the window edge, still centred under the search box.
          ui.allocate_ui_with_layout(
@@ -312,8 +308,9 @@ impl PoolsUi {
 
                ui.add_space(theme.spacing.sm);
 
-               // The sync walks history from the stored checkpoint: minutes of RPC, one at a
-               // time, and the label says so while it runs.
+               // The span lives in the catalog (the settings modal writes it), so the tooltip
+               // states what the run will actually use. The sync walks history from the stored
+               // checkpoint: minutes of RPC, one at a time, and the label says so while it runs.
                let syncing = self.is_v4_syncing(chain);
                let label = if syncing {
                   "Syncing..."
@@ -327,15 +324,14 @@ impl PoolsUi {
                let clicked = ui
                   .add_enabled_ui(!syncing, |ui| {
                      ui.add(button).on_hover_text(format!(
-                        "Resumes from the last synced block, {} blocks per log request.",
-                        settings.v4_sync_block_range
+                        "Resumes from the last synced block, {block_range} blocks per log request."
                      ))
                   })
                   .inner
                   .clicked();
 
                if clicked {
-                  self.start_v4_sync(ctx, chain, settings.v4_sync_block_range, ui.ctx());
+                  self.start_v4_sync(ctx, chain, ui.ctx());
                }
             },
          );
@@ -652,13 +648,7 @@ impl PoolsUi {
       self.v4_syncing.get(&chain).copied().unwrap_or(false)
    }
 
-   fn start_v4_sync(
-      &mut self,
-      ctx: &mut ZeusContext,
-      chain: u64,
-      block_range: u64,
-      egui_ctx: &egui::Context,
-   ) {
+   fn start_v4_sync(&mut self, ctx: &mut ZeusContext, chain: u64, egui_ctx: &egui::Context) {
       if self.is_v4_syncing(chain) {
          return;
       }
@@ -688,14 +678,7 @@ impl PoolsUi {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let result = ctx
             .pool_manager()
-            .sync_v4_pools(
-               ctx.clone(),
-               chain,
-               V4SyncConfig {
-                  block_range,
-                  ..Default::default()
-               },
-            )
+            .sync_v4_pools(ctx.clone(), chain, V4SyncConfig::default())
             .await;
 
          if claimed {

@@ -56,6 +56,23 @@ pub const V4_SYNC_BLOCK_RANGE: u64 = 5_000;
 /// Blocks per checkpointed step: 1_000_000 blocks => 10 commits.
 pub const V4_SYNC_STEP_BLOCKS: u64 = 100_000;
 
+/// Narrowest configurable `eth_getLogs` span. Anything smaller turns one step into enough
+/// requests to trip a rate limit for no gain.
+pub const MIN_V4_SYNC_BLOCK_RANGE: u64 = 1_000;
+
+/// Widest configurable `eth_getLogs` span. Public endpoints routinely reject more than this.
+pub const MAX_V4_SYNC_BLOCK_RANGE: u64 = 50_000;
+
+fn default_v4_sync_block_range() -> u64 {
+   V4_SYNC_BLOCK_RANGE
+}
+
+/// Clamp the configurable span, applied on load and again on set so a hand-edited catalog or a
+/// stale slider value can never reach `get_logs_for`.
+fn clamp_v4_sync_block_range(block_range: u64) -> u64 {
+   block_range.clamp(MIN_V4_SYNC_BLOCK_RANGE, MAX_V4_SYNC_BLOCK_RANGE)
+}
+
 /// The knobs of one [`PoolManagerHandle::sync_v4_pools`] run.
 ///
 /// A `0` means "use the default": [`V4_SYNC_STEP_BLOCKS`], [`V4_SYNC_BLOCK_RANGE`] and the client
@@ -183,6 +200,7 @@ impl PoolManagerHandle {
          manager.batch_size_for_updating_pool_state = meta.batch_size_for_updating_pool_state;
          manager.batch_size_for_discovering_pools = meta.batch_size_for_discovering_pools;
          manager.discover_v4_pools = meta.discover_v4_pools;
+         manager.v4_sync_block_range = clamp_v4_sync_block_range(meta.v4_sync_block_range);
          manager.ignore_chains = meta.ignore_chains;
       }
 
@@ -356,6 +374,18 @@ impl PoolManagerHandle {
 
    pub fn set_batch_size_for_updating_pools_state(&self, batch_size: usize) {
       self.write(|manager| manager.batch_size_for_updating_pool_state = batch_size);
+   }
+
+   /// The `eth_getLogs` span a V4 sync uses, clamped into [`MIN_V4_SYNC_BLOCK_RANGE`]`..=`
+   /// [`MAX_V4_SYNC_BLOCK_RANGE`].
+   pub fn v4_sync_block_range(&self) -> u64 {
+      clamp_v4_sync_block_range(self.read(|manager| manager.v4_sync_block_range))
+   }
+
+   /// Set the span. Persisted with the rest of the catalog metadata on the next save.
+   pub fn set_v4_sync_block_range(&self, block_range: u64) {
+      let block_range = clamp_v4_sync_block_range(block_range);
+      self.write(|manager| manager.v4_sync_block_range = block_range);
    }
 
    /// Get all pools that include the given currency
@@ -934,7 +964,7 @@ impl PoolManagerHandle {
          step => step,
       };
       let range = match config.block_range {
-         0 => V4_SYNC_BLOCK_RANGE,
+         0 => self.v4_sync_block_range(),
          range => range,
       };
       // This is a log fan-out, so the RPC concurrency setting governs it, not the pool-discovery
@@ -1145,6 +1175,10 @@ pub struct PoolManager {
    #[serde(default = "default_discover_v4_pools")]
    pub discover_v4_pools: bool,
 
+   /// Blocks per `eth_getLogs` during a V4 sync, adjustable from the pools window's settings.
+   #[serde(default = "default_v4_sync_block_range")]
+   pub v4_sync_block_range: u64,
+
    #[serde(default = "default_ignore_chains")]
    pub ignore_chains: IgnoreChains,
 
@@ -1214,6 +1248,7 @@ impl PoolManager {
          batch_size_for_updating_pool_state: default_batch_size_for_updating_pool_state(),
          batch_size_for_discovering_pools: default_batch_size_for_discovering_pools(),
          discover_v4_pools: default_discover_v4_pools(),
+         v4_sync_block_range: default_v4_sync_block_range(),
          ignore_chains: default_ignore_chains(),
          store: None,
          dirty_pools: HashSet::new(),
@@ -1238,6 +1273,7 @@ impl PoolManager {
          batch_size_for_updating_pool_state: default_batch_size_for_updating_pool_state(),
          batch_size_for_discovering_pools: default_batch_size_for_discovering_pools(),
          discover_v4_pools: default_discover_v4_pools(),
+         v4_sync_block_range: default_v4_sync_block_range(),
          ignore_chains: default_ignore_chains(),
          store: None,
          dirty_pools: HashSet::new(),
@@ -1309,6 +1345,7 @@ impl PoolManager {
          batch_size_for_updating_pool_state: self.batch_size_for_updating_pool_state,
          batch_size_for_discovering_pools: self.batch_size_for_discovering_pools,
          discover_v4_pools: self.discover_v4_pools,
+         v4_sync_block_range: self.v4_sync_block_range,
          ignore_chains: self.ignore_chains.clone(),
          format: POOL_DB_FORMAT,
       }
@@ -1946,6 +1983,37 @@ mod tests {
       assert!(sync_steps(10, 9, 100_000).is_empty());
    }
 
+   /// The sync span is user-editable, so it is clamped on the way in and on the way out: a
+   /// hand-edited catalog or a stale slider must never reach `get_logs_for`.
+   #[test]
+   fn v4_sync_block_range_is_clamped_both_ways() {
+      let handle = PoolManagerHandle::new(PoolManager::empty());
+
+      assert_eq!(handle.v4_sync_block_range(), V4_SYNC_BLOCK_RANGE);
+
+      handle.set_v4_sync_block_range(1);
+      assert_eq!(
+         handle.v4_sync_block_range(),
+         MIN_V4_SYNC_BLOCK_RANGE
+      );
+
+      handle.set_v4_sync_block_range(u64::MAX);
+      assert_eq!(
+         handle.v4_sync_block_range(),
+         MAX_V4_SYNC_BLOCK_RANGE
+      );
+
+      handle.set_v4_sync_block_range(12_345);
+      assert_eq!(handle.v4_sync_block_range(), 12_345);
+
+      // A stored value outside the range is clamped when the catalog is read back.
+      handle.write(|manager| manager.v4_sync_block_range = 0);
+      assert_eq!(
+         handle.v4_sync_block_range(),
+         MIN_V4_SYNC_BLOCK_RANGE
+      );
+   }
+
    /// The snapshot is built by `zeus-pools` from its own log sync, so its checkpoint describes that
    /// run, not this wallet. Inheriting it made a fresh install report a "last synced block"
    /// (mainnet 25_909_538) and made `sync_v4_pools` resume from it, skipping every block below.
@@ -2047,6 +2115,7 @@ mod tests {
          manager.batch_size_for_updating_pool_state = 11;
          manager.batch_size_for_discovering_pools = 13;
          manager.discover_v4_pools = true;
+         manager.v4_sync_block_range = 12_345;
          manager.ignore_chains = HashSet::from([1]);
          manager.store = Some(store.clone());
       });
@@ -2087,6 +2156,7 @@ mod tests {
       assert_eq!(loaded.concurrency(), 7);
       assert_eq!(loaded.batch_size_for_updating_pools_state(), 11);
       assert!(loaded.read(|manager| manager.discover_v4_pools));
+      assert_eq!(loaded.v4_sync_block_range(), 12_345);
       assert_eq!(
          loaded.read(|manager| manager.ignore_chains.clone()),
          HashSet::from([1])

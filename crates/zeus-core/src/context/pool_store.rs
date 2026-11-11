@@ -17,6 +17,7 @@ use zeus_eth::{
    amm::uniswap::{AnyUniswapPool, DexKind, FeeAmount, UniswapPool, UniswapV4Pool, v4_pool_id},
 };
 
+use crate::context::pool_manager::V4_SYNC_BLOCK_RANGE;
 use crate::persisted::{PersistedFile, ensure_data_dir, file_path};
 use crate::platform::fs::restrict_file_to_owner;
 use crate::wallet_state_key::WalletStateKey;
@@ -35,6 +36,10 @@ const AAD_POOL: &[u8] = b"zeus-pool-data-v2/pool";
 const AAD_V4: &[u8] = b"zeus-pool-data-v2/v4";
 const AAD_DISCOVER: &[u8] = b"zeus-pool-data-v2/discover";
 
+fn default_v4_sync_block_range() -> u64 {
+   V4_SYNC_BLOCK_RANGE
+}
+
 /// Everything in `PoolManager` that is not a pool. Small enough to rewrite wholesale.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct PoolDbMeta {
@@ -43,6 +48,9 @@ pub(crate) struct PoolDbMeta {
    pub batch_size_for_discovering_pools: usize,
    pub discover_v4_pools: bool,
    pub ignore_chains: HashSet<u64>,
+   /// Blocks per `eth_getLogs` during a V4 sync; the pools window's settings slider writes this.
+   #[serde(default = "default_v4_sync_block_range")]
+   pub v4_sync_block_range: u64,
    /// Bumped when the layout changes; a file with a newer value is refused on open.
    #[serde(default)]
    pub format: u32,

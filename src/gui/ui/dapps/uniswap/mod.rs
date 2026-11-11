@@ -2,6 +2,7 @@ use egui::{Align, CornerRadius, CursorIcon, Layout, Order, RichText, Ui, vec2};
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
+use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
 use crate::gui::ui::common::notices;
 use crate::gui::ui::show_with_fade;
@@ -216,15 +217,15 @@ impl UniswapUi {
                   ui,
                );
 
-               self.pools_ui.show(ctx, theme, icons.clone(), &self.settings, ui);
+               self.pools_ui.show(ctx, theme, icons.clone(), ui);
 
-               self.show_settings(theme, ui);
+               self.show_settings(ctx, theme, ui);
             });
          });
       });
    }
 
-   pub fn show_settings(&mut self, theme: &Theme, ui: &mut Ui) {
+   pub fn show_settings(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !self.settings.is_open() {
          return;
       }
@@ -246,6 +247,7 @@ impl UniswapUi {
 
             ui.vertical_centered(|ui| {
                self.settings.show(
+                  ctx,
                   swap_ui_open,
                   view_positions_open,
                   pools_ui_open,
@@ -259,6 +261,13 @@ impl UniswapUi {
                let visuals = theme.button_visuals();
                if ui.add(Button::new(text).visuals(visuals)).clicked() {
                   self.settings.close();
+
+                  // The V4 sync span lives in the pool catalog, so persist it when the panel
+                  // closes instead of waiting for the shutdown save.
+                  let _ = crate::runtime::rt().spawn_blocking(move || {
+                     let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+                     ctx.save_pool_manager();
+                  });
                }
             });
          });
