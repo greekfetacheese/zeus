@@ -380,6 +380,13 @@ pub fn client_settings_dir() -> Result<PathBuf, anyhow::Error> {
    file_path(PersistedFile::ClientSettings)
 }
 
+/// The Uniswap pool store (pool_data.data).
+///
+/// The file is a **redb database**, not one sealed blob: every pool, checkpoint and discovery
+/// timestamp is its own record, so a sync step commits a handful of rows instead of rewriting the
+/// whole catalog. Values keep the old sealing (XChaCha20-Poly1305 over brotli JSON) and each record
+/// kind has its own AAD. A file written before the redb change is one sealed JSON blob under
+/// zeus-pool-data-v1; it is migrated once and then removed.
 pub fn pool_data_dir() -> Result<PathBuf, anyhow::Error> {
    file_path(PersistedFile::PoolData)
 }
@@ -728,6 +735,19 @@ mod tests {
          assert_eq!(PersistedFile::from_name(file.name()), Some(*file));
       }
       assert!(PersistedFile::from_name("secret.txt").is_none());
+   }
+
+   /// The pool store is user data and sealed with the vault key, exactly as it was when it was one
+   /// JSON blob - the redb change must not quietly drop it out of every backup.
+   #[test]
+   fn pool_data_is_a_core_sealed_file() {
+      assert_eq!(PersistedFile::PoolData.name(), "pool_data.data");
+      assert_eq!(PersistedFile::PoolData.export_policy(), ExportPolicy::Core);
+      assert!(PersistedFile::PoolData.is_sealed());
+      assert!(
+         is_allowed_rel_parts(&["pool_data.data".to_string()]),
+         "an export zip must accept pool_data.data"
+      );
    }
 
    /// The on-disk Railgun DB sweep must see the per-chain databases and nothing else: the events
