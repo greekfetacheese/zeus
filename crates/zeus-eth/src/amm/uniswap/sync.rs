@@ -225,6 +225,7 @@ where
       vec![target_addr],
       events,
       from_block,
+      synced_block,
       concurrency,
       block_range,
       GET_LOGS_MAX_RETRIES,
