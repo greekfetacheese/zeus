@@ -114,6 +114,11 @@ fn clamp_fee_percent(percent: f32, default: f32) -> f32 {
 /// row.
 const V4_CLEANUP_DELETE_BATCH: usize = 2_048;
 
+/// Deleted keys the manager collects before it walks its pool list to drop the hot ones: finding a
+/// hot pool means looking it up in a map keyed by its currencies, so it is done in batches rather
+/// than once per 2 048-row chunk.
+const V4_CLEANUP_FORGET_BATCH: usize = 65_536;
+
 /// Pools per `getV4PoolState` call. The view reads ~8 storage slots per pool, so a hundred of them
 /// stays well inside an RPC's eth_call gas cap.
 const V4_CLEANUP_STATE_BATCH: usize = 100;
@@ -1484,15 +1489,16 @@ impl PoolManagerHandle {
 
       // Rules 1 and 2, straight from the records: no currency resolution, no RPC.
       let mut doomed = Vec::with_capacity(V4_CLEANUP_DELETE_BATCH);
+      let mut gone = HashSet::new();
       for (record, reason) in plan.remove {
          doomed.push((record, reason));
 
          if doomed.len() == V4_CLEANUP_DELETE_BATCH {
-            self.drop_v4_records(&store, chain, &doomed, &mut report)?;
+            self.drop_v4_records(&store, chain, &doomed, &mut report, &mut gone)?;
             doomed.clear();
          }
       }
-      self.drop_v4_records(&store, chain, &doomed, &mut report)?;
+      self.drop_v4_records(&store, chain, &doomed, &mut report, &mut gone)?;
       doomed.clear();
 
       // Rule 3 skips dynamic-fee pools too: their economics belong to the hook, and "skip dynamic for
@@ -1514,6 +1520,8 @@ impl PoolManagerHandle {
             report.removed_by_base_fee,
             report.dynamic_skipped
          );
+
+         self.forget_hot_pools(chain, &mut gone);
 
          return Ok(report);
       }
@@ -1606,12 +1614,13 @@ impl PoolManagerHandle {
          }
 
          if doomed.len() >= V4_CLEANUP_DELETE_BATCH {
-            self.drop_v4_records(&store, chain, &doomed, &mut report)?;
+            self.drop_v4_records(&store, chain, &doomed, &mut report, &mut gone)?;
             doomed.clear();
          }
       }
 
-      self.drop_v4_records(&store, chain, &doomed, &mut report)?;
+      self.drop_v4_records(&store, chain, &doomed, &mut report, &mut gone)?;
+      self.forget_hot_pools(chain, &mut gone);
 
       // Records we never got state for: a failed request, or a spacing that cannot exist.
       report.unjudged_no_state += kept.saturating_sub(judged.len());
@@ -1635,13 +1644,19 @@ impl PoolManagerHandle {
       Ok(report)
    }
 
-   /// Delete a chunk of V4 records from the catalog and from memory, and count them by reason.
+   /// Delete a chunk of V4 records from the catalog and from the cold index, and count them by
+   /// reason.
+   ///
+   /// The hot pools they built are not dropped here: finding one means looking its key up in the
+   /// manager, so the deleted keys are accumulated and walked in batches by
+   /// [`forget_hot_pools`](Self::forget_hot_pools).
    fn drop_v4_records(
       &self,
       store: &PoolStore,
       chain: u64,
       records: &[(V4PoolRecord, V4RemovalReason)],
       report: &mut V4CleanupReport,
+      gone: &mut HashSet<(u32, Address, Address)>,
    ) -> Result<(), anyhow::Error> {
       if records.is_empty() {
          return Ok(());
@@ -1651,11 +1666,17 @@ impl PoolManagerHandle {
       store.remove_v4_records(chain, &ids)?;
 
       self.write(|manager| {
-         let forgotten = records.iter().map(|(record, _)| *record).collect::<Vec<_>>();
-         manager.forget_v4_records(chain, &forgotten);
+         for (record, _) in records {
+            manager.unindex_cold_v4(chain, record);
+         }
       });
 
-      for (_, reason) in records {
+      for (record, reason) in records {
+         // Both orders: an id sorts its two currencies, and a key stored the other way round is
+         // still the same pool.
+         gone.insert((record.fee, record.currency0, record.currency1));
+         gone.insert((record.fee, record.currency1, record.currency0));
+
          match reason {
             V4RemovalReason::Fee => report.removed_by_fee += 1,
             V4RemovalReason::BaseFee => report.removed_by_base_fee += 1,
@@ -1665,7 +1686,33 @@ impl PoolManagerHandle {
          }
       }
 
+      if gone.len() >= V4_CLEANUP_FORGET_BATCH {
+         self.forget_hot_pools(chain, gone);
+      }
+
       Ok(())
+   }
+
+   /// Drop the hot pools whose records the cleanup deleted, and clear the keys it matched.
+   ///
+   /// Matched on the tuple the map indexes a V4 pool by -- (chain, dex, fee, currency0, currency1)
+   /// -- rather than on the pool id: an id is a keccak of the pool key, so asking every pool in the
+   /// manager for one turned a deletion chunk into a hash per pool while the frame waited on the
+   /// lock.
+   fn forget_hot_pools(&self, chain: u64, gone: &mut HashSet<(u32, Address, Address)>) {
+      if gone.is_empty() {
+         return;
+      }
+
+      self.write(|manager| {
+         manager.pools.retain(|key, _| {
+            !(key.0 == chain
+               && key.1.is_v4()
+               && gone.contains(&(key.2, key.3.address(), key.4.address())))
+         });
+      });
+
+      gone.clear();
    }
 
    /// Reclaim the catalog's free pages. Blocking; call on shutdown only.
@@ -1912,31 +1959,26 @@ impl PoolManager {
       }
    }
 
-   /// Drop a record from both currency buckets once its pool is hot: the catalog is on disk, so the
-   /// index must not keep offering it.
+   /// Drop a record from both currency buckets once its pool is hot or its row is gone: the catalog
+   /// is on disk, so the index must not keep offering it.
+   ///
+   /// A lookup, not a scan: a cleanup unindexes thousands of records per chunk and a bucket can hold
+   /// every pool on the chain, so a scan per record is the whole frame budget this lock is holding.
    fn unindex_cold_v4(&mut self, chain: u64, record: &V4PoolRecord) {
       let id = record.id();
       for currency in [record.currency0, record.currency1] {
-         if let Some(ids) = self.cold_v4.get_mut(&(chain, currency)) {
-            ids.retain(|known| *known != id);
+         let emptied = match self.cold_v4.get_mut(&(chain, currency)) {
+            Some(ids) => {
+               ids.remove(&id);
+               ids.is_empty()
+            }
+            None => continue,
+         };
+
+         // An empty bucket is a key that indexes nothing.
+         if emptied {
+            self.cold_v4.remove(&(chain, currency));
          }
-      }
-   }
-
-   /// Forget V4 records whose catalog rows are already gone: drop the pools they built and the cold
-   /// index entries that still point at them.
-   fn forget_v4_records(&mut self, chain: u64, records: &[V4PoolRecord]) {
-      if records.is_empty() {
-         return;
-      }
-
-      let forgotten = records.iter().map(|record| record.id()).collect::<HashSet<_>>();
-      self
-         .pools
-         .retain(|key, pool| !(key.0 == chain && key.1.is_v4() && forgotten.contains(&pool.id())));
-
-      for record in records {
-         self.unindex_cold_v4(chain, record);
       }
    }
 
@@ -3324,6 +3366,47 @@ mod tests {
          "another chain has no cold records here"
       );
    }
+
+   #[test]
+   fn a_deleted_record_leaves_neither_a_cold_entry_nor_a_hot_pool() {
+      let weth = ERC20Token::weth();
+      let token = fake_token(Address::repeat_byte(0xbb));
+      let record = record_for(weth.address, token.address);
+
+      let mut db = CurrencyDB::default();
+      db.insert_token(1, weth.clone());
+      db.insert_token(1, token.clone());
+
+      let pool = v4_pool_from_record(1, &record, &db).expect("both currencies resolve");
+      let handle = PoolManagerHandle::new(PoolManager::empty());
+      handle.write(|manager| {
+         manager.insert_loaded_pool(AnyUniswapPool::V4(pool));
+         manager.index_cold_v4(1, &record);
+      });
+      assert!(handle.get_v4_pool_from_id(1, record.id()).is_some());
+
+      handle.write(|manager| manager.unindex_cold_v4(1, &record));
+
+      let mut gone = HashSet::from([
+         (record.fee, record.currency0, record.currency1),
+         (record.fee, record.currency1, record.currency0),
+      ]);
+      handle.forget_hot_pools(1, &mut gone);
+
+      assert!(
+         handle.get_v4_pool_from_id(1, record.id()).is_none(),
+         "a deleted record's pool is not kept in memory"
+      );
+      assert!(
+         handle.read(|manager| !manager.cold_v4.contains_key(&(1, weth.address))),
+         "an emptied bucket is dropped, not left behind"
+      );
+      assert!(
+         gone.is_empty(),
+         "the batch clears the keys it matched"
+      );
+   }
+
    fn fake_token(address: Address) -> ERC20Token {
       ERC20Token {
          chain_id: 1,
