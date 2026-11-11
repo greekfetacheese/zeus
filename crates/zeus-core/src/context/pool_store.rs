@@ -344,15 +344,21 @@ impl PoolStore {
       Ok(Some(record))
    }
 
-   pub fn has_v4(&self, chain: u64, id: B256) -> Result<bool, anyhow::Error> {
-      let guard = self.read_guard()?;
-      let tx = guard.begin_read().map_err(|e| anyhow!("pool store read txn: {e}"))?;
-      let table = tx.open_table(POOL_TABLE).map_err(|e| anyhow!("pool store open table: {e}"))?;
+   /// Every V4 pool id this chain's catalog holds, read in one transaction.
+   ///
+   /// A sync checks a whole batch of discovered pools against what is already stored: one set beats
+   /// the per-log lookup this replaces, which is one transaction per `Initialize` -- a couple of
+   /// hundred thousand of them on a rescan.
+   pub fn v4_ids(&self, chain: u64) -> Result<HashSet<B256>, anyhow::Error> {
+      let ids = self.scan_map(Some(chain), b'v', |key, _| {
+         if key.len() != 41 {
+            return Ok(None);
+         }
 
-      let row = table
-         .get(v4_key(chain, id).as_slice())
-         .map_err(|e| anyhow!("pool store get v4 record: {e}"))?;
-      Ok(row.is_some())
+         Ok(Some(B256::from_slice(&key[9..41])))
+      })?;
+
+      Ok(ids.into_iter().collect())
    }
 
    /// Write the new V4 records AND the new checkpoint in ONE write transaction, so a crash can never
@@ -765,8 +771,12 @@ mod tests {
          pool.id(),
          "a cold record must rebuild the same pool id"
       );
-      assert!(store.has_v4(1, written.id()).unwrap());
-      assert!(!store.has_v4(2, written.id()).unwrap());
+      assert_eq!(
+         store.v4_ids(1).unwrap(),
+         HashSet::from([written.id()]),
+         "the id is readable without decoding the record"
+      );
+      assert!(store.v4_ids(2).unwrap().is_empty());
       assert_eq!(
          store.load_v4_records(Some(1)).unwrap(),
          vec![(1, written)]
@@ -819,7 +829,7 @@ mod tests {
       store.remove_v4_records(1, &[records[0].id()]).unwrap();
 
       assert!(
-         !store.has_v4(1, records[0].id()).unwrap(),
+         !store.v4_ids(1).unwrap().contains(&records[0].id()),
          "a deleted record is gone, not tombstoned"
       );
       assert_eq!(

@@ -1248,6 +1248,8 @@ impl PoolManagerHandle {
             .map(|pool| pool.id())
             .collect::<HashSet<_>>()
       });
+      // One read for the whole chain instead of a lookup per discovered pool.
+      known.extend(store.v4_ids(chain)?);
 
       for (start, end) in sync_steps(from, tip, step) {
          let inits = v4_pools_from_logs(
@@ -1271,7 +1273,7 @@ impl PoolManagerHandle {
             let id = init.id();
 
             // A resumed range and a reorg overlap both land here.
-            if known.contains(&id) || store.has_v4(chain, id)? {
+            if known.contains(&id) {
                continue;
             }
             known.insert(id);
@@ -1295,10 +1297,13 @@ impl PoolManagerHandle {
          let hot_count = hot.len();
          let cold = new - hot_count;
 
-         self.write(|manager| -> Result<(), anyhow::Error> {
-            // One transaction: a crash leaves either the whole step or none of it.
-            store.commit_v4_step(chain, &records, end)?;
+         // The catalog write is I/O: one immediate-durability transaction per step, sealing every
+         // record and fsyncing the pages. It runs outside the manager lock, so a frame that reads the
+         // pool list or the counters never waits on the disk. Durable first, then memory: a load
+         // rebuilds whatever the manager did not get to.
+         store.commit_v4_step(chain, &records, end)?;
 
+         self.write(|manager| {
             for pool in hot {
                let pool = AnyUniswapPool::V4(pool);
                manager.pools.insert(pool_key_of(&pool), pool);
@@ -1312,9 +1317,7 @@ impl PoolManagerHandle {
                (chain, DexKind::UniswapV4),
                Checkpoint::new(chain, end, DexKind::UniswapV4),
             );
-
-            Ok(())
-         })?;
+         });
 
          report.steps += 1;
          report.hot += hot_count;
@@ -1794,7 +1797,7 @@ pub struct PoolManager {
    /// catalog is loaded and extended by the sync; the distinct-currency count is what the map is keyed
    /// on, and that is small compared to the pool count.
    #[serde(skip)]
-   cold_v4: HashMap<(u64, Address), Vec<B256>>,
+   cold_v4: HashMap<(u64, Address), HashSet<B256>>,
 }
 
 impl Default for PoolManager {
@@ -1881,10 +1884,9 @@ impl PoolManager {
    fn index_cold_v4(&mut self, chain: u64, record: &V4PoolRecord) {
       let id = record.id();
       for currency in [record.currency0, record.currency1] {
-         let ids = self.cold_v4.entry((chain, currency)).or_default();
-         if !ids.contains(&id) {
-            ids.push(id);
-         }
+         // A set, not a list: a step indexes thousands of records while the frame keeps reading the
+         // manager under the same lock, and the insert must not scan the bucket it adds to.
+         self.cold_v4.entry((chain, currency)).or_default().insert(id);
       }
    }
 
@@ -1931,8 +1933,9 @@ impl PoolManager {
          }
 
          stats.cold += ids.len();
+         // A set slot holds the id plus its control byte, and the table keeps a few empty ones.
          stats.cold_bytes +=
-            size_of::<((u64, Address), Vec<B256>)>() + ids.capacity() * size_of::<B256>();
+            size_of::<((u64, Address), HashSet<B256>)>() + ids.capacity() * (size_of::<B256>() + 1);
       }
       stats.cold /= 2;
 
@@ -3369,7 +3372,7 @@ mod tests {
       let remaining = handle
          .read(|manager| manager.cold_v4.get(&(1, weth.address)).cloned())
          .expect("the other cold record is still indexed");
-      assert_eq!(remaining, vec![record_b.id()]);
+      assert_eq!(remaining, HashSet::from([record_b.id()]));
       assert!(
          handle
             .read(|manager| manager.cold_v4.get(&(1, record_a.currency1)).cloned())
