@@ -1,13 +1,14 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use egui::{Align, FontId, Grid, Id, Layout, Margin, Order, RichText, Sense, Ui, vec2};
 
 use crate::assets::icons::Icons;
 use crate::core::context::pool_manager::{
-   CatalogLoadReport, V4CleanupConfig, V4CleanupReport, V4SyncConfig, V4SyncReport,
+   CatalogLoadReport, V4CatalogStats, V4CleanupConfig, V4CleanupReport, V4SyncConfig, V4SyncReport,
 };
 use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
@@ -76,6 +77,39 @@ struct PoolRow {
    icon1: egui::Image<'static>,
    protocol: &'static str,
    fee: String,
+}
+
+/// How many rows the table is handed at once.
+///
+/// The table measures a row it has not sized by laying it out invisibly, and it re-measures whenever
+/// the row count changes -- which a sync does on every step. On a chain with millions of pools that
+/// pass is the freeze, so the window shows a page and the search is the way into the rest.
+const POOL_TABLE_MAX_ROWS: usize = 500;
+
+/// How often the snapshot may be rebuilt while the catalog is changing under it.
+///
+/// A cleanup deletes a chunk every few milliseconds, and rebuilding this table is a scan of the whole
+/// catalog: without a floor the window would spend the run rebuilding instead of drawing.
+const POOL_TABLE_REBUILD_INTERVAL: Duration = Duration::from_millis(300);
+
+/// The table's rows, kept until something they were built from changes.
+///
+/// Building them is a scan of every pool in the manager, a sort and two icon lookups per row. Doing
+/// that on every frame is what made the window unusable while a sync was adding pools: the pool set
+/// changes once per step, not once per frame.
+struct PoolTable {
+   chain: u64,
+   version: Option<Version>,
+   query: String,
+   tint: bool,
+   /// The catalog revision as it was when the rows were built.
+   revision: (usize, usize, Option<u64>),
+   rows: Vec<PoolRow>,
+   /// Pools that passed the filter, of which `rows` holds the first `POOL_TABLE_MAX_ROWS`.
+   matched: usize,
+   stats: V4CatalogStats,
+   /// When the rows were built, for the rebuild floor.
+   built: Instant,
 }
 
 /// What the add-pool form asks the background task to build.
@@ -245,6 +279,9 @@ pub struct PoolsUi {
 
    /// Chains whose running sync is a resync, keyed by chain: the label says which one it is.
    v4_resyncing: HashMap<u64, bool>,
+
+   /// The rows the table shows, rebuilt only when the pool set or the filter moves.
+   table: Option<PoolTable>,
 }
 
 impl PoolsUi {
@@ -259,6 +296,7 @@ impl PoolsUi {
          v4_cleaning: HashMap::new(),
          v4_loading: HashMap::new(),
          v4_resyncing: HashMap::new(),
+         table: None,
       }
    }
 
@@ -439,6 +477,10 @@ impl PoolsUi {
             },
          );
 
+         // The rows are a snapshot, rebuilt when the pool set or the filter moves: scanning the
+         // manager every frame is what froze this window on a chain with hundreds of thousands.
+         self.refresh_table(&*ctx, chain, theme, &icons);
+
          // The accounting alone on its line now that the actions share the one above; the width is
          // pinned so it stays flush left instead of centring with its own text.
          ui.horizontal(|ui| {
@@ -449,41 +491,12 @@ impl PoolsUi {
          ui.add_space(20.0);
 
          let selected_version = self.version.unwrap_or(Version::All);
-         let tint = theme.image_tint_recommended;
-         let query = self.search_query.as_str();
-         let manager = ctx.pool_manager.clone();
 
-         let rows: Vec<PoolRow> = manager.read(|manager| {
-            let mut rows: Vec<PoolRow> = manager
-               .pools
-               .values()
-               .filter(|pool| pool.chain_id() == chain)
-               .filter(|pool| {
-                  selected_version.is_all()
-                     || selected_version.is_v2() && pool.dex_kind().is_v2()
-                     || selected_version.is_v3() && pool.dex_kind().is_v3()
-                     || selected_version.is_v4() && pool.dex_kind().is_v4()
-               })
-               .filter(|pool| valid_search(pool, query))
-               .map(|pool| {
-                  let token0 = pool.currency0();
-                  let token1 = pool.currency1();
+         let Some(table) = &self.table else {
+            return;
+         };
 
-                  PoolRow {
-                     token0: truncate_symbol_or_name(token0.symbol(), 10),
-                     token1: truncate_symbol_or_name(token1.symbol(), 10),
-                     icon0: icons.currency_icon_x32(token0, tint),
-                     icon1: icons.currency_icon_x32(token1, tint),
-                     protocol: protocol_str(pool),
-                     fee: fee_label(pool.fee().fee()),
-                  }
-               })
-               .collect();
-
-            rows.sort_by(|a, b| a.token0.cmp(&b.token0).then_with(|| a.token1.cmp(&b.token1)));
-
-            rows
-         });
+         let rows = table.rows.as_slice();
 
          if rows.is_empty() {
             ui.add_space(theme.spacing.lg);
@@ -495,9 +508,22 @@ impl PoolsUi {
             return;
          }
 
+         // A page, not the list: say so, or the end of the table reads as the end of the catalog.
+         if table.matched > rows.len() {
+            ui.label(
+               RichText::new(format!(
+                  "Showing the first {} of {} matching pools -- narrow the search to reach the rest.",
+                  rows.len(),
+                  table.matched
+               ))
+               .size(theme.typography.small)
+               .color(theme.colors.text_muted),
+            );
+         }
+
          let table_height = (ui.available_height() - theme.spacing.sm).max(140.0);
 
-         Table::new("pools_ui", &rows)
+         Table::new("pools_ui", rows)
             .columns([
                Column::Fr(3.2), // Pool
                Column::Fr(1.0), // Protocol
@@ -1085,6 +1111,87 @@ impl PoolsUi {
       }
    }
 
+   /// Rebuild the table's rows when anything they were built from changed.
+   ///
+   /// The revision is what decides: it moves on every add and every delete, so a sync step rebuilds
+   /// once and every frame that changed nothing reuses the snapshot.
+   fn refresh_table(&mut self, ctx: &ZeusContext, chain: u64, theme: &Theme, icons: &Icons) {
+      let revision = ctx.pool_manager.v4_revision(chain);
+      let tint = theme.image_tint_recommended;
+
+      let fresh = self.table.as_ref().is_some_and(|table| {
+         table.chain == chain
+            && table.version == self.version
+            && table.query == self.search_query
+            && table.tint == tint
+            && table.revision == revision
+      });
+      if fresh {
+         return;
+      }
+
+      // The filter must answer at once; a catalog that is being written to can wait for the floor.
+      let filter_moved = self.table.as_ref().is_none_or(|table| {
+         table.chain != chain
+            || table.version != self.version
+            || table.query != self.search_query
+            || table.tint != tint
+      });
+      if !filter_moved
+         && self
+            .table
+            .as_ref()
+            .is_some_and(|table| table.built.elapsed() < POOL_TABLE_REBUILD_INTERVAL)
+      {
+         return;
+      }
+
+      let query = self.search_query.to_lowercase();
+      let selected_version = self.version.unwrap_or(Version::All);
+      let manager = ctx.pool_manager.clone();
+
+      let (rows, matched) = manager.read(|manager| {
+         let mut matched = manager
+            .pools
+            .values()
+            .filter(|pool| pool.chain_id() == chain)
+            .filter(|pool| {
+               selected_version.is_all()
+                  || selected_version.is_v2() && pool.dex_kind().is_v2()
+                  || selected_version.is_v3() && pool.dex_kind().is_v3()
+                  || selected_version.is_v4() && pool.dex_kind().is_v4()
+            })
+            .filter(|pool| valid_search_lowered(pool, &query))
+            .collect::<Vec<_>>();
+
+         let matched_count = matched.len();
+
+         // One page is built, not the list: the table pays a measure pass over every row it is
+         // given. The partition keeps the page in sort order without sorting the whole catalog.
+         if matched_count > POOL_TABLE_MAX_ROWS {
+            matched.select_nth_unstable_by(POOL_TABLE_MAX_ROWS, |a, b| pool_order(a, b));
+            matched.truncate(POOL_TABLE_MAX_ROWS);
+         }
+         matched.sort_unstable_by(|a, b| pool_order(a, b));
+
+         let rows = matched.into_iter().map(|pool| pool_row(pool, icons, tint)).collect::<Vec<_>>();
+
+         (rows, matched_count)
+      });
+
+      self.table = Some(PoolTable {
+         chain,
+         version: self.version,
+         query: self.search_query.clone(),
+         tint,
+         revision,
+         rows,
+         matched,
+         stats: ctx.pool_manager.v4_catalog_stats(chain),
+         built: Instant::now(),
+      });
+   }
+
    /// Where the last V4 sync stopped, linked to that block on the chain's explorer, then what the
    /// catalog holds underneath it.
    ///
@@ -1092,14 +1199,13 @@ impl PoolsUi {
    /// "already synced" from "never ran". The three lines below are the catalog's own accounting: a
    /// cold record is a 68-byte row on disk with an id in the index, a hot pool is a live struct.
    fn v4_sync_status(&self, ctx: &ZeusContext, theme: &Theme, ui: &mut Ui) {
-      let chain = ctx.chain.id();
-      let last_sync = ctx.pool_manager.read(|manager| {
-         manager
-            .checkpoints
-            .get(&(chain, DexKind::UniswapV4))
-            .map(|checkpoint| checkpoint.block)
-      });
-      let stats = ctx.pool_manager.v4_catalog_stats(chain);
+      let Some(table) = &self.table else {
+         return;
+      };
+
+      // Both come from the snapshot the table is showing, so the numbers and the rows agree.
+      let last_sync = table.revision.2;
+      let stats = table.stats;
 
       ui.vertical(|ui| {
          ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, 2.0);
@@ -1336,6 +1442,28 @@ fn parse_token_address(text: &str, field: &str) -> Result<Address, String> {
    }
 }
 
+/// The table's order: the first side's symbol, then the second's.
+fn pool_order(a: &AnyUniswapPool, b: &AnyUniswapPool) -> Ordering {
+   a.currency0()
+      .symbol()
+      .cmp(b.currency0().symbol())
+      .then_with(|| a.currency1().symbol().cmp(b.currency1().symbol()))
+}
+
+/// One row's text and icons, built once per snapshot.
+fn pool_row(pool: &AnyUniswapPool, icons: &Icons, tint: bool) -> PoolRow {
+   let currency0 = pool.currency0();
+   let currency1 = pool.currency1();
+
+   PoolRow {
+      token0: truncate_symbol_or_name(currency0.symbol(), 10),
+      token1: truncate_symbol_or_name(currency1.symbol(), 10),
+      icon0: icons.currency_icon_x32(currency0, tint),
+      icon1: icons.currency_icon_x32(currency1, tint),
+      protocol: protocol_str(pool),
+      fee: fee_label(pool.fee().fee()),
+   }
+}
 fn protocol_str(pool: &AnyUniswapPool) -> &'static str {
    if pool.dex_kind().is_v2() {
       "V2"
@@ -1512,27 +1640,27 @@ async fn insert_pool(ctx: ZeusCtx, chain: u64, request: AddPoolRequest) -> Resul
    Ok(format!("{label} added to the pool list"))
 }
 
-fn valid_search(pool: &AnyUniswapPool, query: &str) -> bool {
-   let query = query.to_lowercase();
-
+/// Whether `pool` matches a search, with the query already lowered: the table's loop runs this over
+/// every pool in the catalog, so it must not lower the query again for each one.
+fn valid_search_lowered(pool: &AnyUniswapPool, query: &str) -> bool {
    if query.is_empty() {
       return true;
    }
 
-   if pool.currency0().symbol().to_lowercase().contains(&query) {
+   if pool.currency0().symbol().to_lowercase().contains(query) {
       return true;
    }
 
-   if pool.currency1().symbol().to_lowercase().contains(&query) {
+   if pool.currency1().symbol().to_lowercase().contains(query) {
       return true;
    }
 
    if pool.dex_kind().is_v2() || pool.dex_kind().is_v3() {
-      if pool.address().to_string().to_lowercase().contains(&query) {
+      if pool.address().to_string().to_lowercase().contains(query) {
          return true;
       }
    } else {
-      if pool.id().to_string().to_lowercase().contains(&query) {
+      if pool.id().to_string().to_lowercase().contains(query) {
          return true;
       }
    };

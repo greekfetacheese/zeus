@@ -1175,6 +1175,28 @@ impl PoolManagerHandle {
       self.read(|manager| manager.v4_catalog_stats(chain))
    }
 
+   /// A cheap revision of this chain's V4 catalog, for a window that caches what it built from it.
+   ///
+   /// Every add and every delete moves the pool count or the cold id count, and a table row depends
+   /// on nothing else about a pool -- not its state, not its reserves. The checkpoint moves with the
+   /// sync's steps, so a step that stored only cold records still invalidates the cache.
+   pub fn v4_revision(&self, chain: u64) -> (usize, usize, Option<u64>) {
+      self.read(|manager| {
+         let cold = manager
+            .cold_v4
+            .iter()
+            .filter(|((pool_chain, _), _)| *pool_chain == chain)
+            .map(|(_, ids)| ids.len())
+            .sum::<usize>();
+         let checkpoint = manager
+            .checkpoints
+            .get(&(chain, DexKind::UniswapV4))
+            .map(|checkpoint| checkpoint.block);
+
+         (manager.pools.len(), cold, checkpoint)
+      })
+   }
+
    /// Discover V4 pools from `Initialize` logs, committing one checkpointed step at a time.
    ///
    /// The checkpoint is the resume point: a step's pools and its checkpoint land in one transaction,
@@ -3247,6 +3269,61 @@ mod tests {
       );
    }
 
+   #[test]
+   fn the_catalog_revision_tracks_the_pool_set() {
+      let handle = PoolManagerHandle::new(PoolManager::empty());
+      let empty = handle.v4_revision(1);
+
+      handle.add_pool(AnyUniswapPool::V4(
+         UniswapV4Pool::new_with_spacing(
+            1,
+            FeeAmount::LOW,
+            10,
+            DexKind::UniswapV4,
+            Currency::native(1),
+            Currency::from(ERC20Token::weth()),
+            State::none(),
+            Address::ZERO,
+         ),
+      ));
+      let hot = handle.v4_revision(1);
+      assert_eq!(hot.0, empty.0 + 1, "a pool moves the count");
+
+      let cold = V4PoolRecord {
+         currency0: ERC20Token::weth().address,
+         currency1: Address::repeat_byte(0xab),
+         fee: 3000,
+         tick_spacing: 60,
+         hooks: Address::ZERO,
+      };
+      handle.write(|manager| manager.index_cold_v4(1, &cold));
+      let indexed = handle.v4_revision(1);
+      assert_eq!(
+         indexed.0, hot.0,
+         "the cold side does not move the pool count"
+      );
+      assert_eq!(
+         indexed.1,
+         empty.1 + 2,
+         "a cold record is indexed under both of its currencies"
+      );
+
+      handle.add_checkpoint(
+         1,
+         DexKind::UniswapV4,
+         Checkpoint::new(1, 7, DexKind::UniswapV4),
+      );
+      assert_eq!(
+         handle.v4_revision(1).2,
+         Some(7),
+         "a sync step moves the checkpoint, so a cold-only step is not missed"
+      );
+      assert_eq!(
+         handle.v4_revision(2).1,
+         0,
+         "another chain has no cold records here"
+      );
+   }
    fn fake_token(address: Address) -> ERC20Token {
       ERC20Token {
          chain_id: 1,
