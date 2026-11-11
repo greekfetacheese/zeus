@@ -287,8 +287,7 @@ impl PoolStore {
       })
    }
 
-   /// Test surface only: the live paths read V4 records in bulk or only ask [`Self::has_v4`].
-   #[cfg(test)]
+   /// Read one cold V4 record without decoding the rest of the catalog.
    pub fn v4_record(&self, chain: u64, id: B256) -> Result<Option<V4PoolRecord>, anyhow::Error> {
       let guard = self.read_guard()?;
       let tx = guard.begin_read().map_err(|e| anyhow!("pool store read txn: {e}"))?;

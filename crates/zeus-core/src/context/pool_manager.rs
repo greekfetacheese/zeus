@@ -195,6 +195,7 @@ impl PoolManagerHandle {
 
       for (chain, record) in v4 {
          let Some(pool) = v4_pool_from_record(chain, &record, tokens) else {
+            manager.index_cold_v4(chain, &record);
             continue;
          };
          manager.insert_loaded_pool(AnyUniswapPool::V4(pool));
@@ -544,6 +545,71 @@ impl PoolManagerHandle {
       passed > POOL_DISCOVERY_TIMEOUT
    }
 
+   /// Materialise the catalog's V4 pools that hold any of `tokens`.
+   ///
+   /// This is what lets a token added after a sync find a pool whose other side is not a base token:
+   /// the on-chain discovery grid only probes base pairs, the catalog knows every key we have synced.
+   /// Idempotent, and a pool whose other side is still unknown stays on disk.
+   pub fn promote_v4_pools_for_tokens(
+      &self,
+      chain: u64,
+      tokens: &[ERC20Token],
+      db: &CurrencyDB,
+   ) -> Result<usize, anyhow::Error> {
+      let Some(store) = self.read(|manager| manager.store.clone()) else {
+         return Ok(0);
+      };
+
+      let candidates = self.read(|manager| {
+         let mut ids = HashSet::new();
+         for token in tokens {
+            if let Some(bucket) = manager.cold_v4.get(&(chain, token.address)) {
+               ids.extend(bucket.iter().copied());
+            }
+         }
+         ids
+      });
+
+      if candidates.is_empty() {
+         return Ok(0);
+      }
+
+      let mut promoted = Vec::new();
+      for id in candidates {
+         if self.get_v4_pool_from_id(chain, id).is_some() {
+            continue;
+         }
+
+         let Some(record) = store.v4_record(chain, id)? else {
+            continue;
+         };
+
+         if let Some(pool) = v4_pool_from_record(chain, &record, db) {
+            promoted.push((record, pool));
+         }
+      }
+
+      let promoted = self.write(|manager| {
+         let mut count = 0;
+         for (record, pool) in promoted {
+            manager.insert_loaded_pool(AnyUniswapPool::V4(pool));
+            manager.unindex_cold_v4(chain, &record);
+            count += 1;
+         }
+         count
+      });
+
+      if promoted > 0 {
+         tracing::info!(
+            "Promoted {} V4 pools from the catalog for chain {}",
+            promoted,
+            chain
+         );
+      }
+
+      Ok(promoted)
+   }
+
    /// Discover all the possible V2/V3/V4 pools for the given tokens
    pub async fn discover_pools_for_tokens(
       &self,
@@ -553,6 +619,17 @@ impl PoolManagerHandle {
    ) -> Result<(), anyhow::Error> {
       if tokens.is_empty() {
          return Ok(());
+      }
+
+      // The catalog knows keys the on-chain grid never probes (token X / token Y pairs), so a token
+      // added after a sync still finds its pool here.
+      let db = ctx.read(|c| c.currency_db.clone());
+      if let Err(e) = self.promote_v4_pools_for_tokens(chain, &tokens, &db) {
+         tracing::warn!(
+            "Failed to read the V4 catalog for chain {}: {:?}",
+            chain,
+            e
+         );
       }
 
       let mut tasks: Vec<JoinHandle<Result<ERC20Token, anyhow::Error>>> = Vec::new();
@@ -886,6 +963,7 @@ impl PoolManagerHandle {
 
          let mut records = Vec::new();
          let mut hot = Vec::new();
+         let mut cold_records = Vec::new();
 
          for init in inits {
             let id = init.id();
@@ -904,8 +982,9 @@ impl PoolManagerHandle {
                hooks: init.hooks,
             };
 
-            if let Some(pool) = v4_pool_from_record(chain, &record, &tokens) {
-               hot.push(pool);
+            match v4_pool_from_record(chain, &record, &tokens) {
+               Some(pool) => hot.push(pool),
+               None => cold_records.push(record.clone()),
             }
             records.push(record);
          }
@@ -921,6 +1000,10 @@ impl PoolManagerHandle {
             for pool in hot {
                let pool = AnyUniswapPool::V4(pool);
                manager.pools.insert(pool_key_of(&pool), pool);
+            }
+
+            for record in &cold_records {
+               manager.index_cold_v4(chain, record);
             }
 
             manager.checkpoints.insert(
@@ -1080,6 +1163,15 @@ pub struct PoolManager {
    /// V4 discovery timestamps touched since the last flush, keyed like `v4_pool_last_discover`.
    #[serde(skip)]
    dirty_discovery_v4: HashSet<(u64, DexKind)>,
+
+   /// Cold V4 records by currency: `(chain, currency) -> pool ids`.
+   ///
+   /// Only ids live here — the 68-byte record is read from the catalog on a hit — so a 50k-pool
+   /// catalog costs ~2 ids per pool (~3 MB) instead of holding every record in memory. Built when the
+   /// catalog is loaded and extended by the sync; the distinct-currency count is what the map is keyed
+   /// on, and that is small compared to the pool count.
+   #[serde(skip)]
+   cold_v4: HashMap<(u64, Address), Vec<B256>>,
 }
 
 impl Default for PoolManager {
@@ -1110,6 +1202,7 @@ impl Default for PoolManager {
          dirty_checkpoints: HashSet::new(),
          dirty_discovery: HashSet::new(),
          dirty_discovery_v4: HashSet::new(),
+         cold_v4: HashMap::new(),
       }
    }
 }
@@ -1135,12 +1228,36 @@ impl PoolManager {
          dirty_checkpoints: HashSet::new(),
          dirty_discovery: HashSet::new(),
          dirty_discovery_v4: HashSet::new(),
+         cold_v4: HashMap::new(),
       }
    }
 
    /// Insert a pool that came out of the catalog: no dirty mark, it is already on disk.
    fn insert_loaded_pool(&mut self, pool: AnyUniswapPool) {
       self.pools.insert(pool_key_of(&pool), pool);
+   }
+
+   /// Index a cold V4 record under both of its currencies, so a token added later can find it
+   /// without scanning the catalog.
+   fn index_cold_v4(&mut self, chain: u64, record: &V4PoolRecord) {
+      let id = record.id();
+      for currency in [record.currency0, record.currency1] {
+         let ids = self.cold_v4.entry((chain, currency)).or_default();
+         if !ids.contains(&id) {
+            ids.push(id);
+         }
+      }
+   }
+
+   /// Drop a record from both currency buckets once its pool is hot: the catalog is on disk, so the
+   /// index must not keep offering it.
+   fn unindex_cold_v4(&mut self, chain: u64, record: &V4PoolRecord) {
+      let id = record.id();
+      for currency in [record.currency0, record.currency1] {
+         if let Some(ids) = self.cold_v4.get_mut(&(chain, currency)) {
+            ids.retain(|known| *known != id);
+         }
+      }
    }
 
    /// Everything in this manager, in the shape [`PoolStore::write_catalog`] takes.
@@ -1414,6 +1531,13 @@ fn migrate_legacy_blob(
    // pools are dropped from it.
    let catalog = manager.catalog();
    manager.retain_hot_v4(tokens);
+
+   // The rows that just went cold are on disk only, so index them for a later token import.
+   for (chain, record) in &catalog.v4 {
+      if manager.get_v4_pool_from_id(*chain, record.id()).is_none() {
+         manager.index_cold_v4(*chain, record);
+      }
+   }
 
    let written = match PoolStore::open_at(path, key) {
       // The database is dropped at the end of this arm, so a failure can move the blob back.
@@ -1748,7 +1872,7 @@ mod tests {
    use tempfile::tempdir;
 
    use super::*;
-   use zeus_eth::amm::uniswap::UniswapV4Pool;
+   use zeus_eth::{alloy_primitives::U256, amm::uniswap::UniswapV4Pool};
 
    #[test]
    fn test_default_init() {
@@ -1921,6 +2045,140 @@ mod tests {
       assert!(
          source.read(|manager| manager.dirty_pools.is_empty()),
          "a flush clears its dirty marks"
+      );
+   }
+
+   fn fake_token(address: Address) -> ERC20Token {
+      ERC20Token {
+         chain_id: 1,
+         address,
+         symbol: "X".into(),
+         name: "X".into(),
+         decimals: 18,
+         total_supply: U256::ZERO,
+      }
+   }
+
+   fn record_for(currency0: Address, currency1: Address) -> V4PoolRecord {
+      V4PoolRecord {
+         currency0,
+         currency1,
+         fee: 500,
+         tick_spacing: 10,
+         hooks: Address::ZERO,
+      }
+   }
+
+   #[test]
+   fn cold_v4_pools_are_promoted_for_a_new_token() {
+      let dir = tempdir().unwrap();
+      let path = dir.path().join("pool_data.data");
+      let key = WalletStateKey::generate().unwrap();
+      let store = PoolStore::open_at(&path, &key).unwrap();
+
+      let weth = ERC20Token::weth();
+      let token_a = fake_token(Address::repeat_byte(0xaa));
+      let record = record_for(weth.address, token_a.address);
+      store.put_v4_record(1, &record).unwrap();
+
+      let handle = PoolManagerHandle::new(PoolManager::empty());
+      handle.load_from_store(store, &CurrencyDB::default()).unwrap();
+      assert!(
+         handle.get_v4_pool_from_id(1, record.id()).is_none(),
+         "the pool is cold until its other side is imported"
+      );
+
+      let mut db = CurrencyDB::default();
+      db.insert_token(1, token_a.clone());
+
+      assert_eq!(
+         handle.promote_v4_pools_for_tokens(1, &[token_a.clone()], &db).unwrap(),
+         1
+      );
+
+      let pool = handle.get_v4_pool_from_id(1, record.id()).expect("the catalog pool is hot now");
+      assert_eq!(pool.id(), record.id());
+      assert!(
+         handle.read(|manager| manager.dirty_pools.is_empty()),
+         "a promoted pool is already on disk, so it is not dirty"
+      );
+
+      assert_eq!(
+         handle.promote_v4_pools_for_tokens(1, &[token_a], &db).unwrap(),
+         0,
+         "promotion is idempotent"
+      );
+   }
+
+   #[test]
+   fn promote_keeps_a_pool_whose_other_side_is_unknown() {
+      let dir = tempdir().unwrap();
+      let path = dir.path().join("pool_data.data");
+      let key = WalletStateKey::generate().unwrap();
+      let store = PoolStore::open_at(&path, &key).unwrap();
+
+      let weth = ERC20Token::weth();
+      let token_a = fake_token(Address::repeat_byte(0xab));
+      let unknown = fake_token(Address::repeat_byte(0xcd));
+      let record = record_for(weth.address, unknown.address);
+      store.put_v4_record(1, &record).unwrap();
+
+      let handle = PoolManagerHandle::new(PoolManager::empty());
+      handle.load_from_store(store, &CurrencyDB::default()).unwrap();
+
+      let mut db = CurrencyDB::default();
+      db.insert_token(1, token_a.clone());
+
+      assert_eq!(
+         handle.promote_v4_pools_for_tokens(1, &[token_a], &db).unwrap(),
+         0
+      );
+      assert!(
+         handle.get_v4_pool_from_id(1, record.id()).is_none(),
+         "the record stays on disk while its other side is unknown"
+      );
+   }
+
+   #[test]
+   fn load_indexes_every_cold_record_under_both_currencies() {
+      let dir = tempdir().unwrap();
+      let path = dir.path().join("pool_data.data");
+      let key = WalletStateKey::generate().unwrap();
+      let store = PoolStore::open_at(&path, &key).unwrap();
+
+      let weth = ERC20Token::weth();
+      let token_a = fake_token(Address::repeat_byte(0xaa));
+      let token_b = fake_token(Address::repeat_byte(0xbb));
+      let record_a = record_for(weth.address, token_a.address);
+      let record_b = record_for(weth.address, token_b.address);
+      store.put_v4_record(1, &record_a).unwrap();
+      store.put_v4_record(1, &record_b).unwrap();
+
+      let handle = PoolManagerHandle::new(PoolManager::empty());
+      handle.load_from_store(store, &CurrencyDB::default()).unwrap();
+
+      let indexed = handle.read(|manager| manager.cold_v4.get(&(1, weth.address)).cloned());
+      let indexed = indexed.expect("both records are indexed under weth");
+      assert_eq!(indexed.len(), 2);
+      assert!(indexed.contains(&record_a.id()));
+      assert!(indexed.contains(&record_b.id()));
+
+      let mut db = CurrencyDB::default();
+      db.insert_token(1, token_a.clone());
+      assert_eq!(
+         handle.promote_v4_pools_for_tokens(1, &[token_a], &db).unwrap(),
+         1
+      );
+
+      let remaining = handle
+         .read(|manager| manager.cold_v4.get(&(1, weth.address)).cloned())
+         .expect("the other cold record is still indexed");
+      assert_eq!(remaining, vec![record_b.id()]);
+      assert!(
+         handle
+            .read(|manager| manager.cold_v4.get(&(1, record_a.currency1)).cloned())
+            .is_none_or(|ids| ids.is_empty()),
+         "the promoted pool is gone from the new token's bucket"
       );
    }
 
