@@ -1,5 +1,9 @@
 use egui::{Align, Layout, RichText, Ui, vec2};
 
+use crate::core::ZeusContext;
+use crate::core::context::pool_manager::{
+   MAX_V4_MAX_FEE_PERCENT, MAX_V4_SYNC_BLOCK_RANGE, MIN_V4_MAX_FEE_PERCENT, MIN_V4_SYNC_BLOCK_RANGE,
+};
 use crate::gui::SHARED_GUI;
 use egui_elements::{Button, Checkbox, SecureTextEdit, Slider, Theme};
 use egui_lucide::Lucide;
@@ -14,6 +18,14 @@ const SLIPPAGE_TIP: &str =
    "Your transaction will revert if the price changes unfavorably by more than this percentage.";
 
 const DEADLINE_TIP: &str = "The transaction will revert if it is pending for more than this time.";
+
+const SYNC_BLOCK_RANGE_TIP: &str = "Blocks per eth_getLogs request while syncing V4 pools. Lower it when your RPC rejects wide \
+ranges, raise it to finish in fewer requests.";
+
+const V4_MAX_FEE_TIP: &str =
+   "Cleanup Pools deletes any V4 pool that charges more than this. Dynamic-fee pools are skipped.";
+
+const V4_MAX_BASE_FEE_TIP: &str = "Cleanup Pools holds pools paired with ETH, WETH, USDC, USDT or DAI to this lower fee: a real one never charges more.";
 
 /// Single sanitisation point for the swap slippage.
 ///
@@ -97,8 +109,10 @@ impl UniswapSettingsUi {
 
    pub fn show(
       &mut self,
+      ctx: &mut ZeusContext,
       swap_ui_open: bool,
       view_position_open: bool,
+      pools_ui_open: bool,
       theme: &Theme,
       ui: &mut Ui,
    ) {
@@ -142,6 +156,84 @@ impl UniswapSettingsUi {
             );
          });
       });
+
+      if pools_ui_open {
+         // Only the pools window runs a log sync, so the request span is shown only there. The
+         // value lives in the pool catalog, not here: it outlives the session and every sync
+         // reads it back from there.
+         let manager = ctx.pool_manager.clone();
+         let mut block_range = manager.v4_sync_block_range();
+
+         ui.horizontal(|ui| {
+            let text = RichText::new("V4 Sync Block Range").size(theme.typography.normal);
+            ui.label(text).on_hover_text(SYNC_BLOCK_RANGE_TIP);
+
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               ui.label(RichText::new(block_range.to_string()).size(theme.typography.normal));
+
+               let res = ui.add(
+                  Slider::new(
+                     &mut block_range,
+                     MIN_V4_SYNC_BLOCK_RANGE..=MAX_V4_SYNC_BLOCK_RANGE,
+                  )
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
+               );
+
+               if res.changed() {
+                  manager.set_v4_sync_block_range(block_range);
+               }
+            });
+         });
+
+         // The cleanup's ceilings, stored beside the sync span and enforced by the pools window's
+         // button: the slider writes the catalog, never a private copy.
+         let mut max_fee = manager.v4_max_fee_percent();
+         ui.horizontal(|ui| {
+            let text = RichText::new("V4 Max Fee %").size(theme.typography.normal);
+            ui.label(text).on_hover_text(V4_MAX_FEE_TIP);
+
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               ui.label(RichText::new(format!("{max_fee:.2}%")).size(theme.typography.normal));
+
+               let res = ui.add(
+                  Slider::new(
+                     &mut max_fee,
+                     MIN_V4_MAX_FEE_PERCENT..=MAX_V4_MAX_FEE_PERCENT,
+                  )
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
+               );
+
+               if res.changed() {
+                  manager.set_v4_max_fee_percent(max_fee);
+               }
+            });
+         });
+
+         let mut max_base_fee = manager.v4_max_base_fee_percent();
+         ui.horizontal(|ui| {
+            let text = RichText::new("V4 Max Base Fee %").size(theme.typography.normal);
+            ui.label(text).on_hover_text(V4_MAX_BASE_FEE_TIP);
+
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               ui.label(RichText::new(format!("{max_base_fee:.2}%")).size(theme.typography.normal));
+
+               let res = ui.add(
+                  Slider::new(
+                     &mut max_base_fee,
+                     MIN_V4_MAX_FEE_PERCENT..=MAX_V4_MAX_FEE_PERCENT,
+                  )
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
+               );
+
+               if res.changed() {
+                  manager.set_v4_max_base_fee_percent(max_base_fee);
+               }
+            });
+         });
+      }
 
       if swap_ui_open {
          // Max Hops

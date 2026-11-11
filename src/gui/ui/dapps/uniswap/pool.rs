@@ -1,10 +1,15 @@
+use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use egui::{Align, FontId, Grid, Id, Layout, Margin, Order, RichText, Sense, Ui, vec2};
 
 use crate::assets::icons::Icons;
+use crate::core::context::pool_manager::{
+   CatalogLoadReport, V4CatalogStats, V4CleanupConfig, V4CleanupReport, V4SyncConfig, V4SyncReport,
+};
 use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::truncate_symbol_or_name;
@@ -16,7 +21,7 @@ use zeus_eth::{
    alloy_primitives::Address,
    amm::uniswap::{
       AnyUniswapPool, DexKind, FEE_TIERS, FeeAmount, UniswapPool, UniswapV2Pool, UniswapV3Pool,
-      UniswapV4Pool,
+      UniswapV4Pool, v4::DYNAMIC_FEE_FLAG,
    },
    currency::{Currency, ERC20Token},
    utils::batch,
@@ -65,9 +70,6 @@ impl Version {
    }
 }
 
-/// Uniswap V4 `LPFeeLibrary.DYNAMIC_FEE_FLAG`: the hook supplies the fee.
-const DYNAMIC_FEE_FLAG: u32 = 0x80_0000;
-
 struct PoolRow {
    token0: String,
    token1: String,
@@ -75,6 +77,39 @@ struct PoolRow {
    icon1: egui::Image<'static>,
    protocol: &'static str,
    fee: String,
+}
+
+/// How many rows the table is handed at once.
+///
+/// The table measures a row it has not sized by laying it out invisibly, and it re-measures whenever
+/// the row count changes -- which a sync does on every step. On a chain with millions of pools that
+/// pass is the freeze, so the window shows a page and the search is the way into the rest.
+const POOL_TABLE_MAX_ROWS: usize = 500;
+
+/// How often the snapshot may be rebuilt while the catalog is changing under it.
+///
+/// A cleanup deletes a chunk every few milliseconds, and rebuilding this table is a scan of the whole
+/// catalog: without a floor the window would spend the run rebuilding instead of drawing.
+const POOL_TABLE_REBUILD_INTERVAL: Duration = Duration::from_millis(300);
+
+/// The table's rows, kept until something they were built from changes.
+///
+/// Building them is a scan of every pool in the manager, a sort and two icon lookups per row. Doing
+/// that on every frame is what made the window unusable while a sync was adding pools: the pool set
+/// changes once per step, not once per frame.
+struct PoolTable {
+   chain: u64,
+   version: Option<Version>,
+   query: String,
+   tint: bool,
+   /// The catalog revision as it was when the rows were built.
+   revision: (usize, usize, Option<u64>),
+   rows: Vec<PoolRow>,
+   /// Pools that passed the filter, of which `rows` holds the first `POOL_TABLE_MAX_ROWS`.
+   matched: usize,
+   stats: V4CatalogStats,
+   /// When the rows were built, for the rebuild floor.
+   built: Instant,
 }
 
 /// What the add-pool form asks the background task to build.
@@ -227,6 +262,26 @@ pub struct PoolsUi {
    version: Option<Version>,
    add_form: AddPoolForm,
    pub size: (f32, f32),
+   /// Chains with a V4 log sync running, keyed by chain.
+   ///
+   /// Per chain on purpose: a run takes minutes, and switching chain while it works must not show
+   /// the other chain as busy (or let a second run start on the same one).
+   v4_syncing: HashMap<u64, bool>,
+
+   /// Chains with a V4 cleanup running, keyed by chain.
+   ///
+   /// Keyed per chain like the sync flag: a run deletes rows for one chain and switching chain must
+   /// not show the other one as busy.
+   v4_cleaning: HashMap<u64, bool>,
+
+   /// Chains with a catalog load running, keyed by chain.
+   v4_loading: HashMap<u64, bool>,
+
+   /// Chains whose running sync is a resync, keyed by chain: the label says which one it is.
+   v4_resyncing: HashMap<u64, bool>,
+
+   /// The rows the table shows, rebuilt only when the pool set or the filter moves.
+   table: Option<PoolTable>,
 }
 
 impl PoolsUi {
@@ -237,6 +292,11 @@ impl PoolsUi {
          version: None,
          add_form: AddPoolForm::default(),
          size: (600.0, 500.0),
+         v4_syncing: HashMap::new(),
+         v4_cleaning: HashMap::new(),
+         v4_loading: HashMap::new(),
+         v4_resyncing: HashMap::new(),
+         table: None,
       }
    }
 
@@ -266,72 +326,177 @@ impl PoolsUi {
          ui.spacing_mut().button_padding = theme.button_padding;
          let ui_width = ui.available_width();
 
-         let hint = RichText::new("Search pools")
-            .color(theme.colors.text_muted)
-            .size(theme.typography.normal);
-
-         SecureTextEdit::singleline(&mut self.search_query)
-            .visuals(theme.text_edit_visuals())
-            .hint_text(hint)
-            .desired_width(ui_width * 0.5)
-            .margin(Margin::same(10))
-            .font(FontId::proportional(theme.typography.normal))
-            .show(ui);
-
+         // The version filter shares the first line with the search, so the second line has room for
+         // the three run buttons without pushing either row past the card edge.
          ui.allocate_ui_with_layout(
-            vec2(360.0, 36.0),
+            vec2(ui_width, 36.0),
             Layout::left_to_right(Align::Center),
             |ui| {
                self.select_version(theme, ui);
                ui.add_space(theme.spacing.sm);
 
+               let hint = RichText::new("Search pools")
+                  .color(theme.colors.text_muted)
+                  .size(theme.typography.normal);
+
+               SecureTextEdit::singleline(&mut self.search_query)
+                  .visuals(theme.text_edit_visuals())
+                  .hint_text(hint)
+                  .desired_width(ui.available_width())
+                  .margin(Margin::same(10))
+                  .font(FontId::proportional(theme.typography.normal))
+                  .show(ui);
+            },
+         );
+
+         // The span lives in the catalog (the settings modal writes it), so the tooltip states what
+         // the run will actually use.
+         let block_range = ctx.pool_manager.v4_sync_block_range();
+
+         // All five actions on one line: the card is 600 wide and the buttons come to ~577 at the
+         // tighter gap, so the catalog's own accounting gets the row under them.
+         ui.allocate_ui_with_layout(
+            vec2(ui_width, 36.0),
+            Layout::left_to_right(Align::Center),
+            |ui| {
                let text = RichText::new("Add Pool").size(theme.typography.normal);
                let button =
                   Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
                if ui.add(button).clicked() {
                   self.add_form.open();
                }
+
+               ui.add_space(theme.spacing.xs);
+
+               // The sync walks history from the stored checkpoint: minutes of RPC, one at a time,
+               // and the label says so while it runs. Every run in this window touches the same
+               // catalog, so all four disable each other.
+               let syncing = self.is_v4_syncing(chain);
+               let cleaning = self.is_v4_cleaning(chain);
+               let loading = self.is_v4_loading(chain);
+               let busy = syncing || cleaning || loading;
+               let label = if syncing {
+                  "Syncing..."
+               } else {
+                  "Sync V4 Pools"
+               };
+               let text = RichText::new(label).size(theme.typography.normal);
+               let button =
+                  Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
+
+               let clicked = ui
+                  .add_enabled_ui(!busy, |ui| {
+                     ui.add(button).on_hover_text(format!(
+                        "Resumes from the last synced block, {block_range} blocks per log request."
+                     ))
+                  })
+                  .inner
+                  .clicked();
+
+               if clicked {
+                  self.start_v4_sync(ctx, chain, ui.ctx());
+               }
+
+               ui.add_space(theme.spacing.xs);
+
+               // The way back from an over-eager cleanup: dropping the checkpoint makes the run walk
+               // the whole history again, so a pool the catalog no longer holds is found again.
+               let label = if self.is_v4_resyncing(chain) {
+                  "Resyncing..."
+               } else {
+                  "Resync"
+               };
+               let text = RichText::new(label).size(theme.typography.normal);
+               let button =
+                  Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
+
+               let clicked = ui
+                  .add_enabled_ui(!busy, |ui| {
+                     ui.add(button).on_hover_text(
+                        "Forgets the last synced block and scans this chain's V4 pools from the start, so pools an earlier cleanup deleted are discovered again. Takes as long as the first sync.",
+                     )
+                  })
+                  .inner
+                  .clicked();
+
+               if clicked {
+                  self.start_v4_resync(ctx, chain, ui.ctx());
+               }
+
+               ui.add_space(theme.spacing.xs);
+
+               let label = if cleaning {
+                  "Cleaning up..."
+               } else {
+                  "Cleanup Pools"
+               };
+               let text = RichText::new(label).size(theme.typography.normal);
+               let button =
+                  Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
+
+               let clicked = ui
+                  .add_enabled_ui(!busy, |ui| {
+                     ui.add(button).on_hover_text(format!(
+                        "Permanently deletes V4 pools above {}% fee, above {}% when one side is ETH, WETH, USDC, USDT or DAI, pools with no base asset, pools with no in-range liquidity, and pools holding less than the minimum liquidity.",
+                        ctx.pool_manager.v4_max_fee_percent(),
+                        ctx.pool_manager.v4_max_base_fee_percent(),
+                     ))
+                  })
+                  .inner
+                  .clicked();
+
+               if clicked {
+                  self.start_v4_cleanup(ctx, chain);
+               }
+
+               ui.add_space(theme.spacing.xs);
+
+               // The catalog's cold rows are the pools nobody can see yet. Reading them resolves the
+               // tokens they hold, which is how a dead pair gets judged by eye instead of by rule.
+               let label = if loading {
+                  "Loading..."
+               } else {
+                  "Load All Pools"
+               };
+               let text = RichText::new(label).size(theme.typography.normal);
+               let button =
+                  Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
+
+               let clicked = ui
+                  .add_enabled_ui(!busy, |ui| {
+                     ui.add(button).on_hover_text(
+                        "Reads every pool in this chain's catalog into memory, fetching the tokens it does not know yet so they can be inspected. The fetched tokens are not saved to the wallet.",
+                     )
+                  })
+                  .inner
+                  .clicked();
+
+               if clicked {
+                  self.start_load_catalog(ctx, chain);
+               }
             },
          );
+
+         // The rows are a snapshot, rebuilt when the pool set or the filter moves: scanning the
+         // manager every frame is what froze this window on a chain with hundreds of thousands.
+         self.refresh_table(&*ctx, chain, theme, &icons);
+
+         // The accounting alone on its line now that the actions share the one above; the width is
+         // pinned so it stays flush left instead of centring with its own text.
+         ui.horizontal(|ui| {
+            ui.set_width(ui_width);
+            self.v4_sync_status(&*ctx, theme, ui);
+         });
 
          ui.add_space(20.0);
 
          let selected_version = self.version.unwrap_or(Version::All);
-         let tint = theme.image_tint_recommended;
-         let query = self.search_query.as_str();
-         let manager = ctx.pool_manager.clone();
 
-         let rows: Vec<PoolRow> = manager.read(|manager| {
-            let mut rows: Vec<PoolRow> = manager
-               .pools
-               .values()
-               .filter(|pool| pool.chain_id() == chain)
-               .filter(|pool| {
-                  selected_version.is_all()
-                     || selected_version.is_v2() && pool.dex_kind().is_v2()
-                     || selected_version.is_v3() && pool.dex_kind().is_v3()
-                     || selected_version.is_v4() && pool.dex_kind().is_v4()
-               })
-               .filter(|pool| valid_search(pool, query))
-               .map(|pool| {
-                  let token0 = pool.currency0();
-                  let token1 = pool.currency1();
+         let Some(table) = &self.table else {
+            return;
+         };
 
-                  PoolRow {
-                     token0: truncate_symbol_or_name(token0.symbol(), 10),
-                     token1: truncate_symbol_or_name(token1.symbol(), 10),
-                     icon0: icons.currency_icon_x32(token0, tint),
-                     icon1: icons.currency_icon_x32(token1, tint),
-                     protocol: protocol_str(pool),
-                     fee: fee_label(pool.fee().fee()),
-                  }
-               })
-               .collect();
-
-            rows.sort_by(|a, b| a.token0.cmp(&b.token0).then_with(|| a.token1.cmp(&b.token1)));
-
-            rows
-         });
+         let rows = table.rows.as_slice();
 
          if rows.is_empty() {
             ui.add_space(theme.spacing.lg);
@@ -343,9 +508,22 @@ impl PoolsUi {
             return;
          }
 
+         // A page, not the list: say so, or the end of the table reads as the end of the catalog.
+         if table.matched > rows.len() {
+            ui.label(
+               RichText::new(format!(
+                  "Showing the first {} of {} matching pools -- narrow the search to reach the rest.",
+                  rows.len(),
+                  table.matched
+               ))
+               .size(theme.typography.small)
+               .color(theme.colors.text_muted),
+            );
+         }
+
          let table_height = (ui.available_height() - theme.spacing.sm).max(140.0);
 
-         Table::new("pools_ui", &rows)
+         Table::new("pools_ui", rows)
             .columns([
                Column::Fr(3.2), // Pool
                Column::Fr(1.0), // Protocol
@@ -596,6 +774,490 @@ impl PoolsUi {
       }
    }
 
+   /// Whether a V4 sync or resync is running on `chain`.
+   fn is_v4_syncing(&self, chain: u64) -> bool {
+      self.v4_syncing.get(&chain).copied().unwrap_or(false)
+   }
+
+   /// Whether the running V4 run is a resync rather than a checkpointed sync.
+   fn is_v4_resyncing(&self, chain: u64) -> bool {
+      self.v4_resyncing.get(&chain).copied().unwrap_or(false)
+   }
+
+   /// The archive check both V4 log runs share.
+   ///
+   /// Deliberate: they read historic log ranges, so without an archive endpoint they would fail
+   /// inside the first step instead of explaining themselves here.
+   fn v4_archive_ready(&self, ctx: &ZeusContext, chain: u64, egui_ctx: &egui::Context) -> bool {
+      if ctx.client_manager.rpc_archive_available(chain) {
+         return true;
+      }
+
+      Toast::new("No archive RPC available")
+         .description(format!(
+            "Syncing V4 pools reads past logs, so it needs an archive endpoint for chain {chain}."
+         ))
+         .tone(ChipRole::Error)
+         .duration(Duration::from_secs(6))
+         .show(egui_ctx);
+
+      false
+   }
+
+   fn start_v4_sync(&mut self, ctx: &mut ZeusContext, chain: u64, egui_ctx: &egui::Context) {
+      if self.is_v4_syncing(chain) {
+         return;
+      }
+
+      if !self.v4_archive_ready(ctx, chain, egui_ctx) {
+         return;
+      }
+
+      self.v4_syncing.insert(chain, true);
+
+      // The top panel reads this flag as "this chain is syncing", and the wallet's own state sync
+      // treats it as a lock. Claim it only when nobody else holds it, so a run of ours can never
+      // clear the flag of a state sync that started first.
+      let claimed = !ctx.state_sync.get(&chain).copied().unwrap_or(false);
+      if claimed {
+         ctx.state_sync.insert(chain, true);
+      }
+
+      crate::runtime::rt().spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let result = ctx
+            .pool_manager()
+            .sync_v4_pools(ctx.clone(), chain, V4SyncConfig::default())
+            .await;
+
+         if claimed {
+            ctx.set_chain_syncing(chain, false);
+         }
+
+         SHARED_GUI.write(|gui| {
+            let (title, message, tone) = gui.uniswap.pools_ui.finish_v4_sync(chain, false, result);
+
+            Toast::new(title)
+               .description(message)
+               .tone(tone)
+               .duration(Duration::from_secs(6))
+               .show(&gui.egui_ctx);
+
+            gui.request_repaint();
+         });
+      });
+   }
+
+   /// Re-sync `chain` from its V4 creation block, so pools an earlier cleanup deleted can come back.
+   ///
+   /// The checkpoint is dropped before the scan, which is what makes this "from scratch": every pool
+   /// the chain ever emitted is discovered again and judged by the current cleanup rules.
+   fn start_v4_resync(&mut self, ctx: &mut ZeusContext, chain: u64, egui_ctx: &egui::Context) {
+      if self.is_v4_syncing(chain) || self.is_v4_cleaning(chain) || self.is_v4_loading(chain) {
+         return;
+      }
+
+      if !self.v4_archive_ready(ctx, chain, egui_ctx) {
+         return;
+      }
+
+      self.v4_syncing.insert(chain, true);
+      self.v4_resyncing.insert(chain, true);
+
+      // The same indicator and the same lock as a sync: this is a sync that starts further back.
+      let claimed = !ctx.state_sync.get(&chain).copied().unwrap_or(false);
+      if claimed {
+         ctx.state_sync.insert(chain, true);
+      }
+
+      crate::runtime::rt().spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let result = ctx
+            .pool_manager()
+            .resync_v4_pools(ctx.clone(), chain, V4SyncConfig::default())
+            .await;
+
+         if claimed {
+            ctx.set_chain_syncing(chain, false);
+         }
+
+         SHARED_GUI.write(|gui| {
+            let (title, message, tone) = gui.uniswap.pools_ui.finish_v4_sync(chain, true, result);
+
+            Toast::new(title)
+               .description(message)
+               .tone(tone)
+               .duration(Duration::from_secs(6))
+               .show(&gui.egui_ctx);
+
+            gui.request_repaint();
+         });
+      });
+   }
+
+   fn finish_v4_sync(
+      &mut self,
+      chain: u64,
+      resync: bool,
+      result: Result<V4SyncReport, anyhow::Error>,
+   ) -> (&'static str, String, ChipRole) {
+      self.v4_syncing.insert(chain, false);
+      self.v4_resyncing.insert(chain, false);
+
+      let report = match result {
+         Ok(report) => report,
+         Err(e) => {
+            let title = if resync {
+               "V4 resync failed"
+            } else {
+               "V4 sync failed"
+            };
+
+            return (title, format!("{e:?}"), ChipRole::Error);
+         }
+      };
+
+      let mut message = if resync {
+         format!(
+            "Scanned from block {} to {}: {} new pools ({} hot, {} cold)",
+            report.from_block,
+            report.to_block,
+            report.hot + report.cold,
+            report.hot,
+            report.cold
+         )
+      } else {
+         format!(
+            "{} new pools ({} hot, {} cold) up to block {}",
+            report.hot + report.cold,
+            report.hot,
+            report.cold,
+            report.to_block
+         )
+      };
+
+      // The cleanup runs inside the sync, so its result belongs in this toast: a pool that vanished
+      // is explained here, not in the log.
+      if let Some(error) = &report.cleanup_error {
+         return (
+            "V4 cleanup failed",
+            format!("{message}; {error}"),
+            ChipRole::Error,
+         );
+      }
+
+      if let Some(cleanup) = &report.cleanup {
+         message.push_str(&format!(
+            "; {} of {} deleted ({} high fee, {} base-asset fee, {} no base asset, {} dead, {} illiquid), {} unjudged",
+            cleanup.removed(),
+            cleanup.scanned,
+            cleanup.removed_by_fee,
+            cleanup.removed_by_base_fee,
+            cleanup.removed_no_base,
+            cleanup.removed_dead,
+            cleanup.removed_illiquid,
+            cleanup.unjudged(),
+         ));
+      }
+
+      let title = if resync {
+         "V4 pools resynced"
+      } else {
+         "V4 pools synced"
+      };
+
+      (title, message, ChipRole::Success)
+   }
+
+   fn is_v4_cleaning(&self, chain: u64) -> bool {
+      self.v4_cleaning.get(&chain).copied().unwrap_or(false)
+   }
+
+   /// Delete this chain's dead V4 pools, or say why the run cannot start.
+   ///
+   /// No archive check: the fee rules read the catalog and the liquidity rule reads current state, so
+   /// the historic endpoint a sync needs is not required here.
+   fn start_v4_cleanup(&mut self, ctx: &mut ZeusContext, chain: u64) {
+      if self.is_v4_cleaning(chain) || self.is_v4_syncing(chain) {
+         return;
+      }
+
+      self.v4_cleaning.insert(chain, true);
+
+      // Same indicator as the sync: the top panel reads it as "this chain is busy". Claim it only
+      // when nobody else holds it, so this run can never clear another run's flag.
+      let claimed = !ctx.state_sync.get(&chain).copied().unwrap_or(false);
+      if claimed {
+         ctx.state_sync.insert(chain, true);
+      }
+
+      crate::runtime::rt().spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let result = ctx
+            .pool_manager()
+            .cleanup_v4_pools(ctx.clone(), chain, V4CleanupConfig::default())
+            .await;
+
+         if claimed {
+            ctx.set_chain_syncing(chain, false);
+         }
+
+         SHARED_GUI.write(|gui| {
+            let (title, message, tone) = gui.uniswap.pools_ui.finish_v4_cleanup(chain, result);
+
+            Toast::new(title)
+               .description(message)
+               .tone(tone)
+               .duration(Duration::from_secs(6))
+               .show(&gui.egui_ctx);
+
+            gui.request_repaint();
+         });
+      });
+   }
+
+   fn finish_v4_cleanup(
+      &mut self,
+      chain: u64,
+      result: Result<V4CleanupReport, anyhow::Error>,
+   ) -> (&'static str, String, ChipRole) {
+      self.v4_cleaning.insert(chain, false);
+
+      match result {
+         Ok(report) => (
+            "Pools cleaned",
+            format!(
+               "{} of {} V4 pools deleted ({} high fee, {} base-asset fee, {} no base asset, {} dead, {} illiquid), {} unjudged",
+               report.removed(),
+               report.scanned,
+               report.removed_by_fee,
+               report.removed_by_base_fee,
+               report.removed_no_base,
+               report.removed_dead,
+               report.removed_illiquid,
+               report.unjudged(),
+            ),
+            ChipRole::Success,
+         ),
+         Err(e) => (
+            "Cleanup failed",
+            format!("{e:?}"),
+            ChipRole::Error,
+         ),
+      }
+   }
+
+   fn is_v4_loading(&self, chain: u64) -> bool {
+      self.v4_loading.get(&chain).copied().unwrap_or(false)
+   }
+
+   /// Read this chain's cold catalog rows into memory, fetching the tokens they hold.
+   fn start_load_catalog(&mut self, ctx: &mut ZeusContext, chain: u64) {
+      if self.is_v4_loading(chain) || self.is_v4_syncing(chain) || self.is_v4_cleaning(chain) {
+         return;
+      }
+
+      self.v4_loading.insert(chain, true);
+
+      // Same indicator as the other two runs: the top panel reads it as "this chain is busy".
+      let claimed = !ctx.state_sync.get(&chain).copied().unwrap_or(false);
+      if claimed {
+         ctx.state_sync.insert(chain, true);
+      }
+
+      crate::runtime::rt().spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let result = ctx.pool_manager().load_catalog_pools(ctx.clone(), chain).await;
+
+         if claimed {
+            ctx.set_chain_syncing(chain, false);
+         }
+
+         SHARED_GUI.write(|gui| {
+            let (title, message, tone) = gui.uniswap.pools_ui.finish_load_catalog(chain, result);
+
+            Toast::new(title)
+               .description(message)
+               .tone(tone)
+               .duration(Duration::from_secs(6))
+               .show(&gui.egui_ctx);
+
+            gui.request_repaint();
+         });
+      });
+   }
+
+   fn finish_load_catalog(
+      &mut self,
+      chain: u64,
+      result: Result<CatalogLoadReport, anyhow::Error>,
+   ) -> (&'static str, String, ChipRole) {
+      self.v4_loading.insert(chain, false);
+
+      match result {
+         Ok(report) => (
+            "Pools loaded",
+            format!(
+               "{} cold pools now in memory ({} tokens fetched, {} unreadable)",
+               report.loaded, report.tokens, report.failed
+            ),
+            ChipRole::Success,
+         ),
+         Err(e) => (
+            "Loading failed",
+            format!("{e:?}"),
+            ChipRole::Error,
+         ),
+      }
+   }
+
+   /// Rebuild the table's rows when anything they were built from changed.
+   ///
+   /// The revision is what decides: it moves on every add and every delete, so a sync step rebuilds
+   /// once and every frame that changed nothing reuses the snapshot.
+   fn refresh_table(&mut self, ctx: &ZeusContext, chain: u64, theme: &Theme, icons: &Icons) {
+      let revision = ctx.pool_manager.v4_revision(chain);
+      let tint = theme.image_tint_recommended;
+
+      let fresh = self.table.as_ref().is_some_and(|table| {
+         table.chain == chain
+            && table.version == self.version
+            && table.query == self.search_query
+            && table.tint == tint
+            && table.revision == revision
+      });
+      if fresh {
+         return;
+      }
+
+      // The filter must answer at once; a catalog that is being written to can wait for the floor.
+      let filter_moved = self.table.as_ref().is_none_or(|table| {
+         table.chain != chain
+            || table.version != self.version
+            || table.query != self.search_query
+            || table.tint != tint
+      });
+      if !filter_moved
+         && self
+            .table
+            .as_ref()
+            .is_some_and(|table| table.built.elapsed() < POOL_TABLE_REBUILD_INTERVAL)
+      {
+         return;
+      }
+
+      let query = self.search_query.to_lowercase();
+      let selected_version = self.version.unwrap_or(Version::All);
+      let manager = ctx.pool_manager.clone();
+
+      let (rows, matched) = manager.read(|manager| {
+         let mut matched = manager
+            .pools
+            .values()
+            .filter(|pool| pool.chain_id() == chain)
+            .filter(|pool| {
+               selected_version.is_all()
+                  || selected_version.is_v2() && pool.dex_kind().is_v2()
+                  || selected_version.is_v3() && pool.dex_kind().is_v3()
+                  || selected_version.is_v4() && pool.dex_kind().is_v4()
+            })
+            .filter(|pool| valid_search_lowered(pool, &query))
+            .collect::<Vec<_>>();
+
+         let matched_count = matched.len();
+
+         // One page is built, not the list: the table pays a measure pass over every row it is
+         // given. The partition keeps the page in sort order without sorting the whole catalog.
+         if matched_count > POOL_TABLE_MAX_ROWS {
+            matched.select_nth_unstable_by(POOL_TABLE_MAX_ROWS, |a, b| pool_order(a, b));
+            matched.truncate(POOL_TABLE_MAX_ROWS);
+         }
+         matched.sort_unstable_by(|a, b| pool_order(a, b));
+
+         let rows = matched.into_iter().map(|pool| pool_row(pool, icons, tint)).collect::<Vec<_>>();
+
+         (rows, matched_count)
+      });
+
+      self.table = Some(PoolTable {
+         chain,
+         version: self.version,
+         query: self.search_query.clone(),
+         tint,
+         revision,
+         rows,
+         matched,
+         stats: ctx.pool_manager.v4_catalog_stats(chain),
+         built: Instant::now(),
+      });
+   }
+
+   /// Where the last V4 sync stopped, linked to that block on the chain's explorer, then what the
+   /// catalog holds underneath it.
+   ///
+   /// The checkpoint is what the next run resumes from, so showing it is the only way to tell
+   /// "already synced" from "never ran". The three lines below are the catalog's own accounting: a
+   /// cold record is a 68-byte row on disk with an id in the index, a hot pool is a live struct.
+   fn v4_sync_status(&self, ctx: &ZeusContext, theme: &Theme, ui: &mut Ui) {
+      let Some(table) = &self.table else {
+         return;
+      };
+
+      // Both come from the snapshot the table is showing, so the numbers and the rows agree.
+      let last_sync = table.revision.2;
+      let stats = table.stats;
+
+      ui.vertical(|ui| {
+         ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, 2.0);
+
+         ui.horizontal(|ui| {
+            ui.label(
+               RichText::new("Last synced block:")
+                  .size(theme.typography.small)
+                  .color(theme.colors.text_muted),
+            );
+
+            match last_sync {
+               Some(block) => {
+                  // `block_explorer` carries a trailing slash for some chains.
+                  let explorer = ctx.chain.block_explorer().trim_end_matches('/');
+                  ui.hyperlink_to(
+                     RichText::new(block.to_string())
+                        .size(theme.typography.small)
+                        .color(theme.colors.info),
+                     format!("{explorer}/block/{block}"),
+                  );
+               }
+               None => {
+                  ui.label(
+                     RichText::new("never")
+                        .size(theme.typography.small)
+                        .color(theme.colors.text_muted),
+                  );
+               }
+            }
+         });
+
+         for text in [
+            format!("{} V4 pools in the db", stats.total),
+            format!(
+               "{} cold ({} in memory)",
+               stats.cold,
+               human_bytes(stats.cold_bytes)
+            ),
+            format!(
+               "{} hot ({} in memory)",
+               stats.hot,
+               human_bytes(stats.hot_bytes)
+            ),
+         ] {
+            ui.label(
+               RichText::new(text).size(theme.typography.small).color(theme.colors.text_muted),
+            );
+         }
+      });
+   }
+
    fn start_add(&mut self, chain: u64, request: AddPoolRequest) {
       self.add_form.adding = true;
       self.add_form.error = None;
@@ -634,6 +1296,20 @@ impl PoolsUi {
             None
          }
       }
+   }
+}
+
+/// A byte count the pools window can show: whole bytes, then one decimal above a kilobyte.
+fn human_bytes(bytes: usize) -> String {
+   const KB: f64 = 1024.0;
+   let bytes = bytes as f64;
+
+   if bytes < KB {
+      format!("{bytes:.0} B")
+   } else if bytes < KB * KB {
+      format!("{:.1} KB", bytes / KB)
+   } else {
+      format!("{:.1} MB", bytes / (KB * KB))
    }
 }
 
@@ -766,6 +1442,28 @@ fn parse_token_address(text: &str, field: &str) -> Result<Address, String> {
    }
 }
 
+/// The table's order: the first side's symbol, then the second's.
+fn pool_order(a: &AnyUniswapPool, b: &AnyUniswapPool) -> Ordering {
+   a.currency0()
+      .symbol()
+      .cmp(b.currency0().symbol())
+      .then_with(|| a.currency1().symbol().cmp(b.currency1().symbol()))
+}
+
+/// One row's text and icons, built once per snapshot.
+fn pool_row(pool: &AnyUniswapPool, icons: &Icons, tint: bool) -> PoolRow {
+   let currency0 = pool.currency0();
+   let currency1 = pool.currency1();
+
+   PoolRow {
+      token0: truncate_symbol_or_name(currency0.symbol(), 10),
+      token1: truncate_symbol_or_name(currency1.symbol(), 10),
+      icon0: icons.currency_icon_x32(currency0, tint),
+      icon1: icons.currency_icon_x32(currency1, tint),
+      protocol: protocol_str(pool),
+      fee: fee_label(pool.fee().fee()),
+   }
+}
 fn protocol_str(pool: &AnyUniswapPool) -> &'static str {
    if pool.dex_kind().is_v2() {
       "V2"
@@ -942,27 +1640,27 @@ async fn insert_pool(ctx: ZeusCtx, chain: u64, request: AddPoolRequest) -> Resul
    Ok(format!("{label} added to the pool list"))
 }
 
-fn valid_search(pool: &AnyUniswapPool, query: &str) -> bool {
-   let query = query.to_lowercase();
-
+/// Whether `pool` matches a search, with the query already lowered: the table's loop runs this over
+/// every pool in the catalog, so it must not lower the query again for each one.
+fn valid_search_lowered(pool: &AnyUniswapPool, query: &str) -> bool {
    if query.is_empty() {
       return true;
    }
 
-   if pool.currency0().symbol().to_lowercase().contains(&query) {
+   if pool.currency0().symbol().to_lowercase().contains(query) {
       return true;
    }
 
-   if pool.currency1().symbol().to_lowercase().contains(&query) {
+   if pool.currency1().symbol().to_lowercase().contains(query) {
       return true;
    }
 
    if pool.dex_kind().is_v2() || pool.dex_kind().is_v3() {
-      if pool.address().to_string().to_lowercase().contains(&query) {
+      if pool.address().to_string().to_lowercase().contains(query) {
          return true;
       }
    } else {
-      if pool.id().to_string().to_lowercase().contains(&query) {
+      if pool.id().to_string().to_lowercase().contains(query) {
          return true;
       }
    };
@@ -973,6 +1671,13 @@ fn valid_search(pool: &AnyUniswapPool, query: &str) -> bool {
 #[cfg(test)]
 mod tests {
    use super::*;
+
+   #[test]
+   fn human_bytes_picks_a_unit() {
+      assert_eq!(human_bytes(512), "512 B");
+      assert_eq!(human_bytes(1536), "1.5 KB");
+      assert_eq!(human_bytes(6 * 1024 * 1024), "6.0 MB");
+   }
 
    const TOKEN_A: &str = "0x0000000000000000000000000000000000000001";
    const TOKEN_B: &str = "0x0000000000000000000000000000000000000002";

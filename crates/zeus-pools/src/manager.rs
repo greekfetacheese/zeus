@@ -40,6 +40,22 @@ fn default_discover_v4_pools() -> bool {
    false
 }
 
+/// Must match `V4_SYNC_BLOCK_RANGE` in the wallet's `pool_manager`; this crate only mirrors the
+/// JSON layout and has no dependency on `zeus-core`.
+fn default_v4_sync_block_range() -> u64 {
+   5_000
+}
+
+/// Must match `DEFAULT_V4_MAX_FEE_PERCENT` in the wallet's `pool_manager`.
+fn default_v4_max_fee_percent() -> f32 {
+   2.0
+}
+
+/// Must match `DEFAULT_V4_MAX_BASE_FEE_PERCENT` in the wallet's `pool_manager`.
+fn default_v4_max_base_fee_percent() -> f32 {
+   1.0
+}
+
 fn default_ignore_chains() -> IgnoreChains {
    let mut chains = HashSet::new();
    chains.insert(BASE);
@@ -77,6 +93,18 @@ pub struct PoolManager {
    #[serde(default = "default_discover_v4_pools")]
    pub discover_v4_pools: bool,
 
+   /// Blocks per `eth_getLogs` during a V4 sync.
+   #[serde(default = "default_v4_sync_block_range")]
+   pub v4_sync_block_range: u64,
+
+   /// Fee ceiling of the V4 cleanup, in percent.
+   #[serde(default = "default_v4_max_fee_percent")]
+   pub v4_max_fee_percent: f32,
+
+   /// The stricter ceiling the cleanup applies to pools that pair a base asset.
+   #[serde(default = "default_v4_max_base_fee_percent")]
+   pub v4_max_base_fee_percent: f32,
+
    #[serde(default = "default_ignore_chains")]
    pub ignore_chains: IgnoreChains,
 }
@@ -92,6 +120,9 @@ impl Default for PoolManager {
          batch_size_for_updating_pool_state: default_batch_size_for_updating_pool_state(),
          batch_size_for_discovering_pools: default_batch_size_for_discovering_pools(),
          discover_v4_pools: default_discover_v4_pools(),
+         v4_sync_block_range: default_v4_sync_block_range(),
+         v4_max_fee_percent: default_v4_max_fee_percent(),
+         v4_max_base_fee_percent: default_v4_max_base_fee_percent(),
          ignore_chains: default_ignore_chains(),
       }
    }
