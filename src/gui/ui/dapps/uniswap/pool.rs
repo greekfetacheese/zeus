@@ -7,7 +7,7 @@ use egui::{Align, FontId, Grid, Id, Layout, Margin, Order, RichText, Sense, Ui, 
 
 use crate::assets::icons::Icons;
 use crate::core::context::pool_manager::{
-   V4CleanupConfig, V4CleanupReport, V4SyncConfig, V4SyncReport,
+   CatalogLoadReport, V4CleanupConfig, V4CleanupReport, V4SyncConfig, V4SyncReport,
 };
 use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
@@ -239,6 +239,9 @@ pub struct PoolsUi {
    /// Keyed per chain like the sync flag: a run deletes rows for one chain and switching chain must
    /// not show the other one as busy.
    v4_cleaning: HashMap<u64, bool>,
+
+   /// Chains with a catalog load running, keyed by chain.
+   v4_loading: HashMap<u64, bool>,
 }
 
 impl PoolsUi {
@@ -251,6 +254,7 @@ impl PoolsUi {
          size: (600.0, 500.0),
          v4_syncing: HashMap::new(),
          v4_cleaning: HashMap::new(),
+         v4_loading: HashMap::new(),
       }
    }
 
@@ -350,6 +354,8 @@ impl PoolsUi {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                let syncing = self.is_v4_syncing(chain);
                let cleaning = self.is_v4_cleaning(chain);
+               let loading = self.is_v4_loading(chain);
+               let busy = syncing || cleaning || loading;
 
                let label = if cleaning {
                   "Cleaning up..."
@@ -361,7 +367,7 @@ impl PoolsUi {
                   Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
 
                let clicked = ui
-                  .add_enabled_ui(!(syncing || cleaning), |ui| {
+                  .add_enabled_ui(!busy, |ui| {
                      ui.add(button).on_hover_text(format!(
                         "Permanently deletes V4 pools above {}% fee, above {}% when one side is ETH, WETH, USDC, USDT or DAI, pools with no in-range liquidity, and pools holding less than the minimum liquidity.",
                         ctx.pool_manager.v4_max_fee_percent(),
@@ -373,6 +379,32 @@ impl PoolsUi {
 
                if clicked {
                   self.start_v4_cleanup(ctx, chain);
+               }
+
+               ui.add_space(theme.spacing.sm);
+
+               // The catalog's cold rows are the pools nobody can see yet. Reading them resolves the tokens
+               // they hold, which is how a dead pair gets judged by eye instead of by rule.
+               let label = if loading {
+                  "Loading..."
+               } else {
+                  "Load All Pools"
+               };
+               let text = RichText::new(label).size(theme.typography.normal);
+               let button =
+                  Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
+
+               let clicked = ui
+                  .add_enabled_ui(!busy, |ui| {
+                     ui.add(button).on_hover_text(
+                        "Reads every pool in this chain's catalog into memory, fetching the tokens it does not know yet so they can be inspected and swapped.",
+                     )
+                  })
+                  .inner
+                  .clicked();
+
+               if clicked {
+                  self.start_load_catalog(ctx, chain);
                }
             });
          });
@@ -836,6 +868,70 @@ impl PoolsUi {
          ),
          Err(e) => (
             "Cleanup failed",
+            format!("{e:?}"),
+            ChipRole::Error,
+         ),
+      }
+   }
+
+   fn is_v4_loading(&self, chain: u64) -> bool {
+      self.v4_loading.get(&chain).copied().unwrap_or(false)
+   }
+
+   /// Read this chain's cold catalog rows into memory, fetching the tokens they hold.
+   fn start_load_catalog(&mut self, ctx: &mut ZeusContext, chain: u64) {
+      if self.is_v4_loading(chain) || self.is_v4_syncing(chain) || self.is_v4_cleaning(chain) {
+         return;
+      }
+
+      self.v4_loading.insert(chain, true);
+
+      // Same indicator as the other two runs: the top panel reads it as "this chain is busy".
+      let claimed = !ctx.state_sync.get(&chain).copied().unwrap_or(false);
+      if claimed {
+         ctx.state_sync.insert(chain, true);
+      }
+
+      crate::runtime::rt().spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let result = ctx.pool_manager().load_catalog_pools(ctx.clone(), chain).await;
+
+         if claimed {
+            ctx.set_chain_syncing(chain, false);
+         }
+
+         SHARED_GUI.write(|gui| {
+            let (title, message, tone) = gui.uniswap.pools_ui.finish_load_catalog(chain, result);
+
+            Toast::new(title)
+               .description(message)
+               .tone(tone)
+               .duration(Duration::from_secs(6))
+               .show(&gui.egui_ctx);
+
+            gui.request_repaint();
+         });
+      });
+   }
+
+   fn finish_load_catalog(
+      &mut self,
+      chain: u64,
+      result: Result<CatalogLoadReport, anyhow::Error>,
+   ) -> (&'static str, String, ChipRole) {
+      self.v4_loading.insert(chain, false);
+
+      match result {
+         Ok(report) => (
+            "Pools loaded",
+            format!(
+               "{} cold pools now in memory ({} tokens fetched, {} unreadable)",
+               report.loaded, report.tokens, report.failed
+            ),
+            ChipRole::Success,
+         ),
+         Err(e) => (
+            "Loading failed",
             format!("{e:?}"),
             ChipRole::Error,
          ),

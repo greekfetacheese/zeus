@@ -120,6 +120,22 @@ const V4_CLEANUP_STATE_BATCH: usize = 100;
 /// Pools between progress lines while the cleanup walks the catalog.
 const V4_CLEANUP_PROGRESS_STEP: usize = 20_000;
 
+/// Token addresses per `getERC20InfoBatch` call when loading the catalog into memory.
+const V4_CATALOG_TOKEN_BATCH: usize = 100;
+
+/// What one [`PoolManagerHandle::load_catalog_pools`] run brought into memory.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CatalogLoadReport {
+   /// Distinct currencies the chain's cold index knows.
+   pub indexed: usize,
+   /// Tokens whose metadata was fetched and stored.
+   pub tokens: usize,
+   /// Addresses the batch could not describe: an NFT, or a contract that is not an ERC20.
+   pub failed: usize,
+   /// Cold records that became full pools, so the pools window can show them.
+   pub loaded: usize,
+}
+
 /// The knobs of one [`PoolManagerHandle::sync_v4_pools`] run.
 ///
 /// A `0` means "use the default": [`V4_SYNC_STEP_BLOCKS`], [`V4_SYNC_BLOCK_RANGE`] and the client
@@ -761,6 +777,105 @@ impl PoolManagerHandle {
       }
 
       Ok(promoted)
+   }
+
+   /// Pull every cold V4 record on `chain` into memory, so the pools window can show it.
+   ///
+   /// A record is cold because one of its currencies is unknown, so this fetches the metadata of every
+   /// unknown address in the chain's cold index (one `getERC20InfoBatch` call per
+   /// [`V4_CATALOG_TOKEN_BATCH`] addresses), stores those tokens in the currency DB and promotes the
+   /// records that now resolve. Nothing is deleted and the catalog keeps every row: the pools simply
+   /// become hot, which is what makes them visible -- and swappable.
+   ///
+   /// The fetched tokens stay in the currency DB, so they are part of the wallet from now on: that is
+   /// what a token import means, and it is the reason this is a button rather than something the
+   /// cleanup does on its own.
+   pub async fn load_catalog_pools(
+      &self,
+      ctx: ZeusCtx,
+      chain: u64,
+   ) -> Result<CatalogLoadReport, anyhow::Error> {
+      let mut report = CatalogLoadReport::default();
+
+      let addresses = self.read(|manager| {
+         manager
+            .cold_v4
+            .keys()
+            .filter(|(pool_chain, _)| *pool_chain == chain)
+            .map(|(_, address)| *address)
+            .collect::<HashSet<Address>>()
+      });
+      report.indexed = addresses.len();
+
+      let known = ctx.read(|ctx| ctx.currency_db.clone());
+      let missing = addresses
+         .into_iter()
+         .filter(|address| {
+            !address.is_zero() && resolve_currency(chain, *address, &known).is_none()
+         })
+         .collect::<Vec<_>>();
+
+      if missing.is_empty() {
+         return Ok(report);
+      }
+
+      let client = ctx.get_client(chain).await?;
+      let concurrency = ctx.get_client_manager().concurrency().max(1);
+      let semaphore = Arc::new(Semaphore::new(concurrency));
+      let (tx, mut rx) =
+         mpsc::channel::<(usize, Result<Vec<ERC20Token>, anyhow::Error>)>(concurrency);
+
+      for chunk in missing.chunks(V4_CATALOG_TOKEN_BATCH) {
+         let client = client.clone();
+         let tx = tx.clone();
+         let semaphore = semaphore.clone();
+         let chunk = chunk.to_vec();
+
+         ctx.rt().spawn(async move {
+            let Ok(_permit) = semaphore.acquire_owned().await else {
+               return;
+            };
+
+            let result = ERC20Token::from_batch(client, chain, chunk.clone()).await;
+            let _ = tx.send((chunk.len(), result)).await;
+         });
+      }
+
+      drop(tx);
+
+      let mut fetched = Vec::new();
+      while let Some((asked, result)) = rx.recv().await {
+         let tokens = match result {
+            Ok(tokens) => tokens,
+            Err(e) => {
+               tracing::warn!(
+                  "V4 catalog load: {} tokens could not be read: {:?}",
+                  asked,
+                  e
+               );
+               report.failed += asked;
+               continue;
+            }
+         };
+
+         // An address the batch skipped is not an ERC20, or would not decode.
+         report.failed += asked.saturating_sub(tokens.len());
+         report.tokens += tokens.len();
+
+         ctx.write(|ctx| {
+            for token in &tokens {
+               ctx.currency_db.insert_token(chain, token.clone());
+            }
+         });
+
+         fetched.extend(tokens);
+      }
+
+      // The promotions read the currency DB, so they follow the inserts.
+      let known = ctx.read(|ctx| ctx.currency_db.clone());
+      report.loaded = self.promote_v4_pools_for_tokens(chain, &fetched, &known)?;
+
+      Ok(report)
    }
 
    /// Discover all the possible V2/V3/V4 pools for the given tokens
