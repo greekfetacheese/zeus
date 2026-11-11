@@ -5,6 +5,7 @@ use std::time::Duration;
 use egui::{Align, FontId, Grid, Id, Layout, Margin, Order, RichText, Sense, Ui, vec2};
 
 use crate::assets::icons::Icons;
+use crate::core::context::pool_manager::{V4SyncConfig, V4SyncReport};
 use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::truncate_symbol_or_name;
@@ -227,6 +228,8 @@ pub struct PoolsUi {
    version: Option<Version>,
    add_form: AddPoolForm,
    pub size: (f32, f32),
+   /// A V4 log sync is running. It can take minutes, so the button stays disabled until it returns.
+   v4_syncing: bool,
 }
 
 impl PoolsUi {
@@ -237,6 +240,7 @@ impl PoolsUi {
          version: None,
          add_form: AddPoolForm::default(),
          size: (600.0, 500.0),
+         v4_syncing: false,
       }
    }
 
@@ -278,8 +282,10 @@ impl PoolsUi {
             .font(FontId::proportional(theme.typography.normal))
             .show(ui);
 
+         // Wider than the old 360 box so the third control fits without pushing the row past
+         // the window edge, still centred under the search box.
          ui.allocate_ui_with_layout(
-            vec2(360.0, 36.0),
+            vec2(ui_width.min(480.0), 36.0),
             Layout::left_to_right(Align::Center),
             |ui| {
                self.select_version(theme, ui);
@@ -291,8 +297,30 @@ impl PoolsUi {
                if ui.add(button).clicked() {
                   self.add_form.open();
                }
+
+               ui.add_space(theme.spacing.sm);
+
+               // The sync walks history from the stored checkpoint: minutes of RPC, one at a
+               // time, and the label says so while it runs.
+               let label = if self.v4_syncing {
+                  "Syncing..."
+               } else {
+                  "Sync V4 Pools"
+               };
+               let text = RichText::new(label).size(theme.typography.normal);
+               let button =
+                  Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
+
+               let clicked =
+                  ui.add_enabled_ui(!self.v4_syncing, |ui| ui.add(button)).inner.clicked();
+
+               if clicked {
+                  self.start_v4_sync(ctx, chain, ui.ctx());
+               }
             },
          );
+
+         self.v4_sync_status(&*ctx, theme, ui);
 
          ui.add_space(20.0);
 
@@ -594,6 +622,119 @@ impl PoolsUi {
             Err(error) => self.add_form.error = Some(error),
          }
       }
+   }
+
+   /// Start a V4 log sync for `chain`, or say why it cannot run.
+   ///
+   /// The archive check is deliberate: the sync reads historic log ranges, so without an archive
+   /// endpoint it would fail inside the first step instead of explaining itself here.
+   fn start_v4_sync(&mut self, ctx: &mut ZeusContext, chain: u64, egui_ctx: &egui::Context) {
+      if self.v4_syncing {
+         return;
+      }
+
+      if !ctx.client_manager.rpc_archive_available(chain) {
+         Toast::new("No archive RPC available")
+            .description(format!(
+               "Syncing V4 pools reads past logs, so it needs an archive endpoint for chain {chain}."
+            ))
+            .tone(ChipRole::Error)
+            .duration(Duration::from_secs(6))
+            .show(egui_ctx);
+         return;
+      }
+
+      self.v4_syncing = true;
+
+      crate::runtime::rt().spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let result = ctx
+            .pool_manager()
+            .sync_v4_pools(ctx.clone(), chain, V4SyncConfig::default())
+            .await;
+
+         SHARED_GUI.write(|gui| {
+            let (title, message, tone) = gui.uniswap.pools_ui.finish_v4_sync(result);
+
+            Toast::new(title)
+               .description(message)
+               .tone(tone)
+               .duration(Duration::from_secs(6))
+               .show(&gui.egui_ctx);
+
+            gui.request_repaint();
+         });
+      });
+   }
+
+   fn finish_v4_sync(
+      &mut self,
+      result: Result<V4SyncReport, anyhow::Error>,
+   ) -> (&'static str, String, ChipRole) {
+      self.v4_syncing = false;
+
+      match result {
+         Ok(report) => (
+            "V4 pools synced",
+            format!(
+               "{} new pools ({} hot, {} cold) up to block {}",
+               report.hot + report.cold,
+               report.hot,
+               report.cold,
+               report.to_block
+            ),
+            ChipRole::Success,
+         ),
+         Err(e) => (
+            "V4 sync failed",
+            format!("{e:?}"),
+            ChipRole::Error,
+         ),
+      }
+   }
+
+   /// Where the last V4 sync stopped, linked to that block on the chain's explorer.
+   ///
+   /// The checkpoint is what the next run resumes from, so showing it is the only way to tell
+   /// "already synced" from "never ran".
+   fn v4_sync_status(&self, ctx: &ZeusContext, theme: &Theme, ui: &mut Ui) {
+      let chain = ctx.chain.id();
+      let last_sync = ctx.pool_manager.read(|manager| {
+         manager
+            .checkpoints
+            .get(&(chain, DexKind::UniswapV4))
+            .map(|checkpoint| checkpoint.block)
+      });
+
+      ui.horizontal(|ui| {
+         ui.spacing_mut().item_spacing.x = theme.spacing.xs;
+
+         ui.label(
+            RichText::new("Last synced block:")
+               .size(theme.typography.small)
+               .color(theme.colors.text_muted),
+         );
+
+         match last_sync {
+            Some(block) => {
+               // `block_explorer` carries a trailing slash for some chains.
+               let explorer = ctx.chain.block_explorer().trim_end_matches('/');
+               ui.hyperlink_to(
+                  RichText::new(block.to_string())
+                     .size(theme.typography.small)
+                     .color(theme.colors.info),
+                  format!("{explorer}/block/{block}"),
+               );
+            }
+            None => {
+               ui.label(
+                  RichText::new("never")
+                     .size(theme.typography.small)
+                     .color(theme.colors.text_muted),
+               );
+            }
+         }
+      });
    }
 
    fn start_add(&mut self, chain: u64, request: AddPoolRequest) {
