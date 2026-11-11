@@ -195,12 +195,12 @@ pub struct V4CleanupReport {
    pub removed_by_fee: usize,
    /// Deleted for charging more than the base-asset ceiling.
    pub removed_by_base_fee: usize,
+   /// Deleted for having no base asset on either side: a pair of unknowns nobody routes through.
+   pub removed_no_base: usize,
    /// Deleted for having no in-range liquidity at all.
    pub removed_dead: usize,
    /// Deleted for holding less than `crate::context::DEFAULT_POOL_MINIMUM_LIQUIDITY` of value.
    pub removed_illiquid: usize,
-   /// Kept because neither side is a base asset, so there is nothing to weigh the balance against.
-   pub unjudged_no_base: usize,
    /// Kept because their base asset had no price: a missing feed is not zero liquidity.
    pub unjudged_no_price: usize,
    /// Kept because their state could not be read (a failed request, or a spacing that cannot exist).
@@ -209,12 +209,16 @@ pub struct V4CleanupReport {
 
 impl V4CleanupReport {
    pub fn removed(&self) -> usize {
-      self.removed_by_fee + self.removed_by_base_fee + self.removed_dead + self.removed_illiquid
+      self.removed_by_fee
+         + self.removed_by_base_fee
+         + self.removed_no_base
+         + self.removed_dead
+         + self.removed_illiquid
    }
 
    /// Pools kept because nothing could be said about their liquidity.
    pub fn unjudged(&self) -> usize {
-      self.unjudged_no_base + self.unjudged_no_price + self.unjudged_no_state
+      self.unjudged_no_price + self.unjudged_no_state
    }
 }
 
@@ -783,13 +787,15 @@ impl PoolManagerHandle {
    ///
    /// A record is cold because one of its currencies is unknown, so this fetches the metadata of every
    /// unknown address in the chain's cold index (one `getERC20InfoBatch` call per
-   /// [`V4_CATALOG_TOKEN_BATCH`] addresses), stores those tokens in the currency DB and promotes the
-   /// records that now resolve. Nothing is deleted and the catalog keeps every row: the pools simply
-   /// become hot, which is what makes them visible -- and swappable.
+   /// [`V4_CATALOG_TOKEN_BATCH`] addresses) and promotes the records that now resolve. Nothing is
+   /// deleted and the catalog keeps every row: the pools simply become hot, which is what makes them
+   /// visible.
    ///
-   /// The fetched tokens stay in the currency DB, so they are part of the wallet from now on: that is
-   /// what a token import means, and it is the reason this is a button rather than something the
-   /// cleanup does on its own.
+   /// The fetched tokens are **not** written to the currency DB. That DB is part of the wallet state
+   /// and is persisted, and none of these tokens is tradable: a catalog of hundreds of thousands of
+   /// scam pools would bloat the wallet permanently for an inspection that lasts one session. The
+   /// promotion gets them through a local copy of the DB, so the pools hold their metadata in memory
+   /// and go cold again on restart.
    pub async fn load_catalog_pools(
       &self,
       ctx: ZeusCtx,
@@ -862,17 +868,15 @@ impl PoolManagerHandle {
          report.failed += asked.saturating_sub(tokens.len());
          report.tokens += tokens.len();
 
-         ctx.write(|ctx| {
-            for token in &tokens {
-               ctx.currency_db.insert_token(chain, token.clone());
-            }
-         });
-
          fetched.extend(tokens);
       }
 
-      // The promotions read the currency DB, so they follow the inserts.
-      let known = ctx.read(|ctx| ctx.currency_db.clone());
+      // Promotion resolves both sides through the DB, so the fetched tokens go on a local copy of it:
+      // the wallet's own DB is never touched.
+      let mut known = ctx.read(|ctx| ctx.currency_db.clone());
+      for token in &fetched {
+         known.insert_token(chain, token.clone());
+      }
       report.loaded = self.promote_v4_pools_for_tokens(chain, &fetched, &known)?;
 
       Ok(report)
@@ -1464,30 +1468,20 @@ impl PoolManagerHandle {
             };
             judged.insert(pool.pool);
 
-            // No in-range liquidity: nothing can be swapped through this pool at any price, so no
-            // price feed is needed to condemn it.
-            if pool.liquidity == 0 {
-               doomed.push((*record, V4RemovalReason::Dead));
-               continue;
-            }
-
             let price_of = |token: &ERC20Token| ctx.get_token_price(token).f64();
             let sqrt_price = U256::from(pool.sqrtPriceX96);
-            match v4_base_value(
+
+            match judge_v4_pool(
                chain,
                record,
                pool.liquidity,
                sqrt_price,
                price_of,
             ) {
-               // Holds value, but far less than the wallet's floor.
-               Ok(value) if value < DEFAULT_POOL_MINIMUM_LIQUIDITY => {
-                  doomed.push((*record, V4RemovalReason::Illiquid));
-               }
-               Ok(_) => {}
-               Err(V4ValueGap::NoBaseAsset) => report.unjudged_no_base += 1,
-               Err(V4ValueGap::NoPrice) => report.unjudged_no_price += 1,
-               Err(V4ValueGap::BadState) => report.unjudged_no_state += 1,
+               V4LiquidityVerdict::Keep => {}
+               V4LiquidityVerdict::Remove(reason) => doomed.push((*record, reason)),
+               V4LiquidityVerdict::UnjudgedNoPrice => report.unjudged_no_price += 1,
+               V4LiquidityVerdict::UnjudgedBadState => report.unjudged_no_state += 1,
             }
          }
 
@@ -1513,17 +1507,17 @@ impl PoolManagerHandle {
       report.unjudged_no_state += kept.saturating_sub(judged.len());
 
       tracing::info!(
-         "V4 cleanup chain {}: {} of {} pools deleted ({} fee, {} base-asset fee, {} dead, {} illiquid), {} dynamic skipped, {} unjudged ({} no base asset, {} no price, {} no state)",
+         "V4 cleanup chain {}: {} of {} pools deleted ({} fee, {} base-asset fee, {} no base asset, {} dead, {} illiquid), {} dynamic skipped, {} unjudged ({} no price, {} no state)",
          chain,
          report.removed(),
          report.scanned,
          report.removed_by_fee,
          report.removed_by_base_fee,
+         report.removed_no_base,
          report.removed_dead,
          report.removed_illiquid,
          report.dynamic_skipped,
          report.unjudged(),
-         report.unjudged_no_base,
          report.unjudged_no_price,
          report.unjudged_no_state
       );
@@ -1555,6 +1549,7 @@ impl PoolManagerHandle {
          match reason {
             V4RemovalReason::Fee => report.removed_by_fee += 1,
             V4RemovalReason::BaseFee => report.removed_by_base_fee += 1,
+            V4RemovalReason::NoBaseAsset => report.removed_no_base += 1,
             V4RemovalReason::Dead => report.removed_dead += 1,
             V4RemovalReason::Illiquid => report.removed_illiquid += 1,
          }
@@ -2088,6 +2083,8 @@ fn v4_pool_from_record(
 enum V4RemovalReason {
    Fee,
    BaseFee,
+   /// Neither side is a base asset: no price feed, and no route worth keeping.
+   NoBaseAsset,
    /// No in-range liquidity: nothing can be swapped through the pool.
    Dead,
    /// In-range liquidity, but the base side is worth less than the wallet's floor.
@@ -2176,6 +2173,44 @@ enum V4ValueGap {
    NoPrice,
    /// The state is unusable: liquidity without a sqrt price.
    BadState,
+}
+
+/// What rule 3 makes of one pool, from its state alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum V4LiquidityVerdict {
+   Keep,
+   Remove(V4RemovalReason),
+   /// There is a base asset but no price for it: a missing feed is not zero liquidity.
+   UnjudgedNoPrice,
+   /// The state cannot be read as a price curve.
+   UnjudgedBadState,
+}
+
+/// The verdict of rule 3 for one pool.
+///
+/// A pool with no in-range liquidity cannot fill a swap at any price, so no feed is needed to condemn
+/// it; a pool with no base asset is a pair of unknowns, which is dead weight rather than a route.
+/// Both are structural. Only the value test needs a price, and a pool whose price is missing is kept.
+fn judge_v4_pool(
+   chain: u64,
+   record: &V4PoolRecord,
+   liquidity: u128,
+   sqrt_price: U256,
+   price_of: impl Fn(&ERC20Token) -> f64,
+) -> V4LiquidityVerdict {
+   if liquidity == 0 {
+      return V4LiquidityVerdict::Remove(V4RemovalReason::Dead);
+   }
+
+   match v4_base_value(chain, record, liquidity, sqrt_price, price_of) {
+      Ok(value) if value < DEFAULT_POOL_MINIMUM_LIQUIDITY => {
+         V4LiquidityVerdict::Remove(V4RemovalReason::Illiquid)
+      }
+      Ok(_) => V4LiquidityVerdict::Keep,
+      Err(V4ValueGap::NoBaseAsset) => V4LiquidityVerdict::Remove(V4RemovalReason::NoBaseAsset),
+      Err(V4ValueGap::NoPrice) => V4LiquidityVerdict::UnjudgedNoPrice,
+      Err(V4ValueGap::BadState) => V4LiquidityVerdict::UnjudgedBadState,
+   }
 }
 
 /// What the base side of a V4 pool is worth, from its state alone.
@@ -2823,6 +2858,63 @@ mod tests {
       assert_eq!(
          v4_base_value(1, &record, one_weth, q96, |_| 0.0),
          Err(V4ValueGap::NoPrice)
+      );
+   }
+
+   /// A pair of unknowns is not a route: with in-range liquidity but no base asset, the pool goes.
+   #[test]
+   fn cleanup_removes_pools_without_a_base_asset() {
+      let q96 = U256::from(1u128 << 96);
+      let unknown = record_for(
+         Address::repeat_byte(0x11),
+         Address::repeat_byte(0x22),
+      );
+
+      assert_eq!(
+         judge_v4_pool(1, &unknown, 1_000_000, q96, |_| 3_000.0),
+         V4LiquidityVerdict::Remove(V4RemovalReason::NoBaseAsset)
+      );
+
+      // Dead beats everything: a pool with no in-range liquidity cannot be swapped through at all.
+      assert_eq!(
+         judge_v4_pool(1, &unknown, 0, q96, |_| 3_000.0),
+         V4LiquidityVerdict::Remove(V4RemovalReason::Dead)
+      );
+   }
+
+   /// The value floor, on a pool whose base side the wallet can price.
+   #[test]
+   fn cleanup_judges_base_pairs_by_value() {
+      let weth = ERC20Token::weth();
+      let record = record_for(weth.address, Address::repeat_byte(0x44));
+      let q96 = U256::from(1u128 << 96);
+
+      // One WETH at $3 000 is under the $10 000 floor.
+      assert_eq!(
+         judge_v4_pool(1, &record, 1_000_000_000_000_000_000, q96, |_| {
+            3_000.0
+         }),
+         V4LiquidityVerdict::Remove(V4RemovalReason::Illiquid)
+      );
+
+      // Ten WETH is over it.
+      assert_eq!(
+         judge_v4_pool(
+            1,
+            &record,
+            10_000_000_000_000_000_000,
+            q96,
+            |_| 3_000.0
+         ),
+         V4LiquidityVerdict::Keep
+      );
+
+      // A base asset with no price is kept, never condemned.
+      assert_eq!(
+         judge_v4_pool(1, &record, 1_000_000_000_000_000_000, q96, |_| {
+            0.0
+         }),
+         V4LiquidityVerdict::UnjudgedNoPrice
       );
    }
 

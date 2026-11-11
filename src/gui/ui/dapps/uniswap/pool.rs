@@ -369,7 +369,7 @@ impl PoolsUi {
                let clicked = ui
                   .add_enabled_ui(!busy, |ui| {
                      ui.add(button).on_hover_text(format!(
-                        "Permanently deletes V4 pools above {}% fee, above {}% when one side is ETH, WETH, USDC, USDT or DAI, pools with no in-range liquidity, and pools holding less than the minimum liquidity.",
+                        "Permanently deletes V4 pools above {}% fee, above {}% when one side is ETH, WETH, USDC, USDT or DAI, pools with no base asset, pools with no in-range liquidity, and pools holding less than the minimum liquidity.",
                         ctx.pool_manager.v4_max_fee_percent(),
                         ctx.pool_manager.v4_max_base_fee_percent(),
                      ))
@@ -397,7 +397,7 @@ impl PoolsUi {
                let clicked = ui
                   .add_enabled_ui(!busy, |ui| {
                      ui.add(button).on_hover_text(
-                        "Reads every pool in this chain's catalog into memory, fetching the tokens it does not know yet so they can be inspected and swapped.",
+                        "Reads every pool in this chain's catalog into memory, fetching the tokens it does not know yet so they can be inspected. The fetched tokens are not saved to the wallet.",
                      )
                   })
                   .inner
@@ -855,11 +855,12 @@ impl PoolsUi {
          Ok(report) => (
             "Pools cleaned",
             format!(
-               "{} of {} V4 pools deleted ({} high fee, {} base-asset fee, {} dead, {} illiquid), {} unjudged",
+               "{} of {} V4 pools deleted ({} high fee, {} base-asset fee, {} no base asset, {} dead, {} illiquid), {} unjudged",
                report.removed(),
                report.scanned,
                report.removed_by_fee,
                report.removed_by_base_fee,
+               report.removed_no_base,
                report.removed_dead,
                report.removed_illiquid,
                report.unjudged(),
