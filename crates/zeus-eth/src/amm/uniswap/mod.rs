@@ -14,7 +14,11 @@ use alloy_rpc_types::BlockId;
 use crate::abi::uniswap::v4::PoolKey;
 use serde::{Deserialize, Serialize};
 
-pub use {v2::UniswapV2Pool, v3::UniswapV3Pool, v4::UniswapV4Pool};
+pub use {
+   v2::UniswapV2Pool,
+   v3::UniswapV3Pool,
+   v4::{UniswapV4Pool, v4_pool_id},
+};
 
 pub mod consts;
 pub mod math;

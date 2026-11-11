@@ -384,7 +384,8 @@ impl ZeusCtx {
       };
 
       let manager = self.pool_manager();
-      if let Err(e) = manager.load_from_file(&key) {
+      let tokens = self.read(|ctx| ctx.currency_db.clone());
+      if let Err(e) = manager.load_from_file(&key, &tokens) {
          tracing::error!("Error loading Pool Manager: {:?}", e);
       }
    }

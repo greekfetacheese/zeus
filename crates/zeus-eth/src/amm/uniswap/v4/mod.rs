@@ -1,5 +1,5 @@
 pub mod pool;
-pub use pool::UniswapV4Pool;
+pub use pool::{UniswapV4Pool, v4_pool_id};
 
 use crate::abi::uniswap::v4::actions::*;
 use alloy_primitives::{Address, Bytes};

@@ -1,5 +1,5 @@
 use alloy_contract::private::{Network, Provider};
-use alloy_primitives::Address;
+use alloy_primitives::{Address, B256};
 use alloy_rpc_types::Log;
 use alloy_sol_types::SolEvent;
 
@@ -11,7 +11,7 @@ use tokio::{
 
 use super::{
    AnyUniswapPool, DexKind, FeeAmount, State, UniswapPool, UniswapV2Pool, UniswapV3Pool,
-   UniswapV4Pool,
+   UniswapV4Pool, v4_pool_id,
 };
 
 use crate::abi::uniswap::{
@@ -70,6 +70,101 @@ impl SyncResult {
    pub fn new(checkpoint: Checkpoint, pools: Vec<AnyUniswapPool>) -> Self {
       Self { checkpoint, pools }
    }
+}
+
+/// A decoded `IPoolManager::Initialize` — the key parameters of a V4 pool, before any token data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct V4PoolInit {
+   pub currency0: Address,
+   pub currency1: Address,
+   pub fee: u32,
+   pub tick_spacing: i32,
+   pub hooks: Address,
+}
+
+impl V4PoolInit {
+   /// Pool id, computed from the raw key (no token metadata needed).
+   pub fn id(&self) -> B256 {
+      v4_pool_id(
+         self.currency0,
+         self.currency1,
+         FeeAmount::new(self.fee),
+         self.tick_spacing,
+         self.hooks,
+      )
+   }
+
+   /// Materialise the pool once both currencies are resolved. Currencies are ordered by address
+   /// inside `new_with_spacing`.
+   pub fn into_pool(
+      self,
+      chain_id: u64,
+      currency0: Currency,
+      currency1: Currency,
+   ) -> UniswapV4Pool {
+      UniswapV4Pool::new_with_spacing(
+         chain_id,
+         FeeAmount::new(self.fee),
+         self.tick_spacing,
+         DexKind::UniswapV4,
+         currency0,
+         currency1,
+         State::none(),
+         self.hooks,
+      )
+   }
+}
+
+/// Fetch and decode `IPoolManager::Initialize` logs for one inclusive block range.
+///
+/// `block_range` is the largest span sent to a single `eth_getLogs`; the range is split into
+/// `block_range` chunks, `concurrency` in flight. Unlike [`sync_pools`] this never reads the chain
+/// tip — the caller owns the range and the checkpoint.
+pub async fn v4_pools_from_logs<P, N>(
+   client: P,
+   chain_id: u64,
+   from_block: u64,
+   to_block: u64,
+   concurrency: usize,
+   block_range: u64,
+   max_retries: usize,
+) -> Result<Vec<V4PoolInit>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let target = address_book::uniswap_v4_pool_manager(chain_id)?;
+   let logs = get_logs_for(
+      client,
+      vec![target],
+      vec![IPoolManager::Initialize::SIGNATURE],
+      from_block,
+      to_block,
+      concurrency,
+      block_range,
+      max_retries,
+   )
+   .await?;
+
+   let mut out = Vec::with_capacity(logs.len());
+   for log in logs {
+      let IPoolManager::Initialize {
+         currency0,
+         currency1,
+         fee,
+         tickSpacing,
+         hooks,
+         ..
+      } = log.log_decode()?.inner.data;
+      out.push(V4PoolInit {
+         currency0,
+         currency1,
+         fee: fee.to_string().parse()?,
+         tick_spacing: tickSpacing.to_string().parse()?,
+         hooks,
+      });
+   }
+   Ok(out)
 }
 
 /// Configuration for syncing pools
@@ -285,7 +380,7 @@ where
    } else if dex.is_v3() {
       v3_pools_from_log_batch(client, chain_id, dex, logs).await
    } else if dex.is_v4() {
-      v4_pools_from_log_batch(client, chain_id, dex, logs).await
+      v4_pools_from_log_batch(client, chain_id, logs).await
    } else {
       Err(anyhow::anyhow!("Unknown dex: {:?}", dex))
    }
@@ -304,15 +399,6 @@ struct V3PoolInfo {
    token0: Address,
    token1: Address,
    fee: u32,
-}
-
-#[derive(Clone)]
-struct V4PoolInfo {
-   currency0: Address,
-   currency1: Address,
-   fee: u32,
-   tick_spacing: i32,
-   hooks: Address,
 }
 
 async fn v2_pools_from_log_batch<P, N>(
@@ -485,7 +571,6 @@ where
 async fn v4_pools_from_log_batch<P, N>(
    client: P,
    chain: u64,
-   dex: DexKind,
    logs: Vec<Log>,
 ) -> Result<Vec<AnyUniswapPool>, anyhow::Error>
 where
@@ -506,28 +591,27 @@ where
          ..
       } = log.log_decode()?.inner.data;
 
-      let fee: u32 = fee.to_string().parse()?;
-      let tick_spacing: i32 = tickSpacing.to_string().parse()?;
-      let pool = V4PoolInfo {
+      let init = V4PoolInit {
          currency0,
          currency1,
-         fee,
-         tick_spacing,
+         fee: fee.to_string().parse()?,
+         tick_spacing: tickSpacing.to_string().parse()?,
          hooks,
       };
-      pools_info.push(pool.clone());
 
-      let currency0_is_native = currency0.is_zero();
-      let currency0_is_base = ERC20Token::base_token(chain, currency0).is_some();
-      let currency1_is_native = currency1.is_zero();
-      let currency1_is_base = ERC20Token::base_token(chain, currency1).is_some();
+      let currency0_is_native = init.currency0.is_zero();
+      let currency0_is_base = ERC20Token::base_token(chain, init.currency0).is_some();
+      let currency1_is_native = init.currency1.is_zero();
+      let currency1_is_base = ERC20Token::base_token(chain, init.currency1).is_some();
 
       if !currency0_is_native && !currency0_is_base {
-         token_addr.push(currency0);
+         token_addr.push(init.currency0);
       }
       if !currency1_is_native && !currency1_is_base {
-         token_addr.push(currency1);
+         token_addr.push(init.currency1);
       }
+
+      pools_info.push(init);
    }
 
    // Fetch ERC20 data and map tokens by address
@@ -566,18 +650,7 @@ where
          ));
       };
 
-      let fee = FeeAmount::new(pool.fee);
-      let p = UniswapV4Pool::new_with_spacing(
-         chain,
-         fee,
-         pool.tick_spacing,
-         dex,
-         currency0,
-         currency1,
-         State::none(),
-         pool.hooks,
-      );
-      v4_pools.push(p);
+      v4_pools.push(pool.into_pool(chain, currency0, currency1));
    }
 
    let any_pools = v4_pools.into_iter().map(AnyUniswapPool::V4).collect();

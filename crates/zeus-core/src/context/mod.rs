@@ -9,6 +9,7 @@ pub mod ens_cache;
 pub mod handle;
 pub mod nft;
 pub mod pool_manager;
+pub(crate) mod pool_store;
 pub mod portfolio;
 pub mod price_manager;
 pub mod state;
