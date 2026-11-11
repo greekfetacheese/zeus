@@ -1695,6 +1695,7 @@ async fn get_logs_check(
       from_block,
       1,
       block_range,
+      2,
    )
    .await;
 
