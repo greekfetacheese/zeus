@@ -216,7 +216,7 @@ impl UniswapUi {
                   ui,
                );
 
-               self.pools_ui.show(ctx, theme, icons.clone(), ui);
+               self.pools_ui.show(ctx, theme, icons.clone(), &self.settings, ui);
 
                self.show_settings(theme, ui);
             });
@@ -242,9 +242,16 @@ impl UniswapUi {
 
             let swap_ui_open = self.swap_ui.is_open();
             let view_positions_open = false;
+            let pools_ui_open = self.pools_ui.open;
 
             ui.vertical_centered(|ui| {
-               self.settings.show(swap_ui_open, view_positions_open, theme, ui);
+               self.settings.show(
+                  swap_ui_open,
+                  view_positions_open,
+                  pools_ui_open,
+                  theme,
+                  ui,
+               );
 
                ui.add_space(10.0);
 

@@ -1,5 +1,6 @@
 use egui::{Align, Layout, RichText, Ui, vec2};
 
+use crate::core::context::pool_manager::V4_SYNC_BLOCK_RANGE;
 use crate::gui::SHARED_GUI;
 use egui_elements::{Button, Checkbox, SecureTextEdit, Slider, Theme};
 use egui_lucide::Lucide;
@@ -14,6 +15,12 @@ const SLIPPAGE_TIP: &str =
    "Your transaction will revert if the price changes unfavorably by more than this percentage.";
 
 const DEADLINE_TIP: &str = "The transaction will revert if it is pending for more than this time.";
+
+const MIN_SYNC_BLOCK_RANGE: u64 = 1_000;
+const MAX_SYNC_BLOCK_RANGE: u64 = 50_000;
+
+const SYNC_BLOCK_RANGE_TIP: &str = "Blocks per eth_getLogs request while syncing V4 pools. Lower it when your RPC rejects wide \
+ranges, raise it to finish in fewer requests.";
 
 /// Single sanitisation point for the swap slippage.
 ///
@@ -50,6 +57,11 @@ pub struct UniswapSettingsUi {
    /// Days to go back to sync positions
    /// Applies only to [ViewPositionsUi]
    pub days: String,
+   /// Blocks per `eth_getLogs` request during a V4 pool sync.
+   ///
+   /// Applies only to [PoolsUi]: a public RPC often rejects a wide range, and a narrow one costs
+   /// more round trips, so it is the one knob worth tuning per endpoint.
+   pub v4_sync_block_range: u64,
 }
 
 impl UniswapSettingsUi {
@@ -68,6 +80,7 @@ impl UniswapSettingsUi {
          slippage_f64: DEFAULT_SLIPPAGE,
          simulate_mode: false,
          days: String::new(),
+         v4_sync_block_range: V4_SYNC_BLOCK_RANGE,
       }
    }
 
@@ -99,6 +112,7 @@ impl UniswapSettingsUi {
       &mut self,
       swap_ui_open: bool,
       view_position_open: bool,
+      pools_ui_open: bool,
       theme: &Theme,
       ui: &mut Ui,
    ) {
@@ -142,6 +156,28 @@ impl UniswapSettingsUi {
             );
          });
       });
+
+      if pools_ui_open {
+         // Only the pools window runs a log sync, so the request span is shown only there.
+         ui.horizontal(|ui| {
+            let text = RichText::new("V4 Sync Block Range").size(theme.typography.normal);
+            ui.label(text).on_hover_text(SYNC_BLOCK_RANGE_TIP);
+
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               ui.label(
+                  RichText::new(self.v4_sync_block_range.to_string()).size(theme.typography.normal),
+               );
+               ui.add(
+                  Slider::new(
+                     &mut self.v4_sync_block_range,
+                     MIN_SYNC_BLOCK_RANGE..=MAX_SYNC_BLOCK_RANGE,
+                  )
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
+               );
+            });
+         });
+      }
 
       if swap_ui_open {
          // Max Hops
@@ -249,6 +285,16 @@ impl UniswapSettingsUi {
 #[cfg(test)]
 mod tests {
    use super::*;
+
+   /// A default outside the slider's bounds pins the handle to an edge and makes the first drag
+   /// jump; keep the pool manager's default inside the range this panel offers.
+   #[test]
+   fn v4_sync_block_range_default_is_inside_the_slider() {
+      let settings = UniswapSettingsUi::new();
+
+      assert!(settings.v4_sync_block_range >= MIN_SYNC_BLOCK_RANGE);
+      assert!(settings.v4_sync_block_range <= MAX_SYNC_BLOCK_RANGE);
+   }
 
    #[test]
    fn sanitise_slippage_clamps_and_rejects_invalid() {
