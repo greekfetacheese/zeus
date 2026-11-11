@@ -6,7 +6,9 @@ use std::time::Duration;
 use egui::{Align, FontId, Grid, Id, Layout, Margin, Order, RichText, Sense, Ui, vec2};
 
 use crate::assets::icons::Icons;
-use crate::core::context::pool_manager::{V4SyncConfig, V4SyncReport};
+use crate::core::context::pool_manager::{
+   V4CleanupConfig, V4CleanupReport, V4SyncConfig, V4SyncReport,
+};
 use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::truncate_symbol_or_name;
@@ -18,7 +20,7 @@ use zeus_eth::{
    alloy_primitives::Address,
    amm::uniswap::{
       AnyUniswapPool, DexKind, FEE_TIERS, FeeAmount, UniswapPool, UniswapV2Pool, UniswapV3Pool,
-      UniswapV4Pool,
+      UniswapV4Pool, v4::DYNAMIC_FEE_FLAG,
    },
    currency::{Currency, ERC20Token},
    utils::batch,
@@ -66,9 +68,6 @@ impl Version {
       }
    }
 }
-
-/// Uniswap V4 `LPFeeLibrary.DYNAMIC_FEE_FLAG`: the hook supplies the fee.
-const DYNAMIC_FEE_FLAG: u32 = 0x80_0000;
 
 struct PoolRow {
    token0: String,
@@ -234,6 +233,12 @@ pub struct PoolsUi {
    /// Per chain on purpose: a run takes minutes, and switching chain while it works must not show
    /// the other chain as busy (or let a second run start on the same one).
    v4_syncing: HashMap<u64, bool>,
+
+   /// Chains with a V4 cleanup running, keyed by chain.
+   ///
+   /// Keyed per chain like the sync flag: a run deletes rows for one chain and switching chain must
+   /// not show the other one as busy.
+   v4_cleaning: HashMap<u64, bool>,
 }
 
 impl PoolsUi {
@@ -245,6 +250,7 @@ impl PoolsUi {
          add_form: AddPoolForm::default(),
          size: (600.0, 500.0),
          v4_syncing: HashMap::new(),
+         v4_cleaning: HashMap::new(),
       }
    }
 
@@ -336,7 +342,40 @@ impl PoolsUi {
             },
          );
 
-         self.v4_sync_status(&*ctx, theme, ui);
+         // Status on the left, the destructive action on the right: one row, so the fourth control
+         // does not push the window wider.
+         ui.horizontal(|ui| {
+            self.v4_sync_status(&*ctx, theme, ui);
+
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+               let syncing = self.is_v4_syncing(chain);
+               let cleaning = self.is_v4_cleaning(chain);
+
+               let label = if cleaning {
+                  "Cleaning up..."
+               } else {
+                  "Cleanup Pools"
+               };
+               let text = RichText::new(label).size(theme.typography.normal);
+               let button =
+                  Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
+
+               let clicked = ui
+                  .add_enabled_ui(!(syncing || cleaning), |ui| {
+                     ui.add(button).on_hover_text(format!(
+                        "Permanently deletes V4 pools above {}% fee, above {}% when one side is ETH, WETH, USDC, USDT or DAI, and pools holding less than the minimum liquidity.",
+                        ctx.pool_manager.v4_max_fee_percent(),
+                        ctx.pool_manager.v4_max_base_fee_percent(),
+                     ))
+                  })
+                  .inner
+                  .clicked();
+
+               if clicked {
+                  self.start_v4_cleanup(ctx, chain);
+               }
+            });
+         });
 
          ui.add_space(20.0);
 
@@ -720,6 +759,81 @@ impl PoolsUi {
          ),
          Err(e) => (
             "V4 sync failed",
+            format!("{e:?}"),
+            ChipRole::Error,
+         ),
+      }
+   }
+
+   fn is_v4_cleaning(&self, chain: u64) -> bool {
+      self.v4_cleaning.get(&chain).copied().unwrap_or(false)
+   }
+
+   /// Delete this chain's dead V4 pools, or say why the run cannot start.
+   ///
+   /// No archive check: the fee rules read the catalog and the liquidity rule reads current state, so
+   /// the historic endpoint a sync needs is not required here.
+   fn start_v4_cleanup(&mut self, ctx: &mut ZeusContext, chain: u64) {
+      if self.is_v4_cleaning(chain) || self.is_v4_syncing(chain) {
+         return;
+      }
+
+      self.v4_cleaning.insert(chain, true);
+
+      // Same indicator as the sync: the top panel reads it as "this chain is busy". Claim it only
+      // when nobody else holds it, so this run can never clear another run's flag.
+      let claimed = !ctx.state_sync.get(&chain).copied().unwrap_or(false);
+      if claimed {
+         ctx.state_sync.insert(chain, true);
+      }
+
+      crate::runtime::rt().spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let result = ctx
+            .pool_manager()
+            .cleanup_v4_pools(ctx.clone(), chain, V4CleanupConfig::default())
+            .await;
+
+         if claimed {
+            ctx.set_chain_syncing(chain, false);
+         }
+
+         SHARED_GUI.write(|gui| {
+            let (title, message, tone) = gui.uniswap.pools_ui.finish_v4_cleanup(chain, result);
+
+            Toast::new(title)
+               .description(message)
+               .tone(tone)
+               .duration(Duration::from_secs(6))
+               .show(&gui.egui_ctx);
+
+            gui.request_repaint();
+         });
+      });
+   }
+
+   fn finish_v4_cleanup(
+      &mut self,
+      chain: u64,
+      result: Result<V4CleanupReport, anyhow::Error>,
+   ) -> (&'static str, String, ChipRole) {
+      self.v4_cleaning.insert(chain, false);
+
+      match result {
+         Ok(report) => (
+            "Pools cleaned",
+            format!(
+               "{} of {} V4 pools deleted ({} high fee, {} base-asset fee, {} illiquid)",
+               report.removed(),
+               report.scanned,
+               report.removed_by_fee,
+               report.removed_by_base_fee,
+               report.removed_illiquid
+            ),
+            ChipRole::Success,
+         ),
+         Err(e) => (
+            "Cleanup failed",
             format!("{e:?}"),
             ChipRole::Error,
          ),

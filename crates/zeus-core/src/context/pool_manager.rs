@@ -28,6 +28,7 @@ use zeus_eth::{
       V4_FEE_CANDIDATES,
       state::{State, V3PoolState},
       sync::{Checkpoint, v4_pools_from_logs},
+      v4::DYNAMIC_FEE_FLAG,
       v4_fee_spacing_candidates,
    },
    currency::{Currency, ERC20Token, NativeCurrency},
@@ -35,7 +36,7 @@ use zeus_eth::{
    utils::{
       GET_LOGS_MAX_RETRIES,
       address_book::{uniswap_v2_factory, uniswap_v3_factory, uniswap_v4_stateview},
-      batch,
+      batch, is_base_token,
    },
 };
 
@@ -73,6 +74,42 @@ fn clamp_v4_sync_block_range(block_range: u64) -> u64 {
    block_range.clamp(MIN_V4_SYNC_BLOCK_RANGE, MAX_V4_SYNC_BLOCK_RANGE)
 }
 
+/// Fee ceiling of the V4 cleanup, as a percentage of the swap amount. A pool above it is deleted.
+pub const DEFAULT_V4_MAX_FEE_PERCENT: f32 = 2.0;
+
+/// The same ceiling for a pool that pairs a base asset. The deepest V4 pools sit between 0.01% and
+/// 0.3%, so a higher fee on an ETH or USDC pair is someone hoping to be mistaken for one.
+pub const DEFAULT_V4_MAX_BASE_FEE_PERCENT: f32 = 1.0;
+
+/// Lowest configurable ceiling; 0.01% is the smallest V4 fee tier.
+pub const MIN_V4_MAX_FEE_PERCENT: f32 = 0.01;
+
+/// Highest configurable ceiling: above it a cleanup would delete every V4 pool there is.
+pub const MAX_V4_MAX_FEE_PERCENT: f32 = 10.0;
+
+fn default_v4_max_fee_percent() -> f32 {
+   DEFAULT_V4_MAX_FEE_PERCENT
+}
+
+fn default_v4_max_base_fee_percent() -> f32 {
+   DEFAULT_V4_MAX_BASE_FEE_PERCENT
+}
+
+/// Clamp a cleanup ceiling, on load and again on set, so a hand-edited catalog or a stale slider can
+/// neither wipe the catalog nor sit outside the slider's own range. A non-positive or non-finite
+/// value falls back to `default` instead of becoming a ceiling of zero.
+fn clamp_fee_percent(percent: f32, default: f32) -> f32 {
+   if !percent.is_finite() || percent <= 0.0 {
+      return default;
+   }
+
+   percent.clamp(MIN_V4_MAX_FEE_PERCENT, MAX_V4_MAX_FEE_PERCENT)
+}
+
+/// Records deleted per catalog transaction during a cleanup: durable progress without a commit per
+/// row.
+const V4_CLEANUP_DELETE_BATCH: usize = 2_048;
+
 /// The knobs of one [`PoolManagerHandle::sync_v4_pools`] run.
 ///
 /// A `0` means "use the default": [`V4_SYNC_STEP_BLOCKS`], [`V4_SYNC_BLOCK_RANGE`] and the client
@@ -107,6 +144,41 @@ pub struct V4SyncReport {
    pub hot: usize,
    /// New pools that stay on disk until a token they hold is imported.
    pub cold: usize,
+}
+
+/// The knobs of one [`PoolManagerHandle::cleanup_v4_pools`] run.
+///
+/// A `0` means "use the stored value": the ceilings the pools window's settings write into the
+/// catalog.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct V4CleanupConfig {
+   /// Pools charging more than this percentage are deleted.
+   pub max_fee_percent: f32,
+   /// Pools pairing a base asset are held to this stricter ceiling.
+   pub max_base_fee_percent: f32,
+}
+
+/// What one [`PoolManagerHandle::cleanup_v4_pools`] run deleted.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct V4CleanupReport {
+   /// V4 records the chain held when the run started.
+   pub scanned: usize,
+   /// Dynamic-fee pools, which no fee ceiling can judge, so they are always kept.
+   pub dynamic_skipped: usize,
+   /// Deleted for charging more than the general ceiling.
+   pub removed_by_fee: usize,
+   /// Deleted for charging more than the base-asset ceiling.
+   pub removed_by_base_fee: usize,
+   /// Deleted for holding less than `crate::context::DEFAULT_POOL_MINIMUM_LIQUIDITY` of value.
+   pub removed_illiquid: usize,
+   /// Hot pools whose state or price could not be read, so they were kept.
+   pub unjudged: usize,
+}
+
+impl V4CleanupReport {
+   pub fn removed(&self) -> usize {
+      self.removed_by_fee + self.removed_by_base_fee + self.removed_illiquid
+   }
 }
 
 /// A simple struct to identify a V2/V3/V4 pool
@@ -386,6 +458,32 @@ impl PoolManagerHandle {
    pub fn set_v4_sync_block_range(&self, block_range: u64) {
       let block_range = clamp_v4_sync_block_range(block_range);
       self.write(|manager| manager.v4_sync_block_range = block_range);
+   }
+
+   /// The fee ceiling [`Self::cleanup_v4_pools`] deletes at, clamped like the slider that writes it.
+   pub fn v4_max_fee_percent(&self) -> f32 {
+      clamp_fee_percent(
+         self.read(|manager| manager.v4_max_fee_percent),
+         DEFAULT_V4_MAX_FEE_PERCENT,
+      )
+   }
+
+   pub fn set_v4_max_fee_percent(&self, percent: f32) {
+      let percent = clamp_fee_percent(percent, DEFAULT_V4_MAX_FEE_PERCENT);
+      self.write(|manager| manager.v4_max_fee_percent = percent);
+   }
+
+   /// The stricter ceiling applied to pools that pair a base asset.
+   pub fn v4_max_base_fee_percent(&self) -> f32 {
+      clamp_fee_percent(
+         self.read(|manager| manager.v4_max_base_fee_percent),
+         DEFAULT_V4_MAX_BASE_FEE_PERCENT,
+      )
+   }
+
+   pub fn set_v4_max_base_fee_percent(&self, percent: f32) {
+      let percent = clamp_fee_percent(percent, DEFAULT_V4_MAX_BASE_FEE_PERCENT);
+      self.write(|manager| manager.v4_max_base_fee_percent = percent);
    }
 
    /// Get all pools that include the given currency
@@ -1068,6 +1166,166 @@ impl PoolManagerHandle {
       Ok(report)
    }
 
+   /// Delete the V4 pools on `chain` that no one would ever swap through, for good.
+   ///
+   /// Three rules, in order:
+   ///
+   /// 1. a fee above `max_fee_percent` (default 2%) -- dynamic-fee pools are skipped, their key holds a
+   ///    flag rather than a tier;
+   /// 2. a fee above `max_base_fee_percent` (default 1%) when either side is a base asset, since a real
+   ///    ETH, WETH or USDC pool never charges that much;
+   /// 3. a hot pool whose base balance is worth less than
+   ///    `crate::context::DEFAULT_POOL_MINIMUM_LIQUIDITY`.
+   ///
+   /// The first two are answered by the 68-byte record alone, so the bulk of a scam-laden catalog goes
+   /// without a single RPC call. Liquidity needs pool state, so it runs last and only over the pools
+   /// held in memory. Deletions are durable chunk by chunk: a crash mid-run leaves the catalog valid
+   /// and the next run picks up the remainder.
+   pub async fn cleanup_v4_pools(
+      &self,
+      ctx: ZeusCtx,
+      chain: u64,
+      config: V4CleanupConfig,
+   ) -> Result<V4CleanupReport, anyhow::Error> {
+      let key = ctx.read_vault(|vault| vault.wallet_state_key())?;
+      let store = match self.read(|manager| manager.store.clone()) {
+         Some(store) => store,
+         None => {
+            // No catalog open yet: create it from the manager in memory, so the deletions below have
+            // rows to remove.
+            self.save_to_file(&key)?;
+            self
+               .read(|manager| manager.store.clone())
+               .ok_or_else(|| anyhow!("the pool catalog was not attached"))?
+         }
+      };
+
+      let max_fee_percent = match config.max_fee_percent {
+         0.0 => self.v4_max_fee_percent(),
+         percent => clamp_fee_percent(percent, DEFAULT_V4_MAX_FEE_PERCENT),
+      };
+      let max_base_fee_percent = match config.max_base_fee_percent {
+         0.0 => self.v4_max_base_fee_percent(),
+         percent => clamp_fee_percent(percent, DEFAULT_V4_MAX_BASE_FEE_PERCENT),
+      };
+
+      let records = store
+         .load_v4_records(Some(chain))?
+         .into_iter()
+         .map(|(_, record)| record)
+         .collect::<Vec<_>>();
+      let plan = plan_v4_cleanup(
+         chain,
+         records,
+         max_fee_percent,
+         max_base_fee_percent,
+      );
+
+      let mut report = V4CleanupReport {
+         scanned: plan.remove.len() + plan.keep.len(),
+         dynamic_skipped: plan.dynamic,
+         ..Default::default()
+      };
+
+      // Which records are held in memory: only those cost a map scan to forget, and the catalog
+      // holds a quarter of a million rows.
+      let hot = self.read(|manager| {
+         manager
+            .pools
+            .values()
+            .filter(|pool| pool.chain_id() == chain && pool.dex_kind().is_v4())
+            .map(|pool| pool.id())
+            .collect::<HashSet<B256>>()
+      });
+
+      for chunk in plan.remove.chunks(V4_CLEANUP_DELETE_BATCH) {
+         let ids = chunk.iter().map(|(record, _)| record.id()).collect::<Vec<_>>();
+         store.remove_v4_records(chain, &ids)?;
+
+         let forgotten = chunk
+            .iter()
+            .filter(|(record, _)| hot.contains(&record.id()))
+            .map(|(record, _)| *record)
+            .collect::<Vec<_>>();
+         if !forgotten.is_empty() {
+            self.write(|manager| manager.forget_v4_records(chain, &forgotten));
+         }
+
+         for (_, reason) in chunk {
+            match reason {
+               V4RemovalReason::Fee => report.removed_by_fee += 1,
+               V4RemovalReason::BaseFee => report.removed_by_base_fee += 1,
+            }
+         }
+      }
+
+      // Rule 3 needs state, so only the pools this wallet holds can be judged.
+      let candidates = self.read(|manager| {
+         manager
+            .pools
+            .values()
+            .filter(|pool| pool.chain_id() == chain && pool.dex_kind().is_v4())
+            .cloned()
+            .collect::<Vec<_>>()
+      });
+
+      let batch = self.batch_size_for_updating_pools_state().max(1);
+      for chunk in candidates.chunks(batch) {
+         let updated = match self.update_state_for_pools(ctx.clone(), chain, chunk.to_vec()).await {
+            Ok(updated) => updated,
+            Err(e) => {
+               tracing::warn!(
+                  "V4 cleanup: state for {} pools failed: {:?}",
+                  chunk.len(),
+                  e
+               );
+               report.unjudged += chunk.len();
+               continue;
+            }
+         };
+
+         let mut illiquid = Vec::new();
+         for pool in &updated {
+            match ctx.pool_has_sufficient_liquidity(pool) {
+               Some(true) => {}
+               // A zero base price is a missing feed, not a worthless pool.
+               Some(false) if pool_base_price_known(&ctx, pool) => illiquid.push(pool.clone()),
+               _ => report.unjudged += 1,
+            }
+         }
+
+         let records = illiquid
+            .iter()
+            .filter_map(|pool| match pool {
+               AnyUniswapPool::V4(pool) => Some(V4PoolRecord::from_pool(pool)),
+               _ => None,
+            })
+            .collect::<Vec<_>>();
+         if records.is_empty() {
+            continue;
+         }
+
+         let ids = records.iter().map(|record| record.id()).collect::<Vec<_>>();
+         store.remove_v4_records(chain, &ids)?;
+         self.write(|manager| manager.forget_v4_records(chain, &records));
+         report.removed_illiquid += records.len();
+      }
+
+      tracing::info!(
+         "V4 cleanup chain {}: {} of {} pools deleted ({} fee, {} base-asset fee, {} illiquid), {} dynamic, {} unjudged",
+         chain,
+         report.removed(),
+         report.scanned,
+         report.removed_by_fee,
+         report.removed_by_base_fee,
+         report.removed_illiquid,
+         report.dynamic_skipped,
+         report.unjudged
+      );
+
+      Ok(report)
+   }
+
    /// Reclaim the catalog's free pages. Blocking; call on shutdown only.
    pub fn compact(&self) -> Result<bool, anyhow::Error> {
       let Some(store) = self.read(|manager| manager.store.clone()) else {
@@ -1179,6 +1437,14 @@ pub struct PoolManager {
    #[serde(default = "default_v4_sync_block_range")]
    pub v4_sync_block_range: u64,
 
+   /// Fee ceiling of the V4 cleanup, as a percentage, adjustable from the pools window's settings.
+   #[serde(default = "default_v4_max_fee_percent")]
+   pub v4_max_fee_percent: f32,
+
+   /// The stricter ceiling the cleanup applies to pools that pair a base asset.
+   #[serde(default = "default_v4_max_base_fee_percent")]
+   pub v4_max_base_fee_percent: f32,
+
    #[serde(default = "default_ignore_chains")]
    pub ignore_chains: IgnoreChains,
 
@@ -1249,6 +1515,8 @@ impl PoolManager {
          batch_size_for_discovering_pools: default_batch_size_for_discovering_pools(),
          discover_v4_pools: default_discover_v4_pools(),
          v4_sync_block_range: default_v4_sync_block_range(),
+         v4_max_fee_percent: default_v4_max_fee_percent(),
+         v4_max_base_fee_percent: default_v4_max_base_fee_percent(),
          ignore_chains: default_ignore_chains(),
          store: None,
          dirty_pools: HashSet::new(),
@@ -1274,6 +1542,8 @@ impl PoolManager {
          batch_size_for_discovering_pools: default_batch_size_for_discovering_pools(),
          discover_v4_pools: default_discover_v4_pools(),
          v4_sync_block_range: default_v4_sync_block_range(),
+         v4_max_fee_percent: default_v4_max_fee_percent(),
+         v4_max_base_fee_percent: default_v4_max_base_fee_percent(),
          ignore_chains: default_ignore_chains(),
          store: None,
          dirty_pools: HashSet::new(),
@@ -1312,6 +1582,23 @@ impl PoolManager {
       }
    }
 
+   /// Forget V4 records whose catalog rows are already gone: drop the pools they built and the cold
+   /// index entries that still point at them.
+   fn forget_v4_records(&mut self, chain: u64, records: &[V4PoolRecord]) {
+      if records.is_empty() {
+         return;
+      }
+
+      let forgotten = records.iter().map(|record| record.id()).collect::<HashSet<_>>();
+      self
+         .pools
+         .retain(|key, pool| !(key.0 == chain && key.1.is_v4() && forgotten.contains(&pool.id())));
+
+      for record in records {
+         self.unindex_cold_v4(chain, record);
+      }
+   }
+
    /// Everything in this manager, in the shape [`PoolStore::write_catalog`] takes.
    fn catalog(&self) -> Catalog {
       let mut pools = Vec::with_capacity(self.pools.len());
@@ -1346,6 +1633,8 @@ impl PoolManager {
          batch_size_for_discovering_pools: self.batch_size_for_discovering_pools,
          discover_v4_pools: self.discover_v4_pools,
          v4_sync_block_range: self.v4_sync_block_range,
+         v4_max_fee_percent: self.v4_max_fee_percent,
+         v4_max_base_fee_percent: self.v4_max_base_fee_percent,
          ignore_chains: self.ignore_chains.clone(),
          format: POOL_DB_FORMAT,
       }
@@ -1555,6 +1844,71 @@ fn v4_pool_from_record(
       State::none(),
       record.hooks,
    ))
+}
+
+/// Why a V4 record is deleted. Kept per record so the log line can explain the total.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum V4RemovalReason {
+   Fee,
+   BaseFee,
+}
+
+/// The split a cleanup applies, computed without touching the catalog or the network.
+struct V4CleanupPlan {
+   remove: Vec<(V4PoolRecord, V4RemovalReason)>,
+   keep: Vec<V4PoolRecord>,
+   dynamic: usize,
+}
+
+/// Split `records` into the pools to delete and the pools to keep, from the record alone.
+///
+/// A cold row is judged on its fee and its two addresses, so the bulk of a scam-laden catalog is
+/// deleted without resolving a single currency. Liquidity is not part of this pass: it needs pool
+/// state, which only a hot pool has.
+fn plan_v4_cleanup(
+   chain: u64,
+   records: Vec<V4PoolRecord>,
+   max_fee_percent: f32,
+   max_base_fee_percent: f32,
+) -> V4CleanupPlan {
+   let mut plan = V4CleanupPlan {
+      remove: Vec::new(),
+      keep: Vec::with_capacity(records.len()),
+      dynamic: 0,
+   };
+
+   for record in records {
+      // A dynamic-fee pool has no fee of its own, so no ceiling can judge it.
+      if record.fee == DYNAMIC_FEE_FLAG {
+         plan.dynamic += 1;
+         plan.keep.push(record);
+         continue;
+      }
+
+      let percent = record.fee as f32 / 10_000.0;
+      if percent > max_fee_percent {
+         plan.remove.push((record, V4RemovalReason::Fee));
+      } else if percent > max_base_fee_percent && record_has_base_currency(chain, &record) {
+         plan.remove.push((record, V4RemovalReason::BaseFee));
+      } else {
+         plan.keep.push(record);
+      }
+   }
+
+   plan
+}
+
+/// Whether either side is an asset every real deployment pairs against: native, or a base token
+/// (WETH, WBNB, USDC, USDT, DAI, USDG).
+fn record_has_base_currency(chain: u64, record: &V4PoolRecord) -> bool {
+   [record.currency0, record.currency1]
+      .into_iter()
+      .any(|address| address.is_zero() || is_base_token(chain, address))
+}
+
+/// Whether the price behind `pool_has_sufficient_liquidity` produced a number at all.
+fn pool_base_price_known(ctx: &ZeusCtx, pool: &AnyUniswapPool) -> bool {
+   ctx.get_token_price(&pool.base_currency().to_erc20()).f64() > 0.0
 }
 
 /// One-time import of the pre-redb `pool_data.data` (sealed with `POOL_DATA_AAD`).
@@ -2046,6 +2400,102 @@ mod tests {
          "a snapshot checkpoint is not this wallet's sync and must not be resumed from"
       );
       assert!(manager.last_discover.is_empty());
+   }
+
+   /// Both ceilings are user-editable, so they are clamped on the way in and on the way out: a
+   /// hand-edited catalog must never turn into "delete the whole catalog".
+   #[test]
+   fn v4_cleanup_ceilings_are_clamped() {
+      let handle = PoolManagerHandle::new(PoolManager::empty());
+
+      assert_eq!(
+         handle.v4_max_fee_percent(),
+         DEFAULT_V4_MAX_FEE_PERCENT
+      );
+      assert_eq!(
+         handle.v4_max_base_fee_percent(),
+         DEFAULT_V4_MAX_BASE_FEE_PERCENT
+      );
+
+      handle.set_v4_max_fee_percent(0.0);
+      assert_eq!(
+         handle.v4_max_fee_percent(),
+         DEFAULT_V4_MAX_FEE_PERCENT
+      );
+
+      handle.set_v4_max_fee_percent(99.0);
+      assert_eq!(
+         handle.v4_max_fee_percent(),
+         MAX_V4_MAX_FEE_PERCENT
+      );
+
+      handle.set_v4_max_base_fee_percent(f32::NAN);
+      assert_eq!(
+         handle.v4_max_base_fee_percent(),
+         DEFAULT_V4_MAX_BASE_FEE_PERCENT
+      );
+
+      handle.set_v4_max_base_fee_percent(0.5);
+      assert_eq!(handle.v4_max_base_fee_percent(), 0.5);
+   }
+
+   /// `DYNAMIC_FEE_FLAG` is not a fee tier: read as one it is 838%, which would delete every
+   /// dynamic-fee pool on the chain.
+   #[test]
+   fn cleanup_skips_dynamic_fee_pools() {
+      let dynamic = V4PoolRecord {
+         fee: DYNAMIC_FEE_FLAG,
+         ..record_for(
+            Address::repeat_byte(0x01),
+            Address::repeat_byte(0x02),
+         )
+      };
+
+      let plan = plan_v4_cleanup(1, vec![dynamic], 2.0, 1.0);
+
+      assert_eq!(plan.dynamic, 1);
+      assert!(plan.remove.is_empty());
+      assert_eq!(plan.keep, vec![dynamic]);
+   }
+
+   #[test]
+   fn cleanup_deletes_high_fee_and_base_asset_pools() {
+      let weth = ERC20Token::weth().address;
+      let far_a = Address::repeat_byte(0x11);
+      let far_b = Address::repeat_byte(0x22);
+      let with_fee = |currency0: Address, currency1: Address, fee: u32| V4PoolRecord {
+         fee,
+         ..record_for(currency0, currency1)
+      };
+
+      // 3% on an unknown pair: over the general ceiling.
+      let high = with_fee(far_a, far_b, 30_000);
+      // 1.5% is under 2% but over the base-asset ceiling, for a WETH pair and for native.
+      let weth_pair = with_fee(weth, far_b, 15_000);
+      let native_pair = with_fee(Address::ZERO, far_b, 15_000);
+      // The same fee on a pair with no base asset is a legitimately obscure pool.
+      let unknown_pair = with_fee(far_a, far_b, 15_000);
+      // And a sane fee survives on a base pair.
+      let ok = with_fee(weth, far_b, 3_000);
+      // The ceiling is inclusive, like the snapshot builder's own 2% gate.
+      let at_ceiling = with_fee(far_a, far_b, 20_000);
+
+      let plan = plan_v4_cleanup(
+         1,
+         vec![high, weth_pair, native_pair, unknown_pair, ok, at_ceiling],
+         2.0,
+         1.0,
+      );
+
+      assert_eq!(
+         plan.remove,
+         vec![
+            (high, V4RemovalReason::Fee),
+            (weth_pair, V4RemovalReason::BaseFee),
+            (native_pair, V4RemovalReason::BaseFee),
+         ]
+      );
+      assert_eq!(plan.keep, vec![unknown_pair, ok, at_ceiling]);
    }
 
    #[test]

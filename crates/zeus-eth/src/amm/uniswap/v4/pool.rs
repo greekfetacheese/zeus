@@ -205,6 +205,13 @@ impl UniswapV4Pool {
    }
 }
 
+/// `PoolKey.fee` that tells the V4 `PoolManager` to read the fee from the pool's hook instead of
+/// the key.
+///
+/// Such a pool has no fee of its own, so anything that filters on fees must skip it: read as a tier
+/// the flag is 838%, which is not a fee anyone can judge.
+pub const DYNAMIC_FEE_FLAG: u32 = 0x80_0000;
+
 /// `keccak256(abi.encode(currency0, currency1, fee, tickSpacing, hooks))`.
 ///
 /// Takes raw addresses so a decoded `Initialize` log can compute its pool id without

@@ -17,7 +17,9 @@ use zeus_eth::{
    amm::uniswap::{AnyUniswapPool, DexKind, FeeAmount, UniswapPool, UniswapV4Pool, v4_pool_id},
 };
 
-use crate::context::pool_manager::V4_SYNC_BLOCK_RANGE;
+use crate::context::pool_manager::{
+   DEFAULT_V4_MAX_BASE_FEE_PERCENT, DEFAULT_V4_MAX_FEE_PERCENT, V4_SYNC_BLOCK_RANGE,
+};
 use crate::persisted::{PersistedFile, ensure_data_dir, file_path};
 use crate::platform::fs::restrict_file_to_owner;
 use crate::wallet_state_key::WalletStateKey;
@@ -40,6 +42,14 @@ fn default_v4_sync_block_range() -> u64 {
    V4_SYNC_BLOCK_RANGE
 }
 
+fn default_v4_max_fee_percent() -> f32 {
+   DEFAULT_V4_MAX_FEE_PERCENT
+}
+
+fn default_v4_max_base_fee_percent() -> f32 {
+   DEFAULT_V4_MAX_BASE_FEE_PERCENT
+}
+
 /// Everything in `PoolManager` that is not a pool. Small enough to rewrite wholesale.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct PoolDbMeta {
@@ -51,6 +61,12 @@ pub(crate) struct PoolDbMeta {
    /// Blocks per `eth_getLogs` during a V4 sync; the pools window's settings slider writes this.
    #[serde(default = "default_v4_sync_block_range")]
    pub v4_sync_block_range: u64,
+   /// Fee ceiling of the V4 cleanup, as a percentage; the settings slider writes this.
+   #[serde(default = "default_v4_max_fee_percent")]
+   pub v4_max_fee_percent: f32,
+   /// The stricter ceiling the cleanup applies to pools that pair a base asset.
+   #[serde(default = "default_v4_max_base_fee_percent")]
+   pub v4_max_base_fee_percent: f32,
    /// Bumped when the layout changes; a file with a newer value is refused on open.
    #[serde(default)]
    pub format: u32,
@@ -266,6 +282,14 @@ impl PoolStore {
    pub fn put_v4_record(&self, chain: u64, record: &V4PoolRecord) -> Result<(), anyhow::Error> {
       let sealed = self.key.seal_json(record, AAD_V4)?;
       self.insert_rows(&[(v4_key(chain, record.id()), sealed)])
+   }
+
+   /// Delete V4 records in one transaction.
+   ///
+   /// A cleanup deletes a chunk at a time so its progress is durable without a commit per row.
+   pub fn remove_v4_records(&self, chain: u64, ids: &[B256]) -> Result<(), anyhow::Error> {
+      let keys = ids.iter().map(|id| v4_key(chain, *id)).collect::<Vec<_>>();
+      self.remove_rows(&keys)
    }
 
    /// Test surface only: nothing deletes a pool yet (a token-prune path would be the first caller).
@@ -499,6 +523,16 @@ impl PoolStore {
 
    #[cfg(test)]
    fn remove_row(&self, key: &[u8]) -> Result<(), anyhow::Error> {
+      self.remove_rows(&[key.to_vec()])
+   }
+
+   /// Delete every key in one immediate-durability transaction, so a crash leaves all of them gone or
+   /// none.
+   fn remove_rows(&self, keys: &[Vec<u8>]) -> Result<(), anyhow::Error> {
+      if keys.is_empty() {
+         return Ok(());
+      }
+
       let guard = self.write_guard()?;
       let mut tx = guard.begin_write().map_err(|e| anyhow!("pool store write txn: {e}"))?;
       tx.set_durability(Durability::Immediate)
@@ -506,7 +540,9 @@ impl PoolStore {
       {
          let mut table =
             tx.open_table(POOL_TABLE).map_err(|e| anyhow!("pool store open table: {e}"))?;
-         table.remove(key).map_err(|e| anyhow!("pool store remove: {e}"))?;
+         for key in keys {
+            table.remove(key.as_slice()).map_err(|e| anyhow!("pool store remove: {e}"))?;
+         }
       }
       tx.commit().map_err(|e| anyhow!("pool store commit: {e}"))
    }
@@ -760,6 +796,33 @@ mod tests {
          store.load_meta().unwrap().expect("meta row").format,
          POOL_DB_FORMAT
       );
+   }
+
+   #[test]
+   fn v4_records_can_be_deleted_for_good() {
+      let dir = tempdir().unwrap();
+      let path = dir.path().join("pool_data.data");
+      let key = new_key();
+      let records = [record(500, 10), record(3000, 60)];
+
+      let store = PoolStore::open_at(&path, &key).unwrap();
+      store.commit_v4_step(1, &records, 100).unwrap();
+
+      store.remove_v4_records(1, &[records[0].id()]).unwrap();
+
+      assert!(
+         !store.has_v4(1, records[0].id()).unwrap(),
+         "a deleted record is gone, not tombstoned"
+      );
+      assert_eq!(
+         store.load_v4_records(Some(1)).unwrap(),
+         vec![(1, records[1])],
+         "the rest of the chain is untouched"
+      );
+
+      // An empty chunk is a no-op, which is what a cleanup with nothing to delete passes.
+      store.remove_v4_records(1, &[]).unwrap();
+      assert_eq!(store.load_v4_records(Some(1)).unwrap().len(), 1);
    }
 
    #[test]
