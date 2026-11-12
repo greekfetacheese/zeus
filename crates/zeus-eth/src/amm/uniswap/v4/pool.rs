@@ -1,6 +1,6 @@
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{
-   Address, B256, U256, address,
+   Address, B256, Bytes, U256, address,
    utils::{format_units, keccak256, parse_units},
 };
 use alloy_rpc_types::BlockId;
@@ -14,9 +14,12 @@ use crate::amm::uniswap::{
 
 use super::super::math::sqrt_price_math::Q96;
 use crate::NumericValue;
-use crate::abi::uniswap::v4::PoolKey;
+use crate::abi::uniswap::v4::{
+   PoolKey,
+   quoter::{QuoteExactInputSingleParams, UniswapV4Quoter},
+};
 use crate::currency::{Currency, ERC20Token, NativeCurrency};
-use crate::utils::price_feed::get_base_token_price;
+use crate::utils::{address_book, price_feed::get_base_token_price};
 
 use anyhow::{anyhow, bail};
 use core::cmp::Ordering;
@@ -43,6 +46,25 @@ pub struct UniswapV4Pool {
    pub tick_spacing: i32,
    pub liquidity_amount0: U256,
    pub liquidity_amount1: U256,
+   /// The chain's answer for one `(input currency, amount in)` pair; hook pools only.
+   ///
+   /// Not persisted: it is only valid for the amount it was fetched for, and the swap path refills
+   /// it on every quote. See [`UniswapV4Pool::set_hook_quote`].
+   #[serde(skip)]
+   pub hook_quote: Option<HookSwapQuote>,
+}
+
+/// One on-chain quote for a hook pool.
+///
+/// A hook can change both sides of a swap, so the amount out is only known for the exact amount that
+/// was asked for: `set_hook_quote` stores it, `hook_quote_out` only hands it back for the same
+/// pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HookSwapQuote {
+   /// The pool-side input currency (`currency0` or `currency1`) the answer is for.
+   pub currency_in: Address,
+   pub amount_in: U256,
+   pub amount_out: U256,
 }
 
 impl Ord for UniswapV4Pool {
@@ -138,6 +160,7 @@ impl UniswapV4Pool {
          tick_spacing,
          liquidity_amount0: U256::ZERO,
          liquidity_amount1: U256::ZERO,
+         hook_quote: None,
       }
    }
 
@@ -200,8 +223,66 @@ impl UniswapV4Pool {
       &mut self.state
    }
 
-   fn hook_impacts_swap(&self) -> bool {
+   /// Does this pool's hook take part in swaps?
+   ///
+   /// Such a pool cannot be simulated locally — `beforeSwap`/`afterSwap` may change both amounts —
+   /// so the swap path quotes it on chain and feeds the answer back through
+   /// [`Self::set_hook_quote`].
+   pub fn has_swap_hooks(&self) -> bool {
       super::has_swap_permissions(self.hooks)
+   }
+
+   /// Store the chain's answer for an exact-input swap through this pool.
+   ///
+   /// `currency_in` is the pool-side currency (`currency0`/`currency1`), not the trade currency: the
+   /// quote is matched by address when the local quoter replays the hop.
+   pub fn set_hook_quote(&mut self, currency_in: &Currency, amount_in: U256, amount_out: U256) {
+      self.hook_quote = Some(HookSwapQuote {
+         currency_in: currency_in.address(),
+         amount_in,
+         amount_out,
+      });
+   }
+
+   /// The stored chain quote, when it answers for exactly this input.
+   fn hook_quote_out(&self, currency_in: &Currency, amount_in: U256) -> Option<U256> {
+      let quote = self.hook_quote?;
+      let input = if self.zero_for_one(currency_in) {
+         self.currency0.address()
+      } else {
+         self.currency1.address()
+      };
+      (quote.currency_in == input && quote.amount_in == amount_in).then_some(quote.amount_out)
+   }
+
+   /// Ask the chain what this pool returns for an exact-input swap.
+   ///
+   /// The deployed `V4Quoter` runs the same `PoolManager` code the swap will, so it is the only
+   /// trustworthy price for a pool whose hook has swap permissions. Store the result with
+   /// [`Self::set_hook_quote`].
+   pub async fn quote_hook_swap<P, N>(
+      &self,
+      client: P,
+      currency_in: &Currency,
+      amount_in: U256,
+   ) -> Result<U256, anyhow::Error>
+   where
+      P: Provider<N> + Clone + 'static,
+      N: Network,
+   {
+      let quoter = address_book::uniswap_v4_quoter(self.chain_id)?;
+
+      let params = QuoteExactInputSingleParams {
+         poolKey: self.key().into(),
+         zeroForOne: self.zero_for_one(currency_in),
+         exactAmount: amount_in.try_into()?,
+         hookData: Bytes::default(),
+      };
+
+      let contract = UniswapV4Quoter::new(quoter, client);
+      let quote = contract.quoteExactInputSingle(params).call().await?;
+
+      Ok(quote.amountOut)
    }
 }
 
@@ -473,8 +554,10 @@ impl UniswapPool for UniswapV4Pool {
          ));
       }
 
-      if self.hook_impacts_swap() {
-         return Err(anyhow!("Unsupported Hook"));
+      if self.has_swap_hooks() {
+         return self
+            .hook_quote_out(currency_in, amount_in)
+            .ok_or_else(|| anyhow!("Unsupported Hook"));
       }
 
       let zero_for_one = self.zero_for_one(currency_in);
@@ -498,8 +581,11 @@ impl UniswapPool for UniswapV4Pool {
          ));
       }
 
-      if self.hook_impacts_swap() {
-         return Err(anyhow!("Unsupported Hook"));
+      if self.has_swap_hooks() {
+         let amount_out = self
+            .hook_quote_out(currency_in, amount_in)
+            .ok_or_else(|| anyhow!("Unsupported Hook"))?;
+         return Ok(amount_out);
       }
 
       let zero_for_one = self.zero_for_one(currency_in);
@@ -788,6 +874,38 @@ mod tests {
          B256::from_str("0xc344274edb26787476d6176a4d6666e5c2c424f7f39d82646fe2713796df85db")
             .unwrap();
       assert_eq!(pool1.id(), id1);
+   }
+
+   /// A pool whose hook has swap permissions cannot be priced locally: the local simulator refuses
+   /// it until the chain has answered, and then only for the amount it answered for.
+   #[test]
+   fn hook_pool_swaps_need_a_chain_quote() {
+      let mut pool = UniswapV4Pool::eth_usdc();
+      // `0x…80` sets the `beforeSwap` permission bit in the hook address.
+      pool.hooks = address!("0x0000000000000000000000000000000000000080");
+      let currency_in = pool.currency0().clone();
+      let amount_in = U256::from(1_000_000u64);
+
+      assert!(pool.has_swap_hooks());
+      assert!(pool.simulate_swap(&currency_in, amount_in).is_err());
+
+      pool.set_hook_quote(&currency_in, amount_in, U256::from(7u64));
+      assert_eq!(
+         pool.simulate_swap(&currency_in, amount_in).unwrap(),
+         U256::from(7u64)
+      );
+
+      // The answer belongs to one amount, and to one side of the pool.
+      assert!(pool.simulate_swap(&currency_in, amount_in + U256::ONE).is_err());
+      assert!(
+         pool.simulate_swap(pool.currency1(), amount_in).is_err(),
+         "an answer for one side must not be replayed for the other"
+      );
+   }
+
+   #[test]
+   fn hookless_pool_needs_no_chain_quote() {
+      assert!(!UniswapV4Pool::eth_usdc().has_swap_hooks());
    }
 
    #[test]

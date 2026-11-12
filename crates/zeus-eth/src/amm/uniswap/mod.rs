@@ -575,6 +575,7 @@ impl AnyUniswapPool {
             tick_spacing: pool.tick_spacing_i32(),
             liquidity_amount0: amount0.wei(),
             liquidity_amount1: amount1.wei(),
+            hook_quote: None,
          };
          AnyUniswapPool::V4(p)
       } else {

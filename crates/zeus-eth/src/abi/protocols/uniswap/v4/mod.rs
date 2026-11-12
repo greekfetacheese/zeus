@@ -3,6 +3,7 @@
 #![allow(clippy::too_many_arguments)]
 
 pub mod actions;
+pub mod quoter;
 pub mod state_view;
 
 use alloy_primitives::{Bytes, LogData};
