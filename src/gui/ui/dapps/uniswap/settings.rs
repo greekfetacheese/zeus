@@ -33,7 +33,6 @@ fn sanitise_slippage(raw: &str) -> f64 {
 
 #[derive(Clone)]
 pub struct UniswapSettingsUi {
-   open: bool,
    pub swap_on_v2: bool,
    pub swap_on_v3: bool,
    pub swap_on_v4: bool,
@@ -55,7 +54,6 @@ pub struct UniswapSettingsUi {
 impl UniswapSettingsUi {
    pub fn new() -> Self {
       Self {
-         open: false,
          swap_on_v2: true,
          swap_on_v3: true,
          swap_on_v4: true,
@@ -69,18 +67,6 @@ impl UniswapSettingsUi {
          simulate_mode: false,
          days: String::new(),
       }
-   }
-
-   pub fn open(&mut self) {
-      self.open = true;
-   }
-
-   pub fn close(&mut self) {
-      self.open = false;
-   }
-
-   pub fn is_open(&self) -> bool {
-      self.open
    }
 
    pub fn slippage_f64(&self) -> f64 {

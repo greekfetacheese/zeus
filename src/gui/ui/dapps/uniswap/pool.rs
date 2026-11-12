@@ -5,7 +5,7 @@ use std::time::Duration;
 use egui::{Align, FontId, Grid, Id, Layout, Margin, Order, RichText, Sense, Ui, vec2};
 
 use crate::assets::icons::Icons;
-use crate::core::{ZeusContext, ZeusCtx};
+use crate::core::{PoolManagerHandle, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::truncate_symbol_or_name;
 use egui_elements::{
@@ -22,8 +22,19 @@ use zeus_eth::{
    utils::batch,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// Width of every pool-version combobox, shared by the layouts that budget for it.
+const VERSION_COMBO_WIDTH: f32 = 200.0;
+
+/// Width of the pools search field. A full-width bar dwarfs the filter next to it.
+const SEARCH_FIELD_WIDTH: f32 = 200.0;
+
+/// Height of a row that holds an input field, so everything on it centres on one line.
+const FIELD_ROW_HEIGHT: f32 = 40.0;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Version {
+   /// The table's default filter: every pool version.
+   #[default]
    All,
    V2,
    V3,
@@ -63,6 +74,18 @@ impl Version {
          Self::V4 => "V4",
       }
    }
+}
+
+/// Fingerprint of what the pool table was last built from, so a rebuild only runs on a change.
+///
+/// The pool labels (symbols, kind, fee) never change once a pool exists, so the manager's size is
+/// what notices an added or dropped pool.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct PoolRowsKey {
+   chain: u64,
+   version: Version,
+   query: String,
+   pools: usize,
 }
 
 /// Uniswap V4 `LPFeeLibrary.DYNAMIC_FEE_FLAG`: the hook supplies the fee.
@@ -222,21 +245,28 @@ impl AddPoolForm {
 }
 
 pub struct PoolsUi {
-   pub open: bool,
    pub search_query: String,
    version: Option<Version>,
    add_form: AddPoolForm,
    pub size: (f32, f32),
+   /// The table's rows, built off the GUI thread by [`Self::refresh_rows`].
+   rows: Vec<PoolRow>,
+   /// The key the rows were last built for; a build whose key no longer matches is dropped.
+   rows_key: PoolRowsKey,
+   /// True while a background row build is in flight.
+   rows_loading: bool,
 }
 
 impl PoolsUi {
    pub fn new() -> Self {
       Self {
-         open: false,
          search_query: String::new(),
          version: None,
          add_form: AddPoolForm::default(),
          size: (600.0, 500.0),
+         rows: Vec::new(),
+         rows_key: PoolRowsKey::default(),
+         rows_loading: false,
       }
    }
 
@@ -253,99 +283,77 @@ impl PoolsUi {
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      if !self.open {
-         return;
-      }
-
       let chain = ctx.chain.id();
 
       ui.vertical_centered(|ui| {
-         ui.set_width(self.size.0);
+         // The frame owns the width now — pinning it here would defeat the width transition.
          ui.set_max_height(self.size.1);
          ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
          ui.spacing_mut().button_padding = theme.button_padding;
-         let ui_width = ui.available_width();
 
          let hint = RichText::new("Search pools")
             .color(theme.colors.text_muted)
             .size(theme.typography.normal);
 
-         SecureTextEdit::singleline(&mut self.search_query)
-            .visuals(theme.text_edit_visuals())
-            .hint_text(hint)
-            .desired_width(ui_width * 0.5)
-            .margin(Margin::same(10))
-            .font(FontId::proportional(theme.typography.normal))
-            .show(ui);
-
+         // A bounded row: `horizontal_centered` alone would centre the widgets on the whole
+         // page's remaining height, not on one line.
          ui.allocate_ui_with_layout(
-            vec2(360.0, 36.0),
+            vec2(ui.available_width(), FIELD_ROW_HEIGHT),
             Layout::left_to_right(Align::Center),
             |ui| {
-               self.select_version(theme, ui);
-               ui.add_space(theme.spacing.sm);
+               ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
-               let text = RichText::new("Add Pool").size(theme.typography.normal);
-               let button =
-                  Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
-               if ui.add(button).clicked() {
-                  self.add_form.open();
-               }
+               SecureTextEdit::singleline(&mut self.search_query)
+                  .visuals(theme.text_edit_visuals())
+                  .hint_text(hint)
+                  .desired_width(SEARCH_FIELD_WIDTH)
+                  .margin(Margin::same(10))
+                  .font(FontId::proportional(theme.typography.normal))
+                  .show(ui);
+
+               self.select_version(theme, ui);
             },
          );
+
+         ui.horizontal(|ui| {
+            let text = RichText::new("Add Pool").size(theme.typography.normal);
+            let button =
+               Button::new(text).visuals(theme.button_visuals()).label_align(Align::Center);
+            if ui.add(button).clicked() {
+               self.add_form.open();
+            }
+         });
 
          ui.add_space(20.0);
 
          let selected_version = self.version.unwrap_or(Version::All);
-         let tint = theme.image_tint_recommended;
-         let query = self.search_query.as_str();
-         let manager = ctx.pool_manager.clone();
 
-         let rows: Vec<PoolRow> = manager.read(|manager| {
-            let mut rows: Vec<PoolRow> = manager
-               .pools
-               .values()
-               .filter(|pool| pool.chain_id() == chain)
-               .filter(|pool| {
-                  selected_version.is_all()
-                     || selected_version.is_v2() && pool.dex_kind().is_v2()
-                     || selected_version.is_v3() && pool.dex_kind().is_v3()
-                     || selected_version.is_v4() && pool.dex_kind().is_v4()
-               })
-               .filter(|pool| valid_search(pool, query))
-               .map(|pool| {
-                  let token0 = pool.currency0();
-                  let token1 = pool.currency1();
+         self.refresh_rows(
+            chain,
+            ctx.pool_manager.clone(),
+            icons,
+            theme.image_tint_recommended,
+         );
 
-                  PoolRow {
-                     token0: truncate_symbol_or_name(token0.symbol(), 10),
-                     token1: truncate_symbol_or_name(token1.symbol(), 10),
-                     icon0: icons.currency_icon_x32(token0, tint),
-                     icon1: icons.currency_icon_x32(token1, tint),
-                     protocol: protocol_str(pool),
-                     fee: fee_label(pool.fee().fee()),
-                  }
-               })
-               .collect();
-
-            rows.sort_by(|a, b| a.token0.cmp(&b.token0).then_with(|| a.token1.cmp(&b.token1)));
-
-            rows
-         });
-
-         if rows.is_empty() {
+         if self.rows.is_empty() {
             ui.add_space(theme.spacing.lg);
-            ui.label(
-               RichText::new("No pools match this filter.")
-                  .size(theme.typography.normal)
-                  .color(theme.colors.text_muted),
-            );
+
+            if self.rows_loading {
+               ui.add(Spinner::new().size(20.0).color(theme.colors.text));
+            } else {
+               ui.label(
+                  RichText::new("No pools match this filter.")
+                     .size(theme.typography.normal)
+                     .color(theme.colors.text_muted),
+               );
+            }
+
             return;
          }
 
          let table_height = (ui.available_height() - theme.spacing.sm).max(140.0);
 
-         Table::new("pools_ui", &rows)
+         Table::new("pools_ui", &self.rows)
             .columns([
                Column::Fr(3.2), // Pool
                Column::Fr(1.0), // Protocol
@@ -361,7 +369,7 @@ impl PoolsUi {
             )
             .row_divider(true)
             .header_rule(true)
-            .key((chain, selected_version.to_str(), rows.len()))
+            .key((chain, selected_version.to_str(), self.rows.len()))
             .show(ui, |t| {
                t.header(|h| {
                   for text in ["Pool", "Protocol", "Fee"] {
@@ -448,19 +456,25 @@ impl PoolsUi {
             ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
             ui.spacing_mut().button_padding = theme.button_padding;
 
-            ui.horizontal(|ui| {
-               ui.label(RichText::new("Pool version").size(theme.typography.large));
+            // A bounded row, so the label centres on the cross axis against the taller combobox
+            // instead of on a one-line band the combobox overflows.
+            ui.allocate_ui_with_layout(
+               vec2(ui.available_width(), FIELD_ROW_HEIGHT),
+               Layout::left_to_right(Align::Center),
+               |ui| {
+                  ui.label(RichText::new("Pool version").size(theme.typography.large));
 
-               if let Some(version) = version_combo(
-                  theme,
-                  ui,
-                  "add_pool_version_combo",
-                  Some(form.version),
-                  &Version::add_options(),
-               ) {
-                  form.version = version;
-               }
-            });
+                  if let Some(version) = version_combo(
+                     theme,
+                     ui,
+                     "add_pool_version_combo",
+                     Some(form.version),
+                     &Version::add_options(),
+                  ) {
+                     form.version = version;
+                  }
+               },
+            );
 
             let field_width = 320.0;
 
@@ -574,15 +588,17 @@ impl PoolsUi {
                   );
                });
             } else {
-               let text = RichText::new("Add Pool").size(theme.typography.large);
-               let button = Button::new(text)
-                  .visuals(theme.button_visuals())
-                  .min_size(vec2(field_width, 42.0))
-                  .label_align(Align::Center);
+               ui.vertical_centered(|ui| {
+                  let text = RichText::new("Add Pool").size(theme.typography.large);
+                  let button = Button::new(text)
+                     .visuals(theme.button_visuals())
+                     .min_size(vec2(field_width, 42.0))
+                     .label_align(Align::Center);
 
-               if ui.add(button).clicked() {
-                  submit = Some(form.request());
-               }
+                  if ui.add(button).clicked() {
+                     submit = Some(form.request());
+                  }
+               });
             }
          });
 
@@ -635,6 +651,94 @@ impl PoolsUi {
          }
       }
    }
+
+   /// Rebuild the table's rows off the GUI thread when the filter or the pool set moves.
+   ///
+   /// The rows are applied only if [`PoolRowsKey`] still matches, so a build the user has already
+   /// filtered past cannot land on a newer one.
+   fn refresh_rows(
+      &mut self,
+      chain: u64,
+      manager: PoolManagerHandle,
+      icons: Arc<Icons>,
+      tint: bool,
+   ) {
+      let key = PoolRowsKey {
+         chain,
+         version: self.version.unwrap_or(Version::All),
+         query: self.search_query.clone(),
+         pools: manager.read(|manager| manager.pools.len()),
+      };
+
+      if key == self.rows_key {
+         return;
+      }
+
+      self.rows_key = key.clone();
+      self.rows_loading = true;
+
+      crate::runtime::rt().spawn_blocking(move || {
+         let rows = build_rows(&manager, &icons, &key, tint);
+
+         SHARED_GUI.write(|gui| {
+            let pools_ui = &mut gui.uniswap.pools_ui;
+
+            // A newer filter owns the table; the build it superseded must not land.
+            if pools_ui.rows_key != key {
+               return;
+            }
+
+            pools_ui.rows = rows;
+            pools_ui.rows_loading = false;
+            gui.request_repaint();
+         });
+      });
+   }
+}
+
+/// Build the pool table's rows for `key`, under the pool manager's read lock.
+///
+/// Runs on a blocking thread so the GUI never builds the table while holding the lock.
+fn build_rows(
+   manager: &PoolManagerHandle,
+   icons: &Icons,
+   key: &PoolRowsKey,
+   tint: bool,
+) -> Vec<PoolRow> {
+   let selected_version = key.version;
+   let query = key.query.as_str();
+
+   manager.read(|manager| {
+      let mut rows: Vec<PoolRow> = manager
+         .pools
+         .values()
+         .filter(|pool| pool.chain_id() == key.chain)
+         .filter(|pool| {
+            selected_version.is_all()
+               || selected_version.is_v2() && pool.dex_kind().is_v2()
+               || selected_version.is_v3() && pool.dex_kind().is_v3()
+               || selected_version.is_v4() && pool.dex_kind().is_v4()
+         })
+         .filter(|pool| valid_search(pool, query))
+         .map(|pool| {
+            let token0 = pool.currency0();
+            let token1 = pool.currency1();
+
+            PoolRow {
+               token0: truncate_symbol_or_name(token0.symbol(), 10),
+               token1: truncate_symbol_or_name(token1.symbol(), 10),
+               icon0: icons.currency_icon_x32(token0, tint),
+               icon1: icons.currency_icon_x32(token1, tint),
+               protocol: protocol_str(pool),
+               fee: fee_label(pool.fee().fee()),
+            }
+         })
+         .collect();
+
+      rows.sort_by(|a, b| a.token0.cmp(&b.token0).then_with(|| a.token1.cmp(&b.token1)));
+
+      rows
+   })
 }
 
 fn version_combo(
@@ -650,7 +754,7 @@ fn version_combo(
 
    let mut selected = None;
 
-   ComboBox::new(id, selected_label).width(200.0).show_ui(ui, |ui| {
+   ComboBox::new(id, selected_label).width(VERSION_COMBO_WIDTH).show_ui(ui, |ui| {
       for version in versions {
          let text = RichText::new(version.to_str()).size(theme.typography.normal);
          let label = Label::new(text, None)
@@ -673,7 +777,7 @@ fn form_text_field(theme: &Theme, ui: &mut Ui, value: &mut String, hint: &str, w
    let hint = RichText::new(hint).color(theme.colors.text_muted).size(theme.typography.normal);
    let visuals = theme.text_edit_visuals();
 
-   ui.allocate_ui(vec2(width, 40.0), |ui| {
+   ui.allocate_ui(vec2(width, FIELD_ROW_HEIGHT), |ui| {
       SecureTextEdit::singleline(value)
          .visuals(visuals)
          .hint_text(hint)
