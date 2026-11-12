@@ -29,6 +29,18 @@ use std::hash::{Hash, Hasher};
 /// Max fee to avoid overflows, It doesnt make any sense to swap on these pools anyway
 pub const MAX_FEE: f32 = 10.0;
 
+/// Denominator of [`HookFeeModel::fee_pips`].
+pub const HOOK_FEE_DENOMINATOR: u32 = 10_000;
+
+/// How long a fitted hook cut is trusted before it is fitted again.
+pub const HOOK_FEE_TTL_SECS: u64 = 120;
+
+/// How far the model may miss the chain at the reference amount before it is discarded.
+///
+/// A hook that is not a flat cut of the input — tiers, a fixed amount, oracle pricing — cannot be
+/// described by one number. The fit says so with `linear: false` instead of guessing.
+pub const HOOK_FEE_LINEARITY_TOLERANCE_PIPS: u32 = 25;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UniswapV4Pool {
    pub chain_id: u64,
@@ -52,6 +64,68 @@ pub struct UniswapV4Pool {
    /// it on every quote. See [`UniswapV4Pool::set_hook_quote`].
    #[serde(skip)]
    pub hook_quote: Option<HookSwapQuote>,
+   /// The hook's cut, fitted from the chain and indexed by `zero_for_one`; hook pools only.
+   ///
+   /// Persisted so a hook pool can be priced without a request; refreshed by the swap and price
+   /// paths when stale. See [`UniswapV4Pool::fit_hook_fee`].
+   #[serde(default)]
+   pub hook_fees: [Option<HookFeeModel>; 2],
+}
+
+/// What a hook takes off a swap, fitted from one on-chain quote.
+///
+/// `fee_pips` describes the whole cut — the pool's own fee and the hook's — as a fraction of the
+/// input, because that is what the fit can observe. Only `linear` models may be applied to amounts
+/// other than the ones they were fitted for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HookFeeModel {
+   /// The cut, in pips of the input: `100` = 1%.
+   pub fee_pips: u32,
+   /// The model matched the chain at the reference amount, so the hook behaves like a flat cut.
+   pub linear: bool,
+   /// Unix seconds when the fit was made.
+   pub observed_at: u64,
+}
+
+impl HookFeeModel {
+   /// The input the pool would actually swap once the hook has taken its cut.
+   fn input_after_cut(&self, amount_in: U256) -> U256 {
+      let kept = HOOK_FEE_DENOMINATOR.saturating_sub(self.fee_pips);
+      amount_in.saturating_mul(U256::from(kept)) / U256::from(HOOK_FEE_DENOMINATOR)
+   }
+}
+
+/// Seconds since the unix epoch, for [`HookFeeModel::observed_at`].
+fn now_secs() -> u64 {
+   std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .unwrap_or_default()
+      .as_secs()
+}
+
+/// The cut a hook takes, from what fee-0 local math would produce and what the chain produced.
+fn implied_fee_pips(local_out: U256, chain_out: U256) -> Option<u32> {
+   if local_out.is_zero() {
+      return None;
+   }
+
+   // A hook that pays out instead of taking: fee-0 local math is already the conservative answer.
+   if chain_out >= local_out {
+      return Some(0);
+   }
+
+   let cut = (local_out - chain_out) * U256::from(HOOK_FEE_DENOMINATOR) / local_out;
+   u32::try_from(cut).ok()
+}
+
+/// Does `model_out` miss the chain's `chain_out` by more than `tolerance_pips`?
+fn misses_by_more_than(model_out: U256, chain_out: U256, tolerance_pips: u32) -> bool {
+   if chain_out.is_zero() {
+      return true;
+   }
+
+   let diff = model_out.abs_diff(chain_out);
+   diff * U256::from(HOOK_FEE_DENOMINATOR) / chain_out > U256::from(tolerance_pips)
 }
 
 /// One on-chain quote for a hook pool.
@@ -161,6 +235,7 @@ impl UniswapV4Pool {
          liquidity_amount0: U256::ZERO,
          liquidity_amount1: U256::ZERO,
          hook_quote: None,
+         hook_fees: [None, None],
       }
    }
 
@@ -253,6 +328,102 @@ impl UniswapV4Pool {
          self.currency1.address()
       };
       (quote.currency_in == input && quote.amount_in == amount_in).then_some(quote.amount_out)
+   }
+
+   /// The direction and the post-cut input a hook pool's swap should use, or why it cannot.
+   ///
+   /// The cut was fitted against fee-0 local math, so the pool's own fee is already inside it: the
+   /// swap that follows runs at fee 0.
+   fn hook_fee_swap_amount(
+      &self,
+      currency_in: &Currency,
+      amount_in: U256,
+   ) -> Result<(bool, U256), anyhow::Error> {
+      let zero_for_one = self.zero_for_one(currency_in);
+      let Some(model) = self.hook_fee(zero_for_one) else {
+         return Err(anyhow!("Unsupported Hook"));
+      };
+
+      if !model.linear {
+         return Err(anyhow!("Unsupported Hook"));
+      }
+
+      Ok((zero_for_one, model.input_after_cut(amount_in)))
+   }
+
+   /// The fitted hook cut for a swap direction, usable or not.
+   pub fn hook_fee(&self, zero_for_one: bool) -> Option<&HookFeeModel> {
+      self.hook_fees[usize::from(zero_for_one)].as_ref()
+   }
+
+   /// Does this direction need a fresh fit before the local quoter may use it?
+   ///
+   /// A non-linear hook never becomes usable: its cut depends on the amount, so the pool keeps
+   /// asking the chain for the exact amount instead.
+   pub fn hook_fee_is_stale(&self, zero_for_one: bool) -> bool {
+      match self.hook_fee(zero_for_one) {
+         None => true,
+         Some(model) => {
+            !model.linear || now_secs().saturating_sub(model.observed_at) > HOOK_FEE_TTL_SECS
+         }
+      }
+   }
+
+   /// Fit the hook's cut from the chain, for one swap direction.
+   ///
+   /// Two probes. The small one sits where the pool's own price impact is negligible, so the ratio
+   /// between fee-0 local math and the chain *is* the hook's cut; the reference one — the amount the
+   /// quote will be used at — is used to check that the flat-cut model reproduces the chain. A hook
+   /// that fails the check is stored as `linear: false` and never applied to other amounts.
+   pub async fn fit_hook_fee<P, N>(
+      &self,
+      client: P,
+      currency_in: &Currency,
+      reference: U256,
+   ) -> Result<HookFeeModel, anyhow::Error>
+   where
+      P: Provider<N> + Clone + 'static,
+      N: Network,
+   {
+      if !self.has_swap_hooks() {
+         return Err(anyhow!("Pool has no swap hooks"));
+      }
+
+      let state = self.state().v3_state().ok_or_else(|| anyhow!("State not initialized"))?.clone();
+      let zero_for_one = self.zero_for_one(currency_in);
+
+      let small = reference / U256::from(1_000u64);
+      if small.is_zero() {
+         return Err(anyhow!(
+            "Amount {reference} is too small to fit a hook fee against"
+         ));
+      }
+
+      let local_small = calculate_swap(&state, 0, zero_for_one, small)?;
+      let chain_small = self.quote_hook_swap(client.clone(), currency_in, small).await?;
+      let fee_pips = implied_fee_pips(local_small, chain_small)
+         .ok_or_else(|| anyhow!("Local simulation returned nothing to fit against"))?;
+
+      let model = HookFeeModel {
+         fee_pips,
+         linear: false,
+         observed_at: now_secs(),
+      };
+
+      let local_reference = calculate_swap(
+         &state,
+         0,
+         zero_for_one,
+         model.input_after_cut(reference),
+      )?;
+      let chain_reference = self.quote_hook_swap(client, currency_in, reference).await?;
+      let linear = !misses_by_more_than(
+         local_reference,
+         chain_reference,
+         HOOK_FEE_LINEARITY_TOLERANCE_PIPS,
+      );
+
+      Ok(HookFeeModel { linear, ..model })
    }
 
    /// Ask the chain what this pool returns for an exact-input swap.
@@ -555,9 +726,14 @@ impl UniswapPool for UniswapV4Pool {
       }
 
       if self.has_swap_hooks() {
-         return self
-            .hook_quote_out(currency_in, amount_in)
-            .ok_or_else(|| anyhow!("Unsupported Hook"));
+         if let Some(amount_out) = self.hook_quote_out(currency_in, amount_in) {
+            return Ok(amount_out);
+         }
+
+         let (zero_for_one, amount_in) = self.hook_fee_swap_amount(currency_in, amount_in)?;
+         let fee = 0;
+         let state = self.state().v3_state().ok_or(anyhow!("State not initialized"))?;
+         return calculate_swap(state, fee, zero_for_one, amount_in);
       }
 
       let zero_for_one = self.zero_for_one(currency_in);
@@ -582,10 +758,14 @@ impl UniswapPool for UniswapV4Pool {
       }
 
       if self.has_swap_hooks() {
-         let amount_out = self
-            .hook_quote_out(currency_in, amount_in)
-            .ok_or_else(|| anyhow!("Unsupported Hook"))?;
-         return Ok(amount_out);
+         if let Some(amount_out) = self.hook_quote_out(currency_in, amount_in) {
+            return Ok(amount_out);
+         }
+
+         let (zero_for_one, amount_in) = self.hook_fee_swap_amount(currency_in, amount_in)?;
+         let fee = 0;
+         let state = self.state_mut().v3_state_mut().ok_or(anyhow!("State not initialized"))?;
+         return calculate_swap_mut(state, fee, zero_for_one, amount_in);
       }
 
       let zero_for_one = self.zero_for_one(currency_in);
@@ -856,6 +1036,7 @@ mod tests {
    use crate::amm::uniswap::{V4_FEE_CANDIDATES, v4_fee_spacing_candidates};
    use alloy_primitives::B256;
    use alloy_provider::ProviderBuilder;
+   use std::collections::HashMap;
    use std::str::FromStr;
 
    #[test]
@@ -906,6 +1087,136 @@ mod tests {
    #[test]
    fn hookless_pool_needs_no_chain_quote() {
       assert!(!UniswapV4Pool::eth_usdc().has_swap_hooks());
+   }
+
+   #[test]
+   fn hook_fee_fit_math() {
+      assert_eq!(
+         implied_fee_pips(U256::from(10_000u64), U256::from(9_900u64)),
+         Some(100)
+      );
+      assert_eq!(
+         implied_fee_pips(U256::from(10_000u64), U256::from(10_000u64)),
+         Some(0)
+      );
+      // A hook that pays out: fee-0 local math is the conservative answer, not a negative cut.
+      assert_eq!(
+         implied_fee_pips(U256::from(10_000u64), U256::from(10_500u64)),
+         Some(0)
+      );
+      assert_eq!(
+         implied_fee_pips(U256::ZERO, U256::from(1u64)),
+         None
+      );
+
+      let model = HookFeeModel {
+         fee_pips: 100,
+         linear: true,
+         observed_at: 0,
+      };
+      assert_eq!(
+         model.input_after_cut(U256::from(10_000u64)),
+         U256::from(9_900u64)
+      );
+
+      assert!(!misses_by_more_than(
+         U256::from(9_900u64),
+         U256::from(9_910u64),
+         25
+      ));
+      assert!(misses_by_more_than(
+         U256::from(9_900u64),
+         U256::from(10_500u64),
+         25
+      ));
+   }
+
+   /// A pool with one tick range and no initialized ticks around it — enough for the swap math.
+   fn hook_pool_with_state() -> UniswapV4Pool {
+      let mut pool = UniswapV4Pool::eth_usdc();
+      pool.hooks = address!("0x0000000000000000000000000000000000000080");
+
+      let state = crate::amm::uniswap::state::V3PoolState {
+         fee_growth_global_0_x128: U256::ZERO,
+         fee_growth_global_1_x128: U256::ZERO,
+         liquidity: 1_000_000_000_000_000_000_000_000u128,
+         sqrt_price: U256::from(100u64) * (U256::ONE << 96),
+         tick: 0,
+         word_pos: 0,
+         tick_spacing: 60,
+         tick_bitmap: HashMap::new(),
+         ticks: HashMap::new(),
+      };
+
+      pool.set_state(State::v3(state));
+      pool
+   }
+
+   /// A linear model is applied to fee-0 local math on the post-cut input; anything else keeps asking.
+   #[test]
+   fn hook_fee_model_prices_local_math() {
+      let mut pool = hook_pool_with_state();
+      let currency_in = pool.currency0().clone();
+      let amount_in = U256::from(1_000_000_000_000_000_000u64);
+
+      let no_cut = calculate_swap(
+         pool.state().v3_state().unwrap(),
+         0,
+         true,
+         amount_in,
+      )
+      .unwrap();
+      assert!(!no_cut.is_zero());
+
+      // `currency0` is native ETH here, so this is the `zero_for_one` direction.
+      pool.hook_fees[1] = Some(HookFeeModel {
+         fee_pips: 100,
+         linear: true,
+         observed_at: now_secs(),
+      });
+
+      let quoted = pool.simulate_swap(&currency_in, amount_in).unwrap();
+      assert!(
+         quoted < no_cut,
+         "the hook's cut must lower the quote"
+      );
+
+      let after_cut = amount_in * U256::from(99u64) / U256::from(100u64);
+      let expected = calculate_swap(
+         pool.state().v3_state().unwrap(),
+         0,
+         true,
+         after_cut,
+      )
+      .unwrap();
+      assert_eq!(quoted, expected);
+
+      // A hook whose cut depends on the amount is never applied to another amount.
+      pool.hook_fees[1] = Some(HookFeeModel {
+         fee_pips: 100,
+         linear: false,
+         observed_at: now_secs(),
+      });
+      assert!(pool.simulate_swap(&currency_in, amount_in).is_err());
+
+      // The model is only trusted for a while.
+      pool.hook_fees[1] = Some(HookFeeModel {
+         fee_pips: 100,
+         linear: true,
+         observed_at: now_secs(),
+      });
+      assert!(!pool.hook_fee_is_stale(true));
+      assert!(
+         pool.hook_fee_is_stale(false),
+         "the other side was never fitted"
+      );
+
+      pool.hook_fees[1] = Some(HookFeeModel {
+         fee_pips: 100,
+         linear: true,
+         observed_at: 0,
+      });
+      assert!(pool.hook_fee_is_stale(true));
    }
 
    #[test]

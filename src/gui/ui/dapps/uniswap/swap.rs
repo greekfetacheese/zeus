@@ -11,6 +11,7 @@ use anyhow::anyhow;
 use egui_elements::{Button, ComboBox, Label, Theme, widgets::Window};
 use egui_lucide::Lucide;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{collections::HashSet, time::Instant};
 use zeus_eth::alloy_rpc_types::Block;
 use zeus_eth::revm::context::ContextTr;
@@ -29,7 +30,7 @@ use crate::utils::{
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    alloy_rpc_types::BlockId,
-   amm::uniswap::{AnyUniswapPool, UniswapPool},
+   amm::uniswap::{AnyUniswapPool, UniswapPool, UniswapV4Pool},
    currency::{Currency, erc20::ERC20Token, native::NativeCurrency},
    revm_utils::{ForkDB, Host, new_evm, simulate},
    types::ChainId,
@@ -279,6 +280,11 @@ pub struct SwapUi {
    pub simulate_window: SimulateWindow,
    /// Cached amount USD / min received / price impact — recomputed only when [QuoteKey] changes
    quote_cache: QuoteCache,
+
+   /// Bumped by every quote request; a result whose id is no longer current is dropped.
+   quote_request: u64,
+   /// One hook-pool request at a time, so dragging the amount slider cannot queue a call per frame.
+   hook_fee_busy: Arc<AtomicBool>,
 }
 
 impl SwapUi {
@@ -303,6 +309,8 @@ impl SwapUi {
          pool: None,
          simulate_window: SimulateWindow::new(),
          quote_cache: QuoteCache::default(),
+         quote_request: 0,
+         hook_fee_busy: Arc::new(AtomicBool::new(false)),
       }
    }
 
@@ -968,6 +976,12 @@ impl SwapUi {
       let swap_on_v3 = settings.swap_on_v3;
       let swap_on_v4 = settings.swap_on_v4;
 
+      // Every request remembers its place in the queue: a quote that lands after a newer one must not
+      // overwrite it.
+      self.quote_request = self.quote_request.wrapping_add(1);
+      let quote_request = self.quote_request;
+      let hook_fee_busy = self.hook_fee_busy.clone();
+
       let ctx_clone = ctx.clone();
       crate::runtime::rt().spawn(async move {
          let pools = get_relevant_pools(
@@ -984,12 +998,14 @@ impl SwapUi {
             .filter(|pool| ctx_clone.pool_has_sufficient_liquidity(pool).unwrap_or(false))
             .collect();
 
-         // A hook pool is priced by the chain, not by local tick math.
-         Self::quote_hook_pools(
+         // Hook pools need their hook's cut fitted — or, when it cannot be modelled, the exact amount
+         // quoted — before local math can price them.
+         Self::prepare_hook_pools(
             ctx.clone(),
             &mut liquid_pools,
             &currency_in,
             amount_in_wei,
+            &hook_fee_busy,
          )
          .await;
 
@@ -1026,6 +1042,10 @@ impl SwapUi {
             .unwrap_or_default();
 
          SHARED_GUI.write(|gui| {
+            if gui.uniswap.swap_ui.quote_request != quote_request {
+               return;
+            }
+
             if quote.amount_out.is_zero() {
                gui.uniswap.swap_ui.quote = Quote::default();
                gui.uniswap.swap_ui.amount_out_field.amount = String::new();
@@ -1037,29 +1057,29 @@ impl SwapUi {
       });
    }
 
-   /// Fill in the chain's quote for every V4 pool whose hook has swap permissions.
+   /// Get the hook pools ready for the local quoter.
    ///
-   /// A hook can change both sides of a swap, so local tick math cannot price such a pool: the local
-   /// simulator refuses it (`Unsupported Hook`) and it used to drop out of every route. The deployed
-   /// `V4Quoter` runs the same `PoolManager` code the swap will, and its answer is keyed to exactly
-   /// the amount a direct hop asks for.
+   /// A pool whose hook cut is known is priced by the same fee-0 local math as any other pool, and the
+   /// model lives on the pool — so dragging the amount slider costs no request at all, and the fit
+   /// happens once per [`zeus_eth::amm::uniswap::v4::HOOK_FEE_TTL_SECS`].
    ///
-   /// Only the trade input has a known amount up front. A hook pool reached as a second hop is fed by
-   /// the first hop's estimate, so it stays unquotable and out of such routes — narrower, but correct.
-   async fn quote_hook_pools(
+   /// A hook that is not a flat cut of the input cannot be modelled; those pools get their exact amount
+   /// quoted instead, which is the amount a direct hop asks for.
+   async fn prepare_hook_pools(
       ctx: ZeusCtx,
       pools: &mut [AnyUniswapPool],
       currency_in: &Currency,
       amount_in: U256,
+      busy: &AtomicBool,
    ) {
       if amount_in.is_zero() {
          return;
       }
 
-      let client = ctx.get_client_manager();
-      let chain = currency_in.chain_id();
+      // `true` means the pool's hook is not a flat cut: only the chain can price this trade.
+      let mut to_prepare: Vec<(usize, Currency, bool)> = Vec::new();
 
-      for pool in pools.iter_mut() {
+      for (index, pool) in pools.iter().enumerate() {
          let AnyUniswapPool::V4(v4_pool) = pool else {
             continue;
          };
@@ -1068,17 +1088,67 @@ impl SwapUi {
             continue;
          }
 
-         // Ask in the pool's own currency: a WETH trade on a native pool asks the chain for ETH.
-         let pool_currency_in = if same_asset(v4_pool.currency0(), currency_in) {
-            v4_pool.currency0().clone()
-         } else if same_asset(v4_pool.currency1(), currency_in) {
-            v4_pool.currency1().clone()
-         } else {
+         let Some(pool_currency_in) = pool_input_currency(v4_pool, currency_in) else {
+            continue;
+         };
+
+         let zero_for_one = v4_pool.zero_for_one(&pool_currency_in);
+         match v4_pool.hook_fee(zero_for_one) {
+            Some(model) if !model.linear => to_prepare.push((index, pool_currency_in, true)),
+            _ if !v4_pool.hook_fee_is_stale(zero_for_one) => {}
+            _ => to_prepare.push((index, pool_currency_in, false)),
+         }
+      }
+
+      if to_prepare.is_empty() {
+         return;
+      }
+
+      // Dragging the amount slider fires a quote per frame. One round trip at a time is enough: the
+      // next frame asks again, and an answer that arrives late is not worth queueing for.
+      if busy.swap(true, Ordering::AcqRel) {
+         return;
+      }
+
+      let client = ctx.get_client_manager();
+      let chain = currency_in.chain_id();
+
+      for (index, pool_currency_in, exact_only) in to_prepare {
+         let AnyUniswapPool::V4(v4_pool) = &pools[index] else {
             continue;
          };
 
          let requested = v4_pool.clone();
-         let quote = client
+         let pool_id = v4_pool.id();
+         let zero_for_one = v4_pool.zero_for_one(&pool_currency_in);
+
+         if !exact_only {
+            let fitted = client
+               .request(chain, |rpc| {
+                  let requested = requested.clone();
+                  let pool_currency_in = pool_currency_in.clone();
+                  async move { requested.fit_hook_fee(rpc, &pool_currency_in, amount_in).await }
+               })
+               .await;
+
+            match fitted {
+               Ok(model) => {
+                  if let AnyUniswapPool::V4(pool) = &mut pools[index] {
+                     pool.hook_fees[usize::from(zero_for_one)] = Some(model);
+                  }
+                  ctx.pool_manager().set_hook_fee(chain, pool_id, zero_for_one, model);
+                  continue;
+               }
+               // Nothing to model: fall back to the exact amount, which is how this pool was priced
+               // before the fit existed.
+               Err(e) => tracing::debug!(
+                  "Could not fit hook fee for V4 pool {}: {e:?}",
+                  pool_id
+               ),
+            }
+         }
+
+         let quoted = client
             .request(chain, |rpc| {
                let requested = requested.clone();
                let pool_currency_in = pool_currency_in.clone();
@@ -1086,19 +1156,20 @@ impl SwapUi {
             })
             .await;
 
-         match quote {
+         match quoted {
             Ok(amount_out) if !amount_out.is_zero() => {
-               v4_pool.set_hook_quote(&pool_currency_in, amount_in, amount_out);
+               if let AnyUniswapPool::V4(pool) = &mut pools[index] {
+                  pool.set_hook_quote(&pool_currency_in, amount_in, amount_out);
+               }
             }
             Ok(_) => {}
             Err(e) => {
-               tracing::debug!(
-                  "No on-chain quote for V4 pool {}: {e:?}",
-                  v4_pool.id()
-               );
+               tracing::debug!("No on-chain quote for V4 pool {}: {e:?}", pool_id);
             }
          }
       }
+
+      busy.store(false, Ordering::Release);
    }
 
    fn swap_details(&self, theme: &Theme, settings: &UniswapSettingsUi, ui: &mut Ui) {
@@ -1332,6 +1403,20 @@ impl SwapUi {
          gui.request_repaint();
          gui.ctx.clone()
       })
+   }
+}
+
+/// The pool-side currency for a trade currency.
+///
+/// WETH and native are one asset to the quoter, but the hook and the quoter need the address the pool
+/// actually holds.
+fn pool_input_currency(pool: &UniswapV4Pool, currency: &Currency) -> Option<Currency> {
+   if same_asset(pool.currency0(), currency) {
+      Some(pool.currency0().clone())
+   } else if same_asset(pool.currency1(), currency) {
+      Some(pool.currency1().clone())
+   } else {
+      None
    }
 }
 

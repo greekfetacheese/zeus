@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 pub use {
    v2::UniswapV2Pool,
    v3::UniswapV3Pool,
-   v4::{UniswapV4Pool, v4_pool_id},
+   v4::{HookFeeModel, UniswapV4Pool, v4_pool_id},
 };
 
 pub mod consts;
@@ -576,6 +576,7 @@ impl AnyUniswapPool {
             liquidity_amount0: amount0.wei(),
             liquidity_amount1: amount1.wei(),
             hook_quote: None,
+            hook_fees: [None, None],
          };
          AnyUniswapPool::V4(p)
       } else {

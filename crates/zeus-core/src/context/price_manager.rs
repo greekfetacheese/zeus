@@ -11,7 +11,7 @@ use crate::{
    serde_hashmap,
 };
 use zeus_eth::{
-   alloy_primitives::{Address, B256},
+   alloy_primitives::{Address, B256, utils::parse_units},
    amm::uniswap::{AnyUniswapPool, UniswapPool},
    currency::{Currency, ERC20Token},
    utils::{NumericValue, price_feed::get_base_token_price},
@@ -292,6 +292,9 @@ impl PriceManagerHandle {
       // Newly selected pools may still be on stale cached state
       self.refresh_good_pool_state(ctx.clone(), chain, &pool_manager, &tokens).await?;
 
+      // A hook pool's price can only be quoted once its hook's cut is known
+      self.fit_hook_fees(ctx.clone(), chain, &pool_manager, &tokens).await;
+
       // Calculate the prices
       for token in &tokens {
          let Some(pool) = self.get_good_pool_for(chain, &pool_manager, token.address) else {
@@ -320,6 +323,74 @@ impl PriceManagerHandle {
       });
 
       Ok(())
+   }
+
+   /// Fit the hook cut for the good pools these prices are quoted from.
+   ///
+   /// [`UniswapPool::quote_price`] runs one base token through the pool, and a hook pool cannot be
+   /// simulated locally until that hook's cut is known. The fit is the one request that makes the
+   /// price possible; it is stored on the pool, so the price cycle only repeats it once the model is
+   /// stale.
+   async fn fit_hook_fees(
+      &self,
+      ctx: ZeusCtx,
+      chain: u64,
+      pool_manager: &PoolManagerHandle,
+      tokens: &[ERC20Token],
+   ) {
+      let client = ctx.get_client_manager();
+      let mut seen = HashSet::new();
+
+      for token in tokens {
+         let Some(pool) = self.get_good_pool_for(chain, pool_manager, token.address) else {
+            continue;
+         };
+
+         let AnyUniswapPool::V4(v4_pool) = &pool else {
+            continue;
+         };
+
+         if !v4_pool.has_swap_hooks() {
+            continue;
+         }
+
+         let base_currency = v4_pool.base_currency().clone();
+         let zero_for_one = v4_pool.zero_for_one(&base_currency);
+
+         if !v4_pool.hook_fee_is_stale(zero_for_one) {
+            continue;
+         }
+
+         if !seen.insert(v4_pool.id()) {
+            continue;
+         }
+
+         // `quote_price` prices one whole base token through the pool, so the model is fitted and
+         // checked at exactly that size.
+         let Ok(unit) = parse_units("1", base_currency.decimals()) else {
+            continue;
+         };
+         let quote_amount = unit.get_absolute();
+
+         let requested = v4_pool.clone();
+         let fitted = client
+            .request(chain, |rpc| {
+               let requested = requested.clone();
+               let currency = base_currency.clone();
+               async move { requested.fit_hook_fee(rpc, &currency, quote_amount).await }
+            })
+            .await;
+
+         match fitted {
+            Ok(model) => pool_manager.set_hook_fee(chain, v4_pool.id(), zero_for_one, model),
+            Err(e) => {
+               tracing::debug!(
+                  "Could not fit hook fee for V4 pool {}: {e:?}",
+                  v4_pool.id()
+               );
+            }
+         }
+      }
    }
 
    /// Find a good pool for the given tokens
