@@ -7,7 +7,9 @@ use crate::core::ZeusContext;
 use crate::gui::ui::TokenSelectionWindow;
 use crate::gui::ui::common::notices;
 use crate::gui::ui::show_with_fade;
-use egui_elements::{Button, Spinner, Tabs, Theme, visuals::ButtonVisuals};
+use egui_elements::{
+   Button, Easing, Motion, Spinner, Tabs, Theme, animate_from, visuals::ButtonVisuals,
+};
 use egui_lucide::Lucide;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -105,14 +107,22 @@ impl Page {
 /// Header row height. The tab strip fills it, so the row and the strip are one measurement.
 const HEADER_HEIGHT: f32 = 36.0;
 
-/// How much of the header's width the tab strip takes. Labels fitting themselves reads as a compact
-/// pill row; a share of the row reads as a tab bar.
-const HEADER_STRIP_FRACTION: f32 = 0.6;
+/// The tab strip's width, the same on every page. A strip sized from the frame widened and narrowed
+/// with it, which read as a layout jump on every tab switch.
+const HEADER_STRIP_WIDTH: f32 = 300.0;
+
+/// Seconds the frame takes to ease from one page's width to the next.
+const FRAME_WIDTH_SECONDS: f32 = 0.2;
+
+/// Seconds the selected page takes to fade in on a switch.
+const PAGE_FADE_SECONDS: f64 = 0.16;
 
 /// A UI for a dex like Uniswap
 pub struct UniswapUi {
    open: bool,
    page: Page,
+   /// Input time the visible page was selected at, so the page body fades in from it.
+   page_shown_at: Option<f64>,
    pub size: (f32, f32),
    pub settings: UniswapSettingsUi,
    pub swap_ui: SwapUi,
@@ -127,6 +137,7 @@ impl UniswapUi {
       Self {
          open: false,
          page: Page::Swap,
+         page_shown_at: None,
          size: (400.0, 500.0),
          settings: UniswapSettingsUi::new(),
          swap_ui,
@@ -156,6 +167,7 @@ impl UniswapUi {
       }
 
       self.page = page;
+      self.page_shown_at = None;
 
       match page {
          Page::Swap => self.swap_ui.open(),
@@ -163,6 +175,14 @@ impl UniswapUi {
          Page::Pools => self.swap_ui.close(),
          // Crossing to settings keeps whatever the user typed.
          Page::Settings => {}
+      }
+   }
+
+   /// Width the frame eases to for the visible page: the pool table is wider than the swap form.
+   fn page_width(&self) -> f32 {
+      match self.page {
+         Page::Pools => self.pools_ui.size.0,
+         Page::Swap | Page::Settings => self.size.0,
       }
    }
 
@@ -175,7 +195,7 @@ impl UniswapUi {
       // Pools / Swap / Settings, centred on the header's own centre line.
       let strip = Rect::from_center_size(
          row.center(),
-         vec2(row.width() * HEADER_STRIP_FRACTION, HEADER_HEIGHT),
+         vec2(HEADER_STRIP_WIDTH, HEADER_HEIGHT),
       );
       ui.scope_builder(
          UiBuilder::new().max_rect(strip).layout(Layout::top_down(Align::Center)),
@@ -248,14 +268,21 @@ impl UniswapUi {
          }
 
          ui.vertical_centered(|ui| {
+            // The frame eases to the page's width instead of snapping, and the header spans whatever
+            // width it currently has so the refresh control stays on the frame's right edge.
+            // `animate_from` seeds the first sight settled at the target, so the frame does not grow
+            // out of nothing when the window opens; only a page switch starts a leg.
+            let target = self.page_width();
+            let width = animate_from(
+               ui,
+               "uniswap_frame_width",
+               target,
+               target,
+               Motion::new(FRAME_WIDTH_SECONDS),
+            );
+
             frame.show(ui, |ui| {
-               // The frame is as wide as the page it holds and the header spans that width: the
-               // pool table is wider than the swap form, so a fixed width left the header — and the
-               // refresh control on it — short of the frame's right edge on the Pools page.
-               ui.set_width(match self.page {
-                  Page::Pools => self.pools_ui.size.0,
-                  Page::Swap | Page::Settings => self.size.0,
-               });
+               ui.set_width(width);
                ui.set_height(self.size.1);
 
                ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
@@ -270,18 +297,32 @@ impl UniswapUi {
 
                self.header(theme, ui);
 
-               match self.page {
-                  Page::Swap => self.swap_ui.show(
-                     ctx,
-                     theme,
-                     icons.clone(),
-                     token_selection,
-                     &self.settings,
-                     ui,
-                  ),
-                  Page::Pools => self.pools_ui.show(ctx, theme, icons.clone(), ui),
-                  Page::Settings => self.show_settings_page(theme, ui),
+               // The body comes in with the width change rather than replacing the old page in one
+               // frame, so the header's own geometry is the only thing that moves under the pointer.
+               let now = ui.input(|i| i.time);
+               let shown_at = *self.page_shown_at.get_or_insert(now);
+               let fade = Easing::EaseOut.apply(((now - shown_at) / PAGE_FADE_SECONDS) as f32);
+
+               if fade < 1.0 {
+                  ui.ctx().request_repaint();
                }
+
+               ui.scope(|ui| {
+                  ui.multiply_opacity(fade);
+
+                  match self.page {
+                     Page::Swap => self.swap_ui.show(
+                        ctx,
+                        theme,
+                        icons.clone(),
+                        token_selection,
+                        &self.settings,
+                        ui,
+                     ),
+                     Page::Pools => self.pools_ui.show(ctx, theme, icons.clone(), ui),
+                     Page::Settings => self.show_settings_page(theme, ui),
+                  }
+               });
             });
          });
       });
@@ -291,7 +332,6 @@ impl UniswapUi {
       // A left-aligned column: the frame centres its children, which centred every checkbox on its
       // own width and left the group ragged.
       ui.with_layout(Layout::top_down(Align::Min), |ui| {
-         ui.set_width(self.size.0);
          ui.set_max_height(self.size.1);
          ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
          ui.spacing_mut().button_padding = theme.button_padding;

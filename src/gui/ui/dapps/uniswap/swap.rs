@@ -477,7 +477,7 @@ impl SwapUi {
       }
 
       ui.vertical_centered(|ui| {
-         ui.set_width(self.size.0);
+         // The frame owns the width now — pinning it here would defeat the width transition.
          ui.set_height(self.size.1);
          ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
 

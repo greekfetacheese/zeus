@@ -286,7 +286,7 @@ impl PoolsUi {
       let chain = ctx.chain.id();
 
       ui.vertical_centered(|ui| {
-         ui.set_width(self.size.0);
+         // The frame owns the width now — pinning it here would defeat the width transition.
          ui.set_max_height(self.size.1);
          ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
          ui.spacing_mut().button_padding = theme.button_padding;
