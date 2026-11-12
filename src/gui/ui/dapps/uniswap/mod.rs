@@ -102,7 +102,12 @@ impl Page {
    }
 }
 
-const HEADER_HEIGHT: f32 = 30.0;
+/// Header row height. The tab strip fills it, so the row and the strip are one measurement.
+const HEADER_HEIGHT: f32 = 36.0;
+
+/// How much of the header's width the tab strip takes. Labels fitting themselves reads as a compact
+/// pill row; a share of the row reads as a tab bar.
+const HEADER_STRIP_FRACTION: f32 = 0.6;
 
 /// A UI for a dex like Uniswap
 pub struct UniswapUi {
@@ -168,12 +173,16 @@ impl UniswapUi {
       );
 
       // Pools / Swap / Settings, centred on the header's own centre line.
+      let strip = Rect::from_center_size(
+         row.center(),
+         vec2(row.width() * HEADER_STRIP_FRACTION, HEADER_HEIGHT),
+      );
       ui.scope_builder(
-         UiBuilder::new().max_rect(row).layout(Layout::top_down(Align::Center)),
+         UiBuilder::new().max_rect(strip).layout(Layout::top_down(Align::Center)),
          |ui| {
             let mut selected = self.page.index();
             let tabs = Tabs::new("uniswap_pages", &mut selected, Page::labels())
-               .fill_width(false)
+               .fill_width(true)
                .height(HEADER_HEIGHT);
             if tabs.show(ui).changed() {
                self.set_page(Page::from_index(selected));
@@ -240,7 +249,13 @@ impl UniswapUi {
 
          ui.vertical_centered(|ui| {
             frame.show(ui, |ui| {
-               ui.set_width(self.size.0);
+               // The frame is as wide as the page it holds and the header spans that width: the
+               // pool table is wider than the swap form, so a fixed width left the header — and the
+               // refresh control on it — short of the frame's right edge on the Pools page.
+               ui.set_width(match self.page {
+                  Page::Pools => self.pools_ui.size.0,
+                  Page::Swap | Page::Settings => self.size.0,
+               });
                ui.set_height(self.size.1);
 
                ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
@@ -273,11 +288,16 @@ impl UniswapUi {
    }
 
    fn show_settings_page(&mut self, theme: &Theme, ui: &mut Ui) {
-      ui.vertical_centered(|ui| {
+      // A left-aligned column: the frame centres its children, which centred every checkbox on its
+      // own width and left the group ragged.
+      ui.with_layout(Layout::top_down(Align::Min), |ui| {
          ui.set_width(self.size.0);
          ui.set_max_height(self.size.1);
          ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
          ui.spacing_mut().button_padding = theme.button_padding;
+
+         // The tab strip owns the top of the page; keep the first row off it.
+         ui.add_space(theme.spacing.lg);
 
          // Settings is its own view now, so every swap knob belongs on it.
          self.settings.show(true, false, theme, ui);

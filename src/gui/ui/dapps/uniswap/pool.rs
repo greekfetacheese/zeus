@@ -25,6 +25,9 @@ use zeus_eth::{
 /// Width of every pool-version combobox, shared by the layouts that budget for it.
 const VERSION_COMBO_WIDTH: f32 = 200.0;
 
+/// Width of the pools search field. A full-width bar dwarfs the filter next to it.
+const SEARCH_FIELD_WIDTH: f32 = 200.0;
+
 /// Height of a row that holds an input field, so everything on it centres on one line.
 const FIELD_ROW_HEIGHT: f32 = 40.0;
 
@@ -303,9 +306,7 @@ impl PoolsUi {
                SecureTextEdit::singleline(&mut self.search_query)
                   .visuals(theme.text_edit_visuals())
                   .hint_text(hint)
-                  .desired_width(
-                     (ui.available_width() - VERSION_COMBO_WIDTH - theme.spacing.sm).max(120.0),
-                  )
+                  .desired_width(SEARCH_FIELD_WIDTH)
                   .margin(Margin::same(10))
                   .font(FontId::proportional(theme.typography.normal))
                   .show(ui);
@@ -455,24 +456,12 @@ impl PoolsUi {
             ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
             ui.spacing_mut().button_padding = theme.button_padding;
 
-            // The version picker opens the form, so it sits on the modal's centre line.
-            let label_width = ui
-               .painter()
-               .layout_no_wrap(
-                  "Pool version".to_owned(),
-                  FontId::proportional(theme.typography.large),
-                  egui::Color32::PLACEHOLDER,
-               )
-               .size()
-               .x;
-            let row_width = label_width + theme.spacing.sm + VERSION_COMBO_WIDTH;
-
+            // A bounded row, so the label centres on the cross axis against the taller combobox
+            // instead of on a one-line band the combobox overflows.
             ui.allocate_ui_with_layout(
                vec2(ui.available_width(), FIELD_ROW_HEIGHT),
                Layout::left_to_right(Align::Center),
                |ui| {
-                  ui.add_space(((ui.available_width() - row_width) * 0.5).max(0.0));
-
                   ui.label(RichText::new("Pool version").size(theme.typography.large));
 
                   if let Some(version) = version_combo(
