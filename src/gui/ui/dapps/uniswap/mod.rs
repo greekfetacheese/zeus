@@ -111,12 +111,6 @@ const HEADER_HEIGHT: f32 = 36.0;
 /// with it, which read as a layout jump on every tab switch.
 const HEADER_STRIP_WIDTH: f32 = 300.0;
 
-/// Seconds the frame takes to ease from one page's width to the next.
-const FRAME_WIDTH_SECONDS: f32 = 0.2;
-
-/// Seconds the selected page takes to fade in on a switch.
-const PAGE_FADE_SECONDS: f64 = 0.16;
-
 /// A UI for a dex like Uniswap
 pub struct UniswapUi {
    open: bool,
@@ -268,18 +262,18 @@ impl UniswapUi {
          }
 
          ui.vertical_centered(|ui| {
-            // The frame eases to the page's width instead of snapping, and the header spans whatever
-            // width it currently has so the refresh control stays on the frame's right edge.
-            // `animate_from` seeds the first sight settled at the target, so the frame does not grow
-            // out of nothing when the window opens; only a page switch starts a leg.
+            // The frame eases to the page's width on the host's own animation time, so a switch runs
+            // at the same speed as every other transition in the GUI. `animate_from` seeds the first
+            // sight settled at the target, so opening the window does not grow the frame from zero.
             let target = self.page_width();
             let width = animate_from(
                ui,
                "uniswap_frame_width",
                target,
                target,
-               Motion::new(FRAME_WIDTH_SECONDS),
+               Motion::from_ui(ui),
             );
+            let settled = (width - target).abs() < 0.5;
 
             frame.show(ui, |ui| {
                ui.set_width(width);
@@ -297,11 +291,31 @@ impl UniswapUi {
 
                self.header(theme, ui);
 
-               // The body comes in with the width change rather than replacing the old page in one
-               // frame, so the header's own geometry is the only thing that moves under the pointer.
+               // The pool table re-measures its rows on every width change, and each re-measure asks
+               // egui for another layout pass — that is the `request_discard … frames in a row` perf
+               // warning, and the frame-rate dip that comes with it. So the Pools page is painted
+               // once the frame has settled; every other page rides the resize, its layout does not
+               // measure anything.
+               if !settled && self.page == Page::Pools {
+                  return;
+               }
+
                let now = ui.input(|i| i.time);
-               let shown_at = *self.page_shown_at.get_or_insert(now);
-               let fade = Easing::EaseOut.apply(((now - shown_at) / PAGE_FADE_SECONDS) as f32);
+               let fade = match self.page_shown_at {
+                  Some(shown_at) => {
+                     let seconds = ui.style().animation_time as f64;
+
+                     if seconds <= 0.0 {
+                        1.0
+                     } else {
+                        Easing::EaseOut.apply(((now - shown_at) / seconds) as f32)
+                     }
+                  }
+                  None => {
+                     self.page_shown_at = Some(now);
+                     0.0
+                  }
+               };
 
                if fade < 1.0 {
                   ui.ctx().request_repaint();
