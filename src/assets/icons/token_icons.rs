@@ -77,10 +77,10 @@ impl TokenIcons {
          }
       }
 
-      // Downloaded icons from previous sessions. Baked-in icons win.
-      for (key, bytes) in disk::load_downloaded_icons() {
-         icon_bytes.entry(key).or_insert(bytes);
-      }
+      // Downloaded and imported icons from previous sessions. Disk wins over baked art: an import
+      // is written to that same file, so it has to survive a restart, base token included. Nothing
+      // else writes that path for a base token today, so existing installs keep the art they have.
+      icon_bytes.extend(disk::load_downloaded_icons());
 
       let texture_options = TextureOptions::default();
 
@@ -144,6 +144,22 @@ impl TokenIcons {
       let key = (address, chain_id);
       self.icon_data.write(|icon_data| icon_data.remove(&key));
       self.icons_x32.write(|icons_x32| icons_x32.remove(&key));
+   }
+
+   /// Put back the art the app shows with no user choice.
+   ///
+   /// A base token carries its icon in the binary; restoring drops whatever was stored for the key,
+   /// texture included so a replaced import cannot linger, and returns true. False means no baked
+   /// art, and the caller has to fetch like for any other token.
+   pub fn restore_baked(&self, address: Address, chain_id: u64, symbol: &str) -> bool {
+      let Some(png) = base_token_icon(symbol) else {
+         return false;
+      };
+
+      let key = (address, chain_id);
+      self.icons_x32.write(|icons_x32| icons_x32.remove(&key));
+      self.insert_icon(address, chain_id, png.to_vec());
+      true
    }
 
    /// Mark a download as started. Returns false if we already have the icon,

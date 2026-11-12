@@ -12,7 +12,7 @@ use crate::gui::ui::common::windows::authorising_prompt_busy;
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::{
    nft_icon::{admitted_uri, start_nft_art_downloads},
-   token_icon::spawn_fetch_token_icon,
+   token_icon::{spawn_fetch_token_icon, spawn_import_token_icon, spawn_reset_token_icon},
    truncate_address, truncate_symbol_or_name,
 };
 use std::{
@@ -780,6 +780,36 @@ impl TokenSelectionWindow {
                                     Menu::new(id).show_below(&more, |ui| {
                                        if ui.add(MenuItem::new("Copy Address")).clicked() {
                                           ui.ctx().copy_text(token_address.to_string());
+                                       }
+
+                                       if ui.add(MenuItem::new("Import Icon…")).clicked() {
+                                          more_clicked = true;
+                                          let picked = rfd::FileDialog::new()
+                                             .set_title("Choose a token icon")
+                                             .add_filter(
+                                                "Image",
+                                                &["png", "jpg", "jpeg", "webp", "gif"],
+                                             )
+                                             .pick_file();
+                                          if let Some(path) = picked {
+                                             spawn_import_token_icon(
+                                                chain_id,
+                                                token_address,
+                                                currency.symbol().to_string(),
+                                                path,
+                                             );
+                                          }
+                                       }
+
+                                       if icons.tokens.has_icon(token_address, chain_id)
+                                          && ui.add(MenuItem::new("Reset Icon")).clicked()
+                                       {
+                                          more_clicked = true;
+                                          spawn_reset_token_icon(
+                                             chain_id,
+                                             token_address,
+                                             currency.symbol().to_string(),
+                                          );
                                        }
 
                                        if !currency.is_base()
