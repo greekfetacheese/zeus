@@ -2,13 +2,23 @@
 
 use egui::{
    Align, Align2, Button, CentralPanel, Color32, CornerRadius, FontId, Id, Layout, PointerButton,
-   Rect, RichText, Sense, Stroke, Ui, UiBuilder, ViewportCommand, pos2, vec2,
+   Rect, RichText, Sense, Shadow, Stroke, StrokeKind, Ui, UiBuilder, ViewportCommand, pos2, vec2,
 };
-use egui_elements::Theme;
+use egui_elements::{Elevation, Theme};
 
 pub struct WindowCtx {
    pub title: String,
    pub frame: egui::Frame,
+   /// Transparent margin between the window edge and the card.
+   pub pad: f32,
+   /// Fill behind the title bar and the page.
+   pub card_fill: Color32,
+   /// 1 px outline traced around the card.
+   pub card_stroke: Stroke,
+   /// Corner radius shared by the card, its outline and the bar's top corners.
+   pub card_radius: CornerRadius,
+   /// Painted into the margin so the card floats above whatever is behind it.
+   pub card_shadow: Shadow,
    pub bar_height: f32,
    pub title_bar_fill: Color32,
    pub title_text_size: f32,
@@ -24,7 +34,12 @@ impl WindowCtx {
    pub fn settings(theme: &Theme) -> Self {
       Self {
          title: "Settings".to_string(),
-         frame: egui::Frame::new().fill(theme.colors.bg).inner_margin(0),
+         frame: egui::Frame::NONE,
+         pad: 10.0,
+         card_fill: theme.colors.bg,
+         card_stroke: Stroke::new(1.0, theme.colors.border),
+         card_radius: CornerRadius::same(theme.corner_radius),
+         card_shadow: theme.shadow(Elevation::Overlay),
          bar_height: 36.0,
          title_bar_fill: theme.colors.title_bar,
          title_text_size: theme.typography.normal,
@@ -40,36 +55,56 @@ impl WindowCtx {
 
 pub fn window_frame(ui: &mut Ui, window_ctx: WindowCtx, add_contents: impl FnOnce(&mut Ui)) {
    CentralPanel::default().frame(window_ctx.frame).show(ui, |ui| {
-      let app_rect = ui.max_rect();
+      let card = ui.max_rect().shrink(window_ctx.pad);
 
       let title_bar_rect = {
-         let mut rect = app_rect;
-         rect.max.y = app_rect.min.y + window_ctx.bar_height;
+         let mut rect = card;
+         rect.max.y = card.min.y + window_ctx.bar_height;
          rect
       };
+
+      let painter = ui.painter();
+
+      painter.add(window_ctx.card_shadow.as_shape(card, window_ctx.card_radius));
+      painter.rect_filled(card, window_ctx.card_radius, window_ctx.card_fill);
+      painter.rect_filled(
+         title_bar_rect,
+         CornerRadius {
+            nw: window_ctx.card_radius.nw,
+            ne: window_ctx.card_radius.ne,
+            sw: 0,
+            se: 0,
+         },
+         window_ctx.title_bar_fill,
+      );
+      // Outline last, so the bar's fill cannot paint over the card's border.
+      painter.rect(
+         card,
+         window_ctx.card_radius,
+         Color32::TRANSPARENT,
+         window_ctx.card_stroke,
+         StrokeKind::Inside,
+      );
 
       title_bar_ui(ui, &window_ctx, title_bar_rect);
 
       let content_rect = {
-         let mut rect = app_rect;
-         rect.min.y = app_rect.min.y + window_ctx.bar_height;
+         let mut rect = card;
+         rect.min.y += window_ctx.bar_height;
+         // Stop above the bottom arc, or the opaque page covers the card's corners.
+         rect.max.y -= f32::from(window_ctx.card_radius.sw);
          rect
       };
 
       let ui_builder = UiBuilder::default().max_rect(content_rect).style(ui.style().clone());
       let mut content_ui = ui.new_child(ui_builder);
+      content_ui.set_clip_rect(content_rect);
       add_contents(&mut content_ui);
    });
 }
 
 fn title_bar_ui(ui: &mut Ui, window: &WindowCtx, title_bar_rect: Rect) {
    let painter = ui.painter();
-
-   painter.rect_filled(
-      title_bar_rect,
-      CornerRadius::ZERO,
-      window.title_bar_fill,
-   );
 
    let title_bar_response = ui.interact(
       title_bar_rect,
