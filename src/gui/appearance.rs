@@ -72,9 +72,10 @@ impl Default for AmbientKind {
 ///
 /// Persisted as the unencrypted `appearance_settings.json`. Because the file is
 /// not sealed, every value is bounded: [`Self::clamp`] runs on load, when the
-/// settings page opens, on every save, and on every [`Self::button_settings`]
-/// copy — so a hand-edited file can never drive a slider or a particle effect
-/// out of its supported range.
+/// settings page opens, and on every save — so a hand-edited file can never
+/// drive a slider or a particle effect out of its supported range.
+/// [`Self::button_settings`] re-clamps only the hold knobs, because the sign and
+/// confirm windows resolve it on every frame.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppearanceSettings {
    /// When true, the affirmative button in the tx and sign windows requires a
@@ -195,25 +196,10 @@ impl AppearanceSettings {
    /// Also keeps each min/max pair ordered, as the crate's own body UIs do, and
    /// the glow end radius at or above the start radius. Finally it derives the
    /// crate's three `active` flags from [`Self::ambient_kind`], so exactly one
-   /// ambient effect is active in the loaded file.
+   /// ambient effect is active in the loaded file. The hold knobs are clamped by
+   /// `clamp_hold`, which [`Self::resolved_hold`] shares.
    pub fn clamp(&mut self) {
-      self.hold.seconds = self.hold.seconds.clamp(MIN_HOLD_SECONDS, MAX_HOLD_SECONDS);
-      self.hold.burst_ms = self.hold.burst_ms.clamp(MIN_BURST_MS, MAX_BURST_MS);
-      self.hold.burst_intensity =
-         self.hold.burst_intensity.clamp(MIN_BURST_INTENSITY, MAX_BURST_INTENSITY);
-      self.hold.burst_bolts = self.hold.burst_bolts.clamp(MIN_BURST_BOLTS, MAX_BURST_BOLTS);
-      self.hold.burst_branch_depth =
-         self.hold.burst_branch_depth.clamp(MIN_BRANCH_DEPTH, MAX_BRANCH_DEPTH);
-      self.hold.burst_thickness = self.hold.burst_thickness.clamp(MIN_THICKNESS, MAX_THICKNESS);
-      self.hold.burst_jitter = self.hold.burst_jitter.clamp(MIN_JITTER, MAX_JITTER);
-      self.hold.burst_glow_from = self.hold.burst_glow_from.clamp(MIN_GLOW_FROM, MAX_GLOW_FROM);
-      self.hold.burst_glow_to = self
-         .hold
-         .burst_glow_to
-         .clamp(MIN_GLOW_TO, MAX_GLOW_TO)
-         .max(self.hold.burst_glow_from);
-      self.hold.burst_glow_softness =
-         self.hold.burst_glow_softness.clamp(MIN_GLOW_SOFTNESS, MAX_GLOW_SOFTNESS);
+      clamp_hold(&mut self.hold);
 
       self.snow.density =
          self.snow.density.clamp(MIN_AMBIENT_SNOW_DENSITY, MAX_AMBIENT_SNOW_DENSITY);
@@ -392,20 +378,44 @@ impl AppearanceSettings {
    /// The hold settings without the feature gate, used by the settings preview so
    /// it can demonstrate the hold while the feature is off.
    ///
+   /// Only `clamp_hold` runs here, not the ambient sweep in [`Self::clamp`]: the
+   /// sign and confirm windows resolve this on every frame, and the ambient knobs
+   /// cannot reach a hold button. The hold knobs are still re-clamped because the
+   /// fields are all `pub` and a caller that writes one directly would otherwise
+   /// hand the crate's widget an out-of-range value.
+   ///
    /// This is the one place the crate's [`HoldSettings::fill_to`] is built: the
    /// switch picks a second colour or the crate's solid fill (`None`).
    pub(crate) fn resolved_hold(&self, accent: Color32) -> HoldSettings {
-      let mut settings = self.clone();
-      settings.clamp();
-      let mut hold = settings.hold;
+      let mut hold = self.hold;
+      clamp_hold(&mut hold);
       hold.open = false;
-      hold.fill_to = if settings.shift_second_colour {
-         Some(settings.second_colour.unwrap_or_else(|| accent_at(accent, SECOND_COLOUR_ALPHA)))
+      hold.fill_to = if self.shift_second_colour {
+         Some(self.second_colour.unwrap_or_else(|| accent_at(accent, SECOND_COLOUR_ALPHA)))
       } else {
          None
       };
       hold
    }
+}
+
+/// Pull the hold knobs back into their supported ranges.
+///
+/// Split out of [`AppearanceSettings::clamp`]: it is the only part of that sweep
+/// [`AppearanceSettings::resolved_hold`] needs, and the sign and confirm windows
+/// ask for their hold settings on every frame.
+fn clamp_hold(hold: &mut HoldSettings) {
+   hold.seconds = hold.seconds.clamp(MIN_HOLD_SECONDS, MAX_HOLD_SECONDS);
+   hold.burst_ms = hold.burst_ms.clamp(MIN_BURST_MS, MAX_BURST_MS);
+   hold.burst_intensity = hold.burst_intensity.clamp(MIN_BURST_INTENSITY, MAX_BURST_INTENSITY);
+   hold.burst_bolts = hold.burst_bolts.clamp(MIN_BURST_BOLTS, MAX_BURST_BOLTS);
+   hold.burst_branch_depth = hold.burst_branch_depth.clamp(MIN_BRANCH_DEPTH, MAX_BRANCH_DEPTH);
+   hold.burst_thickness = hold.burst_thickness.clamp(MIN_THICKNESS, MAX_THICKNESS);
+   hold.burst_jitter = hold.burst_jitter.clamp(MIN_JITTER, MAX_JITTER);
+   hold.burst_glow_from = hold.burst_glow_from.clamp(MIN_GLOW_FROM, MAX_GLOW_FROM);
+   hold.burst_glow_to =
+      hold.burst_glow_to.clamp(MIN_GLOW_TO, MAX_GLOW_TO).max(hold.burst_glow_from);
+   hold.burst_glow_softness = hold.burst_glow_softness.clamp(MIN_GLOW_SOFTNESS, MAX_GLOW_SOFTNESS);
 }
 
 /// `accent` at `alpha`, in unmultiplied sRGBA.
@@ -584,7 +594,7 @@ mod tests {
    }
 
    #[test]
-   fn button_settings_is_none_until_enabled_and_clamps_afterwards() {
+   fn button_settings_is_none_until_enabled_and_copies_the_stored_hold() {
       let mut settings = AppearanceSettings::new();
       let accent = egui::Color32::from_rgb(10, 20, 30);
       assert!(settings.button_settings(accent).is_none());
@@ -594,6 +604,9 @@ mod tests {
       let hold = settings.button_settings(accent).expect("the feature is on");
       assert_eq!(hold.seconds, MIN_HOLD_SECONDS);
       assert!(!hold.open);
+      // The burst knobs arrive as stored, not re-derived per frame.
+      assert_eq!(hold.burst, settings.hold.burst);
+      assert_eq!(hold.burst_ms, settings.hold.burst_ms);
 
       settings.set_hold_seconds(5.0);
       let hold = settings.button_settings(accent).expect("the feature is on");
