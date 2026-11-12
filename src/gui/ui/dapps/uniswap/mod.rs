@@ -291,12 +291,12 @@ impl UniswapUi {
 
                self.header(theme, ui);
 
-               // The pool table re-measures its rows on every width change, and each re-measure asks
-               // egui for another layout pass — that is the `request_discard … frames in a row` perf
-               // warning, and the frame-rate dip that comes with it. So the Pools page is painted
-               // once the frame has settled; every other page rides the resize, its layout does not
-               // measure anything.
-               if !settled && self.page == Page::Pools {
+               // Nothing in a page is laid out while the frame is resizing. The measuring containers
+               // both cache on the available size: the pool `Table` and the amount field's `Flex`
+               // row re-measure on every width change, and each re-measure asks egui for another
+               // layout pass — that is the `request_discard … frames in a row` perf warning, and the
+               // frame-rate dip behind it. The body is painted once the width has landed.
+               if !settled {
                   return;
                }
 
