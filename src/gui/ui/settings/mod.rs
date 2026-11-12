@@ -168,6 +168,7 @@ impl SettingsUi {
       let mut builder = ViewportBuilder::default()
          .with_title("Settings")
          .with_decorations(false)
+         .with_transparent(true)
          .with_min_inner_size([800.0, 560.0])
          .with_resizable(true);
 
