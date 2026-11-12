@@ -24,7 +24,7 @@ use zeus_eth::{
    alloy_primitives::{Address, B256},
    alloy_provider::Provider,
    amm::uniswap::{
-      AnyUniswapPool, DexKind, FeeAmount, UniswapPool, UniswapV2Pool, UniswapV3Pool,
+      AnyUniswapPool, DexKind, FeeAmount, HookFeeModel, UniswapPool, UniswapV2Pool, UniswapV3Pool,
       V4_FEE_CANDIDATES,
       state::{State, V3PoolState},
       sync::{Checkpoint, v4_pools_from_logs},
@@ -419,10 +419,15 @@ impl PoolManagerHandle {
    pub fn add_pools(&self, pools: Vec<AnyUniswapPool>) {
       self.write(|manager| {
          for pool in pools {
-            manager.add_pool(pool);
+            manager.insert_pool(pool);
          }
          manager.pools.shrink_to_fit();
       });
+   }
+
+   /// Record a fitted hook cut for a V4 pool, keeping the pool's state as it is.
+   pub fn set_hook_fee(&self, chain: u64, pool_id: B256, zero_for_one: bool, model: HookFeeModel) {
+      self.write(|manager| manager.set_hook_fee(chain, pool_id, zero_for_one, model));
    }
 
    /// Update the state of the manager based on the given currencies and chain
@@ -1339,11 +1344,44 @@ impl PoolManager {
    }
 
    pub fn add_pool(&mut self, pool: impl UniswapPool) {
-      let any_pool = AnyUniswapPool::from_pool(pool);
-      let key = pool_key_of(&any_pool);
+      self.insert_pool(AnyUniswapPool::from_pool(pool));
+   }
+
+   /// Insert an already-built pool verbatim.
+   ///
+   /// [`AnyUniswapPool::from_pool`] rebuilds a pool from the trait getters, which drops data the
+   /// trait does not expose — a V4 pool's fitted hook cut, for one. Anything that writes back a pool
+   /// it just updated goes through here so it keeps that data.
+   pub fn insert_pool(&mut self, pool: AnyUniswapPool) {
+      let key = pool_key_of(&pool);
 
       self.dirty_pools.insert(key.clone());
-      self.pools.insert(key, any_pool);
+      self.pools.insert(key, pool);
+   }
+
+   /// Store a fitted hook cut on the pool it belongs to.
+   ///
+   /// Written in place rather than through [`Self::add_pool`]: rebuilding the pool would drop the
+   /// field being written.
+   pub fn set_hook_fee(
+      &mut self,
+      chain: u64,
+      pool_id: B256,
+      zero_for_one: bool,
+      model: HookFeeModel,
+   ) {
+      for (key, pool) in self.pools.iter_mut() {
+         if pool.chain_id() != chain || pool.id() != pool_id {
+            continue;
+         }
+
+         if let AnyUniswapPool::V4(v4_pool) = pool {
+            v4_pool.hook_fees[usize::from(zero_for_one)] = Some(model);
+            let key = key.clone();
+            self.dirty_pools.insert(key);
+            return;
+         }
+      }
    }
 
    /// Get any pools that includes the given currency
