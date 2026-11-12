@@ -1,5 +1,8 @@
 pub mod pool;
-pub use pool::{UniswapV4Pool, v4_pool_id};
+pub use pool::{
+   HOOK_FEE_DENOMINATOR, HOOK_FEE_LINEARITY_TOLERANCE_PIPS, HOOK_FEE_TTL_SECS, HookFeeModel,
+   UniswapV4Pool, v4_pool_id,
+};
 
 use crate::abi::uniswap::v4::actions::*;
 use alloy_primitives::{Address, Bytes};
