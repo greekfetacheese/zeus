@@ -9,9 +9,9 @@ use crate::gui::ui::common::{chain_label, usable_chain};
 use crate::gui::{SHARED_GUI, ui::show_with_fade};
 use crate::utils::{TimeStamp, simulate::simulate_for_analysis, truncate_address};
 use anyhow::anyhow;
-use egui::{Align, Frame, Layout, Margin, RichText, Sense, TextWrapMode, Ui, vec2};
+use egui::{Align, Layout, Margin, RichText, Sense, TextWrapMode, Ui, vec2};
 use egui_elements::{
-   Button, Chip, ChipRole, ComboBox, Label, Spinner, Theme,
+   Button, Chip, ChipRole, ComboBox, Frame, Label, Motion, Spinner, Tabs, Theme, animate_with,
    layout::{Column, Table, TableScroll},
 };
 use std::collections::HashMap;
@@ -156,6 +156,8 @@ pub struct ApprovalsUi {
    mode: ApprovalMode,
    cached_rows: Vec<ApprovalRow>,
    cache_key: CacheKey,
+   /// Bumped whenever the content below the filters is replaced, which restarts its fade-in.
+   fade_gen: u64,
    current_page: usize,
    rows_per_page: usize,
 }
@@ -170,6 +172,7 @@ impl ApprovalsUi {
          mode: ApprovalMode::default(),
          cached_rows: Vec::new(),
          cache_key: CacheKey::default(),
+         fade_gen: 0,
          current_page: 0,
          rows_per_page: DEFAULT_ROWS_PER_PAGE,
       }
@@ -218,6 +221,7 @@ impl ApprovalsUi {
       self.mode = mode;
       self.cached_rows.clear();
       self.loading = true;
+      self.fade_gen += 1;
       self.current_page = 0;
    }
 
@@ -391,6 +395,7 @@ impl ApprovalsUi {
             }
             gui.approvals.cached_rows = rows;
             gui.approvals.loading = false;
+            gui.approvals.fade_gen += 1;
             gui.request_repaint();
          });
       });
@@ -426,26 +431,23 @@ impl ApprovalsUi {
    }
 
    /// The Tokens / NFTs switch.
-   ///
-   /// Two `Button::selectable`s sharing `theme.button_visuals()`, matching the switch in the token
-   /// picker (`token_selection.rs`) — the same two-mode choice, so it takes the same shape.
    fn mode_switch(&mut self, theme: &Theme, ui: &mut Ui) {
-      let button_visuals = theme.button_visuals();
+      let tabs_str = ["Tokens", "NFTs"];
+      let mut tab = usize::from(self.mode == ApprovalMode::Nft);
 
-      let tokens_text = RichText::new("Tokens").size(theme.typography.large);
-      let tokens_button = Button::selectable(self.mode == ApprovalMode::Fungible, tokens_text)
-         .visuals(button_visuals);
+      let large = theme.typography.large;
 
-      if ui.add(tokens_button).clicked() {
-         self.set_mode(ApprovalMode::Fungible);
-      }
+      ui.allocate_ui(vec2(250.0, 30.0), |ui| {
+         Tabs::new("approvals_ui_tab", &mut tab, tabs_str).text_size(large).show(ui);
+      });
 
-      let nfts_text = RichText::new("NFTs").size(theme.typography.large);
-      let nfts_button =
-         Button::selectable(self.mode == ApprovalMode::Nft, nfts_text).visuals(button_visuals);
-
-      if ui.add(nfts_button).clicked() {
-         self.set_mode(ApprovalMode::Nft);
+      match tab {
+         0 => {
+            self.set_mode(ApprovalMode::Fungible);
+         }
+         _ => {
+            self.set_mode(ApprovalMode::Nft);
+         }
       }
    }
 
@@ -629,6 +631,16 @@ impl ApprovalsUi {
 
             ui.separator();
 
+            let motion = Motion::from_ui(ui);
+            let opacity = animate_with(
+               ui,
+               ("approvals_ui_content_fade", self.fade_gen),
+               1.0,
+               motion,
+            );
+
+            ui.multiply_opacity(opacity);
+
             if self.loading {
                ui.vertical_centered(|ui| {
                   ui.add(Spinner::new().size(20.0).color(theme.colors.text));
@@ -728,6 +740,12 @@ impl ApprovalsUi {
 
             let mut revoke_request: Option<ApprovalRow> = None;
 
+            let row_frame = Frame::new()
+               .interactive(true)
+               .inner_margin(theme.inner_margin)
+               .corner_radius(theme.corner_radius)
+               .visuals(theme.frame1_visuals());
+
             Table::new("approvals", rows)
                .columns([
                   Column::Fr(2.0),      // Asset
@@ -747,7 +765,7 @@ impl ApprovalsUi {
                      .content_margin(15)
                      .max_height(ui.available_height() * 0.9),
                )
-               .row_divider(true)
+               .row_frame(row_frame)
                .header_rule(true)
                .key((&self.cache_key, self.current_page))
                .show(ui, |t| {
