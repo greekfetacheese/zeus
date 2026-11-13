@@ -145,7 +145,6 @@ impl AppearanceSettingsUi {
       ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.md);
       ui.spacing_mut().button_padding = theme.button_padding;
 
-      let button_visuals = theme.button_visuals();
       let q_mark_text = RichText::new("?").size(theme.typography.normal);
 
       if Self::section(ui, theme, "Hold to confirm", |ui| {
@@ -178,7 +177,6 @@ impl AppearanceSettingsUi {
 
             let text = RichText::new("Hold to confirm").size(theme.typography.large);
             let button = Button::new(text)
-               .visuals(button_visuals)
                .min_size(size)
                .label_align(Align::Center);
 
@@ -188,7 +186,6 @@ impl AppearanceSettingsUi {
 
             let text = RichText::new("Reset").size(theme.typography.large);
             let button = Button::new(text)
-               .visuals(button_visuals)
                .min_size(size)
                .label_align(Align::Center);
 
