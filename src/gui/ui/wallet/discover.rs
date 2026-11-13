@@ -7,7 +7,7 @@ use crate::gui::SHARED_GUI;
 use crate::utils::malloc_trim;
 use eframe::egui::{Align2, FontId, Id, Margin, Order, RichText, Stroke, Ui, vec2};
 use egui_elements::{
-   Button, ChipRole, Modal, SecureTextEdit, Spinner, Theme, Toast,
+   Button, ChipRole, Frame, Modal, SecureTextEdit, Spinner, Theme, Toast,
    layout::{Column, Table, TableScroll},
    widgets::Window,
 };
@@ -164,7 +164,7 @@ impl DiscoverChildWallets {
       let was_open = self.open;
       let mut is_open = self.open;
 
-      let frame = theme.window_frame.fill(theme.frame1.fill);
+      let frame = theme.window_frame.fill(theme.colors.bg);
       let title = RichText::new("Discover Wallets").size(theme.typography.heading);
       let id = Id::unique("discover_wallets_window");
 
@@ -454,6 +454,12 @@ impl DiscoverChildWallets {
       let mut add_wallet_clicked = false;
       let mut index_to_add = 0;
 
+      let row_frame = Frame::new()
+         .interactive(true)
+         .inner_margin(theme.inner_margin)
+         .corner_radius(theme.corner_radius)
+         .visuals(theme.frame1_visuals());
+
       Table::new("discover_wallets", &page)
          .columns([
             Column::Fr(3.4),     // Derivation Path
@@ -465,7 +471,7 @@ impl DiscoverChildWallets {
          // 12 pt, not xs: a themed `Button` paints ~6 pt above and below its band.
          .row_gap(theme.spacing.md)
          .scroll(TableScroll::new().auto_shrink([false; 2]).content_margin(15))
-         .row_divider(true)
+         .row_frame(row_frame)
          .header_rule(true)
          .key((self.current_page, page.len()))
          .show(ui, |t| {
