@@ -2,7 +2,7 @@
 
 use eframe::egui::{
    Align, Color32, FontId, Id, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Sense, Ui,
-   Vec2, emath::Vec2b, vec2,
+   Vec2, vec2,
 };
 
 use crate::assets::icons::Icons;
@@ -36,8 +36,8 @@ use zeus_eth::{
 
 use anyhow::{anyhow, bail};
 use egui_elements::{
-   Button, Chip, ChipRole, Label, Menu, MenuItem, Modal, SecureTextEdit, Spinner, Tabs, TabsStyle,
-   Theme, Toast, utils::frame as frame_fn,
+   Button, Chip, ChipRole, Frame, Label, Menu, MenuItem, Modal, SecureTextEdit, Spinner, Tabs,
+   TabsStyle, Theme, Toast,
 };
 
 /// Currency direction for [`TokenSelectionWindow`].
@@ -731,141 +731,135 @@ impl TokenSelectionWindow {
             let num_rows = filtered_list.len();
             let row_height = 80.0;
             let tint = theme.image_tint_recommended;
-            let mut frame = theme.frame2.outer_margin(Margin::same(5));
-            let frame_visuals = theme.visuals.frame2_visuals;
 
-            ScrollArea::vertical().auto_shrink(Vec2b::new(false, false)).show_rows(
-               ui,
-               row_height,
-               num_rows,
-               |ui, row_range| {
-                  ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+            let visuals = theme.frame2_visuals();
+            let inner = theme.inner_margin;
+            let corner = theme.corner_radius;
+            let frame = Frame::new()
+               .interactive(true)
+               .inner_margin(inner)
+               .corner_radius(corner)
+               .visuals(visuals);
 
-                  for row_index in row_range {
-                     if let Some((currency, balance, value)) = filtered_list.get(row_index) {
-                        let name = truncate_symbol_or_name(currency.name(), 25);
-                        let symbol = truncate_symbol_or_name(currency.symbol(), 10);
-                        let text = format!("{}\n{}", name, symbol);
-                        let icon = icons.currency_icon_x32(currency, tint);
-                        let rich_text = RichText::new(text).size(theme.typography.normal);
-                        let label = Label::new(rich_text, Some(icon))
-                           .interactive(false)
-                           .wrap()
-                           .image_on_left();
+            let scroll = ScrollArea::vertical().content_margin(10).auto_shrink([false, false]);
 
-                        let mut more_clicked = false;
-                        let token_address = currency.erc20_opt().map(|token| token.address);
+            scroll.show_rows(ui, row_height, num_rows, |ui, row_range| {
+               ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
 
-                        let res = frame_fn(&mut frame, frame_visuals, ui, |ui| {
-                           ui.horizontal(|ui| {
-                              ui.set_width(ui.available_width());
+               for row_index in row_range {
+                  if let Some((currency, balance, value)) = filtered_list.get(row_index) {
+                     let name = truncate_symbol_or_name(currency.name(), 25);
+                     let symbol = truncate_symbol_or_name(currency.symbol(), 10);
+                     let text = format!("{}\n{}", name, symbol);
+                     let icon = icons.currency_icon_x32(currency, tint);
+                     let rich_text = RichText::new(text).size(theme.typography.normal);
+                     let label =
+                        Label::new(rich_text, Some(icon)).interactive(false).wrap().image_on_left();
 
-                              ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                                 ui.set_width(ui.available_width() * 0.4);
-                                 ui.set_height(50.0);
-                                 ui.add(label);
-                              });
+                     let token_address = currency.erc20_opt().map(|token| token.address);
 
-                              ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                                 ui.set_width(ui.available_width() * 0.6);
+                     let res = frame.show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                           ui.set_width(ui.available_width());
 
-                                 if let Some(token_address) = token_address {
-                                    let size = vec2(28.0, 20.0);
-                                    let more = dots_button(theme, size, ui);
-                                    if more.clicked() {
-                                       more_clicked = true;
+                           ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                              ui.set_width(ui.available_width() * 0.4);
+                              ui.set_height(50.0);
+                              ui.add(label);
+                           });
+
+                           ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                              ui.set_width(ui.available_width() * 0.6);
+
+                              if let Some(token_address) = token_address {
+                                 let size = vec2(28.0, 20.0);
+                                 let more = dots_button(theme, size, ui);
+
+                                 let id = format!("{}_more_options", token_address);
+                                 Menu::new(id).show_below(&more, |ui| {
+                                    if ui.add(MenuItem::new("Copy Address")).clicked() {
+                                       ui.ctx().copy_text(token_address.to_string());
                                     }
 
-                                    let id = format!("{}_more_options", token_address);
-                                    Menu::new(id).show_below(&more, |ui| {
-                                       if ui.add(MenuItem::new("Copy Address")).clicked() {
-                                          ui.ctx().copy_text(token_address.to_string());
-                                       }
-
-                                       if ui.add(MenuItem::new("Import Icon…")).clicked() {
-                                          more_clicked = true;
-                                          let picked = rfd::FileDialog::new()
-                                             .set_title("Choose a token icon")
-                                             .add_filter(
-                                                "Image",
-                                                &["png", "jpg", "jpeg", "webp", "gif"],
-                                             )
-                                             .pick_file();
-                                          if let Some(path) = picked {
-                                             spawn_import_token_icon(
-                                                chain_id,
-                                                token_address,
-                                                currency.symbol().to_string(),
-                                                path,
-                                             );
-                                          }
-                                       }
-
-                                       if icons.tokens.has_icon(token_address, chain_id)
-                                          && ui.add(MenuItem::new("Reset Icon")).clicked()
-                                       {
-                                          more_clicked = true;
-                                          spawn_reset_token_icon(
+                                    if ui.add(MenuItem::new("Import Icon…")).clicked() {
+                                       let picked = rfd::FileDialog::new()
+                                          .set_title("Choose a token icon")
+                                          .add_filter(
+                                             "Image",
+                                             &["png", "jpg", "jpeg", "webp", "gif"],
+                                          )
+                                          .pick_file();
+                                       if let Some(path) = picked {
+                                          spawn_import_token_icon(
                                              chain_id,
                                              token_address,
                                              currency.symbol().to_string(),
+                                             path,
                                           );
                                        }
+                                    }
 
-                                       if !currency.is_base()
-                                          && ui.add(MenuItem::new("Delete Token")).clicked()
-                                       {
-                                          more_clicked = true;
-                                          if let Some(token) = currency.erc20_opt() {
-                                             delete_token(
-                                                chain_id,
-                                                owner,
-                                                token.clone(),
-                                                ctx.privacy_mode,
-                                             );
-                                          }
-                                       }
-
-                                       if ui.add(MenuItem::new("See on Block Explorer")).clicked() {
-                                          let chain = ChainId::from(chain_id);
-                                          let explorer = chain.block_explorer();
-                                          let link =
-                                             format!("{}/token/{}", explorer, token_address);
-                                          let url = OpenUrl::new_tab(link);
-                                          ui.ctx().open_url(url);
-                                       }
-                                    });
-
-                                    ui.add_space(8.0);
-                                 }
-
-                                 if !balance.is_zero() {
-                                    let value_text = format!("${:.12}", value.abbreviated());
-
-                                    ui.vertical(|ui| {
-                                       ui.label(
-                                          RichText::new(value_text).size(theme.typography.normal),
+                                    if icons.tokens.has_icon(token_address, chain_id)
+                                       && ui.add(MenuItem::new("Reset Icon")).clicked()
+                                    {
+                                       spawn_reset_token_icon(
+                                          chain_id,
+                                          token_address,
+                                          currency.symbol().to_string(),
                                        );
+                                    }
 
-                                       ui.label(
-                                          RichText::new(format!("{:.12}", balance.abbreviated()))
-                                             .size(theme.typography.normal),
-                                       );
-                                    });
-                                 }
-                              });
+                                    if !currency.is_base()
+                                       && ui.add(MenuItem::new("Delete Token")).clicked()
+                                    {
+                                       if let Some(token) = currency.erc20_opt() {
+                                          delete_token(
+                                             chain_id,
+                                             owner,
+                                             token.clone(),
+                                             ctx.privacy_mode,
+                                          );
+                                       }
+                                    }
+
+                                    if ui.add(MenuItem::new("See on Block Explorer")).clicked() {
+                                       let chain = ChainId::from(chain_id);
+                                       let explorer = chain.block_explorer();
+                                       let link = format!("{}/token/{}", explorer, token_address);
+                                       let url = OpenUrl::new_tab(link);
+                                       ui.ctx().open_url(url);
+                                    }
+                                 });
+
+                                 ui.add_space(8.0);
+                              }
+
+                              if !balance.is_zero() {
+                                 let value_text = format!("${:.12}", value.abbreviated());
+
+                                 ui.vertical(|ui| {
+                                    ui.label(
+                                       RichText::new(value_text).size(theme.typography.normal),
+                                    );
+
+                                    ui.label(
+                                       RichText::new(format!("{:.12}", balance.abbreviated()))
+                                          .size(theme.typography.normal),
+                                    );
+                                 });
+                              }
                            });
                         });
+                     });
 
-                        if !more_clicked && res.interact(Sense::click()).clicked() {
-                           self.selected_currency = Some((*currency).clone());
-                           self.token_fetched = false;
-                           close_window = true;
-                        }
+                     if res.response.interact(Sense::click()).clicked() {
+                        self.selected_currency = Some((*currency).clone());
+                        self.token_fetched = false;
+                        close_window = true;
                      }
                   }
-               },
-            );
+               }
+            });
          });
 
       if close_window || !open {
@@ -954,114 +948,111 @@ impl TokenSelectionWindow {
       let row_height = 80.0;
       let tint = theme.image_tint_recommended;
       let chain = ChainId::from(chain_id);
-      let mut frame = theme.frame2.outer_margin(Margin::same(5));
-      let frame_visuals = theme.visuals.frame2_visuals;
 
-      ScrollArea::vertical().auto_shrink(Vec2b::new(false, false)).show_rows(
-         ui,
-         row_height,
-         num_rows,
-         |ui, row_range| {
-            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+      let visuals = theme.frame2_visuals();
+      let inner = theme.inner_margin;
+      let corner = theme.corner_radius;
+      let frame = Frame::new()
+         .interactive(true)
+         .inner_margin(inner)
+         .corner_radius(corner)
+         .visuals(visuals);
 
-            for row_index in row_range {
-               let Some(row) = rows.get(row_index) else {
-                  continue;
-               };
+      let scroll = ScrollArea::vertical().content_margin(10).auto_shrink([false, false]);
 
-               let token = &row.token;
-               let icon = icons.nft_icon_x64(
-                  token.chain_id,
-                  token.collection,
-                  token.token_id,
-                  tint,
-               );
-               let text = format!("{}\n{}", row.label(), row.subtitle());
-               let rich_text = RichText::new(text).size(theme.typography.normal);
-               let label =
-                  Label::new(rich_text, Some(icon)).interactive(false).wrap().image_on_left();
+      scroll.show_rows(ui, row_height, num_rows, |ui, row_range| {
+         ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
 
-               let mut more_clicked = false;
-               let collection = token.collection;
-               let token_id = token.token_id;
+         for row_index in row_range {
+            let Some(row) = rows.get(row_index) else {
+               continue;
+            };
 
-               let res = frame_fn(&mut frame, frame_visuals, ui, |ui| {
-                  ui.horizontal(|ui| {
-                     ui.set_width(ui.available_width());
+            let token = &row.token;
+            let icon = icons.nft_icon_x64(
+               token.chain_id,
+               token.collection,
+               token.token_id,
+               tint,
+            );
+            let text = format!("{}\n{}", row.label(), row.subtitle());
+            let rich_text = RichText::new(text).size(theme.typography.normal);
+            let label = Label::new(rich_text, Some(icon)).interactive(false).wrap().image_on_left();
 
-                     ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                        ui.set_width(ui.available_width() * 0.4);
-                        ui.set_height(50.0);
-                        ui.add(label);
-                     });
+            let collection = token.collection;
+            let token_id = token.token_id;
 
-                     ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                        ui.set_width(ui.available_width() * 0.6);
+            let res = frame.show(ui, |ui| {
+               ui.horizontal(|ui| {
+                  ui.set_width(ui.available_width());
 
-                        let more = dots_button(theme, vec2(28.0, 20.0), ui);
-                        if more.clicked() {
-                           more_clicked = true;
+                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                     ui.set_width(ui.available_width() * 0.4);
+                     ui.set_height(50.0);
+                     ui.add(label);
+                  });
+
+                  ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                     ui.set_width(ui.available_width() * 0.6);
+
+                     let more = dots_button(theme, vec2(28.0, 20.0), ui);
+
+                     ui.add_space(theme.spacing.sm);
+
+                     // Left of the menu button. The catalog goes on listing a token the wallet no
+                     // longer holds, so this is what tells the two apart.
+                     row.ownership_badge(ui);
+
+                     let menu_id = format!("{collection}_{token_id}_nft_more_options");
+                     Menu::new(menu_id).show_below(&more, |ui| {
+                        if ui.add(MenuItem::new("Copy Collection")).clicked() {
+                           ui.ctx().copy_text(collection.to_string());
                         }
 
-                        ui.add_space(theme.spacing.sm);
+                        if ui.add(MenuItem::new("Copy Token ID")).clicked() {
+                           ui.ctx().copy_text(token_id.to_string());
+                        }
 
-                        // Left of the menu button. The catalog goes on listing a token the wallet no
-                        // longer holds, so this is what tells the two apart.
-                        row.ownership_badge(ui);
+                        if ui.add(MenuItem::new("See on Block Explorer")).clicked() {
+                           let url = chain.nft_url(collection, token_id);
+                           ui.ctx().open_url(OpenUrl::new_tab(url));
+                        }
 
-                        let menu_id = format!("{collection}_{token_id}_nft_more_options");
-                        Menu::new(menu_id).show_below(&more, |ui| {
-                           if ui.add(MenuItem::new("Copy Collection")).clicked() {
-                              ui.ctx().copy_text(collection.to_string());
-                           }
+                        // The catalog is what the picker lists; the portfolio is the user's own
+                        // list. This is where that decision gets made.
+                        let portfolio_item = match row.in_portfolio {
+                           true => "Remove from Portfolio",
+                           false => "Add to Portfolio",
+                        };
 
-                           if ui.add(MenuItem::new("Copy Token ID")).clicked() {
-                              ui.ctx().copy_text(token_id.to_string());
-                           }
+                        if ui.add(MenuItem::new(portfolio_item)).clicked() {
+                           set_nft_in_portfolio(
+                              chain_id,
+                              owner,
+                              row.token.clone(),
+                              !row.in_portfolio,
+                           );
+                        }
 
-                           if ui.add(MenuItem::new("See on Block Explorer")).clicked() {
-                              let url = chain.nft_url(collection, token_id);
-                              ui.ctx().open_url(OpenUrl::new_tab(url));
-                           }
-
-                           // The catalog is what the picker lists; the portfolio is the user's own
-                           // list. This is where that decision gets made.
-                           let portfolio_item = match row.in_portfolio {
-                              true => "Remove from Portfolio",
-                              false => "Add to Portfolio",
-                           };
-
-                           if ui.add(MenuItem::new(portfolio_item)).clicked() {
-                              more_clicked = true;
-                              set_nft_in_portfolio(
-                                 chain_id,
-                                 owner,
-                                 row.token.clone(),
-                                 !row.in_portfolio,
-                              );
-                           }
-
-                           if ui.add(MenuItem::new("Delete NFT")).clicked() {
-                              more_clicked = true;
-                              delete_nft(
-                                 chain_id,
-                                 owner,
-                                 row.token.clone(),
-                                 row.name.clone(),
-                              );
-                           }
-                        });
+                        if ui.add(MenuItem::new("Delete NFT")).clicked() {
+                           delete_nft(
+                              chain_id,
+                              owner,
+                              row.token.clone(),
+                              row.name.clone(),
+                           );
+                        }
                      });
                   });
                });
+            });
 
-               if !more_clicked && res.interact(Sense::click()).clicked() {
-                  self.selected_nft = Some(row.token.clone());
-                  *close_window = true;
-               }
+            if res.response.interact(Sense::click()).clicked() {
+               self.selected_nft = Some(row.token.clone());
+               *close_window = true;
             }
-         },
-      );
+         }
+      });
    }
 
    fn get_token_on_valid_address(
