@@ -11,9 +11,9 @@ use crate::gui::{
    },
 };
 use crate::utils::truncate_address;
-use egui::{Align, Frame, Layout, Margin, Response, RichText, Sense, TextWrapMode, Ui, vec2};
+use egui::{Align, Layout, Margin, Response, RichText, Sense, TextWrapMode, Ui, vec2};
 use egui_elements::{
-   Button, Chip, ChipRole, ComboBox, Label, Spinner, Theme,
+   Button, Chip, ChipRole, ComboBox, Frame, Label, Spinner, Theme,
    layout::{Column, Table, TableHeader, TableScroll},
    visuals::ButtonVisuals,
 };
@@ -353,8 +353,6 @@ impl TxHistory {
                ui.spacing_mut().item_spacing.x = theme.spacing.xl;
                ui.spacing_mut().button_padding = theme.button_padding;
 
-               let combo_visuals = theme.combo_box_visuals();
-               let label_visuals = theme.label_visuals();
                let expansion = Some(6.0);
 
                // Wallet Filter
@@ -366,47 +364,41 @@ impl TxHistory {
 
                let text = RichText::new(selected_wallet_name).size(theme.typography.normal);
                let label = Label::new(text, None)
-                  .visuals(label_visuals)
                   .interactive(true)
                   .fill_width(true)
                   .sense(Sense::click())
                   .expand(expansion);
 
-               ComboBox::new("wallet_filter", label)
-                  .visuals(combo_visuals)
-                  .width(200.0)
-                  .show_ui(ui, |ui| {
-                     ui.spacing_mut().item_spacing.y = theme.spacing.sm;
+               ComboBox::new("wallet_filter", label).width(200.0).show_ui(ui, |ui| {
+                  ui.spacing_mut().item_spacing.y = theme.spacing.sm;
 
-                     let text = RichText::new("All Wallets").size(theme.typography.normal);
+                  let text = RichText::new("All Wallets").size(theme.typography.normal);
+                  let label = Label::new(text, None)
+                     .interactive(true)
+                     .fill_width(true)
+                     .sense(Sense::click())
+                     .expand(expansion);
+
+                  if ui.add(label).clicked() && self.selected_wallet.is_some() {
+                     self.selected_wallet = None;
+                     self.current_page = 0;
+                  }
+
+                  for wallet in wallets {
+                     let text =
+                        RichText::new(wallet.name_with_source()).size(theme.typography.normal);
                      let label = Label::new(text, None)
-                        .visuals(label_visuals)
+                        .sense(Sense::click())
                         .interactive(true)
                         .fill_width(true)
-                        .sense(Sense::click())
                         .expand(expansion);
 
-                     if ui.add(label).clicked() && self.selected_wallet.is_some() {
-                        self.selected_wallet = None;
+                     if ui.add(label).clicked() && self.selected_wallet != Some(wallet.clone()) {
+                        self.selected_wallet = Some(wallet.clone());
                         self.current_page = 0;
                      }
-
-                     for wallet in wallets {
-                        let text =
-                           RichText::new(wallet.name_with_source()).size(theme.typography.normal);
-                        let label = Label::new(text, None)
-                           .visuals(label_visuals)
-                           .sense(Sense::click())
-                           .interactive(true)
-                           .fill_width(true)
-                           .expand(expansion);
-
-                        if ui.add(label).clicked() && self.selected_wallet != Some(wallet.clone()) {
-                           self.selected_wallet = Some(wallet.clone());
-                           self.current_page = 0;
-                        }
-                     }
-                  });
+                  }
+               });
 
                // --- Chain Filter ---
                let selected_chain_name =
@@ -416,50 +408,44 @@ impl TxHistory {
 
                let text = RichText::new(selected_chain_name).size(theme.typography.normal);
                let label = Label::new(text, None)
-                  .visuals(label_visuals)
                   .interactive(true)
                   .fill_width(true)
                   .sense(Sense::click())
                   .expand(expansion);
 
-               ComboBox::new("chain_filter", label)
-                  .visuals(combo_visuals)
-                  .width(200.0)
-                  .show_ui(ui, |ui| {
-                     ui.spacing_mut().item_spacing.y = theme.spacing.sm;
+               ComboBox::new("chain_filter", label).width(200.0).show_ui(ui, |ui| {
+                  ui.spacing_mut().item_spacing.y = theme.spacing.sm;
 
-                     let text = RichText::new("All Chains").size(theme.typography.normal);
+                  let text = RichText::new("All Chains").size(theme.typography.normal);
+                  let label = Label::new(text, None)
+                     .interactive(true)
+                     .fill_width(true)
+                     .sense(Sense::click())
+                     .expand(expansion);
+
+                  if ui.add(label).clicked() && self.selected_chain.is_some() {
+                     self.selected_chain = None;
+                     self.current_page = 0;
+                  }
+
+                  for chain in ChainId::supported_chains() {
+                     if ctx.is_chain_disabled(chain.id()) {
+                        continue;
+                     }
+
+                     let text = RichText::new(chain.name()).size(theme.typography.normal);
                      let label = Label::new(text, None)
-                        .visuals(label_visuals)
+                        .sense(Sense::click())
                         .interactive(true)
                         .fill_width(true)
-                        .sense(Sense::click())
                         .expand(expansion);
 
-                     if ui.add(label).clicked() && self.selected_chain.is_some() {
-                        self.selected_chain = None;
+                     if ui.add(label).clicked() && self.selected_chain != Some(chain) {
+                        self.selected_chain = Some(chain);
                         self.current_page = 0;
                      }
-
-                     for chain in ChainId::supported_chains() {
-                        if ctx.is_chain_disabled(chain.id()) {
-                           continue;
-                        }
-
-                        let text = RichText::new(chain.name()).size(theme.typography.normal);
-                        let label = Label::new(text, None)
-                           .visuals(label_visuals)
-                           .sense(Sense::click())
-                           .interactive(true)
-                           .fill_width(true)
-                           .expand(expansion);
-
-                        if ui.add(label).clicked() && self.selected_chain != Some(chain) {
-                           self.selected_chain = Some(chain);
-                           self.current_page = 0;
-                        }
-                     }
-                  });
+                  }
+               });
             });
 
             ui.separator();
@@ -592,6 +578,14 @@ impl TxHistory {
                Column::Fixed(100.0), // Details
             ];
 
+            // One card per row. Its margins become part of the row pitch, so the cells keep the
+            // height the table measured and the header still shares their left edge.
+            let row_frame = Frame::new()
+               .interactive(true)
+               .inner_margin(theme.inner_margin)
+               .corner_radius(theme.corner_radius)
+               .visuals(theme.frame1_visuals());
+
             let mut details_tx: Option<TransactionRich> = None;
             let mut details_spent: Option<SpentHistoryRow> = None;
 
@@ -613,7 +607,7 @@ impl TxHistory {
                         .content_margin(15)
                         .max_height(ui.available_height() * 0.85),
                   )
-                  .row_divider(true)
+                  .row_frame(row_frame)
                   .header_rule(true)
                   .key((&self.cache_key, self.current_page))
                   .show(ui, |t| {
@@ -666,7 +660,7 @@ impl TxHistory {
                         .content_margin(15)
                         .max_height(ui.available_height() * 0.85),
                   )
-                  .row_divider(true)
+                  .row_frame(row_frame)
                   .header_rule(true)
                   .key((&self.cache_key, self.current_page))
                   .show(ui, |t| {
