@@ -15,14 +15,13 @@ use crate::gui::{
 };
 use crate::utils::nft_icon::start_nft_art_downloads;
 use eframe::egui::{
-   Align, CornerRadius, CursorIcon, Frame, Image, Layout, Margin, Order, RichText, TextWrapMode,
-   Ui, vec2,
+   Align, CornerRadius, CursorIcon, Image, Layout, Margin, Order, RichText, TextWrapMode, Ui, vec2,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use egui_elements::{
-   Button, Label, Modal, Spinner, Tabs, TabsStyle, Theme,
+   Button, Frame, Label, Modal, Spinner, Tabs, TabsStyle, Theme,
    layout::{Column, Table, TableScroll},
    visuals::ButtonVisuals,
 };
@@ -149,6 +148,11 @@ impl PortfolioUi {
 
                ui.spacing_mut().item_spacing = vec2(theme.spacing.lg, theme.spacing.md);
 
+               let normal = theme.typography.normal;
+               let large = theme.typography.large;
+
+               let warning = theme.colors.warning;
+
                let frame = theme.frame1;
 
                frame.show(ui, |ui| {
@@ -196,8 +200,8 @@ impl PortfolioUi {
                            PortfolioMode::Tokens => ("Add Token", false),
                            PortfolioMode::Nfts => ("Add NFT", true),
                         };
-                        let text = RichText::new(label).size(theme.typography.normal);
-                        let add_token = Button::new(text).visuals(button_visuals);
+                        let text = RichText::new(label).size(normal);
+                        let add_token = Button::new(text);
 
                         if ui.add(add_token).clicked() {
                            token_selection.open(privacy_mode, chain_id, owner);
@@ -229,7 +233,7 @@ impl PortfolioUi {
                               self.nft_list_asked_for = None;
                            }
                         } else {
-                           ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+                           ui.add(Spinner::new().size(17.0));
                         }
                      });
                   });
@@ -239,14 +243,10 @@ impl PortfolioUi {
                   && ctx.railgun_is_supported(ctx.chain)
                   && !ctx.is_railgun_enabled(chain_id)
                {
-                  ui.label(
-                     RichText::new("Railgun is disabled")
-                        .size(theme.typography.large)
-                        .color(theme.colors.warning),
-                  );
+                  ui.label(RichText::new("Railgun is disabled").size(large).color(warning));
                   ui.label(
                      RichText::new("Enable it in Settings/Railgun to see private balances.")
-                        .size(theme.typography.normal),
+                        .size(normal),
                   );
                }
 
@@ -332,6 +332,15 @@ impl PortfolioUi {
                      ui.spacing_mut().button_padding =
                         vec2(theme.spacing.xs, theme.spacing.xs / 2.0);
 
+                     let visuals = theme.frame1_visuals();
+                     let inner = theme.inner_margin;
+                     let corner = theme.corner_radius;
+                     let row_frame = Frame::new()
+                        .interactive(true)
+                        .inner_margin(inner)
+                        .corner_radius(corner)
+                        .visuals(visuals);
+
                      Table::new("portfolio_tokens", &rows)
                         .columns([
                            Column::Fr(2.2), // Asset
@@ -341,10 +350,9 @@ impl PortfolioUi {
                            Column::Auto,    // Remove
                         ])
                         .gap(20.0)
-                        // 12 pt, not xs: a themed `Button` paints ~6 pt above and below its band.
                         .row_gap(theme.spacing.md)
                         .scroll(TableScroll::new().auto_shrink([false; 2]).content_margin(15))
-                        .row_divider(true)
+                        .row_frame(row_frame)
                         .header_rule(true)
                         .key((chain_id, privacy_mode, rows.len()))
                         .show(ui, |t| {
@@ -352,12 +360,7 @@ impl PortfolioUi {
                               for header in ["Asset", "Price", "Balance", "Value", ""] {
                                  h.cell(|ui| {
                                     if !header.is_empty() {
-                                       ui.label(
-                                          RichText::new(header)
-                                             .strong()
-                                             .size(theme.typography.large)
-                                             .color(theme.colors.text),
-                                       );
+                                       ui.label(RichText::new(header).strong().size(large));
                                     }
                                  });
                               }
@@ -365,39 +368,31 @@ impl PortfolioUi {
 
                            t.rows(|r, row| {
                               r.cell(|ui| {
-                                 let text = RichText::new(&row.symbol)
-                                    .size(theme.typography.normal)
-                                    .color(theme.colors.text);
+                                 let text = RichText::new(&row.symbol).size(normal);
+
                                  let label = Label::new(text, Some(row.icon.clone()))
                                     .image_on_left()
                                     .wrap()
-                                    .visuals(theme.label_visuals())
                                     .interactive(false);
                                  ui.add(label).on_hover_text(&row.name);
                               });
 
                               r.cell(|ui| {
-                                 ui.label(
-                                    RichText::new(&row.price)
-                                       .size(theme.typography.normal)
-                                       .color(theme.colors.text),
-                                 );
+                                 let text = RichText::new(&row.price).size(normal);
+                                 let label = Label::text(text);
+                                 ui.add(label);
                               });
 
                               r.cell(|ui| {
-                                 ui.label(
-                                    RichText::new(&row.balance)
-                                       .size(theme.typography.normal)
-                                       .color(theme.colors.text),
-                                 );
+                                 let text = RichText::new(&row.balance).size(normal);
+                                 let label = Label::text(text);
+                                 ui.add(label);
                               });
 
                               r.cell(|ui| {
-                                 ui.label(
-                                    RichText::new(&row.value)
-                                       .size(theme.typography.normal)
-                                       .color(theme.colors.text),
-                                 );
+                                 let text = RichText::new(&row.value).size(normal);
+                                 let label = Label::text(text);
+                                 ui.add(label);
                               });
 
                               r.cell(|ui| {
@@ -405,7 +400,7 @@ impl PortfolioUi {
                                     return;
                                  };
 
-                                 let text = RichText::new("X").size(theme.typography.normal);
+                                 let text = RichText::new("X").size(normal);
                                  if ui.add(Button::new(text)).clicked() {
                                     remove_request = Some(token.clone());
                                  }
@@ -487,12 +482,20 @@ impl PortfolioUi {
       let mut preview_request: Option<NftToken> = None;
       let mut remove_request: Option<NftToken> = None;
 
-      let label_visuals = theme.label_visuals();
-      let button_visuals = theme.button_visuals();
+      let normal = theme.typography.normal;
 
       ui.spacing_mut().item_spacing.y = theme.spacing.sm;
       ui.scope(|ui| {
          ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
+
+         let visuals = theme.frame1_visuals();
+         let inner = theme.inner_margin;
+         let corner = theme.corner_radius;
+         let row_frame = Frame::new()
+            .interactive(true)
+            .inner_margin(inner)
+            .corner_radius(corner)
+            .visuals(visuals);
 
          Table::new("portfolio_nfts", nfts)
             // The artwork's thumbnail size is the row height this list was laid out for.
@@ -500,7 +503,7 @@ impl PortfolioUi {
             .gap(20.0)
             .row_gap(theme.spacing.md)
             .scroll(TableScroll::new().auto_shrink([false; 2]).content_margin(15))
-            .row_divider(true)
+            .row_frame(row_frame)
             .key((chain_id, privacy_mode, nfts.len()))
             .show(ui, |t| {
                t.rows(|r, token| {
@@ -548,7 +551,6 @@ impl PortfolioUi {
                            .color(theme.colors.text);
                         let title_label = Label::new(title_text, None)
                            .wrap_mode(TextWrapMode::Truncate)
-                           .visuals(label_visuals)
                            .interactive(false);
                         ui.add(title_label).on_hover_text(&title);
 
@@ -557,7 +559,6 @@ impl PortfolioUi {
                            .color(theme.colors.text_muted);
                         let subtitle_label = Label::new(subtitle_text, None)
                            .wrap_mode(TextWrapMode::Truncate)
-                           .visuals(label_visuals)
                            .interactive(false);
                         ui.add(subtitle_label);
                      });
@@ -572,14 +573,14 @@ impl PortfolioUi {
                         holding.unwrap_or(0),
                      );
 
-                     let remove = Button::new(RichText::new("X").size(theme.typography.normal))
-                        .visuals(button_visuals);
+                     let remove = Button::new(RichText::new("X").size(normal));
+
                      if ui.add(remove).clicked() {
                         remove_request = Some(token.clone());
                      }
 
-                     let view = Button::new(RichText::new("View").size(theme.typography.normal))
-                        .visuals(button_visuals);
+                     let view = Button::new(RichText::new("View").size(normal));
+
                      if ui.add(view).clicked() {
                         preview_request = Some(token.clone());
                      }
