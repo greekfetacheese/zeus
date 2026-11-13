@@ -3,9 +3,9 @@
 use crate::core::{ZeusContext, types::Contact};
 use crate::gui::ui::show_with_fade;
 use crate::gui::{SHARED_GUI, dots_button};
-use egui::{Align, FontId, Frame, Layout, Margin, OpenUrl, RichText, ScrollArea, Ui, vec2};
+use egui::{Align, FontId, Layout, Margin, OpenUrl, RichText, ScrollArea, Ui, vec2};
 use egui_elements::{
-   Button, InputField, Label, Menu, MenuItem, QrImage, SecureTextEdit, Spinner, Theme,
+   Button, Frame, InputField, Label, Menu, MenuItem, QrImage, SecureTextEdit, Spinner, Theme,
    components::QrEncoding,
 };
 use std::str::FromStr;
@@ -580,12 +580,20 @@ impl ContactsUi {
    }
 
    fn contact(&mut self, ctx: &ZeusContext, theme: &Theme, contact: &Contact, ui: &mut Ui) {
-      let frame = theme.frame1;
       let privacy_mode = ctx.privacy_mode;
+
+      let visuals = theme.frame2_visuals();
+      let inner = theme.inner_margin;
+      let corner = theme.corner_radius;
+      let frame = Frame::new()
+         .interactive(true)
+         .inner_margin(inner)
+         .corner_radius(corner)
+         .visuals(visuals);
 
       frame.show(ui, |ui| {
          ui.spacing_mut().button_padding = theme.button_padding;
-         ui.set_width(ui.available_width());
+         ui.set_width(450.0);
 
          ui.horizontal(|ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
