@@ -21,9 +21,9 @@ impl WalletListByValue {
          let value_a = ctx.get_total_value(a.address, include_testnets);
          let value_b = ctx.get_total_value(b.address, include_testnets);
          value_b
-            .for_mode(!privacy_mode)
+            .for_mode(privacy_mode)
             .f64()
-            .partial_cmp(&value_a.for_mode(!privacy_mode).f64())
+            .partial_cmp(&value_a.for_mode(privacy_mode).f64())
             .unwrap_or(std::cmp::Ordering::Equal)
       });
 

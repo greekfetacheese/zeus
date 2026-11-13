@@ -12,7 +12,10 @@ use crate::utils::{TimeStamp, truncate_address};
 use eframe::egui::{
    Align, Id, Layout, Margin, Order, RichText, ScrollArea, Sense, TextWrapMode, Ui, vec2,
 };
-use egui_elements::{Button, InputField, Label, Modal, Spinner, Theme, utils::frame as frame_fn};
+use egui_elements::{
+   Button, Frame, InputField, Label, Modal, Motion, Spinner, Tabs, Theme, animate_from,
+   animate_with,
+};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -75,6 +78,8 @@ pub struct RecipientSelectionWindow {
    loading: bool,
    contacts_tab_open: bool,
    wallets_tab_open: bool,
+   /// 0 = Contacts, 1 = Wallets
+   tab: usize,
    pub recipient: Recipient,
    /// The search field owns its text and its QR scanner, so it is kept here
    /// instead of being rebuilt every frame — the scanner's state has to survive
@@ -109,6 +114,7 @@ impl RecipientSelectionWindow {
       Self {
          open: false,
          loading: false,
+         tab: 0,
          contacts_tab_open: true,
          wallets_tab_open: false,
          recipient: Recipient::default(),
@@ -321,11 +327,46 @@ impl RecipientSelectionWindow {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
             ui.spacing_mut().button_padding = theme.button_padding;
-            let size = vec2(ui.available_width() * 0.4, 45.0);
-            let button_visuals = theme.button_visuals();
+
+            let normal = theme.typography.normal;
+            let large = theme.typography.large;
+            let heading = theme.typography.heading;
+
+            let info = theme.colors.info;
+            let warning = theme.colors.warning;
+            let error = theme.colors.error;
+            let text_muted = theme.colors.text_muted;
+
+            // Entrance fade for the two views this window swaps between. Both opacities are ticked
+            // every frame, including the one that is not drawn: the hidden view is back at `0.0` by
+            // the time the user switches to it, which is what makes going back fade in again. The
+            // selection view is seeded at its target so that opening the window itself does not fade.
+            let motion = Motion::from_ui(ui);
+            let selection_opacity = animate_from(
+               ui,
+               "recipient_selection_ui_fade",
+               if self.adding_contact { 0.0 } else { 1.0 },
+               1.0,
+               motion,
+            );
+
+            let add_contact_opacity = animate_with(
+               ui,
+               "recipient_add_contact_ui_fade",
+               if self.adding_contact { 1.0 } else { 0.0 },
+               motion,
+            );
+
+            let opacity = if self.adding_contact {
+               add_contact_opacity
+            } else {
+               selection_opacity
+            };
+
+            ui.multiply_opacity(opacity);
 
             if self.adding_contact {
-               let text = RichText::new("Back").size(theme.typography.normal);
+               let text = RichText::new("Back").size(normal);
                let button = Button::new(text).min_size(vec2(50.0, 20.0));
                let res = ui.scope(|ui| {
                   ui.spacing_mut().button_padding = theme.button_padding;
@@ -337,7 +378,7 @@ impl RecipientSelectionWindow {
                }
                ui.add_space(8.0);
                ui.vertical_centered(|ui| {
-                  ui.label(RichText::new("Add contact").size(theme.typography.heading));
+                  ui.label(RichText::new("Add contact").size(heading));
                   ui.add_space(10.0);
                   contacts_ui.add_contact.body(theme, false, ui);
                });
@@ -352,8 +393,8 @@ impl RecipientSelectionWindow {
                   return;
                }
 
-               let text = RichText::new("Add a contact").size(theme.typography.normal);
-               let add_contact = Button::new(text).visuals(button_visuals);
+               let text = RichText::new("Add a contact").size(normal);
+               let add_contact = Button::new(text);
 
                if ui.add(add_contact).clicked() {
                   self.adding_contact = true;
@@ -370,9 +411,7 @@ impl RecipientSelectionWindow {
 
                // Search bar — the stored `InputField` owns its text and its QR
                // scanner, so a decode survives across frames.
-               let hint = RichText::new(hint_text)
-                  .size(theme.typography.normal)
-                  .color(theme.colors.text_muted);
+               let hint = RichText::new(hint_text).size(normal).color(text_muted);
 
                // The QR button sits on the field's row, so its width is reserved
                // out of the text area.
@@ -385,30 +424,22 @@ impl RecipientSelectionWindow {
 
                ui.add_space(15.0);
 
-               ui.allocate_ui(size, |ui| {
-                  ui.horizontal(|ui| {
-                     let contacts_text = RichText::new("Contacts").size(theme.typography.large);
-                     let wallet_text = RichText::new("Wallets").size(theme.typography.large);
+               let tabs_str = ["Contacts", "Wallets"];
 
-                     let contact_button = Button::selectable(self.contacts_tab_open, contacts_text)
-                        .visuals(button_visuals);
-
-                     if ui.add(contact_button).clicked() {
-                        self.contacts_tab_open = true;
-                        self.wallets_tab_open = false;
-                     }
-
-                     ui.add_space(10.0);
-
-                     let wallet_button = Button::selectable(self.wallets_tab_open, wallet_text)
-                        .visuals(button_visuals);
-
-                     if ui.add(wallet_button).clicked() {
-                        self.wallets_tab_open = true;
-                        self.contacts_tab_open = false;
-                     }
-                  });
+               ui.allocate_ui(vec2(250.0, 30.0), |ui| {
+                  Tabs::new("receipient_tabs", &mut self.tab, tabs_str).text_size(normal).show(ui);
                });
+
+               match self.tab {
+                  0 => {
+                     self.contacts_tab_open = true;
+                     self.wallets_tab_open = false;
+                  }
+                  _ => {
+                     self.wallets_tab_open = true;
+                     self.contacts_tab_open = false;
+                  }
+               }
 
                ui.add_space(15.0);
 
@@ -437,13 +468,12 @@ impl RecipientSelectionWindow {
                      UnknownRecipient::ChecksumMismatch { .. } => "Checksum mismatch",
                      _ => "Unknown Address",
                   };
-                  ui.label(RichText::new(heading).size(theme.typography.large));
+                  ui.label(RichText::new(heading).size(large));
 
                   match unknown {
                      UnknownRecipient::Evm(address) => {
-                        let address_text =
-                           RichText::new(address.to_string()).size(theme.typography.normal);
-                        let button = Button::new(address_text).visuals(button_visuals);
+                        let address_text = RichText::new(address.to_string()).size(normal);
+                        let button = Button::new(address_text);
 
                         if ui.add(button).clicked() {
                            self.recipient = Recipient::from_unknown_evm_address(address);
@@ -461,8 +491,8 @@ impl RecipientSelectionWindow {
                         let trusted = expiry.is_none_or(|expiry| expiry.is_trusted(now));
 
                         if trusted {
-                           let name_text = RichText::new(&name).size(theme.typography.normal);
-                           let button = Button::new(name_text).visuals(button_visuals);
+                           let name_text = RichText::new(&name).size(normal);
+                           let button = Button::new(name_text);
 
                            if ui.add(button).clicked() {
                               // A plain name is chain-agnostic: `chain` stays `None`, so the send
@@ -482,11 +512,7 @@ impl RecipientSelectionWindow {
                               ui.label(grace_note(expiry, theme));
                            }
                         } else {
-                           ui.label(
-                              RichText::new(&name)
-                                 .size(theme.typography.normal)
-                                 .color(theme.colors.error),
-                           );
+                           ui.label(RichText::new(&name).size(normal).color(error));
                            ui.label(lapsed_name_note(expiry, theme));
                         }
 
@@ -494,9 +520,7 @@ impl RecipientSelectionWindow {
                         let block_explorer = ctx.chain.block_explorer();
                         let link = format!("{}/address/{}", block_explorer, address);
 
-                        let text = RichText::new(address.to_string())
-                           .size(theme.typography.normal)
-                           .color(theme.colors.info);
+                        let text = RichText::new(address.to_string()).size(normal).color(info);
 
                         ui.hyperlink_to(text, link);
 
@@ -517,8 +541,8 @@ impl RecipientSelectionWindow {
                                           "This name sets a different address for {}:",
                                           chain_display_name(note.chain_id)
                                        ))
-                                       .size(theme.typography.normal)
-                                       .color(theme.colors.warning),
+                                       .size(normal)
+                                       .color(warning),
                                     );
 
                                     // row 1 — the chain's own address, linked to that chain's explorer.
@@ -535,13 +559,13 @@ impl RecipientSelectionWindow {
                                              "• {} address:",
                                              chain_display_name(note.chain_id)
                                           ))
-                                          .size(theme.typography.normal)
-                                          .color(theme.colors.warning),
+                                          .size(normal)
+                                          .color(warning),
                                        );
                                        let text =
                                           RichText::new(truncate_address(note.other.to_string()))
-                                             .size(theme.typography.normal)
-                                             .color(theme.colors.info);
+                                             .size(normal)
+                                             .color(info);
                                        ui.hyperlink_to(text, chain_url)
                                           .on_hover_text(note.other.to_string());
                                     });
@@ -556,13 +580,13 @@ impl RecipientSelectionWindow {
                                     ui.horizontal(|ui| {
                                        ui.label(
                                           RichText::new("• You will send to its mainnet address:")
-                                             .size(theme.typography.normal)
-                                             .color(theme.colors.warning),
+                                             .size(normal)
+                                             .color(warning),
                                        );
                                        let text =
                                           RichText::new(truncate_address(note.plain.to_string()))
-                                             .size(theme.typography.normal)
-                                             .color(theme.colors.info);
+                                             .size(normal)
+                                             .color(info);
                                        ui.hyperlink_to(text, mainnet_url)
                                           .on_hover_text(note.plain.to_string());
                                     });
@@ -602,10 +626,8 @@ impl RecipientSelectionWindow {
                            false => theme.colors.error,
                         };
 
-                        let button = Button::new(
-                           RichText::new(label).size(theme.typography.normal).color(label_color),
-                        )
-                        .visuals(button_visuals);
+                        let button =
+                           Button::new(RichText::new(label).size(normal).color(label_color));
 
                         // Where this flow sends. Switching the *active* chain only fixes a
                         // mismatch when the flow sends on the active chain — a bridge sends on
@@ -683,9 +705,9 @@ impl RecipientSelectionWindow {
                                     "Switch to {} and use this recipient",
                                     chain_id.name()
                                  ))
-                                 .size(theme.typography.normal);
+                                 .size(normal);
 
-                                 let button = Button::new(text).visuals(button_visuals);
+                                 let button = Button::new(text);
 
                                  if ui.add(button).clicked() {
                                     switch_chain(ctx, chain_id);
@@ -705,8 +727,8 @@ impl RecipientSelectionWindow {
                                  "Chain {} is not supported by Zeus",
                                  chain
                               ))
-                              .size(theme.typography.normal)
-                              .color(theme.colors.warning);
+                              .size(normal)
+                              .color(warning);
 
                               ui.label(note);
                            }
@@ -717,14 +739,14 @@ impl RecipientSelectionWindow {
                            "The name claims #{} but the address and chain hash to #{}",
                            found, expected
                         ))
-                        .size(theme.typography.normal)
-                        .color(theme.colors.error);
+                        .size(normal)
+                        .color(error);
 
                         ui.label(text);
                      }
                      UnknownRecipient::Zk(zk_address) => {
-                        let address_text = RichText::new(&zk_address).size(theme.typography.normal);
-                        let button = Button::new(address_text).visuals(button_visuals);
+                        let address_text = RichText::new(&zk_address).size(normal);
+                        let button = Button::new(address_text);
 
                         if ui.add(button).clicked() {
                            self.recipient = Recipient::from_unknown_zk_address(zk_address);
@@ -782,8 +804,14 @@ impl RecipientSelectionWindow {
       ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
       ui.spacing_mut().button_padding = theme.button_padding;
 
-      let mut frame = theme.frame1;
-      let visuals = theme.visuals.frame1_visuals;
+      let visuals = theme.frame2_visuals();
+      let inner = theme.inner_margin;
+      let corner = theme.corner_radius;
+      let frame = Frame::new()
+         .interactive(true)
+         .inner_margin(inner)
+         .corner_radius(corner)
+         .visuals(visuals);
 
       for contact in &contacts {
          let valid_search = valid_contact_search(contact, privacy_mode, self.search_field.text());
@@ -799,11 +827,9 @@ impl RecipientSelectionWindow {
          };
 
          if valid_search {
-            let res = frame_fn(&mut frame, visuals, ui, |ui| {
+            let res = frame.show(ui, |ui| {
                ui.set_width(ui.available_width());
-               let text = RichText::new(contact.name.clone())
-                  .size(theme.typography.large)
-                  .color(theme.colors.text);
+               let text = RichText::new(contact.name.clone()).size(theme.typography.large);
                ui.horizontal(|ui| {
                   let label = Label::new(text, None).interactive(false);
                   ui.add(label);
@@ -823,7 +849,7 @@ impl RecipientSelectionWindow {
                });
             });
 
-            if res.interact(Sense::click()).clicked() {
+            if res.response.interact(Sense::click()).clicked() {
                self.recipient = Recipient::from_contact(contact.clone());
                *close_window = true;
             }
@@ -868,8 +894,16 @@ impl RecipientSelectionWindow {
       ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
       ui.spacing_mut().button_padding = theme.button_padding;
 
-      let mut frame = theme.frame1;
-      let visuals = theme.visuals.frame1_visuals;
+      let visuals = theme.frame2_visuals();
+      let inner = theme.inner_margin;
+      let corner = theme.corner_radius;
+      let frame = Frame::new()
+         .interactive(true)
+         .inner_margin(inner)
+         .corner_radius(corner)
+         .visuals(visuals);
+
+      let frame2 = theme.frame2;
 
       let wallets = &self.wallets;
 
@@ -893,37 +927,33 @@ impl RecipientSelectionWindow {
          let normal = theme.typography.normal;
 
          if valid_search {
-            let res = frame_fn(&mut frame, visuals, ui, |ui| {
+            let res = frame.show(ui, |ui| {
                ui.set_width(ui.available_width());
                // Values take their intrinsic width on the right so they never wrap;
                // the name truncates in whatever is left.
                ui.horizontal(|ui| {
                   ui.spacing_mut().item_spacing.x = theme.spacing.sm;
                   ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                     let text = RichText::new(format!(
-                        "Private ${:.10}",
-                        value.private.abbreviated()
-                     ))
-                     .size(normal);
-                     let label =
-                        Label::new(text, None).wrap_mode(TextWrapMode::Extend).interactive(false);
-                     ui.add(label);
+                     frame2.show(ui, |ui| {
+                        let p = format!("Private ${:.10}", value.private.abbreviated());
+                        let text = RichText::new(p).size(normal);
+                        let label = Label::new(text, None)
+                           .wrap_mode(TextWrapMode::Extend)
+                           .interactive(false);
+                        ui.add(label);
 
-                     ui.separator();
+                        ui.separator();
 
-                     let text = RichText::new(format!(
-                        "Public ${:.10}",
-                        value.public.abbreviated()
-                     ))
-                     .size(normal);
-                     let label =
-                        Label::new(text, None).wrap_mode(TextWrapMode::Extend).interactive(false);
-                     ui.add(label);
+                        let p = format!("Public ${:.10}", value.public.abbreviated());
+                        let text = RichText::new(p).size(normal);
+                        let label = Label::new(text, None)
+                           .wrap_mode(TextWrapMode::Extend)
+                           .interactive(false);
+                        ui.add(label);
+                     });
 
                      ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                        let text = RichText::new(wallet.name_with_source())
-                           .size(large)
-                           .color(theme.colors.text);
+                        let text = RichText::new(wallet.name_with_source()).size(large);
                         let label = Label::new(text, None)
                            .wrap_mode(TextWrapMode::Truncate)
                            .fill_width(true)
@@ -947,7 +977,7 @@ impl RecipientSelectionWindow {
                });
             });
 
-            if res.interact(Sense::click()).clicked() {
+            if res.response.interact(Sense::click()).clicked() {
                self.recipient = Recipient::from_wallet_info(wallet.clone());
                *close_window = true;
             }
