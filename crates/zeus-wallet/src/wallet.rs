@@ -1,5 +1,5 @@
 use super::secure_key::SecureKey;
-use super::{Deriver, Error};
+use super::{Deriver, Error, SecurePhrase, SecureXKeyInfo};
 use alloy_primitives::Address;
 use alloy_signer_local::{
    LocalSignerError, MnemonicBuilder, PrivateKeySigner,
@@ -33,14 +33,14 @@ pub struct Wallet {
    ///
    /// [`None`] for wallets derived from a seed, since their master can re-derive them.
    #[cfg_attr(feature = "serde", serde(default))]
-   pub seed_phrase: Option<SecureString>,
+   pub seed_phrase: Option<SecurePhrase>,
    /// The private key and its address.
    pub key: SecureKey,
    /// The BIP32 derivation info: the child index and the chain code.
    ///
    /// [`None`] means the wallet is imported and was not derived from this crate's
    /// master, which is exactly what [`Wallet::is_imported`] reports.
-   pub xkey_info: Option<XKeyInfo>,
+   pub xkey_info: Option<SecureXKeyInfo>,
 }
 
 impl PartialEq for Wallet {
@@ -64,22 +64,25 @@ impl Wallet {
    ) -> Self {
       Self {
          name,
-         seed_phrase,
+         seed_phrase: seed_phrase.map(SecurePhrase::new),
          key,
-         xkey_info,
+         xkey_info: xkey_info.map(SecureXKeyInfo::new),
       }
    }
 
-   /// Erase the wallet key and all associated data
+   /// Erase the wallet key and all associated data.
+   ///
+   /// The secrets are shared between clones, so erasing a wallet erases every
+   /// clone of it.
    pub fn erase(&mut self) {
       self.key.erase();
 
-      if let Some(ref mut xkey_info) = self.xkey_info {
-         xkey_info.chain_code.data.erase();
+      if let Some(info) = self.xkey_info.as_ref() {
+         info.lock_mut(|info| info.chain_code.data.erase());
       }
 
-      if let Some(ref mut seed_phrase) = self.seed_phrase {
-         seed_phrase.erase();
+      if let Some(phrase) = self.seed_phrase.as_ref() {
+         phrase.lock_mut(|phrase| phrase.erase());
       }
    }
 
@@ -90,7 +93,7 @@ impl Wallet {
       };
 
       let key = self.key.key();
-      let chain_code = info.chain_code.data.clone();
+      let chain_code = info.lock(|info| info.chain_code.data.clone());
 
       let mut bytes = [0u8; 64];
 
@@ -114,7 +117,7 @@ impl Wallet {
       };
 
       let mnemonic = seed
-         .unlock_str(Mnemonic::<English>::new_from_phrase)
+         .lock(|phrase| phrase.unlock_str(Mnemonic::<English>::new_from_phrase))
          .map_err(|_| Error::Custom("invalid seed phrase".to_string()))?;
       let mut bytes = mnemonic
          .to_seed("".into())
@@ -180,7 +183,7 @@ impl Wallet {
 
       Ok(Self {
          name,
-         seed_phrase: Some(phrase),
+         seed_phrase: Some(SecurePhrase::new(phrase)),
          key,
          xkey_info: None,
       })
@@ -189,7 +192,7 @@ impl Wallet {
    /// Return the derivation path of the wallet as a string
    pub fn derivation_path_string(&self) -> String {
       if let Some(info) = self.xkey_info.as_ref() {
-         let path = base_path().extended(info.index);
+         let path = base_path().extended(info.lock(|info| info.index));
          path.derivation_string()
       } else {
          DEFAULT_DERIVATION_PATH.to_string()
@@ -199,7 +202,7 @@ impl Wallet {
    /// Return the derivation path of the wallet
    pub fn derivation_path(&self) -> DerivationPath {
       if let Some(info) = self.xkey_info.as_ref() {
-         base_path().extended(info.index)
+         base_path().extended(info.lock(|info| info.index))
       } else {
          base_path()
       }
@@ -207,10 +210,9 @@ impl Wallet {
 
    /// Return the derivation index of the wallet
    pub fn index(&self) -> u32 {
-      if let Some(info) = self.xkey_info.as_ref() {
-         info.index
-      } else {
-         0
+      match self.xkey_info.as_ref() {
+         Some(info) => info.lock(|info| info.index),
+         None => 0,
       }
    }
 
@@ -230,14 +232,22 @@ impl Wallet {
    ///
    /// Equivalent to having an `xkey_info` whose `parent` is non-zero.
    pub fn is_child(&self) -> bool {
-      self.xkey_info.is_some() && !self.is_master()
+      let Some(info) = self.xkey_info.as_ref() else {
+         return false;
+      };
+
+      info.lock(|info| !info.parent.is_zero())
    }
 
    /// Whether this wallet sits at the root of the tree.
    ///
    /// True when its `xkey_info` records a `parent` of zero (`parent == 0`).
    pub fn is_master(&self) -> bool {
-      self.xkey_info.as_ref().is_some_and(|info| info.parent.is_zero())
+      let Some(info) = self.xkey_info.as_ref() else {
+         return false;
+      };
+
+      info.lock(|info| info.parent.is_zero())
    }
 
    /// Returns true if we can derive a zkAddress from this wallet.
@@ -250,7 +260,11 @@ impl Wallet {
    /// True when `index >= BIP32_HARDEN`; a master wallet is always true, since it has
    /// no non-zero index to compare.
    pub fn is_hardened(&self) -> bool {
-      self.is_master() || self.xkey_info.as_ref().is_some_and(|info| info.index >= BIP32_HARDEN)
+      let Some(info) = self.xkey_info.as_ref() else {
+         return false;
+      };
+
+      info.lock(|info| info.parent.is_zero() || info.index >= BIP32_HARDEN)
    }
 
    /// Whether [`Wallet::erase`] (or the key's own erase) zeroed the private key.
@@ -308,7 +322,7 @@ impl SecureHDWallet {
          name: "Master Wallet".to_string(),
          seed_phrase: None,
          key: signer,
-         xkey_info: Some(key_info),
+         xkey_info: Some(SecureXKeyInfo::new(key_info)),
       };
 
       Self {
@@ -338,9 +352,10 @@ impl SecureHDWallet {
    }
 
    fn master_to_xpriv(&self) -> Result<SecureXPriv, Error> {
-      let Some(xkey_info) = self.master_wallet.xkey_info.clone() else {
+      let Some(xkey_info) = self.master_wallet.xkey_info.as_ref() else {
          return Err(Error::XKeyInfoIsMissing);
       };
+      let xkey_info = xkey_info.lock(|info| info.clone());
 
       Ok(SecureXPriv::new(
          self.master_wallet.key.key(),
@@ -365,7 +380,7 @@ impl SecureHDWallet {
          name: name.to_string(),
          seed_phrase: None,
          key: pkey.into(),
-         xkey_info: Some(child.xkey_info),
+         xkey_info: Some(SecureXKeyInfo::new(child.xkey_info)),
       };
 
       Ok((wallet, child_path))
@@ -428,7 +443,7 @@ impl SecureHDWallet {
          name,
          seed_phrase: None,
          key: key.into(),
-         xkey_info: Some(key_info),
+         xkey_info: Some(SecureXKeyInfo::new(key_info)),
       };
 
       Self {
@@ -496,7 +511,7 @@ mod tests {
       let phrase = "not a real mnemonic phrase zoo";
       let wallet = Wallet {
          name: "imported".to_string(),
-         seed_phrase: Some(SecureString::from(phrase)),
+         seed_phrase: Some(SecurePhrase::new(SecureString::from(phrase))),
          key: SecureKey::random(),
          xkey_info: None,
       };
@@ -599,5 +614,65 @@ mod tests {
          duplicate,
          "Wallet At m/44'/60'/0'/0/0/9 with Address 0xD5aE2042392b91D8d4C3bB48A294B4d61F6CA97c already exists"
       );
+   }
+
+   #[test]
+   fn test_clone_shares_the_erased_key() {
+      let wallet = Wallet::new_rng("shared".to_string());
+      let mut clone = wallet.clone();
+
+      clone.erase();
+
+      assert!(clone.is_key_erased());
+      assert!(wallet.is_key_erased());
+   }
+
+   #[test]
+   fn test_wallet_is_send_and_sync() {
+      fn assert_send_sync<T: Send + Sync>() {}
+
+      assert_send_sync::<Wallet>();
+   }
+
+   #[cfg(feature = "serde")]
+   #[test]
+   fn test_serde_keeps_the_vault_shape() {
+      let params = Argon2Params::new(TEST_M_COST, TEST_T_COST, TEST_P_COST);
+      let version = DeriveVersion::Custom(params, DeriveMethod::BIP32);
+      let deriver = Deriver::new(
+         version,
+         Some(SecureString::from("zeus")),
+         Some(SecureString::from("zeus")),
+      );
+      let hd_wallet = SecureHDWallet::new_from_deriver(None, deriver).unwrap();
+      let child = hd_wallet.derive_child_at("serde".to_string(), 7).unwrap();
+
+      let phrase = "boil belt beef hunt cruel lady code dance double city young rule";
+      let xkey_info = child.xkey_info.as_ref().map(|info| info.lock(|info| info.clone()));
+      let wallet = Wallet::new(
+         "serde wallet".to_string(),
+         Some(SecureString::from(phrase)),
+         child.key.clone(),
+         xkey_info,
+      );
+
+      let json = serde_json::to_string(&wallet).unwrap();
+      let expected_phrase = format!("\"seed_phrase\":\"{phrase}\"");
+      assert!(
+         json.contains(&expected_phrase),
+         "the seed phrase is not a plain string: {json}"
+      );
+
+      let decoded: Wallet = serde_json::from_str(&json).unwrap();
+
+      assert_eq!(decoded.address(), wallet.address());
+      assert_eq!(decoded.index(), 7);
+
+      let decoded_phrase = decoded
+         .seed_phrase
+         .as_ref()
+         .unwrap()
+         .lock(|phrase| phrase.unlock_str(|phrase| phrase.to_string()));
+      assert_eq!(decoded_phrase, phrase);
    }
 }

@@ -149,11 +149,6 @@ impl DiscoverChildWallets {
       *self = Self::new();
    }
 
-   pub fn erase(&mut self) {
-      self.hd_wallet.write(|hd_wallet| hd_wallet.erase());
-      self.discovery_wallet.write(|discovery_wallet| discovery_wallet.erase());
-   }
-
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
