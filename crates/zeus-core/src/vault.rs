@@ -239,7 +239,12 @@ impl Vault {
       all_wallets
    }
 
-   pub fn clone_all_wallets(&self) -> Vec<Wallet> {
+   /// Owned copies of every wallet in the vault.
+   ///
+   /// The copies share their secrets with the vault, so a copy must never be
+   /// erased: [`Wallet::erase`] panics in debug builds for exactly that, and a
+   /// vault wipe goes through [`Wallet::erase_shared`].
+   pub fn all_wallets_owned(&self) -> Vec<Wallet> {
       let mut all_wallets = vec![self.hd_wallet.master_wallet.clone()];
       all_wallets.extend(self.hd_wallet.children.iter().cloned());
       all_wallets.extend(self.imported_wallets.iter().cloned());
@@ -249,10 +254,10 @@ impl Vault {
    /// Erase everything in the vault
    pub fn erase(&mut self) {
       self.credentials.erase();
-      self.hd_wallet.erase();
+      self.hd_wallet.erase_shared();
 
       for wallet in self.imported_wallets.iter_mut() {
-         wallet.erase();
+         wallet.erase_shared();
       }
 
       if let Some(ref mut key) = self.railgun_db_key {

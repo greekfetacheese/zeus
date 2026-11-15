@@ -405,7 +405,7 @@ impl ZeusCtx {
       let mut new_wallet_info_map = HashMap::new();
       let mut new_wallet_info_ordered = Vec::new();
 
-      for wallet in vault.clone_all_wallets() {
+      for wallet in vault.all_wallets_owned() {
          let info = WalletInfo::from_wallet(&wallet, true);
          new_wallet_info_map.insert(wallet.address(), info.clone());
          new_wallet_info_ordered.push(info);

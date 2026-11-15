@@ -118,7 +118,7 @@ impl ZeusCtx {
       chain: u64,
       ignore_resync: bool,
    ) -> Result<(), anyhow::Error> {
-      let wallets = self.read_vault(|vault| vault.clone_all_wallets());
+      let wallets = self.read_vault(|vault| vault.all_wallets_owned());
 
       for wallet in wallets {
          if let Ok(seed) = wallet.seed() {

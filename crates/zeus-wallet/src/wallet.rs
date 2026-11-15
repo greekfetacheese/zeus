@@ -73,8 +73,26 @@ impl Wallet {
    /// Erase the wallet key and all associated data.
    ///
    /// The secrets are shared between clones, so erasing a wallet erases every
-   /// clone of it.
+   /// clone of it, including the copy the vault still holds. The vault wipes its
+   /// wallets through [`Wallet::erase_shared`].
+   ///
+   /// # Panics
+   ///
+   /// Panics in debug builds when another clone shares one of the secrets, since
+   /// that clone's key would be gone as well.
    pub fn erase(&mut self) {
+      debug_assert!(
+         !self.is_shared(),
+         "Wallet::erase erases the vault's copy too, use Wallet::erase_shared"
+      );
+
+      self.erase_shared();
+   }
+
+   /// Erase the key, the chain code and the seed phrase for every clone.
+   ///
+   /// This is the wipe a vault performs: it deliberately reaches every clone.
+   pub fn erase_shared(&mut self) {
       self.key.erase();
 
       if let Some(info) = self.xkey_info.as_ref() {
@@ -84,6 +102,13 @@ impl Wallet {
       if let Some(phrase) = self.seed_phrase.as_ref() {
          phrase.lock_mut(|phrase| phrase.erase());
       }
+   }
+
+   /// Whether any of this wallet's secrets is shared with another clone.
+   pub(crate) fn is_shared(&self) -> bool {
+      self.key.is_shared()
+         || self.seed_phrase.as_ref().is_some_and(SecurePhrase::is_shared)
+         || self.xkey_info.as_ref().is_some_and(SecureXKeyInfo::is_shared)
    }
 
    /// Returns the private key + ChainCode as a 64-byte SecureArray
@@ -333,11 +358,32 @@ impl SecureHDWallet {
    }
 
    /// Erase the master key and every child key, plus any stored seed phrases.
+   ///
+   /// # Panics
+   ///
+   /// Panics in debug builds when another clone shares one of the secrets; the
+   /// vault wipes its tree through [`SecureHDWallet::erase_shared`].
    pub fn erase(&mut self) {
-      self.master_wallet.erase();
+      debug_assert!(
+         !self.is_shared(),
+         "SecureHDWallet::erase erases the vault's copy too, use SecureHDWallet::erase_shared"
+      );
+
+      self.erase_shared();
+   }
+
+   /// Erase the whole tree, including every clone that shares its secrets.
+   pub fn erase_shared(&mut self) {
+      self.master_wallet.erase_shared();
+
       for child in self.children.iter_mut() {
-         child.erase();
+         child.erase_shared();
       }
+   }
+
+   /// Whether any wallet in this tree shares a secret with another clone.
+   pub(crate) fn is_shared(&self) -> bool {
+      self.master_wallet.is_shared() || self.children.iter().any(Wallet::is_shared)
    }
 
    /// Whether any wallet in [`Self::children`] has this address.
@@ -621,10 +667,28 @@ mod tests {
       let wallet = Wallet::new_rng("shared".to_string());
       let mut clone = wallet.clone();
 
-      clone.erase();
+      clone.erase_shared();
 
       assert!(clone.is_key_erased());
       assert!(wallet.is_key_erased());
+   }
+
+   #[test]
+   fn test_erase_unshared_wallet() {
+      let mut wallet = Wallet::new_rng("unshared".to_string());
+
+      wallet.erase();
+
+      assert!(wallet.is_key_erased());
+   }
+
+   #[test]
+   #[should_panic(expected = "use Wallet::erase_shared")]
+   fn test_erase_on_a_clone_panics() {
+      let wallet = Wallet::new_rng("clone".to_string());
+      let mut clone = wallet.clone();
+
+      clone.erase();
    }
 
    #[test]

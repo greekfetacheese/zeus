@@ -267,7 +267,7 @@ pub fn cleanup_orphaned_wallet_data(ctx: ZeusCtx) {
    );
 
    crate::runtime::rt().spawn(async move {
-      let wallets = ctx.read_vault(|vault| vault.clone_all_wallets());
+      let wallets = ctx.read_vault(|vault| vault.all_wallets_owned());
       let mut keep_signers = Vec::new();
 
       for wallet in wallets {
