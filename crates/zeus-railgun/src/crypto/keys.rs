@@ -270,20 +270,14 @@ impl ViewingKey {
       &self,
       their_public: ViewingPublicKey,
    ) -> Result<SharedKey, KeyError> {
-      let point = CompressedEdwardsY(their_public.0)
-         .decompress()
-         .ok_or(KeyError::DecompressionFailed)?;
-      Ok(SharedKey::new(self, point))
+      self.unlock_scalar().derive_shared_key(their_public)
    }
 
    pub(crate) fn derive_shared_key_blinded(
       &self,
       blinded: BlindedKey,
    ) -> Result<SharedKey, KeyError> {
-      let point = CompressedEdwardsY(blinded.0)
-         .decompress()
-         .ok_or(KeyError::DecompressionFailed)?;
-      Ok(SharedKey::new(self, point))
+      self.unlock_scalar().derive_shared_key_blinded(blinded)
    }
 
    pub fn encrypt_ctr(&self, plaintext: &[&[u8]], iv: &[u8; 16]) -> CiphertextCtr {
@@ -299,18 +293,75 @@ impl ViewingKey {
       cipher
    }
 
-   fn to_curve25519_scalar(&self) -> Scalar {
+   /// Hash the raw key into the Ed25519 scalar ECDH uses, clamped — once per batch.
+   ///
+   /// The scalar is then held in ordinary memory for as long as the batch runs (see
+   /// [`UnlockedViewingKey`]): that is what spares a batch of notes one `SecureArray` unseal — an
+   /// `mprotect` pair — per note.
+   pub(crate) fn unlock_scalar(&self) -> UnlockedViewingKey {
       let hash = self.unlock(|slice| Sha512::digest(slice));
 
-      let mut head = [0u8; 32];
-      head.copy_from_slice(&hash[..32]);
+      let mut scalar = [0u8; 32];
+      scalar.copy_from_slice(&hash[..32]);
 
       // Clamp as per Ed25519
-      head[0] &= 248;
-      head[31] &= 63;
-      head[31] |= 64;
+      scalar[0] &= 248;
+      scalar[31] &= 63;
+      scalar[31] |= 64;
 
-      Scalar::from_bytes_mod_order(head)
+      UnlockedViewingKey { scalar }
+   }
+}
+
+/// A viewing key unlocked for reuse across a batch of notes.
+///
+/// [`ViewingKey::unlock_scalar`] unseals the key once and keeps the clamped Ed25519 scalar it
+/// derives in ordinary memory for the life of the batch. That is the price of not going through
+/// [`SecureArray`] — and its `mprotect` pair — once per note; [`Drop`] wipes the bytes, and ECDH
+/// itself has one implementation here, so every shared key is still `Sha256(point * scalar)`.
+pub(crate) struct UnlockedViewingKey {
+   /// Ed25519 scalar bytes: `Sha512(key)[..32]`, clamped. Wiped on drop.
+   scalar: [u8; 32],
+}
+
+impl Drop for UnlockedViewingKey {
+   fn drop(&mut self) {
+      self.scalar.zeroize();
+   }
+}
+
+impl UnlockedViewingKey {
+   fn to_scalar(&self) -> Scalar {
+      Scalar::from_bytes_mod_order(self.scalar)
+   }
+
+   /// The ECDH every shared key is built from.
+   pub(crate) fn shared_key(&self, their_point: EdwardsPoint) -> SharedKey {
+      let shared = their_point * self.to_scalar();
+      let digest = Sha256::digest(shared.compress().to_bytes());
+      SharedKey(digest.into())
+   }
+
+   pub(crate) fn derive_shared_key(
+      &self,
+      their_public: ViewingPublicKey,
+   ) -> Result<SharedKey, KeyError> {
+      let point = CompressedEdwardsY(their_public.0)
+         .decompress()
+         .ok_or(KeyError::DecompressionFailed)?;
+
+      Ok(self.shared_key(point))
+   }
+
+   pub(crate) fn derive_shared_key_blinded(
+      &self,
+      blinded: BlindedKey,
+   ) -> Result<SharedKey, KeyError> {
+      let point = CompressedEdwardsY(blinded.0)
+         .decompress()
+         .ok_or(KeyError::DecompressionFailed)?;
+
+      Ok(self.shared_key(point))
    }
 }
 
@@ -388,10 +439,7 @@ impl ViewingPublicKey {
 
 impl SharedKey {
    pub fn new(viewing_key: &ViewingKey, their_point: EdwardsPoint) -> Self {
-      let scalar = viewing_key.to_curve25519_scalar();
-      let shared = their_point * scalar;
-      let digest = Sha256::digest(shared.compress().to_bytes());
-      SharedKey(digest.into())
+      viewing_key.unlock_scalar().shared_key(their_point)
    }
 
    pub fn encrypt_gcm(&self, plaintext: &[&[u8]], iv: &[u8; 16]) -> Result<Ciphertext, AesError> {
@@ -568,6 +616,39 @@ mod tests {
 
       assert_eq!(expected_shared_key, shared_key_ab.to_hex());
       assert_eq!(shared_key_ab.to_hex(), shared_key_ba.to_hex());
+   }
+
+   /// The unlock was hoisted out of the ECDH, not reimplemented: the scalar a batch shares derives
+   /// the same shared key the per-note path did, and it is reusable rather than one-shot.
+   #[test]
+   fn an_unlocked_key_derives_the_same_shared_keys_as_the_key_itself() {
+      let viewing_key = ViewingKey::new(SecureArray::from_slice(&[2u8; 32]).unwrap());
+      let their_key = ViewingKey::new(SecureArray::from_slice(&[3u8; 32]).unwrap());
+      let their_public = their_key.public_key();
+      let their_blinded = BlindedKey::from_bytes(*their_public.as_bytes());
+
+      let unlocked = viewing_key.unlock_scalar();
+      let shared = unlocked.derive_shared_key(their_public).unwrap().to_hex();
+      let blinded = unlocked.derive_shared_key_blinded(their_blinded).unwrap().to_hex();
+
+      assert_eq!(
+         shared,
+         viewing_key.derive_shared_key(their_public).unwrap().to_hex()
+      );
+      assert_eq!(
+         blinded,
+         viewing_key.derive_shared_key_blinded(their_blinded).unwrap().to_hex()
+      );
+      assert_eq!(
+         shared, "b8d9b27ccb6161ba969a646553ad1b7221b4113ac83bdd603985ce44923456f1",
+         "the hoisted scalar must be the one `test_shared_key` pins"
+      );
+
+      // No one-shot state: the second note in a batch derives the same key as the first.
+      assert_eq!(
+         shared,
+         unlocked.derive_shared_key(their_public).unwrap().to_hex()
+      );
    }
 
    #[test]

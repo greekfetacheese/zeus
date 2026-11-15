@@ -10,6 +10,7 @@ use crate::{
    abi::{legacy::RailgunLegacy, railgun::RailgunSmartWallet},
    account::{address::RailgunAddress, signer::RailgunSigner},
    caip::TokenRegistry,
+   crypto::keys::UnlockedViewingKey,
    database::{
       DatabaseError, RailgunDbKey, RedbDatabase, WriteBatch, WriteDurability,
       railgun_db::{
@@ -948,23 +949,35 @@ impl UtxoIndexer {
       Ok(())
    }
 
+   /// One unlocked viewing key per registered account, reused across a whole event batch.
+   ///
+   /// The unlock is the expensive part: `SecureArray::unlock` is an `mprotect(READ|WRITE)` and its
+   /// guard's drop an `mprotect(NOACCESS)`, per note decrypted. Unlocking here makes a batch of `E`
+   /// events over `A` accounts cost `2 * A` syscalls instead of `2 * E * A`.
+   fn unlocked_viewing_keys(&self) -> Vec<UnlockedViewingKey> {
+      self.accounts.iter().map(IndexedAccount::unlocked_viewing).collect()
+   }
+
    /// Apply a window of events: decrypt/nullify for accounts, batch-insert new leaves.
    ///
    /// `global_synced` is the watermark at the start of [`Self::sync_to`], not the
    /// per-window `synced_block` — tree inserts must still apply for every event
-   /// after that original watermark.
+   /// after that original watermark. Every account's viewing key is unlocked once here and shared
+   /// by the whole batch, so the unlock count does not grow with the number of events.
    async fn apply_events(
       &mut self,
       events: &[SyncEvent],
       global_synced: u64,
    ) -> Result<bool, UtxoIndexerError> {
+      let viewing = self.unlocked_viewing_keys();
       let mut tree_leaves: HashMap<u32, Vec<(u32, UtxoLeafHash)>> = HashMap::new();
+
       for (i, event) in events.iter().enumerate() {
          if i % 20000 == 0 {
             debug!("Processing event {}/{}", i, events.len());
          }
          let apply_tree = event.block_number() > global_synced;
-         self.handle_event(event, &mut tree_leaves, apply_tree)?;
+         self.handle_event(event, &mut tree_leaves, apply_tree, &viewing)?;
       }
 
       let trees_mutated = !tree_leaves.is_empty();
@@ -1198,9 +1211,11 @@ impl UtxoIndexer {
          }
       }
 
+      let viewing = self.unlocked_viewing_keys();
       let mut tree_leaves: HashMap<u32, Vec<(u32, UtxoLeafHash)>> = HashMap::new();
+
       for event in events.iter() {
-         self.handle_event(event, &mut tree_leaves, true)?;
+         self.handle_event(event, &mut tree_leaves, true, &viewing)?;
       }
 
       for (tree_number, leaves) in tree_leaves {
@@ -1215,14 +1230,23 @@ impl UtxoIndexer {
       event: &SyncEvent,
       tree_leaves: &mut HashMap<u32, Vec<(u32, UtxoLeafHash)>>,
       apply_tree: bool,
+      viewing: &[UnlockedViewingKey],
    ) -> Result<(), UtxoIndexerError> {
+      // The decrypting arms pair accounts with their keys by position, and `zip` drops a surplus
+      // silently — a mismatch means an account's events go unprocessed for the whole batch.
+      debug_assert_eq!(
+         viewing.len(),
+         self.accounts.len(),
+         "one unlocked viewing key per account; a mismatch silently leaves an account unprocessed"
+      );
+
       let block = event.block_number();
       match event {
          SyncEvent::Shield(shield, _) => {
-            self.handle_shield(shield, block, tree_leaves, apply_tree)?
+            self.handle_shield(shield, block, tree_leaves, apply_tree, viewing)?
          }
          SyncEvent::Transact(transact, _) => {
-            self.handle_transact(transact, block, tree_leaves, apply_tree)?
+            self.handle_transact(transact, block, tree_leaves, apply_tree, viewing)?
          }
          SyncEvent::Nullified(nullified, _) => self.handle_nullified(nullified, block),
          SyncEvent::Legacy(legacy, _) => self.handle_legacy(legacy, block, tree_leaves, apply_tree),
@@ -1237,6 +1261,7 @@ impl UtxoIndexer {
       block: u64,
       tree_leaves: &mut HashMap<u32, Vec<(u32, UtxoLeafHash)>>,
       apply_tree: bool,
+      viewing: &[UnlockedViewingKey],
    ) -> Result<(), UtxoIndexerError> {
       if apply_tree {
          tree_leaves
@@ -1258,9 +1283,9 @@ impl UtxoIndexer {
          self.token_registry.insert(event.token.hash(), event.token);
       }
 
-      for account in self.accounts.iter_mut() {
+      for (account, viewing) in self.accounts.iter_mut().zip(viewing) {
          if block > account.synced_block() {
-            account.handle_shield_event(event, block)?;
+            account.handle_shield_event_with(event, block, viewing)?;
          }
       }
 
@@ -1273,6 +1298,7 @@ impl UtxoIndexer {
       block: u64,
       tree_leaves: &mut HashMap<u32, Vec<(u32, UtxoLeafHash)>>,
       apply_tree: bool,
+      viewing: &[UnlockedViewingKey],
    ) -> Result<(), UtxoIndexerError> {
       if apply_tree {
          tree_leaves
@@ -1281,9 +1307,9 @@ impl UtxoIndexer {
             .push((event.leaf_index, event.hash.into()));
       }
 
-      for account in self.accounts.iter_mut() {
+      for (account, viewing) in self.accounts.iter_mut().zip(viewing) {
          if block > account.synced_block() {
-            account.handle_transact_event(event, block, &self.token_registry)?;
+            account.handle_transact_event_with(event, block, &self.token_registry, viewing)?;
          }
       }
 

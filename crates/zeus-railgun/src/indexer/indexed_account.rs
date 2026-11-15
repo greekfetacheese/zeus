@@ -5,6 +5,7 @@ use tracing::{debug, warn};
 use crate::{
    account::{address::RailgunAddress, signer::RailgunSigner},
    caip::{AssetId, TokenRegistry},
+   crypto::keys::UnlockedViewingKey,
    indexer::syncer,
    note::utxo::{NoteError, UtxoNote},
    poi::types::BlindedCommitmentType,
@@ -300,12 +301,29 @@ impl IndexedAccount {
       self.dirty = false;
    }
 
+   /// This account's viewing key, unlocked once for a caller handling a whole batch of events.
+   pub(crate) fn unlocked_viewing(&self) -> UnlockedViewingKey {
+      self.signer.keys().viewing_private_key.unlock_scalar()
+   }
+
    pub fn handle_shield_event(
       &mut self,
       event: &syncer::Shield,
       created_block: u64,
    ) -> Result<(), NoteError> {
-      let note = UtxoNote::decrypt_shield(&self.signer, event);
+      let viewing = self.unlocked_viewing();
+
+      self.handle_shield_event_with(event, created_block, &viewing)
+   }
+
+   /// [`Self::handle_shield_event`] with a viewing key already unlocked once for the batch.
+   pub(crate) fn handle_shield_event_with(
+      &mut self,
+      event: &syncer::Shield,
+      created_block: u64,
+      viewing: &UnlockedViewingKey,
+   ) -> Result<(), NoteError> {
+      let note = UtxoNote::decrypt_shield_with(&self.signer, viewing, event);
       let note = match note {
          Err(NoteError::Aes(_)) => {
             return Ok(());
@@ -361,7 +379,20 @@ impl IndexedAccount {
       created_block: u64,
       known_tokens: &TokenRegistry,
    ) -> Result<(), NoteError> {
-      let note = UtxoNote::decrypt_transact(&self.signer, event, known_tokens);
+      let viewing = self.unlocked_viewing();
+
+      self.handle_transact_event_with(event, created_block, known_tokens, &viewing)
+   }
+
+   /// [`Self::handle_transact_event`] with a viewing key already unlocked once for the batch.
+   pub(crate) fn handle_transact_event_with(
+      &mut self,
+      event: &syncer::Transact,
+      created_block: u64,
+      known_tokens: &TokenRegistry,
+      viewing: &UnlockedViewingKey,
+   ) -> Result<(), NoteError> {
+      let note = UtxoNote::decrypt_transact_with(&self.signer, viewing, event, known_tokens);
 
       let note = match note {
          Err(NoteError::Aes(_)) => {
@@ -1165,6 +1196,73 @@ mod tests {
          timestamp,
          tx_hash,
       }
+   }
+
+   /// The indexer unlocks one viewing key per event batch and reuses it for every event in it, so
+   /// that path must store exactly the notes the per-event path stores — tree/leaf, asset, value,
+   /// memo and hash included.
+   #[test]
+   fn one_unlocked_key_handles_a_batch_of_events_identically() {
+      let sender = test_signer();
+      let recipient = test_signer();
+      let asset = test_asset();
+
+      let shield = shield_event(
+         &recipient,
+         asset,
+         233,
+         0,
+         1_700_000_000,
+         B256::from([1u8; 32]),
+      );
+      let transact = transact_event(
+         &sender,
+         &recipient,
+         asset,
+         100,
+         "lunch",
+         1,
+         1_700_000_100,
+         B256::from([7u8; 32]),
+      );
+
+      let mut batched = account_for(&recipient);
+      let viewing = batched.unlocked_viewing();
+      batched.handle_shield_event_with(&shield, 10, &viewing).unwrap();
+      batched
+         .handle_transact_event_with(&transact, 20, &TokenRegistry::default(), &viewing)
+         .unwrap();
+
+      let mut per_event = account_for(&recipient);
+      per_event.handle_shield_event(&shield, 10).unwrap();
+      per_event
+         .handle_transact_event(&transact, 20, &TokenRegistry::default())
+         .unwrap();
+
+      let shape = |notes: &[UtxoNote]| -> Vec<(u32, u32, AssetId, u128, String, UtxoLeafHash)> {
+         notes
+            .iter()
+            .map(|n| {
+               (
+                  n.tree_number,
+                  n.leaf_index,
+                  n.asset,
+                  n.value,
+                  n.memo.clone(),
+                  n.hash(),
+               )
+            })
+            .collect()
+      };
+      let batched_notes = batched.unspent();
+      let per_event_notes = per_event.unspent();
+
+      assert_eq!(
+         batched_notes.len(),
+         2,
+         "the shield and the transact must both be stored"
+      );
+      assert_eq!(shape(&batched_notes), shape(&per_event_notes));
    }
 
    #[test]

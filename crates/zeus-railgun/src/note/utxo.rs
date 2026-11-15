@@ -10,7 +10,8 @@ use crate::{
    crypto::{
       aes::AesError,
       keys::{
-         BlindedKey, KeyError, MasterPublicKey, NullifyingKey, SpendingPublicKey, ViewingPublicKey,
+         BlindedKey, KeyError, MasterPublicKey, NullifyingKey, SpendingPublicKey,
+         UnlockedViewingKey, ViewingPublicKey,
       },
       poseidon2, poseidon3,
    },
@@ -172,9 +173,24 @@ impl UtxoNote {
       transact: &Transact,
       known_tokens: &TokenRegistry,
    ) -> Result<Self, NoteError> {
+      let unlocked = signer.keys().viewing_private_key.unlock_scalar();
+
+      Self::decrypt_transact_with(signer, &unlocked, transact, known_tokens)
+   }
+
+   /// Decrypt a transact note with a viewing key the caller already unlocked.
+   ///
+   /// [`Self::decrypt_transact`] is this plus one unlock. The indexer unlocks once per event batch
+   /// and hands the same key to every note in it, so a batch of notes no longer costs one
+   /// `SecureArray` unseal per note.
+   pub(crate) fn decrypt_transact_with(
+      signer: &RailgunSigner,
+      unlocked: &UnlockedViewingKey,
+      transact: &Transact,
+      known_tokens: &TokenRegistry,
+   ) -> Result<Self, NoteError> {
       let blinded_sender = BlindedKey::from_bytes(transact.blinded_sender_viewing_key);
-      let shared_key =
-         signer.keys().viewing_private_key.derive_shared_key_blinded(blinded_sender)?;
+      let shared_key = unlocked.derive_shared_key_blinded(blinded_sender)?;
 
       // iv (16) | tag (16)
       // token_hash (32)
@@ -226,8 +242,21 @@ impl UtxoNote {
 
    /// Decrypts a shield note into a Note
    pub fn decrypt_shield(signer: &RailgunSigner, shield: &Shield) -> Result<Self, NoteError> {
+      let unlocked = signer.keys().viewing_private_key.unlock_scalar();
+
+      Self::decrypt_shield_with(signer, &unlocked, shield)
+   }
+
+   /// Decrypts a shield note with a viewing key the caller already unlocked.
+   ///
+   /// [`Self::decrypt_shield`] is this plus one unlock; the indexer unlocks once per event batch.
+   pub(crate) fn decrypt_shield_with(
+      signer: &RailgunSigner,
+      unlocked: &UnlockedViewingKey,
+      shield: &Shield,
+   ) -> Result<Self, NoteError> {
       let shield_key = ViewingPublicKey::from_bytes(shield.shield_key);
-      let shared_key = signer.keys().viewing_private_key.derive_shared_key(shield_key)?;
+      let shared_key = unlocked.derive_shared_key(shield_key)?;
 
       let decrypted = shared_key.decrypt_gcm(&shield.ciphertext)?;
       let asset_id = shield.token;
@@ -507,6 +536,134 @@ mod tests {
             "a bundle of {} blocks must be rejected",
             blocks.len()
          );
+      }
+   }
+
+   /// The indexer unlocks one viewing key per event batch and hands the same key to every note in
+   /// it, so reuse must decrypt each note exactly as the per-note path does.
+   #[test]
+   fn one_unlocked_key_decrypts_a_batch_of_transacts_identically() {
+      use alloy_primitives::{B256, address};
+      use rand::random;
+      use secure_types::SecureArray;
+
+      use crate::note::transfer::TransferNote;
+
+      let seed: [u8; 64] = random();
+      let sec_array = SecureArray::from_slice(&seed).unwrap();
+      let sender = RailgunSigner::from_seed(&sec_array, 0, 1).unwrap();
+
+      let recipient = random_signer();
+      let asset = AssetId::Erc20(address!(
+         "0xaf5aa7b670ef209e23d3f7b39a8f42f84bd002ac"
+      ));
+      let rng = &mut rand::rng();
+
+      let events: Vec<Transact> = [(0u32, 42u128), (1, 7)]
+         .into_iter()
+         .map(|(leaf_index, value)| {
+            let transfer = TransferNote::new(
+               sender.keys().viewing_private_key.clone(),
+               recipient.address().clone(),
+               asset,
+               value,
+               random(),
+               "",
+            );
+            let ciphertext = transfer.encrypt(rng).unwrap();
+
+            Transact {
+               tree_number: 1,
+               leaf_index,
+               hash: transfer.hash().into(),
+               ciphertext: ciphertext.clone().into(),
+               blinded_sender_viewing_key: *ciphertext.blindedSenderViewingKey,
+               blinded_receiver_viewing_key: *ciphertext.blindedReceiverViewingKey,
+               annotation_data: ciphertext.annotationData.to_vec(),
+               timestamp: 0,
+               tx_hash: B256::ZERO,
+            }
+         })
+         .collect();
+
+      let known = TokenRegistry::new();
+      let unlocked = recipient.keys().viewing_private_key.unlock_scalar();
+      let per_note: Vec<UtxoNote> = events
+         .iter()
+         .map(|event| UtxoNote::decrypt_transact(&recipient, event, &known).unwrap())
+         .collect();
+      let batched: Vec<UtxoNote> = events
+         .iter()
+         .map(|event| {
+            UtxoNote::decrypt_transact_with(&recipient, &unlocked, event, &known).unwrap()
+         })
+         .collect();
+
+      assert_ne!(
+         per_note[0].hash(),
+         per_note[1].hash(),
+         "the batch must hold two distinct notes"
+      );
+
+      for (batched, per_note) in batched.iter().zip(&per_note) {
+         assert_eq!(batched.hash(), per_note.hash());
+         assert_eq!(batched.value, per_note.value);
+         assert_eq!(batched.leaf_index, per_note.leaf_index);
+      }
+   }
+
+   /// The shield path is the same shape: one unlocked key over two distinct shields gives the notes
+   /// the per-note path gives.
+   #[test]
+   fn one_unlocked_key_decrypts_a_batch_of_shields_identically() {
+      use alloy_primitives::{B256, address};
+      use rand::random;
+      use secure_types::SecureArray;
+
+      use crate::note::encrypt::encrypt_shield;
+
+      let seed: [u8; 64] = random();
+      let sec_array = SecureArray::from_slice(&seed).unwrap();
+      let recipient = RailgunSigner::from_seed(&sec_array, 0, 1).unwrap();
+
+      let asset = AssetId::Erc20(address!(
+         "0x1234567890123456789012345678901234567890"
+      ));
+      let rng = &mut rand::rng();
+
+      let events: Vec<Shield> = [(0u32, 42u128), (1, 7)]
+         .into_iter()
+         .map(|(leaf_index, value)| {
+            let shield = encrypt_shield(recipient.address().clone(), asset, value, rng).unwrap();
+
+            Shield {
+               tree_number: 1,
+               leaf_index,
+               npk: shield.preimage.npk.into(),
+               token: shield.preimage.token.into(),
+               value: U256::from(shield.preimage.value),
+               ciphertext: shield.ciphertext.clone().into(),
+               shield_key: *shield.ciphertext.shieldKey,
+               hash: None,
+               timestamp: 0,
+               tx_hash: B256::ZERO,
+            }
+         })
+         .collect();
+
+      let unlocked = recipient.keys().viewing_private_key.unlock_scalar();
+      let per_note: Vec<UtxoNote> = events
+         .iter()
+         .map(|event| UtxoNote::decrypt_shield(&recipient, event).unwrap())
+         .collect();
+      let batched: Vec<UtxoNote> = events
+         .iter()
+         .map(|event| UtxoNote::decrypt_shield_with(&recipient, &unlocked, event).unwrap())
+         .collect();
+
+      for (batched, per_note) in batched.iter().zip(&per_note) {
+         assert_eq!(batched.hash(), per_note.hash());
+         assert_eq!(batched.value, per_note.value);
       }
    }
 
