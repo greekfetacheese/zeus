@@ -1,21 +1,24 @@
 //! One handle for the 32-byte secrets the crate keeps behind a mutex.
 
 use std::hash::{Hash, Hasher};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use secure_types::{SecureArray, Zeroize};
 
 /// A 32-byte secret behind a mutex, with the comparisons every secret key type needs.
 ///
-/// `SpendingKey`, `ViewingKey` and `RailgunDbKey` all wrap `Mutex<SecureArray<u8, 32>>` and need the
-/// same `Clone`/`Eq`/`Ord`/`Hash`/`unlock` behaviour. Copied per type, that meant three poison
-/// messages that could drift and three places to keep the wipe right; the comparisons here never
-/// leave an un-zeroized copy behind, because they all go through [`SecretKey32::with_copy`].
-pub(crate) struct SecretKey32(Mutex<SecureArray<u8, 32>>);
+/// `SpendingKey`, `ViewingKey` and `RailgunDbKey` all wrap this handle and need the same
+/// `Clone`/`Eq`/`Ord`/`Hash`/`unlock` behaviour. Copied per type, that meant three poison messages
+/// that could drift and three places to keep the wipe right; the comparisons here never leave an
+/// un-zeroized copy behind, because they all go through [`SecretKey32::with_copy`].
+///
+/// The bytes sit behind an `Arc<Mutex<..>>`, so `Clone` hands out another handle to the same secret
+/// instead of copying it: cheap, and a wipe through any clone reaches all of them.
+pub(crate) struct SecretKey32(Arc<Mutex<SecureArray<u8, 32>>>);
 
 impl SecretKey32 {
    pub(crate) fn new(key: SecureArray<u8, 32>) -> Self {
-      Self(Mutex::new(key))
+      Self(Arc::new(Mutex::new(key)))
    }
 
    /// The guard. A poisoned lock means a panic unwound while the secret was held, so the bytes are
@@ -44,8 +47,7 @@ impl SecretKey32 {
 
 impl Clone for SecretKey32 {
    fn clone(&self) -> Self {
-      let inner = self.lock().clone();
-      Self(Mutex::new(inner))
+      Self(Arc::clone(&self.0))
    }
 }
 

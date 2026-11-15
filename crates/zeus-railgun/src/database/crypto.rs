@@ -115,6 +115,8 @@ impl RailgunDbKey {
    }
 
    /// Zeroize key material (e.g. vault lock / shutdown).
+   ///
+   /// Clones share the bytes, so the wipe reaches every handle of this key.
    pub fn erase(&mut self) {
       self.lock().erase();
    }
@@ -146,6 +148,17 @@ mod tests {
       let key = RailgunDbKey::generate().unwrap();
       let sealed = key.seal(b"data", b"aad-a").unwrap();
       assert!(key.open(&sealed, b"aad-b").is_err());
+   }
+
+   #[test]
+   fn erase_wipes_every_clone() {
+      let mut key = RailgunDbKey::generate().unwrap();
+      let clone = key.clone();
+      let sealed = key.seal(b"data", b"aad").unwrap();
+
+      key.erase();
+
+      assert!(clone.open(&sealed, b"aad").is_err());
    }
 
    #[test]
