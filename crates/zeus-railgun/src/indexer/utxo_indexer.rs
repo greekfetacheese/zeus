@@ -299,6 +299,12 @@ mod error_tests {
    }
 }
 
+/// Sync progress a window is about to move, so a failed save can put it back.
+struct WindowProgress {
+   synced_block: u64,
+   accounts: Vec<u64>,
+}
+
 impl UtxoIndexer {
    pub async fn new(
       db: RedbDatabase,
@@ -1039,6 +1045,45 @@ impl UtxoIndexer {
       Ok(())
    }
 
+   /// Snapshot the watermarks a window is about to advance.
+   fn capture_window_progress(&self) -> WindowProgress {
+      WindowProgress {
+         synced_block: self.synced_block,
+         accounts: self.accounts.iter().map(|account| account.synced_block()).collect(),
+      }
+   }
+
+   /// Advance the global and per-account watermarks for a window that was applied.
+   fn advance_window_progress(&mut self, step_to: u64, tree_from: u64) {
+      if tree_from <= step_to {
+         self.synced_block = step_to;
+      }
+
+      for account in self.accounts.iter_mut() {
+         if account.synced_block() < step_to {
+            account.set_synced_block(step_to);
+         }
+      }
+   }
+
+   /// Put the watermarks back after a failed save.
+   ///
+   /// An account whose watermark moves is left dirty by `set_synced_block`, which is harmless: the
+   /// next save rewrites its state from the notes already in memory.
+   fn restore_window_progress(&mut self, progress: WindowProgress) {
+      debug_assert_eq!(
+         progress.accounts.len(),
+         self.accounts.len(),
+         "window progress must be restored to the accounts it was captured from"
+      );
+
+      self.synced_block = progress.synced_block;
+
+      for (account, synced_block) in self.accounts.iter_mut().zip(progress.accounts) {
+         account.set_synced_block(synced_block);
+      }
+   }
+
    /// Advance the synced block on every account, not only the ones an event landed on.
    ///
    /// A window is applied whole: `RpcSyncer::fetch` chunks `get_logs` internally and fails the whole
@@ -1046,6 +1091,10 @@ impl UtxoIndexer {
    /// and offers each to every account. The one deliberate exception is an event whose note
    /// `handle_*_event` drops on purpose — a commitment that does not match its event is dropped for
    /// good, and only a resync retries it.
+   ///
+   /// The db is the truth for resume progress, so a failed save puts the watermarks back to where
+   /// they were: the next sync re-fetches and re-applies the window instead of resuming past blocks
+   /// whose only record is in RAM.
    async fn commit_window_progress(
       &mut self,
       step_to: u64,
@@ -1057,17 +1106,14 @@ impl UtxoIndexer {
          step_to, trees_mutated
       );
 
-      if tree_from <= step_to {
-         self.synced_block = step_to;
+      let progress = self.capture_window_progress();
+      self.advance_window_progress(step_to, tree_from);
+
+      if let Err(err) = self.save(trees_mutated).await {
+         self.restore_window_progress(progress);
+         return Err(err.into());
       }
 
-      for account in self.accounts.iter_mut() {
-         if account.synced_block() < step_to {
-            account.set_synced_block(step_to);
-         }
-      }
-
-      self.save(trees_mutated).await?;
       Ok(())
    }
 
@@ -2192,5 +2238,54 @@ mod tests {
       assert_eq!(notes.len(), 1);
       assert_eq!(notes[0].hash(), note.hash());
       assert!(!indexer.accounts[0].is_dirty());
+   }
+
+   #[tokio::test]
+   async fn restoring_window_progress_rewinds_the_tree_and_every_account() {
+      let db = RedbDatabase::in_memory(RailgunDbKey::generate().unwrap()).unwrap();
+      let mut indexer = indexer_from_db(db).await;
+
+      let first = test_signer();
+      indexer.register(first.clone()).await.unwrap();
+      indexer.advance_window_progress(10, 0);
+
+      // Registered against the same db, so this one loads at the watermark it was saved with: 0.
+      let second = test_signer();
+      indexer.register(second.clone()).await.unwrap();
+
+      assert_eq!(indexer.global_synced_block(), 10);
+      assert_eq!(
+         indexer.account_synced_block(first.address()),
+         Some(10)
+      );
+      assert_eq!(
+         indexer.account_synced_block(second.address()),
+         Some(0)
+      );
+
+      let captured = indexer.capture_window_progress();
+      indexer.advance_window_progress(20, 0);
+
+      assert_eq!(indexer.global_synced_block(), 20);
+      assert_eq!(
+         indexer.account_synced_block(first.address()),
+         Some(20)
+      );
+      assert_eq!(
+         indexer.account_synced_block(second.address()),
+         Some(20)
+      );
+
+      indexer.restore_window_progress(captured);
+
+      assert_eq!(indexer.global_synced_block(), 10);
+      assert_eq!(
+         indexer.account_synced_block(first.address()),
+         Some(10)
+      );
+      assert_eq!(
+         indexer.account_synced_block(second.address()),
+         Some(0)
+      );
    }
 }
