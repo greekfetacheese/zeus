@@ -1039,6 +1039,13 @@ impl UtxoIndexer {
       Ok(())
    }
 
+   /// Advance the synced block on every account, not only the ones an event landed on.
+   ///
+   /// A window is applied whole: `RpcSyncer::fetch` chunks `get_logs` internally and fails the whole
+   /// fetch if any chunk gives up, so `apply_events` sees every event between `cursor` and `step_to`
+   /// and offers each to every account. The one deliberate exception is an event whose note
+   /// `handle_*_event` drops on purpose — a commitment that does not match its event is dropped for
+   /// good, and only a resync retries it.
    async fn commit_window_progress(
       &mut self,
       step_to: u64,
@@ -1206,7 +1213,7 @@ impl UtxoIndexer {
          }
 
          if let Ok(decoded) = <RailgunLegacy::Unshield as SolEvent>::decode_log(&log) {
-            let _ = super::parse_legacy_unshield(&decoded.data, block);
+            let _ = super::parse_legacy_unshield(&decoded.data, block); // parsed for completeness
             continue;
          }
       }
@@ -1324,7 +1331,7 @@ impl UtxoIndexer {
       }
    }
 
-   // This is still WIP ( see handle_legacy_event )
+   // Legacy ciphertexts are not decrypted — see IndexedAccount::handle_legacy_event.
    fn handle_legacy(
       &mut self,
       event: &syncer::LegacyCommitment,

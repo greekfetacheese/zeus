@@ -262,8 +262,17 @@ impl UtxoNote {
       let asset_id = shield.token;
       let value = shield.value;
 
+      // The bundle comes from a sender who holds the shared key, so a short block is authenticated
+      // input, not corrupt input: it has to read as an error the caller skips, never as an index
+      // panic.
+      let Some(random_block) = decrypted.first().filter(|block| block.len() >= 16) else {
+         return Err(NoteError::TokenData(
+            TokenDataError::InvalidHashLength,
+         ));
+      };
+
       let mut random = [0u8; 16];
-      random.copy_from_slice(&decrypted[0][..16]);
+      random.copy_from_slice(&random_block[..16]);
 
       Ok(UtxoNote::new(
          signer,
@@ -664,6 +673,67 @@ mod tests {
       for (batched, per_note) in batched.iter().zip(&per_note) {
          assert_eq!(batched.hash(), per_note.hash());
          assert_eq!(batched.value, per_note.value);
+      }
+   }
+
+   /// A shield bundle keeps the ciphertext's block lengths, and the sender owns the GCM tag: a
+   /// correctly authenticated bundle can still carry an empty or a short random block. Both have to
+   /// read as a skip, never as an index panic.
+   #[test]
+   fn a_shield_bundle_too_short_for_its_random_block_is_rejected() {
+      use alloy_primitives::{B256, address};
+
+      use crate::note::encrypt::encrypt_shield;
+
+      let recipient = random_signer();
+      let ephemeral = random_signer();
+      let shared = ephemeral
+         .keys()
+         .viewing_private_key
+         .derive_shared_key(recipient.keys().viewing_public_key)
+         .unwrap();
+
+      let asset = AssetId::Erc20(address!(
+         "0x1234567890123456789012345678901234567890"
+      ));
+      let rng = &mut rand::rng();
+      let shield = encrypt_shield(recipient.address().clone(), asset, 42u128, rng).unwrap();
+      let npk: U256 = shield.preimage.npk.into();
+      let token: AssetId = shield.preimage.token.into();
+      let value = U256::from(shield.preimage.value);
+
+      // The recipient re-derives the same shared key from the ephemeral public key, so both
+      // bundles authenticate even though neither random block is 16 bytes long.
+      let short_blocks = [
+         shared.encrypt_gcm(&[], &[0u8; 16]).unwrap(),
+         shared.encrypt_gcm(&[&[0u8; 15]], &[0u8; 16]).unwrap(),
+      ];
+
+      for ciphertext in short_blocks {
+         let event = Shield {
+            tree_number: 1,
+            leaf_index: 0,
+            npk,
+            token,
+            value,
+            ciphertext,
+            shield_key: *ephemeral.keys().viewing_public_key.as_bytes(),
+            hash: None,
+            timestamp: 0,
+            tx_hash: B256::ZERO,
+         };
+
+         let note = UtxoNote::decrypt_shield(&recipient, &event);
+
+         assert!(
+            matches!(
+               note,
+               Err(NoteError::TokenData(
+                  TokenDataError::InvalidHashLength
+               ))
+            ),
+            "a shield bundle with a short random block must be rejected"
+         );
       }
    }
 
