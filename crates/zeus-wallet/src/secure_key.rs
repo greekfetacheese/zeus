@@ -3,13 +3,15 @@ use alloy_primitives::{Address, hex};
 use alloy_signer_local::PrivateKeySigner;
 use k256::ecdsa::{SigningKey, VerifyingKey};
 use secure_types::{SecureArray, SecureString, Zeroize};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+use std::sync::{Arc, Mutex};
 
 /// Wrapper around a [SecureArray<u8, 32>] that holds the private key
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone)]
 pub struct SecureKey {
    address: Address,
-   data: SecureArray<u8, 32>,
+   data: Arc<Mutex<SecureArray<u8, 32>>>,
 }
 
 impl SecureKey {
@@ -21,7 +23,8 @@ impl SecureKey {
 
    /// Return the private key by cloning it
    pub fn key(&self) -> SecureArray<u8, 32> {
-      self.data.clone()
+      let data = self.data.lock().unwrap();
+      data.clone()
    }
 
    /// Return the key in a SecureString
@@ -39,12 +42,14 @@ impl SecureKey {
 
    /// Securely erase the key from memory
    pub fn erase(&mut self) {
-      self.data.erase();
+      let mut data = self.data.lock().unwrap();
+      data.erase();
    }
 
    /// Whether the underlying 32 key bytes are all zero, i.e. the key was erased.
    pub fn is_erased(&self) -> bool {
-      self.data.unlock(|slice| slice.iter().all(|byte| byte == &0))
+      let data = self.data.lock().unwrap();
+      data.unlock(|slice| slice.iter().all(|byte| byte == &0))
    }
 
    /// The Ethereum address matching this private key.
@@ -60,9 +65,8 @@ impl SecureKey {
    pub fn to_signer(&self) -> PrivateKeySigner {
       assert!(!self.is_erased(), "Key is erased");
 
-      self
-         .data
-         .unlock(|bytes| PrivateKeySigner::from_slice(bytes).expect("Key is invalid"))
+      let data = self.data.lock().unwrap();
+      data.unlock(|bytes| PrivateKeySigner::from_slice(bytes).expect("Key is invalid"))
    }
 
    /// Converts the private key to a [SigningKey] by cloning the inner key
@@ -71,7 +75,8 @@ impl SecureKey {
    /// Panics if the key is not a valid form of a private key
    /// or if it has been erased
    pub fn to_signing_key(&self) -> SigningKey {
-      self.data.unlock(|bytes| SigningKey::from_slice(bytes).expect("Key is invalid"))
+      let data = self.data.lock().unwrap();
+      data.unlock(|bytes| SigningKey::from_slice(bytes).expect("Key is invalid"))
    }
 
    /// Converts the private key to an [EthereumWallet] by cloning the inner key
@@ -94,6 +99,95 @@ impl SecureKey {
    }
 }
 
+impl Clone for SecureKey {
+   fn clone(&self) -> Self {
+      Self {
+         address: self.address,
+         data: Arc::clone(&self.data),
+      }
+   }
+}
+
+#[cfg(feature = "serde")]
+impl Serialize for SecureKey {
+   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+   where
+      S: serde::Serializer,
+   {
+      use serde::ser::SerializeStruct;
+
+      let data = self.data.lock().unwrap();
+      let mut state = serializer.serialize_struct("SecureKey", 2)?;
+      state.serialize_field("address", &self.address)?;
+      state.serialize_field("data", &*data)?;
+
+      state.end()
+   }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> Deserialize<'de> for SecureKey {
+   fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+   where
+      D: serde::Deserializer<'de>,
+   {
+      use serde::de::{Error, IgnoredAny, MapAccess, SeqAccess, Visitor};
+
+      const FIELDS: &[&str] = &["address", "data"];
+
+      struct SecureKeyVisitor;
+
+      impl<'de> Visitor<'de> for SecureKeyVisitor {
+         type Value = SecureKey;
+
+         fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("struct SecureKey")
+         }
+
+         fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+         where
+            A: SeqAccess<'de>,
+         {
+            let address = seq.next_element()?.ok_or_else(|| A::Error::invalid_length(0, &self))?;
+            let data = seq.next_element()?.ok_or_else(|| A::Error::invalid_length(1, &self))?;
+
+            Ok(SecureKey {
+               address,
+               data: Arc::new(Mutex::new(data)),
+            })
+         }
+
+         fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+         where
+            A: MapAccess<'de>,
+         {
+            let mut address = None;
+            let mut data = None;
+
+            while let Some(key) = map.next_key::<String>()? {
+               match key.as_str() {
+                  "address" => address = Some(map.next_value()?),
+                  "data" => data = Some(map.next_value()?),
+                  _ => {
+                     map.next_value::<IgnoredAny>()?;
+                  }
+               }
+            }
+
+            let address = address.ok_or_else(|| A::Error::missing_field("address"))?;
+            let data = data.ok_or_else(|| A::Error::missing_field("data"))?;
+
+            Ok(SecureKey {
+               address,
+               data: Arc::new(Mutex::new(data)),
+            })
+         }
+      }
+
+      deserializer.deserialize_struct("SecureKey", FIELDS, SecureKeyVisitor)
+   }
+}
+
 impl From<SecureArray<u8, 32>> for SecureKey {
    /// Converts a [SecureArray<u8, 32>] to a [SecureKey]
    ///
@@ -103,9 +197,10 @@ impl From<SecureArray<u8, 32>> for SecureKey {
       let signer =
          value.unlock(|slice| PrivateKeySigner::from_slice(slice).expect("Key is invalid"));
       let address = signer.address();
+
       SecureKey {
          address,
-         data: value,
+         data: Arc::new(Mutex::new(value)),
       }
    }
 }
@@ -116,7 +211,10 @@ impl From<PrivateKeySigner> for SecureKey {
       let mut key_bytes = value.to_bytes();
       let data = SecureArray::from_slice_mut(key_bytes.as_mut()).expect("Key is invalid");
 
-      SecureKey { address, data }
+      SecureKey {
+         address,
+         data: Arc::new(Mutex::new(data)),
+      }
    }
 }
 
@@ -127,7 +225,10 @@ impl From<SigningKey> for SecureKey {
       let address = signer.address();
       let data = SecureArray::from_slice_mut(bytes.as_mut()).expect("Key is invalid");
 
-      SecureKey { address, data }
+      SecureKey {
+         address,
+         data: Arc::new(Mutex::new(data)),
+      }
    }
 }
 
@@ -192,6 +293,16 @@ mod tests {
 
       let json_string = serde_json::to_string(&secure_signer).unwrap();
       let json_bytes = serde_json::to_vec(&secure_signer).unwrap();
+
+      // The vault payload goes through the same `serialize_struct` call that
+      // produces this JSON, so pin the struct and field names here: they must
+      // stay exactly what `derive` produced, or stored vaults stop decoding.
+      let expected_prefix = "{\"address\":\"0x";
+      assert!(
+         json_string.starts_with(expected_prefix),
+         "unexpected key JSON: {json_string}"
+      );
+      assert!(json_string.contains(",\"data\":"));
 
       let deserialized_string: SecureKey = serde_json::from_str(&json_string).unwrap();
       let deserialized_bytes: SecureKey = serde_json::from_slice(&json_bytes).unwrap();

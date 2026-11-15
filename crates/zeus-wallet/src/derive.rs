@@ -1,4 +1,4 @@
-use super::{Error, SecureHDWallet, Wallet};
+use super::{Error, SecureHDWallet, SecureXKeyInfo, Wallet};
 use argon2_rs::Argon2;
 use secure_types::{SecureString, SecureVec, Zeroize};
 use sha3::{Digest, Sha3_512};
@@ -197,7 +197,7 @@ fn derive_hd_wallet_bip32(
       name,
       seed_phrase: None,
       key: key.into(),
-      xkey_info: Some(key_info),
+      xkey_info: Some(SecureXKeyInfo::new(key_info)),
    };
 
    Ok(SecureHDWallet {

@@ -46,8 +46,114 @@ pub use wallet::{SecureHDWallet, Wallet};
 use alloy_primitives::Address;
 use alloy_signer_local::LocalSignerError;
 use argon2_rs::error::Argon2Error;
-use secure_types::Error as SecureError;
-use zeus_bip32::{DerivationPath, error::Bip32Error};
+use secure_types::{Error as SecureError, SecureString};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+use zeus_bip32::{DerivationPath, XKeyInfo, error::Bip32Error};
+
+use std::sync::{Arc, Mutex};
+
+/// A seed phrase behind a shared lock, so cloning a wallet does not copy secure
+/// memory.
+///
+/// Every clone shares one phrase: erasing it through any clone zeroes it for all
+/// of them.
+pub struct SecurePhrase(Arc<Mutex<SecureString>>);
+
+impl SecurePhrase {
+   /// Wrap a seed phrase in a shared lock
+   pub fn new(phrase: SecureString) -> Self {
+      Self(Arc::new(Mutex::new(phrase)))
+   }
+
+   /// Acquire the lock for read access to the phrase
+   pub fn lock<R>(&self, read: impl FnOnce(&SecureString) -> R) -> R {
+      read(&self.0.lock().unwrap())
+   }
+
+   /// Acquire the lock for mutable access to the phrase
+   pub fn lock_mut<R>(&self, write: impl FnOnce(&mut SecureString) -> R) -> R {
+      write(&mut self.0.lock().unwrap())
+   }
+}
+
+impl Clone for SecurePhrase {
+   fn clone(&self) -> Self {
+      Self(Arc::clone(&self.0))
+   }
+}
+
+#[cfg(feature = "serde")]
+impl Serialize for SecurePhrase {
+   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+   where
+      S: serde::Serializer,
+   {
+      self.lock(|phrase| phrase.serialize(serializer))
+   }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> Deserialize<'de> for SecurePhrase {
+   fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+   where
+      D: serde::Deserializer<'de>,
+   {
+      let phrase = SecureString::deserialize(deserializer)?;
+      Ok(Self::new(phrase))
+   }
+}
+
+/// An [`XKeyInfo`] behind a shared lock, so cloning a wallet does not copy the
+/// chain code in secure memory.
+///
+/// Every clone shares one [`XKeyInfo`]: erasing it through any clone zeroes the
+/// chain code for all of them.
+pub struct SecureXKeyInfo(Arc<Mutex<XKeyInfo>>);
+
+impl SecureXKeyInfo {
+   /// Wrap an [`XKeyInfo`] in a shared lock
+   pub fn new(xkey_info: XKeyInfo) -> Self {
+      Self(Arc::new(Mutex::new(xkey_info)))
+   }
+
+   /// Acquire the lock for read access to the info
+   pub fn lock<R>(&self, read: impl FnOnce(&XKeyInfo) -> R) -> R {
+      read(&self.0.lock().unwrap())
+   }
+
+   /// Acquire the lock for mutable access to the info
+   pub fn lock_mut<R>(&self, write: impl FnOnce(&mut XKeyInfo) -> R) -> R {
+      write(&mut self.0.lock().unwrap())
+   }
+}
+
+impl Clone for SecureXKeyInfo {
+   fn clone(&self) -> Self {
+      Self(Arc::clone(&self.0))
+   }
+}
+
+#[cfg(feature = "serde")]
+impl Serialize for SecureXKeyInfo {
+   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+   where
+      S: serde::Serializer,
+   {
+      self.lock(|xkey_info| xkey_info.serialize(serializer))
+   }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> Deserialize<'de> for SecureXKeyInfo {
+   fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+   where
+      D: serde::Deserializer<'de>,
+   {
+      let xkey_info = XKeyInfo::deserialize(deserializer)?;
+      Ok(Self::new(xkey_info))
+   }
+}
 
 /// Everything this crate can fail with.
 ///

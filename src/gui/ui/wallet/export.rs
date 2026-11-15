@@ -201,7 +201,9 @@ impl ExportKeyUi {
                         let button =
                            Button::new(text).visuals(button_visuals).min_size(button_size);
                         if ui.add(button).clicked() {
-                           ui.ctx().copy_text(seed_phrase.unlock_str(|seed| seed.to_string()));
+                           let seed =
+                              seed_phrase.lock(|phrase| phrase.unlock_str(|seed| seed.to_string()));
+                           ui.ctx().copy_text(seed);
                         }
                      }
 
