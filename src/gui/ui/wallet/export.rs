@@ -50,7 +50,6 @@ impl ExportKeyUi {
 
          SHARED_GUI.write(|gui| {
             let export_ui = &mut gui.wallet_ui.export_key_ui;
-            export_ui.erase_exported_wallet();
             export_ui.wallet_to_export = wallet_full;
             export_ui.show_warning = wallet.is_master();
             export_ui.open = true;
@@ -61,13 +60,6 @@ impl ExportKeyUi {
 
    pub fn close(&mut self) {
       self.open = false;
-      self.erase_exported_wallet();
-   }
-
-   fn erase_exported_wallet(&mut self) {
-      if let Some(ref mut wallet) = self.wallet_to_export {
-         wallet.erase();
-      }
       self.wallet_to_export = None;
    }
 
@@ -79,7 +71,7 @@ impl ExportKeyUi {
    pub fn erase(&mut self, ctx: &Context) {
       self.credentials_form.erase();
       self.private_key_qr.clear(ctx);
-      self.erase_exported_wallet();
+      self.wallet_to_export = None;
    }
 
    /// Drop every secret this UI holds and close it.
