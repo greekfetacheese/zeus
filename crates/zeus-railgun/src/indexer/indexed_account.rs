@@ -477,18 +477,16 @@ impl IndexedAccount {
       self.dirty = true;
    }
 
-   /// Attempt to decrypt a legacy encrypted commitment.
-   /// Currently a no-op stub — full implementation requires legacy key
-   /// derivation (ephemeralKeys + different AES usage).
+   /// Legacy `CommitmentBatch`/`Transact` ciphertexts are not decrypted: `LegacyCiphertext` needs
+   /// the pre-Mar-23 ephemeral-key derivation and its own AES usage, neither of which this crate
+   /// implements. The commitment itself still reaches the merkle tree — the indexer inserts it — so
+   /// roots stay correct; what is lost is discovery of pre-format-change notes, which therefore
+   /// never appear as a balance. Implementing it needs the upstream engine format as a reference
+   /// plus a fixture from a real legacy commitment.
    pub fn handle_legacy_event(
       &mut self,
       _event: &syncer::LegacyCommitment,
    ) -> Result<(), NoteError> {
-      // TODO: Implement proper legacy decryption using LegacyCiphertext
-      // if let Some(ct) = &_event.ciphertext {
-      //     let note = UtxoNote::decrypt_legacy(self.signer.clone(), _event, ct)?;
-      //     self.inner.notes.push(note);
-      // }
       Ok(())
    }
 }
