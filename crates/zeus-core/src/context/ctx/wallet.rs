@@ -73,7 +73,7 @@ impl ZeusCtx {
       let mut new_map = HashMap::new();
       let mut new_ordered = Vec::new();
 
-      let wallets = self.read_vault(|vault| vault.clone_all_wallets());
+      let wallets = self.read_vault(|vault| vault.all_wallets_owned());
       for wallet in wallets {
          let info = WalletInfo::from_wallet(&wallet, true);
          new_map.insert(wallet.address(), info.clone());

@@ -75,6 +75,11 @@ impl SecurePhrase {
    pub fn lock_mut<R>(&self, write: impl FnOnce(&mut SecureString) -> R) -> R {
       write(&mut self.0.lock().unwrap())
    }
+
+   /// Whether another clone shares this phrase's secure memory
+   pub(crate) fn is_shared(&self) -> bool {
+      Arc::strong_count(&self.0) > 1
+   }
 }
 
 impl Clone for SecurePhrase {
@@ -125,6 +130,11 @@ impl SecureXKeyInfo {
    /// Acquire the lock for mutable access to the info
    pub fn lock_mut<R>(&self, write: impl FnOnce(&mut XKeyInfo) -> R) -> R {
       write(&mut self.0.lock().unwrap())
+   }
+
+   /// Whether another clone shares this info's secure memory
+   pub(crate) fn is_shared(&self) -> bool {
+      Arc::strong_count(&self.0) > 1
    }
 }
 

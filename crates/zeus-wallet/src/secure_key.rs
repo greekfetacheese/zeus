@@ -57,6 +57,11 @@ impl SecureKey {
       self.address
    }
 
+   /// Whether another clone shares this key's secure memory.
+   pub(crate) fn is_shared(&self) -> bool {
+      Arc::strong_count(&self.data) > 1
+   }
+
    /// Converts the private key to a [PrivateKeySigner] by cloning the inner key
    ///
    /// # Panics
