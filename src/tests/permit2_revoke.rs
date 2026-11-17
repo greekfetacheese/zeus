@@ -5,7 +5,7 @@ mod tests {
 
    use zeus_eth::{
       abi::permit::encode_permit_single_call,
-      alloy_primitives::{U256, aliases::U48, hex},
+      alloy_primitives::{U256, aliases::U48},
       alloy_provider::Provider,
       alloy_rpc_types::BlockId,
       alloy_signer::Signer,
@@ -59,10 +59,6 @@ mod tests {
          sig_deadline,
          signature,
       );
-      eprintln!(
-         "calldata selector: 0x{}",
-         hex::encode(&calldata[..4])
-      );
 
       let block = client.get_block(BlockId::latest()).await.unwrap().unwrap();
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
@@ -70,7 +66,7 @@ mod tests {
       let fork_db = factory.new_sandbox_fork();
       let mut evm = new_evm(chain, Some(&block), fork_db, None);
 
-      let sim = simulate_transaction(
+      simulate_transaction(
          &mut evm,
          owner.address,
          permit2,
@@ -79,7 +75,6 @@ mod tests {
          vec![],
       )
       .expect("permit2 revoke with matching signer should simulate");
-      eprintln!("sim success gas={}", sim.tx_gas_used());
 
       let other = DummyAccount::new(AccountType::EOA, U256::ZERO);
       let json_bad = generate_permit2_json_value(

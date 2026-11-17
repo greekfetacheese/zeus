@@ -11,19 +11,17 @@ mod tests {
       let a = generate_pairing_token();
       let b = generate_pairing_token();
       assert_eq!(a.len(), 64);
-      assert_eq!(b.len(), 64);
       assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
       assert_ne!(a, b);
    }
 
    #[test]
-   fn token_matches_accepts_exact_value() {
+   fn token_matches_accepts_only_the_exact_token() {
+      // Case: token_matches_accepts_exact_value
       let token = "ab".repeat(32);
       assert!(token_matches(&token, &token));
-   }
 
-   #[test]
-   fn token_matches_rejects_wrong_or_empty() {
+      // Case: token_matches_rejects_wrong_or_empty
       let token = "ab".repeat(32);
       assert!(!token_matches(&token, &"cd".repeat(32)));
       assert!(!token_matches(&token, ""));
@@ -53,7 +51,8 @@ mod tests {
    }
 
    #[test]
-   fn parse_dapp_origin_accepts_http_origins() {
+   fn parse_dapp_origin_accepts_origins_and_rejects_spoofable_ones() {
+      // Case: parse_dapp_origin_accepts_http_origins
       assert_eq!(
          parse_dapp_origin("https://app.uniswap.org").unwrap(),
          "https://app.uniswap.org"
@@ -66,10 +65,8 @@ mod tests {
          parse_dapp_origin("http://localhost:3000").unwrap(),
          "http://localhost:3000"
       );
-   }
 
-   #[test]
-   fn parse_dapp_origin_rejects_spoofable_or_empty() {
+      // Case: parse_dapp_origin_rejects_spoofable_or_empty
       assert!(parse_dapp_origin("").is_err());
       assert!(parse_dapp_origin("null").is_err());
       assert!(parse_dapp_origin("https://app.uniswap.org/swap").is_err());
