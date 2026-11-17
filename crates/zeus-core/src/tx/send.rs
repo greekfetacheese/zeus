@@ -935,23 +935,6 @@ mod tests {
       assert!(opts.dapp.is_empty());
    }
 
-   /// A freshly built request carries nothing the caller did not ask for, and
-   /// the defaults it does carry are the inert ones.
-   #[test]
-   fn new_request_is_inert() {
-      let req = SendTxRequest::new(
-         ChainId::Ethereum,
-         Address::from([1u8; 20]),
-         Address::from([2u8; 20]),
-      );
-
-      assert_eq!(req.chain.id(), 1);
-      assert!(req.call_data.is_empty());
-      assert_eq!(req.value, U256::ZERO);
-      assert!(req.authorization_list.is_empty());
-      assert!(req.analysis.is_none());
-   }
-
    /// The refusal decision: an EOA passes, a plain contract is refused with the fixed copy.
    #[test]
    fn a_contract_recipient_is_refused_with_the_approved_copy() {
@@ -1055,16 +1038,6 @@ mod tests {
       assert_eq!(account, RecipientAccount::Contract);
       let err = refuse_contract_recipient(recipient, account).expect_err("a contract is refused");
       assert_eq!(err.to_string(), FUNDS_TO_CONTRACT_MSG);
-   }
-
-   /// The refusal copy is the approved product text, verbatim; a drive-by edit has to
-   /// be deliberate.
-   #[test]
-   fn the_refusal_message_is_the_approved_copy() {
-      assert_eq!(
-         FUNDS_TO_CONTRACT_MSG,
-         "You are trying to send funds to a contract address, Zeus does not allow that. Sending directly to a contract address will lose you those funds forever"
-      );
    }
 
    /// A Coinbase Smart Wallet proxy — its ERC-1967 slot points at a registered

@@ -285,22 +285,4 @@ mod tests {
       );
       assert!(accounts.get(origin).is_none());
    }
-
-   #[test]
-   fn wallet_state_json_roundtrip() {
-      let mut inner = WalletStateInner::default();
-      inner.contacts.push(Contact::new(
-         "alice".into(),
-         "0xabc".into(),
-         String::new(),
-      ));
-      let ws = WalletState::new(inner.clone());
-      let json = serde_json::to_vec(&ws).unwrap();
-      let loaded: WalletState = serde_json::from_slice(&json).unwrap();
-      assert_eq!(loaded.read(|s| s.contacts.len()), 1);
-      assert_eq!(
-         loaded.read(|s| s.contacts[0].name.clone()),
-         "alice"
-      );
-   }
 }

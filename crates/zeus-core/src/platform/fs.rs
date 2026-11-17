@@ -393,10 +393,8 @@ mod tests {
          let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
          assert_eq!(mode, 0o600);
       }
-   }
 
-   #[test]
-   fn write_private_atomic_creates_missing_file() {
+      // Case: write_private_atomic_creates_missing_file
       let dir = tempfile::tempdir().unwrap();
       let path = dir.path().join("wallet_state.data");
       write_private_atomic(&path, b"sealed").unwrap();

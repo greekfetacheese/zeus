@@ -579,59 +579,42 @@ mod tests {
       assert!(names.contains(&"wallet_state.data"));
       assert!(names.contains(&"misc_config.json"));
       assert!(!names.contains(&"connector.json"));
-   }
 
-   /// The NFT catalog is user data: it must travel with an export exactly as `tokens.data` does.
-   /// A newly added store that nobody classified would silently drop out of every backup.
-   #[test]
-   fn nft_db_is_a_core_exported_file() {
-      assert_eq!(PersistedFile::NftDb.name(), "nft_db.data");
-      assert_eq!(
-         PersistedFile::NftDb.export_policy(),
-         ExportPolicy::Core
-      );
-      assert!(
-         is_allowed_rel_parts(&["nft_db.data".to_string()]),
-         "an export zip must accept nft_db.data"
-      );
-      assert!(
-         !is_allowed_rel_parts(&["nft_db.data.bak".to_string()]),
-         "only the exact file name is a known path"
-      );
-   }
-
-   /// Security settings are user data: they must travel with an export exactly as
-   /// `wallet_state.data` does, and the sealed file must be a known path.
-   #[test]
-   fn security_is_a_core_exported_file() {
-      assert_eq!(PersistedFile::Security.name(), "security.data");
-      assert_eq!(
-         PersistedFile::Security.export_policy(),
-         ExportPolicy::Core
-      );
-      assert!(
-         is_allowed_rel_parts(&["security.data".to_string()]),
-         "an export zip must accept security.data"
-      );
-      assert!(
-         !is_allowed_rel_parts(&["security.data.bak".to_string()]),
-         "only the exact file name is a known path"
-      );
-   }
-
-   /// Appearance settings are user data and deliberately unencrypted, so they
-   /// travel with an export but never join the sealed stores.
-   #[test]
-   fn appearance_settings_are_a_core_unsealed_file() {
-      assert_eq!(
-         PersistedFile::Appearance.name(),
-         "appearance_settings.json"
-      );
-      assert_eq!(
-         PersistedFile::Appearance.export_policy(),
-         ExportPolicy::Core
-      );
-      assert!(!PersistedFile::Appearance.is_sealed());
+      // Case: nft_db_is_a_core_exported_file, security_is_a_core_exported_file,
+      //       appearance_settings_are_a_core_unsealed_file, pool_data_is_a_core_sealed_file
+      //
+      // Every entry here is user data: it must travel with an export, and a sealed store must be
+      // recognised as such or it falls out of the replaced-key decision in `data_import`.
+      for (file, name, sealed) in [
+         (PersistedFile::NftDb, "nft_db.data", true),
+         (PersistedFile::Security, "security.data", true),
+         (
+            PersistedFile::Appearance,
+            "appearance_settings.json",
+            false,
+         ),
+         (PersistedFile::PoolData, "pool_data.data", true),
+      ] {
+         assert_eq!(file.name(), name, "{name}: catalog name");
+         assert_eq!(
+            file.export_policy(),
+            ExportPolicy::Core,
+            "{name}: user data must travel with an export"
+         );
+         assert_eq!(
+            file.is_sealed(),
+            sealed,
+            "{name}: sealed with the vault key"
+         );
+         assert!(
+            is_allowed_rel_parts(&[name.to_string()]),
+            "an export zip must accept {name}"
+         );
+         assert!(
+            !is_allowed_rel_parts(&[format!("{name}.bak")]),
+            "only the exact file name is a known path: {name}.bak"
+         );
+      }
    }
 
    /// NFT image paths are `nft_icons/{chain}/{collection}/{tokenId}/x*.png` and nothing else.
@@ -735,19 +718,6 @@ mod tests {
          assert_eq!(PersistedFile::from_name(file.name()), Some(*file));
       }
       assert!(PersistedFile::from_name("secret.txt").is_none());
-   }
-
-   /// The pool store is user data and sealed with the vault key, exactly as it was when it was one
-   /// JSON blob - the redb change must not quietly drop it out of every backup.
-   #[test]
-   fn pool_data_is_a_core_sealed_file() {
-      assert_eq!(PersistedFile::PoolData.name(), "pool_data.data");
-      assert_eq!(PersistedFile::PoolData.export_policy(), ExportPolicy::Core);
-      assert!(PersistedFile::PoolData.is_sealed());
-      assert!(
-         is_allowed_rel_parts(&["pool_data.data".to_string()]),
-         "an export zip must accept pool_data.data"
-      );
    }
 
    /// The on-disk Railgun DB sweep must see the per-chain databases and nothing else: the events

@@ -1535,10 +1535,14 @@ mod tests {
       assert_eq!(recipient.zk_address, zk_address);
    }
 
+   /// A recipient whose `name` is empty (`None`) and has no takeover carries no binding to drop,
+   /// so every field — including a `0zk` address — is left exactly as it was.
+   ///
    /// A recipient from an unknown address never had a name, so there is nothing to forget — and
    /// calling it must not change what `from_unknown_evm_address` produced.
    #[test]
-   fn forget_name_binding_leaves_an_unknown_address_unchanged() {
+   fn forget_name_binding_leaves_an_unnamed_recipient_unchanged() {
+      // Case: forget_name_binding_leaves_an_unknown_address_unchanged
       let mut recipient = Recipient::from_unknown_evm_address(Address::repeat_byte(0x33));
       let evm_address = recipient.evm_address.clone();
 
@@ -1549,12 +1553,8 @@ mod tests {
       assert_eq!(recipient.ens_takeover_at, None);
       assert_eq!(recipient.evm_address, evm_address);
       assert!(recipient.zk_address.is_empty());
-   }
 
-   /// A recipient whose `name` is empty (`None`) and has no takeover carries no binding to drop,
-   /// so every field — including a `0zk` address — is left exactly as it was.
-   #[test]
-   fn forget_name_binding_leaves_an_unnamed_recipient_unchanged() {
+      // Case: forget_name_binding_leaves_an_unnamed_recipient_unchanged
       let mut recipient = Recipient {
          name: None,
          evm_address: "0x1111111111111111111111111111111111111111".to_string(),
@@ -1684,10 +1684,13 @@ mod tests {
       );
    }
 
-   /// The bounds are the crate's own slider ranges, not guesses: each pair must
-   /// match `HoldSettings::body_ui` in the UI crate's `widgets/hold.rs`.
+   /// Each pair is copied from the control the crate's own body UI draws — see
+   /// the UI crate's `widgets/particles/{snow,light,lightning}/settings.rs`. The burst pairs come
+   /// from the same source: each must match `HoldSettings::body_ui` in the UI crate's
+   /// `widgets/hold.rs`.
    #[test]
-   fn burst_bounds_mirror_the_crates_own_controls() {
+   fn the_ambient_ranges_mirror_the_crates_controls() {
+      // Case: burst_bounds_mirror_the_crates_own_controls
       assert_eq!((MIN_BURST_MS, MAX_BURST_MS), (80.0, 2_000.0));
       assert_eq!(
          (MIN_BURST_INTENSITY, MAX_BURST_INTENSITY),
@@ -1700,12 +1703,8 @@ mod tests {
       assert_eq!((MIN_GLOW_FROM, MAX_GLOW_FROM), (0.2, 4.0));
       assert_eq!((MIN_GLOW_TO, MAX_GLOW_TO), (0.2, 6.0));
       assert_eq!((MIN_GLOW_SOFTNESS, MAX_GLOW_SOFTNESS), (0.2, 3.0));
-   }
 
-   /// Each pair is copied from the control the crate's own body UI draws — see
-   /// the UI crate's `widgets/particles/{snow,light,lightning}/settings.rs`.
-   #[test]
-   fn the_ambient_ranges_mirror_the_crates_controls() {
+      // Case: the_ambient_ranges_mirror_the_crates_controls
       // Snow::body_ui — density Slider 0..=20000, size DragValue 0.1..=20.0,
       // fall speed DragValue 0.0..=500.0, wind Slider -200..=200 / -100..=100.
       assert_eq!(

@@ -581,7 +581,7 @@ mod tests {
    }
 
    #[test]
-   fn known_pairs_matching_interact_to_are_included_and_deduped() {
+   fn fungible_known_pairs_are_probed_only_for_the_called_contract_and_deduped() {
       let got = collect_approval_candidates(
          owner(),
          spender(),
@@ -593,19 +593,19 @@ mod tests {
       assert_eq!(got.len(), 2);
       assert_eq!(got[0].kind, ApprovalKind::Erc20);
       assert_eq!(got[1].kind, ApprovalKind::Permit2);
-   }
 
-   #[test]
-   fn known_pairs_other_spender_are_skipped() {
-      let got = collect_approval_candidates(
-         owner(),
-         token(),
-         &Bytes::new(),
-         &[],
-         [(token(), spender())],
-         [(token(), spender())],
-      );
-      assert!(got.is_empty());
+      // Case: known_pairs_other_spender_are_skipped
+      {
+         let got = collect_approval_candidates(
+            owner(),
+            token(),
+            &Bytes::new(),
+            &[],
+            [(token(), spender())],
+            [(token(), spender())],
+         );
+         assert!(got.is_empty());
+      }
    }
 
    #[test]
@@ -628,23 +628,6 @@ mod tests {
          (1u8..=80).map(|i| (Address::repeat_byte(i), spender())).collect();
       let got = collect_approval_candidates(owner(), spender(), &Bytes::new(), &[], known, []);
       assert_eq!(got.len(), MAX_APPROVAL_CANDIDATES);
-   }
-
-   #[test]
-   fn equal_allowance_is_none() {
-      assert!(
-         ApprovalChange::from_wei(
-            ApprovalKind::Erc20,
-            wbtest(),
-            spender(),
-            U256::from(1u64),
-            U256::from(1u64),
-            NumericValue::default(),
-            None,
-            None
-         )
-         .is_none()
-      );
    }
 
    #[test]
@@ -692,7 +675,7 @@ mod tests {
    }
 
    #[test]
-   fn permit2_expiry_only_is_some() {
+   fn an_approval_row_needs_a_real_change_in_amount_or_expiry() {
       let change = ApprovalChange::from_wei(
          ApprovalKind::Permit2,
          wbtest(),
@@ -710,6 +693,23 @@ mod tests {
          change.expiration_after,
          Some(TimeStamp::Seconds(200))
       );
+
+      // Case: equal_allowance_is_none
+      {
+         assert!(
+            ApprovalChange::from_wei(
+               ApprovalKind::Erc20,
+               wbtest(),
+               spender(),
+               U256::from(1u64),
+               U256::from(1u64),
+               NumericValue::default(),
+               None,
+               None
+            )
+            .is_none()
+         );
+      }
    }
 
    #[test]
@@ -843,7 +843,7 @@ mod tests {
 
    /// A per-token grant names the address that is now approved.
    #[test]
-   fn a_per_token_grant_names_the_approved_address() {
+   fn a_per_token_row_names_the_operator_the_measurement_shows() {
       let change = nft(
          spender(),
          NftApprovalValue::Approved(Address::ZERO),
@@ -852,6 +852,19 @@ mod tests {
 
       assert_eq!(change.operator, spender());
       assert!(!change.is_revoke());
+
+      // Case: a_per_token_switch_names_the_new_operator
+      // Switching operators is a change like any other, and the row names the new one.
+      {
+         let switched = nft(
+            token(),
+            NftApprovalValue::Approved(spender()),
+            NftApprovalValue::Approved(token()),
+         );
+
+         assert_eq!(switched.operator, token());
+         assert!(!switched.is_revoke());
+      }
    }
 
    /// A per-token **revoke** carries the zero address in the log, so the row must name the address
@@ -866,19 +879,6 @@ mod tests {
 
       assert_eq!(change.operator, spender());
       assert!(change.is_revoke());
-   }
-
-   /// Switching operators is a change like any other, and the row names the new one.
-   #[test]
-   fn a_per_token_switch_names_the_new_operator() {
-      let switched = nft(
-         token(),
-         NftApprovalValue::Approved(spender()),
-         NftApprovalValue::Approved(token()),
-      );
-
-      assert_eq!(switched.operator, token());
-      assert!(!switched.is_revoke());
    }
 
    /// The other two shapes keep the operator from the candidate: their probe is keyed by it, and
@@ -1167,19 +1167,6 @@ mod tests {
       assert_eq!(got.len(), MAX_NFT_CANDIDATES);
    }
 
-   /// An ERC-20 `Approval` has three topics where the ERC-721 one has four, so the two collections of
-   /// approvals never decode into each other — the same separation the decode ladder relies on.
-   #[test]
-   fn an_erc20_approval_log_is_not_an_nft_one() {
-      let erc20_log = erc20_approval_log(token(), owner(), spender());
-
-      assert!(
-         collect_nft_approval_candidates(owner(), token(), &Bytes::new(), &[erc20_log], [])
-            .is_empty(),
-         "a token approval must not become an NFT one"
-      );
-   }
-
    /// An ERC-20 `approve` names the same call as an ERC-721 one — `approve(address,uint256)` is
    /// byte-identical — so the calldata cannot tell them apart. The ERC-20 `Approval` event the call
    /// emits is the tiebreaker, and without it every ERC-20 approve would also be probed as an ERC-721
@@ -1200,6 +1187,19 @@ mod tests {
          collect_nft_approval_candidates(owner(), collection(), &approve, &[], []).len(),
          1
       );
+
+      // Case: an_erc20_approval_log_is_not_an_nft_one
+      // An ERC-20 `Approval` has three topics where the ERC-721 one has four, so the two collections of
+      // approvals never decode into each other — the same separation the decode ladder relies on.
+      {
+         let erc20_log = erc20_approval_log(token(), owner(), spender());
+
+         assert!(
+            collect_nft_approval_candidates(owner(), token(), &Bytes::new(), &[erc20_log], [])
+               .is_empty(),
+            "a token approval must not become an NFT one"
+         );
+      }
    }
 
    /// The other direction of the same tiebreak: a per-token ERC-721 `approve` must not also be

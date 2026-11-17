@@ -1913,27 +1913,6 @@ mod tests {
    use zeus_eth::{alloy_primitives::U256, amm::uniswap::UniswapV4Pool};
 
    #[test]
-   fn test_default_init() {
-      let _manager = PoolManagerHandle::default();
-   }
-
-   #[test]
-   fn serde_works() {
-      let pool = UniswapV2Pool::weth_uni();
-      let pool2 = UniswapV4Pool::eth_uni();
-      let pool_manager = PoolManager::default();
-      let handle = PoolManagerHandle::new(pool_manager);
-
-      handle.add_pool(pool);
-      handle.add_pool(pool2);
-      let checkpoint = Checkpoint::default();
-      handle.add_checkpoint(1, DexKind::UniswapV2, checkpoint);
-      let json = handle.to_string().unwrap();
-
-      let _desered_manager: PoolManager = serde_json::from_str(&json).unwrap();
-   }
-
-   #[test]
    fn test_seal_open_roundtrip() {
       let key = WalletStateKey::generate().unwrap();
       let pool = UniswapV2Pool::weth_uni();

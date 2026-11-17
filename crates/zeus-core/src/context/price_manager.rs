@@ -623,32 +623,6 @@ impl PriceManager {
 mod tests {
    use super::*;
 
-   #[tokio::test]
-   #[ignore = "live chain: needs working public RPCs and live price feeds"]
-   async fn test_it_works() {
-      let ctx = ZeusCtx::new(crate::platform::runtime::test_handle());
-      let chain = 1;
-
-      let price_manager = PriceManagerHandle::new();
-      let pool_manager = ctx.pool_manager();
-
-      let link_token = ERC20Token::link();
-
-      price_manager.update_base_token_prices(ctx.clone(), chain).await.unwrap();
-      price_manager
-         .calculate_prices(
-            ctx.clone(),
-            chain,
-            pool_manager,
-            vec![link_token.clone()],
-         )
-         .await
-         .unwrap();
-
-      let price = price_manager.get_token_price(&link_token).unwrap();
-      eprintln!("LINK Price: ${}", price.formatted());
-   }
-
    #[test]
    fn test_seal_open_roundtrip() {
       let key = WalletStateKey::generate().unwrap();

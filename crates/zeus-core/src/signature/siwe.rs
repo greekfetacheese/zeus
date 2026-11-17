@@ -75,7 +75,8 @@ mod tests {
                        Issued At: 2021-09-30T16:25:24Z";
 
    #[test]
-   fn accepts_lowercase_account() {
+   fn detects_siwe() {
+      // Case: accepts_lowercase_account
       // `Address::from_str` checks length and hex, not the EIP-55 checksum, so
       // a dapp that lowercases the account line still reads as SIWE.
       let lower = SIWE.replace(
@@ -83,35 +84,28 @@ mod tests {
          "0x6ff5693b99212da76ad316178a184ab56d299b43",
       );
       assert!(is_siwe(&lower));
-   }
 
-   #[test]
-   fn detects_siwe() {
+      // Case: detects_siwe
       assert!(is_siwe(SIWE));
-   }
 
-   #[test]
-   fn accepts_crlf() {
+      // Case: accepts_crlf
       assert!(is_siwe(&SIWE.replace('\n', "\r\n")));
    }
 
    #[test]
-   fn rejects_plain_message() {
+   fn rejects_non_conforming_messages() {
+      // Case: rejects_plain_message
       assert!(!is_siwe("Sign in to prove you own this wallet."));
       assert!(!is_siwe(""));
-   }
 
-   #[test]
-   fn rejects_siwe_without_required_fields() {
+      // Case: rejects_siwe_without_required_fields
       let text = "https://example.com wants you to sign in with your Ethereum account:\n\
                   0x6fF5693b99212Da76ad316178A184AB56D299b43\n\n\
                   Sign in.\n\n\
                   URI: https://example.com/\nNonce: 32891756\n";
       assert!(!is_siwe(text));
-   }
 
-   #[test]
-   fn rejects_header_without_account() {
+      // Case: rejects_header_without_account
       let text = "https://example.com wants you to sign in with your Ethereum account:\n\n\
                   URI: https://example.com/\nVersion: 1\nChain ID: 1\nNonce: 1\nIssued At: now";
       assert!(!is_siwe(text));

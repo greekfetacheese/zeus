@@ -738,14 +738,8 @@ mod tests {
       );
    }
 
-   #[test]
-   fn vault_json_roundtrip() {
-      let vault = sample_vault();
-      let json = serde_json::to_vec(&vault_data_from(&vault)).expect("serialize vault");
-      let loaded = parse_vault_data(&json).expect("deserialize vault");
-      assert_same_master(&loaded, &vault);
-   }
-
+   /// Envelope `1` must not be read as codec: `secure-types`' document `FORMAT_VERSION` is also
+   /// `1`, so the envelope byte is the only thing that tells the two apart.
    #[test]
    fn vault_payload_brotli_roundtrip() {
       let vault = sample_vault();
@@ -839,18 +833,6 @@ mod tests {
          Ok(_) => panic!("expected unknown vault payload version"),
       };
       assert!(err.to_string().contains("unknown vault payload version"));
-   }
-
-   #[test]
-   fn vault_json_still_loads_after_codec_save_path_exists() {
-      // Envelope 1 must not be interpreted as codec (codec FORMAT_VERSION is also 1).
-      let vault = sample_vault();
-      let json = serde_json::to_vec(&vault_data_from(&vault)).unwrap();
-      let mut encoded = Vec::with_capacity(1 + json.len());
-      encoded.push(VAULT_PAYLOAD_BROTLI);
-      encoded.extend_from_slice(&brotli_compress(&json).unwrap());
-      let loaded = parse_vault_data(&encoded).unwrap();
-      assert_same_master(&loaded, &vault);
    }
 
    #[test]

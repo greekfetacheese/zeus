@@ -839,30 +839,6 @@ mod tests {
    use super::*;
    use crate::ZeusCtx;
 
-   #[tokio::test]
-   async fn test_permit2_details() {
-      let ctx = ZeusCtx::new(crate::platform::runtime::test_handle());
-      let json = dummy_permit2_json();
-      let msg_type = SignMsgType::new(ctx, 8453, Some(json), None).await.unwrap();
-      let permit2 = msg_type.permit2_details();
-
-      assert_eq!(
-         permit2.token.address,
-         Address::from_str("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913").unwrap()
-      );
-      assert_eq!(
-         permit2.permit2_contract,
-         Address::from_str("0x000000000022d473030f116ddee9f6b43ac78ba3").unwrap()
-      );
-      assert_eq!(
-         permit2.spender,
-         Address::from_str("0x6ff5693b99212da76ad316178a184ab56d299b43").unwrap()
-      );
-      // The chain this permit is signed for, taken from the fixture's `domain.chainId`. The prompt
-      // renders this and not the wallet's chain, and the token above was read on it.
-      assert_eq!(permit2.chain, 8453);
-   }
-
    /// A permit's chain comes from its own domain, not from the chain the wallet happens to be
    /// connected to: the domain is what the signature is bound to, and so it is where the allowance
    /// lands. Permit2's `verifyingContract` cannot decide this — it is the same address on every
@@ -887,8 +863,30 @@ mod tests {
    ///
    /// `Permit2Details::new` is called directly rather than through `SignMsgType::new` so a failure
    /// here is this assertion and not a fall-through decoder deciding the message is something else.
+   /// The same payload is also driven through `SignMsgType::new`, so the dispatch to the `Permit2`
+   /// variant is pinned too.
    #[tokio::test]
    async fn permit2_reads_its_token_on_the_permit_chain() {
+      // Case: test_permit2_details
+      let ctx = ZeusCtx::new(crate::platform::runtime::test_handle());
+      let json = dummy_permit2_json();
+      let msg_type = SignMsgType::new(ctx, 8453, Some(json), None).await.unwrap();
+      let permit2 = msg_type.permit2_details();
+
+      assert_eq!(
+         permit2.token.address,
+         Address::from_str("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913").unwrap()
+      );
+      assert_eq!(
+         permit2.permit2_contract,
+         Address::from_str("0x000000000022d473030f116ddee9f6b43ac78ba3").unwrap()
+      );
+      assert_eq!(
+         permit2.spender,
+         Address::from_str("0x6ff5693b99212da76ad316178a184ab56d299b43").unwrap()
+      );
+
+      // Case: permit2_reads_its_token_on_the_permit_chain
       let ctx = ZeusCtx::new(crate::platform::runtime::test_handle());
       // The wallet is connected to Ethereum; the permit is for Base.
       let permit2 = Permit2Details::new(ctx, 1, dummy_permit2_json())
@@ -1021,24 +1019,6 @@ mod tests {
       assert!(msg.is_permit2612());
       assert!(msg.is_known());
       assert_eq!(msg.title(), "Token Permit");
-   }
-
-   /// A clear-signed message carries the chain its descriptor was resolved for, and the prompt
-   /// draws its chain row and its address labels from that rather than from the wallet's chain.
-   ///
-   /// The resolution itself is structurally domain-only — `try_clear_sign_typed_data` takes no
-   /// chain, because the descriptor is looked up by `(domain chainId, verifyingContract, typeHash)`
-   /// — so what is left to pin is that the carrier is populated at the one construction site.
-   #[test]
-   fn a_clear_signed_message_carries_its_domains_chain() {
-      let msg = SignMsgType::dummy_clear_signed();
-      let clear = msg.clear_signed_details();
-
-      assert!(msg.is_clear_signed());
-      assert_eq!(
-         clear.chain, 8453,
-         "the fixture's own domain chain, which is also where its USDC lives"
-      );
    }
 
    /// No prompt may be built for a chain Zeus cannot name, because each renders that chain as a

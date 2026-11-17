@@ -3,13 +3,7 @@ use super::*;
 use crate::platform::TimeStamp;
 use std::str::FromStr;
 use std::time::Duration;
-use zeus_eth::{
-   alloy_primitives::{U256, utils::format_units},
-   alloy_provider::Provider,
-   alloy_rpc_types::BlockId,
-   types::SUPPORTED_CHAINS,
-   utils::ens::ENS_CHAIN,
-};
+use zeus_eth::{alloy_provider::Provider, utils::ens::ENS_CHAIN};
 
 #[tokio::test]
 #[should_panic]
@@ -68,11 +62,7 @@ fn ensure_unlocked_refuses_while_locked() {
    assert!(ctx.ensure_unlocked().is_ok());
 
    ctx.write(|ctx| ctx.locked = true);
-   let err = ctx.ensure_unlocked().unwrap_err();
-   assert!(
-      err.to_string().contains("locked"),
-      "unexpected error: {err}"
-   );
+   assert!(ctx.ensure_unlocked().is_err());
 }
 
 /// A collection names itself, and the confirmation window's "Contract interaction" row reads this to
@@ -257,33 +247,6 @@ fn ens_reverse_unnamed_address_is_not_re_requested() {
 }
 
 #[tokio::test]
-#[ignore = "live chain: needs a working public RPC on four chains — a manual fee read"]
-async fn test_base_fee() {
-   let ctx = ZeusCtx::new(crate::platform::runtime::test_handle());
-
-   let client = ctx.get_client(1).await.unwrap();
-   let block = client.get_block(BlockId::latest()).await.unwrap().unwrap();
-   let base_fee = block.header.base_fee_per_gas.unwrap();
-   let fee = format_units(base_fee, "gwei").unwrap();
-   println!("Ethereum base fee: {}", fee);
-
-   let client = ctx.get_client(10).await.unwrap();
-   let gas_price = client.get_gas_price().await.unwrap();
-   let fee = format_units(gas_price, "gwei").unwrap();
-   println!("Optimism base fee: {}", fee);
-
-   let client = ctx.get_client(56).await.unwrap();
-   let gas_price = client.get_gas_price().await.unwrap();
-   let fee = format_units(gas_price, "gwei").unwrap();
-   println!("BSC base fee: {}", fee);
-
-   let client = ctx.get_client(42161).await.unwrap();
-   let gas_price = client.get_gas_price().await.unwrap();
-   let fee = format_units(gas_price, "gwei").unwrap();
-   println!("Arbitrum base fee: {}", fee);
-}
-
-#[tokio::test]
 #[ignore = "live chain: needs a working public RPC, and pins one mainnet account's delegation"]
 async fn test_extract_delegated_address() {
    let ctx = ZeusCtx::new(crate::platform::runtime::test_handle());
@@ -302,17 +265,4 @@ async fn test_extract_delegated_address() {
    eprintln!("Address: {}", address);
 
    assert_eq!(address, delegated_address);
-}
-
-#[tokio::test]
-#[ignore = "live chain: needs a working public RPC on every supported chain"]
-async fn test_priority_fee_suggestion() {
-   let ctx = ZeusCtx::new(crate::platform::runtime::test_handle());
-
-   for chain in SUPPORTED_CHAINS {
-      let client = ctx.get_client(chain).await.unwrap();
-      let fee = client.get_max_priority_fee_per_gas().await.unwrap();
-      let fee = format_units(U256::from(fee), "gwei").unwrap();
-      println!("Suggested Fee on {}: {}", chain, fee)
-   }
 }

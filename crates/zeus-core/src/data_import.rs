@@ -771,6 +771,39 @@ mod tests {
          b"still readable",
          "the same key still opens it"
       );
+
+      // Case: a_railgun_db_the_archive_omits_is_kept_when_the_key_is_the_same
+      let credentials = creds("user", "pass");
+      let dir = tempfile::tempdir().unwrap();
+      let zip_path = dir.path().join("zeus-data.zip");
+      write_zip(
+         &zip_path,
+         &[
+            ("data/vault.data", &vault_bytes),
+            ("data/wallet_state.data", &state_bytes),
+         ],
+      );
+
+      let dest = dir.path().join("out");
+      fs::create_dir(&dest).unwrap();
+      fs::create_dir(dest.join("railgun")).unwrap();
+      fs::write(
+         dest.join("railgun").join("railgun:1.db"),
+         b"still readable",
+      )
+      .unwrap();
+
+      let mut imported =
+         import_data_from_zip(&zip_path, &dest, credentials, Some(&archive_key)).unwrap();
+
+      imported.vault.erase();
+
+      assert!(imported.removed.is_empty());
+      assert_eq!(
+         fs::read(dest.join("railgun").join("railgun:1.db")).unwrap(),
+         b"still readable",
+         "the same key still opens it"
+      );
    }
 
    /// A Railgun DB the archive omits is sealed with the replaced vault's key exactly like a sealed
@@ -834,45 +867,6 @@ mod tests {
       assert!(
          dest.join("railgun").join("events-snapshot:1.db").exists(),
          "the events snapshot is a public cache, not sealed with a vault key"
-      );
-   }
-
-   /// The same key still opens the on-disk Railgun databases, so a selective export or a restore
-   /// keeps them.
-   #[test]
-   fn a_railgun_db_the_archive_omits_is_kept_when_the_key_is_the_same() {
-      let credentials = creds("user", "pass");
-      let (vault_bytes, state_bytes, archive_key) = sample_encrypted_vault(credentials.clone());
-
-      let dir = tempfile::tempdir().unwrap();
-      let zip_path = dir.path().join("zeus-data.zip");
-      write_zip(
-         &zip_path,
-         &[
-            ("data/vault.data", &vault_bytes),
-            ("data/wallet_state.data", &state_bytes),
-         ],
-      );
-
-      let dest = dir.path().join("out");
-      fs::create_dir(&dest).unwrap();
-      fs::create_dir(dest.join("railgun")).unwrap();
-      fs::write(
-         dest.join("railgun").join("railgun:1.db"),
-         b"still readable",
-      )
-      .unwrap();
-
-      let mut imported =
-         import_data_from_zip(&zip_path, &dest, credentials, Some(&archive_key)).unwrap();
-
-      imported.vault.erase();
-
-      assert!(imported.removed.is_empty());
-      assert_eq!(
-         fs::read(dest.join("railgun").join("railgun:1.db")).unwrap(),
-         b"still readable",
-         "the same key still opens it"
       );
    }
 

@@ -179,6 +179,7 @@ mod tests {
 
    #[test]
    fn a_quiet_window_still_gives_three_ordered_tiers() {
+      // Case: a_quiet_window_still_gives_three_ordered_tiers
       // Every percentile is effectively zero, so the floor and the step alone build the ladder:
       // 0.01 gwei, then 1.25x rounded up to 0.015, then 1.25x rounded up to 0.02.
       let rows = rows([1, 1, 1]);
@@ -190,6 +191,12 @@ mod tests {
 
       assert!(tiers.normal < tiers.fast);
       assert!(tiers.fast < tiers.very_fast);
+
+      // Case: the_floor_wins_over_a_cheap_market
+      let floor_rows = self::rows([1, 1, 1]);
+      let floor_tiers = tiers_from_rewards(&floor_rows, U256::from(10_000_000)).unwrap();
+
+      assert_eq!(floor_tiers.normal, U256::from(10_000_000));
    }
 
    #[test]
@@ -233,14 +240,6 @@ mod tests {
          tiers_from_rewards(&[], U256::from(10_000_000)),
          None
       );
-   }
-
-   #[test]
-   fn the_floor_wins_over_a_cheap_market() {
-      let rows = rows([1, 1, 1]);
-      let tiers = tiers_from_rewards(&rows, U256::from(10_000_000)).unwrap();
-
-      assert_eq!(tiers.normal, U256::from(10_000_000));
    }
 
    #[test]
