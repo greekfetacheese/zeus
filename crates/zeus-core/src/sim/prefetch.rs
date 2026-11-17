@@ -306,6 +306,11 @@ pub(super) fn dedupe_accounts(accounts: Vec<AccountPrefetch>) -> Vec<AccountPref
    out
 }
 
+/// Fetch balances, codes and EOA nonces for `accounts`.
+///
+/// An account whose reads failed is left out entirely, so the fork reads it from the node on first
+/// touch. A zeroed [`AccountInfo`] must not stand in for a failed read: `insert_account_info` puts
+/// it in the fork's cache, every later read is answered from there, and the node is never asked.
 pub async fn fetch_accounts_info(
    ctx: ZeusCtx,
    chain: u64,
@@ -341,33 +346,22 @@ pub async fn fetch_accounts_info(
 
    let (balances, codes, nonces) = tokio::join!(balances_fut, codes_fut, nonces_fut);
 
-   let mut out = Vec::with_capacity(accounts.len());
+   let total = accounts.len();
+   let mut out = Vec::with_capacity(total);
 
    for acc in accounts {
-      let balance = balances.get(&acc.address).copied().unwrap_or(U256::ZERO);
-      let code = codes.get(&acc.address).cloned().unwrap_or_default();
-      let nonce = if acc.is_eoa {
-         nonces.get(&acc.address).copied().unwrap_or(0)
-      } else {
-         0
-      };
+      if let Some(info) = account_info_from_prefetch(acc, &balances, &codes, &nonces) {
+         out.push(info);
+      }
+   }
 
-      let (code, code_hash) = if !code.is_empty() {
-         (Some(code.clone()), keccak256(&code))
-      } else {
-         (Some(Bytes::default()), KECCAK256_EMPTY)
-      };
-
-      out.push(AccountInfo2 {
-         address: acc.address,
-         info: AccountInfo {
-            nonce,
-            balance,
-            code: code.map(Bytecode::new_raw),
-            account_id: None,
-            code_hash,
-         },
-      });
+   if out.len() < total {
+      tracing::warn!(
+         "Account prefetch failed for {} of {} accounts on chain {}, the fork will read them from the node",
+         total - out.len(),
+         total,
+         chain
+      );
    }
 
    info!(
@@ -376,6 +370,43 @@ pub async fn fetch_accounts_info(
    );
 
    out
+}
+
+/// The fork state for one prefetched account, or `None` when a read for it failed.
+///
+/// A missing map entry is the failure signal, and only that: a present zero balance or an empty
+/// code is the node's answer for an empty account and is still prefetched. A contract's nonce is
+/// never fetched, so only an EOA needs a nonce entry.
+fn account_info_from_prefetch(
+   acc: AccountPrefetch,
+   balances: &HashMap<Address, U256>,
+   codes: &HashMap<Address, Bytes>,
+   nonces: &HashMap<Address, u64>,
+) -> Option<AccountInfo2> {
+   let balance = *balances.get(&acc.address)?;
+   let code = codes.get(&acc.address)?;
+   let nonce = if acc.is_eoa {
+      *nonces.get(&acc.address)?
+   } else {
+      0
+   };
+
+   let (code, code_hash) = if !code.is_empty() {
+      (Some(code.clone()), keccak256(code))
+   } else {
+      (Some(Bytes::default()), KECCAK256_EMPTY)
+   };
+
+   Some(AccountInfo2 {
+      address: acc.address,
+      info: AccountInfo {
+         nonce,
+         balance,
+         code: code.map(Bytecode::new_raw),
+         account_id: None,
+         code_hash,
+      },
+   })
 }
 
 pub(super) async fn fetch_eth_balances_batched(
@@ -665,4 +696,82 @@ pub async fn fetch_storage(
    );
 
    out
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   fn addr(b: u8) -> Address {
+      Address::repeat_byte(b)
+   }
+
+   /// A missing entry is a failed read, and the account stays out of the fork so the backend asks
+   /// the node. Filling in a default here would cache a wrong answer instead: the backend serves
+   /// every later read from its cache and never re-asks.
+   #[test]
+   fn a_failed_read_leaves_the_account_out_of_the_fork() {
+      let who = addr(0x11);
+      let eoa = AccountPrefetch::eoa(who);
+
+      let balances = HashMap::from([(who, U256::from(5))]);
+      let codes = HashMap::from([(who, Bytes::from_static(&[0x60, 0x00]))]);
+      let nonces = HashMap::from([(who, 3u64)]);
+
+      assert!(
+         account_info_from_prefetch(eoa, &balances, &codes, &nonces).is_some(),
+         "every read answered, so the account is prefetched"
+      );
+
+      assert!(
+         account_info_from_prefetch(eoa, &HashMap::new(), &codes, &nonces).is_none(),
+         "a failed balance read is not a zero balance"
+      );
+      assert!(
+         account_info_from_prefetch(eoa, &balances, &HashMap::new(), &nonces).is_none(),
+         "a failed code read is not an empty code"
+      );
+      assert!(
+         account_info_from_prefetch(eoa, &balances, &codes, &HashMap::new()).is_none(),
+         "a failed nonce read is not nonce zero"
+      );
+   }
+
+   /// Zero is the node's answer for an empty account, not a missing entry, so it is still
+   /// prefetched. A contract carries no nonce read at all.
+   #[test]
+   fn an_empty_answer_is_still_prefetched() {
+      let eoa = addr(0x22);
+      let token = addr(0x33);
+
+      let balances = HashMap::from([(eoa, U256::ZERO), (token, U256::ZERO)]);
+      let codes = HashMap::from([
+         (eoa, Bytes::default()),
+         (token, Bytes::from_static(&[0x60, 0x00])),
+      ]);
+      let nonces = HashMap::from([(eoa, 0u64)]);
+
+      let info = account_info_from_prefetch(
+         AccountPrefetch::eoa(eoa),
+         &balances,
+         &codes,
+         &nonces,
+      )
+      .expect("a zero balance is an answer, not a failure");
+
+      assert_eq!(info.info.balance, U256::ZERO);
+      assert_eq!(info.info.nonce, 0);
+      assert_eq!(info.info.code_hash, KECCAK256_EMPTY);
+
+      let info = account_info_from_prefetch(
+         AccountPrefetch::contract(token),
+         &balances,
+         &codes,
+         &nonces,
+      )
+      .expect("a contract has no nonce read to fail");
+
+      assert_eq!(info.info.nonce, 0);
+      assert_eq!(info.info.code_hash, keccak256([0x60, 0x00]));
+   }
 }
