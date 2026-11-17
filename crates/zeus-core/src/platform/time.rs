@@ -178,14 +178,12 @@ mod tests {
    use super::*;
 
    #[test]
-   fn a_mixed_variant_pair_is_not_equal() {
+   fn ordering_agrees_with_equality_for_mixed_units() {
+      // Case: a_mixed_variant_pair_is_not_equal
       let secs = TimeStamp::Seconds(1);
       let millis = TimeStamp::Millis(1_500);
       assert_ne!(secs.cmp(&millis), std::cmp::Ordering::Equal);
-   }
 
-   #[test]
-   fn ordering_agrees_with_equality_for_mixed_units() {
       assert_eq!(
          TimeStamp::Seconds(1).cmp(&TimeStamp::Millis(1000)),
          std::cmp::Ordering::Less

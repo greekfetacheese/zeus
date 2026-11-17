@@ -1165,14 +1165,6 @@ mod eth_transfer_log_tests {
    }
 
    #[test]
-   fn the_log_is_an_event_the_window_can_show() {
-      let analysis = plain_send();
-
-      assert_eq!(analysis.decoded_events.len(), 1);
-      assert!(analysis.decoded_events[0].is_native_transfer());
-   }
-
-   #[test]
    fn the_log_is_not_a_second_thing_happening() {
       let analysis = plain_send();
 

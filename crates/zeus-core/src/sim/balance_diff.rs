@@ -346,30 +346,17 @@ mod tests {
             address!("0x2222222222222222222222222222222222222222"),
          ]
       );
+
+      // Case: candidates_cap_at_max
+      {
+         let portfolio: Vec<Address> = (1u8..=80).map(Address::repeat_byte).collect();
+         let got = collect_token_candidates(portfolio, Address::ZERO, []);
+         assert_eq!(got.len(), MAX_TOKEN_CANDIDATES);
+      }
    }
 
    #[test]
-   fn candidates_cap_at_max() {
-      let portfolio: Vec<Address> = (1u8..=80).map(Address::repeat_byte).collect();
-      let got = collect_token_candidates(portfolio, Address::ZERO, []);
-      assert_eq!(got.len(), MAX_TOKEN_CANDIDATES);
-   }
-
-   #[test]
-   fn native_equal_is_none() {
-      assert!(
-         native_change(
-            1,
-            NumericValue::default(),
-            U256::from(1u64),
-            U256::from(1u64)
-         )
-         .is_none()
-      );
-   }
-
-   #[test]
-   fn native_receive() {
+   fn native_and_token_amounts_are_formatted_in_their_own_decimals() {
       let change = native_change(
          1,
          NumericValue::default(),
@@ -380,26 +367,26 @@ mod tests {
       assert!(change.is_increase());
       assert_eq!(change.currency.symbol(), "ETH");
       assert_eq!(change.abs_delta().f64(), 1.0);
+
+      // Case: token_burn_is_decrease
+      {
+         let one = U256::from(10u64).pow(U256::from(18u64));
+         let hundred = one * U256::from(100u64);
+         let change = token_change(
+            wbtest(),
+            NumericValue::default(),
+            hundred,
+            U256::ZERO,
+         )
+         .unwrap();
+         assert!(!change.is_increase());
+         assert_eq!(change.abs_delta().f64(), 100.0);
+         assert_eq!(change.currency.symbol(), "WBTEST");
+      }
    }
 
    #[test]
-   fn token_burn_is_decrease() {
-      let one = U256::from(10u64).pow(U256::from(18u64));
-      let hundred = one * U256::from(100u64);
-      let change = token_change(
-         wbtest(),
-         NumericValue::default(),
-         hundred,
-         U256::ZERO,
-      )
-      .unwrap();
-      assert!(!change.is_increase());
-      assert_eq!(change.abs_delta().f64(), 100.0);
-      assert_eq!(change.currency.symbol(), "WBTEST");
-   }
-
-   #[test]
-   fn spoofed_mint_without_balance_change_is_omitted() {
+   fn a_row_needs_a_real_change_in_wei() {
       // Fake Airdrop: Transfer(0x0 → signer, 1e18) on a non-token does not
       // change balanceOf. Equal wei → no row, regardless of the log.
       assert!(
@@ -411,6 +398,19 @@ mod tests {
          )
          .is_none()
       );
+
+      // Case: native_equal_is_none
+      {
+         assert!(
+            native_change(
+               1,
+               NumericValue::default(),
+               U256::from(1u64),
+               U256::from(1u64)
+            )
+            .is_none()
+         );
+      }
    }
 
    #[test]
@@ -668,20 +668,33 @@ mod tests {
             erc721_candidate(collection(), 8)
          ]
       );
-   }
 
-   /// A mint and a burn put the signer on one side too, so they need no special case.
-   #[test]
-   fn mints_and_burns_are_candidates() {
-      let logs = [
-         erc721_log(collection(), Address::ZERO, owner(), 7),
-         erc721_log(collection(), owner(), Address::ZERO, 8),
-      ];
+      // Case: mints_and_burns_are_candidates
+      // A mint and a burn put the signer on one side too, so they need no special case.
+      {
+         let logs = [
+            erc721_log(collection(), Address::ZERO, owner(), 7),
+            erc721_log(collection(), owner(), Address::ZERO, 8),
+         ];
 
-      assert_eq!(
-         collect_nft_balance_candidates(owner(), &logs, []).len(),
-         2
-      );
+         assert_eq!(
+            collect_nft_balance_candidates(owner(), &logs, []).len(),
+            2
+         );
+      }
+
+      // Case: single_1155_transfers_are_candidates
+      {
+         let logs = [
+            erc1155_single_log(collection(), owner(), stranger(), 5),
+            erc1155_single_log(collection(), stranger(), stranger(), 6),
+         ];
+
+         assert_eq!(
+            collect_nft_balance_candidates(owner(), &logs, []),
+            vec![erc1155_candidate(collection(), 5)]
+         );
+      }
    }
 
    /// A batch names every id in one log, so all of them are candidates.
@@ -697,19 +710,6 @@ mod tests {
       let got = collect_nft_balance_candidates(owner(), &logs, []);
       assert_eq!(got.len(), 3);
       assert_eq!(got[2], erc1155_candidate(collection(), 3));
-   }
-
-   #[test]
-   fn single_1155_transfers_are_candidates() {
-      let logs = [
-         erc1155_single_log(collection(), owner(), stranger(), 5),
-         erc1155_single_log(collection(), stranger(), stranger(), 6),
-      ];
-
-      assert_eq!(
-         collect_nft_balance_candidates(owner(), &logs, []),
-         vec![erc1155_candidate(collection(), 5)]
-      );
    }
 
    /// Held ids are appended after the logs and deduped against them.

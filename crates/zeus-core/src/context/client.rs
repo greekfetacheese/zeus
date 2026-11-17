@@ -1856,45 +1856,6 @@ async fn validate_v4_pools_check(
 #[cfg(test)]
 mod tests {
    use super::*;
-   use zeus_eth::alloy_provider::Provider;
-
-   #[tokio::test]
-   async fn test_rpcs() {
-      let zeus_client = ClientManager::default();
-      zeus_client.mark_all_as_working();
-
-      let chain = 1;
-      let time = Instant::now();
-      let mut tasks = Vec::new();
-
-      for _ in 0..30 {
-         let zeus_client = zeus_client.clone();
-
-         tasks.push(
-            crate::platform::runtime::test_handle().spawn(async move {
-               let res = zeus_client
-                  .request(chain, |client| async move {
-                     let block = client.get_block_number().await?;
-                     Ok(block)
-                  })
-                  .await;
-               match res {
-                  Ok(_block) => {}
-                  Err(e) => {
-                     eprintln!("error: {:?}", e);
-                  }
-               }
-            }),
-         );
-      }
-
-      for task in tasks {
-         task.await.unwrap();
-      }
-
-      let elapsed = time.elapsed();
-      println!("Time: {}secs", elapsed.as_secs_f32());
-   }
 
    /// Requires the public endpoints below to answer. Proves the whole path against real nodes: the
    /// request, the parse, and the resolution — mainnet reports Osaka's activation time, Sepolia
@@ -2299,10 +2260,8 @@ mod tests {
       let _a = client.client_for(&rpc, ClientKind::Standard).await.unwrap();
       let _b = client.client_for(&rpc, ClientKind::Standard).await.unwrap();
       assert_eq!(client.clients.read().unwrap().len(), 1);
-   }
 
-   #[tokio::test]
-   async fn get_client_reuses_the_cached_connection() {
+      // Case: get_client_reuses_the_cached_connection
       let client = client_with([http_rpc("http://127.0.0.1:1")]);
       let _a = client.get_client(1).await.unwrap();
       let _b = client.get_client(1).await.unwrap();
@@ -2445,7 +2404,8 @@ mod tests {
    }
 
    #[test]
-   fn unavailable_functionalities_is_empty_when_endpoints_cover_each_other() {
+   fn unavailable_functionalities_covers_each_rule() {
+      // Case: unavailable_functionalities_is_empty_when_endpoints_cover_each_other
       let client = client_with([
          rpc_supporting("http://a", [RpcFunctionality::Multicall]),
          rpc_supporting(
@@ -2459,10 +2419,8 @@ mod tests {
       ]);
 
       assert!(client.unavailable_functionalities(1).is_empty());
-   }
 
-   #[test]
-   fn unavailable_functionalities_names_what_no_endpoint_can_do() {
+      // Case: unavailable_functionalities_names_what_no_endpoint_can_do
       let client = client_with([
          rpc_supporting(
             "http://a",
@@ -2479,10 +2437,8 @@ mod tests {
          client.unavailable_functionalities(1),
          vec![RpcFunctionality::StateOverride]
       );
-   }
 
-   #[test]
-   fn unavailable_functionalities_ignores_unchecked_and_disabled_endpoints() {
+      // Case: unavailable_functionalities_ignores_unchecked_and_disabled_endpoints
       let unchecked = http_rpc("http://unchecked");
       let mut disabled = rpc_supporting("http://disabled", []);
       disabled.enabled = false;

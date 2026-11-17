@@ -460,7 +460,10 @@ mod tests {
    }
 
    #[test]
-   fn include_path_resolves_relative() {
+   fn include_rejects_absolute_url_and_escape() {
+      use super::registry::is_allowed_registry_path;
+
+      // Case: include_path_resolves_relative
       let path = registry::resolve_include_for_tests(
          "registry/uniswap/eip712-uniswap-permit2.json",
          "common-eip712-uniswap.json",
@@ -469,11 +472,7 @@ mod tests {
          path,
          "registry/uniswap/common-eip712-uniswap.json"
       );
-   }
 
-   #[test]
-   fn include_rejects_absolute_url_and_escape() {
-      use super::registry::is_allowed_registry_path;
       let url = registry::resolve_include_for_tests(
          "registry/uniswap/eip712-uniswap-permit2.json",
          "https://evil.example/x.json",

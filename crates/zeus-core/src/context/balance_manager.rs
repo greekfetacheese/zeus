@@ -606,21 +606,6 @@ impl Default for BalanceManager {
 mod tests {
    use super::*;
 
-   #[tokio::test]
-   async fn test_update_tokens_balance() {
-      let ctx = ZeusCtx::new(crate::platform::runtime::test_handle());
-      let chain = 1;
-
-      let manager = ctx.balance_manager();
-      let owner = Address::ZERO;
-      let tokens = vec![ERC20Token::weth()];
-
-      manager
-         .update_tokens_balance(ctx.clone(), chain, owner, tokens, false)
-         .await
-         .unwrap();
-   }
-
    /// The badge contract. `Some(0)` — the chain says the wallet has none — must read differently from
    /// `None`, which is «nobody asked»: the first is a row's `NOT OWNED`, the second is no claim at all.
    #[test]

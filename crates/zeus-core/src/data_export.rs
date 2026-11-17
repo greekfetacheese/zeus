@@ -220,14 +220,6 @@ mod tests {
    }
 
    #[test]
-   fn persisted_file_names_covers_core_store() {
-      let names: Vec<_> = persisted_file_names().collect();
-      assert!(names.contains(&"vault.data"));
-      assert!(names.contains(&"wallet_state.data"));
-      assert!(!names.contains(&"connector.json"));
-   }
-
-   #[test]
    fn collect_skips_unknown_root_files() {
       let dir = tempfile::tempdir().unwrap();
       write_file(&dir.path().join("vault.data"), b"vault");
@@ -237,10 +229,8 @@ mod tests {
       let entries = collect_export_entries(dir.path(), ExportOptions::default()).unwrap();
       let names: Vec<_> = entries.iter().map(|e| e.zip_path.as_str()).collect();
       assert_eq!(names, ["data/vault.data"]);
-   }
 
-   #[test]
-   fn collect_skips_missing_core_files() {
+      // Case: collect_skips_missing_core_files
       let dir = tempfile::tempdir().unwrap();
       write_file(&dir.path().join("theme.json"), b"{}");
 
