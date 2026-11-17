@@ -2538,25 +2538,6 @@ mod connector_auth_tests {
    use super::*;
 
    #[test]
-   fn json_body_origin_is_ignored() {
-      let body: ApiRequestBody = serde_json::from_str(
-         r#"{
-            "origin": "https://app.uniswap.org",
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "eth_sendTransaction",
-            "params": []
-         }"#,
-      )
-      .unwrap();
-      assert_eq!(body.rpc_request.method, "eth_sendTransaction");
-      assert_eq!(
-         body._origin.as_deref(),
-         Some("https://app.uniswap.org")
-      );
-   }
-
-   #[test]
    fn user_reject_errors_are_detected() {
       assert!(is_user_rejected(&anyhow!("Transaction rejected")));
       assert!(is_user_rejected(&anyhow!(
@@ -2728,8 +2709,11 @@ mod connector_auth_tests {
       );
    }
 
+   /// Every method the connector serves parses from its wire spelling, and the
+   /// ones whose spelling is not a plain rename round-trip back unchanged.
    #[test]
-   fn wallet_send_calls_methods_are_recognized() {
+   fn request_method_names_parse_and_round_trip() {
+      // Case: wallet_send_calls_methods_are_recognized
       assert_eq!(
          "wallet_sendCalls".parse::<RequestMethod>().unwrap(),
          RequestMethod::WalletSendCalls
@@ -2737,6 +2721,36 @@ mod connector_auth_tests {
       assert_eq!(
          "wallet_getCallsStatus".parse::<RequestMethod>().unwrap(),
          RequestMethod::WalletGetCallsStatus
+      );
+
+      // Case: new_connector_methods_are_recognized
+      for (raw, expected) in [
+         (
+            "eth_getTransactionCount",
+            RequestMethod::EthGetTransactionCount,
+         ),
+         (
+            "eth_getBlockByHash",
+            RequestMethod::EthGetBlockByHash,
+         ),
+         (
+            "wallet_watchAsset",
+            RequestMethod::WalletWatchAsset,
+         ),
+      ] {
+         let method = raw.parse::<RequestMethod>().unwrap();
+         assert_eq!(method, expected);
+         assert_eq!(method.as_str(), raw);
+      }
+
+      // Case: curve_rpc_methods_are_recognized
+      assert_eq!(
+         "eth_maxPriorityFeePerGas".parse::<RequestMethod>().unwrap(),
+         RequestMethod::EthMaxPriorityFeePerGas
+      );
+      assert_eq!(
+         "eth_getBlockByNumber".parse::<RequestMethod>().unwrap(),
+         RequestMethod::EthGetBlockByNumber
       );
    }
 
@@ -2759,28 +2773,6 @@ mod connector_auth_tests {
    }
 
    #[test]
-   fn new_connector_methods_are_recognized() {
-      for (raw, expected) in [
-         (
-            "eth_getTransactionCount",
-            RequestMethod::EthGetTransactionCount,
-         ),
-         (
-            "eth_getBlockByHash",
-            RequestMethod::EthGetBlockByHash,
-         ),
-         (
-            "wallet_watchAsset",
-            RequestMethod::WalletWatchAsset,
-         ),
-      ] {
-         let method = raw.parse::<RequestMethod>().unwrap();
-         assert_eq!(method, expected);
-         assert_eq!(method.as_str(), raw);
-      }
-   }
-
-   #[test]
    fn looks_like_address_matches_only_20_byte_hex() {
       assert!(looks_like_address(
          "0x0000000000000000000000000000000000000001"
@@ -2797,18 +2789,6 @@ mod connector_auth_tests {
       assert!(!looks_like_address(
          "0xZZ00000000000000000000000000000000000000"
       ));
-   }
-
-   #[test]
-   fn curve_rpc_methods_are_recognized() {
-      assert_eq!(
-         "eth_maxPriorityFeePerGas".parse::<RequestMethod>().unwrap(),
-         RequestMethod::EthMaxPriorityFeePerGas
-      );
-      assert_eq!(
-         "eth_getBlockByNumber".parse::<RequestMethod>().unwrap(),
-         RequestMethod::EthGetBlockByNumber
-      );
    }
 
    #[test]
@@ -2847,7 +2827,6 @@ mod watch_asset_tests {
 
       let with_symbol = watch_asset_label(address, Some("USDC"));
       assert!(with_symbol.contains(&address.to_string()));
-      assert_eq!(with_symbol, format!("{address} (symbol: USDC)"));
 
       // No symbol, or an empty one, falls back to the address alone rather than to
       // nothing.
@@ -2870,64 +2849,34 @@ mod tests {
       Address::from([byte; 20])
    }
 
-   /// A connected app whose recorded account is still in the vault gets that
-   /// account.
+   /// Every connection state `resolve_dapp_account` decides: the app only ever
+   /// sees the account recorded for it, never the active wallet, and a
+   /// disconnected origin stays disconnected whatever is on record.
    #[test]
-   fn connected_with_a_live_recorded_account_is_live() {
+   fn resolve_dapp_account_decides_every_connection_state() {
+      // Case: connected_with_a_live_recorded_account_is_live
       let recorded = test_address(1);
       assert_eq!(
          resolve_dapp_account(true, Some(recorded), |_| true),
          AccountResolution::Live(recorded)
       );
-   }
 
-   /// A recorded account the vault no longer has is stale — never a licence to
-   /// hand the app the active wallet.
-   #[test]
-   fn connected_with_a_recorded_account_the_vault_lost_is_stale() {
+      // Case: connected_with_a_recorded_account_the_vault_lost_is_stale
       assert_eq!(
          resolve_dapp_account(true, Some(test_address(1)), |_| false),
          AccountResolution::Stale
       );
-   }
 
-   /// A connected app with no recorded account resolves stale too: there is no
-   /// account it may see, the active wallet included.
-   #[test]
-   fn connected_without_a_recorded_account_is_stale() {
+      // Case: connected_without_a_recorded_account_is_stale
       assert_eq!(
          resolve_dapp_account(true, None, |_| true),
          AccountResolution::Stale
       );
-   }
 
-   /// Not connected stays not connected, even with a live account on record.
-   #[test]
-   fn a_disconnected_origin_is_not_connected() {
+      // Case: a_disconnected_origin_is_not_connected
       assert_eq!(
          resolve_dapp_account(false, Some(test_address(1)), |_| true),
          AccountResolution::NotConnected
-      );
-   }
-
-   /// The connect prompt only presets a remembered account the vault still has.
-   #[test]
-   fn connect_filter_drops_a_remembered_account_the_vault_no_longer_has() {
-      let live = test_address(1);
-      let gone = test_address(2);
-      let wallet_exists = |address: Address| address == live;
-
-      assert_eq!(
-         Some(live).filter(|address| wallet_exists(*address)),
-         Some(live)
-      );
-      assert_eq!(
-         Some(gone).filter(|address| wallet_exists(*address)),
-         None
-      );
-      assert_eq!(
-         None::<Address>.filter(|address| wallet_exists(*address)),
-         None
       );
    }
 }

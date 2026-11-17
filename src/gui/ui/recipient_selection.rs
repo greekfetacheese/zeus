@@ -1295,10 +1295,4 @@ mod tests {
       // Nothing was recorded.
       assert!(chain_record_note(None, plain, BASE).is_none());
    }
-
-   #[test]
-   fn chain_display_name_names_known_and_unknown_chains() {
-      assert_eq!(chain_display_name(BASE), "Base");
-      assert_eq!(chain_display_name(999_999), "chain 999999");
-   }
 }

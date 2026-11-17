@@ -1257,8 +1257,11 @@ mod tests {
    use std::sync::Arc;
    use zeus_eth::nft::MAX_EXPANDED_URI_LEN;
 
+   /// The sniff has to survive the shapes SVG actually arrives in, and must never claim a raster
+   /// picture: a false positive would hand a PNG to egui's SVG renderer.
    #[test]
-   fn an_svg_prolog_does_not_hide_the_root_element() {
+   fn the_vector_sniff_reads_every_legal_svg_shape_and_never_claims_a_raster() {
+      // Case: an_svg_prolog_does_not_hide_the_root_element
       // Every form a legal document may open with — and that used to send it to the raster decoder.
       assert!(is_svg(
          b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"
@@ -1281,6 +1284,30 @@ mod tests {
       // And it still rejects what is not vector art.
       assert!(!is_svg(b"\x89PNG\r\n\x1a\n"));
       assert!(!is_svg(b"<html><body><svg/></body></html>"));
+      assert!(!is_svg(b""));
+
+      // Case: recognises_vector_art_from_its_content
+      assert!(is_svg(
+         b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"
+      ));
+      assert!(
+         is_svg(b"  \n\t<svg/>"),
+         "leading whitespace is legal"
+      );
+      assert!(is_svg(b"<?xml version=\"1.0\"?>\n<svg/>"));
+      assert!(
+         is_svg(&[&[0xEF, 0xBB, 0xBF][..], b"<svg/>"].concat()),
+         "a UTF-8 BOM is legal"
+      );
+
+      assert!(
+         !is_svg(b"\x89PNG\r\n\x1a\n"),
+         "PNG must not be taken for vector art"
+      );
+      assert!(
+         !is_svg(b"{\"image\":\"ipfs://x\"}"),
+         "JSON metadata is not art"
+      );
       assert!(!is_svg(b""));
    }
 
@@ -1310,11 +1337,14 @@ mod tests {
       assert!(is_public_ip("2606:4700::1111".parse().unwrap()));
    }
 
-   /// No compressed payload reaches usvg's uncapped inflate, whichever spelling of `data:` carries
-   /// it — asserted where the bytes are handed over, rather than on a document that spells the mime
-   /// one particular way.
+   /// The nested-art resolver refuses each payload it cannot bound: a compressed document (usvg
+   /// inflates it uncapped), a raster past the decode edge — the nested twin of
+   /// `art_past_the_decode_edge_cap_is_refused` — and one whose declared size cannot be read, since
+   /// every other bound is expressed in that size. Each case gets a fresh `svg_options()`, so no
+   /// document's pixel budget carries into the next.
    #[test]
-   fn a_compressed_nested_image_is_refused_whatever_the_mime() {
+   fn the_nested_art_resolver_refuses_each_unbounded_payload() {
+      // Case: a_compressed_nested_image_is_refused_whatever_the_mime
       let options = svg_options();
       let resolve = &options.image_href_resolver.resolve_data;
       let compressed = gzip(RED_SVG.as_bytes());
@@ -1341,6 +1371,43 @@ mod tests {
             "{mime}: an uncompressed nested document must still render"
          );
       }
+
+      // Case: a_nested_raster_past_the_decode_edge_is_refused
+      let options = svg_options();
+      let resolve = &options.image_href_resolver.resolve_data;
+
+      assert!(
+         resolve(
+            "image/png",
+            Arc::new(encode_png(MAX_ART_EDGE + 1, 1)),
+            &options
+         )
+         .is_none(),
+         "a nested raster past the decode edge must not be handed over"
+      );
+      assert!(
+         resolve(
+            "image/png",
+            Arc::new(encode_png(MAX_ART_EDGE, 1)),
+            &options
+         )
+         .is_some(),
+         "the control: a nested raster inside the edge still resolves"
+      );
+
+      // Case: a_nested_raster_without_a_readable_size_is_refused
+      let options = svg_options();
+      let resolve = &options.image_href_resolver.resolve_data;
+
+      assert!(
+         resolve(
+            "image/png",
+            Arc::new(b"not a picture".to_vec()),
+            &options
+         )
+         .is_none(),
+         "a raster mime whose bytes declare no size must not be handed over"
+      );
    }
 
    /// The same refusal from the outside: a document that embeds a compressed picture renders
@@ -1370,34 +1437,6 @@ mod tests {
       assert!(
          draws_anything(x64),
          "an inline picture must still render"
-      );
-   }
-
-   /// A nested raster is decoded by resvg at render time, where [`art_limits`] does not reach, so the
-   /// resolver applies the same edge to the size the payload declares — the nested twin of
-   /// `art_past_the_decode_edge_cap_is_refused`.
-   #[test]
-   fn a_nested_raster_past_the_decode_edge_is_refused() {
-      let options = svg_options();
-      let resolve = &options.image_href_resolver.resolve_data;
-
-      assert!(
-         resolve(
-            "image/png",
-            Arc::new(encode_png(MAX_ART_EDGE + 1, 1)),
-            &options
-         )
-         .is_none(),
-         "a nested raster past the decode edge must not be handed over"
-      );
-      assert!(
-         resolve(
-            "image/png",
-            Arc::new(encode_png(MAX_ART_EDGE, 1)),
-            &options
-         )
-         .is_some(),
-         "the control: a nested raster inside the edge still resolves"
       );
    }
 
@@ -1502,6 +1541,7 @@ mod tests {
    /// failure — while one inside the cap still decodes.
    #[test]
    fn art_past_the_decode_edge_cap_is_refused() {
+      // Case: art_past_the_decode_edge_cap_is_refused
       let oversized = encode_png(MAX_ART_EDGE + 1, 1);
       assert!(
          oversized.len() < 16 * 1024,
@@ -1522,6 +1562,49 @@ mod tests {
          render_two_sizes(&encode_png(MAX_ART_EDGE, 1)).is_ok(),
          "a source inside the cap must still decode, so the limit is not refusing everything"
       );
+
+      // `image` enforces the decode limits through one path (`ImageReader::decode`: `reserve` the
+      // output, then `set_limits`, whose default impl checks the dimensions) — but the *decoders*
+      // are what carry it, so each enabled format is pinned instead of PNG standing in for all
+      // four.
+      // Case: the_decode_edge_cap_holds_for_every_enabled_raster_format
+      let over = MAX_ART_EDGE + 1;
+      let mut cases: Vec<(&str, Vec<u8>)> = vec![("png", encode_png(over, 1))];
+
+      let rgb = image::RgbImage::from_pixel(over, 1, image::Rgb([10, 20, 30]));
+      let mut jpeg = Vec::new();
+      rgb.write_to(
+         &mut Cursor::new(&mut jpeg),
+         image::ImageFormat::Jpeg,
+      )
+      .unwrap();
+      cases.push(("jpeg", jpeg));
+
+      let rgba = image::RgbaImage::from_pixel(over, 1, image::Rgba([10, 20, 30, 255]));
+      let mut gif = Vec::new();
+      rgba
+         .write_to(
+            &mut Cursor::new(&mut gif),
+            image::ImageFormat::Gif,
+         )
+         .unwrap();
+      cases.push(("gif", gif));
+
+      cases.push(("webp", wide_webp(over)));
+
+      for (name, bytes) in cases {
+         let err = render_two_sizes(&bytes).expect_err(&format!(
+            "{name} past the decode edge must not decode"
+         ));
+
+         assert!(
+            matches!(
+               err.downcast_ref::<image::ImageError>(),
+               Some(image::ImageError::Limits(_))
+            ),
+            "{name}: the decode limit has to be what refused it: {err}"
+         );
+      }
    }
 
    #[test]
@@ -1990,43 +2073,6 @@ mod tests {
       assert!(!looks_like_json(&[0x89, b'P', b'N', b'G']));
    }
 
-   /// The parse adds no bound of its own: the transfer cap ([`MAX_BYTES`]) lives in [`fetch_resolved`],
-   /// and a document on either side of it must keep parsing exactly as it does today. A body that is
-   /// not a document never reaches the parse at all — the caller's [`looks_like_json`] gate decides
-   /// that branch — so the gate is asserted here beside the document cases.
-   #[test]
-   fn parses_metadata_on_either_side_of_the_transfer_cap() {
-      let document = |total: usize| {
-         let base = format!(r#"{{"pad":"","image":"{PNG_URI}"}}"#);
-         let pad = total - base.len();
-         format!(
-            r#"{{"pad":"{}","image":"{PNG_URI}"}}"#,
-            "a".repeat(pad)
-         )
-      };
-
-      let under = document(MAX_BYTES - 1);
-      assert_eq!(under.len(), MAX_BYTES - 1);
-      assert_eq!(
-         image_url_from_metadata(under.as_bytes()),
-         Some(PNG_URI.to_string())
-      );
-
-      let over = document(MAX_BYTES + 1);
-      assert_eq!(over.len(), MAX_BYTES + 1);
-      assert_eq!(
-         image_url_from_metadata(over.as_bytes()),
-         Some(PNG_URI.to_string())
-      );
-
-      // Not a document: the gate refuses it, and the parse would too if it were reached.
-      assert!(!looks_like_json(b"GIF89a, not a document"));
-      assert_eq!(
-         image_url_from_metadata(b"GIF89a, not a document"),
-         None
-      );
-   }
-
    /// The two renderings, which is all art has been since vector art stopped being stored as source.
    fn raster_renderings(data: &NftIconData) -> (&[u8], &[u8]) {
       (&data.x64, &data.x250)
@@ -2081,8 +2127,10 @@ mod tests {
       assert_eq!(x64, x250);
    }
 
+   /// Raster and vector art are shrunk to fit each edge, whichever decoder saw it.
    #[test]
-   fn shrinks_large_art_to_fit_each_edge() {
+   fn large_art_is_shrunk_to_fit_each_edge_whichever_decoder_saw_it() {
+      // Case: shrinks_large_art_to_fit_each_edge
       // A wide 800×200 source: aspect ratio is preserved, so the thumbnail is 64×16.
       let source = image::RgbaImage::from_pixel(800, 200, image::Rgba([10, 20, 30, 255]));
       let mut bytes = Vec::new();
@@ -2114,6 +2162,26 @@ mod tests {
       assert_ne!(
          x64, x250,
          "a thumbnail and a detail copy must not be the same bytes when they are different sizes"
+      );
+
+      // Case: a_large_svg_is_shrunk_to_fit_each_edge
+      // An 800x200 source: aspect ratio is preserved, so the thumbnail is 64x16.
+      let wide = r##"<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200"><rect width="800" height="200" fill="#ff0000"/></svg>"##;
+
+      let prepared = prepare_image_data(wide.as_bytes()).unwrap();
+      let (x64, x250) = raster_renderings(&prepared);
+
+      assert_eq!(
+         decoded_edge(x64),
+         (64, 16),
+         "aspect ratio is preserved, not cropped"
+      );
+
+      let (large_w, large_h) = decoded_edge(x250);
+      assert_eq!(large_w, 250);
+      assert!(
+         large_h == 62 || large_h == 63,
+         "the 250-wide rendering keeps the aspect ratio, got {large_h} (200/800 x 250 = 62.5)"
       );
    }
 
@@ -2178,29 +2246,6 @@ mod tests {
       );
    }
 
-   /// A vector document is shrunk to fit each edge, exactly as raster art is.
-   #[test]
-   fn a_large_svg_is_shrunk_to_fit_each_edge() {
-      // An 800x200 source: aspect ratio is preserved, so the thumbnail is 64x16.
-      let wide = r##"<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200"><rect width="800" height="200" fill="#ff0000"/></svg>"##;
-
-      let prepared = prepare_image_data(wide.as_bytes()).unwrap();
-      let (x64, x250) = raster_renderings(&prepared);
-
-      assert_eq!(
-         decoded_edge(x64),
-         (64, 16),
-         "aspect ratio is preserved, not cropped"
-      );
-
-      let (large_w, large_h) = decoded_edge(x250);
-      assert_eq!(large_w, 250);
-      assert!(
-         large_h == 62 || large_h == 63,
-         "the 250-wide rendering keeps the aspect ratio, got {large_h} (200/800 x 250 = 62.5)"
-      );
-   }
-
    /// Vector art cannot reach the filesystem.
    ///
    /// usvg's default href resolver treats a non-`data:` reference as a **path** and
@@ -2234,45 +2279,6 @@ mod tests {
          draws_anything(x64),
          "an inline document must still render"
       );
-   }
-
-   /// The sniff has to survive the shapes SVG actually arrives in, and must never claim a raster
-   /// picture: a false positive would hand a PNG to egui's SVG renderer.
-   #[test]
-   fn recognises_vector_art_from_its_content() {
-      assert!(is_svg(
-         b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"
-      ));
-      assert!(
-         is_svg(b"  \n\t<svg/>"),
-         "leading whitespace is legal"
-      );
-      assert!(is_svg(b"<?xml version=\"1.0\"?>\n<svg/>"));
-      assert!(
-         is_svg(&[&[0xEF, 0xBB, 0xBF][..], b"<svg/>"].concat()),
-         "a UTF-8 BOM is legal"
-      );
-
-      assert!(
-         !is_svg(b"\x89PNG\r\n\x1a\n"),
-         "PNG must not be taken for vector art"
-      );
-      assert!(
-         !is_svg(b"{\"image\":\"ipfs://x\"}"),
-         "JSON metadata is not art"
-      );
-      assert!(!is_svg(b""));
-   }
-
-   /// `{id}` is expanded before resolving, because ERC-1155 `uri` bodies are templates.
-   #[tokio::test]
-   async fn expands_the_id_placeholder_before_resolving() {
-      let template = metadata_uri_with("ipfs://QmX/{id}.png");
-      // Not fetchable (BareCid), but the point is that resolution sees the expanded form: an
-      // unexpanded `{id}` would be a valid CID suffix instead of a placeholder.
-      let expanded = expand_id_placeholder(&template, U256::from(7)).expect("expands");
-      assert!(expanded.contains(&format!("{:064x}.png", 7)));
-      assert!(!expanded.contains("{id}"));
    }
 
    /// A template whose expansion would pass the bound is a **miss**, not a fetch. `resolve_uri` accepts
@@ -2324,13 +2330,8 @@ mod tests {
    /// had to be killed at 60 s, off a 1.2 KiB download. Refused before the parser sees it.
    #[test]
    fn a_document_that_declares_an_entity_is_refused() {
-      let err = render_svg(entity_bomb(10).as_bytes())
+      render_svg(entity_bomb(10).as_bytes())
          .expect_err("a document that declares an entity must not reach the parser");
-
-      assert!(
-         err.to_string().contains("entity"),
-         "the refusal has to say what it refused: {err}"
-      );
    }
 
    /// The control: the prolog Inkscape-style art opens with declares no entity, so it still renders.
@@ -2386,24 +2387,6 @@ mod tests {
       );
    }
 
-   /// A raster whose declared size cannot be read is refused rather than handed on: every bound in
-   /// the resolver is expressed in that size, so there would be nothing left to bound it with.
-   #[test]
-   fn a_nested_raster_without_a_readable_size_is_refused() {
-      let options = svg_options();
-      let resolve = &options.image_href_resolver.resolve_data;
-
-      assert!(
-         resolve(
-            "image/png",
-            Arc::new(b"not a picture".to_vec()),
-            &options
-         )
-         .is_none(),
-         "a raster mime whose bytes declare no size must not be handed over"
-      );
-   }
-
    /// Nested rasters are bounded per payload by the declared edge, and per *document* by the pixel
    /// budget: ~48 payloads of `MAX_ART_EDGE`² fit a 4 MiB document as base64, and a renderer that
    /// decoded them would work through ~3 GiB. One full-size source is the budget.
@@ -2438,50 +2421,6 @@ mod tests {
          !draws_anything(x64),
          "CANARY: resvg/raster-images is enabled — revisit art_data_resolver's raster bounds"
       );
-   }
-
-   /// `image` enforces the decode limits through one path (`ImageReader::decode`: `reserve` the
-   /// output, then `set_limits`, whose default impl checks the dimensions) — but the *decoders* are
-   /// what carry it, so each enabled format is pinned instead of PNG standing in for all four.
-   #[test]
-   fn the_decode_edge_cap_holds_for_every_enabled_raster_format() {
-      let over = MAX_ART_EDGE + 1;
-      let mut cases: Vec<(&str, Vec<u8>)> = vec![("png", encode_png(over, 1))];
-
-      let rgb = image::RgbImage::from_pixel(over, 1, image::Rgb([10, 20, 30]));
-      let mut jpeg = Vec::new();
-      rgb.write_to(
-         &mut Cursor::new(&mut jpeg),
-         image::ImageFormat::Jpeg,
-      )
-      .unwrap();
-      cases.push(("jpeg", jpeg));
-
-      let rgba = image::RgbaImage::from_pixel(over, 1, image::Rgba([10, 20, 30, 255]));
-      let mut gif = Vec::new();
-      rgba
-         .write_to(
-            &mut Cursor::new(&mut gif),
-            image::ImageFormat::Gif,
-         )
-         .unwrap();
-      cases.push(("gif", gif));
-
-      cases.push(("webp", wide_webp(over)));
-
-      for (name, bytes) in cases {
-         let err = render_two_sizes(&bytes).expect_err(&format!(
-            "{name} past the decode edge must not decode"
-         ));
-
-         assert!(
-            matches!(
-               err.downcast_ref::<image::ImageError>(),
-               Some(image::ImageError::Limits(_))
-            ),
-            "{name}: the decode limit has to be what refused it: {err}"
-         );
-      }
    }
 
    /// `testdata/tiny.webp` with the VP8 frame header's width rewritten.

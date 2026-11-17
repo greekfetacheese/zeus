@@ -50,88 +50,79 @@ mod tests {
       })
    }
 
-   /// A Uniswap V3 mint arrives as the position manager's `Transfer` of the position NFT **and**
-   /// `IncreaseLiquidity`. That is one intent, and the one worth showing is the liquidity change —
-   /// ranking it as the NFT is what the confirm window, the history row and the notification would
-   /// all have claimed.
-   ///
-   /// The NFT is a *mint* because that is the shape a position is created in, and `is_mint` is why the
-   /// wrong answer read "NFT Mint" rather than "NFT Transfer".
+   /// A position NFT is the receipt, not the intent: a V3 mint arrives as that NFT's `Transfer` **and**
+   /// `IncreaseLiquidity`, a removal as two position ops plus the NFT's burn, a partial removal as the
+   /// two ops alone, and a lone `Collect` as an op of its own. Ranking any of them as the NFT is what
+   /// the confirm window, the history row and the notification would all have claimed — "NFT Mint",
+   /// "NFT Burn" or "Unknown Interaction" instead of the liquidity change the user asked for.
    #[test]
-   fn a_v3_mint_ranks_as_the_position_op_not_as_the_nft_it_mints() {
-      let analysis = analysis(
-         Address::ZERO,
-         vec![
-            position_nft(true, false),
-            position_op(PositionOperation::AddLiquidity),
-         ],
-      );
+   fn position_ops_rank_above_the_nft_they_mint_or_burn() {
+      // Case: a_v3_mint_ranks_as_the_position_op_not_as_the_nft_it_mints
+      {
+         let analysis = analysis(
+            Address::ZERO,
+            vec![
+               position_nft(true, false),
+               position_op(PositionOperation::AddLiquidity),
+            ],
+         );
 
-      let main_event = analysis.infer_main_event(test_ctx(1), 1);
+         let main_event = analysis.infer_main_event(test_ctx(1), 1);
 
-      assert!(
-         main_event.is_uniswap_position_op(),
-         "ranked as {}",
-         main_event.name()
-      );
-      assert_eq!(main_event.name(), "Add Liquidity");
-   }
+         assert!(
+            main_event.is_uniswap_position_op(),
+            "ranked as {}",
+            main_event.name()
+         );
+         assert_eq!(main_event.name(), "Add Liquidity");
+      }
 
-   /// A Uniswap V3 removal is one call that decodes to **two** position ops: the position manager
-   /// emits `DecreaseLiquidity` and the `Collect` carrying the amounts actually returned, and the
-   /// per-log pass turns that `Collect` into an op of its own. Requiring exactly one op therefore
-   /// sent every removal past the position rung to the position NFT's own `Transfer` — burned when
-   /// the position is closed — so a transaction whose whole point was returning two tokens to the
-   /// user was headlined "NFT Burn".
-   #[test]
-   fn a_v3_removal_ranks_as_the_position_op_not_as_the_nft_it_burns() {
-      let analysis = analysis(
-         Address::ZERO,
-         vec![
-            position_nft(false, true),
-            position_op(PositionOperation::DecreaseLiquidity),
-            position_op(PositionOperation::CollectFees),
-         ],
-      );
+      // Case: a_v3_removal_ranks_as_the_position_op_not_as_the_nft_it_burns
+      {
+         let analysis = analysis(
+            Address::ZERO,
+            vec![
+               position_nft(false, true),
+               position_op(PositionOperation::DecreaseLiquidity),
+               position_op(PositionOperation::CollectFees),
+            ],
+         );
 
-      let main_event = analysis.infer_main_event(test_ctx(1), 1);
+         let main_event = analysis.infer_main_event(test_ctx(1), 1);
 
-      assert!(
-         main_event.is_uniswap_position_op(),
-         "ranked as {}",
-         main_event.name()
-      );
-      assert_eq!(main_event.name(), "Remove Liquidity");
-   }
+         assert!(
+            main_event.is_uniswap_position_op(),
+            "ranked as {}",
+            main_event.name()
+         );
+         assert_eq!(main_event.name(), "Remove Liquidity");
+      }
 
-   /// The same two ops without a burn: a partial removal leaves the position NFT alone, so there was
-   /// nothing for the rungs below to claim and the removal came out as "Unknown Interaction".
-   #[test]
-   fn a_partial_v3_removal_ranks_as_the_position_op() {
-      let analysis = analysis(
-         Address::ZERO,
-         vec![
-            position_op(PositionOperation::DecreaseLiquidity),
-            position_op(PositionOperation::CollectFees),
-         ],
-      );
+      // Case: a_partial_v3_removal_ranks_as_the_position_op
+      {
+         let analysis = analysis(
+            Address::ZERO,
+            vec![
+               position_op(PositionOperation::DecreaseLiquidity),
+               position_op(PositionOperation::CollectFees),
+            ],
+         );
 
-      let main_event = analysis.infer_main_event(test_ctx(1), 1);
+         let main_event = analysis.infer_main_event(test_ctx(1), 1);
 
-      assert_eq!(main_event.name(), "Remove Liquidity");
-   }
+         assert_eq!(main_event.name(), "Remove Liquidity");
+      }
 
-   /// Collecting fees from a position is an intent of its own — the rule must not need a change of
-   /// liquidity to be present before it names the operation.
-   #[test]
-   fn a_lone_collect_fees_ranks_as_collect_fees() {
-      let analysis = analysis(
-         Address::ZERO,
-         vec![position_op(PositionOperation::CollectFees)],
-      );
+      // Case: a_lone_collect_fees_ranks_as_collect_fees
+      {
+         let analysis = analysis(
+            Address::ZERO,
+            vec![position_op(PositionOperation::CollectFees)],
+         );
 
-      let main_event = analysis.infer_main_event(test_ctx(1), 1);
+         let main_event = analysis.infer_main_event(test_ctx(1), 1);
 
-      assert_eq!(main_event.name(), "Collect Fees");
+         assert_eq!(main_event.name(), "Collect Fees");
+      }
    }
 }

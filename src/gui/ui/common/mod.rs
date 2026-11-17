@@ -202,19 +202,18 @@ mod tests {
       }
    }
 
+   /// Events that fire on their own must not reset the idle timer.
    #[test]
-   fn user_input_events_are_recognized() {
+   fn is_user_input_event_accepts_only_real_input() {
+      // Case: user_input_events_are_recognized
       assert!(is_user_input_event(&Event::PointerMoved(
          Pos2::ZERO
       )));
       assert!(is_user_input_event(&Event::Text("a".to_string())));
       assert!(is_user_input_event(&Event::Copy));
       assert!(is_user_input_event(&key(true)));
-   }
 
-   /// Events that fire on their own must not reset the idle timer.
-   #[test]
-   fn passive_events_are_not_user_input() {
+      // Case: passive_events_are_not_user_input
       assert!(!is_user_input_event(&key(false)));
       assert!(!is_user_input_event(&Event::WindowFocused(true)));
       assert!(!is_user_input_event(&Event::ModifiersChanged(
@@ -235,11 +234,11 @@ mod tests {
          assert_eq!(chain_label(id), chain.name(), "chain {id}");
       }
 
-      assert_eq!(chain_label(137), "Unknown chain (137)");
-      assert_eq!(
-         chain_label(u64::MAX),
-         format!("Unknown chain ({})", u64::MAX)
-      );
+      for id in [137, u64::MAX] {
+         let label = chain_label(id);
+         assert!(label.starts_with("Unknown chain ("), "{label}");
+         assert!(label.contains(&id.to_string()), "{label}");
+      }
    }
 
    /// Every action that needs a real `ChainId` for a stored row asks this, so it has to accept

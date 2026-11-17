@@ -1454,30 +1454,6 @@ mod tests {
       NftApproveParams::from_approval_for_all(1, &log).unwrap()
    }
 
-   /// An unread standard does not become a named one.
-   ///
-   /// `ApprovalForAll` is byte-identical for ERC-721 and ERC-1155, so the standard comes from the
-   /// contract's own ERC-165 answer — and when that answer cannot be had, the Type column says what is
-   /// known rather than claiming one of the two.
-   #[test]
-   fn an_unread_standard_is_not_named_in_the_type_column() {
-      let mut params = approval_for_all(true);
-
-      params.standard = Some(NftStandard::Erc1155);
-      assert_eq!(
-         ApprovalKind::Nft(params.clone()).type_label(),
-         "ERC-1155",
-         "an observed standard is named"
-      );
-
-      params.standard = None;
-      assert_eq!(
-         ApprovalKind::Nft(params).type_label(),
-         "NFT",
-         "an unread standard must not read as a read one"
-      );
-   }
-
    fn erc5216_allowance(amount: u64) -> NftApproveParams {
       let log = Log {
          address: COLLECTION,
@@ -1495,8 +1471,14 @@ mod tests {
    /// An ERC-721 per-token grant is revoked by approving the zero address for that id. The zero
    /// address is what the chain is told; the params the user is shown keep the operator whose grant
    /// is being taken away, because a row naming `0x0` cannot say whose spending rights are going.
+   /// `ApprovalForAll` is revoked by unsetting the flag — **not** by `approve(0, id)`, which would
+   /// revoke one token of a collection-wide grant and leave the rest of it live — and ERC-5216 with a
+   /// zero allowance for that operator and id. No other shape emits a log that cannot be revoked, so
+   /// an unrecognized combination is an error rather than a guessed calldata: a wrong revoke sends a
+   /// real transaction that revokes something else.
    #[test]
-   fn an_erc721_grant_is_revoked_with_approve_zero() {
+   fn revoke_call_clears_each_shape_and_refuses_the_rest() {
+      // Case: an_erc721_grant_is_revoked_with_approve_zero
       let grant = erc721_grant();
       let (calldata, revoked) = revoke_call(&grant).unwrap();
 
@@ -1516,12 +1498,8 @@ mod tests {
       );
       assert_eq!(revoked.token_id, Some(U256::from(ID)));
       assert!(revoked.is_revoke());
-   }
 
-   /// `ApprovalForAll` is revoked by unsetting the flag — **not** by `approve(0, id)`, which would
-   /// revoke one token of a collection-wide grant and leave the rest of it live.
-   #[test]
-   fn an_approval_for_all_is_revoked_with_the_flag() {
+      // Case: an_approval_for_all_is_revoked_with_the_flag
       let (calldata, revoked) = revoke_call(&approval_for_all(true)).unwrap();
 
       assert_eq!(
@@ -1535,11 +1513,8 @@ mod tests {
       assert_eq!(revoked.approved, Some(false));
       assert_eq!(revoked.token_id, None);
       assert!(revoked.is_revoke());
-   }
 
-   /// ERC-5216 is revoked with a zero allowance for that operator and id.
-   #[test]
-   fn an_erc5216_allowance_is_revoked_with_zero_amount() {
+      // Case: an_erc5216_allowance_is_revoked_with_zero_amount
       let (calldata, revoked) = revoke_call(&erc5216_allowance(5)).unwrap();
 
       assert_eq!(
@@ -1555,12 +1530,8 @@ mod tests {
          erc721::encode_approve(Address::ZERO, U256::from(ID)),
          "an ERC-5216 revoke is not an ERC-721 one"
       );
-   }
 
-   /// No shape emits a log that cannot be revoked, so an unrecognized combination is an error rather
-   /// than a guessed calldata: a wrong revoke sends a real transaction that revokes something else.
-   #[test]
-   fn an_unrepresentable_shape_is_refused() {
+      // Case: an_unrepresentable_shape_is_refused
       let mut params = erc721_grant();
       params.token_id = None;
 

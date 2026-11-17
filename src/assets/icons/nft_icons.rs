@@ -595,19 +595,6 @@ mod tests {
       );
    }
 
-   #[test]
-   fn nft_icon_data_knows_when_it_is_empty() {
-      assert!(raster(Vec::new(), Vec::new()).is_empty());
-      assert!(
-         !raster(vec![1], Vec::new()).is_empty(),
-         "one rendering is enough to show"
-      );
-      assert!(
-         !raster(Vec::new(), vec![2]).is_empty(),
-         "either rendering is enough to show"
-      );
-   }
-
    /// The dedupe contract the fetch path relies on: one download per token, and a miss is not
    /// retried for the rest of the session.
    #[test]

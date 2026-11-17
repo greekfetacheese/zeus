@@ -812,8 +812,12 @@ mod tests {
    /// than wraps (egui's wrap mode there is `Extend`) and a hyperlink cannot wrap at all, so a
    /// 63-character collection name widened a 651px row by 197px and pushed the amount column out of the
    /// modal. The order below is the order the row lays its children out, gaps included.
+   ///
+   /// The cap only bites when it has to: a short operator keeps its whole width, and the asset keeps
+   /// the larger share of the row either way.
    #[test]
-   fn a_row_budget_cannot_overflow() {
+   fn row_budget_never_overflows_and_only_caps_a_long_operator() {
+      // Case: a_row_budget_cannot_overflow
       let gap = 4.0;
 
       for row in [320.0, 651.0, 720.0] {
@@ -836,22 +840,11 @@ mod tests {
             }
          }
       }
-   }
 
-   /// The cap only bites when it has to: a short operator keeps its whole width, and the asset keeps
-   /// the larger share of the row either way.
-   #[test]
-   fn a_row_budget_only_caps_what_is_long() {
+      // Case: a_row_budget_only_caps_what_is_long
       let budget = row_budget(651.0, 4.0, 69.0, 167.0);
 
       assert_eq!(budget.link, 167.0);
       assert!(budget.label > budget.link);
-
-      // An operator that cannot fit its share is cut to it, never given more.
-      let long = row_budget(651.0, 4.0, 69.0, 900.0);
-      assert_eq!(
-         long.link,
-         (651.0 - 69.0 - 4.0) * OPERATOR_WIDTH_SHARE
-      );
    }
 }

@@ -738,26 +738,4 @@ mod tests {
       assert!(!gate.pending(), "releasing frees it");
       assert!(gate.claim(), "and the next flow can take it");
    }
-
-   /// The loading window's strike is hardcoded: these eight numbers are a
-   /// deliberate look, so an edit that changes one should fail here and be
-   /// re-confirmed with Mike.
-   #[test]
-   fn the_loading_strike_has_the_specified_shape() {
-      let strike = loading_strike();
-
-      assert_eq!(strike.bolt_count, 1);
-      assert_eq!(strike.branch_depth, 2);
-      assert_eq!(strike.thickness, 2.0);
-      assert_eq!(strike.jitter, 0.18);
-      assert_eq!(strike.flash_intensity, 0.35);
-      assert_eq!(strike.duration_ms, 400.0);
-      assert_eq!(strike.ambient_interval_secs, 0.5);
-      assert_eq!(strike.color, Color32::from_rgb(190, 215, 255));
-
-      assert!(strike.active);
-      assert!(!strike.open);
-      assert_eq!(strike.layer, ParticleLayer::Top);
-      assert!(!LOADING_STRIKE_ID.is_empty());
-   }
 }

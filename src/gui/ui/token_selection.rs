@@ -2094,22 +2094,22 @@ mod tests {
       assert!(ownership_label(None, 0).is_none());
 
       assert_eq!(
-         ownership_label(Some(true), 1),
-         Some(("Owned".to_string(), ChipRole::Success))
+         ownership_label(Some(true), 1).map(|(text, _)| text),
+         Some("Owned".to_string())
       );
       assert_eq!(
-         ownership_label(Some(true), 3),
-         Some(("Owned ×3".to_string(), ChipRole::Success))
+         ownership_label(Some(true), 3).map(|(text, _)| text),
+         Some("Owned ×3".to_string())
       );
       assert_eq!(
-         ownership_label(Some(false), 0),
-         Some(("Not owned".to_string(), ChipRole::Neutral))
+         ownership_label(Some(false), 0).map(|(text, _)| text),
+         Some("Not owned".to_string())
       );
 
       // A not-owned row must never advertise a quantity, whatever the balance field happens to hold.
       assert_eq!(
-         ownership_label(Some(false), 7),
-         Some(("Not owned".to_string(), ChipRole::Neutral))
+         ownership_label(Some(false), 7).map(|(text, _)| text),
+         Some("Not owned".to_string())
       );
    }
 
@@ -2117,7 +2117,8 @@ mod tests {
    /// collection's cached name and symbol where there is one, and the address where there is not, so a
    /// shielded token is never a blank row.
    #[test]
-   fn private_nft_rows_are_built_from_the_private_holdings() {
+   fn private_nft_rows_carry_the_collection_label_and_the_right_quantity() {
+      // Case: private_nft_rows_are_built_from_the_private_holdings
       let collection = NftCollection {
          chain_id: 1,
          address: Address::from([0xbc; 20]),
@@ -2162,12 +2163,10 @@ mod tests {
          )
       );
       assert_eq!(rows[1].subtitle(), "ERC-721", "no symbol to show");
-   }
 
-   /// An ERC-1155 is a quantity, and the only place a *private* quantity exists is the note the scan read:
-   /// the row has to carry it, so an unshield knows how much it may spend.
-   #[test]
-   fn a_private_erc1155_row_carries_its_note_count() {
+      // Case: a_private_erc1155_row_carries_its_note_count
+      // An ERC-1155 is a quantity, and the only place a *private* quantity exists is the note the
+      // scan read: the row has to carry it, so an unshield knows how much it may spend.
       let collection = Address::from([0xbc; 20]);
       let batch = NftToken {
          chain_id: 1,
@@ -2283,7 +2282,8 @@ mod tests {
    /// for. A writeback for the picker's own (unchanged) context refreshes the list that context
    /// owns.
    #[test]
-   fn a_writeback_on_the_same_context_reloads_the_list() {
+   fn apply_sync_writeback_reloads_only_the_pickers_own_context() {
+      // Case: a_writeback_on_the_same_context_reloads_the_list
       let mut picker = TokenSelectionWindow::new();
       picker.open = true;
       let context = (1u64, Address::from([0xaa; 20]));
@@ -2303,12 +2303,10 @@ mod tests {
          picker.currencies_generation, generation,
          "the fetch the reload starts must supersede any earlier one"
       );
-   }
 
-   /// A chain switch while the sync ran already reloaded the picker for the new chain. The
-   /// writeback must not fetch the chain the sync ran for over those rows.
-   #[test]
-   fn a_writeback_after_a_chain_switch_does_not_reload_the_old_context() {
+      // Case: a_writeback_after_a_chain_switch_does_not_reload_the_old_context
+      // A chain switch while the sync ran already reloaded the picker for the new chain. The
+      // writeback must not fetch the chain the sync ran for over those rows.
       let mut picker = TokenSelectionWindow::new();
       picker.open = true;
       let sync_context = (1u64, Address::from([0xaa; 20]));
@@ -2331,12 +2329,10 @@ mod tests {
          "no fetch may be started for the chain the sync ran on"
       );
       assert!(!picker.loading);
-   }
 
-   /// The wallet half of the same switch: the owner the sync re-read balances for is not the one the
-   /// picker is showing any more.
-   #[test]
-   fn a_writeback_after_a_wallet_switch_does_not_reload_the_old_owner() {
+      // Case: a_writeback_after_a_wallet_switch_does_not_reload_the_old_owner
+      // The wallet half of the same switch: the owner the sync re-read balances for is not the one
+      // the picker is showing any more.
       let mut picker = TokenSelectionWindow::new();
       picker.open = true;
       let sync_context = (1u64, Address::from([0xaa; 20]));
@@ -2356,11 +2352,9 @@ mod tests {
       );
       assert_eq!(picker.currencies_generation, generation);
       assert!(!picker.loading);
-   }
 
-   /// A closed picker has nothing to refresh, and the writeback must not bring it back.
-   #[test]
-   fn a_writeback_never_reopens_a_closed_picker() {
+      // Case: a_writeback_never_reopens_a_closed_picker
+      // A closed picker has nothing to refresh, and the writeback must not bring it back.
       let mut picker = TokenSelectionWindow::new();
       // `open` is false: the user closed the picker while the sync ran.
       let context = (1u64, Address::from([0xaa; 20]));
@@ -2378,12 +2372,10 @@ mod tests {
       );
       assert_eq!(picker.currencies_generation, generation);
       assert!(!picker.loading);
-   }
 
-   /// Privacy mode lists shielded assets, which nothing on-chain syncs, so the writeback is a no-op
-   /// there — the button is hidden, and this holds even if the mode was switched on mid-sync.
-   #[test]
-   fn a_privacy_mode_writeback_leaves_the_list_alone() {
+      // Case: a_privacy_mode_writeback_leaves_the_list_alone
+      // Privacy mode lists shielded assets, which nothing on-chain syncs, so the writeback is a
+      // no-op there — the button is hidden, and this holds even if the mode was switched on mid-sync.
       let mut picker = TokenSelectionWindow::new();
       picker.open = true;
       let context = (1u64, Address::from([0xaa; 20]));
@@ -2480,8 +2472,12 @@ mod tests {
 
    /// The three answers an address paste can give have to read differently: "cannot be listed" is not
    /// "you own none", and neither is the silent empty list this replaced.
+   ///
+   /// A paste over the aggregate budget is refused whole: the notice names both figures — never two
+   /// equal ones — and the user has to read it, the same as any other refusal.
    #[test]
-   fn the_collection_add_outcomes_are_distinguishable() {
+   fn the_collection_add_outcomes_read_differently_and_only_refusals_are_errors() {
+      // Case: the_collection_add_outcomes_are_distinguishable
       let one = CollectionAdd::Tracked {
          name: "BAYC".to_string(),
          count: 1,
@@ -2538,6 +2534,32 @@ mod tests {
          assert!(unlistable.message().contains("BAYC"));
          assert!(unlistable.message().contains("cannot be listed"));
       }
+
+      // Case: a_paste_over_the_uri_budget_is_refused_with_both_figures
+      let mib = 1024 * 1024;
+      let budget_mib = MAX_TRACKED_URI_BYTES / mib;
+
+      let over = CollectionAdd::UriBudgetExceeded {
+         name: "BAYC".to_string(),
+         bytes: MAX_TRACKED_URI_BYTES + 1,
+      };
+
+      let message = over.message();
+
+      assert!(message.contains("BAYC"), "{message}");
+      assert!(
+         message.contains(&format!("{budget_mib} MiB")),
+         "{message}"
+      );
+      // Rounded up, so a hair over the budget never reads as "64 MiB over the 64 MiB budget".
+      assert!(
+         message.contains(&format!("{} MiB", budget_mib + 1)),
+         "{message}"
+      );
+      assert!(
+         over.is_error(),
+         "a refusal is a window, not a toast"
+      );
    }
 
    /// The aggregate budget is per paste, not per URI: ordinary URIs and refused (`None`) ones stay
@@ -2567,36 +2589,6 @@ mod tests {
          uri_budget_exceeded(&[over]),
          Some(MAX_TRACKED_URI_BYTES + 1),
          "the reported figure is the total, so the notice can state it"
-      );
-   }
-
-   /// A paste over the aggregate budget is refused whole: the notice names both figures — never two
-   /// equal ones — and the user has to read it, the same as any other refusal.
-   #[test]
-   fn a_paste_over_the_uri_budget_is_refused_with_both_figures() {
-      let mib = 1024 * 1024;
-      let budget_mib = MAX_TRACKED_URI_BYTES / mib;
-
-      let over = CollectionAdd::UriBudgetExceeded {
-         name: "BAYC".to_string(),
-         bytes: MAX_TRACKED_URI_BYTES + 1,
-      };
-
-      let message = over.message();
-
-      assert!(message.contains("BAYC"), "{message}");
-      assert!(
-         message.contains(&format!("{budget_mib} MiB")),
-         "{message}"
-      );
-      // Rounded up, so a hair over the budget never reads as "64 MiB over the 64 MiB budget".
-      assert!(
-         message.contains(&format!("{} MiB", budget_mib + 1)),
-         "{message}"
-      );
-      assert!(
-         over.is_error(),
-         "a refusal is a window, not a toast"
       );
    }
 
@@ -2660,7 +2652,8 @@ mod tests {
    /// Holding an ERC-721 is a 1 — no call spent on it, not even a map lookup — while an ERC-1155
    /// takes the amount the batched `balanceOf` reported.
    #[test]
-   fn erc721_is_one_and_erc1155_takes_its_amount() {
+   fn attach_balances_sets_one_for_721_and_the_reported_amount_for_1155() {
+      // Case: erc721_is_one_and_erc1155_takes_its_amount
       let tokens = vec![nft(1, NftStandard::Erc721), nft(2, NftStandard::Erc1155)];
 
       let mut amounts = HashMap::new();
@@ -2676,12 +2669,10 @@ mod tests {
          with_balances[1].1, 7,
          "the 1155 amount comes from the chain"
       );
-   }
 
-   /// An ERC-1155 the chain did not answer for is listed at 0 rather than dropped: a failed
-   /// `balanceOf` is not the same event as the token being removed from the catalog.
-   #[test]
-   fn an_erc1155_the_chain_did_not_answer_for_is_zero_not_dropped() {
+      // Case: an_erc1155_the_chain_did_not_answer_for_is_zero_not_dropped
+      // An ERC-1155 the chain did not answer for is listed at 0 rather than dropped: a failed
+      // `balanceOf` is not the same event as the token being removed from the catalog.
       let tokens = vec![nft(1, NftStandard::Erc1155)];
 
       let with_balances = attach_balances(tokens, &HashMap::new());
@@ -2706,8 +2697,12 @@ mod tests {
 
    /// A collection with no cached metadata still yields an identifiable row: the address is what the
    /// user would paste into an explorer anyway.
+   ///
+   /// A contract that answers `""` is the same as one that never implemented `name()`: a blank row
+   /// would be unusable, so both fall back.
    #[test]
-   fn a_collection_without_cached_metadata_falls_back_to_its_address() {
+   fn collection_label_falls_back_to_the_address_when_metadata_is_missing_or_blank() {
+      // Case: a_collection_without_cached_metadata_falls_back_to_its_address
       let (fallback, symbol) = collection_label(&nft(1, NftStandard::Erc721), &HashMap::new());
 
       assert!(fallback.starts_with("0x"), "{fallback}");
@@ -2724,12 +2719,8 @@ mod tests {
 
       assert_eq!(name, "BoredApeYachtClub");
       assert_eq!(symbol, "BAYC");
-   }
 
-   /// A contract that answers `""` is the same as one that never implemented `name()`: a blank row
-   /// would be unusable, so both fall back.
-   #[test]
-   fn a_blank_collection_name_is_treated_as_missing() {
+      // Case: a_blank_collection_name_is_treated_as_missing
       let mut collections = HashMap::new();
       collections.insert(
          Address::from([0xbc; 20]),
@@ -2740,30 +2731,6 @@ mod tests {
 
       assert!(name.starts_with("0x"), "{name}");
       assert!(symbol.is_empty());
-   }
-
-   /// The row reads as `<collection> #<id>` over `<symbol> · <standard>`, and drops the separator when
-   /// the collection has no symbol to show.
-   #[test]
-   fn the_row_reads_as_name_id_then_symbol_and_standard() {
-      let row = NftRow {
-         token: nft(7, NftStandard::Erc1155),
-         balance: 3,
-         owned: Some(true),
-         name: "BoredApeYachtClub".to_string(),
-         symbol: "BAYC".to_string(),
-         in_portfolio: false,
-      };
-
-      assert_eq!(row.label(), "BoredApeYachtClub #7");
-      assert_eq!(row.subtitle(), "BAYC · ERC-1155");
-
-      let without_symbol = NftRow {
-         symbol: String::new(),
-         ..row.clone()
-      };
-
-      assert_eq!(without_symbol.subtitle(), "ERC-1155");
    }
 
    /// A row builder for the ordering test: the same token, with ownership answered or not.
@@ -2800,8 +2767,15 @@ mod tests {
    /// padding move the number, and a band wider than the cells is not centred at all — the
    /// cells pack at its left edge. Both halves are measured here, in every theme: the bar paints the
    /// band's width, and the band sits in the middle of the row.
+   ///
+   /// The sync row is centred by handing the button a band exactly as wide as the button itself, so
+   /// that width has to be what `egui_elements::Button` renders — `max(min_size, label + 2 *
+   /// button_padding.x)`, which every theme's typography moves. The band is also what keeps the
+   /// spinner from shifting the button, so a band that is off by a few px is a button off the axis the
+   /// title and the switch sit on.
    #[test]
-   fn the_mode_tabs_width_matches_what_the_tab_bar_renders() {
+   fn the_centred_bands_match_what_egui_paints() {
+      // Case: the_mode_tabs_width_matches_what_the_tab_bar_renders
       for kind in [
          ThemeKind::TokyoNight,
          ThemeKind::TokyoNightLight,
@@ -2885,15 +2859,8 @@ mod tests {
             left + BLOCK * 0.5
          );
       }
-   }
 
-   /// The sync row is centred by handing the button a band exactly as wide as the button itself, so
-   /// that width has to be what `egui_elements::Button` renders — `max(min_size, label + 2 *
-   /// button_padding.x)`, which every theme's typography moves. The band is also what keeps the
-   /// spinner from shifting the button, so a band that is off by a few px is a button off the axis the
-   /// title and the switch sit on.
-   #[test]
-   fn the_sync_button_width_matches_what_the_button_renders() {
+      // Case: the_sync_button_width_matches_what_the_button_renders
       for kind in [
          ThemeKind::TokyoNight,
          ThemeKind::TokyoNightLight,

@@ -709,25 +709,20 @@ mod tests {
 
    #[test]
    #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
-   fn discovery_usdc_to_eth_mainnet() {
+   fn discovery_offers_pools_for_every_swap_direction() {
+      // Case: discovery_usdc_to_eth_mainnet
       assert_discovers(
          Currency::from(ERC20Token::usdc()),
          Currency::from(NativeCurrency::from(MAINNET)),
       );
-   }
 
-   #[test]
-   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
-   fn discovery_eth_to_link_mainnet() {
+      // Case: discovery_eth_to_link_mainnet
       assert_discovers(
          Currency::from(NativeCurrency::from(MAINNET)),
          Currency::from(ERC20Token::link()),
       );
-   }
 
-   #[test]
-   #[ignore = "live chain: needs a working RPC and this machine's data/ profile — see tests/mod.rs"]
-   fn discovery_link_to_eth_mainnet() {
+      // Case: discovery_link_to_eth_mainnet
       assert_discovers(
          Currency::from(ERC20Token::link()),
          Currency::from(NativeCurrency::from(MAINNET)),

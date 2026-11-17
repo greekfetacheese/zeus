@@ -884,36 +884,57 @@ mod tests {
          .expect("command missing from plan")
    }
 
+   /// The first V2/V3 hop knows its amount from the quote; a hop fed by an
+   /// earlier one settles the router's own balance instead.
    #[test]
-   fn initial_v2_v3_hop_uses_quoted_amount() {
+   fn v2_v3_hop_amount_in_uses_quote_or_contract_balance() {
+      // Case: initial_v2_v3_hop_uses_quoted_amount
       let quoted = U256::from(499_993_647_689u64);
       assert_eq!(v2_v3_amount_in(true, quoted), quoted);
-   }
 
-   #[test]
-   fn intermediate_v2_v3_hop_uses_contract_balance() {
+      // Case: intermediate_v2_v3_hop_uses_contract_balance
       let quoted = U256::from(499_993_647_689u64);
       assert_eq!(v2_v3_amount_in(false, quoted), CONTRACT_BALANCE);
       assert_eq!(CONTRACT_BALANCE, U256::from(1u8) << 255);
    }
 
+   /// A step spends the trade input when its input currency is the trade's, or
+   /// the wrapped/native twin the quoter treats as the same asset.
    #[test]
-   fn eth_in_weth_split_slice_is_trade_input() {
-      assert!(spends_trade_input(&weth(), &eth()));
-      assert!(spends_trade_input(&eth(), &eth()));
-      assert!(!spends_trade_input(&usdc(), &eth()));
-   }
+   fn spends_trade_input_covers_wrapped_native_equivalence() {
+      // Case: eth_in_weth_split_slice_is_trade_input
+      assert!(
+         spends_trade_input(&weth(), &eth()),
+         "a weth-in slice of an eth trade spends the trade input"
+      );
+      assert!(
+         spends_trade_input(&eth(), &eth()),
+         "an eth-in step of an eth trade spends the trade input"
+      );
+      assert!(
+         !spends_trade_input(&usdc(), &eth()),
+         "a usdc step of an eth trade does not spend the trade input"
+      );
 
-   #[test]
-   fn weth_in_native_v4_hop_is_trade_input() {
-      assert!(spends_trade_input(&eth(), &weth()));
-      assert!(spends_trade_input(&weth(), &weth()));
-   }
+      // Case: weth_in_native_v4_hop_is_trade_input
+      assert!(
+         spends_trade_input(&eth(), &weth()),
+         "an eth-in hop of a weth trade spends the trade input"
+      );
+      assert!(
+         spends_trade_input(&weth(), &weth()),
+         "a weth-in hop of a weth trade spends the trade input"
+      );
 
-   #[test]
-   fn usdt_to_usdc_hop_is_not_trade_input() {
-      assert!(!spends_trade_input(&usdc(), &usdt()));
-      assert!(spends_trade_input(&usdt(), &usdt()));
+      // Case: usdt_to_usdc_hop_is_not_trade_input
+      assert!(
+         !spends_trade_input(&usdc(), &usdt()),
+         "a usdc hop of a usdt trade does not spend the trade input"
+      );
+      assert!(
+         spends_trade_input(&usdt(), &usdt()),
+         "a usdt hop of a usdt trade spends the trade input"
+      );
    }
 
    #[test]

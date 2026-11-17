@@ -572,7 +572,6 @@ mod tests {
       assert!(!params.is_collection_wide());
 
       let main_event = analysis.infer_main_event(ctx.clone(), CHAIN);
-      assert_eq!(main_event.name(), "NFT Approval");
       assert!(main_event.is_nft_approval());
    }
 

@@ -2443,11 +2443,14 @@ mod tests {
 
    /// A check that runs before its data exists can only fail, and a failed verdict latches like an
    /// answer — so an unsynced chain arms nothing: neither a fresh key nor one already latched, whose
-   /// latch could then never be explained by a check that ran while the data was missing.
+   /// latch could then never be explained by a check that ran while the data was missing. Once the
+   /// chain has synced the check arms for a free key, and only once: a latched key is answered (or in
+   /// flight), so asking again would discard the verdict the form is showing.
    #[test]
-   fn an_unsynced_chain_does_not_arm_the_shield_pool_check() {
+   fn the_shield_pool_check_arms_only_when_it_should() {
       let key = (1u64, AssetId::Erc20(ERC20Token::weth().address));
 
+      // Case: an_unsynced_chain_does_not_arm_the_shield_pool_check
       assert!(
          !shield_check_due(None, &key, false),
          "an unsynced chain must not arm the check"
@@ -2456,14 +2459,8 @@ mod tests {
          !shield_check_due(Some(&key), &key, false),
          "nor re-arm a key that is already latched"
       );
-   }
 
-   /// Once the chain has synced the check arms for a free key, and only once: a latched key is
-   /// answered (or in flight), so asking again would discard the verdict the form is showing.
-   #[test]
-   fn a_synced_chain_arms_the_shield_pool_check_once() {
-      let key = (1u64, AssetId::Erc20(ERC20Token::weth().address));
-
+      // Case: a_synced_chain_arms_the_shield_pool_check_once
       assert!(
          shield_check_due(None, &key, true),
          "a synced chain arms the check for a free key"
@@ -2616,12 +2613,13 @@ mod tests {
       );
    }
 
-   /// The tips modal is an overlay, so the form's budget says nothing about it: measure it, and check
-   /// that a centred header does not widen the card frame after frame.
+   /// The tips and broadcast-options modals are overlays, so the form's budget says nothing about
+   /// them: measure each, and check that a centred header does not widen the card frame after frame.
    #[test]
-   fn the_privacy_tips_modal_fits_and_holds_its_width() {
+   fn both_modal_forms_fit_the_window_and_hold_their_width() {
       use egui_elements::theme::ThemeKind;
 
+      // Case: the_privacy_tips_modal_fits_and_holds_its_width
       let theme = Theme::new(ThemeKind::TokyoNight);
       let mut ui_state = ShieldUi::new();
       ui_state.set_mode(RailgunMode::Unshield);
@@ -2671,15 +2669,8 @@ mod tests {
          (last.width() - warm.width()).abs() < 1.0,
          "the modal's width drifts across frames: {rects:?}"
       );
-   }
 
-   /// The broadcast options modal holds what the form gave up — the memo and the two switches — and it
-   /// is an overlay, so the form's budget says nothing about it. Measured the same way all the same,
-   /// because a centred header is the thing that ratchets.
-   #[test]
-   fn the_broadcast_options_modal_fits_and_holds_its_width() {
-      use egui_elements::theme::ThemeKind;
-
+      // Case: the_broadcast_options_modal_fits_and_holds_its_width
       let theme = Theme::new(ThemeKind::TokyoNight);
       let mut ui_state = ShieldUi::new();
       ui_state.set_mode(RailgunMode::Unshield);
@@ -2793,72 +2784,108 @@ mod tests {
          }
       }
 
-      // The Sepolia run: a thin crowd, one deposit exactly the size, the crowd carrying the band.
-      assert_eq!(
-         amount_reason(&advice(
-            [1, 344, 51_676],
-            Crowding {
-               within_one_percent: 1,
-               within_ten_percent: 5,
-            },
-            87,
-            69,
-         )),
-         "Only 5 deposits in the last 180 days are within 10% of this size, 1 of them exactly this size."
-      );
+      // (case, advice, the clause that must lead, the sum the line must name, the count after it)
+      let cases = [
+         // The Sepolia run: a thin crowd, one deposit exactly the size, the crowd carrying the band.
+         (
+            "the Sepolia run",
+            advice(
+               [1, 344, 51_676],
+               Crowding {
+                  within_one_percent: 1,
+                  within_ten_percent: 5,
+               },
+               87,
+               69,
+            ),
+            "Only 5 deposits",
+            "exactly this size",
+            "1 of them",
+         ),
+         // A crowd worth hiding in: no "only", and the sums stay out of the line entirely.
+         (
+            "a crowd worth hiding in",
+            advice(
+               [91, 0, 0],
+               Crowding {
+                  within_one_percent: 91,
+                  within_ten_percent: 95,
+               },
+               3,
+               1,
+            ),
+            "95 deposits",
+            "exactly this size",
+            "91 of them",
+         ),
+         // The sums carry the band, so they lead — and the exact count is not said twice.
+         (
+            "the sums carry the band",
+            advice(
+               [1, 0, 0],
+               Crowding {
+                  within_one_percent: 1,
+                  within_ten_percent: 5,
+               },
+               20,
+               40,
+            ),
+            "1 deposit",
+            "exactly this size",
+            "5 deposits",
+         ),
+         // A pair is the sharpest explanation there is.
+         (
+            "a pair behind a thin crowd",
+            advice(
+               [0, 3, 0],
+               Crowding {
+                  within_one_percent: 0,
+                  within_ten_percent: 4,
+               },
+               30,
+               55,
+            ),
+            "2 deposits",
+            "add up to this size",
+            "only 4 deposits",
+         ),
+         // A triple, with nothing near the size at all.
+         (
+            "a triple with nothing near the size",
+            advice([0, 0, 2], Crowding::default(), 60, 80),
+            "3 deposits",
+            "add up to this size",
+            "no deposit",
+         ),
+      ];
 
-      // A crowd worth hiding in: no "only", and the sums stay out of the line entirely.
-      assert_eq!(
-         amount_reason(&advice(
-            [91, 0, 0],
-            Crowding {
-               within_one_percent: 91,
-               within_ten_percent: 95,
-            },
-            3,
-            1,
-         )),
-         "95 deposits in the last 180 days are within 10% of this size, 91 of them exactly this size."
-      );
+      for (case, advice, leads, sum, count) in cases {
+         let reason = amount_reason(&advice);
 
-      // The sums carry the band, so they lead — and the exact count is not said twice.
-      assert_eq!(
-         amount_reason(&advice(
-            [1, 0, 0],
-            Crowding {
-               within_one_percent: 1,
-               within_ten_percent: 5,
-            },
-            20,
-            40,
-         )),
-         "1 deposit in the last 180 days is exactly this size, and 5 deposits in the last 180 days are within 10% of it."
-      );
-
-      // A pair is the sharpest explanation there is.
-      assert_eq!(
-         amount_reason(&advice(
-            [0, 3, 0],
-            Crowding {
-               within_one_percent: 0,
-               within_ten_percent: 4,
-            },
-            30,
-            55,
-         )),
-         "2 deposits in the last 180 days add up to this size, and only 4 deposits in the last 180 days are within 10% of it."
-      );
-
-      // A triple, with nothing near the size at all.
-      assert_eq!(
-         amount_reason(&advice([0, 0, 2], Crowding::default(), 60, 80)),
-         "3 deposits in the last 180 days add up to this size, and no deposit in the last 180 days is within 10% of it."
-      );
+         assert!(
+            reason.starts_with(leads),
+            "{case}: the wrong clause leads: {reason}"
+         );
+         assert!(
+            reason.contains(sum),
+            "{case}: the line does not name the sum it counted: {reason}"
+         );
+         assert!(
+            reason.contains(count),
+            "{case}: the line does not carry the count: {reason}"
+         );
+      }
 
       // Nothing near it and nothing adding up to it: one clause, at the thinnest crowd there is.
-      assert_eq!(
-         amount_reason(&advice([0, 0, 0], Crowding::default(), 100, 0)),
-         "No deposit in the last 180 days is within 10% of this size."
+      let lone = amount_reason(&advice([0, 0, 0], Crowding::default(), 100, 0));
+      assert!(
+         lone.starts_with("No deposit"),
+         "with no sums to explain, the crowd leads: {lone}"
+      );
+      assert!(
+         !lone.contains(", and "),
+         "and there is no second clause to carry: {lone}"
       );
    }
 

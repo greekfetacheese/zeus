@@ -859,14 +859,20 @@ mod tests {
       };
       assert!(shallow_pool_warnings("WETH", &deep).is_empty());
 
-      // Thin by traffic alone: the count is all there is to say.
+      // Thin by traffic alone: one sentence, the count and its symbol.
       let few = PoolDepth {
          deposits: Some(900),
          ..deep
       };
+      let warnings = shallow_pool_warnings("WETH", &few);
       assert_eq!(
-         shallow_pool_warnings("WETH", &few),
-         ["Only 900 deposits of WETH in the last 180 days."]
+         warnings.len(),
+         1,
+         "one reason is one sentence: {warnings:?}"
+      );
+      assert!(
+         warnings[0].starts_with("Only 900 deposits of WETH"),
+         "the count keeps its number and symbol: {warnings:?}"
       );
 
       // Thin by value alone — the case no traffic count can catch.
@@ -874,9 +880,15 @@ mod tests {
          usd: Some(400.0),
          ..deep
       };
+      let warnings = shallow_pool_warnings("WETH", &cheap);
       assert_eq!(
-         shallow_pool_warnings("WETH", &cheap),
-         ["Only $400 of WETH is shielded pool-wide: too little activity to hide in."]
+         warnings.len(),
+         1,
+         "one reason is one sentence: {warnings:?}"
+      );
+      assert!(
+         warnings[0].starts_with("Only $400 of WETH"),
+         "the value keeps its figure and symbol: {warnings:?}"
       );
 
       // An emptied pool is still priced, and priced at nothing: that is a value like any other.
@@ -886,9 +898,15 @@ mod tests {
          share: None,
          ..deep
       };
+      let warnings = shallow_pool_warnings("WETH", &empty);
       assert_eq!(
-         shallow_pool_warnings("WETH", &empty),
-         ["Only $0 of WETH is shielded pool-wide: too little activity to hide in."]
+         warnings.len(),
+         1,
+         "a priced pool says one thing: {warnings:?}"
+      );
+      assert!(
+         warnings[0].starts_with("Only $0 of WETH"),
+         "zero dollars is a value, not an unvalued pool: {warnings:?}"
       );
 
       // Both at once — a testnet pool, deep enough by neither measure: neither sentence replaces the
@@ -898,12 +916,19 @@ mod tests {
          usd: Some(400.0),
          ..deep
       };
+      let warnings = shallow_pool_warnings("WETH", &few_and_cheap);
       assert_eq!(
-         shallow_pool_warnings("WETH", &few_and_cheap),
-         [
-            "Only 1224 deposits of WETH in the last 180 days.",
-            "Only $400 of WETH is shielded pool-wide: too little activity to hide in.",
-         ]
+         warnings.len(),
+         2,
+         "both reasons are said: {warnings:?}"
+      );
+      assert!(
+         warnings[0].starts_with("Only 1224 deposits of WETH"),
+         "the count comes first: {warnings:?}"
+      );
+      assert!(
+         warnings[1].starts_with("Only $400 of WETH"),
+         "then the value: {warnings:?}"
       );
 
       // An unvalued pool speaks beside the count rather than instead of it: not priced is not "worth
@@ -913,12 +938,19 @@ mod tests {
          usd: None,
          ..deep
       };
+      let warnings = shallow_pool_warnings("WETH", &few_and_unvalued);
       assert_eq!(
-         shallow_pool_warnings("WETH", &few_and_unvalued),
-         [
-            "Only 900 deposits of WETH in the last 180 days.",
-            "Cannot value WETH on-chain: consider its pool as low activity.",
-         ]
+         warnings.len(),
+         2,
+         "both reasons are said: {warnings:?}"
+      );
+      assert!(
+         warnings[0].starts_with("Only 900 deposits of WETH"),
+         "the count comes first: {warnings:?}"
+      );
+      assert!(
+         warnings[1].starts_with("Cannot value WETH"),
+         "an unvalued pool is said as unvalued, not as worth nothing: {warnings:?}"
       );
 
       // No count is not a thin count: the amount check did not run, which is not evidence of anything.

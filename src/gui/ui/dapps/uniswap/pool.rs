@@ -1081,7 +1081,7 @@ mod tests {
    const TOKEN_A: &str = "0x0000000000000000000000000000000000000001";
    const TOKEN_B: &str = "0x0000000000000000000000000000000000000002";
 
-   fn form(version: Version) -> AddPoolForm {
+   fn base_form(version: Version) -> AddPoolForm {
       AddPoolForm {
          version,
          token_a: TOKEN_A.to_string(),
@@ -1091,113 +1091,129 @@ mod tests {
    }
 
    #[test]
-   fn add_pool_form_parses_v2_pair() {
-      assert!(matches!(
-         form(Version::V2).request(),
-         Ok(AddPoolRequest::V2 { .. })
-      ));
-   }
+   fn add_pool_form_builds_a_request_for_what_it_can_parse_and_refuses_the_rest() {
+      // Case: add_pool_form_parses_v2_pair
+      assert!(
+         matches!(
+            base_form(Version::V2).request(),
+            Ok(AddPoolRequest::V2 { .. })
+         ),
+         "a V2 pair builds a V2 request"
+      );
 
-   #[test]
-   fn add_pool_form_parses_v4_pair() {
-      assert!(matches!(
-         form(Version::V4).request(),
-         Ok(AddPoolRequest::V4 {
-            tick_spacing: 0,
-            hooks: Address::ZERO,
-            ..
-         })
-      ));
-   }
+      // Case: add_pool_form_parses_v4_pair
+      assert!(
+         matches!(
+            base_form(Version::V4).request(),
+            Ok(AddPoolRequest::V4 {
+               tick_spacing: 0,
+               hooks: Address::ZERO,
+               ..
+            })
+         ),
+         "a bare V4 form defaults to no tick spacing and no hooks"
+      );
 
-   #[test]
-   fn add_pool_form_rejects_matching_tokens() {
-      let mut form = form(Version::V3);
+      // Case: add_pool_form_rejects_matching_tokens
+      let mut form = base_form(Version::V3);
       form.token_b = TOKEN_A.to_string();
-      assert!(form.request().is_err());
-   }
+      assert!(
+         form.request().is_err(),
+         "a pool of one token is refused"
+      );
 
-   #[test]
-   fn add_pool_form_treats_empty_token_as_native() {
-      let mut form = form(Version::V4);
+      // Case: add_pool_form_treats_empty_token_as_native
+      let mut form = base_form(Version::V4);
       form.token_a = String::new();
 
-      assert!(matches!(
-         form.request(),
-         Ok(AddPoolRequest::V4 {
-            token_a: Address::ZERO,
-            ..
-         })
-      ));
+      assert!(
+         matches!(
+            form.request(),
+            Ok(AddPoolRequest::V4 {
+               token_a: Address::ZERO,
+               ..
+            })
+         ),
+         "an empty token field is native ETH"
+      );
 
       form.token_b = String::new();
-      assert!(form.request().is_err());
-   }
+      assert!(
+         form.request().is_err(),
+         "both sides native is not a pool"
+      );
 
-   #[test]
-   fn add_pool_form_rejects_bad_tick_spacing() {
-      let mut form = form(Version::V4);
+      // Case: add_pool_form_rejects_bad_tick_spacing
+      let mut form = base_form(Version::V4);
       form.tick_spacing = "abc".to_string();
-      assert!(form.request().is_err());
-   }
+      assert!(
+         form.request().is_err(),
+         "a non-numeric tick spacing is refused"
+      );
 
-   #[test]
-   fn add_pool_form_parses_custom_v4_fee() {
-      let mut form = form(Version::V4);
+      // Case: add_pool_form_parses_custom_v4_fee
+      let mut form = base_form(Version::V4);
       form.v4_custom_fee = true;
       form.custom_fee = "2500".to_string();
-      assert!(matches!(
-         form.request(),
-         Ok(AddPoolRequest::V4 { fee: 2500, .. })
-      ));
-   }
+      assert!(
+         matches!(
+            form.request(),
+            Ok(AddPoolRequest::V4 { fee: 2500, .. })
+         ),
+         "a custom fee goes into the request"
+      );
 
-   #[test]
-   fn add_pool_form_accepts_zero_v4_fee() {
-      let mut form = form(Version::V4);
+      // Case: add_pool_form_accepts_zero_v4_fee
+      let mut form = base_form(Version::V4);
       form.v4_custom_fee = true;
       form.custom_fee = "0".to_string();
       form.tick_spacing = "60".to_string();
-      assert!(matches!(
-         form.request(),
-         Ok(AddPoolRequest::V4 {
-            fee: 0,
-            tick_spacing: 60,
-            ..
-         })
-      ));
-   }
+      assert!(
+         matches!(
+            form.request(),
+            Ok(AddPoolRequest::V4 {
+               fee: 0,
+               tick_spacing: 60,
+               ..
+            })
+         ),
+         "a zero-fee pool stays addable"
+      );
 
-   #[test]
-   fn add_pool_form_accepts_dynamic_v4_fee() {
-      let mut form = form(Version::V4);
+      // Case: add_pool_form_accepts_dynamic_v4_fee
+      let mut form = base_form(Version::V4);
       form.v4_custom_fee = true;
       form.custom_fee = DYNAMIC_FEE_FLAG.to_string();
       form.tick_spacing = "60".to_string();
-      assert!(matches!(
-         form.request(),
-         Ok(AddPoolRequest::V4 {
-            fee: DYNAMIC_FEE_FLAG,
-            ..
-         })
-      ));
-   }
+      assert!(
+         matches!(
+            form.request(),
+            Ok(AddPoolRequest::V4 {
+               fee: DYNAMIC_FEE_FLAG,
+               ..
+            })
+         ),
+         "the dynamic-fee flag goes into the request"
+      );
 
-   #[test]
-   fn add_pool_form_requires_spacing_for_dynamic_fee() {
-      let mut form = form(Version::V4);
+      // Case: add_pool_form_requires_spacing_for_dynamic_fee
+      let mut form = base_form(Version::V4);
       form.v4_custom_fee = true;
       form.custom_fee = DYNAMIC_FEE_FLAG.to_string();
-      assert!(form.request().is_err());
+      assert!(
+         form.request().is_err(),
+         "a dynamic fee without tick spacing is refused"
+      );
 
       form.tick_spacing = "60".to_string();
-      assert!(form.request().is_ok());
-   }
+      assert!(
+         form.request().is_ok(),
+         "the same pool is addable once the spacing is given"
+      );
 
-   #[test]
-   fn add_pool_form_rejects_invalid_custom_fee() {
+      // Case: add_pool_form_rejects_invalid_custom_fee
       for value in ["16777216", "abc"] {
-         let mut form = form(Version::V4);
+         let mut form = base_form(Version::V4);
          form.v4_custom_fee = true;
          form.custom_fee = value.to_string();
          assert!(

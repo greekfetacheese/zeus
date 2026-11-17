@@ -1980,9 +1980,12 @@ mod tests {
    }
 
    /// An ERC-721 has no amount to enter — one token, always — so the field is ignored rather than
-   /// required, however it happens to be filled.
+   /// required, however it happens to be filled. An ERC-1155 with no usable amount cannot be sent:
+   /// empty, zero and nonsense all block it, and a real number goes through as typed. Nothing selected
+   /// is nothing to send.
    #[test]
-   fn erc721_always_sends_exactly_one() {
+   fn nft_transfer_amount_reads_the_selection_and_the_typed_field() {
+      // Case: erc721_always_sends_exactly_one
       let mut send = SendCryptoUi::new();
       send.set_nft(nft(7, NftStandard::Erc721));
 
@@ -1994,12 +1997,8 @@ mod tests {
          Some(U256::from(1)),
          "a typed amount cannot turn one ERC-721 into nine"
       );
-   }
 
-   /// An ERC-1155 with no usable amount cannot be sent: empty, zero and nonsense all block it, and a
-   /// real number goes through as typed.
-   #[test]
-   fn erc1155_amounts_have_to_be_usable() {
+      // Case: erc1155_amounts_have_to_be_usable
       let mut send = SendCryptoUi::new();
       send.set_nft(nft(7, NftStandard::Erc1155));
 
@@ -2024,11 +2023,8 @@ mod tests {
          Some(U256::from(12)),
          "padded input still parses"
       );
-   }
 
-   /// Nothing selected is nothing to send.
-   #[test]
-   fn without_a_selection_there_is_no_amount() {
+      // Case: without_a_selection_there_is_no_amount
       let send = SendCryptoUi::new();
       assert_eq!(send.nft_transfer_amount(), None);
    }

@@ -949,8 +949,12 @@ mod tests {
       assert!(!quote.amount_out.is_zero());
    }
 
+   /// The hop budget bounds the route the quoter builds: a direct pool wins over
+   /// a two-hop path even when both exist, and a budget of one hop cannot reach
+   /// a two-hop route at all.
    #[test]
-   fn prefers_direct_over_two_hop() {
+   fn hop_budget_controls_route_length() {
+      // Case: prefers_direct_over_two_hop
       let direct = eth_usdt_pool(
          address!("1111111111111111111111111111111111111111"),
          "10000",
@@ -983,6 +987,30 @@ mod tests {
          quote.swap_steps[0].pool.address(),
          direct.address()
       );
+
+      // Case: max_hops_one_does_not_use_two_hop
+      let uni_weth = v2_pool(
+         address!("1111111111111111111111111111111111111111"),
+         uni(),
+         weth(),
+         wei18("100000"),
+         wei18("1000"),
+      );
+      let weth_usdt = eth_usdt_pool(
+         address!("2222222222222222222222222222222222222222"),
+         "10000",
+         "20000000",
+      );
+      let amount = NumericValue::parse_to_wei("100", 18);
+      let quote = quote_single(
+         amount,
+         Currency::from(uni()),
+         Currency::from(usdt()),
+         vec![uni_weth, weth_usdt],
+         1,
+      );
+      assert!(quote.swap_steps.is_empty());
+      assert!(quote.amount_out.is_zero());
    }
 
    #[test]
@@ -1009,32 +1037,6 @@ mod tests {
       );
       assert_eq!(quote.swap_steps.len(), 2);
       assert!(!quote.amount_out.is_zero());
-   }
-
-   #[test]
-   fn max_hops_one_does_not_use_two_hop() {
-      let uni_weth = v2_pool(
-         address!("1111111111111111111111111111111111111111"),
-         uni(),
-         weth(),
-         wei18("100000"),
-         wei18("1000"),
-      );
-      let weth_usdt = eth_usdt_pool(
-         address!("2222222222222222222222222222222222222222"),
-         "10000",
-         "20000000",
-      );
-      let amount = NumericValue::parse_to_wei("100", 18);
-      let quote = quote_single(
-         amount,
-         Currency::from(uni()),
-         Currency::from(usdt()),
-         vec![uni_weth, weth_usdt],
-         1,
-      );
-      assert!(quote.swap_steps.is_empty());
-      assert!(quote.amount_out.is_zero());
    }
 
    #[test]
