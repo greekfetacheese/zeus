@@ -108,7 +108,7 @@ minisign-verify = "=0.2.5"
 ncrypt-me = "0.4"
 
 # Memory
-secure-types = { version = "0.5", features = ["codec"] }
+secure-types = { version = "0.6", features = ["codec"] }
 
 # Tracing
 tracing = "=0.1.41"

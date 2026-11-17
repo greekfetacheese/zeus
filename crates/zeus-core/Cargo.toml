@@ -21,7 +21,7 @@ alloy-eips = { workspace = true }
 alloy-sol-types = { workspace = true }
 alloy-consensus = { workspace = true }
 
-secure-types = { version = "0.5", features = ["codec"] }
+secure-types = { version = "0.6", features = ["codec"] }
 ncrypt-me = "0.4"
 chacha20poly1305 = "=0.10"
 brotli-decompressor = "5"
