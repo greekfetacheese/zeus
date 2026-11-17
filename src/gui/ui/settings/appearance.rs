@@ -1559,8 +1559,13 @@ mod tests {
    /// 150 pt cell only moved the cursor as far as its label ended and every
    /// column after it slid per row. A cell must reserve its full width plus one
    /// item spacing for the next widget.
+   ///
+   /// Every row is three `cell`s plus the badge, so the control column, the
+   /// value column and the badge share one x across rows regardless of how wide
+   /// a label's text is.
    #[test]
-   fn a_cell_reserves_its_width_for_the_next_widget() {
+   fn the_cell_reserves_its_width_so_the_row_columns_line_up() {
+      // Case: a_cell_reserves_its_width_for_the_next_widget
       egui::__run_test_ui(|ui| {
          ui.spacing_mut().item_spacing.x = 8.0;
          ui.horizontal(|ui| {
@@ -1583,13 +1588,8 @@ mod tests {
             );
          });
       });
-   }
 
-   /// Every row is three `cell`s plus the badge, so the control column, the
-   /// value column and the badge share one x across rows regardless of how wide
-   /// a label's text is.
-   #[test]
-   fn the_row_columns_and_badge_share_one_x() {
+      // Case: the_row_columns_and_badge_share_one_x
       egui::__run_test_ui(|ui| {
          ui.spacing_mut().item_spacing.x = 8.0;
          ui.horizontal(|ui| {

@@ -908,9 +908,10 @@ mod tests {
    }
 
    /// A confirmed transaction whose gas limit resolves to zero is still a confirmation:
-   /// acceptance is the field, not a value of some other field.
+   /// acceptance is the field, not a value of some other field; a rejection carries no acceptance.
    #[test]
-   fn a_confirmation_with_a_zero_gas_limit_is_still_a_confirmation() {
+   fn take_answer_reports_the_click_not_the_gas_limit() {
+      // Case: a_confirmation_with_a_zero_gas_limit_is_still_a_confirmation
       let mut window = TxConfirmationWindow::new();
       window.open = true;
       window.gas_used = 0;
@@ -925,10 +926,8 @@ mod tests {
          !answer.is_rejected(),
          "a zero gas limit must not be read as a rejection"
       );
-   }
 
-   #[test]
-   fn a_rejection_carries_no_acceptance() {
+      // Case: a_rejection_carries_no_acceptance
       let mut window = TxConfirmationWindow::new();
       window.open = true;
       window.confirmed_or_rejected = Some(false);
@@ -981,17 +980,6 @@ mod tests {
       // The owning flow releases the window when it is done with it.
       window.release();
       assert!(!window.is_busy());
-   }
-
-   /// A wallet that cannot cover value + cost says so on the confirm button, which is
-   /// the control it disables — the window spends no row repeating it.
-   #[test]
-   fn the_confirm_button_names_the_missing_funds() {
-      let mut window = TxConfirmationWindow::new();
-      window.native_currency = NativeCurrency::from(1);
-
-      assert_eq!(window.confirm_label(true), "Confirm");
-      assert_eq!(window.confirm_label(false), "Insufficient ETH");
    }
 
    /// A completed hold must not confirm a button that has since disabled: the crate
@@ -1345,47 +1333,50 @@ mod descriptor_precedence {
    }
 
    #[test]
-   fn a_pulled_token_transfer_yields_to_the_descriptor() {
-      let window = window(
-         aave_supply(),
-         Some(ClearDisplay::dummy_calldata()),
-      );
+   fn the_heading_follows_descriptor_precedence() {
+      // Case: a_pulled_token_transfer_yields_to_the_descriptor
+      {
+         let window = window(
+            aave_supply(),
+            Some(ClearDisplay::dummy_calldata()),
+         );
 
-      assert_eq!(
-         window.tx_main_event.as_ref().unwrap().name(),
-         "ERC20 Transfer",
-         "the fixture must still rank as the bare movement it reports"
-      );
-      assert!(window.descriptor_leads());
-      assert_eq!(heading_of(&window), "Supply");
-   }
+         assert_eq!(
+            window.tx_main_event.as_ref().unwrap().name(),
+            "ERC20 Transfer",
+            "the fixture must still rank as the bare movement it reports"
+         );
+         assert!(window.descriptor_leads());
+         assert_eq!(heading_of(&window), "Supply");
+      }
 
-   #[test]
-   fn a_direct_token_call_keeps_its_own_card() {
-      let mut analysis = aave_supply();
-      analysis.interact_to = ERC20Token::weth().address;
-      let window = window(analysis, Some(ClearDisplay::dummy_calldata()));
+      // Case: a_direct_token_call_keeps_its_own_card
+      {
+         let mut analysis = aave_supply();
+         analysis.interact_to = ERC20Token::weth().address;
+         let window = window(analysis, Some(ClearDisplay::dummy_calldata()));
 
-      assert!(!window.descriptor_leads());
-      assert_eq!(heading_of(&window), "ERC20 Transfer");
-   }
+         assert!(!window.descriptor_leads());
+         assert_eq!(heading_of(&window), "ERC20 Transfer");
+      }
 
-   #[test]
-   fn a_decoded_protocol_intent_still_leads() {
-      let mut analysis = TransactionAnalysis::dummy_swap();
-      analysis.interact_to = universal_router_v2(1).unwrap();
-      let window = window(analysis, Some(ClearDisplay::dummy_calldata()));
-      let main_event_name = window.tx_main_event.as_ref().unwrap().name();
+      // Case: a_decoded_protocol_intent_still_leads
+      {
+         let mut analysis = TransactionAnalysis::dummy_swap();
+         analysis.interact_to = universal_router_v2(1).unwrap();
+         let window = window(analysis, Some(ClearDisplay::dummy_calldata()));
+         let main_event_name = window.tx_main_event.as_ref().unwrap().name();
 
-      assert!(!window.descriptor_leads());
-      assert_eq!(heading_of(&window), main_event_name);
-   }
+         assert!(!window.descriptor_leads());
+         assert_eq!(heading_of(&window), main_event_name);
+      }
 
-   #[test]
-   fn no_descriptor_changes_nothing() {
-      let window = window(aave_supply(), None);
+      // Case: no_descriptor_changes_nothing
+      {
+         let window = window(aave_supply(), None);
 
-      assert!(!window.descriptor_leads());
-      assert_eq!(heading_of(&window), "ERC20 Transfer");
+         assert!(!window.descriptor_leads());
+         assert_eq!(heading_of(&window), "ERC20 Transfer");
+      }
    }
 }

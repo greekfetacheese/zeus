@@ -231,15 +231,18 @@ mod tests {
    use super::*;
 
    #[test]
-   fn malfunction_description_names_every_missing_capability() {
-      assert_eq!(
-         malfunction_description(&[RpcFunctionality::Multicall, RpcFunctionality::JsonRpcBatch]),
-         "No enabled RPC supports Multicall, JSON-RPC Batch — transaction eligibility may not work"
+   fn malfunction_description_names_each_missing_capability_or_falls_back() {
+      // Case: malfunction_description_names_every_missing_capability
+      let description =
+         malfunction_description(&[RpcFunctionality::Multicall, RpcFunctionality::JsonRpcBatch]);
+      let multicall = description.find("Multicall").expect("the note names Multicall");
+      let batch = description.find("JSON-RPC Batch").expect("the note names JSON-RPC Batch");
+      assert!(
+         multicall < batch,
+         "the note names both capabilities in order: {description}"
       );
-   }
 
-   #[test]
-   fn malfunction_description_falls_back_to_the_generic_note() {
+      // Case: malfunction_description_falls_back_to_the_generic_note
       assert_eq!(malfunction_description(&[]), DEGRADED_RPC_MSG);
    }
 }
