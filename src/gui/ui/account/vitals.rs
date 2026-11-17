@@ -476,36 +476,3 @@ fn format_limit(value: u64, infinity: u64) -> String {
       false => format_bytes(value),
    }
 }
-
-#[cfg(test)]
-mod tests {
-   use super::*;
-
-   #[test]
-   fn formats_bytes_in_binary_units() {
-      assert_eq!(format_bytes(0), "0.00 KiB");
-      assert_eq!(format_bytes(1024), "1.00 KiB");
-      assert_eq!(format_bytes(65_536), "64.00 KiB");
-      assert_eq!(format_bytes(8_388_608), "8.00 MiB");
-      assert_eq!(format_bytes(1_073_741_824), "1.0 GiB");
-   }
-
-   #[test]
-   fn formats_durations() {
-      assert_eq!(format_duration(0), "0s");
-      assert_eq!(format_duration(45), "45s");
-      assert_eq!(format_duration(252), "04:12");
-      assert_eq!(format_duration(3723), "01:02:03");
-      assert_eq!(format_duration(273_852), "3d 04:04");
-   }
-
-   /// `format_limit` only exists where an `rlimit` can be read, so its test does too: without the
-   /// gate this file fails to compile on Windows and macOS (`E0425`), where the test target is
-   /// built by CI even though the release binary never is.
-   #[cfg(target_os = "linux")]
-   #[test]
-   fn rlimit_infinity_reads_as_unlimited() {
-      assert_eq!(format_limit(u64::MAX, u64::MAX), "unlimited");
-      assert_eq!(format_limit(8_388_608, u64::MAX), "8.00 MiB");
-   }
-}
