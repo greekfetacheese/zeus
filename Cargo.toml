@@ -61,19 +61,8 @@ egui_extras = { version = "=0.37", features = ["image", "svg"] }
 flate2 = "=1.1.9"
 image = {version = "=0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif"]}
 imagesize = "=0.13.0"
-# Vector art is rasterised in-process (`utils::nft_icon`) rather than handed to a renderer as
-# source, so the href resolver can never reach the filesystem. Spec mirrors egui_extras' own
-# `svg` feature, so no additional code or features enter the build.
-#
-# `raster-images` and `text` stay off, and the art bounds are written around that: without the
-# former the renderer logs and skips a nested raster image instead of decoding it, and without the
-# latter no font machinery is in the build at all. `art_data_resolver` in `utils::nft_icon.rs`
-# bounds a nested raster for the day that changes, and `a_nested_raster_is_not_decoded_in_this_build`
-# is the canary that says when it has.
 resvg = {version = "=0.45.1", default-features = false}
 egui-lucide = "0.2"
-# Consumed from git until a release carries the widget set the app needs. The feature list is
-# `full` minus `elegance`, so egui-elegance leaves the dependency graph entirely.
 egui-elements = { git = "https://github.com/greekfetacheese/egui-elements", features = [
     "serde",
     "qr-scanner",
