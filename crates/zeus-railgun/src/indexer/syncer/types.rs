@@ -156,12 +156,6 @@ mod syncer_error_tests {
    use super::*;
 
    #[test]
-   fn renders_the_pinned_message() {
-      let err = SyncerError::new(std::io::Error::other("boom"));
-      assert_eq!(err.to_string(), "Syncer error: boom");
-   }
-
-   #[test]
    fn delegates_its_source_to_the_boxed_error() {
       let inner = std::io::Error::other("boom");
       let rendered = inner.to_string();

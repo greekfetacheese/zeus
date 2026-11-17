@@ -279,22 +279,6 @@ mod test {
    }
 
    #[test]
-   fn test_zeus_wallet() {
-      let wallet = gen_wallet();
-
-      let full_key = wallet.master_wallet.full_key().unwrap();
-      let address = RailgunAddress::new(&full_key, 0, None).unwrap();
-      let encoded_address = encode_address(
-         address.version,
-         address.master_public_key,
-         address.viewing_public_key,
-         None,
-      )
-      .unwrap();
-      println!("Address: {}", encoded_address);
-   }
-
-   #[test]
    fn test_decode_specific_address() {
       let wallet = gen_wallet();
       let full_key = wallet.master_wallet.full_key().unwrap();

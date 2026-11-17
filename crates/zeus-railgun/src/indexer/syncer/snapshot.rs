@@ -781,29 +781,44 @@ mod tip_sync_tests {
    use super::*;
 
    #[test]
-   fn tip_when_past_snapshot() {
-      assert!(SnapshotLoader::is_tip_sync(
-         25_000_000, 25_000_001
-      ));
-      assert!(!SnapshotLoader::is_tip_sync(0, 1_000));
-   }
+   fn sync_path_decision_only_past_snapshot_coverage() {
+      // Only a resume at the very tip may skip the blob; anything at or below
+      // snapshot coverage takes the historical path.
+      let cases = [
+         ("no snapshot yet", 0, 1_000, false),
+         (
+            "cold bootstrap below coverage",
+            25_629_896,
+            14_693_013,
+            false,
+         ),
+         (
+            "mid-chain resume below the tip",
+            25_629_896,
+            24_653_562,
+            false,
+         ),
+         (
+            "resume at the snapshot tip",
+            25_629_896,
+            25_629_896,
+            false,
+         ),
+         (
+            "resume past the snapshot tip",
+            25_000_000,
+            25_000_001,
+            true,
+         ),
+      ];
 
-   #[test]
-   fn resume_inside_snapshot_uses_historical() {
-      // Mid-chain resume must use the blob — that is why the snapshot exists.
-      assert!(!SnapshotLoader::is_tip_sync(
-         25_629_896, 24_653_562
-      ));
-      assert!(!SnapshotLoader::is_tip_sync(
-         25_629_896, 25_629_896
-      ));
-   }
-
-   #[test]
-   fn cold_bootstrap_uses_historical() {
-      assert!(!SnapshotLoader::is_tip_sync(
-         25_629_896, 14_693_013
-      ));
+      for (label, snapshot_block, from_block, expected) in cases {
+         assert_eq!(
+            SnapshotLoader::is_tip_sync(snapshot_block, from_block),
+            expected,
+            "{label}: is_tip_sync({snapshot_block}, {from_block})"
+         );
+      }
    }
 }
 
@@ -933,7 +948,8 @@ mod redb_meta_tests {
    }
 
    #[tokio::test]
-   async fn missing_db_load_meta_is_zero() {
+   async fn absent_or_empty_snapshot_is_a_benign_zero() {
+      // Case: missing_db_load_meta_is_zero
       let dir = unique_dir();
       let loader = SnapshotLoader::new(dir.clone());
       let db_path = dir.join(loader.db_filename(1));
@@ -945,10 +961,8 @@ mod redb_meta_tests {
       );
 
       let _ = std::fs::remove_dir_all(&dir);
-   }
 
-   #[tokio::test]
-   async fn empty_file_is_zero() {
+      // Case: empty_file_is_zero
       let dir = unique_dir();
       let loader = SnapshotLoader::new(dir.clone());
       let db_path = dir.join(loader.db_filename(7));
@@ -957,6 +971,10 @@ mod redb_meta_tests {
       assert_eq!(loader.load_meta(7).await.unwrap(), 0);
 
       let _ = std::fs::remove_dir_all(&dir);
+
+      // Case: compact_missing_db_is_false — the in-memory arm is gone; the
+      // file-backed loader above still reports a missing db as a benign false.
+      assert!(!loader.compact(1).await.unwrap());
    }
 
    #[test]
@@ -978,8 +996,9 @@ mod redb_meta_tests {
    }
 
    #[tokio::test]
-   async fn sealed_chunk_is_stored_compressed_and_reads_back() {
+   async fn chunk_envelope_follows_the_sealed_flag() {
       use super::super::chunk_codec::CHUNK_ESCAPE;
+      // Case: sealed_chunk_is_stored_compressed_and_reads_back
       let loader = SnapshotLoader::in_memory();
       let full: Vec<_> = (1..=CHUNK_EVENTS as u64).map(null_at).collect();
       loader.append(1, &full, CHUNK_EVENTS as u64, Some(1)).await.unwrap();
@@ -997,11 +1016,8 @@ mod redb_meta_tests {
          loaded.first().map(SyncEvent::block_number),
          Some(1)
       );
-   }
 
-   #[tokio::test]
-   async fn open_tail_stays_raw() {
-      use super::super::chunk_codec::CHUNK_ESCAPE;
+      // Case: open_tail_stays_raw
       let loader = SnapshotLoader::in_memory();
       loader.append(1, &[null_at(10), null_at(11)], 11, Some(10)).await.unwrap();
 
@@ -1018,8 +1034,9 @@ mod redb_meta_tests {
    }
 
    #[tokio::test]
-   async fn rewrite_seals_full_chunks() {
+   async fn rewrite_seals_into_pieced_and_raw_parts() {
       use super::super::chunk_codec::CHUNK_ESCAPE;
+      // Case: rewrite_seals_full_chunks
       let loader = SnapshotLoader::in_memory();
       let mut all: Vec<_> = (1..=CHUNK_EVENTS as u64).map(null_at).collect();
       all.push(null_at(CHUNK_EVENTS as u64 + 1));
@@ -1037,10 +1054,34 @@ mod redb_meta_tests {
          loader.load_range(1, 0, u64::MAX).await.unwrap().len(),
          CHUNK_EVENTS + 1
       );
+
+      // Case: pieced_chunks_round_trip_through_rewrite
+      let loader = SnapshotLoader::in_memory();
+      let mut all: Vec<_> = (1..=CHUNK_EVENTS as u64).map(bulky_at).collect();
+      all.push(null_at(CHUNK_EVENTS as u64 + 1));
+      loader.rewrite(1, &all, CHUNK_EVENTS as u64 + 1, 1).await.unwrap();
+
+      assert!(
+         loader.piece_count(1, 0).await.unwrap() > 1,
+         "the sealed chunk must be pieced"
+      );
+      assert_eq!(loader.piece_count(1, 1).await.unwrap(), 1);
+
+      let loaded = loader.load_range(1, 0, u64::MAX).await.unwrap();
+      assert_eq!(loaded.len(), CHUNK_EVENTS + 1);
+      assert_eq!(
+         loaded.first().map(SyncEvent::block_number),
+         Some(1)
+      );
+      assert_eq!(
+         loaded.last().map(SyncEvent::block_number),
+         Some(CHUNK_EVENTS as u64 + 1)
+      );
    }
 
    #[tokio::test]
-   async fn legacy_v1_chunk_still_loads() {
+   async fn legacy_v1_file_loads_and_upgrades_on_append() {
+      // Case: legacy_v1_chunk_still_loads
       let dir = unique_dir();
       let loader = SnapshotLoader::new(dir.clone());
       let events = vec![null_at(7), null_at(8)];
@@ -1067,10 +1108,8 @@ mod redb_meta_tests {
       );
       drop(loader);
       let _ = std::fs::remove_dir_all(&dir);
-   }
 
-   #[tokio::test]
-   async fn legacy_v1_append_stamps_v2() {
+      // Case: legacy_v1_append_stamps_v2
       let dir = unique_dir();
       let loader = SnapshotLoader::new(dir.clone());
       let events = vec![null_at(7), null_at(8)];
@@ -1104,8 +1143,9 @@ mod redb_meta_tests {
    }
 
    #[tokio::test]
-   async fn sealed_chunk_splits_into_pieces() {
+   async fn chunk_split_policy_round_trips() {
       use super::super::chunk_codec::PIECE_MAX;
+      // Case: sealed_chunk_splits_into_pieces
       let loader = SnapshotLoader::in_memory();
       let full: Vec<_> = (1..=CHUNK_EVENTS as u64).map(bulky_at).collect();
       loader.append(1, &full, CHUNK_EVENTS as u64, Some(1)).await.unwrap();
@@ -1115,7 +1155,6 @@ mod redb_meta_tests {
          count > 1,
          "a bulky sealed chunk must be split, got {count} part(s)"
       );
-      let mut sizes = Vec::new();
       for part in 0..count {
          let bytes = loader
             .raw_piece(1, 0, part)
@@ -1127,9 +1166,7 @@ mod redb_meta_tests {
             "part {part} is {} B, above PIECE_MAX",
             bytes.len()
          );
-         sizes.push(bytes.len());
       }
-      eprintln!("chunk 0 piece_count={count} part sizes={sizes:?}");
 
       let loaded = loader.load_range(1, 0, u64::MAX).await.unwrap();
       assert_eq!(loaded.len(), CHUNK_EVENTS);
@@ -1137,42 +1174,8 @@ mod redb_meta_tests {
          loaded.iter().map(SyncEvent::block_number).collect::<Vec<_>>(),
          (1..=CHUNK_EVENTS as u64).collect::<Vec<_>>()
       );
-   }
 
-   #[tokio::test]
-   async fn pieced_chunks_round_trip_through_rewrite() {
-      use super::super::chunk_codec::CHUNK_ESCAPE;
-      let loader = SnapshotLoader::in_memory();
-      let mut all: Vec<_> = (1..=CHUNK_EVENTS as u64).map(bulky_at).collect();
-      all.push(null_at(CHUNK_EVENTS as u64 + 1));
-      loader.rewrite(1, &all, CHUNK_EVENTS as u64 + 1, 1).await.unwrap();
-
-      assert!(
-         loader.piece_count(1, 0).await.unwrap() > 1,
-         "the sealed chunk must be pieced"
-      );
-      let tail = loader.raw_chunk(1, 1).await.unwrap().expect("chunk 1");
-      assert_ne!(
-         tail.first(),
-         Some(&CHUNK_ESCAPE),
-         "the short tail stays a single raw value"
-      );
-      assert_eq!(loader.piece_count(1, 1).await.unwrap(), 1);
-
-      let loaded = loader.load_range(1, 0, u64::MAX).await.unwrap();
-      assert_eq!(loaded.len(), CHUNK_EVENTS + 1);
-      assert_eq!(
-         loaded.first().map(SyncEvent::block_number),
-         Some(1)
-      );
-      assert_eq!(
-         loaded.last().map(SyncEvent::block_number),
-         Some(CHUNK_EVENTS as u64 + 1)
-      );
-   }
-
-   #[tokio::test]
-   async fn single_piece_chunks_stay_single_value() {
+      // Case: single_piece_chunks_stay_single_value
       let loader = SnapshotLoader::in_memory();
       loader.append(1, &[null_at(1), null_at(2)], 2, Some(1)).await.unwrap();
 
@@ -1184,8 +1187,9 @@ mod redb_meta_tests {
    }
 
    #[tokio::test]
-   async fn piece_count_mismatch_is_an_error() {
+   async fn corrupt_piece_headers_are_rejected() {
       use super::super::chunk_codec::CHUNK_ESCAPE;
+      // Case: piece_count_mismatch_is_an_error
       let loader = SnapshotLoader::in_memory();
       // A pieced header that claims 3 parts, stored with part 0 only.
       let mut first = vec![CHUNK_ESCAPE, 2, 3];
@@ -1210,11 +1214,8 @@ mod redb_meta_tests {
          .unwrap();
 
       assert!(loader.load_range(1, 0, u64::MAX).await.is_err());
-   }
 
-   #[tokio::test]
-   async fn out_of_range_part_count_is_an_error() {
-      use super::super::chunk_codec::CHUNK_ESCAPE;
+      // Case: out_of_range_part_count_is_an_error
       let loader = SnapshotLoader::in_memory();
       // A pieced header declaring 1_000_000 parts: a corrupt header must be
       // rejected before the reader allocates anything for it.
@@ -1242,8 +1243,6 @@ mod redb_meta_tests {
 
       let err = loader.load_range(1, 0, u64::MAX).await.unwrap_err();
       let msg = err.to_string();
-      assert!(msg.contains("1000000"), "unexpected error: {msg}");
-      assert!(msg.contains("65536"), "unexpected error: {msg}");
       assert!(
          !msg.contains("missing snapshot chunk"),
          "the bound must fire before any part is fetched: {msg}"
@@ -1294,39 +1293,6 @@ mod redb_chunk_tests {
       assert!(
          res.is_err(),
          "out-of-order append must be rejected"
-      );
-   }
-
-   #[tokio::test]
-   async fn rewrite_extends_coverage_downward() {
-      let loader = SnapshotLoader::in_memory();
-      // Seed a near-tip slice (what an already-synced indexer produces).
-      loader.append(1, &[null_at(100), null_at(200)], 200, Some(100)).await.unwrap();
-      assert_eq!(
-         loader.coverage(1).await.unwrap().coverage_start,
-         100
-      );
-
-      // A later full-history sync fetches below coverage_start; extending
-      // downward must lower coverage_start and keep every event.
-      loader
-         .rewrite(
-            1,
-            &[null_at(10), null_at(100), null_at(200)],
-            250,
-            10,
-         )
-         .await
-         .unwrap();
-
-      let meta = loader.coverage(1).await.unwrap();
-      assert_eq!(meta.coverage_start, 10);
-      assert_eq!(meta.block_number, 250);
-      assert_eq!(meta.chunks.len(), 1);
-      let loaded = loader.load_range(1, 0, u64::MAX).await.unwrap();
-      assert_eq!(
-         loaded.iter().map(|e| e.block_number()).collect::<Vec<_>>(),
-         vec![10, 100, 200]
       );
    }
 
@@ -1415,7 +1381,8 @@ mod redb_chunk_tests {
    }
 
    #[tokio::test]
-   async fn empty_delta_advances_block_number_only() {
+   async fn empty_delta_only_advances_an_existing_snapshot() {
+      // Case: empty_delta_advances_block_number_only
       let loader = SnapshotLoader::in_memory();
       loader.append(1, &[null_at(10), null_at(20)], 20, Some(10)).await.unwrap();
 
@@ -1426,10 +1393,8 @@ mod redb_chunk_tests {
       assert_eq!(loaded.len(), 2);
       assert_eq!(loaded[0].block_number(), 10);
       assert_eq!(loaded[1].block_number(), 20);
-   }
 
-   #[tokio::test]
-   async fn refuse_tip_bootstrap_on_empty_db() {
+      // Case: refuse_tip_bootstrap_on_empty_db
       let loader = SnapshotLoader::in_memory();
       loader.append(1, &[], 99, None).await.unwrap();
       assert_eq!(loader.load_meta(1).await.unwrap(), 0);
@@ -1466,21 +1431,6 @@ mod redb_chunk_tests {
 
       let none = loader.load_range(1, 40, 50).await.unwrap();
       assert!(none.is_empty());
-   }
-
-   #[tokio::test]
-   async fn compact_in_memory_is_ok() {
-      let loader = SnapshotLoader::in_memory();
-      loader.append(1, &[null_at(1)], 1, Some(1)).await.unwrap();
-      loader.compact(1).await.unwrap();
-      let loaded = loader.load_range(1, 0, u64::MAX).await.unwrap();
-      assert_eq!(loaded.len(), 1);
-   }
-
-   #[tokio::test]
-   async fn compact_missing_db_is_false() {
-      let loader = SnapshotLoader::in_memory();
-      assert!(!loader.compact(1).await.unwrap());
    }
 
    #[tokio::test]

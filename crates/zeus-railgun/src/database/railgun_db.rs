@@ -886,6 +886,51 @@ mod tests {
 
       let rebuilt = RailgunMerkleTree::from_leaves(0, loaded);
       assert_eq!(rebuilt.root(), tree.root());
+
+      // Case: large_tree_save_load_and_continue
+      let db = test_db();
+      let n1 = 65123usize;
+      let leaves1: Vec<U256> = (0..n1 as u64).map(|i| U256::from(i * 17 + 3)).collect();
+      let mut tree = RailgunMerkleTree::new(2);
+      tree.insert_leaves(&leaves1, 0);
+      let root1 = tree.root();
+
+      let mut batch = WriteBatch::new();
+      let chunks = all_chunk_indices(n1);
+      push_utxo_tree_save(
+         &mut batch,
+         2,
+         tree.leaves(),
+         root1.into(),
+         &chunks,
+         false,
+      )
+      .unwrap();
+      db.apply_batch(batch, WriteDurability::Immediate).await.unwrap();
+
+      let (loaded, legacy) = db.get_utxo_tree_leaves(2).await.unwrap().unwrap();
+      assert!(!legacy);
+      assert_eq!(loaded.len(), n1);
+      assert_eq!(loaded, leaves1);
+      let mut tree2 = RailgunMerkleTree::from_leaves(2, loaded);
+      assert_eq!(tree2.root(), root1, "reload root mismatch");
+
+      // Continue like tip sync
+      let extra: Vec<U256> =
+         (n1 as u64..(n1 as u64 + 500)).map(|i| U256::from(i * 17 + 3)).collect();
+      tree.insert_leaves(&extra, n1);
+      tree2.insert_leaves(&extra, n1);
+      assert_eq!(
+         tree.root(),
+         tree2.root(),
+         "incremental after load mismatch"
+      );
+
+      // Continuous build
+      let mut cont = RailgunMerkleTree::new(2);
+      let all: Vec<U256> = (0..(n1 as u64 + 500)).map(|i| U256::from(i * 17 + 3)).collect();
+      cont.insert_leaves(&all, 0);
+      assert_eq!(cont.root(), tree2.root());
    }
 
    #[tokio::test]
@@ -1088,53 +1133,6 @@ mod tests {
    }
 
    #[tokio::test]
-   async fn large_tree_save_load_and_continue() {
-      let db = test_db();
-      let n1 = 65123usize;
-      let leaves1: Vec<U256> = (0..n1 as u64).map(|i| U256::from(i * 17 + 3)).collect();
-      let mut tree = RailgunMerkleTree::new(2);
-      tree.insert_leaves(&leaves1, 0);
-      let root1 = tree.root();
-
-      let mut batch = WriteBatch::new();
-      let chunks = all_chunk_indices(n1);
-      push_utxo_tree_save(
-         &mut batch,
-         2,
-         tree.leaves(),
-         root1.into(),
-         &chunks,
-         false,
-      )
-      .unwrap();
-      db.apply_batch(batch, WriteDurability::Immediate).await.unwrap();
-
-      let (loaded, legacy) = db.get_utxo_tree_leaves(2).await.unwrap().unwrap();
-      assert!(!legacy);
-      assert_eq!(loaded.len(), n1);
-      assert_eq!(loaded, leaves1);
-      let mut tree2 = RailgunMerkleTree::from_leaves(2, loaded);
-      assert_eq!(tree2.root(), root1, "reload root mismatch");
-
-      // Continue like tip sync
-      let extra: Vec<U256> =
-         (n1 as u64..(n1 as u64 + 500)).map(|i| U256::from(i * 17 + 3)).collect();
-      tree.insert_leaves(&extra, n1);
-      tree2.insert_leaves(&extra, n1);
-      assert_eq!(
-         tree.root(),
-         tree2.root(),
-         "incremental after load mismatch"
-      );
-
-      // Continuous build
-      let mut cont = RailgunMerkleTree::new(2);
-      let all: Vec<U256> = (0..(n1 as u64 + 500)).map(|i| U256::from(i * 17 + 3)).collect();
-      cont.insert_leaves(&all, 0);
-      assert_eq!(cont.root(), tree2.root());
-   }
-
-   #[tokio::test]
    async fn utxo_note_proof_is_encrypted() {
       use crate::merkle_tree::{MerkleRoot, RailgunMerkleProof};
 
@@ -1217,6 +1215,68 @@ mod tests {
       );
       assert!(db.get_utxo_tree_meta(0).await.unwrap().is_none());
       assert!(db.keys_with_prefix(b"utxo_tree:").await.unwrap().is_empty());
+
+      // Case: a_pre_marker_state_with_a_registry_is_resynced
+      // A state written by the branch's own intermediate build is resynced too, not trusted.
+      //
+      // That build wrote a valid three-field blob — watermark preserved, registry empty or filled only
+      // from shields *after* the upgrade — which decodes cleanly into the layout that predates the schema
+      // marker. Trusted, it would keep a watermark the registry was never backfilled to, and the
+      // commitment check would then drop every historical NFT note. It has to fall into the same resync as
+      // the two-field shape, which is what the marker makes it do: the payload is short, so its decode
+      // fails and the upgrade runs.
+      use crate::caip::TokenRegistry;
+
+      let db = test_db();
+
+      // The intermediate shape exactly: `synced_block`, `trees`, `token_registry`, and no marker.
+      #[derive(Serialize)]
+      struct PreMarkerIndexer {
+         synced_block: u64,
+         trees: Vec<u32>,
+         token_registry: TokenRegistry,
+      }
+
+      let leaves: Vec<U256> = (0..10u64).map(U256::from).collect();
+      let chunks = all_chunk_indices(leaves.len());
+
+      let mut batch = WriteBatch::new();
+      put_envelope(
+         &mut batch,
+         &utxo_indexer_key(),
+         3,
+         &PreMarkerIndexer {
+            synced_block: 1_000,
+            trees: vec![0],
+            token_registry: TokenRegistry::new(),
+         },
+      )
+      .unwrap();
+      push_utxo_tree_save(
+         &mut batch,
+         0,
+         &leaves,
+         U256::from(7),
+         &chunks,
+         false,
+      )
+      .unwrap();
+      db.apply_batch(batch, WriteDurability::Immediate).await.unwrap();
+
+      let state = db.get_utxo_indexer().await.unwrap();
+
+      assert_eq!(
+         state.synced_block, 0,
+         "a pre-marker state must replay from the first block, not keep its watermark"
+      );
+      assert!(
+         state.trees.is_empty(),
+         "and rediscover the trees it replays"
+      );
+      assert!(
+         db.keys_with_prefix(b"utxo_tree:").await.unwrap().is_empty(),
+         "the stored trees went with the watermark"
+      );
    }
 
    /// A frozen proof does not outlive the tree it was frozen against.
@@ -1273,70 +1333,6 @@ mod tests {
          UtxoMerkleTree::from_leaves(0, leaves).root(),
          proof.root,
          "proof.root must equal the rebuilt root"
-      );
-   }
-
-   /// A state written by the branch's own intermediate build is resynced too, not trusted.
-   ///
-   /// That build wrote a valid three-field blob — watermark preserved, registry empty or filled only
-   /// from shields *after* the upgrade — which decodes cleanly into the layout that predates the schema
-   /// marker. Trusted, it would keep a watermark the registry was never backfilled to, and the
-   /// commitment check would then drop every historical NFT note. It has to fall into the same resync as
-   /// the two-field shape, which is what the marker makes it do: the payload is short, so its decode
-   /// fails and the upgrade runs.
-   #[tokio::test]
-   async fn a_pre_marker_state_with_a_registry_is_resynced() {
-      use crate::caip::TokenRegistry;
-
-      let db = test_db();
-
-      // The intermediate shape exactly: `synced_block`, `trees`, `token_registry`, and no marker.
-      #[derive(Serialize)]
-      struct PreMarkerIndexer {
-         synced_block: u64,
-         trees: Vec<u32>,
-         token_registry: TokenRegistry,
-      }
-
-      let leaves: Vec<U256> = (0..10u64).map(U256::from).collect();
-      let chunks = all_chunk_indices(leaves.len());
-
-      let mut batch = WriteBatch::new();
-      put_envelope(
-         &mut batch,
-         &utxo_indexer_key(),
-         3,
-         &PreMarkerIndexer {
-            synced_block: 1_000,
-            trees: vec![0],
-            token_registry: TokenRegistry::new(),
-         },
-      )
-      .unwrap();
-      push_utxo_tree_save(
-         &mut batch,
-         0,
-         &leaves,
-         U256::from(7),
-         &chunks,
-         false,
-      )
-      .unwrap();
-      db.apply_batch(batch, WriteDurability::Immediate).await.unwrap();
-
-      let state = db.get_utxo_indexer().await.unwrap();
-
-      assert_eq!(
-         state.synced_block, 0,
-         "a pre-marker state must replay from the first block, not keep its watermark"
-      );
-      assert!(
-         state.trees.is_empty(),
-         "and rediscover the trees it replays"
-      );
-      assert!(
-         db.keys_with_prefix(b"utxo_tree:").await.unwrap().is_empty(),
-         "the stored trees went with the watermark"
       );
    }
 }

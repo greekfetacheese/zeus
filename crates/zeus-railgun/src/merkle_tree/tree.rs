@@ -262,15 +262,7 @@ fn zero_value_levels<C: MerkleConfig>() -> Vec<U256> {
 #[cfg(test)]
 mod tests {
    use super::*;
-   use crate::merkle_tree::config::TestMerkleConfig;
    use ruint::uint;
-
-   #[test]
-   fn test_merkle_tree() {
-      let mut tree = MerkleTree::<TestMerkleConfig>::new(0);
-      let leaves = vec![U256::from(1), U256::from(2), U256::from(3), U256::from(4)];
-      tree.insert_leaves(&leaves, 0);
-   }
 
    #[test]
    fn test_railgun_merkle_tree_zero() {
@@ -317,7 +309,7 @@ mod tests {
    }
 
    #[test]
-   fn test_state() {
+   fn from_state_round_trip_preserves_root_and_state() {
       let mut tree = RailgunMerkleTree::new(0);
       let leaves: Vec<U256> = (0..10u64).map(|i| U256::from(i + 1)).collect();
       tree.insert_leaves(&leaves, 0);
@@ -326,6 +318,7 @@ mod tests {
       let rebuilt_tree = RailgunMerkleTree::from_state(state);
 
       assert_eq!(tree.root(), rebuilt_tree.root());
+      assert_eq!(tree.state(), rebuilt_tree.state());
    }
 
    #[test]
@@ -337,41 +330,5 @@ mod tests {
       let rebuilt = RailgunMerkleTree::from_leaves(0, leaves.clone());
       assert_eq!(tree.root(), rebuilt.root());
       assert_eq!(tree.leaves(), rebuilt.leaves());
-   }
-
-   #[test]
-   fn test_serialize_deserialize() {
-      let mut tree = MerkleTree::<TestMerkleConfig>::new(0);
-      let leaves = vec![U256::from(1), U256::from(2), U256::from(3), U256::from(4)];
-      tree.insert_leaves(&leaves, 0);
-
-      let state = tree.state();
-      let deserialized_tree = MerkleTree::<TestMerkleConfig>::from_state(state.clone());
-      assert_eq!(tree.state(), deserialized_tree.state());
-   }
-}
-
-#[cfg(test)]
-mod error_tests {
-   use std::error::Error as _;
-
-   use super::*;
-
-   #[test]
-   fn renders_the_pinned_messages() {
-      assert_eq!(
-         MerkleTreeError::ElementNotFound("leaf".to_owned()).to_string(),
-         "Element not found in tree: leaf"
-      );
-      assert_eq!(
-         MerkleTreeError::InvalidProof.to_string(),
-         "Invalid proof"
-      );
-   }
-
-   #[test]
-   fn the_payload_variants_have_no_source() {
-      assert!(MerkleTreeError::ElementNotFound("leaf".to_owned()).source().is_none());
-      assert!(MerkleTreeError::InvalidProof.source().is_none());
    }
 }

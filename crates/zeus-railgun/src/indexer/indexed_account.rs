@@ -1041,7 +1041,8 @@ mod tests {
    }
 
    #[test]
-   fn test_private_history_nets_change() {
+   fn spend_rows_net_change_and_take_kind_from_memo() {
+      // Case: test_private_history_nets_change
       let seed: [u8; 64] = random();
       let sec_array = SecureArray::from_slice(&seed).unwrap();
       let sender = RailgunSigner::from_seed(&sec_array, 0, 1).unwrap();
@@ -1057,7 +1058,7 @@ mod tests {
       };
 
       let shield = encrypt_shield(sender.address().clone(), asset, 233, rng).unwrap();
-      let shield_event = syncer::Shield {
+      let event = syncer::Shield {
          tree_number: 1,
          leaf_index: 0,
          npk: shield.preimage.npk.into(),
@@ -1069,7 +1070,7 @@ mod tests {
          timestamp: 1,
          tx_hash: B256::from([1u8; 32]),
       };
-      account.handle_shield_event(&shield_event, 10).unwrap();
+      account.handle_shield_event(&event, 10).unwrap();
 
       let spent_note = account.unspent()[0].clone();
       let spend_tx = B256::from([9u8; 32]);
@@ -1116,6 +1117,44 @@ mod tests {
       assert_eq!(history[0].amount, 100);
       assert_eq!(history[0].change_amount, 133);
       assert_eq!(history[0].input_count, 1);
+      assert!(history.iter().all(|e| e.kind != PrivateHistoryKind::Receive));
+
+      // Case: a_change_note_is_not_received
+      let sender = test_signer();
+      let asset = test_asset();
+      let spend_tx = B256::from([9u8; 32]);
+      let mut account = account_for(&sender);
+
+      let shield = shield_event(&sender, asset, 233, 0, 1, B256::from([1u8; 32]));
+      account.handle_shield_event(&shield, 10).unwrap();
+      let spent_note = account.unspent()[0].clone();
+      account.handle_nullified_event(
+         &syncer::Nullified {
+            tree_number: 1,
+            nullifier: spent_note.nullifier.into(),
+            timestamp: 100,
+            tx_hash: spend_tx,
+         },
+         20,
+      );
+
+      let change = transact_event(
+         &sender,
+         &sender,
+         asset,
+         133,
+         &encode_history_memo(PrivateHistoryKind::Send, ""),
+         5,
+         100,
+         spend_tx,
+      );
+      account.handle_transact_event(&change, 20, &TokenRegistry::default()).unwrap();
+
+      let history = account.private_history();
+      assert_eq!(history.len(), 1);
+      assert_eq!(history[0].kind, PrivateHistoryKind::Send);
+      assert_eq!(history[0].amount, 100);
+      assert_eq!(history[0].change_amount, 133);
       assert!(history.iter().all(|e| e.kind != PrivateHistoryKind::Receive));
    }
 
@@ -1264,7 +1303,8 @@ mod tests {
    }
 
    #[test]
-   fn received_note_from_a_foreign_transact_is_one_row() {
+   fn foreign_transact_yields_one_receive_row() {
+      // Case: received_note_from_a_foreign_transact_is_one_row
       let sender = test_signer();
       let recipient = test_signer();
       let asset = test_asset();
@@ -1295,10 +1335,33 @@ mod tests {
       assert_eq!(entry.spent_timestamp, 1_700_000_000);
       assert_eq!(entry.tx_hash, tx_hash);
       assert_eq!(entry.memo, "lunch");
+
+      // Case: two_notes_received_in_one_tx_are_one_row
+      let sender = test_signer();
+      let recipient = test_signer();
+      let asset = test_asset();
+      let tx_hash = B256::from([7u8; 32]);
+      let mut account = account_for(&recipient);
+
+      for (leaf_index, value) in [(0u32, 10u128), (1, 20)] {
+         let event = transact_event(
+            &sender, &recipient, asset, value, "", leaf_index, 500, tx_hash,
+         );
+         account.handle_transact_event(&event, 20, &TokenRegistry::default()).unwrap();
+      }
+
+      let history = account.private_history();
+      assert_eq!(history.len(), 1);
+      assert_eq!(history[0].kind, PrivateHistoryKind::Receive);
+      assert_eq!(history[0].asset, asset);
+      assert_eq!(history[0].amount, 30);
+      assert_eq!(history[0].input_count, 2);
+      assert_eq!(history[0].tx_hash, tx_hash);
    }
 
    #[test]
-   fn a_shield_note_is_not_received() {
+   fn non_transfer_notes_create_no_receive_row() {
+      // Case: a_shield_note_is_not_received
       let recipient = test_signer();
       let asset = test_asset();
       let mut account = account_for(&recipient);
@@ -1318,46 +1381,37 @@ mod tests {
          account.private_history().is_empty(),
          "a public deposit is not a private transfer"
       );
-   }
 
-   #[test]
-   fn a_change_note_is_not_received() {
-      let sender = test_signer();
+      // Case: a_note_without_a_creating_tx_is_not_received
+      let signer = test_signer();
       let asset = test_asset();
-      let spend_tx = B256::from([9u8; 32]);
-      let mut account = account_for(&sender);
+      let mut account = account_for(&signer);
 
-      let shield = shield_event(&sender, asset, 233, 0, 1, B256::from([1u8; 32]));
-      account.handle_shield_event(&shield, 10).unwrap();
-      let spent_note = account.unspent()[0].clone();
-      account.handle_nullified_event(
-         &syncer::Nullified {
+      let note = UtxoNote::new(
+         &signer,
+         crate::note::utxo::UtxoNoteParams {
             tree_number: 1,
-            nullifier: spent_note.nullifier.into(),
-            timestamp: 100,
-            tx_hash: spend_tx,
+            leaf_index: 0,
+            asset,
+            value: 100,
+            random: random(),
+            memo: "lunch".to_string(),
+            commitment_type: BlindedCommitmentType::Transact,
          },
-         20,
       );
-
-      let change = transact_event(
-         &sender,
-         &sender,
-         asset,
-         133,
-         &encode_history_memo(PrivateHistoryKind::Send, ""),
-         5,
-         100,
-         spend_tx,
-      );
-      account.handle_transact_event(&change, 20, &TokenRegistry::default()).unwrap();
+      account.inner.notes.push(NoteRecord {
+         note,
+         created_block: 20,
+         created_timestamp: 1_700_000_000,
+         created_tx_hash: B256::ZERO,
+      });
 
       let history = account.private_history();
-      assert_eq!(history.len(), 1);
-      assert_eq!(history[0].kind, PrivateHistoryKind::Send);
-      assert_eq!(history[0].amount, 100);
-      assert_eq!(history[0].change_amount, 133);
-      assert!(history.iter().all(|e| e.kind != PrivateHistoryKind::Receive));
+      assert!(
+         history.iter().all(|e| e.kind != PrivateHistoryKind::Receive),
+         "a note from before created_tx_hash was recorded cannot be classified"
+      );
+      assert!(history.is_empty());
    }
 
    #[test]
@@ -1398,63 +1452,6 @@ mod tests {
          .find(|e| e.kind == PrivateHistoryKind::Spend)
          .expect("the nullification is a spend row");
       assert_eq!(spend.tx_hash, spend_tx);
-   }
-
-   #[test]
-   fn two_notes_received_in_one_tx_are_one_row() {
-      let sender = test_signer();
-      let recipient = test_signer();
-      let asset = test_asset();
-      let tx_hash = B256::from([7u8; 32]);
-      let mut account = account_for(&recipient);
-
-      for (leaf_index, value) in [(0u32, 10u128), (1, 20)] {
-         let event = transact_event(
-            &sender, &recipient, asset, value, "", leaf_index, 500, tx_hash,
-         );
-         account.handle_transact_event(&event, 20, &TokenRegistry::default()).unwrap();
-      }
-
-      let history = account.private_history();
-      assert_eq!(history.len(), 1);
-      assert_eq!(history[0].kind, PrivateHistoryKind::Receive);
-      assert_eq!(history[0].asset, asset);
-      assert_eq!(history[0].amount, 30);
-      assert_eq!(history[0].input_count, 2);
-      assert_eq!(history[0].tx_hash, tx_hash);
-   }
-
-   #[test]
-   fn a_note_without_a_creating_tx_is_not_received() {
-      let signer = test_signer();
-      let asset = test_asset();
-      let mut account = account_for(&signer);
-
-      let note = UtxoNote::new(
-         &signer,
-         crate::note::utxo::UtxoNoteParams {
-            tree_number: 1,
-            leaf_index: 0,
-            asset,
-            value: 100,
-            random: random(),
-            memo: "lunch".to_string(),
-            commitment_type: BlindedCommitmentType::Transact,
-         },
-      );
-      account.inner.notes.push(NoteRecord {
-         note,
-         created_block: 20,
-         created_timestamp: 1_700_000_000,
-         created_tx_hash: B256::ZERO,
-      });
-
-      let history = account.private_history();
-      assert!(
-         history.iter().all(|e| e.kind != PrivateHistoryKind::Receive),
-         "a note from before created_tx_hash was recorded cannot be classified"
-      );
-      assert!(history.is_empty());
    }
 
    #[test]

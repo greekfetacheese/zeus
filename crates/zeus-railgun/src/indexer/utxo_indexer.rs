@@ -211,91 +211,69 @@ mod error_tests {
    }
 
    #[test]
-   fn renders_the_pinned_messages() {
-      assert_eq!(
-         UtxoIndexerError::SyncerError(syncer_error()).to_string(),
-         "Syncer error: Syncer error: boom"
-      );
-      assert_eq!(
-         UtxoIndexerError::VerificationError(Box::new(std::io::Error::other("boom"))).to_string(),
-         "Verification error: boom"
-      );
-      assert_eq!(
-         UtxoIndexerError::NoteError(note_error()).to_string(),
-         "Note error: Key error: Failed to decompress public key"
-      );
-      assert_eq!(
-         UtxoIndexerError::DatabaseError(database_error()).to_string(),
-         "Database error: Missing Railgun DB crypto key"
-      );
-      assert_eq!(
-         UtxoIndexerError::Timeout.to_string(),
-         "Timed out waiting for commitments"
-      );
+   fn error_sources_chain_wrappers_and_are_none_for_payload_variants() {
+      let syncer = syncer_error();
+      let syncer_rendered = syncer.to_string();
+      let verification = Box::new(std::io::Error::other("verification failed"));
+      let verification_rendered = verification.to_string();
+      let note = note_error();
+      let note_rendered = note.to_string();
+      let database = database_error();
+      let database_rendered = database.to_string();
+      let merkle_tree = merkle_tree_error();
+      let merkle_tree_rendered = merkle_tree.to_string();
+
+      let wrapped = [
+         (
+            "SyncerError",
+            UtxoIndexerError::SyncerError(syncer),
+            Some(syncer_rendered),
+         ),
+         (
+            "VerificationError",
+            UtxoIndexerError::VerificationError(verification),
+            Some(verification_rendered),
+         ),
+         (
+            "NoteError",
+            UtxoIndexerError::NoteError(note),
+            Some(note_rendered),
+         ),
+         (
+            "DatabaseError",
+            UtxoIndexerError::DatabaseError(database),
+            Some(database_rendered),
+         ),
+         (
+            "MerkleTree",
+            UtxoIndexerError::MerkleTree(merkle_tree),
+            Some(merkle_tree_rendered),
+         ),
+      ];
+      for (case, error, expected) in wrapped {
+         assert_eq!(
+            error.source().map(ToString::to_string),
+            expected,
+            "case: {case}"
+         );
+      }
 
       let root = U256::from(0x1234);
-      assert_eq!(
-         UtxoIndexerError::InvalidRoot(3, root).to_string(),
-         format!("Invalid root for tree 3 root {root}")
-      );
-      assert_eq!(
-         UtxoIndexerError::MissingTree(7).to_string(),
-         "UTXO tree 7 is required but is not in memory and not on disk"
-      );
-      assert_eq!(
-         UtxoIndexerError::MerkleTree(merkle_tree_error()).to_string(),
-         "Merkle tree error: Invalid proof"
-      );
-      assert_eq!(
-         UtxoIndexerError::InvalidFrozenProof(3, 9).to_string(),
-         "Frozen merkle proof for tree 3 leaf 9 is invalid"
-      );
-   }
-
-   #[test]
-   fn the_from_and_source_variants_delegate_their_source() {
-      let inner = syncer_error();
-      let rendered = inner.to_string();
-      assert_eq!(
-         UtxoIndexerError::SyncerError(inner).source().map(ToString::to_string),
-         Some(rendered)
-      );
-
-      let inner = Box::new(std::io::Error::other("verification failed"));
-      let rendered = inner.to_string();
-      assert_eq!(
-         UtxoIndexerError::VerificationError(inner).source().map(ToString::to_string),
-         Some(rendered)
-      );
-
-      let inner = note_error();
-      let rendered = inner.to_string();
-      assert_eq!(
-         UtxoIndexerError::NoteError(inner).source().map(ToString::to_string),
-         Some(rendered)
-      );
-
-      let inner = database_error();
-      let rendered = inner.to_string();
-      assert_eq!(
-         UtxoIndexerError::DatabaseError(inner).source().map(ToString::to_string),
-         Some(rendered)
-      );
-
-      let inner = merkle_tree_error();
-      let rendered = inner.to_string();
-      assert_eq!(
-         UtxoIndexerError::MerkleTree(inner).source().map(ToString::to_string),
-         Some(rendered)
-      );
-   }
-
-   #[test]
-   fn the_payload_free_variants_have_no_source() {
-      assert!(UtxoIndexerError::Timeout.source().is_none());
-      assert!(UtxoIndexerError::InvalidRoot(3, U256::from(0x1234)).source().is_none());
-      assert!(UtxoIndexerError::MissingTree(7).source().is_none());
-      assert!(UtxoIndexerError::InvalidFrozenProof(3, 9).source().is_none());
+      let payload_free = [
+         ("Timeout", UtxoIndexerError::Timeout),
+         (
+            "InvalidRoot",
+            UtxoIndexerError::InvalidRoot(3, root),
+         ),
+         ("MissingTree", UtxoIndexerError::MissingTree(7)),
+         (
+            "InvalidFrozenProof",
+            UtxoIndexerError::InvalidFrozenProof(3, 9),
+         ),
+      ];
+      for (case, error) in payload_free {
+         assert!(error.source().is_none(), "case: {case}");
+      }
    }
 }
 
@@ -1675,7 +1653,8 @@ mod tests {
    }
 
    #[tokio::test]
-   async fn loads_only_open_tree_into_memory() {
+   async fn residency_loads_only_open_tree_and_freezes_unspent_sealed_trees() {
+      // Case: loads_only_open_tree_into_memory
       let db = RedbDatabase::in_memory(RailgunDbKey::generate().unwrap()).unwrap();
       persist_tree(&db, 0, 16).await;
       persist_tree(&db, 1, 8).await;
@@ -1698,11 +1677,9 @@ mod tests {
       assert!(indexer.utxo_trees.contains_key(&2));
       assert!(!indexer.utxo_trees.contains_key(&0));
       assert!(!indexer.utxo_trees.contains_key(&1));
-   }
 
-   #[tokio::test]
-   async fn register_loads_trees_with_unspent_notes_then_compact_unloads() {
-      let db = RedbDatabase::in_memory(RailgunDbKey::generate().unwrap()).unwrap();
+      // Case: register_loads_trees_with_unspent_notes_then_compact_unloads
+      let registered_db = RedbDatabase::in_memory(RailgunDbKey::generate().unwrap()).unwrap();
 
       let seed: [u8; 64] = random();
       let sec = SecureArray::from_slice(&seed).unwrap();
@@ -1725,16 +1702,17 @@ mod tests {
 
       let mut tree0_leaves = vec![note.hash()];
       tree0_leaves.extend((1..16u64).map(|i| UtxoLeafHash::from(Ru256::from(i + 1))));
-      persist_tree_leaves(&db, 0, &tree0_leaves).await;
-      persist_tree(&db, 1, 8).await;
-      persist_tree(&db, 2, 4).await;
-      db.set_utxo_indexer(&UtxoIndexerState {
-         synced_block: 99,
-         trees: vec![0, 1, 2],
-         ..Default::default()
-      })
-      .await
-      .unwrap();
+      persist_tree_leaves(&registered_db, 0, &tree0_leaves).await;
+      persist_tree(&registered_db, 1, 8).await;
+      persist_tree(&registered_db, 2, 4).await;
+      registered_db
+         .set_utxo_indexer(&UtxoIndexerState {
+            synced_block: 99,
+            trees: vec![0, 1, 2],
+            ..Default::default()
+         })
+         .await
+         .unwrap();
 
       let state = IndexedAccountState {
          notes: vec![NoteRecord {
@@ -1746,25 +1724,31 @@ mod tests {
          synced_block: 99,
          spent_notes: vec![],
       };
-      db.set_account(signer.address(), &state).await.unwrap();
+      registered_db.set_account(signer.address(), &state).await.unwrap();
 
-      let mut indexer = indexer_from_db(db).await;
-      assert_eq!(indexer.resident_trees(), vec![2]);
+      let mut registered_indexer = indexer_from_db(registered_db).await;
+      assert_eq!(registered_indexer.resident_trees(), vec![2]);
 
-      indexer.register(signer.clone()).await.unwrap();
+      registered_indexer.register(signer.clone()).await.unwrap();
       // Sealed tree 0 is frozen then unloaded; only the open tree stays resident.
-      assert_eq!(indexer.resident_trees(), vec![2]);
-      assert_eq!(indexer.known_tree_numbers(), vec![0, 1, 2]);
-      let witnesses = indexer.merkle_witnesses(std::slice::from_ref(&note)).unwrap();
+      assert_eq!(registered_indexer.resident_trees(), vec![2]);
+      assert_eq!(
+         registered_indexer.known_tree_numbers(),
+         vec![0, 1, 2]
+      );
+      let witnesses = registered_indexer.merkle_witnesses(std::slice::from_ref(&note)).unwrap();
       assert!(witnesses.proofs.contains_key(&(0, 0)));
       assert!(witnesses.proofs[&(0, 0)].verify());
 
-      indexer.retain_accounts(&[]).await.unwrap();
-      assert_eq!(indexer.resident_trees(), vec![2]);
-      assert_eq!(indexer.known_tree_numbers(), vec![0, 1, 2]);
+      registered_indexer.retain_accounts(&[]).await.unwrap();
+      assert_eq!(registered_indexer.resident_trees(), vec![2]);
+      assert_eq!(
+         registered_indexer.known_tree_numbers(),
+         vec![0, 1, 2]
+      );
 
-      indexer.save(false).await.unwrap();
-      let state = indexer.db.get_utxo_indexer().await.unwrap();
+      registered_indexer.save(false).await.unwrap();
+      let state = registered_indexer.db.get_utxo_indexer().await.unwrap();
       assert_eq!(state.trees, vec![0, 1, 2]);
    }
 

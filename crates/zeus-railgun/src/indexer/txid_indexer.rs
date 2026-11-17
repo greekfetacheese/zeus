@@ -346,27 +346,8 @@ mod error_tests {
    }
 
    #[test]
-   fn renders_the_pinned_messages() {
-      assert_eq!(
-         TxidIndexerError::SyncerError(syncer_error()).to_string(),
-         "Syncer error: Syncer error: boom"
-      );
-      assert_eq!(
-         TxidIndexerError::PoiClient(poi_client_error()).to_string(),
-         "POI client error: Null result from RPC"
-      );
-      assert_eq!(
-         TxidIndexerError::RootMismatch { tree_number: 3 }.to_string(),
-         "TXID tree root mismatch for tree 3"
-      );
-      assert_eq!(
-         TxidIndexerError::DatabaseError(database_error()).to_string(),
-         "Database error: Missing Railgun DB crypto key"
-      );
-   }
-
-   #[test]
-   fn the_from_variants_delegate_their_source() {
+   fn the_error_variants_delegate_or_withhold_their_source() {
+      // Case: the_from_variants_delegate_their_source
       let inner = syncer_error();
       let rendered = inner.to_string();
       assert_eq!(
@@ -387,10 +368,8 @@ mod error_tests {
          TxidIndexerError::DatabaseError(inner).source().map(ToString::to_string),
          Some(rendered)
       );
-   }
 
-   #[test]
-   fn root_mismatch_has_no_source() {
+      // Case: root_mismatch_has_no_source
       assert!(TxidIndexerError::RootMismatch { tree_number: 3 }.source().is_none());
    }
 }

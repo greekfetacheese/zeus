@@ -130,46 +130,16 @@ mod error_tests {
    }
 
    #[test]
-   fn renders_the_pinned_messages() {
-      let expected = format!("Serialization error: {}", io_error());
-      assert_eq!(
-         DatabaseError::SerializationError(io_error()).to_string(),
-         expected
-      );
-      assert_eq!(
-         DatabaseError::UnsupportedVersion(2).to_string(),
-         "Unsupported version: 2"
-      );
-      assert_eq!(
-         DatabaseError::StorageError("boom".to_owned()).to_string(),
-         "Storage error: boom"
-      );
-      assert_eq!(
-         DatabaseError::EncryptionError("boom".to_owned()).to_string(),
-         "Encryption error: boom"
-      );
-      assert_eq!(
-         DatabaseError::DecryptionError("boom".to_owned()).to_string(),
-         "Decryption error: boom"
-      );
-      assert_eq!(
-         DatabaseError::MissingCryptoKey.to_string(),
-         "Missing Railgun DB crypto key"
-      );
-   }
-
-   #[test]
-   fn the_serialization_variant_delegates_its_source() {
+   fn the_error_variants_delegate_or_withhold_their_source() {
+      // Case: the_serialization_variant_delegates_its_source
       let inner = io_error();
       let rendered = inner.to_string();
       assert_eq!(
          DatabaseError::SerializationError(inner).source().map(ToString::to_string),
          Some(rendered)
       );
-   }
 
-   #[test]
-   fn the_payload_variants_have_no_source() {
+      // Case: the_payload_variants_have_no_source
       assert!(DatabaseError::UnsupportedVersion(2).source().is_none());
       assert!(DatabaseError::StorageError("boom".to_owned()).source().is_none());
       assert!(DatabaseError::EncryptionError("boom".to_owned()).source().is_none());

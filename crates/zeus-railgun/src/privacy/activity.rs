@@ -337,6 +337,7 @@ mod tests {
    /// neighbour, in block order, rather than at the epoch.
    #[test]
    fn a_missing_timestamp_is_estimated_from_the_block() {
+      // Case: a_missing_timestamp_is_estimated_from_the_block
       let events = vec![
          shield(
             WETH,
@@ -368,12 +369,10 @@ mod tests {
          "an exact block time must land on the real timestamp"
       );
       assert_eq!(deposits[1].timestamp, inside_ts(90));
-   }
 
-   /// The oldest deposit is the one the estimate can push out of the window: a block just inside it
-   /// is still inside, and there is no reason to drop it.
-   #[test]
-   fn an_estimated_timestamp_at_the_window_edge_stays_in() {
+      // Case: an_estimated_timestamp_at_the_window_edge_stays_in
+      // The oldest deposit is the one the estimate can push out of the window: a block just inside it
+      // is still inside, and there is no reason to drop it.
       let first_block = window().start_block;
       let events = vec![shield(WETH, 1_000, 0, first_block, B256::from([1u8; 32]))];
 

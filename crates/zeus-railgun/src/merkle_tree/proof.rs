@@ -93,11 +93,10 @@ impl Display for MerkleRoot {
 #[cfg(test)]
 mod tests {
    use super::*;
-   use crate::merkle_tree::config::TestMerkleConfig;
 
    #[test]
    fn test_serialize_deserialize() {
-      let proof = MerkleProof::<TestMerkleConfig>::new(
+      let proof = MerkleProof::<RailgunMerkleConfig>::new(
          U256::from(123),
          vec![U256::from(456), U256::from(789)],
          U256::from(3),
@@ -106,7 +105,8 @@ mod tests {
 
       let serialized = serde_json::to_string(&proof).unwrap();
 
-      let deserialized: MerkleProof<TestMerkleConfig> = serde_json::from_str(&serialized).unwrap();
+      let deserialized: MerkleProof<RailgunMerkleConfig> =
+         serde_json::from_str(&serialized).unwrap();
 
       assert_eq!(proof, deserialized);
    }
