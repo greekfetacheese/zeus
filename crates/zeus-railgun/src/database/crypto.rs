@@ -144,10 +144,17 @@ mod tests {
    }
 
    #[test]
-   fn wrong_aad_fails() {
+   fn wrong_aad_or_key_cannot_open() {
+      // Case: wrong_aad_fails — the AAD is authenticated, so another one cannot open the envelope.
       let key = RailgunDbKey::generate().unwrap();
       let sealed = key.seal(b"data", b"aad-a").unwrap();
       assert!(key.open(&sealed, b"aad-b").is_err());
+
+      // Case: wrong_key_fails — neither can another key.
+      let key_a = RailgunDbKey::generate().unwrap();
+      let key_b = RailgunDbKey::generate().unwrap();
+      let sealed = key_a.seal(b"data", b"aad").unwrap();
+      assert!(key_b.open(&sealed, b"aad").is_err());
    }
 
    #[test]
@@ -159,13 +166,5 @@ mod tests {
       key.erase();
 
       assert!(clone.open(&sealed, b"aad").is_err());
-   }
-
-   #[test]
-   fn wrong_key_fails() {
-      let key_a = RailgunDbKey::generate().unwrap();
-      let key_b = RailgunDbKey::generate().unwrap();
-      let sealed = key_a.seal(b"data", b"aad").unwrap();
-      assert!(key_b.open(&sealed, b"aad").is_err());
    }
 }

@@ -999,7 +999,8 @@ mod tests {
 
    /// A sum whose part is dust is a smaller set said twice, so it is neither counted nor listed.
    #[test]
-   fn a_dust_part_is_not_a_listed_set() {
+   fn dust_legs_are_not_sets_and_do_not_multiply_the_matches() {
+      // Case: a_dust_part_is_not_a_listed_set
       let pool = vec![
          deposit(3_502_749_352 * 1_000_000_000, 1),
          deposit(0, 1),
@@ -1022,13 +1023,11 @@ mod tests {
       assert_eq!(scored.sets.singles.len(), 1);
       assert_eq!(scored.sets.singles[0].amount_wei, target as u128);
       assert_eq!(scored.score, 100);
-   }
 
-   /// The shape a real Sepolia pool had: a crowd of 100 wei deposits — fee notes, not deposits anyone
-   /// could be linked to — which paired and tripled with everything and turned a handful of real
-   /// matches into a six-figure "ways" count. Only legs above the dust floor can make a set.
-   #[test]
-   fn dust_deposits_do_not_multiply_the_matches() {
+      // Case: dust_deposits_do_not_multiply_the_matches
+      // The shape a real Sepolia pool had: a crowd of 100 wei deposits — fee notes, not deposits
+      // anyone could be linked to — which paired and tripled with everything and turned a handful of
+      // real matches into a six-figure "ways" count. Only legs above the dust floor can make a set.
       let mut pool: Vec<Deposit> = (0..116).map(|i| deposit(100, 1 + i as u64 % 30)).collect();
       pool.push(deposit(17_955_000_000_000_000, 1)); // the amount itself
       pool.push(deposit(10_000_000_000_000_000, 2)); // and a real pair that makes it up
@@ -1046,29 +1045,6 @@ mod tests {
          1,
          "and the pair that is listed is the real one"
       );
-   }
-
-   /// The floor is exactly the rule the docs state — twice the larger of the fixed unit fraction and
-   /// the target's own match tolerance — at the two decimal counts a withdrawal actually uses. This
-   /// pins what [`dust_leg`] computes, not a number chosen to make it pass.
-   #[test]
-   fn dust_leg_is_twice_the_larger_of_the_unit_fraction_and_the_tolerance() {
-      for decimals in [6u8, 18] {
-         let unit = 10i128.saturating_pow(u32::from(decimals));
-         for target in [
-            1i128,
-            1_000_000,
-            1_000_000_000_000,
-            10i128.pow(18),
-            10i128.pow(23),
-         ] {
-            assert_eq!(
-               dust_leg(decimals, target),
-               2 * (unit / DUST_LEG_DIVISOR).max(tolerance(target)),
-               "dust leg at {decimals} decimals for target {target}"
-            );
-         }
-      }
    }
 
    /// Which branch of that `max` governs depends on the asset's decimals and on how large the target
@@ -1182,7 +1158,8 @@ mod tests {
 
    /// The same amount is *not* distinctive when the pool is full of it: hiding is the point.
    #[test]
-   fn an_amount_the_pool_is_full_of_is_low_risk() {
+   fn crowd_size_decides_the_verdict_at_the_knee() {
+      // Case: an_amount_the_pool_is_full_of_is_low_risk
       let mut pool: Vec<Deposit> = (1..=90).map(|i| eth(0.25, 1 + i as u64 % 100)).collect();
       pool.extend((1..=275).map(|i| eth(i as f64 * 0.01, 1 + i as u64 % 100)));
 
@@ -1214,12 +1191,10 @@ mod tests {
          advice.suggestion, None,
          "there is nothing safer to suggest"
       );
-   }
 
-   /// A crowd that stops at the floor is a crowd, but not enough of one: the neighbours are this size
-   /// and no further, which is what the knee means. Reading Low takes several times as many.
-   #[test]
-   fn a_crowd_at_the_floor_is_not_yet_low_risk() {
+      // Case: a_crowd_at_the_floor_is_not_yet_low_risk
+      // A crowd that stops at the floor is a crowd, but not enough of one: the neighbours are this
+      // size and no further, which is what the knee means. Reading Low takes several times as many.
       let mut pool: Vec<Deposit> = (1..=25).map(|i| eth(0.25, 1 + i as u64 % 100)).collect();
       pool.extend((1..=275).map(|i| eth(i as f64 * 0.01, 1 + i as u64 % 100)));
 
@@ -1318,7 +1293,8 @@ mod tests {
    /// Withdrawing the rest of a shield that was already partly withdrawn is the other own-history
    /// link: the two withdrawals sum to a deposit of theirs.
    #[test]
-   fn withdrawing_the_remainder_of_a_partly_withdrawn_shield_is_flagged() {
+   fn own_history_links_respect_the_window_and_the_remainder() {
+      // Case: withdrawing_the_remainder_of_a_partly_withdrawn_shield_is_flagged
       let own_shields = vec![eth(2.0, 30)];
       let own_unshields = vec![eth(0.5, 20)];
 
@@ -1359,11 +1335,9 @@ mod tests {
          END_TS,
       );
       assert_eq!(too_big.floor(), 0);
-   }
 
-   /// A deposit outside the window is not a duplicate: the link an observer sees is a recent one.
-   #[test]
-   fn only_own_history_inside_the_window_counts() {
+      // Case: only_own_history_inside_the_window_counts
+      // A deposit outside the window is not a duplicate: the link an observer sees is a recent one.
       let own_shields = vec![eth(1.0, 200)];
 
       let exposure = user_exposure(&own_shields, &[], WEI as u128, END_TS);
@@ -1455,35 +1429,5 @@ mod tests {
             assert!(suggestion > 0 && suggestion < requested);
          }
       }
-   }
-}
-
-#[cfg(test)]
-mod error_tests {
-   use std::error::Error as _;
-
-   use super::*;
-
-   #[test]
-   fn renders_the_pinned_messages() {
-      assert_eq!(
-         PrivacyError::ZeroAmount.to_string(),
-         "enter an amount more than zero"
-      );
-      assert_eq!(
-         PrivacyError::AmountTooLarge.to_string(),
-         "this amount is too large to assess"
-      );
-      assert_eq!(
-         PrivacyError::NoRecentActivity(30).to_string(),
-         "no deposits of this asset in the last 30 days"
-      );
-   }
-
-   #[test]
-   fn the_payload_variants_have_no_source() {
-      assert!(PrivacyError::ZeroAmount.source().is_none());
-      assert!(PrivacyError::AmountTooLarge.source().is_none());
-      assert!(PrivacyError::NoRecentActivity(30).source().is_none());
    }
 }

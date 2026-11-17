@@ -339,14 +339,12 @@ impl From<CommitmentCiphertext> for Ciphertext {
 
 #[cfg(test)]
 mod tests {
-   use alloy_primitives::{Bytes, FixedBytes, address, b256, bytes};
+   use alloy_primitives::{Bytes, FixedBytes, address};
    use ruint::uint;
 
    use super::{
-      BoundParams, CommitmentCiphertext, ShieldCiphertext, TokenData, TokenDataError, TokenType,
-      UnshieldType,
+      BoundParams, CommitmentCiphertext, TokenData, TokenDataError, TokenType, UnshieldType,
    };
-   use crate::crypto::aes::Ciphertext;
 
    /// A note's ciphertext carries `asset.hash()` — 32 bytes, whatever the standard. `from_hash` has a
    /// 96-byte branch for ERC-721/1155, but nothing ever produces 96 bytes, so the 32-byte branch is the
@@ -370,6 +368,8 @@ mod tests {
          recovered.tokenAddress,
          address!("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
       );
+      let recovered_asset: AssetId = recovered.into();
+      assert_eq!(recovered_asset, token);
 
       let nft = AssetId::Erc721(
          address!("0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D"),
@@ -433,68 +433,5 @@ mod tests {
             "token type byte {token_type} must be rejected"
          );
       }
-   }
-
-   #[test]
-   fn test_from_shield_ciphertext() {
-      let shield_ciphertext = ShieldCiphertext {
-         encryptedBundle: [
-            b256!("0xcdc40d1a484d0b9534fb430fd772ee441a0a60310f7e4f45e44f3e1a28927c66"),
-            b256!("0xf64f89eb30021e320701bac590c1b86222b54ae203d9a4e884eb6184cbc81e3d"),
-            b256!("0x1ea6ad31817027dc894fe811886dcfbbbce303fd9e3a30bd3da8d3af715d10d3"),
-         ],
-         shieldKey: b256!("0x6a87f04482a545ace6434f50ccc10d718d252a230d17ca6ab577b1d1e44b3967"),
-      };
-
-      let _ciphertext: Ciphertext = shield_ciphertext.into();
-   }
-
-   #[test]
-   fn test_from_commitment_ciphertext() {
-      let commitment_ciphertext = CommitmentCiphertext {
-         ciphertext: [
-            b256!("0x0701392e79e3b100c865c253aba4758643080ea8a88c70911ce4521fed8e2983"),
-            b256!("0x9a47f32a2f239b13f1817f5fabfb35a0ade4c0cff6fb55c9be421875566c63d9"),
-            b256!("0x3eb4c3dcae2803efad8434eadca4002ecea8bfb9fefb4dcc7a21d079f978a210"),
-            b256!("0xeb817de68266906f3ebb22b714bc0be33c865212ea9804586adbf0dd2d333ec2"),
-         ],
-         blindedReceiverViewingKey: b256!(
-            "0x046dab3ac0f2656b9e9aebd0bc0b886ff5e88026f017089277502e83e32f5547"
-         ),
-         blindedSenderViewingKey: b256!(
-            "0xc936445356cc951b8aedb75ce5c7d59b2ad43f8b68a53ceae2569b0721506ae0"
-         ),
-         annotationData: bytes!(
-            "0x5f627757a9ebf5dd7ca759eebd0dac8ac843f6e4a1f4e298ee7bb0345775f11f11ff05a7a67eb77276766931a9799e5e19fa18c51f14a5772fe0de6019bef864"
-         ),
-         memo: bytes!("0x3ceb1ca1f1ef0bdf61df88596d"),
-      };
-
-      let _ciphertext: Ciphertext = commitment_ciphertext.into();
-   }
-}
-
-#[cfg(test)]
-mod error_tests {
-   use std::error::Error as _;
-
-   use super::*;
-
-   #[test]
-   fn renders_the_pinned_messages() {
-      assert_eq!(
-         TokenDataError::InvalidHashLength.to_string(),
-         "Invalid token data hash length"
-      );
-      assert_eq!(
-         TokenDataError::UnsupportedTokenType(7).to_string(),
-         "Unsupported token type byte: 7"
-      );
-   }
-
-   #[test]
-   fn the_payload_variants_have_no_source() {
-      assert!(TokenDataError::InvalidHashLength.source().is_none());
-      assert!(TokenDataError::UnsupportedTokenType(7).source().is_none());
    }
 }

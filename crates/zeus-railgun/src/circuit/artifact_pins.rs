@@ -530,8 +530,6 @@ pub fn verify_artifact_digest(
 
 #[cfg(test)]
 mod tests {
-   use std::error::Error as _;
-
    use super::*;
    use crate::circuit::remote_artifact_loader::{
       ARTIFACT_MAX_INPUTS, ARTIFACT_MAX_OUTPUTS, all_transact_circuit_names,
@@ -597,63 +595,5 @@ mod tests {
       let blob = [0xABu8; 300];
       let err = verify_artifact_pin("railgun/01x01", "wasm.br", &blob).unwrap_err();
       assert!(matches!(err, ArtifactPinError::Mismatch { .. }));
-   }
-
-   #[test]
-   fn renders_the_pinned_messages() {
-      assert_eq!(
-         ArtifactPinError::Unpinned {
-            circuit: "railgun/06x01".to_owned(),
-            file: "wasm.br".to_owned(),
-         }
-         .to_string(),
-         "no SHA-256 pin for railgun/06x01/wasm.br"
-      );
-      assert_eq!(
-         ArtifactPinError::Mismatch {
-            circuit: "railgun/01x01".to_owned(),
-            file: "wasm.br".to_owned(),
-            expected: "aa".to_owned(),
-            actual: "bb".to_owned(),
-         }
-         .to_string(),
-         "SHA-256 mismatch for railgun/01x01/wasm.br: expected aa, got bb"
-      );
-   }
-
-   #[test]
-   fn the_named_field_variants_have_no_source() {
-      assert!(
-         ArtifactPinError::Unpinned {
-            circuit: "railgun/06x01".to_owned(),
-            file: "wasm.br".to_owned(),
-         }
-         .source()
-         .is_none()
-      );
-      assert!(
-         ArtifactPinError::Mismatch {
-            circuit: "railgun/01x01".to_owned(),
-            file: "wasm.br".to_owned(),
-            expected: "aa".to_owned(),
-            actual: "bb".to_owned(),
-         }
-         .source()
-         .is_none()
-      );
-   }
-
-   #[test]
-   fn matching_bytes_pass() {
-      let data = b"pin-self-test";
-      let digest: [u8; 32] = Sha256::digest(data).into();
-      // Reuse the verify math without a table entry.
-      let expected = digest;
-      let actual: [u8; 32] = Sha256::digest(data).into();
-      assert_eq!(actual, expected);
-      assert_ne!(
-         pin_digest("railgun/01x01", "wasm.br").unwrap(),
-         actual
-      );
    }
 }

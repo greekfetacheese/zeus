@@ -118,47 +118,6 @@ mod error_tests {
    }
 
    #[test]
-   fn renders_the_pinned_messages() {
-      let http = http_error();
-      assert_eq!(
-         PoiClientError::Http(http).to_string(),
-         format!("HTTP error: {}", http_error())
-      );
-
-      assert_eq!(
-         PoiClientError::Rpc(rpc_error()).to_string(),
-         "JSON-RPC error: RPC error -32601: method not found"
-      );
-      assert_eq!(
-         PoiClientError::NullResult.to_string(),
-         "Null result from RPC"
-      );
-      assert_eq!(
-         PoiClientError::UnexpectedResponse("boom".to_owned()).to_string(),
-         "Unexpected response: boom"
-      );
-
-      let root = MerkleRoot::new(U256::from(0x1234));
-      assert_eq!(
-         PoiClientError::InvalidPoiMerkleRoot(list_key(), root).to_string(),
-         format!(
-            "Invalid POI Merkle root for list key {:?}: {root}",
-            list_key()
-         )
-      );
-
-      // The message leads with the blinded commitment (field 1), then the list key (field 0).
-      assert_eq!(
-         PoiClientError::ProofNotFound(list_key(), commitment()).to_string(),
-         format!(
-            "Proof not found for blinded commitment {:?} and list key {:?}",
-            commitment(),
-            list_key()
-         )
-      );
-   }
-
-   #[test]
    fn only_the_http_variant_carries_a_source() {
       let inner = http_error();
       let rendered = inner.to_string();

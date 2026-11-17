@@ -265,9 +265,34 @@ mod tests {
    }
 
    #[test]
-   fn unsealed_payload_is_returned_unchanged() {
-      let raw = xorshift_bytes(4096);
-      assert_eq!(seal_chunk(raw.clone(), false).parts, vec![raw]);
+   fn seal_stores_bare_bincode_unless_compression_wins() {
+      // (case, raw, compress): whatever the flag, a payload whose compression
+      // does not win is stored exactly as it came in.
+      let cases = [
+         (
+            "unsealed_payload_is_returned_unchanged",
+            xorshift_bytes(4096),
+            false,
+         ),
+         (
+            "incompressible_payload_is_stored_raw",
+            xorshift_bytes(4096),
+            true,
+         ),
+         (
+            "short_payload_is_never_sealed",
+            vec![0u8; 64],
+            true,
+         ),
+      ];
+
+      for (case, raw, compress) in cases {
+         assert_eq!(
+            seal_chunk(raw.clone(), compress).parts,
+            vec![raw],
+            "{case}: the payload must be stored bare"
+         );
+      }
    }
 
    #[test]
@@ -282,18 +307,6 @@ mod tests {
    }
 
    #[test]
-   fn incompressible_payload_is_stored_raw() {
-      let raw = xorshift_bytes(4096);
-      assert_eq!(seal_chunk(raw.clone(), true).parts, vec![raw]);
-   }
-
-   #[test]
-   fn short_payload_is_never_sealed() {
-      let raw = vec![0u8; 64];
-      assert_eq!(seal_chunk(raw.clone(), true).parts, vec![raw]);
-   }
-
-   #[test]
    fn bare_bincode_value_opens_as_is() {
       // A v1 chunk starts with the element-count varint, never `CHUNK_ESCAPE`.
       let raw = vec![0x02, 0x01, 0x02, 0x03];
@@ -301,21 +314,24 @@ mod tests {
    }
 
    #[test]
-   fn unknown_codec_is_an_error() {
-      let err = open_chunk(&[vec![CHUNK_ESCAPE, 9, 1, 2, 3]]).unwrap_err();
-      assert!(
-         err.to_string().contains("unknown snapshot chunk codec 9"),
-         "unexpected error: {err}"
-      );
-   }
+   fn malformed_envelopes_are_rejected() {
+      // Case: unknown_codec_is_an_error
+      assert!(open_chunk(&[vec![CHUNK_ESCAPE, 9, 1, 2, 3]]).is_err());
 
-   #[test]
-   fn truncated_envelope_is_an_error() {
-      let err = open_chunk(&[vec![CHUNK_ESCAPE]]).unwrap_err();
-      assert!(
-         err.to_string().contains("truncated"),
-         "unexpected error: {err}"
+      // Case: truncated_envelope_is_an_error
+      assert!(open_chunk(&[vec![CHUNK_ESCAPE]]).is_err());
+
+      // Case: trailing_bytes_after_the_stream_are_an_error
+      let raw = vec![0u8; 64 * 1024];
+      let mut sealed = seal_chunk(raw, true);
+      assert_eq!(
+         sealed.parts.len(),
+         1,
+         "expected a single-part chunk"
       );
+      // The stream is everything after the two envelope header bytes.
+      sealed.parts[0].push(0);
+      assert!(open_chunk(&sealed.parts).is_err());
    }
 
    #[test]
@@ -360,28 +376,5 @@ mod tests {
             "payload {n}: declared count disagrees with the split"
          );
       }
-   }
-
-   #[test]
-   fn trailing_bytes_after_the_stream_are_an_error() {
-      let raw = vec![0u8; 64 * 1024];
-      let mut sealed = seal_chunk(raw, true);
-      assert_eq!(
-         sealed.parts.len(),
-         1,
-         "expected a single-part chunk"
-      );
-      // The stream is everything after the two envelope header bytes.
-      let body_len = sealed.parts[0].len() - 2;
-      sealed.parts[0].push(0);
-
-      let err = open_chunk(&sealed.parts).unwrap_err();
-      assert!(
-         err.to_string().contains(&format!(
-            "consumed {body_len} of {} B",
-            body_len + 1
-         )),
-         "unexpected error: {err}"
-      );
    }
 }

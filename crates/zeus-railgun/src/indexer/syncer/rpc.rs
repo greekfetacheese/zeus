@@ -634,29 +634,25 @@ mod tests {
    use super::*;
 
    #[test]
-   fn apply_dense_logs_cap_leaves_sparse_era_unchanged() {
-      assert_eq!(
-         apply_dense_logs_cap(1, 19_999_999, 30_000),
-         30_000
-      );
-   }
+   fn apply_dense_logs_cap_only_shrinks_dense_mainnet_ranges() {
+      // (chain_id, window_from, block_range, expected)
+      let cases = [
+         // Case: apply_dense_logs_cap_leaves_sparse_era_unchanged
+         (1, 19_999_999, 30_000, 30_000),
+         // Case: apply_dense_logs_cap_caps_mainnet_at_20m
+         (1, 20_000_000, 30_000, 5_000),
+         // Case: apply_dense_logs_cap_does_not_raise_smaller_range
+         (1, 20_000_000, 3_000, 3_000),
+         // Case: apply_dense_logs_cap_skips_sepolia
+         (11_155_111, 20_000_000, 30_000, 30_000),
+      ];
 
-   #[test]
-   fn apply_dense_logs_cap_caps_mainnet_at_20m() {
-      assert_eq!(apply_dense_logs_cap(1, 20_000_000, 30_000), 5_000);
-   }
-
-   #[test]
-   fn apply_dense_logs_cap_does_not_raise_smaller_range() {
-      assert_eq!(apply_dense_logs_cap(1, 20_000_000, 3_000), 3_000);
-   }
-
-   #[test]
-   fn apply_dense_logs_cap_skips_sepolia() {
-      assert_eq!(
-         apply_dense_logs_cap(11_155_111, 20_000_000, 30_000),
-         30_000
-      );
+      for (chain_id, window_from, block_range, expected) in cases {
+         assert_eq!(
+            apply_dense_logs_cap(chain_id, window_from, block_range),
+            expected
+         );
+      }
    }
 
    #[test]

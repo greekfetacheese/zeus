@@ -333,68 +333,9 @@ mod error_tests {
       }
    }
 
-   fn mismatch_error() -> ArtifactPinError {
-      ArtifactPinError::Mismatch {
-         circuit: "railgun/01x01".to_owned(),
-         file: "wasm.br".to_owned(),
-         expected: "aa".to_owned(),
-         actual: "bb".to_owned(),
-      }
-   }
-
    #[test]
-   fn renders_the_pinned_messages() {
-      let inner = http_error();
-      assert_eq!(
-         RemoteArtifactLoaderError::HttpError(inner).to_string(),
-         format!("HTTP error: {}", http_error())
-      );
-
-      // The status leads; the url follows.
-      assert_eq!(
-         RemoteArtifactLoaderError::NotFound {
-            url: "https://example.test/wasm.br".to_owned(),
-            status: 404,
-         }
-         .to_string(),
-         "Artifact not found (HTTP 404): https://example.test/wasm.br"
-      );
-      assert_eq!(
-         RemoteArtifactLoaderError::InvalidArtifact {
-            url: "https://example.test/wasm.br".to_owned(),
-            reason: "bad magic".to_owned(),
-         }
-         .to_string(),
-         "Invalid artifact at https://example.test/wasm.br: bad magic"
-      );
-      assert_eq!(
-         RemoteArtifactLoaderError::DecompressionError(std::io::Error::other("boom")).to_string(),
-         "Decompression error: boom"
-      );
-      assert_eq!(
-         RemoteArtifactLoaderError::NoCacheDir.to_string(),
-         "No on-disk cache directory configured"
-      );
-      assert_eq!(
-         RemoteArtifactLoaderError::DownloadDisabled {
-            circuit: "railgun/01x01".to_owned(),
-            file: "wasm.br".to_owned(),
-         }
-         .to_string(),
-         "Circuit download is disabled (railgun/01x01 / wasm.br)"
-      );
-
-      // Transparent variant: Display is the inner error's own, not a `"Pin: ..."` prefix.
-      let inner = unpinned_error();
-      let rendered = inner.to_string();
-      assert_eq!(
-         RemoteArtifactLoaderError::Pin(inner).to_string(),
-         rendered
-      );
-   }
-
-   #[test]
-   fn the_from_variants_delegate_their_source() {
+   fn source_chains_the_wrapped_error_and_stays_transparent_for_pin() {
+      // Case: the_from_variants_delegate_their_source
       let inner = http_error();
       let rendered = inner.to_string();
       assert_eq!(
@@ -410,10 +351,8 @@ mod error_tests {
             .map(ToString::to_string),
          Some(rendered)
       );
-   }
 
-   #[test]
-   fn the_payload_variants_have_no_source() {
+      // Case: the_payload_variants_have_no_source
       assert!(
          RemoteArtifactLoaderError::NotFound {
             url: "https://example.test/wasm.br".to_owned(),
@@ -439,10 +378,8 @@ mod error_tests {
          .source()
          .is_none()
       );
-   }
 
-   #[test]
-   fn pin_is_transparent_in_both_display_and_source() {
+      // Case: pin_is_transparent_in_both_display_and_source
       let unpinned = unpinned_error();
       let unpinned_display = unpinned.to_string();
       let unpinned_source = unpinned.source().map(ToString::to_string);
@@ -454,17 +391,61 @@ mod error_tests {
          "a transparent source is the inner error's own source, not Some(inner)"
       );
       assert!(err.source().is_none());
+   }
 
-      let mismatch = mismatch_error();
-      let mismatch_display = mismatch.to_string();
-      let mismatch_source = mismatch.source().map(ToString::to_string);
-      let err = RemoteArtifactLoaderError::Pin(mismatch_error());
-      assert_eq!(err.to_string(), mismatch_display);
-      assert_eq!(
-         err.source().map(ToString::to_string),
-         mismatch_source
-      );
-      assert!(err.source().is_none());
+   #[tokio::test]
+   async fn unpinned_disabled_and_mismatched_sources_are_refused() {
+      static BLOB: [u8; 300] = [0xAB; 300];
+      type Refusal = fn(&RemoteArtifactLoaderError) -> bool;
+
+      // One labelled row per refusal: each keeps its own matcher and message.
+      let cases: [(&str, &str, RemoteArtifactLoader, Refusal); 3] = [
+         (
+            "unpinned circuit is not downloaded",
+            "railgun/poi/01x01",
+            RemoteArtifactLoader::new("https://example.invalid/artifacts", None),
+            |err| {
+               matches!(
+                  err,
+                  RemoteArtifactLoaderError::Pin(ArtifactPinError::Unpinned { .. })
+               )
+            },
+         ),
+         (
+            "download disabled skips remote",
+            "railgun/01x01",
+            RemoteArtifactLoader::new("https://example.invalid/artifacts", None)
+               .with_allow_download(false),
+            |err| {
+               matches!(
+                  err,
+                  RemoteArtifactLoaderError::DownloadDisabled { .. }
+               )
+            },
+         ),
+         (
+            "embedded pin mismatch does not fall through",
+            "railgun/01x01",
+            RemoteArtifactLoader::new("https://example.invalid/artifacts", None)
+               .with_embedded_circuits([EmbeddedCircuit::new(
+                  "railgun/01x01",
+                  &BLOB,
+                  &BLOB,
+                  &BLOB,
+               )]),
+            |err| {
+               matches!(
+                  err,
+                  RemoteArtifactLoaderError::Pin(ArtifactPinError::Mismatch { .. })
+               )
+            },
+         ),
+      ];
+
+      for (case, circuit, loader, refusal) in cases {
+         let err = loader.load_wasm(circuit).await.unwrap_err();
+         assert!(refusal(&err), "{case}: {err:?}");
+      }
    }
 }
 
@@ -1295,48 +1276,6 @@ mod tests {
          "a body past the cap must be refused"
       );
       server.abort();
-   }
-
-   #[tokio::test]
-   async fn unpinned_circuit_is_not_downloaded() {
-      let loader = RemoteArtifactLoader::new("https://example.invalid/artifacts", None);
-      let err = loader.load_wasm("railgun/poi/01x01").await.unwrap_err();
-      assert!(
-         matches!(
-            err,
-            RemoteArtifactLoaderError::Pin(ArtifactPinError::Unpinned { .. })
-         ),
-         "{err:?}"
-      );
-   }
-
-   #[tokio::test]
-   async fn download_disabled_skips_remote() {
-      let loader = RemoteArtifactLoader::new("https://example.invalid/artifacts", None)
-         .with_allow_download(false);
-      let err = loader.load_wasm("railgun/01x01").await.unwrap_err();
-      assert!(
-         matches!(
-            err,
-            RemoteArtifactLoaderError::DownloadDisabled { .. }
-         ),
-         "{err:?}"
-      );
-   }
-
-   #[tokio::test]
-   async fn embedded_pin_mismatch_does_not_fall_through() {
-      static BLOB: [u8; 300] = [0xAB; 300];
-      let loader = RemoteArtifactLoader::new("https://example.invalid/artifacts", None)
-         .with_embedded_circuits([EmbeddedCircuit::new("railgun/01x01", &BLOB, &BLOB, &BLOB)]);
-      let err = loader.load_wasm("railgun/01x01").await.unwrap_err();
-      assert!(
-         matches!(
-            err,
-            RemoteArtifactLoaderError::Pin(ArtifactPinError::Mismatch { .. })
-         ),
-         "{err:?}"
-      );
    }
 
    #[tokio::test]

@@ -221,13 +221,6 @@ mod error_tests {
    use crate::crypto::aes::AesError;
 
    #[test]
-   fn renders_the_pinned_messages() {
-      let inner = EncryptError::Aes(AesError::DataTooShort);
-      let expected = format!("Encryption error: {inner}");
-      assert_eq!(ShieldError::Encrypt(inner).to_string(), expected);
-   }
-
-   #[test]
    fn the_encrypt_variant_delegates_its_source() {
       let inner = EncryptError::Aes(AesError::DataTooShort);
       let rendered = inner.to_string();

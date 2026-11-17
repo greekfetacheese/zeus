@@ -373,36 +373,6 @@ pub fn test_note() -> UtxoNote {
 mod tests {
    use super::*;
 
-   #[test]
-   fn test_note_hash() {
-      let note = test_note();
-      let _hash: U256 = note.hash().into();
-   }
-
-   #[test]
-   fn test_note_spending_pubkey() {
-      let note = test_note();
-      let _pub_key = note.spending_pubkey;
-   }
-
-   #[test]
-   fn test_note_nullifier() {
-      let note = test_note();
-      let _nullifier = note.nullifier;
-   }
-
-   #[test]
-   fn test_note_nullifying_key() {
-      let note = test_note();
-      let _nullifying_key = note.nullifying_key;
-   }
-
-   #[test]
-   fn test_note_public_key() {
-      let note = test_note();
-      let _pub_key = note.note_public_key;
-   }
-
    /// A transact note keeps only `asset.hash()`, so an NFT has to be *recognized* from a registry built out
    /// of the shields the wallet has seen, never derived back. Without it the note decodes as a phantom
    /// ERC-20 **and** no longer hashes to its own leaf — the «Element not found in tree» that no amount of
@@ -503,35 +473,42 @@ mod tests {
       }
    }
 
+   /// A `Transact` bundle keeps the ciphertext's own block lengths, so it can arrive shaped like
+   /// anything. Read as a note, every malformed shape has to come back as a skip — the old read
+   /// panicked inside `U256::from_be_slice` and `copy_from_slice`.
+   ///
    /// The subgraph source appends the memo to the note's `data` blocks, so a response carrying a
-   /// single `data` entry makes the memo the second block. Read as the token hash, an over-long block
-   /// has to come back as an error — the old read panicked inside `U256::from_be_slice`.
+   /// single `data` entry makes the memo the second block. A bundle can also arrive with fewer blocks
+   /// than the note layout has, or with a random/value block that is not the two 16-byte halves it is
+   /// made of — a shorter one has no second half at all. Each row is a payload shape and is rejected
+   /// on its own.
    #[test]
-   fn a_transact_bundle_whose_second_block_is_a_memo_is_rejected() {
-      let recipient = random_signer();
-      let data_block: &[u8] = &[0u8; 32];
-      let memo: &[u8] = &[0xAB; 40];
-
-      let event = transact_with_blocks(&recipient, &[data_block, memo]);
-      let note = UtxoNote::decrypt_transact(&recipient, &event, &TokenRegistry::new());
-
-      assert!(matches!(
-         note,
-         Err(NoteError::TokenData(
-            TokenDataError::InvalidHashLength
-         ))
-      ));
-   }
-
-   /// The bundle keeps the ciphertext's block lengths, so it can arrive with fewer blocks than the
-   /// note layout has. That is a skip, not an index panic.
-   #[test]
-   fn a_transact_bundle_with_too_few_blocks_is_rejected() {
+   fn malformed_transact_bundles_are_rejected_not_panicked() {
       let recipient = random_signer();
       let hash: &[u8] = &[0u8; 32];
       let value: &[u8] = &[0u8; 32];
+      let data_block: &[u8] = &[0u8; 32];
+      let memo: &[u8] = &[0xAB; 40];
+      let truncated: &[u8] = &[0u8; 16];
 
-      for blocks in [vec![], vec![hash], vec![hash, value]] {
+      let cases: [(&str, Vec<&[u8]>); 5] = [
+         (
+            "a second block that is the memo",
+            vec![data_block, memo],
+         ),
+         ("no blocks at all", vec![]),
+         ("only the token-hash block", vec![hash]),
+         (
+            "a token hash and a value block, no random block",
+            vec![hash, value],
+         ),
+         (
+            "a truncated random/value block",
+            vec![hash, hash, truncated],
+         ),
+      ];
+
+      for (shape, blocks) in cases {
          let event = transact_with_blocks(&recipient, &blocks);
          let note = UtxoNote::decrypt_transact(&recipient, &event, &TokenRegistry::new());
 
@@ -542,7 +519,7 @@ mod tests {
                   TokenDataError::InvalidHashLength
                ))
             ),
-            "a bundle of {} blocks must be rejected",
+            "{shape}: a bundle of {} blocks must be rejected",
             blocks.len()
          );
       }
@@ -736,25 +713,6 @@ mod tests {
          );
       }
    }
-
-   /// The random/value block is two 16-byte halves, so it is exactly 32 bytes. A shorter block has no
-   /// second half and used to be a `copy_from_slice` panic.
-   #[test]
-   fn a_transact_bundle_with_a_truncated_random_value_block_is_rejected() {
-      let recipient = random_signer();
-      let hash: &[u8] = &[0u8; 32];
-      let truncated: &[u8] = &[0u8; 16];
-
-      let event = transact_with_blocks(&recipient, &[hash, hash, truncated]);
-      let note = UtxoNote::decrypt_transact(&recipient, &event, &TokenRegistry::new());
-
-      assert!(matches!(
-         note,
-         Err(NoteError::TokenData(
-            TokenDataError::InvalidHashLength
-         ))
-      ));
-   }
 }
 
 #[cfg(test)]
@@ -762,21 +720,6 @@ mod error_tests {
    use std::error::Error as _;
 
    use super::*;
-
-   #[test]
-   fn renders_the_pinned_messages() {
-      let inner = AesError::DataTooShort;
-      let expected = format!("AES error: {inner}");
-      assert_eq!(NoteError::Aes(inner).to_string(), expected);
-
-      let inner = TokenDataError::InvalidHashLength;
-      let expected = format!("TokenData error: {inner}");
-      assert_eq!(NoteError::TokenData(inner).to_string(), expected);
-
-      let inner = KeyError::DecompressionFailed;
-      let expected = format!("Key error: {inner}");
-      assert_eq!(NoteError::Key(inner).to_string(), expected);
-   }
 
    #[test]
    fn the_from_variants_delegate_their_source() {

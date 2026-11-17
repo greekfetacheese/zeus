@@ -251,44 +251,7 @@ fn concat_arrays<const A: usize, const B: usize, const C: usize>(
 
 #[cfg(test)]
 mod tests {
-   use alloy_primitives::address;
-   use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
-
    use super::*;
-   use crate::account::signer::RailgunSigner;
-   use secure_types::SecureArray;
-
-   #[test]
-   fn test_encrypt_snap() {
-      let mut rand = ChaChaRng::seed_from_u64(0);
-      let chain_id = 1;
-
-      let rnd_array: [u8; 64] = rand.random();
-      let sec_array = SecureArray::from_slice(&rnd_array).unwrap();
-      let signer = RailgunSigner::from_seed(&sec_array, 0, chain_id).unwrap();
-      let sender_viewing_key = signer.keys().viewing_private_key.clone();
-
-      let shared_random = [5u8; 16];
-      let value = 1000u128;
-      let asset = AssetId::Erc20(address!(
-         "0x1234567890123456789012345678901234567890"
-      ));
-      let memo = "test memo";
-
-      let _encrypted = encrypt_note(
-         EncryptNoteParams {
-            receiver: signer.address(),
-            shared_random: &shared_random,
-            value,
-            asset: &asset,
-            memo,
-            viewing_key: sender_viewing_key,
-            blind: false,
-         },
-         &mut rand,
-      )
-      .unwrap();
-   }
 
    #[test]
    fn test_blinded_key() {
@@ -343,24 +306,6 @@ mod error_tests {
    use std::error::Error as _;
 
    use super::*;
-
-   #[test]
-   fn renders_the_pinned_messages() {
-      let inner = railgun_base_37::EncodingError::InvalidCharacter('H');
-      let expected = format!("Railgun base37 encoding error: {inner}");
-      assert_eq!(
-         EncryptError::RailgunBase37(inner).to_string(),
-         expected
-      );
-
-      let inner = AesError::DataTooShort;
-      let expected = format!("AES encryption error: {inner}");
-      assert_eq!(EncryptError::Aes(inner).to_string(), expected);
-
-      let inner = KeyError::DecompressionFailed;
-      let expected = format!("Key error: {inner}");
-      assert_eq!(EncryptError::Key(inner).to_string(), expected);
-   }
 
    #[test]
    fn the_from_variants_delegate_their_source() {

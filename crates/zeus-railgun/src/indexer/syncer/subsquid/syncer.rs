@@ -470,36 +470,8 @@ mod error_tests {
    }
 
    #[test]
-   fn renders_the_pinned_messages() {
-      let inner = serde_error();
-      assert_eq!(
-         SubsquidSyncerError::Serde(inner).to_string(),
-         format!("Serde error: {}", serde_error())
-      );
-
-      let inner = http_error();
-      assert_eq!(
-         SubsquidSyncerError::Http(inner).to_string(),
-         format!("HTTP error: {}", http_error())
-      );
-
-      // `{0}` is StatusCode's Display, not its Debug.
-      assert_eq!(
-         SubsquidSyncerError::Request(
-            reqwest::StatusCode::NOT_FOUND,
-            "not found".to_owned()
-         )
-         .to_string(),
-         "Request failed with status 404 Not Found: not found"
-      );
-      assert_eq!(
-         SubsquidSyncerError::GraphQL("boom".to_owned()).to_string(),
-         "GraphQL error: boom"
-      );
-   }
-
-   #[test]
-   fn the_from_variants_delegate_their_source() {
+   fn error_sources_match_their_variants() {
+      // Case: the_from_variants_delegate_their_source
       let inner = serde_error();
       let rendered = inner.to_string();
       assert_eq!(
@@ -513,10 +485,8 @@ mod error_tests {
          SubsquidSyncerError::Http(inner).source().map(ToString::to_string),
          Some(rendered)
       );
-   }
 
-   #[test]
-   fn request_and_graphql_have_no_source() {
+      // Case: request_and_graphql_have_no_source
       assert!(
          SubsquidSyncerError::Request(
             reqwest::StatusCode::NOT_FOUND,

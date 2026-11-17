@@ -204,59 +204,143 @@ mod tests {
       }
    }
 
+   /// What one table row's source case asserted; a None field means that case
+   /// did not assert it.
+   struct Expected {
+      pack_len: usize,
+      amount: Option<u128>,
+      circuit_label: Option<&'static str>,
+      notes_total_after: Option<usize>,
+      more_merges_available: bool,
+      max_inputs: Option<usize>,
+      dust_first: bool,
+   }
+
    #[test]
-   fn merges_all_four_small_notes() {
-      let notes = vec![
-         n(300_000_000_000_000, 0, 0), // 0.0003
-         n(400_000_000_000_000, 0, 1),
-         n(100_000_000_000_000, 0, 2),
-         n(200_000_000_000_000, 0, 3),
+   fn suggest_merge_packs_the_right_notes_per_case() {
+      // (case, notes, max_inputs, expected); a None expectation means no
+      // suggestion at all.
+      let cases: [(&str, Vec<MergeCandidate>, usize, Option<Expected>); 5] = [
+         (
+            "merges_all_four_small_notes",
+            vec![
+               n(300_000_000_000_000, 0, 0), // 0.0003
+               n(400_000_000_000_000, 0, 1),
+               n(100_000_000_000_000, 0, 2),
+               n(200_000_000_000_000, 0, 3),
+            ],
+            5,
+            Some(Expected {
+               pack_len: 4,
+               amount: Some(1_000_000_000_000_000),
+               circuit_label: Some("04x01"),
+               notes_total_after: Some(1),
+               more_merges_available: false,
+               max_inputs: None,
+               dust_first: false,
+            }),
+         ),
+         (
+            "packs_five_smallest_when_more_than_max",
+            {
+               let mut notes = Vec::new();
+               // 6 tiny + 1 large
+               for i in 0..6 {
+                  notes.push(n(1_000 + i as u128, 0, i));
+               }
+               notes.push(n(1_000_000_000, 0, 99));
+               notes
+            },
+            5,
+            Some(Expected {
+               pack_len: 5,
+               amount: None,
+               circuit_label: None,
+               notes_total_after: None,
+               more_merges_available: true,
+               max_inputs: None,
+               dust_first: true,
+            }),
+         ),
+         (
+            "respects_smaller_available_circuits",
+            {
+               let mut notes = Vec::new();
+               for i in 0..5 {
+                  notes.push(n(1_000 + i as u128, 0, i));
+               }
+               // Only 03x01 available, so pack the 3 smallest.
+               notes
+            },
+            3,
+            Some(Expected {
+               pack_len: 3,
+               amount: None,
+               circuit_label: Some("03x01"),
+               notes_total_after: None,
+               more_merges_available: true,
+               max_inputs: Some(3),
+               dust_first: false,
+            }),
+         ),
+         (
+            "none_when_max_inputs_too_small",
+            vec![n(1_000, 0, 0), n(2_000, 0, 1)],
+            1,
+            None,
+         ),
+         (
+            "none_when_single_note",
+            vec![n(1_000, 0, 0)],
+            5,
+            None,
+         ),
       ];
-      let s = suggest_merge(weth(), &notes, 5).expect("suggestion");
-      assert_eq!(s.notes.len(), 4);
-      assert_eq!(s.amount, 1_000_000_000_000_000);
-      assert_eq!(s.circuit_label(), "04x01");
-      assert_eq!(s.notes_total_after, 1);
-      assert!(!s.more_merges_available);
-   }
 
-   #[test]
-   fn packs_five_smallest_when_more_than_max() {
-      let mut notes = Vec::new();
-      // 6 tiny + 1 large
-      for i in 0..6 {
-         notes.push(n(1_000 + i as u128, 0, i));
+      for (case, notes, max_inputs, expected) in cases {
+         let suggestion = suggest_merge(weth(), &notes, max_inputs);
+         let Some(expected) = expected else {
+            assert!(
+               suggestion.is_none(),
+               "{case}: no pack is worth doing"
+            );
+            continue;
+         };
+         assert!(
+            suggestion.is_some(),
+            "{case}: a merge should have been suggested"
+         );
+         let Some(s) = suggestion else { unreachable!() };
+         assert_eq!(
+            s.notes.len(),
+            expected.pack_len,
+            "{case}: pack length"
+         );
+         if let Some(amount) = expected.amount {
+            assert_eq!(s.amount, amount, "{case}: exact amount");
+         }
+         if let Some(label) = expected.circuit_label {
+            assert_eq!(s.circuit_label(), label, "{case}: circuit label");
+         }
+         if let Some(after) = expected.notes_total_after {
+            assert_eq!(
+               s.notes_total_after, after,
+               "{case}: notes after the merge"
+            );
+         }
+         assert_eq!(
+            s.more_merges_available, expected.more_merges_available,
+            "{case}: more merges available"
+         );
+         if let Some(max) = expected.max_inputs {
+            assert_eq!(s.max_inputs, max, "{case}: echoed max inputs");
+         }
+         if expected.dust_first {
+            assert!(
+               s.notes.iter().all(|n| n.amount < 1_000_000_000),
+               "{case}: the dust must be packed first"
+            );
+         }
       }
-      notes.push(n(1_000_000_000, 0, 99));
-      let s = suggest_merge(weth(), &notes, 5).expect("suggestion");
-      assert_eq!(s.notes.len(), 5);
-      assert!(s.notes.iter().all(|n| n.amount < 1_000_000_000));
-      assert!(s.more_merges_available);
-   }
-
-   #[test]
-   fn respects_smaller_available_circuits() {
-      let mut notes = Vec::new();
-      for i in 0..5 {
-         notes.push(n(1_000 + i as u128, 0, i));
-      }
-      // Only 03x01 available → pack 3 smallest.
-      let s = suggest_merge(weth(), &notes, 3).expect("suggestion");
-      assert_eq!(s.notes.len(), 3);
-      assert_eq!(s.max_inputs, 3);
-      assert_eq!(s.circuit_label(), "03x01");
-      assert!(s.more_merges_available);
-   }
-
-   #[test]
-   fn none_when_max_inputs_too_small() {
-      let notes = vec![n(1_000, 0, 0), n(2_000, 0, 1)];
-      assert!(suggest_merge(weth(), &notes, 1).is_none());
-   }
-
-   #[test]
-   fn none_when_single_note() {
-      let notes = vec![n(1_000, 0, 0)];
-      assert!(suggest_merge(weth(), &notes, 5).is_none());
    }
 }

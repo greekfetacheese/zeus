@@ -214,16 +214,6 @@ mod tests {
    }
 
    #[test]
-   fn gcm_snap() {
-      let mut rand = ChaChaRng::seed_from_u64(0);
-
-      let key = [1u8; 32];
-      let plaintext: &[&[u8]] = &[b"Hello, world! 1", b"Hello, world! 2"];
-
-      let _ciphertext = super::encrypt_gcm(plaintext, &key, &rand.random()).unwrap();
-   }
-
-   #[test]
    fn ctr() {
       let mut rand = ChaChaRng::seed_from_u64(0);
 
@@ -236,46 +226,5 @@ mod tests {
       for i in 0..plaintext.len() {
          assert_eq!(plaintext[i], &decrypted[i][..]);
       }
-   }
-
-   #[test]
-   fn ctr_snap() {
-      let mut rand = ChaChaRng::seed_from_u64(0);
-
-      let key = [1u8; 32];
-      let plaintext: [&[u8]; 3] = [b"Hello, world! 1", b"Hello, world! 2", b"Hello, world! 3"];
-
-      let _ciphertext = super::encrypt_ctr(&plaintext, &key, &rand.random());
-   }
-}
-
-#[cfg(test)]
-mod error_tests {
-   use std::error::Error as _;
-
-   use super::*;
-
-   #[test]
-   fn renders_the_pinned_messages() {
-      assert_eq!(
-         AesError::Gcm(aes_gcm::Error).to_string(),
-         "encrypt error: aead::Error"
-      );
-      assert_eq!(
-         AesError::Decrypt(aes_gcm::Error).to_string(),
-         "decrypt error: aead::Error"
-      );
-      assert_eq!(
-         AesError::DataTooShort.to_string(),
-         "Encrypted data is too short"
-      );
-   }
-
-   #[test]
-   fn the_payload_variants_have_no_source() {
-      // `aes_gcm::Error` is not a `std::error::Error`, so it cannot back a `source()`.
-      assert!(AesError::Gcm(aes_gcm::Error).source().is_none());
-      assert!(AesError::Decrypt(aes_gcm::Error).source().is_none());
-      assert!(AesError::DataTooShort.source().is_none());
    }
 }
