@@ -608,36 +608,9 @@ impl AccountPanel {
       ui.vertical(|ui| {
          let clicked = self.wallet_select.show(theme, ctx, icons.clone(), ui);
          if clicked {
-            ctx.current_wallet = self.wallet_select.wallet.clone();
-
-            // Update the state on wallet change
-            crate::runtime::rt().spawn(async move {
-               let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-               let current_wallet = ctx.current_wallet_info();
-               let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
-               let owner = current_wallet.address;
-               let chain_id = ctx.chain().id();
-
-               SHARED_GUI.write(|gui| {
-                  gui.account_panel.set_wallet_info(current_wallet);
-
-                  if gui.token_selection.is_open() {
-                     gui.token_selection.process_currencies(privacy_mode, chain_id, owner);
-                  }
-
-                  // The send view is paired with a wallet too: a token — or an NFT — picked for the
-                  // previous one cannot be sent from this one. Resetting to the new wallet's default
-                  // clears the NFT selection along with the fungible one.
-                  if gui.send_crypto.is_open() {
-                     gui.send_crypto.default_currency(privacy_mode, chain_id);
-                  }
-
-                  // The shield view holds a wallet's asset in the same way, and is reset the way a chain
-                  // switch resets it: unconditionally, so a token or NFT picked for the previous wallet is
-                  // gone before the view is next opened rather than only when it happens to be open now.
-                  gui.shield_ui.default_currency(chain_id);
-               });
-            });
+            // The selector already holds the picked wallet; the switch hook moves the rest of the
+            // app onto it.
+            switch_wallet(ctx, self.wallet_select.wallet.clone());
          }
       });
    }

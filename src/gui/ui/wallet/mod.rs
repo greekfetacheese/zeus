@@ -2,14 +2,14 @@ use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, WalletValue, ZeusContext};
 use crate::gui::{
    SHARED_GUI, dots_button,
-   ui::{WalletListByValue, show_with_fade},
+   ui::{WalletListByValue, show_with_fade, switch_wallet},
 };
 use eframe::egui::{
-   Align, Context, FontId, Id, Layout, Margin, Order, RichText, ScrollArea, Ui, vec2,
+   Align, Context, FontId, Id, Layout, Margin, Order, RichText, ScrollArea, Ui, Vec2, vec2,
 };
 use egui_elements::Modal;
 use egui_elements::{
-   Button, ChipRole, Label, Menu, MenuItem, SecureTextEdit, Spinner, Theme, Toast,
+   Button, ChipRole, Frame, Label, Menu, MenuItem, SecureTextEdit, Spinner, Theme, Toast,
 };
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
@@ -25,6 +25,9 @@ pub use add::AddWalletUi;
 pub use delete::DeleteWalletUi;
 pub use export::ExportKeyUi;
 
+/// The `dots_button` in a wallet card's top row.
+const MORE_BUTTON_SIZE: Vec2 = Vec2::new(28.0, 20.0);
+
 /// Ui to manage the wallets
 pub struct WalletUi {
    open: bool,
@@ -37,6 +40,13 @@ pub struct WalletUi {
    export_key_ui: ExportKeyUi,
    delete_wallet_ui: DeleteWalletUi,
    wallets: Vec<WalletInfo>,
+   /// The rows the list paints: [`Self::wallets`] without the current wallet, matched against the
+   /// search query. Built off the frame path — by [`Self::calc_wallet_value`] and on a query or
+   /// wallet change — because walking every wallet on every frame is what a large vault cannot
+   /// afford.
+   visible_wallets: Vec<WalletInfo>,
+   /// The `(search query, current wallet)` [`Self::visible_wallets`] was built for.
+   visible_key: Option<(String, Address)>,
    /// Wallet value by address
    wallet_value: HashMap<Address, WalletValue>,
    /// Chains that the wallet has balance on
@@ -57,6 +67,8 @@ impl WalletUi {
          export_key_ui: ExportKeyUi::new(),
          delete_wallet_ui: DeleteWalletUi::new(),
          wallets: Vec::new(),
+         visible_wallets: Vec::new(),
+         visible_key: None,
          wallet_value: HashMap::new(),
          wallet_chains: HashMap::new(),
          size: (550.0, 600.0),
@@ -92,6 +104,26 @@ impl WalletUi {
    pub fn calc_wallet_value(&mut self) {
       self.loading = true;
       on_calc_wallet_value();
+   }
+
+   /// Rebuild the rows the list paints for the current wallet and search query.
+   ///
+   /// Called when the load finishes and whenever the query or the current wallet changes — never
+   /// from the frame path itself, which only walks the rows it actually paints.
+   fn refresh_visible_wallets(&mut self, current_wallet: &WalletInfo) {
+      let query = self.search_query.to_lowercase();
+
+      self.visible_wallets = self
+         .wallets
+         .iter()
+         .filter(|wallet| *wallet != current_wallet)
+         .filter(|wallet| {
+            query.is_empty() || wallet.name_with_source().to_lowercase().contains(&query)
+         })
+         .cloned()
+         .collect();
+
+      self.visible_key = Some((self.search_query.clone(), current_wallet.address));
    }
 
    pub fn close(&mut self) {
@@ -138,14 +170,14 @@ impl WalletUi {
             ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
             ui.spacing_mut().button_padding = theme.button_padding;
 
-            let button_visuals = theme.button_visuals();
-            let text_edit_visuals = theme.text_edit_visuals();
             let content_width = ui.available_width() * 0.9;
 
+            let normal = theme.typography.normal;
+            let large = theme.typography.large;
+
             ui.vertical_centered(|ui| {
-               let text = RichText::new("Add Wallet").size(theme.typography.large);
-               let button =
-                  Button::new(text).visuals(button_visuals).min_size(vec2(content_width, 45.0));
+               let text = RichText::new("Add Wallet").size(large);
+               let button = Button::new(text).min_size(vec2(content_width, 45.0));
 
                if ui.add(button).clicked() {
                   self.add_wallet_ui.open();
@@ -155,7 +187,7 @@ impl WalletUi {
 
                let current_wallet = ctx.current_wallet_info();
 
-               ui.label(RichText::new("Selected Wallet").size(theme.typography.large));
+               ui.label(RichText::new("Selected Wallet").size(large));
                self.wallet(
                   ctx,
                   theme,
@@ -167,16 +199,13 @@ impl WalletUi {
 
                ui.add_space(10.0);
 
-               let hint = RichText::new("Search...")
-                  .color(theme.colors.text_muted)
-                  .size(theme.typography.normal);
+               let hint = RichText::new("Search...").color(theme.colors.text_muted).size(normal);
 
                ui.allocate_ui(vec2(content_width, 45.0), |ui| {
                   SecureTextEdit::singleline(&mut self.search_query)
-                     .visuals(text_edit_visuals)
                      .hint_text(hint)
                      .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.typography.normal))
+                     .font(FontId::proportional(normal))
                      .desired_width(ui.available_width())
                      .show(ui);
                });
@@ -186,33 +215,61 @@ impl WalletUi {
                   return;
                }
 
-               let wallets = self.wallets.clone();
-               let query = self.search_query.to_lowercase();
+               // The rows are built by the loader and on a query or wallet change — not here. The
+               // wallet Zeus is on already has the card above the search field, so the list holds
+               // the rest.
+               let stale = !matches!(
+                  &self.visible_key,
+                  Some((cached, address))
+                     if *address == current_wallet.address && cached == &self.search_query
+               );
 
-               ScrollArea::vertical().content_margin(5).auto_shrink([false; 2]).show(ui, |ui| {
-                  ui.set_width(ui.available_width());
+               if stale {
+                  self.refresh_visible_wallets(&current_wallet);
+               }
 
-                  for wallet in wallets.iter().filter(|w| *w != &current_wallet) {
-                     if query.is_empty()
-                        || wallet.name_with_source().to_lowercase().contains(&query)
-                     {
-                        self.wallet(
+               let row_height = 80.0;
+
+               ui.spacing_mut().item_spacing.y = theme.spacing.md;
+
+               ScrollArea::vertical().content_margin(5).auto_shrink([false; 2]).show_rows(
+                  ui,
+                  row_height,
+                  self.visible_wallets.len(),
+                  |ui, row_range| {
+                     ui.spacing_mut().item_spacing.y = theme.spacing.md;
+
+                     for index in row_range {
+                        // Only the painted rows are cloned: a row takes `&mut self`, so the cache
+                        // cannot be borrowed across the call.
+                        let Some(wallet) = self.visible_wallets.get(index).cloned() else {
+                           continue;
+                        };
+
+                        if self.wallet(
                            ctx,
                            theme,
                            icons.clone(),
-                           wallet,
+                           &wallet,
                            content_width,
                            ui,
-                        );
+                        ) {
+                           switch_wallet(ctx, wallet);
+                        }
                      }
-                  }
-               });
+                  },
+               );
             });
          });
       });
    }
 
-   /// Show a wallet
+   /// Show a wallet card.
+   ///
+   /// The card takes clicks only while clicking it would change the wallet: the selected wallet's
+   /// card, above the search field, is the one Zeus is already on.
+   ///
+   /// Returns true when the card was clicked.
    fn wallet(
       &mut self,
       ctx: &mut ZeusContext,
@@ -221,20 +278,30 @@ impl WalletUi {
       wallet: &WalletInfo,
       width: f32,
       ui: &mut Ui,
-   ) {
-      let frame = theme.frame2;
+   ) -> bool {
       let tint = theme.image_tint_recommended;
-      let button_visuals = theme.button_visuals();
 
-      frame.show(ui, |ui| {
+      let visuals = theme.frame2_visuals();
+      let inner = theme.inner_margin;
+      let corner = theme.corner_radius;
+
+      let frame = Frame::new()
+         .interactive(!ctx.is_current_wallet(wallet.address))
+         .inner_margin(inner)
+         .corner_radius(corner)
+         .visuals(visuals);
+
+      let response = frame.show(ui, |ui| {
          ui.set_width(width);
          ui.spacing_mut().button_padding = theme.button_padding;
+
+         let small = theme.typography.small;
+         let normal = theme.typography.normal;
 
          ui.horizontal(|ui| {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                let id = format!("{}_more_options", wallet.address);
-               let size = vec2(28.0, 20.0);
-               let more = dots_button(theme, size, ui);
+               let more = dots_button(theme, MORE_BUTTON_SIZE, ui);
                let enabled = !wallet.is_master();
 
                Menu::new(id).show_below(&more, |ui| {
@@ -256,7 +323,7 @@ impl WalletUi {
                });
 
                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                  let text = RichText::new(wallet.name_with_source()).size(theme.typography.normal);
+                  let text = RichText::new(wallet.name_with_source()).size(normal);
                   let label = Label::new(text, None).interactive(false);
                   ui.add(label);
                });
@@ -264,8 +331,8 @@ impl WalletUi {
          });
 
          ui.horizontal(|ui| {
-            let text = RichText::new(wallet.evm_address_truncated()).size(theme.typography.small);
-            let label = Button::selectable(false, text).visuals(button_visuals);
+            let text = RichText::new(wallet.evm_address_truncated()).size(small);
+            let label = Button::selectable(false, text);
 
             if ui.add(label).clicked() {
                ui.ctx().copy_text(wallet.address.to_string());
@@ -283,7 +350,7 @@ impl WalletUi {
                   format!("${:.10}", value.public.abbreviated())
                };
 
-               let value_text = RichText::new(value_fmt).size(theme.typography.small);
+               let value_text = RichText::new(value_fmt).size(small);
 
                let label = Label::new(value_text, None).interactive(false);
                ui.add(label);
@@ -303,6 +370,8 @@ impl WalletUi {
             });
          });
       });
+
+      response.response.clicked()
    }
 
    /// Rename wallet UI
@@ -313,8 +382,12 @@ impl WalletUi {
 
       let mut open = self.rename_wallet;
 
-      let title = RichText::new("Rename Wallet").size(theme.typography.heading);
-      let frame = theme.window_frame.fill(theme.frame1.fill);
+      let normal = theme.typography.normal;
+      let large = theme.typography.large;
+      let heading = theme.typography.heading;
+
+      let title = RichText::new("Rename Wallet").size(heading);
+      let frame = theme.window_frame.fill(theme.colors.bg);
       let id = Id::unique("rename_wallet_window");
 
       Modal::new(id, &mut open)
@@ -328,32 +401,28 @@ impl WalletUi {
          .show(ui.ctx(), |ui| {
             ui.set_width(450.0);
 
-            let button_visuals = theme.button_visuals();
-            let text_edit_visuals = theme.text_edit_visuals();
-
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = theme.spacing.md;
                ui.spacing_mut().button_padding = theme.button_padding;
 
                let Some(old_wallet) = self.wallet_to_rename.as_ref() else {
-                  ui.label(RichText::new("No wallet selected").size(theme.typography.large));
+                  ui.label(RichText::new("No wallet selected").size(large));
                   return;
                };
 
-               ui.label(RichText::new("Wallet Name").size(theme.typography.large));
+               ui.label(RichText::new("Wallet Name").size(large));
 
                let field_size = vec2(ui.available_width() * 0.9, 45.0);
                ui.allocate_ui(field_size, |ui| {
                   SecureTextEdit::singleline(&mut self.new_wallet_name)
-                     .visuals(text_edit_visuals)
-                     .font(FontId::proportional(theme.typography.normal))
+                     .font(FontId::proportional(normal))
                      .margin(Margin::same(10))
                      .desired_width(ui.available_width())
                      .show(ui);
                });
 
-               let text = RichText::new("Rename").size(theme.typography.large);
-               let rename_button = Button::new(text).visuals(button_visuals).min_size(field_size);
+               let text = RichText::new("Rename").size(large);
+               let rename_button = Button::new(text).min_size(field_size);
 
                if ui.add(rename_button).clicked() {
                   on_rename_wallet(self.new_wallet_name.clone(), old_wallet.address);
@@ -377,6 +446,11 @@ fn on_calc_wallet_value() {
          gui.wallet_ui.wallets = list.wallets;
          gui.wallet_ui.wallet_value = list.values;
          gui.wallet_ui.wallet_chains = list.chains;
+
+         // Build the rows the list will paint here, off the frame path: a full search match over
+         // every wallet is the cost a long vault cannot pay per frame.
+         let current_wallet = gui.ctx.current_wallet_info();
+         gui.wallet_ui.refresh_visible_wallets(&current_wallet);
       });
    });
 }

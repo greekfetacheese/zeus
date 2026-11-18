@@ -9,6 +9,7 @@ pub mod recipient_field;
 pub mod wallet_identity;
 pub mod wallet_list;
 pub mod wallet_select;
+pub mod wallet_switch;
 pub mod window_frame;
 pub mod windows;
 
@@ -20,6 +21,7 @@ pub use recipient_field::recipient_field;
 pub use wallet_identity::wallet_identity;
 pub use wallet_list::WalletListByValue;
 pub use wallet_select::WalletSelect;
+pub use wallet_switch::switch_wallet;
 pub use window_frame::{WindowCtx, window_frame};
 pub use windows::{ConfirmWindow, ConfirmWindowClaim, LoadingWindow, MsgWindow, UpdateWindow};
 
