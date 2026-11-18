@@ -52,7 +52,11 @@ impl UiHost for GuiHost {
          // the moment this returns: a second send cannot slip in before the prompt is drawn.
          gui.tx_confirmation_window.claim();
 
-         gui.loading_window.reset();
+         // The loading window deliberately outlives this call. `open` above only spawns the
+         // task that prepares the clear-signed display — a lookup that can go out to Sourcify —
+         // and the window becomes visible from that task, so dismissing the spinner here would
+         // leave the screen empty for as long as that request takes. `TxConfirmationWindow`
+         // dismisses it in the same write that sets `open`.
          gui.bring_to_front();
          PromptOpen::Opened
       })
