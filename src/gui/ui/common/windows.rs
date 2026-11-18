@@ -516,9 +516,9 @@ fn loading_strike() -> LightningSettings {
       branch_depth: 2,
       thickness: 2.0,
       jitter: 0.18,
-      flash_intensity: 0.35,
+      flash_intensity: 0.05,
       duration_ms: 400.0,
-      ambient_interval_secs: 0.5,
+      ambient_interval_secs: 0.8,
       layer: ParticleLayer::Top,
    }
 }
