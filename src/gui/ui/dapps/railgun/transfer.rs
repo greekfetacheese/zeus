@@ -114,7 +114,7 @@ pub async fn private_transfer(
 
    let transfer_params = PrivateTransferParams {
       chain: chain.id(),
-      recipient: recipient.address.clone(),
+      recipient: recipient.address.to_string(),
       asset: asset_id,
       erc20,
       nft,
@@ -194,7 +194,7 @@ pub async fn private_merge_notes(
    let amount_usd = ctx.get_token_value_for_amount(amount.f64(), &token);
    let transfer_params = PrivateTransferParams {
       chain: chain.id(),
-      recipient: self_zk.address.clone(),
+      recipient: self_zk.address.to_string(),
       asset,
       erc20: Some(token.clone()),
       nft: None,

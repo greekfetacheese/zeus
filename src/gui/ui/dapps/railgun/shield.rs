@@ -2124,7 +2124,7 @@ async fn shield(
       || "No shield event found".to_string(),
    )?;
 
-   shield_params.recipient = Some(recipient.address.clone());
+   shield_params.recipient = Some(recipient.address.to_string());
 
    let eth_balance_before = eth_balance_before_fut.await?;
 

@@ -96,7 +96,7 @@ impl ZeusCtx {
    pub fn wallet_with_zk_address_exists(&self, zk_address: &RailgunAddress) -> bool {
       self.read(|ctx| {
          for wallet in ctx.wallet_info_cache.ordered_slice() {
-            if wallet.zk_address_ref() == zk_address.address.as_str() {
+            if wallet.zk_address_ref() == zk_address.address.as_ref() {
                return true;
             }
          }

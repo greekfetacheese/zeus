@@ -11,6 +11,7 @@ use crate::{
    crypto::keys::{MasterPublicKey, SpendingKey, ViewingKey, ViewingPublicKey},
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 const PREFIX: &str = "0zk";
 const ALL_CHAINS_NETWORK_ID: &str = "ffffffffffffffff";
@@ -20,7 +21,8 @@ const ADDRESS_VERSION: u8 = 1;
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct RailgunAddress {
-   pub address: String,
+   /// Shared so cloning a [`RailgunAddress`] does not copy the bech32 string.
+   pub address: Arc<str>,
    pub master_public_key: MasterPublicKey,
    pub viewing_public_key: ViewingPublicKey,
    pub chain: Option<Chain>,
@@ -69,7 +71,7 @@ impl RailgunAddress {
       .expect("encode_address cannot fail for a valid master/viewing key");
 
       RailgunAddress {
-         address,
+         address: Arc::from(address),
          master_public_key: master_pubkey,
          viewing_public_key: viewing_key.public_key(),
          chain,
@@ -91,7 +93,7 @@ impl RailgunAddress {
       .expect("encode_address cannot fail for a valid master/viewing key");
 
       RailgunAddress {
-         address,
+         address: Arc::from(address),
          master_public_key: master_pubkey,
          viewing_public_key: viewing_pubkey,
          chain,
@@ -121,15 +123,15 @@ impl RailgunAddress {
          viewing_public_key,
          chain: _chain,
          version: ADDRESS_VERSION,
-         address: String::new(),
+         address: Arc::from(""),
       };
 
-      data.address = encode_address(
+      data.address = Arc::from(encode_address(
          data.version,
          data.master_public_key,
          data.viewing_public_key,
          data.chain,
-      )?;
+      )?);
 
       Ok(data)
    }
@@ -166,7 +168,7 @@ impl RailgunAddress {
       let viewing_public_key = ViewingPublicKey(viewing_bytes);
 
       Ok(Self {
-         address: address.to_string(),
+         address: Arc::from(address),
          version,
          master_public_key,
          viewing_public_key,
@@ -275,7 +277,7 @@ mod test {
       let sec_seed = SecureArray::from_slice(&seed).unwrap();
       let address_data = RailgunAddress::new(&sec_seed, 0, None).unwrap();
 
-      assert_eq!(address_data.address, railway_address);
+      assert_eq!(&*address_data.address, railway_address);
    }
 
    #[test]
@@ -304,7 +306,7 @@ mod test {
       )
       .unwrap();
 
-      assert_eq!(railgun_address.address, address);
+      assert_eq!(&*railgun_address.address, address);
       println!("Address from RailgunAddress::new: {}", address);
       println!(
          "Address from RailgunKeys::new: {}",

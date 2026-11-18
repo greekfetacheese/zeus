@@ -1026,7 +1026,9 @@ fn parse_unknown_recipient(
    {
       return None;
    }
-   Some(UnknownRecipient::Zk(zk_address.address))
+   Some(UnknownRecipient::Zk(
+      zk_address.address.to_string(),
+   ))
 }
 
 /// Does `query` need a name round-trip?

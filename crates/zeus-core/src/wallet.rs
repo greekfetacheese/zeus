@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use zeus_eth::alloy_primitives::Address;
 use zeus_wallet::Wallet;
 
@@ -12,7 +13,8 @@ pub const DEV_P_COST: u32 = 1;
 pub struct WalletInfo {
    pub address: Address,
    pub railgun_address: Option<RailgunAddress>,
-   name: String,
+   /// Shared so cloning a [`WalletInfo`] does not copy the name.
+   name: Arc<str>,
    pub is_master: bool,
    pub is_child: bool,
    pub is_imported: bool,
@@ -23,7 +25,7 @@ impl Default for WalletInfo {
       Self {
          address: Address::ZERO,
          railgun_address: None,
-         name: String::from("I should not be here"),
+         name: Arc::from("I should not be here"),
          is_master: false,
          is_child: false,
          is_imported: false,
@@ -51,7 +53,7 @@ impl WalletInfo {
       Self {
          address: wallet.address(),
          railgun_address,
-         name: wallet.name.clone(),
+         name: Arc::from(wallet.name.as_str()),
          is_master: wallet.is_master(),
          is_child: wallet.is_child(),
          is_imported: wallet.is_imported(),
@@ -125,7 +127,7 @@ impl WalletInfo {
 
    pub fn zk_address(&self) -> String {
       match &self.railgun_address {
-         Some(railgun_address) => railgun_address.address.clone(),
+         Some(railgun_address) => railgun_address.address.to_string(),
          None => ZK_ADDRESS_UNAVAILABLE.to_string(),
       }
    }

@@ -118,7 +118,7 @@ impl WalletUi {
          .iter()
          .filter(|wallet| *wallet != current_wallet)
          .filter(|wallet| {
-            query.is_empty() || wallet.name_with_source().to_lowercase().contains(&query)
+            query.is_empty() || wallet.name().to_lowercase().contains(&query)
          })
          .cloned()
          .collect();
