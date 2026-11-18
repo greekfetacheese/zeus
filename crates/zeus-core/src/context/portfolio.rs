@@ -60,6 +60,18 @@ impl PortfolioDB {
          .unwrap_or(WalletPortfolio::new(owner, chain_id))
    }
 
+   /// The generation of the stored portfolio, `0` when none is stored.
+   ///
+   /// The UI reads this every frame, so it is a lookup where [`Self::get`] is a deep clone of the
+   /// portfolio.
+   pub fn generation(&self, chain_id: u64, owner: Address) -> u64 {
+      self
+         .portfolios
+         .get(&(chain_id, owner))
+         .map(WalletPortfolio::generation)
+         .unwrap_or(0)
+   }
+
    /// Get all portfolios for the given chain
    pub fn get_all(&self, chain_id: u64) -> Vec<WalletPortfolio> {
       let mut portfolios = self.portfolios.values().cloned().collect::<Vec<_>>();
@@ -142,6 +154,14 @@ pub struct WalletPortfolio {
    /// Cached and sorted list of private tokens by value
    #[serde(default)]
    private_tokens: TokenList,
+   /// Bumped whenever the portfolio changes in a way the UI could be showing.
+   ///
+   /// The portfolio panel keys its row cache on this instead of on the portfolio's contents: a
+   /// `u64` is compared on every frame, where reading the portfolio is a deep clone of its token,
+   /// NFT and value lists. Persisted with the portfolio because nothing re-derives it on load — it
+   /// is only ever compared against the value the UI last built rows for.
+   #[serde(default)]
+   generation: u64,
 }
 
 impl WalletPortfolio {
@@ -157,6 +177,7 @@ impl WalletPortfolio {
          private_value: NumericValue::default(),
          public_tokens: Vec::new(),
          private_tokens: Vec::new(),
+         generation: 0,
       }
    }
 
@@ -194,6 +215,11 @@ impl WalletPortfolio {
       self.owner
    }
 
+   /// The portfolio's version, bumped by every change.
+   pub fn generation(&self) -> u64 {
+      self.generation
+   }
+
    /// Returns the total value of the portfolio (public + private)
    pub fn total_value(&self) -> WalletValue {
       WalletValue {
@@ -218,11 +244,17 @@ impl WalletPortfolio {
       self.private_value = value;
    }
 
+   /// Record that the portfolio changed, so a UI cache keyed on [`Self::generation`] rebuilds.
+   fn touch(&mut self) {
+      self.generation = self.generation.wrapping_add(1);
+   }
+
    pub fn add_token(&mut self, token: ERC20Token) {
       if self.tokens.contains(&token) {
          return;
       }
       self.tokens.push(token);
+      self.touch();
    }
 
    pub fn has_token(&self, token: &ERC20Token) -> bool {
@@ -234,7 +266,12 @@ impl WalletPortfolio {
    }
 
    pub fn remove_token(&mut self, token: &ERC20Token) {
+      let before = self.tokens.len();
       self.tokens.retain(|t| t != token);
+
+      if self.tokens.len() != before {
+         self.touch();
+      }
    }
 
    /// Track an NFT for this wallet.
@@ -249,7 +286,12 @@ impl WalletPortfolio {
                self.nfts[index].metadata_uri = nft.metadata_uri;
             }
          }
-         None => self.nfts.push(nft),
+         // A re-add only refreshes the cached metadata URI, and a row shows none of it — the art is
+         // read when the cell is drawn — so only a new entry is a change.
+         None => {
+            self.nfts.push(nft);
+            self.touch();
+         }
       }
    }
 
@@ -258,7 +300,12 @@ impl WalletPortfolio {
    }
 
    pub fn remove_nft(&mut self, nft: &NftToken) {
+      let before = self.nfts.len();
       self.nfts.retain(|tracked| tracked != nft);
+
+      if self.nfts.len() != before {
+         self.touch();
+      }
    }
 
    /// Update the public data for the portfolio
@@ -289,6 +336,7 @@ impl WalletPortfolio {
 
       self.set_public_value(new_value);
       self.public_tokens = public_tokens;
+      self.touch();
    }
 
    /// Update the private data for the portfolio
@@ -338,6 +386,7 @@ impl WalletPortfolio {
 
       self.set_private_value(new_value);
       self.private_tokens = private_tokens;
+      self.touch();
    }
 }
 
@@ -558,6 +607,17 @@ mod tests {
          token_id: U256::from(token_id),
          standard: NftStandard::Erc721,
          metadata_uri: None,
+      }
+   }
+
+   fn erc20(address: u8) -> ERC20Token {
+      ERC20Token {
+         chain_id: 1,
+         address: Address::from([address; 20]),
+         symbol: "TKN".into(),
+         name: "Token".into(),
+         decimals: 18,
+         total_supply: U256::ZERO,
       }
    }
 
@@ -829,5 +889,115 @@ mod tests {
       let loaded: WalletPortfolio = serde_json::from_slice(&json).unwrap();
 
       assert_eq!(loaded.nfts(), portfolio.nfts());
+   }
+
+   /// The generation is the only thing the panel compares every frame, so each mutation that changes the
+   /// portfolio advances it exactly once — and one that changes nothing must not, or a duplicate add
+   /// would cost a rebuild of every row.
+   #[test]
+   fn the_generation_advances_once_per_change_and_not_for_a_no_op() {
+      let mut portfolio = WalletPortfolio::new(owner(), 1);
+      assert_eq!(
+         portfolio.generation(),
+         0,
+         "a fresh portfolio has built nothing"
+      );
+
+      let token = erc20(0xaa);
+      portfolio.add_token(token.clone());
+      assert_eq!(portfolio.generation(), 1);
+
+      portfolio.add_token(token.clone());
+      assert_eq!(
+         portfolio.generation(),
+         1,
+         "a token already tracked is not a change"
+      );
+
+      portfolio.remove_token(&erc20(0xbb));
+      assert_eq!(
+         portfolio.generation(),
+         1,
+         "removing a token that is not there is not a change"
+      );
+
+      portfolio.remove_token(&token);
+      assert_eq!(portfolio.generation(), 2);
+
+      portfolio.add_nft(nft(1));
+      assert_eq!(portfolio.generation(), 3);
+
+      portfolio.add_nft(nft(1));
+      assert_eq!(
+         portfolio.generation(),
+         3,
+         "a re-add only refreshes the cached metadata URI, which no row shows"
+      );
+
+      portfolio.remove_nft(&nft(2));
+      assert_eq!(
+         portfolio.generation(),
+         3,
+         "removing an NFT that is not tracked is not a change"
+      );
+
+      portfolio.remove_nft(&nft(1));
+      assert_eq!(portfolio.generation(), 4);
+   }
+
+   /// Both portfolio updates rewrite the value and the token list the panel reads, so each call is a
+   /// change even when the scan behind it finds nothing.
+   #[tokio::test]
+   async fn the_portfolio_updates_advance_the_generation() {
+      let ctx = ZeusCtx::new(crate::platform::runtime::test_handle());
+      let mut portfolio = WalletPortfolio::new(owner(), 1);
+
+      portfolio.update_public_data(ctx.clone());
+      assert_eq!(portfolio.generation(), 1);
+
+      portfolio.update_private_data(ctx).await;
+      assert_eq!(portfolio.generation(), 2);
+   }
+
+   /// The UI's key reads this every frame, so it stays a map lookup: a chain/owner with no stored
+   /// portfolio has no version to report and the answer is 0, and a stored one reports its own.
+   #[test]
+   fn a_portfolio_db_reports_the_generation_of_the_portfolio_it_stores() {
+      let mut db = PortfolioDB::new();
+      assert_eq!(db.generation(1, owner()), 0);
+
+      let mut portfolio = WalletPortfolio::new(owner(), 1);
+      portfolio.add_nft(nft(1));
+      db.insert_portfolio(1, owner(), portfolio.clone());
+
+      assert_eq!(db.generation(1, owner()), portfolio.generation());
+      assert_eq!(
+         db.generation(1, Address::from([0x22; 20])),
+         0,
+         "another owner is an empty portfolio, not this one"
+      );
+   }
+
+   /// The generation is persisted like the rest of the portfolio, so a restored vault keeps the version
+   /// its cache was built against; a payload written before the field existed restores as 0, where a
+   /// cache starts anyway.
+   #[test]
+   fn the_generation_survives_a_round_trip_and_an_older_payload_loads_as_zero() {
+      let mut portfolio = WalletPortfolio::new(owner(), 1);
+      portfolio.add_nft(nft(1));
+
+      let stored = serde_json::to_value(&portfolio).unwrap();
+
+      let restored: WalletPortfolio = serde_json::from_value(stored.clone()).unwrap();
+      assert_eq!(restored.generation(), portfolio.generation());
+
+      let mut older = stored;
+      assert!(
+         older.as_object_mut().unwrap().remove("generation").is_some(),
+         "the field is serialized, so removing it simulates an older payload"
+      );
+
+      let loaded: WalletPortfolio = serde_json::from_value(older).unwrap();
+      assert_eq!(loaded.generation(), 0);
    }
 }

@@ -3,7 +3,7 @@
 //! Showed when Home is selected
 
 use crate::assets::icons::Icons;
-use crate::core::ZeusContext;
+use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::{
    SHARED_GUI,
    ui::{
@@ -15,7 +15,7 @@ use crate::gui::{
 };
 use crate::utils::nft_icon::start_nft_art_downloads;
 use eframe::egui::{
-   Align, CornerRadius, CursorIcon, Image, Layout, Margin, Order, RichText, TextWrapMode, Ui, vec2,
+   Align, CornerRadius, CursorIcon, Layout, Margin, Order, RichText, TextWrapMode, Ui, vec2,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -27,9 +27,10 @@ use egui_elements::{
 };
 use egui_lucide::Lucide;
 use zeus_eth::{
-   alloy_primitives::{Address, U256},
+   alloy_primitives::Address,
    currency::{Currency, ERC20Token},
    nft::{NftCollection, NftStandard, NftToken},
+   utils::NumericValue,
 };
 
 const NFT_PREVIEW_WIDTH: f32 = 450.0;
@@ -43,6 +44,20 @@ enum PortfolioMode {
    Nfts,
 }
 
+/// What one build of the panel's rows was made for.
+///
+/// Compared on every frame, so it is `Copy` and holds nothing borrowed — the portfolio itself is
+/// a deep clone of its token, NFT and value lists, and reading it is what must not happen on the
+/// frame path. `generation` is bumped by `WalletPortfolio` whenever the portfolio changes, so an
+/// update invalidates the rows without the panel asking for one.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct PortfolioKey {
+   owner: Address,
+   chain_id: u64,
+   privacy_mode: bool,
+   generation: u64,
+}
+
 /// The artwork modal's contents: the token, and the collection it belongs to.
 ///
 /// The collection is resolved when the preview *opens* rather than in the modal's body: the modal is
@@ -54,19 +69,46 @@ struct NftPreview {
    collection: Option<NftCollection>,
 }
 
-/// One row of the portfolio's token list: the strings a row shows, plus what its icon and Remove need.
+/// One row of the portfolio's token list: the strings a row shows, plus what its Remove needs.
 ///
-/// The table is data-driven, so the list is resolved once per frame instead of inside a cell closure
-/// that runs twice on the frame it measures.
+/// The strings are resolved by the worker, not by cell closures that run twice on the frame they
+/// measure; the icon is resolved while the cell is drawn, because a texture downloaded later must reach
+/// the row without waiting for a portfolio update.
 struct TokenRow {
    symbol: String,
    name: String,
    price: String,
    balance: String,
    value: String,
-   icon: Image<'static>,
    /// The token `Remove` drops; `None` for the chain's native currency, which cannot be removed.
    token: Option<ERC20Token>,
+}
+
+/// One row of the NFT list, with its labels already resolved.
+struct NftRow {
+   token: NftToken,
+   /// "<collection> #<token id>" — the format the row and the artwork preview use.
+   title: String,
+   /// The second line: the collection symbol and the standard, e.g. BAYC · ERC-721.
+   subtitle: String,
+   /// How much of it the wallet holds **privately**, per the portfolio's own scan, or `None` on
+   /// the public side — whose answer is the balance manager's and is read when the row is drawn,
+   /// because it moves without a portfolio update.
+   private_holding: Option<u64>,
+}
+
+/// The rows the panel paints, built off the GUI thread.
+#[derive(Default)]
+struct PortfolioRows {
+   /// The key these rows were built for; `None` before the first build.
+   key: Option<PortfolioKey>,
+   /// Total value of the side on screen — public, or private in privacy mode.
+   total_value: NumericValue,
+   tokens: Vec<TokenRow>,
+   nfts: Vec<NftRow>,
+   /// Collection metadata for the chain: the artwork preview is opened long after its row was
+   /// built, so the resolved map rides with the rows.
+   collections: HashMap<Address, NftCollection>,
 }
 
 pub struct PortfolioUi {
@@ -86,6 +128,8 @@ pub struct PortfolioUi {
    /// The NFT preview belongs to it too: switching either must not leave the previous token's artwork
    /// over the new list, and a reopen must not re-pop it.
    shown_for: Option<(u64, Address)>,
+   /// The rows on screen, rebuilt when the key under them changes.
+   rows: PortfolioRows,
 }
 
 impl PortfolioUi {
@@ -98,6 +142,7 @@ impl PortfolioUi {
          preview: None,
          nft_list_asked_for: None,
          shown_for: None,
+         rows: PortfolioRows::default(),
       }
    }
 
@@ -128,19 +173,28 @@ impl PortfolioUi {
          let wallet_info = ctx.current_wallet_info();
          let privacy_mode = ctx.privacy_mode;
          let owner = wallet_info.address;
-         let portfolio = ctx.read_wallet_state(|ws| ws.portfolio_db.get(chain_id, owner));
 
          // The preview belongs to the (chain, wallet) it was opened under: switching either must not
          // leave the previous token's artwork over the new list.
          if self.shown_for != Some((chain_id, owner)) {
             self.shown_for = Some((chain_id, owner));
             self.preview = None;
+            // Rows built for another wallet are a claim about another wallet, not merely old data.
+            self.rows = PortfolioRows::default();
          }
 
-         let portfolio_value = match privacy_mode {
-            false => portfolio.public_value(),
-            true => portfolio.private_value(),
+         let key = PortfolioKey {
+            owner,
+            chain_id,
+            privacy_mode,
+            generation: ctx.read_wallet_state(|ws| ws.portfolio_db.generation(chain_id, owner)),
          };
+
+         // Claimed before the spawn, so a build that never lands cannot start one per frame.
+         if self.rows.key != Some(key) {
+            self.rows.key = Some(key);
+            Self::build_rows(key);
+         }
 
          Frame::new().outer_margin(Margin::same(5)).show(ui, |ui| {
             ui.vertical_centered_justified(|ui| {
@@ -184,8 +238,10 @@ impl PortfolioUi {
                            RichText::new(wallet_info.name_with_source())
                               .size(theme.typography.very_large),
                         );
+                        let total_value = format!("${:.10}", self.rows.total_value.abbreviated());
+
                         ui.label(
-                           RichText::new(format!("${:.10}", portfolio_value.abbreviated()))
+                           RichText::new(total_value)
                               .heading()
                               .size(theme.typography.heading + 4.0),
                         );
@@ -263,67 +319,19 @@ impl PortfolioUi {
                }
 
                if self.mode == PortfolioMode::Nfts {
-                  let nfts = if privacy_mode {
-                     portfolio.private_nfts()
-                  } else {
-                     portfolio.nfts()
-                  };
-
                   self.show_nft_list(
                      ctx,
                      theme,
                      &icons,
-                     nfts,
                      chain_id,
                      owner,
                      privacy_mode,
-                     portfolio.private_nft_amounts(),
                      tint,
                      ui,
                   );
                } else {
                   // Token List
-                  let token_list = if privacy_mode {
-                     portfolio.private_tokens()
-                  } else {
-                     portfolio.public_tokens()
-                  };
-
-                  // The native currency has no portfolio entry, so it is prepended rather than listed.
-                  let mut rows = Vec::with_capacity(token_list.len() + 1);
-                  if !privacy_mode {
-                     let native = Currency::native(chain_id);
-                     rows.push(TokenRow {
-                        symbol: native.symbol().to_string(),
-                        name: native.name().to_string(),
-                        price: format!(
-                           "${:.10}",
-                           ctx.get_currency_price(&native).abbreviated()
-                        ),
-                        balance: format!(
-                           "{:.10}",
-                           ctx.get_currency_balance(chain_id, owner, &native).abbreviated()
-                        ),
-                        value: format!(
-                           "${:.10}",
-                           ctx.get_currency_value_for_owner(chain_id, owner, &native).abbreviated()
-                        ),
-                        icon: icons.currency_icon_x32(&native, tint),
-                        token: None,
-                     });
-                  }
-
-                  for (token, balance, value, price) in token_list {
-                     rows.push(TokenRow {
-                        symbol: token.symbol.to_string(),
-                        name: token.name.to_string(),
-                        price: format!("${:.10}", price.abbreviated()),
-                        balance: format!("{:.10}", balance.abbreviated()),
-                        value: format!("${:.10}", value.abbreviated()),
-                        icon: icons.token_icon_x32(token.address, token.chain_id, tint),
-                        token: Some(token.clone()),
-                     });
-                  }
+                  let rows = &self.rows.tokens;
 
                   let mut remove_request: Option<ERC20Token> = None;
 
@@ -341,7 +349,7 @@ impl PortfolioUi {
                         .corner_radius(corner)
                         .visuals(visuals);
 
-                     Table::new("portfolio_tokens", &rows)
+                     Table::new("portfolio_tokens", rows)
                         .columns([
                            Column::Fr(2.2), // Asset
                            Column::Fr(1.8), // Price
@@ -368,9 +376,18 @@ impl PortfolioUi {
 
                            t.rows(|r, row| {
                               r.cell(|ui| {
+                                 let icon = match &row.token {
+                                    Some(token) => {
+                                       icons.token_icon_x32(token.address, token.chain_id, tint)
+                                    }
+                                    None => {
+                                       icons.currency_icon_x32(&Currency::native(chain_id), tint)
+                                    }
+                                 };
+
                                  let text = RichText::new(&row.symbol).size(normal);
 
-                                 let label = Label::new(text, Some(row.icon.clone()))
+                                 let label = Label::new(text, Some(icon))
                                     .image_on_left()
                                     .wrap()
                                     .interactive(false);
@@ -446,30 +463,50 @@ impl PortfolioUi {
       });
    }
 
+   /// Build the rows for `key` off the GUI thread.
+   ///
+   /// Spawned, never inline: it clones the portfolio out of the wallet state and formats every row.
+   /// The writeback lands only while the key still matches, so a build for a previous wallet cannot
+   /// paint over a newer one.
+   fn build_rows(key: PortfolioKey) {
+      crate::runtime::rt().spawn_blocking(move || {
+         // The handle is only reachable once the frame has dropped `SHARED_GUI`.
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let rows = resolve_rows(&ctx, key);
+
+         SHARED_GUI.write(|gui| {
+            if gui.portofolio.rows.key != Some(key) {
+               return;
+            }
+
+            gui.portofolio.rows = rows;
+            gui.request_repaint();
+         });
+      });
+   }
+
    /// The NFT list: the wallet's own NFTs, or the shielded ones in privacy mode.
    ///
    /// The same table as the token list, but with no column header: there is one column that means
    /// anything here, and «Price / Balance / Value» would have nothing underneath them.
    ///
-   /// `privacy_mode` picks which side of the holdings the rows read: the badges must agree with the list
-   /// they are beside, and the two sides answer differently. `private_amounts` is that side's counts —
-   /// the notes' quantities, which the balance manager cannot know.
+   /// `privacy_mode` picks which side the rows' badges speak for, and is part of the table's key because
+   /// the two sides answer differently. The labels rode with the rows; the public holding does not,
+   /// because it moves without a portfolio update.
    fn show_nft_list(
       &mut self,
       ctx: &mut ZeusContext,
       theme: &Theme,
       icons: &Icons,
-      nfts: &[NftToken],
       chain_id: u64,
       owner: Address,
       privacy_mode: bool,
-      private_amounts: &HashMap<(Address, U256), u64>,
       tint: bool,
       ui: &mut Ui,
    ) {
-      let collections = cached_collections(ctx.nft_db.get_collections(chain_id));
+      let rows = &self.rows.nfts;
 
-      if nfts.is_empty() {
+      if rows.is_empty() {
          ui.add_space(theme.spacing.md);
          ui.label(
             RichText::new("Nothing here yet. Add NFT picks from the ones Zeus has found.")
@@ -497,44 +534,32 @@ impl PortfolioUi {
             .corner_radius(corner)
             .visuals(visuals);
 
-         Table::new("portfolio_nfts", nfts)
+         Table::new("portfolio_nfts", rows)
             // The artwork's thumbnail size is the row height this list was laid out for.
             .columns([Column::Fixed(64.0), Column::Fr(1.0), Column::Auto])
             .gap(20.0)
             .row_gap(theme.spacing.md)
             .scroll(TableScroll::new().auto_shrink([false; 2]).content_margin(15))
             .row_frame(row_frame)
-            .key((chain_id, privacy_mode, nfts.len()))
+            .key((chain_id, privacy_mode, rows.len()))
             .show(ui, |t| {
-               t.rows(|r, token| {
-                  let collection = collections.get(&token.collection);
-                  // The id is part of the title, not an afterthought: a collection is many tokens,
-                  // and which one this row is is the first thing to read.
-                  let title = format!(
-                     "{} #{}",
-                     nft_collection_name(collection, token.collection),
-                     token.token_id
-                  );
-                  let subtitle = Self::nft_subtitle(collection, token.standard);
-                  // Public ownership is the balance manager's, the same store the token rows read;
-                  // the private side is «in `private_nfts` ⇒ held», with the count its note carried.
-                  let holding = match privacy_mode {
-                     true => Some(
-                        private_amounts
-                           .get(&(token.collection, token.token_id))
-                           .copied()
-                           .unwrap_or(1),
-                     ),
-                     false => {
-                        ctx.get_nft_balance(chain_id, owner, token.collection, token.token_id)
-                     }
-                  };
+               t.rows(|r, row| {
+                  // The private count is the scan's, so it rides with the row; the public count is the
+                  // balance manager's and is read now, because it moves without a portfolio update.
+                  let holding = row.private_holding.or_else(|| {
+                     ctx.get_nft_balance(
+                        chain_id,
+                        owner,
+                        row.token.collection,
+                        row.token.token_id,
+                     )
+                  });
 
                   r.cell(|ui| {
                      ui.add(icons.nft_icon_x64(
-                        token.chain_id,
-                        token.collection,
-                        token.token_id,
+                        row.token.chain_id,
+                        row.token.collection,
+                        row.token.token_id,
                         tint,
                      ));
                   });
@@ -546,15 +571,15 @@ impl PortfolioUi {
                      ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = theme.spacing.xs;
 
-                        let title_text = RichText::new(&title)
+                        let title_text = RichText::new(&row.title)
                            .size(theme.typography.normal)
                            .color(theme.colors.text);
                         let title_label = Label::new(title_text, None)
                            .wrap_mode(TextWrapMode::Truncate)
                            .interactive(false);
-                        ui.add(title_label).on_hover_text(&title);
+                        ui.add(title_label).on_hover_text(&row.title);
 
-                        let subtitle_text = RichText::new(&subtitle)
+                        let subtitle_text = RichText::new(&row.subtitle)
                            .size(theme.typography.small)
                            .color(theme.colors.text_muted);
                         let subtitle_label = Label::new(subtitle_text, None)
@@ -576,13 +601,13 @@ impl PortfolioUi {
                      let remove = Button::new(RichText::new("X").size(normal));
 
                      if ui.add(remove).clicked() {
-                        remove_request = Some(token.clone());
+                        remove_request = Some(row.token.clone());
                      }
 
                      let view = Button::new(RichText::new("View").size(normal));
 
                      if ui.add(view).clicked() {
-                        preview_request = Some(token.clone());
+                        preview_request = Some(row.token.clone());
                      }
                   });
                });
@@ -592,10 +617,10 @@ impl PortfolioUi {
       // Applied after the list: a removal rewrites the portfolio, and doing that from inside the row
       // loop would change the list it is iterating.
       if let Some(nft) = preview_request {
-         // The collection comes from the map the list already built: the modal draws every frame, so the
+         // The collection comes from the map the rows were built with: the modal draws every frame, so the
          // lookup cannot live in its body.
          self.preview = Some(NftPreview {
-            collection: collections.get(&nft.collection).cloned(),
+            collection: self.rows.collections.get(&nft.collection).cloned(),
             token: nft,
          });
       }
@@ -899,5 +924,108 @@ impl PortfolioUi {
             gui.portofolio.show_spinner = false;
          });
       });
+   }
+}
+
+/// Resolve the portfolio into the rows the panel paints, off the GUI thread.
+///
+/// It does what the frame path used to do, in the same order: read the portfolio, take the value of the
+/// side on screen, format its rows, then resolve the NFT labels from the cached collections.
+fn resolve_rows(ctx: &ZeusCtx, key: PortfolioKey) -> PortfolioRows {
+   let portfolio = ctx.get_portfolio(key.chain_id, key.owner);
+
+   let total_value = match key.privacy_mode {
+      false => portfolio.public_value(),
+      true => portfolio.private_value(),
+   };
+
+   let token_list = if key.privacy_mode {
+      portfolio.private_tokens()
+   } else {
+      portfolio.public_tokens()
+   };
+
+   // The native currency has no portfolio entry, so it is prepended rather than listed.
+   let mut tokens = Vec::with_capacity(token_list.len() + 1);
+
+   if !key.privacy_mode {
+      let native = Currency::native(key.chain_id);
+
+      tokens.push(TokenRow {
+         symbol: native.symbol().to_string(),
+         name: native.name().to_string(),
+         price: format!(
+            "${:.10}",
+            ctx.get_currency_price(&native).abbreviated()
+         ),
+         balance: format!(
+            "{:.10}",
+            ctx.get_currency_balance(key.chain_id, key.owner, &native).abbreviated()
+         ),
+         value: format!(
+            "${:.10}",
+            ctx.read(|ctx| ctx.get_currency_value_for_owner(key.chain_id, key.owner, &native))
+               .abbreviated()
+         ),
+         token: None,
+      });
+   }
+
+   for (token, balance, value, price) in token_list {
+      tokens.push(TokenRow {
+         symbol: token.symbol.to_string(),
+         name: token.name.to_string(),
+         price: format!("${:.10}", price.abbreviated()),
+         balance: format!("{:.10}", balance.abbreviated()),
+         value: format!("${:.10}", value.abbreviated()),
+         token: Some(token.clone()),
+      });
+   }
+
+   let collections = cached_collections(ctx.read(|ctx| ctx.nft_db.get_collections(key.chain_id)));
+
+   let nft_list = if key.privacy_mode {
+      portfolio.private_nfts()
+   } else {
+      portfolio.nfts()
+   };
+
+   let nfts = nft_list
+      .iter()
+      .map(|token| {
+         let collection = collections.get(&token.collection);
+
+         // The private count is the note's; the public side's answer is the balance manager's, read
+         // when the row is drawn because it moves without a portfolio update.
+         let private_holding = match key.privacy_mode {
+            true => Some(
+               portfolio
+                  .private_nft_amounts()
+                  .get(&(token.collection, token.token_id))
+                  .copied()
+                  .unwrap_or(1),
+            ),
+            false => None,
+         };
+
+         NftRow {
+            token: token.clone(),
+            title: format!(
+               "{} #{}",
+               nft_collection_name(collection, token.collection),
+               token.token_id
+            ),
+            subtitle: PortfolioUi::nft_subtitle(collection, token.standard),
+            private_holding,
+         }
+      })
+      .collect();
+
+   PortfolioRows {
+      key: Some(key),
+      total_value,
+      tokens,
+      nfts,
+      collections,
    }
 }
