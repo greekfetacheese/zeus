@@ -3,7 +3,7 @@
 //! Showed when Home is selected
 
 use crate::assets::icons::Icons;
-use crate::core::ZeusContext;
+use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::{
    SHARED_GUI,
    ui::{
@@ -15,9 +15,9 @@ use crate::gui::{
 };
 use crate::utils::nft_icon::start_nft_art_downloads;
 use eframe::egui::{
-   Align, CornerRadius, CursorIcon, Image, Layout, Margin, Order, RichText, TextWrapMode, Ui, vec2,
+   Align, CornerRadius, CursorIcon, Layout, Margin, Order, RichText, TextWrapMode, Ui, vec2,
 };
-use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
 use egui_elements::{
@@ -26,8 +26,9 @@ use egui_elements::{
    visuals::ButtonVisuals,
 };
 use egui_lucide::Lucide;
+use zeus_core::WalletPortfolio;
 use zeus_eth::{
-   alloy_primitives::{Address, U256},
+   alloy_primitives::Address,
    currency::{Currency, ERC20Token},
    nft::{NftCollection, NftStandard, NftToken},
 };
@@ -54,19 +55,59 @@ struct NftPreview {
    collection: Option<NftCollection>,
 }
 
-/// One row of the portfolio's token list: the strings a row shows, plus what its icon and Remove need.
+/// One row of the portfolio's token list: the strings a row shows, plus what its Remove needs.
 ///
-/// The table is data-driven, so the list is resolved once per frame instead of inside a cell closure
-/// that runs twice on the frame it measures.
+/// Built on a worker and cached (see `RowsCache`): the strings come from `NumericValue`'s formatters,
+/// which are the expensive half of a row, and the table is data-driven, so the list is resolved once
+/// per key change instead of inside a cell closure that runs twice on the frame it measures. The icon
+/// is resolved on the frame from the row's `currency` — a texture lookup, and textures may only be
+/// loaded from the GUI thread.
 struct TokenRow {
+   currency: Currency,
    symbol: String,
    name: String,
    price: String,
    balance: String,
    value: String,
-   icon: Image<'static>,
    /// The token `Remove` drops; `None` for the chain's native currency, which cannot be removed.
    token: Option<ERC20Token>,
+}
+
+/// One row of the portfolio's NFT list, cached beside the token rows for the same reason.
+///
+/// `holding` is the ownership answer the badge shows: the balance manager's for the public side, the
+/// note count for the private one, and `None` when nobody has asked — a row claims nothing rather
+/// than claiming "not owned".
+struct NftRow {
+   token: NftToken,
+   title: String,
+   subtitle: String,
+   holding: Option<u64>,
+}
+
+/// What the two row caches are keyed by.
+///
+/// `chain`, `owner` and `privacy` say which list this is; `fingerprint` folds in everything the rows
+/// are *computed from* — the portfolio's own cached lists and the balance and price answers — so a
+/// background sync that moved a balance invalidates the cache without anyone pointing at it.
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct RowsKey {
+   chain: u64,
+   owner: Address,
+   privacy: bool,
+   fingerprint: u64,
+}
+
+/// The row lists for the current `RowsKey`, built on a worker.
+///
+/// Either list may be empty; `loading` says a build is in flight, and an empty list only means
+/// "nothing here" once it is false.
+#[derive(Default)]
+struct RowsCache {
+   key: Option<RowsKey>,
+   loading: bool,
+   tokens: Vec<TokenRow>,
+   nfts: Vec<NftRow>,
 }
 
 pub struct PortfolioUi {
@@ -76,6 +117,8 @@ pub struct PortfolioUi {
    mode: PortfolioMode,
    /// What the artwork modal is showing, if it is open.
    preview: Option<NftPreview>,
+   /// The cached row lists, built off the GUI thread.
+   rows: RowsCache,
    /// Which (chain, wallet) the NFT list has been kicked off for.
    ///
    /// A marker that the ask went out, not an answer — the answers live in the balance manager, beside the
@@ -96,6 +139,7 @@ impl PortfolioUi {
          show_spinner: false,
          mode: PortfolioMode::Tokens,
          preview: None,
+         rows: RowsCache::default(),
          nft_list_asked_for: None,
          shown_for: None,
       }
@@ -113,6 +157,8 @@ impl PortfolioUi {
       self.open = false;
       // A reopen starts a new list; the previous session's preview must not re-appear over it.
       self.preview = None;
+      // A rebuild claimed while closed would land on no one: drop the cache with the view.
+      self.rows = RowsCache::default();
    }
 
    pub fn show(
@@ -141,6 +187,11 @@ impl PortfolioUi {
             false => portfolio.public_value(),
             true => portfolio.private_value(),
          };
+
+         // Rebuild the rows off the GUI thread when anything they are computed from moved. Taking the
+         // key is a few map lookups and a hash; the rows behind it are the expensive part, which is
+         // the point of the cache.
+         self.refresh_rows(ctx, chain_id, owner, privacy_mode, &portfolio);
 
          Frame::new().outer_margin(Margin::same(5)).show(ui, |ui| {
             ui.vertical_centered_justified(|ui| {
@@ -263,155 +314,9 @@ impl PortfolioUi {
                }
 
                if self.mode == PortfolioMode::Nfts {
-                  let nfts = if privacy_mode {
-                     portfolio.private_nfts()
-                  } else {
-                     portfolio.nfts()
-                  };
-
-                  self.show_nft_list(
-                     ctx,
-                     theme,
-                     &icons,
-                     nfts,
-                     chain_id,
-                     owner,
-                     privacy_mode,
-                     portfolio.private_nft_amounts(),
-                     tint,
-                     ui,
-                  );
+                  self.show_nft_list(ctx, theme, &icons, chain_id, owner, tint, ui);
                } else {
-                  // Token List
-                  let token_list = if privacy_mode {
-                     portfolio.private_tokens()
-                  } else {
-                     portfolio.public_tokens()
-                  };
-
-                  // The native currency has no portfolio entry, so it is prepended rather than listed.
-                  let mut rows = Vec::with_capacity(token_list.len() + 1);
-                  if !privacy_mode {
-                     let native = Currency::native(chain_id);
-                     rows.push(TokenRow {
-                        symbol: native.symbol().to_string(),
-                        name: native.name().to_string(),
-                        price: format!(
-                           "${:.10}",
-                           ctx.get_currency_price(&native).abbreviated()
-                        ),
-                        balance: format!(
-                           "{:.10}",
-                           ctx.get_currency_balance(chain_id, owner, &native).abbreviated()
-                        ),
-                        value: format!(
-                           "${:.10}",
-                           ctx.get_currency_value_for_owner(chain_id, owner, &native).abbreviated()
-                        ),
-                        icon: icons.currency_icon_x32(&native, tint),
-                        token: None,
-                     });
-                  }
-
-                  for (token, balance, value, price) in token_list {
-                     rows.push(TokenRow {
-                        symbol: token.symbol.to_string(),
-                        name: token.name.to_string(),
-                        price: format!("${:.10}", price.abbreviated()),
-                        balance: format!("{:.10}", balance.abbreviated()),
-                        value: format!("${:.10}", value.abbreviated()),
-                        icon: icons.token_icon_x32(token.address, token.chain_id, tint),
-                        token: Some(token.clone()),
-                     });
-                  }
-
-                  let mut remove_request: Option<ERC20Token> = None;
-
-                  ui.spacing_mut().item_spacing.y = theme.spacing.sm;
-                  ui.scope(|ui| {
-                     ui.spacing_mut().button_padding =
-                        vec2(theme.spacing.xs, theme.spacing.xs / 2.0);
-
-                     let visuals = theme.frame1_visuals();
-                     let inner = theme.inner_margin;
-                     let corner = theme.corner_radius;
-                     let row_frame = Frame::new()
-                        .interactive(true)
-                        .inner_margin(inner)
-                        .corner_radius(corner)
-                        .visuals(visuals);
-
-                     Table::new("portfolio_tokens", &rows)
-                        .columns([
-                           Column::Fr(2.2), // Asset
-                           Column::Fr(1.8), // Price
-                           Column::Fr(1.8), // Balance
-                           Column::Fr(1.8), // Value
-                           Column::Auto,    // Remove
-                        ])
-                        .gap(20.0)
-                        .row_gap(theme.spacing.md)
-                        .scroll(TableScroll::new().auto_shrink([false; 2]).content_margin(15))
-                        .row_frame(row_frame)
-                        .header_rule(true)
-                        .key((chain_id, privacy_mode, rows.len()))
-                        .show(ui, |t| {
-                           t.header(|h| {
-                              for header in ["Asset", "Price", "Balance", "Value", ""] {
-                                 h.cell(|ui| {
-                                    if !header.is_empty() {
-                                       ui.label(RichText::new(header).strong().size(large));
-                                    }
-                                 });
-                              }
-                           });
-
-                           t.rows(|r, row| {
-                              r.cell(|ui| {
-                                 let text = RichText::new(&row.symbol).size(normal);
-
-                                 let label = Label::new(text, Some(row.icon.clone()))
-                                    .image_on_left()
-                                    .wrap()
-                                    .interactive(false);
-                                 ui.add(label).on_hover_text(&row.name);
-                              });
-
-                              r.cell(|ui| {
-                                 let text = RichText::new(&row.price).size(normal);
-                                 let label = Label::text(text);
-                                 ui.add(label);
-                              });
-
-                              r.cell(|ui| {
-                                 let text = RichText::new(&row.balance).size(normal);
-                                 let label = Label::text(text);
-                                 ui.add(label);
-                              });
-
-                              r.cell(|ui| {
-                                 let text = RichText::new(&row.value).size(normal);
-                                 let label = Label::text(text);
-                                 ui.add(label);
-                              });
-
-                              r.cell(|ui| {
-                                 let Some(token) = &row.token else {
-                                    return;
-                                 };
-
-                                 let text = RichText::new("X").size(normal);
-                                 if ui.add(Button::new(text)).clicked() {
-                                    remove_request = Some(token.clone());
-                                 }
-                              });
-                           });
-                        });
-                  });
-
-                  if let Some(token) = remove_request {
-                     self.remove_token(ctx, owner, &token);
-                  }
+                  self.show_token_list(ctx, theme, &icons, owner, tint, ui);
                }
 
                let currency = token_selection.get_selected_currency();
@@ -446,34 +351,225 @@ impl PortfolioUi {
       });
    }
 
+   /// Take the rows cache's key, and start a worker rebuild on a miss.
+   ///
+   /// The key is read straight from the sources the rows are computed from — the portfolio's cached
+   /// lists, the balance manager's answers and the collection catalog — but nothing is formatted here:
+   /// taking the key every frame must cost a few map lookups and a hash, or the cache has already
+   /// spent what it saves. The rows themselves are built by [`build_rows`], on a worker.
+   fn refresh_rows(
+      &mut self,
+      ctx: &mut ZeusContext,
+      chain_id: u64,
+      owner: Address,
+      privacy_mode: bool,
+      portfolio: &WalletPortfolio,
+   ) {
+      // One switch bit per source list, so a token fingerprint and an NFT fingerprint over equal
+      // parts can never fold into the same key and skip a rebuild the other list still needs.
+      let mut fingerprint = 1u64;
+      fold_hash(&mut fingerprint, (chain_id, owner, privacy_mode));
+
+      let key = RowsKey {
+         chain: chain_id,
+         owner,
+         privacy: privacy_mode,
+         fingerprint: match self.mode {
+            PortfolioMode::Tokens => fingerprint.wrapping_add(token_fingerprint(
+               ctx,
+               chain_id,
+               owner,
+               privacy_mode,
+               portfolio,
+            )),
+            PortfolioMode::Nfts => fingerprint.wrapping_add(nft_fingerprint(
+               ctx,
+               chain_id,
+               owner,
+               privacy_mode,
+               portfolio,
+            )),
+         },
+      };
+
+      if self.rows.key.as_ref() == Some(&key) {
+         return;
+      }
+
+      self.rows.loading = true;
+      self.rows.key = Some(key.clone());
+
+      crate::runtime::rt().spawn_blocking(move || {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let built = build_rows(&ctx, &key);
+
+         SHARED_GUI.write(|gui| {
+            let portfolio = &mut gui.portofolio;
+
+            // A newer key has already claimed the cache: these rows are stale, and clearing
+            // `loading` here would end the newer build's empty state before its rows exist.
+            if portfolio.rows.key.as_ref() != Some(&key) {
+               return;
+            }
+
+            portfolio.rows.tokens = built.tokens;
+            portfolio.rows.nfts = built.nfts;
+            portfolio.rows.loading = false;
+            gui.request_repaint();
+         });
+      });
+   }
+
+   /// The token list, painted from the cached rows.
+   ///
+   /// The rows are the worker's; this resolves each row's icon — a texture lookup that must stay on
+   /// the GUI thread — and reads the clicks.
+   fn show_token_list(
+      &mut self,
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      icons: &Icons,
+      owner: Address,
+      tint: bool,
+      ui: &mut Ui,
+   ) {
+      let normal = theme.typography.normal;
+      let large = theme.typography.large;
+
+      if self.rows.loading && self.rows.tokens.is_empty() {
+         ui.add_space(theme.spacing.md);
+         ui.add(Spinner::new().size(25.0));
+         return;
+      }
+
+      let rows = &self.rows.tokens;
+
+      if rows.is_empty() {
+         ui.add_space(theme.spacing.md);
+         ui.label(
+            RichText::new("Nothing here yet. Add a token to start the portfolio.")
+               .size(normal)
+               .color(theme.colors.text_muted),
+         );
+         return;
+      }
+
+      let mut remove_request: Option<ERC20Token> = None;
+
+      ui.spacing_mut().item_spacing.y = theme.spacing.sm;
+      ui.scope(|ui| {
+         ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs / 2.0);
+
+         let visuals = theme.frame1_visuals();
+         let inner = theme.inner_margin;
+         let corner = theme.corner_radius;
+         let row_frame = Frame::new()
+            .interactive(true)
+            .inner_margin(inner)
+            .corner_radius(corner)
+            .visuals(visuals);
+
+         Table::new("portfolio_tokens", rows)
+            .columns([
+               Column::Fr(2.2), // Asset
+               Column::Fr(1.8), // Price
+               Column::Fr(1.8), // Balance
+               Column::Fr(1.8), // Value
+               Column::Auto,    // Remove
+            ])
+            .gap(20.0)
+            .row_gap(theme.spacing.md)
+            .scroll(TableScroll::new().auto_shrink([false; 2]).content_margin(15))
+            .row_frame(row_frame)
+            .header_rule(true)
+            .key((&self.rows.key, rows.len()))
+            .show(ui, |t| {
+               t.header(|h| {
+                  for header in ["Asset", "Price", "Balance", "Value", ""] {
+                     h.cell(|ui| {
+                        if !header.is_empty() {
+                           ui.label(RichText::new(header).strong().size(large));
+                        }
+                     });
+                  }
+               });
+
+               t.rows(|r, row| {
+                  let icon = icons.currency_icon_x32(&row.currency, tint);
+
+                  r.cell(|ui| {
+                     let text = RichText::new(&row.symbol).size(normal);
+                     let label =
+                        Label::new(text, Some(icon)).image_on_left().wrap().interactive(false);
+                     ui.add(label).on_hover_text(&row.name);
+                  });
+
+                  r.cell(|ui| {
+                     let text = RichText::new(&row.price).size(normal);
+                     let label = Label::text(text);
+                     ui.add(label);
+                  });
+
+                  r.cell(|ui| {
+                     let text = RichText::new(&row.balance).size(normal);
+                     let label = Label::text(text);
+                     ui.add(label);
+                  });
+
+                  r.cell(|ui| {
+                     let text = RichText::new(&row.value).size(normal);
+                     let label = Label::text(text);
+                     ui.add(label);
+                  });
+
+                  r.cell(|ui| {
+                     let Some(token) = &row.token else {
+                        return;
+                     };
+
+                     let text = RichText::new("X").size(normal);
+                     if ui.add(Button::new(text)).clicked() {
+                        remove_request = Some(token.clone());
+                     }
+                  });
+               });
+            });
+      });
+
+      if let Some(token) = remove_request {
+         self.remove_token(ctx, owner, &token);
+      }
+   }
+
    /// The NFT list: the wallet's own NFTs, or the shielded ones in privacy mode.
    ///
    /// The same table as the token list, but with no column header: there is one column that means
    /// anything here, and «Price / Balance / Value» would have nothing underneath them.
-   ///
-   /// `privacy_mode` picks which side of the holdings the rows read: the badges must agree with the list
-   /// they are beside, and the two sides answer differently. `private_amounts` is that side's counts —
-   /// the notes' quantities, which the balance manager cannot know.
    fn show_nft_list(
       &mut self,
       ctx: &mut ZeusContext,
       theme: &Theme,
       icons: &Icons,
-      nfts: &[NftToken],
       chain_id: u64,
       owner: Address,
-      privacy_mode: bool,
-      private_amounts: &HashMap<(Address, U256), u64>,
       tint: bool,
       ui: &mut Ui,
    ) {
-      let collections = cached_collections(ctx.nft_db.get_collections(chain_id));
+      let normal = theme.typography.normal;
 
-      if nfts.is_empty() {
+      if self.rows.loading && self.rows.nfts.is_empty() {
+         ui.add_space(theme.spacing.md);
+         ui.add(Spinner::new().size(25.0));
+         return;
+      }
+
+      let rows = &self.rows.nfts;
+
+      if rows.is_empty() {
          ui.add_space(theme.spacing.md);
          ui.label(
             RichText::new("Nothing here yet. Add NFT picks from the ones Zeus has found.")
-               .size(theme.typography.normal)
+               .size(normal)
                .color(theme.colors.text_muted),
          );
          return;
@@ -481,8 +577,6 @@ impl PortfolioUi {
 
       let mut preview_request: Option<NftToken> = None;
       let mut remove_request: Option<NftToken> = None;
-
-      let normal = theme.typography.normal;
 
       ui.spacing_mut().item_spacing.y = theme.spacing.sm;
       ui.scope(|ui| {
@@ -497,46 +591,25 @@ impl PortfolioUi {
             .corner_radius(corner)
             .visuals(visuals);
 
-         Table::new("portfolio_nfts", nfts)
+         Table::new("portfolio_nfts", rows)
             // The artwork's thumbnail size is the row height this list was laid out for.
             .columns([Column::Fixed(64.0), Column::Fr(1.0), Column::Auto])
             .gap(20.0)
             .row_gap(theme.spacing.md)
             .scroll(TableScroll::new().auto_shrink([false; 2]).content_margin(15))
             .row_frame(row_frame)
-            .key((chain_id, privacy_mode, nfts.len()))
+            .key((&self.rows.key, rows.len()))
             .show(ui, |t| {
-               t.rows(|r, token| {
-                  let collection = collections.get(&token.collection);
-                  // The id is part of the title, not an afterthought: a collection is many tokens,
-                  // and which one this row is is the first thing to read.
-                  let title = format!(
-                     "{} #{}",
-                     nft_collection_name(collection, token.collection),
-                     token.token_id
+               t.rows(|r, row| {
+                  let icon = icons.nft_icon_x64(
+                     row.token.chain_id,
+                     row.token.collection,
+                     row.token.token_id,
+                     tint,
                   );
-                  let subtitle = Self::nft_subtitle(collection, token.standard);
-                  // Public ownership is the balance manager's, the same store the token rows read;
-                  // the private side is «in `private_nfts` ⇒ held», with the count its note carried.
-                  let holding = match privacy_mode {
-                     true => Some(
-                        private_amounts
-                           .get(&(token.collection, token.token_id))
-                           .copied()
-                           .unwrap_or(1),
-                     ),
-                     false => {
-                        ctx.get_nft_balance(chain_id, owner, token.collection, token.token_id)
-                     }
-                  };
 
                   r.cell(|ui| {
-                     ui.add(icons.nft_icon_x64(
-                        token.chain_id,
-                        token.collection,
-                        token.token_id,
-                        tint,
-                     ));
+                     ui.add(icon);
                   });
 
                   r.cell(|ui| {
@@ -546,15 +619,15 @@ impl PortfolioUi {
                      ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = theme.spacing.xs;
 
-                        let title_text = RichText::new(&title)
+                        let title_text = RichText::new(&row.title)
                            .size(theme.typography.normal)
                            .color(theme.colors.text);
                         let title_label = Label::new(title_text, None)
                            .wrap_mode(TextWrapMode::Truncate)
                            .interactive(false);
-                        ui.add(title_label).on_hover_text(&title);
+                        ui.add(title_label).on_hover_text(&row.title);
 
-                        let subtitle_text = RichText::new(&subtitle)
+                        let subtitle_text = RichText::new(&row.subtitle)
                            .size(theme.typography.small)
                            .color(theme.colors.text_muted);
                         let subtitle_label = Label::new(subtitle_text, None)
@@ -569,20 +642,20 @@ impl PortfolioUi {
                      // portfolio is a claim about what it holds, and the chain is what settles it.
                      ownership_badge(
                         ui,
-                        holding.map(|amount| amount > 0),
-                        holding.unwrap_or(0),
+                        row.holding.map(|amount| amount > 0),
+                        row.holding.unwrap_or(0),
                      );
 
                      let remove = Button::new(RichText::new("X").size(normal));
 
                      if ui.add(remove).clicked() {
-                        remove_request = Some(token.clone());
+                        remove_request = Some(row.token.clone());
                      }
 
                      let view = Button::new(RichText::new("View").size(normal));
 
                      if ui.add(view).clicked() {
-                        preview_request = Some(token.clone());
+                        preview_request = Some(row.token.clone());
                      }
                   });
                });
@@ -592,10 +665,10 @@ impl PortfolioUi {
       // Applied after the list: a removal rewrites the portfolio, and doing that from inside the row
       // loop would change the list it is iterating.
       if let Some(nft) = preview_request {
-         // The collection comes from the map the list already built: the modal draws every frame, so the
-         // lookup cannot live in its body.
+         // The collection is resolved the moment the preview opens, not in the modal's body — the modal
+         // draws every frame, and the lookup reads the whole catalog.
          self.preview = Some(NftPreview {
-            collection: collections.get(&nft.collection).cloned(),
+            collection: ctx.nft_db.get_collection(chain_id, nft.collection),
             token: nft,
          });
       }
@@ -618,7 +691,7 @@ impl PortfolioUi {
          token.token_id
       ))
       .size(theme.typography.heading);
-      let subtitle = Self::nft_subtitle(collection, token.standard);
+      let subtitle = nft_subtitle_text(collection, token.standard);
       let frame = theme.window_frame.fill(theme.frame1.fill);
 
       let mut open = true;
@@ -729,19 +802,6 @@ impl PortfolioUi {
       });
 
       Self::save_wallet_state();
-   }
-
-   /// The second line of an NFT row or preview: the collection symbol and the standard.
-   fn nft_subtitle(collection: Option<&NftCollection>, standard: NftStandard) -> String {
-      let standard = match standard {
-         NftStandard::Erc721 => "ERC-721",
-         NftStandard::Erc1155 => "ERC-1155",
-      };
-
-      match collection.and_then(|collection| collection.symbol.as_deref()) {
-         Some(symbol) if !symbol.is_empty() => format!("{symbol} · {standard}"),
-         _ => standard.to_string(),
-      }
    }
 
    /// Persist the wallet state after the portfolio changed.
@@ -899,5 +959,236 @@ impl PortfolioUi {
             gui.portofolio.show_spinner = false;
          });
       });
+   }
+}
+
+/// One order-independent hash step: the fingerprint folds the *set* of entries, so a map whose
+/// iteration order changes between frames does not invalidate the cache by itself.
+fn fold_hash(fingerprint: &mut u64, parts: impl Hash) {
+   let mut hasher = DefaultHasher::new();
+   parts.hash(&mut hasher);
+   *fingerprint = fingerprint.wrapping_add(hasher.finish());
+}
+
+/// Everything the token rows are computed from, hashed without formatting anything.
+///
+/// The ERC-20 side reads the portfolio's own cached lists — `update_public_data` /
+/// `update_private_data` rewrite them (balance, price and value together) on every refresh,
+/// background state sync, send and swap — so hashing them is what makes a moved balance invalidate
+/// the rows. The native currency has no portfolio entry, so its balance and price are read from the
+/// balance manager directly, exactly as the row itself reads them.
+fn token_fingerprint(
+   ctx: &ZeusContext,
+   chain_id: u64,
+   owner: Address,
+   privacy_mode: bool,
+   portfolio: &WalletPortfolio,
+) -> u64 {
+   let mut fingerprint = 0u64;
+
+   let token_list = if privacy_mode {
+      portfolio.private_tokens()
+   } else {
+      portfolio.public_tokens()
+   };
+
+   for (token, balance, value, price) in token_list {
+      fold_hash(
+         &mut fingerprint,
+         (
+            token.chain_id,
+            token.address,
+            balance.f64().to_bits(),
+            value.f64().to_bits(),
+            price.f64().to_bits(),
+         ),
+      );
+   }
+
+   if !privacy_mode {
+      let native = Currency::native(chain_id);
+      let price = ctx.get_currency_price(&native);
+      let balance = ctx.get_currency_balance(chain_id, owner, &native);
+      fold_hash(
+         &mut fingerprint,
+         (balance.f64().to_bits(), price.f64().to_bits()),
+      );
+   }
+
+   fingerprint
+}
+
+/// Everything the NFT rows are computed from, hashed without building a single row string.
+///
+/// Holdings are hashed per token rather than folding the manager's map whole, so a balance that moved
+/// for a token the portfolio does not list does not rebuild the list; the collection catalog is hashed
+/// with them, because a name or symbol cached after the list was built has to reach the rows.
+fn nft_fingerprint(
+   ctx: &ZeusContext,
+   chain_id: u64,
+   owner: Address,
+   privacy_mode: bool,
+   portfolio: &WalletPortfolio,
+) -> u64 {
+   let mut fingerprint = 0u64;
+
+   let nfts = if privacy_mode {
+      portfolio.private_nfts()
+   } else {
+      portfolio.nfts()
+   };
+
+   for token in nfts {
+      // Public ownership is the balance manager's, the same store the token rows read;
+      // the private side is «in `private_nfts` ⇒ held», with the count its note carried.
+      let holding = match privacy_mode {
+         true => portfolio
+            .private_nft_amounts()
+            .get(&(token.collection, token.token_id))
+            .copied(),
+         false => ctx.get_nft_balance(chain_id, owner, token.collection, token.token_id),
+      };
+
+      fold_hash(
+         &mut fingerprint,
+         (
+            token.collection,
+            token.token_id,
+            token.standard,
+            holding,
+         ),
+      );
+   }
+
+   for collection in ctx.nft_db.get_collections(chain_id) {
+      fold_hash(
+         &mut fingerprint,
+         (
+            collection.address,
+            collection.name,
+            collection.symbol,
+         ),
+      );
+   }
+
+   fingerprint
+}
+
+/// Build both row lists for `key`, on a worker.
+///
+/// Both are built together — one worker, one writeback — because they share the one [`RowsKey`]: the
+/// tables key on it whole, so a build that filled only the visible list would leave the other stale
+/// against a key that claims it.
+fn build_rows(ctx: &ZeusCtx, key: &RowsKey) -> RowsCache {
+   let portfolio = ctx.get_portfolio(key.chain, key.owner);
+   let collections = cached_collections(ctx.read(|ctx| ctx.nft_db.get_collections(key.chain)));
+
+   let mut tokens = Vec::new();
+
+   if !key.privacy {
+      // The native currency has no portfolio entry, so it is prepended rather than listed.
+      let native = Currency::native(key.chain);
+      let price = ctx.get_currency_price(&native);
+      let balance = ctx.get_currency_balance(key.chain, key.owner, &native);
+      tokens.push(TokenRow {
+         currency: native.clone(),
+         symbol: native.symbol().to_string(),
+         name: native.name().to_string(),
+         price: format!("${:.10}", price.abbreviated()),
+         balance: format!("{:.10}", balance.abbreviated()),
+         value: format!(
+            "${:.10}",
+            zeus_eth::utils::NumericValue::value(balance.f64(), price.f64()).abbreviated()
+         ),
+         token: None,
+      });
+   }
+
+   let token_list = if key.privacy {
+      portfolio.private_tokens()
+   } else {
+      portfolio.public_tokens()
+   };
+
+   for (token, balance, value, price) in token_list {
+      tokens.push(TokenRow {
+         currency: Currency::from(token.clone()),
+         symbol: token.symbol.to_string(),
+         name: token.name.to_string(),
+         price: format!("${:.10}", price.abbreviated()),
+         balance: format!("{:.10}", balance.abbreviated()),
+         value: format!("${:.10}", value.abbreviated()),
+         token: Some(token.clone()),
+      });
+   }
+
+   let mut nfts = Vec::new();
+
+   let nft_list = if key.privacy {
+      portfolio.private_nfts()
+   } else {
+      portfolio.nfts()
+   };
+
+   for token in nft_list {
+      let collection = collections.get(&token.collection);
+      // The id is part of the title, not an afterthought: a collection is many tokens,
+      // and which one this row is is the first thing to read.
+      let title = format!(
+         "{} #{}",
+         nft_collection_name(collection, token.collection),
+         token.token_id
+      );
+      let subtitle = nft_subtitle_text(collection, token.standard);
+
+      // Public ownership is the balance manager's, the same store the token rows read;
+      // the private side is «in `private_nfts` ⇒ held», with the count its note carried.
+      let holding = match key.privacy {
+         true => Some(
+            portfolio
+               .private_nft_amounts()
+               .get(&(token.collection, token.token_id))
+               .copied()
+               .unwrap_or(1),
+         ),
+         false => ctx.read(|ctx| {
+            ctx.get_nft_balance(
+               key.chain,
+               key.owner,
+               token.collection,
+               token.token_id,
+            )
+         }),
+      };
+
+      nfts.push(NftRow {
+         token: token.clone(),
+         title,
+         subtitle,
+         holding,
+      });
+   }
+
+   RowsCache {
+      key: Some(key.clone()),
+      loading: false,
+      tokens,
+      nfts,
+   }
+}
+
+/// The second line of an NFT row or preview: the collection symbol and the standard.
+///
+/// Free rather than a method on [`PortfolioUi`]: the row builder runs on a worker, where the
+/// struct's private methods are out of reach.
+fn nft_subtitle_text(collection: Option<&NftCollection>, standard: NftStandard) -> String {
+   let standard = match standard {
+      NftStandard::Erc721 => "ERC-721",
+      NftStandard::Erc1155 => "ERC-1155",
+   };
+
+   match collection.and_then(|collection| collection.symbol.as_deref()) {
+      Some(symbol) if !symbol.is_empty() => format!("{symbol} · {standard}"),
+      _ => standard.to_string(),
    }
 }
