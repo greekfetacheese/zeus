@@ -280,7 +280,11 @@ impl TxConfirmationWindow {
          };
 
          SHARED_GUI.write(|gui| {
+            // A withdrawn prompt keeps neither its window nor the loading spinner that was
+            // standing in for it: this flow is being answered with a rejection, so nothing else
+            // is going on screen and the spinner must not outlive it.
             if gui.tx_confirmation_window.open_generation != generation {
+               gui.loading_window.reset();
                return;
             }
 
@@ -308,6 +312,10 @@ impl TxConfirmationWindow {
             ctx.write(|ctx| {
                gui.tx_confirmation_window.calculate_tx_cost(ctx, gas_used);
             });
+
+            // The confirmation takes the screen over in this frame, so the spinner it stood in
+            // for goes with it — not a frame earlier (see `GuiHost::open_tx_confirm`).
+            gui.loading_window.reset();
             gui.request_repaint();
          });
       });
