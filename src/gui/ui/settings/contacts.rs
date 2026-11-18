@@ -323,7 +323,7 @@ impl QrWindow {
 
       if self.contact.is_none() {
          ui.label(RichText::new("No contact found, this is a bug").size(theme.typography.normal));
-         ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+         ui.add(Spinner::new().size(17.0));
          return;
       }
 

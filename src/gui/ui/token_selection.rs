@@ -572,7 +572,7 @@ impl TokenSelectionWindow {
                ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
 
                if self.loading {
-                  ui.add(Spinner::new().size(25.0).color(theme.colors.text));
+                  ui.add(Spinner::new().size(25.0));
                   return;
                }
 
@@ -599,7 +599,7 @@ impl TokenSelectionWindow {
 
                         if self.syncing_balances {
                            ui.add_space(theme.spacing.xs);
-                           ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+                           ui.add(Spinner::new().size(17.0));
                         }
                      });
                   });
@@ -905,7 +905,7 @@ impl TokenSelectionWindow {
       ui.add_space(theme.spacing.xl);
 
       if self.nfts_loading {
-         ui.add(Spinner::new().size(25.0).color(theme.colors.text));
+         ui.add(Spinner::new().size(25.0));
          return;
       }
 

@@ -140,7 +140,7 @@ impl MergeNotesWindow {
 
                match &self.state {
                   MergeState::Idle | MergeState::Loading => {
-                     ui.add(Spinner::new().size(28.0).color(theme.colors.text));
+                     ui.add(Spinner::new().size(28.0));
                      ui.label(
                         RichText::new("Scanning private notes…")
                            .size(theme.typography.normal),

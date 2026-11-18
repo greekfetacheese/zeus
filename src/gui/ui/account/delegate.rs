@@ -164,7 +164,7 @@ impl DelegateUi {
             });
          }
       } else {
-         ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+         ui.add(Spinner::new().size(17.0));
       }
    }
 

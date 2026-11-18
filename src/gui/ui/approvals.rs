@@ -643,7 +643,7 @@ impl ApprovalsUi {
 
             if self.loading {
                ui.vertical_centered(|ui| {
-                  ui.add(Spinner::new().size(20.0).color(theme.colors.text));
+                  ui.add(Spinner::new().size(20.0));
                });
                return;
             }

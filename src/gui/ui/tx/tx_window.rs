@@ -139,7 +139,7 @@ impl TxWindow {
                ui.spacing_mut().button_padding = theme.button_padding;
 
                if self.loading {
-                  ui.add(Spinner::new().size(20.0).color(theme.colors.text));
+                  ui.add(Spinner::new().size(20.0));
                   return;
                }
 

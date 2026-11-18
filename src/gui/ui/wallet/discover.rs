@@ -182,7 +182,7 @@ impl DiscoverChildWallets {
             ui.vertical_centered(|ui| {
                if self.loading {
                   ui.label(RichText::new("Loading...").size(theme.typography.normal));
-                  ui.add(Spinner::new().size(15.0).color(theme.colors.text));
+                  ui.add(Spinner::new().size(15.0));
                   return;
                }
 
@@ -237,7 +237,7 @@ impl DiscoverChildWallets {
                      }
 
                      if self.syncing {
-                        ui.add(Spinner::new().size(20.0).color(theme.colors.text));
+                        ui.add(Spinner::new().size(20.0));
                      } else {
                         if ui.add(sync_button).clicked() {
                            self.refresh_balance(start, end);
@@ -549,7 +549,7 @@ impl DiscoverChildWallets {
                   }
                   let text = RichText::new("Add").size(theme.typography.normal);
                   let button = Button::new(text).visuals(button_visuals).min_size(vec2(80.0, 32.0));
-                  let spinner = Spinner::new().size(20.0).color(theme.colors.text);
+                  let spinner = Spinner::new().size(20.0);
 
                   if wallet_is_being_added {
                      ui.add(spinner);

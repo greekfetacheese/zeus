@@ -339,7 +339,7 @@ impl PoolsUi {
             ui.add_space(theme.spacing.lg);
 
             if self.rows_loading {
-               ui.add(Spinner::new().size(20.0).color(theme.colors.text));
+               ui.add(Spinner::new().size(20.0));
             } else {
                ui.label(
                   RichText::new("No pools match this filter.")
@@ -580,7 +580,7 @@ impl PoolsUi {
 
             if adding {
                ui.vertical_centered(|ui| {
-                  ui.add(Spinner::new().size(20.0).color(theme.colors.text));
+                  ui.add(Spinner::new().size(20.0));
                   ui.label(
                      RichText::new("Looking up the pool on chain…")
                         .size(theme.typography.normal)

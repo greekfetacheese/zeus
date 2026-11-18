@@ -164,7 +164,7 @@ impl AmountField {
             }
 
             if loading {
-               ui.add(Spinner::new().size(13.0).color(theme.colors.text));
+               ui.add(Spinner::new().size(13.0));
             }
 
             if show_slider {

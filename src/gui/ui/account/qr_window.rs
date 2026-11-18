@@ -98,7 +98,7 @@ impl QrWindow {
                   ui.label(
                      RichText::new("No wallet found, this is a bug").size(theme.typography.normal),
                   );
-                  ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+                  ui.add(Spinner::new().size(17.0));
                   self.close_button(theme, ui);
                   return;
                }

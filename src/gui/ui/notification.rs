@@ -240,13 +240,11 @@ impl Notification {
       icons: Arc<Icons>,
       ui: &mut Ui,
    ) {
-      let spinner_color = theme.colors.text;
-
       ui.vertical_centered(|ui| {
          ui.label(RichText::new(&self.title).size(theme.typography.large));
          self.show_notification(ctx, theme, icons, ui);
 
-         ui.add(Spinner::new().color(spinner_color).size(20.0));
+         ui.add(Spinner::new().size(20.0));
       });
    }
 

@@ -233,7 +233,7 @@ impl UniswapUi {
                   self.swap_ui.refresh(&self.settings);
                }
             } else {
-               ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+               ui.add(Spinner::new().size(17.0));
             }
          },
       );

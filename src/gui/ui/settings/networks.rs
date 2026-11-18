@@ -203,7 +203,7 @@ impl NetworkSettings {
                   });
                }
             } else {
-               ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+               ui.add(Spinner::new().size(17.0));
             }
          });
       });
@@ -401,7 +401,7 @@ impl NetworkSettings {
                   }
 
                   if rpc.test_in_progress {
-                     ui.add(Spinner::new().size(14.0).color(theme.colors.text));
+                     ui.add(Spinner::new().size(14.0));
                   } else {
                      let text = RichText::new("Test").size(theme.typography.normal);
                      let button = Button::new(text).visuals(button_visuals);
@@ -569,7 +569,7 @@ impl NetworkSettings {
       }
 
       if self.refreshing {
-         ui.add(Spinner::new().size(15.0).color(theme.colors.text));
+         ui.add(Spinner::new().size(15.0));
       }
 
       let text = RichText::new("Add").size(theme.typography.normal);

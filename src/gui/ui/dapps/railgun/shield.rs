@@ -1047,7 +1047,7 @@ impl ShieldUi {
             // The check is debounced and runs off the frame path, so this line can sit there for a
             // moment: the spinner is what says it is working rather than stuck.
             ui.horizontal(|ui| {
-               ui.add(Spinner::new().size(theme.typography.small).color(theme.colors.text_muted));
+               ui.add(Spinner::new().size(theme.typography.small));
 
                ui.add(
                   Label::new(

@@ -131,7 +131,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             .show(ui.ctx(), |ui| {
                frame.show(ui, |ui| {
                   ui.horizontal(|ui| {
-                     ui.add(Spinner::new().size(20.0).color(theme.colors.text));
+                     ui.add(Spinner::new().size(20.0));
                      ui.add_space(10.0);
                      ui.label(RichText::new(msg).size(theme.typography.normal));
                   });

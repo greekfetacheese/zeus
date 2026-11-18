@@ -389,7 +389,7 @@ impl RecipientSelectionWindow {
                ui.add_space(20.0);
 
                if self.loading {
-                  ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+                  ui.add(Spinner::new().size(17.0));
                   return;
                }
 
@@ -459,7 +459,7 @@ impl RecipientSelectionWindow {
                }
 
                if self.parsing_unknown_recipient {
-                  ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+                  ui.add(Spinner::new().size(17.0));
                } else if let Some(unknown) = self.unknown_recipient.clone() {
                   let now = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
                   let heading = match &unknown {

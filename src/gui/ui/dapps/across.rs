@@ -421,7 +421,7 @@ impl AcrossBridge {
                      ui.label(RichText::new(total_text).size(theme.typography.small));
 
                      if self.requesting {
-                        ui.add(Spinner::new().size(20.0).color(theme.colors.text));
+                        ui.add(Spinner::new().size(20.0));
                      }
 
                      // Estimated time to fill

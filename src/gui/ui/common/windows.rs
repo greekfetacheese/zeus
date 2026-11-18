@@ -459,7 +459,7 @@ impl UpdateWindow {
    }
 
    fn update_completed_ui(&mut self, theme: &Theme, ui: &mut Ui) {
-      ui.add(Spinner::new().size(0.0).color(theme.colors.text));
+      ui.add(Spinner::new().size(0.0));
 
       let text = RichText::new("Update completed!").size(theme.typography.large);
       ui.label(text);
@@ -552,7 +552,7 @@ impl LoadingWindow {
       self.size = size;
    }
 
-   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, _theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -571,7 +571,7 @@ impl LoadingWindow {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
             ui.vertical_centered(|ui| {
-               ui.add(Spinner::new().size(50.0).color(theme.colors.text));
+               ui.add(Spinner::new().size(50.0));
                ui.label(RichText::new(&self.msg).size(17.0));
             });
          });
