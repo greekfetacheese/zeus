@@ -5,7 +5,7 @@
 //! wallet stays in memory, we only gate the UI.
 
 use crate::core::ZeusContext;
-use crate::core::types::CredentialCheck;
+use crate::core::types::{CredentialCheck, MAX_CREDENTIAL_ATTEMPTS};
 use crate::gui::SHARED_GUI;
 use crate::utils::TimeStamp;
 use egui::{Align2, RichText, Ui, Window, vec2};
@@ -65,6 +65,14 @@ impl LockScreen {
                      .color(theme.colors.text_muted),
                );
 
+               if ctx.security.credential_attempts > 0 {
+                  ui.label(
+                     RichText::new(attempt_text(ctx.security.credential_attempts))
+                        .size(theme.typography.normal)
+                        .color(theme.colors.error),
+                  );
+               }
+
                ui.scope(|ui| {
                   ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
                   self.credentials_form.show(ui);
@@ -98,8 +106,11 @@ fn on_unlock(credentials: Credentials) {
       match ctx.check_credentials(&credentials, true) {
          CredentialCheck::Matched => {}
          CredentialCheck::Mismatch => {
+            let failed = ctx.read(|ctx| ctx.security.credential_attempts);
+
             SHARED_GUI.write(|gui| {
                gui.open_msg_window("Incorrect credentials");
+               gui.announce(failure_text(failed));
                gui.request_repaint();
             });
             return;
@@ -120,4 +131,51 @@ fn on_unlock(credentials: Credentials) {
          gui.request_repaint();
       });
    });
+}
+
+/// The try the card is asking for: the failures so far plus this one, never past the cap.
+fn attempt_text(failed: u8) -> String {
+   let attempt = failed.saturating_add(1).min(MAX_CREDENTIAL_ATTEMPTS);
+
+   format!("Attempt {attempt} of {MAX_CREDENTIAL_ATTEMPTS}")
+}
+
+/// Why the last try was refused, and how many are left before Zeus stops accepting them.
+///
+/// `failed` is the count `check_credentials` has already incremented for that try. Kept in one
+/// function so the sentence is written once and the count a reader hears cannot drift.
+fn failure_text(failed: u8) -> String {
+   let left = MAX_CREDENTIAL_ATTEMPTS.saturating_sub(failed);
+   let noun = if left == 1 { "attempt" } else { "attempts" };
+
+   format!("Incorrect credentials. {left} {noun} left.")
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// A refusal says how many tries are left, and the last one stays singular.
+   #[test]
+   fn failure_text_counts_the_tries_left() {
+      assert_eq!(
+         failure_text(1),
+         "Incorrect credentials. 4 attempts left."
+      );
+      assert_eq!(
+         failure_text(4),
+         "Incorrect credentials. 1 attempt left."
+      );
+   }
+
+   /// The number is the try being asked for, and the cap is the last one it can name.
+   #[test]
+   fn attempt_text_stops_at_the_cap() {
+      assert_eq!(attempt_text(2), "Attempt 3 of 5");
+      assert_eq!(
+         attempt_text(MAX_CREDENTIAL_ATTEMPTS - 1),
+         "Attempt 5 of 5"
+      );
+      assert_eq!(attempt_text(u8::MAX), "Attempt 5 of 5");
+   }
 }

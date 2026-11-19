@@ -595,6 +595,10 @@ impl MsgWindow {
       }
    }
 
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
    /// Open the window with this title and message
    pub fn open(&mut self, msg: impl Into<String>) {
       self.open = true;

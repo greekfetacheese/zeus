@@ -155,6 +155,12 @@ pub struct GUI {
    /// Sticky: once one has been seen the flag stays set, so prose stays reachable even
    /// across a frame in which the platform builds no tree.
    pub at_active: bool,
+   /// Whether the attempt-cap notice is waiting for its OK before Zeus closes.
+   ///
+   /// Set only when [`Self::at_active`]: a sighted user gets today's immediate close, while a
+   /// reader is owed the frame that lets the notice speak. [`Self::finish_lockout_notice`]
+   /// shuts down once the window is gone.
+   pub lockout_notice_held: bool,
    /// The page whose heading last took focus, if any.
    ///
    /// `None` means the next pass's heading takes focus, which is what unlocking asks for: the
@@ -250,6 +256,7 @@ impl GUI {
          notification,
          update_window,
          at_active: false,
+         lockout_notice_held: false,
          last_page: None,
          announcement: String::new(),
          announcer: Announcer::new("zeus"),
@@ -341,6 +348,20 @@ impl GUI {
    pub fn show_announcer(&mut self, ui: &Ui) {
       self.announcer.announce(ui, self.announcement.as_str());
       self.announcement.clear();
+   }
+
+   /// Close Zeus once the held attempt-cap notice has been acknowledged.
+   ///
+   /// Runs once per frame on the root pass, after the panels that draw the notice. The cap
+   /// asks for a shutdown; holding it until the window is closed is what gives the notice a
+   /// frame in which a reader can speak it.
+   pub fn finish_lockout_notice(&mut self) {
+      if !self.lockout_notice_held || self.msg_window.is_open() {
+         return;
+      }
+
+      self.lockout_notice_held = false;
+      self.shutdown();
    }
 
    /// Cancel every prompt that authorizes something, answering its awaiting

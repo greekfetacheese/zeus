@@ -191,6 +191,46 @@ fn the_unlock_screen_heading_is_a_label_node() {
    );
 }
 
+/// The card counts the tries: after two refusals the next one is the third of five, drawn as
+/// one label a reader reaches like the rest of the card's prose.
+#[test]
+fn the_lock_card_says_which_attempt_this_is() {
+   let ctx = Context::default();
+   let (locked, mut screen, mut theme) = unlock_screen();
+   theme.install(&ctx);
+   locked.write(|ctx| ctx.security.credential_attempts = 2);
+
+   let nodes = render_unlock_screen(&ctx, &locked, &mut screen, &theme);
+
+   assert!(
+      label_texts(&nodes).contains(&"Attempt 3 of 5"),
+      "the card must say which try this is: {:?}",
+      label_texts(&nodes)
+   );
+}
+
+/// Nothing has been refused yet, so the card keeps exactly the shape a first-time user sees:
+/// no attempt line at all.
+#[test]
+fn the_lock_card_has_no_attempt_line_before_a_failure() {
+   let ctx = Context::default();
+   let (locked, mut screen, mut theme) = unlock_screen();
+   theme.install(&ctx);
+
+   let nodes = render_unlock_screen(&ctx, &locked, &mut screen, &theme);
+   let texts = label_texts(&nodes);
+
+   assert!(
+      texts.contains(&"Zeus is locked"),
+      "the card must still render: {texts:?}"
+   );
+
+   assert!(
+      !texts.iter().any(|text| text.starts_with("Attempt")),
+      "a first try must draw no attempt line: {texts:?}"
+   );
+}
+
 /// The announcement channel: one `Role::Status` node marked `Live::Polite`
 /// whose label is the announced text. A change to that label is what a reader speaks, so the
 /// node has to outlive the message and the text has to go through `GUI::announce`.

@@ -494,6 +494,10 @@ impl eframe::App for ZeusApp {
             // chance to change state this frame.
             gui.show_announcer(ui);
 
+            // A held attempt-cap notice closes Zeus here, after the panels drew its window:
+            // the OK that closes it has already run in this pass.
+            gui.finish_lockout_notice();
+
             #[cfg(feature = "dev")]
             gui.fps_metrics.update(time.elapsed().as_secs_f64() * 1000.0);
          });
