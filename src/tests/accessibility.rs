@@ -9,8 +9,8 @@
 
 use crate::core::ZeusCtx;
 use crate::gui::{GUI, LockScreen};
-use egui::accesskit::{Live, Node, Role};
-use egui::{Context, RawInput, Rect, Ui, pos2, vec2};
+use egui::accesskit::{Action, ActionRequest, Live, Node, NodeId, Role, Toggled, TreeId};
+use egui::{Context, Event, Key, Modifiers, RawInput, Rect, Ui, pos2, vec2};
 use egui_elements::{Theme, ThemeKind};
 
 /// Run one AccessKit-enabled frame and return the nodes of the tree update it produced.
@@ -18,6 +18,12 @@ use egui_elements::{Theme, ThemeKind};
 /// egui's own recipe: enable the tree, run a pass, take
 /// `platform_output.accesskit_update` — the same value the platform gives a reader.
 fn frame(ctx: &Context, add: impl FnMut(&mut Ui)) -> Vec<Node> {
+   frame_nodes(ctx, Vec::new(), add).into_iter().map(|(_, node)| node).collect()
+}
+
+/// Run one AccessKit-enabled frame with `events` in its input, keeping the id each node is
+/// addressed by: a reader sends an action back to that id, so a test that drives a widget needs it.
+fn frame_nodes(ctx: &Context, events: Vec<Event>, add: impl FnMut(&mut Ui)) -> Vec<(NodeId, Node)> {
    ctx.enable_accesskit();
 
    let mut output = ctx.run_ui(
@@ -26,6 +32,7 @@ fn frame(ctx: &Context, add: impl FnMut(&mut Ui)) -> Vec<Node> {
             pos2(0.0, 0.0),
             vec2(1290.0, 950.0),
          )),
+         events,
          ..Default::default()
       },
       add,
@@ -37,7 +44,7 @@ fn frame(ctx: &Context, add: impl FnMut(&mut Ui)) -> Vec<Node> {
       .take()
       .expect("an AccessKit-enabled frame must produce a tree update");
 
-   let nodes = update.nodes.into_iter().map(|(_, node)| node).collect();
+   let nodes = update.nodes.into_iter().collect();
    output.drop_without_applying_deltas();
 
    nodes
@@ -84,6 +91,65 @@ fn label_texts(nodes: &[Node]) -> Vec<&str> {
       .filter(|node| node.role() == Role::Label)
       .filter_map(|node| node.value())
       .collect()
+}
+
+/// The main window with no wallet open behind it: the nav and the page heading draw, while the
+/// pages they navigate to stay closed. Nothing here needs a vault, an RPC or an icon.
+fn main_window() -> (Context, GUI, ZeusCtx) {
+   let ctx = Context::default();
+   let mut gui = GUI::default();
+   gui.theme.install(&ctx);
+
+   (
+      ctx,
+      gui,
+      ZeusCtx::new(crate::runtime::test_handle()),
+   )
+}
+
+/// Render the left panel headlessly, carrying this frame's input events.
+fn render_nav(
+   ctx: &Context,
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   events: Vec<Event>,
+) -> Vec<(NodeId, Node)> {
+   frame_nodes(ctx, events, |ui| {
+      zeus.write(|zeus| crate::gui::ui::panels::left_panel::show(gui, zeus, ui));
+   })
+}
+
+/// Render the central panel headlessly: the page heading is its first widget.
+fn render_central(
+   ctx: &Context,
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   events: Vec<Event>,
+) -> Vec<(NodeId, Node)> {
+   frame_nodes(ctx, events, |ui| {
+      zeus.write(|zeus| crate::gui::ui::panels::central_panel::show(gui, zeus, ui));
+   })
+}
+
+/// A key press as the window delivers it.
+fn key_press(key: Key) -> Event {
+   Event::Key {
+      key,
+      physical_key: None,
+      pressed: true,
+      repeat: false,
+      modifiers: Modifiers::NONE,
+   }
+}
+
+/// An action a screen reader sends to the widget at `target`.
+fn accesskit_action(action: Action, target: NodeId) -> Event {
+   Event::AccessKitActionRequest(ActionRequest {
+      action,
+      target_tree: TreeId::ROOT,
+      target_node: target,
+      data: None,
+   })
 }
 
 /// With `accesskit` compiled in, a frame has a tree at all: the root window node plus a node
@@ -193,6 +259,188 @@ fn kittest_queries_the_unlock_screen_by_role_and_label() {
    );
 
    harness.get_by_role_and_label(Role::Button, "Unlock");
+}
+
+/// Every nav entry is one button node named exactly like the word it draws, only the open page's
+/// plate reports itself selected, and the label inside a plate is not a second spoken node.
+#[test]
+fn every_nav_plate_is_one_named_button() {
+   let (ctx, mut gui, zeus) = main_window();
+   gui.send_crypto.open();
+
+   let nodes: Vec<Node> = render_nav(&ctx, &mut gui, &zeus, Vec::new())
+      .into_iter()
+      .map(|(_, node)| node)
+      .collect();
+
+   let names = [
+      "Home",
+      "Send",
+      "Shield",
+      "Swap",
+      "Bridge",
+      "Wallets",
+      "Transactions",
+      "Approvals",
+      "Settings",
+      "Connected Dapps",
+   ];
+   #[cfg(feature = "dev")]
+   let names = names.into_iter().chain(["Dev UI"]).collect::<Vec<_>>();
+
+   let spoken: Vec<&str> = nodes
+      .iter()
+      .filter(|node| node.role() == Role::Label && !node.is_hidden())
+      .filter_map(|node| node.value())
+      .collect();
+
+   for &name in &names {
+      let plates: Vec<&Node> = nodes
+         .iter()
+         .filter(|node| node.role() == Role::Button && node.label() == Some(name))
+         .collect();
+
+      assert_eq!(
+         plates.len(),
+         1,
+         "the {name} nav entry must be exactly one button node named {name}"
+      );
+
+      assert!(
+         !spoken.contains(&name),
+         "the label inside the {name} plate must be hidden, or the entry is spoken twice: {spoken:?}"
+      );
+   }
+
+   let selected: Vec<&str> = nodes
+      .iter()
+      .filter(|node| node.role() == Role::Button && node.toggled() == Some(Toggled::True))
+      .filter_map(|node| node.label())
+      .collect();
+
+   assert_eq!(
+      selected,
+      vec!["Send"],
+      "exactly the plate of the open page is selected, got {selected:?}"
+   );
+}
+
+/// A reader activates Send the way it activates any button: a `Click` request aimed at the node
+/// id from the tree. It is the same navigation hook as a mouse click, so the page opens.
+#[test]
+fn activating_the_send_nav_node_opens_send() {
+   let (ctx, mut gui, zeus) = main_window();
+
+   render_nav(&ctx, &mut gui, &zeus, Vec::new());
+   let nodes = render_nav(&ctx, &mut gui, &zeus, Vec::new());
+
+   let send = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Send"))
+      .map(|(id, _)| *id)
+      .expect("the Send nav entry must be in the tree");
+
+   render_nav(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, send)],
+   );
+
+   assert!(
+      gui.send_crypto.is_open(),
+      "an AccessKit Click on the Send plate must navigate to Send"
+   );
+}
+
+/// The open page has a Heading node named after it, and a page change moves keyboard focus to the
+/// heading — that focus move is how the new page's name reaches a reader.
+#[test]
+fn the_page_heading_names_the_open_page_and_takes_focus_when_it_changes() {
+   let (ctx, mut gui, zeus) = main_window();
+
+   let first = render_central(&ctx, &mut gui, &zeus, Vec::new());
+   let (id, node) = first
+      .iter()
+      .find(|(_, node)| node.role() == Role::Heading)
+      .expect("the open page must have a heading node");
+
+   assert_eq!(
+      node.label(),
+      Some("Home"),
+      "no page is open, so the heading names Home"
+   );
+
+   let focused = ctx.memory(|memory| memory.focused());
+   assert_eq!(
+      focused.map(|id| id.accesskit_id()),
+      Some(*id),
+      "the Home heading must take focus when the page appears"
+   );
+
+   gui.send_crypto.open();
+
+   let second = render_central(&ctx, &mut gui, &zeus, Vec::new());
+   let (id, node) = second
+      .iter()
+      .find(|(_, node)| node.role() == Role::Heading)
+      .expect("the new page must have a heading node");
+
+   assert_eq!(
+      node.label(),
+      Some("Send"),
+      "the heading names the page that just opened"
+   );
+
+   let focused = ctx.memory(|memory| memory.focused());
+   assert_eq!(
+      focused.map(|id| id.accesskit_id()),
+      Some(*id),
+      "the page change must move focus to the new page's heading"
+   );
+}
+
+/// The keyboard path works as well as the AccessKit one: Tab from the Home plate reaches Send, and
+/// Enter on the focused plate opens the page.
+#[test]
+fn tab_reaches_the_next_nav_plate_and_enter_opens_it() {
+   let (ctx, mut gui, zeus) = main_window();
+
+   render_nav(&ctx, &mut gui, &zeus, Vec::new());
+   let nodes = render_nav(&ctx, &mut gui, &zeus, Vec::new());
+   let home = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Home"))
+      .map(|(id, _)| *id)
+      .expect("the Home nav entry must be in the tree");
+
+   render_nav(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Focus, home)],
+   );
+
+   let nodes = render_nav(&ctx, &mut gui, &zeus, vec![key_press(Key::Tab)]);
+   let send = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Send"))
+      .map(|(id, _)| *id)
+      .expect("the Send nav entry must be in the tree");
+
+   let focused = ctx.memory(|memory| memory.focused());
+   assert_eq!(
+      focused.map(|id| id.accesskit_id()),
+      Some(send),
+      "Tab from the Home plate must move focus to the Send plate"
+   );
+
+   render_nav(&ctx, &mut gui, &zeus, vec![key_press(Key::Enter)]);
+
+   assert!(
+      gui.send_crypto.is_open(),
+      "Enter on the focused Send plate must open Send"
+   );
 }
 
 /// Write the frame's `TreeUpdate` to `logs/accessibility-tree.txt` for review: one

@@ -74,6 +74,44 @@ impl Default for SharedGUI {
    }
 }
 
+/// The page the main window is showing.
+///
+/// One variant per nav entry. The names are the words the nav draws, so a heading built from
+/// [`Page::name`] says exactly what the plate that opened it said. Shield and Unshield share
+/// [`Page::Shield`]: privacy mode flips the nav word, not the page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Page {
+   Home,
+   Send,
+   Shield,
+   Swap,
+   Bridge,
+   Wallets,
+   Transactions,
+   Approvals,
+   Settings,
+   ConnectedDapps,
+   Dev,
+}
+
+impl Page {
+   pub fn name(&self) -> &'static str {
+      match self {
+         Self::Home => "Home",
+         Self::Send => "Send",
+         Self::Shield => "Shield",
+         Self::Swap => "Swap",
+         Self::Bridge => "Bridge",
+         Self::Wallets => "Wallets",
+         Self::Transactions => "Transactions",
+         Self::Approvals => "Approvals",
+         Self::Settings => "Settings",
+         Self::ConnectedDapps => "Connected Dapps",
+         Self::Dev => "Dev UI",
+      }
+   }
+}
+
 pub struct GUI {
    pub egui_ctx: Context,
    /// Set by `bring_to_front` (a worker thread) and consumed once by `ZeusApp::logic`,
@@ -117,6 +155,11 @@ pub struct GUI {
    /// Sticky: once one has been seen the flag stays set, so prose stays reachable even
    /// across a frame in which the platform builds no tree.
    pub at_active: bool,
+   /// The page whose heading last took focus, if any.
+   ///
+   /// `None` means the next pass's heading takes focus, which is what unlocking asks for: the
+   /// lock clears it, so the Home heading is focused when the page appears again.
+   last_page: Option<Page>,
    /// The pending announcement; the last `announce` of a frame wins.
    announcement: String,
    /// Keeps the live `Status` node in the tree between frames: a node created together
@@ -207,6 +250,7 @@ impl GUI {
          notification,
          update_window,
          at_active: false,
+         last_page: None,
          announcement: String::new(),
          announcer: Announcer::new("zeus"),
          #[cfg(feature = "dev")]
@@ -375,6 +419,50 @@ impl GUI {
    /// window a dapp prompt already brought up.
    pub fn take_show_request(&self) -> bool {
       self.show_requested.swap(false, Ordering::SeqCst)
+   }
+
+   /// The page the central panel is showing.
+   ///
+   /// Pages are checked in the order the central panel draws them — the first open one is the one
+   /// whose body a reader lands in — and a wallet with no page open is on Home. Settings is not
+   /// drawn by the central panel (it owns its own window), so it is only named when no page at all
+   /// is open; otherwise the heading keeps naming the page the main window still shows.
+   pub fn current_page(&self) -> Page {
+      if self.across_bridge.is_open() {
+         return Page::Bridge;
+      }
+      if self.send_crypto.is_open() {
+         return Page::Send;
+      }
+      if self.portofolio.is_open() {
+         return Page::Home;
+      }
+      if self.uniswap.is_open() {
+         return Page::Swap;
+      }
+      if self.shield_ui.is_open() {
+         return Page::Shield;
+      }
+      if self.connected_dapps.is_open() {
+         return Page::ConnectedDapps;
+      }
+      if self.wallet_ui.is_open() {
+         return Page::Wallets;
+      }
+      if self.tx_history.is_open() {
+         return Page::Transactions;
+      }
+      if self.approvals.is_open() {
+         return Page::Approvals;
+      }
+      if self.settings.is_open() {
+         return Page::Settings;
+      }
+      #[cfg(feature = "dev")]
+      if self.dev.is_open() {
+         return Page::Dev;
+      }
+      Page::Home
    }
 
    pub fn should_show_right_panel(&self) -> bool {

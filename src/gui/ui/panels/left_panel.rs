@@ -5,7 +5,7 @@ use crate::gui::{
    ui::{common::wallet_identity, dapps::railgun::RailgunMode},
 };
 use eframe::egui::{Id, Order, RichText, ScrollArea, Ui, vec2};
-use egui::{Align, FontId, Layout, Margin, Shadow, Stroke};
+use egui::{Align, FontId, Layout, Margin, Role, Shadow, Stroke, WidgetInfo};
 use egui_elements::{Button, Fill, Frame as Frame2, Label, Modal, SecureTextEdit, Theme};
 use egui_lucide::Lucide;
 use std::sync::Arc;
@@ -15,6 +15,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let chain_id = ctx.chain.id();
    let icons = gui.icons.clone();
    let theme = &gui.theme;
+   let nav_spacing = theme.spacing.xs;
 
    // The nav sits directly under the account panel: this is the whole space between them, and
    // the panel's own body height is the rest of the separation. Connecting a dApp grows the
@@ -24,73 +25,56 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    gui.account_panel.show(ctx, theme, icons, ui);
 
    ui.vertical(|ui| {
-      ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.xs);
-
-      let text_size = gui.theme.typography.normal;
-      let icon_color = theme.colors.text;
-      let mut visuals = theme.frame2_visuals();
-      visuals.bg = Fill::Solid(theme.frame1.fill);
-      visuals.border = Stroke::NONE;
-      visuals.shadow = Shadow::NONE;
+      ui.spacing_mut().item_spacing = vec2(0.0, nav_spacing);
 
       let is_open = gui.portofolio.is_open();
+      nav_plate(
+         gui,
+         ctx,
+         "Home",
+         Some(Lucide::House),
+         is_open,
+         |gui, ctx| {
+            gui.portofolio.open();
+            gui.uniswap.close();
+            gui.send_crypto.close();
 
-      let frame = Frame2::from_egui(theme.frame2)
-         .interactive(true)
-         .fill_width(true)
-         .visuals(visuals)
-         .corner_radius(0);
-
-      let icon = Lucide::House.size(20.0).color(icon_color).image();
-      let home = frame.selected(is_open).show(ui, |ui| {
-         ui.add(
-            Label::new(RichText::new("Home").size(text_size), Some(icon))
-               .interactive(false)
-               .image_on_left(),
-         );
-      });
-
-      if home.response.clicked() {
-         gui.portofolio.open();
-         gui.uniswap.close();
-         gui.send_crypto.close();
-
-         gui.wallet_ui.close();
-         gui.tx_history.close(ctx);
-         gui.across_bridge.close();
-         #[cfg(feature = "dev")]
-         gui.dev.close();
-         gui.shield_ui.close();
-         gui.approvals.close();
-      }
+            gui.wallet_ui.close();
+            gui.tx_history.close(ctx);
+            gui.across_bridge.close();
+            #[cfg(feature = "dev")]
+            gui.dev.close();
+            gui.shield_ui.close();
+            gui.approvals.close();
+         },
+         ui,
+      );
 
       let is_open = gui.send_crypto.is_open();
+      nav_plate(
+         gui,
+         ctx,
+         "Send",
+         Some(Lucide::Send),
+         is_open,
+         |gui, ctx| {
+            gui.send_crypto.open();
+            gui.send_crypto.default_currency(privacy_mode, chain_id);
+            gui.uniswap.close();
+            gui.portofolio.close();
 
-      let icon = Lucide::Send.size(20.0).color(icon_color).image();
-      let send = frame.selected(is_open).show(ui, |ui| {
-         ui.add(
-            Label::new(RichText::new("Send").size(text_size), Some(icon))
-               .interactive(false)
-               .image_on_left(),
-         );
-      });
-
-      if send.response.clicked() {
-         gui.send_crypto.open();
-         gui.send_crypto.default_currency(privacy_mode, chain_id);
-         gui.uniswap.close();
-         gui.portofolio.close();
-
-         gui.wallet_ui.close();
-         gui.tx_history.close(ctx);
-         gui.across_bridge.close();
-         #[cfg(feature = "dev")]
-         gui.dev.close();
-         // This is shared, so reset it to avoid any issues
-         gui.recipient_selection.reset();
-         gui.shield_ui.close();
-         gui.approvals.close();
-      }
+            gui.wallet_ui.close();
+            gui.tx_history.close(ctx);
+            gui.across_bridge.close();
+            #[cfg(feature = "dev")]
+            gui.dev.close();
+            // This is shared, so reset it to avoid any issues
+            gui.recipient_selection.reset();
+            gui.shield_ui.close();
+            gui.approvals.close();
+         },
+         ui,
+      );
 
       let is_open = gui.shield_ui.is_open();
       let title = match privacy_mode {
@@ -104,214 +88,184 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       };
 
       let icon = match privacy_mode {
-         false => Lucide::Shield.size(20.0).color(icon_color).image(),
-         true => Lucide::ShieldOff.size(20.0).color(icon_color).image(),
+         false => Lucide::Shield,
+         true => Lucide::ShieldOff,
       };
 
-      let shield = frame.selected(is_open).show(ui, |ui| {
-         ui.add(
-            Label::new(RichText::new(title).size(text_size), Some(icon))
-               .interactive(false)
-               .image_on_left(),
-         );
-      });
+      nav_plate(
+         gui,
+         ctx,
+         title,
+         Some(icon),
+         is_open,
+         |gui, ctx| {
+            gui.shield_ui.open(mode);
+            gui.portofolio.close();
+            gui.uniswap.close();
+            gui.send_crypto.close();
 
-      if shield.response.clicked() {
-         gui.shield_ui.open(mode);
-         gui.portofolio.close();
-         gui.uniswap.close();
-         gui.send_crypto.close();
-
-         gui.wallet_ui.close();
-         gui.tx_history.close(ctx);
-         gui.across_bridge.close();
-         #[cfg(feature = "dev")]
-         gui.dev.close();
-         // This is shared, so reset it to avoid any issues
-         gui.recipient_selection.reset();
-         gui.approvals.close();
-      }
+            gui.wallet_ui.close();
+            gui.tx_history.close(ctx);
+            gui.across_bridge.close();
+            #[cfg(feature = "dev")]
+            gui.dev.close();
+            // This is shared, so reset it to avoid any issues
+            gui.recipient_selection.reset();
+            gui.approvals.close();
+         },
+         ui,
+      );
 
       let is_open = gui.uniswap.is_open();
+      nav_plate(
+         gui,
+         ctx,
+         "Swap",
+         Some(Lucide::RefreshCcwDot),
+         is_open,
+         |gui, ctx| {
+            gui.uniswap.open();
+            gui.portofolio.close();
+            gui.send_crypto.close();
 
-      let icon = Lucide::RefreshCcwDot.size(20.0).color(icon_color).image();
-      let swap = frame.selected(is_open).show(ui, |ui| {
-         ui.add(
-            Label::new(RichText::new("Swap").size(text_size), Some(icon))
-               .interactive(false)
-               .image_on_left(),
-         );
-      });
-
-      if swap.response.clicked() {
-         gui.uniswap.open();
-         gui.portofolio.close();
-         gui.send_crypto.close();
-
-         gui.wallet_ui.close();
-         gui.tx_history.close(ctx);
-         gui.across_bridge.close();
-         #[cfg(feature = "dev")]
-         gui.dev.close();
-         gui.shield_ui.close();
-         gui.approvals.close();
-      }
+            gui.wallet_ui.close();
+            gui.tx_history.close(ctx);
+            gui.across_bridge.close();
+            #[cfg(feature = "dev")]
+            gui.dev.close();
+            gui.shield_ui.close();
+            gui.approvals.close();
+         },
+         ui,
+      );
 
       let is_open = gui.across_bridge.is_open();
+      nav_plate(
+         gui,
+         ctx,
+         "Bridge",
+         Some(Lucide::SendToBack),
+         is_open,
+         |gui, ctx| {
+            gui.across_bridge.open();
+            gui.portofolio.close();
+            gui.uniswap.close();
+            gui.send_crypto.close();
 
-      let icon = Lucide::SendToBack.size(20.0).color(icon_color).image();
-      let bridge = frame.selected(is_open).show(ui, |ui| {
-         ui.add(
-            Label::new(
-               RichText::new("Bridge").size(text_size),
-               Some(icon),
-            )
-            .interactive(false)
-            .image_on_left(),
-         );
-      });
-
-      if bridge.response.clicked() {
-         gui.across_bridge.open();
-         gui.portofolio.close();
-         gui.uniswap.close();
-         gui.send_crypto.close();
-
-         gui.wallet_ui.close();
-         gui.tx_history.close(ctx);
-         // This is shared, so reset it to avoid any issues
-         gui.recipient_selection.reset();
-         #[cfg(feature = "dev")]
-         gui.dev.close();
-         gui.shield_ui.close();
-         gui.approvals.close();
-      }
+            gui.wallet_ui.close();
+            gui.tx_history.close(ctx);
+            // This is shared, so reset it to avoid any issues
+            gui.recipient_selection.reset();
+            #[cfg(feature = "dev")]
+            gui.dev.close();
+            gui.shield_ui.close();
+            gui.approvals.close();
+         },
+         ui,
+      );
 
       let is_open = gui.wallet_ui.is_open();
+      nav_plate(
+         gui,
+         ctx,
+         "Wallets",
+         Some(Lucide::Wallet),
+         is_open,
+         |gui, ctx| {
+            gui.wallet_ui.open();
+            gui.portofolio.close();
+            gui.uniswap.close();
+            gui.send_crypto.close();
 
-      let icon = Lucide::Wallet.size(20.0).color(icon_color).image();
-      let wallets = frame.selected(is_open).show(ui, |ui| {
-         ui.add(
-            Label::new(
-               RichText::new("Wallets").size(text_size),
-               Some(icon),
-            )
-            .interactive(false)
-            .image_on_left(),
-         );
-      });
-
-      if wallets.response.clicked() {
-         gui.wallet_ui.open();
-         gui.portofolio.close();
-         gui.uniswap.close();
-         gui.send_crypto.close();
-
-         gui.tx_history.close(ctx);
-         gui.across_bridge.close();
-         #[cfg(feature = "dev")]
-         gui.dev.close();
-         gui.shield_ui.close();
-         gui.approvals.close();
-      }
+            gui.tx_history.close(ctx);
+            gui.across_bridge.close();
+            #[cfg(feature = "dev")]
+            gui.dev.close();
+            gui.shield_ui.close();
+            gui.approvals.close();
+         },
+         ui,
+      );
 
       let is_open = gui.tx_history.is_open();
+      nav_plate(
+         gui,
+         ctx,
+         "Transactions",
+         Some(Lucide::Archive),
+         is_open,
+         |gui, _ctx| {
+            gui.tx_history.open();
+            gui.portofolio.close();
+            gui.uniswap.close();
+            gui.send_crypto.close();
 
-      let icon = Lucide::Archive.size(20.0).color(icon_color).image();
-      let tx_history = frame.selected(is_open).show(ui, |ui| {
-         ui.add(
-            Label::new(
-               RichText::new("Transactions").size(text_size),
-               Some(icon),
-            )
-            .interactive(false)
-            .image_on_left(),
-         );
-      });
-
-      if tx_history.response.clicked() {
-         gui.tx_history.open();
-         gui.portofolio.close();
-         gui.uniswap.close();
-         gui.send_crypto.close();
-
-         gui.wallet_ui.close();
-         gui.across_bridge.close();
-         #[cfg(feature = "dev")]
-         gui.dev.close();
-         gui.shield_ui.close();
-         gui.approvals.close();
-      }
+            gui.wallet_ui.close();
+            gui.across_bridge.close();
+            #[cfg(feature = "dev")]
+            gui.dev.close();
+            gui.shield_ui.close();
+            gui.approvals.close();
+         },
+         ui,
+      );
 
       let is_open = gui.approvals.is_open();
+      nav_plate(
+         gui,
+         ctx,
+         "Approvals",
+         Some(Lucide::KeyRound),
+         is_open,
+         |gui, ctx| {
+            gui.approvals.open();
+            gui.portofolio.close();
+            gui.uniswap.close();
+            gui.send_crypto.close();
 
-      let icon = Lucide::KeyRound.size(20.0).color(icon_color).image();
-      let approvals = frame.selected(is_open).show(ui, |ui| {
-         ui.add(
-            Label::new(
-               RichText::new("Approvals").size(text_size),
-               Some(icon),
-            )
-            .interactive(false)
-            .image_on_left(),
-         );
-      });
-
-      if approvals.response.clicked() {
-         gui.approvals.open();
-         gui.portofolio.close();
-         gui.uniswap.close();
-         gui.send_crypto.close();
-
-         gui.wallet_ui.close();
-         gui.tx_history.close(ctx);
-         gui.across_bridge.close();
-         #[cfg(feature = "dev")]
-         gui.dev.close();
-         gui.shield_ui.close();
-      }
+            gui.wallet_ui.close();
+            gui.tx_history.close(ctx);
+            gui.across_bridge.close();
+            #[cfg(feature = "dev")]
+            gui.dev.close();
+            gui.shield_ui.close();
+         },
+         ui,
+      );
 
       let is_open = gui.settings.is_open();
+      nav_plate(
+         gui,
+         ctx,
+         "Settings",
+         Some(Lucide::Settings),
+         is_open,
+         |gui, ctx| {
+            gui.settings.open(ctx, &mut gui.appearance_settings);
+         },
+         ui,
+      );
 
-      let icon = Lucide::Settings.size(20.0).color(icon_color).image();
-      let settings = frame.selected(is_open).show(ui, |ui| {
-         ui.add(
-            Label::new(
-               RichText::new("Settings").size(text_size),
-               Some(icon),
-            )
-            .interactive(false)
-            .image_on_left(),
-         );
-      });
-
-      if settings.response.clicked() {
-         gui.settings.open(ctx, &mut gui.appearance_settings);
-      }
-
-      let icon = Lucide::Link.size(20.0).color(icon_color).image();
-      let connected_dapps = frame.selected(false).show(ui, |ui| {
-         ui.add(
-            Label::new(
-               RichText::new("Connected Dapps").size(text_size),
-               Some(icon),
-            )
-            .interactive(false)
-            .image_on_left(),
-         );
-      });
-
-      if connected_dapps.response.clicked() {
-         gui.connected_dapps.open();
-      }
+      nav_plate(
+         gui,
+         ctx,
+         "Connected Dapps",
+         Some(Lucide::Link),
+         false,
+         |gui, _ctx| {
+            gui.connected_dapps.open();
+         },
+         ui,
+      );
 
       #[cfg(feature = "dev")]
-      {
-         let text = RichText::new("Dev UI").size(text_size);
-         let dev = frame.selected(false).show(ui, |ui| {
-            ui.add(Label::new(text, None).interactive(false));
-         });
-         if dev.response.clicked() {
+      nav_plate(
+         gui,
+         ctx,
+         "Dev UI",
+         None,
+         false,
+         |gui, ctx| {
             gui.dev.open();
             gui.portofolio.close();
             gui.uniswap.close();
@@ -322,9 +276,75 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
             gui.shield_ui.close();
             gui.approvals.close();
-         }
-      }
+         },
+         ui,
+      );
    });
+}
+
+/// One nav entry: a plate that carries the entry's role, name and selected state itself.
+///
+/// The icon and the word inside are drawn by an `egui_elements::Label`, which is a node of its
+/// own; left as-is a reader would hear the entry twice ("Home button, Home"). The label is hidden
+/// from the accessibility tree after it is added, so the plate is the only node of the entry.
+fn nav_plate(
+   gui: &mut GUI,
+   ctx: &mut ZeusContext,
+   text: &str,
+   icon: Option<Lucide>,
+   selected: bool,
+   on_click: impl FnOnce(&mut GUI, &mut ZeusContext),
+   ui: &mut Ui,
+) {
+   let theme = &gui.theme;
+   let text_size = theme.typography.normal;
+   let icon_color = theme.colors.text;
+
+   let mut visuals = theme.frame2_visuals();
+   visuals.bg = Fill::Solid(theme.frame1.fill);
+   visuals.border = Stroke::NONE;
+   visuals.shadow = Shadow::NONE;
+
+   let frame = Frame2::from_egui(theme.frame2)
+      .interactive(true)
+      .fill_width(true)
+      .visuals(visuals)
+      .corner_radius(0);
+
+   // `image_on_left` also moves the text right by the label's icon spacing, so it is only
+   // applied when there is an icon: the Dev UI entry has none and must stay where it was.
+   let has_icon = icon.is_some();
+   let icon = icon.map(|icon| icon.size(20.0).color(icon_color).image());
+   let label = Label::new(RichText::new(text).size(text_size), icon).interactive(false);
+   let label = if has_icon {
+      label.image_on_left()
+   } else {
+      label
+   };
+
+   // The frame registers itself with an empty sense before its contents, which withdraws focus
+   // from the id it is about to take. A plate reached with Tab would therefore lose focus on the
+   // next frame and Space/Enter would never activate it. `show` is exactly `begin` + the
+   // contents + `end`, so doing it by hand lets focus be put back before the final registration.
+   let focused_before = ui.ctx().memory(|memory| memory.focused());
+
+   let mut plate = frame.selected(selected).begin(ui);
+   let id = ui.next_auto_id();
+
+   if focused_before == Some(id) {
+      ui.ctx().memory_mut(|memory| memory.request_focus(id));
+   }
+
+   let content = plate.content_ui.add(label);
+   let response = plate.end(ui);
+
+   response.widget_info(|| WidgetInfo::selected(Role::Button, ui.is_enabled(), selected, text));
+
+   ui.ctx().accesskit_node_builder(content.id, |node| node.set_hidden());
+
+   if response.clicked() {
+      on_click(gui, ctx);
+   }
 }
 
 pub struct ConnectedDappsUi {

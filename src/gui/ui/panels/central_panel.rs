@@ -1,11 +1,15 @@
 use crate::core::ZeusContext;
-use crate::gui::GUI;
+use crate::gui::{GUI, ui::common::heading};
 use eframe::egui::{RichText, Stroke, Ui, vec2};
 use egui_elements::{Theme, widgets::Window};
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    // Locked: only the lock card is shown, and nothing else is interactive.
    if ctx.locked {
+      // Clear the page-focus marker so unlocking lands on the Home heading instead of
+      // wherever focus happened to be before the lock.
+      gui.last_page = None;
+
       // Cancel anything waiting on the user to authorize (a signature, a tx
       // confirmation, a connect prompt) before hiding it, so a prompt open when
       // the lock fired cannot be approved — or resurface after unlock.
@@ -26,6 +30,17 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       gui.msg_window.show(&gui.theme, ui);
       gui.loading_window.show(&gui.theme, ui);
       return;
+   }
+
+   // The first widget of an unlocked frame names the page about to be drawn. A reader hears a
+   // heading's name when focus lands on it, so a page change moves focus here instead of
+   // announcing the page: the name is said once, and the Tab order starts at the page.
+   let page = gui.current_page();
+   let page_heading = heading(ui, page.name());
+
+   if gui.last_page != Some(page) {
+      page_heading.request_focus();
+      gui.last_page = Some(page);
    }
 
    if !gui.settings.is_open() {
