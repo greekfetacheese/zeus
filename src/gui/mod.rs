@@ -13,7 +13,7 @@ use ui::settings;
 use crate::assets::icons::Icons;
 use crate::core::context::{ZeusContext, ZeusCtx};
 use crate::gui::appearance::{AppearanceSettings, load_theme_kind};
-use egui_elements::{editor::ThemeEditor, theme::*};
+use egui_elements::{Announcer, editor::ThemeEditor, theme::*};
 use lazy_static::lazy_static;
 
 pub use crate::gui::ui::{
@@ -112,6 +112,16 @@ pub struct GUI {
    pub connected_dapps: ConnectedDappsUi,
    pub notification: Notification,
    pub update_window: UpdateWindow,
+   /// Whether an assistive technology is attached.
+   ///
+   /// Sticky: once one has been seen the flag stays set, so prose stays reachable even
+   /// across a frame in which the platform builds no tree.
+   pub at_active: bool,
+   /// The pending announcement; the last `announce` of a frame wins.
+   announcement: String,
+   /// Keeps the live `Status` node in the tree between frames: a node created together
+   /// with its message never speaks (`egui-elements/src/announce.rs`).
+   announcer: Announcer,
    #[cfg(feature = "dev")]
    pub dev: DevUi,
    pub merge_notes_window: MergeNotesWindow,
@@ -196,6 +206,9 @@ impl GUI {
          connected_dapps,
          notification,
          update_window,
+         at_active: false,
+         announcement: String::new(),
+         announcer: Announcer::new("zeus"),
          #[cfg(feature = "dev")]
          dev: DevUi::new(),
          merge_notes_window,
@@ -235,6 +248,55 @@ impl GUI {
       self.confirm_window.show(theme, ui);
       self.connect_dapp_window.show(theme, ui);
       self.update_window.show(theme, ui);
+   }
+
+   /// Notice an attached screen reader and give egui its focus model.
+   ///
+   /// Runs once per frame on the root viewport pass. Nothing native sets
+   /// [`egui::Options::screen_reader`], so once an AT has been seen Zeus sets it itself:
+   /// with it on, egui makes every `Label` focusable, which is what puts prose on the
+   /// keyboard path.
+   ///
+   /// Two signals, either one enough: the tree is being built for this pass (the root
+   /// node exists only then), and an AccessKit action request in the frame's input (only
+   /// a reader can send one).
+   pub fn track_assistive_tech(&mut self, ui: &Ui) {
+      if self.at_active {
+         return;
+      }
+
+      let tree_built = ui.ctx().accesskit_node_builder(egui::accesskit_root_id(), |_| ()).is_some();
+
+      let at_interacted = ui
+         .ctx()
+         .input(|i| i.events.iter().any(|e| matches!(e, egui::Event::AccessKitActionRequest(_))));
+
+      if !(tree_built || at_interacted) {
+         return;
+      }
+
+      self.at_active = true;
+      ui.ctx().options_mut(|o| o.screen_reader = true);
+      tracing::info!("Screen reader attached: prose is reachable with Tab from now on");
+   }
+
+   /// Queue `text` for the screen reader.
+   ///
+   /// One channel for the whole app, and the last call of a frame wins. It is spoken once,
+   /// when the text changes, so pass a transition ("Transaction confirmed") rather than a
+   /// state, and never a secret: any AT client can read the announcement node.
+   pub fn announce(&mut self, text: impl Into<String>) {
+      self.announcement = text.into();
+   }
+
+   /// Put this frame's announcement in the tree, once per viewport pass, after the panels.
+   ///
+   /// The text is set on every pass so the node that carries it outlives it — a live
+   /// region created together with its message never speaks — and cleared once drawn, so
+   /// the same words twice are two announcements.
+   pub fn show_announcer(&mut self, ui: &Ui) {
+      self.announcer.announce(ui, self.announcement.as_str());
+      self.announcement.clear();
    }
 
    /// Cancel every prompt that authorizes something, answering its awaiting

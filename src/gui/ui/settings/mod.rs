@@ -465,5 +465,8 @@ fn paint_settings_viewport(ui: &mut Ui, _class: ViewportClass) {
       // Overlay modals (msg / loading / confirm / update) are Areas on the
       // current viewport. Paint them here so they are visible on Settings.
       gui.show_overlay_modals(ui);
+      // The announcement node belongs to the tree of the pass that draws it, and this
+      // window has a tree of its own.
+      gui.show_announcer(ui);
    });
 }

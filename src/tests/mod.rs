@@ -15,7 +15,12 @@
 //!
 //! What they are still good for: exercising a real swap, bridge, ENS or NFT flow end to end against
 //! a chain, and catching the wiring that a unit test cannot see.
+//!
+//! `accessibility` is the exception: it renders screens headlessly and asserts their
+//! accessibility tree, so it runs with the normal suite.
 
+#[cfg(test)]
+mod accessibility;
 mod bridge;
 mod connector;
 mod dev_feature;

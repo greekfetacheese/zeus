@@ -412,6 +412,10 @@ impl eframe::App for ZeusApp {
       SHARED_GUI.write(|gui| {
          let zeus_ctx = gui.ctx.clone();
 
+         // Before anything draws: the tree, if one is being built, exists for this pass
+         // already, and every label below is focusable once the flag flips.
+         gui.track_assistive_tech(ui);
+
          zeus_ctx.write(|ctx| {
             self.on_shutdown(ui.ctx());
 
@@ -485,6 +489,10 @@ impl eframe::App for ZeusApp {
                &mut gui.appearance_settings,
                ui,
             );
+
+            // The app's single announcement channel, after every panel has had its
+            // chance to change state this frame.
+            gui.show_announcer(ui);
 
             #[cfg(feature = "dev")]
             gui.fps_metrics.update(time.elapsed().as_secs_f64() * 1000.0);
