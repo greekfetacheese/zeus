@@ -6,7 +6,7 @@ use crate::core::{WalletInfo, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::gui::ambient::Ambient;
 use crate::gui::tray::{self, Tray, TrayAction};
-use crate::gui::ui::record_input_activity;
+use crate::gui::ui::{GRACE_NOTICE, LockNotices, effective_idle_secs, record_input_activity};
 use crate::server::run_server;
 use crate::utils::{TimeStamp, state::on_startup};
 use eframe::{
@@ -510,30 +510,70 @@ impl eframe::App for ZeusApp {
 ///
 /// Lives off the frame path because egui
 /// only repaints on demand, so an idle window would otherwise never check.
+/// While an assistive technology is attached the timeout is longer, and the
+/// approach of the lock is announced: a window that nothing draws produces no
+/// frame either, so the warning queued here also wakes the pass that speaks it.
 async fn autolock_watcher(ctx: ZeusCtx) {
+   let mut notices = LockNotices::default();
+   let mut extended_notice_given = false;
+
    loop {
       tokio::time::sleep(Duration::from_secs(1)).await;
 
+      // Read before the context is taken. The frame path holds `SHARED_GUI` and takes `ctx`
+      // inside it, so waiting for `SHARED_GUI` while holding `ctx` would deadlock, and the
+      // two guards are never nested here.
+      let at_active = SHARED_GUI.read(|gui| gui.at_active);
+
       let mut locked_now = false;
+      let mut announcement = None;
+
       ctx.write(|ctx| {
          if !ctx.vault_unlocked || ctx.locked {
             return;
          }
 
-         let Some(idle_secs) = ctx.security.autolock.idle_secs() else {
+         let configured_secs = ctx.security.autolock.idle_secs();
+         let Some(effective_secs) = effective_idle_secs(configured_secs, at_active) else {
             return;
          };
 
          let now = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
-         if now.saturating_sub(ctx.last_activity_ms) >= idle_secs * 1000 {
+         let idle_ms = now.saturating_sub(ctx.last_activity_ms);
+
+         if idle_ms >= effective_secs * 1000 {
             ctx.locked = true;
             locked_now = true;
+            return;
          }
+
+         let extended =
+            !extended_notice_given && configured_secs.is_some_and(|secs| effective_secs > secs);
+         if extended {
+            extended_notice_given = true;
+         }
+
+         let remaining_secs = (effective_secs * 1000 - idle_ms) / 1000;
+         let warning = notices.next_notice(remaining_secs, effective_secs);
+
+         announcement = match (extended, warning) {
+            (true, Some(warning)) => Some(format!("{GRACE_NOTICE} {warning}")),
+            (true, None) => Some(GRACE_NOTICE.to_string()),
+            (false, warning) => warning.map(String::from),
+         };
       });
 
       if locked_now {
          tracing::info!("Auto-lock: idle timeout reached, locking the UI");
-         SHARED_GUI.write(|gui| gui.request_repaint());
+      }
+
+      if locked_now || announcement.is_some() {
+         SHARED_GUI.write(|gui| {
+            if let Some(announcement) = announcement {
+               gui.announce(announcement);
+            }
+            gui.request_repaint();
+         });
       }
    }
 }

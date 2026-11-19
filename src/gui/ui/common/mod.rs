@@ -1,6 +1,7 @@
 //! Common UI components
 
 pub mod amount_field;
+pub mod autolock_timing;
 pub mod chain_select;
 pub mod chain_switch;
 pub mod fade;
@@ -15,6 +16,7 @@ pub mod window_frame;
 pub mod windows;
 
 pub use amount_field::{AmountField, AmountFieldParams};
+pub use autolock_timing::{GRACE_NOTICE, LockNotices, effective_idle_secs};
 pub use chain_select::ChainSelect;
 pub use chain_switch::switch_chain;
 pub use fade::{panel_fade, show_with_fade};
@@ -80,9 +82,15 @@ pub fn delayed_action_label(opened_at: Option<Instant>, ready_label: &str) -> (b
 /// Events that count as the user doing something (they reset the auto-lock
 /// idle timer).
 ///
-/// Window/focus, modifier, accesskit and screenshot events are deliberately
-/// excluded: they fire without the user interacting and would keep the app
-/// unlocked on their own.
+/// An AccessKit action request is input: only an assistive technology sends
+/// one, and it is what its user produces by moving to a node or activating one.
+/// Reading a page with a screen reader otherwise arrives as no activity at all,
+/// and the wallet would lock mid-read. Reading without moving focus ("read
+/// all") is undetectable from inside the process, which is why the idle timeout
+/// itself is longer while a reader is attached.
+///
+/// Window/focus and modifier events are deliberately excluded: they fire
+/// without the user interacting and would keep the app unlocked on their own.
 pub fn is_user_input_event(event: &egui::Event) -> bool {
    use egui::Event;
    matches!(
@@ -99,6 +107,7 @@ pub fn is_user_input_event(event: &egui::Event) -> bool {
          | Event::Copy
          | Event::Touch { .. }
          | Event::Ime(_)
+         | Event::AccessKitActionRequest(_)
    )
 }
 
@@ -194,6 +203,7 @@ pub fn dots_button(theme: &Theme, size: Vec2, ui: &mut Ui) -> Response {
 #[cfg(test)]
 mod tests {
    use super::*;
+   use egui::accesskit::{Action, ActionRequest, NodeId, TreeId};
    use egui::{Event, Key, Modifiers, Pos2};
 
    fn key(pressed: bool) -> Event {
@@ -206,6 +216,16 @@ mod tests {
       }
    }
 
+   /// The action a screen reader sends when it moves to a node or activates one.
+   fn accesskit_action() -> Event {
+      Event::AccessKitActionRequest(ActionRequest {
+         action: Action::Focus,
+         target_tree: TreeId::ROOT,
+         target_node: NodeId(1),
+         data: None,
+      })
+   }
+
    /// Events that fire on their own must not reset the idle timer.
    #[test]
    fn is_user_input_event_accepts_only_real_input() {
@@ -216,10 +236,13 @@ mod tests {
       assert!(is_user_input_event(&Event::Text("a".to_string())));
       assert!(is_user_input_event(&Event::Copy));
       assert!(is_user_input_event(&key(true)));
+      // Case: a_screen_reader_driving_the_interface_is_input
+      assert!(is_user_input_event(&accesskit_action()));
 
       // Case: passive_events_are_not_user_input
       assert!(!is_user_input_event(&key(false)));
       assert!(!is_user_input_event(&Event::WindowFocused(true)));
+      assert!(!is_user_input_event(&Event::WindowFocused(false)));
       assert!(!is_user_input_event(&Event::ModifiersChanged(
          Modifiers::NONE
       )));
