@@ -1,4 +1,5 @@
 use crate::core::{RpcFunctionality, ZeusContext};
+use crate::gui::ui::common::status_pill;
 use crate::gui::{GUI, SHARED_GUI};
 use crate::utils::TimeStamp;
 use egui::{Align, Align2, Area, Id, Layout, Margin, Order, RichText, Ui, vec2};
@@ -56,6 +57,17 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
    let icons = gui.icons.clone();
 
+   // Speak the pill's transitions only: the panel draws it every frame it is up, and reading it
+   // out every frame would repeat the same sentence for as long as the work runs.
+   let status_msg = status_pill_message(ctx);
+   let transition = status_pill::announcement(gui.last_status_pill.as_deref(), status_msg);
+
+   if let Some(text) = transition {
+      gui.announce(text);
+   }
+
+   gui.last_status_pill = status_msg.map(str::to_string);
+
    // Read before the borrows below: the body's closure takes `gui` mutably.
    let top_reserve = RESERVE;
 
@@ -99,28 +111,6 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       }
 
       gui.notification.show(ctx, &gui.theme, icons, ui);
-
-      let is_railgun_syncing = ctx.is_railgun_provider_syncing(chain.id());
-      let is_railgun_db_loading = ctx.is_railgun_db_loading(chain.id());
-      let chain_syncing = ctx.state_sync.get(&chain.id()).cloned().unwrap_or(false);
-
-      let status_msg = if ctx.data_syncing {
-         Some(DATA_SYNCING_MSG)
-      } else if is_railgun_syncing {
-         Some(RAILGUN_SYNCING_MSG)
-      } else if is_railgun_db_loading {
-         Some(RAILGUN_DB_LOADING_MSG)
-      } else if ctx.on_startup_syncing || chain_syncing {
-         Some(ON_STARTUP_SYNC_MSG)
-      } else if ctx.save_vault_in_progress {
-         Some(VAULT_SAVE_IN_PROGRESS_MSG)
-      } else if ctx.save_wallet_state_in_progress {
-         Some(WALLET_STATE_SAVE_IN_PROGRESS_MSG)
-      } else if ctx.railgun_status.circuits_download_in_progress() {
-         Some(CIRCUITS_DOWNLOAD_MSG)
-      } else {
-         None
-      };
 
       if let Some(msg) = status_msg {
          // Paint above modal backdrops (Middle) so the pill stays full-bright
@@ -170,6 +160,35 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
    let offset = vec2(12.0, 70.0);
    Toasts::new().anchor(Align2::RIGHT_TOP).offset(offset).render(ui.ctx());
+}
+
+/// The one message the status pill reports this frame, in priority order.
+///
+/// `None` means nothing is running, so the panel draws no pill.
+fn status_pill_message(ctx: &ZeusContext) -> Option<&'static str> {
+   let chain = ctx.chain;
+
+   let is_railgun_syncing = ctx.is_railgun_provider_syncing(chain.id());
+   let is_railgun_db_loading = ctx.is_railgun_db_loading(chain.id());
+   let chain_syncing = ctx.state_sync.get(&chain.id()).cloned().unwrap_or(false);
+
+   if ctx.data_syncing {
+      Some(DATA_SYNCING_MSG)
+   } else if is_railgun_syncing {
+      Some(RAILGUN_SYNCING_MSG)
+   } else if is_railgun_db_loading {
+      Some(RAILGUN_DB_LOADING_MSG)
+   } else if ctx.on_startup_syncing || chain_syncing {
+      Some(ON_STARTUP_SYNC_MSG)
+   } else if ctx.save_vault_in_progress {
+      Some(VAULT_SAVE_IN_PROGRESS_MSG)
+   } else if ctx.save_wallet_state_in_progress {
+      Some(WALLET_STATE_SAVE_IN_PROGRESS_MSG)
+   } else if ctx.railgun_status.circuits_download_in_progress() {
+      Some(CIRCUITS_DOWNLOAD_MSG)
+   } else {
+      None
+   }
 }
 
 fn check_railgun(chain: u64) {

@@ -10,6 +10,11 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       // wherever focus happened to be before the lock.
       gui.last_page = None;
 
+      // No pill is drawn while locked, so its message from before the lock is not the pill the
+      // user comes back to: forgotten here, the next disappearance of a pill announces a
+      // completion that really did just happen.
+      gui.last_status_pill = None;
+
       // Cancel anything waiting on the user to authorize (a signature, a tx
       // confirmation, a connect prompt) before hiding it, so a prompt open when
       // the lock fired cannot be approved — or resurface after unlock.

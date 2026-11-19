@@ -22,8 +22,8 @@ use crate::gui::{
    ui::{ChainSelect, WalletSelect, common::*},
 };
 use egui::{
-   Align, CursorIcon, FontId, Layout, Margin, OpenUrl, Rect, RichText, ScrollArea, Shadow, Stroke,
-   TextWrapMode, Ui, pos2, vec2,
+   Align, CursorIcon, FontId, Layout, Margin, OpenUrl, Rect, Response, RichText, ScrollArea,
+   Shadow, Stroke, TextWrapMode, Ui, pos2, vec2,
 };
 use std::sync::Arc;
 use zeus_eth::types::ChainId;
@@ -40,6 +40,42 @@ const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
 fn short_origin(origin: &str) -> &str {
    let host = origin.split_once("://").map_or(origin, |(_, host)| host);
    host.trim_end_matches('/')
+}
+
+/// What the Railgun row says to a reader. The dot is hidden from the tree, so the row's label
+/// carries the state: the service first, then where its sync stands.
+fn railgun_row_name(state: IndicatorState) -> String {
+   let word = match state {
+      IndicatorState::On => "synced",
+      IndicatorState::Off => "off",
+      IndicatorState::Connecting => "syncing",
+   };
+
+   format!("Railgun, {word}")
+}
+
+/// What the Wallet Connector row says to a reader, in the Railgun row's shape: the dot is hidden
+/// and the label names the service and its state.
+fn wallet_connector_row_name(state: IndicatorState) -> String {
+   let word = match state {
+      IndicatorState::On => "running",
+      IndicatorState::Off => "off",
+      IndicatorState::Connecting => "starting",
+   };
+
+   format!("Wallet Connector, {word}")
+}
+
+/// Put a service row's one sentence on the node a reader hears.
+///
+/// AccessKit names a `Role::Label` node from the node's value rather than its label, so the
+/// sentence replaces the drawn word there. The label gets the same sentence, so whichever of the
+/// two a consumer reads, the row says exactly one thing.
+pub(crate) fn name_service_row(ui: &Ui, label: Response, name: String) {
+   ui.ctx().accesskit_node_builder(label.id, |node| {
+      node.set_value(name.clone());
+      node.set_label(name);
+   });
 }
 
 /// Width of the panel's rows. The selectors set it; everything else matches it so
@@ -385,9 +421,11 @@ impl AccountPanel {
                false => IndicatorState::On,
             };
 
-            let indicator = Indicator::new(state).size(12.0);
+            // The dot is Off precisely when the wallet is delegated, and it tells a reader
+            // "status: off", the opposite of the word beside it. The word is the row's only node.
+            let indicator = ui.add(Indicator::new(state).size(12.0));
+            ui.ctx().accesskit_node_builder(indicator.id, |node| node.set_hidden());
 
-            ui.add(indicator);
             ui.add(label).on_hover_text(tip_text);
 
             // Align this separator with the one above it.
@@ -485,12 +523,14 @@ impl AccountPanel {
                sync_state = IndicatorState::Off;
             }
 
-            ui.add(Indicator::new(sync_state));
+            let indicator = ui.add(Indicator::new(sync_state));
+            ui.ctx().accesskit_node_builder(indicator.id, |node| node.set_hidden());
 
             ui.add_space(10.0);
 
             let label = RichText::new("Railgun").size(theme.typography.small);
-            ui.label(label);
+            let label = ui.label(label);
+            name_service_row(ui, label, railgun_row_name(sync_state));
 
             ui.add_space(10.0);
 
@@ -554,12 +594,14 @@ impl AccountPanel {
                false => IndicatorState::Connecting,
             };
 
-            ui.add(Indicator::new(state));
+            let indicator = ui.add(Indicator::new(state));
+            ui.ctx().accesskit_node_builder(indicator.id, |node| node.set_hidden());
 
             ui.add_space(10.0);
 
             let label = RichText::new("Wallet Connector").size(theme.typography.small);
-            ui.label(label);
+            let label = ui.label(label);
+            name_service_row(ui, label, wallet_connector_row_name(state));
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                let size = vec2(24.0, 12.0);
@@ -613,5 +655,45 @@ impl AccountPanel {
             switch_wallet(ctx, self.wallet_select.wallet.clone());
          }
       });
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// A service row's dot is hidden from the tree, so its one node is the label: the service and
+   /// its state, in reading order, never the dot's "status: on".
+   #[test]
+   fn the_railgun_row_says_the_service_and_its_state() {
+      assert_eq!(
+         railgun_row_name(IndicatorState::On),
+         "Railgun, synced"
+      );
+      assert_eq!(
+         railgun_row_name(IndicatorState::Connecting),
+         "Railgun, syncing"
+      );
+      assert_eq!(
+         railgun_row_name(IndicatorState::Off),
+         "Railgun, off"
+      );
+   }
+
+   /// The Wallet Connector row follows the same shape, with the words that connector uses.
+   #[test]
+   fn the_wallet_connector_row_says_the_service_and_its_state() {
+      assert_eq!(
+         wallet_connector_row_name(IndicatorState::On),
+         "Wallet Connector, running"
+      );
+      assert_eq!(
+         wallet_connector_row_name(IndicatorState::Connecting),
+         "Wallet Connector, starting"
+      );
+      assert_eq!(
+         wallet_connector_row_name(IndicatorState::Off),
+         "Wallet Connector, off"
+      );
    }
 }

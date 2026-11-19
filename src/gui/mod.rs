@@ -171,6 +171,9 @@ pub struct GUI {
    /// Keeps the live `Status` node in the tree between frames: a node created together
    /// with its message never speaks (`egui-elements/src/announce.rs`).
    announcer: Announcer,
+   /// The status pill's message last frame, so its transitions are announced instead of the same
+   /// sentence every frame while work runs.
+   last_status_pill: Option<String>,
    #[cfg(feature = "dev")]
    pub dev: DevUi,
    pub merge_notes_window: MergeNotesWindow,
@@ -260,6 +263,7 @@ impl GUI {
          last_page: None,
          announcement: String::new(),
          announcer: Announcer::new("zeus"),
+         last_status_pill: None,
          #[cfg(feature = "dev")]
          dev: DevUi::new(),
          merge_notes_window,

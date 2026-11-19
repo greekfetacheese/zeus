@@ -8,6 +8,7 @@ pub mod fade;
 pub mod heading;
 pub mod notices;
 pub mod recipient_field;
+pub mod status_pill;
 pub mod wallet_identity;
 pub mod wallet_list;
 pub mod wallet_select;
