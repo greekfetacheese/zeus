@@ -182,6 +182,14 @@ impl WalletUi {
       self.rename_wallet(theme, ui);
       self.add_wallet_ui.show(ctx, theme, icons.clone(), ui);
       self.export_key_ui.show(ctx, theme, ui);
+
+      // The export dialog draws after the page, so its sentence is the last one raised this frame
+      // and the one the announcement channel keeps: what the dialog just did replaces whatever the
+      // page said above.
+      if let Some(notice) = self.export_key_ui.take_notice() {
+         self.notice = Some(notice);
+      }
+
       self.delete_wallet_ui.show(ctx, theme, ui);
    }
 
@@ -646,6 +654,11 @@ impl WalletUi {
 
    pub(crate) fn rename_is_open_for_test(&self) -> bool {
       self.rename_wallet
+   }
+
+   /// The export dialog, for a tree test that opens it without the worker its own `open` runs.
+   pub(crate) fn export_key_ui_for_test(&mut self) -> &mut ExportKeyUi {
+      &mut self.export_key_ui
    }
 }
 
