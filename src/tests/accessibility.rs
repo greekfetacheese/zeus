@@ -21,6 +21,7 @@ use crate::gui::ui::tx::{
    FeeSelection, TxConfirmationWindow, TxWindow, show_analysis_buttons, show_calldata_modal,
    show_tx_diffs_modal, show_tx_options_modal,
 };
+use crate::gui::ui::wallet::import::ImportWalletType;
 use crate::gui::{GUI, LockScreen};
 use egui::accesskit::{Action, ActionRequest, Live, Node, NodeId, Role, Toggled, TreeId};
 use egui::{Context, Event, Key, Modifiers, PointerButton, RawInput, Rect, Ui, pos2, vec2};
@@ -5444,5 +5445,168 @@ fn the_wallet_menu_says_what_each_item_does() {
       delete.description(),
       Some("The master wallet cannot be deleted."),
       "the disabled item says why"
+   );
+}
+
+/// Open the import dialog over the Wallets page and draw it until it paints: a shrink-wrapping
+/// modal spends two invisible sizing passes, and egui exposes no node for a widget it considers
+/// invisible.
+fn draw_import_dialog(
+   ctx: &Context,
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   kind: ImportWalletType,
+) -> Vec<(NodeId, Node)> {
+   gui.wallet_ui.add_wallet_ui.open();
+   gui.wallet_ui.add_wallet_ui.import_wallet.open(kind);
+
+   let mut nodes = Vec::new();
+
+   for _ in 0..3 {
+      nodes = render_central(ctx, gui, zeus, Vec::new());
+   }
+
+   nodes
+}
+
+/// The import form opens on its name field: one text input named without the parentheses of the
+/// drawn instruction, which leaves the tree, and the keyboard in the field instead of on the
+/// dialog's Close button.
+#[test]
+fn the_import_dialog_opens_on_its_name_field() {
+   let (ctx, mut gui, zeus) = main_window();
+   seed_wallet_page(&mut gui, &zeus, &master_wallet("Main"), &[], &[1]);
+
+   let nodes = draw_import_dialog(
+      &ctx,
+      &mut gui,
+      &zeus,
+      ImportWalletType::MnemonicPhrase,
+   );
+
+   let (field, node) = nodes
+      .iter()
+      .find(|(_, node)| {
+         is_text_input(node.role())
+            && node_name(&nodes, node).as_deref() == Some("Wallet name, optional")
+      })
+      .unwrap_or_else(|| {
+         panic!(
+            "the dialog must name its name field: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   assert_eq!(
+      node.label(),
+      Some("Wallet name, optional"),
+      "the field carries that name itself, without the parentheses of the drawn label"
+   );
+
+   assert!(
+      nodes.iter().any(|(_, node)| node.role() == Role::Label
+         && node.is_hidden()
+         && node.value() == Some("Wallet Name (Optional)")),
+      "the drawn instruction must be hidden, or the row is read twice: {:?}",
+      drawn_names(&nodes)
+   );
+
+   assert_eq!(
+      ctx.memory(|memory| memory.focused()).map(|id| id.accesskit_id()),
+      Some(*field),
+      "the field must take the opening focus the dialog gave its Close button"
+   );
+}
+
+/// The secret field is named by the label the crate draws above it, and says how much has been
+/// typed, so a phrase can be checked by ear while the secret itself stays out of the tree.
+#[test]
+fn the_secret_field_says_how_much_it_holds() {
+   let (ctx, mut gui, zeus) = main_window();
+   seed_wallet_page(&mut gui, &zeus, &master_wallet("Main"), &[], &[1]);
+
+   let nodes = draw_import_dialog(
+      &ctx,
+      &mut gui,
+      &zeus,
+      ImportWalletType::MnemonicPhrase,
+   );
+
+   assert!(
+      nodes
+         .iter()
+         .any(|(_, node)| node.role() == Role::Label && node.value() == Some("Seed Phrase")),
+      "the crate must draw the label the field is named by: {:?}",
+      drawn_names(&nodes)
+   );
+
+   assert!(
+      nodes.iter().any(|(_, node)| is_text_input(node.role())
+         && node_name(&nodes, node).as_deref() == Some("Seed Phrase")),
+      "the secret field's name is the drawn label, resolved through labelled_by: {:?}",
+      drawn_names(&nodes)
+   );
+
+   gui.wallet_ui
+      .add_wallet_ui
+      .import_wallet
+      .set_secret_for_test("winner thank year");
+
+   let nodes = render_central(&ctx, &mut gui, &zeus, Vec::new());
+
+   let field = nodes
+      .iter()
+      .find(|(_, node)| {
+         is_text_input(node.role()) && node_name(&nodes, node).as_deref() == Some("Seed Phrase")
+      })
+      .map(|(_, node)| node)
+      .unwrap_or_else(|| {
+         panic!(
+            "the secret field must still be in the tree: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   assert_eq!(
+      field.description(),
+      Some("3 words"),
+      "a three-word phrase must say how many words it holds"
+   );
+}
+
+/// The same field in a private-key dialog counts characters instead of words.
+#[test]
+fn a_private_key_dialog_says_how_many_characters_it_holds() {
+   let (ctx, mut gui, zeus) = main_window();
+   seed_wallet_page(&mut gui, &zeus, &master_wallet("Main"), &[], &[1]);
+
+   draw_import_dialog(
+      &ctx,
+      &mut gui,
+      &zeus,
+      ImportWalletType::PrivateKey,
+   );
+
+   gui.wallet_ui.add_wallet_ui.import_wallet.set_secret_for_test("abcd1234");
+
+   let nodes = render_central(&ctx, &mut gui, &zeus, Vec::new());
+
+   let field = nodes
+      .iter()
+      .find(|(_, node)| {
+         is_text_input(node.role()) && node_name(&nodes, node).as_deref() == Some("Private Key")
+      })
+      .map(|(_, node)| node)
+      .unwrap_or_else(|| {
+         panic!(
+            "the private-key dialog must name its field: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   assert_eq!(
+      field.description(),
+      Some("8 characters"),
+      "a private key must say how many characters it holds"
    );
 }
