@@ -3,15 +3,26 @@
 use crate::core::types::CredentialCheck;
 use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
-use eframe::egui::{Id, Order, RichText, Ui, vec2};
+use crate::gui::ui::common::spoken_wallet_name;
+use eframe::egui::{Id, Key, Order, Response, RichText, Role, Ui, WidgetInfo, vec2};
 use egui_elements::{Button, CredentialsForm, Modal, Theme};
 use ncrypt_me::Credentials;
+
+/// The consequence of a delete in one sentence: drawn as the paragraph and said as the alert, so a
+/// reader is told what the wallet takes with it instead of walking past a coloured line.
+const DELETION_CONSEQUENCE: &str = "Deleting this wallet will also delete all its transaction history and token approval data next time Zeus starts.";
 
 pub struct DeleteWalletUi {
    open: bool,
    credentials_form: CredentialsForm,
    verified_credentials: bool,
    wallet_to_delete: Option<WalletInfo>,
+   /// Whether the safe way out still has to take the focus, so Enter keeps the wallet instead of
+   /// deleting it.
+   focus_keep: bool,
+   /// The one sentence the dialog wants said. A dialog cannot announce from inside its own draw,
+   /// so the page drains this after it is drawn.
+   notice: Option<String>,
    size: (f32, f32),
 }
 
@@ -25,6 +36,8 @@ impl DeleteWalletUi {
          credentials_form,
          verified_credentials: false,
          wallet_to_delete: None,
+         focus_keep: false,
+         notice: None,
          size: (550.0, 350.0),
       }
    }
@@ -45,6 +58,8 @@ impl DeleteWalletUi {
       self.close();
       self.verified_credentials = false;
       self.wallet_to_delete = None;
+      // A sentence raised before the lock is not about the flow the user comes back to.
+      self.notice = None;
    }
 
    pub fn is_open(&self) -> bool {
@@ -54,6 +69,9 @@ impl DeleteWalletUi {
    pub fn open(&mut self, wallet: WalletInfo) {
       self.open = true;
       self.wallet_to_delete = Some(wallet);
+      // The confirmation hands the focus to its safe exit the first time it paints, so Enter keeps
+      // the wallet instead of deleting it.
+      self.focus_keep = true;
       self.credentials_form.open();
    }
 
@@ -64,6 +82,20 @@ impl DeleteWalletUi {
    pub fn reset(&mut self) {
       self.close();
       *self = Self::new();
+   }
+
+   /// The sentence the dialog wants said, for the page's announcement channel.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
+   }
+
+   /// Take the safe way out: the wallet is kept, and the dialog says so — going away on its own
+   /// would not tell a listener which of the two ways out was taken.
+   fn keep_wallet(&mut self) {
+      self.reset();
+      // Raised after the reset: it builds a fresh flow, and the sentence belongs to the one that
+      // just ended.
+      self.notice = Some("Wallet not deleted.".to_string());
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
@@ -98,6 +130,15 @@ impl DeleteWalletUi {
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = theme.spacing.xl;
                ui.spacing_mut().button_padding = theme.button_padding;
+
+               // The same form opens before an export, so the dialog says here which of the two it
+               // is asking for.
+               ui.label(
+                  RichText::new(
+                     "This verifies your vault credentials before the wallet is deleted.",
+                  )
+                  .size(theme.typography.normal),
+               );
 
                ui.scope(|ui| {
                   ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
@@ -141,14 +182,29 @@ impl DeleteWalletUi {
       let mut open = self.open;
       let mut clicked = false;
       let mut cancel = false;
+      let mut escape = false;
+      let mut keep_button: Option<Response> = None;
+
+      // The dialog is named after the wallet it is about and the question it asks, so a reader is
+      // asked something instead of landing in an unnamed window.
+      let spoken_wallet = spoken_wallet_name(&wallet);
+      let title = RichText::new(format!("Delete {spoken_wallet}?")).size(theme.typography.heading);
+      let delete_name = format!("Delete {spoken_wallet}");
 
       let id = Id::unique("delete_wallet_ui_delete_wallet");
 
       Modal::new(id, &mut open)
-      .backdrop_order(Order::Middle)
-      .content_order(Order::Foreground)
-      .closable(false)
-      .show(ui.ctx(), |ui| {
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
+         .heading(title)
+         .header_separator(false)
+         .center_header(true)
+         .closable(false)
+         .show(ui.ctx(), |ui| {
+            // Escape is the dialog's own way out: `closable(false)` keeps the backdrop from
+            // dismissing it, so the key is read here and answered as the cancel.
+            escape = ui.input(|input| input.key_pressed(Key::Escape));
+
             ui.set_width(self.size.0);
 
             let button_visuals = theme.button_visuals();
@@ -157,9 +213,12 @@ impl DeleteWalletUi {
                ui.spacing_mut().item_spacing.y = theme.spacing.md;
                ui.spacing_mut().button_padding = theme.button_padding;
 
-               ui.label(
-                  RichText::new(wallet.name_with_source()).size(theme.typography.large),
-               );
+               let name =
+                  ui.label(RichText::new(wallet.name_with_source()).size(theme.typography.large));
+
+               // The heading already says which wallet this is, so the drawn name repeats it and
+               // its label is left out of the reading.
+               ui.ctx().accesskit_node_builder(name.id, |node| node.set_hidden());
 
                ui.label(
                   RichText::new(wallet.address.to_string())
@@ -175,37 +234,40 @@ impl DeleteWalletUi {
                let frame = theme.frame2;
 
                ui.allocate_ui(size, |ui| {
-               ui.horizontal(|ui| {
-                  frame.show(ui, |ui| {
-                  ui.spacing_mut().item_spacing.x = theme.spacing.xl;
-                  ui.label(
-                     RichText::new(format!(
-                        "Public ${:.10}",
-                        value.for_mode(false).abbreviated()
-                     ))
-                     .size(theme.typography.normal)
-                     .strong(),
-                  );
-                  ui.separator();
-                  ui.label(
-                     RichText::new(format!(
-                        "Railgun ${:.10}",
-                        value.for_mode(true).abbreviated()
-                     ))
-                     .size(theme.typography.normal)
-                     .strong(),
-                  );
+                  ui.horizontal(|ui| {
+                     frame.show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.x = theme.spacing.xl;
+                        ui.label(
+                           RichText::new(format!(
+                              "Public ${:.10}",
+                              value.for_mode(false).abbreviated()
+                           ))
+                           .size(theme.typography.normal)
+                           .strong(),
+                        );
+                        ui.separator();
+                        ui.label(
+                           RichText::new(format!(
+                              "Railgun ${:.10}",
+                              value.for_mode(true).abbreviated()
+                           ))
+                           .size(theme.typography.normal)
+                           .strong(),
+                        );
+                     });
+                  });
                });
-               });
-            });
 
-               ui.label(
-                  RichText::new(
-                     "Deleting this wallet will also delete all its transaction history and token approval data next time Zeus starts.",
-                  )
-                  .size(theme.typography.normal)
-                  .color(theme.colors.warning),
+               // The consequence is a sentence, not a colour: it is announced as an alert when the
+               // dialog opens, so a reader is told what the delete costs.
+               let warning = ui.label(
+                  RichText::new(DELETION_CONSEQUENCE)
+                     .size(theme.typography.normal)
+                     .color(theme.colors.warning),
                );
+               warning.widget_info(|| {
+                  WidgetInfo::labeled(Role::Alert, ui.is_enabled(), DELETION_CONSEQUENCE)
+               });
 
                ui.label(
                   RichText::new("Are you sure you want to continue?")
@@ -218,29 +280,52 @@ impl DeleteWalletUi {
                let button_size = vec2((content_width - theme.spacing.sm) / 2.0, 45.0);
 
                ui.allocate_ui(vec2(content_width, 45.0), |ui| {
-               ui.horizontal(|ui| {
-                  ui.spacing_mut().item_spacing.x = theme.spacing.md;
+                  ui.horizontal(|ui| {
+                     ui.spacing_mut().item_spacing.x = theme.spacing.md;
 
-                  let text = RichText::new("Changed my mind").size(theme.typography.normal);
-                  let button = Button::new(text).visuals(button_visuals).min_size(button_size);
+                     let text = RichText::new("Keep this wallet").size(theme.typography.normal);
+                     let button = Button::new(text).visuals(button_visuals).min_size(button_size);
+                     let keep = ui.add(button);
 
-                  if ui.add(button).clicked() {
-                     cancel = true;
-                  }
+                     if keep.clicked() {
+                        cancel = true;
+                     }
 
-                  let text = RichText::new("Delete").size(theme.typography.normal);
-                  let button = Button::new(text).visuals(button_visuals).min_size(button_size);
+                     keep_button = Some(keep);
 
-                  if ui.add(button).clicked() {
-                     clicked = true;
-                  }
+                     let text = RichText::new("Delete").size(theme.typography.normal);
+                     let button = Button::new(text).visuals(button_visuals).min_size(button_size);
+                     let delete = ui.add(button);
+
+                     // The label stays the one word; the name says what it removes.
+                     delete.widget_info(|| {
+                        WidgetInfo::labeled(Role::Button, ui.is_enabled(), &delete_name)
+                     });
+
+                     if delete.clicked() {
+                        clicked = true;
+                     }
+                  });
                });
-            });
             });
          });
 
+      // The dialog spends its first passes sizing its body, where nothing is visible and a focus
+      // request is dropped, so the safe exit asks on the first pass that is drawn — after the
+      // dialog has drawn, so its own opening grab cannot take the focus back. Enter then keeps the
+      // wallet instead of deleting it.
+      if let Some(keep) = keep_button.filter(|keep| keep.visible() && self.focus_keep) {
+         ui.ctx().memory_mut(|memory| memory.request_focus(keep.id));
+         self.focus_keep = false;
+      }
+
+      // Escape is the cancel, and the dialog has no other way out.
+      if escape {
+         cancel = true;
+      }
+
       if cancel {
-         self.reset();
+         self.keep_wallet();
          return;
       }
 
@@ -252,7 +337,7 @@ impl DeleteWalletUi {
       }
 
       if !open {
-         self.reset();
+         self.keep_wallet();
       }
    }
 }
@@ -349,6 +434,23 @@ fn on_delete_wallet(wallet: WalletInfo, is_current: bool) {
 }
 
 #[cfg(test)]
+impl DeleteWalletUi {
+   /// Open the confirmation on `wallet` with its credentials already verified — the state
+   /// `on_verify_credentials` leaves behind — so a tree test needs no vault, runtime or worker.
+   pub(crate) fn for_test(&mut self, wallet: WalletInfo) {
+      self.open(wallet);
+      self.verified_credentials = true;
+      self.credentials_form.close();
+   }
+
+   /// Whether the flow still authorizes a delete: the verified credentials and the wallet they
+   /// were proved for, which a cancel must drop.
+   pub(crate) fn holds_authorization_for_test(&self) -> bool {
+      self.verified_credentials && self.wallet_to_delete.is_some()
+   }
+}
+
+#[cfg(test)]
 mod tests {
    use super::*;
    use secure_types::SecureString;
@@ -380,5 +482,24 @@ mod tests {
       assert!(ui.wallet_to_delete.is_none());
       assert!(ui.credentials_form.username().is_empty());
       assert!(ui.credentials_form.password().is_empty());
+   }
+
+   /// The way out that is not a delete says so, once: the dialog going away does not tell a
+   /// listener whether the wallet was removed or kept.
+   #[test]
+   fn a_kept_wallet_is_said_once() {
+      let mut ui = verified_form();
+
+      ui.keep_wallet();
+
+      assert!(!ui.is_open());
+      assert!(!ui.verified_credentials);
+      assert!(ui.wallet_to_delete.is_none());
+      assert_eq!(
+         ui.take_notice().as_deref(),
+         Some("Wallet not deleted."),
+         "the safe way out is one of the dialog's sentences"
+      );
+      assert_eq!(ui.take_notice(), None, "the frame says it once");
    }
 }

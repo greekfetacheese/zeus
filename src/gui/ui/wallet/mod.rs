@@ -191,6 +191,12 @@ impl WalletUi {
       }
 
       self.delete_wallet_ui.show(ctx, theme, ui);
+
+      // The delete dialog draws after the export dialog, so its sentence is the last one raised
+      // this frame and the one the announcement channel keeps.
+      if let Some(notice) = self.delete_wallet_ui.take_notice() {
+         self.notice = Some(notice);
+      }
    }
 
    /// This is the first Ui we show to the user when this [WalletUi] is open.
@@ -659,6 +665,11 @@ impl WalletUi {
    /// The export dialog, for a tree test that opens it without the worker its own `open` runs.
    pub(crate) fn export_key_ui_for_test(&mut self) -> &mut ExportKeyUi {
       &mut self.export_key_ui
+   }
+
+   /// The delete dialog, for a tree test that opens its confirmation with no vault behind it.
+   pub(crate) fn delete_wallet_ui_for_test(&mut self) -> &mut DeleteWalletUi {
+      &mut self.delete_wallet_ui
    }
 }
 
