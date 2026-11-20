@@ -154,6 +154,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    gui.wallet_ui.show(ctx, theme, icons.clone(), ui);
    gui.tx_history.show(ctx, theme, ui);
 
+   // The history page draws from a borrowed theme too, so the count it says when it changes comes
+   // back here, like the Send form's and the portfolio's.
+   let tx_history_notice = gui.tx_history.take_notice();
+
    gui.approvals.show(ctx, theme, icons.clone(), ui);
 
    // The approvals page draws from a borrowed theme too, so its one sentence comes back here like
@@ -184,6 +188,11 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    }
 
    if let Some(text) = send_notice {
+      gui.announce(text);
+   }
+
+   // A page's count is about the page under the prompts, so it is said before their answers.
+   if let Some(text) = tx_history_notice {
       gui.announce(text);
    }
 
