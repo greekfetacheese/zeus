@@ -10,7 +10,7 @@ use crate::core::clear_signing::FormattedValue;
 use crate::core::{SignMsgType, ZeusContext};
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::windows::PromptGate;
-use crate::gui::ui::common::{delayed_action_label, wallet_identity};
+use crate::gui::ui::common::{address::name_address, delayed_action_label, wallet_identity};
 use crate::gui::ui::tx::{address, chain};
 
 use serde_json::{Value, to_string_pretty};
@@ -201,13 +201,16 @@ impl SignMsgWindow {
                      // an identity line under the origin rather than a labelled data
                      // row: it belongs with "who is asking", not with the message
                      // fields, and the address stays verifiable next to the name.
-                     ui.add(wallet_identity(
+                     let (identity, spoken) = wallet_identity(
                         ctx,
                         self.chain.id(),
                         self.account,
                         theme,
                         icons.clone(),
-                     ));
+                     );
+
+                     let identity = ui.add(identity);
+                     name_address(ui, &identity, &spoken);
                   });
 
                   let frame = theme.frame2;

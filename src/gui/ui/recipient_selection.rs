@@ -6,6 +6,7 @@ use crate::core::{
    types::{Contact, Recipient},
 };
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::common::address::{address_for_speech, name_address};
 use crate::gui::ui::common::switch_chain;
 use crate::gui::ui::{ContactsUi, WalletListByValue};
 use crate::utils::{TimeStamp, truncate_address};
@@ -841,9 +842,13 @@ impl RecipientSelectionWindow {
                   .size(theme.typography.normal)
                   .color(theme.colors.text_muted);
                let button = Button::selectable(false, address_text);
+               let spoken = address_for_speech(Some(contact.name.as_str()), &address_full);
 
                ui.horizontal(|ui| {
-                  if ui.add(button).clicked() {
+                  let response = ui.add(button);
+                  name_address(ui, &response, &spoken);
+
+                  if response.clicked() {
                      ui.ctx().copy_text(address_full.clone());
                   }
                });
@@ -969,9 +974,13 @@ impl RecipientSelectionWindow {
                   .size(theme.typography.normal)
                   .color(theme.colors.text_muted);
                let button = Button::selectable(false, address_text);
+               let spoken = address_for_speech(Some(wallet.name()), &address_full);
 
                ui.horizontal(|ui| {
-                  if ui.add(button).clicked() {
+                  let response = ui.add(button);
+                  name_address(ui, &response, &spoken);
+
+                  if response.clicked() {
                      ui.ctx().copy_text(address_full.clone());
                   }
                });

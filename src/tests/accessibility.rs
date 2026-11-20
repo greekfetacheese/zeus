@@ -13,6 +13,8 @@ use crate::gui::{GUI, LockScreen};
 use egui::accesskit::{Action, ActionRequest, Live, Node, NodeId, Role, Toggled, TreeId};
 use egui::{Context, Event, Key, Modifiers, RawInput, Rect, Ui, pos2, vec2};
 use egui_elements::{Theme, ThemeKind};
+use zeus_eth::alloy_primitives::Address;
+use zeus_eth::types::ChainId;
 
 /// Run one AccessKit-enabled frame and return the nodes of the tree update it produced.
 ///
@@ -2073,6 +2075,61 @@ fn a_contact_row_says_who_it_is() {
    assert!(
       !spoken.contains(&name),
       "the row's own name must not also be a plain label: {spoken:?}"
+   );
+}
+
+/// The money rows draw an address shortened, so two addresses that agree on their first and last
+/// six characters look the same on screen and are different addresses. The row's node has to
+/// carry the whole address instead, with the drawn form left as its description.
+#[test]
+fn the_recipient_row_names_the_full_address() {
+   let ctx = Context::default();
+   let zeus = ZeusCtx::new(crate::runtime::test_handle());
+   let theme = Theme::new(ThemeKind::TokyoNight);
+
+   let chain = ChainId::Ethereum;
+   let account = Address::from([0x11; 20]);
+
+   // An unnamed address asks for a name off-frame the first time it is drawn. Claiming that
+   // once-per-session request first keeps the test away from the network.
+   zeus.write(|zeus| {
+      zeus.address_name_requested(chain.id(), account);
+   });
+
+   let nodes = frame(&ctx, |ui| {
+      zeus.write(|zeus| {
+         crate::gui::ui::tx::rows::address_with_picked_name(
+            zeus,
+            chain,
+            "Recipient",
+            account,
+            None,
+            &theme,
+            ui,
+         );
+      });
+   });
+
+   let link = nodes
+      .iter()
+      .find(|node| node.role() == Role::Link)
+      .expect("the recipient row draws its address as a link");
+
+   let name = link.label().expect("the link must be named");
+
+   assert_eq!(
+      name.replace(' ', ""),
+      account.to_string(),
+      "the link must carry the whole address, not its two ends"
+   );
+   assert_ne!(
+      name, "0x1111...111111",
+      "the drawn truncation is not a name"
+   );
+   assert_eq!(
+      link.description(),
+      Some("0x1111...111111"),
+      "the drawn form stays reachable as the description"
    );
 }
 

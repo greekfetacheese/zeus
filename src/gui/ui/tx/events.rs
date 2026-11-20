@@ -5,7 +5,10 @@ use egui_elements::{Label, Modal, MultiLabel, Theme};
 
 use crate::assets::icons::Icons;
 use crate::core::{TransactionAnalysis, ZeusContext, tx::events::*};
-use crate::gui::ui::common::chain_label;
+use crate::gui::ui::common::{
+   address::{address_for_speech, name_address},
+   chain_label,
+};
 use crate::gui::ui::token_selection::nft_collection_name;
 use crate::utils::truncate_address;
 use zeus_eth::{
@@ -632,32 +635,37 @@ fn shield_event_ui(
             let wallet_opt = ctx.get_wallet_info_by_zk_address(recipient);
             let contact_opt = ctx.get_contact_by_zk_address(recipient);
 
-            let (text, evm_address_opt) = if let Some(wallet) = wallet_opt {
+            let (text, evm_address_opt, name) = if let Some(wallet) = wallet_opt {
                let rich = RichText::new(wallet.name())
                   .size(theme.typography.large)
                   .color(theme.colors.info);
-               (rich, Some(wallet.address.to_string()))
+               let name = wallet.name().to_string();
+               (rich, Some(wallet.address.to_string()), Some(name))
             } else if let Some(contact) = contact_opt {
-               let rich = RichText::new(contact.name)
+               let name = contact.name;
+               let rich = RichText::new(name.clone())
                   .size(theme.typography.large)
                   .color(theme.colors.info);
-               (rich, Some(contact.evm_address))
+               (rich, Some(contact.evm_address), Some(name))
             } else {
                // Anything too short to shorten comes back whole from the helper: the slice offsets are
                // safe only because it has already checked the length.
                let rich = RichText::new(truncate_address(recipient.clone()))
                   .size(theme.typography.large)
                   .color(theme.colors.info);
-               (rich, None)
+               (rich, None, None)
             };
 
-            if let Some(evm_address) = evm_address_opt {
+            let response = if let Some(evm_address) = evm_address_opt {
                let explorer = chain.block_explorer();
                let link = format!("{}/address/{}", explorer, evm_address);
-               ui.hyperlink_to(text, link);
+               ui.hyperlink_to(text, link)
             } else {
-               ui.label(text);
-            }
+               ui.label(text)
+            };
+
+            let spoken = address_for_speech(name.as_deref(), recipient);
+            name_address(ui, &response, &spoken);
          });
       });
    }
@@ -1004,30 +1012,35 @@ fn private_transfer_event_ui(
          let wallet_opt = ctx.get_wallet_info_by_zk_address(recipient);
          let contact_opt = ctx.get_contact_by_zk_address(recipient);
 
-         let (text, evm_address_opt) = if let Some(wallet) = wallet_opt {
+         let (text, evm_address_opt, name) = if let Some(wallet) = wallet_opt {
             let rich = RichText::new(wallet.name())
                .size(theme.typography.large)
                .color(theme.colors.info);
-            (rich, Some(wallet.address.to_string()))
+            let name = wallet.name().to_string();
+            (rich, Some(wallet.address.to_string()), Some(name))
          } else if let Some(contact) = contact_opt {
-            let rich = RichText::new(contact.name)
+            let name = contact.name;
+            let rich = RichText::new(name.clone())
                .size(theme.typography.large)
                .color(theme.colors.info);
-            (rich, Some(contact.evm_address))
+            (rich, Some(contact.evm_address), Some(name))
          } else {
             let rich = RichText::new(truncate_address(recipient.clone()))
                .size(theme.typography.large)
                .color(theme.colors.info);
-            (rich, None)
+            (rich, None, None)
          };
 
-         if let Some(evm_address) = evm_address_opt {
+         let response = if let Some(evm_address) = evm_address_opt {
             let explorer = chain.block_explorer();
             let link = format!("{}/address/{}", explorer, evm_address);
-            ui.hyperlink_to(text, link);
+            ui.hyperlink_to(text, link)
          } else {
-            ui.label(text);
-         }
+            ui.label(text)
+         };
+
+         let spoken = address_for_speech(name.as_deref(), recipient);
+         name_address(ui, &response, &spoken);
       });
    });
 }

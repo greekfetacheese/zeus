@@ -13,6 +13,7 @@ use crate::core::{
    ApprovalChange, ApprovalDiff, ApprovalKind, BalanceChange, BalanceDiff, NftApprovalChange,
    NftApprovalTarget, NftApprovalValue, NftBalanceChange, ZeusContext,
 };
+use crate::gui::ui::common::address::{address_for_speech, name_address};
 use crate::utils::truncate_address;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -175,27 +176,35 @@ pub fn address_with_picked_name(
          // not hide the truncated address — the picked name gets the same
          // guard, since a picker row can carry one too.
          let picked_name = picked_name.filter(|name| !name.trim().is_empty());
-         let address_name = match picked_name {
-            Some(name) => name.to_string(),
-            None => match ctx.get_address_name(chain.id(), address) {
-               Some(name) if !name.trim().is_empty() => name.to_string(),
-               _ => {
-                  if !ctx.address_name_requested(chain.id(), address) {
-                     request_address_name(chain.id(), address);
-                  }
-                  truncate_address(address.to_string())
+         let name = match picked_name {
+            Some(name) => Some(name.to_string()),
+            None => ctx
+               .get_address_name(chain.id(), address)
+               .filter(|name| !name.trim().is_empty())
+               .map(|name| name.to_string()),
+         };
+
+         let full = address.to_string();
+
+         let drawn = match &name {
+            Some(name) => name.clone(),
+            None => {
+               if !ctx.address_name_requested(chain.id(), address) {
+                  request_address_name(chain.id(), address);
                }
-            },
+               truncate_address(full.clone())
+            }
          };
 
          let explorer = chain.block_explorer();
          let link = format!("{}/address/{}", explorer, address);
-         ui.hyperlink_to(
-            RichText::new(address_name)
-               .size(theme.typography.large)
-               .color(theme.colors.info),
+         let response = ui.hyperlink_to(
+            RichText::new(drawn).size(theme.typography.large).color(theme.colors.info),
             link,
          );
+
+         let spoken = address_for_speech(name.as_deref(), &full);
+         name_address(ui, &response, &spoken);
       });
    });
 }

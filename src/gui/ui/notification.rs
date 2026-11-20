@@ -3,9 +3,12 @@
 use crate::assets::Icons;
 use crate::core::{TransactionRich, ZeusContext};
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::common::address::{
+   SpokenAddress, drawn_and_spoken, name_address, transfer_for_speech,
+};
 use crate::gui::ui::common::chain_label;
 use crate::gui::ui::token_selection::nft_collection_name;
-use crate::utils::{TimeStamp, truncate_address};
+use crate::utils::TimeStamp;
 use egui::{Align2, Order, ProgressBar, RichText, TextWrapMode, Ui, Window, vec2};
 use egui_elements::{Button, Label, MultiLabel, Spinner, Theme};
 use egui_lucide::Lucide;
@@ -19,19 +22,25 @@ use zeus_eth::{
 };
 use zeus_railgun::{abi::railgun::TokenType, caip::AssetId};
 
-/// A known name for an address, or the truncated address when nothing knows it.
-fn address_text(ctx: &ZeusContext, chain: u64, address: Address, theme: &Theme) -> Label {
-   let name = match ctx.get_address_name(chain, address) {
-      Some(name) => name.to_string(),
-      None => truncate_address(address.to_string()),
-   };
+/// A known name for an address, or the truncated address when nothing knows it, with the words a
+/// screen reader gets for the same address.
+fn address_text(
+   ctx: &ZeusContext,
+   chain: u64,
+   address: Address,
+   theme: &Theme,
+) -> (Label, SpokenAddress) {
+   let name = ctx.get_address_name(chain, address);
+   let (drawn, spoken) = drawn_and_spoken(name.as_deref(), &address.to_string());
 
-   Label::new(
-      RichText::new(name).size(theme.typography.normal),
+   let label = Label::new(
+      RichText::new(drawn).size(theme.typography.normal),
       None,
    )
    .wrap_mode(TextWrapMode::Extend)
-   .interactive(false)
+   .interactive(false);
+
+   (label, spoken)
 }
 
 pub use crate::core::tx::notification::NotificationType;
@@ -445,31 +454,20 @@ impl Notification {
             Label::new(text, Some(icon)).wrap_mode(TextWrapMode::Extend).interactive(false);
          ui.add(label);
 
-         let address_name = ctx.get_address_name(chain, params.sender);
-         let address_name = if let Some(address_name_str) = address_name {
-            address_name_str.to_string()
-         } else {
-            truncate_address(params.sender.to_string())
-         };
-
-         let text = RichText::new(address_name).size(theme.typography.normal);
-         let from_label = Label::new(text, None).wrap_mode(TextWrapMode::Extend).interactive(false);
+         let (from_label, from_spoken) = address_text(ctx, chain, params.sender, theme);
 
          let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
          let arrow_label = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
 
-         let address_name = ctx.get_address_name(chain, params.recipient);
-         let address_name = if let Some(address_name_str) = address_name {
-            address_name_str.to_string()
-         } else {
-            truncate_address(params.recipient.to_string())
-         };
-
-         let text = RichText::new(address_name).size(theme.typography.normal);
-         let to_label = Label::new(text, None).wrap_mode(TextWrapMode::Extend).interactive(false);
+         let (to_label, to_spoken) = address_text(ctx, chain, params.recipient, theme);
 
          let multi_label = MultiLabel::new(vec![from_label, arrow_label, to_label]);
-         ui.add(multi_label);
+         let response = ui.add(multi_label);
+
+         // The two addresses share one painted row and neither part has a node of its own, so the
+         // pair is named as the one line it is drawn as.
+         let spoken = transfer_for_speech(&from_spoken, &to_spoken);
+         name_address(ui, &response, &spoken);
       });
    }
 
@@ -525,17 +523,20 @@ impl Notification {
          .interactive(false);
          ui.add(label);
 
-         let from_label = address_text(ctx, params.chain, params.from, theme);
-         let to_label = address_text(ctx, params.chain, params.to, theme);
+         let (from_label, from_spoken) = address_text(ctx, params.chain, params.from, theme);
+         let (to_label, to_spoken) = address_text(ctx, params.chain, params.to, theme);
 
          let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
          let arrow_label = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
 
-         ui.add(MultiLabel::new(vec![
+         let response = ui.add(MultiLabel::new(vec![
             from_label,
             arrow_label,
             to_label,
          ]));
+
+         let spoken = transfer_for_speech(&from_spoken, &to_spoken);
+         name_address(ui, &response, &spoken);
       });
    }
 
@@ -588,16 +589,20 @@ impl Notification {
             RichText::new(action).size(theme.typography.normal),
             None,
          );
-         let operator = address_text(ctx, params.chain, params.operator, theme);
+         let (operator, operator_spoken) = address_text(ctx, params.chain, params.operator, theme);
 
          let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
          let arrow_label = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
 
-         ui.add(MultiLabel::new(vec![
+         let response = ui.add(MultiLabel::new(vec![
             action_label,
             arrow_label,
             operator,
          ]));
+
+         // Only the operator is an address; the action beside it is a word the same row draws and
+         // has no node of its own, so the row is named for what a listener can check.
+         name_address(ui, &response, &operator_spoken);
       });
    }
 

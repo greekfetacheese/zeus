@@ -6,7 +6,9 @@ use crate::core::{TransactionRich, WalletInfo, ZeusContext};
 use crate::gui::{
    SHARED_GUI,
    ui::{
-      chain_label, show_with_fade,
+      chain_label,
+      common::address::{drawn_and_spoken, name_address},
+      show_with_fade,
       tx::spent_note_window::{SpentHistoryRow, spent_age},
    },
 };
@@ -127,15 +129,6 @@ impl TxHistory {
       self.cache_key = CacheKey::default();
       self.selected_chain = None;
       self.selected_wallet = None;
-   }
-
-   fn wallet_name_or_address(&self, ctx: &mut ZeusContext, address: Address) -> String {
-      let name_opt = ctx.get_wallet_name(address);
-      if let Some(name) = name_opt {
-         name
-      } else {
-         truncate_address(address.to_string())
-      }
    }
 
    fn current_cache_key(&self, privacy: bool) -> CacheKey {
@@ -615,9 +608,12 @@ impl TxHistory {
 
                      t.rows(|r, row| {
                         r.cell(|ui| {
-                           let name = self.wallet_name_or_address(ctx, row.wallet);
-                           history_cell(ui, theme, &name)
-                              .on_hover_text(format!("{}\n{}", name, row.wallet));
+                           let name = ctx.get_wallet_name(row.wallet);
+                           let (drawn, spoken) =
+                              drawn_and_spoken(name.as_deref(), &row.wallet.to_string());
+                           let response = history_cell(ui, theme, &drawn)
+                              .on_hover_text(format!("{}\n{}", drawn, row.wallet));
+                           name_address(ui, &response, &spoken);
                         });
 
                         r.cell(|ui| {
@@ -668,9 +664,12 @@ impl TxHistory {
 
                      t.rows(|r, row| {
                         r.cell(|ui| {
-                           let name = self.wallet_name_or_address(ctx, row.wallet);
-                           history_cell(ui, theme, &name)
-                              .on_hover_text(format!("{}\n{}", name, row.wallet));
+                           let name = ctx.get_wallet_name(row.wallet);
+                           let (drawn, spoken) =
+                              drawn_and_spoken(name.as_deref(), &row.wallet.to_string());
+                           let response = history_cell(ui, theme, &drawn)
+                              .on_hover_text(format!("{}\n{}", drawn, row.wallet));
+                           name_address(ui, &response, &spoken);
                         });
 
                         r.cell(|ui| {

@@ -1,5 +1,6 @@
 //! Common UI components
 
+pub mod address;
 pub mod amount_field;
 pub mod autolock_timing;
 pub mod chain_select;
@@ -15,6 +16,9 @@ pub mod wallet_select;
 pub mod wallet_switch;
 pub mod windows;
 
+pub use address::{
+   SpokenAddress, address_for_speech, drawn_and_spoken, name_address, transfer_for_speech,
+};
 pub use amount_field::{AmountField, AmountFieldParams};
 pub use autolock_timing::{GRACE_NOTICE, LockNotices, effective_idle_secs};
 pub use chain_select::ChainSelect;

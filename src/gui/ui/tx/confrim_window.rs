@@ -14,7 +14,7 @@ use crate::core::{DecodedEvent, TransactionAnalysis, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::windows::PromptGate;
-use crate::gui::ui::common::{delayed_action_label, wallet_identity};
+use crate::gui::ui::common::{address::name_address, delayed_action_label, wallet_identity};
 use crate::utils::estimate_tx_cost;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -549,13 +549,16 @@ impl TxConfirmationWindow {
                      // necessarily the one selected in the sidebar: name it next to the
                      // origin that asked for it.
                      ui.horizontal(|ui| {
-                        ui.add(wallet_identity(
+                        let (identity, spoken) = wallet_identity(
                            ctx,
                            self.chain.id(),
                            analysis.sender,
                            theme,
                            icons.clone(),
-                        ));
+                        );
+
+                        let identity = ui.add(identity);
+                        name_address(ui, &identity, &spoken);
 
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                            chain_chip(self.chain, theme, icons.clone(), ui);

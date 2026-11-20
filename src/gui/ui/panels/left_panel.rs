@@ -2,7 +2,10 @@ use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::gui::{
    GUI,
-   ui::{common::wallet_identity, dapps::railgun::RailgunMode},
+   ui::{
+      common::{address::name_address, wallet_identity},
+      dapps::railgun::RailgunMode,
+   },
 };
 use eframe::egui::{Id, Order, RichText, ScrollArea, Ui, vec2};
 use egui::{Align, FontId, Layout, Margin, Response, Role, Shadow, Stroke, WidgetInfo};
@@ -471,13 +474,11 @@ impl ConnectedDappsUi {
                      // to tell which account belongs to which app once the app's
                      // account is no longer the selected one.
                      if let Some(account) = account {
-                        ui.add(wallet_identity(
-                           ctx,
-                           chain_id,
-                           account,
-                           theme,
-                           icons.clone(),
-                        ));
+                        let (identity, spoken) =
+                           wallet_identity(ctx, chain_id, account, theme, icons.clone());
+
+                        let identity = ui.add(identity);
+                        name_address(ui, &identity, &spoken);
                      }
                   });
                }

@@ -5,9 +5,11 @@ use crate::core::{
    DecodedEvent, NftApproveParams, PermitParams, SendTxOptions, SendTxRequest, TokenApproveParams,
    TransactionAnalysis, WalletInfo, ZeusContext, ZeusCtx, send_transaction, signature,
 };
-use crate::gui::ui::common::{chain_label, usable_chain};
+use crate::gui::ui::common::{
+   SpokenAddress, chain_label, drawn_and_spoken, name_address, usable_chain,
+};
 use crate::gui::{SHARED_GUI, ui::show_with_fade};
-use crate::utils::{TimeStamp, simulate::simulate_for_analysis, truncate_address};
+use crate::utils::{TimeStamp, simulate::simulate_for_analysis};
 use anyhow::anyhow;
 use egui::{Align, Layout, Margin, RichText, Sense, TextWrapMode, Ui, vec2};
 use egui_elements::{
@@ -408,26 +410,39 @@ impl ApprovalsUi {
       self.current_page = 0;
    }
 
-   fn wallet_name(&self, ctx: &mut ZeusContext, address: Address) -> String {
-      ctx.get_wallet_name(address)
-         .unwrap_or_else(|| truncate_address(address.to_string()))
+   /// The wallet an approval belongs to, named or shortened, and the words for the same address.
+   fn wallet_label(&self, ctx: &mut ZeusContext, address: Address) -> (String, SpokenAddress) {
+      let name = ctx.get_wallet_name(address);
+
+      drawn_and_spoken(name.as_deref(), &address.to_string())
    }
 
-   fn spender_label(&self, ctx: &mut ZeusContext, chain: u64, spender: Address) -> String {
-      ctx.get_address_name(chain, spender)
-         .map(|s| s.to_string())
-         .unwrap_or_else(|| truncate_address(spender.to_string()))
+   /// The spender or operator an approval grants, named or shortened.
+   fn spender_label(
+      &self,
+      ctx: &mut ZeusContext,
+      chain: u64,
+      spender: Address,
+   ) -> (String, SpokenAddress) {
+      let name = ctx.get_address_name(chain, spender);
+
+      drawn_and_spoken(name.as_deref(), &spender.to_string())
    }
 
-   /// The name of an NFT collection an approval is over.
+   /// The name of an NFT collection an approval is over, and the words for the same address.
    ///
    /// `get_address_name` already names a collection Zeus has cached — an approval is often the first
    /// thing the user sees the collection in, though, so an unknown one falls back to its address
    /// rather than to a blank cell.
-   fn collection_label(&self, ctx: &mut ZeusContext, chain: u64, collection: Address) -> String {
-      ctx.get_address_name(chain, collection)
-         .map(|s| s.to_string())
-         .unwrap_or_else(|| truncate_address(collection.to_string()))
+   fn collection_label(
+      &self,
+      ctx: &mut ZeusContext,
+      chain: u64,
+      collection: Address,
+   ) -> (String, SpokenAddress) {
+      let name = ctx.get_address_name(chain, collection);
+
+      drawn_and_spoken(name.as_deref(), &collection.to_string())
    }
 
    /// The Tokens / NFTs switch.
@@ -787,11 +802,12 @@ impl ApprovalsUi {
                   t.rows(|r, row| {
                      // Asset — a token's symbol, or the collection an NFT approval is over.
                      r.cell(|ui| {
-                        let (icon, title, hover) = match &row.asset {
+                        let (icon, title, hover, spoken) = match &row.asset {
                            ApprovalAsset::Token { currency, .. } => (
                               icons.currency_icon_x32(currency, tint),
                               currency.symbol().to_string(),
                               currency.name().to_string(),
+                              None,
                            ),
                            ApprovalAsset::Nft {
                               collection,
@@ -808,9 +824,10 @@ impl ApprovalsUi {
                                     icons.nft_collection_icon_x64(row.chain, *collection, tint)
                                  }
                               };
-                              let name = self.collection_label(ctx, row.chain, *collection);
-                              let hover = format!("{}\n{}", name, collection);
-                              (icon, name, hover)
+                              let (title, spoken) =
+                                 self.collection_label(ctx, row.chain, *collection);
+                              let hover = format!("{}\n{}", title, collection);
+                              (icon, title, hover, Some(spoken))
                            }
                         };
 
@@ -819,7 +836,11 @@ impl ApprovalsUi {
                            .size(theme.typography.normal)
                            .color(theme.colors.text);
                         let label = Label::new(text, None).wrap().visuals(label_visuals);
-                        ui.add(label).on_hover_text(hover);
+                        let response = ui.add(label).on_hover_text(hover);
+
+                        if let Some(spoken) = &spoken {
+                           name_address(ui, &response, spoken);
+                        }
                      });
 
                      // Chain
@@ -836,26 +857,29 @@ impl ApprovalsUi {
 
                      // Wallet
                      r.cell(|ui| {
-                        let name = self.wallet_name(ctx, row.owner);
+                        let (name, spoken) = self.wallet_label(ctx, row.owner);
                         let text = RichText::new(&name)
                            .size(theme.typography.normal)
                            .color(theme.colors.text);
                         let label = Label::new(text, None)
                            .wrap_mode(TextWrapMode::Truncate)
                            .visuals(label_visuals);
-                        ui.add(label).on_hover_text(format!("{}\n{}", name, row.owner));
+                        let hover = format!("{}\n{}", name, row.owner);
+                        let response = ui.add(label).on_hover_text(hover);
+                        name_address(ui, &response, &spoken);
                      });
 
                      // Spender
                      r.cell(|ui| {
-                        let name = self.spender_label(ctx, row.chain, row.spender);
+                        let (name, spoken) = self.spender_label(ctx, row.chain, row.spender);
 
                         match spender_explorer_url(row.chain, row.spender) {
                            Some(link) => {
                               let text = RichText::new(&name)
                                  .size(theme.typography.normal)
                                  .color(theme.colors.info);
-                              ui.hyperlink_to(text, link);
+                              let response = ui.hyperlink_to(text, link);
+                              name_address(ui, &response, &spoken);
                            }
                            // No chain Zeus can name, so no correct explorer for it — drop the
                            // link and still show the spender.
@@ -866,7 +890,9 @@ impl ApprovalsUi {
                               let label = Label::new(text, None)
                                  .wrap_mode(TextWrapMode::Truncate)
                                  .visuals(label_visuals);
-                              ui.add(label).on_hover_text(format!("{}\n{}", name, row.spender));
+                              let hover = format!("{}\n{}", name, row.spender);
+                              let response = ui.add(label).on_hover_text(hover);
+                              name_address(ui, &response, &spoken);
                            }
                         }
                      });
