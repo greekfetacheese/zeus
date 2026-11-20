@@ -224,6 +224,31 @@ pub fn dots_button(theme: &Theme, size: Vec2, ui: &mut Ui) -> Response {
    resp
 }
 
+/// Put one sentence on the node behind a themed label, whatever the label reported for itself.
+///
+/// AccessKit names a `Role::Label` node from the node's value rather than its label, so the
+/// sentence goes in both: whichever of the two a consumer reads, the label says exactly the one
+/// thing it was given. A widget that made no node of its own is given a label node here, so the
+/// drawn text is never the only thing a reader gets; one that did keeps the role it has and only
+/// takes the words.
+pub fn name_text(ui: &Ui, response: &Response, text: impl Into<String>) {
+   let text = text.into();
+   let egui_ctx = ui.ctx();
+
+   if !egui_ctx.has_accesskit_node(response.id) {
+      let name = text.as_str();
+      response.widget_info(|| WidgetInfo::labeled(Role::Label, ui.is_enabled(), name));
+   }
+
+   egui_ctx.accesskit_node_builder(response.id, |node| {
+      if node.role() == Role::Label {
+         node.set_value(text.clone());
+      }
+
+      node.set_label(text.clone());
+   });
+}
+
 #[cfg(test)]
 mod tests {
    use super::*;

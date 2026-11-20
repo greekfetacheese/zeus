@@ -7,7 +7,7 @@ use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::{
    SHARED_GUI,
    ui::{
-      common::show_with_fade,
+      common::{name_text, show_with_fade},
       token_selection::{
          PickerMode, TokenSelectionWindow, cached_collections, nft_collection_name, ownership_badge,
       },
@@ -15,7 +15,8 @@ use crate::gui::{
 };
 use crate::utils::nft_icon::start_nft_art_downloads;
 use eframe::egui::{
-   Align, CornerRadius, CursorIcon, Layout, Margin, Order, RichText, TextWrapMode, Ui, vec2,
+   Align, CornerRadius, CursorIcon, Layout, Margin, Order, RichText, Role, TextWrapMode, Ui,
+   WidgetInfo, vec2,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -102,6 +103,9 @@ struct NftRow {
 struct PortfolioRows {
    /// The key these rows were built for; `None` before the first build.
    key: Option<PortfolioKey>,
+   /// Whether the rows below are the ones built for `key`, rather than the previous build's still
+   /// on screen while a new one runs.
+   landed: bool,
    /// Total value of the side on screen — public, or private in privacy mode.
    total_value: NumericValue,
    tokens: Vec<TokenRow>,
@@ -109,6 +113,16 @@ struct PortfolioRows {
    /// Collection metadata for the chain: the artwork preview is opened long after its row was
    /// built, so the resolved map rides with the rows.
    collections: HashMap<Address, NftCollection>,
+}
+
+impl PortfolioRows {
+   /// The total the header draws, once the rows under it are the ones for the current key.
+   ///
+   /// `None` while a build is in flight: the number on screen is the previous build's, and a total
+   /// that is about to be replaced is not one to read out.
+   fn shown_total(&self) -> Option<String> {
+      self.landed.then(|| total_text(&self.total_value))
+   }
 }
 
 pub struct PortfolioUi {
@@ -130,6 +144,13 @@ pub struct PortfolioUi {
    shown_for: Option<(u64, Address)>,
    /// The rows on screen, rebuilt when the key under them changes.
    rows: PortfolioRows,
+   /// The total last read out on this visit, so the same number is not said twice.
+   spoken_total: Option<String>,
+   /// The portfolio generation the user's own Refresh was pressed against, until the rows it
+   /// produced have landed and been read out.
+   refresh_from: Option<u64>,
+   /// The words the page hands back to the frame, which owns the announcement channel.
+   notice: Option<String>,
 }
 
 impl PortfolioUi {
@@ -143,6 +164,9 @@ impl PortfolioUi {
          nft_list_asked_for: None,
          shown_for: None,
          rows: PortfolioRows::default(),
+         spoken_total: None,
+         refresh_from: None,
+         notice: None,
       }
    }
 
@@ -158,6 +182,16 @@ impl PortfolioUi {
       self.open = false;
       // A reopen starts a new list; the previous session's preview must not re-appear over it.
       self.preview = None;
+      // Leaving re-arms the total: coming back is a new arrival, and the number may have moved
+      // while the page was away. The refresh marker goes with it — a press whose answer nobody
+      // was on the page to hear is not one to speak on the way back.
+      self.spoken_total = None;
+      self.refresh_from = None;
+   }
+
+   /// The words this page should say, drained by the frame right after it is drawn.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
    }
 
    pub fn show(
@@ -181,6 +215,9 @@ impl PortfolioUi {
             self.preview = None;
             // Rows built for another wallet are a claim about another wallet, not merely old data.
             self.rows = PortfolioRows::default();
+            // A refresh pressed for another wallet is not an answer about this one, and this wallet
+            // was not asked about at all.
+            self.refresh_from = None;
          }
 
          let key = PortfolioKey {
@@ -193,7 +230,35 @@ impl PortfolioUi {
          // Claimed before the spawn, so a build that never lands cannot start one per frame.
          if self.rows.key != Some(key) {
             self.rows.key = Some(key);
+            // What is on screen is the previous build's until the new rows land.
+            self.rows.landed = false;
             Self::build_rows(key);
+         }
+
+         // The rows are resolved off the GUI thread, so the page's first frames have no total and
+         // one arrives a frame or two after the page opens. Only an arrival and the user's own
+         // Refresh are read out: a rebuild and a wallet switch move the number without anything
+         // being asked of it, and a total read out on every frame it changes is noise.
+         let shown_total = self.rows.shown_total();
+         let refreshed = self.refresh_from.is_some_and(|generation| generation != key.generation);
+
+         if let Some(text) = announcement(
+            self.spoken_total.as_deref(),
+            shown_total.as_deref(),
+            refreshed,
+            ctx.chain.name(),
+         ) {
+            self.notice = Some(text);
+         }
+
+         if let Some(total) = &shown_total {
+            self.spoken_total = Some(total.clone());
+
+            // The rows for the newer generation have landed: the refresh's answer is on screen now,
+            // whether or not it moved the number.
+            if refreshed {
+               self.refresh_from = None;
+            }
          }
 
          Frame::new().outer_margin(Margin::same(5)).show(ui, |ui| {
@@ -238,12 +303,19 @@ impl PortfolioUi {
                            RichText::new(wallet_info.name_with_source())
                               .size(theme.typography.very_large),
                         );
-                        let total_value = format!("${:.10}", self.rows.total_value.abbreviated());
+                        let total_value = total_text(&self.rows.total_value);
 
-                        ui.label(
-                           RichText::new(total_value)
+                        let total = ui.label(
+                           RichText::new(total_value.as_str())
                               .heading()
                               .size(theme.typography.heading + 4.0),
+                        );
+
+                        // The number on its own says neither what it is nor which chain it is on.
+                        name_text(
+                           ui,
+                           &total,
+                           total_sentence(ctx.chain.name(), &total_value),
                         );
                      });
 
@@ -281,8 +353,17 @@ impl PortfolioUi {
                            let button = Button::image(icon).small().visuals(visuals);
                            let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
+                           // The button is a picture of a refresh arrow and says nothing else.
+                           res.widget_info(|| {
+                              WidgetInfo::labeled(
+                                 Role::Button,
+                                 ui.is_enabled(),
+                                 "Refresh portfolio",
+                              )
+                           });
+
                            if res.clicked() {
-                              self.refresh(owner);
+                              self.refresh(owner, key.generation);
 
                               // Let the NFT list be asked for again: this is how a token that has just
                               // left — or one that has come back — updates its badge.
@@ -391,25 +472,39 @@ impl PortfolioUi {
                                     .image_on_left()
                                     .wrap()
                                     .interactive(false);
-                                 ui.add(label).on_hover_text(&row.name);
+                                 let asset = ui.add(label).on_hover_text(&row.name);
+
+                                 // The full name is hover-only, so a cell read by the drawn symbol
+                                 // alone loses the one word that says which token it is.
+                                 let (name, symbol) = asset_name(&row.name, &row.symbol);
+                                 name_text(ui, &asset, name);
+
+                                 if let Some(symbol) = symbol {
+                                    ui.ctx().accesskit_node_builder(asset.id, |node| {
+                                       node.set_description(symbol.as_str());
+                                    });
+                                 }
                               });
 
                               r.cell(|ui| {
                                  let text = RichText::new(&row.price).size(normal);
                                  let label = Label::text(text);
-                                 ui.add(label);
+                                 let price = ui.add(label);
+                                 name_text(ui, &price, format!("Price {}", row.price));
                               });
 
                               r.cell(|ui| {
                                  let text = RichText::new(&row.balance).size(normal);
                                  let label = Label::text(text);
-                                 ui.add(label);
+                                 let balance = ui.add(label);
+                                 name_text(ui, &balance, format!("Balance {}", row.balance));
                               });
 
                               r.cell(|ui| {
                                  let text = RichText::new(&row.value).size(normal);
                                  let label = Label::text(text);
-                                 ui.add(label);
+                                 let value = ui.add(label);
+                                 name_text(ui, &value, format!("Value {}", row.value));
                               });
 
                               r.cell(|ui| {
@@ -418,7 +513,16 @@ impl PortfolioUi {
                                  };
 
                                  let text = RichText::new("X").size(normal);
-                                 if ui.add(Button::new(text)).clicked() {
+                                 let remove = ui.add(Button::new(text));
+                                 let name = format!("Remove {}", row.symbol);
+
+                                 // The glyph is the same on every row; the sentence says which
+                                 // token this one drops.
+                                 remove.widget_info(|| {
+                                    WidgetInfo::labeled(Role::Button, ui.is_enabled(), name.clone())
+                                 });
+
+                                 if remove.clicked() {
                                     remove_request = Some(token.clone());
                                  }
                               });
@@ -556,12 +660,18 @@ impl PortfolioUi {
                   });
 
                   r.cell(|ui| {
-                     ui.add(icons.nft_icon_x64(
+                     let artwork = ui.add(icons.nft_icon_x64(
                         row.token.chain_id,
                         row.token.collection,
                         row.token.token_id,
                         tint,
                      ));
+
+                     // The thumbnail is this token's, and a picture on its own says nothing about
+                     // which token that is.
+                     artwork.widget_info(|| {
+                        WidgetInfo::labeled(Role::Image, ui.is_enabled(), row.title.clone())
+                     });
                   });
 
                   r.cell(|ui| {
@@ -577,7 +687,11 @@ impl PortfolioUi {
                         let title_label = Label::new(title_text, None)
                            .wrap_mode(TextWrapMode::Truncate)
                            .interactive(false);
-                        ui.add(title_label).on_hover_text(&row.title);
+                        let title = ui.add(title_label).on_hover_text(&row.title);
+
+                        // The column truncates the drawn title; the node carries the whole of it,
+                        // so nothing a reader hears depends on how wide the column happens to be.
+                        name_text(ui, &title, row.title.clone());
 
                         let subtitle_text = RichText::new(&row.subtitle)
                            .size(theme.typography.small)
@@ -585,7 +699,8 @@ impl PortfolioUi {
                         let subtitle_label = Label::new(subtitle_text, None)
                            .wrap_mode(TextWrapMode::Truncate)
                            .interactive(false);
-                        ui.add(subtitle_label);
+                        let subtitle = ui.add(subtitle_label);
+                        name_text(ui, &subtitle, row.subtitle.clone());
                      });
                   });
 
@@ -598,15 +713,26 @@ impl PortfolioUi {
                         holding.unwrap_or(0),
                      );
 
-                     let remove = Button::new(RichText::new("X").size(normal));
+                     let remove = ui.add(Button::new(RichText::new("X").size(normal)));
+                     let name = format!("Remove {}", row.title);
 
-                     if ui.add(remove).clicked() {
+                     // The drawn X is the same glyph on every row; the sentence says whose.
+                     remove.widget_info(|| {
+                        WidgetInfo::labeled(Role::Button, ui.is_enabled(), name.clone())
+                     });
+
+                     if remove.clicked() {
                         remove_request = Some(row.token.clone());
                      }
 
-                     let view = Button::new(RichText::new("View").size(normal));
+                     let view = ui.add(Button::new(RichText::new("View").size(normal)));
+                     let name = format!("View {}", row.title);
 
-                     if ui.add(view).clicked() {
+                     view.widget_info(|| {
+                        WidgetInfo::labeled(Role::Button, ui.is_enabled(), name.clone())
+                     });
+
+                     if view.clicked() {
                         preview_request = Some(row.token.clone());
                      }
                   });
@@ -637,12 +763,12 @@ impl PortfolioUi {
       };
       let collection = collection.as_ref();
 
-      let heading = RichText::new(format!(
+      let title = format!(
          "{} #{}",
          nft_collection_name(collection, token.collection),
          token.token_id
-      ))
-      .size(theme.typography.heading);
+      );
+      let heading = RichText::new(title.as_str()).size(theme.typography.heading);
       let subtitle = Self::nft_subtitle(collection, token.standard);
       let frame = theme.window_frame.fill(theme.frame1.fill);
 
@@ -661,12 +787,16 @@ impl PortfolioUi {
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = theme.spacing.md;
 
-               ui.add(icons.nft_icon_x250(
+               let artwork = ui.add(icons.nft_icon_x250(
                   token.chain_id,
                   token.collection,
                   token.token_id,
                   theme.image_tint_recommended,
                ));
+
+               // The artwork is this token's, and the picture alone says nothing about which.
+               artwork
+                  .widget_info(|| WidgetInfo::labeled(Role::Image, ui.is_enabled(), title.clone()));
 
                ui.label(
                   RichText::new(subtitle)
@@ -786,8 +916,11 @@ impl PortfolioUi {
       });
    }
 
-   fn refresh(&mut self, owner: Address) {
+   fn refresh(&mut self, owner: Address, generation: u64) {
       self.show_spinner = true;
+      // The portfolio generation this press started from: the rows built from a newer one are its
+      // answer, and only those may be read out as the result of it.
+      self.refresh_from = Some(generation);
       crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let chain = ctx.chain().id();
@@ -927,6 +1060,60 @@ impl PortfolioUi {
    }
 }
 
+/// The total as the header draws it: a dollar sign and the abbreviated value, cut to ten
+/// characters.
+///
+/// The header and every sentence about the total read it from here, so what is spoken and what is
+/// drawn are the same number in the same form.
+fn total_text(total_value: &NumericValue) -> String {
+   format!("${:.10}", total_value.abbreviated())
+}
+
+/// The sentence a reader gets for the total: the number, and the chain it is on.
+fn total_sentence(chain: &str, total: &str) -> String {
+   format!("Portfolio value on {chain}, {total}")
+}
+
+/// What a token's own cell says, and the symbol it may add as a description.
+///
+/// The full name is hover-only, so a cell read by the drawn symbol alone loses the one word that
+/// says which token it is. A name that only repeats the symbol is said once, and a token Zeus has
+/// no name for is named by the symbol it draws.
+fn asset_name(name: &str, symbol: &str) -> (String, Option<String>) {
+   let name = name.trim();
+
+   if name.is_empty() || name == symbol {
+      (symbol.to_string(), None)
+   } else {
+      (name.to_string(), Some(symbol.to_string()))
+   }
+}
+
+/// What a reader hears for the portfolio's total, if anything.
+///
+/// `previous` is the total last read out on this visit and `current` the one on screen now, which
+/// is `None` until the rows behind it have landed: they are built off the GUI thread, so the page's
+/// first frames have no total to read. The number moves on its own whenever a rebuild lands and on
+/// every wallet switch, and neither of those is the user asking about it, so exactly two things are
+/// said: the total the first time it is known on a visit, and a number the user's own Refresh
+/// changed. Saying nothing is the answer for every other frame.
+pub(crate) fn announcement(
+   previous: Option<&str>,
+   current: Option<&str>,
+   refreshed: bool,
+   chain: &str,
+) -> Option<String> {
+   let current = current?;
+
+   match previous {
+      None => Some(total_sentence(chain, current)),
+      Some(previous) if refreshed && previous != current => {
+         Some(format!("Portfolio refreshed. Value {current}"))
+      }
+      Some(_) => None,
+   }
+}
+
 /// Resolve the portfolio into the rows the panel paints, off the GUI thread.
 ///
 /// It does what the frame path used to do, in the same order: read the portfolio, take the value of the
@@ -1023,6 +1210,7 @@ fn resolve_rows(ctx: &ZeusCtx, key: PortfolioKey) -> PortfolioRows {
 
    PortfolioRows {
       key: Some(key),
+      landed: true,
       total_value,
       tokens,
       nfts,

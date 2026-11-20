@@ -10,7 +10,9 @@
 //! shortened form stays reachable as the node's description.
 
 use crate::utils::truncate_address;
-use egui::{Response, Role, Ui, WidgetInfo};
+use egui::{Response, Ui};
+
+use super::name_text;
 
 /// What a screen reader should say for one address, and what it may add on request.
 pub struct SpokenAddress {
@@ -91,30 +93,18 @@ pub fn transfer_for_speech(from: &SpokenAddress, to: &SpokenAddress) -> SpokenAd
 
 /// Put a spoken form on the node `response` already created for a drawn address.
 ///
-/// The drawn text keeps its place on screen; the node is what a reader hears. AccessKit names a
-/// `Role::Label` node from its value rather than its label, so the name goes in both. A themed
-/// label paints its text without reporting anything to the platform, so an address drawn that way
-/// has no node until one is made here; a node that already exists — a link, a button, an egui
-/// label — keeps the role it has.
+/// The drawn text keeps its place on screen; the node is what a reader hears. The name goes
+/// through [`name_text`], which is the one place a drawn label is named. What is left to this
+/// function is the address's own second form: the full address, or the shortening Zeus draws, for
+/// whoever asks for it.
 pub fn name_address(ui: &Ui, response: &Response, spoken: &SpokenAddress) {
-   let egui_ctx = ui.ctx();
+   name_text(ui, response, spoken.name.clone());
 
-   if !egui_ctx.has_accesskit_node(response.id) {
-      let name = spoken.name.as_str();
-      response.widget_info(|| WidgetInfo::labeled(Role::Label, ui.is_enabled(), name));
-   }
-
-   egui_ctx.accesskit_node_builder(response.id, |node| {
-      if node.role() == Role::Label {
-         node.set_value(spoken.name.clone());
-      }
-
-      node.set_label(spoken.name.clone());
-
-      if let Some(description) = &spoken.description {
+   if let Some(description) = &spoken.description {
+      ui.ctx().accesskit_node_builder(response.id, |node| {
          node.set_description(description.as_str());
-      }
-   });
+      });
+   }
 }
 
 /// The full form a reader hears: an EVM address in groups of four hex characters, so it can be

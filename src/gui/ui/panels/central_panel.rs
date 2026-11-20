@@ -112,6 +112,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
    gui.portofolio.show(ctx, theme, icons.clone(), token_selection, ui);
 
+   // The portfolio page has no channel of its own — the frame holds the only one — so it hands its
+   // one sentence back here, and it is said below rather than from inside the page.
+   let portfolio_notice = gui.portofolio.take_notice();
+
    gui.uniswap.show(ctx, theme, icons.clone(), token_selection, ui);
 
    gui.shield_ui.show(
@@ -135,6 +139,12 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    gui.tx_history.show(ctx, theme, ui);
 
    gui.approvals.show(ctx, theme, icons.clone(), ui);
+
+   // Said once every page has had its turn: the channel keeps the last call of a frame, and this
+   // sentence is about the page the user is on.
+   if let Some(text) = portfolio_notice {
+      gui.announce(text);
+   }
 
    #[cfg(feature = "dev")]
    gui.dev.show(ctx, theme, icons, ui);
