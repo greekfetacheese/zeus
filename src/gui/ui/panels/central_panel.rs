@@ -95,6 +95,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       ui,
    );
 
+   // The signing prompt draws from a borrowed theme too, so its one sentence comes back here like
+   // the confirmation's.
+   let sign_notice = gui.sign_msg_window.take_notice();
+
    gui.across_bridge.show(
       ctx,
       theme,
@@ -187,6 +191,12 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
    // The confirmation is the topmost surface there is: its answer is the last thing said.
    if let Some(text) = confirmation_notice {
+      gui.announce(text);
+   }
+
+   // The signing prompt is drawn after the confirmation, so when both are up it is the one on
+   // top: its answer is the last thing said.
+   if let Some(text) = sign_notice {
       gui.announce(text);
    }
 }

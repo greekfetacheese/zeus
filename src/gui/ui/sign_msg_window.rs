@@ -1,7 +1,8 @@
 //! UI that allows the user to inspect and sign a message
 
 use egui::{
-   Align, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui, vec2,
+   Align, FontId, Frame, Id, Key, Layout, Margin, Order, Rect, RichText, Role, ScrollArea, Sense,
+   TextEdit, Ui, WidgetInfo, vec2,
 };
 use egui_elements::{Button, Label, Modal, Theme};
 
@@ -10,7 +11,10 @@ use crate::core::clear_signing::FormattedValue;
 use crate::core::{SignMsgType, ZeusContext};
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::windows::PromptGate;
-use crate::gui::ui::common::{address::name_address, delayed_action_label, wallet_identity};
+use crate::gui::ui::common::{
+   address::name_address, address_for_speech, delayed_action_remaining, heading, name_text,
+   wallet_identity,
+};
 use crate::gui::ui::tx::{address, chain};
 
 use serde_json::{Value, to_string_pretty};
@@ -36,6 +40,16 @@ pub struct SignMsgWindow {
    formatted_msg: Option<String>,
    signed: Option<bool>,
    opened_at: Option<Instant>,
+   /// True until the opening painted frame has put focus on the message heading.
+   ///
+   /// The modal spends two invisible sizing passes before it paints, and focus requested on
+   /// those does not survive the pass, so the flag is cleared only once the frame a reader can
+   /// be handed has drawn.
+   focus_pending: bool,
+   /// The countdown's one announcement has been raised for this prompt.
+   ready_announced: bool,
+   /// The words this window hands back to the frame, which owns the announcement channel.
+   notice: Option<String>,
    size: (f32, f32),
 }
 
@@ -51,6 +65,9 @@ impl SignMsgWindow {
          formatted_msg: None,
          signed: None,
          opened_at: None,
+         focus_pending: false,
+         ready_announced: false,
+         notice: None,
          size: (500.0, 750.0),
       }
    }
@@ -71,6 +88,11 @@ impl SignMsgWindow {
       self.msg = Some(msg);
       self.formatted_msg = None;
       self.signed = None;
+      // A prompt the user has not seen yet starts with its action focused, the countdown still
+      // to say, and nothing of the previous prompt's words left over.
+      self.focus_pending = true;
+      self.ready_announced = false;
+      self.notice = None;
       self.opened_at = Some(Instant::now());
    }
 
@@ -123,6 +145,11 @@ impl SignMsgWindow {
       signed
    }
 
+   /// The words this window should say, drained by the frame right after it is drawn.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
+   }
+
    /// Close without signing and answer the awaiting `sign_message` with a
    /// cancel, so it errors out instead of hanging. Used when auto-lock fires.
    pub fn reject(&mut self) {
@@ -143,13 +170,13 @@ impl SignMsgWindow {
       }
 
       let mut open = self.open;
+      let mut escape = false;
 
       // The heading names what is actually being signed (permit, sign-in,
       // plain message, …), so it is the only title — the body does not repeat it.
-      let mut title = RichText::new(self.msg.as_ref().map_or("Sign Message", |msg| msg.title()))
-         .size(theme.typography.heading);
+      let mut title = RichText::new(self.title()).size(theme.typography.heading);
 
-      if self.msg.as_ref().is_some_and(|msg| msg.is_unlimited()) {
+      if self.unlimited_approval().is_some() {
          title = title.color(theme.colors.error);
       }
 
@@ -165,6 +192,22 @@ impl SignMsgWindow {
          .closable(false)
          .frame(frame)
          .show(ui.ctx(), |ui| {
+            // Escape is the window's own way out: `closable(false)` keeps the close button from
+            // taking focus, so the key has to be read here and answered as a cancel.
+            escape = ui.input(|input| input.key_pressed(Key::Escape));
+
+            // What is signed comes first for a reader: a zero-size heading at the top of the
+            // body, focused once when the window opens and never again — a prompt must not keep
+            // pulling the focus back from what the user reached next.
+            let title_heading = heading(ui, self.title());
+            // A shrink-wrapping modal spends two invisible sizing passes before its first painted
+            // frame, and focus requested on those does not survive the pass: wait for the frame a
+            // reader can actually be handed.
+            if self.focus_pending && !ui.is_sizing_pass() {
+               title_heading.request_focus();
+               self.focus_pending = false;
+            }
+
             ui.set_width(self.size.0);
             ui.set_max_height(self.size.1);
 
@@ -190,10 +233,19 @@ impl SignMsgWindow {
                   let msg = msg.unwrap();
 
                   frame2.show(ui, |ui| {
+                     // Who asked is the first thing after the action, and an in-app request has
+                     // no origin line at all: its node says Zeus rather than leaving the question
+                     // unanswered, while the visual stays as empty as it was.
                      if !self.dapp.is_empty() {
-                        ui.label(RichText::new(&self.dapp).size(large));
+                        let response = ui.label(RichText::new(&self.dapp).size(large));
+                        name_text(ui, &response, format!("Requested by {}", self.dapp));
 
                         ui.separator();
+                     } else {
+                        let id = ui.scope_id().with("sign_msg_origin");
+                        let rect = Rect::from_min_size(ui.next_widget_position(), vec2(0.0, 0.0));
+                        let response = ui.interact(rect, id, Sense::focusable_noninteractive());
+                        name_text(ui, &response, "Requested by Zeus");
                      }
 
                      // The signing account may differ from the active one (apps get
@@ -220,6 +272,25 @@ impl SignMsgWindow {
                      let p = "Unknown message, review the details below carefully.";
                      let text = RichText::new(p).size(normal).color(warning);
                      ui.label(text);
+                  }
+
+                  // An unlimited allowance changes the title's colour and colours the token
+                  // amount, and a colour is not a sentence: the spender and the grant are said
+                  // here, before the block that carries them, so the warning cannot be missed by
+                  // ear. The predicate is the title's own, so the two can never disagree.
+                  if let Some((permit_chain, spender)) = self.unlimited_approval() {
+                     let name = ctx.get_address_name(permit_chain.id(), spender);
+                     let spoken = address_for_speech(name.as_deref(), &spender.to_string());
+                     let sentence = format!(
+                        "Unlimited allowance. This signature lets {} take all of this token, now and later.",
+                        spoken.name
+                     );
+                     let response = ui.label(
+                        RichText::new(&sentence).size(normal).color(warning),
+                     );
+                     response.widget_info(|| {
+                        WidgetInfo::labeled(Role::Alert, ui.is_enabled(), sentence.clone())
+                     });
                   }
 
                   if msg.is_permit2_single() {
@@ -254,18 +325,30 @@ impl SignMsgWindow {
                      self.formatted_msg = Some(format_sign_data(&msg, self.chain));
                   }
 
-                  // Show the msg
+                  // Show the msg. The buffer is a viewer, not an editor: every edit is thrown
+                  // away with the next frame's clone, so a field a reader is told it can type into
+                  // invites typing that does nothing and says nothing about it.
                   if let Some(mut formatted) = self.formatted_msg.clone() {
                      let text_edit = TextEdit::multiline(&mut formatted)
                         .font(FontId::proportional(normal))
                         .margin(Margin::same(10))
-                        .desired_width(ui.available_width() * 0.95);
+                        .desired_width(ui.available_width() * 0.95)
+                        .interactive(false);
 
-                     ui.label(RichText::new("Message").size(large));
+                     let label = ui.label(RichText::new("Message").size(large));
+                     // The word is the field's own name now; leaving the drawn label in the tree
+                     // as well would have a reader hear "Message" twice.
+                     ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
 
                      let height = if msg.is_known() { 300.0 } else { 450.0 };
                      ScrollArea::vertical().max_height(height).content_margin(5).show(ui, |ui| {
-                        ui.add(text_edit);
+                        let response = ui.add(text_edit);
+                        // The field is the window's one text node; the name says which part of
+                        // the prompt it is, and the description that nothing here is typed into.
+                        ui.ctx().accesskit_node_builder(response.id, |node| {
+                           node.set_label("Message");
+                           node.set_description("The raw message Zeus will sign.");
+                        });
                      });
                   }
 
@@ -277,12 +360,16 @@ impl SignMsgWindow {
                      let button_size = vec2(ui.available_width() * 0.5, 45.0);
 
                      ui.horizontal(|ui| {
-                        let (sign_ready, sign_label) = delayed_action_label(self.opened_at, "Sign");
-                        if !sign_ready {
+                        // The countdown changes the button's description, never its name: a name
+                        // that moves every second makes the same control a new one each frame, and
+                        // "Sign" is the one word that says what the click does.
+                        let remaining = delayed_action_remaining(self.opened_at);
+                        let sign_ready = remaining.is_none();
+                        if remaining.is_some() {
                            ui.ctx().request_repaint_after(Duration::from_millis(100));
                         }
 
-                        let text = RichText::new(sign_label).size(normal);
+                        let text = RichText::new("Sign").size(normal);
                         let ok_btn = Button::new(text).min_size(button_size);
 
                         // Copy the settings out first: the widget needs an owned
@@ -299,7 +386,25 @@ impl SignMsgWindow {
                         // so this is symmetry with the confirm window's guard and
                         // defence rather than a live bug.
                         let actionable = Self::sign_actionable(sign_ready);
-                        if ui.add_enabled(actionable, ok_btn).clicked() && actionable {
+                        let response = ui.add_enabled(actionable, ok_btn);
+
+                        // A disabled control is still a node, and its description is the one part
+                        // of it a reader can reach: the wait while it runs goes there.
+                        if let Some(secs) = remaining {
+                           ui.ctx().accesskit_node_builder(response.id, |node| {
+                              node.set_description(format!("Available in {secs} seconds"));
+                           });
+                        }
+
+                        // Say the wait once, and only when it actually opens the button.
+                        if self.opened_at.is_some() && sign_ready && !self.ready_announced {
+                           self.ready_announced = true;
+                           if actionable {
+                              self.notice = Some("Sign is now available.".to_string());
+                           }
+                        }
+
+                        if response.clicked() && actionable {
                            self.signed = Some(true);
                            self.close();
                         }
@@ -319,12 +424,91 @@ impl SignMsgWindow {
                });
             });
          });
+
+      if escape {
+         open = false;
+      }
+
+      // Every way out that is not Sign is a Cancel. The local `open` flag is written back here —
+      // it never was before, so Escape and the backdrop could not mean "no" — and the answer is
+      // recorded once so the awaiting flow cannot hang. A Sign click already recorded `Some(true)`
+      // and must not be turned into a no.
+      if !open || !self.open {
+         self.open = false;
+
+         if self.signed.is_none() {
+            self.signed = Some(false);
+         }
+
+         if self.signed == Some(false) {
+            self.notice = Some("Message not signed.".to_string());
+         }
+      }
+   }
+
+   /// The window's title: what is actually being signed.
+   ///
+   /// One string for the dialog heading and for the heading node a reader lands on first, so the
+   /// two cannot name different things.
+   fn title(&self) -> &str {
+      self.msg.as_ref().map_or("Sign Message", |msg| msg.title())
+   }
+
+   /// The spender of an unlimited permit, and the chain the permit is signed for, when this
+   /// message grants one.
+   ///
+   /// One predicate for the red title and the warning line in the body: a colour says nothing to
+   /// a reader, and the two must never disagree about what is unlimited. The chain is the
+   /// permit's own — not the wallet's — so the spender is named by the address book of the chain
+   /// the allowance actually grants on.
+   fn unlimited_approval(&self) -> Option<(ChainId, Address)> {
+      let msg = self.msg.as_ref()?;
+
+      if !msg.is_unlimited() {
+         return None;
+      }
+
+      if msg.is_permit2_single() {
+         let details = msg.permit2_details();
+         Some((details.chain.into(), details.spender))
+      } else if msg.is_permit2612() {
+         let details = msg.permit2612_details();
+         Some((details.token.chain_id.into(), details.spender))
+      } else {
+         None
+      }
    }
 
    /// The sign action is available only while the button is enabled: a hold that
    /// began before the button disabled must not sign afterwards.
    fn sign_actionable(sign_ready: bool) -> bool {
       sign_ready
+   }
+
+   /// The window as the signing path leaves it, for the accessibility tests that render it
+   /// headlessly.
+   ///
+   /// The accessibility tests live outside this module, so this is the one way they can stand up
+   /// a prompt: `open` starts the countdown at the current instant, which no test of the Sign
+   /// button's ready state could wait out.
+   #[cfg(test)]
+   pub(crate) fn for_test(
+      dapp: &str,
+      chain: ChainId,
+      account: Address,
+      msg: SignMsgType,
+      opened_at: Option<Instant>,
+   ) -> Self {
+      let mut window = SignMsgWindow::new();
+      window.dapp = dapp.to_string();
+      window.chain = chain;
+      window.account = account;
+      window.msg = Some(msg);
+      window.opened_at = opened_at;
+      window.focus_pending = true;
+      window.open = true;
+
+      window
    }
 }
 
@@ -393,7 +577,7 @@ fn permit2_single_approval(
       if !is_revoke {
          ui.horizontal(|ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(RichText::new("Approval expire").size(theme.typography.large));
+               ui.label(RichText::new("Approval expires").size(theme.typography.large));
             });
 
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -668,7 +852,7 @@ fn _permit2_batch_approval_ui(
    // Approval expire
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Approval expire").size(theme.typography.normal));
+         ui.label(RichText::new("Approval expires").size(theme.typography.normal));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
