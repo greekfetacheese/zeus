@@ -111,6 +111,20 @@ pub fn blocked_reason_line(ui: &mut Ui, theme: &Theme, reason: &str) {
    );
 }
 
+/// The sentence to announce for a blocked action whose reason changed between two frames.
+///
+/// `None` when there is nothing to say: no reason before and none now, or the same reason still
+/// blocking. A reason that goes away says nothing either — an enabled button is its own news, and
+/// announcing the loss of a sentence nobody asked about would talk over what the user is doing.
+pub fn blocked_announcement(previous: Option<&str>, current: Option<&str>) -> Option<String> {
+   match (previous, current) {
+      (None, None) => None,
+      (Some(previous), Some(current)) if previous == current => None,
+      (Some(_), None) => None,
+      (None, Some(current)) | (Some(_), Some(current)) => Some(current.to_string()),
+   }
+}
+
 /// Events that count as the user doing something (they reset the auto-lock
 /// idle timer).
 ///
@@ -416,5 +430,36 @@ mod tests {
 
       assert!(usable_chain(137).is_none());
       assert!(usable_chain(u64::MAX).is_none());
+   }
+
+   /// The rule the Send form follows: a reason that appears or changes is a new sentence, the same
+   /// reason a frame later is not, and a block that lifts says nothing.
+   #[test]
+   fn a_blocked_reason_is_said_when_it_changes() {
+      assert_eq!(blocked_announcement(None, None), None);
+
+      assert_eq!(
+         blocked_announcement(None, Some("Invalid Amount")).as_deref(),
+         Some("Invalid Amount")
+      );
+
+      assert_eq!(
+         blocked_announcement(Some("Invalid Amount"), Some("Invalid Amount")),
+         None
+      );
+
+      assert_eq!(
+         blocked_announcement(
+            Some("Invalid Amount"),
+            Some("Insufficient ETH Balance")
+         )
+         .as_deref(),
+         Some("Insufficient ETH Balance")
+      );
+
+      assert_eq!(
+         blocked_announcement(Some("Invalid Amount"), None),
+         None
+      );
    }
 }

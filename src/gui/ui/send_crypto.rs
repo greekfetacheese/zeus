@@ -24,7 +24,8 @@ use crate::gui::{
    ui::{
       ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
       common::{
-         AmountField, AmountFieldParams, blocked_reason_line, recipient_field, show_with_fade,
+         AmountField, AmountFieldParams, blocked_announcement, blocked_reason_line,
+         recipient_field, show_with_fade,
       },
       dapps::railgun::{RailgunAsset, private_transfer},
       token_selection::{PickerMode, nft_collection_name},
@@ -1332,20 +1333,6 @@ impl SendCryptoUi {
          }
       });
       Ok(())
-   }
-}
-
-/// The sentence to announce for a blocked Send whose reason changed between two frames.
-///
-/// `None` when there is nothing to say: no reason before and none now, or the same reason still
-/// blocking. A reason that goes away says nothing either — an enabled Send is its own news, and
-/// announcing the loss of a sentence nobody asked about would talk over what the user is doing.
-pub fn blocked_announcement(previous: Option<&str>, current: Option<&str>) -> Option<String> {
-   match (previous, current) {
-      (None, None) => None,
-      (Some(previous), Some(current)) if previous == current => None,
-      (Some(_), None) => None,
-      (None, Some(current)) | (Some(_), Some(current)) => Some(current.to_string()),
    }
 }
 

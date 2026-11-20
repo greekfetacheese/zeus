@@ -15,6 +15,7 @@ pub struct ChainSelect {
    pub chain: ChainId,
    pub size: Vec2,
    pub show_icon: bool,
+   pub caption: Option<&'static str>,
    pub show_disabled_chains: bool,
    pub expansion: Option<f32>,
 }
@@ -26,6 +27,7 @@ impl ChainSelect {
          chain: ChainId::new(default_chain).unwrap(),
          size: (200.0, 25.0).into(),
          show_icon: true,
+         caption: None,
          show_disabled_chains: false,
          expansion: Some(4.0),
       }
@@ -38,6 +40,13 @@ impl ChainSelect {
 
    pub fn show_icon(mut self, show: bool) -> Self {
       self.show_icon = show;
+      self
+   }
+
+   /// The chain name a reader hears, as in "From chain: Ethereum", while the face on screen
+   /// keeps the chain alone.
+   pub fn caption(mut self, caption: &'static str) -> Self {
+      self.caption = Some(caption);
       self
    }
 
@@ -71,6 +80,11 @@ impl ChainSelect {
       .interactive(true)
       .sense(Sense::click())
       .visuals(label_visuals);
+
+      // The trigger's node is the next widget this ui allocates. The crate keys the animation and
+      // popup by its own button id rather than by that response, so the response id has to be taken
+      // here, before the button exists, instead of being derived from the picker's id.
+      let trigger_id = ui.next_auto_id();
 
       ComboBox::new(self.id, current_chain_label)
          .visuals(combo_visuals)
@@ -106,6 +120,16 @@ impl ChainSelect {
                }
             }
          });
+
+      // The trigger's node is named from its closed face, which is the chain alone, so two pickers
+      // on one form both read as plain chain names. Name the node this picker owns instead, and read
+      // the chain after the popup has run so a chain picked this frame is the one named.
+      if let Some(caption) = self.caption {
+         ui.ctx().accesskit_node_builder(trigger_id, |node| {
+            node.set_label(format!("{}: {}", caption, self.chain.name()))
+         });
+      }
+
       clicked
    }
 }

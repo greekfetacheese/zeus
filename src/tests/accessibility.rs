@@ -2257,6 +2257,68 @@ fn a_themed_label_is_named_with_its_sentence() {
       "a widget with no node of its own must be given one: {names:?}"
    );
 }
+
+/// A notice panel draws its title and hint with plain labels, and a plain label already carries its
+/// text into the tree. This pins that the dapp panels' prose is reachable without being rewritten,
+/// and fails loudly if a future egui stops emitting it.
+#[test]
+fn prose_in_a_notice_panel_reaches_the_tree() {
+   use crate::gui::ui::common::notices::notice_panel;
+
+   let ctx = Context::default();
+   let mut theme = Theme::new(ThemeKind::TokyoNight);
+   theme.install(&ctx);
+
+   let title = "Railgun is disabled";
+   let hint = "Enable it in Settings/Railgun to shield and unshield.";
+
+   let nodes = frame(&ctx, |ui| {
+      notice_panel(&theme, (300.0, 120.0), title, Some(hint), ui);
+   });
+
+   let spoken = label_texts(&nodes);
+
+   for sentence in [title, hint] {
+      assert!(
+         spoken.contains(&sentence),
+         "a notice line must reach the tree as a label carrying its own text: {sentence:?} in {spoken:?}"
+      );
+   }
+}
+
+/// A caption is what lets two pickers side by side say which side of the form they are on: the
+/// trigger is otherwise named from the chain it draws, which is the same kind of name on both.
+#[test]
+fn a_chain_picker_says_which_side_it_is() {
+   use crate::gui::ui::common::ChainSelect;
+
+   let ctx = Context::default();
+   let mut gui = GUI::default();
+   gui.theme.install(&ctx);
+
+   let theme = gui.theme.clone();
+   let icons = gui.icons.clone();
+   let zeus = ZeusCtx::new(crate::runtime::test_handle());
+   let mut picker = ChainSelect::new("from_chain_test", 1).caption("From chain");
+
+   let nodes = frame(&ctx, |ui| {
+      zeus.write(|zeus| {
+         picker.show(zeus, &[], &theme, icons.clone(), ui);
+      });
+   });
+
+   let named = nodes
+      .iter()
+      .find(|node| node.label() == Some("From chain: Ethereum"))
+      .expect("the picker must say which side of the form it is");
+
+   assert_eq!(
+      named.role(),
+      Role::Button,
+      "the caption must name the picker's trigger, not add a node beside it"
+   );
+}
+
 /// The amount field's node says how much it holds and what it is worth, never what was typed: the
 /// amount is on screen, and a node that repeated it would read the whole field back on every
 /// keystroke. Everything the field draws beside itself is folded into that one node.
@@ -2710,7 +2772,7 @@ fn the_nft_send_form_names_its_selector_and_amount() {
 /// the same reason a frame later is not, and a block that lifts says nothing.
 #[test]
 fn the_send_block_is_announced_when_it_appears_or_changes() {
-   use crate::gui::ui::send_crypto::blocked_announcement;
+   use crate::gui::ui::common::blocked_announcement;
 
    for (previous, current, expected) in [
       (

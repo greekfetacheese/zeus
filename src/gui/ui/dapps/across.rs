@@ -163,8 +163,12 @@ pub struct AcrossBridge {
 impl AcrossBridge {
    pub fn new() -> Self {
       let settings = load_settings().unwrap_or_default();
-      let from_chain = ChainSelect::new("across_bridge_from_chain", 1).size(vec2(180.0, 25.0));
-      let to_chain = ChainSelect::new("across_bridge_to_chain", 10).size(vec2(180.0, 25.0));
+      let from_chain = ChainSelect::new("across_bridge_from_chain", 1)
+         .size(vec2(180.0, 25.0))
+         .caption("From chain");
+      let to_chain = ChainSelect::new("across_bridge_to_chain", 10)
+         .size(vec2(180.0, 25.0))
+         .caption("Destination chain");
 
       Self {
          open: false,
