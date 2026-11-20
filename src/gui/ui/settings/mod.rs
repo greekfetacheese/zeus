@@ -3,8 +3,11 @@
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::gui::appearance::AppearanceSettings;
-use crate::gui::ui::{common::privacy_mode_switch, show_with_fade};
-use egui::{Key, RichText, ScrollArea, Shadow, Stroke, Ui, vec2};
+use crate::gui::ui::{
+   common::{heading, privacy_mode_switch},
+   show_with_fade,
+};
+use egui::{Key, Response, RichText, Role, ScrollArea, Shadow, Stroke, Ui, WidgetInfo, vec2};
 use egui_elements::{Fill, Frame as Frame2, Label, Theme};
 use egui_lucide::Lucide;
 use std::sync::Arc;
@@ -44,12 +47,29 @@ pub enum SettingsPage {
    Data,
 }
 
+impl SettingsPage {
+   /// The page's word, shared by its tab and its heading so the two cannot disagree.
+   pub fn name(&self) -> &'static str {
+      match self {
+         Self::General => "General",
+         Self::Appearance => "Appearance",
+         Self::Networks => "Networks",
+         Self::Security => "Security",
+         Self::Contacts => "Contacts",
+         Self::Railgun => "Railgun",
+         Self::Data => "Data",
+      }
+   }
+}
+
 pub struct SettingsUi {
    open: bool,
    /// Set when the user closed the window itself — its Close button or Escape — so the left panel
    /// can put the focus back on the plate that opened it.
    focus_return: bool,
    page: SettingsPage,
+   /// The page whose heading has already been given the focus, so a change of page moves it once.
+   last_page: Option<SettingsPage>,
    general: GeneralSettings,
    appearance: AppearanceSettingsUi,
    pub encryption: EncryptionSettings,
@@ -69,6 +89,7 @@ impl SettingsUi {
          open: false,
          focus_return: false,
          page: SettingsPage::General,
+         last_page: None,
          general: GeneralSettings::new(ctx),
          appearance: AppearanceSettingsUi::new(appearance),
          encryption: EncryptionSettings::new(),
@@ -115,6 +136,8 @@ impl SettingsUi {
       self.import.erase();
       self.contacts_ui.reset_page();
       self.network.reset_view();
+      // Reopening lands on the open page's heading again, even though the page itself did not change.
+      self.last_page = None;
    }
 
    /// Whether the user closed the window itself since the last call, which asks the left panel to
@@ -237,12 +260,29 @@ impl SettingsUi {
          .show_separator_line(false)
          .frame(egui::Frame::new().fill(nav_bg).inner_margin(8.0))
          .show(ui, |ui| {
+            // The seven plates are one page switcher: named here so a reader knows what they
+            // belong to before it walks them.
+            ui.ctx().accesskit_node_builder(ui.unique_id(), |node| {
+               node.set_role(Role::TabList);
+               node.set_label("Settings pages");
+            });
+
             self.nav(ctx, theme, ui);
          });
 
       egui::CentralPanel::default()
          .frame(egui::Frame::new().fill(theme.colors.bg).inner_margin(16.0))
          .show(ui, |ui| {
+            // The page's first node, and never inside the scroll area, so it neither moves nor
+            // scrolls away. A page change moves the focus here, and that focus move is what makes a
+            // reader say the page's name — the name is not drawn or announced anywhere else.
+            let page_heading = heading(ui, self.page.name());
+
+            if self.last_page != Some(self.page) {
+               page_heading.request_focus();
+               self.last_page = Some(self.page);
+            }
+
             ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
                egui::Frame::new().inner_margin(10.0).show(ui, |ui| {
                   ui.set_width(ui.available_width());
@@ -335,53 +375,35 @@ impl SettingsUi {
    fn nav(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.xs);
 
-      let text_size = theme.typography.normal;
       let icon_color = theme.colors.text;
-      let mut visuals = theme.frame2_visuals();
-      visuals.bg = Fill::Solid(theme.frame1.fill);
-      visuals.border = Stroke::NONE;
-      visuals.shadow = Shadow::NONE;
 
-      let frame = Frame2::from_egui(theme.frame2)
-         .interactive(true)
-         .fill_width(true)
-         .visuals(visuals)
-         .corner_radius(0);
-
-      let items: [(SettingsPage, &str, egui::Image<'_>); 7] = [
+      let items: [(SettingsPage, egui::Image<'static>); 7] = [
          (
             SettingsPage::General,
-            "General",
             Lucide::SlidersHorizontal.size(20.0).color(icon_color).image(),
          ),
          (
             SettingsPage::Appearance,
-            "Appearance",
             Lucide::Palette.size(20.0).color(icon_color).image(),
          ),
          (
             SettingsPage::Networks,
-            "Networks",
             Lucide::Globe.size(20.0).color(icon_color).image(),
          ),
          (
             SettingsPage::Security,
-            "Security",
             Lucide::LockKeyhole.size(20.0).color(icon_color).image(),
          ),
          (
             SettingsPage::Contacts,
-            "Contacts",
             Lucide::Users.size(20.0).color(icon_color).image(),
          ),
          (
             SettingsPage::Railgun,
-            "Railgun",
             Lucide::Shield.size(20.0).color(icon_color).image(),
          ),
          (
             SettingsPage::Data,
-            "Data",
             Lucide::Archive.size(20.0).color(icon_color).image(),
          ),
       ];
@@ -389,21 +411,68 @@ impl SettingsUi {
       privacy_mode_switch(ctx, theme, ui);
       ui.add_space(10.0);
 
-      for (page, label, icon) in items {
+      for (page, icon) in items {
          let selected = self.page == page;
-         let response = frame.selected(selected).show(ui, |ui| {
-            ui.add(
-               Label::new(RichText::new(label).size(text_size), Some(icon))
-                  .interactive(false)
-                  .image_on_left(),
-            );
-         });
+         let response = nav_plate(ui, theme, page.name(), icon, selected);
 
-         if response.response.clicked() {
+         if response.clicked() {
             self.set_page(page, ctx);
          }
       }
    }
+}
+
+/// One entry of the page switcher: a plate that carries its tab's role, name and selected state.
+///
+/// The frame registers a placeholder with an empty sense before its contents, under the id the
+/// plate is about to take, and that withdraws the focus a Tab put on it — Enter and Space would
+/// then never reach a plate reached by keyboard. `show` is `begin` + contents + `end`, so writing
+/// the three out leaves a moment to put the focus back before the final registration.
+///
+/// The icon and word inside are an `egui_elements::Label`, a node of its own; hidden, so a reader
+/// hears the entry once instead of "General tab, General".
+fn nav_plate(
+   ui: &mut Ui,
+   theme: &Theme,
+   text: &str,
+   icon: egui::Image<'static>,
+   selected: bool,
+) -> Response {
+   let mut visuals = theme.frame2_visuals();
+   visuals.bg = Fill::Solid(theme.frame1.fill);
+   visuals.border = Stroke::NONE;
+   visuals.shadow = Shadow::NONE;
+
+   let frame = Frame2::from_egui(theme.frame2)
+      .interactive(true)
+      .fill_width(true)
+      .visuals(visuals)
+      .corner_radius(0);
+
+   let label = Label::new(
+      RichText::new(text).size(theme.typography.normal),
+      Some(icon),
+   )
+   .interactive(false)
+   .image_on_left();
+
+   let focused_before = ui.ctx().memory(|memory| memory.focused());
+
+   let mut plate = frame.selected(selected).begin(ui);
+   let id = ui.next_auto_id();
+
+   if focused_before == Some(id) {
+      ui.ctx().memory_mut(|memory| memory.request_focus(id));
+   }
+
+   let content = plate.content_ui.add(label);
+   let response = plate.end(ui);
+
+   response.widget_info(|| WidgetInfo::selected(Role::Tab, ui.is_enabled(), selected, text));
+
+   ui.ctx().accesskit_node_builder(content.id, |node| node.set_hidden());
+
+   response
 }
 
 /// Whether the Escape pressed this frame belongs to the Settings window.

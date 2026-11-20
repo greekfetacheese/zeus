@@ -31,7 +31,7 @@ pub use windows::{ConfirmWindow, ConfirmWindowClaim, LoadingWindow, MsgWindow, U
 use crate::core::ZeusContext;
 use crate::gui::{SHARED_GUI, ui::dapps::railgun::RailgunMode};
 use crate::utils::TimeStamp;
-use egui::{Align, Layout, Response, RichText, Ui, Vec2, pos2, vec2};
+use egui::{Align, Layout, Response, RichText, Role, Ui, Vec2, WidgetInfo, pos2, vec2};
 use egui_elements::{Button, Switch, Theme, ToggleVisuals};
 use egui_lucide::Lucide;
 use std::time::{Duration, Instant};
@@ -143,13 +143,35 @@ pub fn privacy_mode_switch(ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
    let size = vec2(150.0, 20.0);
    let mut clicked = false;
 
+   let mut switch_response = None;
+
    ui.allocate_ui(size, |ui| {
       ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-         clicked = ui.add(switch).clicked();
+         switch_response = Some(ui.add(switch));
          ui.add_space(3.0);
          ui.add(icon);
       });
    });
+
+   // The switch has already applied a click to `ctx.privacy_mode` when it is added, so reading it
+   // here describes the state the switch now shows rather than the one it had last frame.
+   if let Some(response) = switch_response {
+      let checked = ctx.privacy_mode;
+
+      // The drawn word flips between "Privacy mode" and "Public mode", which makes the node's name
+      // disagree with its state ("Public mode, switch, on"). The node keeps the stable name and lets
+      // `checked` say the rest; the visible text still flips.
+      response.widget_info(|| {
+         WidgetInfo::selected(
+            Role::Switch,
+            ui.is_enabled(),
+            checked,
+            "Privacy mode",
+         )
+      });
+
+      clicked = response.clicked();
+   }
 
    if clicked {
       crate::runtime::rt().spawn_blocking(move || {

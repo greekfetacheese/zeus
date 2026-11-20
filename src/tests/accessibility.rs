@@ -652,6 +652,218 @@ fn a_locked_wallet_hides_the_settings_window() {
    );
 }
 
+/// The Settings pages are a tab list: one `TabList` named after what the tabs switch between, seven
+/// `Tab` nodes named exactly like the pages, only the open page's tab selected, and no page word
+/// spoken a second time as the label inside a plate.
+#[test]
+fn every_settings_page_is_a_named_tab() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+
+   let lists: Vec<&Node> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::TabList)
+      .map(|(_, node)| node)
+      .collect();
+
+   assert_eq!(
+      lists.len(),
+      1,
+      "the page switcher must be one tab list"
+   );
+   assert_eq!(
+      lists[0].label(),
+      Some("Settings pages"),
+      "the tab list must name what the tabs switch between"
+   );
+
+   let names = [
+      "General",
+      "Appearance",
+      "Networks",
+      "Security",
+      "Contacts",
+      "Railgun",
+      "Data",
+   ];
+
+   let spoken: Vec<&str> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Label && !node.is_hidden())
+      .filter_map(|(_, node)| node.value())
+      .collect();
+
+   for &name in &names {
+      let tabs: Vec<&Node> = nodes
+         .iter()
+         .filter(|(_, node)| node.role() == Role::Tab && node.label() == Some(name))
+         .map(|(_, node)| node)
+         .collect();
+
+      assert_eq!(
+         tabs.len(),
+         1,
+         "the {name} page must be exactly one tab named {name}"
+      );
+
+      assert_eq!(
+         tabs[0].toggled() == Some(Toggled::True),
+         name == "General",
+         "only the open page's tab may report itself selected: {name}"
+      );
+
+      assert!(
+         !spoken.contains(&name),
+         "the label inside the {name} tab must be hidden, or the tab is spoken twice: {spoken:?}"
+      );
+   }
+}
+
+/// A reader opens a Settings page the way it opens any tab: a `Click` request on the tab's node. The
+/// page changes, its heading names it, and a word only that page draws is in the tree.
+#[test]
+fn activating_a_settings_tab_opens_its_page() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+   let security = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Tab && node.label() == Some("Security"))
+      .map(|(id, _)| *id)
+      .expect("the Security page must be a tab in the tree");
+
+   let nodes = render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, security)],
+   );
+
+   let heading = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Heading)
+      .map(|(_, node)| node)
+      .expect("the Security page must have a heading node");
+
+   assert_eq!(
+      heading.label(),
+      Some("Security"),
+      "the heading must name the page the tab opened"
+   );
+
+   let texts: Vec<&str> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Label)
+      .filter_map(|(_, node)| node.value())
+      .collect();
+
+   assert!(
+      texts.contains(&"Change Credentials"),
+      "the Security page must draw its own contents: {texts:?}"
+   );
+}
+
+/// Opening Settings lands on the open page's heading, and a page change moves the focus to the new
+/// heading — that focus move is how the page's name reaches a reader.
+#[test]
+fn the_settings_page_heading_names_the_page_and_takes_focus() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   let first = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+   let (id, node) = first
+      .iter()
+      .find(|(_, node)| node.role() == Role::Heading)
+      .expect("the open page must have a heading node");
+
+   assert_eq!(
+      node.label(),
+      Some("General"),
+      "no page was chosen, so the heading names General"
+   );
+
+   let focused = ctx.memory(|memory| memory.focused());
+   assert_eq!(
+      focused.map(|id| id.accesskit_id()),
+      Some(*id),
+      "the General heading must take focus when Settings opens"
+   );
+
+   let appearance = first
+      .iter()
+      .find(|(_, node)| node.role() == Role::Tab && node.label() == Some("Appearance"))
+      .map(|(id, _)| *id)
+      .expect("the Appearance page must be a tab in the tree");
+
+   let second = render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, appearance)],
+   );
+
+   let (id, node) = second
+      .iter()
+      .find(|(_, node)| node.role() == Role::Heading)
+      .expect("the new page must have a heading node");
+
+   assert_eq!(
+      node.label(),
+      Some("Appearance"),
+      "the heading names the page that just opened"
+   );
+
+   let focused = ctx.memory(|memory| memory.focused());
+   assert_eq!(
+      focused.map(|id| id.accesskit_id()),
+      Some(*id),
+      "the page change must move focus to the new page's heading"
+   );
+}
+
+/// Every Settings page draws when its tab is opened: the heading names the page for all seven, so a
+/// page that stops being drawn fails here without asserting any one page's contents.
+#[test]
+fn every_settings_page_appears_in_the_tree() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   for name in [
+      "General",
+      "Appearance",
+      "Networks",
+      "Security",
+      "Contacts",
+      "Railgun",
+      "Data",
+   ] {
+      let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+      let tab = nodes
+         .iter()
+         .find(|(_, node)| node.role() == Role::Tab && node.label() == Some(name))
+         .map(|(id, _)| *id)
+         .unwrap_or_else(|| panic!("the {name} page must be a tab in the tree"));
+
+      let nodes = render_settings(
+         &ctx,
+         &mut gui,
+         &zeus,
+         vec![accesskit_action(Action::Click, tab)],
+      );
+
+      let heading = nodes
+         .iter()
+         .find(|(_, node)| node.role() == Role::Heading)
+         .map(|(_, node)| node)
+         .unwrap_or_else(|| panic!("the {name} page must draw a heading"));
+
+      assert_eq!(
+         heading.label(),
+         Some(name),
+         "the heading must name the page the tab opened"
+      );
+   }
+}
+
 /// Render the top panel headlessly and put this frame's announcement in the tree: the app draws
 /// the announcer right after the panels, and a node created together with its message never
 /// speaks.
