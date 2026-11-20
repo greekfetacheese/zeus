@@ -80,6 +80,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       ui,
    );
 
+   // The confirmation draws from a borrowed theme as well, so its one sentence comes back here
+   // like the Send form's. It covers every other surface while it is up, so it is said last.
+   let confirmation_notice = gui.tx_confirmation_window.take_notice();
+
    gui.tx_window.show(ctx, theme, icons.clone(), ui);
    gui.spent_note_window.show(ctx, theme, icons.clone(), ui);
 
@@ -178,6 +182,11 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    // The picker covers the page that raised it, so its sentence is the one about what the user is
    // looking at, and the channel keeps the last call.
    if let Some(text) = token_selection_notice {
+      gui.announce(text);
+   }
+
+   // The confirmation is the topmost surface there is: its answer is the last thing said.
+   if let Some(text) = confirmation_notice {
       gui.announce(text);
    }
 }

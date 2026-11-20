@@ -23,7 +23,9 @@ use crate::gui::{
    SHARED_GUI,
    ui::{
       ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
-      common::{AmountField, AmountFieldParams, recipient_field, show_with_fade},
+      common::{
+         AmountField, AmountFieldParams, blocked_reason_line, recipient_field, show_with_fade,
+      },
       dapps::railgun::{RailgunAsset, private_transfer},
       token_selection::{PickerMode, nft_collection_name},
    },
@@ -1331,24 +1333,6 @@ impl SendCryptoUi {
       });
       Ok(())
    }
-}
-
-/// Draw the sentence that says why Send is blocked, directly above the button.
-///
-/// A disabled button takes no focus, so a reader could not reach the reason while it lived in the
-/// button's label — exactly when it mattered. The line is drawn in the button's own column, so a
-/// long sentence wraps where the button ends, and nothing is drawn while nothing is blocking.
-fn blocked_reason_line(ui: &mut Ui, theme: &Theme, reason: &str) {
-   let width = ui.available_width() * 0.8;
-   let text = RichText::new(reason).size(theme.typography.normal).color(theme.colors.error);
-
-   ui.allocate_ui_with_layout(
-      vec2(width, 0.0),
-      Layout::top_down(Align::Center),
-      |ui| {
-         ui.label(text);
-      },
-   );
 }
 
 /// The sentence to announce for a blocked Send whose reason changed between two frames.

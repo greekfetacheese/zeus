@@ -1,4 +1,7 @@
-use egui::{Align, CollapsingHeader, Id, Layout, Order, RichText, ScrollArea, Ui, vec2};
+use egui::{
+   Align, CollapsingHeader, Id, Key, Layout, Order, Rect, RichText, Role, ScrollArea, Sense, Ui,
+   WidgetInfo, vec2,
+};
 use egui_elements::{Button, Modal, Theme};
 
 use super::{
@@ -14,7 +17,10 @@ use crate::core::{DecodedEvent, TransactionAnalysis, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::windows::PromptGate;
-use crate::gui::ui::common::{address::name_address, delayed_action_label, wallet_identity};
+use crate::gui::ui::common::{
+   address::name_address, address_for_speech, blocked_reason_line, delayed_action_remaining,
+   heading, name_text, wallet_identity,
+};
 use crate::utils::estimate_tx_cost;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -80,6 +86,16 @@ pub struct TxConfirmationWindow {
    clear_display: Option<ClearDisplay>,
    /// When the prompt became visible. `None` skips the Sign/Confirm delay (in-app Zeus txs).
    opened_at: Option<Instant>,
+   /// True until the opening painted frame has put focus on the action heading.
+   ///
+   /// The modal spends two invisible sizing passes before it paints, and focus requested on
+   /// those does not survive the pass, so the flag is cleared only once the frame a reader can
+   /// be handed has drawn.
+   focus_pending: bool,
+   /// The countdown's one announcement has been raised for this prompt.
+   ready_announced: bool,
+   /// The words this window hands back to the frame, which owns the announcement channel.
+   notice: Option<String>,
    size: (f32, f32),
 }
 
@@ -115,6 +131,9 @@ impl TxConfirmationWindow {
          show_tx_options: false,
          clear_display: None,
          opened_at: None,
+         focus_pending: false,
+         ready_announced: false,
+         notice: None,
          size: (550.0, 400.0),
       }
    }
@@ -249,6 +268,11 @@ impl TxConfirmationWindow {
       // treated as the new prompt (auto-confirm + spinner while this task
       // is still fetching a clear-signing descriptor).
       self.confirmed_or_rejected = None;
+      // A prompt the user has not seen yet starts with the action focused, the countdown
+      // still to say, and nothing of the previous prompt's words left over.
+      self.focus_pending = true;
+      self.ready_announced = false;
+      self.notice = None;
       self.open_generation = self.open_generation.wrapping_add(1);
       let generation = self.open_generation;
 
@@ -328,6 +352,11 @@ impl TxConfirmationWindow {
    /// the user never reviewed.
    pub fn take_confirmed_or_rejected(&mut self) -> Option<bool> {
       self.confirmed_or_rejected.take()
+   }
+
+   /// The words this window should say, drained by the frame right after it is drawn.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
    }
 
    /// Collect the answer and close the prompt in one step.
@@ -434,19 +463,36 @@ impl TxConfirmationWindow {
       }
 
       let mut open = self.open;
+      let mut escape = false;
       let id = Id::unique("tx_confirmation_window");
       let frame = theme.window_frame.fill(theme.frame1.fill);
-      let heading = self.heading(theme);
+      let title = self.heading(theme);
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)
          .content_order(Order::Foreground)
-         .heading(heading)
+         .heading(title)
          .header_separator(false)
          .center_header(true)
          .closable(false)
          .frame(frame)
          .show(ui.ctx(), |ui| {
+            // Escape is the window's own way out: `closable(false)` keeps the close button
+            // from taking focus, so the key has to be read here and answered as a rejection.
+            escape = ui.input(|input| input.key_pressed(Key::Escape));
+
+            // The action comes first for a reader: a zero-size heading at the top of the body,
+            // focused once when the window opens and never again — a prompt must not keep
+            // pulling the focus back from what the user reached next.
+            let action_heading = heading(ui, self.action_name());
+            // A shrink-wrapping modal spends two invisible sizing passes before its first
+            // painted frame, and focus requested on those does not survive the pass: wait for
+            // the frame a reader can actually be handed.
+            if self.focus_pending && !ui.is_sizing_pass() {
+               action_heading.request_focus();
+               self.focus_pending = false;
+            }
+
             ui.set_width(self.size.0);
             // A maximum, not a fixed height: `set_height` also sets the *minimum*, and
             // that is what left a band of empty space under the buttons of a short
@@ -540,9 +586,20 @@ impl TxConfirmationWindow {
                // The wallet that signs this transaction, on the chain it goes out on
                ui.allocate_ui(frame_size, |ui| {
                   frame.show(ui, |ui| {
+                     // Who asked is the first thing after the action, and an in-app send has
+                     // no origin line at all today: its node says Zeus rather than leaving the
+                     // question unanswered, while the visual stays as empty as it was.
                      if !self.dapp.is_empty() {
-                        ui.label(RichText::new(&self.dapp).size(theme.typography.large));
+                        let response = ui.label(
+                           RichText::new(&self.dapp).size(theme.typography.large),
+                        );
+                        name_text(ui, &response, format!("Requested by {}", self.dapp));
                         ui.separator();
+                     } else {
+                        let id = ui.scope_id().with("tx_confirmation_origin");
+                        let rect = Rect::from_min_size(ui.next_widget_position(), vec2(0.0, 0.0));
+                        let response = ui.interact(rect, id, Sense::focusable_noninteractive());
+                        name_text(ui, &response, "Requested by Zeus");
                      }
 
                      // A dapp gets its own account, so the signing wallet is not
@@ -579,6 +636,26 @@ impl TxConfirmationWindow {
                   ui.label(
                      RichText::new(msg).size(theme.typography.large).color(theme.colors.warning),
                   );
+               }
+
+               // An unlimited approval changes the heading's colour and nothing else, and a
+               // colour is not a sentence: the spender and the grant are said here, before the
+               // event that carries them, so the warning cannot be missed by ear.
+               if let Some(spender) = self.unlimited_approval() {
+                  let name = ctx.get_address_name(self.chain.id(), spender);
+                  let spoken = address_for_speech(name.as_deref(), &spender.to_string());
+                  let sentence = format!(
+                     "Unlimited allowance. This approval lets {} take all of this token, now and later.",
+                     spoken.name
+                  );
+                  let response = ui.label(
+                     RichText::new(&sentence)
+                        .size(theme.typography.large)
+                        .color(theme.colors.warning),
+                  );
+                  response.widget_info(|| {
+                     WidgetInfo::labeled(Role::Alert, ui.is_enabled(), sentence.clone())
+                  });
                }
 
                // A bare asset movement gives way to the descriptor, which says what the call was
@@ -744,6 +821,18 @@ impl TxConfirmationWindow {
                // it, so it gets a gap rather than just `item_spacing`.
                ui.add_space(theme.spacing.lg);
 
+               // A wallet that cannot cover value + cost says so above the buttons: a disabled
+               // button takes no focus, so a reason drawn inside its label is unreachable
+               // exactly while it matters. The sentence is shared with the Send form.
+               let insufficient = format!(
+                  "Insufficient {}. This wallet cannot cover the amount plus the network fee.",
+                  self.native_currency.symbol
+               );
+
+               if !sufficient_balance {
+                  blocked_reason_line(ui, theme, &insufficient);
+               }
+
                // Buttons
                let size = vec2(ui.available_width() * AVAIL_WIDTH_MARGIN, 45.0);
                ui.allocate_ui(size, |ui| {
@@ -757,15 +846,14 @@ impl TxConfirmationWindow {
                         45.0,
                      );
 
-                     // A wallet that cannot cover value + cost says so on the button it
-                     // disables, rather than in a row of its own above the row.
-                     let ready_label = self.confirm_label(sufficient_balance);
-                     let (confirm_ready, confirm_label) =
-                        delayed_action_label(self.opened_at, &ready_label);
-                     if !confirm_ready {
+                     // The countdown changes the button's description, never its name: a name
+                     // that moves every second makes the same control a new one each frame.
+                     let remaining = delayed_action_remaining(self.opened_at);
+                     let confirm_ready = remaining.is_none();
+                     if remaining.is_some() {
                         ui.ctx().request_repaint_after(Duration::from_millis(100));
                      }
-                     let text = RichText::new(confirm_label).size(theme.typography.large);
+                     let text = RichText::new("Confirm").size(theme.typography.large);
                      let confirm = Button::new(text).min_size(button_size).visuals(button_visuals);
 
                      // Copy the settings out first: the widget needs an owned
@@ -781,7 +869,36 @@ impl TxConfirmationWindow {
                      // again at the click site: a hold that began while the wallet
                      // could pay must not confirm after the balance drops mid-hold.
                      let actionable = Self::confirm_actionable(sufficient_balance, confirm_ready);
-                     if ui.add_enabled(actionable, confirm).clicked() && actionable {
+                     let response = ui.add_enabled(actionable, confirm);
+
+                     // A disabled control is still a node, and its description is the one part
+                     // of it a reader can reach: the wait and the short balance both go there.
+                     let mut description = String::new();
+                     if let Some(secs) = remaining {
+                        description.push_str(&format!("Available in {secs} seconds"));
+                     }
+                     if !sufficient_balance {
+                        if !description.is_empty() {
+                           description.push(' ');
+                        }
+                        description.push_str(&insufficient);
+                     }
+                     if !description.is_empty() {
+                        ui.ctx().accesskit_node_builder(response.id, |node| {
+                           node.set_description(description);
+                        });
+                     }
+
+                     // Say the wait once, and only when it actually opens the button: speaking
+                     // "now available" over a wallet that still cannot pay would be a lie.
+                     if self.opened_at.is_some() && confirm_ready && !self.ready_announced {
+                        self.ready_announced = true;
+                        if actionable {
+                           self.notice = Some("Confirm is now available.".to_string());
+                        }
+                     }
+
+                     if response.clicked() && actionable {
                         self.confirmed_or_rejected = Some(true);
                         self.close();
                      }
@@ -797,6 +914,26 @@ impl TxConfirmationWindow {
                });
             });
          });
+
+      if escape {
+         open = false;
+      }
+
+      // Every way out that is not Confirm is a Reject. The local `open` flag is written back
+      // here — it never was before, so a dismissal could not stick — and the answer is
+      // recorded once so the awaiting flow cannot hang. A Confirm click already recorded
+      // `Some(true)` and must not be turned into a no.
+      if !open || !self.open {
+         self.open = false;
+
+         if self.confirmed_or_rejected.is_none() {
+            self.confirmed_or_rejected = Some(false);
+         }
+
+         if self.confirmed_or_rejected == Some(false) {
+            self.notice = Some("Transaction rejected.".to_string());
+         }
+      }
    }
 
    /// True when a resolved ERC-7730 display should lead the window instead of the decoded main
@@ -833,6 +970,41 @@ impl TxConfirmationWindow {
       asset.is_some_and(|asset| asset != analysis.interact_to)
    }
 
+   /// The action this window is confirming, in words: the dialog title and the heading node a
+   /// reader lands on first.
+   fn action_name(&self) -> String {
+      let (Some(_), Some(main_event)) = (self.tx.as_ref(), self.tx_main_event.as_ref()) else {
+         return "Confirm Transaction".to_string();
+      };
+
+      if main_event.is_other() || self.descriptor_leads() {
+         self
+            .clear_display
+            .as_ref()
+            .map(|d| d.heading.clone())
+            .unwrap_or_else(|| main_event.name().to_string())
+      } else {
+         main_event.name().to_string()
+      }
+   }
+
+   /// The spender of an unlimited permit/token approval, when this transaction grants one.
+   ///
+   /// One predicate for the red title and the warning line in the body: a colour says nothing to
+   /// a reader, and the two must never disagree about what is unlimited.
+   fn unlimited_approval(&self) -> Option<Address> {
+      let main_event = self.tx_main_event.as_ref()?;
+
+      if main_event.is_permit() && main_event.permit_params().is_unlimited() {
+         Some(main_event.permit_params().spender)
+      } else if main_event.is_token_approval() && main_event.token_approval_params().is_unlimited()
+      {
+         Some(main_event.token_approval_params().spender)
+      } else {
+         None
+      }
+   }
+
    /// The window's title: what the transaction does.
    ///
    /// A decoded main event names itself; an undecodable calldata falls back to the
@@ -840,30 +1012,14 @@ impl TxConfirmationWindow {
    /// asset movement ([`Self::descriptor_leads`]). An unlimited approval is called out in the
    /// error colour — the same treatment the signing window gives its own title.
    fn heading(&self, theme: &Theme) -> RichText {
-      let (Some(_), Some(main_event)) = (self.tx.as_ref(), self.tx_main_event.as_ref()) else {
-         return RichText::new("Confirm Transaction").size(theme.typography.heading);
+      let mut text = RichText::new(self.action_name()).size(theme.typography.heading);
+
+      let Some(main_event) = self.tx_main_event.as_ref() else {
+         return text;
       };
 
-      let action_name = if main_event.is_other() || self.descriptor_leads() {
-         self
-            .clear_display
-            .as_ref()
-            .map(|d| d.heading.clone())
-            .unwrap_or_else(|| main_event.name())
-      } else {
-         main_event.name()
-      };
-
-      let mut text = RichText::new(action_name).size(theme.typography.heading);
-
-      if !self.source_is_zeus {
-         let unlimited = (main_event.is_permit() && main_event.permit_params().is_unlimited())
-            || (main_event.is_token_approval()
-               && main_event.token_approval_params().is_unlimited());
-
-         if unlimited {
-            text = text.color(theme.colors.error);
-         }
+      if !self.source_is_zeus && self.unlimited_approval().is_some() {
+         text = text.color(theme.colors.error);
       }
 
       if main_event.is_other() && self.clear_display.is_none() {
@@ -871,15 +1027,6 @@ impl TxConfirmationWindow {
       }
 
       text
-   }
-
-   /// What the confirm button says: the action, or the reason it cannot be pressed.
-   fn confirm_label(&self, sufficient_balance: bool) -> String {
-      if sufficient_balance {
-         "Confirm".to_string()
-      } else {
-         format!("Insufficient {}", self.native_currency.symbol)
-      }
    }
 
    /// The confirm action is available only while the button is enabled: a hold that
@@ -892,6 +1039,42 @@ impl TxConfirmationWindow {
       let balance = ctx.get_eth_balance(self.chain.id(), sender);
       let total_cost = eth_spent + self.tx_cost.wei();
       balance.wei() >= total_cost
+   }
+
+   /// The window as the confirmation path leaves it, minus the parts of `open_inner` that cannot
+   /// run in a test (it spawns through `runtime::rt()` and writes back through `SHARED_GUI`).
+   ///
+   /// The accessibility tests live outside this module, so this is the one way they can stand up
+   /// a prompt; it asks for no cost calculation, which keeps a wallet with no balance sufficient
+   /// for the fixtures that move no value.
+   #[cfg(test)]
+   pub(crate) fn for_test(
+      handle: &ZeusCtx,
+      analysis: TransactionAnalysis,
+      dapp: &str,
+      clear_display: bool,
+      opened_at: Option<Instant>,
+   ) -> Self {
+      let chain = handle.chain();
+      let gas_used = analysis.gas_used;
+      let gas_limit = gas_used * 15 / 10;
+
+      let mut window = TxConfirmationWindow::new();
+      window.chain = chain;
+      window.native_currency = NativeCurrency::from(chain.id());
+      window.dapp = dapp.to_string();
+      window.gas_used = gas_used;
+      window.gas_limit = gas_limit;
+      window.adjusted_gas_limit = gas_limit.to_string();
+      window.priority_fee = "1".to_string();
+      window.tx_main_event = Some(analysis.infer_main_event(handle.clone(), chain.id()));
+      window.tx = Some(analysis);
+      window.clear_display = clear_display.then(ClearDisplay::dummy_calldata);
+      window.opened_at = opened_at;
+      window.focus_pending = true;
+      window.open = true;
+
+      window
    }
 }
 

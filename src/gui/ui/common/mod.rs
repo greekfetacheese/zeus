@@ -68,18 +68,47 @@ pub fn chain_label(id: u64) -> String {
 /// Delay before Sign/Confirm is clickable after a prompt is brought to the front.
 pub const ACTION_UNLOCK_DELAY: Duration = Duration::from_secs(2);
 
+/// The whole seconds left before a delayed action is available, or `None` when it already is.
+///
+/// `None` in and `None` out both mean "no wait": an in-app Zeus prompt opens with no
+/// `opened_at` at all, and a prompt whose delay has run out reports the same.
+pub fn delayed_action_remaining(opened_at: Option<Instant>) -> Option<u64> {
+   let opened_at = opened_at?;
+   let remaining = ACTION_UNLOCK_DELAY.saturating_sub(opened_at.elapsed());
+
+   if remaining.is_zero() {
+      None
+   } else {
+      Some(remaining.as_secs_f32().ceil() as u64)
+   }
+}
+
 /// `(enabled, label)` for Sign/Confirm. `None` means no delay (in-app Zeus prompts).
 pub fn delayed_action_label(opened_at: Option<Instant>, ready_label: &str) -> (bool, String) {
-   let Some(opened_at) = opened_at else {
-      return (true, ready_label.to_string());
-   };
-   let remaining = ACTION_UNLOCK_DELAY.saturating_sub(opened_at.elapsed());
-   if remaining.is_zero() {
-      (true, ready_label.to_string())
-   } else {
-      let secs = remaining.as_secs_f32().ceil() as u64;
-      (false, format!("Available in {secs}s"))
+   match delayed_action_remaining(opened_at) {
+      Some(secs) => (false, format!("Available in {secs}s")),
+      None => (true, ready_label.to_string()),
    }
+}
+
+/// Draw the sentence that says why an action is blocked, directly above its button.
+///
+/// A disabled button takes no focus, so a reader could not reach the reason while it lived in
+/// the button's label — exactly when it mattered. The line is drawn in the button's own column,
+/// so a long sentence wraps where the button ends, and nothing is drawn while nothing is
+/// blocking. The Send form and the transaction confirmation share it, so both say a block the
+/// same way.
+pub fn blocked_reason_line(ui: &mut Ui, theme: &Theme, reason: &str) {
+   let width = ui.available_width() * 0.8;
+   let text = RichText::new(reason).size(theme.typography.normal).color(theme.colors.error);
+
+   ui.allocate_ui_with_layout(
+      vec2(width, 0.0),
+      Layout::top_down(Align::Center),
+      |ui| {
+         ui.label(text);
+      },
+   );
 }
 
 /// Events that count as the user doing something (they reset the auto-lock

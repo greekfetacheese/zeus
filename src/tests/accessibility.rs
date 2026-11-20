@@ -7,13 +7,19 @@
 //!
 //! The helpers below are the shared harness; every screen test renders a real screen headlessly.
 
+use crate::assets::icons::Icons;
+use crate::core::TransactionAnalysis;
 use crate::core::ZeusCtx;
 use crate::core::types::{Contact, RailgunConfig};
+use crate::gui::appearance::AppearanceSettings;
+use crate::gui::ui::tx::TxConfirmationWindow;
 use crate::gui::{GUI, LockScreen};
 use egui::accesskit::{Action, ActionRequest, Live, Node, NodeId, Role, Toggled, TreeId};
 use egui::{Context, Event, Key, Modifiers, PointerButton, RawInput, Rect, Ui, pos2, vec2};
 use egui_elements::{Theme, ThemeKind};
-use zeus_eth::alloy_primitives::Address;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use zeus_eth::alloy_primitives::{Address, U256};
 use zeus_eth::currency::{Currency, ERC20Token, NativeCurrency};
 use zeus_eth::types::ChainId;
 use zeus_eth::utils::NumericValue;
@@ -3757,4 +3763,418 @@ fn node_line(node: &Node) -> String {
       node.description().unwrap_or_default(),
       actions,
    )
+}
+
+/// The confirmation window's pieces, as the frame gives them to it: the installed theme, the
+/// icon store its rows draw with, and the appearance settings its Confirm hold is read from.
+fn confirmation_harness() -> (
+   Context,
+   ZeusCtx,
+   Theme,
+   Arc<Icons>,
+   AppearanceSettings,
+) {
+   let ctx = Context::default();
+   let mut theme = Theme::new(ThemeKind::TokyoNight);
+   theme.install(&ctx);
+   egui_extras::install_image_loaders(&ctx);
+
+   let icons = Arc::new(Icons::new(&ctx).expect("icons"));
+   let handle = ZeusCtx::new(crate::runtime::test_handle());
+
+   (
+      ctx,
+      handle,
+      theme,
+      icons,
+      AppearanceSettings::new(),
+   )
+}
+
+/// Draw the confirmation window into a reader's tree.
+///
+/// A local window stands in for the prompt — nothing claims it and no task prepares it — and the
+/// frame draws it out of a local context, which is exactly what `TxConfirmationWindow::show`
+/// does in the app.
+///
+/// Three passes: a shrink-wrapping modal spends two invisible sizing passes before the first
+/// frame it actually paints, and egui exposes no node for a widget it considers invisible. The
+/// last pass is the one a reader is handed — and the first one the window may take focus on.
+fn render_confirmation(
+   ctx: &Context,
+   handle: &ZeusCtx,
+   window: &mut TxConfirmationWindow,
+   theme: &Theme,
+   icons: &Arc<Icons>,
+   appearance: &AppearanceSettings,
+   events: Vec<Event>,
+) -> Vec<(NodeId, Node)> {
+   for pass in 0..3 {
+      let events = if pass == 2 {
+         events.clone()
+      } else {
+         Vec::new()
+      };
+
+      let nodes = frame_nodes(ctx, events, |ui| {
+         handle.write(|c| window.show(c, theme, icons.clone(), appearance, ui));
+      });
+
+      if pass == 2 {
+         return nodes;
+      }
+   }
+
+   unreachable!("the third pass returns the tree")
+}
+
+/// The node ids in reading order: a depth-first walk from the root, children in the order the
+/// accesskit node says they are read.
+///
+/// The `TreeUpdate` itself is a map and comes out in no particular order, so a tree-order
+/// assertion has to walk the children rather than trust the vector.
+fn tree_order(nodes: &[(NodeId, Node)]) -> Vec<NodeId> {
+   let root = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Window)
+      .map(|(id, _)| *id)
+      .expect("the tree starts from the root window node");
+
+   let mut order = Vec::new();
+   let mut stack = vec![root];
+
+   while let Some(id) = stack.pop() {
+      order.push(id);
+
+      if let Some((_, node)) = nodes.iter().find(|(node_id, _)| *node_id == id) {
+         for child in node.children().iter().rev() {
+            stack.push(*child);
+         }
+      }
+   }
+
+   order
+}
+
+/// Where a node whose name starts with `prefix` sits in the tree's reading order.
+fn node_position(nodes: &[(NodeId, Node)], prefix: &str) -> usize {
+   tree_order(nodes)
+      .into_iter()
+      .position(|id| {
+         nodes
+            .iter()
+            .find(|(node_id, _)| *node_id == id)
+            .and_then(|(_, node)| node.label().or_else(|| node.value()))
+            .is_some_and(|text| text.starts_with(prefix))
+      })
+      .unwrap_or_else(|| panic!("no node named {prefix:?} in the tree"))
+}
+
+/// Approvals are the only state change in the window that can cost money after the transaction,
+/// so they are drawn — and therefore heard — before the balances, and the fee comes after both.
+#[test]
+fn the_confirmation_reads_approvals_before_balances_and_the_fee_last() {
+   let (ctx, handle, theme, icons, appearance) = confirmation_harness();
+   let mut window = TxConfirmationWindow::for_test(
+      &handle,
+      TransactionAnalysis::dummy_with_diffs(),
+      "",
+      false,
+      None,
+   );
+
+   let nodes = render_confirmation(
+      &ctx,
+      &handle,
+      &mut window,
+      &theme,
+      &icons,
+      &appearance,
+      Vec::new(),
+   );
+
+   let approvals = node_position(&nodes, "Approval changes,");
+   let balances = node_position(&nodes, "Balance changes,");
+   let fee = node_position(&nodes, "Network fee,");
+
+   assert!(
+      approvals < balances,
+      "the approvals must be heard before the balances: {approvals} vs {balances}"
+   );
+   assert!(
+      balances < fee,
+      "the fee must come after the state changes: {balances} vs {fee}"
+   );
+}
+
+/// A reader hears the action first: the window opens with focus on the action heading, not on
+/// the Close button the modal would otherwise leave it on.
+#[test]
+fn the_confirmation_opens_on_the_action_heading() {
+   let (ctx, handle, theme, icons, appearance) = confirmation_harness();
+   let analysis = TransactionAnalysis::dummy_transfer();
+   let action = analysis
+      .infer_main_event(handle.clone(), handle.chain().id())
+      .name()
+      .to_string();
+
+   let mut window = TxConfirmationWindow::for_test(&handle, analysis, "", false, None);
+   let nodes = render_confirmation(
+      &ctx,
+      &handle,
+      &mut window,
+      &theme,
+      &icons,
+      &appearance,
+      Vec::new(),
+   );
+
+   let focused = ctx
+      .memory(|memory| memory.focused())
+      .expect("the opening frame must leave focus inside the window");
+   let node = nodes
+      .iter()
+      .find(|(node_id, _)| *node_id == focused.accesskit_id())
+      .map(|(_, node)| node)
+      .expect("the focused node must be in the window's tree");
+
+   assert_eq!(
+      node.role(),
+      Role::Heading,
+      "the first focus is the action heading, not a button: {:?}",
+      node.role()
+   );
+   assert_eq!(
+      node.label(),
+      Some(action.as_str()),
+      "the focused heading must name the action"
+   );
+   assert_ne!(
+      node.label(),
+      Some("Close"),
+      "focus must not open on Close"
+   );
+
+   assert!(
+      nodes.iter().any(|(_, node)| node.label() == Some("Requested by Zeus")),
+      "an in-app transaction must say Zeus asked for it"
+   );
+}
+
+/// A wallet that cannot pay hears why Confirm is disabled above the button, and the disabled
+/// button itself carries the same sentence: the reason never lives only in a label inside it.
+#[test]
+fn a_short_balance_says_why_confirm_is_disabled() {
+   let (ctx, handle, theme, icons, appearance) = confirmation_harness();
+
+   let mut analysis = TransactionAnalysis::dummy_transfer();
+   analysis.value = U256::from(1_000_000_000_000_000_000u64);
+
+   let mut window = TxConfirmationWindow::for_test(&handle, analysis, "", false, None);
+   let nodes = render_confirmation(
+      &ctx,
+      &handle,
+      &mut window,
+      &theme,
+      &icons,
+      &appearance,
+      Vec::new(),
+   );
+
+   let confirm = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Confirm"))
+      .map(|(_, node)| node)
+      .expect("the Confirm button must be in the tree");
+
+   let description = confirm.description().unwrap_or_default();
+   let sentence = "Insufficient ETH. This wallet cannot cover the amount plus the network fee.";
+
+   assert_eq!(
+      confirm.label(),
+      Some("Confirm"),
+      "the reason must not replace the button's name"
+   );
+   assert!(
+      description.contains(sentence),
+      "the disabled button must carry the reason: {description:?}"
+   );
+   assert!(
+      nodes.iter().any(|(_, node)| {
+         node.label().or_else(|| node.value()).is_some_and(|text| text == sentence)
+      }),
+      "the reason must also be drawn as a line above the buttons"
+   );
+}
+
+/// Escape is a rejection: the dismissal sticks, the awaiting flow gets its answer, and the
+/// sentence the flow's caller reads says what happened.
+#[test]
+fn escape_rejects_the_confirmation_and_closes_it() {
+   let (ctx, handle, theme, icons, appearance) = confirmation_harness();
+   let mut window = TxConfirmationWindow::for_test(
+      &handle,
+      TransactionAnalysis::dummy_transfer(),
+      "",
+      false,
+      None,
+   );
+
+   render_confirmation(
+      &ctx,
+      &handle,
+      &mut window,
+      &theme,
+      &icons,
+      &appearance,
+      Vec::new(),
+   );
+   render_confirmation(
+      &ctx,
+      &handle,
+      &mut window,
+      &theme,
+      &icons,
+      &appearance,
+      vec![key_press(Key::Escape)],
+   );
+
+   assert!(!window.is_open(), "Escape must close the window");
+   assert_eq!(
+      window.take_confirmed_or_rejected(),
+      Some(false),
+      "Escape must answer the awaiting flow with a rejection"
+   );
+   assert_eq!(
+      window.take_notice().as_deref(),
+      Some("Transaction rejected."),
+      "the rejection is one of the window's sentences"
+   );
+}
+
+/// The countdown lives in the button's description, never its name: a reader hears "Confirm"
+/// throughout, the wait while it runs, and one sentence when it ends.
+#[test]
+fn the_confirm_countdown_keeps_its_name_and_says_when_it_opens() {
+   let (ctx, handle, theme, icons, appearance) = confirmation_harness();
+
+   let mut waiting = TxConfirmationWindow::for_test(
+      &handle,
+      TransactionAnalysis::dummy_transfer(),
+      "",
+      false,
+      Some(Instant::now()),
+   );
+   let nodes = render_confirmation(
+      &ctx,
+      &handle,
+      &mut waiting,
+      &theme,
+      &icons,
+      &appearance,
+      Vec::new(),
+   );
+   let confirm = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Confirm"))
+      .map(|(_, node)| node)
+      .expect("the Confirm button must be in the tree");
+
+   assert_eq!(
+      confirm.label(),
+      Some("Confirm"),
+      "the name must not become the countdown"
+   );
+   assert!(
+      confirm.description().unwrap_or_default().starts_with("Available in"),
+      "the wait belongs in the description: {:?}",
+      confirm.description()
+   );
+   assert_eq!(
+      waiting.take_notice(),
+      None,
+      "nothing is said while the wait is still running"
+   );
+
+   let mut ready = TxConfirmationWindow::for_test(
+      &handle,
+      TransactionAnalysis::dummy_transfer(),
+      "",
+      false,
+      Some(Instant::now() - Duration::from_secs(3)),
+   );
+   let nodes = render_confirmation(
+      &ctx,
+      &handle,
+      &mut ready,
+      &theme,
+      &icons,
+      &appearance,
+      Vec::new(),
+   );
+   let confirm = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Confirm"))
+      .map(|(_, node)| node)
+      .expect("the Confirm button must still be named Confirm once it opens");
+
+   assert_eq!(confirm.label(), Some("Confirm"));
+
+   assert_eq!(
+      ready.take_notice().as_deref(),
+      Some("Confirm is now available."),
+      "the end of the wait is said exactly once"
+   );
+
+   render_confirmation(
+      &ctx,
+      &handle,
+      &mut ready,
+      &theme,
+      &icons,
+      &appearance,
+      Vec::new(),
+   );
+   assert_eq!(
+      ready.take_notice(),
+      None,
+      "the same wait must not be announced again on the next frame"
+   );
+}
+
+/// An unlimited allowance is not only red: the spender and the grant are an Alert node before the
+/// main event, so the sentence survives a reader that cannot see the heading's colour.
+#[test]
+fn an_unlimited_approval_is_spoken_not_only_coloured() {
+   let (ctx, handle, theme, icons, appearance) = confirmation_harness();
+   let mut window = TxConfirmationWindow::for_test(
+      &handle,
+      TransactionAnalysis::dummy_permit(),
+      "",
+      false,
+      None,
+   );
+
+   let nodes = render_confirmation(
+      &ctx,
+      &handle,
+      &mut window,
+      &theme,
+      &icons,
+      &appearance,
+      Vec::new(),
+   );
+
+   let alert = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Alert)
+      .map(|(_, node)| node)
+      .expect("an unlimited approval must warn with an Alert node");
+
+   let spoken = alert.label().or_else(|| alert.description()).unwrap_or_default();
+
+   assert!(
+      spoken.contains("Unlimited"),
+      "the warning must say the allowance is unlimited: {spoken:?}"
+   );
 }
