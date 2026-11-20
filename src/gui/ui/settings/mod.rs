@@ -132,6 +132,7 @@ impl SettingsUi {
          self.general.save_settings(ctx);
          self.promote_general_notice();
          self.promote_network_notice();
+         self.promote_contacts_notice();
       }
       self.open = false;
       self.change_credentials_ui.reset();
@@ -169,6 +170,13 @@ impl SettingsUi {
    /// Hand a notice the Networks page raised up to the window, where the app drains it.
    fn promote_network_notice(&mut self) {
       if let Some(text) = self.network.take_notice() {
+         self.notice = Some(text);
+      }
+   }
+
+   /// Hand a notice the Contacts page raised up to the window, where the app drains it.
+   fn promote_contacts_notice(&mut self) {
+      if let Some(text) = self.contacts_ui.take_notice() {
          self.notice = Some(text);
       }
    }
@@ -396,10 +404,11 @@ impl SettingsUi {
             });
          });
 
-      // A page's save, reset or inline error raised its words; hand them up now, so the app can
-      // say them in the frame that drew the page.
+      // A page's save, reset, copy or inline error raised its words; hand them up now, so the app
+      // can say them in the frame that drew the page.
       self.promote_general_notice();
       self.promote_network_notice();
+      self.promote_contacts_notice();
    }
 
    fn nav(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {

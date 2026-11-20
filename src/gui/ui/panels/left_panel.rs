@@ -27,6 +27,13 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
    gui.account_panel.show(ctx, theme, icons, ui);
 
+   // The receive window cannot announce from inside its own draw — the frame holds the only
+   // channel — so its sentence comes back here. This panel is drawn before the central one, and
+   // the announcer the app draws after every panel says it in the same frame.
+   if let Some(text) = gui.account_panel.take_notice() {
+      gui.announce(text);
+   }
+
    ui.vertical(|ui| {
       ui.spacing_mut().item_spacing = vec2(0.0, nav_spacing);
 

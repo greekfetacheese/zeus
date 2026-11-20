@@ -170,6 +170,14 @@ impl AccountPanel {
       self.chain_select.chain = chain;
    }
 
+   /// The words the panel's dialogs want said, drained by the left panel right after the panel draws.
+   ///
+   /// The receive window is drawn from here and cannot announce on its own: the frame holds the
+   /// only channel, so it leaves its sentence on the window for this to hand up.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.qr_window.take_notice()
+   }
+
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;

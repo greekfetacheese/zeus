@@ -5,6 +5,7 @@
 
 use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::common::{address_for_speech, name_address, name_text, spoken_wallet_name};
 use egui::{Order, RichText, Ui, vec2};
 use egui_elements::{Button, Modal, QrImage, Spinner, Theme, components::QrEncoding};
 
@@ -16,6 +17,8 @@ pub struct QrWindow {
    evm_address_qr: QrImage,
    zk_address_qr: QrImage,
    size: (f32, f32),
+   /// The words this window wants said, drained by the panel that draws it.
+   notice: Option<String>,
 }
 
 impl QrWindow {
@@ -26,6 +29,7 @@ impl QrWindow {
          evm_address_qr: QrImage::empty_with_error("No QR code found".to_string()),
          zk_address_qr: QrImage::empty_with_error("No QR code found".to_string()),
          size: (450.0, 400.0),
+         notice: None,
       }
    }
 
@@ -73,6 +77,11 @@ impl QrWindow {
       *self = Self::new();
    }
 
+   /// The words this window wants said, drained by the panel that draws it.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
+   }
+
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
@@ -82,9 +91,24 @@ impl QrWindow {
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let mut open = self.open;
 
+      // The mode is the window's own name, and the only thing that tells the public address from
+      // the private one on a surface that draws both of them the same way.
+      let title = match privacy_mode {
+         false => "Public address (EVM)",
+         true => "Private address (zk)",
+      };
+
+      // The window is drawn from the panel, which holds the only announcement channel, so the
+      // words it wants said are left here for the panel to drain.
+      let mut notice = None;
+
       Modal::new("QR Code Window", &mut open)
          .backdrop_order(Order::Middle)
          .content_order(Order::Foreground)
+         .heading(RichText::new(title).size(theme.typography.heading))
+         // The window's own Close button is the exit that clears the QR textures; a header one
+         // would only flip a flag this window never reads back.
+         .closable(false)
          .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
@@ -96,7 +120,10 @@ impl QrWindow {
 
                if self.wallet.is_none() {
                   ui.label(
-                     RichText::new("No wallet found, this is a bug").size(theme.typography.normal),
+                     RichText::new(
+                        "No wallet selected. Close this window and open it from the account menu.",
+                     )
+                     .size(theme.typography.normal),
                   );
                   ui.add(Spinner::new().size(17.0));
                   self.close_button(theme, ui);
@@ -110,18 +137,11 @@ impl QrWindow {
                   frame.show(ui, |ui| {
                      ui.set_max_width(ui.available_width() * 0.95);
 
-                     ui.label(
+                     let name = ui.label(
                         RichText::new(wallet.name_with_source().as_str())
                            .size(theme.typography.large),
                      );
-
-                     let text = match privacy_mode {
-                        false => "Public Address (EVM)",
-                        true => "Private Address (zk)",
-                     };
-
-                     let rich_text = RichText::new(text).size(theme.typography.large);
-                     ui.label(rich_text);
+                     name_text(ui, &name, spoken_wallet_name(wallet));
 
                      let address = match privacy_mode {
                         false => wallet.address.to_string(),
@@ -129,14 +149,24 @@ impl QrWindow {
                      };
 
                      if !address.is_empty() {
+                        // The drawn text is the whole address, which a reader cannot check by ear
+                        // as a run: the node names it grouped and keeps Zeus's shortened form as
+                        // its description, so the two forms stay one control.
+                        let spoken = address_for_speech(None, &address);
                         let address_text =
                            RichText::new(address.clone()).size(theme.typography.normal);
-                        let label = Button::selectable(false, address_text)
+                        let button = Button::selectable(false, address_text)
                            .visuals(theme.button_visuals())
                            .wrap();
 
-                        if ui.add(label).clicked() {
+                        let response = ui.add(button);
+                        name_address(ui, &response, &spoken);
+
+                        // Nothing on screen changes when the address is copied, so the window has
+                        // to say that it happened.
+                        if response.clicked() {
                            ui.ctx().copy_text(address);
+                           notice = Some("Address copied.".to_string());
                         }
                      }
                   });
@@ -149,21 +179,28 @@ impl QrWindow {
                }
 
                // QR Code
-               if !privacy_mode {
+               let qr = if !privacy_mode {
                   let size = self.evm_address_qr.image_size_pt(ui.ctx().pixels_per_point());
-                  let image = self.evm_address_qr.image().fit_to_exact_size(size);
-                  ui.add(image);
+                  ui.add(self.evm_address_qr.image().fit_to_exact_size(size))
                } else {
                   let size = self.zk_address_qr.image_size_pt(ui.ctx().pixels_per_point());
-                  let image = self.zk_address_qr.image().fit_to_exact_size(size);
-                  ui.add(image);
-               }
+                  ui.add(self.zk_address_qr.image().fit_to_exact_size(size))
+               };
+
+               // A picture carries no words, so the node says what the picture is for.
+               ui.ctx().accesskit_node_builder(qr.id, |node| {
+                  node.set_description("QR code of the address above, for another device to scan.");
+               });
 
                ui.add_space(20.0);
 
                self.close_button(theme, ui);
             });
          });
+
+      if let Some(text) = notice {
+         self.notice = Some(text);
+      }
    }
 
    fn close_button(&mut self, theme: &Theme, ui: &mut Ui) {
@@ -176,5 +213,15 @@ impl QrWindow {
          self.zk_address_qr.clear(ui.ctx());
          self.reset();
       }
+   }
+}
+
+#[cfg(test)]
+impl QrWindow {
+   /// Open the window on `wallet` without encoding either code: the encoding runs on a worker that
+   /// writes the frame's global, and a tree test has no frame for it to land in.
+   pub(crate) fn open_for_test(&mut self, wallet: Option<WalletInfo>) {
+      self.open = true;
+      self.wallet = wallet;
    }
 }

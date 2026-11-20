@@ -1,7 +1,7 @@
 //! UI that allows the user to add,edit and remove contacts.
 
 use crate::core::{ZeusContext, types::Contact};
-use crate::gui::ui::show_with_fade;
+use crate::gui::ui::{address_for_speech, name_address, show_with_fade};
 use crate::gui::{SHARED_GUI, dots_button};
 use egui::{
    Align, FontId, Layout, Margin, OpenUrl, RichText, Role, ScrollArea, Ui, WidgetInfo, vec2,
@@ -304,6 +304,8 @@ struct QrWindow {
    contact: Option<Contact>,
    evm_address_qr: QrImage,
    zk_address_qr: QrImage,
+   /// The words this page wants said, drained by the page that draws it.
+   notice: Option<String>,
 }
 
 impl QrWindow {
@@ -312,6 +314,7 @@ impl QrWindow {
          contact: None,
          evm_address_qr: QrImage::empty_with_error("No QR code found".to_string()),
          zk_address_qr: QrImage::empty_with_error("No QR code found".to_string()),
+         notice: None,
       }
    }
 
@@ -324,6 +327,11 @@ impl QrWindow {
       *self = Self::new();
    }
 
+   /// The words this page wants said, drained by the page that draws it.
+   fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
+   }
+
    fn body(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       let privacy_mode = ctx.privacy_mode;
 
@@ -331,10 +339,19 @@ impl QrWindow {
       ui.spacing_mut().button_padding = theme.button_padding;
 
       if self.contact.is_none() {
-         ui.label(RichText::new("No contact found, this is a bug").size(theme.typography.normal));
+         ui.label(
+            RichText::new(
+               "No contact selected. Close this window and open it from the contact's menu.",
+            )
+            .size(theme.typography.normal),
+         );
          ui.add(Spinner::new().size(17.0));
          return;
       }
+
+      // The page is drawn from the window above it, which holds the only announcement channel,
+      // so what it wants said is left here for that window to drain.
+      let mut notice = None;
 
       let frame = theme.frame1;
 
@@ -349,8 +366,10 @@ impl QrWindow {
                true => "Private Address (zk)",
             };
 
-            let rich_text = RichText::new(text).size(theme.typography.large);
-            ui.label(rich_text);
+            // The page's only statement of which address is on screen, so it is a heading a
+            // reader can move to rather than one more line of prose.
+            let heading = ui.label(RichText::new(text).size(theme.typography.large));
+            heading.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
 
             let address = match privacy_mode {
                false => contact.evm_address.clone(),
@@ -358,12 +377,21 @@ impl QrWindow {
             };
 
             if !address.is_empty() {
+               // The drawn text is the whole address, which a reader cannot check by ear as a
+               // run: the node names it grouped, and keeps the shortening as its description.
+               let spoken = address_for_speech(None, &address);
                let address_text = RichText::new(address.clone()).size(theme.typography.normal);
-               let label =
+               let button =
                   Button::selectable(false, address_text).visuals(theme.button_visuals()).wrap();
 
-               if ui.add(label).clicked() {
+               let response = ui.add(button);
+               name_address(ui, &response, &spoken);
+
+               // Nothing on screen changes when the address is copied, so the page has to say
+               // that it happened.
+               if response.clicked() {
                   ui.ctx().copy_text(address);
+                  notice = Some("Address copied.".to_string());
                }
             }
          }
@@ -381,14 +409,21 @@ impl QrWindow {
 
       ui.add_space(10.0);
 
-      if !privacy_mode {
+      let qr = if !privacy_mode {
          let size = self.evm_address_qr.image_size_pt(ui.ctx().pixels_per_point());
-         let image = self.evm_address_qr.image().fit_to_exact_size(size);
-         ui.add(image);
+         ui.add(self.evm_address_qr.image().fit_to_exact_size(size))
       } else {
          let size = self.zk_address_qr.image_size_pt(ui.ctx().pixels_per_point());
-         let image = self.zk_address_qr.image().fit_to_exact_size(size);
-         ui.add(image);
+         ui.add(self.zk_address_qr.image().fit_to_exact_size(size))
+      };
+
+      // A picture carries no words, so the node says what the picture is for.
+      ui.ctx().accesskit_node_builder(qr.id, |node| {
+         node.set_description("QR code of the address above, for another device to scan.");
+      });
+
+      if let Some(text) = notice {
+         self.notice = Some(text);
       }
    }
 }
@@ -400,6 +435,8 @@ pub struct ContactsUi {
    delete_contact: DeleteContact,
    edit_contact: EditContact,
    qr_window: QrWindow,
+   /// The words the QR page raised, drained by the Settings window after the page is drawn.
+   notice: Option<String>,
 }
 
 impl ContactsUi {
@@ -411,7 +448,13 @@ impl ContactsUi {
          delete_contact: DeleteContact::new(),
          edit_contact: EditContact::new(),
          qr_window: QrWindow::new(),
+         notice: None,
       }
+   }
+
+   /// The words the page wants said, drained by the Settings window right after it is drawn.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
    }
 
    pub fn reset_page(&mut self) {
@@ -516,6 +559,12 @@ impl ContactsUi {
             });
          },
       );
+
+      // The QR page cannot announce from inside its own draw — the window above it holds the only
+      // channel — so what it raised is taken here for that window to say.
+      if let Some(text) = self.qr_window.take_notice() {
+         self.notice = Some(text);
+      }
    }
 
    fn back_row(&mut self, theme: &Theme, ui: &mut Ui) {
@@ -692,6 +741,16 @@ impl ContactsUi {
       // but hidden from the tree, so the row says whose it is once.
       row.response
          .widget_info(|| WidgetInfo::labeled(Role::Group, ui.is_enabled(), &contact.name));
+   }
+}
+
+#[cfg(test)]
+impl ContactsUi {
+   /// Open the QR page on `contact` without encoding either code: opening it normally encodes both
+   /// on a worker that writes the frame's global, and a tree test has no frame for it to land in.
+   pub(crate) fn show_contact_qr_for_test(&mut self, contact: Contact) {
+      self.view = ContactsPageView::Qr;
+      self.qr_window.contact = Some(contact);
    }
 }
 
