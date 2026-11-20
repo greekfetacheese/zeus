@@ -136,6 +136,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
    gui.uniswap.show(ctx, theme, icons.clone(), token_selection, ui);
 
+   // The Uniswap window cannot announce from inside its own draw — the frame holds the channel —
+   // so the sentences its pages raise come back here.
+   let uniswap_notice = gui.uniswap.take_notice();
+
    gui.shield_ui.show(
       ctx,
       theme,
@@ -215,6 +219,12 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    // A revoke's answer is about the page it was pressed on, so the picker and the prompts drawn
    // over that page are said after it.
    if let Some(text) = approvals_notice {
+      gui.announce(text);
+   }
+
+   // The Uniswap window is drawn over the page it was raised from, so its sentence is said before
+   // the picker's, which covers the window.
+   if let Some(text) = uniswap_notice {
       gui.announce(text);
    }
 

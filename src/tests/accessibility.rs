@@ -17,6 +17,7 @@ use crate::core::{
 };
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::dapps::connect::{ConnectDappWindow, DappAccountChoice, DappConnectResult};
+use crate::gui::ui::dapps::uniswap::settings::{DEADLINE_TIP, SLIPPAGE_TIP, UniswapSettingsUi};
 use crate::gui::ui::sign_msg_window::SignMsgWindow;
 use crate::gui::ui::tx::{
    FeeSelection, TxConfirmationWindow, TxWindow, show_analysis_buttons, show_calldata_modal,
@@ -7201,5 +7202,508 @@ fn the_connect_countdown_keeps_its_name_and_says_when_it_opens() {
       gui.connect_dapp_window.take_notice(),
       None,
       "the same sentence is not said again"
+   );
+}
+
+/// The Uniswap window as the central panel draws it, on the page it opens on.
+///
+/// Twice: the window fades its page in on the pass that first sees it open, and the second pass is
+/// the one a reader is handed.
+fn render_uniswap_window(ctx: &Context, gui: &mut GUI, zeus: &ZeusCtx) -> Vec<(NodeId, Node)> {
+   let mut nodes = Vec::new();
+
+   for _ in 0..2 {
+      nodes = frame_nodes(ctx, Vec::new(), |ui| {
+         let icons = gui.icons.clone();
+         let theme = gui.theme.clone();
+         let uniswap = &mut gui.uniswap;
+         let token_selection = &mut gui.token_selection;
+
+         zeus.write(|zeus| uniswap.show(zeus, &theme, icons, token_selection, ui));
+      });
+   }
+
+   nodes
+}
+
+/// The Uniswap pool page on its own, the way the window draws it.
+///
+/// More than once: the table measures itself against the width on the first pass, and the Add Pool
+/// dialog is an overlay that is laid out before it is painted.
+///
+/// `events` go to the first pass only, so a click that opens a list is not delivered once per pass.
+fn render_pools_page(
+   ctx: &Context,
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   events: Vec<Event>,
+) -> Vec<(NodeId, Node)> {
+   let mut nodes = Vec::new();
+
+   for pass in 0..3 {
+      let events = if pass == 0 {
+         events.clone()
+      } else {
+         Vec::new()
+      };
+
+      nodes = frame_nodes(ctx, events, |ui| {
+         let icons = gui.icons.clone();
+         let theme = gui.theme.clone();
+         let pools = &mut gui.uniswap.pools_ui;
+
+         zeus.write(|zeus| pools.show(zeus, &theme, icons, ui));
+      });
+   }
+
+   nodes
+}
+
+/// The swap settings page on its own: no window and no fade around it, so one pass is the whole
+/// page.
+fn render_swap_settings(
+   ctx: &Context,
+   settings: &mut UniswapSettingsUi,
+   theme: &Theme,
+   events: Vec<Event>,
+) -> Vec<(NodeId, Node)> {
+   frame_nodes(ctx, events, |ui| {
+      settings.show(true, false, theme, ui)
+   })
+}
+
+/// The two currencies a seeded pool row draws: the symbols the pair cell prints.
+fn weth_usdc() -> (Currency, Currency) {
+   let weth = ERC20Token::from_components(
+      1,
+      Address::from([0xbb; 20]),
+      "WETH",
+      "Wrapped Ether",
+      18,
+      U256::ZERO,
+   );
+
+   let usdc = ERC20Token::from_components(
+      1,
+      Address::from([0xcc; 20]),
+      "USDC",
+      "USD Coin",
+      6,
+      U256::ZERO,
+   );
+
+   (Currency::from(weth), Currency::from(usdc))
+}
+
+/// Stand the pool table up with rows already built, keyed for the page the test is about to draw.
+///
+/// The real page asks a worker for its rows, and that worker writes into the global `GUI` rather than
+/// into the one a test holds — the table would spin for ever. A keyed seed is the rows it would have
+/// been handed.
+fn seed_pool_rows(
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   rows: Vec<(Currency, Currency, &'static str, String)>,
+) {
+   let (chain, pools) = zeus.read(|ctx| {
+      (
+         ctx.chain.id(),
+         ctx.pool_manager.read(|m| m.pools.len()),
+      )
+   });
+
+   gui.uniswap.pools_ui.seed_rows_for_test(
+      chain,
+      pools,
+      rows,
+      &gui.icons,
+      gui.theme.image_tint_recommended,
+   );
+}
+
+/// The header's refresh control is a picture, so it is named for what it refreshes — and the spinner
+/// that stands in its place while the pools and the quote are fetched says the same.
+#[test]
+fn the_uniswap_header_says_what_refresh_does() {
+   let (ctx, mut gui, zeus) = main_window();
+   wallet_in_cache(&zeus);
+   gui.uniswap.open();
+
+   let nodes = render_uniswap_window(&ctx, &mut gui, &zeus);
+
+   assert!(
+      nodes
+         .iter()
+         .any(|(_, node)| node.role() == Role::Button
+            && node.label() == Some("Refresh pools and quote")),
+      "the refresh button must be named: {:?}",
+      drawn_names(&nodes)
+   );
+
+   gui.uniswap.swap_ui.syncing_pools = true;
+
+   let nodes = render_uniswap_window(&ctx, &mut gui, &zeus);
+
+   assert!(
+      nodes.iter().any(|(_, node)| node.role() == Role::ProgressIndicator
+         && node.label() == Some("Refreshing pools and quote")),
+      "the spinner that replaces the button must say what is being fetched: {:?}",
+      drawn_names(&nodes)
+   );
+}
+
+/// The swap knobs read as knobs: the slippage field carries its own name and the tip the drawn word
+/// held, and each slider says what its number counts instead of leaving a bare number beside it.
+#[test]
+fn the_swap_settings_name_their_controls() {
+   let ctx = Context::default();
+   let mut theme = Theme::new(ThemeKind::TokyoNight);
+   theme.install(&ctx);
+
+   let mut settings = UniswapSettingsUi::new();
+   let nodes = render_swap_settings(&ctx, &mut settings, &theme, Vec::new());
+
+   let slippage = nodes
+      .iter()
+      .find(|(_, node)| is_text_input(node.role()) && node.label() == Some("Slippage percent"))
+      .map(|(_, node)| node)
+      .unwrap_or_else(|| {
+         panic!(
+            "the slippage field must be named: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   assert_eq!(
+      slippage.description(),
+      Some(SLIPPAGE_TIP),
+      "the tip the drawn word held belongs to the field"
+   );
+
+   let deadline = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Slider && node.label() == Some("Deadline in minutes"))
+      .map(|(_, node)| node)
+      .unwrap_or_else(|| {
+         panic!(
+            "the deadline slider must be named: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   let description = deadline.description().unwrap_or_default();
+
+   assert!(
+      description.starts_with("Now 5 minutes"),
+      "the deadline slider must say the number it counts: {description:?}"
+   );
+
+   assert!(
+      description.contains(DEADLINE_TIP),
+      "the tip the drawn word holds must reach the slider, not only a mouse: {description:?}"
+   );
+
+   for (name, value) in [("Max hops", "Now 2 hops"), ("Max routes", "Now 3 routes")] {
+      let slider = nodes
+         .iter()
+         .find(|(_, node)| node.role() == Role::Slider && node.label() == Some(name))
+         .map(|(_, node)| node)
+         .unwrap_or_else(|| {
+            panic!(
+               "the {name} slider must be named: {:?}",
+               drawn_names(&nodes)
+            )
+         });
+
+      assert_eq!(
+         slider.description(),
+         Some(value),
+         "the {name} slider must say the number it counts"
+      );
+   }
+
+   // Each slider holds its number as a value with no words of its own, so the unit lives in the
+   // description above — and the drawn captions and numbers are gone from the tree as items of their
+   // own, which is what kept a bare "5" being read with nothing saying what it counts.
+   let spoken: Vec<&str> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Label && !node.is_hidden())
+      .filter_map(|(_, node)| node.value())
+      .collect();
+
+   for text in [
+      "Slippage",
+      "Deadline (minutes)",
+      "Max Hops",
+      "Max Routes",
+      "5",
+      "2",
+      "3",
+   ] {
+      assert!(
+         !spoken.contains(&text),
+         "the drawn {text:?} must leave the tree, the control says it: {spoken:?}"
+      );
+   }
+}
+
+/// The sanitiser rewrites what was typed, and the correction is said: "-1" becomes "0" and the page
+/// says so, while a value the field keeps as typed says nothing.
+#[test]
+fn a_corrected_slippage_is_said() {
+   let ctx = Context::default();
+   let mut theme = Theme::new(ThemeKind::TokyoNight);
+   theme.install(&ctx);
+
+   let mut settings = UniswapSettingsUi::new();
+   settings.slippage.clear();
+
+   let nodes = render_swap_settings(&ctx, &mut settings, &theme, Vec::new());
+   let field = nodes
+      .iter()
+      .find(|(_, node)| is_text_input(node.role()) && node.label() == Some("Slippage percent"))
+      .map(|(id, _)| *id)
+      .expect("the slippage field must be in the tree before it is typed into");
+
+   render_swap_settings(
+      &ctx,
+      &mut settings,
+      &theme,
+      vec![accesskit_action(Action::Focus, field)],
+   );
+   render_swap_settings(
+      &ctx,
+      &mut settings,
+      &theme,
+      vec![Event::Text("-1".to_owned())],
+   );
+
+   assert_eq!(
+      settings.take_notice().as_deref(),
+      Some("Slippage set to 0 percent."),
+      "a field that rewrites what was typed must say what it holds now"
+   );
+
+   let mut kept = UniswapSettingsUi::new();
+   kept.slippage.clear();
+
+   let nodes = render_swap_settings(&ctx, &mut kept, &theme, Vec::new());
+   let field = nodes
+      .iter()
+      .find(|(_, node)| is_text_input(node.role()) && node.label() == Some("Slippage percent"))
+      .map(|(id, _)| *id)
+      .expect("the slippage field must be in the tree before it is typed into");
+
+   render_swap_settings(
+      &ctx,
+      &mut kept,
+      &theme,
+      vec![accesskit_action(Action::Focus, field)],
+   );
+   render_swap_settings(
+      &ctx,
+      &mut kept,
+      &theme,
+      vec![Event::Text("1".to_owned())],
+   );
+
+   assert_eq!(
+      kept.take_notice(),
+      None,
+      "a value the field keeps as typed is not a correction"
+   );
+}
+
+/// One seeded row: the pair cell is one node named after both tokens with the three words it draws
+/// left out of the reading, while the protocol, fee and header cells say their own text.
+#[test]
+fn the_pools_table_names_each_row_once() {
+   let (ctx, mut gui, zeus) = main_window();
+   let (weth, usdc) = weth_usdc();
+
+   seed_pool_rows(
+      &mut gui,
+      &zeus,
+      vec![(weth, usdc, "V3", "0.05%".to_string())],
+   );
+
+   let nodes = render_pools_page(&ctx, &mut gui, &zeus, Vec::new());
+   let spoken = drawn_names(&nodes);
+
+   assert!(
+      spoken.contains(&"WETH / USDC"),
+      "the pair cell must be one node named after both tokens: {spoken:?}"
+   );
+
+   for text in ["WETH", "/", "USDC"] {
+      assert!(
+         !nodes.iter().any(|(_, node)| node.role() == Role::Label
+            && !node.is_hidden()
+            && node.value() == Some(text)),
+         "the {text:?} the pair cell draws must leave the tree: {spoken:?}"
+      );
+
+      assert!(
+         nodes.iter().any(|(_, node)| node.role() == Role::Label
+            && node.is_hidden()
+            && node.value() == Some(text)),
+         "the drawn {text:?} must be hidden rather than gone"
+      );
+   }
+
+   // The protocol and the fee cells are plain labels, which already reach the tree with their words.
+   for text in ["V3", "0.05%"] {
+      assert!(
+         nodes
+            .iter()
+            .any(|(_, node)| node.role() == Role::Label && node.value() == Some(text)),
+         "the {text:?} cell must reach the tree: {spoken:?}"
+      );
+   }
+
+   // So do the header words: they are drawn with plain labels, which arrive as a label's value, and
+   // they need no name of their own.
+   for text in ["Pool", "Protocol", "Fee"] {
+      assert!(
+         nodes
+            .iter()
+            .any(|(_, node)| node.role() == Role::Label && node.value() == Some(text)),
+         "the {text:?} header must reach the tree as a label: {spoken:?}"
+      );
+   }
+}
+
+/// The Add Pool form names each field after the caption the grid draws beside it, and the version
+/// picker after the caption above it: the placeholders stay hints.
+#[test]
+fn the_add_pool_form_names_its_fields() {
+   let (ctx, mut gui, zeus) = main_window();
+
+   seed_pool_rows(&mut gui, &zeus, Vec::new());
+   gui.uniswap.pools_ui.open_add_pool_for_test();
+
+   let nodes = render_pools_page(&ctx, &mut gui, &zeus, Vec::new());
+
+   for name in ["Token A", "Token B"] {
+      assert!(
+         text_field(&nodes, name).is_some(),
+         "the {name} field must be named after the caption beside it: {:?}",
+         drawn_names(&nodes)
+      );
+   }
+
+   assert!(
+      nodes.iter().any(|(_, node)| node.label() == Some("Pool version: V3")),
+      "the version picker must say which version it shows: {:?}",
+      drawn_names(&nodes)
+   );
+}
+
+/// The fee list says which tier is in force, the way the version list does: the row the trigger draws
+/// is the chosen one and every other row says it is not.
+#[test]
+fn the_add_pool_fee_tiers_say_which_one_is_chosen() {
+   let (ctx, mut gui, zeus) = main_window();
+
+   seed_pool_rows(&mut gui, &zeus, Vec::new());
+   gui.uniswap.pools_ui.open_add_pool_for_test();
+
+   let nodes = render_pools_page(&ctx, &mut gui, &zeus, Vec::new());
+
+   let trigger = nodes
+      .iter()
+      .find(|(_, node)| node.label() == Some("Fee tier: 0.3%"))
+      .map(|(id, _)| *id)
+      .expect("the fee picker must say which tier it shows");
+
+   let nodes = render_pools_page(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, trigger)],
+   );
+
+   let row = |label: &str| {
+      nodes
+         .iter()
+         .find(|(_, node)| node.role() == Role::RadioButton && node.label() == Some(label))
+         .map(|(_, node)| node)
+         .unwrap_or_else(|| {
+            panic!(
+               "the {label} tier must be a row of the open list: {:?}",
+               drawn_names(&nodes)
+            )
+         })
+   };
+
+   assert_eq!(
+      row("0.3%").toggled(),
+      Some(Toggled::True),
+      "the tier the trigger draws is the chosen row"
+   );
+
+   assert_eq!(
+      row("0.05%").toggled(),
+      Some(Toggled::False),
+      "a tier that is not on the trigger must not claim to be chosen"
+   );
+}
+
+/// The count belongs to the filter, so it is said when it moves — and only then: the same empty table
+/// a frame later says nothing.
+#[test]
+fn the_pools_search_says_how_many_rows_it_left() {
+   let (ctx, mut gui, zeus) = main_window();
+
+   seed_pool_rows(&mut gui, &zeus, Vec::new());
+
+   render_pools_page(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert_eq!(
+      gui.uniswap.pools_ui.take_notice().as_deref(),
+      Some("No pools match this filter."),
+      "an empty table must say how many rows the filter left"
+   );
+
+   render_pools_page(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert_eq!(
+      gui.uniswap.pools_ui.take_notice(),
+      None,
+      "the same count is not said again"
+   );
+}
+
+/// The window's own notices are plain labels, so they already reach the tree: this is the premise the
+/// rest of the window's names rest on.
+#[test]
+fn the_uniswap_notices_are_in_the_tree() {
+   let (ctx, mut gui, zeus) = main_window();
+   wallet_in_cache(&zeus);
+   gui.uniswap.open();
+
+   zeus.write(|ctx| ctx.privacy_mode = true);
+
+   let nodes = render_uniswap_window(&ctx, &mut gui, &zeus);
+
+   assert!(
+      nodes.iter().any(|(_, node)| node.role() == Role::Label
+         && node.value() == Some("Private swaps are not supported")),
+      "the private-swaps line must reach the tree as a label: {:?}",
+      drawn_names(&nodes)
+   );
+
+   zeus.write(|ctx| {
+      ctx.privacy_mode = false;
+      ctx.chain = ChainId::new(56).unwrap();
+   });
+
+   let nodes = render_uniswap_window(&ctx, &mut gui, &zeus);
+
+   assert!(
+      nodes.iter().any(|(_, node)| node.role() == Role::Label
+         && node.value() == Some("Swap feature is not available on Binance Smart Chain")),
+      "the BSC line must reach the tree as a label: {:?}",
+      drawn_names(&nodes)
    );
 }

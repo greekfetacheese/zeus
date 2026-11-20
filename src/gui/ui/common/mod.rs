@@ -267,6 +267,27 @@ pub fn dots_button(theme: &Theme, size: Vec2, ui: &mut Ui) -> Response {
    resp
 }
 
+/// The id the next widget drawn on this `ui` will be registered under.
+///
+/// A popped list keeps its trigger in a node under an id the crate takes before the popup is drawn,
+/// so a widget that wants to name that node later has to read the id here first. Reading it does not
+/// advance the counter: the next widget still gets this id.
+pub fn next_widget_id(ui: &Ui) -> Id {
+   ui.next_auto_id()
+}
+
+/// Name a picker's node from the face it shows: `"{caption}: {value}"`.
+///
+/// A picker names its own node from the closed face alone, which is the value, so two pickers on one
+/// form both read as bare values and a picker beside its own caption reads as the value twice. The
+/// caption is the word the row already draws; this puts it on the node the picker owns. The shape
+/// came from `chain_select.rs`, where a chain picker had the same gap.
+pub fn name_picker(ui: &Ui, id: Id, caption: &str, value: &str) {
+   ui.ctx().accesskit_node_builder(id, |node| {
+      node.set_label(format!("{caption}: {value}"))
+   });
+}
+
 /// Put one sentence on the node behind a themed label, whatever the label reported for itself.
 ///
 /// AccessKit names a `Role::Label` node from the node's value rather than its label, so the

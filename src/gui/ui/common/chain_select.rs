@@ -5,6 +5,8 @@ use crate::core::ZeusContext;
 use eframe::egui::{RichText, Sense, Ui, Vec2};
 use std::sync::Arc;
 
+use super::name_picker;
+
 use zeus_eth::types::ChainId;
 
 use egui_elements::{ComboBox, Label, Theme};
@@ -125,9 +127,7 @@ impl ChainSelect {
       // on one form both read as plain chain names. Name the node this picker owns instead, and read
       // the chain after the popup has run so a chain picked this frame is the one named.
       if let Some(caption) = self.caption {
-         ui.ctx().accesskit_node_builder(trigger_id, |node| {
-            node.set_label(format!("{}: {}", caption, self.chain.name()))
-         });
+         name_picker(ui, trigger_id, caption, self.chain.name());
       }
 
       clicked
