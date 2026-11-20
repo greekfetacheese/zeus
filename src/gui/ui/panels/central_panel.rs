@@ -110,6 +110,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       ui,
    );
 
+   // The Send form has no channel of its own — the frame holds the only one — so the sentence it
+   // wants said comes back here, like the portfolio's.
+   let send_notice = gui.send_crypto.take_notice();
+
    gui.portofolio.show(ctx, theme, icons.clone(), token_selection, ui);
 
    // The portfolio page has no channel of its own — the frame holds the only one — so it hands its
@@ -143,6 +147,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    // Said once every page has had its turn: the channel keeps the last call of a frame, and this
    // sentence is about the page the user is on.
    if let Some(text) = portfolio_notice {
+      gui.announce(text);
+   }
+
+   if let Some(text) = send_notice {
       gui.announce(text);
    }
 

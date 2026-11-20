@@ -9,7 +9,9 @@ use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::gui::ui::{ContactsUi, RecipientSelectionWindow};
 use crate::utils::TimeStamp;
-use eframe::egui::{CursorIcon, FontId, Margin, OpenUrl, RichText, Sense, Ui, vec2};
+use eframe::egui::{
+   CursorIcon, FontId, Margin, OpenUrl, RichText, Role, Sense, Ui, WidgetInfo, vec2,
+};
 use egui_elements::{SecureTextEdit, Theme};
 use egui_lucide::Lucide;
 use std::sync::Arc;
@@ -64,7 +66,11 @@ pub fn recipient_field(
       ui.set_width(ui.available_width());
 
       ui.horizontal(|ui| {
-         ui.label(RichText::new("Recipient").size(theme.typography.large));
+         let drawn = ui.label(RichText::new("Recipient").size(theme.typography.large));
+
+         // The field carries this word as its name, so the label is not a second destination.
+         ui.ctx().accesskit_node_builder(drawn.id, |node| node.set_hidden());
+
          ui.add_space(10.0);
 
          if !recipient.is_empty(privacy_mode) {
@@ -111,6 +117,17 @@ pub fn recipient_field(
 
                let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
 
+               // The link is a picture with a click sense: no role and no words, so a reader has
+               // nothing to land on. A clickable response is focusable and Enter or Space presses
+               // it, so naming it is the whole of what it was missing.
+               res.widget_info(|| {
+                  WidgetInfo::labeled(
+                     Role::Button,
+                     ui.is_enabled(),
+                     "Open the recipient in the block explorer",
+                  )
+               });
+
                if res.clicked() {
                   let url = OpenUrl::new_tab(link);
                   ui.ctx().open_url(url);
@@ -152,9 +169,58 @@ pub fn recipient_field(
             recipient_selection.recipient.forget_name_binding();
          }
 
+         // The node says how much of an address the field holds and how it ends, never the address:
+         // the whole thing is on screen, and the ending is what can be checked by ear against the
+         // address meant to be pasted. The resolved name is the description, so the field can be
+         // recognised without the address being read back.
+         let typed = if privacy_mode {
+            &recipient_selection.recipient.zk_address
+         } else {
+            &recipient_selection.recipient.evm_address
+         };
+         let field_name = match privacy_mode {
+            true => "Recipient 0zk address",
+            false => "Recipient address",
+         };
+         let held = recipient_value(typed);
+         let resolved = recipient_selection.recipient.name.clone();
+
+         ui.ctx().accesskit_node_builder(res.id, |node| {
+            node.set_label(field_name);
+
+            match &held {
+               Some(value) => node.set_value(value.as_str()),
+               None => node.clear_value(),
+            }
+
+            match &resolved {
+               Some(name) => node.set_description(name.as_str()),
+               None => node.clear_description(),
+            }
+         });
+
          if res.clicked() {
             recipient_selection.open();
          }
       });
    });
+}
+
+/// What the recipient field says it holds: how many characters, and the four it ends with.
+///
+/// The address is on screen, so the node does not repeat it — a reader would hear the whole field
+/// back on every keystroke. The ending is what can be checked by ear against the address meant to
+/// be pasted, and at four characters or fewer it is the whole string, which is then said as it is.
+fn recipient_value(address: &str) -> Option<String> {
+   let characters: Vec<char> = address.chars().collect();
+   let count = characters.len();
+
+   match count {
+      0 => None,
+      1..=4 => Some(address.to_string()),
+      count => {
+         let ending: String = characters[count - 4..].iter().collect();
+         Some(format!("{count} characters, ends {ending}"))
+      }
+   }
 }

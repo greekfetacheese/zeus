@@ -1,7 +1,7 @@
 //! UI that allows the user to send ETH or ERC20 tokens (public) or private
 //! Railgun (zk → zk) transfers when privacy mode is enabled.
 
-use eframe::egui::{Align, FontId, Frame, Layout, Margin, RichText, Ui, vec2};
+use eframe::egui::{Align, FontId, Frame, Layout, Margin, RichText, Role, Ui, WidgetInfo, vec2};
 
 use std::{
    collections::HashMap,
@@ -78,6 +78,10 @@ pub struct SendCryptoUi {
    pub price_syncing: bool,
    pub syncing_balance: bool,
    pub sending_tx: bool,
+   /// The words the page hands back to the frame, which owns the announcement channel.
+   notice: Option<String>,
+   /// The reason Send was blocked by last frame, so the same one is not said twice.
+   blocked_reason: Option<String>,
    last_price_update: HashMap<Address, Instant>,
 }
 
@@ -98,6 +102,8 @@ impl SendCryptoUi {
          price_syncing: false,
          syncing_balance: false,
          sending_tx: false,
+         notice: None,
+         blocked_reason: None,
          last_price_update: HashMap::new(),
       }
    }
@@ -117,6 +123,10 @@ impl SendCryptoUi {
       self.clear_search_query();
       self.memo.clear();
       self.clear_nft();
+      // A reopen is a new arrival: the reason this visit was showing was not necessarily heard,
+      // so it is said again rather than assumed.
+      self.blocked_reason = None;
+      self.notice = None;
    }
 
    pub fn set_currency(&mut self, currency: Currency) {
@@ -174,6 +184,24 @@ impl SendCryptoUi {
       self.search_query = String::new();
    }
 
+   /// The words this page should say, drained by the frame right after it is drawn.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
+   }
+
+   /// Announce why Send is blocked, once, and only when the reason changes.
+   ///
+   /// The sentence is drawn beside the button either way; hearing it as well is what tells a
+   /// reader who never left the amount field that the button they were heading for is not going
+   /// to work, and what to fix.
+   fn say_blocked(&mut self, reason: Option<&str>) {
+      if let Some(text) = blocked_announcement(self.blocked_reason.as_deref(), reason) {
+         self.notice = Some(text);
+      }
+
+      self.blocked_reason = reason.map(str::to_string);
+   }
+
    pub fn show(
       &mut self,
       ctx: &mut ZeusContext,
@@ -224,12 +252,17 @@ impl SendCryptoUi {
 
                   let text_edit_visuals = theme.text_edit_visuals();
 
-                  let title = if privacy_mode {
+                  let title_text = if privacy_mode {
                      "Private Transfer"
                   } else {
                      "Send Crypto"
                   };
-                  ui.label(RichText::new(title).size(theme.typography.heading));
+                  let title = ui.label(RichText::new(title_text).size(theme.typography.heading));
+
+                  // The form's own title is a heading of the page, not a line of prose beside it.
+                  title.widget_info(|| {
+                     WidgetInfo::labeled(Role::Heading, ui.is_enabled(), title_text)
+                  });
 
                   let owner = ctx.current_wallet_info().address;
                   let owner_zk = ctx.current_wallet_info().zk_address();
@@ -338,15 +371,19 @@ impl SendCryptoUi {
                      inner_frame.show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.horizontal(|ui| {
-                           ui.label(RichText::new("Memo").size(theme.typography.large));
+                           let drawn = ui.label(RichText::new("Memo").size(theme.typography.large));
+                           ui.ctx().accesskit_node_builder(drawn.id, |node| node.set_hidden());
+
                            ui.add_space(8.0);
-                           ui.label(
+
+                           let optional = ui.label(
                               RichText::new("(optional)")
                                  .size(theme.typography.small)
                                  .color(theme.colors.text_muted),
                            );
+                           ui.ctx().accesskit_node_builder(optional.id, |node| node.set_hidden());
                         });
-                        ui.add(
+                        let field = ui.add(
                            SecureTextEdit::singleline(&mut self.memo)
                               .visuals(text_edit_visuals)
                               .hint_text(
@@ -358,6 +395,13 @@ impl SendCryptoUi {
                               .margin(Margin::same(10))
                               .font(FontId::proportional(theme.typography.normal)),
                         );
+
+                        // The memo is written into the private history, so it is public by design:
+                        // an ordinary field whose value is the text it holds, named with the
+                        // optionality the drawn words carried.
+                        ui.ctx().accesskit_node_builder(field.id, |node| {
+                           node.set_label("Memo, optional")
+                        });
                      });
                   }
 
@@ -468,7 +512,17 @@ impl SendCryptoUi {
             let button =
                Button::new(text).min_size(vec2(90.0, 25.0)).visuals(theme.button_visuals());
 
-            if ui.add(button).clicked() {
+            let picker = ui.add(button);
+
+            // "Select NFT" already says what it opens; "Change" does not say what it changes, so
+            // both are named after the thing they act on.
+            let name = match selected.is_some() {
+               true => "Change NFT",
+               false => "Select NFT",
+            };
+            picker.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), name));
+
+            if picker.clicked() {
                // `open` restores the fungible default, so the mode is set *after* it. The privacy flag
                // is the mode's own: shielded tokens for a private transfer, owned ones otherwise.
                token_selection.open(privacy_mode, chain_id, owner);
@@ -486,7 +540,7 @@ impl SendCryptoUi {
          ui.horizontal(|ui| {
             ui.label(RichText::new("Amount").size(theme.typography.large));
             ui.add_space(10.0);
-            ui.add(
+            let field = ui.add(
                SecureTextEdit::singleline(&mut self.nft_amount)
                   .visuals(text_edit_visuals)
                   .hint_text(
@@ -498,6 +552,9 @@ impl SendCryptoUi {
                   .margin(Margin::same(10))
                   .font(FontId::proportional(theme.typography.normal)),
             );
+
+            // How many of the token picked above to move.
+            ui.ctx().accesskit_node_builder(field.id, |node| node.set_label("Amount"));
          });
       } else {
          // ERC-721: the id is the whole payload, so it is shown read-only. There is nothing to edit —
@@ -567,45 +624,45 @@ impl SendCryptoUi {
       let nft_transfer_supported =
          !privacy_mode || nft.as_ref().is_none_or(|n| n.standard == NftStandard::Erc721);
 
-      let mut button_text = match nft.is_some() {
-         true => "Send".to_string(),
-         false => "Select an NFT".to_string(),
+      let mut blocked = match nft.is_some() {
+         true => None,
+         false => Some("Select an NFT".to_string()),
       };
 
       if nft.is_some() && amount.is_none() {
-         button_text = "Invalid Amount".to_string();
+         blocked = Some("Invalid Amount".to_string());
       }
 
       // Nothing to spend, and no fee or simulation would explain it any better.
       if nft.is_some() && privacy_mode && !has_private_balance {
-         button_text = "Not enough shielded".to_string();
+         blocked = Some("Not enough shielded".to_string());
       }
 
       // Last of the NFT states, so it wins: nothing else about this operation matters while it cannot be
       // done at all.
       if nft.is_some() && !nft_transfer_supported {
-         button_text = "Private ERC-1155 transfers are not supported".to_string();
+         blocked = Some("Private ERC-1155 transfers are not supported".to_string());
       }
 
       if has_entered_recipient && !valid_recipient {
-         button_text = "Invalid Recipient".to_string();
+         blocked = Some("Invalid Recipient".to_string());
       }
 
       if has_entered_recipient && recipient_is_sender {
-         button_text = "Cannot send to yourself".to_string();
+         blocked = Some("Cannot send to yourself".to_string());
       }
 
       if recipient_name_lapsed {
-         button_text = "ENS name expired".to_string();
+         blocked = Some("ENS name expired".to_string());
       }
 
       // Last, for the same reason as the fungible button: on the wrong chain every check above is
       // about the wrong chain, and sending there is the mistake worth blocking.
       if let Some(chain) = wrong_chain {
-         button_text = match ChainId::new(chain) {
+         blocked = Some(match ChainId::new(chain) {
             Ok(chain) => format!("Switch to {} to send", chain.name()),
             Err(_) => "Unsupported chain".to_string(),
-         };
+         });
       }
 
       let valid_inputs = nft.is_some()
@@ -619,12 +676,25 @@ impl SendCryptoUi {
          && !recipient_name_lapsed
          && !sending_tx;
 
-      let text = RichText::new(button_text).size(theme.typography.large);
+      // Said once, then drawn directly above the button: a disabled button takes no focus, so a
+      // reason that lived in its label could never be reached.
+      self.say_blocked(blocked.as_deref());
+
+      if let Some(reason) = &blocked {
+         blocked_reason_line(ui, theme, reason);
+      }
+
+      let text = RichText::new("Send").size(theme.typography.large);
       let send = Button::new(text)
          .min_size(vec2(ui.available_width() * 0.8, 45.0))
          .visuals(button_visuals);
 
-      if ui.add_enabled(valid_inputs, send).clicked()
+      let send = ui.add_enabled(valid_inputs, send);
+
+      // The button keeps the name of what it does whatever is blocking it.
+      send.widget_info(|| WidgetInfo::labeled(Role::Button, valid_inputs, "Send"));
+
+      if send.clicked()
          && let (Some(nft), Some(amount)) = (nft, amount)
       {
          self.sending_tx = true;
@@ -911,47 +981,63 @@ impl SendCryptoUi {
          && !recipient_name_lapsed
          && !sending_tx;
 
-      let mut button_text = "Send".to_string();
+      let mut blocked = None;
 
       if has_entered_amount && !valid_amount {
-         button_text = "Invalid Amount".to_string();
+         blocked = Some("Invalid Amount".to_string());
       }
 
       if has_entered_recipient && !valid_recipient {
-         button_text = "Invalid Recipient".to_string();
+         blocked = Some("Invalid Recipient".to_string());
       }
 
       if has_entered_recipient && recipient_is_sender {
-         button_text = "Cannot send to yourself".to_string();
+         blocked = Some("Cannot send to yourself".to_string());
       }
 
       if !has_balance {
-         button_text = format!("Insufficient {} Balance", self.currency.symbol());
+         blocked = Some(format!(
+            "Insufficient {} Balance",
+            self.currency.symbol()
+         ));
       }
 
       if privacy_mode && !valid_token {
-         button_text = "Invalid Token".to_string();
+         blocked = Some("Invalid Token".to_string());
       }
 
       if recipient_name_lapsed {
-         button_text = "ENS name expired".to_string();
+         blocked = Some("ENS name expired".to_string());
       }
 
       // Last, so it wins: on the wrong chain every balance figure above is for the wrong chain,
       // and sending there is the mistake worth blocking.
       if let Some(chain) = wrong_chain {
-         button_text = match ChainId::new(chain) {
+         blocked = Some(match ChainId::new(chain) {
             Ok(chain) => format!("Switch to {} to send", chain.name()),
             Err(_) => "Unsupported chain".to_string(),
-         };
+         });
       }
 
-      let text = RichText::new(button_text).size(theme.typography.large);
+      // Said once, then drawn directly above the button: a disabled button takes no focus, so a
+      // reason that lived in its label could never be reached.
+      self.say_blocked(blocked.as_deref());
+
+      if let Some(reason) = &blocked {
+         blocked_reason_line(ui, theme, reason);
+      }
+
+      let text = RichText::new("Send").size(theme.typography.large);
       let send = Button::new(text)
          .min_size(vec2(ui.available_width() * 0.8, 45.0))
          .visuals(button_visuals);
 
-      if ui.add_enabled(valid_inputs, send).clicked() {
+      let send = ui.add_enabled(valid_inputs, send);
+
+      // The button keeps the name of what it does whatever is blocking it.
+      send.widget_info(|| WidgetInfo::labeled(Role::Button, valid_inputs, "Send"));
+
+      if send.clicked() {
          self.sending_tx = true;
 
          if privacy_mode {
@@ -1244,6 +1330,38 @@ impl SendCryptoUi {
          }
       });
       Ok(())
+   }
+}
+
+/// Draw the sentence that says why Send is blocked, directly above the button.
+///
+/// A disabled button takes no focus, so a reader could not reach the reason while it lived in the
+/// button's label — exactly when it mattered. The line is drawn in the button's own column, so a
+/// long sentence wraps where the button ends, and nothing is drawn while nothing is blocking.
+fn blocked_reason_line(ui: &mut Ui, theme: &Theme, reason: &str) {
+   let width = ui.available_width() * 0.8;
+   let text = RichText::new(reason).size(theme.typography.normal).color(theme.colors.error);
+
+   ui.allocate_ui_with_layout(
+      vec2(width, 0.0),
+      Layout::top_down(Align::Center),
+      |ui| {
+         ui.label(text);
+      },
+   );
+}
+
+/// The sentence to announce for a blocked Send whose reason changed between two frames.
+///
+/// `None` when there is nothing to say: no reason before and none now, or the same reason still
+/// blocking. A reason that goes away says nothing either — an enabled Send is its own news, and
+/// announcing the loss of a sentence nobody asked about would talk over what the user is doing.
+pub fn blocked_announcement(previous: Option<&str>, current: Option<&str>) -> Option<String> {
+   match (previous, current) {
+      (None, None) => None,
+      (Some(previous), Some(current)) if previous == current => None,
+      (Some(_), None) => None,
+      (None, Some(current)) | (Some(_), Some(current)) => Some(current.to_string()),
    }
 }
 

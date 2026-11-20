@@ -2239,6 +2239,449 @@ fn a_themed_label_is_named_with_its_sentence() {
       "a widget with no node of its own must be given one: {names:?}"
    );
 }
+/// The amount field's node says how much it holds and what it is worth, never what was typed: the
+/// amount is on screen, and a node that repeated it would read the whole field back on every
+/// keystroke. Everything the field draws beside itself is folded into that one node.
+#[test]
+fn the_amount_field_never_reads_out_its_text() {
+   use crate::gui::ui::common::{AmountField, AmountFieldParams};
+   use zeus_eth::currency::{Currency, NativeCurrency};
+   use zeus_eth::utils::NumericValue;
+
+   let ctx = Context::default();
+   let mut gui = GUI::default();
+   gui.theme.install(&ctx);
+
+   let theme = gui.theme.clone();
+   let icons = gui.icons.clone();
+   let currency = Currency::from(NativeCurrency::from_chain_id(1).unwrap());
+
+   let mut field = AmountField::new();
+   field.amount = "123.45".to_string();
+
+   let mut nodes = Vec::new();
+
+   // The percent row measures its items on one pass and places them on the next.
+   for _ in 0..3 {
+      nodes = frame(&ctx, |ui| {
+         field.show(
+            AmountFieldParams::new(
+               &theme,
+               icons.clone(),
+               &currency,
+               Address::from([0x11; 20]),
+               1,
+            )
+            .balance(NumericValue::from_f64(10.0))
+            .max_amount(NumericValue::from_f64(10.0))
+            // What the amount is worth, which is a different figure from the amount itself.
+            .value(NumericValue::from_f64(308.62))
+            .label("Amount")
+            .show_slider(true),
+            ui,
+         );
+      });
+   }
+
+   let field = nodes
+      .iter()
+      .find(|node| is_text_input(node.role()))
+      .expect("the amount field must be a text field in the tree");
+
+   assert_eq!(
+      field.label(),
+      Some("Amount in ETH"),
+      "the field is named after what it holds and the token it is in"
+   );
+
+   assert_eq!(
+      field.value(),
+      Some("6 characters"),
+      "the value says how much the field holds, not what it holds"
+   );
+
+   let value = field.value().unwrap_or_default();
+   let description = field.description().unwrap_or_default();
+
+   assert!(
+      !value.contains("123.45") && !description.contains("123.45"),
+      "the typed amount must never be read out: value {value:?}, description {description:?}"
+   );
+
+   assert_eq!(
+      description, "Value $308.62",
+      "the fiat value the field draws under itself is its description"
+   );
+
+   let spoken: Vec<&str> = nodes
+      .iter()
+      .filter(|node| node.role() == Role::Label && !node.is_hidden())
+      .filter_map(|node| node.value())
+      .collect();
+
+   assert!(
+      !spoken.contains(&"Amount"),
+      "the drawn Amount label must leave the tree, or the field is named twice: {spoken:?}"
+   );
+
+   assert!(
+      !spoken.iter().any(|text| text.ends_with('%')),
+      "the percent readout repeats the slider's own value: {spoken:?}"
+   );
+
+   let slider = nodes
+      .iter()
+      .find(|node| node.role() == Role::Slider)
+      .expect("the percent slider must be in the tree");
+
+   assert_eq!(
+      slider.label(),
+      Some("Amount percent"),
+      "the slider is named after the amount share it sets"
+   );
+
+   assert!(
+      nodes
+         .iter()
+         .any(|node| node.role() == Role::Button && node.label() == Some("Change token (ETH)")),
+      "the currency button says what it shows and what pressing it does"
+   );
+
+   assert!(
+      spoken.contains(&"Balance 10.00"),
+      "the balance is named, not left as a bare number: {spoken:?}"
+   );
+}
+
+/// Render the recipient row headlessly.
+fn render_recipient(ctx: &Context, gui: &mut GUI, zeus: &ZeusCtx) -> Vec<(NodeId, Node)> {
+   frame_nodes(ctx, Vec::new(), |ui| {
+      let theme = gui.theme.clone();
+      let icons = gui.icons.clone();
+      let recipient_selection = &mut gui.recipient_selection;
+      let contacts = &mut gui.settings.contacts_ui;
+
+      zeus.write(|zeus| {
+         crate::gui::ui::common::recipient_field(
+            zeus,
+            &theme,
+            icons,
+            recipient_selection,
+            contacts,
+            false,
+            1,
+            ChainId::Ethereum,
+            ui,
+         )
+      });
+   })
+}
+
+/// The recipient field says how much of an address it holds and how it ends, never the address; the
+/// name the address resolved to is the description, and the block-explorer link is a named button.
+#[test]
+fn the_recipient_field_says_how_much_of_the_address_it_holds() {
+   const ADDRESS: &str = "0x1111111111111111111111111111111111111111";
+
+   let (ctx, mut gui, zeus) = main_window();
+   gui.recipient_selection.recipient.evm_address = ADDRESS.to_string();
+
+   let nodes = render_recipient(&ctx, &mut gui, &zeus);
+
+   let field = nodes
+      .iter()
+      .find(|(_, node)| is_text_input(node.role()))
+      .map(|(_, node)| node)
+      .expect("the recipient row must draw its address field");
+
+   assert_eq!(
+      field.label(),
+      Some("Recipient address"),
+      "the field carries the word the drawn label used to say"
+   );
+
+   let value = field.value().unwrap_or_default();
+
+   assert_eq!(
+      value, "42 characters, ends 1111",
+      "the value says how much of the address is there and how it ends"
+   );
+
+   assert!(
+      !value.contains(ADDRESS),
+      "the address itself must never be the value: {value:?}"
+   );
+
+   assert_eq!(
+      field.description(),
+      None,
+      "an address with no name has nothing to add to the count"
+   );
+
+   assert!(
+      nodes.iter().any(|(_, node)| node.role() == Role::Button
+         && node.label() == Some("Open the recipient in the block explorer")),
+      "the explorer link must be a named button a reader can land on"
+   );
+
+   // The name the address resolved to is the description, so the field is recognisable without
+   // the address being read back to the user.
+   gui.recipient_selection.recipient.name = Some("ada.eth".to_string());
+
+   let nodes = render_recipient(&ctx, &mut gui, &zeus);
+
+   let field = nodes
+      .iter()
+      .find(|(_, node)| is_text_input(node.role()))
+      .map(|(_, node)| node)
+      .expect("the recipient row must still draw its field");
+
+   assert_eq!(
+      field.description(),
+      Some("ada.eth"),
+      "the resolved name is the field's description"
+   );
+}
+
+/// Draw the Send form the way the central panel does, and return its tree.
+///
+/// The panel gates the pages on the unlocked vault; the form itself does not, so a context with no
+/// vault still draws every node a reader has to land on.
+fn render_send(ctx: &Context, gui: &mut GUI, zeus: &ZeusCtx) -> Vec<Node> {
+   let mut nodes = Vec::new();
+
+   // The form measures its frame on the first pass and draws into it on the second.
+   for _ in 0..2 {
+      nodes = frame(ctx, |ui| {
+         let icons = gui.icons.clone();
+         let theme = gui.theme.clone();
+         let send = &mut gui.send_crypto;
+         let token_selection = &mut gui.token_selection;
+         let recipient_selection = &mut gui.recipient_selection;
+         let contacts = &mut gui.settings.contacts_ui;
+
+         zeus.write(|zeus| {
+            send.show(
+               zeus,
+               icons,
+               &theme,
+               token_selection,
+               recipient_selection,
+               contacts,
+               ui,
+            )
+         });
+      });
+   }
+
+   nodes
+}
+
+/// Stand the zero-address wallet up in the cache the Send form reads its wallet from.
+///
+/// Without a vault that cache is empty, and the form asks it which wallet it is on screen for.
+fn wallet_in_cache(zeus: &ZeusCtx) {
+   zeus.write(|ctx| {
+      let info = crate::core::WalletInfo::default();
+
+      ctx.wallet_info_cache = crate::core::types::WalletInfoCache::new(
+         std::collections::HashMap::from([(info.address, info.clone())]),
+         vec![info],
+      );
+   });
+}
+
+/// The reason a Send is blocked used to be the disabled button's label, which no reader can reach.
+/// It is a line of its own now, said once when it appears, and the button keeps its name.
+#[test]
+fn a_blocked_send_says_why_beside_a_button_named_send() {
+   let (ctx, mut gui, zeus) = main_window();
+   wallet_in_cache(&zeus);
+
+   gui.send_crypto.open();
+   gui.send_crypto.amount_field.amount = "0.5".to_string();
+
+   let nodes = render_send(&ctx, &mut gui, &zeus);
+
+   let send = nodes
+      .iter()
+      .find(|node| node.role() == Role::Button && node.label() == Some("Send"))
+      .expect("the form must draw its Send button");
+
+   assert!(
+      send.is_disabled(),
+      "the button must be blocked, which is the state this test is about"
+   );
+
+   assert!(
+      nodes
+         .iter()
+         .any(|node| node.role() == Role::Heading && node.label() == Some("Send Crypto")),
+      "the form's own title must be a heading of the page"
+   );
+
+   let reason = "Insufficient ETH Balance";
+
+   let spoken: Vec<&str> = nodes
+      .iter()
+      .filter(|node| node.role() == Role::Label && !node.is_hidden())
+      .filter_map(|node| node.value())
+      .collect();
+
+   assert!(
+      spoken.contains(&reason),
+      "the reason must be a node of its own, reachable while the button is not: {spoken:?}"
+   );
+
+   let line = nodes
+      .iter()
+      .find(|node| node.role() == Role::Label && node.value() == Some(reason))
+      .and_then(|node| node.bounds())
+      .expect("the reason is drawn, so its node has bounds");
+
+   let button = send.bounds().expect("the button is drawn, so its node has bounds");
+
+   assert!(
+      ((line.x0 + line.x1) - (button.x0 + button.x1)).abs() < 1.0,
+      "the line must sit in the button's own column: {line:?} against {button:?}"
+   );
+
+   assert!(
+      line.y1 <= button.y0,
+      "the line must be drawn above the button: {line:?} against {button:?}"
+   );
+
+   assert_eq!(
+      gui.send_crypto.take_notice().as_deref(),
+      Some(reason),
+      "the reason must be said when it appears"
+   );
+
+   // The same block a frame later is not a second announcement.
+   render_send(&ctx, &mut gui, &zeus);
+
+   assert_eq!(
+      gui.send_crypto.take_notice(),
+      None,
+      "a reason that has not changed says nothing twice"
+   );
+
+   // A different reason is a new sentence, drawn and said.
+   gui.send_crypto.amount_field.amount = "abc".to_string();
+
+   let nodes = render_send(&ctx, &mut gui, &zeus);
+
+   let reason = "Invalid Amount";
+
+   let spoken: Vec<&str> = nodes
+      .iter()
+      .filter(|node| node.role() == Role::Label && !node.is_hidden())
+      .filter_map(|node| node.value())
+      .collect();
+
+   assert!(
+      spoken.contains(&reason),
+      "the new reason must be the line that is drawn: {spoken:?}"
+   );
+
+   assert_eq!(
+      gui.send_crypto.take_notice().as_deref(),
+      Some(reason),
+      "a reason that changed is a new sentence"
+   );
+}
+
+/// The NFT side of the form is named as well: the selector says what it changes, the quantity field
+/// is the amount, and the same line explains why Send is blocked.
+#[test]
+fn the_nft_send_form_names_its_selector_and_amount() {
+   use zeus_eth::alloy_primitives::U256;
+   use zeus_eth::nft::{NftStandard, NftToken};
+
+   let (ctx, mut gui, zeus) = main_window();
+   wallet_in_cache(&zeus);
+
+   gui.send_crypto.open();
+   gui.send_crypto.set_nft(NftToken {
+      chain_id: 1,
+      collection: Address::from([0xbc; 20]),
+      token_id: U256::from(7),
+      standard: NftStandard::Erc1155,
+      metadata_uri: None,
+   });
+
+   let nodes = render_send(&ctx, &mut gui, &zeus);
+
+   assert!(
+      nodes
+         .iter()
+         .any(|node| node.role() == Role::Button && node.label() == Some("Change NFT")),
+      "the selector must say what it changes"
+   );
+
+   let amount = nodes
+      .iter()
+      .find(|node| is_text_input(node.role()))
+      .expect("the quantity field must be a text field in the tree");
+
+   assert_eq!(
+      amount.label(),
+      Some("Amount"),
+      "the quantity field is the amount of the token picked above"
+   );
+
+   assert!(
+      nodes
+         .iter()
+         .any(|node| node.role() == Role::Button && node.label() == Some("Send")),
+      "the button keeps its name on this path too"
+   );
+
+   let spoken: Vec<&str> = nodes
+      .iter()
+      .filter(|node| node.role() == Role::Label && !node.is_hidden())
+      .filter_map(|node| node.value())
+      .collect();
+
+   assert!(
+      spoken.contains(&"Invalid Amount"),
+      "the reason a block is drawn in the same place on this path: {spoken:?}"
+   );
+}
+
+/// The announcement rule the Send form follows: a reason that appears or changes is a new sentence,
+/// the same reason a frame later is not, and a block that lifts says nothing.
+#[test]
+fn the_send_block_is_announced_when_it_appears_or_changes() {
+   use crate::gui::ui::send_crypto::blocked_announcement;
+
+   for (previous, current, expected) in [
+      (
+         None,
+         Some("Invalid Amount"),
+         Some("Invalid Amount"),
+      ),
+      (
+         Some("Invalid Amount"),
+         Some("Invalid Amount"),
+         None,
+      ),
+      (
+         Some("Invalid Amount"),
+         Some("Insufficient ETH Balance"),
+         Some("Insufficient ETH Balance"),
+      ),
+      (Some("Invalid Amount"), None, None),
+      (None, None, None),
+   ] {
+      assert_eq!(
+         blocked_announcement(previous, current).as_deref(),
+         expected,
+         "{previous:?} then {current:?}"
+      );
+   }
+}
+
 /// Draw the portfolio page the way the frame does, out of the `SHARED_GUI` the frame gives it.
 ///
 /// The rows are built on a worker that reads the handle from that global and writes them back into
