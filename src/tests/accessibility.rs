@@ -2355,9 +2355,14 @@ fn the_amount_field_never_reads_out_its_text() {
    );
 }
 
-/// Render the recipient row headlessly.
-fn render_recipient(ctx: &Context, gui: &mut GUI, zeus: &ZeusCtx) -> Vec<(NodeId, Node)> {
-   frame_nodes(ctx, Vec::new(), |ui| {
+/// Render the recipient row headlessly, with `events` delivered to the first pass.
+fn render_recipient(
+   ctx: &Context,
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   events: Vec<Event>,
+) -> Vec<(NodeId, Node)> {
+   frame_nodes(ctx, events, |ui| {
       let theme = gui.theme.clone();
       let icons = gui.icons.clone();
       let recipient_selection = &mut gui.recipient_selection;
@@ -2388,7 +2393,7 @@ fn the_recipient_field_says_how_much_of_the_address_it_holds() {
    let (ctx, mut gui, zeus) = main_window();
    gui.recipient_selection.recipient.evm_address = ADDRESS.to_string();
 
-   let nodes = render_recipient(&ctx, &mut gui, &zeus);
+   let nodes = render_recipient(&ctx, &mut gui, &zeus, Vec::new());
 
    let field = nodes
       .iter()
@@ -2416,8 +2421,8 @@ fn the_recipient_field_says_how_much_of_the_address_it_holds() {
 
    assert_eq!(
       field.description(),
-      None,
-      "an address with no name has nothing to add to the count"
+      Some("Press Enter to choose a recipient."),
+      "with no name the field still says how to reach the picker"
    );
 
    assert!(
@@ -2430,7 +2435,7 @@ fn the_recipient_field_says_how_much_of_the_address_it_holds() {
    // the address being read back to the user.
    gui.recipient_selection.recipient.name = Some("ada.eth".to_string());
 
-   let nodes = render_recipient(&ctx, &mut gui, &zeus);
+   let nodes = render_recipient(&ctx, &mut gui, &zeus, Vec::new());
 
    let field = nodes
       .iter()
@@ -2440,8 +2445,42 @@ fn the_recipient_field_says_how_much_of_the_address_it_holds() {
 
    assert_eq!(
       field.description(),
-      Some("ada.eth"),
-      "the resolved name is the field's description"
+      Some("ada.eth. Press Enter to choose a recipient."),
+      "the resolved name leads the description, and the way into the picker follows it"
+   );
+}
+
+/// The picker opened on a mouse click on this field and by nothing else, so someone typing an
+/// address could never reach their contacts. A single-line edit gives its focus up on Enter rather
+/// than inserting anything, which leaves the key free to open the same picker.
+#[test]
+fn the_recipient_field_opens_the_picker_when_enter_is_pressed() {
+   let (ctx, mut gui, zeus) = main_window();
+
+   let nodes = render_recipient(&ctx, &mut gui, &zeus, Vec::new());
+
+   let field = nodes
+      .iter()
+      .find(|(_, node)| is_text_input(node.role()))
+      .map(|(id, _)| *id)
+      .expect("the recipient row must draw its address field");
+
+   assert!(
+      !gui.recipient_selection.is_open(),
+      "the picker starts closed, or this asserts nothing"
+   );
+
+   render_recipient(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Focus, field)],
+   );
+   render_recipient(&ctx, &mut gui, &zeus, vec![key_press(Key::Enter)]);
+
+   assert!(
+      gui.recipient_selection.is_open(),
+      "Enter in the field must open the picker the click opens"
    );
 }
 

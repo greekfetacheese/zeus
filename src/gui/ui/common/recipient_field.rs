@@ -10,7 +10,7 @@ use crate::core::ZeusContext;
 use crate::gui::ui::{ContactsUi, RecipientSelectionWindow};
 use crate::utils::TimeStamp;
 use eframe::egui::{
-   CursorIcon, FontId, Margin, OpenUrl, RichText, Role, Sense, Ui, WidgetInfo, vec2,
+   CursorIcon, FontId, Key, Margin, OpenUrl, RichText, Role, Sense, Ui, WidgetInfo, vec2,
 };
 use egui_elements::{SecureTextEdit, Theme};
 use egui_lucide::Lucide;
@@ -184,22 +184,30 @@ pub fn recipient_field(
          };
          let held = recipient_value(typed);
          let resolved = recipient_selection.recipient.name.clone();
+         let description = match &resolved {
+            Some(name) => format!("{name}. Press Enter to choose a recipient."),
+            None => "Press Enter to choose a recipient.".to_string(),
+         };
 
          ui.ctx().accesskit_node_builder(res.id, |node| {
             node.set_label(field_name);
 
-            match &held {
-               Some(value) => node.set_value(value.as_str()),
-               None => node.clear_value(),
+            if let Some(value) = &held {
+               node.set_value(value.as_str());
+            } else {
+               node.clear_value();
             }
 
-            match &resolved {
-               Some(name) => node.set_description(name.as_str()),
-               None => node.clear_description(),
-            }
+            node.set_description(description.as_str());
          });
 
-         if res.clicked() {
+         // The picker was reachable by clicking this field and by nothing else, so someone typing
+         // an address could never get to their contacts. A single-line edit gives its focus up on
+         // Enter rather than inserting anything, which leaves that key free: it opens the same
+         // picker the click does, and the field's description says so.
+         let entered = res.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
+
+         if res.clicked() || entered {
             recipient_selection.open();
          }
       });
