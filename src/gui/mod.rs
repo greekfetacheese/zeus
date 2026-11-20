@@ -310,6 +310,12 @@ impl GUI {
       self.connect_dapp_window.show(theme, ui);
       self.update_window.show(theme, ui);
 
+      // The connect prompt cannot announce from inside its own draw — the frame holds the only
+      // channel — so its sentence comes back here and is said once, after the prompt has drawn.
+      if let Some(text) = self.connect_dapp_window.take_notice() {
+         self.announce(text);
+      }
+
       // The loading window cannot announce from inside its own draw — the frame holds the only
       // channel — so its message comes back here and is said once, after the window has drawn.
       if let Some(text) = self.loading_window.take_notice() {
