@@ -13,13 +13,19 @@ use crate::gui::{
    SHARED_GUI,
    ui::{
       ChainSelect, ContactsUi, RecipientSelectionWindow,
-      common::{AmountField, AmountFieldParams, recipient_field},
+      common::{
+         AmountField, AmountFieldParams, blocked_announcement, blocked_reason_line, name_text,
+         recipient_field,
+      },
       show_with_fade,
    },
 };
 use crate::utils::{TimeStamp, estimate_tx_cost, simulate::simulate_for_analysis, write_private};
 use anyhow::anyhow;
-use egui::{Align, CornerRadius, CursorIcon, FontId, Layout, Margin, Order, RichText, Ui, vec2};
+use egui::{
+   Align, CornerRadius, CursorIcon, FontId, Key, Layout, Margin, Order, RichText, Role, Ui,
+   WidgetInfo, vec2,
+};
 use egui_elements::{
    Button, Checkbox, Chip, ChipRole, Label, Modal, SecureTextEdit, Slider, Spinner, Theme,
    visuals::ButtonVisuals,
@@ -51,11 +57,17 @@ const TIME_BETWEEN_EACH_REQUEST: u64 = 2;
 /// Timeout for the dest chain block
 const BLOCK_TIMEOUT: u64 = 10;
 
+/// How long a deposit waits for its fill on the destination chain before the outcome is reported.
+///
+/// The fill deadline the API suggests is far higher, so this is the wait the user is actually in.
+const FILL_WAIT_SECS: u64 = 300;
+
 const ACROSS_URL: &str = "https://across.to";
 
-const ACROSS_RISK_WARNING: &str = "You can lose funds if Across does not complete the transfer";
+pub(crate) const ACROSS_RISK_WARNING: &str =
+   "You can lose funds if Across does not complete the transfer";
 
-const ACROSS_RISK_TIP: &str = "Zeus only submits your deposit on this chain.\n\
+pub(crate) const ACROSS_RISK_TIP: &str = "Zeus only submits your deposit on this chain.\n\
 Across relayers and contracts deliver it on the destination.\n\
 Zeus does not custody or control that step.\n\
 If a fill never happens you should get a refund after the deadline, but delays, downtime, or a contract bug can still cost you money.\n\
@@ -66,6 +78,9 @@ const ACROSS_API_NOTICE: [&str; 3] = [
    "The URL can be changed or disabled from the Bridge settings.",
    "No telemetry or data collection is involved. This is a simple HTTP request.",
 ];
+
+/// Why the API URL field is named after its host instead of read out.
+const ACROSS_API_URL_TIP: &str = "The text stays out of the reading: a URL like this can carry a provider key. Select the field and type the address you want to use.";
 
 type ChainPath = (u64, u64);
 
@@ -155,6 +170,13 @@ pub struct AcrossBridge {
    pub api_res_cache: HashMap<ChainPath, ApiResCache>,
    /// Cached `cost` / `bridge_fee` / `value` — recomputed only when [QuoteKey] changes
    quote_cache: QuoteCache,
+   /// What blocks the bridge, in the words the button used to carry. Drawn above the button and
+   /// said once when it changes.
+   blocked: Option<String>,
+   /// The total the fee card last said, as it printed it, so a change is said once.
+   last_total: Option<String>,
+   /// The words this page wants said, drained by the frame right after it is drawn.
+   notice: Option<String>,
    settings: Settings,
    pub settings_open: bool,
    pub size: (f32, f32),
@@ -182,6 +204,9 @@ impl AcrossBridge {
          last_request_time: None,
          api_res_cache: HashMap::new(),
          quote_cache: QuoteCache::default(),
+         blocked: None,
+         last_total: None,
+         notice: None,
          settings,
          settings_open: false,
          size: (450.0, 570.0),
@@ -207,6 +232,16 @@ impl AcrossBridge {
    pub fn close(&mut self) {
       self.open = false;
       self.amount_field.reset();
+      // A sentence about a form that no longer exists is not news about the next one, and the
+      // figures it was said about went with the form.
+      self.notice = None;
+      self.blocked = None;
+      self.last_total = None;
+   }
+
+   /// The words this page should say, drained by the frame right after it is drawn.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
    }
 
    pub fn set_currency(&mut self, currency: Currency) {
@@ -290,17 +325,48 @@ impl AcrossBridge {
                         ui.vertical_centered(|ui| {
                            ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
                            ui.visuals_mut().hyperlink_color = theme.colors.warning;
-                           ui.label(RichText::new("Bridge").size(theme.typography.heading));
-                           ui.hyperlink_to(warning_text, ACROSS_URL);
+
+                           // The page's own title, so a reader can move between pages by heading
+                           // instead of reading every line of prose.
+                           let title =
+                              ui.label(RichText::new("Bridge").size(theme.typography.heading));
+                           title.widget_info(|| {
+                              WidgetInfo::labeled(Role::Heading, ui.is_enabled(), "Bridge")
+                           });
+
+                           // The drawn sentence says what the link is about, not what pressing it
+                           // does: a link whose whole name is a sentence about itself leaves a
+                           // reader guessing where it goes.
+                           let link = ui.hyperlink_to(warning_text, ACROSS_URL);
+                           name_text(
+                              ui,
+                              &link,
+                              "Across protocol, opens across.to in your browser",
+                           );
 
                            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                               ui.spacing_mut().item_spacing.x = theme.spacing.xs;
-                              ui.label(warning_text2);
+                              let risk = ui.label(warning_text2);
+                              risk.widget_info(|| {
+                                 WidgetInfo::labeled(
+                                    Role::Alert,
+                                    ui.is_enabled(),
+                                    ACROSS_RISK_WARNING,
+                                 )
+                              });
+
                               let q_mark = RichText::new("?").size(theme.typography.normal);
                               let badge = Chip::new(q_mark).role(ChipRole::Warning);
                               let tip_text =
                                  RichText::new(ACROSS_RISK_TIP).size(theme.typography.normal);
-                              ui.add(badge).on_hover_text(tip_text);
+                              let chip = ui.add(badge).on_hover_text(tip_text);
+
+                              // The tip only answers a mouse: the chip says what it explains, and
+                              // the whole warning travels with it for whoever asks.
+                              name_text(ui, &chip, "Bridge risk");
+                              ui.ctx().accesskit_node_builder(chip.id, |node| {
+                                 node.set_description(ACROSS_RISK_TIP);
+                              });
                            });
                         });
                      });
@@ -315,6 +381,15 @@ impl AcrossBridge {
                         };
                         let button = Button::image(icon).small().visuals(visuals);
                         let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+
+                        // A picture of a gear: the node says which settings it opens.
+                        res.widget_info(|| {
+                           WidgetInfo::labeled(
+                              Role::Button,
+                              ui.is_enabled(),
+                              "Across bridge settings",
+                           )
+                        });
 
                         if res.clicked() {
                            self.open_settings();
@@ -403,17 +478,19 @@ impl AcrossBridge {
 
                   self.refresh_quote_cache(ctx);
                   let network_fee_text = format!(
-                     "Network≈ ${}",
+                     "Network fee about ${}",
                      self.quote_cache.cost_usd.abbreviated()
                   );
                   let bridge_fee_text = format!(
-                     "Bridge≈ ${}",
+                     "Bridge fee about ${}",
                      self.quote_cache.bridge_fee.abbreviated()
                   );
-                  let total_text = format!(
-                     "Total≈ ${}",
-                     self.quote_cache.total_fee.abbreviated()
-                  );
+                  let total = self.quote_cache.total_fee.abbreviated().to_string();
+                  let total_text = format!("Total about ${total}");
+
+                  // The card is a column of figures a reader lands on one at a time, so a total
+                  // that moved is said as a sentence, and only when the printed figure changes.
+                  self.say_total(&total);
 
                   inner_frame.show(ui, |ui| {
                      ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.xs);
@@ -425,7 +502,15 @@ impl AcrossBridge {
                      ui.label(RichText::new(total_text).size(theme.typography.small));
 
                      if self.requesting {
-                        ui.add(Spinner::new().size(20.0));
+                        let spinner = ui.add(Spinner::new().size(20.0));
+                        // A spinner is a picture with no words: it says what is being fetched.
+                        spinner.widget_info(|| {
+                           WidgetInfo::labeled(
+                              Role::ProgressIndicator,
+                              ui.is_enabled(),
+                              "Loading the bridge fee",
+                           )
+                        });
                      }
 
                      // Estimated time to fill
@@ -439,7 +524,7 @@ impl AcrossBridge {
                      if let Some(fill_time) = fill_time {
                         ui.label(
                            RichText::new(format!(
-                              "Estimated time to fill: {} seconds",
+                              "Estimated fill time: {} seconds",
                               fill_time
                            ))
                            .size(theme.typography.normal),
@@ -466,6 +551,33 @@ impl AcrossBridge {
             });
          });
       });
+   }
+
+   /// Announce why Bridge is blocked, once, and only when the reason changes.
+   ///
+   /// The sentence is drawn above the button either way; hearing it as well is what tells a reader
+   /// who never left the amount field that the button they were heading for is not going to work,
+   /// and what to fix.
+   fn say_blocked(&mut self, reason: Option<&str>) {
+      if let Some(text) = blocked_announcement(self.blocked.as_deref(), reason) {
+         self.notice = Some(text);
+      }
+
+      self.blocked = reason.map(str::to_string);
+   }
+
+   /// Say the total once, when the figure the card prints changes.
+   ///
+   /// The card is a column of numbers a reader lands on one at a time, so the sentence says which
+   /// one moved. Nothing is said while the fee is being fetched: the figure on screen is about to
+   /// be replaced, and announcing it would be announcing a stale number.
+   fn say_total(&mut self, total: &str) {
+      if self.requesting || self.last_total.as_deref() == Some(total) {
+         return;
+      }
+
+      self.last_total = Some(total.to_string());
+      self.notice = Some(format!("Bridge fee: total about ${total}."));
    }
 
    fn bridge_button(
@@ -497,43 +609,59 @@ impl AcrossBridge {
          && !recipient_name_lapsed
          && !sending_tx;
 
-      let mut button_text = "Bridge".to_string();
+      let mut blocked = None;
 
       if !valid_recipient {
-         button_text = "Invalid Recipient".to_string();
+         blocked = Some("Invalid Recipient".to_string());
       }
 
       if !valid_amount {
-         button_text = "Invalid Amount".to_string();
+         blocked = Some("Invalid Amount".to_string());
       }
 
       if !has_entered_amount {
-         button_text = "Enter Amount".to_string();
+         blocked = Some("Enter Amount".to_string());
       }
 
       if !has_balance {
-         button_text = format!("Insufficient {} Balance", self.currency.symbol());
+         blocked = Some(format!(
+            "Insufficient {} Balance",
+            self.currency.symbol()
+         ));
       }
 
       if recipient_name_lapsed {
-         button_text = "ENS name expired".to_string();
+         blocked = Some("ENS name expired".to_string());
       }
 
       // Last, so it wins: the recipient was resolved for another chain.
       if let Some(chain) = wrong_chain {
-         button_text = match ChainId::new(chain) {
-            Ok(chain) => format!("Recipient is on {}", chain.name()),
+         blocked = Some(match ChainId::new(chain) {
+            Ok(chain) => format!("Bridge is off: recipient is on {}", chain.name()),
             Err(_) => "Unsupported chain".to_string(),
-         };
+         });
+      }
+
+      // Said once, then drawn directly above the button: a disabled button takes no focus, so a
+      // reason that lived in its label could never be reached.
+      self.say_blocked(blocked.as_deref());
+
+      if let Some(reason) = &blocked {
+         blocked_reason_line(ui, theme, reason);
       }
 
       let visuals = theme.button_visuals();
-      let text = RichText::new(button_text).size(theme.typography.large);
+      let text = RichText::new("Bridge").size(theme.typography.large);
       let button = Button::new(text)
          .min_size(vec2(ui.available_width() * 0.8, 45.0))
          .visuals(visuals);
 
-      if ui.add_enabled(valid_inputs, button).clicked() {
+      let response = ui.add_enabled(valid_inputs, button);
+
+      // The button keeps the name of what it does whatever is blocking it.
+      response.widget_info(|| WidgetInfo::labeled(Role::Button, valid_inputs, "Bridge"));
+
+      if response.clicked() {
          self.sending_tx = true;
 
          match self.send_transaction(ctx, recipient, recipient_guard) {
@@ -804,20 +932,32 @@ impl AcrossBridge {
                let text = RichText::new("OK").size(theme.typography.normal);
                let ok_button = Button::new(text).min_size(vec2(content_width * 0.9, 45.0));
                if ui.add(ok_button).clicked() {
-                  self.settings.api_notice_shown = true;
-                  let settings = self.settings.clone();
-                  crate::runtime::rt().spawn_blocking(move || {
-                     if let Err(e) = save_settings(settings) {
-                        tracing::error!("Error saving settings: {:?}", e);
-                     }
-                  });
+                  self.dismiss_api_notice();
                }
             });
+
+            // Escape gives the answer OK gives: the notice is read, and it never comes back.
+            // `closable(false)` keeps the backdrop from dismissing it, so the key is read here.
+            if escape_belongs_here(ui) {
+               self.dismiss_api_notice();
+            }
          });
+   }
+
+   /// Mark the first-run API notice as read, and keep that across restarts.
+   fn dismiss_api_notice(&mut self) {
+      self.settings.api_notice_shown = true;
+      let settings = self.settings.clone();
+      crate::runtime::rt().spawn_blocking(move || {
+         if let Err(e) = save_settings(settings) {
+            tracing::error!("Error saving settings: {:?}", e);
+         }
+      });
    }
 
    fn settings_window(&mut self, theme: &Theme, ui: &mut Ui) {
       let mut open = self.settings_open;
+      let mut escape = false;
 
       Modal::new("Across Settings", &mut open)
          .backdrop_order(Order::Middle)
@@ -834,34 +974,71 @@ impl AcrossBridge {
 
             ui.allocate_ui(size, |ui| {
                ui.horizontal_centered(|ui| {
-                  ui.label(RichText::new("API URL").size(theme.typography.normal));
+                  let caption = ui.label(RichText::new("API URL").size(theme.typography.normal));
+                  ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
                   ui.add_space(10.0);
-                  SecureTextEdit::singleline(&mut self.settings.api_url)
+
+                  let field = SecureTextEdit::singleline(&mut self.settings.api_url)
                      .font(FontId::proportional(theme.typography.small))
                      .margin(Margin::same(5))
                      .desired_width(ui.available_width())
                      .visuals(visuals)
                      .show(ui);
+
+                  // A URL can carry a provider key, so its text never enters the accessibility
+                  // tree: the host names the field and the value is cleared before the tree is
+                  // built.
+                  let host = api_host(&self.settings.api_url);
+                  ui.ctx().accesskit_node_builder(field.response.id, |node| {
+                     node.set_label(format!("Across API URL at {host}"));
+                     node.set_description(ACROSS_API_URL_TIP);
+                     node.clear_value();
+                  });
                });
             });
 
             ui.allocate_ui(size, |ui| {
                ui.horizontal_centered(|ui| {
-                  ui.label(RichText::new("Use API").size(theme.typography.normal));
+                  let caption = ui.label(RichText::new("Use API").size(theme.typography.normal));
+                  ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
                   ui.add_space(10.0);
-                  ui.add(Checkbox::without_text(&mut self.settings.use_api));
+
+                  let checkbox = ui.add(Checkbox::without_text(&mut self.settings.use_api));
+
+                  // The box draws no words, so it is named for what it turns on or off. The flag
+                  // is read after the widget ran, so a click frame reports the new state.
+                  checkbox.widget_info(|| {
+                     WidgetInfo::selected(
+                        Role::CheckBox,
+                        ui.is_enabled(),
+                        self.settings.use_api,
+                        "Use API",
+                     )
+                  });
                });
             });
 
             if !self.settings.use_api {
                ui.allocate_ui(size, |ui| {
                   ui.horizontal_centered(|ui| {
-                     ui.label(RichText::new("Fee to pay %").size(theme.typography.normal));
+                     ui.label(
+                        RichText::new("Fee to pay, in percent").size(theme.typography.normal),
+                     );
                      ui.add_space(10.0);
-                     ui.add(
+                     let slider = ui.add(
                         Slider::new(&mut self.settings.fee_to_pay, 0.01..=1.0)
                            .width(ui.spacing().slider_width),
                      );
+
+                     // The slider says what its number counts, and the number it currently sets
+                     // sits in the description behind the name.
+                     ui.ctx().accesskit_node_builder(slider.id, |node| {
+                        node.set_label("Fee to pay, in percent");
+                        node.set_description(format!(
+                           "Now {:.2} percent",
+                           self.settings.fee_to_pay
+                        ));
+                     });
                   });
                });
             }
@@ -877,13 +1054,27 @@ impl AcrossBridge {
                let settings = self.settings.clone();
                self.close_settings();
                crate::runtime::rt().spawn_blocking(move || match save_settings(settings) {
-                  Ok(_) => {}
+                  Ok(_) => {
+                     // The dialog is gone before the write finishes, so the sentence waits on
+                     // the page's channel for the next frame.
+                     SHARED_GUI.write(|gui| {
+                        gui.across_bridge.notice = Some("Across settings saved.".to_string());
+                     });
+                  }
                   Err(e) => {
                      tracing::error!("Error saving settings: {:?}", e);
                   }
                });
             }
+
+            // Escape is this dialog's own way out: `closable(false)` keeps the backdrop from
+            // dismissing it, so the key is read here and answered as leaving without saving.
+            escape = escape_belongs_here(ui);
          });
+
+      if escape {
+         self.close_settings();
+      }
    }
 
    fn _sync_balance(&mut self, ctx: ZeusCtx, depositor: Address) {
@@ -970,9 +1161,9 @@ impl AcrossBridge {
       let depositor = signer.address();
       let recipient = Address::from_str(&recipient)?;
 
-      // add a 5 minute deadline, because the fill deadline from the api is very high
+      // add a five minute deadline, because the fill deadline from the api is very high
       let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?;
-      let deadline: u32 = (now.as_secs() + 300) as u32;
+      let deadline: u32 = (now.as_secs() + FILL_WAIT_SECS) as u32;
 
       let (relayer, timestamp, exclusivity_deadline) = if self.settings.use_api {
          match cache_opt {
@@ -1012,7 +1203,9 @@ impl AcrossBridge {
 
       crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.write(|gui| {
-            gui.loading_window.open("Wait while magic happens");
+            // The window announces whatever it is opened with, so it names the step the work
+            // is on instead of promising magic.
+            gui.loading_window.open("Preparing the deposit…");
             gui.request_repaint();
             gui.ctx.clone()
          });
@@ -1044,13 +1237,70 @@ impl AcrossBridge {
                   gui.across_bridge.amount_field.reset();
                   gui.notification.reset();
                   gui.loading_window.reset();
-                  gui.msg_window.open(format!("Transaction Error: {}", e));
+                  // The message window is silent on its own; this raises its words on the
+                  // channel every other prompt is heard through.
+                  gui.open_msg_window(format!("Transaction Error: {}", e));
                   gui.request_repaint();
                });
             }
          }
       });
       Ok(())
+   }
+}
+
+#[cfg(test)]
+impl AcrossBridge {
+   /// Whether the first-run API notice has been marked as read.
+   pub(crate) fn api_notice_shown_for_test(&self) -> bool {
+      self.settings.api_notice_shown
+   }
+
+   /// Put the first-run notice back in (or out of) the page's way. The file that normally
+   /// remembers this belongs to the machine the tests run on, so a test cannot read it.
+   pub(crate) fn set_api_notice_shown_for_test(&mut self, shown: bool) {
+      self.settings.api_notice_shown = shown;
+   }
+
+   /// Open the settings dialog the way the gear does, over a page whose notice is already read.
+   pub(crate) fn open_settings_for_test(&mut self) {
+      self.settings.api_notice_shown = true;
+      self.settings_open = true;
+   }
+
+   /// Point the dialog at an API and turn it on or off, whatever this machine has saved.
+   pub(crate) fn set_api_for_test(&mut self, api_url: &str, use_api: bool) {
+      self.settings.api_url = api_url.to_string();
+      self.settings.use_api = use_api;
+   }
+
+   /// The values the dialog would save, for a test that checks a way out leaves them alone.
+   pub(crate) fn settings_for_test(&self) -> (String, bool, f64) {
+      (
+         self.settings.api_url.clone(),
+         self.settings.use_api,
+         self.settings.fee_to_pay,
+      )
+   }
+
+   /// Stand a quote up without the network: the three figures the fee card prints, keyed to
+   /// the form as it stands so the next draw keeps them instead of recomputing over them.
+   pub(crate) fn seed_quote_for_test(
+      &mut self,
+      ctx: &ZeusContext,
+      cost_usd: NumericValue,
+      bridge_fee: NumericValue,
+      total_fee: NumericValue,
+   ) {
+      let key = self.quote_key(ctx);
+
+      self.quote_cache = QuoteCache {
+         key,
+         cost_usd,
+         bridge_fee,
+         total_fee,
+         ..self.quote_cache.clone()
+      };
    }
 }
 
@@ -1074,12 +1324,13 @@ fn request_suggested_fees(
          Ok(res) => res,
          Err(e) => {
             tracing::error!("Failed to get suggested fees: {:?}", e);
-            {
-               SHARED_GUI.write(|gui| {
-                  gui.across_bridge.requesting = false;
-                  gui.across_bridge.last_request_time = Some(Instant::now());
-               });
-            }
+            SHARED_GUI.write(|gui| {
+               gui.across_bridge.requesting = false;
+               gui.across_bridge.last_request_time = Some(Instant::now());
+               // The card keeps drawing zero and the button stays enabled, so a request that
+               // failed is only knowable by being told.
+               gui.announce("Could not fetch the bridge fee.");
+            });
             return;
          }
       };
@@ -1096,6 +1347,45 @@ fn request_suggested_fees(
          gui.across_bridge.last_request_time = Some(Instant::now())
       });
    });
+}
+
+/// Whether the Escape pressed this frame belongs to this dialog.
+///
+/// A surface drawn over the bridge — the first-run notice over its settings, the message window
+/// over both — keeps the first claim on the key: only a dialog with nothing above it closes on
+/// it. The comparison is by layer order, because the top layer id egui reports names the window
+/// stack and never a modal content drawn on the foreground order.
+fn escape_belongs_here(ui: &Ui) -> bool {
+   if !ui.input(|input| input.key_pressed(Key::Escape)) {
+      return false;
+   }
+
+   let layer = ui.layer_id();
+
+   ui.ctx().memory(|memory| {
+      !memory
+         .areas()
+         .visible_layer_ids()
+         .into_iter()
+         .any(|other| other.order > layer.order)
+   })
+}
+
+/// The host of the Across API URL — what the settings dialog may say instead of a URL that can
+/// carry a provider key.
+///
+/// The host is the part between `://` and the first `/` or `?`, so a key in the path never
+/// reaches the accessibility tree. A string without those parts falls back to a plain
+/// description.
+fn api_host(url: &str) -> &str {
+   let Some((_, rest)) = url.split_once("://") else {
+      return "the configured endpoint";
+   };
+
+   match rest.split(['/', '?']).next() {
+      Some(host) if !host.is_empty() => host,
+      _ => "the configured endpoint",
+   }
 }
 
 /// Shown when the destination-chain recipient cannot be screened: Zeus refuses the
@@ -1238,6 +1528,17 @@ async fn across_bridge(
       ctx_clone.update_public_data(chain.id(), from);
    });
 
+   // The deposit is out and the wait that follows it is the long one, so the window says what
+   // it is waiting for. Nothing cancels the poll, and the sentence says so.
+   SHARED_GUI.write(|gui| {
+      gui.loading_window.open(format!(
+         "Deposit submitted. Waiting for the funds on the {} chain, up to {} minutes. This cannot be cancelled.",
+         dest_chain.name(),
+         FILL_WAIT_SECS / 60
+      ));
+      gui.request_repaint();
+   });
+
    wait_for_fill(
       ctx.clone(),
       dest_chain,
@@ -1347,9 +1648,8 @@ async fn wait_for_fill(
       Ok(())
    } else {
       let err = format!(
-         "Deadline exceeded\n
-         No funds received on the {} chain\n
-         Your deposit should be refunded shortly",
+         "The deadline passed before the funds arrived on the {} chain. \
+          Your deposit should be refunded shortly.",
          dest_chain.name(),
       );
       Err(anyhow!(err))

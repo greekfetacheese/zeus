@@ -114,6 +114,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       ui,
    );
 
+   // The bridge page draws from the central panel and has no channel of its own — the frame
+   // holds the only one — so the sentence it raised comes back here, like the Send form's.
+   let across_notice = gui.across_bridge.take_notice();
+
    gui.send_crypto.show(
       ctx,
       icons.clone(),
@@ -198,6 +202,11 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    // these are ordered by how much of the screen they are about. They come after the developer
    // surfaces because announcing is the one thing here that needs the whole `GUI` mutably, and the
    // pages above draw from a borrowed theme.
+   // The bridge page is drawn before the pages below it, so its sentence is said first.
+   if let Some(text) = across_notice {
+      gui.announce(text);
+   }
+
    if let Some(text) = portfolio_notice {
       gui.announce(text);
    }
