@@ -1,4 +1,4 @@
-use egui::{Id, Order, RichText, ScrollArea, Ui, vec2};
+use egui::{Id, Key, Order, RichText, Role, ScrollArea, Ui, WidgetInfo, vec2};
 use egui_elements::{Button, Modal, Spinner, Theme};
 
 use super::{
@@ -47,6 +47,7 @@ impl TxWindow {
       self.tx = None;
       self.show_calldata = false;
       self.show_diffs = false;
+      self.decoded_events.close();
    }
 
    /// Show this [TxWindow]
@@ -121,6 +122,7 @@ impl TxWindow {
       let id = Id::unique("tx_window");
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let mut open = self.open;
+      let mut escape = false;
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)
@@ -131,6 +133,11 @@ impl TxWindow {
          .center_header(true)
          .frame(frame)
          .show(ui.ctx(), |ui| {
+            // Escape is the window's own way out: `closable(false)` keeps the close button
+            // from taking focus, and the backdrop is ignored with it, so the key is read
+            // here and answered as a close.
+            escape = ui.input(|input| input.key_pressed(Key::Escape));
+
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 
@@ -140,6 +147,11 @@ impl TxWindow {
 
                if self.loading {
                   ui.add(Spinner::new().size(20.0));
+                  // A spinner carries no words: without this line the whole window is a
+                  // picture and a reader is told nothing about why it is empty.
+                  ui.label(
+                     RichText::new("Loading transaction details").size(theme.typography.large),
+                  );
                   return;
                }
 
@@ -148,7 +160,11 @@ impl TxWindow {
                ui.add_space(20.0);
 
                if self.tx.is_none() {
-                  ui.label(RichText::new("Transaction not found").size(theme.typography.large));
+                  // One of the three states the window exists to say, so it is an alert and
+                  // not only a line of prose that a reader may walk past.
+                  let text = "Transaction not found";
+                  let response = ui.label(RichText::new(text).size(theme.typography.large));
+                  response.widget_info(|| WidgetInfo::labeled(Role::Alert, ui.is_enabled(), text));
                   let size = vec2(ui.available_width() * 0.8, 45.0);
 
                   let text = RichText::new("Close").size(theme.typography.normal);
@@ -169,12 +185,14 @@ impl TxWindow {
                let Some(chain_id) = usable_chain(tx.chain) else {
                   let chain = tx.chain;
                   ui.add_space(20.0);
-                  ui.label(
-                     RichText::new(format!(
-                        "This transaction is on a chain Zeus cannot use ({chain})"
-                     ))
-                     .size(theme.typography.large),
-                  );
+                  // A refusal is one of the three states the window exists to say, so it is
+                  // heard as an alert rather than as prose beside a Close button.
+                  let sentence =
+                     format!("This transaction is on a chain Zeus cannot use ({chain})");
+                  let response = ui.label(RichText::new(&sentence).size(theme.typography.large));
+                  response.widget_info(|| {
+                     WidgetInfo::labeled(Role::Alert, ui.is_enabled(), sentence.clone())
+                  });
                   ui.add_space(20.0);
 
                   let size = vec2(ui.available_width() * 0.8, 45.0);
@@ -285,10 +303,13 @@ impl TxWindow {
                }
 
                if !tx.success {
+                  // The error colour is all that says this today, and a reader has no
+                  // colour: the same sentence becomes the node role and its name.
                   let text = "Transaction failed";
-                  ui.label(
+                  let response = ui.label(
                      RichText::new(text).size(theme.typography.large).color(theme.colors.error),
                   );
+                  response.widget_info(|| WidgetInfo::labeled(Role::Alert, ui.is_enabled(), text));
                }
 
                let should_show_balance_diff =
@@ -392,5 +413,31 @@ impl TxWindow {
                }
             });
          });
+
+      if escape {
+         open = false;
+      }
+
+      // Every way out is `close()`: the local flag is written back here — it never was
+      // before, so Escape could not stick and the only exit was a button after the whole
+      // description — and the window takes its sub-modals with it.
+      if !open {
+         self.close();
+      }
+   }
+
+   /// The window as a notification leaves it, for the accessibility tests that render it
+   /// headlessly.
+   ///
+   /// [`Self::open`] cannot be used: it fills the clear display through `runtime::rt()` and
+   /// `SHARED_GUI`, neither of which a test frame may touch.
+   #[cfg(test)]
+   pub(crate) fn for_test(tx: Option<TransactionRich>, loading: bool) -> Self {
+      let mut window = TxWindow::new();
+      window.tx = tx;
+      window.loading = loading;
+      window.open = true;
+
+      window
    }
 }
