@@ -148,22 +148,6 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
    gui.approvals.show(ctx, theme, icons.clone(), ui);
 
-   // Said once every page has had its turn: the channel keeps the last call of a frame, and this
-   // sentence is about the page the user is on.
-   if let Some(text) = portfolio_notice {
-      gui.announce(text);
-   }
-
-   if let Some(text) = send_notice {
-      gui.announce(text);
-   }
-
-   // The picker covers the page that raised it, so its sentence is the one about what the user is
-   // looking at: the channel keeps the last call of a frame, so it is said after the page's own.
-   if let Some(text) = token_selection_notice {
-      gui.announce(text);
-   }
-
    #[cfg(feature = "dev")]
    gui.dev.show(ctx, theme, icons, ui);
 
@@ -177,6 +161,24 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          gui.theme = theme;
          gui.theme.install(ui.ctx());
       }
+   }
+
+   // Said last, once every surface has had its turn: the channel keeps the last call of a frame, so
+   // these are ordered by how much of the screen they are about. They come after the developer
+   // surfaces because announcing is the one thing here that needs the whole `GUI` mutably, and the
+   // pages above draw from a borrowed theme.
+   if let Some(text) = portfolio_notice {
+      gui.announce(text);
+   }
+
+   if let Some(text) = send_notice {
+      gui.announce(text);
+   }
+
+   // The picker covers the page that raised it, so its sentence is the one about what the user is
+   // looking at, and the channel keeps the last call.
+   if let Some(text) = token_selection_notice {
+      gui.announce(text);
    }
 }
 
