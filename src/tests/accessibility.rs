@@ -6232,3 +6232,319 @@ fn the_verify_dialog_says_why_it_asks_before_a_wallet_is_deleted() {
       drawn_names(&nodes)
    );
 }
+
+/// The first discovered row's address in full, grouped in fours as a reader hears it.
+const FIRST_DISCOVERED_SPOKEN: &str = "0x1111 1111 1111 1111 1111 1111 1111 1111 1111 1111";
+/// The same address as Zeus draws it.
+const FIRST_DISCOVERED_SHORT: &str = "0x1111...111111";
+/// The second discovered row's address, and the form Zeus draws for it.
+const SECOND_DISCOVERED_SPOKEN: &str = "0x2222 2222 2222 2222 2222 2222 2222 2222 2222 2222";
+const SECOND_DISCOVERED_SHORT: &str = "0x2222...222222";
+
+/// A discovery list of `count` rows: the n-th row's address repeats `0x11 × n`, and its index is
+/// the derivation index the row is named by.
+fn discovered_wallets(count: u32) -> crate::core::DiscoveredWallets {
+   let mut wallets = crate::core::DiscoveredWallets::new();
+
+   for index in 0..count {
+      let address = Address::from([0x11 * (index as u8 + 1); 20]);
+      wallets.add_wallet(
+         address,
+         vec![44, 60, 0, index].into(),
+         zeus_bip32::BIP32_HARDEN + index,
+      );
+   }
+
+   wallets
+}
+
+/// Open the discovery flow on `wallets`, the way a finished load leaves it, without the worker its
+/// own `open` runs.
+fn open_discover_flow(gui: &mut GUI, wallets: crate::core::DiscoveredWallets) {
+   gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.for_test(wallets);
+}
+
+/// Stand the vault unlocked on `wallet`, with every chain on: the discovery flow draws over the
+/// central panel, and each of its rows asks the context for a value.
+fn seed_discover_context(zeus: &ZeusCtx, wallet: &WalletInfo) {
+   zeus.write(|zeus| {
+      zeus.vault_unlocked = true;
+      // Which chains are turned off comes out of the user's data directory, so the test sets that
+      // set rather than inheriting a machine's configuration.
+      zeus.disabled_chains =
+         crate::core::types::DisabledChains::new(std::collections::HashSet::new());
+      zeus.current_wallet = wallet.clone();
+      zeus.wallet_info_cache = crate::core::types::WalletInfoCache::new(
+         std::iter::once((wallet.address, wallet.clone())).collect(),
+         vec![wallet.clone()],
+      );
+   });
+}
+
+/// Draw the discovery flow until its modal has painted: a modal spends a sizing pass, and the
+/// results table measures on the pass it appears on.
+fn draw_discover_flow(ctx: &Context, gui: &mut GUI, zeus: &ZeusCtx) -> Vec<(NodeId, Node)> {
+   let mut nodes = Vec::new();
+
+   for _ in 0..3 {
+      nodes = render_wallet_page(ctx, gui, zeus, Vec::new());
+   }
+
+   nodes
+}
+
+/// The count is said when the page or the number of wallets changes, so the list a reader opens on
+/// says how much of it is on screen, and an empty one says so in words.
+#[test]
+fn the_discovery_count_says_which_wallets_the_page_holds() {
+   let (ctx, mut gui, zeus) = main_window();
+   seed_discover_context(&zeus, &master_wallet("Main"));
+
+   open_discover_flow(&mut gui, discovered_wallets(3));
+
+   let nodes = render_wallet_page(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert_eq!(
+      announced(&nodes).as_deref(),
+      Some("Wallets 1 to 3 of 3."),
+      "the flow says which wallets of the list it found"
+   );
+
+   // The same list a frame later is not a new answer: a count is said once per change.
+   let nodes = render_wallet_page(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert_ne!(
+      announced(&nodes).as_deref(),
+      Some("Wallets 1 to 3 of 3."),
+      "a count that did not change is not said again"
+   );
+
+   open_discover_flow(&mut gui, discovered_wallets(0));
+
+   let nodes = render_wallet_page(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert_eq!(
+      announced(&nodes).as_deref(),
+      Some("No wallets found."),
+      "an emptied list is said, not only drawn"
+   );
+}
+
+/// Moving to the next page says the page it landed on, for the twelve wallets that fit on two of
+/// them.
+#[test]
+fn the_discovery_count_follows_the_page() {
+   let (ctx, mut gui, zeus) = main_window();
+   seed_discover_context(&zeus, &master_wallet("Main"));
+
+   open_discover_flow(&mut gui, discovered_wallets(12));
+   draw_discover_flow(&ctx, &mut gui, &zeus);
+
+   gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.next_page_for_test();
+
+   let nodes = render_wallet_page(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert_eq!(
+      announced(&nodes).as_deref(),
+      Some("Wallets 11 to 12 of 12."),
+      "the page change is the answer the Next button gets"
+   );
+}
+
+/// Every row's button says which wallet it adds, and which address that is: ten identical drawn
+/// words become one name per row, and the link speaks the whole address.
+#[test]
+fn every_discovered_row_names_the_wallet_it_adds() {
+   let (ctx, mut gui, zeus) = main_window();
+   seed_discover_context(&zeus, &master_wallet("Main"));
+
+   open_discover_flow(&mut gui, discovered_wallets(2));
+
+   let nodes = draw_discover_flow(&ctx, &mut gui, &zeus);
+
+   for (index, spoken) in [(0, FIRST_DISCOVERED_SPOKEN), (1, SECOND_DISCOVERED_SPOKEN)] {
+      let name = format!("Add wallet {index}");
+
+      let node = nodes
+         .iter()
+         .find(|(_, node)| node.role() == Role::Button && node.label() == Some(name.as_str()))
+         .map(|(_, node)| node)
+         .unwrap_or_else(|| {
+            panic!(
+               "each row's button must say which wallet it adds ({name}): {:?}",
+               drawn_names(&nodes)
+            )
+         });
+
+      assert_eq!(
+         node.description(),
+         Some(spoken),
+         "the button says which address {name} is for"
+      );
+   }
+
+   let mut add_names: Vec<&str> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Button)
+      .filter_map(|(_, node)| node.label())
+      .filter(|label| label.starts_with("Add wallet "))
+      .collect();
+
+   add_names.sort_unstable();
+
+   assert_eq!(
+      add_names,
+      ["Add wallet 0", "Add wallet 1"],
+      "no two rows are reached by the same name"
+   );
+
+   // The figure is one wallet's holdings, and a bare amount does not say whose.
+   assert!(
+      nodes.iter().any(|(_, node)| node.role() == Role::Label
+         && node.value().is_some_and(|value| value.starts_with("Value $"))),
+      "the value plate must say what the figure is: {:?}",
+      drawn_names(&nodes)
+   );
+
+   let links = nodes.iter().filter(|(_, node)| node.role() == Role::Link).count();
+
+   assert_eq!(
+      links,
+      2,
+      "one address link per row: {:?}",
+      drawn_names(&nodes)
+   );
+
+   for (spoken, short) in [
+      (FIRST_DISCOVERED_SPOKEN, FIRST_DISCOVERED_SHORT),
+      (SECOND_DISCOVERED_SPOKEN, SECOND_DISCOVERED_SHORT),
+   ] {
+      let link = nodes
+         .iter()
+         .find(|(_, node)| node.role() == Role::Link && node.label() == Some(spoken))
+         .map(|(_, node)| node)
+         .unwrap_or_else(|| {
+            panic!(
+               "the address link must speak the whole address ({spoken}): {:?}",
+               drawn_names(&nodes)
+            )
+         });
+
+      assert!(
+         !link.label().unwrap_or_default().contains("..."),
+         "a shortened address must never stand in for the address in speech"
+      );
+
+      assert_eq!(
+         link.description(),
+         Some(short),
+         "the drawn shortening stays reachable as the description"
+      );
+   }
+}
+
+/// A load and a sync each say what they are doing: the spinner is named for the work behind it,
+/// and the count is not an answer while the list is still loading.
+#[test]
+fn the_discovery_says_what_it_is_loading_and_syncing() {
+   let (ctx, mut gui, zeus) = main_window();
+   seed_discover_context(&zeus, &master_wallet("Main"));
+
+   open_discover_flow(&mut gui, discovered_wallets(3));
+   gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.loading = true;
+
+   let nodes = draw_discover_flow(&ctx, &mut gui, &zeus);
+
+   assert!(
+      nodes.iter().any(|(_, node)| node.role() == Role::ProgressIndicator
+         && node.label() == Some("Loading discovered wallets")),
+      "the spinner must say what it is waiting for: {:?}",
+      drawn_names(&nodes)
+   );
+
+   assert_ne!(
+      announced(&nodes).as_deref(),
+      Some("Wallets 1 to 3 of 3."),
+      "the count is not an answer while the list is still loading"
+   );
+
+   gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.loading = false;
+   gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.set_syncing_for_test();
+
+   let nodes = draw_discover_flow(&ctx, &mut gui, &zeus);
+
+   assert!(
+      nodes.iter().any(|(_, node)| node.role() == Role::ProgressIndicator
+         && node.label() == Some("Syncing balances")),
+      "the spinner replacing the sync button must say what is running: {:?}",
+      drawn_names(&nodes)
+   );
+}
+
+/// The window that names a child wallet opens on its name field, which says what it is for
+/// without the parentheses of the drawn instruction.
+#[test]
+fn the_add_wallet_window_opens_on_its_name_field() {
+   let (ctx, mut gui, zeus) = main_window();
+   seed_discover_context(&zeus, &master_wallet("Main"));
+
+   open_discover_flow(&mut gui, discovered_wallets(1));
+
+   let nodes = draw_discover_flow(&ctx, &mut gui, &zeus);
+
+   let add = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Add wallet 0"))
+      .map(|(id, _)| *id)
+      .unwrap_or_else(|| {
+         panic!(
+            "the row's Add button must be in the tree: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   // The window opens on the row's click, and spends sizing passes of its own before it paints.
+   let mut nodes = render_wallet_page(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, add)],
+   );
+
+   for _ in 0..3 {
+      nodes = render_wallet_page(&ctx, &mut gui, &zeus, Vec::new());
+   }
+
+   let (field, node) = nodes
+      .iter()
+      .find(|(_, node)| {
+         is_text_input(node.role())
+            && node_name(&nodes, node).as_deref() == Some("Wallet name, optional")
+      })
+      .unwrap_or_else(|| {
+         panic!(
+            "the window must name its field: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   assert_eq!(
+      node.label(),
+      Some("Wallet name, optional"),
+      "the field carries that name itself, without the parentheses of the drawn label"
+   );
+
+   assert!(
+      nodes.iter().any(|(_, node)| node.role() == Role::Label
+         && node.is_hidden()
+         && node.value() == Some("Wallet Name (Optional)")),
+      "the drawn instruction must be hidden, or the row is read twice: {:?}",
+      drawn_names(&nodes)
+   );
+
+   assert_eq!(
+      ctx.memory(|memory| memory.focused()).map(|id| id.accesskit_id()),
+      Some(*field),
+      "the field must take the opening focus the window gave its close button"
+   );
+}

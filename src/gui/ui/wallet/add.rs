@@ -19,6 +19,9 @@ pub struct AddWalletUi {
    open: bool,
    pub import_wallet: ImportWallet,
    pub discover_child_wallets_ui: DiscoverChildWallets,
+   /// The one sentence the child dialogs want said. A dialog cannot announce from inside its own
+   /// draw, so the page above drains this after they are drawn.
+   notice: Option<String>,
    size: (f32, f32),
 }
 
@@ -28,6 +31,7 @@ impl AddWalletUi {
          open: false,
          import_wallet: ImportWallet::new(),
          discover_child_wallets_ui: DiscoverChildWallets::new(),
+         notice: None,
          size: (450.0, 250.0),
       }
    }
@@ -52,6 +56,17 @@ impl AddWalletUi {
       self.main_ui(theme, ui);
       self.import_wallet.show(theme, ui);
       self.discover_child_wallets_ui.show(ctx, theme, icons, ui);
+
+      // The discovery flow draws after the window that opened it, so its sentence is the last one
+      // raised this frame and the one the page above keeps.
+      if let Some(notice) = self.discover_child_wallets_ui.take_notice() {
+         self.notice = Some(notice);
+      }
+   }
+
+   /// The sentence the dialogs want said, for the page's announcement channel.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
    }
 
    fn main_ui(&mut self, theme: &Theme, ui: &mut Ui) {

@@ -181,6 +181,12 @@ impl WalletUi {
 
       self.rename_wallet(theme, ui);
       self.add_wallet_ui.show(ctx, theme, icons.clone(), ui);
+
+      // The add-wallet dialog draws after the page, so its sentence is the last one raised here.
+      if let Some(notice) = self.add_wallet_ui.take_notice() {
+         self.notice = Some(notice);
+      }
+
       self.export_key_ui.show(ctx, theme, ui);
 
       // The export dialog draws after the page, so its sentence is the last one raised this frame
