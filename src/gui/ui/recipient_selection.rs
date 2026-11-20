@@ -6,12 +6,13 @@ use crate::core::{
    types::{Contact, Recipient},
 };
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::common::address::{address_for_speech, name_address};
+use crate::gui::ui::common::address::address_for_speech;
+use crate::gui::ui::common::clickable_row;
 use crate::gui::ui::common::switch_chain;
 use crate::gui::ui::{ContactsUi, WalletListByValue};
 use crate::utils::{TimeStamp, truncate_address};
 use eframe::egui::{
-   Align, Id, Layout, Margin, Order, RichText, ScrollArea, Sense, TextWrapMode, Ui, vec2,
+   Align, Id, Layout, Margin, Order, RichText, ScrollArea, TextWrapMode, Ui, vec2,
 };
 use egui_elements::{
    Button, Frame, InputField, Label, Modal, Motion, Spinner, Tabs, Theme, animate_from,
@@ -76,6 +77,10 @@ const SEARCH_ICON: f32 = 18.0;
 
 pub struct RecipientSelectionWindow {
    open: bool,
+   /// Set when the window opens, and spent on the first frame the search field is drawn: someone
+   /// who opens the picker to paste an address is going there, not to whatever the layout draws
+   /// first.
+   focus_search: bool,
    loading: bool,
    contacts_tab_open: bool,
    wallets_tab_open: bool,
@@ -114,6 +119,7 @@ impl RecipientSelectionWindow {
    pub fn new() -> Self {
       Self {
          open: false,
+         focus_search: false,
          loading: false,
          tab: 0,
          contacts_tab_open: true,
@@ -142,6 +148,7 @@ impl RecipientSelectionWindow {
 
    pub fn open(&mut self) {
       self.open = true;
+      self.focus_search = true;
       self.calc_wallet_value();
    }
 
@@ -302,6 +309,11 @@ impl RecipientSelectionWindow {
 
       let mut close_window = false;
 
+      // The field's id, kept for the focus request below: the request has to come after the
+      // window has done its own focus work, or the window's Close button — drawn before the field
+      // — would take it back on the frame the window opens.
+      let mut search_field_id = None;
+
       let contact_added = contacts_ui.add_contact.contact_added();
 
       if contact_added {
@@ -421,7 +433,28 @@ impl RecipientSelectionWindow {
 
                self.search_field.set_hint_text(hint);
                self.search_field.set_min_size(vec2(min_width.max(120.0), 25.0));
-               self.search_field.show(ui);
+
+               if let Some(field) = self.search_field.show(ui) {
+                  // The field paints its hint and nothing else, so a reader landing on it has no
+                  // word for what it searches. It is named for what it narrows, and the hint it
+                  // draws is kept as its description.
+                  let field_name = match privacy_mode {
+                     false => "Search contacts or addresses",
+                     true => "Search contacts or a 0zk address",
+                  };
+
+                  ui.ctx().accesskit_node_builder(field.response.id, |node| {
+                     node.set_label(field_name);
+                     node.set_description(hint_text);
+                  });
+
+                  // The window measures its body in passes where nothing can take focus, and a
+                  // request made then is withdrawn by the next one, so the field is remembered
+                  // only on a pass where it can hold the focus.
+                  if ui.is_enabled() {
+                     search_field_id = Some(field.response.id);
+                  }
+               }
 
                ui.add_space(15.0);
 
@@ -759,6 +792,13 @@ impl RecipientSelectionWindow {
             });
          });
 
+      // Spent here rather than while the field draws, so the window's own first-frame focus grab
+      // cannot take it back: a reader who opened the picker to paste an address lands on the field.
+      if let Some(field) = search_field_id.filter(|_| self.focus_search) {
+         ui.ctx().memory_mut(|memory| memory.request_focus(field));
+         self.focus_search = false;
+      }
+
       if close_window || !open {
          if self.adding_contact {
             contacts_ui.add_contact.reset();
@@ -817,6 +857,10 @@ impl RecipientSelectionWindow {
       for contact in &contacts {
          let valid_search = valid_contact_search(contact, privacy_mode, self.search_field.text());
 
+         if !valid_search {
+            continue;
+         }
+
          let address = match privacy_mode {
             false => contact.evm_address.clone(),
             true => contact.zk_address_truncated(),
@@ -827,37 +871,51 @@ impl RecipientSelectionWindow {
             true => contact.zk_address.clone(),
          };
 
-         if valid_search {
-            let res = frame.show(ui, |ui| {
-               ui.set_width(ui.available_width());
-               let text = RichText::new(contact.name.clone()).size(theme.typography.large);
-               ui.horizontal(|ui| {
-                  let label = Label::new(text, None).interactive(false);
-                  ui.add(label);
-               });
+         // The plate picks and the button copies, so each is named for what it does: the plate
+         // for whose it is and where it sends, the button for the address it hands over.
+         let (name, copy_description) = spoken_recipient(&contact.name, &address_full);
+         let copy_name = format!("Copy address of {}", contact.name);
+         let selected = is_picked(&self.recipient, &address_full, privacy_mode);
 
-               ui.add_space(6.0);
+         let response = clickable_row(ui, frame, name, None, selected, |ui| {
+            let mut covered = Vec::new();
 
-               let address_text = RichText::new(&address)
-                  .size(theme.typography.normal)
-                  .color(theme.colors.text_muted);
-               let button = Button::selectable(false, address_text);
-               let spoken = address_for_speech(Some(contact.name.as_str()), &address_full);
-
-               ui.horizontal(|ui| {
-                  let response = ui.add(button);
-                  name_address(ui, &response, &spoken);
-
-                  if response.clicked() {
-                     ui.ctx().copy_text(address_full.clone());
-                  }
-               });
+            ui.set_width(ui.available_width());
+            let text = RichText::new(contact.name.clone()).size(theme.typography.large);
+            ui.horizontal(|ui| {
+               let label = Label::new(text, None).interactive(false);
+               covered.push(ui.add(label).id);
             });
 
-            if res.response.interact(Sense::click()).clicked() {
-               self.recipient = Recipient::from_contact(contact.clone());
-               *close_window = true;
-            }
+            ui.add_space(6.0);
+
+            let address_text = RichText::new(&address)
+               .size(theme.typography.normal)
+               .color(theme.colors.text_muted);
+            let button = Button::selectable(false, address_text);
+
+            ui.horizontal(|ui| {
+               let response = ui.add(button);
+
+               ui.ctx().accesskit_node_builder(response.id, |node| {
+                  node.set_label(copy_name.as_str());
+
+                  if let Some(full) = &copy_description {
+                     node.set_description(full.as_str());
+                  }
+               });
+
+               if response.clicked() {
+                  ui.ctx().copy_text(address_full.clone());
+               }
+            });
+
+            covered
+         });
+
+         if response.clicked() {
+            self.recipient = Recipient::from_contact(contact.clone());
+            *close_window = true;
          }
       }
    }
@@ -911,9 +969,15 @@ impl RecipientSelectionWindow {
       let frame2 = theme.frame2;
 
       let wallets = &self.wallets;
+      let large = theme.typography.large;
+      let normal = theme.typography.normal;
 
       for wallet in wallets {
          let valid_search = valid_wallet_search(wallet, privacy_mode, self.search_field.text());
+
+         if !valid_search {
+            continue;
+         }
 
          // Wallet value across all chains
          let value = self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
@@ -928,68 +992,88 @@ impl RecipientSelectionWindow {
             true => wallet.zk_address(),
          };
 
-         let large = theme.typography.large;
-         let normal = theme.typography.normal;
+         // What the wallet holds is drawn beside its name, and it is what someone picking by
+         // balance reads first, so the row says both totals itself instead of leaving them as
+         // separate nodes beside it.
+         let wallet_name = wallet.name_with_source();
+         let private = format!("Private ${:.10}", value.private.abbreviated());
+         let public = format!("Public ${:.10}", value.public.abbreviated());
+         let (words, copy_description) = spoken_recipient(&wallet_name, &address_full);
+         let name = format!("{words}, {private}, {public}");
 
-         if valid_search {
-            let res = frame.show(ui, |ui| {
-               ui.set_width(ui.available_width());
-               // Values take their intrinsic width on the right so they never wrap;
-               // the name truncates in whatever is left.
-               ui.horizontal(|ui| {
-                  ui.spacing_mut().item_spacing.x = theme.spacing.sm;
-                  ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                     frame2.show(ui, |ui| {
-                        let p = format!("Private ${:.10}", value.private.abbreviated());
-                        let text = RichText::new(p).size(normal);
-                        let label = Label::new(text, None)
-                           .wrap_mode(TextWrapMode::Extend)
-                           .interactive(false);
-                        ui.add(label);
+         // The plate picks and the button copies, so each is named for what it does.
+         let copy_name = format!("Copy address of {wallet_name}");
+         let selected = is_picked(&self.recipient, &address_full, privacy_mode);
 
-                        ui.separator();
+         let response = clickable_row(ui, frame, name, None, selected, |ui| {
+            let mut covered = Vec::new();
 
-                        let p = format!("Public ${:.10}", value.public.abbreviated());
-                        let text = RichText::new(p).size(normal);
-                        let label = Label::new(text, None)
-                           .wrap_mode(TextWrapMode::Extend)
-                           .interactive(false);
-                        ui.add(label);
-                     });
+            ui.set_width(ui.available_width());
+            // Values take their intrinsic width on the right so they never wrap;
+            // the name truncates in whatever is left.
+            ui.horizontal(|ui| {
+               ui.spacing_mut().item_spacing.x = theme.spacing.sm;
+               ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                  let totals = frame2.show(ui, |ui| {
+                     let mut ids = Vec::new();
 
-                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                        let text = RichText::new(wallet.name_with_source()).size(large);
-                        let label = Label::new(text, None)
-                           .wrap_mode(TextWrapMode::Truncate)
-                           .fill_width(true)
-                           .interactive(false);
-                        ui.add(label);
-                     });
+                     let text = RichText::new(&private).size(normal);
+                     let label =
+                        Label::new(text, None).wrap_mode(TextWrapMode::Extend).interactive(false);
+                     ids.push(ui.add(label).id);
+
+                     ui.separator();
+
+                     let text = RichText::new(&public).size(normal);
+                     let label =
+                        Label::new(text, None).wrap_mode(TextWrapMode::Extend).interactive(false);
+                     ids.push(ui.add(label).id);
+
+                     ids
                   });
-               });
 
-               ui.add_space(6.0);
+                  covered.extend(totals.inner);
 
-               let address_text = RichText::new(&address)
-                  .size(theme.typography.normal)
-                  .color(theme.colors.text_muted);
-               let button = Button::selectable(false, address_text);
-               let spoken = address_for_speech(Some(wallet.name()), &address_full);
-
-               ui.horizontal(|ui| {
-                  let response = ui.add(button);
-                  name_address(ui, &response, &spoken);
-
-                  if response.clicked() {
-                     ui.ctx().copy_text(address_full.clone());
-                  }
+                  ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                     let text = RichText::new(wallet_name.clone()).size(large);
+                     let label = Label::new(text, None)
+                        .wrap_mode(TextWrapMode::Truncate)
+                        .fill_width(true)
+                        .interactive(false);
+                     covered.push(ui.add(label).id);
+                  });
                });
             });
 
-            if res.response.interact(Sense::click()).clicked() {
-               self.recipient = Recipient::from_wallet_info(wallet.clone());
-               *close_window = true;
-            }
+            ui.add_space(6.0);
+
+            let address_text = RichText::new(&address)
+               .size(theme.typography.normal)
+               .color(theme.colors.text_muted);
+            let button = Button::selectable(false, address_text);
+
+            ui.horizontal(|ui| {
+               let response = ui.add(button);
+
+               ui.ctx().accesskit_node_builder(response.id, |node| {
+                  node.set_label(copy_name.as_str());
+
+                  if let Some(full) = &copy_description {
+                     node.set_description(full.as_str());
+                  }
+               });
+
+               if response.clicked() {
+                  ui.ctx().copy_text(address_full.clone());
+               }
+            });
+
+            covered
+         });
+
+         if response.clicked() {
+            self.recipient = Recipient::from_wallet_info(wallet.clone());
+            *close_window = true;
          }
       }
    }
@@ -1226,6 +1310,48 @@ fn chain_display_name(chain_id: u64) -> String {
    match ChainId::new(chain_id) {
       Ok(chain) => chain.name().to_string(),
       Err(_) => format!("chain {}", chain_id),
+   }
+}
+
+/// The words a recipient row is named with, and the whole address it would send to in the form the
+/// rest of the app reads addresses in.
+///
+/// The row draws the address shortened, and two addresses that agree on their first and last six
+/// characters are the same drawn string — so the name carries the whole one. A stored contact may
+/// have no name: it is named by that address alone then, rather than by a comma with nothing
+/// before it, and the copy button still hands over the address itself.
+fn spoken_recipient(who: &str, address: &str) -> (String, Option<String>) {
+   let who = who.trim();
+
+   if address.is_empty() {
+      return (who.to_string(), None);
+   }
+
+   let spoken = address_for_speech(Some(who), address);
+
+   if who.is_empty() {
+      return (spoken.name, Some(address.to_string()));
+   }
+
+   match spoken.description {
+      Some(full) => (format!("{who}, {full}"), Some(full)),
+      None => (spoken.name, None),
+   }
+}
+
+/// Whether the address a row would send to is already the one in the field.
+///
+/// Neither row keeps a selection — picking one sets the recipient and closes the window — but the
+/// row for the address that is already there says so, so a reader can tell where the form stands
+/// without picking it again.
+fn is_picked(recipient: &Recipient, address: &str, privacy_mode: bool) -> bool {
+   if address.is_empty() {
+      return false;
+   }
+
+   match privacy_mode {
+      false => recipient.evm_address.eq_ignore_ascii_case(address),
+      true => recipient.zk_address == address,
    }
 }
 
