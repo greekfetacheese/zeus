@@ -177,6 +177,24 @@ fn render_settings(
    nodes
 }
 
+/// Open the Appearance page the way a reader does — an AccessKit Click on its tab — and return the
+/// tree of the page that opened.
+fn open_appearance_page(ctx: &Context, gui: &mut GUI, zeus: &ZeusCtx) -> Vec<(NodeId, Node)> {
+   let nodes = render_settings(ctx, gui, zeus, Vec::new());
+   let appearance = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Tab && node.label() == Some("Appearance"))
+      .map(|(id, _)| *id)
+      .expect("the Appearance page must be a tab in the tree");
+
+   render_settings(
+      ctx,
+      gui,
+      zeus,
+      vec![accesskit_action(Action::Click, appearance)],
+   )
+}
+
 /// Render the central panel and then the Settings window in the order the app draws them: the panel
 /// raises the overlay dialogs, and Settings is a window over it.
 fn render_central_with_settings(
@@ -1343,6 +1361,143 @@ fn the_help_text_reaches_the_control_it_explains() {
    assert!(
       questions.is_empty(),
       "no question-mark chip may be left in the tree: {questions:?}"
+   );
+}
+
+/// The Appearance page is two collapsible sections a reader can name and open: a named disclosure
+/// node per title that reports its state, closed on arrival, with the page's own heading still
+/// beside them.
+#[test]
+fn the_appearance_page_is_two_named_sections() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   let nodes = open_appearance_page(&ctx, &mut gui, &zeus);
+
+   for title in ["Hold to confirm", "Ambient"] {
+      let header = nodes
+         .iter()
+         .find(|(_, node)| node.role() == Role::DisclosureTriangle && node.label() == Some(title))
+         .map(|(_, node)| node)
+         .unwrap_or_else(|| panic!("the {title} section must be a named disclosure node"));
+
+      assert_eq!(
+         header.is_expanded(),
+         Some(false),
+         "the {title} section must start closed"
+      );
+   }
+
+   let headings: Vec<&str> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Heading)
+      .filter_map(|(_, node)| node.label())
+      .collect();
+
+   assert!(
+      headings.contains(&"Appearance"),
+      "the page heading must still be there: {headings:?}"
+   );
+}
+
+/// A control row is one node: the sentence the page draws in its label cell is the slider's own
+/// name, its "(?)" tip is the description, and the value the crate reports is still there.
+#[test]
+fn a_slider_in_the_appearance_page_says_what_it_sets() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   let nodes = open_appearance_page(&ctx, &mut gui, &zeus);
+   let hold = nodes
+      .iter()
+      .find(|(_, node)| {
+         node.role() == Role::DisclosureTriangle && node.label() == Some("Hold to confirm")
+      })
+      .map(|(id, _)| *id)
+      .expect("the Hold to confirm section must be a named disclosure node");
+
+   let nodes = render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, hold)],
+   );
+
+   let slider = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Slider && node.label() == Some("Duration"))
+      .map(|(_, node)| node)
+      .expect("the hold duration row must be a slider named after its word");
+
+   let description = slider.description().unwrap_or_default();
+
+   assert!(
+      description.starts_with("How long the affirmative button must be held"),
+      "the slider must carry the row's tip as its description: {description:?}"
+   );
+   assert!(
+      slider.numeric_value().is_some(),
+      "the slider must still report the value the crate gave it"
+   );
+
+   let spoken: Vec<&str> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Label && !node.is_hidden())
+      .filter_map(|(_, node)| node.value())
+      .collect();
+
+   assert!(
+      !spoken.contains(&"Duration"),
+      "the row's word must be hidden, or the slider is spoken twice: {spoken:?}"
+   );
+}
+
+/// A colour well is named after the row that draws it, and no "(?)" chip is left as a destination of
+/// its own: the tip is the well's description and the chip leaves the tree.
+#[test]
+fn a_colour_well_says_what_it_colours() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   let nodes = open_appearance_page(&ctx, &mut gui, &zeus);
+   let hold = nodes
+      .iter()
+      .find(|(_, node)| {
+         node.role() == Role::DisclosureTriangle && node.label() == Some("Hold to confirm")
+      })
+      .map(|(id, _)| *id)
+      .expect("the Hold to confirm section must be a named disclosure node");
+
+   let nodes = render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, hold)],
+   );
+
+   let well = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::ColorWell && node.label() == Some("End colour"))
+      .map(|(_, node)| node)
+      .expect("the End colour well must be named after its row");
+
+   let description = well.description().unwrap_or_default();
+
+   assert!(
+      description.starts_with("Colour the sweep ends at"),
+      "the well must carry the row's tip as its description: {description:?}"
+   );
+
+   // Only a row whose control names itself keeps its question mark: the "Kind" picker is the one
+   // combo box in this section, and the crate draws its plate, so its tip has nowhere else to go.
+   let questions: Vec<&str> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Label && !node.is_hidden())
+      .filter_map(|(_, node)| node.value())
+      .filter(|text| *text == "?")
+      .collect();
+
+   assert_eq!(
+      questions,
+      vec!["?"],
+      "only the row the page cannot name keeps its question mark"
    );
 }
 
