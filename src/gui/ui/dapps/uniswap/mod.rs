@@ -356,14 +356,22 @@ impl UniswapUi {
                   ui.multiply_opacity(fade);
 
                   match self.page {
-                     Page::Swap => self.swap_ui.show(
-                        ctx,
-                        theme,
-                        icons.clone(),
-                        token_selection,
-                        &self.settings,
-                        ui,
-                     ),
+                     Page::Swap => {
+                        self.swap_ui.show(
+                           ctx,
+                           theme,
+                           icons.clone(),
+                           token_selection,
+                           &self.settings,
+                           ui,
+                        );
+
+                        // The form raises its sentences from inside its own draw, so it hands them
+                        // up to the window's channel the way the pool table does.
+                        if let Some(text) = self.swap_ui.take_notice() {
+                           self.notice = Some(text);
+                        }
+                     }
                      Page::Pools => {
                         self.pools_ui.show(ctx, theme, icons.clone(), ui);
 
