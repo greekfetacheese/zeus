@@ -154,10 +154,18 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       ui,
    );
 
+   // The shield form draws from the central panel and has no channel of its own — the frame holds
+   // the only one — so the sentences it raised come back here, like the Send form's.
+   let shield_notice = gui.shield_ui.take_notice();
+
    if let Some(currency) = gui.shield_ui.take_open_merge_notes() {
       gui.merge_notes_window.open(ctx, currency);
    }
    gui.merge_notes_window.show(ctx, theme, ui);
+
+   // The merge card closes on the press that starts the work, so what it has to say is handed back
+   // here like the page's own sentences.
+   let merge_notes_notice = gui.merge_notes_window.take_notice();
 
    // The picker is a modal over whichever page raised it and has no channel of its own: the frame
    // holds the only one, so its sentence comes back here like the Send form's and the portfolio's.
@@ -234,6 +242,17 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    // The Uniswap window is drawn over the page it was raised from, so its sentence is said before
    // the picker's, which covers the window.
    if let Some(text) = uniswap_notice {
+      gui.announce(text);
+   }
+
+   // The shield page is drawn after the Uniswap window and its sentence is about the page, not
+   // about the modal it can raise, so it is said before the merge card's.
+   if let Some(text) = shield_notice {
+      gui.announce(text);
+   }
+
+   // The merge card is drawn over the page that raised it, so its sentence comes after it.
+   if let Some(text) = merge_notes_notice {
       gui.announce(text);
    }
 

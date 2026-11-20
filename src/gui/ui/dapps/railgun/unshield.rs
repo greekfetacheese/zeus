@@ -186,7 +186,7 @@ async fn unshield_self_broadcast(
    recipient_guard: Option<EnsRecipientGuard>,
 ) -> Result<(), anyhow::Error> {
    SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Wait while magic happens");
+      gui.loading_window.open("Preparing your transaction…");
       gui.request_repaint();
    });
 
@@ -229,7 +229,8 @@ async fn unshield_self_broadcast(
    accounts.extend(common_accounts.into_iter().map(AccountPrefetch::contract));
 
    SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Generating proof…");
+      gui.loading_window
+         .open("Generating the private proof. This takes a few seconds and cannot be cancelled.");
       gui.request_repaint();
    });
 
@@ -505,7 +506,8 @@ async fn unshield_via_paymaster(
    let bundler = PimlicoBundler::new(parsed_url);
 
    SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Generating proof…");
+      gui.loading_window
+         .open("Generating the private proof. This takes a few seconds and cannot be cancelled.");
       gui.request_repaint();
    });
 
@@ -860,7 +862,7 @@ async fn unshield_via_paymaster(
       .map_err(|e| anyhow!("Bundler rejected UserOperation: {}", e))?;
 
    SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Waiting for bundler inclusion…");
+      gui.loading_window.open("Waiting for the network to include the transaction…");
       gui.request_repaint();
    });
 

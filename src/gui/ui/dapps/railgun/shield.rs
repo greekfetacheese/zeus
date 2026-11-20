@@ -1,4 +1,6 @@
-use eframe::egui::{Align, FontId, Id, Layout, Margin, Order, RichText, Ui, vec2};
+use eframe::egui::{
+   Align, FontId, Id, Layout, Margin, Order, RichText, Role, Ui, WidgetInfo, vec2,
+};
 
 use std::{
    collections::HashMap,
@@ -15,7 +17,9 @@ use crate::core::{
    ensure_erc721_approve, send_transaction,
 };
 use crate::{
-   gui::ui::common::{notices, show_with_fade},
+   gui::ui::common::{
+      blocked_announcement, blocked_reason_line, name_text, notices, show_with_fade,
+   },
    utils::{TimeStamp, write_private_atomic},
 };
 
@@ -69,13 +73,32 @@ const POOL_UPDATE_TIMEOUT: u64 = 60;
 /// Bound ciphertext to this logical slot (AAD).
 const BUNDLER_URL_AAD: &[u8] = b"zeus-bundler-url-v1";
 
-const SELF_BROADCAST_TIP: &str = "Submits the unshield from your public wallet. Breaks anonymity only use if private broadcast is unavailable.";
-const UNWRAP_TO_ETH_TIP: &str =
+pub(crate) const SELF_BROADCAST_TIP: &str = "Submits the unshield from your public wallet. Breaks anonymity only use if private broadcast is unavailable.";
+pub(crate) const UNWRAP_TO_ETH_TIP: &str =
    "Unwraps WETH to ETH. Useful if the recipient doesn't have native ETH for gas.";
 
 /// Why the default bundler is Zeus's own: what it is, who pays, and how to stop relying on it.
-const PAYMASTER_TIP: &str = "Uses Railgun Privacy Paymaster. Fee is paid from private WETH balance. \
+pub(crate) const PAYMASTER_TIP: &str = "Uses Railgun Privacy Paymaster. Fee is paid from private WETH balance. \
                              Point this at a self-hosted Alto for less reliance on public Pimlico.";
+
+/// What the form's title means, said with it: the word alone does not say which way funds move.
+pub(crate) const SHIELD_DIRECTION: &str =
+   "Shielding moves funds from your public balance into the private pool.";
+pub(crate) const UNSHIELD_DIRECTION: &str =
+   "Unshielding moves funds out of the private pool to a public address.";
+
+/// What the Merge Notes button does, in the sentence its hover already carried.
+const MERGE_NOTES_TIP: &str =
+   "Combine small private notes into larger ones so unshields stay efficient.";
+
+/// Why the bundler URL is named by its host and never by its text: a URL like this can carry a
+/// provider key, the same reason the network rows and the bridge settings field are treated so.
+const BUNDLER_URL_TIP: &str = "The text stays out of the reading: a URL like this can carry a \
+                               provider key. Select the field and type the address you want to use.";
+
+/// What the broadcast options dialog reports when it has saved, and when it has reset.
+const BROADCAST_OPTIONS_SAVED: &str = "Broadcast options saved.";
+const BUNDLER_URL_RESET: &str = "Bundler URL reset to the default.";
 
 /// How long the amount field is left alone before a privacy check runs.
 ///
@@ -205,6 +228,14 @@ pub struct ShieldUi {
    shield_pool_key: Option<(u64, AssetId)>,
    /// Whether the tips list is expanded.
    privacy_tips_open: bool,
+   /// What is blocking the action right now, as the line above its button says it.
+   blocked: Option<String>,
+   /// The privacy band the last announcement was about, so the same verdict is said once.
+   spoken_band: Option<String>,
+   /// The pool warnings the last announcement was about: a different set is a new sentence.
+   spoken_pool: Option<Vec<String>>,
+   /// The words this page should say, drained by the frame right after it is drawn.
+   notice: Option<String>,
 }
 
 impl ShieldUi {
@@ -237,6 +268,10 @@ impl ShieldUi {
          shield_pool: None,
          shield_pool_key: None,
          privacy_tips_open: false,
+         blocked: None,
+         spoken_band: None,
+         spoken_pool: None,
+         notice: None,
       }
    }
 
@@ -295,6 +330,50 @@ impl ShieldUi {
 
    pub fn clear_search_query(&mut self) {
       self.search_query = String::new();
+   }
+
+   /// The words this page should say, drained by the frame right after it is drawn.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
+   }
+
+   /// Announce why the action is blocked, once, and only when the reason changes.
+   ///
+   /// The sentence is drawn above the button either way; hearing it as well is what tells a reader
+   /// who never left the amount field that the button they were heading for is not going to work,
+   /// and what to fix.
+   fn say_blocked(&mut self, reason: Option<&str>) {
+      if let Some(text) = blocked_announcement(self.blocked.as_deref(), reason) {
+         self.notice = Some(text);
+      }
+
+      self.blocked = reason.map(str::to_string);
+   }
+
+   /// Announce the privacy band once, and only when the verdict changes.
+   ///
+   /// The band lands after the amount has settled, which is exactly when a reader is still in the
+   /// amount field — the one place the block above the button cannot be read from. A band that goes
+   /// away says nothing, as a reason that lifts does not.
+   fn say_band(&mut self, band: Option<&str>) {
+      if let Some(band) = blocked_announcement(self.spoken_band.as_deref(), band) {
+         self.notice = Some(format!("Privacy risk: {band}."));
+      }
+
+      self.spoken_band = band.map(str::to_string);
+   }
+
+   /// Say the first of the pool's sentences once, when the set of them changes.
+   ///
+   /// The rows appear under a form the reader never left, and they lead with whichever reason is
+   /// loudest: a set that grew or shrank is a different warning, so it is said again.
+   fn say_pool_warnings(&mut self, warnings: &[String]) {
+      let changed = self.spoken_pool.as_deref() != Some(warnings);
+      self.spoken_pool = Some(warnings.to_vec());
+
+      if changed && let Some(first) = warnings.first() {
+         self.notice = Some(first.clone());
+      }
    }
 
    fn open_broadcast_options(&mut self) {
@@ -372,7 +451,7 @@ impl ShieldUi {
       ui: &mut Ui,
    ) {
       let text = RichText::new(match nft_selected {
-         true => "Change",
+         true => "Change asset",
          false => "Select NFT",
       })
       .size(theme.typography.normal);
@@ -412,7 +491,7 @@ impl ShieldUi {
                theme,
                self.size,
                "Railgun is disabled",
-               Some("Enable it in Settings/Railgun to shield and unshield."),
+               Some("Enable it in Settings, on the Railgun page, to shield and unshield."),
                ui,
             );
             return;
@@ -429,267 +508,281 @@ impl ShieldUi {
          // options modal, which gave back the rows they cost, so the card fits where it belongs.
          ui.vertical_centered(|ui| {
             frame.show(ui, |ui| {
-                  ui.set_width(self.size.0);
-                  ui.set_max_height(self.size.1);
-                  ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
-                  ui.spacing_mut().button_padding = theme.button_padding;
+               ui.set_width(self.size.0);
+               ui.set_max_height(self.size.1);
+               ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
+               ui.spacing_mut().button_padding = theme.button_padding;
 
-                  let title = match self.mode {
-                     RailgunMode::Shield => "Shield",
-                     RailgunMode::Unshield => "Unshield",
-                  };
+               let (title, direction) = match self.mode {
+                  RailgunMode::Shield => ("Shield", SHIELD_DIRECTION),
+                  RailgunMode::Unshield => ("Unshield", UNSHIELD_DIRECTION),
+               };
 
-                  ui.horizontal(|ui| {
+               ui.horizontal(|ui| {
                   let ui_size = vec2(ui.available_width(), 20.0);
                   ui.allocate_ui(ui_size, |ui| {
                      ui.vertical_centered(|ui| {
-                     ui.label(RichText::new(title).size(theme.typography.heading));
+                        let heading = ui.label(RichText::new(title).size(theme.typography.heading));
+
+                        // The form's own title is a heading of the page, and the word alone does
+                        // not say which way the funds would move.
+                        heading.widget_info(|| {
+                           WidgetInfo::labeled(Role::Heading, ui.is_enabled(), title)
+                        });
+                        ui.ctx().accesskit_node_builder(heading.id, |node| {
+                           node.set_description(direction)
+                        });
                      });
                   });
 
                   ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  if self.mode.is_unshield() {
-                     ui.add_space(6.0);
-                     let merge_text =
-                        RichText::new("Merge Notes").size(theme.typography.normal);
-                     let merge_btn = Button::new(merge_text)
-                        .min_size(vec2(100.0, 30.0))
-                        .visuals(theme.button_visuals());
-                     if ui
-                        .add_enabled(!self.sending_tx && self.currency.is_erc20(), merge_btn)
-                        .on_hover_text(
-                           "Combine small private notes into larger ones so unshields stay efficient.",
-                        )
-                        .clicked()
-                     {
-                        // Handled by caller via `take_open_merge_notes`.
-                        self.open_merge_notes = true;
+                     if self.mode.is_unshield() {
+                        ui.add_space(6.0);
+                        let merge_text = RichText::new("Merge Notes").size(theme.typography.normal);
+                        let merge_btn = Button::new(merge_text)
+                           .min_size(vec2(100.0, 30.0))
+                           .visuals(theme.button_visuals());
+                        let merge = ui
+                           .add_enabled(
+                              !self.sending_tx && self.currency.is_erc20(),
+                              merge_btn,
+                           )
+                           .on_hover_text(MERGE_NOTES_TIP);
+
+                        // The sentence answered only a mouse: the node carries it for whoever
+                        // asks, while the drawn words stay the button's name.
+                        ui.ctx().accesskit_node_builder(merge.id, |node| {
+                           node.set_description(MERGE_NOTES_TIP)
+                        });
+
+                        if merge.clicked() {
+                           // Handled by caller via `take_open_merge_notes`.
+                           self.open_merge_notes = true;
+                        }
                      }
-                  }
                   });
                });
 
-                  let owner = ctx.current_wallet_info().address;
-                  let chain = ctx.chain;
+               let owner = ctx.current_wallet_info().address;
+               let chain = ctx.chain;
 
-                  // Keep default bundler URL in sync with the active chain when still on public Pimlico.
-                  if self.mode.is_unshield() {
-                     let default_for_chain = default_bundler_url(chain.id());
-                     let looks_like_default = self.bundler_url.contains("public.pimlico.io");
-                     if (self.bundler_url.is_empty() || looks_like_default)
-                        && !self.bundler_url.contains(&format!("/{}/rpc", chain.id())) {
-                           self.bundler_url = default_for_chain;
-                        }
+               // Keep default bundler URL in sync with the active chain when still on public Pimlico.
+               if self.mode.is_unshield() {
+                  let default_for_chain = default_bundler_url(chain.id());
+                  let looks_like_default = self.bundler_url.contains("public.pimlico.io");
+                  if (self.bundler_url.is_empty() || looks_like_default)
+                     && !self.bundler_url.contains(&format!("/{}/rpc", chain.id()))
+                  {
+                     self.bundler_url = default_for_chain;
                   }
+               }
 
-                  ui.add_space(theme.spacing.md);
+               ui.add_space(theme.spacing.md);
 
-                  let inner_frame = theme.frame2;
+               let inner_frame = theme.frame2;
 
-                  // Currency Selection
-                  let balance = self.balance_for_mode(ctx, owner);
-                  let max_amount = balance.clone();
+               // Currency Selection
+               let balance = self.balance_for_mode(ctx, owner);
+               let max_amount = balance.clone();
 
-                  let amount = self.amount_field.amount.clone();
-                  let currency = self.currency.clone();
-                  let data_syncing = self.price_syncing || self.syncing_balance;
-                  let should_calculate_price = self.should_calculate_price(&currency);
-                  // An NFT has no pool price, so there is nothing to value it by.
-                  let value = match &self.nft {
-                     Some(_) => NumericValue::default(),
-                     None => value(ctx, currency, amount, should_calculate_price),
-                  };
+               let amount = self.amount_field.amount.clone();
+               let currency = self.currency.clone();
+               let data_syncing = self.price_syncing || self.syncing_balance;
+               let should_calculate_price = self.should_calculate_price(&currency);
+               // An NFT has no pool price, so there is nothing to value it by.
+               let value = match &self.nft {
+                  Some(_) => NumericValue::default(),
+                  None => value(ctx, currency, amount, should_calculate_price),
+               };
 
-                  // Token list: public tokens for shield, private notes for unshield.
-                  let token_privacy_mode = self.mode.is_unshield();
-                  // Recipient: 0zk for shield, public 0x for unshield.
-                  let recipient_privacy_mode = self.mode.is_shield();
+               // Token list: public tokens for shield, private notes for unshield.
+               let token_privacy_mode = self.mode.is_unshield();
+               // Recipient: 0zk for shield, public 0x for unshield.
+               let recipient_privacy_mode = self.mode.is_shield();
 
-                  inner_frame.show(ui, |ui| {
-                     ui.set_width(ui.available_width());
+               inner_frame.show(ui, |ui| {
+                  ui.set_width(ui.available_width());
 
-                     // An NFT has no amount to enter — it is one token, and `RailgunAsset` fixes its value
-                     // at 1 — so the field is replaced by what is being moved. Either way there is a way
-                     // to change the choice: picking an NFT used to be a one-way door until the window
-                     // was reopened.
-                     if let Some(nft) = &self.nft {
-                        let collection = nft_collection_name(
-                           ctx.nft_db.get_collection(chain.id(), nft.collection).as_ref(),
+                  // An NFT has no amount to enter — it is one token, and `RailgunAsset` fixes its value
+                  // at 1 — so the field is replaced by what is being moved. Either way there is a way
+                  // to change the choice: picking an NFT used to be a one-way door until the window
+                  // was reopened.
+                  if let Some(nft) = &self.nft {
+                     let collection = nft_collection_name(
+                        ctx.nft_db.get_collection(chain.id(), nft.collection).as_ref(),
+                        nft.collection,
+                     );
+
+                     let icon = icons
+                        .nft_icon_x64(
+                           chain.id(),
                            nft.collection,
-                        );
-
-                        let icon = icons
-                           .nft_icon_x64(
-                              chain.id(),
-                              nft.collection,
-                              nft.token_id,
-                              theme.image_tint_recommended,
-                           )
-                           .fit_to_exact_size(vec2(24.0, 24.0));
-
-                        let label = Label::new(
-                           RichText::new(format!("{} #{}", collection, nft.token_id))
-                              .size(theme.typography.large),
-                           Some(icon),
+                           nft.token_id,
+                           theme.image_tint_recommended,
                         )
-                        .spacing(3.0)
-                        .interactive(false);
+                        .fit_to_exact_size(vec2(24.0, 24.0));
 
-                        // The shape SendCrypto's NFT selector uses: what is being moved on the left, a
-                        // way to change it on the right.
+                     let label = Label::new(
+                        RichText::new(format!("{} #{}", collection, nft.token_id))
+                           .size(theme.typography.large),
+                        Some(icon),
+                     )
+                     .spacing(3.0)
+                     .interactive(false);
+
+                     // The shape SendCrypto's NFT selector uses: what is being moved on the left, a
+                     // way to change it on the right.
+                     ui.horizontal(|ui| {
+                        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                           ui.add(label);
+                        });
+
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                           Self::nft_select_button(
+                              theme,
+                              self.nft.is_some(),
+                              token_privacy_mode,
+                              token_selection,
+                              chain.id(),
+                              owner,
+                              ui,
+                           );
+                        });
+                     });
+
+                     // An ERC-1155 moves a quantity of an id, so it needs a number; an ERC-721 is one
+                     // token and has nothing to ask for.
+                     if nft.standard == NftStandard::Erc1155 {
+                        let max = Self::nft_max(nft, self.mode, ctx, owner);
+
                         ui.horizontal(|ui| {
                            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                              ui.add(label);
+                              ui.add(
+                                 Label::new(
+                                    RichText::new("Amount").size(theme.typography.large),
+                                    None,
+                                 )
+                                 .interactive(false),
+                              );
                            });
 
                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                              Self::nft_select_button(
-                                 theme,
-                                 self.nft.is_some(),
-                                 token_privacy_mode,
-                                 token_selection,
-                                 chain.id(),
-                                 owner,
-                                 ui,
-                              );
+                              Self::nft_amount_input(&mut self.nft_amount, theme, max, ui);
                            });
                         });
-
-                        // An ERC-1155 moves a quantity of an id, so it needs a number; an ERC-721 is one
-                        // token and has nothing to ask for.
-                        if nft.standard == NftStandard::Erc1155 {
-                           let max = Self::nft_max(nft, self.mode, ctx, owner);
-
-                           ui.horizontal(|ui| {
-                              ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                                 ui.add(
-                                    Label::new(
-                                       RichText::new("Amount").size(theme.typography.large),
-                                       None,
-                                    )
-                                    .interactive(false),
-                                 );
-                              });
-
-                              ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                 Self::nft_amount_input(&mut self.nft_amount, theme, max, ui);
-                              });
-                           });
-                        }
-                     } else {
-                        self.amount_field.show(
-                           AmountFieldParams::new(
-                              theme,
-                              icons.clone(),
-                              &self.currency,
-                              owner,
-                              chain.id(),
-                           )
-                           .privacy_mode(token_privacy_mode)
-                           .balance(balance)
-                           .max_amount(max_amount)
-                           .value(value)
-                           .label("Amount")
-                           .token_selection(token_selection, None)
-                           .loading(data_syncing)
-                           .show_slider(true),
-                           ui,
-                        );
                      }
-                  });
-
-                  if let Some(nft) = token_selection.get_selected_nft().cloned() {
-                     // An NFT and a fungible token are exclusive: picking one clears the other. A newly
-                     // picked token starts with no quantity, rather than inheriting the last one's.
-                     self.nft = Some(nft);
-                     self.nft_amount.clear();
-                     token_selection.reset();
-                     self.sync_balance(owner);
-                  } else if let Some(currency) = token_selection.get_selected_currency() {
-                     self.currency = currency.clone();
-                     self.nft = None;
-                     self.nft_amount.clear();
-                     token_selection.reset();
-                     self.sync_balance(owner);
-                  }
-
-                  // Hoisted: `show` takes `ctx` mutably, so read the chain before the call.
-                  let send_chain = ctx.chain.id();
-
-                  recipient_field(
-                     ctx,
-                     theme,
-                     icons.clone(),
-                     recipient_selection,
-                     contacts_ui,
-                     recipient_privacy_mode,
-                     send_chain,
-                     chain,
-                     ui,
-                  );
-
-                  let recipient = recipient_selection.get_recipient();
-
-                  // A name whose registration lapsed past its grace period may now belong to
-                  // someone else, so the address it resolved to is no longer what the name means.
-                  let now = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
-                  let recipient_name_lapsed = !recipient.name_binding_trusted(
-                     now
-                  );
-
-                  // Carried to the confirm step, which re-checks the name with its own clock.
-                  let recipient_guard = recipient.ens_guard();
-
-                  // The memo and the broadcast switches are in the Broadcast options modal now: the
-                  // form is a fixed stack with no scroll area, so the rows it keeps are rows the action
-                  // button gets. The row below still shows what is set in there.
-                  if self.mode.is_unshield() {
-                     self.broadcast_options_row(theme, ui);
-                  }
-
-                  // Read before the address fields are moved out of `recipient`.
-                  let recipient_chain = recipient.chain;
-
-                  let recipient_str = if self.mode.is_shield() {
-                     recipient.zk_address
                   } else {
-                     recipient.evm_address
-                  };
-
-                  // What this move reveals, computed off the frame path. The check above is about
-                  // the withdrawal; the shield side has one thing to say, about the pool the deposit
-                  // would join.
-                  if self.mode.is_unshield() {
-                     self.poll_privacy(chain, owner, &recipient_str, ui);
-                     self.show_privacy_check(theme, ui);
-                  } else {
-                     // The check reads Railgun's own state, so it is only armed once the chain has
-                     // synced: armed earlier it could only fail, and a failed verdict latches.
-                     let railgun_synced = ctx.railgun_status().synced(chain.id());
-                     self.poll_shield_pool(chain, railgun_synced);
-                     self.show_shield_pool_check(theme, ui);
+                     self.amount_field.show(
+                        AmountFieldParams::new(
+                           theme,
+                           icons.clone(),
+                           &self.currency,
+                           owner,
+                           chain.id(),
+                        )
+                        .privacy_mode(token_privacy_mode)
+                        .balance(balance)
+                        .max_amount(max_amount)
+                        .value(value)
+                        .label("Amount")
+                        .token_selection(token_selection, None)
+                        .loading(data_syncing)
+                        .show_slider(true),
+                        ui,
+                     );
                   }
-
-                  ui.add_space(10.0);
-
-                  // The refusal is explained where it happens: right above the button it disables.
-                  if self.erc1155_shield_blocked() {
-                     self.show_erc1155_block(theme, ui);
-                     ui.add_space(theme.spacing.sm);
-                  }
-
-                  self.action_button(
-                     ctx,
-                     theme,
-                     owner,
-                     recipient_str,
-                     recipient_chain,
-                     recipient_name_lapsed,
-                     recipient_guard,
-                     ui,
-                  );
                });
+
+               if let Some(nft) = token_selection.get_selected_nft().cloned() {
+                  // An NFT and a fungible token are exclusive: picking one clears the other. A newly
+                  // picked token starts with no quantity, rather than inheriting the last one's.
+                  self.nft = Some(nft);
+                  self.nft_amount.clear();
+                  token_selection.reset();
+                  self.sync_balance(owner);
+               } else if let Some(currency) = token_selection.get_selected_currency() {
+                  self.currency = currency.clone();
+                  self.nft = None;
+                  self.nft_amount.clear();
+                  token_selection.reset();
+                  self.sync_balance(owner);
+               }
+
+               // Hoisted: `show` takes `ctx` mutably, so read the chain before the call.
+               let send_chain = ctx.chain.id();
+
+               recipient_field(
+                  ctx,
+                  theme,
+                  icons.clone(),
+                  recipient_selection,
+                  contacts_ui,
+                  recipient_privacy_mode,
+                  send_chain,
+                  chain,
+                  ui,
+               );
+
+               let recipient = recipient_selection.get_recipient();
+
+               // A name whose registration lapsed past its grace period may now belong to
+               // someone else, so the address it resolved to is no longer what the name means.
+               let now = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
+               let recipient_name_lapsed = !recipient.name_binding_trusted(now);
+
+               // Carried to the confirm step, which re-checks the name with its own clock.
+               let recipient_guard = recipient.ens_guard();
+
+               // The memo and the broadcast switches are in the Broadcast options modal now: the
+               // form is a fixed stack with no scroll area, so the rows it keeps are rows the action
+               // button gets. The row below still shows what is set in there.
+               if self.mode.is_unshield() {
+                  self.broadcast_options_row(theme, ui);
+               }
+
+               // Read before the address fields are moved out of `recipient`.
+               let recipient_chain = recipient.chain;
+
+               let recipient_str = if self.mode.is_shield() {
+                  recipient.zk_address
+               } else {
+                  recipient.evm_address
+               };
+
+               // What this move reveals, computed off the frame path. The check above is about
+               // the withdrawal; the shield side has one thing to say, about the pool the deposit
+               // would join.
+               if self.mode.is_unshield() {
+                  self.poll_privacy(chain, owner, &recipient_str, ui);
+                  self.show_privacy_check(theme, ui);
+               } else {
+                  // The check reads Railgun's own state, so it is only armed once the chain has
+                  // synced: armed earlier it could only fail, and a failed verdict latches.
+                  let railgun_synced = ctx.railgun_status().synced(chain.id());
+                  self.poll_shield_pool(chain, railgun_synced);
+                  self.show_shield_pool_check(theme, ui);
+               }
+
+               ui.add_space(10.0);
+
+               // The refusal is explained where it happens: right above the button it disables.
+               if self.erc1155_shield_blocked() {
+                  self.show_erc1155_block(theme, ui);
+                  ui.add_space(theme.spacing.sm);
+               }
+
+               self.action_button(
+                  ctx,
+                  theme,
+                  owner,
+                  recipient_str,
+                  recipient_chain,
+                  recipient_name_lapsed,
+                  recipient_guard,
+                  ui,
+               );
             });
+         });
       });
    }
 
@@ -720,7 +813,14 @@ impl ShieldUi {
                let q_mark = RichText::new("Self-broadcast").size(theme.typography.normal);
                let badge = Chip::new(q_mark).role(ChipRole::Warning);
                let tip_text = RichText::new(SELF_BROADCAST_TIP).size(theme.typography.normal);
-               ui.add(badge).on_hover_text(tip_text);
+               let badge = ui.add(badge).on_hover_text(tip_text);
+
+               // What the badge costs is the whole reason it is drawn, and a hover answers only a
+               // mouse: the warning is the name, and the tip travels with the node.
+               name_text(ui, &badge, "Self-broadcast, breaks anonymity");
+               ui.ctx().accesskit_node_builder(badge.id, |node| {
+                  node.set_description(SELF_BROADCAST_TIP)
+               });
             }
 
             // ? Maybe in the future we could replace this with swaps
@@ -731,7 +831,12 @@ impl ShieldUi {
                let text = RichText::new("Unwrap to ETH").size(theme.typography.normal);
                let badge = Chip::new(text).role(ChipRole::Info);
                let tip_text = RichText::new(UNWRAP_TO_ETH_TIP).size(theme.typography.normal);
-               ui.add(badge).on_hover_text(tip_text);
+               let badge = ui.add(badge).on_hover_text(tip_text);
+
+               name_text(ui, &badge, "Unwrap to ETH");
+               ui.ctx().accesskit_node_builder(badge.id, |node| {
+                  node.set_description(UNWRAP_TO_ETH_TIP)
+               });
             }
          });
       });
@@ -812,7 +917,7 @@ impl ShieldUi {
                   );
                });
 
-               ui.add(
+               let field = ui.add(
                   SecureTextEdit::singleline(&mut self.memo)
                      .visuals(text_edit_visuals)
                      .hint_text(
@@ -824,6 +929,11 @@ impl ShieldUi {
                      .margin(Margin::same(10))
                      .font(FontId::proportional(theme.typography.normal)),
                );
+
+               // The caption above splits the name in two lines; the box draws nothing, so both
+               // words are on the node a reader lands on.
+               ui.ctx()
+                  .accesskit_node_builder(field.id, |node| node.set_label("Memo, optional"));
             }
 
             ui.add_space(theme.spacing.md);
@@ -842,11 +952,18 @@ impl ShieldUi {
                      let mark = RichText::new("?").size(theme.typography.normal);
                      let badge = Chip::new(mark).role(ChipRole::Info);
                      let tip_text = RichText::new(PAYMASTER_TIP).size(theme.typography.normal);
-                     ui.add(badge).on_hover_text(tip_text);
+                     let chip = ui.add(badge).on_hover_text(tip_text);
+
+                     // The chip draws one character: it says what it explains, and the tip it only
+                     // answered a hover with belongs to the node.
+                     name_text(ui, &chip, "Bundler URL help");
+                     ui.ctx().accesskit_node_builder(chip.id, |node| {
+                        node.set_description(PAYMASTER_TIP)
+                     });
 
                      ui.add_space(8.0);
 
-                     ui.add(
+                     let field = ui.add(
                         SecureTextEdit::singleline(&mut self.bundler_url)
                            .visuals(text_edit_visuals)
                            .hint_text(
@@ -861,6 +978,16 @@ impl ShieldUi {
                            .margin(Margin::same(6))
                            .font(FontId::proportional(theme.typography.small)),
                      );
+
+                     // A bundler URL can carry a provider key, so its text never enters the
+                     // accessibility tree: the host names the field and the value is cleared
+                     // before the tree is built.
+                     let host = bundler_host(&self.bundler_url);
+                     ui.ctx().accesskit_node_builder(field.id, |node| {
+                        node.set_label(format!("Bundler URL at {host}"));
+                        node.set_description(BUNDLER_URL_TIP);
+                        node.clear_value();
+                     });
                   });
                });
 
@@ -874,6 +1001,9 @@ impl ShieldUi {
                      crate::runtime::rt().spawn_blocking(move || {
                         persist_bundler_url(url);
                      });
+
+                     // The write happens off the frame path, so the press is the only news of it.
+                     self.notice = Some(BUNDLER_URL_RESET.to_string());
                   }
 
                   ui.add_space(10.0);
@@ -886,6 +1016,8 @@ impl ShieldUi {
                      crate::runtime::rt().spawn_blocking(move || {
                         persist_bundler_url(url);
                      });
+
+                     self.notice = Some(BROADCAST_OPTIONS_SAVED.to_string());
                   }
                });
 
@@ -1043,6 +1175,10 @@ impl ShieldUi {
       }
 
       let Some(privacy) = self.privacy.clone() else {
+         // No verdict on screen: the band that was said is no longer this form's news, so the
+         // same verdict arriving again later is a new sentence rather than a repeat.
+         self.say_band(None);
+
          if self.privacy_loading {
             // The check is debounced and runs off the frame path, so this line can sit there for a
             // moment: the spinner is what says it is working rather than stuck.
@@ -1062,6 +1198,10 @@ impl ShieldUi {
          }
          return;
       };
+
+      // The band lands after the amount has settled, while the reader is still in the amount
+      // field — so it is said, once, when it changes.
+      self.say_band(privacy.amount.as_ref().map(|advice| advice.band.label()));
 
       let decimals = self.currency.decimals();
       let symbol = self.currency.symbol().to_string();
@@ -1281,7 +1421,11 @@ impl ShieldUi {
       });
 
       if let Some(suggested) = apply_suggestion {
-         self.amount_field.amount = NumericValue::format_wei(suggested, decimals).flatten();
+         let amount = NumericValue::format_wei(suggested, decimals).flatten();
+         self.amount_field.amount = amount.clone();
+
+         // The field was rewritten from a button press: say what landed in it.
+         self.notice = Some(format!("Amount set to {amount} {symbol}."));
       }
    }
 
@@ -1330,7 +1474,7 @@ impl ShieldUi {
    /// unshield check there is no reassurance to protect here, since a deposit is unaffected either
    /// way, so a blank line never has to stand in for a verdict. A native shield deposits the chain's
    /// wrapped base token, and that is the pool the sentence names.
-   fn show_shield_pool_check(&self, theme: &Theme, ui: &mut Ui) {
+   fn show_shield_pool_check(&mut self, theme: &Theme, ui: &mut Ui) {
       let Some(pool) = &self.shield_pool else {
          return;
       };
@@ -1339,7 +1483,12 @@ impl ShieldUi {
 
       // Every reason the pool is thin gets a row: a pool that is thin by traffic *and* by value is
       // not explained by either sentence alone.
-      for text in shallow_pool_warnings(&token.symbol, pool) {
+      let warnings = shallow_pool_warnings(&token.symbol, pool);
+
+      // The rows appear under a form the reader never left, so the first of them is the news.
+      self.say_pool_warnings(&warnings);
+
+      for text in warnings {
          ui.add(
             Label::new(
                RichText::new(text).size(theme.typography.small).color(theme.colors.warning),
@@ -1384,7 +1533,7 @@ impl ShieldUi {
             ui.set_width(500.0);
 
             for tip in std::iter::once(ip_tip).chain(PRIVACY_TIPS.iter().copied()) {
-               ui.add(
+               let drawn = ui.add(
                   Label::new(
                      RichText::new(format!("• {tip}"))
                         .size(theme.typography.normal)
@@ -1395,6 +1544,10 @@ impl ShieldUi {
                   .fill_width(true)
                   .interactive(false),
                );
+
+               // The list keeps its bullet; the node is named with the sentence, because a reader
+               // would otherwise say the bullet out loud before every tip.
+               name_text(ui, &drawn, tip);
             }
          });
 
@@ -1476,67 +1629,84 @@ impl ShieldUi {
          && is_synced
          && !erc1155_blocked;
 
-      let mut button_text = match self.mode {
-         RailgunMode::Shield => "Shield".to_string(),
-         RailgunMode::Unshield => {
-            if self.self_broadcast {
-               "Unshield (self-broadcast)".to_string()
-            } else {
-               "Unshield (private broadcast)".to_string()
-            }
-         }
+      let action = match self.mode {
+         RailgunMode::Shield => "Shield",
+         RailgunMode::Unshield => match self.self_broadcast {
+            true => "Unshield (self-broadcast)",
+            false => "Unshield (private broadcast)",
+         },
       };
 
+      // One reason at a time, last one wins: the order is the one the button's own label used to
+      // take them in, so the line says what the disabled button used to say.
+      let mut blocked = None;
+
       if has_entered_amount && !valid_amount {
-         button_text = "Invalid Amount".to_string();
+         blocked = Some("Invalid Amount".to_string());
       }
 
       if !has_balance {
-         button_text = format!("Insufficient {} Balance", self.currency.symbol());
+         blocked = Some(format!(
+            "Insufficient {} Balance",
+            self.currency.symbol()
+         ));
       }
 
       if !valid_token {
-         button_text = "Invalid Token".to_string();
+         blocked = Some("Invalid Token".to_string());
       }
 
       if !has_recipient {
-         button_text = "Enter Recipient".to_string();
+         blocked = Some("Enter Recipient".to_string());
       }
 
       if !valid_recipient {
-         button_text = "Invalid Recipient".to_string();
+         blocked = Some("Invalid Recipient".to_string());
       }
 
       if !is_synced {
-         button_text = "Railgun is not synced".to_string();
+         blocked = Some("Waiting for Railgun to sync".to_string());
       }
 
       // A refusal outranks everything above it: the asset itself cannot be shielded, so a transient
       // reason (or anything typed in the amount field) is beside the point. The notice above the button
       // carries the why.
       if erc1155_blocked {
-         button_text = "ERC-1155 not supported".to_string();
+         blocked = Some("ERC-1155 not supported".to_string());
       }
 
       if recipient_name_lapsed {
-         button_text = "ENS name expired".to_string();
+         blocked = Some("ENS name expired".to_string());
       }
 
       // Last, so it wins: sending to a recipient resolved for another chain is the mistake worth
       // blocking, and the picker has already asked before switching.
       if let Some(chain) = wrong_chain {
-         button_text = match ChainId::new(chain) {
-            Ok(chain) => format!("Switch to {} to unshield", chain.name()),
+         blocked = Some(match ChainId::new(chain) {
+            Ok(chain) => format!("Wrong chain: recipient is on {}", chain.name()),
             Err(_) => "Unsupported chain".to_string(),
-         };
+         });
       }
 
-      let text = RichText::new(button_text).size(theme.typography.large);
+      // Said once, then drawn directly above the button: a disabled button takes no focus, so a
+      // reason that lived in its label could never be reached.
+      self.say_blocked(blocked.as_deref());
+
+      if let Some(reason) = &blocked {
+         blocked_reason_line(ui, theme, reason);
+      }
+
+      let text = RichText::new(action).size(theme.typography.large);
       let send = Button::new(text)
          .min_size(vec2(ui.available_width() * 0.8, 45.0))
          .visuals(button_visuals);
 
-      if ui.add_enabled(valid_inputs, send).clicked() {
+      let send = ui.add_enabled(valid_inputs, send);
+
+      // The button keeps the name of what it does whatever is blocking it.
+      send.widget_info(|| WidgetInfo::labeled(Role::Button, valid_inputs, action));
+
+      if send.clicked() {
          self.sending_tx = true;
          self.send_transaction(ctx, recipient, recipient_guard);
       }
@@ -1584,7 +1754,7 @@ impl ShieldUi {
       if self.mode.is_shield() {
          crate::runtime::rt().spawn(async move {
             let ctx = SHARED_GUI.write(|gui| {
-               gui.loading_window.open("Wait while magic happens");
+               gui.loading_window.open("Preparing your transaction…");
                gui.request_repaint();
                gui.ctx.clone()
             });
@@ -1610,7 +1780,7 @@ impl ShieldUi {
                      gui.shield_ui.sending_tx = false;
                      gui.notification.reset();
                      gui.loading_window.reset();
-                     gui.msg_window.open(format!("Transaction Error: {}", e));
+                     gui.open_msg_window(format!("Transaction Error: {}", e));
                      gui.request_repaint();
                   });
                }
@@ -1633,7 +1803,7 @@ impl ShieldUi {
          // from a blocking thread (no Send bound, block_in_place still works).
          crate::runtime::rt().spawn_blocking(move || {
             let ctx = SHARED_GUI.write(|gui| {
-               gui.loading_window.open("Wait while magic happens");
+               gui.loading_window.open("Preparing your transaction…");
                gui.request_repaint();
                gui.ctx.clone()
             });
@@ -1665,7 +1835,7 @@ impl ShieldUi {
                      gui.shield_ui.sending_tx = false;
                      gui.notification.reset();
                      gui.loading_window.reset();
-                     gui.msg_window.open(format!("Unshield Error: {}", e));
+                     gui.open_msg_window(format!("Unshield Error: {}", e));
                      gui.request_repaint();
                   });
                }
@@ -1787,7 +1957,18 @@ impl ShieldUi {
          .margin(Margin::same(8))
          .desired_width(110.0);
 
-      ui.add(input);
+      let field = ui.add(input);
+
+      // The box draws no words of its own, and the row draws a number beside it: the node says
+      // what the field counts and what that "of N" is — the count this wallet holds, which is the
+      // most that can move.
+      ui.ctx().accesskit_node_builder(field.id, |node| {
+         node.set_label("Quantity");
+         node.set_description(match max {
+            Some(max) => format!("You hold {max} of this token. Up to that many can be moved."),
+            None => "How many of this token to move.".to_string(),
+         });
+      });
    }
 
    fn valid_amount(&self) -> bool {
@@ -2039,7 +2220,8 @@ async fn shield(
    }
 
    SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Wait while magic happens");
+      // The approvals are done: what is left is the transaction itself, being built and sent.
+      gui.loading_window.open("Sending the transaction…");
       gui.request_repaint();
    });
 
@@ -2177,6 +2359,22 @@ async fn shield(
    Ok(())
 }
 
+/// The host of the bundler URL — what the options dialog may say instead of a URL that can carry
+/// a provider key.
+///
+/// The host is the part between `://` and the first `/` or `?`, so a key in the path never
+/// reaches the accessibility tree. A string without those parts falls back to a plain description.
+fn bundler_host(url: &str) -> &str {
+   let Some((_, rest)) = url.split_once("://") else {
+      return "the configured bundler";
+   };
+
+   match rest.split(['/', '?']).next() {
+      Some(host) if !host.is_empty() => host,
+      _ => "the configured bundler",
+   }
+}
+
 fn persist_bundler_url(url: BundlerUrl) {
    let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
    let key = match ctx.read_vault(|vault| vault.wallet_state_key()) {
@@ -2258,6 +2456,90 @@ fn amount_reason(advice: &UnshieldAmountAdvice) -> String {
    };
 
    format!("{}, and {crowd}.", capitalize(&sums))
+}
+
+/// The state a test cannot set from outside: the frame's own controls are what open the dialogs,
+/// type into the fields and latch the checks, and none of that is reachable from another module.
+#[cfg(test)]
+impl ShieldUi {
+   /// Open the broadcast options dialog the way the row's button does.
+   pub(crate) fn open_broadcast_options_for_test(&mut self) {
+      self.open_broadcast_options();
+   }
+
+   /// Open the privacy tips dialog the way the verdict's button does.
+   pub(crate) fn open_privacy_tips_for_test(&mut self) {
+      self.privacy_tips_open = true;
+   }
+
+   /// Flip the two switches the broadcast options dialog holds.
+   pub(crate) fn set_switches_for_test(&mut self, self_broadcast: bool, unwrap_to_eth: bool) {
+      self.self_broadcast = self_broadcast;
+      self.unwrap_to_eth = unwrap_to_eth;
+   }
+
+   /// Type into the amount field, which only the field itself can do.
+   pub(crate) fn type_amount_for_test(&mut self, amount: &str) {
+      self.amount_field.amount = amount.to_string();
+   }
+
+   /// Stand the privacy check's verdict up for the form as it stands.
+   ///
+   /// The frame drops a verdict that belongs to another form, so the key is latched with it — a
+   /// seeded band would otherwise be wiped by the poll on its way to being drawn.
+   pub(crate) fn seed_privacy_band_for_test(
+      &mut self,
+      band: RiskBand,
+      amount: &str,
+      chain: ChainId,
+      owner: Address,
+      recipient: Address,
+   ) {
+      self.amount_field.amount = amount.to_string();
+
+      // The score is only here to keep the advice consistent with its band: the band is what the
+      // block draws its sentence from.
+      let score = match band {
+         RiskBand::Low => 3,
+         RiskBand::Medium => 10,
+         RiskBand::High => 30,
+         _ => 80,
+      };
+
+      self.privacy = Some(UnshieldPrivacy {
+         amount: Some(UnshieldAmountAdvice {
+            score,
+            amount_score: score,
+            crowd_score: score,
+            match_score: score,
+            band,
+            pool_size: 1_212,
+            matches_by_size: [0, 0, 0],
+            sets: Default::default(),
+            crowding: Default::default(),
+            suggestion: None,
+            user: Default::default(),
+         }),
+         unavailable: None,
+         pool: None,
+         recipient: Default::default(),
+      });
+      self.privacy_key = Some(self.privacy_key(chain, owner, recipient));
+      self.privacy_pending = None;
+      self.privacy_loading = false;
+   }
+
+   /// Stand the shield side's pool verdict up under the token on screen, so the poll keeps it.
+   pub(crate) fn seed_pool_warnings_for_test(&mut self, chain: ChainId) {
+      let key = (chain.id(), self.privacy_asset_key());
+      self.shield_pool_key = Some(key);
+      self.shield_pool = Some(PoolDepth {
+         balance_wei: U256::from(1_000u64),
+         usd: Some(400.0),
+         share: None,
+         deposits: Some(1_224),
+      });
+   }
 }
 
 #[cfg(test)]
