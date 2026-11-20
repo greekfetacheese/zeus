@@ -12,7 +12,9 @@ use crate::core::clear_signing::ClearDisplay;
 use crate::core::signature::msg::Permit2612Details;
 use crate::core::tx::{FeeTiers, PriorityTier};
 use crate::core::types::{Contact, RailgunConfig};
-use crate::core::{SignMsgType, TransactionAnalysis, TransactionRich, ZeusCtx};
+use crate::core::{
+   SignMsgType, TransactionAnalysis, TransactionRich, WalletInfo, WalletValue, ZeusCtx,
+};
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::sign_msg_window::SignMsgWindow;
 use crate::gui::ui::tx::{
@@ -4991,5 +4993,456 @@ fn the_loading_details_window_says_it_is_loading() {
          .iter()
          .any(|(_, node)| node.value() == Some("Loading transaction details")),
       "the loading state must say what it is waiting for"
+   );
+}
+
+/// A wallet named `name` holding a random key: imported until a test says otherwise.
+fn wallet_named(name: &str) -> WalletInfo {
+   WalletInfo::from_wallet(
+      &zeus_wallet::Wallet::new_rng(name.to_string()),
+      false,
+   )
+}
+
+/// The master wallet a vault starts with.
+fn master_wallet(name: &str) -> WalletInfo {
+   let mut wallet = wallet_named(name);
+   wallet.is_master = true;
+   wallet.is_imported = false;
+   wallet
+}
+
+/// Stand the Wallets page up on `current`, with `others` under it, each wallet holding something
+/// on `chains`.
+///
+/// The page reads the wallet it is on from the cache unlock fills, and the panel draws it only
+/// while the vault is unlocked; the rows and their values are seeded here instead of fetched, since
+/// the fetch runs on a worker that reads the frame's own global.
+fn seed_wallet_page(
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   current: &WalletInfo,
+   others: &[WalletInfo],
+   chains: &[u64],
+) {
+   let all: Vec<WalletInfo> =
+      std::iter::once(current.clone()).chain(others.iter().cloned()).collect();
+
+   zeus.write(|zeus| {
+      zeus.vault_unlocked = true;
+      // Which chains are turned off comes out of the user's data directory, so the test sets that
+      // set rather than inheriting a machine's configuration.
+      zeus.disabled_chains =
+         crate::core::types::DisabledChains::new(std::collections::HashSet::new());
+      zeus.current_wallet = current.clone();
+      zeus.wallet_info_cache = crate::core::types::WalletInfoCache::new(
+         all.iter().map(|wallet| (wallet.address, wallet.clone())).collect(),
+         all,
+      );
+   });
+
+   let page = &mut gui.wallet_ui;
+   page.for_test(current, others.to_vec());
+
+   for wallet in std::iter::once(current).chain(others) {
+      page.set_value_for_test(
+         wallet.address,
+         WalletValue::default(),
+         chains.to_vec(),
+      );
+   }
+}
+
+/// Draw the central panel and then the announcer, which is the order the app draws them in and the
+/// only way a page's sentence is said: a page cannot announce from inside its own draw.
+fn render_wallet_page(
+   ctx: &Context,
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   events: Vec<Event>,
+) -> Vec<(NodeId, Node)> {
+   frame_nodes(ctx, events, |ui| {
+      zeus.write(|zeus| crate::gui::ui::panels::central_panel::show(gui, zeus, ui));
+      gui.show_announcer(ui);
+   })
+}
+
+/// Draw the Wallets page twice: the first pass lays the card out, and the second is the frame a
+/// reader is handed.
+fn draw_wallet_page(ctx: &Context, gui: &mut GUI, zeus: &ZeusCtx) -> Vec<(NodeId, Node)> {
+   render_wallet_page(ctx, gui, zeus, Vec::new());
+   render_wallet_page(ctx, gui, zeus, Vec::new())
+}
+
+/// Every name in the tree, for the failure message of a missing node.
+fn drawn_names(nodes: &[(NodeId, Node)]) -> Vec<&str> {
+   nodes
+      .iter()
+      .filter_map(|(_, node)| node.label().or_else(|| node.value()))
+      .collect()
+}
+
+/// The text of this frame's announcement node, in a tree that keeps node ids.
+fn announced(nodes: &[(NodeId, Node)]) -> Option<String> {
+   nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Status)
+      .and_then(|(_, node)| node.label().map(str::to_string))
+}
+
+/// The wallet Zeus is on is the card above the search field: one group node that says the wallet
+/// and its value, with the two labels that draw those words left out of the reading.
+#[test]
+fn the_current_wallet_is_one_card_named_after_it() {
+   let (ctx, mut gui, zeus) = main_window();
+   let master = master_wallet("Main");
+   let savings = wallet_named("Savings");
+
+   seed_wallet_page(&mut gui, &zeus, &master, &[savings], &[1, 42161]);
+
+   let nodes = draw_wallet_page(&ctx, &mut gui, &zeus);
+   let card = "Main, master wallet, $0.00";
+
+   let node = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Group && node.label() == Some(card))
+      .map(|(_, node)| node)
+      .unwrap_or_else(|| {
+         panic!(
+            "the current wallet must be one group named {card:?}: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   assert_eq!(
+      node.description(),
+      Some("On Ethereum, Arbitrum"),
+      "the chains the card draws are said once, as its description"
+   );
+
+   for text in ["Main (Master)", "$0.00"] {
+      assert!(
+         nodes.iter().any(|(_, node)| node.role() == Role::Label
+            && node.is_hidden()
+            && node.value() == Some(text)),
+         "the label drawing {text:?} must be hidden: the card already says it"
+      );
+   }
+}
+
+/// Every other wallet is one row that is a button, so a reader can pick it: the row carries the
+/// wallet and its value, and the chains it holds something on are its description.
+#[test]
+fn every_other_wallet_is_one_row_that_says_who_it_is() {
+   let (ctx, mut gui, zeus) = main_window();
+   let master = master_wallet("Main");
+   let savings = wallet_named("Savings");
+
+   seed_wallet_page(&mut gui, &zeus, &master, &[savings], &[1, 42161]);
+
+   let nodes = draw_wallet_page(&ctx, &mut gui, &zeus);
+   let row = "Savings, imported wallet, $0.00";
+
+   let node = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some(row))
+      .map(|(_, node)| node)
+      .unwrap_or_else(|| {
+         panic!(
+            "every other wallet must be one button row named {row:?}: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   assert_eq!(
+      node.description(),
+      Some("On Ethereum, Arbitrum"),
+      "the row says which chains it holds something on"
+   );
+
+   assert!(
+      node.supports_action(Action::Click),
+      "the row has to answer a Click request, or a reader cannot switch to it"
+   );
+
+   assert!(
+      node.supports_action(Action::Focus),
+      "the row has to be reachable by keyboard as well"
+   );
+
+   assert!(
+      nodes.iter().any(|(_, node)| node.role() == Role::Label
+         && node.is_hidden()
+         && node.value() == Some("Savings (Imported)")),
+      "the drawn name is inside the row's own name, so its label is hidden"
+   );
+}
+
+/// An AccessKit Click on a row is the same switch a mouse click is, and the page says which wallet
+/// it moved to.
+#[test]
+fn a_wallet_row_click_switches_and_the_page_says_so() {
+   let _turn = shared_gui_turn();
+   let (ctx, mut gui, zeus) = main_window();
+   let master = master_wallet("Main");
+   let savings = wallet_named("Savings");
+
+   seed_wallet_page(&mut gui, &zeus, &master, &[savings.clone()], &[1]);
+
+   let nodes = draw_wallet_page(&ctx, &mut gui, &zeus);
+   let row = "Savings, imported wallet, $0.00";
+
+   let row = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some(row))
+      .map(|(id, _)| *id)
+      .unwrap_or_else(|| {
+         panic!(
+            "the row must be in the tree before it is clicked: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   let nodes = render_wallet_page(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, row)],
+   );
+
+   assert_eq!(
+      announced(&nodes).as_deref(),
+      Some("Switched to Savings, imported wallet."),
+      "the page's sentence must reach the announcement node"
+   );
+
+   assert_eq!(
+      zeus.read(|zeus| zeus.current_wallet.address),
+      savings.address,
+      "the click must move Zeus to that wallet"
+   );
+
+   assert!(
+      gui.wallet_ui.take_notice().is_none(),
+      "the panel drains the page's sentence, so it is not said again next frame"
+   );
+}
+
+/// The address button names the wallet it copies for, keeps the whole address as its description
+/// and says when the copy is done.
+#[test]
+fn the_address_button_says_whose_address_it_copied() {
+   let (ctx, mut gui, zeus) = main_window();
+   let master = master_wallet("Main");
+
+   seed_wallet_page(&mut gui, &zeus, &master, &[], &[1]);
+
+   let nodes = draw_wallet_page(&ctx, &mut gui, &zeus);
+   let button = "Copy address of Main, master wallet";
+
+   let (button, node) = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some(button))
+      .unwrap_or_else(|| {
+         panic!(
+            "the card's address button must say what it copies: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   let full = crate::gui::ui::address_for_speech(None, &master.address.to_string()).name;
+
+   assert_eq!(
+      node.description(),
+      Some(full.as_str()),
+      "the whole address a listener cannot see is the button's description"
+   );
+
+   assert!(
+      !node.description().unwrap_or_default().contains("..."),
+      "a shortened address must never stand in for the address in speech"
+   );
+
+   let nodes = render_wallet_page(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, *button)],
+   );
+
+   assert_eq!(
+      announced(&nodes).as_deref(),
+      Some("Address copied."),
+      "the copy says it happened, since nothing on screen changes"
+   );
+}
+
+/// The search field says what it narrows, and the count says what the search left — once, when it
+/// changes.
+#[test]
+fn the_search_field_is_named_and_the_count_says_what_it_left() {
+   let (ctx, mut gui, zeus) = main_window();
+   let master = master_wallet("Main");
+   let savings = wallet_named("Savings");
+   let trading = wallet_named("Trading");
+
+   seed_wallet_page(
+      &mut gui,
+      &zeus,
+      &master,
+      &[savings, trading],
+      &[1],
+   );
+
+   // The first frame the page draws is the one that says how many wallets it holds.
+   let nodes = render_wallet_page(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert!(
+      nodes.iter().any(|(_, node)| is_text_input(node.role())
+         && node_name(&nodes, node).as_deref() == Some("Search wallets")),
+      "the search field must be named for what it narrows: {:?}",
+      drawn_names(&nodes)
+   );
+
+   assert_eq!(
+      announced(&nodes).as_deref(),
+      Some("2 wallets"),
+      "the page says how many wallets the list holds when it arrives"
+   );
+
+   gui.wallet_ui.set_query_for_test("sav");
+   let nodes = render_wallet_page(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert_eq!(
+      announced(&nodes).as_deref(),
+      Some("1 wallet"),
+      "narrowing the list to one wallet says so"
+   );
+}
+
+/// The rename dialog opens on the name in use and puts the keyboard in its field, and Escape
+/// leaves both the dialog and the wallet alone.
+#[test]
+fn the_rename_dialog_opens_on_the_name_in_use_and_escape_leaves_it_alone() {
+   let (ctx, mut gui, zeus) = main_window();
+   let master = master_wallet("Main");
+
+   seed_wallet_page(&mut gui, &zeus, &master, &[], &[1]);
+   gui.wallet_ui.open_rename_wallet(Some(master.clone()));
+
+   // A shrink-wrapping dialog spends two invisible sizing passes before it paints, and egui
+   // exposes no node for a widget it considers invisible.
+   let mut nodes = Vec::new();
+
+   for _ in 0..3 {
+      nodes = render_wallet_page(&ctx, &mut gui, &zeus, Vec::new());
+   }
+
+   let (field, node) = nodes
+      .iter()
+      .find(|(_, node)| {
+         is_text_input(node.role()) && node_name(&nodes, node).as_deref() == Some("New wallet name")
+      })
+      .unwrap_or_else(|| {
+         panic!(
+            "the dialog must name its field: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   assert_eq!(
+      node.value(),
+      Some("Main"),
+      "the field opens on the name in use, so a reader edits it instead of retyping it"
+   );
+
+   assert_eq!(
+      ctx.memory(|memory| memory.focused()).map(|id| id.accesskit_id()),
+      Some(*field),
+      "the field must take the opening focus the dialog gave its Close button"
+   );
+
+   let nodes = render_wallet_page(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![key_press(Key::Escape)],
+   );
+
+   assert!(
+      !gui.wallet_ui.rename_is_open_for_test(),
+      "Escape must close the dialog: {:?}",
+      drawn_names(&nodes)
+   );
+
+   assert_eq!(
+      zeus.read(|zeus| zeus.current_wallet.name().to_string()),
+      "Main",
+      "closing the dialog must leave the wallet named as it was"
+   );
+}
+
+/// The options button opens a menu whose items say what each one does, and the master's Delete
+/// says why it cannot be used.
+#[test]
+fn the_wallet_menu_says_what_each_item_does() {
+   let (ctx, mut gui, zeus) = main_window();
+   let master = master_wallet("Main");
+
+   seed_wallet_page(&mut gui, &zeus, &master, &[], &[1]);
+
+   let nodes = draw_wallet_page(&ctx, &mut gui, &zeus);
+   let options = "Options for Main, master wallet";
+
+   let options = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some(options))
+      .map(|(id, _)| *id)
+      .unwrap_or_else(|| {
+         panic!(
+            "the card's dots button must say whose options it opens: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   render_wallet_page(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, options)],
+   );
+
+   let nodes = render_wallet_page(&ctx, &mut gui, &zeus, Vec::new());
+
+   for label in ["Export key", "Rename", "Show address QR code"] {
+      assert!(
+         nodes
+            .iter()
+            .any(|(_, node)| node.role() == Role::Button && node.label() == Some(label)),
+         "the menu must say {label:?}: {:?}",
+         drawn_names(&nodes)
+      );
+   }
+
+   let delete = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Delete"))
+      .map(|(_, node)| node)
+      .unwrap_or_else(|| {
+         panic!(
+            "the master's menu must keep a Delete item: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   assert!(
+      delete.is_disabled(),
+      "the master wallet is the one wallet Zeus will not delete"
+   );
+
+   assert_eq!(
+      delete.description(),
+      Some("The master wallet cannot be deleted."),
+      "the disabled item says why"
    );
 }

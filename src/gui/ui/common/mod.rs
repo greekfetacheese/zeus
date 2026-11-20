@@ -26,7 +26,7 @@ pub use chain_switch::switch_chain;
 pub use fade::{panel_fade, show_with_fade};
 pub use heading::heading;
 pub use recipient_field::recipient_field;
-pub use wallet_identity::wallet_identity;
+pub use wallet_identity::{spoken_wallet_name, wallet_identity};
 pub use wallet_list::WalletListByValue;
 pub use wallet_select::WalletSelect;
 pub use wallet_switch::switch_wallet;

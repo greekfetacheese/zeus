@@ -152,6 +152,11 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    gui.connected_dapps.show(ctx, theme, icons.clone(), ui);
 
    gui.wallet_ui.show(ctx, theme, icons.clone(), ui);
+
+   // The Wallets page cannot announce from inside its own draw — the frame holds the channel — so
+   // its one sentence comes back here.
+   let wallet_notice = gui.wallet_ui.take_notice();
+
    gui.tx_history.show(ctx, theme, ui);
 
    // The history page draws from a borrowed theme too, so the count it says when it changes comes
@@ -188,6 +193,11 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    }
 
    if let Some(text) = send_notice {
+      gui.announce(text);
+   }
+
+   // The wallets page draws before the history page, so its sentence is said before the history's.
+   if let Some(text) = wallet_notice {
       gui.announce(text);
    }
 
