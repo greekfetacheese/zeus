@@ -3,7 +3,9 @@
 use crate::core::{ZeusContext, types::Contact};
 use crate::gui::ui::show_with_fade;
 use crate::gui::{SHARED_GUI, dots_button};
-use egui::{Align, FontId, Layout, Margin, OpenUrl, RichText, ScrollArea, Ui, vec2};
+use egui::{
+   Align, FontId, Layout, Margin, OpenUrl, RichText, Role, ScrollArea, Ui, WidgetInfo, vec2,
+};
 use egui_elements::{
    Button, Frame, InputField, Label, Menu, MenuItem, QrImage, SecureTextEdit, Spinner, Theme,
    components::QrEncoding,
@@ -77,15 +79,18 @@ impl AddContact {
          let text_edit_visuals = theme.text_edit_visuals();
          let button_visuals = theme.button_visuals();
 
-         ui.label(RichText::new("Name").size(theme.typography.large));
+         let label = ui.label(RichText::new("Name").size(theme.typography.large));
+         ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
+
          let name = &mut self.contact.name;
-         ui.add(
+         let field = ui.add(
             SecureTextEdit::singleline(name)
                .visuals(text_edit_visuals)
                .min_size(text_edit_size)
                .margin(Margin::same(10))
                .font(FontId::proportional(theme.typography.normal)),
          );
+         ui.ctx().accesskit_node_builder(field.id, |node| node.set_label("Contact name"));
 
          // The address fields label themselves and own their text — and their QR
          // scanner — so the contact is filled in from them on submit.
@@ -138,7 +143,9 @@ impl DeleteContact {
          ui.spacing_mut().item_spacing.y = theme.spacing.md;
          ui.spacing_mut().button_padding = theme.button_padding;
 
-         ui.label(RichText::new("Delete contact").size(theme.typography.heading));
+         let title = ui.label(RichText::new("Delete contact").size(theme.typography.heading));
+         title
+            .widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), "Delete contact"));
 
          ui.label(
             RichText::new("Are you sure you want to delete this contact?")
@@ -252,16 +259,18 @@ impl EditContact {
          let button_visuals = theme.button_visuals();
 
          let mut contact = self.contact_to_edit.clone();
-         ui.label(RichText::new("Name:").size(theme.typography.large));
-         let name = &mut contact.name;
+         let label = ui.label(RichText::new("Name:").size(theme.typography.large));
+         ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
 
-         ui.add(
+         let name = &mut contact.name;
+         let field = ui.add(
             SecureTextEdit::singleline(name)
                .visuals(text_edit_visuals)
                .min_size(text_edit_size)
                .margin(Margin::same(10))
                .font(FontId::proportional(theme.typography.normal)),
          );
+         ui.ctx().accesskit_node_builder(field.id, |node| node.set_label("Contact name"));
 
          self.contact_to_edit = contact;
 
@@ -498,7 +507,11 @@ impl ContactsUi {
             self.back_row(theme, ui);
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = theme.spacing.md;
-               ui.label(RichText::new("Contact QR Code").size(theme.typography.heading));
+               let title =
+                  ui.label(RichText::new("Contact QR Code").size(theme.typography.heading));
+               title.widget_info(|| {
+                  WidgetInfo::labeled(Role::Heading, ui.is_enabled(), "Contact QR Code")
+               });
                self.qr_window.body(ctx, theme, ui);
             });
          },
@@ -547,11 +560,12 @@ impl ContactsUi {
          return;
       }
 
-      let hint = RichText::new("Search contacts or enter an address")
+      let hint_text = "Search contacts or enter an address";
+      let hint = RichText::new(hint_text)
          .size(theme.typography.normal)
          .color(theme.colors.text_muted);
 
-      ui.add(
+      let search = ui.add(
          SecureTextEdit::singleline(&mut self.search_query)
             .visuals(text_edit_visuals)
             .hint_text(hint)
@@ -559,6 +573,13 @@ impl ContactsUi {
             .margin(Margin::same(10))
             .font(FontId::proportional(theme.typography.normal)),
       );
+
+      // The field drew only a hint; it is named after what it searches, and the hint becomes its
+      // description.
+      ui.ctx().accesskit_node_builder(search.id, |node| {
+         node.set_label("Search contacts");
+         node.set_description(hint_text);
+      });
 
       ui.add_space(15.0);
 
@@ -591,7 +612,7 @@ impl ContactsUi {
          .corner_radius(corner)
          .visuals(visuals);
 
-      frame.show(ui, |ui| {
+      let row = frame.show(ui, |ui| {
          ui.spacing_mut().button_padding = theme.button_padding;
          ui.set_width(450.0);
 
@@ -599,12 +620,17 @@ impl ContactsUi {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                let text = RichText::new(&contact.name).size(theme.typography.large);
                let label = Label::new(text, None).wrap().interactive(false);
-               ui.add(label);
+               let name = ui.add(label);
+               ui.ctx().accesskit_node_builder(name.id, |node| node.set_hidden());
             });
 
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                let size = vec2(28.0, 20.0);
                let more = dots_button(theme, size, ui);
+               let options_name = format!("Options for {}", contact.name);
+               more.widget_info(|| {
+                  WidgetInfo::labeled(Role::Button, ui.is_enabled(), &options_name)
+               });
                let id = format!("{}_more_options", contact.evm_address);
 
                Menu::new(id).show_below(&more, |ui| {
@@ -651,13 +677,21 @@ impl ContactsUi {
                .size(theme.typography.normal)
                .color(theme.colors.text_muted);
 
+            let copy_name = format!("Copy address {address_full}");
             let label = Button::selectable(false, address_text);
+            let copy = ui.add(label);
+            copy.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &copy_name));
 
-            if ui.add(label).clicked() {
+            if copy.clicked() {
                ui.ctx().copy_text(address_full);
             }
          });
       });
+
+      // The row itself is one node named after the contact; the name label inside it is drawn
+      // but hidden from the tree, so the row says whose it is once.
+      row.response
+         .widget_info(|| WidgetInfo::labeled(Role::Group, ui.is_enabled(), &contact.name));
    }
 }
 
@@ -725,7 +759,12 @@ fn on_add_contact(new_contact: Contact, reset_on_success: bool) {
       }
 
       match ctx.save_wallet_state() {
-         Ok(_) => {}
+         Ok(_) => {
+            SHARED_GUI.write(|gui| {
+               gui.announce("Contact added.");
+               gui.request_repaint();
+            });
+         }
          Err(e) => {
             SHARED_GUI.write(|gui| {
                let error = format!(
@@ -752,7 +791,12 @@ fn on_delete_contact(contact_to_delete: Contact) {
       });
 
       match ctx.save_wallet_state() {
-         Ok(_) => {}
+         Ok(_) => {
+            SHARED_GUI.write(|gui| {
+               gui.announce("Contact deleted.");
+               gui.request_repaint();
+            });
+         }
          Err(e) => {
             SHARED_GUI.write(|gui| {
                let error = format!(
@@ -795,7 +839,7 @@ fn on_edit_contact(old_contact: Contact, edited_contact: Contact) {
       match ctx.save_wallet_state() {
          Ok(_) => {
             SHARED_GUI.write(|gui| {
-               gui.open_msg_window("Contact saved");
+               gui.open_msg_window("Contact saved.");
                gui.request_repaint();
             });
          }

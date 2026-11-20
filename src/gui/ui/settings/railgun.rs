@@ -95,67 +95,104 @@ impl RailgunSettings {
       let mut allow_download = self.config.allow_circuit_download();
       let download_text = RichText::new("Allow Circuit Download").size(theme.typography.normal);
       let circuit_tip = Chip::new(q_mark.clone()).role(ChipRole::Info);
+
       ui.horizontal(|ui| {
-         if ui.add(Checkbox::new(&mut allow_download, download_text)).changed() {
+         let control = ui.add(Checkbox::new(&mut allow_download, download_text));
+
+         if control.changed() {
             self.config.set_allow_circuit_download(allow_download);
          }
-         ui.add(circuit_tip).on_hover_text(circuit_download_tip());
+
+         let help = circuit_download_tip();
+         let chip = ui.add(circuit_tip).on_hover_text(help);
+
+         // The tip is the checkbox's own description and the chip leaves the tree: a reader
+         // hears why the download is offered on the box instead of visiting a separate "?".
+         ui.ctx().accesskit_node_builder(control.id, |node| node.set_description(help));
+         ui.ctx().accesskit_node_builder(chip.id, |node| node.set_hidden());
       });
 
       let info_tip = Chip::new(q_mark).role(ChipRole::Info);
 
-      ui.allocate_ui(slider_size, |ui| {
-         ui.horizontal(|ui| {
-            ui.label(RichText::new("RPC Syncer Block Range").size(theme.typography.normal));
-            ui.add(info_tip).on_hover_text(BLOCK_RANGE_TIP);
-         });
-      });
+      let sentence = "RPC Syncer Block Range";
+      let label = ui
+         .allocate_ui(slider_size, |ui| {
+            ui.horizontal(|ui| {
+               let label = ui.label(RichText::new(sentence).size(theme.typography.normal));
+               ui.add(info_tip).on_hover_text(BLOCK_RANGE_TIP);
+               label
+            })
+            .inner
+         })
+         .inner;
 
       let mut block_range = self.block_range();
       let min = RailgunConfig::min_block_range();
       let max = RailgunConfig::max_block_range();
 
-      let changed = ui
+      let slider = ui
          .allocate_ui(slider_size, |ui| {
             ui.add(Slider::new(&mut block_range, min..=max).width(slider_size.x))
          })
-         .inner
-         .changed();
-      if changed {
+         .inner;
+
+      if slider.changed() {
          self.set_block_range(block_range);
       }
 
-      ui.label(RichText::new("RPC Syncer Concurrency").size(theme.typography.normal));
+      // One node per control: the sentence belongs to the slider, and its range is the part a
+      // reader cannot guess from the value.
+      ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
+      ui.ctx().accesskit_node_builder(slider.id, |node| {
+         node.set_label(sentence);
+         node.set_description(format!("{min} to {max}"));
+      });
+
+      let sentence = "RPC Syncer Concurrency";
+      let label = ui.label(RichText::new(sentence).size(theme.typography.normal));
 
       let mut concurrency = self.concurrency();
       let min = RailgunConfig::min_concurrency();
       let max = RailgunConfig::max_concurrency();
 
-      let changed = ui
+      let slider = ui
          .allocate_ui(slider_size, |ui| {
             ui.add(Slider::new(&mut concurrency, min..=max).width(slider_size.x))
          })
-         .inner
-         .changed();
-      if changed {
+         .inner;
+
+      if slider.changed() {
          self.set_concurrency(concurrency);
       }
 
-      ui.label(RichText::new("State Update Interval (Minutes)").size(theme.typography.normal));
+      ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
+      ui.ctx().accesskit_node_builder(slider.id, |node| {
+         node.set_label(sentence);
+         node.set_description(format!("{min} to {max}"));
+      });
+
+      let sentence = "State Update Interval (Minutes)";
+      let label = ui.label(RichText::new(sentence).size(theme.typography.normal));
 
       let mut interval = self.state_update_interval();
       let min = RailgunConfig::min_state_update_interval();
       let max = RailgunConfig::max_state_update_interval();
 
-      let changed = ui
+      let slider = ui
          .allocate_ui(slider_size, |ui| {
             ui.add(Slider::new(&mut interval, min..=max).width(slider_size.x))
          })
-         .inner
-         .changed();
-      if changed {
+         .inner;
+
+      if slider.changed() {
          self.set_state_update_interval(interval);
       }
+
+      ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
+      ui.ctx().accesskit_node_builder(slider.id, |node| {
+         node.set_label(sentence);
+         node.set_description(format!("{min} to {max}"));
+      });
 
       ui.add_space(10.0);
       let ui_size = vec2(ui.available_width() * 0.5, 35.0);
@@ -166,7 +203,7 @@ impl RailgunSettings {
             let button = Button::new(text).visuals(button_visuals).min_size(button_size);
             if ui.add(button).clicked() {
                let new_config = self.config.clone();
-               post_click(ctx, new_config);
+               post_click(ctx, new_config, "Railgun settings saved.");
             }
 
             ui.add_space(10.0);
@@ -177,14 +214,18 @@ impl RailgunSettings {
                let new_config = RailgunConfig::default();
                self.config = new_config.clone();
 
-               post_click(ctx, new_config);
+               post_click(
+                  ctx,
+                  new_config,
+                  "Railgun settings reset to their defaults.",
+               );
             }
          });
       });
    }
 }
 
-fn post_click(ctx: &mut ZeusContext, new_config: RailgunConfig) {
+fn post_click(ctx: &mut ZeusContext, new_config: RailgunConfig, notice: &'static str) {
    let allow_download = new_config.allow_circuit_download();
 
    // The prefetch scans the whole artifact pack on disk (~160 MB), so only run it when the
@@ -205,7 +246,9 @@ fn post_click(ctx: &mut ZeusContext, new_config: RailgunConfig) {
       match res {
          Ok(_) => {
             SHARED_GUI.write(|gui| {
-               gui.msg_window.open("Railgun Config Saved");
+               // The dialog is what a sighted user has always got; opening it through the app's
+               // helper is also what puts its words on the announcement channel.
+               gui.open_msg_window(notice);
                gui.request_repaint();
             });
          }

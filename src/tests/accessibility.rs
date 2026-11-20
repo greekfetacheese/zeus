@@ -8,6 +8,7 @@
 //! The helpers below are the shared harness; every screen test renders a real screen headlessly.
 
 use crate::core::ZeusCtx;
+use crate::core::types::{Contact, RailgunConfig};
 use crate::gui::{GUI, LockScreen};
 use egui::accesskit::{Action, ActionRequest, Live, Node, NodeId, Role, Toggled, TreeId};
 use egui::{Context, Event, Key, Modifiers, RawInput, Rect, Ui, pos2, vec2};
@@ -1656,6 +1657,29 @@ fn open_networks_page(ctx: &Context, gui: &mut GUI, zeus: &ZeusCtx) -> Vec<(Node
    )
 }
 
+/// Open a Settings page the way a reader does — an AccessKit Click on its tab — and return the
+/// tree of the page that opened.
+fn open_settings_page(
+   ctx: &Context,
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   page: &str,
+) -> Vec<(NodeId, Node)> {
+   let nodes = render_settings(ctx, gui, zeus, Vec::new());
+   let tab = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Tab && node.label() == Some(page))
+      .map(|(id, _)| *id)
+      .unwrap_or_else(|| panic!("the {page} page must be a tab in the tree"));
+
+   render_settings(
+      ctx,
+      gui,
+      zeus,
+      vec![accesskit_action(Action::Click, tab)],
+   )
+}
+
 /// The host a row may be named by: what sits between `://` and the first path or query.
 fn host_of(url: &str) -> &str {
    url.split_once("://")
@@ -1848,6 +1872,207 @@ fn an_invalid_rpc_url_is_said() {
       gui.settings.take_notice().as_deref(),
       Some("Invalid URL"),
       "an invalid URL must be said, not only drawn"
+   );
+}
+
+/// The roles egui's single-line text fields use.
+fn is_text_input(role: Role) -> bool {
+   matches!(
+      role,
+      Role::TextInput | Role::MultilineTextInput | Role::PasswordInput
+   )
+}
+
+/// A node's accessible name: its own label, or the value of the label that names it.
+///
+/// `InputField` draws a visible label and ties it to the field with `labelled_by`, so the field
+/// itself carries no label.
+fn node_name(nodes: &[(NodeId, Node)], node: &Node) -> Option<String> {
+   node.label().map(str::to_owned).or_else(|| {
+      node.labelled_by().iter().find_map(|id| {
+         nodes
+            .iter()
+            .find(|(node_id, _)| node_id == id)
+            .and_then(|(_, label)| label.value())
+            .map(str::to_owned)
+      })
+   })
+}
+
+/// Each Railgun slider is one node named with the sentence that used to sit above it, says the
+/// range it covers, and keeps the value the crate gave it; the sentence is not left behind as a
+/// label too.
+#[test]
+fn the_railgun_page_names_its_sliders() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   let nodes = open_settings_page(&ctx, &mut gui, &zeus, "Railgun");
+
+   let sliders: Vec<&Node> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Slider)
+      .map(|(_, node)| node)
+      .collect();
+
+   assert_eq!(
+      sliders.len(),
+      3,
+      "the Railgun page draws three sliders"
+   );
+
+   let block_range = format!(
+      "{} to {}",
+      RailgunConfig::min_block_range(),
+      RailgunConfig::max_block_range()
+   );
+   let concurrency = format!(
+      "{} to {}",
+      RailgunConfig::min_concurrency(),
+      RailgunConfig::max_concurrency()
+   );
+   let interval = format!(
+      "{} to {}",
+      RailgunConfig::min_state_update_interval(),
+      RailgunConfig::max_state_update_interval()
+   );
+
+   let ranges = [
+      ("RPC Syncer Block Range", block_range),
+      ("RPC Syncer Concurrency", concurrency),
+      ("State Update Interval (Minutes)", interval),
+   ];
+
+   for (sentence, range) in &ranges {
+      let slider = sliders
+         .iter()
+         .find(|node| node.label() == Some(*sentence))
+         .unwrap_or_else(|| panic!("the {sentence} slider must be named with its sentence"));
+
+      assert_eq!(
+         slider.description(),
+         Some(range.as_str()),
+         "the {sentence} slider must say the range it covers"
+      );
+      assert!(
+         slider.numeric_value().is_some(),
+         "the {sentence} slider must still report the value the crate gave it"
+      );
+   }
+
+   let spoken: Vec<&str> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Label && !node.is_hidden())
+      .filter_map(|(_, node)| node.value())
+      .collect();
+
+   for (sentence, _) in &ranges {
+      assert!(
+         !spoken.contains(sentence),
+         "the {sentence} label must be hidden, or the slider is spoken twice: {spoken:?}"
+      );
+   }
+
+   for name in ["Save", "Reset"] {
+      assert!(
+         nodes
+            .iter()
+            .any(|(_, node)| node.role() == Role::Button && node.label() == Some(name)),
+         "the Railgun page must still offer the {name} button"
+      );
+   }
+}
+
+/// The add-contact form names its own field: the "Name" label above it is hidden and the field
+/// carries the name. The two address fields label themselves; their names arrive through the
+/// labels that name them.
+#[test]
+fn a_contact_form_names_its_fields() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   let nodes = open_settings_page(&ctx, &mut gui, &zeus, "Contacts");
+   let add = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Add Contact"))
+      .map(|(id, _)| *id)
+      .expect("the Contacts page must offer the Add Contact button");
+
+   let nodes = render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, add)],
+   );
+
+   let fields: Vec<(Role, Option<String>)> = nodes
+      .iter()
+      .filter(|(_, node)| is_text_input(node.role()))
+      .map(|(_, node)| (node.role(), node_name(&nodes, node)))
+      .collect();
+
+   assert!(
+      fields.iter().any(|(_, name)| name.as_deref() == Some("Contact name")),
+      "the name field must be named Contact name: {fields:?}"
+   );
+
+   for expected in ["Public Address", "Railgun Address"] {
+      assert!(
+         fields.iter().any(|(_, name)| name.as_deref() == Some(expected)),
+         "the {expected} field must carry its own name: {fields:?}"
+      );
+   }
+}
+
+/// A contact row is one group node named after the contact, and its two unnamed buttons say
+/// whose options they open and which address they copy. The name label inside the row is hidden,
+/// so the row says it once.
+#[test]
+fn a_contact_row_says_who_it_is() {
+   let name = "Ada Lovelace";
+   let address = "0x1111111111111111111111111111111111111111";
+
+   let (ctx, mut gui, zeus) = settings_window();
+   zeus.write_wallet_state(|ws| {
+      ws.contacts.push(Contact::new(
+         name.to_string(),
+         address.to_string(),
+         String::new(),
+      ));
+   });
+
+   let nodes = open_settings_page(&ctx, &mut gui, &zeus, "Contacts");
+
+   assert!(
+      nodes
+         .iter()
+         .any(|(_, node)| node.role() == Role::Group && node.label() == Some(name)),
+      "the contact row must be one group node named after the contact"
+   );
+
+   let options = format!("Options for {name}");
+   assert!(
+      nodes
+         .iter()
+         .any(|(_, node)| node.role() == Role::Button && node.label() == Some(options.as_str())),
+      "the row's dots button must say whose options it opens"
+   );
+
+   let copy = format!("Copy address {address}");
+   assert!(
+      nodes
+         .iter()
+         .any(|(_, node)| node.role() == Role::Button && node.label() == Some(copy.as_str())),
+      "the row's address button must say what it copies"
+   );
+
+   let spoken: Vec<&str> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Label && !node.is_hidden())
+      .filter_map(|(_, node)| node.value())
+      .collect();
+
+   assert!(
+      !spoken.contains(&name),
+      "the row's own name must not also be a plain label: {spoken:?}"
    );
 }
 
