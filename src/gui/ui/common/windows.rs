@@ -615,10 +615,13 @@ impl MsgWindow {
       }
 
       let msg = RichText::new(&self.message).size(theme.typography.normal);
+      let heading = RichText::new("Notification").size(theme.typography.large);
       let mut open = self.open;
 
       Modal::new("msg_window", &mut open)
-         .closable(false)
+         .closable(true)
+         .close_on_backdrop(false)
+         .heading(heading)
          .backdrop_order(Order::Tooltip)
          .content_order(Order::Debug)
          .show(ui.ctx(), |ui| {
@@ -641,6 +644,10 @@ impl MsgWindow {
                }
             });
          });
+
+      if !open {
+         self.reset();
+      }
    }
 }
 

@@ -177,6 +177,32 @@ fn render_settings(
    nodes
 }
 
+/// Render the central panel and then the Settings window in the order the app draws them: the panel
+/// raises the overlay dialogs, and Settings is a window over it.
+fn render_central_with_settings(
+   ctx: &Context,
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   events: Vec<Event>,
+) -> Vec<(NodeId, Node)> {
+   frame_nodes(ctx, events, |ui| {
+      zeus.write(|zeus| {
+         crate::gui::ui::panels::central_panel::show(gui, zeus, ui);
+
+         let icons = gui.icons.clone();
+         let theme = gui.theme.clone();
+
+         gui.settings.show(
+            zeus,
+            icons,
+            &theme,
+            &mut gui.appearance_settings,
+            ui,
+         );
+      });
+   })
+}
+
 /// A key press as the window delivers it.
 fn key_press(key: Key) -> Event {
    Event::Key {
@@ -1041,6 +1067,135 @@ fn a_service_row_label_carries_the_whole_sentence() {
       label.label(),
       Some("Railgun, syncing"),
       "the node must say the same sentence whichever property a consumer reads"
+   );
+}
+
+/// A message dialog has a name of its own, keeps its text as a label, and offers the deliberate
+/// exits: a Close button beside the OK that already dismissed it.
+#[test]
+fn a_message_window_is_a_named_dialog() {
+   let (ctx, mut gui, zeus) = main_window();
+   gui.open_msg_window("RPC added successfully");
+
+   render_central(&ctx, &mut gui, &zeus, Vec::new());
+   render_central(&ctx, &mut gui, &zeus, Vec::new());
+   let nodes = render_central(&ctx, &mut gui, &zeus, Vec::new());
+
+   let dialogs: Vec<&Node> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Dialog)
+      .map(|(_, node)| node)
+      .collect();
+
+   assert_eq!(
+      dialogs.len(),
+      1,
+      "the message must be exactly one dialog"
+   );
+   assert_eq!(
+      dialogs[0].label(),
+      Some("Notification"),
+      "the dialog must be named"
+   );
+
+   let message = nodes.iter().any(|(_, node)| {
+      node.role() == Role::Label && node.value() == Some("RPC added successfully")
+   });
+
+   assert!(
+      message,
+      "the message must stay in the tree as a label"
+   );
+
+   let close = nodes
+      .iter()
+      .any(|(_, node)| node.role() == Role::Button && node.label() == Some("Close"));
+
+   assert!(close, "the dialog must offer the Close button");
+}
+
+/// The Close button is a real exit: an AccessKit Click on it closes the dialog without hunting for
+/// OK.
+#[test]
+fn a_message_window_closes_from_its_close_button() {
+   let (ctx, mut gui, zeus) = main_window();
+   gui.open_msg_window("RPC added successfully");
+
+   render_central(&ctx, &mut gui, &zeus, Vec::new());
+   render_central(&ctx, &mut gui, &zeus, Vec::new());
+   let nodes = render_central(&ctx, &mut gui, &zeus, Vec::new());
+
+   let close = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Close"))
+      .map(|(id, _)| *id)
+      .expect("the dialog must offer the Close button");
+
+   render_central(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, close)],
+   );
+
+   assert!(
+      !gui.msg_window.is_open(),
+      "an AccessKit Click on Close must dismiss the message"
+   );
+}
+
+/// A message is spoken through the app's announcement channel, so a reader hears it when it appears
+/// instead of finding the dialog later.
+#[test]
+fn the_message_window_says_its_text() {
+   let ctx = Context::default();
+   let mut gui = GUI::default();
+
+   gui.open_msg_window("RPC added successfully");
+
+   let nodes = frame(&ctx, |ui| gui.show_announcer(ui));
+
+   assert_eq!(
+      status_text(&nodes).as_deref(),
+      Some("RPC added successfully"),
+      "the dialog's text must reach the announcement node"
+   );
+}
+
+/// The first Escape belongs to the dialog on top: it closes the message and leaves the Settings
+/// window behind it open.
+#[test]
+fn an_escape_goes_to_the_message_window_and_not_to_settings() {
+   let (ctx, mut gui, zeus) = settings_window();
+   gui.open_msg_window("RPC added successfully");
+
+   render_central_with_settings(&ctx, &mut gui, &zeus, Vec::new());
+   render_central_with_settings(&ctx, &mut gui, &zeus, Vec::new());
+   let nodes = render_central_with_settings(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert!(
+      nodes.iter().any(|(_, node)| node.role() == Role::Dialog),
+      "the message dialog must be drawn above Settings before the key is sent"
+   );
+   assert!(
+      gui.msg_window.is_open(),
+      "the dialog must be open before the key is sent"
+   );
+
+   render_central_with_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![key_press(Key::Escape)],
+   );
+
+   assert!(
+      !gui.msg_window.is_open(),
+      "Escape must close the message dialog"
+   );
+   assert!(
+      gui.settings.is_open(),
+      "the Escape that closed the dialog must not also close Settings"
    );
 }
 

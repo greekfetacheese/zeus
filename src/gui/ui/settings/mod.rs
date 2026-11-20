@@ -477,12 +477,25 @@ fn nav_plate(
 
 /// Whether the Escape pressed this frame belongs to the Settings window.
 ///
-/// A dialog raised from a Settings page must keep the first claim on the key: it is drawn on a
-/// layer above the window, so only a window that still owns the top layer may close on it.
+/// A dialog raised from a Settings page must keep the first claim on the key: its backdrop and its
+/// content are drawn on layers above the window, whatever order they use, so only a window that still
+/// owns the top layer may close on it.
 fn escape_closes_window(ui: &Ui) -> bool {
-   if ui.ctx().top_layer_id() != Some(ui.layer_id()) {
+   if !ui.input(|input| input.key_pressed(Key::Escape)) {
       return false;
    }
 
-   ui.input(|input| input.key_pressed(Key::Escape))
+   let layer = ui.layer_id();
+
+   // An area drawn above this window — a dialog's backdrop or its content, on any order — takes the
+   // key first; among the window order, only the area egui puts on top may close on it.
+   ui.ctx().memory(|memory| {
+      let above = memory
+         .areas()
+         .visible_layer_ids()
+         .into_iter()
+         .any(|other| other.order > layer.order);
+
+      !above && ui.ctx().top_layer_id() == Some(layer)
+   })
 }

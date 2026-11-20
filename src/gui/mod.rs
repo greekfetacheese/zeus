@@ -291,6 +291,10 @@ impl GUI {
    }
 
    pub fn open_msg_window(&mut self, msg: impl Into<String>) {
+      let msg = msg.into();
+      // The dialog is drawn in the same pass the caller asked for it, and a reader is told what it says
+      // even before it is reached.
+      self.announce(msg.clone());
       self.msg_window.open(msg);
    }
 
