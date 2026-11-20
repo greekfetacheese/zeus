@@ -51,12 +51,16 @@ pub struct Notification {
    with_progress_bar: bool,
    // UNIX timestamp in milliseconds of when the notification must be started
    start_on: u64,
-   // UNIX timestamp in milliseconds of when the notification must be closed
+   // UNIX timestamp in milliseconds of when the progress bar is full
    finish_on: u64,
    title: String,
    notification: NotificationType,
    tx: Option<TransactionRich>,
    size: (f32, f32),
+   // the one sentence this window says, queued on the frame it first draws
+   notice: Option<String>,
+   // whether it has already said that sentence, so a transition is never spoken twice
+   announced: bool,
 }
 
 impl Notification {
@@ -70,13 +74,15 @@ impl Notification {
          notification: NotificationType::Other(String::new()),
          tx: None,
          size: (500.0, 100.0),
+         notice: None,
+         announced: false,
       }
    }
 
-   /// Open this [Notification] with a progress bar that when finished it will automatically close
-   /// the notification
+   /// Open this [Notification] with a progress bar that fills once the event is done.
    ///
-   /// Used to show a finished event
+   /// Used to show a finished event. A full bar does not close the window: it stays up until it is
+   /// dismissed, or until a newer notification replaces it.
    pub fn open_with_progress_bar(
       &mut self,
       start_on: u64,
@@ -92,6 +98,8 @@ impl Notification {
       self.title = title;
       self.notification = notification;
       self.tx = tx;
+      self.notice = None;
+      self.announced = false;
    }
 
    /// Open this [Notification] with a spinner, it does not automatically close
@@ -102,15 +110,29 @@ impl Notification {
       self.with_progress_bar = false;
       self.title = title;
       self.notification = notification;
+      self.notice = None;
+      self.announced = false;
    }
 
    pub fn reset(&mut self) {
       *self = Self::new();
    }
 
+   /// The one sentence this window should say, drained by the panel that draws it.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
+   }
+
    pub fn show(&mut self, ctx: &ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
+      }
+
+      // The window speaks for itself, once, on the first frame it is on screen: drawn every frame it
+      // would repeat the same sentence, and a window that was never opened says nothing at all.
+      if !self.announced {
+         self.announced = true;
+         self.notice = Some(transition(&self.title, self.with_progress_bar));
       }
 
       let frame = theme.frame1;
@@ -123,7 +145,10 @@ impl Notification {
          (110.0, -370.0)
       };
 
-      Window::new("notification_window")
+      // egui takes this window's accessible name from its title (egui-0.37.0/src/containers/
+      // window.rs:682) and an undecorated window draws no title bar at all, so a human name here
+      // costs no pixels. The id egui derives from it is never shown.
+      Window::new("Notification")
          .title_bar(false)
          .resizable(false)
          .collapsible(false)
@@ -202,15 +227,13 @@ impl Notification {
       let elapsed = now.saturating_sub(start);
       let total = finish.saturating_sub(start);
 
+      // A full bar stays full: this used to reset the whole window here, which deleted the only
+      // "it was sent" copy on a timer while a reader could still be speaking it.
       let progress: f32 = if total == 0 {
          1.0
       } else {
          (elapsed as f64 / total as f64).min(1.0) as f32
       };
-
-      if progress >= 1.0 {
-         self.reset();
-      }
 
       ui.vertical_centered(|ui| {
          let icon = Lucide::Check.size(20.0).color(theme.colors.text).image();
@@ -220,17 +243,26 @@ impl Notification {
 
          self.show_notification(ctx, theme, icons, ui);
 
-         let text = RichText::new("Transaction Details").size(theme.typography.normal);
-         let button = Button::new(text).visuals(theme.button_visuals());
+         ui.horizontal(|ui| {
+            let text = RichText::new("Transaction Details").size(theme.typography.normal);
+            let button = Button::new(text).visuals(theme.button_visuals());
 
-         if ui.add_enabled(self.tx.is_some(), button).clicked() {
-            let tx = self.tx.take();
-            crate::runtime::rt().spawn_blocking(move || {
-               SHARED_GUI.write(|gui| {
-                  gui.tx_window.open(tx);
+            if ui.add_enabled(self.tx.is_some(), button).clicked() {
+               let tx = self.tx.take();
+               crate::runtime::rt().spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                     gui.tx_window.open(tx);
+                  });
                });
-            });
-         }
+            }
+
+            // The window sets its horizontal item spacing to zero, so the pair is spaced by hand.
+            ui.add_space(theme.spacing.sm);
+
+            if dismiss_button(theme, ui) {
+               self.reset();
+            }
+         });
 
          ui.add(
             ProgressBar::new(progress)
@@ -254,6 +286,11 @@ impl Notification {
          self.show_notification(ctx, theme, icons, ui);
 
          ui.add(Spinner::new().size(20.0));
+
+         // Alone on screen this variant had no way out at all: the same Dismiss the mined window has.
+         if dismiss_button(theme, ui) {
+            self.reset();
+         }
       });
    }
 
@@ -868,7 +905,334 @@ impl Notification {
    }
 }
 
+/// The title zeus-core gives a pending transaction whose action could not be decoded. It already
+/// reads as a sentence about the transaction, so it is not put in front of a second one.
+const UNKNOWN_ACTION_TITLE: &str = "Transaction in progress";
+
+/// The one sentence a notification is worth: what finished, or what is running.
+fn transition(title: &str, with_progress_bar: bool) -> String {
+   if with_progress_bar {
+      format!("{title} confirmed.")
+   } else if title == UNKNOWN_ACTION_TITLE {
+      "Transaction pending.".to_string()
+   } else {
+      format!("{title} pending.")
+   }
+}
+
+/// The close control both variants draw. Its node is named by the drawn word, so a reader hears a
+/// button called "Dismiss".
+fn dismiss_button(theme: &Theme, ui: &mut Ui) -> bool {
+   let text = RichText::new("Dismiss").size(theme.typography.normal);
+   let button = Button::new(text).visuals(theme.button_visuals());
+
+   ui.add(button).clicked()
+}
+
 /// Cap displayed amounts at 10 characters (same as AmountField / portfolio).
 fn format_amount(amount: &NumericValue) -> String {
    format!("{:.10}", amount.abbreviated())
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use crate::core::ZeusCtx;
+   use egui::accesskit::{Action, ActionRequest, Node, NodeId, Role, TreeId};
+   use egui::{Context, Event, RawInput, Rect, pos2, vec2};
+   use egui_elements::ThemeKind;
+
+   const TITLE: &str = "Transfer";
+
+   /// What a drawn window needs: an AccessKit-enabled context, the installed theme, the icon store,
+   /// and a handle with no wallet behind it.
+   struct Harness {
+      ctx: Context,
+      handle: ZeusCtx,
+      theme: Theme,
+      icons: Arc<Icons>,
+   }
+
+   impl Harness {
+      fn new() -> Self {
+         let ctx = Context::default();
+         let mut theme = Theme::new(ThemeKind::TokyoNight);
+         theme.install(&ctx);
+         egui_extras::install_image_loaders(&ctx);
+
+         let icons = Arc::new(Icons::new(&ctx).expect("icons"));
+         let handle = ZeusCtx::new(crate::runtime::test_handle());
+
+         Self {
+            ctx,
+            handle,
+            theme,
+            icons,
+         }
+      }
+
+      /// Run one AccessKit-enabled frame of the window and return that pass's nodes together with
+      /// the sentence the window queued for the screen reader during it.
+      fn draw_frame(
+         &self,
+         notification: &mut Notification,
+         events: Vec<Event>,
+      ) -> (Vec<(NodeId, Node)>, Option<String>) {
+         self.ctx.enable_accesskit();
+
+         let mut said = None;
+
+         let mut output = self.ctx.run_ui(
+            RawInput {
+               screen_rect: Some(Rect::from_min_size(
+                  pos2(0.0, 0.0),
+                  vec2(1290.0, 950.0),
+               )),
+               events,
+               ..Default::default()
+            },
+            |ui| {
+               self.handle.write(|zeus| {
+                  notification.show(zeus, &self.theme, self.icons.clone(), ui);
+
+                  said = notification.take_notice();
+               });
+            },
+         );
+
+         // A pass with nothing to draw produces no nodes, which is what a closed window is.
+         let nodes = output
+            .platform_output
+            .accesskit_update
+            .take()
+            .map(|update| update.nodes.into_iter().collect::<Vec<_>>())
+            .unwrap_or_default();
+
+         output.drop_without_applying_deltas();
+
+         (nodes, said)
+      }
+
+      /// Draw the window until its tree has settled and return the nodes of the last pass: a
+      /// context's first frame produces no nodes while the window is still being sized.
+      fn settled(&self, notification: &mut Notification) -> Vec<(NodeId, Node)> {
+         let mut nodes = Vec::new();
+
+         for _ in 0..3 {
+            (nodes, _) = self.draw_frame(notification, Vec::new());
+         }
+
+         nodes
+      }
+   }
+
+   fn now_ms() -> u64 {
+      TimeStamp::now_as_millis().unwrap_or_default().timestamp()
+   }
+
+   /// A mined notification: the progress-bar variant a confirmed transaction shows.
+   fn mined(notification: &mut Notification, start_on: u64, finish_on: u64) {
+      notification.open_with_progress_bar(
+         start_on,
+         finish_on,
+         TITLE.to_string(),
+         NotificationType::Other(String::new()),
+         None,
+      );
+   }
+
+   /// Every name and description in the tree, for a failure message.
+   fn spoken(nodes: &[(NodeId, Node)]) -> Vec<String> {
+      nodes
+         .iter()
+         .flat_map(|(_, node)| [node.label(), node.value(), node.description()])
+         .flatten()
+         .map(str::to_string)
+         .collect()
+   }
+
+   /// The id of the node a reader finds by this name.
+   fn node_named(nodes: &[(NodeId, Node)], name: &str) -> NodeId {
+      nodes
+         .iter()
+         .find(|(_, node)| node.label() == Some(name) || node.value() == Some(name))
+         .map(|(id, _)| *id)
+         .unwrap_or_else(|| panic!("no node is named {name:?}: {:?}", spoken(nodes)))
+   }
+
+   /// A progress bar whose time is up used to reset the whole window, so the only "it was sent"
+   /// copy deleted itself on a timer. It stays up now, and it draws the control that closes it.
+   #[test]
+   fn a_filled_progress_bar_keeps_the_window_up() {
+      let harness = Harness::new();
+      let mut notification = Notification::new();
+
+      let now = now_ms();
+      mined(
+         &mut notification,
+         now.saturating_sub(10_000),
+         now.saturating_sub(5_000),
+      );
+
+      let nodes = harness.settled(&mut notification);
+
+      assert!(
+         notification.open,
+         "a full progress bar must not close the window"
+      );
+      node_named(&nodes, "Dismiss");
+      node_named(&nodes, "Transaction Details");
+   }
+
+   /// Dismiss is driven the way a reader drives it: an AccessKit click on the node the previous frame
+   /// named "Dismiss", not a pointer event at a rectangle.
+   #[test]
+   fn the_dismiss_button_closes_the_window() {
+      let harness = Harness::new();
+      let mut notification = Notification::new();
+
+      let now = now_ms();
+      mined(
+         &mut notification,
+         now.saturating_sub(10_000),
+         now.saturating_sub(5_000),
+      );
+
+      let nodes = harness.settled(&mut notification);
+      let dismiss = node_named(&nodes, "Dismiss");
+
+      let click = Event::AccessKitActionRequest(ActionRequest {
+         action: Action::Click,
+         target_tree: TreeId::ROOT,
+         target_node: dismiss,
+         data: None,
+      });
+
+      harness.draw_frame(&mut notification, vec![click]);
+      assert!(
+         !notification.open,
+         "the Dismiss button must reset the notification"
+      );
+
+      let nodes = harness.settled(&mut notification);
+      assert!(
+         !spoken(&nodes).iter().any(|text| text == "Dismiss"),
+         "a closed window draws nothing: {:?}",
+         spoken(&nodes)
+      );
+   }
+
+   /// The spinner variant had no close control at all and never closed by itself, so the same
+   /// Dismiss is the way out of it too.
+   #[test]
+   fn the_spinner_variant_has_a_way_out() {
+      let harness = Harness::new();
+      let mut notification = Notification::new();
+      notification.open_with_spinner(
+         TITLE.to_string(),
+         NotificationType::Other(String::new()),
+      );
+
+      let nodes = harness.settled(&mut notification);
+      let dismiss = node_named(&nodes, "Dismiss");
+
+      let click = Event::AccessKitActionRequest(ActionRequest {
+         action: Action::Click,
+         target_tree: TreeId::ROOT,
+         target_node: dismiss,
+         data: None,
+      });
+
+      harness.draw_frame(&mut notification, vec![click]);
+      assert!(
+         !notification.open,
+         "the spinner's Dismiss must close it too"
+      );
+   }
+
+   /// The transition is said once, in the tense of the variant, and only while the window is up.
+   #[test]
+   fn the_transition_is_said_once() {
+      let harness = Harness::new();
+
+      let mut confirmed = Notification::new();
+      let now = now_ms();
+      mined(&mut confirmed, now, now.saturating_add(60_000));
+
+      let (_, said) = harness.draw_frame(&mut confirmed, Vec::new());
+      assert_eq!(said.as_deref(), Some("Transfer confirmed."));
+
+      let (_, said) = harness.draw_frame(&mut confirmed, Vec::new());
+      assert_eq!(
+         said, None,
+         "a notification says its transition once"
+      );
+
+      let mut pending = Notification::new();
+      pending.open_with_spinner(
+         TITLE.to_string(),
+         NotificationType::Other(String::new()),
+      );
+
+      let (_, said) = harness.draw_frame(&mut pending, Vec::new());
+      assert_eq!(said.as_deref(), Some("Transfer pending."));
+
+      let (_, said) = harness.draw_frame(&mut pending, Vec::new());
+      assert_eq!(
+         said, None,
+         "and the pending sentence is said once too"
+      );
+
+      // The unknown-action title is already a sentence, so it is not put in front of a second one.
+      let mut unknown = Notification::new();
+      unknown.open_with_spinner(
+         UNKNOWN_ACTION_TITLE.to_string(),
+         NotificationType::Other(String::new()),
+      );
+
+      let (_, said) = harness.draw_frame(&mut unknown, Vec::new());
+      assert_eq!(said.as_deref(), Some("Transaction pending."));
+
+      // A window that was never opened says nothing.
+      let mut closed = Notification::new();
+
+      let (_, said) = harness.draw_frame(&mut closed, Vec::new());
+      assert_eq!(said, None, "a closed window says nothing");
+   }
+
+   /// The window's own node is named for people: egui labels it from the window title, which this
+   /// undecorated window never draws, so the id it used to carry is gone from the tree and not a
+   /// pixel moved.
+   #[test]
+   fn the_window_node_is_named_notification() {
+      let harness = Harness::new();
+      let mut notification = Notification::new();
+
+      let now = now_ms();
+      mined(&mut notification, now, now.saturating_add(60_000));
+
+      let nodes = harness.settled(&mut notification);
+
+      let node = nodes
+         .iter()
+         .find(|(_, node)| node.role() == Role::Window)
+         .map(|(_, node)| node)
+         .unwrap_or_else(|| {
+            panic!(
+               "the window must be in the tree: {:?}",
+               spoken(&nodes)
+            )
+         });
+
+      assert_eq!(
+         node.label(),
+         Some("Notification"),
+         "the window is named for people"
+      );
+      assert!(
+         !spoken(&nodes).iter().any(|text| text.contains("notification_window")),
+         "a reader must never be given the window id: {:?}",
+         spoken(&nodes)
+      );
+   }
 }

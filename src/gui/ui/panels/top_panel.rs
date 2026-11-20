@@ -80,6 +80,9 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
    let available_width = ui.available_width();
 
+   // What the notification window queued while it was drawn, handed to the announcer below.
+   let mut notification_notice = None;
+
    ui.horizontal(|ui| {
       ui.set_min_height(top_reserve);
 
@@ -112,6 +115,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
       gui.notification.show(ctx, &gui.theme, icons, ui);
 
+      // Drained here, but said after the closure: the announcer is on the whole GUI, and the
+      // `theme` borrow this closure carries keeps that out of reach in here.
+      notification_notice = gui.notification.take_notice();
+
       if let Some(msg) = status_msg {
          // Paint above modal backdrops (Middle) so the pill stays full-bright
          Area::new(Id::unique("top_panel_status"))
@@ -129,6 +136,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             });
       }
    });
+
+   if let Some(text) = notification_notice {
+      gui.announce(text);
+   }
 
    if has_malfunction {
       let missing = ctx.unavailable_rpc_functionalities(chain.id());
