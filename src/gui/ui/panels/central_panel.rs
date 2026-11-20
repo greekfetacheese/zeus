@@ -137,6 +137,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    }
    gui.merge_notes_window.show(ctx, theme, ui);
 
+   // The picker is a modal over whichever page raised it and has no channel of its own: the frame
+   // holds the only one, so its sentence comes back here like the Send form's and the portfolio's.
+   let token_selection_notice = gui.token_selection.take_notice();
+
    gui.connected_dapps.show(ctx, theme, icons.clone(), ui);
 
    gui.wallet_ui.show(ctx, theme, icons.clone(), ui);
@@ -151,6 +155,12 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    }
 
    if let Some(text) = send_notice {
+      gui.announce(text);
+   }
+
+   // The picker covers the page that raised it, so its sentence is the one about what the user is
+   // looking at: the channel keeps the last call of a frame, so it is said after the page's own.
+   if let Some(text) = token_selection_notice {
       gui.announce(text);
    }
 

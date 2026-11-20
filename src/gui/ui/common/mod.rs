@@ -35,8 +35,8 @@ pub use windows::{ConfirmWindow, ConfirmWindowClaim, LoadingWindow, MsgWindow, U
 use crate::core::ZeusContext;
 use crate::gui::{SHARED_GUI, ui::dapps::railgun::RailgunMode};
 use crate::utils::TimeStamp;
-use egui::{Align, Layout, Response, RichText, Role, Ui, Vec2, WidgetInfo, pos2, vec2};
-use egui_elements::{Button, Switch, Theme, ToggleVisuals};
+use egui::{Align, Id, Layout, Response, RichText, Role, Ui, Vec2, WidgetInfo, pos2, vec2};
+use egui_elements::{Button, Frame, Switch, Theme, ToggleVisuals};
 use egui_lucide::Lucide;
 use std::time::{Duration, Instant};
 use zeus_eth::types::ChainId;
@@ -247,6 +247,58 @@ pub fn name_text(ui: &Ui, response: &Response, text: impl Into<String>) {
 
       node.set_label(text.clone());
    });
+}
+
+/// A plate that is one clickable row to a reader: the frame, its contents, and the node behind them.
+///
+/// A row drawn as a frame with a click sense bolted on afterwards is a hit target and nothing more:
+/// a reader finds no role, no name, and no way to activate it. The frame's own widget carries all
+/// three here — [`WidgetInfo::selected`] gives it the button role, the name the caller writes and,
+/// when the caller says so, the selected state that tells a reader which row the surface points at.
+///
+/// The frame registers itself with an empty sense before its contents, under the id it is about to
+/// take, and that withdraws the focus a Tab put on it: a row reached by keyboard would lose focus
+/// every frame and Space/Enter would never reach it. `show` is `begin` + the contents + `end`, so
+/// writing the three out leaves a moment to put the focus back before the final registration, which
+/// is the one that makes the row focusable again.
+///
+/// `covered` is the ids of the nodes the contents added for words the row's own name already says:
+/// they are hidden, so a reader hears the row once instead of once per label inside it.
+pub fn clickable_row(
+   ui: &mut Ui,
+   frame: Frame,
+   name: impl Into<String>,
+   description: Option<String>,
+   selected: bool,
+   add_contents: impl FnOnce(&mut Ui) -> Vec<Id>,
+) -> Response {
+   let focused_before = ui.ctx().memory(|memory| memory.focused());
+
+   let mut row = frame.begin(ui);
+   let id = ui.next_auto_id();
+
+   if focused_before == Some(id) {
+      ui.ctx().memory_mut(|memory| memory.request_focus(id));
+   }
+
+   let covered = add_contents(&mut row.content_ui);
+
+   let response = row.end(ui);
+   let name = name.into();
+
+   response.widget_info(|| WidgetInfo::selected(Role::Button, ui.is_enabled(), selected, &name));
+
+   if let Some(description) = description {
+      ui.ctx().accesskit_node_builder(response.id, |node| {
+         node.set_description(description)
+      });
+   }
+
+   for covered in covered {
+      ui.ctx().accesskit_node_builder(covered, |node| node.set_hidden());
+   }
+
+   response
 }
 
 #[cfg(test)]
