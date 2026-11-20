@@ -11,7 +11,10 @@ use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::gui::ui::settings::ImportDataUi;
 use crate::utils::TimeStamp;
-use egui::{Align, Align2, FontId, Layout, Margin, RichText, ScrollArea, Ui, Window, vec2};
+use egui::{
+   Align, Align2, FontId, Layout, Margin, Response, RichText, Role, ScrollArea, Ui, WidgetInfo,
+   Window, vec2,
+};
 use egui_elements::{
    Button, Checkbox, ChipRole, CredentialsForm, Label, SecureTextEdit, Theme, Toast,
 };
@@ -57,7 +60,7 @@ impl UnlockVault {
 
       let frame = theme.frame1;
 
-      Window::new("Unlock_Vault_Ui")
+      Window::new("Unlock vault")
          .title_bar(false)
          .movable(false)
          .resizable(false)
@@ -161,6 +164,9 @@ pub struct RecoverHDWallet {
    credentials_input: bool,
    recover_button_clicked: bool,
    show_recover_wallet: bool,
+   /// Whether the wallet-name field still has to take the focus: the credentials were just
+   /// accepted, so the box that holds the name asks for it on the first pass it is drawn.
+   focus_name_field: bool,
    show_onboarding: bool,
    onboarding_step: u8,
    enable_railgun: bool,
@@ -188,6 +194,7 @@ impl RecoverHDWallet {
          credentials_input: true,
          recover_button_clicked: false,
          show_recover_wallet: false,
+         focus_name_field: false,
          show_onboarding: false,
          onboarding_step: 0,
          enable_railgun: false,
@@ -249,8 +256,16 @@ impl RecoverHDWallet {
             self.memory.available_gb()
          );
 
-         ui.label(RichText::new(text1).size(theme.typography.normal).color(theme.colors.warning));
-         ui.label(RichText::new(text2).size(theme.typography.normal).color(theme.colors.warning));
+         // The memory sample lands after the window is already up, so each line is an alert
+         // carrying what it draws: a reader is told when it appears instead of being left with a
+         // colour they cannot see.
+         let warning = ui
+            .label(RichText::new(&text1).size(theme.typography.normal).color(theme.colors.warning));
+         warning.widget_info(|| WidgetInfo::labeled(Role::Alert, ui.is_enabled(), text1.clone()));
+
+         let warning = ui
+            .label(RichText::new(&text2).size(theme.typography.normal).color(theme.colors.warning));
+         warning.widget_info(|| WidgetInfo::labeled(Role::Alert, ui.is_enabled(), text2.clone()));
       }
 
       if !meets_min_mem {
@@ -261,7 +276,9 @@ impl RecoverHDWallet {
             m_cost_gb
          );
 
-         ui.label(RichText::new(text).size(theme.typography.normal).color(theme.colors.warning));
+         let warning = ui
+            .label(RichText::new(&text).size(theme.typography.normal).color(theme.colors.warning));
+         warning.widget_info(|| WidgetInfo::labeled(Role::Alert, ui.is_enabled(), text.clone()));
       }
    }
 
@@ -272,7 +289,7 @@ impl RecoverHDWallet {
 
       let frame = theme.frame1;
 
-      Window::new("Recover_HD_Wallet_credentials_input")
+      Window::new("Set up Zeus")
          .title_bar(false)
          .movable(false)
          .resizable(false)
@@ -346,8 +363,9 @@ impl RecoverHDWallet {
       }
 
       let frame = theme.frame1;
+      let mut name_field: Option<Response> = None;
 
-      Window::new("Recover_HD_Wallet_wallet_name")
+      Window::new("Name your master wallet")
          .title_bar(false)
          .movable(false)
          .resizable(false)
@@ -371,13 +389,21 @@ impl RecoverHDWallet {
                   .size(theme.typography.normal)
                   .color(theme.colors.text_muted);
 
-               SecureTextEdit::singleline(&mut self.wallet_name)
+               let field = SecureTextEdit::singleline(&mut self.wallet_name)
                   .visuals(text_edit_visuals)
                   .font(FontId::proportional(theme.typography.normal))
                   .margin(Margin::same(10))
                   .hint_text(hint)
                   .min_size(field_size)
                   .show(ui);
+
+               // The box is named here, so its hint stays the placeholder it draws instead of
+               // being the only words a reader can find it by.
+               ui.ctx().accesskit_node_builder(field.response.id, |node| {
+                  node.set_label("Wallet name, optional")
+               });
+
+               name_field = Some(field.response);
 
                let text = RichText::new("Recover").size(theme.typography.large);
                let recover_button = Button::new(text).visuals(button_visuals).min_size(field_size);
@@ -394,6 +420,35 @@ impl RecoverHDWallet {
                }
             });
          });
+
+      // The window spends its first passes sizing, where its body is invisible and cannot hold
+      // the focus, so the field asks for it on the first pass that is drawn — after the window has
+      // drawn, so nothing inside it can take the focus back.
+      if let Some(field) = name_field.filter(|field| field.visible() && self.focus_name_field) {
+         ui.ctx().memory_mut(|memory| memory.request_focus(field.id));
+         self.focus_name_field = false;
+      }
+   }
+
+   /// Move the flow on to the window that names the master wallet: the credentials validated.
+   ///
+   /// The field there asks for the focus on the first pass it is drawn, so the box the user just
+   /// moved on to is where a reader lands.
+   fn begin_wallet_name(&mut self) {
+      self.credentials_input = false;
+      self.show_recover_wallet = true;
+      self.focus_name_field = true;
+   }
+
+   /// Hand the form back after a recovery that failed.
+   ///
+   /// The wallet-name window closes and the credentials window comes back with its Recover button
+   /// usable again, so the reason the message window is giving can be read and corrected and the
+   /// attempt repeated — instead of leaving a window whose button can never be pressed.
+   fn recovery_failed(&mut self) {
+      self.credentials_input = true;
+      self.show_recover_wallet = false;
+      self.recover_button_clicked = false;
    }
 
    fn show_onboarding(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
@@ -417,7 +472,7 @@ impl RecoverHDWallet {
    fn show_onboarding_tips(&mut self, theme: &Theme, ui: &mut Ui) {
       let frame = theme.frame1;
 
-      Window::new("Recover_HD_Wallet_tips")
+      Window::new("Your master wallet")
          .title_bar(false)
          .movable(false)
          .resizable(false)
@@ -488,7 +543,7 @@ impl RecoverHDWallet {
    fn show_onboarding_railgun(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       let frame = theme.frame1;
 
-      Window::new("Recover_HD_Wallet_railgun")
+      Window::new("Railgun privacy")
          .title_bar(false)
          .movable(false)
          .resizable(false)
@@ -593,7 +648,7 @@ impl RecoverHDWallet {
    fn show_onboarding_external_data(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       let frame = theme.frame1;
 
-      Window::new("Recover_HD_Wallet_external_data")
+      Window::new("External data")
          .title_bar(false)
          .movable(false)
          .resizable(false)
@@ -759,7 +814,7 @@ impl RecoverHDWallet {
    fn show_onboarding_desktop(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       let frame = theme.frame1;
 
-      Window::new("Recover_HD_Wallet_desktop")
+      Window::new("Application menu")
          .title_bar(false)
          .movable(false)
          .resizable(false)
@@ -844,6 +899,23 @@ impl RecoverHDWallet {
       let config = ctx.misc_config.clone();
       let current_wallet = ctx.current_wallet_info();
       on_finish_onboarding(config, current_wallet);
+   }
+}
+
+#[cfg(test)]
+impl RecoverHDWallet {
+   /// Put the flow on the wallet-name window, as accepting the credentials does, for a tree test
+   /// that has no vault behind it.
+   pub(crate) fn begin_wallet_name_for_test(&mut self) {
+      self.begin_wallet_name();
+   }
+
+   /// Fill in the memory sample the background refresh lands, so the requirements warning is
+   /// drawn without waiting on a real machine's numbers.
+   pub(crate) fn set_memory_for_test(&mut self, total: u64, available: u64) {
+      self.memory.total = total;
+      self.memory.available = available;
+      self.memory.last_time_checked = Instant::now();
    }
 }
 
@@ -1041,8 +1113,7 @@ fn on_validate_recover_credentials(credentials: Credentials) {
    crate::runtime::rt().spawn_blocking(move || match credentials.is_valid() {
       Ok(_) => {
          SHARED_GUI.write(|gui| {
-            gui.recover_wallet_ui.credentials_input = false;
-            gui.recover_wallet_ui.show_recover_wallet = true;
+            gui.recover_wallet_ui.begin_wallet_name();
          });
       }
       Err(e) => {
@@ -1057,8 +1128,7 @@ fn on_recover_hd_wallet(name: String, credentials: Credentials) {
    crate::runtime::rt().spawn_blocking(move || {
       let ctx = SHARED_GUI.write(|gui| {
          gui.loading_window.new_size((300.0, 150.0));
-         gui.loading_window
-            .open("Recovering Wallet... (Grab a coffee this will take 10-15 minutes)");
+         gui.loading_window.open("Recovering your wallet. This takes 10 to 15 minutes.");
          gui.request_repaint();
          gui.ctx.clone()
       });
@@ -1075,6 +1145,9 @@ fn on_recover_hd_wallet(name: String, credentials: Credentials) {
          Err(e) => {
             SHARED_GUI.write(|gui| {
                gui.loading_window.reset();
+               // The form comes back with the reason: the attempt can be repeated instead of
+               // restarting Zeus.
+               gui.recover_wallet_ui.recovery_failed();
                gui.open_msg_window(format!("Failed to recover wallet: {}", e));
             });
             return;
@@ -1211,4 +1284,35 @@ fn on_finish_onboarding(config: MiscConfig, current_wallet: WalletInfo) {
 
       // Sync state will kickoff once the user enables at least 1 RPC
    });
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// A failed recovery hands the form back instead of leaving the wallet-name window with a button
+   /// that can never be pressed again: the credentials window reopens, the wallet-name window
+   /// closes, and the Recover button is usable for another attempt.
+   #[test]
+   fn a_failed_recovery_reopens_the_credentials_window() {
+      let mut recovery = RecoverHDWallet::new();
+
+      recovery.begin_wallet_name();
+      recovery.recover_button_clicked = true;
+
+      recovery.recovery_failed();
+
+      assert!(
+         recovery.credentials_input,
+         "the credentials window must reopen"
+      );
+      assert!(
+         !recovery.show_recover_wallet,
+         "the wallet-name window must close"
+      );
+      assert!(
+         !recovery.recover_button_clicked,
+         "the Recover button must be usable again"
+      );
+   }
 }

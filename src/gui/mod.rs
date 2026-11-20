@@ -309,6 +309,12 @@ impl GUI {
       self.confirm_window.show(theme, ui);
       self.connect_dapp_window.show(theme, ui);
       self.update_window.show(theme, ui);
+
+      // The loading window cannot announce from inside its own draw — the frame holds the only
+      // channel — so its message comes back here and is said once, after the window has drawn.
+      if let Some(text) = self.loading_window.take_notice() {
+         self.announce(text);
+      }
    }
 
    /// Notice an attached screen reader and give egui its focus model.

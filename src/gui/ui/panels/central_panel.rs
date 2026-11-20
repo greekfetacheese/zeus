@@ -34,6 +34,12 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       // prompts are cancelled above, so only the informational two are shown.
       gui.msg_window.show(&gui.theme, ui);
       gui.loading_window.show(&gui.theme, ui);
+
+      // The loading window cannot announce from inside its own draw — the frame holds the only
+      // channel — so its message comes back here and is said once over the lock screen.
+      if let Some(text) = gui.loading_window.take_notice() {
+         gui.announce(text);
+      }
       return;
    }
 
