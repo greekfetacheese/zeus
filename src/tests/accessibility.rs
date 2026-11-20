@@ -4722,7 +4722,7 @@ fn the_state_changes_modal_reads_approvals_before_balances() {
 /// the three things its line draws.
 #[test]
 fn the_transaction_options_name_their_fields_and_their_tiers() {
-   let (ctx, handle, theme, icons, _appearance) = prompt_harness();
+   let (ctx, handle, theme, _icons, _appearance) = prompt_harness();
    // The custom field slides open; without a still animation the clip it is drawn in has no
    // height yet on the frame a reader is handed.
    ctx.all_styles_mut(|style| style.animation_time = 0.0);
@@ -4749,7 +4749,7 @@ fn the_transaction_options_name_their_fields_and_their_tiers() {
       };
 
       render_modal(&ctx, Vec::new(), |ui| {
-         handle.write(|zeus| {
+         handle.write(|_zeus| {
             show_tx_options_modal(
                &mut open,
                &theme,
@@ -4827,7 +4827,7 @@ fn the_transaction_options_name_their_fields_and_their_tiers() {
       };
 
       render_modal(&ctx, Vec::new(), |ui| {
-         handle.write(|zeus| {
+         handle.write(|_zeus| {
             show_tx_options_modal(
                &mut open,
                &theme,

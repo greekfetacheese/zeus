@@ -1727,7 +1727,7 @@ mod tests {
       const USDC: Address = address!("a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
 
       /// Run one AccessKit-enabled frame and return the node ids and nodes it produced.
-      fn frame_nodes(ctx: &Context, mut add: impl FnMut(&mut Ui)) -> Vec<(NodeId, Node)> {
+      fn frame_nodes(ctx: &Context, add: impl FnMut(&mut Ui)) -> Vec<(NodeId, Node)> {
          ctx.enable_accesskit();
 
          let mut output = ctx.run_ui(
