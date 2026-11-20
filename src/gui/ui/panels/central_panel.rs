@@ -156,6 +156,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
    gui.approvals.show(ctx, theme, icons.clone(), ui);
 
+   // The approvals page draws from a borrowed theme too, so its one sentence comes back here like
+   // the portfolio's. A revoke finishes after the frame that started it.
+   let approvals_notice = gui.approvals.take_notice();
+
    #[cfg(feature = "dev")]
    gui.dev.show(ctx, theme, icons, ui);
 
@@ -180,6 +184,12 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    }
 
    if let Some(text) = send_notice {
+      gui.announce(text);
+   }
+
+   // A revoke's answer is about the page it was pressed on, so the picker and the prompts drawn
+   // over that page are said after it.
+   if let Some(text) = approvals_notice {
       gui.announce(text);
    }
 
