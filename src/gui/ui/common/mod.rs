@@ -13,7 +13,6 @@ pub mod wallet_identity;
 pub mod wallet_list;
 pub mod wallet_select;
 pub mod wallet_switch;
-pub mod window_frame;
 pub mod windows;
 
 pub use amount_field::{AmountField, AmountFieldParams};
@@ -27,7 +26,6 @@ pub use wallet_identity::wallet_identity;
 pub use wallet_list::WalletListByValue;
 pub use wallet_select::WalletSelect;
 pub use wallet_switch::switch_wallet;
-pub use window_frame::{WindowCtx, window_frame};
 pub use windows::{ConfirmWindow, ConfirmWindowClaim, LoadingWindow, MsgWindow, UpdateWindow};
 
 use crate::core::ZeusContext;
@@ -114,8 +112,7 @@ pub fn is_user_input_event(event: &egui::Event) -> bool {
 
 /// Refresh the auto-lock idle timer when this frame carried real user input.
 ///
-/// Called on both the main-window and the Settings-viewport passes, so
-/// interacting with either counts as activity.
+/// Called on the root viewport's pass, which draws every surface the user can touch.
 pub fn record_input_activity(egui_ctx: &egui::Context, ctx: &mut ZeusContext) {
    if egui_ctx.input(|input| input.events.iter().any(is_user_input_event)) {
       ctx.last_activity_ms = TimeStamp::now_as_millis().unwrap_or_default().timestamp();

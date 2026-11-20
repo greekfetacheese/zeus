@@ -294,8 +294,10 @@ impl GUI {
       self.msg_window.open(msg);
    }
 
-   /// App-wide overlay dialogs. Areas bind to the *current* viewport, so this
-   /// must run on Settings' pass as well as the main window.
+   /// App-wide overlay dialogs.
+   ///
+   /// Areas bind to the *current* viewport, and the app has one: the central panel calls this,
+   /// and the Settings window over it is drawn in the same pass.
    pub fn show_overlay_modals(&mut self, ui: &mut Ui) {
       let theme = &self.theme;
       self.msg_window.show(theme, ui);
@@ -396,9 +398,6 @@ impl GUI {
 
    pub fn request_repaint(&self) {
       self.egui_ctx.request_repaint();
-      if self.settings.is_open() {
-         self.egui_ctx.request_repaint_of(settings::settings_viewport_id());
-      }
    }
 
    /// Close Zeus through the normal shutdown path (`ZeusApp::on_shutdown`),
@@ -449,9 +448,10 @@ impl GUI {
    /// The page the central panel is showing.
    ///
    /// Pages are checked in the order the central panel draws them — the first open one is the one
-   /// whose body a reader lands in — and a wallet with no page open is on Home. Settings is not
-   /// drawn by the central panel (it owns its own window), so it is only named when no page at all
-   /// is open; otherwise the heading keeps naming the page the main window still shows.
+   /// whose body a reader lands in — and a wallet with no page open is on Home. Settings is a page
+   /// like the others now, but drawn as a window over the main window rather than by the central
+   /// panel, so it is only named when no page at all is open; otherwise the heading keeps naming
+   /// the page the main window still shows.
    pub fn current_page(&self) -> Page {
       if self.across_bridge.is_open() {
          return Page::Bridge;

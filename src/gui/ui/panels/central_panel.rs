@@ -48,9 +48,9 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       gui.last_page = Some(page);
    }
 
-   if !gui.settings.is_open() {
-      gui.show_overlay_modals(ui);
-   }
+   // Settings is a window over this panel, drawn by the same pass, so the dialogs are drawn once
+   // here and are visible over either.
+   gui.show_overlay_modals(ui);
 
    let theme = &gui.theme;
    let icons = gui.icons.clone();

@@ -5,7 +5,7 @@ use crate::gui::{
    ui::{common::wallet_identity, dapps::railgun::RailgunMode},
 };
 use eframe::egui::{Id, Order, RichText, ScrollArea, Ui, vec2};
-use egui::{Align, FontId, Layout, Margin, Role, Shadow, Stroke, WidgetInfo};
+use egui::{Align, FontId, Layout, Margin, Response, Role, Shadow, Stroke, WidgetInfo};
 use egui_elements::{Button, Fill, Frame as Frame2, Label, Modal, SecureTextEdit, Theme};
 use egui_lucide::Lucide;
 use std::sync::Arc;
@@ -234,7 +234,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       );
 
       let is_open = gui.settings.is_open();
-      nav_plate(
+      // Read before the plate is drawn: the plate's own click handler runs inside `nav_plate` and
+      // may open Settings again, while this request belongs to the close that just happened.
+      let focus_return = gui.settings.take_focus_return();
+      let plate = nav_plate(
          gui,
          ctx,
          "Settings",
@@ -245,6 +248,12 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          },
          ui,
       );
+
+      // A window the user closed must not take the focus with it: the plate that opened it takes
+      // the focus back, so the nav stays where the user left it.
+      if focus_return {
+         plate.request_focus();
+      }
 
       nav_plate(
          gui,
@@ -287,6 +296,8 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 /// The icon and the word inside are drawn by an `egui_elements::Label`, which is a node of its
 /// own; left as-is a reader would hear the entry twice ("Home button, Home"). The label is hidden
 /// from the accessibility tree after it is added, so the plate is the only node of the entry.
+///
+/// Returns the plate's response, so a caller can move the focus onto it.
 fn nav_plate(
    gui: &mut GUI,
    ctx: &mut ZeusContext,
@@ -295,7 +306,7 @@ fn nav_plate(
    selected: bool,
    on_click: impl FnOnce(&mut GUI, &mut ZeusContext),
    ui: &mut Ui,
-) {
+) -> Response {
    let theme = &gui.theme;
    let text_size = theme.typography.normal;
    let icon_color = theme.colors.text;
@@ -345,6 +356,8 @@ fn nav_plate(
    if response.clicked() {
       on_click(gui, ctx);
    }
+
+   response
 }
 
 pub struct ConnectedDappsUi {

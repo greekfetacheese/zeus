@@ -131,6 +131,52 @@ fn render_central(
    })
 }
 
+/// The main window with Settings open over it: opening the window needs no vault, RPC or icon.
+fn settings_window() -> (Context, GUI, ZeusCtx) {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| gui.settings.open(zeus, &mut gui.appearance_settings));
+
+   (ctx, gui, zeus)
+}
+
+/// Render the Settings window headlessly, twice: an `egui::Window` is measured on its first pass,
+/// and a page is drawn through the fade helper.
+///
+/// `events` go to the first pass only, so a key that closes the window is not pressed twice.
+fn render_settings(
+   ctx: &Context,
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   events: Vec<Event>,
+) -> Vec<(NodeId, Node)> {
+   let mut nodes = Vec::new();
+
+   for pass in 0..2 {
+      let icons = gui.icons.clone();
+      let theme = gui.theme.clone();
+
+      let events = if pass == 0 {
+         events.clone()
+      } else {
+         Vec::new()
+      };
+
+      nodes = frame_nodes(ctx, events, |ui| {
+         zeus.write(|zeus| {
+            gui.settings.show(
+               zeus,
+               icons.clone(),
+               &theme,
+               &mut gui.appearance_settings,
+               ui,
+            );
+         });
+      });
+   }
+
+   nodes
+}
+
 /// A key press as the window delivers it.
 fn key_press(key: Key) -> Event {
    Event::Key {
@@ -480,6 +526,129 @@ fn tab_reaches_the_next_nav_plate_and_enter_opens_it() {
    assert!(
       gui.send_crypto.is_open(),
       "Enter on the focused Send plate must open Send"
+   );
+}
+
+/// Settings is a window in the tree: one named window node a reader can hear, and the Close button
+/// egui draws for it. Neither existed while Settings was a second OS window.
+#[test]
+fn the_settings_window_is_one_named_window() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+
+   // The tree starts from the viewport's own window node; the one below it is Settings.
+   let root = egui::accesskit_root_id().accesskit_id();
+   let windows: Vec<&Node> = nodes
+      .iter()
+      .filter(|(id, node)| *id != root && node.role() == Role::Window)
+      .map(|(_, node)| node)
+      .collect();
+
+   assert_eq!(
+      windows.len(),
+      1,
+      "Settings must be exactly one window node, got {}",
+      windows.len()
+   );
+
+   let name = windows[0].label().or_else(|| windows[0].value());
+   assert_eq!(
+      name,
+      Some("Settings"),
+      "the window node must be named"
+   );
+
+   assert!(
+      nodes
+         .iter()
+         .any(|(_, node)| node.role() == Role::Button && node.label() == Some("Close window")),
+      "the window must offer the Close button a reader can activate"
+   );
+}
+
+/// Escape closes the window, and the close asks the left panel for the focus back so the Settings
+/// plate is where a reader lands again.
+#[test]
+fn the_settings_window_closes_on_escape_and_says_so_to_the_left_panel() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   render_settings(&ctx, &mut gui, &zeus, Vec::new());
+   assert!(
+      gui.settings.is_open(),
+      "the window must be drawn before it can close"
+   );
+
+   render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![key_press(Key::Escape)],
+   );
+
+   assert!(
+      !gui.settings.is_open(),
+      "Escape must close the Settings window"
+   );
+   assert!(
+      gui.settings.take_focus_return(),
+      "a close the user asked for must ask for the focus back"
+   );
+
+   // The panel reads the request while it draws the plate, so close it once more with the flag
+   // still set, then draw the nav.
+   zeus.write(|zeus| gui.settings.open(zeus, &mut gui.appearance_settings));
+   render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![key_press(Key::Escape)],
+   );
+
+   let nodes = render_nav(&ctx, &mut gui, &zeus, Vec::new());
+   let settings_plate = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Settings"))
+      .map(|(id, _)| *id)
+      .expect("the Settings plate must be in the nav tree");
+
+   let focused = ctx.memory(|memory| memory.focused());
+   assert_eq!(
+      focused.map(|id| id.accesskit_id()),
+      Some(settings_plate),
+      "the close must put the focus back on the Settings plate"
+   );
+
+   render_nav(&ctx, &mut gui, &zeus, Vec::new());
+   assert_eq!(
+      ctx.memory(|memory| memory.focused()),
+      focused,
+      "the plate must keep the focus on the next frame"
+   );
+}
+
+/// A locked wallet must not leave Settings usable: the window closes and nothing of it is drawn.
+#[test]
+fn a_locked_wallet_hides_the_settings_window() {
+   let (ctx, mut gui, zeus) = settings_window();
+   assert!(
+      gui.settings.is_open(),
+      "Settings must be open before the lock"
+   );
+
+   zeus.write(|zeus| zeus.locked = true);
+
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert!(
+      !gui.settings.is_open(),
+      "a locked wallet must close Settings"
+   );
+
+   let root = egui::accesskit_root_id().accesskit_id();
+   assert!(
+      !nodes.iter().any(|(id, node)| *id != root && node.role() == Role::Window),
+      "no Settings window may be drawn while the wallet is locked"
    );
 }
 
