@@ -489,6 +489,13 @@ impl eframe::App for ZeusApp {
                ui,
             );
 
+            // A page's save or reset raises its words here; the announcer below draws them in
+            // the same frame, and no page can reach the channel itself while the frame holds
+            // `SHARED_GUI`.
+            if let Some(text) = gui.settings.take_notice() {
+               gui.announce(text);
+            }
+
             // The app's single announcement channel, after every panel has had its
             // chance to change state this frame.
             gui.show_announcer(ui);

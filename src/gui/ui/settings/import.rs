@@ -5,7 +5,7 @@ use crate::gui::SHARED_GUI;
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::utils::state;
-use egui::{Frame, Id, Margin, Order, RichText, Ui, vec2};
+use egui::{Frame, Id, Margin, Order, RichText, Role, Ui, WidgetInfo, vec2};
 use egui_elements::{Button, CredentialsForm, Modal, Theme};
 use ncrypt_me::Credentials;
 use std::path::PathBuf;
@@ -111,7 +111,9 @@ impl ImportDataUi {
       ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.md);
       ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
       ui.vertical_centered(|ui| {
-         ui.label(RichText::new("Import").size(theme.typography.heading));
+         let text = "Import";
+         let title = ui.label(RichText::new(text).size(theme.typography.heading));
+         title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
       });
       self.body(theme, ui);
    }

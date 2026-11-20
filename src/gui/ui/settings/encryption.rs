@@ -3,7 +3,7 @@
 //! It only affects the vault, it has no effect on the master wallet recovery.
 
 use crate::{core::ZeusContext, gui::SHARED_GUI};
-use egui::{RichText, Ui, vec2};
+use egui::{RichText, Role, Ui, WidgetInfo, vec2};
 use egui_elements::{Button, Chip, ChipRole, Slider, Theme};
 use ncrypt_me::Argon2;
 
@@ -53,7 +53,9 @@ impl EncryptionSettings {
          ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.md);
          ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
 
-         ui.label(RichText::new("Vault encryption").size(theme.typography.very_large));
+         let text = "Vault encryption";
+         let title = ui.label(RichText::new(text).size(theme.typography.very_large));
+         title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
          ui.label(
             RichText::new(
                "This only affects vault encryption. It does not change master wallet recovery.",
@@ -87,51 +89,104 @@ impl EncryptionSettings {
 
          let q_mark = RichText::new("?").size(theme.typography.normal);
 
-         ui.allocate_ui(slider_size, |ui| {
-            ui.horizontal(|ui| {
-               let info_tip = Chip::new(q_mark.clone()).role(ChipRole::Info);
-               ui.label(RichText::new("Memory cost (MB):").size(theme.typography.normal));
-               ui.add(info_tip).on_hover_text(M_COST_TIP);
-            });
-         });
+         let text = "Memory cost (MB):";
+         let (label, chip) = ui
+            .allocate_ui(slider_size, |ui| {
+               ui.horizontal(|ui| {
+                  let info_tip = Chip::new(q_mark.clone()).role(ChipRole::Info);
+                  let label = ui.label(RichText::new(text).size(theme.typography.normal));
+                  let chip = ui.add(info_tip).on_hover_text(M_COST_TIP);
+                  (label, chip)
+               })
+               .inner
+            })
+            .inner;
 
-         ui.allocate_ui(slider_size, |ui| {
-            ui.add(
-               Slider::new(
-                  &mut self.argon_params.m_cost,
-                  min_m_cost..=MAX_M_COST,
+         let slider = ui
+            .allocate_ui(slider_size, |ui| {
+               ui.add(
+                  Slider::new(
+                     &mut self.argon_params.m_cost,
+                     min_m_cost..=MAX_M_COST,
+                  )
+                  .custom_formatter(mem_fmt),
                )
-               .custom_formatter(mem_fmt),
-            );
-         });
+            })
+            .inner;
 
-         ui.allocate_ui(slider_size, |ui| {
-            ui.horizontal(|ui| {
-               let info_tip = Chip::new(q_mark.clone()).role(ChipRole::Info);
-               ui.label(RichText::new("Iterations:").size(theme.typography.normal));
-               ui.add(info_tip).on_hover_text(T_COST_TIP);
-            });
-         });
-
-         ui.allocate_ui(slider_size, |ui| {
-            ui.add(Slider::new(
-               &mut self.argon_params.t_cost,
-               min_t_cost..=MAX_T_COST,
+         // One node per control: the sentence and the "?" tip both belong to the slider, so a
+         // reader hears the name, the range and the explanation on the control itself.
+         ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
+         ui.ctx().accesskit_node_builder(chip.id, |node| node.set_hidden());
+         ui.ctx().accesskit_node_builder(slider.id, |node| {
+            node.set_label(text);
+            node.set_description(format!(
+               "{} to {}. {}",
+               min_m_cost, MAX_M_COST, M_COST_TIP
             ));
          });
 
-         ui.allocate_ui(slider_size, |ui| {
-            ui.horizontal(|ui| {
-               let info_tip = Chip::new(q_mark).role(ChipRole::Info);
-               ui.label(RichText::new("Parallelism:").size(theme.typography.normal));
-               ui.add(info_tip).on_hover_text(P_COST_TIP);
-            });
+         let text = "Iterations:";
+         let (label, chip) = ui
+            .allocate_ui(slider_size, |ui| {
+               ui.horizontal(|ui| {
+                  let info_tip = Chip::new(q_mark.clone()).role(ChipRole::Info);
+                  let label = ui.label(RichText::new(text).size(theme.typography.normal));
+                  let chip = ui.add(info_tip).on_hover_text(T_COST_TIP);
+                  (label, chip)
+               })
+               .inner
+            })
+            .inner;
+
+         let slider = ui
+            .allocate_ui(slider_size, |ui| {
+               ui.add(Slider::new(
+                  &mut self.argon_params.t_cost,
+                  min_t_cost..=MAX_T_COST,
+               ))
+            })
+            .inner;
+
+         ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
+         ui.ctx().accesskit_node_builder(chip.id, |node| node.set_hidden());
+         ui.ctx().accesskit_node_builder(slider.id, |node| {
+            node.set_label(text);
+            node.set_description(format!(
+               "{} to {}. {}",
+               min_t_cost, MAX_T_COST, T_COST_TIP
+            ));
          });
 
-         ui.allocate_ui(slider_size, |ui| {
-            ui.add(Slider::new(
-               &mut self.argon_params.p_cost,
-               MIN_P_COST..=max_p_cost,
+         let text = "Parallelism:";
+         let (label, chip) = ui
+            .allocate_ui(slider_size, |ui| {
+               ui.horizontal(|ui| {
+                  let info_tip = Chip::new(q_mark).role(ChipRole::Info);
+                  let label = ui.label(RichText::new(text).size(theme.typography.normal));
+                  let chip = ui.add(info_tip).on_hover_text(P_COST_TIP);
+                  (label, chip)
+               })
+               .inner
+            })
+            .inner;
+
+         let slider = ui
+            .allocate_ui(slider_size, |ui| {
+               ui.add(Slider::new(
+                  &mut self.argon_params.p_cost,
+                  MIN_P_COST..=max_p_cost,
+               ))
+            })
+            .inner;
+
+         ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
+         ui.ctx().accesskit_node_builder(chip.id, |node| node.set_hidden());
+         ui.ctx().accesskit_node_builder(slider.id, |node| {
+            node.set_label(text);
+            node.set_description(format!(
+               "{} to {}. {}",
+               MIN_P_COST, max_p_cost, P_COST_TIP
             ));
          });
 

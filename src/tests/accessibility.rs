@@ -766,9 +766,12 @@ fn activating_a_settings_tab_opens_its_page() {
       vec![accesskit_action(Action::Click, security)],
    );
 
+   // The page heading is the one the page change focused: the page draws section headings of
+   // its own now, and the tree hands its nodes back in no particular order.
+   let focused = ctx.memory(|memory| memory.focused()).map(|id| id.accesskit_id());
    let heading = nodes
       .iter()
-      .find(|(_, node)| node.role() == Role::Heading)
+      .find(|(id, node)| node.role() == Role::Heading && Some(*id) == focused)
       .map(|(_, node)| node)
       .expect("the Security page must have a heading node");
 
@@ -778,10 +781,14 @@ fn activating_a_settings_tab_opens_its_page() {
       "the heading must name the page the tab opened"
    );
 
+   // The page's words, whether they are drawn as prose or as a section heading.
    let texts: Vec<&str> = nodes
       .iter()
-      .filter(|(_, node)| node.role() == Role::Label)
-      .filter_map(|(_, node)| node.value())
+      .filter_map(|(_, node)| match node.role() {
+         Role::Label => node.value(),
+         Role::Heading => node.label(),
+         _ => None,
+      })
       .collect();
 
    assert!(
@@ -797,9 +804,10 @@ fn the_settings_page_heading_names_the_page_and_takes_focus() {
    let (ctx, mut gui, zeus) = settings_window();
 
    let first = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+   let focused = ctx.memory(|memory| memory.focused()).map(|id| id.accesskit_id());
    let (id, node) = first
       .iter()
-      .find(|(_, node)| node.role() == Role::Heading)
+      .find(|(id, node)| node.role() == Role::Heading && Some(*id) == focused)
       .expect("the open page must have a heading node");
 
    assert_eq!(
@@ -828,9 +836,10 @@ fn the_settings_page_heading_names_the_page_and_takes_focus() {
       vec![accesskit_action(Action::Click, appearance)],
    );
 
+   let focused = ctx.memory(|memory| memory.focused()).map(|id| id.accesskit_id());
    let (id, node) = second
       .iter()
-      .find(|(_, node)| node.role() == Role::Heading)
+      .find(|(id, node)| node.role() == Role::Heading && Some(*id) == focused)
       .expect("the new page must have a heading node");
 
    assert_eq!(
@@ -876,9 +885,11 @@ fn every_settings_page_appears_in_the_tree() {
          vec![accesskit_action(Action::Click, tab)],
       );
 
+      // The page heading is the one the page change focused.
+      let focused = ctx.memory(|memory| memory.focused()).map(|id| id.accesskit_id());
       let heading = nodes
          .iter()
-         .find(|(_, node)| node.role() == Role::Heading)
+         .find(|(id, node)| node.role() == Role::Heading && Some(*id) == focused)
          .map(|(_, node)| node)
          .unwrap_or_else(|| panic!("the {name} page must draw a heading"));
 
@@ -1197,6 +1208,279 @@ fn an_escape_goes_to_the_message_window_and_not_to_settings() {
       gui.settings.is_open(),
       "the Escape that closed the dialog must not also close Settings"
    );
+}
+
+/// Every section the General page draws is a Heading node named exactly like the words it draws,
+/// so a reader can jump between sections instead of walking every control. The page's own heading
+/// is still there beside them.
+#[test]
+fn the_general_page_headings_are_headings() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+
+   let headings: Vec<&str> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Heading)
+      .filter_map(|(_, node)| node.label())
+      .collect();
+
+   #[cfg(target_os = "linux")]
+   let sections = [
+      "External Data",
+      "Window",
+      "Desktop",
+      "Pool Manager",
+      "Balance Manager",
+   ];
+   #[cfg(not(target_os = "linux"))]
+   let sections = ["External Data", "Window", "Pool Manager", "Balance Manager"];
+
+   for section in sections {
+      assert!(
+         headings.contains(&section),
+         "the {section} section title must be a heading node: {headings:?}"
+      );
+   }
+
+   assert!(
+      headings.contains(&"General"),
+      "the page heading must still be there: {headings:?}"
+   );
+}
+
+/// Each slider is one node that says what it sets and which range it covers: the sentence drawn
+/// above it belongs to the slider, not to a sibling label a reader has to tie to it on its own.
+#[test]
+fn each_slider_says_what_it_sets() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+
+   let sliders: Vec<&Node> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Slider)
+      .map(|(_, node)| node)
+      .collect();
+
+   assert_eq!(
+      sliders.len(),
+      4,
+      "the General page draws four sliders"
+   );
+
+   let sentences = [
+      (
+         "Concurrency for Discovering & Updating Pools",
+         "1 to 10",
+      ),
+      ("Batch Size when updating pools state", "1 to 50"),
+      ("Concurrency for syncing balances", "1 to 10"),
+      ("Batch Size for syncing balances", "1 to 50"),
+   ];
+
+   for (sentence, range) in sentences {
+      let slider = sliders
+         .iter()
+         .find(|node| node.label() == Some(sentence))
+         .unwrap_or_else(|| panic!("the {sentence} slider must be named with its sentence"));
+
+      assert_eq!(
+         slider.description(),
+         Some(range),
+         "the {sentence} slider must say the range it covers"
+      );
+      assert!(
+         slider.numeric_value().is_some(),
+         "the {sentence} slider must still report the value the crate gave it"
+      );
+   }
+
+   let spoken: Vec<&str> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Label && !node.is_hidden())
+      .filter_map(|(_, node)| node.value())
+      .collect();
+
+   for (sentence, _) in sentences {
+      assert!(
+         !spoken.contains(&sentence),
+         "the {sentence} label must be hidden, or the slider is spoken twice: {spoken:?}"
+      );
+   }
+}
+
+/// The (?) chip is not a destination of its own: its tip is the control's description, and the
+/// chip is hidden so a reader hears the explanation beside the checkbox instead of hunting for a
+/// question mark after it.
+#[test]
+fn the_help_text_reaches_the_control_it_explains() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+
+   let updates = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::CheckBox && node.label() == Some("Check for Updates"))
+      .map(|(_, node)| node)
+      .expect("the Check for Updates box must be in the tree");
+
+   let prefix = "Allow Zeus to check GitHub for a newer Zeus release";
+   let description = updates.description().unwrap_or_default();
+
+   assert!(
+      description.starts_with(prefix),
+      "the checkbox must carry the tip as its description: {description:?}"
+   );
+
+   let questions: Vec<&str> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Label && !node.is_hidden())
+      .filter_map(|(_, node)| node.value())
+      .filter(|text| *text == "?")
+      .collect();
+
+   assert!(
+      questions.is_empty(),
+      "no question-mark chip may be left in the tree: {questions:?}"
+   );
+}
+
+/// Reset writes the defaults back and says so: the page raises the words, the app drains them
+/// right after the window is drawn, and the announcer speaks them in the same frame.
+#[test]
+fn resetting_the_pool_and_balance_settings_says_so() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+   let reset = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Reset Settings"))
+      .map(|(id, _)| *id)
+      .expect("the General page must offer the Reset Settings button");
+
+   render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, reset)],
+   );
+
+   let text = gui.settings.take_notice().expect("a reset must raise the words the app says");
+
+   assert_eq!(
+      text,
+      "Pool and balance settings reset to their defaults."
+   );
+
+   let nodes = frame(&ctx, |ui| {
+      gui.announce(text.as_str());
+      gui.show_announcer(ui);
+   });
+
+   assert_eq!(
+      status_text(&nodes).as_deref(),
+      Some("Pool and balance settings reset to their defaults."),
+      "the reset's words must reach the announcement node"
+   );
+}
+
+/// A save made by leaving the page is spoken too: a keyboard-changed slider is written back when
+/// the General page hands over, and the window raises the words for the app to announce.
+#[test]
+fn leaving_the_general_page_speaks_the_save() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+   let (slider, before) = nodes
+      .iter()
+      .find(|(_, node)| {
+         node.role() == Role::Slider
+            && node.label() == Some("Concurrency for Discovering & Updating Pools")
+      })
+      .map(|(id, node)| (*id, node.numeric_value()))
+      .expect("the first General slider must be in the tree");
+
+   render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Focus, slider)],
+   );
+
+   let nodes = render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![key_press(Key::ArrowRight)],
+   );
+
+   let after = nodes
+      .iter()
+      .find(|(_, node)| {
+         node.role() == Role::Slider
+            && node.label() == Some("Concurrency for Discovering & Updating Pools")
+      })
+      .and_then(|(_, node)| node.numeric_value());
+
+   assert_eq!(
+      after,
+      before.map(|value| value + 1.0),
+      "ArrowRight on the focused slider must move its value by one step"
+   );
+
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+   let security = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Tab && node.label() == Some("Security"))
+      .map(|(id, _)| *id)
+      .expect("the Security tab must be in the tree");
+
+   render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, security)],
+   );
+
+   assert_eq!(
+      gui.settings.take_notice().as_deref(),
+      Some("Settings saved."),
+      "leaving the page must speak the save it made"
+   );
+}
+
+/// The Security page's three section titles are heading nodes as well.
+#[test]
+fn the_security_page_headings_are_headings() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+   let security = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Tab && node.label() == Some("Security"))
+      .map(|(id, _)| *id)
+      .expect("the Security page must be a tab in the tree");
+
+   let nodes = render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, security)],
+   );
+
+   let headings: Vec<&str> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Heading)
+      .filter_map(|(_, node)| node.label())
+      .collect();
+
+   for section in ["Auto-Lock", "Change Credentials", "Vault encryption"] {
+      assert!(
+         headings.contains(&section),
+         "the {section} section title must be a heading node: {headings:?}"
+      );
+   }
 }
 
 /// Write the frame's `TreeUpdate` to `logs/accessibility-tree.txt` for review: one

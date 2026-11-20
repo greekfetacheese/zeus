@@ -70,6 +70,8 @@ pub struct SettingsUi {
    page: SettingsPage,
    /// The page whose heading has already been given the focus, so a change of page moves it once.
    last_page: Option<SettingsPage>,
+   /// The words a page asked the app to say, drained right after the window is drawn.
+   notice: Option<String>,
    general: GeneralSettings,
    appearance: AppearanceSettingsUi,
    pub encryption: EncryptionSettings,
@@ -90,6 +92,7 @@ impl SettingsUi {
          focus_return: false,
          page: SettingsPage::General,
          last_page: None,
+         notice: None,
          general: GeneralSettings::new(ctx),
          appearance: AppearanceSettingsUi::new(appearance),
          encryption: EncryptionSettings::new(),
@@ -127,6 +130,7 @@ impl SettingsUi {
    pub fn close(&mut self, ctx: &mut ZeusContext) {
       if self.open {
          self.general.save_settings(ctx);
+         self.promote_general_notice();
       }
       self.open = false;
       self.change_credentials_ui.reset();
@@ -147,6 +151,18 @@ impl SettingsUi {
    /// the focus is either gone with the lock screen or still where that page left it.
    pub fn take_focus_return(&mut self) -> bool {
       std::mem::take(&mut self.focus_return)
+   }
+
+   /// The words this frame should say, drained by the app right after the window is drawn.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
+   }
+
+   /// Hand a notice the General page raised up to the window, where the app drains it.
+   fn promote_general_notice(&mut self) {
+      if let Some(text) = self.general.take_notice() {
+         self.notice = Some(text);
+      }
    }
 
    pub fn open_page(
@@ -170,6 +186,7 @@ impl SettingsUi {
    fn set_page(&mut self, page: SettingsPage, ctx: &mut ZeusContext) {
       if self.page == SettingsPage::General && page != SettingsPage::General {
          self.general.save_settings(ctx);
+         self.promote_general_notice();
       }
       if page == SettingsPage::Security {
          self.encryption.sync_from_ctx(ctx);
@@ -370,6 +387,10 @@ impl SettingsUi {
                });
             });
          });
+
+      // A page's save or reset raised its words; hand them up now, so the app can say them in
+      // the frame that drew the page.
+      self.promote_general_notice();
    }
 
    fn nav(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
