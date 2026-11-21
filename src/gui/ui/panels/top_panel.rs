@@ -7,20 +7,19 @@ use egui_elements::{Button, ChipRole, Label, Spinner, Toast, Toasts};
 use std::time::Duration;
 
 const DATA_SYNCING_MSG: &str = "Zeus is still syncing important data";
-const ON_STARTUP_SYNC_MSG: &str = "Zeus is syncing your wallets state";
-const VAULT_SAVE_IN_PROGRESS_MSG: &str = "Saving vault in progress, do not close Zeus yet!";
-const WALLET_STATE_SAVE_IN_PROGRESS_MSG: &str = "Saving state in progress, do not close Zeus yet!";
-const RAILGUN_SYNCING_MSG: &str = "Railgun state sync in progress, do not close Zeus yet!";
-const RAILGUN_DB_LOADING_MSG: &str = "Loading Railgun DB";
-const CIRCUITS_DOWNLOAD_MSG: &str = "Downloading Railgun circuits, do not close Zeus yet!";
+const ON_STARTUP_SYNC_MSG: &str = "Zeus is syncing your wallet state";
+const VAULT_SAVE_IN_PROGRESS_MSG: &str = "Saving vault. Do not close Zeus.";
+const WALLET_STATE_SAVE_IN_PROGRESS_MSG: &str = "Saving wallet state. Do not close Zeus.";
+const RAILGUN_SYNCING_MSG: &str = "Syncing Railgun state. Do not close Zeus.";
+const RAILGUN_DB_LOADING_MSG: &str = "Loading the Railgun database";
+const CIRCUITS_DOWNLOAD_MSG: &str = "Downloading Railgun circuits. Do not close Zeus.";
 
 const AVAILABLE_RPCS_CHECK_THRESHOLD: u64 = 100;
 const RAILGUN_CHECK_THRESHOLD: u64 = 250;
 
 const MALFUNCTION_TOAST_DURATION_SECS: u64 = 30;
 
-const DEGRADED_RPC_MSG: &str =
-   "At least one RPC is not working properly, some features may not work";
+const DEGRADED_RPC_MSG: &str = "At least one RPC is not working. Some features may not work.";
 
 const AUTOLOCK_FIRST_NOTICE_MS: u64 = 10 * 1000;
 const AUTOLOCK_NOTICE_REPEAT_MS: u64 = 60 * 60 * 1000;
@@ -161,7 +160,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       Toast::new("Auto-lock is not configured")
          .tone(ChipRole::Warning)
          .description(
-            "Zeus is on the default 1 hour auto-lock. Choose a timeout in Settings/Security.",
+            "Zeus is on the default 1 hour auto-lock. Choose a timeout in Settings, on the Security page.",
          )
          .duration(Duration::from_secs(
             MALFUNCTION_TOAST_DURATION_SECS,

@@ -53,7 +53,7 @@ impl ZeusCtx {
    ) -> Result<(), anyhow::Error> {
       if self.save_vault_in_progress() {
          return Err(anyhow!(
-            "Saving vault in progress, try again later"
+            "The vault is still saving. Try again in a moment."
          ));
       }
 

@@ -489,6 +489,87 @@ fn every_nav_plate_is_one_named_button() {
       vec!["Send"],
       "exactly the plate of the open page is selected, got {selected:?}"
    );
+
+   let shield = nodes
+      .iter()
+      .find(|node| node.role() == Role::Button && node.label() == Some("Shield"))
+      .expect("the Shield nav entry must be in the tree");
+
+   assert_eq!(
+      shield.description(),
+      Some("Deposit into the private pool"),
+      "the Shield plate must say what opening the private pool does"
+   );
+
+   // Privacy mode turns the same plate into Unshield, which says what leaving does.
+   zeus.write(|ctx| ctx.privacy_mode = true);
+
+   let nodes: Vec<Node> = render_nav(&ctx, &mut gui, &zeus, Vec::new())
+      .into_iter()
+      .map(|(_, node)| node)
+      .collect();
+
+   let unshield = nodes
+      .iter()
+      .find(|node| node.role() == Role::Button && node.label() == Some("Unshield"))
+      .expect("the Unshield nav entry must be in the tree in privacy mode");
+
+   assert_eq!(
+      unshield.description(),
+      Some("Withdraw from the private pool"),
+      "the Unshield plate must say what leaving the private pool does"
+   );
+}
+
+/// Every connected app draws the same Disconnect word, so each button is named after the app it
+/// disconnects, and the origin field puts the origin where a reader can hear it.
+#[test]
+fn the_connected_dapps_rows_name_their_disconnect_button_and_origin() {
+   const ORIGIN: &str = "https://app.example";
+
+   let (ctx, mut gui, zeus) = main_window();
+   let theme = gui.theme.clone();
+   let icons = gui.icons.clone();
+
+   zeus.connect_dapp(ORIGIN.to_string());
+   gui.connected_dapps.open();
+
+   let mut nodes = Vec::new();
+
+   // A modal spends its first passes measuring, and egui exposes no node for a widget it
+   // considers invisible.
+   for _ in 0..3 {
+      nodes = frame_nodes(&ctx, Vec::new(), |ui| {
+         zeus.write(|zeus| gui.connected_dapps.show(zeus, &theme, icons.clone(), ui));
+      });
+   }
+
+   let name = format!("Disconnect {ORIGIN}");
+
+   assert!(
+      nodes
+         .iter()
+         .any(|(_, node)| node.role() == Role::Button && node.label() == Some(name.as_str())),
+      "each row's Disconnect button must be named after the app it disconnects: {:?}",
+      drawn_names(&nodes)
+   );
+
+   let origin = nodes
+      .iter()
+      .find(|(_, node)| is_text_input(node.role()))
+      .map(|(_, node)| node)
+      .unwrap_or_else(|| {
+         panic!(
+            "the row must draw its origin field: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   assert_eq!(
+      origin.value(),
+      Some(ORIGIN),
+      "the origin field must carry the origin as its value, not leave an empty box to a reader"
+   );
 }
 
 /// A reader activates Send the way it activates any button: a `Click` request aimed at the node

@@ -102,7 +102,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          true => Lucide::ShieldOff,
       };
 
-      nav_plate(
+      let response = nav_plate(
          gui,
          ctx,
          title,
@@ -125,6 +125,16 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          },
          ui,
       );
+
+      // The plate draws one word, so its description says what that page does.
+      let description = match privacy_mode {
+         false => "Deposit into the private pool",
+         true => "Withdraw from the private pool",
+      };
+
+      ui.ctx().accesskit_node_builder(response.id, |node| {
+         node.set_description(description)
+      });
 
       let is_open = gui.uniswap.is_open();
       nav_plate(
@@ -458,7 +468,19 @@ impl ConnectedDappsUi {
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                            let text = RichText::new("Disconnect").size(normal);
                            let button = Button::new(text);
-                           if ui.add(button).clicked() {
+                           let response = ui.add(button);
+
+                           // Every connected app draws the same word, so the button is
+                           // named after the app it disconnects.
+                           response.widget_info(|| {
+                              WidgetInfo::labeled(
+                                 Role::Button,
+                                 ui.is_enabled(),
+                                 format!("Disconnect {dapp}"),
+                              )
+                           });
+
+                           if response.clicked() {
                               ctx.disconnect_dapp(dapp);
                            }
 

@@ -917,7 +917,9 @@ fn unshield_event_ui(
             });
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                ui.label(
-                  RichText::new("N/A").size(theme.typography.large).color(theme.colors.error),
+                  RichText::new("Not available")
+                     .size(theme.typography.large)
+                     .color(theme.colors.error),
                );
             });
          });

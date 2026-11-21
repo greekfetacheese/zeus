@@ -31,11 +31,8 @@ mod tests {
    #[test]
    fn a_pill_that_appears_announces_its_message() {
       assert_eq!(
-         announcement(
-            None,
-            Some("Saving vault in progress, do not close Zeus yet!")
-         ),
-         Some("Saving vault in progress, do not close Zeus yet!".to_string())
+         announcement(None, Some("Saving vault. Do not close Zeus.")),
+         Some("Saving vault. Do not close Zeus.".to_string())
       );
    }
 
@@ -44,7 +41,7 @@ mod tests {
    #[test]
    fn a_pill_that_disappears_announces_ready() {
       assert_eq!(
-         announcement(Some("Loading Railgun DB"), None),
+         announcement(Some("Loading the Railgun database"), None),
          Some("Zeus is ready.".to_string())
       );
    }
@@ -55,8 +52,8 @@ mod tests {
       assert_eq!(announcement(None, None), None);
       assert_eq!(
          announcement(
-            Some("Loading Railgun DB"),
-            Some("Loading Railgun DB")
+            Some("Loading the Railgun database"),
+            Some("Loading the Railgun database")
          ),
          None
       );
@@ -68,7 +65,7 @@ mod tests {
    fn a_new_message_replaces_the_old_announcement() {
       assert_eq!(
          announcement(
-            Some("Loading Railgun DB"),
+            Some("Loading the Railgun database"),
             Some("Zeus is still syncing important data")
          ),
          Some("Zeus is still syncing important data".to_string())
