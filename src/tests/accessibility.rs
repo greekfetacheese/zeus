@@ -30,8 +30,8 @@ use crate::gui::ui::dapps::railgun::{
 use crate::gui::ui::dapps::uniswap::settings::{DEADLINE_TIP, SLIPPAGE_TIP, UniswapSettingsUi};
 use crate::gui::ui::sign_msg_window::SignMsgWindow;
 use crate::gui::ui::tx::{
-   FeeSelection, TxConfirmationWindow, TxWindow, show_analysis_buttons, show_calldata_modal,
-   show_tx_diffs_modal, show_tx_options_modal,
+   FeeSelection, TxConfirmationWindow, TxWindow, events::DecodedEvents, show_analysis_buttons,
+   show_calldata_modal, show_tx_diffs_modal, show_tx_options_modal,
 };
 use crate::gui::ui::wallet::import::ImportWalletType;
 use crate::gui::{GUI, LockScreen};
@@ -2786,7 +2786,7 @@ fn a_blocked_send_says_why_beside_a_button_named_send() {
 
    let nodes = render_send(&ctx, &mut gui, &zeus);
 
-   let reason = "Invalid Amount";
+   let reason = "Amount is not valid";
 
    let spoken: Vec<&str> = nodes
       .iter()
@@ -2845,6 +2845,16 @@ fn the_nft_send_form_names_its_selector_and_amount() {
       "the quantity field is the amount of the token picked above"
    );
 
+   let drawn_amount = nodes
+      .iter()
+      .find(|node| node.role() == Role::Label && node.value() == Some("Amount"))
+      .expect("the drawn quantity label must stay in the tree, hidden");
+
+   assert!(
+      drawn_amount.is_hidden(),
+      "the quantity field already says Amount, so the drawn word must not be read again"
+   );
+
    assert!(
       nodes
          .iter()
@@ -2859,7 +2869,7 @@ fn the_nft_send_form_names_its_selector_and_amount() {
       .collect();
 
    assert!(
-      spoken.contains(&"Invalid Amount"),
+      spoken.contains(&"Amount is not valid"),
       "the reason a block is drawn in the same place on this path: {spoken:?}"
    );
 }
@@ -2873,20 +2883,20 @@ fn the_send_block_is_announced_when_it_appears_or_changes() {
    for (previous, current, expected) in [
       (
          None,
-         Some("Invalid Amount"),
-         Some("Invalid Amount"),
+         Some("Amount is not valid"),
+         Some("Amount is not valid"),
       ),
       (
-         Some("Invalid Amount"),
-         Some("Invalid Amount"),
+         Some("Amount is not valid"),
+         Some("Amount is not valid"),
          None,
       ),
       (
-         Some("Invalid Amount"),
+         Some("Amount is not valid"),
          Some("Insufficient ETH Balance"),
          Some("Insufficient ETH Balance"),
       ),
-      (Some("Invalid Amount"), None, None),
+      (Some("Amount is not valid"), None, None),
       (None, None, None),
    ] {
       assert_eq!(
@@ -4834,6 +4844,46 @@ fn the_inspector_buttons_name_the_counts_they_paint() {
    );
 }
 
+/// The events window's counter is a sentence a reader can repeat: it says how many of the
+/// transaction's events could be read, and the order of the two numbers says which is which.
+#[test]
+fn the_events_window_says_how_many_events_were_read() {
+   let (ctx, handle, theme, icons, _appearance) = prompt_harness();
+   let mut events = DecodedEvents::new();
+   events.open();
+
+   // Two different numbers, so a sentence with the arguments the other way round is not this one.
+   let mut analysis = TransactionAnalysis::dummy_with_diffs();
+   analysis.logs_len = 5;
+   analysis.known_events = 3;
+
+   let nodes = render_modal(&ctx, Vec::new(), |ui| {
+      handle.write(|zeus| {
+         events.show(
+            zeus,
+            ChainId::from(analysis.chain),
+            &theme,
+            icons.clone(),
+            &analysis,
+            vec2(400.0, 45.0),
+            theme.frame2,
+            (600.0, 400.0),
+            ui,
+         );
+      });
+   });
+
+   let sentence = "3 of 5 events could be read";
+
+   assert!(
+      nodes
+         .iter()
+         .any(|(_, node)| node.role() == Role::Label && node.value() == Some(sentence)),
+      "the counter must say how many events could be read: {:?}",
+      drawn_names(&nodes)
+   );
+}
+
 /// Approvals are the half of a state report that can cost money after the transaction, so the
 /// modal reads them before the balances — the order the confirmation window keeps — and each
 /// section says how many changes it holds.
@@ -5960,6 +6010,13 @@ fn the_copy_button_names_the_wallet_it_copies_for() {
          drawn_names(&nodes)
       );
    }
+
+   assert!(
+      nodes.iter().any(|(_, node)| node.role() == Role::Label
+         && node.value() == Some("Save this key in a safe place.")),
+      "the body must say what to do with the key: {:?}",
+      drawn_names(&nodes)
+   );
 }
 
 /// A copy is said, because nothing else on screen changes when one happens.
@@ -6018,7 +6075,7 @@ fn the_master_warning_is_an_alert_and_the_safe_exit_takes_the_focus() {
    draw_export_dialog(&ctx, &mut gui, &zeus, wallet, &info);
    let nodes = draw_export_key(&ctx, &mut gui, &zeus);
 
-   let sentence = "This is your master wallet, if this key gets exposed any child wallet you generated with this key will be compromised You don't have to export this key unless something broke in Zeus and you cannot move your funds to other wallets";
+   let sentence = "This is your master wallet. If this key gets exposed, any child wallet you generated with this key will be compromised. You don't have to export this key unless something broke in Zeus and you cannot move your funds to other wallets.";
 
    let alert = nodes
       .iter()
@@ -6034,7 +6091,7 @@ fn the_master_warning_is_an_alert_and_the_safe_exit_takes_the_focus() {
    assert_eq!(
       alert.label(),
       Some(sentence),
-      "the alert must carry both sentences of the drawn paragraph in one breath"
+      "the alert must carry all three sentences of the drawn paragraph in one breath"
    );
 
    let dismiss = button_named(&nodes, "Changed my mind");
@@ -6048,7 +6105,7 @@ fn the_master_warning_is_an_alert_and_the_safe_exit_takes_the_focus() {
    assert!(
       nodes
          .iter()
-         .any(|(_, node)| node.role() == Role::Label && node.value() == Some("WARNING!")),
+         .any(|(_, node)| node.role() == Role::Label && node.value() == Some("Warning")),
       "the drawn heading stays where it was"
    );
 }

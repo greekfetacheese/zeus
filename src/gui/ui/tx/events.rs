@@ -84,7 +84,7 @@ impl DecodedEvents {
                let known_events = analysis.known_events;
 
                let text = format!(
-                  "Decoded {} out of {} total events",
+                  "{} of {} events could be read",
                   known_events, all_events
                );
                ui.label(RichText::new(text).size(theme.typography.very_large));

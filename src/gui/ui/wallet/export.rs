@@ -9,8 +9,9 @@ use egui_elements::{Button, CredentialsForm, Modal, QrImage, Theme, components::
 use ncrypt_me::Credentials;
 use zeus_wallet::Wallet;
 
-const MASTER_WALLET_WARNING: &str = "This is your master wallet, if this key gets exposed any child wallet you generated with this key will be compromised\n
-You don't have to export this key unless something broke in Zeus and you cannot move your funds to other wallets";
+const MASTER_WALLET_WARNING: &str = "This is your master wallet. If this key gets exposed, any \
+   child wallet you generated with this key will be compromised. You don't have to export this \
+   key unless something broke in Zeus and you cannot move your funds to other wallets.";
 
 const QR_IMAGE_SIZE: u32 = 250;
 
@@ -131,7 +132,7 @@ impl ExportKeyUi {
       }
 
       ui.label(
-         RichText::new("WARNING!")
+         RichText::new("Warning")
             .size(theme.typography.very_large)
             .color(theme.colors.warning)
             .strong(),
@@ -217,13 +218,14 @@ impl ExportKeyUi {
 
                let Some(wallet) = self.wallet_to_export.as_ref() else {
                   ui.label(
-                     RichText::new("No wallet found, this is a bug").size(theme.typography.normal),
+                     RichText::new("No wallet found. Close this window and try again.")
+                        .size(theme.typography.normal),
                   );
                   return;
                };
 
                ui.label(
-                  RichText::new("Make sure to save this key in a safe place!")
+                  RichText::new("Save this key in a safe place.")
                      .size(theme.typography.large)
                      .color(theme.colors.warning),
                );
@@ -423,8 +425,8 @@ impl ExportKeyUi {
 
 /// The warning as one spoken sentence.
 ///
-/// The drawn paragraph breaks between its two sentences; a reader hears them in one breath, so the
-/// alert's name is the same words joined by a space.
+/// The alert's name is the paragraph's words joined by a space, so a reader hears them in one
+/// breath whatever the paragraph's own line shape is.
 fn warning_sentence() -> String {
    MASTER_WALLET_WARNING.split_whitespace().collect::<Vec<_>>().join(" ")
 }
@@ -474,7 +476,7 @@ fn on_verify_credentials(credentials: Credentials) {
          }
          CredentialCheck::Mismatch => {
             SHARED_GUI.write(|gui| {
-               gui.open_msg_window("Credentials do not match");
+               gui.open_msg_window("Incorrect credentials");
                gui.loading_window.reset();
                gui.request_repaint();
             });
@@ -527,7 +529,7 @@ mod tests {
       );
 
       assert!(
-         sentence.ends_with("move your funds to other wallets"),
+         sentence.ends_with("move your funds to other wallets."),
          "and ends with its last"
       );
    }

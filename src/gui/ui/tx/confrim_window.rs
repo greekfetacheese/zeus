@@ -508,10 +508,10 @@ impl TxConfirmationWindow {
                let (Some(analysis), Some(main_event)) =
                   (self.tx.as_ref(), self.tx_main_event.as_ref())
                else {
-                  ui.label(
-                     RichText::new("Transaction Analysis not found, this is a bug")
-                        .size(theme.typography.large),
-                  );
+                  // A paragraph alone is walked past: this is the window's alert, not prose.
+                  let text = "Could not read this transaction. Do not confirm.";
+                  let label = ui.label(RichText::new(text).size(theme.typography.large));
+                  label.widget_info(|| WidgetInfo::labeled(Role::Alert, ui.is_enabled(), text));
                   return;
                };
 

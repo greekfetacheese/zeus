@@ -334,7 +334,7 @@ impl DelegateUi {
                }
                CredentialCheck::Mismatch => {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Credentials do not match");
+                     gui.open_msg_window("Incorrect credentials");
                      gui.loading_window.reset();
                      gui.request_repaint();
                   });

@@ -612,11 +612,11 @@ impl AcrossBridge {
       let mut blocked = None;
 
       if !valid_recipient {
-         blocked = Some("Invalid Recipient".to_string());
+         blocked = Some("Recipient address is not valid".to_string());
       }
 
       if !valid_amount {
-         blocked = Some("Invalid Amount".to_string());
+         blocked = Some("Amount is not valid".to_string());
       }
 
       if !has_entered_amount {

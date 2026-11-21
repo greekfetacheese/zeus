@@ -541,7 +541,9 @@ impl SendCryptoUi {
       if nft.standard == NftStandard::Erc1155 {
          ui.add_space(theme.spacing.sm);
          ui.horizontal(|ui| {
-            ui.label(RichText::new("Amount").size(theme.typography.large));
+            // "Amount" is the field's own name below, so the drawn word would be a second reading.
+            let label = ui.label(RichText::new("Amount").size(theme.typography.large));
+            ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
             ui.add_space(10.0);
             let field = ui.add(
                SecureTextEdit::singleline(&mut self.nft_amount)
@@ -633,7 +635,7 @@ impl SendCryptoUi {
       };
 
       if nft.is_some() && amount.is_none() {
-         blocked = Some("Invalid Amount".to_string());
+         blocked = Some("Amount is not valid".to_string());
       }
 
       // Nothing to spend, and no fee or simulation would explain it any better.
@@ -648,11 +650,11 @@ impl SendCryptoUi {
       }
 
       if has_entered_recipient && !valid_recipient {
-         blocked = Some("Invalid Recipient".to_string());
+         blocked = Some("Recipient address is not valid".to_string());
       }
 
       if has_entered_recipient && recipient_is_sender {
-         blocked = Some("Cannot send to yourself".to_string());
+         blocked = Some("Recipient is this wallet".to_string());
       }
 
       if recipient_name_lapsed {
@@ -989,15 +991,15 @@ impl SendCryptoUi {
       let mut blocked = None;
 
       if has_entered_amount && !valid_amount {
-         blocked = Some("Invalid Amount".to_string());
+         blocked = Some("Amount is not valid".to_string());
       }
 
       if has_entered_recipient && !valid_recipient {
-         blocked = Some("Invalid Recipient".to_string());
+         blocked = Some("Recipient address is not valid".to_string());
       }
 
       if has_entered_recipient && recipient_is_sender {
-         blocked = Some("Cannot send to yourself".to_string());
+         blocked = Some("Recipient is this wallet".to_string());
       }
 
       if !has_balance {

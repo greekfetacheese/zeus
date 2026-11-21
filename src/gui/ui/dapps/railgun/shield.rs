@@ -1642,7 +1642,7 @@ impl ShieldUi {
       let mut blocked = None;
 
       if has_entered_amount && !valid_amount {
-         blocked = Some("Invalid Amount".to_string());
+         blocked = Some("Amount is not valid".to_string());
       }
 
       if !has_balance {
@@ -1661,7 +1661,7 @@ impl ShieldUi {
       }
 
       if !valid_recipient {
-         blocked = Some("Invalid Recipient".to_string());
+         blocked = Some("Recipient address is not valid".to_string());
       }
 
       if !is_synced {

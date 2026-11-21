@@ -460,18 +460,21 @@ mod tests {
       assert_eq!(blocked_announcement(None, None), None);
 
       assert_eq!(
-         blocked_announcement(None, Some("Invalid Amount")).as_deref(),
-         Some("Invalid Amount")
+         blocked_announcement(None, Some("Amount is not valid")).as_deref(),
+         Some("Amount is not valid")
       );
 
       assert_eq!(
-         blocked_announcement(Some("Invalid Amount"), Some("Invalid Amount")),
+         blocked_announcement(
+            Some("Amount is not valid"),
+            Some("Amount is not valid")
+         ),
          None
       );
 
       assert_eq!(
          blocked_announcement(
-            Some("Invalid Amount"),
+            Some("Amount is not valid"),
             Some("Insufficient ETH Balance")
          )
          .as_deref(),
@@ -479,7 +482,7 @@ mod tests {
       );
 
       assert_eq!(
-         blocked_announcement(Some("Invalid Amount"), None),
+         blocked_announcement(Some("Amount is not valid"), None),
          None
       );
    }
