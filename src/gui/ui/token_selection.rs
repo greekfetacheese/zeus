@@ -8,6 +8,7 @@ use crate::assets::icons::Icons;
 use crate::core::{ClientKind, ZeusContext, ZeusCtx};
 use crate::gui::ui::common::ConfirmWindowClaim;
 use crate::gui::ui::common::clickable_row;
+use crate::gui::ui::common::place_in_list;
 use crate::gui::ui::common::windows::authorising_prompt_busy;
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::{
@@ -1013,6 +1014,8 @@ impl TokenSelectionWindow {
                         },
                      );
 
+                     place_in_list(ui, response.id, row_index, num_rows);
+
                      if response.clicked() {
                         self.selected_currency = Some((*currency).clone());
                         self.token_fetched = false;
@@ -1225,6 +1228,8 @@ impl TokenSelectionWindow {
 
                covered
             });
+
+            place_in_list(ui, response.id, row_index, num_rows);
 
             if response.clicked() {
                self.selected_nft = Some(row.token.clone());

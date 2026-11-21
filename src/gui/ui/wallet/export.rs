@@ -306,11 +306,17 @@ impl ExportKeyUi {
                      ui.label(RichText::new(error.to_string()).size(theme.typography.large));
                   }
 
-                  // The QR is the key itself. It is drawn as a picture and stays unnamed: no
-                  // label, no description, nothing for a reader to read out.
+                  // The QR is the key itself. It is drawn as a picture and stays unnamed: the
+                  // widget would otherwise label the node with its texture URI, so both the label
+                  // and the description are cleared — nothing for a reader to read out.
                   let size = self.private_key_qr.image_size_pt(ui.ctx().pixels_per_point());
                   let image = self.private_key_qr.image().fit_to_exact_size(size);
-                  ui.add(image);
+                  let qr = ui.add(image);
+
+                  ui.ctx().accesskit_node_builder(qr.id, |node| {
+                     node.clear_label();
+                     node.clear_description();
+                  });
                }
             });
          });

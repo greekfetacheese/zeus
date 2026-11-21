@@ -1,7 +1,7 @@
 //! UI that allows the user to add,edit and remove contacts.
 
 use crate::core::{ZeusContext, types::Contact};
-use crate::gui::ui::{address_for_speech, name_address, show_with_fade};
+use crate::gui::ui::{address_for_speech, name_address, place_in_list, show_with_fade};
 use crate::gui::{SHARED_GUI, dots_button};
 use egui::{
    Align, FontId, Layout, Margin, OpenUrl, RichText, Role, ScrollArea, Ui, WidgetInfo, vec2,
@@ -417,9 +417,11 @@ impl QrWindow {
          ui.add(self.zk_address_qr.image().fit_to_exact_size(size))
       };
 
-      // A picture carries no words, so the node says what the picture is for.
+      // The image widget names the node after its load state (`Loading bytes://…`), which is not
+      // something to read out: the one sentence that says what the picture is for is its label.
       ui.ctx().accesskit_node_builder(qr.id, |node| {
-         node.set_description("QR code of the address above, for another device to scan.");
+         node.set_label("QR code of the address above, for another device to scan.");
+         node.clear_description();
       });
 
       if let Some(text) = notice {
@@ -636,6 +638,13 @@ impl ContactsUi {
          Frame::new().inner_margin(10.0).show(ui, |ui| {
             ui.set_width(ui.available_width());
 
+            let visible = contacts
+               .iter()
+               .filter(|contact| valid_contact_search(contact, &self.search_query))
+               .count();
+
+            let mut position = 0;
+
             for contact in &contacts {
                let valid = valid_contact_search(contact, &self.search_query);
 
@@ -643,13 +652,22 @@ impl ContactsUi {
                   continue;
                }
 
-               self.contact(ctx, theme, contact, ui);
+               self.contact(ctx, theme, contact, position, visible, ui);
+               position += 1;
             }
          });
       });
    }
 
-   fn contact(&mut self, ctx: &ZeusContext, theme: &Theme, contact: &Contact, ui: &mut Ui) {
+   fn contact(
+      &mut self,
+      ctx: &ZeusContext,
+      theme: &Theme,
+      contact: &Contact,
+      position: usize,
+      len: usize,
+      ui: &mut Ui,
+   ) {
       let privacy_mode = ctx.privacy_mode;
 
       let visuals = theme.frame2_visuals();
@@ -741,6 +759,8 @@ impl ContactsUi {
       // but hidden from the tree, so the row says whose it is once.
       row.response
          .widget_info(|| WidgetInfo::labeled(Role::Group, ui.is_enabled(), &contact.name));
+
+      place_in_list(ui, row.response.id, position, len);
    }
 }
 

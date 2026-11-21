@@ -9,7 +9,7 @@ use crate::gui::{
       chain_label,
       common::{
          address::{drawn_and_spoken, name_address},
-         name_text,
+         name_text, spoken_wallet_name,
       },
       show_with_fade,
       tx::spent_note_window::{SpentHistoryRow, spent_age},
@@ -455,7 +455,11 @@ impl TxHistory {
                         .fill_width(true)
                         .expand(expansion);
 
-                     if ui.add(label).clicked() && self.selected_wallet != Some(wallet.clone()) {
+                     let response = ui.add(label);
+
+                     name_text(ui, &response, spoken_wallet_name(wallet));
+
+                     if response.clicked() && self.selected_wallet != Some(wallet.clone()) {
                         self.selected_wallet = Some(wallet.clone());
                         self.current_page = 0;
                      }

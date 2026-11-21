@@ -3126,6 +3126,162 @@ fn picked_symbol() -> Option<String> {
       .map(|currency| currency.symbol().to_string())
 }
 
+/// The node `row` is a direct child of, and that node's id.
+fn parent_of(nodes: &[(NodeId, Node)], row: NodeId) -> (NodeId, &Node) {
+   nodes
+      .iter()
+      .find(|(_, node)| node.children().contains(&row))
+      .map(|(id, node)| (*id, node))
+      .unwrap_or_else(|| panic!("no node holds {row:?} as a direct child"))
+}
+
+/// A list is a set, not a bag: each row says its zero-based place and the container egui made for
+/// the rows says how many the list holds. The token picker's rows sit directly under the
+/// `ScrollArea`'s own `Ui`, so both properties land on real nodes.
+#[test]
+fn the_token_picker_says_each_rows_place_and_the_lists_size() {
+   let _turn = shared_gui_turn();
+   let ctx = Context::default();
+   let nodes = open_picker(&ctx, &picker_rows());
+
+   for (name, position) in [(USDC_ROW, 0usize), ("ETH, Ethereum", 1)] {
+      let (row, node) = nodes
+         .iter()
+         .find(|(_, node)| node.role() == Role::Button && node.label() == Some(name))
+         .map(|(id, node)| (*id, node))
+         .unwrap_or_else(|| panic!("the {name} row must be in the tree"));
+
+      assert_eq!(
+         node.position_in_set(),
+         Some(position),
+         "the {name} row must say its zero-based place"
+      );
+
+      let (container, container_node) = parent_of(&nodes, row);
+
+      assert_eq!(
+         container_node.role(),
+         Role::GenericContainer,
+         "the rows' container is the ScrollArea Ui, not a table"
+      );
+
+      assert_eq!(
+         container_node.size_of_set(),
+         Some(2),
+         "the container {container:?} must say how many rows the list holds"
+      );
+   }
+}
+
+/// The contacts page wraps its rows in a `Frame`, so the rows' container is that frame's own
+/// `Ui` node. The place and the size still land on the nodes that carry the list.
+#[test]
+fn a_contact_row_is_placed_in_the_contacts_page_list() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   for (name, address) in [
+      (
+         "Ada Lovelace",
+         "0x1111111111111111111111111111111111111111",
+      ),
+      (
+         "Grace Hopper",
+         "0x2222222222222222222222222222222222222222",
+      ),
+   ] {
+      zeus.write_wallet_state(|ws| {
+         ws.contacts.push(Contact::new(
+            name.to_string(),
+            address.to_string(),
+            String::new(),
+         ));
+      });
+   }
+
+   let nodes = open_settings_page(&ctx, &mut gui, &zeus, "Contacts");
+
+   for (name, position) in [("Ada Lovelace", 0usize), ("Grace Hopper", 1)] {
+      let (row, node) = nodes
+         .iter()
+         .find(|(_, node)| node.role() == Role::Group && node.label() == Some(name))
+         .map(|(id, node)| (*id, node))
+         .unwrap_or_else(|| panic!("the {name} row must be in the tree"));
+
+      assert_eq!(
+         node.position_in_set(),
+         Some(position),
+         "the {name} row must say its zero-based place"
+      );
+
+      let (_, container_node) = parent_of(&nodes, row);
+
+      assert_eq!(
+         container_node.size_of_set(),
+         Some(2),
+         "the contacts frame must say how many rows the page lists"
+      );
+   }
+}
+
+/// The recipient picker's contacts are a `ScrollArea` list as well: each row says its zero-based
+/// place and the scroll's own `Ui` says how many rows the list holds.
+#[test]
+fn a_contact_picker_row_says_its_place_in_the_list() {
+   let _turn = shared_gui_turn();
+   let ctx = Context::default();
+   let nodes = open_recipient_picker(
+      &ctx,
+      false,
+      &[
+         (PICKER_CONTACT, PICKER_CONTACT_ADDRESS),
+         (OTHER_CONTACT, OTHER_CONTACT_ADDRESS),
+      ],
+   );
+
+   for (name, spoken, position) in [
+      (PICKER_CONTACT, PICKER_CONTACT_SPOKEN, 0usize),
+      (OTHER_CONTACT, OTHER_CONTACT_SPOKEN, 1),
+   ] {
+      let row_name = contact_row_name(name, spoken);
+      let (row, node) = nodes
+         .iter()
+         .find(|(_, node)| node.role() == Role::Button && node.label() == Some(row_name.as_str()))
+         .map(|(id, node)| (*id, node))
+         .unwrap_or_else(|| panic!("the {name} row must be in the tree"));
+
+      assert_eq!(
+         node.position_in_set(),
+         Some(position),
+         "the {name} row must say its zero-based place"
+      );
+
+      let (_, container) = parent_of(&nodes, row);
+
+      assert_eq!(
+         container.size_of_set(),
+         Some(2),
+         "the picker's scroll Ui must say how many contacts the list holds"
+      );
+   }
+}
+
+/// The eye beside the privacy switch is decoration: the switch itself is named and says whether it
+/// is on, so the picture contributes no asset name and no texture URI.
+#[test]
+fn the_privacy_switch_picture_is_not_read_out() {
+   let (ctx, mut gui, zeus) = settings_window();
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+
+   for (_, node) in nodes.iter().filter(|(_, node)| node.role() == Role::Image) {
+      for text in node_texts(node) {
+         assert!(
+            !text.contains("bytes://") && text != "eye" && text != "eye-off",
+            "a decorative picture must not read out its asset: {text:?}"
+         );
+      }
+   }
+}
+
 /// A picker row used to be a frame with a click sense bolted on: a hit target with no role, no name
 /// and no way in from a reader. The row is one named button now, and an AccessKit Click on its node
 /// is the same selection hook a mouse click is.
@@ -6152,6 +6308,12 @@ fn the_export_dialog_never_puts_the_key_in_the_tree() {
    // reaches the node, and the only text on it is egui's own account of a picture it cannot decode
    // in a frame that drops the texture upload.
    let picture = images[0];
+
+   assert!(
+      node_texts(picture).is_empty(),
+      "the key's QR must say nothing at all, not even its texture URI: {:?}",
+      node_texts(picture)
+   );
 
    for text in node_texts(picture) {
       assert!(
@@ -9646,5 +9808,19 @@ fn a_contact_qr_page_says_which_address_it_shows() {
       gui.settings.take_notice().as_deref(),
       Some("Address copied."),
       "the page hands the copy up to the window, which says it in the frame it was drawn"
+   );
+
+   let qr = nodes
+      .iter()
+      .find(|(_, node)| {
+         node.role() == Role::Image
+            && node.label() == Some("QR code of the address above, for another device to scan.")
+      })
+      .map(|(_, node)| node)
+      .expect("the page's QR must be named with what it is for");
+
+   assert!(
+      !node_texts(qr).iter().any(|text| text.contains("bytes://")),
+      "the QR must not read out its texture URI"
    );
 }

@@ -6,7 +6,8 @@ use crate::core::{
    TransactionAnalysis, WalletInfo, ZeusContext, ZeusCtx, send_transaction, signature,
 };
 use crate::gui::ui::common::{
-   SpokenAddress, chain_label, drawn_and_spoken, name_address, name_text, usable_chain,
+   SpokenAddress, chain_label, drawn_and_spoken, name_address, name_text, spoken_wallet_name,
+   usable_chain,
 };
 use crate::gui::{SHARED_GUI, ui::show_with_fade};
 use crate::utils::{TimeStamp, simulate::simulate_for_analysis};
@@ -634,7 +635,11 @@ impl ApprovalsUi {
                            .fill_width(true)
                            .expand(expansion);
 
-                        if ui.add(label).clicked()
+                        let response = ui.add(label);
+
+                        name_text(ui, &response, spoken_wallet_name(wallet));
+
+                        if response.clicked()
                            && self.selected_wallet.as_ref().map(|w| w.address)
                               != Some(wallet.address)
                         {

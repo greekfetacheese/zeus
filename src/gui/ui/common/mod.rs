@@ -196,7 +196,15 @@ pub fn privacy_mode_switch(ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
          switch_response = Some(ui.add(switch));
          ui.add_space(3.0);
-         ui.add(icon);
+
+         let eye = ui.add(icon);
+
+         // The switch says the state in words; the eye beside it draws the same state, so the
+         // picture carries no words of its own (and none of its texture's name either).
+         ui.ctx().accesskit_node_builder(eye.id, |node| {
+            node.clear_label();
+            node.clear_description();
+         });
       });
    });
 
@@ -363,6 +371,20 @@ pub fn clickable_row(
    }
 
    response
+}
+
+/// Put a list row at its place, and give the list its size.
+///
+/// AccessKit puts the position on the item (`set_position_in_set`, zero-based) and the count on
+/// the container the items belong to (`set_size_of_set`), unlike ARIA where the size sits on the
+/// item too. The container is the `Ui` the rows are drawn into: egui's node for a `Ui` is keyed
+/// by its `unique_id`, so that is where the count goes. A widget id no widget registered would
+/// put the count beside the real node instead of on it.
+pub fn place_in_list(ui: &Ui, row_id: Id, index: usize, len: usize) {
+   let egui_ctx = ui.ctx();
+
+   egui_ctx.accesskit_node_builder(ui.unique_id(), |node| node.set_size_of_set(len));
+   egui_ctx.accesskit_node_builder(row_id, |node| node.set_position_in_set(index));
 }
 
 #[cfg(test)]

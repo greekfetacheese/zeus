@@ -8,6 +8,8 @@ use crate::core::{
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::common::address::address_for_speech;
 use crate::gui::ui::common::clickable_row;
+use crate::gui::ui::common::place_in_list;
+use crate::gui::ui::common::spoken_wallet_name;
 use crate::gui::ui::common::switch_chain;
 use crate::gui::ui::{ContactsUi, WalletListByValue};
 use crate::utils::{TimeStamp, truncate_address};
@@ -841,6 +843,10 @@ impl RecipientSelectionWindow {
       ui: &mut Ui,
    ) {
       let contacts = ctx.read_wallet_state(|ws| ws.contacts.clone());
+      let visible = contacts
+         .iter()
+         .filter(|contact| valid_contact_search(contact, privacy_mode, self.search_field.text()))
+         .count();
 
       ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.md);
       ui.spacing_mut().button_padding = theme.button_padding;
@@ -853,6 +859,8 @@ impl RecipientSelectionWindow {
          .inner_margin(inner)
          .corner_radius(corner)
          .visuals(visuals);
+
+      let mut position = 0;
 
       for contact in &contacts {
          let valid_search = valid_contact_search(contact, privacy_mode, self.search_field.text());
@@ -913,6 +921,9 @@ impl RecipientSelectionWindow {
             covered
          });
 
+         place_in_list(ui, response.id, position, visible);
+         position += 1;
+
          if response.clicked() {
             self.recipient = Recipient::from_contact(contact.clone());
             *close_window = true;
@@ -969,8 +980,14 @@ impl RecipientSelectionWindow {
       let frame2 = theme.frame2;
 
       let wallets = &self.wallets;
+      let visible = wallets
+         .iter()
+         .filter(|wallet| valid_wallet_search(wallet, privacy_mode, self.search_field.text()))
+         .count();
       let large = theme.typography.large;
       let normal = theme.typography.normal;
+
+      let mut position = 0;
 
       for wallet in wallets {
          let valid_search = valid_wallet_search(wallet, privacy_mode, self.search_field.text());
@@ -994,8 +1011,10 @@ impl RecipientSelectionWindow {
 
          // What the wallet holds is drawn beside its name, and it is what someone picking by
          // balance reads first, so the row says both totals itself instead of leaving them as
-         // separate nodes beside it.
-         let wallet_name = wallet.name_with_source();
+         // separate nodes beside it. The drawn name keeps its parenthetical kind; the row and the
+         // copy button say the comma form a reader hears as one sentence.
+         let drawn_name = wallet.name_with_source();
+         let wallet_name = spoken_wallet_name(wallet);
          let private = format!("Private ${:.10}", value.private.abbreviated());
          let public = format!("Public ${:.10}", value.public.abbreviated());
          let (words, copy_description) = spoken_recipient(&wallet_name, &address_full);
@@ -1035,7 +1054,7 @@ impl RecipientSelectionWindow {
                   covered.extend(totals.inner);
 
                   ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                     let text = RichText::new(wallet_name.clone()).size(large);
+                     let text = RichText::new(drawn_name.clone()).size(large);
                      let label = Label::new(text, None)
                         .wrap_mode(TextWrapMode::Truncate)
                         .fill_width(true)
@@ -1070,6 +1089,9 @@ impl RecipientSelectionWindow {
 
             covered
          });
+
+         place_in_list(ui, response.id, position, visible);
+         position += 1;
 
          if response.clicked() {
             self.recipient = Recipient::from_wallet_info(wallet.clone());

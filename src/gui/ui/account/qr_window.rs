@@ -187,9 +187,12 @@ impl QrWindow {
                   ui.add(self.zk_address_qr.image().fit_to_exact_size(size))
                };
 
-               // A picture carries no words, so the node says what the picture is for.
+               // The image widget names the node after its load state (`Loading bytes://…`),
+               // which is not something to read out: the one sentence that says what the picture
+               // is for is its label.
                ui.ctx().accesskit_node_builder(qr.id, |node| {
-                  node.set_description("QR code of the address above, for another device to scan.");
+                  node.set_label("QR code of the address above, for another device to scan.");
+                  node.clear_description();
                });
 
                ui.add_space(20.0);

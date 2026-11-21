@@ -7,7 +7,7 @@ use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::{
    SHARED_GUI,
    ui::{
-      common::{name_text, show_with_fade},
+      common::{name_text, show_with_fade, spoken_wallet_name},
       token_selection::{
          PickerMode, TokenSelectionWindow, cached_collections, nft_collection_name, ownership_badge,
       },
@@ -299,10 +299,12 @@ impl PortfolioUi {
                   ui.horizontal(|ui| {
                      // Wallet Name - Total Value (centered)
                      ui.vertical_centered(|ui| {
-                        ui.label(
+                        let wallet_name = ui.label(
                            RichText::new(wallet_info.name_with_source())
                               .size(theme.typography.very_large),
                         );
+
+                        name_text(ui, &wallet_name, spoken_wallet_name(&wallet_info));
                         let total_value = total_text(&self.rows.total_value);
 
                         let total = ui.label(
