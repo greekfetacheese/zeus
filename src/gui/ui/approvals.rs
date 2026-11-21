@@ -1252,7 +1252,7 @@ async fn revoke_nft_approval(chain_id: u64, params: NftApproveParams) -> Result<
    let (calldata, revoked) = revoke_call(&params)?;
 
    let ctx = SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Wait while magic happens");
+      gui.loading_window.open("Revoking the NFT approval…");
       gui.request_repaint();
       gui.ctx.clone()
    });
@@ -1325,7 +1325,7 @@ async fn revoke_erc20_approval(
    let chain = revoke_chain(chain_id)?;
 
    let ctx = SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Wait while magic happens");
+      gui.loading_window.open("Revoking the approval…");
       gui.request_repaint();
       gui.ctx.clone()
    });
@@ -1405,7 +1405,7 @@ async fn revoke_permit2_approval(
    let chain = revoke_chain(chain_id)?;
 
    let ctx = SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Preparing Permit2 revoke");
+      gui.loading_window.open("Preparing the Permit2 revoke…");
       gui.request_repaint();
       gui.ctx.clone()
    });
@@ -1449,7 +1449,7 @@ async fn revoke_permit2_approval(
    .await?;
 
    SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Wait while magic happens");
+      gui.loading_window.open("Revoking the Permit2 approval…");
       gui.request_repaint();
    });
 

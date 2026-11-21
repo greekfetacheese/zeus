@@ -6863,6 +6863,51 @@ fn the_loading_window_says_what_it_is_doing() {
       Some(message),
       "a message that did not change is not said again"
    );
+
+   // The same wait continuing is not a new phase: opening the window again with the sentence it
+   // already carries must not interrupt the reader with it.
+   gui.loading_window.open(message);
+
+   let repeated = draw_overlay_modals(&ctx, &mut gui);
+
+   assert_ne!(
+      status_text(&repeated).as_deref(),
+      Some(message),
+      "a sentence the window already shows is not announced again"
+   );
+
+   // Progress text moves while the wait runs: it is drawn on the window, never said.
+   let progress = "Download progress: 42.0%";
+
+   gui.loading_window.progress(progress);
+
+   let progressing = draw_overlay_modals(&ctx, &mut gui);
+
+   assert_ne!(
+      status_text(&progressing).as_deref(),
+      Some(progress),
+      "a percentage that changes is visible, not narrated"
+   );
+   assert!(
+      progressing
+         .iter()
+         .any(|node| node.role() == Role::Label && node.value() == Some(progress)),
+      "the progress must be drawn on the window: {:?}",
+      progressing.iter().filter_map(|node| node.value()).collect::<Vec<_>>()
+   );
+
+   // A new sentence is a new phase, and that one is said once.
+   let revoking = "Revoking the approval…";
+
+   gui.loading_window.open(revoking);
+
+   let changed = draw_overlay_modals(&ctx, &mut gui);
+
+   assert_eq!(
+      status_text(&changed).as_deref(),
+      Some(revoking),
+      "a different sentence opens a new announcement"
+   );
 }
 
 /// The requirements warning is drawn only once the memory sample lands, so it can appear after the

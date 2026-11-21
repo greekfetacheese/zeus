@@ -398,7 +398,7 @@ fn on_delete_wallet(wallet: WalletInfo, is_current: bool) {
       }
 
       SHARED_GUI.write(|gui| {
-         gui.loading_window.open("Encrypting vault...");
+         gui.loading_window.open("Encrypting the vault...");
          gui.request_repaint();
       });
 

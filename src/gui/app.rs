@@ -273,7 +273,7 @@ fn begin_shutdown(
 
    crate::runtime::rt().spawn(async move {
       let zeus_ctx = SHARED_GUI.write(|gui| {
-         gui.loading_window.open("Saving vault...");
+         gui.loading_window.open("Saving the vault...");
          gui.request_repaint();
          gui.ctx.clone()
       });
@@ -308,7 +308,7 @@ fn begin_shutdown(
             .await;
 
          SHARED_GUI.write(|gui| {
-            gui.loading_window.open("Compacting Railgun DB...");
+            gui.loading_window.open("Compacting the Railgun database...");
             gui.request_repaint();
          });
 

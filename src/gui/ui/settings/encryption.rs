@@ -207,7 +207,7 @@ impl EncryptionSettings {
 
       crate::runtime::rt().spawn_blocking(move || {
          let ctx = SHARED_GUI.write(|gui| {
-            gui.loading_window.open("Encrypting vault...");
+            gui.loading_window.open("Encrypting the vault...");
             gui.request_repaint();
             gui.ctx.clone()
          });

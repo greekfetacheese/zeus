@@ -772,7 +772,7 @@ impl SendCryptoUi {
 
       crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.write(|gui| {
-            gui.loading_window.open("Wait while magic happens");
+            gui.loading_window.open("Sending your transaction…");
             gui.request_repaint();
             gui.ctx.clone()
          });
@@ -834,7 +834,9 @@ impl SendCryptoUi {
 
       crate::runtime::rt().spawn_blocking(move || {
          let ctx = SHARED_GUI.write(|gui| {
-            gui.loading_window.open("Wait while magic happens");
+            gui.loading_window.open(
+               "Generating the private proof. This takes a few seconds and cannot be cancelled.",
+            );
             gui.request_repaint();
             gui.ctx.clone()
          });
@@ -1203,7 +1205,9 @@ impl SendCryptoUi {
 
       crate::runtime::rt().spawn_blocking(move || {
          let ctx = SHARED_GUI.write(|gui| {
-            gui.loading_window.open("Wait while magic happens");
+            gui.loading_window.open(
+               "Generating the private proof. This takes a few seconds and cannot be cancelled.",
+            );
             gui.request_repaint();
             gui.ctx.clone()
          });
@@ -1265,7 +1269,7 @@ impl SendCryptoUi {
 
       crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.write(|gui| {
-            gui.loading_window.open("Wait while magic happens");
+            gui.loading_window.open("Sending your transaction…");
             gui.request_repaint();
             gui.ctx.clone()
          });

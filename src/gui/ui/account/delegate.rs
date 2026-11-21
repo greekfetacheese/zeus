@@ -299,7 +299,7 @@ impl DelegateUi {
                   };
 
                   SHARED_GUI.write(|gui| {
-                     gui.loading_window.open("Wait while magic happens");
+                     gui.loading_window.open("Delegating. This can take a minute.");
                      gui.account_panel.delegate.close();
                      gui.request_repaint();
                   });
@@ -381,7 +381,7 @@ impl DelegateUi {
       if clicked {
          crate::runtime::rt().spawn(async move {
             let ctx = SHARED_GUI.write(|gui| {
-               gui.loading_window.open("Wait while magic happens");
+               gui.loading_window.open("Removing the delegation. This can take a minute.");
                gui.account_panel.delegate.close();
                gui.request_repaint();
                gui.ctx.clone()

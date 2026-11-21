@@ -1161,7 +1161,7 @@ fn on_recover_hd_wallet(name: String, credentials: Credentials) {
       };
 
       SHARED_GUI.write(|gui| {
-         gui.loading_window.open("Encrypting Vault...");
+         gui.loading_window.open("Encrypting the vault...");
       });
 
       let egui_ctx = SHARED_GUI.read(|gui| gui.egui_ctx.clone());

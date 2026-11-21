@@ -240,7 +240,7 @@ async fn unshield_self_broadcast(
    malloc_trim();
 
    SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Simulating Transaction…");
+      gui.loading_window.open("Simulating the transaction…");
       gui.request_repaint();
    });
 
@@ -608,7 +608,7 @@ async fn unshield_via_paymaster(
    malloc_trim();
 
    SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Simulating Transaction…");
+      gui.loading_window.open("Simulating the transaction…");
       gui.request_repaint();
    });
 

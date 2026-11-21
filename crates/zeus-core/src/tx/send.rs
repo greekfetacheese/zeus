@@ -544,7 +544,7 @@ pub async fn send_transaction(
       analysis,
    } = req;
 
-   ui::host().open_loading("Wait while magic happens");
+   ui::host().open_loading("Sending your transaction…");
    ui::host().request_repaint();
 
    let client = ctx.get_client_manager();

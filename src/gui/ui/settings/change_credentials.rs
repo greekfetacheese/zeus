@@ -164,7 +164,7 @@ impl ChangeCredentialsUi {
             new_vault.set_credentials(credentials);
 
             SHARED_GUI.write(|gui| {
-               gui.loading_window.open("Encrypting vault...");
+               gui.loading_window.open("Encrypting the vault...");
                gui.request_repaint();
             });
 
