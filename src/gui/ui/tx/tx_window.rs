@@ -10,9 +10,12 @@ use crate::assets::icons::Icons;
 use crate::core::clear_signing;
 use crate::core::{TransactionRich, ZeusContext};
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::common::usable_chain;
+use crate::gui::ui::common::{heading, usable_chain};
 
 use std::sync::Arc;
+
+/// The window's title, drawn in the modal header and carried by the heading a reader lands on.
+const TITLE: &str = "Transaction Details";
 
 /// A window to show details for a transaction that has been sent to the network
 pub struct TxWindow {
@@ -23,6 +26,10 @@ pub struct TxWindow {
    show_calldata: bool,
    show_diffs: bool,
    size: (f32, f32),
+   /// The control that opened the window, focused again when the window closes.
+   opener: Option<Id>,
+   /// True until the opening painted frame has put focus inside the window.
+   focus_pending: bool,
 }
 
 impl TxWindow {
@@ -35,6 +42,8 @@ impl TxWindow {
          show_calldata: false,
          show_diffs: false,
          size: (550.0, 400.0),
+         opener: None,
+         focus_pending: false,
       }
    }
 
@@ -50,12 +59,17 @@ impl TxWindow {
       self.decoded_events.close();
    }
 
-   /// Show this [TxWindow]
-   pub fn open(&mut self, tx: Option<TransactionRich>) {
+   /// Show this [TxWindow], remembering `opener` — the control whose focus the window gives
+   /// back when it closes.
+   pub fn open(&mut self, tx: Option<TransactionRich>, opener: Option<Id>) {
       self.show_calldata = false;
       self.show_diffs = false;
       self.tx = tx;
       self.open = true;
+      // A window the user has not seen yet starts on its heading, with the control that opened
+      // it remembered for when it closes.
+      self.opener = opener;
+      self.focus_pending = true;
       self.maybe_fill_clear_display();
    }
 
@@ -118,7 +132,7 @@ impl TxWindow {
          return;
       }
 
-      let title = RichText::new("Transaction Details").size(theme.typography.heading);
+      let title = RichText::new(TITLE).size(theme.typography.heading);
       let id = Id::unique("tx_window");
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let mut open = self.open;
@@ -137,6 +151,19 @@ impl TxWindow {
             // from taking focus, and the backdrop is ignored with it, so the key is read
             // here and answered as a close.
             escape = ui.input(|input| input.key_pressed(Key::Escape));
+
+            // A reader lands inside the window: the modal's title is in its header, which is
+            // walked past, so a zero-size heading at the top of the body is the node the focus
+            // is put on — once, on the frame the window opens, and never again, so a details
+            // view does not keep pulling it back from what the user reached next.
+            let title_heading = heading(ui, TITLE);
+            // A shrink-wrapping modal spends two invisible sizing passes before its first
+            // painted frame, and focus requested on those does not survive the pass: wait for
+            // the frame a reader can actually be handed.
+            if self.focus_pending && !ui.is_sizing_pass() {
+               title_heading.request_focus();
+               self.focus_pending = false;
+            }
 
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -421,8 +448,18 @@ impl TxWindow {
       // Every way out is `close()`: the local flag is written back here — it never was
       // before, so Escape could not stick and the only exit was a button after the whole
       // description — and the window takes its sub-modals with it.
-      if !open {
+      if !open || !self.open {
          self.close();
+         // The control that opened the window takes the focus back, whether the key, the
+         // backdrop or a Close button ended it.
+         self.restore_opener(ui.ctx());
+      }
+   }
+
+   /// Give the focus back to the control that opened the window, if it is still remembered.
+   fn restore_opener(&mut self, ctx: &egui::Context) {
+      if let Some(opener) = self.opener.take() {
+         ctx.memory_mut(|memory| memory.request_focus(opener));
       }
    }
 
@@ -437,6 +474,20 @@ impl TxWindow {
       window.tx = tx;
       window.loading = loading;
       window.open = true;
+      window.focus_pending = true;
+
+      window
+   }
+
+   /// The window as a notification opens it, with the control whose focus it gives back.
+   #[cfg(test)]
+   pub(crate) fn for_test_with_opener(
+      tx: Option<TransactionRich>,
+      loading: bool,
+      opener: Id,
+   ) -> Self {
+      let mut window = Self::for_test(tx, loading);
+      window.opener = Some(opener);
 
       window
    }

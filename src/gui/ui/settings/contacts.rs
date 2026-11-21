@@ -5,7 +5,8 @@ use crate::gui::ui::common;
 use crate::gui::ui::{address_for_speech, name_address, place_in_list, show_with_fade};
 use crate::gui::{SHARED_GUI, dots_button};
 use egui::{
-   Align, FontId, Layout, Margin, OpenUrl, RichText, Role, ScrollArea, Ui, WidgetInfo, vec2,
+   Align, FontId, Layout, Margin, OpenUrl, Response, RichText, Role, ScrollArea, Ui, WidgetInfo,
+   vec2,
 };
 use egui_elements::{
    Button, Frame, InputField, Label, Menu, MenuItem, QrImage, SecureTextEdit, Spinner, Theme,
@@ -80,47 +81,59 @@ impl AddContact {
       &self.contact
    }
 
-   pub fn body(&mut self, theme: &Theme, reset_on_success: bool, ui: &mut Ui) {
-      let res = ui.vertical_centered(|ui| {
-         ui.spacing_mut().item_spacing.y = theme.spacing.lg;
-         ui.spacing_mut().button_padding = theme.button_padding;
+   /// Draw the form and hand back the contact-name field.
+   ///
+   /// The field is the page's first control: the page puts the focus there when the form opens,
+   /// and the response is the only handle it can ask with.
+   pub fn body(&mut self, theme: &Theme, reset_on_success: bool, ui: &mut Ui) -> Response {
+      let mut add_clicked = false;
 
-         let text_edit_size = vec2(ui.available_width() * 0.6, 25.0);
-         let text_edit_visuals = theme.text_edit_visuals();
-         let button_visuals = theme.button_visuals();
+      let name_field = ui
+         .vertical_centered(|ui| {
+            ui.spacing_mut().item_spacing.y = theme.spacing.lg;
+            ui.spacing_mut().button_padding = theme.button_padding;
 
-         let label = ui.label(RichText::new("Name").size(theme.typography.large));
-         ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
+            let text_edit_size = vec2(ui.available_width() * 0.6, 25.0);
+            let text_edit_visuals = theme.text_edit_visuals();
+            let button_visuals = theme.button_visuals();
 
-         let name = &mut self.contact.name;
-         ui.add(
-            SecureTextEdit::singleline(name)
-               .accessible_name("Contact name")
-               .visuals(text_edit_visuals)
-               .min_size(text_edit_size)
-               .margin(Margin::same(10))
-               .font(FontId::proportional(theme.typography.normal)),
-         );
+            let label = ui.label(RichText::new("Name").size(theme.typography.large));
+            ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
 
-         // The address fields label themselves and own their text — and their QR
-         // scanner — so the contact is filled in from them on submit.
-         self.evm_field.set_min_size(text_edit_size);
-         self.evm_field.show(ui);
+            let name = &mut self.contact.name;
+            let name_field = ui.add(
+               SecureTextEdit::singleline(name)
+                  .accessible_name("Contact name")
+                  .visuals(text_edit_visuals)
+                  .min_size(text_edit_size)
+                  .margin(Margin::same(10))
+                  .font(FontId::proportional(theme.typography.normal)),
+            );
 
-         self.zk_field.set_min_size(text_edit_size);
-         self.zk_field.show(ui);
+            // The address fields label themselves and own their text — and their QR
+            // scanner — so the contact is filled in from them on submit.
+            self.evm_field.set_min_size(text_edit_size);
+            self.evm_field.show(ui);
 
-         let text = RichText::new("Add").size(theme.typography.large);
-         let size = vec2(100.0, 25.0);
-         let button = Button::new(text).visuals(button_visuals).min_size(size);
-         ui.add(button)
-      });
+            self.zk_field.set_min_size(text_edit_size);
+            self.zk_field.show(ui);
 
-      if res.inner.clicked() {
+            let text = RichText::new("Add").size(theme.typography.large);
+            let size = vec2(100.0, 25.0);
+            let button = Button::new(text).visuals(button_visuals).min_size(size);
+            add_clicked = ui.add(button).clicked();
+
+            name_field
+         })
+         .inner;
+
+      if add_clicked {
          self.contact.evm_address = self.evm_field.text().to_owned();
          self.contact.zk_address = self.zk_field.text().to_owned();
          on_add_contact(self.contact.clone(), reset_on_success);
       }
+
+      name_field
    }
 }
 
@@ -449,6 +462,10 @@ pub struct ContactsUi {
    qr_window: QrWindow,
    /// The words the QR page raised, drained by the Settings window after the page is drawn.
    notice: Option<String>,
+   /// Open the add-contact form with the focus on its name field, once.
+   focus_name_pending: bool,
+   /// Give the focus back to the Add Contact button when the list is drawn again, once.
+   focus_add_pending: bool,
 }
 
 impl ContactsUi {
@@ -461,6 +478,8 @@ impl ContactsUi {
          edit_contact: EditContact::new(),
          qr_window: QrWindow::new(),
          notice: None,
+         focus_name_pending: false,
+         focus_add_pending: false,
       }
    }
 
@@ -524,7 +543,14 @@ impl ContactsUi {
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = theme.spacing.md;
                ui.label(RichText::new("Add contact").size(theme.typography.heading));
-               self.add_contact.body(theme, true, ui);
+               let name_field = self.add_contact.body(theme, true, ui);
+
+               // The page opens on the field the user came to fill, once, on the frame the form
+               // has painted: a sizing pass draws nothing a reader can be handed the focus on.
+               if self.focus_name_pending && !ui.is_sizing_pass() {
+                  name_field.request_focus();
+                  self.focus_name_pending = false;
+               }
             });
          },
       );
@@ -600,6 +626,13 @@ impl ContactsUi {
             self.qr_window.zk_address_qr.clear(ui.ctx());
             self.qr_window.reset();
          }
+
+         // Back leaves the user on the list, at the button that opened the form: the focus
+         // follows them there when the list is drawn again.
+         if self.view == ContactsPageView::Add {
+            self.focus_add_pending = true;
+         }
+
          self.view = ContactsPageView::List;
       }
       ui.add_space(8.0);
@@ -616,8 +649,16 @@ impl ContactsUi {
 
       let text = RichText::new("Add Contact").size(theme.typography.normal);
       let button = Button::new(text).visuals(button_visuals);
-      if ui.add(button).clicked() {
+      let add_contact = ui.add(button);
+
+      if add_contact.clicked() {
          self.view = ContactsPageView::Add;
+         self.focus_name_pending = true;
+         self.focus_add_pending = false;
+      } else if self.focus_add_pending && !ui.is_sizing_pass() {
+         // Back from the form: the button that opens it is where the user left off.
+         add_contact.request_focus();
+         self.focus_add_pending = false;
       }
 
       ui.add_space(12.0);

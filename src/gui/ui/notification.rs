@@ -247,11 +247,16 @@ impl Notification {
             let text = RichText::new("Transaction Details").size(theme.typography.normal);
             let button = Button::new(text).visuals(theme.button_visuals());
 
-            if ui.add_enabled(self.tx.is_some(), button).clicked() {
+            let details = ui.add_enabled(self.tx.is_some(), button);
+
+            if details.clicked() {
                let tx = self.tx.take();
+               // The dialog is drawn over this notification and hands the focus back here when
+               // it closes, so the button that opened it is remembered.
+               let opener = details.id;
                crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
-                     gui.tx_window.open(tx);
+                     gui.tx_window.open(tx, Some(opener));
                   });
                });
             }

@@ -37,7 +37,10 @@ use crate::gui::ui::wallet::import::{ImportWallet, ImportWalletType};
 use crate::gui::{GUI, LockScreen};
 use crate::utils::swap_quoter::SwapStep;
 use egui::accesskit::{Action, ActionRequest, Live, Node, NodeId, Role, Toggled, TreeId};
-use egui::{Context, Event, Key, Modifiers, PointerButton, RawInput, Rect, Ui, pos2, vec2};
+use egui::{
+   Context, Event, Id, Key, Modifiers, PointerButton, RawInput, Rect, Sense, Ui, WidgetInfo, pos2,
+   vec2,
+};
 use egui_elements::{Theme, ThemeKind};
 use secure_types::SecureString;
 use std::sync::Arc;
@@ -10314,5 +10317,365 @@ fn a_contact_qr_page_says_which_address_it_shows() {
    assert!(
       !node_texts(qr).iter().any(|text| text.contains("bytes://")),
       "the QR must not read out its texture URI"
+   );
+}
+
+/// A button a test knows the id of, drawn before a dialog: it is where the dialog has to put the
+/// focus back when it closes.
+fn opener_button(ui: &mut Ui, id: Id, name: &str) {
+   let rect = Rect::from_min_size(ui.next_widget_position(), vec2(180.0, 24.0));
+   let response = ui.interact(rect, id, Sense::click());
+   response.widget_info(|| WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), name));
+}
+
+/// The node a frame left focused, looked up by the id the tree addresses it by.
+fn focused_node<'a>(ctx: &Context, nodes: &'a [(NodeId, Node)]) -> &'a Node {
+   let focused = ctx
+      .memory(|memory| memory.focused())
+      .expect("the frame must leave a node focused");
+
+   nodes
+      .iter()
+      .find(|(id, _)| *id == focused.accesskit_id())
+      .map(|(_, node)| node)
+      .expect("the focused node must be in the frame's tree")
+}
+
+/// Draw the receive window with the button that opened it beside it, in the same frame, so the
+/// focus the window gives back can be looked up.
+fn render_receive_window_after(
+   ctx: &Context,
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   opener: Id,
+   events: Vec<Event>,
+) -> Vec<(NodeId, Node)> {
+   let mut nodes = Vec::new();
+
+   for pass in 0..3 {
+      let events = if pass == 2 {
+         events.clone()
+      } else {
+         Vec::new()
+      };
+      let theme = gui.theme.clone();
+
+      nodes = frame_nodes(ctx, events, |ui| {
+         opener_button(ui, opener, "Show QR Code");
+         zeus.write(|zeus| gui.account_panel.qr_window.show(zeus, &theme, ui));
+
+         if let Some(text) = gui.account_panel.take_notice() {
+            gui.announce(text);
+         }
+
+         gui.show_announcer(ui);
+      });
+   }
+
+   nodes
+}
+
+/// The receive window is about one address, so it opens on that address's copy button — not on
+/// the Close button the modal would otherwise leave the focus on.
+#[test]
+fn the_receive_window_opens_on_its_address_button() {
+   let (ctx, mut gui, zeus) = main_window();
+   let wallet = master_wallet("Main");
+   let address = wallet.address.to_string();
+
+   gui.account_panel.qr_window.open_for_test(Some(wallet));
+
+   let nodes = render_receive_window(&ctx, &mut gui, &zeus, Vec::new());
+   let spoken = crate::gui::ui::address_for_speech(None, &address);
+   let focused = focused_node(&ctx, &nodes);
+
+   assert_eq!(
+      focused.role(),
+      Role::Button,
+      "the first focus is the address button, not a picture or the Close button: {:?}",
+      focused.role()
+   );
+   assert_eq!(
+      focused.label(),
+      Some(spoken.name.as_str()),
+      "the focused button must be named with the whole address"
+   );
+}
+
+/// A window with no wallet has nothing to copy: its one control, Close, is where a reader lands.
+#[test]
+fn a_receive_window_without_a_wallet_opens_on_close() {
+   let (ctx, mut gui, zeus) = main_window();
+   gui.account_panel.qr_window.open_for_test(None);
+
+   let nodes = render_receive_window(&ctx, &mut gui, &zeus, Vec::new());
+   let focused = focused_node(&ctx, &nodes);
+
+   assert_eq!(
+      focused.label(),
+      Some("Close"),
+      "a window with nothing to copy opens on its one control"
+   );
+}
+
+/// Closing the receive window is not the end of the interaction: the control that opened it takes
+/// the focus back, so the reader is where they were.
+#[test]
+fn closing_the_receive_window_gives_the_focus_back() {
+   let (ctx, mut gui, zeus) = main_window();
+   let wallet = master_wallet("Main");
+   let opener = Id::unique("receive_window_opener");
+
+   gui.account_panel.qr_window.open_for_test_with_opener(Some(wallet), opener);
+
+   let nodes = render_receive_window_after(&ctx, &mut gui, &zeus, opener, Vec::new());
+   let close = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Close"))
+      .map(|(id, _)| *id)
+      .expect("the window must offer its Close button");
+
+   let nodes = render_receive_window_after(
+      &ctx,
+      &mut gui,
+      &zeus,
+      opener,
+      vec![accesskit_action(Action::Click, close)],
+   );
+
+   assert!(
+      !gui.account_panel.qr_window.is_open(),
+      "the Close button must close the window"
+   );
+
+   let focused = focused_node(&ctx, &nodes);
+
+   assert_eq!(
+      focused.label(),
+      Some("Show QR Code"),
+      "the control that opened the window takes the focus back"
+   );
+}
+
+/// The details window opens with the focus inside it: the reader lands on the window's heading,
+/// not on the root window.
+#[test]
+fn the_transaction_details_window_opens_on_its_heading() {
+   let (ctx, handle, theme, icons, _appearance) = prompt_harness();
+   let opener = Id::unique("transaction_details_opener");
+   let mut window = TxWindow::for_test_with_opener(
+      Some(TransactionRich::dummy_clear_signed()),
+      false,
+      opener,
+   );
+
+   let nodes = render_modal(&ctx, Vec::new(), |ui| {
+      opener_button(ui, opener, "Open transaction details");
+      handle.write(|zeus| window.show(zeus, &theme, icons.clone(), ui));
+   });
+
+   let focused = focused_node(&ctx, &nodes);
+
+   assert_eq!(
+      focused.role(),
+      Role::Heading,
+      "the first focus is the window's heading, not the root window: {:?}",
+      focused.role()
+   );
+   assert_eq!(
+      focused.label(),
+      Some("Transaction Details"),
+      "the focused heading must name the window"
+   );
+}
+
+/// Both exits hand the focus back to the control that opened the details window.
+#[test]
+fn closing_the_transaction_details_window_gives_the_focus_back() {
+   let (ctx, handle, theme, icons, _appearance) = prompt_harness();
+   let opener = Id::unique("transaction_details_opener");
+
+   let mut window = TxWindow::for_test_with_opener(
+      Some(TransactionRich::dummy_clear_signed()),
+      false,
+      opener,
+   );
+
+   let nodes = render_modal(&ctx, vec![key_press(Key::Escape)], |ui| {
+      opener_button(ui, opener, "Open transaction details");
+      handle.write(|zeus| window.show(zeus, &theme, icons.clone(), ui));
+   });
+
+   assert!(!window.is_open(), "Escape must close the window");
+   assert_eq!(
+      focused_node(&ctx, &nodes).label(),
+      Some("Open transaction details"),
+      "Escape must hand the focus back to the control that opened the window"
+   );
+
+   let mut window = TxWindow::for_test_with_opener(
+      Some(TransactionRich::dummy_clear_signed()),
+      false,
+      opener,
+   );
+
+   let nodes = render_modal(&ctx, Vec::new(), |ui| {
+      opener_button(ui, opener, "Open transaction details");
+      handle.write(|zeus| window.show(zeus, &theme, icons.clone(), ui));
+   });
+
+   let close = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Close"))
+      .map(|(id, _)| *id)
+      .expect("the window must offer its Close button");
+
+   let nodes = render_modal(
+      &ctx,
+      vec![accesskit_action(Action::Click, close)],
+      |ui| {
+         opener_button(ui, opener, "Open transaction details");
+         handle.write(|zeus| window.show(zeus, &theme, icons.clone(), ui));
+      },
+   );
+
+   assert!(
+      !window.is_open(),
+      "the Close button must close the window"
+   );
+   assert_eq!(
+      focused_node(&ctx, &nodes).label(),
+      Some("Open transaction details"),
+      "the Close button must hand the focus back the same way"
+   );
+}
+
+/// Opening the add-contact form puts the focus on the field the user came to fill.
+#[test]
+fn the_add_contact_form_opens_on_the_name_field() {
+   let (ctx, mut gui, zeus) = settings_window();
+   let nodes = open_settings_page(&ctx, &mut gui, &zeus, "Contacts");
+   let add = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Add Contact"))
+      .map(|(id, _)| *id)
+      .expect("the Contacts page must offer the Add Contact button");
+
+   let nodes = render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, add)],
+   );
+
+   let focused = focused_node(&ctx, &nodes);
+
+   assert_eq!(
+      node_name(&nodes, focused).as_deref(),
+      Some("Contact name"),
+      "the form must open on the field it exists to fill: {:?}",
+      focused.role()
+   );
+}
+
+/// Back leaves the user on the list, at the button that opened the form.
+#[test]
+fn back_from_the_add_contact_form_gives_the_focus_back() {
+   let (ctx, mut gui, zeus) = settings_window();
+   let nodes = open_settings_page(&ctx, &mut gui, &zeus, "Contacts");
+   let add = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Add Contact"))
+      .map(|(id, _)| *id)
+      .expect("the Contacts page must offer the Add Contact button");
+
+   let nodes = render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, add)],
+   );
+
+   let back = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Back"))
+      .map(|(id, _)| *id)
+      .expect("the add form must offer its Back button");
+
+   render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, back)],
+   );
+
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+   let focused = focused_node(&ctx, &nodes);
+
+   assert_eq!(
+      focused.role(),
+      Role::Button,
+      "Back must put the focus on the button that opened the form: {:?}",
+      focused.role()
+   );
+   assert_eq!(focused.label(), Some("Add Contact"));
+}
+
+/// The unlock prompt is what the window is for: it takes the focus on the first frame it paints,
+/// after the page heading behind it had already asked for it.
+#[test]
+fn the_unlock_vault_window_opens_on_its_own_title() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| {
+      zeus.vault_exists = true;
+      zeus.vault_unlocked = false;
+   });
+
+   // With a reader attached the app hands egui its focus model (`GUI::track_assistive_tech`);
+   // the unlock title is a plain label, and a label is focusable only under that model.
+   ctx.options_mut(|options| options.screen_reader = true);
+
+   let mut nodes = Vec::new();
+
+   for _ in 0..3 {
+      nodes = render_central(&ctx, &mut gui, &zeus, Vec::new());
+   }
+
+   let focused = focused_node(&ctx, &nodes);
+
+   assert_eq!(
+      focused.value(),
+      Some("Unlock your Vault"),
+      "the unlock prompt must take the focus from the page heading behind it"
+   );
+}
+
+/// The auto-lock card is the only thing on screen: it opens on its own title instead of leaving
+/// the focus on the page heading that held it when the lock fired.
+#[test]
+fn the_lock_screen_opens_on_its_own_title() {
+   let ctx = Context::default();
+   let (locked, mut screen, mut theme) = unlock_screen();
+   theme.install(&ctx);
+   // With a reader attached the app hands egui its focus model (`GUI::track_assistive_tech`);
+   // the card's title is a plain label, and a label is focusable only under that model.
+   ctx.options_mut(|options| options.screen_reader = true);
+
+   // The heading of the page the lock interrupted held the focus when the lock fired.
+   frame(&ctx, |ui| {
+      crate::gui::ui::common::heading(ui, "Home").request_focus();
+   });
+
+   render_unlock_screen(&ctx, &locked, &mut screen, &theme);
+
+   let nodes = frame_nodes(&ctx, Vec::new(), |ui| {
+      locked.write(|zeus| screen.show(zeus, &theme, ui));
+   });
+   let focused = focused_node(&ctx, &nodes);
+
+   assert_eq!(
+      focused.value(),
+      Some("Zeus is locked"),
+      "the lock card must take the focus from the page heading behind the lock"
    );
 }

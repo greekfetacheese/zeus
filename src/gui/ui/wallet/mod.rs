@@ -485,8 +485,12 @@ impl WalletUi {
                   self.open_rename_wallet(Some(wallet.clone()));
                }
 
-               if ui.add(MenuItem::new("Show address QR code")).clicked() {
-                  on_show_wallet_qr(wallet.clone());
+               let show_qr = ui.add(MenuItem::new("Show address QR code"));
+
+               if show_qr.clicked() {
+                  // The menu item is gone once the menu closes; the dots button that opened it
+                  // is still on the card when the QR window gives the focus back.
+                  on_show_wallet_qr(wallet.clone(), more.id);
                }
 
                let delete = ui.add_enabled(enabled, MenuItem::new("Delete"));
@@ -707,10 +711,10 @@ fn on_calc_wallet_value() {
    });
 }
 
-fn on_show_wallet_qr(wallet: WalletInfo) {
+fn on_show_wallet_qr(wallet: WalletInfo, opener: Id) {
    crate::runtime::rt().spawn_blocking(move || {
       SHARED_GUI.write(|gui| {
-         gui.account_panel.qr_window.open(wallet);
+         gui.account_panel.qr_window.open(wallet, Some(opener));
          gui.request_repaint();
       });
    });

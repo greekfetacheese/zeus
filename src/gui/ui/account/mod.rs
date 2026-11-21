@@ -407,7 +407,7 @@ impl AccountPanel {
 
                // QR Code Window
                if res.clicked() {
-                  self.qr_window.open(wallet.clone());
+                  self.qr_window.open(wallet.clone(), Some(res.id));
                }
 
                ui.separator();

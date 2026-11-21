@@ -30,6 +30,8 @@ use secure_types::SecureString;
 pub struct UnlockVault {
    pub credentials_form: CredentialsForm,
    pub size: (f32, f32),
+   /// True until the window's first painted frame has put the focus on its heading.
+   focus_pending: bool,
 }
 
 impl UnlockVault {
@@ -42,6 +44,7 @@ impl UnlockVault {
       Self {
          credentials_form,
          size: (550.0, 350.0),
+         focus_pending: true,
       }
    }
 
@@ -83,7 +86,17 @@ impl UnlockVault {
                ui.spacing_mut().button_padding = theme.button_padding;
                let ui_width = ui.available_width();
 
-               ui.label(RichText::new("Unlock your Vault").size(theme.typography.heading));
+               let heading_text = RichText::new("Unlock your Vault").size(theme.typography.heading);
+               let title = ui.label(heading_text);
+
+               // The page behind this window draws first and its heading takes the focus when a
+               // page changes; the prompt asks for it back here, on the first frame it paints and
+               // after that heading, so the first thing a reader is handed is what it is for.
+               // Its earlier passes are sizing, where the body is invisible and cannot hold it.
+               if self.focus_pending && !ui.is_sizing_pass() {
+                  title.request_focus();
+                  self.focus_pending = false;
+               }
 
                ui.scope(|ui| {
                   ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);

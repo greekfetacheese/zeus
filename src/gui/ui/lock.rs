@@ -16,6 +16,8 @@ use ncrypt_me::Credentials;
 pub struct LockScreen {
    credentials_form: CredentialsForm,
    size: (f32, f32),
+   /// True until the card's first painted frame has put the focus on its heading.
+   focus_pending: bool,
 }
 
 impl LockScreen {
@@ -28,6 +30,7 @@ impl LockScreen {
       Self {
          credentials_form,
          size: (550.0, 300.0),
+         focus_pending: true,
       }
    }
 
@@ -38,10 +41,15 @@ impl LockScreen {
 
    pub fn erase(&mut self) {
       self.credentials_form.erase();
+      // The next lock is a new card: it takes its own focus when it first paints.
+      self.focus_pending = true;
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !ctx.locked {
+         // The card is only drawn while locked: a flag left pending by a lock that ended before
+         // it painted must not fire on a later one.
+         self.focus_pending = false;
          return;
       }
 
@@ -64,7 +72,17 @@ impl LockScreen {
                ui.spacing_mut().button_padding = theme.button_padding;
                let ui_width = ui.available_width();
 
-               ui.label(RichText::new("Zeus is locked").size(theme.typography.heading));
+               let heading_text = RichText::new("Zeus is locked").size(theme.typography.heading);
+               let title = ui.label(heading_text);
+
+               // The page behind the card is not drawn while locked, so nothing else has asked
+               // for the focus: the card asks for it here, once, on the first frame it paints.
+               // Its earlier passes are sizing, where the body is invisible and cannot hold it.
+               if self.focus_pending && !ui.is_sizing_pass() {
+                  title.request_focus();
+                  self.focus_pending = false;
+               }
+
                ui.label(
                   RichText::new("Enter your credentials to continue")
                      .size(theme.typography.normal)

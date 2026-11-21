@@ -16,7 +16,7 @@ use crate::gui::{
    },
 };
 use crate::utils::truncate_address;
-use egui::{Align, Layout, Margin, Response, RichText, Sense, TextWrapMode, Ui, vec2};
+use egui::{Align, Id, Layout, Margin, Response, RichText, Sense, TextWrapMode, Ui, vec2};
 use egui_elements::{
    Button, Chip, ChipRole, ComboBox, Frame, Label, Spinner, Theme,
    layout::{Column, Table, TableHeader, TableScroll},
@@ -655,7 +655,7 @@ impl TxHistory {
                .corner_radius(theme.corner_radius)
                .visuals(theme.frame1_visuals());
 
-            let mut details_tx: Option<TransactionRich> = None;
+            let mut details_tx: Option<(TransactionRich, Id)> = None;
             let mut details_spent: Option<SpentHistoryRow> = None;
 
             if privacy {
@@ -717,7 +717,7 @@ impl TxHistory {
                         });
 
                         r.cell(|ui| {
-                           if details_cell(ui, theme, button_visuals, &row.action) {
+                           if details_cell(ui, theme, button_visuals, &row.action).clicked() {
                               details_spent = Some(row.clone());
                            }
                         });
@@ -781,8 +781,11 @@ impl TxHistory {
                         });
 
                         r.cell(|ui| {
-                           if details_cell(ui, theme, button_visuals, &row.tx.summary_name()) {
-                              details_tx = Some(row.tx.clone());
+                           let details =
+                              details_cell(ui, theme, button_visuals, &row.tx.summary_name());
+
+                           if details.clicked() {
+                              details_tx = Some((row.tx.clone(), details.id));
                            }
                         });
                      });
@@ -797,10 +800,10 @@ impl TxHistory {
                });
             }
 
-            if let Some(tx) = details_tx {
+            if let Some((tx, opener)) = details_tx {
                crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
-                     gui.tx_window.open(Some(tx));
+                     gui.tx_window.open(Some(tx), Some(opener));
                   });
                });
             }
@@ -870,16 +873,16 @@ fn history_header(theme: &Theme, header: &mut TableHeader<'_>) {
 /// The Details button both history tables carry, hugging the right edge of its column.
 ///
 /// Every row draws the same word, so the node says which row this one opens: a reader that lists
-/// the table otherwise hears a column of identical "Details" buttons.
-fn details_cell(ui: &mut Ui, theme: &Theme, visuals: ButtonVisuals, action: &str) -> bool {
-   let mut clicked = false;
+/// the table otherwise hears a column of identical "Details" buttons. The response is handed back
+/// so the button's id can be remembered as the opener the details window gives the focus to.
+fn details_cell(ui: &mut Ui, theme: &Theme, visuals: ButtonVisuals, action: &str) -> Response {
    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
       let text = RichText::new("Details").size(theme.typography.normal);
       let button = Button::new(text).visuals(visuals);
       let name = format!("Details for {action}");
-      clicked = ui.add(button).accessible_name(name).clicked();
-   });
-   clicked
+      ui.add(button).accessible_name(name)
+   })
+   .inner
 }
 
 /// How a private-history amount reads: the value, the name it goes by, and the token when Zeus prices

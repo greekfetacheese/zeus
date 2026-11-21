@@ -6,7 +6,7 @@
 use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::common::{address_for_speech, name_address, name_text, spoken_wallet_name};
-use egui::{Order, RichText, Ui, vec2};
+use egui::{Id, Order, Response, RichText, Ui, vec2};
 use egui_elements::{Button, Modal, QrImage, Spinner, Theme, components::QrEncoding};
 
 const QR_IMAGE_SIZE: u32 = 250;
@@ -22,6 +22,10 @@ pub struct QrWindow {
    size: (f32, f32),
    /// The words this window wants said, drained by the panel that draws it.
    notice: Option<String>,
+   /// The control that opened the window, focused again when the window closes.
+   opener: Option<Id>,
+   /// True until the opening painted frame has put focus on the window's first control.
+   focus_pending: bool,
 }
 
 impl QrWindow {
@@ -33,6 +37,8 @@ impl QrWindow {
          zk_address_qr: QrImage::empty_with_error("No QR code found".to_string()),
          size: (450.0, 400.0),
          notice: None,
+         opener: None,
+         focus_pending: false,
       }
    }
 
@@ -40,7 +46,9 @@ impl QrWindow {
       self.open
    }
 
-   pub fn open(&mut self, wallet: WalletInfo) {
+   /// Open the window on `wallet`, remembering `opener` — the control whose focus the window
+   /// gives back when it closes.
+   pub fn open(&mut self, wallet: WalletInfo, opener: Option<Id>) {
       let wallet_clone = wallet.clone();
 
       crate::runtime::rt().spawn_blocking(move || {
@@ -69,6 +77,8 @@ impl QrWindow {
 
       self.open = true;
       self.wallet = Some(wallet_clone);
+      self.opener = opener;
+      self.focus_pending = true;
    }
 
    pub fn close(&mut self) {
@@ -129,11 +139,15 @@ impl QrWindow {
                      .size(theme.typography.normal),
                   );
                   ui.add(Spinner::new().size(17.0));
-                  self.close_button(theme, ui);
+                  let close = self.close_button(theme, ui);
+                  self.focus_first_control(close, ui);
                   return;
                }
 
                let frame = theme.frame2;
+               // The window's first control, focused when it opens: the address copy, or the
+               // Close button when there is no address to copy.
+               let mut first_control = None;
 
                // Wallet Name and Address
                if let Some(wallet) = self.wallet.as_ref() {
@@ -171,6 +185,8 @@ impl QrWindow {
                            ui.ctx().copy_text(address);
                            notice = Some("Address copied.".to_string());
                         }
+
+                        first_control = Some(response);
                      }
                   });
                }
@@ -192,7 +208,8 @@ impl QrWindow {
 
                ui.add_space(20.0);
 
-               self.close_button(theme, ui);
+               let close = self.close_button(theme, ui);
+               self.focus_first_control(first_control.unwrap_or(close), ui);
             });
          });
 
@@ -214,17 +231,39 @@ impl QrWindow {
    fn close_and_clear(&mut self, ctx: &egui::Context) {
       self.evm_address_qr.clear(ctx);
       self.zk_address_qr.clear(ctx);
+      self.restore_opener(ctx);
       self.reset();
    }
 
-   fn close_button(&mut self, theme: &Theme, ui: &mut Ui) {
+   /// Put the focus on the window's first control once, on the frame a reader can be handed.
+   ///
+   /// A shrink-wrapping modal spends its first passes sizing, where its body is invisible and
+   /// cannot hold the focus, so the request waits for the frame it actually paints.
+   fn focus_first_control(&mut self, first: Response, ui: &Ui) {
+      if self.focus_pending && !ui.is_sizing_pass() {
+         first.request_focus();
+         self.focus_pending = false;
+      }
+   }
+
+   /// Give the focus back to the control that opened the window.
+   fn restore_opener(&mut self, ctx: &egui::Context) {
+      if let Some(opener) = self.opener.take() {
+         ctx.memory_mut(|memory| memory.request_focus(opener));
+      }
+   }
+
+   fn close_button(&mut self, theme: &Theme, ui: &mut Ui) -> Response {
       let size = vec2(ui.available_width() * 0.9, 45.0);
       let text = RichText::new("Close").size(theme.typography.large);
       let button = Button::new(text).min_size(size);
+      let response = ui.add(button);
 
-      if ui.add(button).clicked() {
+      if response.clicked() {
          self.close_and_clear(ui.ctx());
       }
+
+      response
    }
 }
 
@@ -235,5 +274,12 @@ impl QrWindow {
    pub(crate) fn open_for_test(&mut self, wallet: Option<WalletInfo>) {
       self.open = true;
       self.wallet = wallet;
+      self.focus_pending = true;
+   }
+
+   /// Open on `wallet` with the button that opened it, so a test can check the focus comes back.
+   pub(crate) fn open_for_test_with_opener(&mut self, wallet: Option<WalletInfo>, opener: Id) {
+      self.open_for_test(wallet);
+      self.opener = Some(opener);
    }
 }
