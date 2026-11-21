@@ -2,11 +2,14 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use egui::{Align, FontId, Grid, Id, Layout, Margin, Order, RichText, Sense, Ui, vec2};
+use egui::{
+   Align, FontId, Grid, Id, Layout, Margin, Order, RichText, Role, Sense, Ui, WidgetInfo, vec2,
+};
 
 use crate::assets::icons::Icons;
 use crate::core::{PoolManagerHandle, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::common::{name_picker, name_text, next_widget_id};
 use crate::utils::truncate_symbol_or_name;
 use egui_elements::{
    Button, ChipRole, ComboBox, Label, Modal, SecureTextEdit, Spinner, Theme, Toast,
@@ -255,6 +258,10 @@ pub struct PoolsUi {
    rows_key: PoolRowsKey,
    /// True while a background row build is in flight.
    rows_loading: bool,
+   /// The row count a reader was last told about, so a moved count is said once.
+   rows_announced: Option<usize>,
+   /// The sentence the window wants said, drained by it right after the page has drawn.
+   notice: Option<String>,
 }
 
 impl PoolsUi {
@@ -267,7 +274,52 @@ impl PoolsUi {
          rows: Vec::new(),
          rows_key: PoolRowsKey::default(),
          rows_loading: false,
+         rows_announced: None,
+         notice: None,
       }
+   }
+
+   /// The words the window should say, drained by it right after the page has drawn.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
+   }
+
+   /// Open the Add Pool form the way its button does, for a test that draws the dialog.
+   #[cfg(test)]
+   pub fn open_add_pool_for_test(&mut self) {
+      self.add_form.open();
+   }
+
+   /// Stand the table up with rows already built, keyed for the chain and pool count the page is
+   /// about to be drawn with, so it draws them instead of asking the worker for a set that would
+   /// land in the global `GUI` rather than in this one.
+   #[cfg(test)]
+   pub fn seed_rows_for_test(
+      &mut self,
+      chain: u64,
+      pools: usize,
+      rows: Vec<(Currency, Currency, &'static str, String)>,
+      icons: &Icons,
+      tint: bool,
+   ) {
+      self.rows = rows
+         .into_iter()
+         .map(|(token0, token1, protocol, fee)| PoolRow {
+            token0: truncate_symbol_or_name(token0.symbol(), 10),
+            token1: truncate_symbol_or_name(token1.symbol(), 10),
+            icon0: icons.currency_icon_x32(&token0, tint),
+            icon1: icons.currency_icon_x32(&token1, tint),
+            protocol,
+            fee,
+         })
+         .collect();
+
+      self.rows_key = PoolRowsKey {
+         chain,
+         version: self.version.unwrap_or(Version::All),
+         query: self.search_query.clone(),
+         pools,
+      };
    }
 
    fn select_version(&mut self, theme: &Theme, ui: &mut Ui) {
@@ -275,6 +327,7 @@ impl PoolsUi {
          theme,
          ui,
          "pool_explore_combobox",
+         "Pool version",
          self.version,
          &Version::all(),
       ) {
@@ -303,7 +356,10 @@ impl PoolsUi {
             |ui| {
                ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
+               // The field's only label is the placeholder it draws while it is empty, which is a
+               // hint rather than a name.
                SecureTextEdit::singleline(&mut self.search_query)
+                  .accessible_name("Search pools")
                   .visuals(theme.text_edit_visuals())
                   .hint_text(hint)
                   .desired_width(SEARCH_FIELD_WIDTH)
@@ -335,11 +391,34 @@ impl PoolsUi {
             theme.image_tint_recommended,
          );
 
+         // The rows are rebuilt on a worker thread, so the count a reader hears is the one that has
+         // arrived. It is said when it moves, and never while a build is still in flight — there is
+         // no count yet to talk about.
+         if !self.rows_loading && self.rows_announced != Some(self.rows.len()) {
+            self.rows_announced = Some(self.rows.len());
+
+            self.notice = Some(match self.rows.len() {
+               0 => "No pools match this filter.".to_string(),
+               1 => "1 pool matches this filter.".to_string(),
+               count => format!("{count} pools match this filter."),
+            });
+         }
+
          if self.rows.is_empty() {
             ui.add_space(theme.spacing.lg);
 
             if self.rows_loading {
-               ui.add(Spinner::new().size(20.0));
+               let spinner = ui.add(Spinner::new().size(20.0));
+
+               // The table is not there yet and the spinner is a picture with no words: it says
+               // what is being fetched.
+               spinner.widget_info(|| {
+                  WidgetInfo::labeled(
+                     Role::ProgressIndicator,
+                     ui.is_enabled(),
+                     "Loading pools",
+                  )
+               });
             } else {
                ui.label(
                   RichText::new("No pools match this filter.")
@@ -386,7 +465,7 @@ impl PoolsUi {
 
                t.rows(|r, row| {
                   r.cell(|ui| {
-                     ui.horizontal(|ui| {
+                     let pair = ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = theme.spacing.xs;
 
                         let label0 = Label::new(
@@ -403,16 +482,30 @@ impl PoolsUi {
                         .image_on_left()
                         .interactive(false);
 
-                        ui.add(label0);
-                        ui.add(
+                        let token0 = ui.add(label0);
+                        let slash = ui.add(
                            Label::new(
                               RichText::new("/").size(theme.typography.normal),
                               None,
                            )
                            .interactive(false),
                         );
-                        ui.add(label1);
+                        let token1 = ui.add(label1);
+
+                        (token0.id, slash.id, token1.id)
                      });
+
+                     // The cell draws the pair as three separate words, which reads as three
+                     // unrelated items: the row says the pair once and the pieces leave the tree.
+                     name_text(
+                        ui,
+                        &pair.response,
+                        format!("{} / {}", row.token0, row.token1),
+                     );
+
+                     for id in [pair.inner.0, pair.inner.1, pair.inner.2] {
+                        ui.ctx().accesskit_node_builder(id, |node| node.set_hidden());
+                     }
                   });
 
                   r.cell(|ui| {
@@ -462,12 +555,14 @@ impl PoolsUi {
                vec2(ui.available_width(), FIELD_ROW_HEIGHT),
                Layout::left_to_right(Align::Center),
                |ui| {
-                  ui.label(RichText::new("Pool version").size(theme.typography.large));
+                  let caption = ui.label(RichText::new("Pool version").size(theme.typography.large));
+                  ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
 
                   if let Some(version) = version_combo(
                      theme,
                      ui,
                      "add_pool_version_combo",
+                     "Pool version",
                      Some(form.version),
                      &Version::add_options(),
                   ) {
@@ -482,21 +577,25 @@ impl PoolsUi {
                .num_columns(2)
                .spacing(vec2(theme.spacing.md, theme.spacing.sm))
                .show(ui, |ui| {
-                  ui.label(RichText::new("Token A").size(theme.typography.large));
+                  let caption = ui.label(RichText::new("Token A").size(theme.typography.large));
+                  ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
                   form_text_field(
                      theme,
                      ui,
                      &mut form.token_a,
+                     "Token A",
                      "0x… (empty = native ETH)",
                      field_width,
                   );
                   ui.end_row();
 
-                  ui.label(RichText::new("Token B").size(theme.typography.large));
+                  let caption = ui.label(RichText::new("Token B").size(theme.typography.large));
+                  ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
                   form_text_field(
                      theme,
                      ui,
                      &mut form.token_b,
+                     "Token B",
                      "0x… (empty = native ETH)",
                      field_width,
                   );
@@ -505,10 +604,12 @@ impl PoolsUi {
                   if !form.version.is_v2() {
                      let allow_custom = form.version.is_v4();
 
-                     ui.label(RichText::new("Fee").size(theme.typography.large));
+                     let caption = ui.label(RichText::new("Fee").size(theme.typography.large));
+                     ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
                      fee_combo(
                         theme,
                         ui,
+                        "Fee tier",
                         &mut form.fee,
                         &mut form.v4_custom_fee,
                         &mut form.custom_fee,
@@ -517,11 +618,14 @@ impl PoolsUi {
                      ui.end_row();
 
                      if allow_custom && form.v4_custom_fee {
-                        ui.label(RichText::new("Custom fee").size(theme.typography.large));
+                        let caption =
+                           ui.label(RichText::new("Custom fee").size(theme.typography.large));
+                        ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
                         form_text_field(
                            theme,
                            ui,
                            &mut form.custom_fee,
+                           "Custom fee",
                            "Hundredths of a bip, e.g. 2500 = 0.25%, 0 = no fee",
                            field_width,
                         );
@@ -530,21 +634,26 @@ impl PoolsUi {
                   }
 
                   if form.version.is_v4() {
-                     ui.label(RichText::new("Tick spacing").size(theme.typography.large));
+                     let caption =
+                        ui.label(RichText::new("Tick spacing").size(theme.typography.large));
+                     ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
                      form_text_field(
                         theme,
                         ui,
                         &mut form.tick_spacing,
+                        "Tick spacing",
                         "Optional, defaults to the fee tier",
                         field_width,
                      );
                      ui.end_row();
 
-                     ui.label(RichText::new("Hooks").size(theme.typography.large));
+                     let caption = ui.label(RichText::new("Hooks").size(theme.typography.large));
+                     ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
                      form_text_field(
                         theme,
                         ui,
                         &mut form.hooks,
+                        "Hooks",
                         "Optional, defaults to no hooks",
                         field_width,
                      );
@@ -569,18 +678,34 @@ impl PoolsUi {
             );
 
             if let Some(error) = &form.error {
-               ui.label(
+               let alert = ui.label(
                   RichText::new(error)
                      .size(theme.typography.normal)
                      .color(theme.colors.error),
                );
+
+               // The refusal is a sentence that appears, not a colour: it is an alert named with its
+               // own words, so a reader is told why the form did not submit.
+               alert.widget_info(|| {
+                  WidgetInfo::labeled(Role::Alert, ui.is_enabled(), error.as_str())
+               });
             }
 
             ui.add_space(theme.spacing.sm);
 
             if adding {
                ui.vertical_centered(|ui| {
-                  ui.add(Spinner::new().size(20.0));
+                  let spinner = ui.add(Spinner::new().size(20.0));
+
+                  // A spinner is a picture with no words: it says what the lookup is waiting for.
+                  spinner.widget_info(|| {
+                     WidgetInfo::labeled(
+                        Role::ProgressIndicator,
+                        ui.is_enabled(),
+                        "Looking up the pool on chain",
+                     )
+                  });
+
                   ui.label(
                      RichText::new("Looking up the pool on chain…")
                         .size(theme.typography.normal)
@@ -745,6 +870,7 @@ fn version_combo(
    theme: &Theme,
    ui: &mut Ui,
    id: &str,
+   caption: &str,
    current: Option<Version>,
    versions: &[Version],
 ) -> Option<Version> {
@@ -752,6 +878,9 @@ fn version_combo(
    let selected_text = RichText::new(selected_text).size(theme.typography.normal);
    let selected_label = Label::new(selected_text, None).sense(Sense::click()).interactive(true);
 
+   // The trigger's node is the next widget this ui allocates, and the crate keeps the popup under
+   // an id it takes before the list is drawn, so the id is read here first.
+   let trigger_id = next_widget_id(ui);
    let mut selected = None;
 
    ComboBox::new(id, selected_label).width(VERSION_COMBO_WIDTH).show_ui(ui, |ui| {
@@ -764,21 +893,54 @@ fn version_combo(
             .sense(Sense::click())
             .interactive(true);
 
-         if ui.add(label).clicked() {
+         let is_selected = Some(*version) == current;
+         let response = ui.add(label);
+
+         // The rows are clickable labels that say nothing about the state they carry: a radio
+         // button says which version this one is and whether it is the one in force.
+         response.widget_info(|| {
+            WidgetInfo::selected(
+               Role::RadioButton,
+               ui.is_enabled(),
+               is_selected,
+               version.to_str(),
+            )
+         });
+
+         if response.clicked() {
             selected = Some(*version);
          }
       }
    });
 
+   // The trigger draws the version alone, so two pickers on one form read the same: the caption the
+   // row draws names it, and it is read after the popup so a version picked this frame is the one
+   // named.
+   let shown = selected.or(current).map(|v| v.to_str()).unwrap_or("Select Version");
+   name_picker(ui, trigger_id, caption, shown);
+
    selected
 }
 
-fn form_text_field(theme: &Theme, ui: &mut Ui, value: &mut String, hint: &str, width: f32) {
+/// One field of the add-pool grid, named after the caption the grid draws beside it.
+///
+/// The placeholder the field draws is a hint, not a name: it explains the format, and it is gone as
+/// soon as there is text. The caption is what a reader needs, so it is taken here and put on the
+/// field's own node.
+fn form_text_field(
+   theme: &Theme,
+   ui: &mut Ui,
+   value: &mut String,
+   caption: &str,
+   hint: &str,
+   width: f32,
+) {
    let hint = RichText::new(hint).color(theme.colors.text_muted).size(theme.typography.normal);
    let visuals = theme.text_edit_visuals();
 
    ui.allocate_ui(vec2(width, FIELD_ROW_HEIGHT), |ui| {
       SecureTextEdit::singleline(value)
+         .accessible_name(caption)
          .visuals(visuals)
          .hint_text(hint)
          .margin(Margin::same(10))
@@ -791,6 +953,7 @@ fn form_text_field(theme: &Theme, ui: &mut Ui, value: &mut String, hint: &str, w
 fn fee_combo(
    theme: &Theme,
    ui: &mut Ui,
+   caption: &str,
    fee: &mut u32,
    custom: &mut bool,
    custom_fee: &mut String,
@@ -804,34 +967,68 @@ fn fee_combo(
    let selected_text = RichText::new(selected_text).size(theme.typography.normal);
    let selected_label = Label::new(selected_text, None).sense(Sense::click()).interactive(true);
 
+   let trigger_id = next_widget_id(ui);
+
    ComboBox::new("add_pool_fee_combo", selected_label)
       .width(160.0)
       .show_ui(ui, |ui| {
          for tier in FEE_TIERS {
-            let text = RichText::new(fee_label(tier)).size(theme.typography.normal);
-            let label = Label::new(text, None)
-               .expand(Some(4.0))
-               .fill_width(true)
-               .visuals(theme.label_visuals())
-               .sense(Sense::click())
-               .interactive(true);
+            let text = fee_label(tier);
+            let is_selected = *fee == tier && !*custom;
+            let label = Label::new(
+               RichText::new(&text).size(theme.typography.normal),
+               None,
+            )
+            .expand(Some(4.0))
+            .fill_width(true)
+            .visuals(theme.label_visuals())
+            .sense(Sense::click())
+            .interactive(true);
 
-            if ui.add(label).clicked() {
+            let response = ui.add(label);
+
+            // The rows are clickable labels that say nothing about the state they carry: a radio
+            // button says which tier this one is and whether it is the one on the trigger.
+            response.widget_info(|| {
+               WidgetInfo::selected(
+                  Role::RadioButton,
+                  ui.is_enabled(),
+                  is_selected,
+                  &text,
+               )
+            });
+
+            if response.clicked() {
                *fee = tier;
                *custom = false;
             }
          }
 
          if allow_custom {
-            let text = RichText::new("Custom").size(theme.typography.normal);
-            let label = Label::new(text, None)
-               .expand(Some(4.0))
-               .fill_width(true)
-               .visuals(theme.label_visuals())
-               .sense(Sense::click())
-               .interactive(true);
+            let text = "Custom";
+            let is_selected = *custom;
+            let label = Label::new(
+               RichText::new(text).size(theme.typography.normal),
+               None,
+            )
+            .expand(Some(4.0))
+            .fill_width(true)
+            .visuals(theme.label_visuals())
+            .sense(Sense::click())
+            .interactive(true);
 
-            if ui.add(label).clicked() {
+            let response = ui.add(label);
+
+            response.widget_info(|| {
+               WidgetInfo::selected(
+                  Role::RadioButton,
+                  ui.is_enabled(),
+                  is_selected,
+                  text,
+               )
+            });
+
+            if response.clicked() {
                *custom = true;
 
                if custom_fee.trim().is_empty() {
@@ -840,6 +1037,15 @@ fn fee_combo(
             }
          }
       });
+
+   // The trigger draws the fee alone: the caption the row says names the node, and the value is read
+   // after the popup so a tier picked this frame is the one named.
+   let value = if allow_custom && *custom {
+      custom_fee_label(custom_fee)
+   } else {
+      fee_label(*fee)
+   };
+   name_picker(ui, trigger_id, caption, &value);
 }
 
 fn fee_label(fee: u32) -> String {

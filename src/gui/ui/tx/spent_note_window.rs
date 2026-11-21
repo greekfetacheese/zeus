@@ -209,6 +209,12 @@ impl SpentNoteWindow {
                }
             });
          });
+
+      // A dismissal is the Close button: nothing awaits an answer here, so the key closes the
+      // dialog instead of doing nothing.
+      if !open {
+         self.close();
+      }
    }
 }
 

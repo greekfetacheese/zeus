@@ -22,8 +22,8 @@ use crate::gui::{
    ui::{ChainSelect, WalletSelect, common::*},
 };
 use egui::{
-   Align, CursorIcon, FontId, Layout, Margin, OpenUrl, Rect, RichText, ScrollArea, Shadow, Stroke,
-   TextWrapMode, Ui, pos2, vec2,
+   Align, CursorIcon, FontId, Layout, Margin, OpenUrl, Rect, Response, RichText, Role, ScrollArea,
+   Shadow, Stroke, TextWrapMode, Ui, WidgetInfo, pos2, vec2,
 };
 use std::sync::Arc;
 use zeus_eth::types::ChainId;
@@ -40,6 +40,42 @@ const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
 fn short_origin(origin: &str) -> &str {
    let host = origin.split_once("://").map_or(origin, |(_, host)| host);
    host.trim_end_matches('/')
+}
+
+/// What the Railgun row says to a reader. The dot is hidden from the tree, so the row's label
+/// carries the state: the service first, then where its sync stands.
+fn railgun_row_name(state: IndicatorState) -> String {
+   let word = match state {
+      IndicatorState::On => "synced",
+      IndicatorState::Off => "off",
+      IndicatorState::Connecting => "syncing",
+   };
+
+   format!("Railgun, {word}")
+}
+
+/// What the Wallet Connector row says to a reader, in the Railgun row's shape: the dot is hidden
+/// and the label names the service and its state.
+fn wallet_connector_row_name(state: IndicatorState) -> String {
+   let word = match state {
+      IndicatorState::On => "running",
+      IndicatorState::Off => "off",
+      IndicatorState::Connecting => "starting",
+   };
+
+   format!("Wallet Connector, {word}")
+}
+
+/// Put a service row's one sentence on the node a reader hears.
+///
+/// AccessKit names a `Role::Label` node from the node's value rather than its label, so the
+/// sentence replaces the drawn word there. The label gets the same sentence, so whichever of the
+/// two a consumer reads, the row says exactly one thing.
+pub(crate) fn name_service_row(ui: &Ui, label: Response, name: String) {
+   ui.ctx().accesskit_node_builder(label.id, |node| {
+      node.set_value(name.clone());
+      node.set_label(name);
+   });
 }
 
 /// Width of the panel's rows. The selectors set it; everything else matches it so
@@ -82,6 +118,8 @@ pub struct AccountPanel {
    body_heights: [f32; 2],
    /// Machine vitals for the Diagnostics tab, refreshed off the frame path.
    vitals: SystemVitals,
+   /// The words the panel itself wants said, drained by the left panel after the panel draws.
+   notice: Option<String>,
 }
 
 impl AccountPanel {
@@ -102,7 +140,13 @@ impl AccountPanel {
          tab: 0,
          body_heights: [0.0; 2],
          vitals: SystemVitals::default(),
+         notice: None,
       }
+   }
+
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      self.delegate.set_field_controls(shown);
    }
 
    pub fn erase(&mut self) {
@@ -132,6 +176,14 @@ impl AccountPanel {
 
    pub fn set_current_chain(&mut self, chain: ChainId) {
       self.chain_select.chain = chain;
+   }
+
+   /// The words the panel wants said, drained by the left panel right after the panel draws.
+   ///
+   /// Neither the receive window nor the header's address copy can announce on its own: the frame
+   /// holds the only channel, so each leaves its sentence here for the panel to hand up.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take().or_else(|| self.qr_window.take_notice())
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -318,6 +370,7 @@ impl AccountPanel {
 
             if ui.add(label).clicked() {
                ui.ctx().copy_text(full_address);
+               self.notice = Some("Address copied.".to_string());
             }
 
             // The QR / block-explorer actions, and the separators before them, are
@@ -331,7 +384,11 @@ impl AccountPanel {
                let link = format!("{}/address/{}", block_explorer, wallet.address);
                let icon = Lucide::ExternalLink.size(18.0).color(icon_color).image();
 
-               let button = Button::image(icon).visuals(btn_visuals).small();
+               // A picture of a link: the text alternative says where pressing it goes.
+               let button = Button::image(icon)
+                  .visuals(btn_visuals)
+                  .small()
+                  .alt("Open the address in the block explorer");
                let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
                if res.clicked() {
@@ -343,12 +400,14 @@ impl AccountPanel {
 
                let icon = Lucide::QrCode.size(18.0).color(icon_color).image();
 
-               let button = Button::image(icon).visuals(btn_visuals).small();
+               // A picture of a QR code: the text alternative names what pressing it opens, in
+               // the words the dialog's own button carries.
+               let button = Button::image(icon).visuals(btn_visuals).small().alt("Show QR Code");
                let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
                // QR Code Window
                if res.clicked() {
-                  self.qr_window.open(wallet.clone());
+                  self.qr_window.open(wallet.clone(), Some(res.id));
                }
 
                ui.separator();
@@ -385,9 +444,11 @@ impl AccountPanel {
                false => IndicatorState::On,
             };
 
-            let indicator = Indicator::new(state).size(12.0);
+            // The dot is Off precisely when the wallet is delegated, and it tells a reader
+            // "status: off", the opposite of the word beside it. The word is the row's only node.
+            let indicator = ui.add(Indicator::new(state).size(12.0));
+            ui.ctx().accesskit_node_builder(indicator.id, |node| node.set_hidden());
 
-            ui.add(indicator);
             ui.add(label).on_hover_text(tip_text);
 
             // Align this separator with the one above it.
@@ -397,6 +458,8 @@ impl AccountPanel {
 
             let size = vec2(24.0, 12.0);
             let more = dots_button(theme, size, ui);
+            let options = "Delegation options";
+            more.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), options));
 
             if more.clicked() && !self.delegate.is_open() {
                self.delegate.open();
@@ -485,12 +548,14 @@ impl AccountPanel {
                sync_state = IndicatorState::Off;
             }
 
-            ui.add(Indicator::new(sync_state));
+            let indicator = ui.add(Indicator::new(sync_state));
+            ui.ctx().accesskit_node_builder(indicator.id, |node| node.set_hidden());
 
             ui.add_space(10.0);
 
             let label = RichText::new("Railgun").size(theme.typography.small);
-            ui.label(label);
+            let label = ui.label(label);
+            name_service_row(ui, label, railgun_row_name(sync_state));
 
             ui.add_space(10.0);
 
@@ -509,6 +574,8 @@ impl AccountPanel {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                let size = vec2(24.0, 12.0);
                let more = dots_button(theme, size, ui);
+               let options = "Railgun options";
+               more.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), options));
                Menu::new(("svc_menu", "railgun_id")).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("View last error")).clicked() {
                      let error_opt = ctx.railgun_status().sync_error(chain.id());
@@ -554,16 +621,20 @@ impl AccountPanel {
                false => IndicatorState::Connecting,
             };
 
-            ui.add(Indicator::new(state));
+            let indicator = ui.add(Indicator::new(state));
+            ui.ctx().accesskit_node_builder(indicator.id, |node| node.set_hidden());
 
             ui.add_space(10.0);
 
             let label = RichText::new("Wallet Connector").size(theme.typography.small);
-            ui.label(label);
+            let label = ui.label(label);
+            name_service_row(ui, label, wallet_connector_row_name(state));
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                let size = vec2(24.0, 12.0);
                let more = dots_button(theme, size, ui);
+               let options = "Wallet Connector options";
+               more.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), options));
                Menu::new(("svc_menu", "wallet_connector_id")).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("Settings")).clicked() {
                      crate::runtime::rt().spawn_blocking(move || {
@@ -613,5 +684,45 @@ impl AccountPanel {
             switch_wallet(ctx, self.wallet_select.wallet.clone());
          }
       });
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// A service row's dot is hidden from the tree, so its one node is the label: the service and
+   /// its state, in reading order, never the dot's "status: on".
+   #[test]
+   fn the_railgun_row_says_the_service_and_its_state() {
+      assert_eq!(
+         railgun_row_name(IndicatorState::On),
+         "Railgun, synced"
+      );
+      assert_eq!(
+         railgun_row_name(IndicatorState::Connecting),
+         "Railgun, syncing"
+      );
+      assert_eq!(
+         railgun_row_name(IndicatorState::Off),
+         "Railgun, off"
+      );
+   }
+
+   /// The Wallet Connector row follows the same shape, with the words that connector uses.
+   #[test]
+   fn the_wallet_connector_row_says_the_service_and_its_state() {
+      assert_eq!(
+         wallet_connector_row_name(IndicatorState::On),
+         "Wallet Connector, running"
+      );
+      assert_eq!(
+         wallet_connector_row_name(IndicatorState::Connecting),
+         "Wallet Connector, starting"
+      );
+      assert_eq!(
+         wallet_connector_row_name(IndicatorState::Off),
+         "Wallet Connector, off"
+      );
    }
 }

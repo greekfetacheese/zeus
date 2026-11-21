@@ -664,7 +664,7 @@ impl UiTesting {
                let tx = TransactionRich::dummy_clear_signed();
                crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
-                     gui.tx_window.open(Some(tx));
+                     gui.tx_window.open(Some(tx), None);
                   });
                });
             }

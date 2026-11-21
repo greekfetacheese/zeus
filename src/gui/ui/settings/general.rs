@@ -2,7 +2,7 @@
 
 use crate::core::ZeusContext;
 use crate::core::urls::{UrlPurpose, purpose_tip};
-use egui::{Align, Layout, RichText, Ui, vec2};
+use egui::{Align, Layout, RichText, Role, Ui, WidgetInfo, vec2};
 use egui_elements::{Button, Checkbox, Chip, ChipRole, Slider, Theme};
 use std::sync::OnceLock;
 
@@ -45,6 +45,8 @@ pub struct GeneralSettings {
    concurrency_for_discovering_pools: usize,
    batch_size_for_syncing_balances: usize,
    batch_size_for_updating_pools_state: usize,
+   /// The words the last reset or save should say, drained by the window and announced by the app.
+   notice: Option<String>,
 }
 
 impl GeneralSettings {
@@ -59,6 +61,7 @@ impl GeneralSettings {
          concurrency_for_discovering_pools: 1,
          batch_size_for_syncing_balances: 1,
          batch_size_for_updating_pools_state: 1,
+         notice: None,
       };
       this.sync_from_ctx(ctx);
       this
@@ -102,6 +105,12 @@ impl GeneralSettings {
       pool_manager.reset_default_settings();
       balance_manager.reset_default_settings();
       self.sync_from_ctx(ctx);
+      self.notice = Some("Pool and balance settings reset to their defaults.".to_string());
+   }
+
+   /// The words this page's last action should say, drained by the window right after it draws.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
@@ -112,8 +121,9 @@ impl GeneralSettings {
       let slider_size = vec2((ui.available_width() * 0.5).min(360.0), 20.0);
       ui.add_space(10.0);
 
-      let header = RichText::new("External Data").size(theme.typography.very_large);
-      ui.label(header);
+      let text = "External Data";
+      let title = ui.label(RichText::new(text).size(theme.typography.very_large));
+      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
 
       let q_mark_text = RichText::new("?").size(theme.typography.normal);
       let qmark = Chip::new(q_mark_text.clone()).role(ChipRole::Info);
@@ -127,12 +137,20 @@ impl GeneralSettings {
          Layout::left_to_right(Align::Center),
          |ui| {
             let checkbox = Checkbox::new(&mut self.fetch_asset_images, icons_text);
-            if ui.add(checkbox).changed() {
+            let control = ui.add(checkbox);
+
+            if control.changed() {
                ctx.misc_config.set_fetch_asset_images(self.fetch_asset_images);
                Self::persist_misc(ctx);
             }
 
-            ui.add(qmark).on_hover_text(icons_tip());
+            let help = icons_tip();
+            let chip = ui.add(qmark).on_hover_text(help);
+
+            // The tip is the control's own description and the chip leaves the tree: a reader
+            // hears the explanation on the checkbox instead of visiting a separate "?".
+            ui.ctx().accesskit_node_builder(control.id, |node| node.set_description(help));
+            ui.ctx().accesskit_node_builder(chip.id, |node| node.set_hidden());
          },
       );
 
@@ -144,11 +162,18 @@ impl GeneralSettings {
          Layout::left_to_right(Align::Center),
          |ui| {
             let checkbox = Checkbox::new(&mut self.fetch_contract_names, names_text);
-            if ui.add(checkbox).changed() {
+            let control = ui.add(checkbox);
+
+            if control.changed() {
                ctx.misc_config.set_fetch_contract_names(self.fetch_contract_names);
                Self::persist_misc(ctx);
             }
-            ui.add(qmark).on_hover_text(names_tip());
+
+            let help = names_tip();
+            let chip = ui.add(qmark).on_hover_text(help);
+
+            ui.ctx().accesskit_node_builder(control.id, |node| node.set_description(help));
+            ui.ctx().accesskit_node_builder(chip.id, |node| node.set_hidden());
          },
       );
 
@@ -160,19 +185,27 @@ impl GeneralSettings {
          Layout::left_to_right(Align::Center),
          |ui| {
             let checkbox = Checkbox::new(&mut self.check_for_updates, updates_text);
-            if ui.add(checkbox).changed() {
+            let control = ui.add(checkbox);
+
+            if control.changed() {
                ctx.misc_config.set_check_for_updates(self.check_for_updates);
                Self::persist_misc(ctx);
             }
-            ui.add(qmark).on_hover_text(updates_tip());
+
+            let help = updates_tip();
+            let chip = ui.add(qmark).on_hover_text(help);
+
+            ui.ctx().accesskit_node_builder(control.id, |node| node.set_description(help));
+            ui.ctx().accesskit_node_builder(chip.id, |node| node.set_hidden());
          },
       );
 
       ui.separator();
       ui.add_space(10.0);
 
-      let header = RichText::new("Window").size(theme.typography.very_large);
-      ui.label(header);
+      let text = "Window";
+      let title = ui.label(RichText::new(text).size(theme.typography.very_large));
+      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
 
       let tray_text = RichText::new("Minimize to Tray").size(theme.typography.normal);
       let qmark = Chip::new(q_mark_text.clone()).role(ChipRole::Info);
@@ -182,11 +215,18 @@ impl GeneralSettings {
          Layout::left_to_right(Align::Center),
          |ui| {
             let checkbox = Checkbox::new(&mut self.minimize_to_tray, tray_text);
-            if ui.add(checkbox).changed() {
+            let control = ui.add(checkbox);
+
+            if control.changed() {
                ctx.misc_config.set_minimize_to_tray(self.minimize_to_tray);
                Self::persist_misc(ctx);
             }
-            ui.add(qmark).on_hover_text(TRAY_TIP);
+
+            let chip = ui.add(qmark).on_hover_text(TRAY_TIP);
+
+            ui.ctx()
+               .accesskit_node_builder(control.id, |node| node.set_description(TRAY_TIP));
+            ui.ctx().accesskit_node_builder(chip.id, |node| node.set_hidden());
          },
       );
 
@@ -197,8 +237,9 @@ impl GeneralSettings {
       // section is not offered there at all.
       #[cfg(target_os = "linux")]
       {
-         let header = RichText::new("Desktop").size(theme.typography.very_large);
-         ui.label(header);
+         let text = "Desktop";
+         let title = ui.label(RichText::new(text).size(theme.typography.very_large));
+         title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
 
          let desktop_text = RichText::new("Add to Application Menu").size(theme.typography.normal);
          let qmark = Chip::new(q_mark_text.clone()).role(ChipRole::Info);
@@ -208,12 +249,20 @@ impl GeneralSettings {
             Layout::left_to_right(Align::Center),
             |ui| {
                let checkbox = Checkbox::new(&mut self.desktop_integration, desktop_text);
-               if ui.add(checkbox).changed() {
+               let control = ui.add(checkbox);
+
+               if control.changed() {
                   ctx.misc_config.set_desktop_integration(self.desktop_integration);
                   Self::persist_misc(ctx);
                   Self::apply_desktop_integration(self.desktop_integration);
                }
-               ui.add(qmark).on_hover_text(DESKTOP_TIP);
+
+               let chip = ui.add(qmark).on_hover_text(DESKTOP_TIP);
+
+               ui.ctx().accesskit_node_builder(control.id, |node| {
+                  node.set_description(DESKTOP_TIP)
+               });
+               ui.ctx().accesskit_node_builder(chip.id, |node| node.set_hidden());
             },
          );
 
@@ -221,8 +270,9 @@ impl GeneralSettings {
          ui.add_space(10.0);
       }
 
-      let header = RichText::new("Pool Manager").size(theme.typography.very_large);
-      ui.label(header);
+      let text = "Pool Manager";
+      let title = ui.label(RichText::new(text).size(theme.typography.very_large));
+      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
 
       let text = RichText::new("Reset Settings").size(theme.typography.normal);
       let button = Button::new(text).visuals(button_visuals);
@@ -231,55 +281,92 @@ impl GeneralSettings {
          self.reset_settings(ctx);
       }
 
-      ui.label(
-         RichText::new("Concurrency for Discovering & Updating Pools")
-            .size(theme.typography.normal),
-      );
-      ui.allocate_ui(slider_size, |ui| {
-         ui.add(
-            Slider::new(
-               &mut self.concurrency_for_discovering_pools,
-               1..=10,
+      let sentence = "Concurrency for Discovering & Updating Pools";
+      let label = ui.label(RichText::new(sentence).size(theme.typography.normal));
+      let slider = ui
+         .allocate_ui(slider_size, |ui| {
+            ui.add(
+               Slider::new(
+                  &mut self.concurrency_for_discovering_pools,
+                  1..=10,
+               )
+               .width(ui.spacing().slider_width),
             )
-            .width(ui.spacing().slider_width),
-         );
+         })
+         .inner;
+
+      // One node per control: the sentence belongs to the slider, not to a sibling label nobody
+      // ties to it, and its range is the part a reader cannot guess from the value.
+      ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
+      ui.ctx().accesskit_node_builder(slider.id, |node| {
+         node.set_label(sentence);
+         node.set_description("1 to 10");
       });
 
-      ui.label(RichText::new("Batch Size when updating pools state").size(theme.typography.normal));
-      ui.allocate_ui(slider_size, |ui| {
-         ui.add(
-            Slider::new(
-               &mut self.batch_size_for_updating_pools_state,
-               1..=50,
+      let sentence = "Batch Size when updating pools state";
+      let label = ui.label(RichText::new(sentence).size(theme.typography.normal));
+      let slider = ui
+         .allocate_ui(slider_size, |ui| {
+            ui.add(
+               Slider::new(
+                  &mut self.batch_size_for_updating_pools_state,
+                  1..=50,
+               )
+               .width(ui.spacing().slider_width),
             )
-            .width(ui.spacing().slider_width),
-         );
+         })
+         .inner;
+
+      ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
+      ui.ctx().accesskit_node_builder(slider.id, |node| {
+         node.set_label(sentence);
+         node.set_description("1 to 50");
       });
 
       ui.separator();
       ui.add_space(10.0);
 
-      let header = RichText::new("Balance Manager").size(theme.typography.very_large);
-      ui.label(header);
+      let text = "Balance Manager";
+      let title = ui.label(RichText::new(text).size(theme.typography.very_large));
+      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
 
-      ui.label(RichText::new("Concurrency for syncing balances").size(theme.typography.normal));
-      ui.allocate_ui(slider_size, |ui| {
-         ui.add(
-            Slider::new(&mut self.concurrency_for_syncing_balances, 1..=10)
-               .width(ui.spacing().slider_width),
-         );
+      let sentence = "Concurrency for syncing balances";
+      let label = ui.label(RichText::new(sentence).size(theme.typography.normal));
+      let slider = ui
+         .allocate_ui(slider_size, |ui| {
+            ui.add(
+               Slider::new(&mut self.concurrency_for_syncing_balances, 1..=10)
+                  .width(ui.spacing().slider_width),
+            )
+         })
+         .inner;
+
+      ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
+      ui.ctx().accesskit_node_builder(slider.id, |node| {
+         node.set_label(sentence);
+         node.set_description("1 to 10");
       });
 
-      ui.label(RichText::new("Batch Size for syncing balances").size(theme.typography.normal));
-      ui.allocate_ui(slider_size, |ui| {
-         ui.add(
-            Slider::new(&mut self.batch_size_for_syncing_balances, 1..=50)
-               .width(ui.spacing().slider_width),
-         );
+      let sentence = "Batch Size for syncing balances";
+      let label = ui.label(RichText::new(sentence).size(theme.typography.normal));
+      let slider = ui
+         .allocate_ui(slider_size, |ui| {
+            ui.add(
+               Slider::new(&mut self.batch_size_for_syncing_balances, 1..=50)
+                  .width(ui.spacing().slider_width),
+            )
+         })
+         .inner;
+
+      ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
+      ui.ctx().accesskit_node_builder(slider.id, |node| {
+         node.set_label(sentence);
+         node.set_description("1 to 50");
       });
    }
 
-   pub fn save_settings(&self, ctx: &mut ZeusContext) {
+   pub fn save_settings(&mut self, ctx: &mut ZeusContext) {
+      let mut saved = false;
       let mut save_misc = false;
       if self.fetch_asset_images != ctx.misc_config.fetch_asset_images() {
          ctx.misc_config.set_fetch_asset_images(self.fetch_asset_images);
@@ -304,25 +391,35 @@ impl GeneralSettings {
       }
       if save_misc {
          Self::persist_misc(ctx);
+         saved = true;
       }
 
       // Balance settings live in the vault and are written on vault save / shutdown.
       let balance_manager = ctx.read_wallet_state(|ws| ws.balance_manager.clone());
       if self.concurrency_for_syncing_balances != balance_manager.concurrency() {
          balance_manager.set_concurrency(self.concurrency_for_syncing_balances);
+         saved = true;
       }
       if self.batch_size_for_syncing_balances != balance_manager.batch_size() {
          balance_manager.set_batch_size(self.batch_size_for_syncing_balances);
+         saved = true;
       }
 
       if self.concurrency_for_discovering_pools != ctx.pool_manager.concurrency() {
          ctx.pool_manager.set_concurrency(self.concurrency_for_discovering_pools);
+         saved = true;
       }
       if self.batch_size_for_updating_pools_state
          != ctx.pool_manager.batch_size_for_updating_pools_state()
       {
          ctx.pool_manager
             .set_batch_size_for_updating_pools_state(self.batch_size_for_updating_pools_state);
+         saved = true;
+      }
+
+      // A close or a page change that wrote nothing stays silent.
+      if saved {
+         self.notice = Some("Settings saved.".to_string());
       }
    }
 }

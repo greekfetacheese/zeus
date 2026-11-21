@@ -1,11 +1,20 @@
 use crate::core::ZeusContext;
-use crate::gui::GUI;
+use crate::gui::{GUI, ui::common::heading};
 use eframe::egui::{RichText, Stroke, Ui, vec2};
 use egui_elements::{Theme, widgets::Window};
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    // Locked: only the lock card is shown, and nothing else is interactive.
    if ctx.locked {
+      // Clear the page-focus marker so unlocking lands on the Home heading instead of
+      // wherever focus happened to be before the lock.
+      gui.last_page = None;
+
+      // No pill is drawn while locked, so its message from before the lock is not the pill the
+      // user comes back to: forgotten here, the next disappearance of a pill announces a
+      // completion that really did just happen.
+      gui.last_status_pill = None;
+
       // Cancel anything waiting on the user to authorize (a signature, a tx
       // confirmation, a connect prompt) before hiding it, so a prompt open when
       // the lock fired cannot be approved — or resurface after unlock.
@@ -25,12 +34,33 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       // prompts are cancelled above, so only the informational two are shown.
       gui.msg_window.show(&gui.theme, ui);
       gui.loading_window.show(&gui.theme, ui);
+
+      // The loading window cannot announce from inside its own draw — the frame holds the only
+      // channel — so its message comes back here and is said once over the lock screen.
+      if let Some(text) = gui.loading_window.take_notice() {
+         gui.announce(text);
+      }
       return;
    }
 
-   if !gui.settings.is_open() {
-      gui.show_overlay_modals(ui);
+   // The first widget of an unlocked frame names the page about to be drawn. A reader hears a
+   // heading's name when focus lands on it, so a page change moves focus here instead of
+   // announcing the page: the name is said once, and the Tab order starts at the page.
+   let page = gui.current_page();
+   let page_heading = heading(ui, page.name());
+   // A page change owns the focus. The unlock prompt behind it asks only on the first page (or
+   // while the page stays put): it must not take the reader back from a page they just opened.
+   let page_changed = gui.last_page != Some(page);
+   let first_page = gui.last_page.is_none();
+
+   if page_changed {
+      page_heading.request_focus();
+      gui.last_page = Some(page);
    }
+
+   // Settings is a window over this panel, drawn by the same pass, so the dialogs are drawn once
+   // here and are visible over either.
+   gui.show_overlay_modals(ui);
 
    let theme = &gui.theme;
    let icons = gui.icons.clone();
@@ -39,7 +69,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let contacts_ui = &mut gui.settings.contacts_ui;
 
    gui.recover_wallet_ui.show(ctx, theme, &mut gui.settings.import, ui);
-   gui.unlock_vault_ui.show(ctx, theme, ui);
+   gui.unlock_vault_ui.show(ctx, theme, ui, first_page || !page_changed);
    gui.settings.import.show(theme, ui);
 
    // Vault must be unlocked so the wallet cache is populated
@@ -60,6 +90,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       ui,
    );
 
+   // The confirmation draws from a borrowed theme as well, so its one sentence comes back here
+   // like the Send form's. It covers every other surface while it is up, so it is said last.
+   let confirmation_notice = gui.tx_confirmation_window.take_notice();
+
    gui.tx_window.show(ctx, theme, icons.clone(), ui);
    gui.spent_note_window.show(ctx, theme, icons.clone(), ui);
 
@@ -71,6 +105,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       ui,
    );
 
+   // The signing prompt draws from a borrowed theme too, so its one sentence comes back here like
+   // the confirmation's.
+   let sign_notice = gui.sign_msg_window.take_notice();
+
    gui.across_bridge.show(
       ctx,
       theme,
@@ -79,6 +117,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       contacts_ui,
       ui,
    );
+
+   // The bridge page draws from the central panel and has no channel of its own — the frame
+   // holds the only one — so the sentence it raised comes back here, like the Send form's.
+   let across_notice = gui.across_bridge.take_notice();
 
    gui.send_crypto.show(
       ctx,
@@ -90,9 +132,21 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       ui,
    );
 
+   // The Send form has no channel of its own — the frame holds the only one — so the sentence it
+   // wants said comes back here, like the portfolio's.
+   let send_notice = gui.send_crypto.take_notice();
+
    gui.portofolio.show(ctx, theme, icons.clone(), token_selection, ui);
 
+   // The portfolio page has no channel of its own — the frame holds the only one — so it hands its
+   // one sentence back here, and it is said below rather than from inside the page.
+   let portfolio_notice = gui.portofolio.take_notice();
+
    gui.uniswap.show(ctx, theme, icons.clone(), token_selection, ui);
+
+   // The Uniswap window cannot announce from inside its own draw — the frame holds the channel —
+   // so the sentences its pages raise come back here.
+   let uniswap_notice = gui.uniswap.take_notice();
 
    gui.shield_ui.show(
       ctx,
@@ -104,17 +158,46 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       ui,
    );
 
+   // The shield form draws from the central panel and has no channel of its own — the frame holds
+   // the only one — so the sentences it raised come back here, like the Send form's.
+   let shield_notice = gui.shield_ui.take_notice();
+
    if let Some(currency) = gui.shield_ui.take_open_merge_notes() {
       gui.merge_notes_window.open(ctx, currency);
    }
    gui.merge_notes_window.show(ctx, theme, ui);
 
+   // The merge card closes on the press that starts the work, so what it has to say is handed back
+   // here like the page's own sentences.
+   let merge_notes_notice = gui.merge_notes_window.take_notice();
+
+   // The picker is a modal over whichever page raised it and has no channel of its own: the frame
+   // holds the only one, so its sentence comes back here like the Send form's and the portfolio's.
+   let token_selection_notice = gui.token_selection.take_notice();
+
+   // The recipient picker is modal over the form that raised it, so its sentence comes back here
+   // like the token picker's; it is drawn under the token picker when both are up.
+   let recipient_selection_notice = gui.recipient_selection.take_notice();
+
    gui.connected_dapps.show(ctx, theme, icons.clone(), ui);
 
    gui.wallet_ui.show(ctx, theme, icons.clone(), ui);
+
+   // The Wallets page cannot announce from inside its own draw — the frame holds the channel — so
+   // its one sentence comes back here.
+   let wallet_notice = gui.wallet_ui.take_notice();
+
    gui.tx_history.show(ctx, theme, ui);
 
+   // The history page draws from a borrowed theme too, so the count it says when it changes comes
+   // back here, like the Send form's and the portfolio's.
+   let tx_history_notice = gui.tx_history.take_notice();
+
    gui.approvals.show(ctx, theme, icons.clone(), ui);
+
+   // The approvals page draws from a borrowed theme too, so its one sentence comes back here like
+   // the portfolio's. A revoke finishes after the frame that started it.
+   let approvals_notice = gui.approvals.take_notice();
 
    #[cfg(feature = "dev")]
    gui.dev.show(ctx, theme, icons, ui);
@@ -129,6 +212,78 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          gui.theme = theme;
          gui.theme.install(ui.ctx());
       }
+   }
+
+   // Said last, once every surface has had its turn: the channel keeps the last call of a frame, so
+   // these are ordered by how much of the screen they are about. They come after the developer
+   // surfaces because announcing is the one thing here that needs the whole `GUI` mutably, and the
+   // pages above draw from a borrowed theme.
+   // The bridge page is drawn before the pages below it, so its sentence is said first.
+   if let Some(text) = across_notice {
+      gui.announce(text);
+   }
+
+   if let Some(text) = portfolio_notice {
+      gui.announce(text);
+   }
+
+   if let Some(text) = send_notice {
+      gui.announce(text);
+   }
+
+   // The wallets page draws before the history page, so its sentence is said before the history's.
+   if let Some(text) = wallet_notice {
+      gui.announce(text);
+   }
+
+   // A page's count is about the page under the prompts, so it is said before their answers.
+   if let Some(text) = tx_history_notice {
+      gui.announce(text);
+   }
+
+   // A revoke's answer is about the page it was pressed on, so the picker and the prompts drawn
+   // over that page are said after it.
+   if let Some(text) = approvals_notice {
+      gui.announce(text);
+   }
+
+   // The Uniswap window is drawn over the page it was raised from, so its sentence is said before
+   // the picker's, which covers the window.
+   if let Some(text) = uniswap_notice {
+      gui.announce(text);
+   }
+
+   // The shield page is drawn after the Uniswap window and its sentence is about the page, not
+   // about the modal it can raise, so it is said before the merge card's.
+   if let Some(text) = shield_notice {
+      gui.announce(text);
+   }
+
+   // The merge card is drawn over the page that raised it, so its sentence comes after it.
+   if let Some(text) = merge_notes_notice {
+      gui.announce(text);
+   }
+
+   // The recipient picker is under the token picker when both are up, so it is said first.
+   if let Some(text) = recipient_selection_notice {
+      gui.announce(text);
+   }
+
+   // The picker covers the page that raised it, so its sentence is the one about what the user is
+   // looking at, and the channel keeps the last call.
+   if let Some(text) = token_selection_notice {
+      gui.announce(text);
+   }
+
+   // The confirmation is the topmost surface there is: its answer is the last thing said.
+   if let Some(text) = confirmation_notice {
+      gui.announce(text);
+   }
+
+   // The signing prompt is drawn after the confirmation, so when both are up it is the one on
+   // top: its answer is the last thing said.
+   if let Some(text) = sign_notice {
+      gui.announce(text);
    }
 }
 

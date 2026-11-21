@@ -1,4 +1,5 @@
 use crate::core::{RpcFunctionality, ZeusContext};
+use crate::gui::ui::common::status_pill;
 use crate::gui::{GUI, SHARED_GUI};
 use crate::utils::TimeStamp;
 use egui::{Align, Align2, Area, Id, Layout, Margin, Order, RichText, Ui, vec2};
@@ -6,20 +7,19 @@ use egui_elements::{Button, ChipRole, Label, Spinner, Toast, Toasts};
 use std::time::Duration;
 
 const DATA_SYNCING_MSG: &str = "Zeus is still syncing important data";
-const ON_STARTUP_SYNC_MSG: &str = "Zeus is syncing your wallets state";
-const VAULT_SAVE_IN_PROGRESS_MSG: &str = "Saving vault in progress, do not close Zeus yet!";
-const WALLET_STATE_SAVE_IN_PROGRESS_MSG: &str = "Saving state in progress, do not close Zeus yet!";
-const RAILGUN_SYNCING_MSG: &str = "Railgun state sync in progress, do not close Zeus yet!";
-const RAILGUN_DB_LOADING_MSG: &str = "Loading Railgun DB";
-const CIRCUITS_DOWNLOAD_MSG: &str = "Downloading Railgun circuits, do not close Zeus yet!";
+const ON_STARTUP_SYNC_MSG: &str = "Zeus is syncing your wallet state";
+const VAULT_SAVE_IN_PROGRESS_MSG: &str = "Saving vault. Do not close Zeus.";
+const WALLET_STATE_SAVE_IN_PROGRESS_MSG: &str = "Saving wallet state. Do not close Zeus.";
+const RAILGUN_SYNCING_MSG: &str = "Syncing Railgun state. Do not close Zeus.";
+const RAILGUN_DB_LOADING_MSG: &str = "Loading the Railgun database";
+const CIRCUITS_DOWNLOAD_MSG: &str = "Downloading Railgun circuits. Do not close Zeus.";
 
 const AVAILABLE_RPCS_CHECK_THRESHOLD: u64 = 100;
 const RAILGUN_CHECK_THRESHOLD: u64 = 250;
 
 const MALFUNCTION_TOAST_DURATION_SECS: u64 = 30;
 
-const DEGRADED_RPC_MSG: &str =
-   "At least one RPC is not working properly, some features may not work";
+const DEGRADED_RPC_MSG: &str = "At least one RPC is not working. Some features may not work.";
 
 const AUTOLOCK_FIRST_NOTICE_MS: u64 = 10 * 1000;
 const AUTOLOCK_NOTICE_REPEAT_MS: u64 = 60 * 60 * 1000;
@@ -56,6 +56,17 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
    let icons = gui.icons.clone();
 
+   // Speak the pill's transitions only: the panel draws it every frame it is up, and reading it
+   // out every frame would repeat the same sentence for as long as the work runs.
+   let status_msg = status_pill_message(ctx);
+   let transition = status_pill::announcement(gui.last_status_pill.as_deref(), status_msg);
+
+   if let Some(text) = transition {
+      gui.announce(text);
+   }
+
+   gui.last_status_pill = status_msg.map(str::to_string);
+
    // Read before the borrows below: the body's closure takes `gui` mutably.
    let top_reserve = RESERVE;
 
@@ -67,6 +78,9 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    ui.spacing_mut().button_padding = theme.button_padding;
 
    let available_width = ui.available_width();
+
+   // What the notification window queued while it was drawn, handed to the announcer below.
+   let mut notification_notice = None;
 
    ui.horizontal(|ui| {
       ui.set_min_height(top_reserve);
@@ -100,27 +114,9 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
       gui.notification.show(ctx, &gui.theme, icons, ui);
 
-      let is_railgun_syncing = ctx.is_railgun_provider_syncing(chain.id());
-      let is_railgun_db_loading = ctx.is_railgun_db_loading(chain.id());
-      let chain_syncing = ctx.state_sync.get(&chain.id()).cloned().unwrap_or(false);
-
-      let status_msg = if ctx.data_syncing {
-         Some(DATA_SYNCING_MSG)
-      } else if is_railgun_syncing {
-         Some(RAILGUN_SYNCING_MSG)
-      } else if is_railgun_db_loading {
-         Some(RAILGUN_DB_LOADING_MSG)
-      } else if ctx.on_startup_syncing || chain_syncing {
-         Some(ON_STARTUP_SYNC_MSG)
-      } else if ctx.save_vault_in_progress {
-         Some(VAULT_SAVE_IN_PROGRESS_MSG)
-      } else if ctx.save_wallet_state_in_progress {
-         Some(WALLET_STATE_SAVE_IN_PROGRESS_MSG)
-      } else if ctx.railgun_status.circuits_download_in_progress() {
-         Some(CIRCUITS_DOWNLOAD_MSG)
-      } else {
-         None
-      };
+      // Drained here, but said after the closure: the announcer is on the whole GUI, and the
+      // `theme` borrow this closure carries keeps that out of reach in here.
+      notification_notice = gui.notification.take_notice();
 
       if let Some(msg) = status_msg {
          // Paint above modal backdrops (Middle) so the pill stays full-bright
@@ -139,6 +135,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             });
       }
    });
+
+   if let Some(text) = notification_notice {
+      gui.announce(text);
+   }
 
    if has_malfunction {
       let missing = ctx.unavailable_rpc_functionalities(chain.id());
@@ -160,7 +160,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       Toast::new("Auto-lock is not configured")
          .tone(ChipRole::Warning)
          .description(
-            "Zeus is on the default 1 hour auto-lock. Choose a timeout in Settings/Security.",
+            "Zeus is on the default 1 hour auto-lock. Choose a timeout in Settings, on the Security page.",
          )
          .duration(Duration::from_secs(
             MALFUNCTION_TOAST_DURATION_SECS,
@@ -170,6 +170,35 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
    let offset = vec2(12.0, 70.0);
    Toasts::new().anchor(Align2::RIGHT_TOP).offset(offset).render(ui.ctx());
+}
+
+/// The one message the status pill reports this frame, in priority order.
+///
+/// `None` means nothing is running, so the panel draws no pill.
+fn status_pill_message(ctx: &ZeusContext) -> Option<&'static str> {
+   let chain = ctx.chain;
+
+   let is_railgun_syncing = ctx.is_railgun_provider_syncing(chain.id());
+   let is_railgun_db_loading = ctx.is_railgun_db_loading(chain.id());
+   let chain_syncing = ctx.state_sync.get(&chain.id()).cloned().unwrap_or(false);
+
+   if ctx.data_syncing {
+      Some(DATA_SYNCING_MSG)
+   } else if is_railgun_syncing {
+      Some(RAILGUN_SYNCING_MSG)
+   } else if is_railgun_db_loading {
+      Some(RAILGUN_DB_LOADING_MSG)
+   } else if ctx.on_startup_syncing || chain_syncing {
+      Some(ON_STARTUP_SYNC_MSG)
+   } else if ctx.save_vault_in_progress {
+      Some(VAULT_SAVE_IN_PROGRESS_MSG)
+   } else if ctx.save_wallet_state_in_progress {
+      Some(WALLET_STATE_SAVE_IN_PROGRESS_MSG)
+   } else if ctx.railgun_status.circuits_download_in_progress() {
+      Some(CIRCUITS_DOWNLOAD_MSG)
+   } else {
+      None
+   }
 }
 
 fn check_railgun(chain: u64) {

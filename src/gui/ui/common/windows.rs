@@ -12,7 +12,7 @@ use crate::utils::{
    self_update::{UpdateInfo, restart_app, update_zeus},
 };
 use eframe::egui::{Align2, Color32, RichText, Ui, Vec2, vec2};
-use egui::Order;
+use egui::{Order, Role, WidgetInfo};
 use std::time::{Duration, Instant};
 
 use egui_elements::{Button, Lightning, LightningSettings, Modal, ParticleLayer, Spinner, Theme};
@@ -241,6 +241,12 @@ impl ConfirmWindow {
                });
             });
          });
+
+      // Every way out that is not Confirm is a Reject. The crate closes the dialog on Escape, and
+      // the flow waiting on `take_confirm` has to hear the answer or it waits forever.
+      if !open {
+         self.reject();
+      }
    }
 }
 
@@ -405,7 +411,7 @@ impl UpdateWindow {
                            }
 
                            SHARED_GUI.write(|gui| {
-                              gui.loading_window.open("Download progress: 0%");
+                              gui.loading_window.open("Downloading the update…");
                            });
 
                            match update_zeus(
@@ -442,6 +448,11 @@ impl UpdateWindow {
                });
             });
          });
+
+      // A dismissal means "Later": the release note goes away and a later launch asks again.
+      if !open {
+         self.reset();
+      }
    }
 
    fn auto_restart_failed_ui(&mut self, theme: &Theme, ui: &mut Ui) {
@@ -495,6 +506,8 @@ impl UpdateWindow {
 pub struct LoadingWindow {
    open: bool,
    pub msg: String,
+   /// The sentence this window wants said, for the frame's announcement channel.
+   notice: Option<String>,
    pub size: (f32, f32),
    pub anchor: (Align2, Vec2),
 }
@@ -528,6 +541,7 @@ impl LoadingWindow {
       Self {
          open: false,
          msg: String::new(),
+         notice: None,
          size: (200.0, 100.0),
          anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
       }
@@ -537,8 +551,32 @@ impl LoadingWindow {
       self.open
    }
 
+   /// The sentence this window wants said, for the frame's announcement channel.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
+   }
+
    pub fn open(&mut self, msg: impl Into<String>) {
+      let msg = msg.into();
+
+      // The window says a message when the wait starts or its sentence changes. A second open
+      // carrying the sentence already on the window is the same wait continuing, and saying it
+      // again would interrupt the reader with a phase that has not moved on.
+      if !self.open || self.msg != msg {
+         // The window cannot announce from inside its own draw — the frame holds the only channel —
+         // so the message waits here for the pass that says it.
+         self.notice = Some(msg.clone());
+      }
+
       self.open = true;
+      self.msg = msg;
+   }
+
+   /// Change the message drawn while the window is up, without raising it for announcement.
+   ///
+   /// For text that moves as the work does — a percentage belongs on the window, where it can be
+   /// read, not in a sentence the frame repeats on every step of the loop that produced it.
+   pub fn progress(&mut self, msg: impl Into<String>) {
       self.msg = msg.into();
    }
 
@@ -546,6 +584,8 @@ impl LoadingWindow {
       self.open = false;
       self.msg = String::new();
       self.size = (200.0, 100.0);
+      // A message the work finished before it was drawn is not said after it finished.
+      self.notice = None;
    }
 
    pub fn new_size(&mut self, size: (f32, f32)) {
@@ -567,11 +607,20 @@ impl LoadingWindow {
          .backdrop_order(Order::Tooltip)
          .content_order(Order::Debug)
          .closable(false)
+         // The work this window reports cannot be cancelled from here, so the key is declined
+         // rather than accepted into a dismissal that would change nothing.
+         .close_on_escape(false)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
             ui.vertical_centered(|ui| {
-               ui.add(Spinner::new().size(50.0));
+               let spinner = ui.add(Spinner::new().size(50.0));
+               let label = "Working";
+               // A spinner is a picture with no words: it says what it is doing, so a reader is
+               // told the window is busy rather than landing on a dialog that seems empty.
+               spinner.widget_info(|| {
+                  WidgetInfo::labeled(Role::ProgressIndicator, ui.is_enabled(), label)
+               });
                ui.label(RichText::new(&self.msg).size(17.0));
             });
          });
@@ -595,6 +644,10 @@ impl MsgWindow {
       }
    }
 
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
    /// Open the window with this title and message
    pub fn open(&mut self, msg: impl Into<String>) {
       self.open = true;
@@ -611,10 +664,13 @@ impl MsgWindow {
       }
 
       let msg = RichText::new(&self.message).size(theme.typography.normal);
+      let heading = RichText::new("Notification").size(theme.typography.large);
       let mut open = self.open;
 
       Modal::new("msg_window", &mut open)
-         .closable(false)
+         .closable(true)
+         .close_on_backdrop(false)
+         .heading(heading)
          .backdrop_order(Order::Tooltip)
          .content_order(Order::Debug)
          .show(ui.ctx(), |ui| {
@@ -637,6 +693,10 @@ impl MsgWindow {
                }
             });
          });
+
+      if !open {
+         self.reset();
+      }
    }
 }
 
@@ -721,6 +781,67 @@ mod tests {
       gui.tx_confirmation_window.release();
 
       assert!(!authorising_prompt_busy(&gui));
+   }
+
+   /// A loading window says its message once, and a message nobody saw is not said after the work
+   /// it belonged to finished.
+   #[test]
+   fn a_loading_message_is_said_once() {
+      let mut window = LoadingWindow::new();
+      let message = "Recovering your wallet. This takes 10 to 15 minutes.";
+
+      window.open(message);
+
+      assert_eq!(
+         window.take_notice().as_deref(),
+         Some(message),
+         "opening the window raises its message for the frame to say"
+      );
+      assert_eq!(
+         window.take_notice(),
+         None,
+         "the message is said once"
+      );
+
+      // The same wait continuing is not a new phase, however many times the flow re-opens it.
+      window.open(message);
+
+      assert_eq!(
+         window.take_notice(),
+         None,
+         "a sentence the window already shows is not announced again"
+      );
+
+      // Progress text is drawn, never announced: the percentage changes many times a second.
+      window.progress("Download progress: 42.0%");
+
+      assert_eq!(
+         window.msg, "Download progress: 42.0%",
+         "progress changes the message the window draws"
+      );
+      assert_eq!(
+         window.take_notice(),
+         None,
+         "progress says nothing"
+      );
+
+      // A different sentence is a new phase, and that one is said.
+      window.open("Encrypting the vault...");
+
+      assert_eq!(
+         window.take_notice().as_deref(),
+         Some("Encrypting the vault..."),
+         "a different sentence opens a new announcement"
+      );
+
+      window.open(message);
+      window.reset();
+
+      assert_eq!(
+         window.take_notice(),
+         None,
+         "a message the finished work never drew is not said afterwards"
+      );
    }
 
    /// The gate is exclusive: one flow holds it, a second claim is refused, and releasing hands it on.

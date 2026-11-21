@@ -17,7 +17,10 @@ use crate::core::types::{
    MIN_THICKNESS,
 };
 use crate::gui::appearance::{AmbientKind, AppearanceSettings, SECOND_COLOUR_ALPHA, accent_at};
-use egui::{Align, CollapsingHeader, Color32, Layout, RichText, Sense, Ui, UiBuilder, vec2};
+use egui::{
+   Align, CollapsingHeader, Color32, Layout, Response, RichText, Role, Sense, Ui, UiBuilder,
+   WidgetInfo, vec2,
+};
 use egui_elements::{
    Button, Checkbox, Chip, ChipRole, ComboBox, HoldBurst, HoldSettings, Label, Slider, Theme,
 };
@@ -161,7 +164,9 @@ impl AppearanceSettingsUi {
 
       ui.add_space(theme.spacing.xl);
       ui.vertical_centered(|ui| {
-         ui.label(RichText::new("Preview").size(theme.typography.very_large));
+         let text = "Preview";
+         let title = ui.label(RichText::new(text).size(theme.typography.very_large));
+         title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
       });
 
       let preview = Self::preview_settings(appearance, theme.colors.accent);
@@ -176,18 +181,14 @@ impl AppearanceSettingsUi {
             ui.add_space(pad);
 
             let text = RichText::new("Hold to confirm").size(theme.typography.large);
-            let button = Button::new(text)
-               .min_size(size)
-               .label_align(Align::Center);
+            let button = Button::new(text).min_size(size).label_align(Align::Center);
 
             if ui.add(button.hold_settings(&preview)).clicked() {
                self.preview_confirmed = true;
             }
 
             let text = RichText::new("Reset").size(theme.typography.large);
-            let button = Button::new(text)
-               .min_size(size)
-               .label_align(Align::Center);
+            let button = Button::new(text).min_size(size).label_align(Align::Center);
 
             if ui.add(button).clicked() {
                *appearance = AppearanceSettings::new();
@@ -251,7 +252,9 @@ impl AppearanceSettingsUi {
          None,
          None,
          |ui| {
-            changed = ui.add(Checkbox::without_text(&mut enabled)).changed();
+            let checkbox = ui.add(Checkbox::without_text(&mut enabled));
+            changed = checkbox.changed();
+            Some(checkbox)
          },
       );
       if changed {
@@ -272,14 +275,14 @@ impl AppearanceSettingsUi {
             Some(&value),
             Some(Self::slider_row_h(ui)),
             |ui| {
-               changed = ui
-                  .add(
-                     Slider::new(&mut seconds, MIN_HOLD_SECONDS..=MAX_HOLD_SECONDS)
-                        .step_by(0.05)
-                        .show_value(false)
-                        .width(ui.spacing().slider_width),
-                  )
-                  .changed();
+               let slider = ui.add(
+                  Slider::new(&mut seconds, MIN_HOLD_SECONDS..=MAX_HOLD_SECONDS)
+                     .step_by(0.05)
+                     .show_value(false)
+                     .width(ui.spacing().slider_width),
+               );
+               changed = slider.changed();
+               Some(slider)
             },
          );
          if changed {
@@ -301,7 +304,9 @@ impl AppearanceSettingsUi {
             None,
             None,
             |ui| {
-               changed = ui.add(Checkbox::without_text(&mut use_accent)).changed();
+               let checkbox = ui.add(Checkbox::without_text(&mut use_accent));
+               changed = checkbox.changed();
+               Some(checkbox)
             },
          );
          if changed {
@@ -325,7 +330,9 @@ impl AppearanceSettingsUi {
                None,
                None,
                |ui| {
-                  changed = ui.color_edit_button_srgb(&mut rgb).changed();
+                  let well = ui.color_edit_button_srgb(&mut rgb);
+                  changed = well.changed();
+                  Some(well)
                },
             );
             if changed {
@@ -345,7 +352,9 @@ impl AppearanceSettingsUi {
             None,
             None,
             |ui| {
-               changed = ui.add(Checkbox::without_text(&mut shift)).changed();
+               let checkbox = ui.add(Checkbox::without_text(&mut shift));
+               changed = checkbox.changed();
+               Some(checkbox)
             },
          );
          if changed {
@@ -368,7 +377,9 @@ impl AppearanceSettingsUi {
                None,
                None,
                |ui| {
-                  changed = ui.color_edit_button_srgba_unmultiplied(&mut rgba).changed();
+                  let well = ui.color_edit_button_srgba_unmultiplied(&mut rgba);
+                  changed = well.changed();
+                  Some(well)
                },
             );
             if changed {
@@ -422,6 +433,8 @@ impl AppearanceSettingsUi {
                      }
                   });
                changed = chosen != appearance.hold.burst;
+               // The crate's ComboBox names its own closed face and hands back no response.
+               None
             },
          );
          if changed {
@@ -440,7 +453,9 @@ impl AppearanceSettingsUi {
             None,
             None,
             |ui| {
-               changed = ui.add(Checkbox::without_text(&mut same_color)).changed();
+               let checkbox = ui.add(Checkbox::without_text(&mut same_color));
+               changed = checkbox.changed();
+               Some(checkbox)
             },
          );
          if changed {
@@ -470,7 +485,9 @@ impl AppearanceSettingsUi {
                None,
                None,
                |ui| {
-                  changed = ui.color_edit_button_srgb(&mut rgb).changed();
+                  let well = ui.color_edit_button_srgb(&mut rgb);
+                  changed = well.changed();
+                  Some(well)
                },
             );
             if changed {
@@ -490,17 +507,17 @@ impl AppearanceSettingsUi {
             Some(&value),
             Some(Self::slider_row_h(ui)),
             |ui| {
-               changed = ui
-                  .add(
-                     Slider::new(
-                        &mut appearance.hold.burst_intensity,
-                        MIN_BURST_INTENSITY..=MAX_BURST_INTENSITY,
-                     )
-                     .step_by(0.05)
-                     .show_value(false)
-                     .width(ui.spacing().slider_width),
+               let slider = ui.add(
+                  Slider::new(
+                     &mut appearance.hold.burst_intensity,
+                     MIN_BURST_INTENSITY..=MAX_BURST_INTENSITY,
                   )
-                  .changed();
+                  .step_by(0.05)
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
+               );
+               changed = slider.changed();
+               Some(slider)
             },
          );
          if changed {
@@ -519,17 +536,17 @@ impl AppearanceSettingsUi {
             Some(&value),
             Some(Self::slider_row_h(ui)),
             |ui| {
-               changed = ui
-                  .add(
-                     Slider::new(
-                        &mut appearance.hold.burst_ms,
-                        MIN_BURST_MS..=MAX_BURST_MS,
-                     )
-                     .step_by(10.0)
-                     .show_value(false)
-                     .width(ui.spacing().slider_width),
+               let slider = ui.add(
+                  Slider::new(
+                     &mut appearance.hold.burst_ms,
+                     MIN_BURST_MS..=MAX_BURST_MS,
                   )
-                  .changed();
+                  .step_by(10.0)
+                  .show_value(false)
+                  .width(ui.spacing().slider_width),
+               );
+               changed = slider.changed();
+               Some(slider)
             },
          );
          if changed {
@@ -549,16 +566,16 @@ impl AppearanceSettingsUi {
                Some(&value),
                Some(Self::slider_row_h(ui)),
                |ui| {
-                  changed = ui
-                     .add(
-                        Slider::new(
-                           &mut appearance.hold.burst_bolts,
-                           MIN_BURST_BOLTS..=MAX_BURST_BOLTS,
-                        )
-                        .show_value(false)
-                        .width(ui.spacing().slider_width),
+                  let slider = ui.add(
+                     Slider::new(
+                        &mut appearance.hold.burst_bolts,
+                        MIN_BURST_BOLTS..=MAX_BURST_BOLTS,
                      )
-                     .changed();
+                     .show_value(false)
+                     .width(ui.spacing().slider_width),
+                  );
+                  changed = slider.changed();
+                  Some(slider)
                },
             );
             if changed {
@@ -577,16 +594,16 @@ impl AppearanceSettingsUi {
                Some(&value),
                Some(Self::slider_row_h(ui)),
                |ui| {
-                  changed = ui
-                     .add(
-                        Slider::new(
-                           &mut appearance.hold.burst_branch_depth,
-                           MIN_BRANCH_DEPTH..=MAX_BRANCH_DEPTH,
-                        )
-                        .show_value(false)
-                        .width(ui.spacing().slider_width),
+                  let slider = ui.add(
+                     Slider::new(
+                        &mut appearance.hold.burst_branch_depth,
+                        MIN_BRANCH_DEPTH..=MAX_BRANCH_DEPTH,
                      )
-                     .changed();
+                     .show_value(false)
+                     .width(ui.spacing().slider_width),
+                  );
+                  changed = slider.changed();
+                  Some(slider)
                },
             );
             if changed {
@@ -605,17 +622,17 @@ impl AppearanceSettingsUi {
                Some(&value),
                Some(Self::slider_row_h(ui)),
                |ui| {
-                  changed = ui
-                     .add(
-                        Slider::new(
-                           &mut appearance.hold.burst_thickness,
-                           MIN_THICKNESS..=MAX_THICKNESS,
-                        )
-                        .step_by(0.1)
-                        .show_value(false)
-                        .width(ui.spacing().slider_width),
+                  let slider = ui.add(
+                     Slider::new(
+                        &mut appearance.hold.burst_thickness,
+                        MIN_THICKNESS..=MAX_THICKNESS,
                      )
-                     .changed();
+                     .step_by(0.1)
+                     .show_value(false)
+                     .width(ui.spacing().slider_width),
+                  );
+                  changed = slider.changed();
+                  Some(slider)
                },
             );
             if changed {
@@ -634,17 +651,17 @@ impl AppearanceSettingsUi {
                Some(&value),
                Some(Self::slider_row_h(ui)),
                |ui| {
-                  changed = ui
-                     .add(
-                        Slider::new(
-                           &mut appearance.hold.burst_jitter,
-                           MIN_JITTER..=MAX_JITTER,
-                        )
-                        .step_by(0.01)
-                        .show_value(false)
-                        .width(ui.spacing().slider_width),
+                  let slider = ui.add(
+                     Slider::new(
+                        &mut appearance.hold.burst_jitter,
+                        MIN_JITTER..=MAX_JITTER,
                      )
-                     .changed();
+                     .step_by(0.01)
+                     .show_value(false)
+                     .width(ui.spacing().slider_width),
+                  );
+                  changed = slider.changed();
+                  Some(slider)
                },
             );
             if changed {
@@ -665,17 +682,17 @@ impl AppearanceSettingsUi {
                Some(&value),
                Some(Self::slider_row_h(ui)),
                |ui| {
-                  changed = ui
-                     .add(
-                        Slider::new(
-                           &mut appearance.hold.burst_glow_from,
-                           MIN_GLOW_FROM..=MAX_GLOW_FROM,
-                        )
-                        .step_by(0.1)
-                        .show_value(false)
-                        .width(ui.spacing().slider_width),
+                  let slider = ui.add(
+                     Slider::new(
+                        &mut appearance.hold.burst_glow_from,
+                        MIN_GLOW_FROM..=MAX_GLOW_FROM,
                      )
-                     .changed();
+                     .step_by(0.1)
+                     .show_value(false)
+                     .width(ui.spacing().slider_width),
+                  );
+                  changed = slider.changed();
+                  Some(slider)
                },
             );
             if changed {
@@ -694,17 +711,17 @@ impl AppearanceSettingsUi {
                Some(&value),
                Some(Self::slider_row_h(ui)),
                |ui| {
-                  changed = ui
-                     .add(
-                        Slider::new(
-                           &mut appearance.hold.burst_glow_to,
-                           MIN_GLOW_TO..=MAX_GLOW_TO,
-                        )
-                        .step_by(0.1)
-                        .show_value(false)
-                        .width(ui.spacing().slider_width),
+                  let slider = ui.add(
+                     Slider::new(
+                        &mut appearance.hold.burst_glow_to,
+                        MIN_GLOW_TO..=MAX_GLOW_TO,
                      )
-                     .changed();
+                     .step_by(0.1)
+                     .show_value(false)
+                     .width(ui.spacing().slider_width),
+                  );
+                  changed = slider.changed();
+                  Some(slider)
                },
             );
             if changed {
@@ -723,17 +740,17 @@ impl AppearanceSettingsUi {
                Some(&value),
                Some(Self::slider_row_h(ui)),
                |ui| {
-                  changed = ui
-                     .add(
-                        Slider::new(
-                           &mut appearance.hold.burst_glow_softness,
-                           MIN_GLOW_SOFTNESS..=MAX_GLOW_SOFTNESS,
-                        )
-                        .step_by(0.05)
-                        .show_value(false)
-                        .width(ui.spacing().slider_width),
+                  let slider = ui.add(
+                     Slider::new(
+                        &mut appearance.hold.burst_glow_softness,
+                        MIN_GLOW_SOFTNESS..=MAX_GLOW_SOFTNESS,
                      )
-                     .changed();
+                     .step_by(0.05)
+                     .show_value(false)
+                     .width(ui.spacing().slider_width),
+                  );
+                  changed = slider.changed();
+                  Some(slider)
                },
             );
             if changed {
@@ -775,7 +792,9 @@ impl AppearanceSettingsUi {
          None,
          None,
          |ui| {
-            changed = ui.add(Checkbox::without_text(&mut enabled)).changed();
+            let checkbox = ui.add(Checkbox::without_text(&mut enabled));
+            changed = checkbox.changed();
+            Some(checkbox)
          },
       );
       if changed {
@@ -833,6 +852,8 @@ impl AppearanceSettingsUi {
                      }
                   });
                changed = kind != current;
+               // The crate's ComboBox names its own closed face and hands back no response.
+               None
             },
          );
          if changed {
@@ -870,7 +891,9 @@ impl AppearanceSettingsUi {
          None,
          None,
          |ui| {
-            changed = ui.color_edit_button_srgba(&mut appearance.snow.color).changed();
+            let well = ui.color_edit_button_srgba(&mut appearance.snow.color);
+            changed = well.changed();
+            Some(well)
          },
       );
       if changed {
@@ -888,16 +911,16 @@ impl AppearanceSettingsUi {
          Some(&value),
          Some(Self::slider_row_h(ui)),
          |ui| {
-            changed = ui
-               .add(
-                  Slider::new(
-                     &mut appearance.snow.density,
-                     MIN_AMBIENT_SNOW_DENSITY..=MAX_AMBIENT_SNOW_DENSITY,
-                  )
-                  .show_value(false)
-                  .width(ui.spacing().slider_width),
+            let slider = ui.add(
+               Slider::new(
+                  &mut appearance.snow.density,
+                  MIN_AMBIENT_SNOW_DENSITY..=MAX_AMBIENT_SNOW_DENSITY,
                )
-               .changed();
+               .show_value(false)
+               .width(ui.spacing().slider_width),
+            );
+            changed = slider.changed();
+            Some(slider)
          },
       );
       if changed {
@@ -915,13 +938,14 @@ impl AppearanceSettingsUi {
          None,
          None,
          |ui| {
-            changed = Self::drag_value(
+            let drag = Self::drag_value(
                ui,
                egui::DragValue::new(&mut appearance.snow.size_max)
                   .speed(0.1)
                   .range(MIN_AMBIENT_SNOW_SIZE..=MAX_AMBIENT_SNOW_SIZE),
-            )
-            .changed();
+            );
+            changed = drag.changed();
+            Some(drag)
          },
       );
       if changed {
@@ -939,13 +963,14 @@ impl AppearanceSettingsUi {
          None,
          None,
          |ui| {
-            changed = Self::drag_value(
+            let drag = Self::drag_value(
                ui,
                egui::DragValue::new(&mut appearance.snow.speed_max)
                   .speed(1.0)
                   .range(MIN_AMBIENT_SNOW_SPEED..=MAX_AMBIENT_SNOW_SPEED),
-            )
-            .changed();
+            );
+            changed = drag.changed();
+            Some(drag)
          },
       );
       if changed {
@@ -964,16 +989,16 @@ impl AppearanceSettingsUi {
          Some(&value),
          Some(Self::slider_row_h(ui)),
          |ui| {
-            changed = ui
-               .add(
-                  Slider::new(
-                     &mut appearance.snow.wind.x,
-                     MIN_AMBIENT_WIND_X..=MAX_AMBIENT_WIND_X,
-                  )
-                  .show_value(false)
-                  .width(ui.spacing().slider_width),
+            let slider = ui.add(
+               Slider::new(
+                  &mut appearance.snow.wind.x,
+                  MIN_AMBIENT_WIND_X..=MAX_AMBIENT_WIND_X,
                )
-               .changed();
+               .show_value(false)
+               .width(ui.spacing().slider_width),
+            );
+            changed = slider.changed();
+            Some(slider)
          },
       );
       if changed {
@@ -992,16 +1017,16 @@ impl AppearanceSettingsUi {
          Some(&value),
          Some(Self::slider_row_h(ui)),
          |ui| {
-            changed = ui
-               .add(
-                  Slider::new(
-                     &mut appearance.snow.wind.y,
-                     MIN_AMBIENT_WIND_Y..=MAX_AMBIENT_WIND_Y,
-                  )
-                  .show_value(false)
-                  .width(ui.spacing().slider_width),
+            let slider = ui.add(
+               Slider::new(
+                  &mut appearance.snow.wind.y,
+                  MIN_AMBIENT_WIND_Y..=MAX_AMBIENT_WIND_Y,
                )
-               .changed();
+               .show_value(false)
+               .width(ui.spacing().slider_width),
+            );
+            changed = slider.changed();
+            Some(slider)
          },
       );
       if changed {
@@ -1020,7 +1045,9 @@ impl AppearanceSettingsUi {
          None,
          |ui| {
             let text = RichText::new("More…").size(theme.typography.normal);
-            more = ui.add(Button::new(text).visuals(button_visuals)).clicked();
+            let button = ui.add(Button::new(text).visuals(button_visuals));
+            more = button.clicked();
+            Some(button)
          },
       );
       if more {
@@ -1053,7 +1080,9 @@ impl AppearanceSettingsUi {
          None,
          None,
          |ui| {
-            changed = ui.color_edit_button_srgba(&mut appearance.light.color).changed();
+            let well = ui.color_edit_button_srgba(&mut appearance.light.color);
+            changed = well.changed();
+            Some(well)
          },
       );
       if changed {
@@ -1071,16 +1100,16 @@ impl AppearanceSettingsUi {
          Some(&value),
          Some(Self::slider_row_h(ui)),
          |ui| {
-            changed = ui
-               .add(
-                  Slider::new(
-                     &mut appearance.light.density,
-                     MIN_AMBIENT_LIGHT_DENSITY..=MAX_AMBIENT_LIGHT_DENSITY,
-                  )
-                  .show_value(false)
-                  .width(ui.spacing().slider_width),
+            let slider = ui.add(
+               Slider::new(
+                  &mut appearance.light.density,
+                  MIN_AMBIENT_LIGHT_DENSITY..=MAX_AMBIENT_LIGHT_DENSITY,
                )
-               .changed();
+               .show_value(false)
+               .width(ui.spacing().slider_width),
+            );
+            changed = slider.changed();
+            Some(slider)
          },
       );
       if changed {
@@ -1098,13 +1127,14 @@ impl AppearanceSettingsUi {
          None,
          None,
          |ui| {
-            changed = Self::drag_value(
+            let drag = Self::drag_value(
                ui,
                egui::DragValue::new(&mut appearance.light.radius_max)
                   .speed(0.5)
                   .range(MIN_AMBIENT_LIGHT_RADIUS..=MAX_AMBIENT_LIGHT_RADIUS),
-            )
-            .changed();
+            );
+            changed = drag.changed();
+            Some(drag)
          },
       );
       if changed {
@@ -1123,17 +1153,17 @@ impl AppearanceSettingsUi {
          Some(&value),
          Some(Self::slider_row_h(ui)),
          |ui| {
-            changed = ui
-               .add(
-                  Slider::new(
-                     &mut appearance.light.intensity,
-                     MIN_AMBIENT_LIGHT_INTENSITY..=MAX_AMBIENT_LIGHT_INTENSITY,
-                  )
-                  .step_by(0.05)
-                  .show_value(false)
-                  .width(ui.spacing().slider_width),
+            let slider = ui.add(
+               Slider::new(
+                  &mut appearance.light.intensity,
+                  MIN_AMBIENT_LIGHT_INTENSITY..=MAX_AMBIENT_LIGHT_INTENSITY,
                )
-               .changed();
+               .step_by(0.05)
+               .show_value(false)
+               .width(ui.spacing().slider_width),
+            );
+            changed = slider.changed();
+            Some(slider)
          },
       );
       if changed {
@@ -1152,17 +1182,17 @@ impl AppearanceSettingsUi {
          Some(&value),
          Some(Self::slider_row_h(ui)),
          |ui| {
-            changed = ui
-               .add(
-                  Slider::new(
-                     &mut appearance.light.flicker,
-                     MIN_AMBIENT_LIGHT_FLICKER..=MAX_AMBIENT_LIGHT_FLICKER,
-                  )
-                  .step_by(0.05)
-                  .show_value(false)
-                  .width(ui.spacing().slider_width),
+            let slider = ui.add(
+               Slider::new(
+                  &mut appearance.light.flicker,
+                  MIN_AMBIENT_LIGHT_FLICKER..=MAX_AMBIENT_LIGHT_FLICKER,
                )
-               .changed();
+               .step_by(0.05)
+               .show_value(false)
+               .width(ui.spacing().slider_width),
+            );
+            changed = slider.changed();
+            Some(slider)
          },
       );
       if changed {
@@ -1181,7 +1211,9 @@ impl AppearanceSettingsUi {
          None,
          |ui| {
             let text = RichText::new("More…").size(theme.typography.normal);
-            more = ui.add(Button::new(text).visuals(button_visuals)).clicked();
+            let button = ui.add(Button::new(text).visuals(button_visuals));
+            more = button.clicked();
+            Some(button)
          },
       );
       if more {
@@ -1214,7 +1246,9 @@ impl AppearanceSettingsUi {
          None,
          None,
          |ui| {
-            changed = ui.color_edit_button_srgba(&mut appearance.lightning.color).changed();
+            let well = ui.color_edit_button_srgba(&mut appearance.lightning.color);
+            changed = well.changed();
+            Some(well)
          },
       );
       if changed {
@@ -1232,16 +1266,16 @@ impl AppearanceSettingsUi {
          Some(&value),
          Some(Self::slider_row_h(ui)),
          |ui| {
-            changed = ui
-               .add(
-                  Slider::new(
-                     &mut appearance.lightning.bolt_count,
-                     MIN_AMBIENT_BOLTS..=MAX_AMBIENT_BOLTS,
-                  )
-                  .show_value(false)
-                  .width(ui.spacing().slider_width),
+            let slider = ui.add(
+               Slider::new(
+                  &mut appearance.lightning.bolt_count,
+                  MIN_AMBIENT_BOLTS..=MAX_AMBIENT_BOLTS,
                )
-               .changed();
+               .show_value(false)
+               .width(ui.spacing().slider_width),
+            );
+            changed = slider.changed();
+            Some(slider)
          },
       );
       if changed {
@@ -1260,16 +1294,16 @@ impl AppearanceSettingsUi {
          Some(&value),
          Some(Self::slider_row_h(ui)),
          |ui| {
-            changed = ui
-               .add(
-                  Slider::new(
-                     &mut appearance.lightning.branch_depth,
-                     MIN_AMBIENT_BRANCH_DEPTH..=MAX_AMBIENT_BRANCH_DEPTH,
-                  )
-                  .show_value(false)
-                  .width(ui.spacing().slider_width),
+            let slider = ui.add(
+               Slider::new(
+                  &mut appearance.lightning.branch_depth,
+                  MIN_AMBIENT_BRANCH_DEPTH..=MAX_AMBIENT_BRANCH_DEPTH,
                )
-               .changed();
+               .show_value(false)
+               .width(ui.spacing().slider_width),
+            );
+            changed = slider.changed();
+            Some(slider)
          },
       );
       if changed {
@@ -1288,17 +1322,17 @@ impl AppearanceSettingsUi {
          Some(&value),
          Some(Self::slider_row_h(ui)),
          |ui| {
-            changed = ui
-               .add(
-                  Slider::new(
-                     &mut appearance.lightning.thickness,
-                     MIN_AMBIENT_THICKNESS..=MAX_AMBIENT_THICKNESS,
-                  )
-                  .step_by(0.1)
-                  .show_value(false)
-                  .width(ui.spacing().slider_width),
+            let slider = ui.add(
+               Slider::new(
+                  &mut appearance.lightning.thickness,
+                  MIN_AMBIENT_THICKNESS..=MAX_AMBIENT_THICKNESS,
                )
-               .changed();
+               .step_by(0.1)
+               .show_value(false)
+               .width(ui.spacing().slider_width),
+            );
+            changed = slider.changed();
+            Some(slider)
          },
       );
       if changed {
@@ -1317,17 +1351,17 @@ impl AppearanceSettingsUi {
          Some(&value),
          Some(Self::slider_row_h(ui)),
          |ui| {
-            changed = ui
-               .add(
-                  Slider::new(
-                     &mut appearance.lightning.jitter,
-                     MIN_AMBIENT_JITTER..=MAX_AMBIENT_JITTER,
-                  )
-                  .step_by(0.01)
-                  .show_value(false)
-                  .width(ui.spacing().slider_width),
+            let slider = ui.add(
+               Slider::new(
+                  &mut appearance.lightning.jitter,
+                  MIN_AMBIENT_JITTER..=MAX_AMBIENT_JITTER,
                )
-               .changed();
+               .step_by(0.01)
+               .show_value(false)
+               .width(ui.spacing().slider_width),
+            );
+            changed = slider.changed();
+            Some(slider)
          },
       );
       if changed {
@@ -1346,17 +1380,17 @@ impl AppearanceSettingsUi {
          Some(&value),
          Some(Self::slider_row_h(ui)),
          |ui| {
-            changed = ui
-               .add(
-                  Slider::new(
-                     &mut appearance.lightning.flash_intensity,
-                     MIN_AMBIENT_FLASH_INTENSITY..=MAX_AMBIENT_FLASH_INTENSITY,
-                  )
-                  .step_by(0.05)
-                  .show_value(false)
-                  .width(ui.spacing().slider_width),
+            let slider = ui.add(
+               Slider::new(
+                  &mut appearance.lightning.flash_intensity,
+                  MIN_AMBIENT_FLASH_INTENSITY..=MAX_AMBIENT_FLASH_INTENSITY,
                )
-               .changed();
+               .step_by(0.05)
+               .show_value(false)
+               .width(ui.spacing().slider_width),
+            );
+            changed = slider.changed();
+            Some(slider)
          },
       );
       if changed {
@@ -1375,17 +1409,17 @@ impl AppearanceSettingsUi {
          Some(&value),
          Some(Self::slider_row_h(ui)),
          |ui| {
-            changed = ui
-               .add(
-                  Slider::new(
-                     &mut appearance.lightning.duration_ms,
-                     MIN_AMBIENT_DURATION_MS..=MAX_AMBIENT_DURATION_MS,
-                  )
-                  .step_by(10.0)
-                  .show_value(false)
-                  .width(ui.spacing().slider_width),
+            let slider = ui.add(
+               Slider::new(
+                  &mut appearance.lightning.duration_ms,
+                  MIN_AMBIENT_DURATION_MS..=MAX_AMBIENT_DURATION_MS,
                )
-               .changed();
+               .step_by(10.0)
+               .show_value(false)
+               .width(ui.spacing().slider_width),
+            );
+            changed = slider.changed();
+            Some(slider)
          },
       );
       if changed {
@@ -1403,14 +1437,15 @@ impl AppearanceSettingsUi {
          None,
          None,
          |ui| {
-            changed = Self::drag_value(
+            let drag = Self::drag_value(
                ui,
                egui::DragValue::new(&mut appearance.lightning.ambient_interval_secs)
                   .speed(0.1)
                   .range(MIN_AMBIENT_INTERVAL_SECS..=MAX_AMBIENT_INTERVAL_SECS)
                   .suffix(" s"),
-            )
-            .changed();
+            );
+            changed = drag.changed();
+            Some(drag)
          },
       );
       if changed {
@@ -1429,7 +1464,9 @@ impl AppearanceSettingsUi {
          None,
          |ui| {
             let text = RichText::new("More…").size(theme.typography.normal);
-            more = ui.add(Button::new(text).visuals(button_visuals)).clicked();
+            let button = ui.add(Button::new(text).visuals(button_visuals));
+            more = button.clicked();
+            Some(button)
          },
       );
       if more {
@@ -1471,6 +1508,14 @@ impl AppearanceSettingsUi {
    /// `height` overrides the cell height; combo rows pass [`Self::combo_row_h`]
    /// because the crate's `ComboBox` paints a taller button than
    /// `interact_size.y` and would otherwise overflow into the next row's gap.
+   ///
+   /// The row's word and its tip become the control's own label and description,
+   /// and the label cell plus the badge leave the tree: a reader hears the setting
+   /// once, on the control that sets it, instead of walking a sibling word and a
+   /// "?" on the way there. `add` hands back the control's response for that, or
+   /// `None` for a widget that names itself and exposes no response to write on —
+   /// the crate's `ComboBox`, whose closed face it names from the selected item —
+   /// and then the label cell stays, because the row's word has nowhere else to go.
    fn row(
       ui: &mut Ui,
       theme: &Theme,
@@ -1479,17 +1524,38 @@ impl AppearanceSettingsUi {
       label: &str,
       value: Option<&str>,
       height: Option<f32>,
-      add: impl FnOnce(&mut Ui),
+      add: impl FnOnce(&mut Ui) -> Option<Response>,
    ) {
       let height = height.unwrap_or_else(|| ui.spacing().interact_size.y);
+      let mut label_cell = None;
+      let mut tip_taken = false;
 
       ui.horizontal(|ui| {
          Self::cell(ui, LABEL_W, height, |ui| {
             let text = RichText::new(label).size(theme.typography.normal);
-            ui.add(egui::Label::new(text).extend());
+            label_cell = Some(ui.add(egui::Label::new(text).extend()));
          });
 
-         Self::cell(ui, CONTROL_W, height, add);
+         Self::cell(ui, CONTROL_W, height, |ui| {
+            let Some(control) = add(ui) else {
+               // A widget that names itself keeps the row's word beside it.
+               return;
+            };
+
+            tip_taken = true;
+
+            if let Some(label_cell) = label_cell.take() {
+               ui.ctx().accesskit_node_builder(label_cell.id, |node| node.set_hidden());
+            }
+
+            ui.ctx().accesskit_node_builder(control.id, |node| {
+               if !label.is_empty() {
+                  node.set_label(label);
+               }
+
+               node.set_description(tip);
+            });
+         });
 
          Self::cell(ui, VALUE_W, height, |ui| {
             if let Some(value) = value {
@@ -1499,7 +1565,13 @@ impl AppearanceSettingsUi {
          });
 
          let qmark = Chip::new(q_mark_text.clone()).role(ChipRole::Info);
-         ui.add(qmark).on_hover_text(tip);
+         let chip = ui.add(qmark).on_hover_text(tip);
+
+         // Only a chip whose tip the control took can leave the tree; otherwise it is still the
+         // one place the explanation is said.
+         if tip_taken {
+            ui.ctx().accesskit_node_builder(chip.id, |node| node.set_hidden());
+         }
       });
    }
 

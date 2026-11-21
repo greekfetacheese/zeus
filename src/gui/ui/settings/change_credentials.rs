@@ -4,7 +4,8 @@
 
 use crate::core::types::CredentialCheck;
 use crate::gui::SHARED_GUI;
-use egui::{RichText, Ui, Vec2, vec2};
+use crate::gui::ui::common;
+use egui::{RichText, Role, Ui, Vec2, WidgetInfo, vec2};
 use egui_elements::{Button, CredentialsForm, Theme};
 use ncrypt_me::Credentials;
 
@@ -28,6 +29,11 @@ impl ChangeCredentialsUi {
       }
    }
 
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      common::field_controls::credentials_form(&mut self.credentials_form, shown);
+   }
+
    pub fn erase(&mut self) {
       self.credentials_form.erase();
    }
@@ -38,7 +44,9 @@ impl ChangeCredentialsUi {
 
    pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
       ui.vertical_centered(|ui| {
-      ui.label(RichText::new("Change Credentials").size(theme.typography.very_large));
+      let text = "Change Credentials";
+      let title = ui.label(RichText::new(text).size(theme.typography.very_large));
+      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
       ui.label(
          RichText::new("This only changes vault encryption credentials. It does not change master wallet recovery.")
             .size(theme.typography.normal)
@@ -67,7 +75,9 @@ impl ChangeCredentialsUi {
       ui.spacing_mut().item_spacing.y = theme.spacing.lg;
       ui.spacing_mut().button_padding = theme.button_padding;
 
-      ui.label(RichText::new("Verify current credentials").size(theme.typography.large));
+      let text = "Verify current credentials";
+      let title = ui.label(RichText::new(text).size(theme.typography.large));
+      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
 
       ui.scope(|ui| {
          ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
@@ -102,7 +112,7 @@ impl ChangeCredentialsUi {
                }
                CredentialCheck::Mismatch => {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Credentials do not match");
+                     gui.open_msg_window("Incorrect credentials");
                      gui.loading_window.reset();
                      gui.request_repaint();
                   });
@@ -121,7 +131,9 @@ impl ChangeCredentialsUi {
       ui.spacing_mut().item_spacing.y = theme.spacing.lg;
       ui.spacing_mut().button_padding = theme.button_padding;
 
-      ui.label(RichText::new("Enter new credentials").size(theme.typography.large));
+      let text = "Enter new credentials";
+      let title = ui.label(RichText::new(text).size(theme.typography.large));
+      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
 
       ui.scope(|ui| {
          ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
@@ -158,7 +170,7 @@ impl ChangeCredentialsUi {
             new_vault.set_credentials(credentials);
 
             SHARED_GUI.write(|gui| {
-               gui.loading_window.open("Encrypting vault...");
+               gui.loading_window.open("Encrypting the vault...");
                gui.request_repaint();
             });
 

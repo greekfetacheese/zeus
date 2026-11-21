@@ -205,7 +205,7 @@ pub async fn update_zeus(download_url: &str, asset_name: &str) -> Result<(), any
       if let Some(total) = total_size {
          let percent = (downloaded as f64 / total as f64) * 100.0;
          SHARED_GUI.write(|gui| {
-            gui.loading_window.open(format!("Download progress: {:.1}%", percent));
+            gui.loading_window.progress(format!("Download progress: {:.1}%", percent));
          });
       }
    }

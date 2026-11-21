@@ -1,11 +1,16 @@
 use super::UniswapSettingsUi;
 use crate::core::ZeusContext;
 use crate::gui::ui::common::amount_field::{AmountField, AmountFieldParams};
+use crate::gui::ui::common::{
+   blocked_announcement, blocked_reason_line, name_picker, name_text, next_widget_id,
+};
 use crate::gui::ui::dapps::uniswap::ProtocolVersion;
 use crate::gui::ui::token_selection::{InOrOut, TokenSelectionWindow};
 use crate::utils::universal_router_v2::SwapType;
 use crate::{assets::icons::Icons, gui::SHARED_GUI};
-use egui::{Align, Grid, Id, Layout, RichText, ScrollArea, Sense, Stroke, Ui, vec2};
+use egui::{
+   Align, Grid, Id, Layout, RichText, Role, ScrollArea, Sense, Stroke, Ui, WidgetInfo, vec2,
+};
 
 use anyhow::anyhow;
 use egui_elements::{Button, ComboBox, Label, Theme, widgets::Window};
@@ -281,6 +286,19 @@ pub struct SwapUi {
    /// Cached amount USD / min received / price impact — recomputed only when [QuoteKey] changes
    quote_cache: QuoteCache,
 
+   /// What blocks the swap, in the words the button used to carry. Drawn above the button and said
+   /// once when it changes.
+   blocked: Option<String>,
+   /// The quote sentence last said, so a refresh of the same quote is not said again.
+   quote_announced: Option<String>,
+   /// Whether the last frame that drew the form had swap steps: none to some is a quote arriving,
+   /// some to none is the router answering with no route.
+   quote_had_steps: bool,
+   /// A quote request is out, so an empty quote this frame is a wait rather than an answer.
+   quote_in_flight: bool,
+   /// The words this page wants said, drained by the window right after it has drawn.
+   notice: Option<String>,
+
    /// Bumped by every quote request; a result whose id is no longer current is dropped.
    quote_request: u64,
    /// One hook-pool request at a time, so dragging the amount slider cannot queue a call per frame.
@@ -309,6 +327,11 @@ impl SwapUi {
          pool: None,
          simulate_window: SimulateWindow::new(),
          quote_cache: QuoteCache::default(),
+         blocked: None,
+         quote_announced: None,
+         quote_had_steps: false,
+         quote_in_flight: false,
+         notice: None,
          quote_request: 0,
          hook_fee_busy: Arc::new(AtomicBool::new(false)),
       }
@@ -326,6 +349,73 @@ impl SwapUi {
       self.open = false;
       self.amount_in_field.reset();
       self.amount_out_field.reset();
+      // A sentence about a form that no longer exists is not news about the next one, and the quote
+      // that was announced belonged to the pair the form is no longer on.
+      self.notice = None;
+      self.blocked = None;
+      self.quote_announced = None;
+      self.quote_had_steps = false;
+   }
+
+   /// The words this page should say, drained by the window right after it is drawn.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
+   }
+
+   /// Announce why the swap is blocked, once, and only when the reason changes.
+   ///
+   /// The sentence is drawn beside the button either way; hearing it as well is what tells a reader
+   /// who never left the amount field that the button they were heading for is not going to work,
+   /// and what to fix.
+   fn say_blocked(&mut self, reason: Option<&str>) {
+      if let Some(text) = blocked_announcement(self.blocked.as_deref(), reason) {
+         self.notice = Some(text);
+      }
+
+      self.blocked = reason.map(str::to_string);
+   }
+
+   /// Say a quote once, when it lands.
+   ///
+   /// The steps going from none to some is the arrival, and the sentence names the amount the Buy
+   /// field was handed with it. A request that is still out says nothing: an empty quote then is a
+   /// wait, not an answer.
+   fn say_quote(&mut self) {
+      if self.quote_in_flight {
+         return;
+      }
+
+      let steps = self.quote.swap_steps.len();
+      let had_steps = self.quote_had_steps;
+      self.quote_had_steps = steps > 0;
+
+      if steps > 0 {
+         if had_steps {
+            return;
+         }
+
+         let amount = self.amount_out_field.amount.trim();
+         if amount.is_empty() {
+            return;
+         }
+
+         let sentence = format!(
+            "Quote ready: {} {}.",
+            amount,
+            self.currency_out.symbol()
+         );
+         if self.quote_announced.as_deref() != Some(sentence.as_str()) {
+            self.notice = Some(sentence.clone());
+            self.quote_announced = Some(sentence);
+         }
+
+         return;
+      }
+
+      // The router answered and there is no route: the quote that was drawn is gone.
+      if had_steps && self.action().is_swap() {
+         self.notice = Some("No route found for this pair.".to_string());
+      }
    }
 
    /// Replace the currency_in or currency_out based on the direction
@@ -378,6 +468,10 @@ impl SwapUi {
          .interactive(true)
          .fill_width(true);
 
+      // The trigger's node is the next widget this ui allocates, and the crate keeps the popup under
+      // an id it takes before the list is drawn, so the id is read here first.
+      let trigger_id = next_widget_id(ui);
+
       ComboBox::new("protocol_version", label)
          .width(100.0)
          .visuals(combo_visuals)
@@ -393,11 +487,35 @@ impl SwapUi {
                   .interactive(true)
                   .fill_width(true);
 
-               if ui.add(label).clicked() {
+               let is_selected = version == current_version;
+               let response = ui.add(label);
+
+               // The rows are clickable labels that say nothing about the state they carry: a radio
+               // button says which version this one is and whether it is the one in force.
+               response.widget_info(|| {
+                  WidgetInfo::selected(
+                     Role::RadioButton,
+                     ui.is_enabled(),
+                     is_selected,
+                     version.as_str(),
+                  )
+               });
+
+               if response.clicked() {
                   self.protocol_version = version;
                }
             }
          });
+
+      // The trigger draws the version alone, so a reader landing on it gets a bare "V3": the caption
+      // the row shows names it, and it is read after the popup so a version picked this frame is the
+      // one named.
+      name_picker(
+         ui,
+         trigger_id,
+         "Pool version",
+         self.protocol_version.as_str(),
+      );
    }
 
    /// Select the fee tier
@@ -416,7 +534,11 @@ impl SwapUi {
 
       let mut changed = false;
       ui.horizontal(|ui| {
-         ui.label(RichText::new("Fee Tier").size(theme.typography.normal));
+         let caption = ui.label(RichText::new("Fee Tier").size(theme.typography.normal));
+         // The buttons say which tier they are: the caption beside them would be the same words
+         // twice.
+         ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
+
          ui.add_space(10.0);
          Grid::new("swap_ui_fee_tier_select").spacing(vec2(15.0, 0.0)).show(ui, |ui| {
             for pool in pools {
@@ -425,8 +547,17 @@ impl SwapUi {
                let fee = pool.fee().fee_percent();
                let text = RichText::new(format!("{fee}%")).size(theme.typography.normal);
                let button = Button::new(text).visuals(visuals).selected(selected);
+               let name = format!("Fee tier {fee}%");
 
-               if ui.add(button).clicked() {
+               let response = ui.add(button);
+
+               // The button draws the number alone, and the fill that shows the choice is invisible
+               // to a reader: the node carries both the caption and the selected state.
+               response.widget_info(|| {
+                  WidgetInfo::selected(Role::Button, ui.is_enabled(), selected, &name)
+               });
+
+               if response.clicked() {
                   self.pool = Some(pool.clone());
                   changed = true;
                }
@@ -550,9 +681,13 @@ impl SwapUi {
             ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.sm);
 
             let icon = Lucide::RefreshCw.size(20.0).color(theme.colors.text).image();
-            let swap_button = Button::image(icon);
+            // A picture of two arrows has no words of its own: the text alternative says what
+            // pressing it exchanges.
+            let swap_button = Button::image(icon).alt("Swap Sell and Buy tokens");
 
-            if ui.add(swap_button).clicked() {
+            let response = ui.add(swap_button);
+
+            if response.clicked() {
                self.swap_currencies();
                Self::spawn_get_quote(settings.clone());
             }
@@ -605,6 +740,10 @@ impl SwapUi {
          } else {
             self.swap_button(ctx, theme, settings, ui);
             self.swap_details(theme, settings, ui);
+
+            // The quote speaks last: when the router answers with no route, that sentence is fuller
+            // than the button's own "No Routes Found" and is the one this pass carries.
+            self.say_quote();
          }
       });
    }
@@ -642,7 +781,7 @@ impl SwapUi {
             if reset_confirm && !gui.tx_confirmation_window.is_busy() {
                gui.tx_confirmation_window.reset();
             }
-            gui.msg_window.open(format!("Transaction Error: {e}"));
+            gui.open_msg_window(format!("Transaction Error: {e}"));
             gui.request_repaint();
          }
       });
@@ -669,6 +808,31 @@ impl SwapUi {
       }
    }
 
+   /// What blocks the swap, in exactly the words the button used to draw and exactly the order it
+   /// used to prefer them in: the balance was checked last, so it overrides every rule above it.
+   fn blocked(&self, ctx: &mut ZeusContext) -> Option<String> {
+      let has_entered_amount = !self.amount_in_field.amount.is_empty();
+      let has_swap_steps = !self.quote.swap_steps.is_empty();
+      let action = self.action();
+
+      if !self.sufficient_balance(ctx) {
+         return Some(format!(
+            "Insufficient {} Balance",
+            self.currency_in.symbol()
+         ));
+      }
+
+      if has_entered_amount && action.is_swap() && !has_swap_steps {
+         return Some("No Routes Found".to_string());
+      }
+
+      if !has_entered_amount {
+         return Some("Enter Amount".to_string());
+      }
+
+      None
+   }
+
    fn swap_button(
       &mut self,
       ctx: &mut ZeusContext,
@@ -679,8 +843,6 @@ impl SwapUi {
       let sending_tx = self.sending_tx;
       let valid_inputs = self.valid_inputs(ctx);
       let has_swap_steps = !self.quote.swap_steps.is_empty();
-      let has_balance = self.sufficient_balance(ctx);
-      let has_entered_amount = !self.amount_in_field.amount.is_empty();
       let action = self.action();
 
       let valid = if action.is_wrap_or_unwrap() {
@@ -689,40 +851,41 @@ impl SwapUi {
          valid_inputs && has_swap_steps && !sending_tx
       };
 
-      let mut button_text = "Swap".to_string();
+      // The button's own words are the action, whatever is blocking it: the words it drew while it
+      // could run are the ones that say what pressing it does.
+      let label = if action.is_wrap() {
+         format!("Wrap {}", self.currency_in.symbol())
+      } else if action.is_unwrap() {
+         format!("Unwrap {}", self.currency_in.symbol())
+      } else {
+         "Swap".to_string()
+      };
 
-      if !has_entered_amount {
-         button_text = "Enter Amount".to_string();
-      }
+      // Said once, then drawn directly above the button: a disabled button takes no focus, so a
+      // reason that lived in its label could never be reached.
+      let blocked = self.blocked(ctx);
+      self.say_blocked(blocked.as_deref());
 
-      if valid_inputs && action.is_wrap() {
-         button_text = format!("Wrap {}", self.currency_in.symbol());
-      }
-
-      if valid_inputs && action.is_unwrap() {
-         button_text = format!("Unwrap {}", self.currency_in.symbol());
-      }
-
-      if has_entered_amount && action.is_swap() && !has_swap_steps {
-         button_text = "No Routes Found".to_string();
-      }
-
-      if !has_balance {
-         button_text = format!(
-            "Insufficient {} Balance",
-            self.currency_in.symbol()
-         );
+      if let Some(reason) = &blocked {
+         blocked_reason_line(ui, theme, reason);
       }
 
       let visuals = theme.button_visuals();
       let swap_button = Button::new(
-         RichText::new(button_text).size(theme.typography.large).color(theme.colors.text),
+         RichText::new(label.clone())
+            .size(theme.typography.large)
+            .color(theme.colors.text),
       )
       .min_size(vec2(ui.available_width() * 0.8, 45.0))
       .visuals(visuals);
 
       ui.vertical_centered(|ui| {
-         if ui.add_enabled(valid, swap_button).clicked() {
+         let response = ui.add_enabled(valid, swap_button);
+
+         // The button keeps the name of what it does whatever is blocking it.
+         response.widget_info(|| WidgetInfo::labeled(Role::Button, valid, &label));
+
+         if response.clicked() {
             self.sending_tx = true;
             self.swap(ctx, settings);
          }
@@ -980,6 +1143,9 @@ impl SwapUi {
       // overwrite it.
       self.quote_request = self.quote_request.wrapping_add(1);
       let quote_request = self.quote_request;
+
+      // An empty quote while this is out is a wait, not an answer the page should describe.
+      self.quote_in_flight = true;
       let hook_fee_busy = self.hook_fee_busy.clone();
 
       let ctx_clone = ctx.clone();
@@ -1045,6 +1211,8 @@ impl SwapUi {
             if gui.uniswap.swap_ui.quote_request != quote_request {
                return;
             }
+
+            gui.uniswap.swap_ui.quote_in_flight = false;
 
             if quote.amount_out.is_zero() {
                gui.uniswap.swap_ui.quote = Quote::default();
@@ -1185,16 +1353,33 @@ impl SwapUi {
             let info = Lucide::Info.size(20.0).color(theme.colors.text).image();
             let label = Label::new(text, Some(info)).interactive(false);
 
-            ui.add(label).on_hover_ui(|ui| {
+            let response = ui.add(label);
+
+            // The hops live in a popup only a mouse can open: the count goes on the node's name and
+            // the whole route on its description, so the trade can be read without hovering.
+            let steps = &self.quote.swap_steps;
+            let name = match steps.len() {
+               0 => "Routing, no swaps yet".to_string(),
+               1 => "Routing, 1 swap".to_string(),
+               count => format!("Routing, {count} swaps"),
+            };
+
+            name_text(ui, &response, name);
+
+            ui.ctx().accesskit_node_builder(response.id, |node| {
+               node.set_description(route_description(steps));
+            });
+
+            response.on_hover_ui(|ui| {
                ui.set_width(350.0);
                ui.set_height(100.0);
                ScrollArea::vertical().show(ui, |ui| {
-                  let swaps_len = self.quote.swap_steps.len();
-                  let text = format!("Total swaps {}", swaps_len);
+                  let swaps_len = steps.len();
+                  let text = format!("Total swaps: {swaps_len}");
                   ui.label(RichText::new(text).size(theme.typography.very_small));
                   ui.add_space(5.0);
 
-                  for step in &self.quote.swap_steps {
+                  for step in steps {
                      let text = format!(
                         "{} {} -> {} {} ({}/{} {} {}%)",
                         step.amount_in.abbreviated(),
@@ -1215,39 +1400,61 @@ impl SwapUi {
          // Slippage
          ui.horizontal(|ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(RichText::new("Slippage").size(text_size));
+               let caption = ui.label(RichText::new("Slippage").size(text_size));
+               // The value's node says both the word and the severity the colour carries: a bare
+               // muted number tells a reader neither what it counts nor how bad it is.
+               ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
             });
 
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                let slippage = settings.slippage_f64();
-               let color = if slippage < 1.0 {
-                  theme.colors.text
+
+               // The same thresholds the colour has always used: a percentage a reader cannot see is
+               // the one that needs the word.
+               let (color, severity) = if slippage < 1.0 {
+                  (theme.colors.text, "")
                } else if slippage < 2.5 {
-                  theme.colors.warning
+                  (theme.colors.warning, " (elevated)")
                } else {
-                  theme.colors.error
+                  (theme.colors.error, " (risky)")
                };
 
-               ui.label(RichText::new(format!("{:.2}%", slippage)).size(text_size).color(color));
+               let value =
+                  ui.label(RichText::new(format!("{:.2}%", slippage)).size(text_size).color(color));
+
+               name_text(
+                  ui,
+                  &value,
+                  format!("Slippage {slippage:.2}%{severity}"),
+               );
             });
          });
 
          // Minimum Received
          ui.horizontal(|ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(RichText::new("Minimum Received").size(text_size));
+               let caption = ui.label(RichText::new("Minimum Received").size(text_size));
+               ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
             });
 
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                if self.quote_cache.key.show_swap_metrics {
-                  ui.label(
-                     RichText::new(format!(
-                        "{} {}",
-                        self.quote_cache.min_received.formatted(),
-                        self.currency_out.symbol()
-                     ))
-                     .size(text_size),
+                  let floor = format!(
+                     "{} {}",
+                     self.quote_cache.min_received.formatted(),
+                     self.currency_out.symbol()
                   );
+
+                  let value = ui.label(RichText::new(&floor).size(text_size));
+                  name_text(ui, &value, format!("Minimum Received {floor}"));
+               } else {
+                  // An empty row is a row a reader lands on and gets nothing from: the quiet words
+                  // say there is no quote yet, and the node says which row they belong to.
+                  let text =
+                     RichText::new("Not quoted yet").size(text_size).color(theme.colors.text_muted);
+                  let value = ui.label(text);
+
+                  name_text(ui, &value, "Minimum Received: not quoted yet");
                }
             });
          });
@@ -1255,11 +1462,15 @@ impl SwapUi {
          // Price Impact
          ui.horizontal(|ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(RichText::new("Price Impact").size(text_size));
+               let caption = ui.label(RichText::new("Price Impact").size(text_size));
+               ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
             });
 
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                let price_impact = self.quote_cache.price_impact;
+
+               // The colour says which way the number went: positive is a cost, negative is a gain
+               // the pool is handing over.
                let color = if price_impact == 0.0 {
                   theme.colors.text
                } else if price_impact.is_sign_positive() {
@@ -1268,8 +1479,14 @@ impl SwapUi {
                   theme.colors.success
                };
 
-               ui.label(
+               let value = ui.label(
                   RichText::new(format!("{:.2}%", price_impact)).size(text_size).color(color),
+               );
+
+               name_text(
+                  ui,
+                  &value,
+                  format!("Price impact {price_impact:.2}%"),
                );
             });
          });
@@ -1399,11 +1616,68 @@ impl SwapUi {
 
    fn open_loading() -> ZeusCtx {
       SHARED_GUI.write(|gui| {
-         gui.loading_window.open("Wait while magic happens");
+         gui.loading_window.open("Preparing your transaction…");
          gui.request_repaint();
          gui.ctx.clone()
       })
    }
+
+   /// Stand a quote up without the network: the hops, and the two rows the details pane reads from
+   /// the cache. The cache is keyed to the form as it stands so the next draw keeps it instead of
+   /// recomputing over it.
+   #[cfg(test)]
+   pub(crate) fn seed_quote_for_test(
+      &mut self,
+      ctx: &mut ZeusContext,
+      settings: &UniswapSettingsUi,
+      steps: Vec<SwapStep<AnyUniswapPool>>,
+      min_received: NumericValue,
+      price_impact: f64,
+   ) {
+      let key = QuoteKey {
+         show_swap_metrics: true,
+         ..self.quote_key(ctx, settings)
+      };
+
+      self.quote.swap_steps = steps;
+      self.quote_cache = QuoteCache {
+         key,
+         amount_in_value: self.quote_cache.amount_in_value.clone(),
+         amount_out_value: self.quote_cache.amount_out_value.clone(),
+         min_received,
+         price_impact,
+      };
+   }
+
+   /// Recompute what blocks the swap and say it, the way the frame does before it draws the button.
+   #[cfg(test)]
+   pub(crate) fn refresh_blocked_for_test(&mut self, ctx: &mut ZeusContext) {
+      let blocked = self.blocked(ctx);
+      self.say_blocked(blocked.as_deref());
+   }
+}
+
+/// The route as one sentence, for the node a reader lands on.
+///
+/// The popup that draws these lines is opened by a mouse, so the same hops go on the trigger's
+/// description: the total first, then one sentence per step in the order the popup lists them.
+fn route_description(steps: &[SwapStep<AnyUniswapPool>]) -> String {
+   let mut text = format!("Total swaps: {}.", steps.len());
+
+   for step in steps {
+      text.push_str(&format!(
+         " {} {} to {} {} in the {}/{} pool, fee {} percent",
+         step.amount_in.abbreviated(),
+         step.currency_in.symbol(),
+         step.amount_out.abbreviated(),
+         step.currency_out.symbol(),
+         step.pool.currency0().symbol(),
+         step.pool.currency1().symbol(),
+         step.pool.fee().fee_percent()
+      ));
+   }
+
+   text
 }
 
 /// The pool-side currency for a trade currency.
@@ -1858,6 +2132,13 @@ async fn handle_approve(
          new_fork_db = evm.db().clone();
       }
 
+      // The approval is a second transaction the swap form never mentions, and it opens its own
+      // prompt: say it before that prompt appears, so nobody confirms a fee they were not warned
+      // about.
+      SHARED_GUI.write(|gui| {
+         gui.uniswap.swap_ui.notice = Some(format!("Approving {} first.", token.symbol));
+      });
+
       let receipt = send_token_approve(
          ctx.clone(),
          chain,
@@ -1975,7 +2256,7 @@ async fn swap_via_ur(
    }
 
    SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Wait while magic happens");
+      gui.loading_window.open("Preparing your transaction…");
       gui.request_repaint();
    });
 
@@ -2074,7 +2355,7 @@ async fn swap_via_ur(
    }
 
    SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Wait while magic happens");
+      gui.loading_window.open("Sending the transaction…");
       gui.request_repaint();
    });
 

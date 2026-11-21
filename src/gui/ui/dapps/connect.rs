@@ -8,9 +8,9 @@
 
 use crate::core::WalletInfo;
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::common::delayed_action_label;
 use crate::gui::ui::common::windows::PromptGate;
-use egui::{Id, Order, RichText, ScrollArea, Sense, Ui, vec2};
+use crate::gui::ui::common::{address_for_speech, delayed_action_remaining, spoken_wallet_name};
+use egui::{Id, Key, Order, Response, RichText, Role, ScrollArea, Sense, Ui, WidgetInfo, vec2};
 use egui_elements::{Button, Label, Modal, Theme};
 use std::time::{Duration, Instant};
 use zeus_eth::alloy_primitives::Address;
@@ -57,6 +57,10 @@ pub struct ConnectDappWindow {
    /// When the prompt became visible. Drives the Confirm-style delay so a
    /// focus-steal click cannot approve the connection.
    opened_at: Option<Instant>,
+   /// The countdown's one announcement has been raised for this prompt.
+   ready_announced: bool,
+   /// The words this window hands back to the frame, which owns the announcement channel.
+   notice: Option<String>,
    size: (f32, f32),
 }
 
@@ -72,6 +76,8 @@ impl ConnectDappWindow {
          seen_accounts: Vec::new(),
          result: None,
          opened_at: None,
+         ready_announced: false,
+         notice: None,
          size: (460.0, 620.0),
       }
    }
@@ -134,6 +140,8 @@ impl ConnectDappWindow {
       self.wallets = wallets;
       self.result = None;
       self.opened_at = Some(Instant::now());
+      self.ready_announced = false;
+      self.notice = None;
    }
 
    /// Collect the answer, consuming it.
@@ -142,6 +150,11 @@ impl ConnectDappWindow {
    /// Connect click, and the second would connect an app to an account the user never chose for it.
    pub fn take_result(&mut self) -> Option<DappConnectResult> {
       self.result.take()
+   }
+
+   /// The words the frame should say, drained by it right after the prompt has drawn.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
    }
 
    /// Close and answer the server with a rejection. Used when auto-lock fires,
@@ -170,8 +183,9 @@ impl ConnectDappWindow {
       let button_visuals = theme.button_visuals();
       let mut open = self.open;
 
-      // A selectable option row, shared by the two choices.
-      let option_row = |ui: &mut Ui, text: &str, selected: bool| -> bool {
+      // A selectable option row, shared by the two choices. Each one is a radio button named by
+      // the words it draws, so a reader hears the choice and which of the two is the chosen one.
+      let option_row = |ui: &mut Ui, text: &str, selected: bool| -> Response {
          ui.spacing_mut().button_padding = theme.button_padding;
 
          let label = Label::new(RichText::new(text).size(large), None)
@@ -180,7 +194,13 @@ impl ConnectDappWindow {
             .expand(Some(4.0))
             .selected(selected)
             .sense(Sense::click());
-         ui.add(label).clicked()
+         let response = ui.add(label);
+
+         response.widget_info(|| {
+            WidgetInfo::selected(Role::RadioButton, ui.is_enabled(), selected, text)
+         });
+
+         response
       };
 
       Modal::new(Id::unique("connect_dapp_window"), &mut open)
@@ -199,7 +219,9 @@ impl ConnectDappWindow {
             ui.spacing_mut().button_padding = theme.button_padding;
 
             ui.vertical_centered(|ui| {
-               ui.label(RichText::new(&self.origin).size(large));
+               let asking = format!("{} is asking for one account.", self.origin);
+
+               ui.label(RichText::new(asking).size(large));
             });
 
             // Left-aligned body so wrapped copy and the option rows share one edge.
@@ -212,7 +234,8 @@ impl ConnectDappWindow {
 
                   let text = "Apps can see your onchain history. Zeus can create an \
                               account dedicated to this app, so the app cannot link \
-                              your activity across sites.";
+                              your activity across sites. It will see the address of \
+                              the account you choose here.";
                   ui.add(
                      Label::new(RichText::new(text).size(normal), None)
                         .wrap()
@@ -222,21 +245,25 @@ impl ConnectDappWindow {
 
                   ui.add_space(theme.spacing.xs);
 
-                  if option_row(
+                  let new_account = option_row(
                      ui,
                      "Create a new account for this app",
                      self.use_new_account,
-                  ) {
+                  );
+
+                  if new_account.clicked() {
                      self.use_new_account = true;
                   }
 
                   ui.add_space(theme.spacing.lg);
 
-                  if option_row(
+                  let existing_account = option_row(
                      ui,
                      "Use an existing account",
                      !self.use_new_account,
-                  ) {
+                  );
+
+                  if existing_account.clicked() {
                      self.use_new_account = false;
                   }
 
@@ -258,13 +285,15 @@ impl ConnectDappWindow {
                            frame2.show(ui, |ui| {
                               for wallet in &self.wallets {
                                  let is_selected = self.selected == Some(wallet.address);
+                                 let previously_connected =
+                                    self.seen_accounts.contains(&wallet.address);
 
                                  let mut parts =
                                     vec![RichText::new(wallet.name_with_id_short()).size(normal)];
 
                                  // Explains why this row is the one already selected, and tells
                                  // the user the app already knows this account.
-                                 if self.seen_accounts.contains(&wallet.address) {
+                                 if previously_connected {
                                     let muted = theme.colors.text_muted;
                                     let small = theme.typography.small;
 
@@ -283,7 +312,34 @@ impl ConnectDappWindow {
                                     .expand(Some(6.0))
                                     .sense(Sense::click());
 
-                                 if ui.add(row).clicked() {
+                                 let response = ui.add(row);
+
+                                 // The page is given the account's address, not its name: the row
+                                 // says which account in speech, and the whole grouped address
+                                 // is the description, so two rows can be told apart by ear.
+                                 let mut name = spoken_wallet_name(wallet);
+
+                                 if previously_connected {
+                                    name.push_str(", previously connected");
+                                 }
+
+                                 response.widget_info(|| {
+                                    WidgetInfo::selected(
+                                       Role::RadioButton,
+                                       ui.is_enabled(),
+                                       is_selected,
+                                       name.clone(),
+                                    )
+                                 });
+
+                                 let address =
+                                    address_for_speech(None, &wallet.address.to_string()).name;
+
+                                 ui.ctx().accesskit_node_builder(response.id, |node| {
+                                    node.set_description(address);
+                                 });
+
+                                 if response.clicked() {
                                     picked = Some(wallet.address);
                                  }
                               }
@@ -298,6 +354,25 @@ impl ConnectDappWindow {
                });
             });
 
+            // Escape is this dialog's way out, and the answer it gives is Reject's. The prompt
+            // is drawn above every panel, so it reads the key only while nothing is drawn over
+            // it: a layer raised above this one takes the key first.
+            let escape = ui.input(|input| input.key_pressed(Key::Escape))
+               && ui.ctx().memory(|memory| {
+                  let layer = ui.layer_id();
+
+                  !memory
+                     .areas()
+                     .visible_layer_ids()
+                     .into_iter()
+                     .any(|other| other.order > layer.order)
+               });
+
+            if escape {
+               self.result = Some(DappConnectResult::Rejected);
+               self.close();
+            }
+
             ui.add_space(theme.spacing.md);
 
             ui.vertical_centered(|ui| {
@@ -309,16 +384,48 @@ impl ConnectDappWindow {
                ui.horizontal(|ui| {
                   ui.spacing_mut().item_spacing.x = theme.spacing.xl;
 
-                  let (ready, label) = delayed_action_label(self.opened_at, "Connect");
+                  // The countdown moves the button's description, never its name: a name that
+                  // moves every second makes the same control a new one to a reader each frame.
+                  let remaining = delayed_action_remaining(self.opened_at);
+                  let ready = remaining.is_none();
+
                   if !ready {
                      ui.ctx().request_repaint_after(Duration::from_millis(100));
                   }
+
+                  // A button whose whole text is a timer has no verb on screen either, so the
+                  // wait sits beside the verb instead of replacing it.
+                  let label = match remaining {
+                     Some(secs) => format!("Connect (wait {secs}s)"),
+                     None => "Connect".to_string(),
+                  };
 
                   let connect = Button::new(RichText::new(label).size(theme.typography.normal))
                      .visuals(button_visuals)
                      .min_size(button_size);
 
-                  if ui.add_enabled(ready, connect).clicked() {
+                  let response = ui.add_enabled(ready, connect);
+                  let enabled = response.enabled();
+
+                  response.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, "Connect"));
+
+                  // A disabled control is still a node, and its description is the one part of
+                  // it a reader can reach, so the wait is said there.
+                  if let Some(secs) = remaining {
+                     let description = format!("Available in {secs} seconds");
+
+                     ui.ctx().accesskit_node_builder(response.id, |node| {
+                        node.set_description(description);
+                     });
+                  }
+
+                  // Say the wait once, and only when it actually opens the button.
+                  if self.opened_at.is_some() && ready && !self.ready_announced {
+                     self.ready_announced = true;
+                     self.notice = Some("Connect is now available.".to_string());
+                  }
+
+                  if response.clicked() {
                      let choice = if self.use_new_account {
                         DappAccountChoice::NewAccount
                      } else {
@@ -342,6 +449,14 @@ impl ConnectDappWindow {
                });
             });
          });
+   }
+}
+
+#[cfg(test)]
+impl ConnectDappWindow {
+   /// Put the prompt's wait where a tree test needs it: still counting, or already run out.
+   pub(crate) fn set_opened_at_for_test(&mut self, opened_at: Option<Instant>) {
+      self.opened_at = opened_at;
    }
 }
 

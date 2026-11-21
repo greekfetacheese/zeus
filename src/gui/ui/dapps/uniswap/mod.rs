@@ -1,5 +1,6 @@
 use egui::{
-   Align, CornerRadius, CursorIcon, Layout, Rect, RichText, Sense, Ui, UiBuilder, pos2, vec2,
+   Align, CornerRadius, CursorIcon, Layout, Rect, RichText, Role, Sense, Ui, UiBuilder, WidgetInfo,
+   pos2, vec2,
 };
 
 use crate::assets::icons::Icons;
@@ -117,6 +118,8 @@ pub struct UniswapUi {
    page: Page,
    /// Input time the visible page was selected at, so the page body fades in from it.
    page_shown_at: Option<f64>,
+   /// The sentence the window wants said, drained by the frame right after the window has drawn.
+   notice: Option<String>,
    pub size: (f32, f32),
    pub settings: UniswapSettingsUi,
    pub swap_ui: SwapUi,
@@ -132,6 +135,7 @@ impl UniswapUi {
          open: false,
          page: Page::Swap,
          page_shown_at: None,
+         notice: None,
          size: (400.0, 500.0),
          settings: UniswapSettingsUi::new(),
          swap_ui,
@@ -146,6 +150,8 @@ impl UniswapUi {
    pub fn close(&mut self) {
       self.open = false;
       self.page = Page::Swap;
+      // A sentence raised on the page that was left is not about the page the window opens on.
+      self.notice = None;
       self.swap_ui.open();
       self.swap_ui.amount_in_field.reset();
       self.swap_ui.amount_out_field.reset();
@@ -153,6 +159,11 @@ impl UniswapUi {
 
    pub fn is_open(&self) -> bool {
       self.open
+   }
+
+   /// The words the frame should say, drained by it right after the window has drawn.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
    }
 
    fn set_page(&mut self, page: Page) {
@@ -226,14 +237,27 @@ impl UniswapUi {
                   corner_radius: CornerRadius::same(25),
                   ..Default::default()
                };
-               let button = Button::image(icon).small().visuals(visuals);
+               // The button is a picture of a refresh arrow: its text alternative says what
+               // pressing it refreshes.
+               let button =
+                  Button::image(icon).small().visuals(visuals).alt("Refresh pools and quote");
                let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
                if res.clicked() && self.page == Page::Swap {
                   self.swap_ui.refresh(&self.settings);
                }
             } else {
-               ui.add(Spinner::new().size(17.0));
+               let spinner = ui.add(Spinner::new().size(17.0));
+
+               // A spinner is a picture with no words: it says what is being fetched, the way the
+               // loading window's spinner says it is working.
+               spinner.widget_info(|| {
+                  WidgetInfo::labeled(
+                     Role::ProgressIndicator,
+                     ui.is_enabled(),
+                     "Refreshing pools and quote",
+                  )
+               });
             }
          },
       );
@@ -325,15 +349,31 @@ impl UniswapUi {
                   ui.multiply_opacity(fade);
 
                   match self.page {
-                     Page::Swap => self.swap_ui.show(
-                        ctx,
-                        theme,
-                        icons.clone(),
-                        token_selection,
-                        &self.settings,
-                        ui,
-                     ),
-                     Page::Pools => self.pools_ui.show(ctx, theme, icons.clone(), ui),
+                     Page::Swap => {
+                        self.swap_ui.show(
+                           ctx,
+                           theme,
+                           icons.clone(),
+                           token_selection,
+                           &self.settings,
+                           ui,
+                        );
+
+                        // The form raises its sentences from inside its own draw, so it hands them
+                        // up to the window's channel the way the pool table does.
+                        if let Some(text) = self.swap_ui.take_notice() {
+                           self.notice = Some(text);
+                        }
+                     }
+                     Page::Pools => {
+                        self.pools_ui.show(ctx, theme, icons.clone(), ui);
+
+                        // The table raises its count from inside its own draw, so it hands the
+                        // sentence up to the window's channel like the settings page does.
+                        if let Some(text) = self.pools_ui.take_notice() {
+                           self.notice = Some(text);
+                        }
+                     }
                      Page::Settings => self.show_settings_page(theme, ui),
                   }
                });
@@ -355,6 +395,11 @@ impl UniswapUi {
 
          // Settings is its own view now, so every swap knob belongs on it.
          self.settings.show(true, false, theme, ui);
+
+         // The page has no channel of its own, so the sentence it raised comes up to the window's.
+         if let Some(text) = self.settings.take_notice() {
+            self.notice = Some(text);
+         }
       });
    }
 }

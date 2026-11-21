@@ -1,15 +1,13 @@
-//! Settings viewport: category nav + inlined pages.
+//! Settings window: category nav + inlined pages.
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
-use crate::gui::SHARED_GUI;
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::{
-   WindowCtx, common::privacy_mode_switch, record_input_activity, show_with_fade, window_frame,
+   common::{heading, privacy_mode_switch},
+   show_with_fade,
 };
-use egui::{
-   RichText, ScrollArea, Shadow, Stroke, Ui, ViewportBuilder, ViewportClass, ViewportId, vec2,
-};
+use egui::{Key, Response, RichText, Role, ScrollArea, Shadow, Stroke, Ui, WidgetInfo, vec2};
 use egui_elements::{Fill, Frame as Frame2, Label, Theme};
 use egui_lucide::Lucide;
 use std::sync::Arc;
@@ -38,12 +36,6 @@ pub use networks::NetworkSettings;
 pub use railgun::RailgunSettings;
 pub use theme::ThemeSettings;
 
-const SETTINGS_VIEWPORT_ID: &str = "zeus_settings_viewport";
-
-pub fn settings_viewport_id() -> ViewportId {
-   ViewportId::from_hash_of(SETTINGS_VIEWPORT_ID)
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SettingsPage {
    General,
@@ -55,11 +47,31 @@ pub enum SettingsPage {
    Data,
 }
 
+impl SettingsPage {
+   /// The page's word, shared by its tab and its heading so the two cannot disagree.
+   pub fn name(&self) -> &'static str {
+      match self {
+         Self::General => "General",
+         Self::Appearance => "Appearance",
+         Self::Networks => "Networks",
+         Self::Security => "Security",
+         Self::Contacts => "Contacts",
+         Self::Railgun => "Railgun",
+         Self::Data => "Data",
+      }
+   }
+}
+
 pub struct SettingsUi {
    open: bool,
-   /// Apply default inner size only on the first builder after open.
-   size_applied: bool,
+   /// Set when the user closed the window itself — its Close button or Escape — so the left panel
+   /// can put the focus back on the plate that opened it.
+   focus_return: bool,
    page: SettingsPage,
+   /// The page whose heading has already been given the focus, so a change of page moves it once.
+   last_page: Option<SettingsPage>,
+   /// The words a page asked the app to say, drained right after the window is drawn.
+   notice: Option<String>,
    general: GeneralSettings,
    appearance: AppearanceSettingsUi,
    pub encryption: EncryptionSettings,
@@ -77,8 +89,10 @@ impl SettingsUi {
    pub fn new(ctx: &mut ZeusContext, appearance: &mut AppearanceSettings) -> Self {
       Self {
          open: false,
-         size_applied: false,
+         focus_return: false,
          page: SettingsPage::General,
+         last_page: None,
+         notice: None,
          general: GeneralSettings::new(ctx),
          appearance: AppearanceSettingsUi::new(appearance),
          encryption: EncryptionSettings::new(),
@@ -91,6 +105,13 @@ impl SettingsUi {
          import: ImportDataUi::new(),
          railgun: RailgunSettings::new(ctx),
       }
+   }
+
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      self.import.set_field_controls(shown);
+      self.change_credentials_ui.set_field_controls(shown);
+      self.contacts_ui.set_field_controls(shown);
    }
 
    pub fn erase(&mut self) {
@@ -116,9 +137,11 @@ impl SettingsUi {
    pub fn close(&mut self, ctx: &mut ZeusContext) {
       if self.open {
          self.general.save_settings(ctx);
+         self.promote_general_notice();
+         self.promote_network_notice();
+         self.promote_contacts_notice();
       }
       self.open = false;
-      self.size_applied = false;
       self.change_credentials_ui.reset();
       // Drop any typed import credentials: the form redraws them unconditionally
       // (`with_open(true)`), so a vault password left in the field would be shown
@@ -126,6 +149,43 @@ impl SettingsUi {
       self.import.erase();
       self.contacts_ui.reset_page();
       self.network.reset_view();
+      // Reopening lands on the open page's heading again, even though the page itself did not change.
+      self.last_page = None;
+   }
+
+   /// Whether the user closed the window itself since the last call, which asks the left panel to
+   /// put the focus back on the plate that opened it.
+   ///
+   /// Only a close the user asked for is reported: when the wallet locks or a page closes Settings,
+   /// the focus is either gone with the lock screen or still where that page left it.
+   pub fn take_focus_return(&mut self) -> bool {
+      std::mem::take(&mut self.focus_return)
+   }
+
+   /// The words this frame should say, drained by the app right after the window is drawn.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
+   }
+
+   /// Hand a notice the General page raised up to the window, where the app drains it.
+   fn promote_general_notice(&mut self) {
+      if let Some(text) = self.general.take_notice() {
+         self.notice = Some(text);
+      }
+   }
+
+   /// Hand a notice the Networks page raised up to the window, where the app drains it.
+   fn promote_network_notice(&mut self) {
+      if let Some(text) = self.network.take_notice() {
+         self.notice = Some(text);
+      }
+   }
+
+   /// Hand a notice the Contacts page raised up to the window, where the app drains it.
+   fn promote_contacts_notice(&mut self) {
+      if let Some(text) = self.contacts_ui.take_notice() {
+         self.notice = Some(text);
+      }
    }
 
    pub fn open_page(
@@ -149,6 +209,7 @@ impl SettingsUi {
    fn set_page(&mut self, page: SettingsPage, ctx: &mut ZeusContext) {
       if self.page == SettingsPage::General && page != SettingsPage::General {
          self.general.save_settings(ctx);
+         self.promote_general_notice();
       }
       if page == SettingsPage::Security {
          self.encryption.sync_from_ctx(ctx);
@@ -164,34 +225,12 @@ impl SettingsUi {
       self.page = page;
    }
 
-   fn viewport_builder(&mut self, egui_ctx: &egui::Context) -> ViewportBuilder {
-      let mut builder = ViewportBuilder::default()
-         .with_title("Settings")
-         .with_decorations(false)
-         .with_transparent(true)
-         .with_min_inner_size([800.0, 560.0])
-         .with_resizable(true);
-
-      // Size + position only on first open. Repeating InnerSize/Position every
-      // parent frame fights user resize/drag (and Wayland cannot set position).
-      if !self.size_applied {
-         const SIZE: [f32; 2] = [1120.0, 720.0];
-         builder = builder.with_inner_size(SIZE);
-         if let Some(parent) = egui_ctx.input(|i| i.viewport().outer_rect) {
-            let size = vec2(SIZE[0], SIZE[1]);
-            builder = builder.with_position(parent.center() - size * 0.5);
-         }
-         self.size_applied = true;
-      }
-
-      builder
-   }
-
-   /// Register the Settings OS window. Uses a **deferred** viewport so the parent
-   /// frame does not present/vsync the child mid-pass (immediate viewports do).
+   /// Draw the Settings window in the root viewport.
    ///
-   /// Must be called from the root viewport while Settings is open. The actual
-   /// paint runs later on the child viewport's own pass via [`paint_settings_viewport`].
+   /// It used to be a second OS window, and a second OS window has no accessibility tree at all:
+   /// nothing inside it — the nav, a page, a message raised from one — was reachable by a reader.
+   /// Here it is drawn by the same pass as the main window, so everything in it joins the tree the
+   /// app already builds, and the window itself is a named `Role::Window` with a Close button.
    pub fn show(
       &mut self,
       ctx: &mut ZeusContext,
@@ -201,13 +240,8 @@ impl SettingsUi {
       ui: &mut Ui,
    ) {
       if ctx.locked {
-         // Auto-lock closes the Settings window: it is a separate OS viewport
-         // and a real bypass if left interactive while the wallet is locked.
+         // A locked wallet must not leave Settings usable.
          if self.open {
-            ui.ctx().send_viewport_cmd_to(
-               settings_viewport_id(),
-               egui::ViewportCommand::Close,
-            );
             self.close(ctx);
          }
          return;
@@ -217,17 +251,26 @@ impl SettingsUi {
          return;
       }
 
-      let builder = self.viewport_builder(ui.ctx());
-      let id = settings_viewport_id();
+      let mut open = true;
+      let mut escaped = false;
 
-      // Native eframe has embed_viewports=false. If a backend embeds, the deferred
-      // callback would re-enter SHARED_GUI while the parent already holds it.
-      if ui.ctx().embed_viewports() {
-         self.paint(ctx, icons, theme, appearance, ui);
-         return;
+      // Left on the default `Order`: the ambient particle pass paints on `Order::Foreground`
+      // over the whole app, so its particles fall over this window as over every other surface.
+      egui::Window::new("Settings")
+         .id(egui::Id::unique("zeus_settings_window"))
+         .collapsible(false)
+         .resizable(true)
+         .default_size([1120.0, 720.0])
+         .open(&mut open)
+         .show(ui.ctx(), |ui| {
+            self.paint(ctx, icons, theme, appearance, ui);
+            escaped = escape_closes_window(ui);
+         });
+
+      if !open || escaped {
+         self.close(ctx);
+         self.focus_return = true;
       }
-
-      ui.ctx().show_viewport_deferred(id, builder, paint_settings_viewport);
    }
 
    fn paint(
@@ -238,10 +281,7 @@ impl SettingsUi {
       appearance: &mut AppearanceSettings,
       ui: &mut Ui,
    ) {
-      let window_ctx = WindowCtx::settings(theme);
-      window_frame(ui, window_ctx, |ui| {
-         self.show_shell(ctx, icons, theme, appearance, ui);
-      });
+      self.show_shell(ctx, icons, theme, appearance, ui);
    }
 
    fn show_shell(
@@ -260,12 +300,29 @@ impl SettingsUi {
          .show_separator_line(false)
          .frame(egui::Frame::new().fill(nav_bg).inner_margin(8.0))
          .show(ui, |ui| {
+            // The seven plates are one page switcher: named here so a reader knows what they
+            // belong to before it walks them.
+            ui.ctx().accesskit_node_builder(ui.unique_id(), |node| {
+               node.set_role(Role::TabList);
+               node.set_label("Settings pages");
+            });
+
             self.nav(ctx, theme, ui);
          });
 
       egui::CentralPanel::default()
          .frame(egui::Frame::new().fill(theme.colors.bg).inner_margin(16.0))
          .show(ui, |ui| {
+            // The page's first node, and never inside the scroll area, so it neither moves nor
+            // scrolls away. A page change moves the focus here, and that focus move is what makes a
+            // reader say the page's name — the name is not drawn or announced anywhere else.
+            let page_heading = heading(ui, self.page.name());
+
+            if self.last_page != Some(self.page) {
+               page_heading.request_focus();
+               self.last_page = Some(self.page);
+            }
+
             ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
                egui::Frame::new().inner_margin(10.0).show(ui, |ui| {
                   ui.set_width(ui.available_width());
@@ -353,58 +410,46 @@ impl SettingsUi {
                });
             });
          });
+
+      // A page's save, reset, copy or inline error raised its words; hand them up now, so the app
+      // can say them in the frame that drew the page.
+      self.promote_general_notice();
+      self.promote_network_notice();
+      self.promote_contacts_notice();
    }
 
    fn nav(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.xs);
 
-      let text_size = theme.typography.normal;
       let icon_color = theme.colors.text;
-      let mut visuals = theme.frame2_visuals();
-      visuals.bg = Fill::Solid(theme.frame1.fill);
-      visuals.border = Stroke::NONE;
-      visuals.shadow = Shadow::NONE;
 
-      let frame = Frame2::from_egui(theme.frame2)
-         .interactive(true)
-         .fill_width(true)
-         .visuals(visuals)
-         .corner_radius(0);
-
-      let items: [(SettingsPage, &str, egui::Image<'_>); 7] = [
+      let items: [(SettingsPage, egui::Image<'static>); 7] = [
          (
             SettingsPage::General,
-            "General",
             Lucide::SlidersHorizontal.size(20.0).color(icon_color).image(),
          ),
          (
             SettingsPage::Appearance,
-            "Appearance",
             Lucide::Palette.size(20.0).color(icon_color).image(),
          ),
          (
             SettingsPage::Networks,
-            "Networks",
             Lucide::Globe.size(20.0).color(icon_color).image(),
          ),
          (
             SettingsPage::Security,
-            "Security",
             Lucide::LockKeyhole.size(20.0).color(icon_color).image(),
          ),
          (
             SettingsPage::Contacts,
-            "Contacts",
             Lucide::Users.size(20.0).color(icon_color).image(),
          ),
          (
             SettingsPage::Railgun,
-            "Railgun",
             Lucide::Shield.size(20.0).color(icon_color).image(),
          ),
          (
             SettingsPage::Data,
-            "Data",
             Lucide::Archive.size(20.0).color(icon_color).image(),
          ),
       ];
@@ -412,58 +457,91 @@ impl SettingsUi {
       privacy_mode_switch(ctx, theme, ui);
       ui.add_space(10.0);
 
-      for (page, label, icon) in items {
+      for (page, icon) in items {
          let selected = self.page == page;
-         let response = frame.selected(selected).show(ui, |ui| {
-            ui.add(
-               Label::new(RichText::new(label).size(text_size), Some(icon))
-                  .interactive(false)
-                  .image_on_left(),
-            );
-         });
+         let response = nav_plate(ui, theme, page.name(), icon, selected);
 
-         if response.response.clicked() {
+         if response.clicked() {
             self.set_page(page, ctx);
          }
       }
    }
 }
 
-/// Child-viewport paint. Runs on the Settings window's own eframe pass, not nested
-/// inside the parent `App::ui`, so the parent does not wait on this present/vsync.
+/// One entry of the page switcher: a plate that carries its tab's role, name and selected state.
 ///
-/// Captures nothing (`Send + Sync`). State is read through [`SHARED_GUI`].
-fn paint_settings_viewport(ui: &mut Ui, _class: ViewportClass) {
-   if ui.ctx().input(|i| i.viewport().close_requested()) {
-      SHARED_GUI.write(|gui| {
-         gui.ctx.clone().write(|ctx| {
-            gui.settings.close(ctx);
-         });
-      });
-      return;
+/// The frame registers a placeholder with an empty sense before its contents, under the id the
+/// plate is about to take, and that withdraws the focus a Tab put on it — Enter and Space would
+/// then never reach a plate reached by keyboard. `show` is `begin` + contents + `end`, so writing
+/// the three out leaves a moment to put the focus back before the final registration.
+///
+/// The icon and word inside are an `egui_elements::Label`, a node of its own; hidden, so a reader
+/// hears the entry once instead of "General tab, General".
+fn nav_plate(
+   ui: &mut Ui,
+   theme: &Theme,
+   text: &str,
+   icon: egui::Image<'static>,
+   selected: bool,
+) -> Response {
+   let mut visuals = theme.frame2_visuals();
+   visuals.bg = Fill::Solid(theme.frame1.fill);
+   visuals.border = Stroke::NONE;
+   visuals.shadow = Shadow::NONE;
+
+   let frame = Frame2::from_egui(theme.frame2)
+      .interactive(true)
+      .fill_width(true)
+      .visuals(visuals)
+      .corner_radius(0);
+
+   let label = Label::new(
+      RichText::new(text).size(theme.typography.normal),
+      Some(icon),
+   )
+   .interactive(false)
+   .image_on_left();
+
+   let focused_before = ui.ctx().memory(|memory| memory.focused());
+
+   let mut plate = frame.selected(selected).begin(ui);
+   let id = ui.next_auto_id();
+
+   if focused_before == Some(id) {
+      ui.ctx().memory_mut(|memory| memory.request_focus(id));
    }
 
-   SHARED_GUI.write(|gui| {
-      // While locked the Settings window paints nothing (it is being closed).
-      if gui.ctx.read(|ctx| ctx.locked) {
-         return;
-      }
+   let content = plate.content_ui.add(label);
+   let response = plate.end(ui);
 
-      let icons = gui.icons.clone();
-      let theme = gui.theme.clone();
-      gui.ctx.clone().write(|ctx| {
-         // Interacting with the Settings window is activity too.
-         record_input_activity(ui.ctx(), ctx);
-         gui.settings.paint(
-            ctx,
-            icons,
-            &theme,
-            &mut gui.appearance_settings,
-            ui,
-         );
-      });
-      // Overlay modals (msg / loading / confirm / update) are Areas on the
-      // current viewport. Paint them here so they are visible on Settings.
-      gui.show_overlay_modals(ui);
-   });
+   response.widget_info(|| WidgetInfo::selected(Role::Tab, ui.is_enabled(), selected, text));
+
+   ui.ctx().accesskit_node_builder(content.id, |node| node.set_hidden());
+
+   response
+}
+
+/// Whether the Escape pressed this frame belongs to the Settings window.
+///
+/// A dialog raised from a Settings page must keep the first claim on the key: its backdrop and its
+/// content are drawn on layers above the window, whatever order they use, so only a window that still
+/// owns the top layer may close on it.
+fn escape_closes_window(ui: &Ui) -> bool {
+   if !ui.input(|input| input.key_pressed(Key::Escape)) {
+      return false;
+   }
+
+   let layer = ui.layer_id();
+
+   // An area drawn above this window — a dialog's backdrop or its content, on any order — takes the
+   // key first; among the window order, only the area egui puts on top may close on it.
+   ui.ctx().memory(|memory| {
+      let above = memory
+         .areas()
+         .visible_layer_ids()
+         .into_iter()
+         .any(|other| other.order > layer.order);
+
+      !above && ui.ctx().top_layer_id() == Some(layer)
+   })
 }

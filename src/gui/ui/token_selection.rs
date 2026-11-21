@@ -1,13 +1,14 @@
 //! A Window that allows the user to select a token
 
 use eframe::egui::{
-   Align, Color32, FontId, Id, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Sense, Ui,
-   Vec2, vec2,
+   Align, Color32, FontId, Id, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Ui, Vec2, vec2,
 };
 
 use crate::assets::icons::Icons;
 use crate::core::{ClientKind, ZeusContext, ZeusCtx};
 use crate::gui::ui::common::ConfirmWindowClaim;
+use crate::gui::ui::common::clickable_row;
+use crate::gui::ui::common::place_in_list;
 use crate::gui::ui::common::windows::authorising_prompt_busy;
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::{
@@ -104,9 +105,10 @@ impl NftRow {
       }
    }
 
-   /// Whether the wallet holds this token, as a badge.
-   fn ownership_badge(&self, ui: &mut Ui) {
-      ownership_badge(ui, self.owned, self.balance);
+   /// Whether the wallet holds this token, as a badge; the node it added, so the row can fold the
+   /// same words into its own name.
+   fn ownership_badge(&self, ui: &mut Ui) -> Option<Id> {
+      ownership_badge(ui, self.owned, self.balance)
    }
 }
 
@@ -128,9 +130,72 @@ fn ownership_label(owned: Option<bool>, amount: u64) -> Option<(String, ChipRole
 ///
 /// Shared with the portfolio: both lists mix tokens the wallet holds with tokens it only tracks, and
 /// both have to say which is which.
-pub(crate) fn ownership_badge(ui: &mut Ui, owned: Option<bool>, amount: u64) {
-   if let Some((text, tone)) = ownership_label(owned, amount) {
-      ui.add(Chip::new(text).role(tone));
+pub(crate) fn ownership_badge(ui: &mut Ui, owned: Option<bool>, amount: u64) -> Option<Id> {
+   let (text, tone) = ownership_label(owned, amount)?;
+
+   Some(ui.add(Chip::new(text).role(tone)).id)
+}
+
+/// What the picker says about the list the search left, once per change.
+///
+/// The rows are the answer to the query, and a reader who typed into the field has no other way to
+/// tell an empty result from a list that has not loaded: the sentence names the kind of asset and
+/// how many are left. A count that has not moved says nothing — the frame that draws the same list
+/// again is not a new answer.
+pub(crate) fn count_announcement(
+   previous: Option<&str>,
+   mode: PickerMode,
+   count: usize,
+) -> Option<String> {
+   let (one, many) = match mode {
+      PickerMode::Fungible => ("token", "tokens"),
+      PickerMode::Nft => ("NFT", "NFTs"),
+   };
+
+   let text = match count {
+      0 => format!("No {many} found"),
+      // Said aloud, so one row is one token, not "1 tokens".
+      1 => format!("1 {one}"),
+      count => format!("{count} {many}"),
+   };
+
+   (previous != Some(text.as_str())).then_some(text)
+}
+
+/// What a token row says to a reader: the symbol, the name Zeus knows for the token, and the
+/// balance the row draws.
+///
+/// The row paints the name above the symbol and the balance beside them, so a reader gets the three
+/// as one sentence from the row's own node. A name that only repeats the symbol is said once, and a
+/// balance of nothing is not drawn, so it is not said either.
+fn token_row_name(currency: &Currency, balance: &NumericValue) -> String {
+   let mut parts = vec![currency.symbol().to_string()];
+
+   let name = currency.name().trim();
+
+   if !name.is_empty() && name != currency.symbol() {
+      parts.push(name.to_string());
+   }
+
+   if !balance.is_zero() {
+      parts.push(format!(
+         "{:.12} {}",
+         balance.abbreviated(),
+         currency.symbol()
+      ));
+   }
+
+   parts.join(", ")
+}
+
+/// The fiat value a token row draws, when it draws one.
+///
+/// The row shows what a balance is worth only when it has a balance, so a token with nothing in it
+/// has no figure on screen and nothing for a reader to hear.
+fn token_row_value(balance: &NumericValue, value: &NumericValue) -> Option<String> {
+   match balance.is_zero() {
+      true => None,
+      false => Some(format!("${:.12}", value.abbreviated())),
    }
 }
 
@@ -186,6 +251,11 @@ pub struct TokenSelectionWindow {
    /// bumped where its own list is invalidated; the fungible fetch is only ever started from
    /// `process_currencies`, so the reload it begins is the single place for this one.
    currencies_generation: u64,
+
+   /// The words the picker hands back to the frame, which owns the announcement channel.
+   notice: Option<String>,
+   /// The count last read out, so the same number is not said on every frame.
+   spoken_count: Option<String>,
 }
 
 /// The two labels of the Tokens / NFTs switch.
@@ -273,6 +343,8 @@ impl TokenSelectionWindow {
          nfts_loaded: false,
          nfts_generation: 0,
          currencies_generation: 0,
+         notice: None,
+         spoken_count: None,
       }
    }
 
@@ -289,6 +361,9 @@ impl TokenSelectionWindow {
       // Always open on the ERC-20 list, so the existing flows see exactly what they saw before; a
       // caller that wants NFTs opts in with `set_mode`.
       self.mode = PickerMode::Fungible;
+      // A reopen is a new arrival: the list the search left was not necessarily heard last time,
+      // so its count is said again rather than assumed.
+      self.spoken_count = None;
       // Both the tracked tokens and the wallet's holdings can have moved since last time;
       // `process_currencies` reloads the first and drops the second.
       self.process_currencies(privacy_mode, chain_id, owner);
@@ -309,6 +384,9 @@ impl TokenSelectionWindow {
 
    pub fn close(&mut self) {
       self.open = false;
+      // The count belongs to the list that is leaving the screen; the next opening starts a new
+      // one and says its own.
+      self.spoken_count = None;
    }
 
    pub fn set_title(&mut self, title: String) {
@@ -334,6 +412,11 @@ impl TokenSelectionWindow {
    /// Get the selected NFT if any
    pub fn get_selected_nft(&self) -> Option<&NftToken> {
       self.selected_nft.as_ref()
+   }
+
+   /// The words this picker should say, drained by the frame right after it is drawn.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
    }
 
    /// Start a reload of the picker's lists for `(privacy_mode, chain_id, owner)`.
@@ -671,7 +754,7 @@ impl TokenSelectionWindow {
                   .size(theme.typography.normal)
                   .color(theme.colors.text_muted);
 
-               ui.add(
+               let search = ui.add(
                   SecureTextEdit::singleline(&mut self.search_query)
                      .visuals(text_edit_visuals)
                      .hint_text(hint)
@@ -679,6 +762,19 @@ impl TokenSelectionWindow {
                      .margin(Margin::same(10))
                      .font(FontId::proportional(theme.typography.normal)),
                );
+
+               // The box paints its hint and nothing else, so a reader landing on it has no word
+               // for what it searches. It is named for the list it narrows — one field serves both
+               // — and the hint it draws is kept as its description.
+               let field = match self.mode {
+                  PickerMode::Fungible => "Search tokens",
+                  PickerMode::Nft => "Search NFTs",
+               };
+
+               ui.ctx()
+                  .accesskit_node_builder(search.id, |node| node.set_description(hint_text));
+               search.accessible_name(field);
+
                ui.add_space(10.0);
             });
 
@@ -699,6 +795,19 @@ impl TokenSelectionWindow {
                   .iter()
                   .filter(|row| self.valid_nft_search(row, &self.search_query))
                   .count();
+
+               // How many rows the search left, said once per change. Nothing is said while the
+               // list is still being fetched: the count is not an answer yet.
+               if !self.nfts_loading
+                  && let Some(text) = count_announcement(
+                     self.spoken_count.as_deref(),
+                     PickerMode::Nft,
+                     matches,
+                  )
+               {
+                  self.spoken_count = Some(text.clone());
+                  self.notice = Some(text);
+               }
 
                if self.nfts_loading || matches == 0 {
                   ui.vertical_centered(|ui| {
@@ -728,7 +837,23 @@ impl TokenSelectionWindow {
                .filter(|(currency, _, _)| self.valid_search(currency, &self.search_query))
                .collect();
 
-            let num_rows = filtered_list.len();
+            // The rows on screen are what the search left, and the count is the answer to what the
+            // user typed: said once per change, not on every frame that redraws the same list. A
+            // fetch still in flight has no list to count yet, so it says nothing either.
+            let count = filtered_list.len();
+
+            if !self.loading
+               && let Some(text) = count_announcement(
+                  self.spoken_count.as_deref(),
+                  PickerMode::Fungible,
+                  count,
+               )
+            {
+               self.spoken_count = Some(text.clone());
+               self.notice = Some(text);
+            }
+
+            let num_rows = count;
             let row_height = 80.0;
             let tint = theme.image_tint_recommended;
 
@@ -748,9 +873,9 @@ impl TokenSelectionWindow {
 
                for row_index in row_range {
                   if let Some((currency, balance, value)) = filtered_list.get(row_index) {
-                     let name = truncate_symbol_or_name(currency.name(), 25);
+                     let drawn_name = truncate_symbol_or_name(currency.name(), 25);
                      let symbol = truncate_symbol_or_name(currency.symbol(), 10);
-                     let text = format!("{}\n{}", name, symbol);
+                     let text = format!("{}\n{}", drawn_name, symbol);
                      let icon = icons.currency_icon_x32(currency, tint);
                      let rich_text = RichText::new(text).size(theme.typography.normal);
                      let label =
@@ -758,101 +883,140 @@ impl TokenSelectionWindow {
 
                      let token_address = currency.erc20_opt().map(|token| token.address);
 
-                     let res = frame.show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                           ui.set_width(ui.available_width());
+                     // What the row says to a reader: the token it is and the balance it holds, with
+                     // what that balance is worth folded in as the description.
+                     let name = token_row_name(currency, balance);
+                     let options = format!("Options for {name}");
+                     let selected = self.selected_currency.as_ref() == Some(currency);
 
-                           ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                              ui.set_width(ui.available_width() * 0.4);
-                              ui.set_height(50.0);
-                              ui.add(label);
-                           });
+                     let response = clickable_row(
+                        ui,
+                        frame,
+                        name,
+                        token_row_value(balance, value),
+                        selected,
+                        |ui| {
+                           let mut covered = Vec::new();
 
-                           ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                              ui.set_width(ui.available_width() * 0.6);
+                           ui.horizontal(|ui| {
+                              ui.set_width(ui.available_width());
 
-                              if let Some(token_address) = token_address {
-                                 let size = vec2(28.0, 20.0);
-                                 let more = dots_button(theme, size, ui);
+                              ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                                 ui.set_width(ui.available_width() * 0.4);
+                                 ui.set_height(50.0);
+                                 covered.push(ui.add(label).id);
+                              });
 
-                                 let id = format!("{}_more_options", token_address);
-                                 Menu::new(id).show_below(&more, |ui| {
-                                    if ui.add(MenuItem::new("Copy Address")).clicked() {
-                                       ui.ctx().copy_text(token_address.to_string());
-                                    }
+                              ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                                 ui.set_width(ui.available_width() * 0.6);
 
-                                    if ui.add(MenuItem::new("Import Icon…")).clicked() {
-                                       let picked = rfd::FileDialog::new()
-                                          .set_title("Choose a token icon")
-                                          .add_filter(
-                                             "Image",
-                                             &["png", "jpg", "jpeg", "webp", "gif"],
-                                          )
-                                          .pick_file();
-                                       if let Some(path) = picked {
-                                          spawn_import_token_icon(
+                                 if let Some(token_address) = token_address {
+                                    let size = vec2(28.0, 20.0);
+                                    let more =
+                                       dots_button(theme, size, ui).accessible_name(options);
+
+                                    let id = format!("{}_more_options", token_address);
+                                    Menu::new(id).show_below(&more, |ui| {
+                                       if ui.add(MenuItem::new("Copy Address")).clicked() {
+                                          ui.ctx().copy_text(token_address.to_string());
+                                       }
+
+                                       if ui.add(MenuItem::new("Import Icon…")).clicked() {
+                                          let picked = rfd::FileDialog::new()
+                                             .set_title("Choose a token icon")
+                                             .add_filter(
+                                                "Image",
+                                                &["png", "jpg", "jpeg", "webp", "gif"],
+                                             )
+                                             .pick_file();
+                                          if let Some(path) = picked {
+                                             spawn_import_token_icon(
+                                                chain_id,
+                                                token_address,
+                                                currency.symbol().to_string(),
+                                                path,
+                                             );
+                                          }
+                                       }
+
+                                       if icons.tokens.has_icon(token_address, chain_id)
+                                          && ui.add(MenuItem::new("Reset Icon")).clicked()
+                                       {
+                                          spawn_reset_token_icon(
                                              chain_id,
                                              token_address,
                                              currency.symbol().to_string(),
-                                             path,
                                           );
                                        }
-                                    }
 
-                                    if icons.tokens.has_icon(token_address, chain_id)
-                                       && ui.add(MenuItem::new("Reset Icon")).clicked()
-                                    {
-                                       spawn_reset_token_icon(
-                                          chain_id,
-                                          token_address,
-                                          currency.symbol().to_string(),
+                                       if !currency.is_base()
+                                          && ui.add(MenuItem::new("Delete Token")).clicked()
+                                       {
+                                          if let Some(token) = currency.erc20_opt() {
+                                             delete_token(
+                                                chain_id,
+                                                owner,
+                                                token.clone(),
+                                                ctx.privacy_mode,
+                                             );
+                                          }
+                                       }
+
+                                       if ui.add(MenuItem::new("See on Block Explorer")).clicked() {
+                                          let chain = ChainId::from(chain_id);
+                                          let explorer = chain.block_explorer();
+                                          let link =
+                                             format!("{}/token/{}", explorer, token_address);
+                                          let url = OpenUrl::new_tab(link);
+                                          ui.ctx().open_url(url);
+                                       }
+                                    });
+
+                                    ui.add_space(8.0);
+                                 }
+
+                                 if !balance.is_zero() {
+                                    let value_text = format!("${:.12}", value.abbreviated());
+
+                                    // A selectable label builds a text node per run of its text,
+                                    // which the row's own name does not reach: the two figures are
+                                    // painted and named by the row instead.
+                                    ui.vertical(|ui| {
+                                       covered.push(
+                                          ui.add(
+                                             egui::Label::new(
+                                                RichText::new(value_text)
+                                                   .size(theme.typography.normal),
+                                             )
+                                             .selectable(false),
+                                          )
+                                          .id,
                                        );
-                                    }
 
-                                    if !currency.is_base()
-                                       && ui.add(MenuItem::new("Delete Token")).clicked()
-                                    {
-                                       if let Some(token) = currency.erc20_opt() {
-                                          delete_token(
-                                             chain_id,
-                                             owner,
-                                             token.clone(),
-                                             ctx.privacy_mode,
-                                          );
-                                       }
-                                    }
-
-                                    if ui.add(MenuItem::new("See on Block Explorer")).clicked() {
-                                       let chain = ChainId::from(chain_id);
-                                       let explorer = chain.block_explorer();
-                                       let link = format!("{}/token/{}", explorer, token_address);
-                                       let url = OpenUrl::new_tab(link);
-                                       ui.ctx().open_url(url);
-                                    }
-                                 });
-
-                                 ui.add_space(8.0);
-                              }
-
-                              if !balance.is_zero() {
-                                 let value_text = format!("${:.12}", value.abbreviated());
-
-                                 ui.vertical(|ui| {
-                                    ui.label(
-                                       RichText::new(value_text).size(theme.typography.normal),
-                                    );
-
-                                    ui.label(
-                                       RichText::new(format!("{:.12}", balance.abbreviated()))
-                                          .size(theme.typography.normal),
-                                    );
-                                 });
-                              }
+                                       covered.push(
+                                          ui.add(
+                                             egui::Label::new(
+                                                RichText::new(format!(
+                                                   "{:.12}",
+                                                   balance.abbreviated()
+                                                ))
+                                                .size(theme.typography.normal),
+                                             )
+                                             .selectable(false),
+                                          )
+                                          .id,
+                                       );
+                                    });
+                                 }
+                              });
                            });
-                        });
-                     });
+                           covered
+                        },
+                     );
 
-                     if res.response.interact(Sense::click()).clicked() {
+                     place_in_list(ui, response.id, row_index, num_rows);
+
+                     if response.clicked() {
                         self.selected_currency = Some((*currency).clone());
                         self.token_fetched = false;
                         close_window = true;
@@ -975,33 +1139,49 @@ impl TokenSelectionWindow {
                token.token_id,
                tint,
             );
-            let text = format!("{}\n{}", row.label(), row.subtitle());
+            let label_text = row.label();
+            let subtitle = row.subtitle();
+            let text = format!("{label_text}\n{subtitle}");
             let rich_text = RichText::new(text).size(theme.typography.normal);
             let label = Label::new(rich_text, Some(icon)).interactive(false).wrap().image_on_left();
+
+            // The row says which token it is and whether this wallet holds it, and keeps the line
+            // under the name as the description. The badge is drawn from the same words, so they are
+            // said once.
+            let name = match ownership_label(row.owned, row.balance) {
+               Some((ownership, _)) => format!("{label_text}, {ownership}"),
+               None => label_text,
+            };
+            let options = format!("Options for {name}");
+            let selected = self.selected_nft.as_ref() == Some(token);
 
             let collection = token.collection;
             let token_id = token.token_id;
 
-            let res = frame.show(ui, |ui| {
+            let response = clickable_row(ui, frame, name, Some(subtitle), selected, |ui| {
+               let mut covered = Vec::new();
+
                ui.horizontal(|ui| {
                   ui.set_width(ui.available_width());
 
                   ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                      ui.set_width(ui.available_width() * 0.4);
                      ui.set_height(50.0);
-                     ui.add(label);
+                     covered.push(ui.add(label).id);
                   });
 
                   ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                      ui.set_width(ui.available_width() * 0.6);
 
-                     let more = dots_button(theme, vec2(28.0, 20.0), ui);
+                     let more = dots_button(theme, vec2(28.0, 20.0), ui).accessible_name(options);
 
                      ui.add_space(theme.spacing.sm);
 
                      // Left of the menu button. The catalog goes on listing a token the wallet no
                      // longer holds, so this is what tells the two apart.
-                     row.ownership_badge(ui);
+                     if let Some(badge) = row.ownership_badge(ui) {
+                        covered.push(badge);
+                     }
 
                      let menu_id = format!("{collection}_{token_id}_nft_more_options");
                      Menu::new(menu_id).show_below(&more, |ui| {
@@ -1045,9 +1225,13 @@ impl TokenSelectionWindow {
                      });
                   });
                });
+
+               covered
             });
 
-            if res.response.interact(Sense::click()).clicked() {
+            place_in_list(ui, response.id, row_index, num_rows);
+
+            if response.clicked() {
                self.selected_nft = Some(row.token.clone());
                *close_window = true;
             }
