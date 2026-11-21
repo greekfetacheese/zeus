@@ -14,7 +14,9 @@ use eframe::egui::{
 };
 use egui_elements::{SecureTextEdit, Theme};
 use egui_lucide::Lucide;
+use std::str::FromStr;
 use std::sync::Arc;
+use zeus_eth::alloy_primitives::Address;
 use zeus_eth::types::ChainId;
 
 /// Show the recipient picker and its field.
@@ -62,6 +64,15 @@ pub fn recipient_field(
    let now = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
    let name_lapsed = !recipient.name_binding_trusted(now);
 
+   // A typed address the book already knows is not an unknown one: the row says the name the
+   // address goes by, even though no picker bound that name to the recipient.
+   let typed_address = if privacy_mode {
+      &recipient.zk_address
+   } else {
+      &recipient.evm_address
+   };
+   let known_name = known_recipient_name(ctx, privacy_mode, send_chain, typed_address);
+
    theme.frame2.show(ui, |ui| {
       ui.set_width(ui.available_width());
 
@@ -92,6 +103,8 @@ pub fn recipient_field(
                      .color(theme.colors.error),
                   );
                }
+            } else if let Some(name) = &known_name {
+               ui.label(RichText::new(name).size(theme.typography.large).color(theme.colors.info));
             } else {
                ui.label(
                   RichText::new("Unknown Address")
@@ -185,7 +198,7 @@ pub fn recipient_field(
             &recipient_selection.recipient.evm_address
          };
          let held = recipient_value(typed);
-         let resolved = recipient_selection.recipient.name.clone();
+         let resolved = recipient_selection.recipient.name.clone().or_else(|| known_name.clone());
          let description = match &resolved {
             Some(name) => format!("{name}. Press Enter to choose a recipient."),
             None => "Press Enter to choose a recipient.".to_string(),
@@ -212,6 +225,35 @@ pub fn recipient_field(
          }
       });
    });
+}
+
+/// The name a typed address is already known by, when the picker did not bind one.
+///
+/// A pasted wallet or contact address is not unknown: the address book holds the labels the user
+/// and the app gave it, and a `0zk` address is looked up among the vault's wallets and contacts
+/// instead. The name is display only — it is never written back onto the recipient, so what is
+/// sent and what the confirmation re-checks stay exactly the address that was typed.
+fn known_recipient_name(
+   ctx: &ZeusContext,
+   privacy_mode: bool,
+   send_chain: u64,
+   typed: &str,
+) -> Option<String> {
+   if typed.is_empty() {
+      return None;
+   }
+
+   if privacy_mode {
+      if let Some(wallet) = ctx.get_wallet_info_by_zk_address(typed) {
+         return Some(wallet.name_with_source());
+      }
+
+      return ctx.get_contact_by_zk_address(typed).map(|contact| contact.name);
+   }
+
+   let address = Address::from_str(typed).ok()?;
+
+   ctx.get_address_name(send_chain, address).map(|name| name.to_string())
 }
 
 /// What the recipient field says it holds: how many characters, and the four it ends with.

@@ -644,6 +644,7 @@ impl TxHistory {
                Column::Fr(1.6),      // Chain
                Column::Fr(4.0),      // Action
                Column::Auto,         // Age
+               Column::Auto,         // Status
                Column::Fixed(100.0), // Details
             ];
 
@@ -717,6 +718,15 @@ impl TxHistory {
                         });
 
                         r.cell(|ui| {
+                           // The private list holds spent notes: the spend is in a block, so
+                           // every row it lists is confirmed.
+                           let status = status_text(true);
+                           let response = history_cell(ui, theme, status).on_hover_text(status);
+                           // The drawn status can be truncated; the full one stays on the node.
+                           describe(ui, &response, status);
+                        });
+
+                        r.cell(|ui| {
                            if details_cell(ui, theme, button_visuals, &row.action).clicked() {
                               details_spent = Some(row.clone());
                            }
@@ -778,6 +788,13 @@ impl TxHistory {
                            let response = history_cell(ui, theme, &age).on_hover_text(&age);
                            // The drawn age can be truncated; the full one stays on the node.
                            describe(ui, &response, age);
+                        });
+
+                        r.cell(|ui| {
+                           let status = status_text(row.tx.success);
+                           let response = history_cell(ui, theme, status).on_hover_text(status);
+                           // The drawn status can be truncated; the full one stays on the node.
+                           describe(ui, &response, status);
                         });
 
                         r.cell(|ui| {
@@ -854,9 +871,17 @@ fn history_tip(ui: &mut Ui, theme: &Theme, tip: &str) -> Response {
    response
 }
 
+/// The word a row uses for the transaction's own outcome.
+fn status_text(success: bool) -> &'static str {
+   match success {
+      true => "Confirmed",
+      false => "Failed",
+   }
+}
+
 /// The header line both history tables share.
 fn history_header(theme: &Theme, header: &mut TableHeader<'_>) {
-   for text in ["Wallet", "Chain", "Action", "Age", ""] {
+   for text in ["Wallet", "Chain", "Action", "Age", "Status", ""] {
       header.cell(|ui| {
          if !text.is_empty() {
             ui.label(
@@ -1030,6 +1055,14 @@ mod tests {
       assert!(action.starts_with("Sent 1 "), "{action}");
       assert!(action.ends_with("#1071"), "{action}");
       assert!(!action.contains("erc721"), "{action}");
+   }
+
+   /// The status cell says the transaction's outcome in words, which is all a reader gets: the
+   /// table draws no colour for a failed one.
+   #[test]
+   fn the_status_word_says_whether_the_transaction_succeeded() {
+      assert_eq!(status_text(true), "Confirmed");
+      assert_eq!(status_text(false), "Failed");
    }
 
    /// The page's accessible tree: what a reader is handed for a page holding known rows.
@@ -1226,6 +1259,29 @@ mod tests {
             "the wallet cell keeps its spoken name: {:?}",
             spoken(&nodes)
          );
+      }
+
+      /// A row's outcome is a column of its own: a reader has only the words, so the cell says the
+      /// status rather than leaving it to a colour.
+      #[test]
+      fn the_history_page_says_each_rows_status() {
+         let (ctx, handle, theme) = page_harness();
+
+         let mut failed = supply_row();
+         failed.tx.success = false;
+
+         let mut page = TxHistory::for_test(vec![supply_row(), failed]);
+         let nodes = render_page(&mut page, &ctx, &handle, &theme, &mut Vec::new());
+
+         for status in ["Confirmed", "Failed"] {
+            assert!(
+               nodes.iter().any(|(_, node)| node.role() == Role::Label
+                  && is_named(node, status)
+                  && node.description() == Some(status)),
+               "the status cell must draw and describe {status:?}: {:?}",
+               spoken(&nodes)
+            );
+         }
       }
 
       /// The `?` chip is the only explanation of where the list comes from, and a hover is not

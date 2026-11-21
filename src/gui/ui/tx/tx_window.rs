@@ -235,6 +235,14 @@ impl TxWindow {
                let frame = theme.frame2;
                let frame_size = vec2(ui.available_width() * 0.95, 45.0);
 
+               // The outcome used to be a colour and nothing else, which a reader does not get:
+               // the same fact is a line of its own, before the details it belongs to.
+               let status = match tx.success {
+                  true => "Status: Confirmed",
+                  false => "Status: Failed",
+               };
+               ui.label(RichText::new(status).size(theme.typography.large));
+
                self.decoded_events.show(
                   ctx,
                   chain_id,

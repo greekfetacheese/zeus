@@ -2919,6 +2919,18 @@ fn render_recipient(
    zeus: &ZeusCtx,
    events: Vec<Event>,
 ) -> Vec<(NodeId, Node)> {
+   render_recipient_on(ctx, gui, zeus, events, false)
+}
+
+/// Render the recipient row with the field on the `privacy_mode` side: `0zk` when set, `0x`
+/// otherwise.
+fn render_recipient_on(
+   ctx: &Context,
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   events: Vec<Event>,
+   privacy_mode: bool,
+) -> Vec<(NodeId, Node)> {
    frame_nodes(ctx, events, |ui| {
       let theme = gui.theme.clone();
       let icons = gui.icons.clone();
@@ -2932,7 +2944,7 @@ fn render_recipient(
             icons,
             recipient_selection,
             contacts,
-            false,
+            privacy_mode,
             1,
             ChainId::Ethereum,
             ui,
@@ -3004,6 +3016,95 @@ fn the_recipient_field_says_how_much_of_the_address_it_holds() {
       field.description(),
       Some("ada.eth. Press Enter to choose a recipient."),
       "the resolved name leads the description, and the way into the picker follows it"
+   );
+}
+
+/// An address the book already knows is named, not called unknown: pasting a wallet or contact
+/// address leaves the recipient without a name binding, and the row still says who it is.
+#[test]
+fn a_known_recipient_address_is_said_by_its_name() {
+   const ADDRESS: &str = "0x1111111111111111111111111111111111111111";
+   const NAME: &str = "Railgun Test 3";
+
+   let (ctx, mut gui, zeus) = main_window();
+   let address = ADDRESS.parse::<Address>().expect("the fixture is an address");
+   zeus.address_book().insert_identity(address, NAME);
+
+   gui.recipient_selection.recipient.evm_address = ADDRESS.to_string();
+
+   let nodes = render_recipient(&ctx, &mut gui, &zeus, Vec::new());
+   let spoken: Vec<&str> = nodes.iter().filter_map(|(_, node)| node.value()).collect();
+
+   assert!(
+      spoken.contains(&NAME),
+      "the row must name the address the book already knows: {spoken:?}"
+   );
+   assert!(
+      !spoken.contains(&"Unknown Address"),
+      "a known address is not an unknown one: {spoken:?}"
+   );
+
+   let field = nodes
+      .iter()
+      .find(|(_, node)| is_text_input(node.role()))
+      .map(|(_, node)| node)
+      .expect("the recipient row must draw its address field");
+
+   assert_eq!(
+      field.description(),
+      Some("Railgun Test 3. Press Enter to choose a recipient."),
+      "the known name leads the description, and the way into the picker follows it"
+   );
+}
+
+/// The private side resolves a typed `0zk` address the same way: a contact that already owns it is
+/// named instead of being called unknown.
+#[test]
+fn a_known_private_recipient_is_said_by_its_name() {
+   const ZK_ADDRESS: &str = "0zk1example";
+   const NAME: &str = "Railgun Test 3";
+
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write_wallet_state(|wallet_state| {
+      wallet_state.contacts.push(Contact::new(
+         NAME.to_string(),
+         String::new(),
+         ZK_ADDRESS.to_string(),
+      ));
+   });
+
+   gui.recipient_selection.recipient = Recipient {
+      zk_address: ZK_ADDRESS.to_string(),
+      ..Default::default()
+   };
+
+   let nodes = render_recipient_on(&ctx, &mut gui, &zeus, Vec::new(), true);
+   let spoken: Vec<&str> = nodes.iter().filter_map(|(_, node)| node.value()).collect();
+
+   assert!(
+      spoken.contains(&NAME),
+      "the row must name the contact the `0zk` address belongs to: {spoken:?}"
+   );
+   assert!(
+      !spoken.contains(&"Unknown Address"),
+      "a known `0zk` address is not an unknown one: {spoken:?}"
+   );
+
+   let field = nodes
+      .iter()
+      .find(|(_, node)| is_text_input(node.role()))
+      .map(|(_, node)| node)
+      .expect("the recipient row must draw its `0zk` address field");
+
+   assert_eq!(
+      field.label(),
+      Some("Recipient 0zk address"),
+      "the privacy field keeps the name it draws"
+   );
+   assert_eq!(
+      field.description(),
+      Some("Railgun Test 3. Press Enter to choose a recipient."),
+      "the known name leads the description, and the way into the picker follows it"
    );
 }
 
@@ -5836,6 +5937,32 @@ fn a_failed_transaction_is_an_alert() {
       Some("Transaction failed"),
       "the alert keeps the sentence the window draws"
    );
+}
+
+/// The transaction's outcome is part of its details, and a reader has no colour: the words are a
+/// line of their own whichever way the transaction ended.
+#[test]
+fn the_details_window_says_the_transaction_status() {
+   let (ctx, handle, theme, icons, _appearance) = prompt_harness();
+
+   for (success, expected) in [(true, "Status: Confirmed"), (false, "Status: Failed")] {
+      let mut tx = TransactionRich::dummy_clear_signed();
+      tx.success = success;
+
+      let mut window = TxWindow::for_test(Some(tx), false);
+
+      let nodes = render_modal(&ctx, Vec::new(), |ui| {
+         handle.write(|zeus| window.show(zeus, &theme, icons.clone(), ui));
+      });
+
+      assert!(
+         nodes
+            .iter()
+            .any(|(_, node)| node.role() == Role::Label && node.value() == Some(expected)),
+         "the details window must say {expected:?}: {:?}",
+         nodes.iter().filter_map(|(_, node)| node.value()).collect::<Vec<_>>()
+      );
+   }
 }
 
 /// A spinner is drawn, not spoken, so the window's only content while the descriptor loads is a
