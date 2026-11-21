@@ -3,7 +3,7 @@
 use crate::core::types::CredentialCheck;
 use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::common::spoken_wallet_name;
+use crate::gui::ui::common::{self, spoken_wallet_name};
 use eframe::egui::{Context, Id, Order, Response, RichText, Role, Ui, WidgetInfo, vec2};
 use egui_elements::{Button, CredentialsForm, Modal, QrImage, Theme, components::QrEncoding};
 use ncrypt_me::Credentials;
@@ -58,6 +58,11 @@ impl ExportKeyUi {
          notice: None,
          size: (550.0, 350.0),
       }
+   }
+
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      common::field_controls::credentials_form(&mut self.credentials_form, shown);
    }
 
    pub fn open(&mut self, wallet: WalletInfo) {

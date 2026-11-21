@@ -137,6 +137,7 @@ What a screen reader hears:
 - every page, dialog and control by name, with the page heading taking focus when a page opens;
 - amounts and balances as numbers with their unit, and every address in full and grouped in fours — never the shortened form;
 - a disabled button under its own name, with the reason it is blocked as a sentence above it;
+- with a screen reader attached, the controls that exist only for sight — the show/hide toggle, the QR buttons and the on-screen keyboard — are dropped, because each is a tab stop that cannot help;
 - waits that say what they are doing ("Sending your transaction…", "Generating the private proof. This takes a few seconds and cannot be cancelled.") and results that are said once rather than on every frame.
 
 Keyboard: Tab and Shift+Tab move through the page and into an open picker, Enter or Space activates the focused control (or picks the focused option), and Escape closes whatever is on top — a dialog, a picker, or the Settings window. Every prompt has a way out that is not its primary action, and its copy says which one that is.

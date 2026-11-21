@@ -36,6 +36,11 @@ impl AddWalletUi {
       }
    }
 
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      self.import_wallet.set_field_controls(shown);
+   }
+
    pub fn erase(&mut self) {
       self.import_wallet.erase();
    }

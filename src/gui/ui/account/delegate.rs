@@ -5,6 +5,7 @@
 
 use crate::core::types::CredentialCheck;
 use crate::core::{ZeusContext, delegate_to};
+use crate::gui::ui::common;
 use crate::gui::{SHARED_GUI, ui::tx::address};
 use egui::{CursorIcon, FontId, Id, Margin, Order, RichText, Ui, vec2};
 use egui_elements::{Button, CredentialsForm, Modal, SecureTextEdit, Spinner, Theme};
@@ -33,6 +34,11 @@ impl DelegateUi {
          credentials_form,
          syncing: false,
       }
+   }
+
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      common::field_controls::credentials_form(&mut self.credentials_form, shown);
    }
 
    pub fn is_open(&self) -> bool {

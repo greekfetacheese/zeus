@@ -141,6 +141,11 @@ impl AccountPanel {
       }
    }
 
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      self.delegate.set_field_controls(shown);
+   }
+
    pub fn erase(&mut self) {
       self.delegate.erase();
    }

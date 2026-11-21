@@ -3,6 +3,7 @@
 use crate::core::{data_dir, data_import::import_data_from_zip};
 use crate::gui::SHARED_GUI;
 use crate::gui::appearance::AppearanceSettings;
+use crate::gui::ui::common;
 use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::utils::state;
 use egui::{Frame, Id, Margin, Order, RichText, Role, Ui, WidgetInfo, vec2};
@@ -33,6 +34,11 @@ impl ImportDataUi {
          first_run: false,
          size: (600.0, 600.0),
       }
+   }
+
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      common::field_controls::credentials_form(&mut self.credentials_form, shown);
    }
 
    pub fn is_open(&self) -> bool {

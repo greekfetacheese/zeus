@@ -33,7 +33,7 @@ use crate::gui::ui::tx::{
    FeeSelection, TxConfirmationWindow, TxWindow, events::DecodedEvents, show_analysis_buttons,
    show_calldata_modal, show_tx_diffs_modal, show_tx_options_modal,
 };
-use crate::gui::ui::wallet::import::ImportWalletType;
+use crate::gui::ui::wallet::import::{ImportWallet, ImportWalletType};
 use crate::gui::{GUI, LockScreen};
 use crate::utils::swap_quoter::SwapStep;
 use egui::accesskit::{Action, ActionRequest, Live, Node, NodeId, Role, Toggled, TreeId};
@@ -126,6 +126,15 @@ fn label_texts(nodes: &[Node]) -> Vec<&str> {
       .iter()
       .filter(|node| node.role() == Role::Label)
       .filter_map(|node| node.value())
+      .collect()
+}
+
+/// The name of every button node: what a reader hears as it Tabs through the controls.
+fn button_names(nodes: &[Node]) -> Vec<&str> {
+   nodes
+      .iter()
+      .filter(|node| node.role() == Role::Button)
+      .filter_map(|node| node.label())
       .collect()
 }
 
@@ -401,6 +410,154 @@ fn an_attached_screen_reader_turns_on_the_focus_model() {
    assert!(
       ctx.options(|options| options.screen_reader),
       "the flag must hand egui its screen-reader focus model"
+   );
+}
+
+/// A reader is not offered the controls that only a sighted user can act on: the moment the frame
+/// builds a tree, the password row's show/hide toggle and the on-screen keyboard leave the tree,
+/// while the fields and the Unlock button stay. The toggle also proves the mask is untouched: the
+/// row is still a `PasswordInput`.
+#[test]
+fn a_reader_is_not_offered_the_vision_only_field_controls() {
+   let ctx = Context::default();
+   let mut gui = GUI::default();
+   gui.theme.install(&ctx);
+   gui.ctx.write(|zeus| zeus.locked = true);
+
+   let nodes = render_unlock_screen(&ctx, &gui.ctx, &mut gui.lock_screen, &gui.theme);
+   let names = button_names(&nodes);
+
+   assert!(
+      names
+         .iter()
+         .any(|name| *name == "Show credentials" || *name == "Hide credentials"),
+      "the password row must draw its show/hide toggle before a reader is seen: {names:?}"
+   );
+
+   for key in ["q", "Space", "Backspace"] {
+      assert!(
+         names.contains(&key),
+         "the on-screen keyboard's {key} key must be drawn before a reader is seen: {names:?}"
+      );
+   }
+
+   // A tree-building frame is the detection signal, and the same pass drops the controls.
+   frame(&ctx, |ui| gui.track_assistive_tech(ui));
+
+   assert!(
+      gui.at_active,
+      "the detecting frame must leave the reader flag set"
+   );
+
+   let nodes = render_unlock_screen(&ctx, &gui.ctx, &mut gui.lock_screen, &gui.theme);
+   let names = button_names(&nodes);
+
+   for name in [
+      "Show credentials",
+      "Hide credentials",
+      "q",
+      "Space",
+      "Backspace",
+   ] {
+      assert!(
+         !names.contains(&name),
+         "a reader cannot use {name:?}, so it must not be a tab stop: {names:?}"
+      );
+   }
+
+   // What the reader does use is still drawn: the masked rows keep their mask, the username is a
+   // plain text field, and the page's words and its Unlock button are unchanged.
+   assert_eq!(
+      nodes.iter().filter(|node| node.role() == Role::PasswordInput).count(),
+      1,
+      "the password row must still be drawn and masked: {names:?}"
+   );
+
+   assert_eq!(
+      nodes.iter().filter(|node| node.role() == Role::TextInput).count(),
+      1,
+      "the username row must still be a plain text input: {names:?}"
+   );
+
+   let texts = label_texts(&nodes);
+
+   assert!(
+      texts.contains(&"Zeus is locked") && texts.contains(&"Username"),
+      "the page's words and the field labels must still be there: {texts:?}"
+   );
+
+   assert!(
+      names.contains(&"Unlock"),
+      "the Unlock button must still be there: {names:?}"
+   );
+}
+
+/// The import dialog's secret field drops the eye and the QR button a reader cannot use, and keeps
+/// the mask and the drawn label that name it: a reader still hears which secret goes where.
+#[test]
+fn a_reader_importing_a_wallet_is_not_offered_the_eye_or_qr() {
+   let ctx = Context::default();
+   let mut theme = Theme::new(ThemeKind::TokyoNight);
+   theme.install(&ctx);
+
+   let mut import_wallet = ImportWallet::new();
+   import_wallet.open(ImportWalletType::PrivateKey);
+
+   let mut nodes = Vec::new();
+
+   // A shrink-wrapping modal spends its first passes sizing, where its body is invisible and egui
+   // exposes no node.
+   for _ in 0..3 {
+      nodes = frame(&ctx, |ui| import_wallet.show(&theme, ui));
+   }
+
+   let names = button_names(&nodes);
+
+   assert!(
+      names
+         .iter()
+         .any(|name| *name == "Show credentials" || *name == "Hide credentials"),
+      "the secret field must draw its show/hide toggle before a reader is seen: {names:?}"
+   );
+
+   #[cfg(any(target_os = "linux", target_os = "windows"))]
+   assert!(
+      names.contains(&"Scan a QR code"),
+      "the secret field must draw its scan button before a reader is seen: {names:?}"
+   );
+
+   import_wallet.set_field_controls(false);
+
+   for _ in 0..3 {
+      nodes = frame(&ctx, |ui| import_wallet.show(&theme, ui));
+   }
+
+   let names = button_names(&nodes);
+
+   assert!(
+      !names
+         .iter()
+         .any(|name| *name == "Show credentials" || *name == "Hide credentials"),
+      "the eye toggle is a control a reader cannot use: {names:?}"
+   );
+
+   #[cfg(any(target_os = "linux", target_os = "windows"))]
+   assert!(
+      !names.contains(&"Scan a QR code"),
+      "the QR button is a control a reader cannot use: {names:?}"
+   );
+
+   assert_eq!(
+      nodes.iter().filter(|node| node.role() == Role::PasswordInput).count(),
+      1,
+      "the secret field must still be drawn and masked: {names:?}"
+   );
+
+   let texts = label_texts(&nodes);
+
+   assert!(
+      texts.contains(&"Private Key"),
+      "the field must still be named by the label the dialog draws: {texts:?}"
    );
 }
 

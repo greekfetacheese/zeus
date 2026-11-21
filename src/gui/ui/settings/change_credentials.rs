@@ -4,6 +4,7 @@
 
 use crate::core::types::CredentialCheck;
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::common;
 use egui::{RichText, Role, Ui, Vec2, WidgetInfo, vec2};
 use egui_elements::{Button, CredentialsForm, Theme};
 use ncrypt_me::Credentials;
@@ -26,6 +27,11 @@ impl ChangeCredentialsUi {
          credentials_form,
          verified_credentials: false,
       }
+   }
+
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      common::field_controls::credentials_form(&mut self.credentials_form, shown);
    }
 
    pub fn erase(&mut self) {

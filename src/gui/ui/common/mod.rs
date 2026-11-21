@@ -6,6 +6,7 @@ pub mod autolock_timing;
 pub mod chain_select;
 pub mod chain_switch;
 pub mod fade;
+pub mod field_controls;
 pub mod heading;
 pub mod notices;
 pub mod recipient_field;

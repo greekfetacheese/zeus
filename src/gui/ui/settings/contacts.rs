@@ -1,6 +1,7 @@
 //! UI that allows the user to add,edit and remove contacts.
 
 use crate::core::{ZeusContext, types::Contact};
+use crate::gui::ui::common;
 use crate::gui::ui::{address_for_speech, name_address, place_in_list, show_with_fade};
 use crate::gui::{SHARED_GUI, dots_button};
 use egui::{
@@ -49,6 +50,12 @@ impl AddContact {
          evm_field: InputField::new("Public Address", true).icon_size(vec2(FIELD_ICON, FIELD_ICON)),
          zk_field: InputField::new("Railgun Address", true).icon_size(vec2(FIELD_ICON, FIELD_ICON)),
       }
+   }
+
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      common::field_controls::input_field(&mut self.evm_field, shown);
+      common::field_controls::input_field(&mut self.zk_field, shown);
    }
 
    pub fn contact_added(&self) -> bool {
@@ -236,6 +243,12 @@ impl EditContact {
          zk_field: InputField::new("Railgun Address:", true)
             .icon_size(vec2(FIELD_ICON, FIELD_ICON)),
       }
+   }
+
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      common::field_controls::input_field(&mut self.evm_field, shown);
+      common::field_controls::input_field(&mut self.zk_field, shown);
    }
 
    /// Start editing `contact`: remember it and load its addresses into the fields.
@@ -449,6 +462,12 @@ impl ContactsUi {
          qr_window: QrWindow::new(),
          notice: None,
       }
+   }
+
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      self.add_contact.set_field_controls(shown);
+      self.edit_contact.set_field_controls(shown);
    }
 
    /// The words the page wants said, drained by the Settings window right after it is drawn.

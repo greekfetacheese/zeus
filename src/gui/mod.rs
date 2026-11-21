@@ -323,6 +323,22 @@ impl GUI {
       }
    }
 
+   /// Hand every field the switch the vision-only controls follow.
+   ///
+   /// Re-applied on every pass rather than once at detection: `ExportKeyUi`, `DeleteWalletUi`,
+   /// `ChangeCredentialsUi` and `ImportDataUi` rebuild their form in `reset()`, and a form that
+   /// came back with the controls a reader cannot use would silently add the tab stops back.
+   fn set_reader_field_controls(&mut self) {
+      let shown = !self.at_active;
+      self.lock_screen.set_field_controls(shown);
+      self.unlock_vault_ui.set_field_controls(shown);
+      self.recover_wallet_ui.set_field_controls(shown);
+      self.wallet_ui.set_field_controls(shown);
+      self.settings.set_field_controls(shown);
+      self.account_panel.set_field_controls(shown);
+      self.recipient_selection.set_field_controls(shown);
+   }
+
    /// Notice an attached screen reader and give egui its focus model.
    ///
    /// Runs once per frame on the root viewport pass. Nothing native sets
@@ -332,25 +348,26 @@ impl GUI {
    ///
    /// Two signals, either one enough: the tree is being built for this pass (the root
    /// node exists only then), and an AccessKit action request in the frame's input (only
-   /// a reader can send one).
+   /// a reader can send one). The controls that exist only for sight — the show/hide
+   /// toggle, the QR buttons and the on-screen keyboard — are dropped on every pass, so a
+   /// reader is not made to Tab through tab stops that cannot help.
    pub fn track_assistive_tech(&mut self, ui: &Ui) {
-      if self.at_active {
-         return;
+      if !self.at_active {
+         let tree_built =
+            ui.ctx().accesskit_node_builder(egui::accesskit_root_id(), |_| ()).is_some();
+
+         let at_interacted = ui.ctx().input(|i| {
+            i.events.iter().any(|e| matches!(e, egui::Event::AccessKitActionRequest(_)))
+         });
+
+         if tree_built || at_interacted {
+            self.at_active = true;
+            ui.ctx().options_mut(|o| o.screen_reader = true);
+            tracing::info!("Screen reader attached: prose is reachable with Tab from now on");
+         }
       }
 
-      let tree_built = ui.ctx().accesskit_node_builder(egui::accesskit_root_id(), |_| ()).is_some();
-
-      let at_interacted = ui
-         .ctx()
-         .input(|i| i.events.iter().any(|e| matches!(e, egui::Event::AccessKitActionRequest(_))));
-
-      if !(tree_built || at_interacted) {
-         return;
-      }
-
-      self.at_active = true;
-      ui.ctx().options_mut(|o| o.screen_reader = true);
-      tracing::info!("Screen reader attached: prose is reachable with Tab from now on");
+      self.set_reader_field_controls();
    }
 
    /// Queue `text` for the screen reader.

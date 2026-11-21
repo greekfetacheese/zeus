@@ -1,5 +1,6 @@
 //! UI that allows the user to import a wallet from a private key or a seed phrase
 
+use crate::gui::ui::common;
 use crate::gui::{GUI, SHARED_GUI};
 use crate::utils::malloc_trim;
 use eframe::egui::{FontId, Id, Key, Margin, Order, Response, RichText, Ui, vec2};
@@ -34,6 +35,11 @@ impl ImportWallet {
          focus_name_field: false,
          size: (450.0, 250.0),
       }
+   }
+
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      common::field_controls::secure_field(&mut self.input_field, shown);
    }
 
    pub fn erase(&mut self) {

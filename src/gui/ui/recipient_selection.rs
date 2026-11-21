@@ -6,6 +6,7 @@ use crate::core::{
    types::{Contact, Recipient},
 };
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::common;
 use crate::gui::ui::common::address::address_for_speech;
 use crate::gui::ui::common::clickable_row;
 use crate::gui::ui::common::place_in_list;
@@ -142,6 +143,11 @@ impl RecipientSelectionWindow {
          adding_contact: false,
          size: (560.0, 550.0),
       }
+   }
+
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      common::field_controls::input_field(&mut self.search_field, shown);
    }
 
    pub fn is_open(&self) -> bool {

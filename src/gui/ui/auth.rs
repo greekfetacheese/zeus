@@ -8,6 +8,7 @@ use crate::core::{
    types::{MiscConfig, RailgunConfig},
 };
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::common;
 use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::gui::ui::settings::ImportDataUi;
 use crate::utils::TimeStamp;
@@ -42,6 +43,11 @@ impl UnlockVault {
          credentials_form,
          size: (550.0, 350.0),
       }
+   }
+
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      common::field_controls::credentials_form(&mut self.credentials_form, shown);
    }
 
    pub fn erase(&mut self) {
@@ -206,6 +212,11 @@ impl RecoverHDWallet {
          memory: SystemMemory::new(),
          size: (550.0, 350.0),
       }
+   }
+
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      common::field_controls::credentials_form(&mut self.credentials_form, shown);
    }
 
    pub fn erase(&mut self) {

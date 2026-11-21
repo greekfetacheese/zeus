@@ -107,6 +107,13 @@ impl SettingsUi {
       }
    }
 
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      self.import.set_field_controls(shown);
+      self.change_credentials_ui.set_field_controls(shown);
+      self.contacts_ui.set_field_controls(shown);
+   }
+
    pub fn erase(&mut self) {
       self.change_credentials_ui.erase();
       self.import.erase();
