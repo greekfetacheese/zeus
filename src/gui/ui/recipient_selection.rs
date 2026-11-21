@@ -1432,6 +1432,11 @@ impl RecipientSelectionWindow {
       self.wallets = wallets;
       self.loading = false;
    }
+
+   /// Point the picker back at its first tab; the shared test surface keeps the last tab open.
+   pub(crate) fn reset_tab_for_test(&mut self) {
+      self.tab = 0;
+   }
 }
 
 #[cfg(test)]

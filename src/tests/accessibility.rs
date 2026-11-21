@@ -4199,6 +4199,8 @@ fn open_recipient_picker(
 
    crate::gui::SHARED_GUI.write(|gui| {
       gui.recipient_selection.reset();
+      // The shared surface keeps the tab another test left open; this one opens on Contacts.
+      gui.recipient_selection.reset_tab_for_test();
       gui.recipient_selection.open();
    });
 

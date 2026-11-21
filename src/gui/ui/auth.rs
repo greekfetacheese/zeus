@@ -57,7 +57,7 @@ impl UnlockVault {
       self.credentials_form.erase();
    }
 
-   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui, allow_focus: bool) {
       let vault_exists = ctx.vault_exists;
       let vault_unlocked = ctx.vault_unlocked;
 
@@ -65,6 +65,12 @@ impl UnlockVault {
 
       if !open {
          return;
+      }
+
+      // A page change after the prompt appeared owns the focus: the prompt asks once, on the
+      // page it opened on, and never takes the reader back from a page they moved to.
+      if !allow_focus {
+         self.focus_pending = false;
       }
 
       let frame = theme.frame1;

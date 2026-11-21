@@ -48,8 +48,12 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    // announcing the page: the name is said once, and the Tab order starts at the page.
    let page = gui.current_page();
    let page_heading = heading(ui, page.name());
+   // A page change owns the focus. The unlock prompt behind it asks only on the first page (or
+   // while the page stays put): it must not take the reader back from a page they just opened.
+   let page_changed = gui.last_page != Some(page);
+   let first_page = gui.last_page.is_none();
 
-   if gui.last_page != Some(page) {
+   if page_changed {
       page_heading.request_focus();
       gui.last_page = Some(page);
    }
@@ -65,7 +69,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let contacts_ui = &mut gui.settings.contacts_ui;
 
    gui.recover_wallet_ui.show(ctx, theme, &mut gui.settings.import, ui);
-   gui.unlock_vault_ui.show(ctx, theme, ui);
+   gui.unlock_vault_ui.show(ctx, theme, ui, first_page || !page_changed);
    gui.settings.import.show(theme, ui);
 
    // Vault must be unlocked so the wallet cache is populated
