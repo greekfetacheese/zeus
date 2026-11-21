@@ -106,8 +106,8 @@ impl QrWindow {
          .backdrop_order(Order::Middle)
          .content_order(Order::Foreground)
          .heading(RichText::new(title).size(theme.typography.heading))
-         // The window's own Close button is the exit that clears the QR textures; a header one
-         // would only flip a flag this window never reads back.
+         // The window draws its own footer, and that Close button is the exit: a header cross
+         // would be a second way to do the same thing.
          .closable(false)
          .frame(frame)
          .show(ui.ctx(), |ui| {
@@ -201,9 +201,25 @@ impl QrWindow {
             });
          });
 
+      // A dismissal is the Close button's exit: the codes the window encoded go with it.
+      if !open {
+         self.close_and_clear(ui.ctx());
+         return;
+      }
+
       if let Some(text) = notice {
          self.notice = Some(text);
       }
+   }
+
+   /// The window's one exit: the codes it encoded go with it, and it forgets the wallet.
+   ///
+   /// The Close button and a dismissal both come through here, so nothing the window encoded
+   /// outlives the window that drew it.
+   fn close_and_clear(&mut self, ctx: &egui::Context) {
+      self.evm_address_qr.clear(ctx);
+      self.zk_address_qr.clear(ctx);
+      self.reset();
    }
 
    fn close_button(&mut self, theme: &Theme, ui: &mut Ui) {
@@ -212,9 +228,7 @@ impl QrWindow {
       let button = Button::new(text).min_size(size);
 
       if ui.add(button).clicked() {
-         self.evm_address_qr.clear(ui.ctx());
-         self.zk_address_qr.clear(ui.ctx());
-         self.reset();
+         self.close_and_clear(ui.ctx());
       }
    }
 }

@@ -241,6 +241,12 @@ impl ConfirmWindow {
                });
             });
          });
+
+      // Every way out that is not Confirm is a Reject. The crate closes the dialog on Escape, and
+      // the flow waiting on `take_confirm` has to hear the answer or it waits forever.
+      if !open {
+         self.reject();
+      }
    }
 }
 
@@ -442,6 +448,11 @@ impl UpdateWindow {
                });
             });
          });
+
+      // A dismissal means "Later": the release note goes away and a later launch asks again.
+      if !open {
+         self.reset();
+      }
    }
 
    fn auto_restart_failed_ui(&mut self, theme: &Theme, ui: &mut Ui) {
@@ -596,6 +607,9 @@ impl LoadingWindow {
          .backdrop_order(Order::Tooltip)
          .content_order(Order::Debug)
          .closable(false)
+         // The work this window reports cannot be cancelled from here, so the key is declined
+         // rather than accepted into a dismissal that would change nothing.
+         .close_on_escape(false)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
