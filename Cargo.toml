@@ -198,6 +198,10 @@ lto = "fat"
 
 [features]
 dev = ["zeus-core/dev"]
+# Opt-in: lets an external inspector (`egui-mcp`) drive the running app over
+# `egui_inspection`. Off by default, and only active at runtime when
+# `EGUI_INSPECTION=1` is set, so a normal or release build never opens the port.
+inspection = ["eframe/inspection"]
 
 [lints]
 clippy = { new_without_default = "allow", too_many_arguments = "allow", unnecessary_unwrap = "allow", needless_return = "allow", needless_borrow = "deny" }
