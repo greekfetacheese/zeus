@@ -352,17 +352,11 @@ impl PortfolioUi {
                               corner_radius: CornerRadius::same(25),
                               ..Default::default()
                            };
-                           let button = Button::image(icon).small().visuals(visuals);
+                           // The button is a picture of a refresh arrow: its text alternative
+                           // says what pressing it refreshes.
+                           let button =
+                              Button::image(icon).small().visuals(visuals).alt("Refresh portfolio");
                            let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
-
-                           // The button is a picture of a refresh arrow and says nothing else.
-                           res.widget_info(|| {
-                              WidgetInfo::labeled(
-                                 Role::Button,
-                                 ui.is_enabled(),
-                                 "Refresh portfolio",
-                              )
-                           });
 
                            if res.clicked() {
                               self.refresh(owner, key.generation);

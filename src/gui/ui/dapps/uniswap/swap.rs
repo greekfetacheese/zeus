@@ -681,19 +681,11 @@ impl SwapUi {
             ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.sm);
 
             let icon = Lucide::RefreshCw.size(20.0).color(theme.colors.text).image();
-            let swap_button = Button::image(icon);
+            // A picture of two arrows has no words of its own: the text alternative says what
+            // pressing it exchanges.
+            let swap_button = Button::image(icon).alt("Swap Sell and Buy tokens");
 
             let response = ui.add(swap_button);
-
-            // A picture of two arrows has no words of its own: the node says what pressing it
-            // exchanges.
-            response.widget_info(|| {
-               WidgetInfo::labeled(
-                  Role::Button,
-                  ui.is_enabled(),
-                  "Swap Sell and Buy tokens",
-               )
-            });
 
             if response.clicked() {
                self.swap_currencies();

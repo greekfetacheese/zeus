@@ -1,4 +1,4 @@
-use egui::{Align, Layout, RichText, Role, Ui, WidgetInfo, vec2};
+use egui::{Align, Layout, RichText, Ui, vec2};
 
 use crate::gui::SHARED_GUI;
 use egui_elements::{Button, Checkbox, SecureTextEdit, Slider, Theme};
@@ -118,11 +118,10 @@ impl UniswapSettingsUi {
          ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
 
          let icon = Lucide::RefreshCw.size(14.0).color(theme.colors.text).image();
-         let button = Button::image(icon).small().visuals(button_visuals);
+         // The button is a picture of a refresh arrow: its text alternative says which field it
+         // puts back.
+         let button = Button::image(icon).small().visuals(button_visuals).alt("Reset slippage");
          let reset = ui.add(button);
-
-         // The button is a picture of a refresh arrow, so it says which field it puts back.
-         reset.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), "Reset slippage"));
 
          if reset.clicked() {
             self.slippage_f64 = DEFAULT_SLIPPAGE;

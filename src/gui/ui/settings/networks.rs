@@ -240,11 +240,9 @@ impl NetworkSettings {
                   corner_radius: CornerRadius::same(25),
                   ..Default::default()
                };
-               let button = Button::image(icon).small().visuals(visuals);
+               // A picture of a refresh arrow: the text alternative says what it checks.
+               let button = Button::image(icon).small().visuals(visuals).alt("Check RPC endpoints");
                let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
-               let name = "Check RPC endpoints";
-
-               res.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), name));
 
                if res.clicked() {
                   self.refreshing = true;
@@ -491,13 +489,11 @@ impl NetworkSettings {
                      corner_radius: CornerRadius::same(15),
                      ..Default::default()
                   };
-                  let settings_btn = Button::image(icon).small().visuals(visuals);
-                  let settings = ui.add(settings_btn).on_hover_cursor(CursorIcon::PointingHand);
+                  // A picture of a gear: the text alternative says whose settings it opens.
                   let settings_name = format!("Endpoint settings for {host}");
-
-                  settings.widget_info(|| {
-                     WidgetInfo::labeled(Role::Button, ui.is_enabled(), &settings_name)
-                  });
+                  let settings_btn =
+                     Button::image(icon).small().visuals(visuals).alt(settings_name);
+                  let settings = ui.add(settings_btn).on_hover_cursor(CursorIcon::PointingHand);
 
                   if settings.clicked() {
                      self.open_rpc_settings(rpc.clone());

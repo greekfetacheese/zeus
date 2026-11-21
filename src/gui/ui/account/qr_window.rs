@@ -11,6 +11,9 @@ use egui_elements::{Button, Modal, QrImage, Spinner, Theme, components::QrEncodi
 
 const QR_IMAGE_SIZE: u32 = 250;
 
+/// What a reader hears in place of a symbol: the address above, for another device to scan.
+const QR_ALT: &str = "QR code of the address above, for another device to scan.";
+
 pub struct QrWindow {
    open: bool,
    wallet: Option<WalletInfo>,
@@ -48,12 +51,12 @@ impl QrWindow {
 
          let data = wallet.address.to_string();
          let uri = format!("bytes://receive-{}.png", wallet.address);
-         let evm_address_qr = QrImage::with_encoding(&data, uri, encoding);
+         let evm_address_qr = QrImage::with_encoding(&data, uri, encoding).alt(QR_ALT);
 
          let zk_address_qr = if let Some(railgun_address) = &wallet.railgun_address {
             let data = railgun_address.address.to_string();
             let uri = format!("bytes://receive-{}.png", railgun_address.address);
-            QrImage::with_encoding(&data, uri, encoding)
+            QrImage::with_encoding(&data, uri, encoding).alt(QR_ALT)
          } else {
             QrImage::empty_with_error("No zkAddress available".to_string())
          };
@@ -178,22 +181,14 @@ impl QrWindow {
                   ui.label(RichText::new(error.to_string()).size(theme.typography.large));
                }
 
-               // QR Code
-               let qr = if !privacy_mode {
-                  let size = self.evm_address_qr.image_size_pt(ui.ctx().pixels_per_point());
-                  ui.add(self.evm_address_qr.image().fit_to_exact_size(size))
+               // QR Code. The symbol carries the sentence it is for (`QrImage::alt`) and draws
+               // itself with it: the node is named by that sentence, and egui's own account of the
+               // load state — `Loading bytes://…` — never reaches the tree.
+               if !privacy_mode {
+                  self.evm_address_qr.show(ui);
                } else {
-                  let size = self.zk_address_qr.image_size_pt(ui.ctx().pixels_per_point());
-                  ui.add(self.zk_address_qr.image().fit_to_exact_size(size))
-               };
-
-               // The image widget names the node after its load state (`Loading bytes://…`),
-               // which is not something to read out: the one sentence that says what the picture
-               // is for is its label.
-               ui.ctx().accesskit_node_builder(qr.id, |node| {
-                  node.set_label("QR code of the address above, for another device to scan.");
-                  node.clear_description();
-               });
+                  self.zk_address_qr.show(ui);
+               }
 
                ui.add_space(20.0);
 

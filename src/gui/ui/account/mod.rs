@@ -375,7 +375,11 @@ impl AccountPanel {
                let link = format!("{}/address/{}", block_explorer, wallet.address);
                let icon = Lucide::ExternalLink.size(18.0).color(icon_color).image();
 
-               let button = Button::image(icon).visuals(btn_visuals).small();
+               // A picture of a link: the text alternative says where pressing it goes.
+               let button = Button::image(icon)
+                  .visuals(btn_visuals)
+                  .small()
+                  .alt("Open the address in the block explorer");
                let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
                if res.clicked() {
@@ -387,7 +391,9 @@ impl AccountPanel {
 
                let icon = Lucide::QrCode.size(18.0).color(icon_color).image();
 
-               let button = Button::image(icon).visuals(btn_visuals).small();
+               // A picture of a QR code: the text alternative names what pressing it opens, in
+               // the words the dialog's own button carries.
+               let button = Button::image(icon).visuals(btn_visuals).small().alt("Show QR Code");
                let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
                // QR Code Window

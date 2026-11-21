@@ -306,17 +306,10 @@ impl ExportKeyUi {
                      ui.label(RichText::new(error.to_string()).size(theme.typography.large));
                   }
 
-                  // The QR is the key itself. It is drawn as a picture and stays unnamed: the
-                  // widget would otherwise label the node with its texture URI, so both the label
-                  // and the description are cleared — nothing for a reader to read out.
-                  let size = self.private_key_qr.image_size_pt(ui.ctx().pixels_per_point());
-                  let image = self.private_key_qr.image().fit_to_exact_size(size);
-                  let qr = ui.add(image);
-
-                  ui.ctx().accesskit_node_builder(qr.id, |node| {
-                     node.clear_label();
-                     node.clear_description();
-                  });
+                  // The QR is the key itself. It is drawn with `hidden()`: the picture stays on
+                  // screen and out of the tree, so no reader is handed the texture URI its node
+                  // would otherwise be named after.
+                  self.private_key_qr.show(ui);
                }
             });
          });
@@ -437,14 +430,17 @@ fn warning_sentence() -> String {
    MASTER_WALLET_WARNING.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The QR of `key`, encoded for this dialog's size.
+/// The QR of `key`, encoded for this dialog's size and kept out of the accessibility tree.
+///
+/// The symbol is the key itself, and the URI it is loaded under carries the wallet address: a
+/// reader must hear neither, so nothing about the picture is said.
 fn key_qr(key: &str, uri: String) -> QrImage {
    let encoding = QrEncoding {
       target_px: QR_IMAGE_SIZE,
       ..Default::default()
    };
 
-   QrImage::with_encoding(key, uri, encoding)
+   QrImage::with_encoding(key, uri, encoding).hidden()
 }
 
 fn on_verify_credentials(credentials: Credentials) {

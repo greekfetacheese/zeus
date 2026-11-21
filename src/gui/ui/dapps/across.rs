@@ -379,17 +379,12 @@ impl AcrossBridge {
                            corner_radius: CornerRadius::same(25),
                            ..Default::default()
                         };
-                        let button = Button::image(icon).small().visuals(visuals);
+                        // A picture of a gear: the text alternative says which settings it opens.
+                        let button = Button::image(icon)
+                           .small()
+                           .visuals(visuals)
+                           .alt("Across bridge settings");
                         let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
-
-                        // A picture of a gear: the node says which settings it opens.
-                        res.widget_info(|| {
-                           WidgetInfo::labeled(
-                              Role::Button,
-                              ui.is_enabled(),
-                              "Across bridge settings",
-                           )
-                        });
 
                         if res.clicked() {
                            self.open_settings();
@@ -465,7 +460,15 @@ impl AcrossBridge {
 
                               let icon =
                                  Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
-                              ui.add(icon);
+                              let arrow = ui.add(icon);
+
+                              // Both pickers are named for their direction ("From chain",
+                              // "Destination chain"), so the arrow between them is decoration: it
+                              // carries no words of its own, and none of its asset's name either.
+                              ui.ctx().accesskit_node_builder(arrow.id, |node| {
+                                 node.clear_label();
+                                 node.clear_description();
+                              });
 
                               ui.add_space(5.0);
 

@@ -237,18 +237,11 @@ impl UniswapUi {
                   corner_radius: CornerRadius::same(25),
                   ..Default::default()
                };
-               let button = Button::image(icon).small().visuals(visuals);
+               // The button is a picture of a refresh arrow: its text alternative says what
+               // pressing it refreshes.
+               let button =
+                  Button::image(icon).small().visuals(visuals).alt("Refresh pools and quote");
                let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
-
-               // The button is a picture of a refresh arrow: without a name it is a button with
-               // nothing to say, so it says what pressing it refreshes.
-               res.widget_info(|| {
-                  WidgetInfo::labeled(
-                     Role::Button,
-                     res.enabled(),
-                     "Refresh pools and quote",
-                  )
-               });
 
                if res.clicked() && self.page == Page::Swap {
                   self.swap_ui.refresh(&self.settings);
