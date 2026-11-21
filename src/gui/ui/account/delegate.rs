@@ -194,7 +194,8 @@ impl DelegateUi {
             .hint_text(hint)
             .font(FontId::proportional(theme.typography.normal))
             .margin(Margin::same(10))
-            .desired_width(ui.available_width());
+            .desired_width(ui.available_width())
+            .accessible_name("Delegate address");
          ui.add(text);
       });
 

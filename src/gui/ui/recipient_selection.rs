@@ -116,6 +116,8 @@ pub struct RecipientSelectionWindow {
    /// Inline add-contact form inside this window (not a nested Window).
    adding_contact: bool,
    size: (f32, f32),
+   /// The words the picker wants said, drained by the central panel after the page draws.
+   notice: Option<String>,
 }
 
 impl RecipientSelectionWindow {
@@ -142,6 +144,7 @@ impl RecipientSelectionWindow {
          wallet_chains: HashMap::new(),
          adding_contact: false,
          size: (560.0, 550.0),
+         notice: None,
       }
    }
 
@@ -152,6 +155,11 @@ impl RecipientSelectionWindow {
 
    pub fn is_open(&self) -> bool {
       self.open
+   }
+
+   /// The words the picker wants said, drained by the central panel right after the page is drawn.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
    }
 
    pub fn open(&mut self) {
@@ -921,6 +929,7 @@ impl RecipientSelectionWindow {
 
                if response.clicked() {
                   ui.ctx().copy_text(address_full.clone());
+                  self.notice = Some("Address copied.".to_string());
                }
             });
 
@@ -1090,6 +1099,7 @@ impl RecipientSelectionWindow {
 
                if response.clicked() {
                   ui.ctx().copy_text(address_full.clone());
+                  self.notice = Some("Address copied.".to_string());
                }
             });
 
@@ -1412,6 +1422,15 @@ fn valid_wallet_search(wallet: &WalletInfo, privacy_mode: bool, query: &str) -> 
    } else {
       return wallet.name_with_source().to_lowercase().contains(&query)
          || wallet.zk_address().to_string().to_lowercase().contains(&query);
+   }
+}
+
+#[cfg(test)]
+impl RecipientSelectionWindow {
+   /// Put `wallets` in the picker without the worker that fetches them from the wallet cache.
+   pub(crate) fn set_wallets_for_test(&mut self, wallets: Vec<WalletInfo>) {
+      self.wallets = wallets;
+      self.loading = false;
    }
 }
 

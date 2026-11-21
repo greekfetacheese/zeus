@@ -766,6 +766,7 @@ impl ContactsUi {
 
             if copy.clicked() {
                ui.ctx().copy_text(address_full);
+               self.notice = Some("Address copied.".to_string());
             }
          });
       });

@@ -164,6 +164,22 @@ fn render_nav(
    })
 }
 
+/// Draw the left panel and the announcer, which is the order the app draws them in: the panel
+/// hands the account header's copy to the app's one channel, and the announcer says it once.
+fn render_left_panel(
+   ctx: &Context,
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   events: Vec<Event>,
+) -> Vec<(NodeId, Node)> {
+   frame_nodes(ctx, events, |ui| {
+      zeus.write(|zeus| {
+         crate::gui::ui::panels::left_panel::show(gui, zeus, ui);
+         gui.show_announcer(ui);
+      });
+   })
+}
+
 /// Render the central panel headlessly: the page heading is its first widget.
 fn render_central(
    ctx: &Context,
@@ -215,6 +231,48 @@ fn render_settings(
                &mut gui.appearance_settings,
                ui,
             );
+         });
+      });
+   }
+
+   nodes
+}
+
+/// Render the Settings window and the announcer, which is the order the app draws them in: a page
+/// raises its words on the window, and the window hands them to the app's one channel. `events`
+/// go to the last pass, so the frame returned is the one that answers them.
+fn render_settings_speaking(
+   ctx: &Context,
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   events: Vec<Event>,
+) -> Vec<(NodeId, Node)> {
+   let mut nodes = Vec::new();
+
+   for pass in 0..2 {
+      let icons = gui.icons.clone();
+      let theme = gui.theme.clone();
+      let events = if pass == 1 {
+         events.clone()
+      } else {
+         Vec::new()
+      };
+
+      nodes = frame_nodes(ctx, events, |ui| {
+         zeus.write(|zeus| {
+            gui.settings.show(
+               zeus,
+               icons.clone(),
+               &theme,
+               &mut gui.appearance_settings,
+               ui,
+            );
+
+            if let Some(text) = gui.settings.take_notice() {
+               gui.announce(text);
+            }
+
+            gui.show_announcer(ui);
          });
       });
    }
@@ -1373,6 +1431,119 @@ fn a_service_row_label_carries_the_whole_sentence() {
    );
 }
 
+/// The Delegate window asks for a smart-contract address in a field with no drawn label, so the
+/// field has to say what it is for.
+#[test]
+fn the_delegate_window_names_its_address_field() {
+   let (ctx, mut gui, zeus) = main_window();
+   gui.account_panel.open();
+   gui.account_panel.delegate.open();
+
+   render_account_panel(&ctx, &mut gui, &zeus, Vec::new());
+   let nodes = render_account_panel(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert!(
+      nodes
+         .iter()
+         .any(|(_, node)| is_text_input(node.role()) && node.label() == Some("Delegate address")),
+      "the address field must be named after what it takes: {:?}",
+      drawn_names(&nodes)
+   );
+}
+
+/// The panel's three dots buttons used to be unnamed: the header's menu, the two service rows'
+/// menus and the vitals card's. Each says whose options it opens.
+#[test]
+fn the_account_panel_menus_are_named() {
+   let (ctx, mut gui, zeus) = main_window();
+   gui.account_panel.open();
+
+   let nodes = render_account_panel(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert!(
+      nodes
+         .iter()
+         .any(|(_, node)| node.role() == Role::Button
+            && node.label() == Some("Delegation options")),
+      "the header's dots must say what they open: {:?}",
+      drawn_names(&nodes)
+   );
+
+   let diagnostics = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Tab && node.label() == Some("Diagnostics"))
+      .map(|(id, _)| *id)
+      .expect("the panel's second tab must be a Tab node named Diagnostics");
+
+   let nodes = render_account_panel(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, diagnostics)],
+   );
+
+   for name in [
+      "Railgun options",
+      "Wallet Connector options",
+      "Vitals options",
+   ] {
+      assert!(
+         nodes
+            .iter()
+            .any(|(_, node)| node.role() == Role::Button && node.label() == Some(name)),
+         "the {name} menu must say whose options it opens: {:?}",
+         drawn_names(&nodes)
+      );
+   }
+}
+
+/// Copying the header's address changes nothing on screen, so the panel hands the sentence to the
+/// left panel, and the announcer says it once.
+#[test]
+fn the_account_address_copy_says_it_happened() {
+   let (ctx, mut gui, zeus) = main_window();
+   let wallet = master_wallet("Main");
+   let address = wallet.evm_address_truncated();
+
+   gui.account_panel.open();
+   gui.account_panel.set_current_wallet(wallet);
+
+   render_left_panel(&ctx, &mut gui, &zeus, Vec::new());
+   let nodes = render_left_panel(&ctx, &mut gui, &zeus, Vec::new());
+
+   let copy = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some(address.as_str()))
+      .map(|(id, _)| *id)
+      .unwrap_or_else(|| {
+         panic!(
+            "the header address must be a button in the tree: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   let nodes = render_left_panel(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, copy)],
+   );
+
+   assert_eq!(
+      announced(&nodes).as_deref(),
+      Some("Address copied."),
+      "the copy must reach the announcement node the left panel feeds"
+   );
+
+   let nodes = render_left_panel(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert_eq!(
+      announced(&nodes).as_deref().unwrap_or_default(),
+      "",
+      "the copy is said once, so the next frame says nothing more"
+   );
+}
+
 /// A message dialog has a name of its own, keeps its text as a label, and offers the deliberate
 /// exits: a Close button beside the OK that already dismissed it.
 #[test]
@@ -2346,6 +2517,58 @@ fn a_contact_row_says_who_it_is() {
    assert!(
       !spoken.contains(&name),
       "the row's own name must not also be a plain label: {spoken:?}"
+   );
+}
+
+/// Copying a contact row's address changes nothing on screen, so the row hands "Address copied."
+/// to the page, and the Settings window says it once.
+#[test]
+fn a_contact_row_copy_says_it_happened() {
+   let name = "Ada Lovelace";
+   let address = "0x1111111111111111111111111111111111111111";
+
+   let (ctx, mut gui, zeus) = settings_window();
+   zeus.write_wallet_state(|ws| {
+      ws.contacts.push(Contact::new(
+         name.to_string(),
+         address.to_string(),
+         String::new(),
+      ));
+   });
+
+   let nodes = open_settings_page(&ctx, &mut gui, &zeus, "Contacts");
+
+   let copy_name = format!("Copy address {address}");
+   let copy = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some(copy_name.as_str()))
+      .map(|(id, _)| *id)
+      .unwrap_or_else(|| {
+         panic!(
+            "the contact row's address button must be in the tree: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   let nodes = render_settings_speaking(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, copy)],
+   );
+
+   assert_eq!(
+      announced(&nodes).as_deref(),
+      Some("Address copied."),
+      "the copy must reach the announcement node the Settings window feeds"
+   );
+
+   let nodes = render_settings_speaking(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert_eq!(
+      announced(&nodes).as_deref().unwrap_or_default(),
+      "",
+      "the copy is said once, so the next frame says nothing more"
    );
 }
 
@@ -4134,6 +4357,118 @@ fn the_copy_button_names_the_address_it_copies() {
    assert!(
       recipient_picker_open(),
       "copying the address must not close the picker"
+   );
+}
+
+/// Copying a recipient contact's address changes nothing on screen, so the picker hands the
+/// sentence to the frame, which says it once.
+#[test]
+fn a_recipient_contact_copy_says_it_happened() {
+   let _turn = shared_gui_turn();
+   let ctx = Context::default();
+
+   let nodes = open_recipient_picker(
+      &ctx,
+      false,
+      &[(PICKER_CONTACT, PICKER_CONTACT_ADDRESS)],
+   );
+
+   let copy_name = format!("Copy address of {PICKER_CONTACT}");
+   let copy = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some(copy_name.as_str()))
+      .map(|(id, _)| *id)
+      .expect("the row's address button must say what it copies");
+
+   crate::gui::SHARED_GUI.write(|gui| gui.recipient_selection.take_notice());
+
+   render_recipient_picker(
+      &ctx,
+      false,
+      vec![accesskit_action(Action::Click, copy)],
+   );
+
+   assert_eq!(
+      crate::gui::SHARED_GUI
+         .write(|gui| gui.recipient_selection.take_notice())
+         .as_deref(),
+      Some("Address copied."),
+      "the copy must reach the frame's announcement channel"
+   );
+
+   render_recipient_picker(&ctx, false, Vec::new());
+
+   assert_eq!(
+      crate::gui::SHARED_GUI.write(|gui| gui.recipient_selection.take_notice()),
+      None,
+      "the copy is said once, so the next frame says nothing more"
+   );
+}
+
+/// The same for a wallet row: its address copies like a contact's, and the picker says so once.
+#[test]
+fn a_recipient_wallet_copy_says_it_happened() {
+   let _turn = shared_gui_turn();
+   let ctx = Context::default();
+
+   let nodes = open_recipient_picker(&ctx, false, &[]);
+
+   let wallets = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Tab && node.label() == Some("Wallets"))
+      .map(|(id, _)| *id)
+      .expect("the picker must offer a Wallets tab");
+
+   render_recipient_picker(
+      &ctx,
+      false,
+      vec![accesskit_action(Action::Click, wallets)],
+   );
+
+   let wallet = master_wallet("Main");
+   let copy_name = format!(
+      "Copy address of {}",
+      crate::gui::ui::common::spoken_wallet_name(&wallet)
+   );
+
+   crate::gui::SHARED_GUI.write(|gui| {
+      gui.recipient_selection.set_wallets_for_test(vec![wallet]);
+      gui.recipient_selection.take_notice();
+   });
+
+   let nodes = render_recipient_picker(&ctx, false, Vec::new());
+
+   let copy = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some(copy_name.as_str()))
+      .map(|(id, _)| *id)
+      .unwrap_or_else(|| {
+         panic!(
+            "the wallet row's address button must be in the tree: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   render_recipient_picker(
+      &ctx,
+      false,
+      vec![accesskit_action(Action::Click, copy)],
+   );
+
+   assert_eq!(
+      crate::gui::SHARED_GUI
+         .write(|gui| gui.recipient_selection.take_notice())
+         .as_deref(),
+      Some("Address copied."),
+      "the copy must reach the frame's announcement channel"
+   );
+
+   render_recipient_picker(&ctx, false, Vec::new());
+
+   assert_eq!(
+      crate::gui::SHARED_GUI.write(|gui| gui.recipient_selection.take_notice()),
+      None,
+      "the copy is said once, so the next frame says nothing more"
    );
 }
 

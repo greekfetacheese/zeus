@@ -171,6 +171,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    // holds the only one, so its sentence comes back here like the Send form's and the portfolio's.
    let token_selection_notice = gui.token_selection.take_notice();
 
+   // The recipient picker is modal over the form that raised it, so its sentence comes back here
+   // like the token picker's; it is drawn under the token picker when both are up.
+   let recipient_selection_notice = gui.recipient_selection.take_notice();
+
    gui.connected_dapps.show(ctx, theme, icons.clone(), ui);
 
    gui.wallet_ui.show(ctx, theme, icons.clone(), ui);
@@ -253,6 +257,11 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
    // The merge card is drawn over the page that raised it, so its sentence comes after it.
    if let Some(text) = merge_notes_notice {
+      gui.announce(text);
+   }
+
+   // The recipient picker is under the token picker when both are up, so it is said first.
+   if let Some(text) = recipient_selection_notice {
       gui.announce(text);
    }
 

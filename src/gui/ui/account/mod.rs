@@ -22,8 +22,8 @@ use crate::gui::{
    ui::{ChainSelect, WalletSelect, common::*},
 };
 use egui::{
-   Align, CursorIcon, FontId, Layout, Margin, OpenUrl, Rect, Response, RichText, ScrollArea,
-   Shadow, Stroke, TextWrapMode, Ui, pos2, vec2,
+   Align, CursorIcon, FontId, Layout, Margin, OpenUrl, Rect, Response, RichText, Role, ScrollArea,
+   Shadow, Stroke, TextWrapMode, Ui, WidgetInfo, pos2, vec2,
 };
 use std::sync::Arc;
 use zeus_eth::types::ChainId;
@@ -118,6 +118,8 @@ pub struct AccountPanel {
    body_heights: [f32; 2],
    /// Machine vitals for the Diagnostics tab, refreshed off the frame path.
    vitals: SystemVitals,
+   /// The words the panel itself wants said, drained by the left panel after the panel draws.
+   notice: Option<String>,
 }
 
 impl AccountPanel {
@@ -138,6 +140,7 @@ impl AccountPanel {
          tab: 0,
          body_heights: [0.0; 2],
          vitals: SystemVitals::default(),
+         notice: None,
       }
    }
 
@@ -175,12 +178,12 @@ impl AccountPanel {
       self.chain_select.chain = chain;
    }
 
-   /// The words the panel's dialogs want said, drained by the left panel right after the panel draws.
+   /// The words the panel wants said, drained by the left panel right after the panel draws.
    ///
-   /// The receive window is drawn from here and cannot announce on its own: the frame holds the
-   /// only channel, so it leaves its sentence on the window for this to hand up.
+   /// Neither the receive window nor the header's address copy can announce on its own: the frame
+   /// holds the only channel, so each leaves its sentence here for the panel to hand up.
    pub fn take_notice(&mut self) -> Option<String> {
-      self.qr_window.take_notice()
+      self.notice.take().or_else(|| self.qr_window.take_notice())
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -367,6 +370,7 @@ impl AccountPanel {
 
             if ui.add(label).clicked() {
                ui.ctx().copy_text(full_address);
+               self.notice = Some("Address copied.".to_string());
             }
 
             // The QR / block-explorer actions, and the separators before them, are
@@ -454,6 +458,8 @@ impl AccountPanel {
 
             let size = vec2(24.0, 12.0);
             let more = dots_button(theme, size, ui);
+            let options = "Delegation options";
+            more.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), options));
 
             if more.clicked() && !self.delegate.is_open() {
                self.delegate.open();
@@ -568,6 +574,8 @@ impl AccountPanel {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                let size = vec2(24.0, 12.0);
                let more = dots_button(theme, size, ui);
+               let options = "Railgun options";
+               more.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), options));
                Menu::new(("svc_menu", "railgun_id")).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("View last error")).clicked() {
                      let error_opt = ctx.railgun_status().sync_error(chain.id());
@@ -625,6 +633,8 @@ impl AccountPanel {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                let size = vec2(24.0, 12.0);
                let more = dots_button(theme, size, ui);
+               let options = "Wallet Connector options";
+               more.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), options));
                Menu::new(("svc_menu", "wallet_connector_id")).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("Settings")).clicked() {
                      crate::runtime::rt().spawn_blocking(move || {
