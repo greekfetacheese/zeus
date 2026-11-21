@@ -572,13 +572,11 @@ impl NetworkSettings {
 
          let text = RichText::new("MEV Protect").size(theme.typography.normal);
          let label = ui.label(text);
-         let checkbox = ui.add(Checkbox::without_text(&mut rpc.mev_protect));
 
-         // Like the row's boxes, this one draws no words: the label beside it names it and leaves
-         // the tree, so the box itself is the one node that says what it sets.
+         // Like the row's boxes, this one draws no words: it takes the words beside it as its own
+         // name, and that label leaves the tree, so the box is the one node that says what it sets.
+         let checkbox = ui.add(Checkbox::without_text(&mut rpc.mev_protect).name("MEV Protect"));
          ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
-         ui.ctx()
-            .accesskit_node_builder(checkbox.id, |node| node.set_label("MEV Protect"));
 
          if checkbox.clicked() {
             let z_client = ctx.client_manager.clone();
