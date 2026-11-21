@@ -151,8 +151,14 @@ pub fn recipient_field(
             &mut recipient_selection.recipient.evm_address
          };
 
+         let field_name = match privacy_mode {
+            true => "Recipient 0zk address",
+            false => "Recipient address",
+         };
+
          let res = ui.add(
             SecureTextEdit::singleline(address)
+               .accessible_name(field_name)
                .visuals(theme.text_edit_visuals())
                .hint_text(hint)
                .min_size(vec2(ui.available_width(), 25.0))
@@ -178,10 +184,6 @@ pub fn recipient_field(
          } else {
             &recipient_selection.recipient.evm_address
          };
-         let field_name = match privacy_mode {
-            true => "Recipient 0zk address",
-            false => "Recipient address",
-         };
          let held = recipient_value(typed);
          let resolved = recipient_selection.recipient.name.clone();
          let description = match &resolved {
@@ -190,8 +192,6 @@ pub fn recipient_field(
          };
 
          ui.ctx().accesskit_node_builder(res.id, |node| {
-            node.set_label(field_name);
-
             if let Some(value) = &held {
                node.set_value(value.as_str());
             } else {

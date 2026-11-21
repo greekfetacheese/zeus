@@ -386,8 +386,12 @@ impl SendCryptoUi {
                            );
                            ui.ctx().accesskit_node_builder(optional.id, |node| node.set_hidden());
                         });
-                        let field = ui.add(
+                        // The memo is written into the private history, so it is public by design:
+                        // an ordinary field whose value is the text it holds, named with the
+                        // optionality the drawn words carried.
+                        ui.add(
                            SecureTextEdit::singleline(&mut self.memo)
+                              .accessible_name("Memo, optional")
                               .visuals(text_edit_visuals)
                               .hint_text(
                                  RichText::new("Shown in private history")
@@ -398,13 +402,6 @@ impl SendCryptoUi {
                               .margin(Margin::same(10))
                               .font(FontId::proportional(theme.typography.normal)),
                         );
-
-                        // The memo is written into the private history, so it is public by design:
-                        // an ordinary field whose value is the text it holds, named with the
-                        // optionality the drawn words carried.
-                        ui.ctx().accesskit_node_builder(field.id, |node| {
-                           node.set_label("Memo, optional")
-                        });
                      });
                   }
 
@@ -545,8 +542,10 @@ impl SendCryptoUi {
             let label = ui.label(RichText::new("Amount").size(theme.typography.large));
             ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
             ui.add_space(10.0);
-            let field = ui.add(
+            // How many of the token picked above to move.
+            ui.add(
                SecureTextEdit::singleline(&mut self.nft_amount)
+                  .accessible_name("Amount")
                   .visuals(text_edit_visuals)
                   .hint_text(
                      RichText::new("How many to send")
@@ -557,9 +556,6 @@ impl SendCryptoUi {
                   .margin(Margin::same(10))
                   .font(FontId::proportional(theme.typography.normal)),
             );
-
-            // How many of the token picked above to move.
-            ui.ctx().accesskit_node_builder(field.id, |node| node.set_label("Amount"));
          });
       } else {
          // ERC-721: the id is the whole payload, so it is shown read-only. There is nothing to edit —

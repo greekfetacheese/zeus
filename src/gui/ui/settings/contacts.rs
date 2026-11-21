@@ -86,14 +86,14 @@ impl AddContact {
          ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
 
          let name = &mut self.contact.name;
-         let field = ui.add(
+         ui.add(
             SecureTextEdit::singleline(name)
+               .accessible_name("Contact name")
                .visuals(text_edit_visuals)
                .min_size(text_edit_size)
                .margin(Margin::same(10))
                .font(FontId::proportional(theme.typography.normal)),
          );
-         ui.ctx().accesskit_node_builder(field.id, |node| node.set_label("Contact name"));
 
          // The address fields label themselves and own their text — and their QR
          // scanner — so the contact is filled in from them on submit.
@@ -266,14 +266,14 @@ impl EditContact {
          ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
 
          let name = &mut contact.name;
-         let field = ui.add(
+         ui.add(
             SecureTextEdit::singleline(name)
+               .accessible_name("Contact name")
                .visuals(text_edit_visuals)
                .min_size(text_edit_size)
                .margin(Margin::same(10))
                .font(FontId::proportional(theme.typography.normal)),
          );
-         ui.ctx().accesskit_node_builder(field.id, |node| node.set_label("Contact name"));
 
          self.contact_to_edit = contact;
 
@@ -615,6 +615,7 @@ impl ContactsUi {
 
       let search = ui.add(
          SecureTextEdit::singleline(&mut self.search_query)
+            .accessible_name("Search contacts")
             .visuals(text_edit_visuals)
             .hint_text(hint)
             .min_size(vec2(ui.available_width() * 0.40, 25.0))
@@ -624,10 +625,8 @@ impl ContactsUi {
 
       // The field drew only a hint; it is named after what it searches, and the hint becomes its
       // description.
-      ui.ctx().accesskit_node_builder(search.id, |node| {
-         node.set_label("Search contacts");
-         node.set_description(hint_text);
-      });
+      ui.ctx()
+         .accesskit_node_builder(search.id, |node| node.set_description(hint_text));
 
       ui.add_space(15.0);
 

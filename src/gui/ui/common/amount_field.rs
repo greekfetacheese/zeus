@@ -209,6 +209,7 @@ impl AmountField {
                   RichText::new("0").color(theme.colors.text_muted).size(theme.typography.heading);
 
                let amount_input = SecureTextEdit::singleline(&mut self.amount)
+                  .accessible_name(field_name.as_str())
                   .visuals(visuals)
                   .font(FontId::proportional(theme.typography.heading))
                   .hint_text(hint)
@@ -232,8 +233,6 @@ impl AmountField {
                let fiat = format!("${:.10}", value.abbreviated());
 
                ui.ctx().accesskit_node_builder(res.id, |node| {
-                  node.set_label(field_name.as_str());
-
                   if count == 0 {
                      node.clear_value();
                      node.clear_description();

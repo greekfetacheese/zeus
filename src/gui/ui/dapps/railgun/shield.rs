@@ -917,8 +917,11 @@ impl ShieldUi {
                   );
                });
 
-               let field = ui.add(
+               // The caption above splits the name in two lines; the box draws nothing, so both
+               // words are on the node a reader lands on.
+               ui.add(
                   SecureTextEdit::singleline(&mut self.memo)
+                     .accessible_name("Memo, optional")
                      .visuals(text_edit_visuals)
                      .hint_text(
                         RichText::new("Shown in private history")
@@ -929,11 +932,6 @@ impl ShieldUi {
                      .margin(Margin::same(10))
                      .font(FontId::proportional(theme.typography.normal)),
                );
-
-               // The caption above splits the name in two lines; the box draws nothing, so both
-               // words are on the node a reader lands on.
-               ui.ctx()
-                  .accesskit_node_builder(field.id, |node| node.set_label("Memo, optional"));
             }
 
             ui.add_space(theme.spacing.md);
@@ -983,8 +981,8 @@ impl ShieldUi {
                      // accessibility tree: the host names the field and the value is cleared
                      // before the tree is built.
                      let host = bundler_host(&self.bundler_url);
+                     let field = field.accessible_name(format!("Bundler URL at {host}"));
                      ui.ctx().accesskit_node_builder(field.id, |node| {
-                        node.set_label(format!("Bundler URL at {host}"));
                         node.set_description(BUNDLER_URL_TIP);
                         node.clear_value();
                      });
@@ -1951,6 +1949,7 @@ impl ShieldUi {
       let hint = RichText::new("0").color(theme.colors.text_muted).size(theme.typography.large);
 
       let input = SecureTextEdit::singleline(nft_amount)
+         .accessible_name("Quantity")
          .visuals(theme.text_edit_visuals())
          .font(FontId::proportional(theme.typography.large))
          .hint_text(hint)
@@ -1963,7 +1962,6 @@ impl ShieldUi {
       // what the field counts and what that "of N" is — the count this wallet holds, which is the
       // most that can move.
       ui.ctx().accesskit_node_builder(field.id, |node| {
-         node.set_label("Quantity");
          node.set_description(match max {
             Some(max) => format!("You hold {max} of this token. Up to that many can be moved."),
             None => "How many of this token to move.".to_string(),

@@ -295,6 +295,7 @@ impl NetworkSettings {
 
             let field = ui.add(
                SecureTextEdit::singleline(input)
+                  .accessible_name("Request Concurrency")
                   .visuals(text_edit_visuals)
                   .font(FontId::proportional(theme.typography.normal))
                   .desired_width(32.0)
@@ -305,7 +306,6 @@ impl NetworkSettings {
             // description: a reader hears both on the field instead of two orphans.
             ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
             ui.ctx().accesskit_node_builder(field.id, |node| {
-               node.set_label("Request Concurrency");
                node.set_description(concurrency_hint.as_str());
             });
 
@@ -411,6 +411,7 @@ impl NetworkSettings {
                let field = rpc_col(ui, url_w, ROW_H, |ui| {
                   ui.add(
                      SecureTextEdit::singleline(&mut url)
+                        .accessible_name(format!("RPC URL at {host}"))
                         .visuals(text_edit_visuals)
                         .font(FontId::proportional(theme.typography.small))
                         .min_size(vec2(url_w, 20.0))
@@ -421,7 +422,6 @@ impl NetworkSettings {
                // A URL can carry a provider key, so its text never enters the accessibility tree:
                // the host names the row and the value is cleared before the tree is built.
                ui.ctx().accesskit_node_builder(field.inner.id, |node| {
-                  node.set_label(format!("RPC URL at {host}"));
                   node.set_description(RPC_URL_TIP);
                   node.clear_value();
                });
@@ -610,8 +610,9 @@ impl NetworkSettings {
       let rps_name = "Requests / second";
       let rps_text = RichText::new(rps_name).size(theme.typography.normal);
       let rps_label = ui.label(rps_text);
-      let rps_field = ui.add(
+      ui.add(
          SecureTextEdit::singleline(&mut self.rps_input)
+            .accessible_name(rps_name)
             .visuals(text_edit_visuals)
             .font(FontId::proportional(theme.typography.normal))
             .min_size(input_size)
@@ -621,8 +622,9 @@ impl NetworkSettings {
       let cu_name = "Compute units / second";
       let cu_text = RichText::new(cu_name).size(theme.typography.normal);
       let cu_label = ui.label(cu_text);
-      let cu_field = ui.add(
+      ui.add(
          SecureTextEdit::singleline(&mut self.cu_input)
+            .accessible_name(cu_name)
             .visuals(text_edit_visuals)
             .font(FontId::proportional(theme.typography.normal))
             .min_size(input_size)
@@ -631,9 +633,7 @@ impl NetworkSettings {
 
       // Each field carries the words drawn beside it, so the label nodes leave the tree.
       ui.ctx().accesskit_node_builder(rps_label.id, |node| node.set_hidden());
-      ui.ctx().accesskit_node_builder(rps_field.id, |node| node.set_label(rps_name));
       ui.ctx().accesskit_node_builder(cu_label.id, |node| node.set_hidden());
-      ui.ctx().accesskit_node_builder(cu_field.id, |node| node.set_label(cu_name));
 
       let rps = self.rps_input.trim().parse::<u32>().ok();
       let cu = self.cu_input.trim().parse::<u64>().ok();
@@ -693,6 +693,7 @@ impl NetworkSettings {
       let hint_text = RichText::new("Enter a url").size(theme.typography.normal);
       let field = ui.add(
          SecureTextEdit::singleline(&mut self.url_to_add)
+            .accessible_name("RPC URL")
             .visuals(text_edit_visuals)
             .hint_text(hint_text)
             .font(FontId::proportional(theme.typography.normal))
@@ -703,8 +704,7 @@ impl NetworkSettings {
       // This one is being typed rather than read back, so the hint it draws is the description
       // that tells a reader what to type.
       ui.ctx().accesskit_node_builder(field.id, |node| {
-         node.set_label("RPC URL");
-         node.set_description("Enter a url");
+         node.set_description("Enter a url")
       });
 
       if !self.valid_url() && !self.url_to_add.is_empty() {

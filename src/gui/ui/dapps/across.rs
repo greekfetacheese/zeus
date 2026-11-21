@@ -992,8 +992,9 @@ impl AcrossBridge {
                   // tree: the host names the field and the value is cleared before the tree is
                   // built.
                   let host = api_host(&self.settings.api_url);
-                  ui.ctx().accesskit_node_builder(field.response.id, |node| {
-                     node.set_label(format!("Across API URL at {host}"));
+                  let response =
+                     field.response.accessible_name(format!("Across API URL at {host}"));
+                  ui.ctx().accesskit_node_builder(response.id, |node| {
                      node.set_description(ACROSS_API_URL_TIP);
                      node.clear_value();
                   });

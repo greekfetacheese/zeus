@@ -356,19 +356,16 @@ impl PoolsUi {
             |ui| {
                ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
-               let search = SecureTextEdit::singleline(&mut self.search_query)
+               // The field's only label is the placeholder it draws while it is empty, which is a
+               // hint rather than a name.
+               SecureTextEdit::singleline(&mut self.search_query)
+                  .accessible_name("Search pools")
                   .visuals(theme.text_edit_visuals())
                   .hint_text(hint)
                   .desired_width(SEARCH_FIELD_WIDTH)
                   .margin(Margin::same(10))
                   .font(FontId::proportional(theme.typography.normal))
                   .show(ui);
-
-               // The field's only label is the placeholder it draws while it is empty, which is a
-               // hint rather than a name.
-               ui.ctx().accesskit_node_builder(search.response.id, |node| {
-                  node.set_label("Search pools")
-               });
 
                self.select_version(theme, ui);
             },
@@ -942,16 +939,14 @@ fn form_text_field(
    let visuals = theme.text_edit_visuals();
 
    ui.allocate_ui(vec2(width, FIELD_ROW_HEIGHT), |ui| {
-      let field = SecureTextEdit::singleline(value)
+      SecureTextEdit::singleline(value)
+         .accessible_name(caption)
          .visuals(visuals)
          .hint_text(hint)
          .margin(Margin::same(10))
          .font(FontId::proportional(theme.typography.normal))
          .desired_width(ui.available_width())
          .show(ui);
-
-      ui.ctx()
-         .accesskit_node_builder(field.response.id, |node| node.set_label(caption));
    });
 }
 

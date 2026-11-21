@@ -404,20 +404,17 @@ pub fn show_tx_options_modal(
                      reveal_ui.multiply_opacity(reveal);
                      reveal_ui.set_min_height(natural);
 
+                     // The switch above says "Custom fee"; the field it reveals has no label
+                     // of its own, so its name goes on the node.
                      let res = reveal_ui.add(
                         SecureTextEdit::singleline(fee.custom_value)
+                           .accessible_name("Custom priority fee in gwei")
                            .id_source(custom_id.with("field"))
                            .visuals(text_edit_visuals)
                            .margin(Margin::same(10))
                            .desired_width(field_width)
                            .font(FontId::proportional(theme.typography.large)),
                      );
-
-                     // The switch above says "Custom fee"; the field it reveals has no label
-                     // of its own, so its name goes on the node.
-                     ui.ctx().accesskit_node_builder(res.id, |node| {
-                        node.set_label("Custom priority fee in gwei");
-                     });
 
                      if res.changed() {
                         fee_changed = true;
@@ -452,19 +449,16 @@ pub fn show_tx_options_modal(
                      ui.disable();
                   }
 
+                  // With no recommendation this field is the whole priority fee, and the
+                  // drawn label above is not tied to it.
                   let res = ui.add(
                      SecureTextEdit::singleline(fee.custom_value)
+                        .accessible_name("Priority fee in gwei")
                         .visuals(text_edit_visuals)
                         .margin(Margin::same(10))
                         .desired_width(field_width)
                         .font(FontId::proportional(theme.typography.large)),
                   );
-
-                  // With no recommendation this field is the whole priority fee, and the
-                  // drawn label above is not tied to it.
-                  ui.ctx().accesskit_node_builder(res.id, |node| {
-                     node.set_label("Priority fee in gwei");
-                  });
 
                   if res.changed() {
                      fee_changed = true;

@@ -97,19 +97,16 @@ impl ImportWallet {
                // second stop.
                ui.ctx().accesskit_node_builder(drawn.id, |node| node.set_hidden());
 
+               // The parentheses of the drawn label are read aloud, so the field is named without
+               // them.
                let field = ui.add(
                   SecureTextEdit::singleline(&mut self.wallet_name)
+                     .accessible_name("Wallet name, optional")
                      .visuals(text_edit_visuals)
                      .font(FontId::proportional(theme.typography.normal))
                      .margin(Margin::same(10))
                      .min_size(size),
                );
-
-               // The parentheses of the drawn label are read aloud, so the field is named without
-               // them.
-               ui.ctx().accesskit_node_builder(field.id, |node| {
-                  node.set_label("Wallet name, optional")
-               });
 
                // A single-line edit gives its focus up on Enter instead of taking the key as a
                // character, which leaves Enter free to press Import from here.

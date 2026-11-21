@@ -129,13 +129,14 @@ impl UniswapSettingsUi {
          }
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let output =
-               SecureTextEdit::singleline(&mut self.slippage).desired_width(50.0).show(ui);
+            let output = SecureTextEdit::singleline(&mut self.slippage)
+               .accessible_name("Slippage percent")
+               .desired_width(50.0)
+               .show(ui);
 
             // The field draws the number alone and the tip the drawn word carries explains it: both
             // go on the field's own node, and the word leaves the tree.
             ui.ctx().accesskit_node_builder(output.response.id, |node| {
-               node.set_label("Slippage percent");
                node.set_description(SLIPPAGE_TIP);
             });
 

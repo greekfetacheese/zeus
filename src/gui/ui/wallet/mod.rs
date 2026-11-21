@@ -249,18 +249,15 @@ impl WalletUi {
 
                let hint = RichText::new("Search...").color(theme.colors.text_muted).size(normal);
 
-               let search = ui.allocate_ui(vec2(content_width, 45.0), |ui| {
+               // The field draws its hint and nothing else, so it is named for what it narrows.
+               ui.allocate_ui(vec2(content_width, 45.0), |ui| {
                   SecureTextEdit::singleline(&mut self.search_query)
+                     .accessible_name("Search wallets")
                      .hint_text(hint)
                      .margin(Margin::same(10))
                      .font(FontId::proportional(normal))
                      .desired_width(ui.available_width())
                      .show(ui)
-               });
-
-               // The field draws its hint and nothing else, so it is named for what it narrows.
-               ui.ctx().accesskit_node_builder(search.inner.response.id, |node| {
-                  node.set_label("Search wallets");
                });
 
                if self.loading {
@@ -598,7 +595,9 @@ impl WalletUi {
                let field_size = vec2(ui.available_width() * 0.9, 45.0);
                name_field = Some(
                   ui.allocate_ui(field_size, |ui| {
+                     // The field draws no label of its own, so it is named for what it holds.
                      SecureTextEdit::singleline(&mut self.new_wallet_name)
+                        .accessible_name("New wallet name")
                         .font(FontId::proportional(normal))
                         .margin(Margin::same(10))
                         .desired_width(ui.available_width())
@@ -616,12 +615,6 @@ impl WalletUi {
                }
             });
          });
-
-      // The field draws no label of its own, so it is named for what it holds.
-      if let Some(field) = &name_field {
-         ui.ctx()
-            .accesskit_node_builder(field.id, |node| node.set_label("New wallet name"));
-      }
 
       // The dialog spends its first passes sizing, where its body is invisible and cannot hold the
       // focus, so the field asks for it on the first pass that is drawn. It asks after the dialog

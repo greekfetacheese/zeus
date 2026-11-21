@@ -389,19 +389,16 @@ impl RecoverHDWallet {
                   .size(theme.typography.normal)
                   .color(theme.colors.text_muted);
 
+               // The box is named here, so its hint stays the placeholder it draws instead of
+               // being the only words a reader can find it by.
                let field = SecureTextEdit::singleline(&mut self.wallet_name)
+                  .accessible_name("Wallet name, optional")
                   .visuals(text_edit_visuals)
                   .font(FontId::proportional(theme.typography.normal))
                   .margin(Margin::same(10))
                   .hint_text(hint)
                   .min_size(field_size)
                   .show(ui);
-
-               // The box is named here, so its hint stays the placeholder it draws instead of
-               // being the only words a reader can find it by.
-               ui.ctx().accesskit_node_builder(field.response.id, |node| {
-                  node.set_label("Wallet name, optional")
-               });
 
                name_field = Some(field.response);
 

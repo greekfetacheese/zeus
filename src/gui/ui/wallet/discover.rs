@@ -704,18 +704,15 @@ impl DiscoverChildWallets {
                // second stop.
                ui.ctx().accesskit_node_builder(drawn.id, |node| node.set_hidden());
 
+               // The parentheses of the drawn label are read aloud, so the field is named without
+               // them.
                let field = SecureTextEdit::singleline(&mut self.wallet_name)
+                  .accessible_name("Wallet name, optional")
                   .visuals(text_edit_visuals)
                   .font(FontId::proportional(theme.typography.normal))
                   .margin(Margin::same(10))
                   .min_size(vec2(ui.available_width() * 0.9, 25.0))
                   .show(ui);
-
-               // The parentheses of the drawn label are read aloud, so the field is named without
-               // them.
-               ui.ctx().accesskit_node_builder(field.response.id, |node| {
-                  node.set_label("Wallet name, optional")
-               });
 
                name_field = Some(field.response);
 
