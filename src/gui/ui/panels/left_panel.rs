@@ -20,7 +20,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    // Taken before the theme borrow: the card the focus belongs to is drawn next, and the
    // region request is gone by the time it draws.
    if gui.take_region_focus(FocusRegion::Account) {
-      gui.account_panel.focus_address();
+      gui.account_panel.focus_first_control();
    }
 
    let theme = &gui.theme;

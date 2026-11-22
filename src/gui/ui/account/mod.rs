@@ -66,6 +66,15 @@ fn wallet_connector_row_name(state: IndicatorState) -> String {
    format!("Wallet Connector, {word}")
 }
 
+/// Whether the delegation row draws its opener.
+///
+/// The form behind it is a free-text contract address, which a reader has no way to check by ear:
+/// one paste into the wrong contract hands the account away. A delegated account still gets the
+/// opener, because that window is the only way to undo a delegation.
+fn delegation_opener_shown(reader: bool, delegated: bool) -> bool {
+   !reader || delegated
+}
+
 /// Put a service row's one sentence on the node a reader hears.
 ///
 /// AccessKit names a `Role::Label` node from the node's value rather than its label, so the
@@ -122,6 +131,9 @@ pub struct AccountPanel {
    notice: Option<String>,
    /// Whether the address row still has to take the focus a region shortcut asked for.
    focus_address_pending: bool,
+   /// Whether a screen reader is attached. The parts of the panel that exist only for sight — the
+   /// diagnostics tab, the address row and the delegation opener — are dropped for a reader.
+   reader: bool,
 }
 
 impl AccountPanel {
@@ -144,12 +156,20 @@ impl AccountPanel {
          vitals: SystemVitals::default(),
          notice: None,
          focus_address_pending: false,
+         reader: false,
       }
    }
 
    /// Draw or drop the field controls that only a sighted user can use.
    pub fn set_field_controls(&mut self, shown: bool) {
+      self.reader = !shown;
       self.delegate.set_field_controls(shown);
+
+      // A panel left open on the diagnostics tab goes back to the overview: the strip that would
+      // have taken it back is not drawn for a reader.
+      if self.reader && self.tab != 0 {
+         self.tab = 0;
+      }
    }
 
    pub fn erase(&mut self) {
@@ -172,16 +192,23 @@ impl AccountPanel {
       self.open
    }
 
-   /// Show the account overview and ask its address row to take the focus when the card draws.
+   /// Show the account overview and ask its first control to take the focus when the card draws.
    ///
-   /// The row lives on the overview tab, so a region shortcut lands where the address is.
-   pub fn focus_address(&mut self) {
+   /// A region shortcut lands on the address row, which is the panel's own identity. A reader has
+   /// no address row — it is a picture of an address and a link out — so it lands on the wallet
+   /// selector instead, the row that says which account this is.
+   pub fn focus_first_control(&mut self) {
       if !self.open {
          return;
       }
 
       self.tab = 0;
-      self.focus_address_pending = true;
+
+      if self.reader {
+         self.wallet_select.request_focus();
+      } else {
+         self.focus_address_pending = true;
+      }
    }
 
    pub fn set_wallet_info(&mut self, wallet_info: WalletInfo) {
@@ -280,17 +307,21 @@ impl AccountPanel {
          }
 
          ui.vertical(|ui| {
-            // Tab strip: Overview (wallet/chain) and Diagnostics.
-            Tabs::new(
-               "account_tabs",
-               &mut self.tab,
-               ["Overview", "Diagnostics"],
-            )
-            .style(TabsStyle::Underline)
-            .fill_width(false)
-            .show(ui);
+            // Tab strip: Overview (wallet/chain) and Diagnostics. A reader is not given a strip to
+            // walk through: the diagnostics page is numbers and pictures of state they cannot act
+            // on, so the panel is the overview and nothing else.
+            if !self.reader {
+               Tabs::new(
+                  "account_tabs",
+                  &mut self.tab,
+                  ["Overview", "Diagnostics"],
+               )
+               .style(TabsStyle::Underline)
+               .fill_width(false)
+               .show(ui);
 
-            ui.add_space(5.0);
+               ui.add_space(5.0);
+            }
 
             match self.tab {
                0 => self.show_overview(ctx, theme, &icons, privacy_mode, chain, ui),
@@ -356,105 +387,110 @@ impl AccountPanel {
       // `PANEL_ROW_WIDTH` (the selectors' total width) to line up with its siblings.
       let row_width = PANEL_ROW_WIDTH - frame2.inner_margin.sum().x;
 
-      // Wallet address, on click copy it to the clipboard
-      frame2.show(ui, |ui| {
-         ui.set_width(row_width);
+      // Wallet address, on click copy it to the clipboard. The row is for sight — an address
+      // truncated to something only an eye can finish, a QR code that is a picture of it, and a
+      // link that leaves the wallet — so a reader is not walked through it. The full address
+      // reaches them on the shortcut that copies it and says the words.
+      if !self.reader {
+         frame2.show(ui, |ui| {
+            ui.set_width(row_width);
 
-         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = theme.spacing.xs;
+            ui.horizontal(|ui| {
+               ui.spacing_mut().item_spacing.x = theme.spacing.xs;
 
-            let address = match privacy_mode {
-               false => wallet.evm_address_truncated(),
-               true => wallet.zk_address_truncated(),
-            };
+               let address = match privacy_mode {
+                  false => wallet.evm_address_truncated(),
+                  true => wallet.zk_address_truncated(),
+               };
 
-            let full_address = match privacy_mode {
-               false => wallet.address.to_string(),
-               true => wallet.zk_address(),
-            };
+               let full_address = match privacy_mode {
+                  false => wallet.address.to_string(),
+                  true => wallet.zk_address(),
+               };
 
-            // Privacy mode on a wallet we cannot derive a zk address for: the row is
-            // a muted note. The copy / QR / explorer actions would act on the note
-            // instead of an address, so they are hidden.
-            if privacy_mode && !wallet.has_zk_address() {
-               let text = RichText::new(address).size(normal).color(theme.colors.text_muted);
+               // Privacy mode on a wallet we cannot derive a zk address for: the row is
+               // a muted note. The copy / QR / explorer actions would act on the note
+               // instead of an address, so they are hidden.
+               if privacy_mode && !wallet.has_zk_address() {
+                  let text = RichText::new(address).size(normal).color(theme.colors.text_muted);
 
-               // Keep the clickable label's height so hiding the actions does not
-               // shift the rows below.
-               let text_height =
-                  ui.ctx().fonts_mut(|f| f.row_height(&FontId::proportional(normal)));
-               let height = (text_height + 2.0 * ui.spacing().button_padding.y)
-                  .max(ui.spacing().interact_size.y);
+                  // Keep the clickable label's height so hiding the actions does not
+                  // shift the rows below.
+                  let text_height =
+                     ui.ctx().fonts_mut(|f| f.row_height(&FontId::proportional(normal)));
+                  let height = (text_height + 2.0 * ui.spacing().button_padding.y)
+                     .max(ui.spacing().interact_size.y);
 
-               ui.allocate_ui_with_layout(
-                  vec2(ui.available_width(), height),
-                  Layout::left_to_right(Align::Center),
-                  |ui| {
-                     // Same inset as the clickable label's button padding.
-                     ui.add_space(ui.spacing().button_padding.x);
-                     ui.add(Label::new(text, None).interactive(false));
-                  },
-               );
+                  ui.allocate_ui_with_layout(
+                     vec2(ui.available_width(), height),
+                     Layout::left_to_right(Align::Center),
+                     |ui| {
+                        // Same inset as the clickable label's button padding.
+                        ui.add_space(ui.spacing().button_padding.x);
+                        ui.add(Label::new(text, None).interactive(false));
+                     },
+                  );
 
-               return;
-            }
-
-            let address_text = RichText::new(address).size(normal);
-            let label = Button::selectable(false, address_text);
-
-            let address_button = ui.add(label);
-            if focus_address {
-               address_button.request_focus();
-            }
-
-            if address_button.clicked() {
-               // The words name the address: a listener has no other way to check what landed on
-               // the clipboard.
-               self.notice = Some(copied_words(&full_address));
-               ui.ctx().copy_text(full_address);
-            }
-
-            // The QR / block-explorer actions, and the separators before them, are
-            // anchored to the row's right edge: laid out after the text they would
-            // follow its width, and the zk address is shorter than the evm one, so
-            // they would slide out of line with the rows below. Right-to-left, so
-            // they are added rightmost first.
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-               // Block explorer link
-               let block_explorer = chain.block_explorer();
-               let link = format!("{}/address/{}", block_explorer, wallet.address);
-               let icon = Lucide::ExternalLink.size(18.0).color(icon_color).image();
-
-               // A picture of a link: the text alternative says where pressing it goes.
-               let button = Button::image(icon)
-                  .visuals(btn_visuals)
-                  .small()
-                  .alt("Open the address in the block explorer");
-               let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
-
-               if res.clicked() {
-                  let url = OpenUrl::new_tab(link);
-                  ui.ctx().open_url(url);
+                  return;
                }
 
-               ui.separator();
+               let address_text = RichText::new(address).size(normal);
+               let label = Button::selectable(false, address_text);
 
-               let icon = Lucide::QrCode.size(18.0).color(icon_color).image();
-
-               // A picture of a QR code: the text alternative names what pressing it opens, in
-               // the words the dialog's own button carries.
-               let button = Button::image(icon).visuals(btn_visuals).small().alt("Show QR Code");
-               let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
-
-               // QR Code Window
-               if res.clicked() {
-                  self.qr_window.open(wallet.clone(), Some(res.id));
+               let address_button = ui.add(label);
+               if focus_address {
+                  address_button.request_focus();
                }
 
-               ui.separator();
+               if address_button.clicked() {
+                  // The words name the address: a listener has no other way to check what landed on
+                  // the clipboard.
+                  self.notice = Some(copied_words(&full_address));
+                  ui.ctx().copy_text(full_address);
+               }
+
+               // The QR / block-explorer actions, and the separators before them, are
+               // anchored to the row's right edge: laid out after the text they would
+               // follow its width, and the zk address is shorter than the evm one, so
+               // they would slide out of line with the rows below. Right-to-left, so
+               // they are added rightmost first.
+               ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                  // Block explorer link
+                  let block_explorer = chain.block_explorer();
+                  let link = format!("{}/address/{}", block_explorer, wallet.address);
+                  let icon = Lucide::ExternalLink.size(18.0).color(icon_color).image();
+
+                  // A picture of a link: the text alternative says where pressing it goes.
+                  let button = Button::image(icon)
+                     .visuals(btn_visuals)
+                     .small()
+                     .alt("Open the address in the block explorer");
+                  let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+
+                  if res.clicked() {
+                     let url = OpenUrl::new_tab(link);
+                     ui.ctx().open_url(url);
+                  }
+
+                  ui.separator();
+
+                  let icon = Lucide::QrCode.size(18.0).color(icon_color).image();
+
+                  // A picture of a QR code: the text alternative names what pressing it opens, in
+                  // the words the dialog's own button carries.
+                  let button = Button::image(icon).visuals(btn_visuals).small().alt("Show QR Code");
+                  let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+
+                  // QR Code Window
+                  if res.clicked() {
+                     self.qr_window.open(wallet.clone(), Some(res.id));
+                  }
+
+                  ui.separator();
+               });
             });
          });
-      });
+      }
 
       // Wallet delegated status
       frame2.show(ui, |ui| {
@@ -492,18 +528,20 @@ impl AccountPanel {
 
             ui.add(label).on_hover_text(tip_text);
 
-            // Align this separator with the one above it.
-            ui.add_space(1.2);
+            if delegation_opener_shown(self.reader, deleg_addr.is_some()) {
+               // Align this separator with the one above it.
+               ui.add_space(1.2);
 
-            ui.separator();
+               ui.separator();
 
-            let size = vec2(24.0, 12.0);
-            let more = dots_button(theme, size, ui);
-            let options = "Delegation options";
-            more.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), options));
+               let size = vec2(24.0, 12.0);
+               let more = dots_button(theme, size, ui);
+               let options = "Delegation options";
+               more.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), options));
 
-            if more.clicked() && !self.delegate.is_open() {
-               self.delegate.open();
+               if more.clicked() && !self.delegate.is_open() {
+                  self.delegate.open();
+               }
             }
          });
       });
@@ -747,6 +785,25 @@ mod tests {
       assert_eq!(
          railgun_row_name(IndicatorState::Off),
          "Railgun, off"
+      );
+   }
+
+   /// The form behind the delegation row takes a contract address from the clipboard, and a
+   /// reader cannot tell one address from another by ear. It is not offered to them — unless the
+   /// account is already delegated, where the same window is the only way out.
+   #[test]
+   fn the_delegation_opener_is_not_offered_to_a_reader() {
+      assert!(
+         !delegation_opener_shown(true, false),
+         "a reader must not be offered a form they cannot check"
+      );
+      assert!(
+         delegation_opener_shown(true, true),
+         "a delegated account keeps the way out"
+      );
+      assert!(
+         delegation_opener_shown(false, false),
+         "the row is unchanged for a sighted user"
       );
    }
 

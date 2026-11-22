@@ -171,6 +171,15 @@ fn named(nodes: &[(NodeId, Node)], id: Option<NodeId>) -> Option<String> {
       .map(str::to_string)
 }
 
+/// What a reader hears for the node the keyboard is on: a control's name, or a line's text.
+fn focused_text(ctx: &Context, nodes: &[(NodeId, Node)]) -> Option<String> {
+   let id = focused_id(ctx)?;
+
+   let (_, node) = nodes.iter().find(|(node_id, _)| *node_id == id)?;
+
+   node.label().or_else(|| node.value()).map(str::to_string)
+}
+
 /// The main window with no wallet open behind it: the nav and the page heading draw, while the
 /// pages they navigate to stay closed. Nothing here needs a vault, an RPC or an icon.
 fn main_window() -> (Context, GUI, ZeusCtx) {
@@ -1531,6 +1540,100 @@ fn the_account_panel_menus_are_named() {
          drawn_names(&nodes)
       );
    }
+}
+
+/// A reader is not walked through the parts of the panel that exist only for sight: the tab strip
+/// that leads to a page of numbers, the address row — an address truncated so only an eye can
+/// finish it, a QR code that is a picture of it, a link that leaves the wallet — and the delegation
+/// opener, whose form takes a contract address from the clipboard.
+#[test]
+fn a_reader_walks_the_account_panel_without_its_sight_only_parts() {
+   let (ctx, mut gui, zeus) = main_window();
+   let wallet = master_wallet("Main");
+   let address = wallet.evm_address_truncated();
+   let wallet_name = wallet.name_with_id_short();
+
+   gui.account_panel.open();
+   gui.account_panel.set_current_wallet(wallet);
+   // What the app reports on every pass once a screen reader is attached.
+   gui.account_panel.set_field_controls(false);
+
+   let nodes = render_account_panel(&ctx, &mut gui, &zeus, Vec::new());
+
+   let tabs: Vec<&str> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Tab)
+      .filter_map(|(_, node)| node.label())
+      .collect();
+
+   assert!(
+      tabs.is_empty(),
+      "a reader must not be walked through a tab strip: {tabs:?}"
+   );
+
+   let buttons: Vec<&str> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Button)
+      .filter_map(|(_, node)| node.label())
+      .collect();
+
+   for gone in [
+      "Show QR Code",
+      "Open the address in the block explorer",
+      "Delegation options",
+   ] {
+      assert!(
+         !buttons.contains(&gone),
+         "{gone} must not be a stop for a reader: {buttons:?}"
+      );
+   }
+
+   assert!(
+      !buttons.contains(&address.as_str()),
+      "the truncated address is not a stop either: {buttons:?}"
+   );
+
+   // The status the row carried is still said, and the rows that work are still there.
+   let spoken: Vec<&str> = nodes
+      .iter()
+      .map(|(_, node)| node)
+      .filter(|node| !node.is_hidden())
+      .filter_map(|node| node.value())
+      .collect();
+
+   assert!(
+      spoken.contains(&"Not Delegated"),
+      "the delegation state is still said: {spoken:?}"
+   );
+   assert!(
+      buttons.contains(&wallet_name.as_str()),
+      "the wallet row still says which account this is: {buttons:?}"
+   );
+}
+
+/// The region shortcut used to land on the address row, which a reader does not have. It lands on
+/// the wallet selector instead: a region must never be entered on nothing.
+#[test]
+fn the_account_region_opens_on_the_wallet_row_for_a_reader() {
+   let (ctx, mut gui, zeus) = main_window();
+   let wallet = master_wallet("Main");
+   let wallet_name = wallet.name_with_id_short();
+
+   gui.account_panel.open();
+   gui.account_panel.set_current_wallet(wallet);
+   gui.account_panel.set_field_controls(false);
+
+   gui.request_region_focus(crate::gui::FocusRegion::Account);
+
+   render_left_panel(&ctx, &mut gui, &zeus, Vec::new());
+   let nodes = render_left_panel(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert_eq!(
+      focused_text(&ctx, &nodes).as_deref(),
+      Some(wallet_name.as_str()),
+      "the region must land on the wallet row: {:?}",
+      drawn_names(&nodes)
+   );
 }
 
 /// Copying the header's address changes nothing on screen, so the panel hands the sentence to the
