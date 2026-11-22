@@ -5,6 +5,7 @@ pub mod tray;
 pub mod ui;
 pub mod ui_host;
 
+use crate::gui::ui::shortcuts::{CommandPalette, KeyBindings};
 use egui::{Context, Ui};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -168,6 +169,10 @@ pub struct GUI {
    pub update_window: UpdateWindow,
    /// The `F1` sheet that lists every key the app answers.
    pub shortcut_sheet: ShortcutSheet,
+   /// The chords the keyboard answers: every default, with whatever the user changed on top.
+   pub keymap: KeyBindings,
+   /// The command palette, which runs any action or page by name.
+   pub palette: CommandPalette,
    /// Whether an assistive technology is attached.
    ///
    /// Sticky: once one has been seen the flag stays set, so prose stays reachable even
@@ -246,6 +251,18 @@ impl GUI {
       let notification = Notification::new();
       let update_window = UpdateWindow::new();
       let shortcut_sheet = ShortcutSheet::new();
+
+      // A hand-edited file that cannot be read leaves the defaults in place, like the appearance
+      // settings: the keyboard always answers something.
+      let keymap = match KeyBindings::load_from_file() {
+         Ok(bindings) => bindings,
+         Err(e) => {
+            tracing::error!("Failed to load the keyboard shortcuts: {e:?}");
+            KeyBindings::new()
+         }
+      };
+
+      let palette = CommandPalette::new();
       let fps_metrics = FPSMetrics::new();
       let uniswap = UniswapUi::new();
       let shield_ui = ShieldUi::new();
@@ -291,6 +308,8 @@ impl GUI {
          notification,
          update_window,
          shortcut_sheet,
+         keymap,
+         palette,
          at_active: false,
          lockout_notice_held: false,
          last_page: None,
@@ -345,7 +364,19 @@ impl GUI {
       self.confirm_window.show(theme, ui);
       self.connect_dapp_window.show(theme, ui);
       self.update_window.show(theme, ui);
-      self.shortcut_sheet.show(theme, ui);
+      self.shortcut_sheet.show(&self.keymap, theme, ui);
+
+      // The palette draws over the page and over the Settings window, like every other dialog. The
+      // command it hands back waits for the shortcut layer, the one pass with a `ZeusContext`.
+      let chosen = self.palette.show(&self.keymap, theme, ui);
+
+      if let Some(text) = self.palette.take_notice() {
+         self.announce(text);
+      }
+
+      if let Some(command) = chosen {
+         self.palette.set_pending(Some(command));
+      }
 
       // The connect prompt cannot announce from inside its own draw — the frame holds the only
       // channel — so its sentence comes back here and is said once, after the prompt has drawn.

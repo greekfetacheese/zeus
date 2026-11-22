@@ -491,6 +491,7 @@ impl eframe::App for ZeusApp {
                icons,
                theme,
                &mut gui.appearance_settings,
+               &mut gui.keymap,
                ui,
             );
 

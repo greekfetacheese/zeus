@@ -5,19 +5,26 @@
 //! "1" as well), then acts only when the app is showing a page: the lock screen owns the keyboard,
 //! and a dialog keeps it until it closes.
 //!
-//! A shortcut never signs or deletes anything. `Ctrl+Enter` asks the Send page to press its own
-//! Send button, and the transaction still waits for its confirmation window.
+//! The chords are not written into the handler: they come from [`bindings`], one row per action,
+//! so the key that is taken, the key the `F1` sheet describes and the key the palette lists are
+//! the same value. A user can change a row, and every reader of the table follows.
 //!
-//! The sheet the `F1` key opens lives here too, and its rows are drawn from the tables below: a key
-//! the handler does not read cannot end up in the list of keys it does.
+//! A shortcut never signs or deletes anything. `Ctrl+Enter` asks the Send page to press its own
+//! Send button, and the transaction still waits for its confirmation window. The palette is a way
+//! to reach an action, never a way around the window it opens.
+
+mod bindings;
+mod palette;
+
+pub use bindings::{Action, Binding, Chord, KeyBindings, Refusal};
+pub use palette::{Command, CommandPalette};
 
 use crate::core::ZeusContext;
 use crate::gui::ui::common::address::copied_words;
 use crate::gui::ui::panels::left_panel;
+use crate::gui::ui::settings::SettingsPage;
 use crate::gui::{FocusRegion, GUI, Page};
-use egui::{
-   Context, Event, FocusDirection, Id, Key, Modifiers, RichText, Role, ScrollArea, Ui, WidgetInfo,
-};
+use egui::{Context, Event, FocusDirection, Id, Key, RichText, Role, ScrollArea, Ui, WidgetInfo};
 use egui_elements::{Modal, Theme};
 
 /// The page each `Alt` digit opens, in the order the nav draws them.
@@ -55,14 +62,36 @@ pub fn handle(gui: &mut GUI, ctx: &mut ZeusContext, egui_ctx: &Context) {
    // over, so the reader's model goes back on before anything draws.
    gui.restore_reader_model(egui_ctx);
 
-   let previous_region = take_key(egui_ctx, Key::F6, Chord::Shift);
-   let next_region = take_key(egui_ctx, Key::F6, Chord::Plain);
-   let review = take_key(egui_ctx, Key::Enter, Chord::Command);
-   let notification = take_key(egui_ctx, Key::N, Chord::Alt);
-   let sheet = take_key(egui_ctx, Key::F1, Chord::Plain);
-   let next_control = take_key(egui_ctx, Key::Tab, Chord::Ctrl);
-   let previous_control = take_key(egui_ctx, Key::Tab, Chord::CtrlShift);
-   let copy_address = take_key(egui_ctx, Key::C, Chord::CommandShift);
+   // A command chosen with `Enter` was chosen in the pass that draws the overlays, which has no
+   // context to run it. This pass has one, and it is still before the panels draw, so a page a
+   // command opens is the page this frame paints.
+   if let Some(command) = gui.palette.take_pending() {
+      run_command(gui, ctx, egui_ctx, command);
+      return;
+   }
+
+   // The Keyboard page is recording a chord: every key belongs to that recording. Taking one here
+   // would make the chord being recorded the chord that runs something.
+   if gui.settings.is_capturing() {
+      return;
+   }
+
+   // The palette owns the keyboard while it is up. The filter field takes the text; the keys that
+   // move the list are taken here, before the field could consume them as carets.
+   if gui.palette.is_open() {
+      palette_keys(gui, egui_ctx);
+      return;
+   }
+
+   let mut pressed: Vec<Action> = Vec::new();
+
+   for action in Action::ALL {
+      let binding = gui.keymap.binding(action);
+
+      if take_key(egui_ctx, binding.key, binding.chord) {
+         pressed.push(action);
+      }
+   }
 
    let mut target = None;
 
@@ -74,7 +103,7 @@ pub fn handle(gui: &mut GUI, ctx: &mut ZeusContext, egui_ctx: &Context) {
 
    // The sheet is the one surface this layer still answers while it is up: `F1` is what opened it,
    // so `F1` is what closes it. Every other surface keeps the keyboard until it closes.
-   if sheet {
+   if pressed.contains(&Action::ShowShortcuts) {
       if gui.shortcut_sheet.is_open() {
          gui.shortcut_sheet.close();
       } else if !ctx.locked && ctx.vault_unlocked && !overlay_open(gui) {
@@ -94,43 +123,118 @@ pub fn handle(gui: &mut GUI, ctx: &mut ZeusContext, egui_ctx: &Context) {
       left_panel::open_page(gui, ctx, page);
    }
 
-   if next_region || previous_region {
-      let region = neighbour_region(gui, if previous_region { -1 } else { 1 });
+   for action in pressed {
+      run_action(gui, ctx, egui_ctx, action);
+   }
+}
 
-      gui.request_region_focus(region);
+/// Take the keys the palette answers, so the filter field never sees them as text or carets.
+///
+/// `Enter` is taken only while the filter field has the focus: a row reached with `Tab` keeps the
+/// `Enter` egui gives it, which is how a reader presses the row they are on.
+fn palette_keys(gui: &mut GUI, egui_ctx: &Context) {
+   // The key that opened the palette puts it away, whichever row has the focus.
+   if take_key(egui_ctx, Key::K, Chord::Command) {
+      gui.palette.close();
+      return;
+   }
 
-      if region == FocusRegion::Status {
-         gui.notification.request_focus();
+   let field_focused =
+      egui_ctx.memory(|memory| memory.focused()) == Some(CommandPalette::field_id());
+
+   if !field_focused {
+      return;
+   }
+
+   if take_key(egui_ctx, Key::ArrowDown, Chord::Plain) {
+      gui.palette.move_selection(1, &gui.keymap);
+   }
+
+   if take_key(egui_ctx, Key::ArrowUp, Chord::Plain) {
+      gui.palette.move_selection(-1, &gui.keymap);
+   }
+
+   if take_key(egui_ctx, Key::Enter, Chord::Plain) {
+      let command = gui.palette.selected_command(&gui.keymap);
+
+      gui.palette.set_pending(command);
+      gui.palette.close();
+   }
+}
+
+/// Run a command the palette chose.
+fn run_command(gui: &mut GUI, ctx: &mut ZeusContext, egui_ctx: &Context, command: Command) {
+   match command {
+      Command::Do(action) => {
+         // The chord can only be pressed on the Send page; reached by name from anywhere, the
+         // command would otherwise do nothing and say nothing.
+         if action == Action::ReviewSend && gui.current_page() != Page::Send {
+            gui.announce("Send is on the Send page.");
+            return;
+         }
+
+         run_action(gui, ctx, egui_ctx, action);
+      }
+      Command::GoTo(page) => left_panel::open_page(gui, ctx, page),
+      Command::ChangeBindings => {
+         gui.settings.open_page(
+            SettingsPage::Keyboard,
+            ctx,
+            &mut gui.appearance_settings,
+         );
       }
    }
+}
 
-   // The Send page presses its own button, so the amount, the recipient guard and the reasons a
-   // blocked send is disabled stay exactly what a pointer click uses.
-   if review && gui.current_page() == Page::Send {
-      gui.send_crypto.request_send();
-   }
+/// What one action does, once the app is allowed to hear it.
+fn run_action(gui: &mut GUI, ctx: &mut ZeusContext, egui_ctx: &Context, action: Action) {
+   match action {
+      Action::OpenPalette => gui.palette.open(),
+      Action::NextRegion | Action::PreviousRegion => {
+         let region = neighbour_region(
+            gui,
+            if action == Action::PreviousRegion {
+               -1
+            } else {
+               1
+            },
+         );
 
-   if notification {
-      gui.notification.request_focus();
-   }
+         gui.request_region_focus(region);
 
-   // The clipboard is invisible, so the words are the only way to check what landed there.
-   if copy_address {
-      match gui.account_panel.address_to_copy(ctx.privacy_mode) {
+         if region == FocusRegion::Status {
+            gui.notification.request_focus();
+         }
+      }
+      Action::NextControl | Action::PreviousControl => {
+         hop_to_control(
+            gui,
+            egui_ctx,
+            if action == Action::PreviousControl {
+               -1
+            } else {
+               1
+            },
+         );
+      }
+      // The Send page presses its own button, so the amount, the recipient guard and the reasons a
+      // blocked send is disabled stay exactly what a pointer click uses.
+      Action::ReviewSend => {
+         if gui.current_page() == Page::Send {
+            gui.send_crypto.request_send();
+         }
+      }
+      Action::OpenNotification => gui.notification.request_focus(),
+      // The clipboard is invisible, so the words are the only way to check what landed there.
+      Action::CopyAddress => match gui.account_panel.address_to_copy(ctx.privacy_mode) {
          Some(address) => {
             gui.announce(copied_words(&address));
             egui_ctx.copy_text(address);
          }
          None => gui.announce("This wallet has no privacy address to copy."),
-      }
-   }
-
-   if next_control || previous_control {
-      hop_to_control(
-         gui,
-         egui_ctx,
-         if previous_control { -1 } else { 1 },
-      );
+      },
+      // Handled before the gate: the sheet is answered while it is up, by the key that opened it.
+      Action::ShowShortcuts => {}
    }
 }
 
@@ -181,7 +285,8 @@ fn region_available(gui: &GUI, region: FocusRegion) -> bool {
 
 /// Whether a dialog is up over the page: a shortcut must not reach behind it.
 fn overlay_open(gui: &GUI) -> bool {
-   gui.shortcut_sheet.is_open()
+   gui.palette.is_open()
+      || gui.shortcut_sheet.is_open()
       || gui.settings.is_open()
       || gui.connected_dapps.is_open()
       || gui.wallet_ui.dialog_open()
@@ -198,33 +303,6 @@ fn overlay_open(gui: &GUI) -> bool {
       || gui.update_window.is_open()
       || gui.account_panel.qr_window.is_open()
       || gui.merge_notes_window.is_open()
-}
-
-/// A modifier set a chord is pressed with.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Chord {
-   Plain,
-   Shift,
-   Alt,
-   /// The control key itself, on every platform: `Ctrl+Tab` is not `Command+Tab` on a Mac.
-   Ctrl,
-   CtrlShift,
-   Command,
-   CommandShift,
-}
-
-impl Chord {
-   fn matches(self, modifiers: &Modifiers) -> bool {
-      match self {
-         Self::Plain => !modifiers.alt && !modifiers.command && !modifiers.ctrl && !modifiers.shift,
-         Self::Shift => modifiers.shift && !modifiers.alt && !modifiers.command && !modifiers.ctrl,
-         Self::Alt => modifiers.alt && !modifiers.command && !modifiers.ctrl,
-         Self::Ctrl => modifiers.ctrl && !modifiers.alt && !modifiers.shift,
-         Self::CtrlShift => modifiers.ctrl && modifiers.shift && !modifiers.alt,
-         Self::Command => modifiers.command && !modifiers.alt && !modifiers.shift,
-         Self::CommandShift => modifiers.command && modifiers.shift && !modifiers.alt,
-      }
-   }
 }
 
 /// Take this frame's press of `key` with `chord`, with the text event it may have produced.
@@ -287,6 +365,15 @@ fn key_char(key: Key) -> Option<char> {
    })
 }
 
+/// The chord that opens `page`, written the way the sheet writes it. A page no digit reaches has
+/// none, and the palette lists it without a key.
+pub(super) fn page_binding(page: Page) -> Option<String> {
+   PAGE_KEYS
+      .into_iter()
+      .find(|(_, keyed)| *keyed == page)
+      .and_then(|(key, _)| key_char(key).map(|digit| format!("Alt+{digit}")))
+}
+
 /// How wide the sheet's card is.
 ///
 /// Fixed rather than shrink-wrapped: a shrink-wrapping modal spends two invisible passes measuring
@@ -296,38 +383,14 @@ const SHEET_WIDTH: f32 = 620.0;
 /// How tall the list grows before it scrolls, so the card keeps clear of a short window.
 const SHEET_HEIGHT: f32 = 430.0;
 
-/// The keys that move the focus or close a dialog, as the sheet lists them: each row is the keys,
-/// then what they do.
+/// The keys the app does not own, as the sheet lists them: egui's own movement and activation.
 const MOVING: &[(&str, &str)] = &[
    ("Tab / Shift+Tab", "the next or previous control"),
    (
       "Enter / Space",
       "press the control the focus is on",
    ),
-   (
-      "Ctrl+Tab / Ctrl+Shift+Tab",
-      "the next or previous control, skipping the text between them",
-   ),
-   (
-      "F6 / Shift+F6",
-      "the next or previous part of the window: the account, the navigation, the page, the \
-       notification",
-   ),
    ("Escape", "close the open dialog"),
-];
-
-/// The keys that act on what is in front, as the sheet lists them.
-const ACTIONS: &[(&str, &str)] = &[
-   (
-      "Ctrl+Enter",
-      "press Send on the Send page (Command+Enter on macOS)",
-   ),
-   (
-      "Ctrl+Shift+C",
-      "copy your address (Command+Shift+C on macOS)",
-   ),
-   ("Alt+N", "go to the open notification"),
-   ("F1", "show or hide this list"),
 ];
 
 /// The list of every binding, opened with `F1`.
@@ -359,7 +422,7 @@ impl ShortcutSheet {
       self.open = false;
    }
 
-   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, bindings: &KeyBindings, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -378,7 +441,16 @@ impl ShortcutSheet {
                ui.spacing_mut().item_spacing.y = theme.spacing.xs;
 
                section(theme, ui, "Moving around", MOVING);
-               section(theme, ui, "Actions", ACTIONS);
+
+               // One row per action, its key read from the table the handler reads: a chord that
+               // was remapped says its new key here, and a key nobody answers can never be printed.
+               section_title(theme, ui, "Actions");
+
+               for action in Action::ALL {
+                  let keys = bindings.binding(action).label();
+
+                  binding(theme, ui, &keys, action.description());
+               }
 
                section_title(theme, ui, "Pages");
 

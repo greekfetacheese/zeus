@@ -5,6 +5,7 @@ use crate::core::ZeusContext;
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::{
    common::{heading, privacy_mode_switch},
+   shortcuts::KeyBindings,
    show_with_fade,
 };
 use egui::{Key, Response, RichText, Role, ScrollArea, Shadow, Stroke, Ui, WidgetInfo, vec2};
@@ -20,6 +21,7 @@ pub mod encryption;
 pub mod export;
 pub mod general;
 pub mod import;
+pub mod keyboard;
 pub mod networks;
 pub mod railgun;
 pub mod theme;
@@ -32,6 +34,7 @@ pub use encryption::EncryptionSettings;
 pub use export::ExportDataUi;
 pub use general::GeneralSettings;
 pub use import::ImportDataUi;
+pub use keyboard::KeyboardSettings;
 pub use networks::NetworkSettings;
 pub use railgun::RailgunSettings;
 pub use theme::ThemeSettings;
@@ -40,6 +43,7 @@ pub use theme::ThemeSettings;
 pub enum SettingsPage {
    General,
    Appearance,
+   Keyboard,
    Networks,
    Security,
    Contacts,
@@ -53,6 +57,7 @@ impl SettingsPage {
       match self {
          Self::General => "General",
          Self::Appearance => "Appearance",
+         Self::Keyboard => "Keyboard",
          Self::Networks => "Networks",
          Self::Security => "Security",
          Self::Contacts => "Contacts",
@@ -74,6 +79,7 @@ pub struct SettingsUi {
    notice: Option<String>,
    general: GeneralSettings,
    appearance: AppearanceSettingsUi,
+   keyboard: KeyboardSettings,
    pub encryption: EncryptionSettings,
    pub autolock: AutoLockSettings,
    pub network: NetworkSettings,
@@ -95,6 +101,7 @@ impl SettingsUi {
          notice: None,
          general: GeneralSettings::new(ctx),
          appearance: AppearanceSettingsUi::new(appearance),
+         keyboard: KeyboardSettings::new(),
          encryption: EncryptionSettings::new(),
          autolock: AutoLockSettings::new(),
          network: NetworkSettings::new(),
@@ -140,6 +147,7 @@ impl SettingsUi {
          self.promote_general_notice();
          self.promote_network_notice();
          self.promote_contacts_notice();
+         self.promote_keyboard_notice();
       }
       self.open = false;
       self.change_credentials_ui.reset();
@@ -148,6 +156,7 @@ impl SettingsUi {
       // again the next time Settings opens — e.g. after an auto-lock/unlock.
       self.import.erase();
       self.contacts_ui.reset_page();
+      self.keyboard.reset();
       self.network.reset_view();
       // Reopening lands on the open page's heading again, even though the page itself did not change.
       self.last_page = None;
@@ -165,6 +174,14 @@ impl SettingsUi {
    /// The words this frame should say, drained by the app right after the window is drawn.
    pub fn take_notice(&mut self) -> Option<String> {
       self.notice.take()
+   }
+
+   /// Whether the Keyboard page is recording a chord.
+   ///
+   /// The shortcut layer hands the whole keyboard over while it is: a key taken here would make the
+   /// chord being recorded the chord that runs something.
+   pub fn is_capturing(&self) -> bool {
+      self.keyboard.is_capturing()
    }
 
    /// Whether the General page asked for the keyboard shortcut sheet since the last call.
@@ -192,6 +209,13 @@ impl SettingsUi {
    /// Hand a notice the Contacts page raised up to the window, where the app drains it.
    fn promote_contacts_notice(&mut self) {
       if let Some(text) = self.contacts_ui.take_notice() {
+         self.notice = Some(text);
+      }
+   }
+
+   /// Hand a notice the Keyboard page raised up to the window, where the app drains it.
+   fn promote_keyboard_notice(&mut self) {
+      if let Some(text) = self.keyboard.take_notice() {
          self.notice = Some(text);
       }
    }
@@ -230,6 +254,10 @@ impl SettingsUi {
          // Leaving the page stops drawing the address fields; stop their scanners.
          self.contacts_ui.close_qr_scanners();
       }
+      if self.page == SettingsPage::Keyboard && page != SettingsPage::Keyboard {
+         // A capture begun here must not follow the user to another page.
+         self.keyboard.reset();
+      }
       self.page = page;
    }
 
@@ -245,6 +273,7 @@ impl SettingsUi {
       icons: Arc<Icons>,
       theme: &Theme,
       appearance: &mut AppearanceSettings,
+      keymap: &mut KeyBindings,
       ui: &mut Ui,
    ) {
       if ctx.locked {
@@ -271,7 +300,7 @@ impl SettingsUi {
          .default_size([1120.0, 720.0])
          .open(&mut open)
          .show(ui.ctx(), |ui| {
-            self.paint(ctx, icons, theme, appearance, ui);
+            self.paint(ctx, icons, theme, appearance, keymap, ui);
             escaped = escape_closes_window(ui);
          });
 
@@ -287,9 +316,10 @@ impl SettingsUi {
       icons: Arc<Icons>,
       theme: &Theme,
       appearance: &mut AppearanceSettings,
+      keymap: &mut KeyBindings,
       ui: &mut Ui,
    ) {
-      self.show_shell(ctx, icons, theme, appearance, ui);
+      self.show_shell(ctx, icons, theme, appearance, keymap, ui);
    }
 
    fn show_shell(
@@ -298,6 +328,7 @@ impl SettingsUi {
       icons: Arc<Icons>,
       theme: &Theme,
       appearance: &mut AppearanceSettings,
+      keymap: &mut KeyBindings,
       ui: &mut Ui,
    ) {
       let nav_bg = theme.frame1.fill;
@@ -355,6 +386,16 @@ impl SettingsUi {
                         ui.separator();
                         ui.add_space(theme.spacing.xl);
                         self.appearance.show(appearance, theme, ui);
+                     },
+                  );
+
+                  show_with_fade(
+                     ui,
+                     "settings_keyboard_ui_fade",
+                     page == SettingsPage::Keyboard,
+                     |ui| {
+                        ui.add_space(10.0);
+                        self.keyboard.show(keymap, theme, ui);
                      },
                   );
 
@@ -424,6 +465,7 @@ impl SettingsUi {
       self.promote_general_notice();
       self.promote_network_notice();
       self.promote_contacts_notice();
+      self.promote_keyboard_notice();
    }
 
    fn nav(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
@@ -431,7 +473,7 @@ impl SettingsUi {
 
       let icon_color = theme.colors.text;
 
-      let items: [(SettingsPage, egui::Image<'static>); 7] = [
+      let items: [(SettingsPage, egui::Image<'static>); 8] = [
          (
             SettingsPage::General,
             Lucide::SlidersHorizontal.size(20.0).color(icon_color).image(),
@@ -439,6 +481,10 @@ impl SettingsUi {
          (
             SettingsPage::Appearance,
             Lucide::Palette.size(20.0).color(icon_color).image(),
+         ),
+         (
+            SettingsPage::Keyboard,
+            Lucide::Keyboard.size(20.0).color(icon_color).image(),
          ),
          (
             SettingsPage::Networks,
