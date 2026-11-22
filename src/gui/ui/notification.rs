@@ -9,11 +9,12 @@ use crate::gui::ui::common::address::{
 use crate::gui::ui::common::chain_label;
 use crate::gui::ui::token_selection::nft_collection_name;
 use crate::utils::TimeStamp;
-use egui::{Align2, Order, ProgressBar, RichText, TextWrapMode, Ui, Window, vec2};
+use egui::{Align2, Order, ProgressBar, Response, RichText, TextWrapMode, Ui, Window, vec2};
 use egui_elements::{Button, Label, MultiLabel, Spinner, Theme};
 use egui_lucide::Lucide;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -84,8 +85,9 @@ impl Notification {
 
    /// Open this [Notification] with a progress bar that fills once the event is done.
    ///
-   /// Used to show a finished event. A full bar does not close the window: it stays up until it is
-   /// dismissed, or until a newer notification replaces it.
+   /// Used to show a finished event. The window holds for [`HOLD_MS`] after the bar is full — long
+   /// enough to hear the sentence and reach Details — and then closes itself, unless the keyboard is
+   /// on one of its controls or a dialog is drawn over it.
    pub fn open_with_progress_bar(
       &mut self,
       start_on: u64,
@@ -246,14 +248,25 @@ impl Notification {
       let finish = self.finish_on;
       let elapsed = now.saturating_sub(start);
       let total = finish.saturating_sub(start);
+      let expiry = finish.saturating_add(HOLD_MS);
+      let overdue = now >= expiry;
 
-      // A full bar stays full: this used to reset the whole window here, which deleted the only
-      // "it was sent" copy on a timer while a reader could still be speaking it.
+      // The window can only take itself away on a frame, and a full bar stops asking for one.
+      if !overdue {
+         ui.ctx()
+            .request_repaint_after(Duration::from_millis(expiry.saturating_sub(now)));
+      }
+
+      // A full bar stays full: it used to reset the whole window, which deleted the only "it was
+      // sent" copy while a reader could still be speaking it.
       let progress: f32 = if total == 0 {
          1.0
       } else {
          (elapsed as f64 / total as f64).min(1.0) as f32
       };
+
+      // Whether one of the controls below holds the keyboard: a window must not go from under it.
+      let mut held = false;
 
       ui.vertical_centered(|ui| {
          let icon = Lucide::Check.size(20.0).color(theme.colors.text).image();
@@ -288,9 +301,12 @@ impl Notification {
             // The window sets its horizontal item spacing to zero, so the pair is spaced by hand.
             ui.add_space(theme.spacing.sm);
 
-            if dismiss_button(theme, ui, focus && self.tx.is_none()) {
+            let dismiss = dismiss_button(theme, ui, focus && self.tx.is_none());
+            if dismiss.clicked() {
                self.reset();
             }
+
+            held = details.has_focus() || dismiss.has_focus();
          });
 
          ui.add(
@@ -301,6 +317,17 @@ impl Notification {
                .desired_height(8.0),
          );
       });
+
+      // Take the window away once its hold is over, the way it used to when the bar filled — but
+      // never from under the keyboard, and never while a dialog is drawn over it: that dialog hands
+      // the focus back here when it closes, and a window that had gone has nothing to hand it to.
+      if self.open && overdue && !held {
+         let layer = ui.layer_id();
+
+         if ui.ctx().memory(|memory| memory.allows_interaction(layer)) {
+            self.reset();
+         }
+      }
    }
 
    fn show_with_spinner(
@@ -317,7 +344,9 @@ impl Notification {
          ui.add(Spinner::new().size(20.0));
 
          // Alone on screen this variant had no way out at all: the same Dismiss the mined window has.
-         if dismiss_button(theme, ui, std::mem::take(&mut self.focus_pending)) {
+         let dismiss = dismiss_button(theme, ui, std::mem::take(&mut self.focus_pending));
+
+         if dismiss.clicked() {
             self.reset();
          }
       });
@@ -934,6 +963,10 @@ impl Notification {
    }
 }
 
+/// How long the window goes on after its bar is full. The bar is the confirm wait; the hold is the
+/// time a reader gets to finish the sentence in before the window takes itself away.
+const HOLD_MS: u64 = 5_000;
+
 /// The title zeus-core gives a pending transaction whose action could not be decoded. It already
 /// reads as a sentence about the transaction, so it is not put in front of a second one.
 const UNKNOWN_ACTION_TITLE: &str = "Transaction in progress";
@@ -951,7 +984,7 @@ fn transition(title: &str, with_progress_bar: bool) -> String {
 
 /// The close control both variants draw. Its node is named by the drawn word, so a reader hears a
 /// button called "Dismiss".
-fn dismiss_button(theme: &Theme, ui: &mut Ui, focus: bool) -> bool {
+fn dismiss_button(theme: &Theme, ui: &mut Ui, focus: bool) -> Response {
    let text = RichText::new("Dismiss").size(theme.typography.normal);
    let button = Button::new(text).visuals(theme.button_visuals());
 
@@ -960,7 +993,7 @@ fn dismiss_button(theme: &Theme, ui: &mut Ui, focus: bool) -> bool {
       response.request_focus();
    }
 
-   response.clicked()
+   response
 }
 
 /// Cap displayed amounts at 10 characters (same as AmountField / portfolio).
@@ -1012,6 +1045,16 @@ mod tests {
          notification: &mut Notification,
          events: Vec<Event>,
       ) -> (Vec<(NodeId, Node)>, Option<String>) {
+         self.draw_frame_with(notification, events, |_| {})
+      }
+
+      /// One frame of the window with `before` drawn first, which is how a dialog is put over it.
+      fn draw_frame_with(
+         &self,
+         notification: &mut Notification,
+         events: Vec<Event>,
+         mut before: impl FnMut(&mut Ui),
+      ) -> (Vec<(NodeId, Node)>, Option<String>) {
          self.ctx.enable_accesskit();
 
          let mut said = None;
@@ -1026,6 +1069,8 @@ mod tests {
                ..Default::default()
             },
             |ui| {
+               before(ui);
+
                self.handle.write(|zeus| {
                   notification.show(zeus, &self.theme, self.icons.clone(), ui);
 
@@ -1057,6 +1102,17 @@ mod tests {
          }
 
          nodes
+      }
+
+      /// The name of the control the keyboard is on after this frame.
+      fn focused(&self, nodes: &[(NodeId, Node)]) -> Option<String> {
+         let id = self.ctx.memory(|memory| memory.focused())?;
+
+         nodes
+            .iter()
+            .find(|(node_id, _)| *node_id == id.accesskit_id())
+            .and_then(|(_, node)| node.label())
+            .map(str::to_string)
       }
    }
 
@@ -1094,28 +1150,140 @@ mod tests {
          .unwrap_or_else(|| panic!("no node is named {name:?}: {:?}", spoken(nodes)))
    }
 
-   /// A progress bar whose time is up used to reset the whole window, so the only "it was sent"
-   /// copy deleted itself on a timer. It stays up now, and it draws the control that closes it.
+   /// A bar that has just filled is still on screen: the hold after it is what a reader finishes the
+   /// sentence in, and what leaves them time to reach Details.
    #[test]
-   fn a_filled_progress_bar_keeps_the_window_up() {
+   fn a_filled_bar_holds_the_window_for_a_moment() {
       let harness = Harness::new();
       let mut notification = Notification::new();
 
       let now = now_ms();
       mined(
          &mut notification,
-         now.saturating_sub(10_000),
-         now.saturating_sub(5_000),
+         now.saturating_sub(20_000),
+         now.saturating_sub(HOLD_MS / 2),
       );
 
       let nodes = harness.settled(&mut notification);
 
       assert!(
          notification.open,
-         "a full progress bar must not close the window"
+         "the hold after the bar fills must keep the window up"
       );
       node_named(&nodes, "Dismiss");
       node_named(&nodes, "Transaction Details");
+   }
+
+   /// Then it takes itself away, the way it did when the bar filled: a window that Tab cannot reach
+   /// must not stay over the page for ever.
+   #[test]
+   fn a_filled_bar_takes_the_window_away_once_the_hold_is_over() {
+      let harness = Harness::new();
+      let mut notification = Notification::new();
+
+      let now = now_ms();
+      mined(
+         &mut notification,
+         now.saturating_sub(30_000),
+         now.saturating_sub(HOLD_MS + 1_000),
+      );
+
+      let nodes = harness.settled(&mut notification);
+
+      assert!(
+         !notification.open,
+         "a window nobody dismissed must not stay up for ever"
+      );
+      assert!(
+         !spoken(&nodes).iter().any(|text| text == "Dismiss"),
+         "a closed window draws nothing: {:?}",
+         spoken(&nodes)
+      );
+   }
+
+   /// The shortcut that asks for this window (Alt+N, and the F6 status region) has to land on one of
+   /// its controls: a reader cannot Tab to it, because it is drawn before the page.
+   #[test]
+   fn the_notification_shortcut_lands_on_its_first_control() {
+      let harness = Harness::new();
+      let mut notification = Notification::new();
+
+      let now = now_ms();
+      mined(&mut notification, now, now.saturating_add(60_000));
+
+      harness.settled(&mut notification);
+
+      notification.request_focus();
+
+      let nodes = harness.settled(&mut notification);
+
+      assert_eq!(
+         harness.focused(&nodes).as_deref(),
+         Some("Dismiss"),
+         "the shortcut must land on a control of the window"
+      );
+   }
+
+   /// A window that goes while the keyboard is on it takes the reader's place away with it.
+   #[test]
+   fn a_window_that_holds_the_focus_is_not_taken_away() {
+      let harness = Harness::new();
+      let mut notification = Notification::new();
+
+      let now = now_ms();
+      mined(&mut notification, now, now.saturating_add(60_000));
+
+      harness.settled(&mut notification);
+
+      notification.request_focus();
+
+      let nodes = harness.settled(&mut notification);
+      assert_eq!(
+         harness.focused(&nodes).as_deref(),
+         Some("Dismiss"),
+         "the shortcut must land on one of the window's controls"
+      );
+
+      // The bar fills and the hold runs out while the reader is still on that control.
+      notification.finish_on = now.saturating_sub(60_000);
+
+      harness.settled(&mut notification);
+
+      assert!(
+         notification.open,
+         "the window must not vanish from under the keyboard"
+      );
+   }
+
+   /// A dialog drawn over the window hands the focus back to it when it closes, so the window waits
+   /// for the dialog instead of going while the reader is in it.
+   #[test]
+   fn a_dialog_over_the_window_keeps_it_up() {
+      let harness = Harness::new();
+      let mut notification = Notification::new();
+
+      let now = now_ms();
+      mined(&mut notification, now, now.saturating_add(60_000));
+
+      let mut dialog = |ui: &mut Ui| {
+         egui::Modal::new(egui::Id::unique("a dialog")).show(ui.ctx(), |ui| {
+            ui.label("Details");
+         });
+      };
+
+      // The dialog goes up first; the bar fills and the hold runs out underneath it.
+      for _ in 0..2 {
+         harness.draw_frame_with(&mut notification, Vec::new(), &mut dialog);
+      }
+
+      notification.finish_on = now.saturating_sub(60_000);
+
+      harness.draw_frame_with(&mut notification, Vec::new(), &mut dialog);
+
+      assert!(
+         notification.open,
+         "a window under a dialog must wait for it to close"
+      );
    }
 
    /// Dismiss is driven the way a reader drives it: an AccessKit click on the node the previous frame
@@ -1126,11 +1294,7 @@ mod tests {
       let mut notification = Notification::new();
 
       let now = now_ms();
-      mined(
-         &mut notification,
-         now.saturating_sub(10_000),
-         now.saturating_sub(5_000),
-      );
+      mined(&mut notification, now, now.saturating_add(60_000));
 
       let nodes = harness.settled(&mut notification);
       let dismiss = node_named(&nodes, "Dismiss");
