@@ -63,6 +63,16 @@ fn frame(ctx: &Context, add: impl FnMut(&mut Ui)) -> Vec<Node> {
 /// Run one AccessKit-enabled frame with `events` in its input, keeping the id each node is
 /// addressed by: a reader sends an action back to that id, so a test that drives a widget needs it.
 fn frame_nodes(ctx: &Context, events: Vec<Event>, add: impl FnMut(&mut Ui)) -> Vec<(NodeId, Node)> {
+   frame_nodes_and_output(ctx, events, add).0
+}
+
+/// The same frame, with the commands it handed the platform — a test that copies an address needs
+/// the words that went to the clipboard, which the tree does not carry.
+fn frame_nodes_and_output(
+   ctx: &Context,
+   events: Vec<Event>,
+   add: impl FnMut(&mut Ui),
+) -> (Vec<(NodeId, Node)>, Vec<egui::OutputCommand>) {
    ctx.enable_accesskit();
 
    let mut output = ctx.run_ui(
@@ -84,9 +94,11 @@ fn frame_nodes(ctx: &Context, events: Vec<Event>, add: impl FnMut(&mut Ui)) -> V
       .expect("an AccessKit-enabled frame must produce a tree update");
 
    let nodes = update.nodes.into_iter().collect();
+   let commands = std::mem::take(&mut output.platform_output.commands);
+
    output.drop_without_applying_deltas();
 
-   nodes
+   (nodes, commands)
 }
 
 /// The unlock screen and what it needs: the simplest real screen Zeus has — a heading, a line
@@ -1507,6 +1519,7 @@ fn the_account_address_copy_says_it_happened() {
    let (ctx, mut gui, zeus) = main_window();
    let wallet = master_wallet("Main");
    let address = wallet.evm_address_truncated();
+   let said = copy_said(&wallet.address.to_string());
 
    gui.account_panel.open();
    gui.account_panel.set_current_wallet(wallet);
@@ -1534,8 +1547,8 @@ fn the_account_address_copy_says_it_happened() {
 
    assert_eq!(
       announced(&nodes).as_deref(),
-      Some("Address copied."),
-      "the copy must reach the announcement node the left panel feeds"
+      Some(said.as_str()),
+      "the copy must reach the announcement node the left panel feeds, naming the address"
    );
 
    let nodes = render_left_panel(&ctx, &mut gui, &zeus, Vec::new());
@@ -2523,8 +2536,8 @@ fn a_contact_row_says_who_it_is() {
    );
 }
 
-/// Copying a contact row's address changes nothing on screen, so the row hands "Address copied."
-/// to the page, and the Settings window says it once.
+/// Copying a contact row's address changes nothing on screen, so the row hands the sentence — the
+/// fact and the address — to the page, and the Settings window says it once.
 #[test]
 fn a_contact_row_copy_says_it_happened() {
    let name = "Ada Lovelace";
@@ -2562,8 +2575,8 @@ fn a_contact_row_copy_says_it_happened() {
 
    assert_eq!(
       announced(&nodes).as_deref(),
-      Some("Address copied."),
-      "the copy must reach the announcement node the Settings window feeds"
+      Some(copy_said(address).as_str()),
+      "the copy must reach the announcement node the Settings window feeds, naming the address"
    );
 
    let nodes = render_settings_speaking(&ctx, &mut gui, &zeus, Vec::new());
@@ -4498,8 +4511,8 @@ fn a_recipient_contact_copy_says_it_happened() {
       crate::gui::SHARED_GUI
          .write(|gui| gui.recipient_selection.take_notice())
          .as_deref(),
-      Some("Address copied."),
-      "the copy must reach the frame's announcement channel"
+      Some(copy_said(PICKER_CONTACT_ADDRESS).as_str()),
+      "the copy must reach the frame's announcement channel, naming the address"
    );
 
    render_recipient_picker(&ctx, false, Vec::new());
@@ -4537,6 +4550,8 @@ fn a_recipient_wallet_copy_says_it_happened() {
       crate::gui::ui::common::spoken_wallet_name(&wallet)
    );
 
+   let said = copy_said(&wallet.address.to_string());
+
    crate::gui::SHARED_GUI.write(|gui| {
       gui.recipient_selection.set_wallets_for_test(vec![wallet]);
       gui.recipient_selection.take_notice();
@@ -4565,8 +4580,8 @@ fn a_recipient_wallet_copy_says_it_happened() {
       crate::gui::SHARED_GUI
          .write(|gui| gui.recipient_selection.take_notice())
          .as_deref(),
-      Some("Address copied."),
-      "the copy must reach the frame's announcement channel"
+      Some(said.as_str()),
+      "the copy must reach the frame's announcement channel, naming the address"
    );
 
    render_recipient_picker(&ctx, false, Vec::new());
@@ -6080,6 +6095,19 @@ fn announced(nodes: &[(NodeId, Node)]) -> Option<String> {
       .and_then(|(_, node)| node.label().map(str::to_string))
 }
 
+/// The sentence a copy leaves for the announcement channel, built the way the buttons build it.
+fn copy_said(address: &str) -> String {
+   crate::gui::ui::copied_words(address)
+}
+
+/// The text a frame handed the platform's clipboard.
+fn clipboard_text(commands: &[egui::OutputCommand]) -> Option<String> {
+   commands.iter().find_map(|command| match command {
+      egui::OutputCommand::CopyText(text) => Some(text.clone()),
+      _ => None,
+   })
+}
+
 /// The wallet Zeus is on is the card above the search field: one group node that says the wallet
 /// and its value, with the two labels that draw those words left out of the reading.
 #[test]
@@ -6262,8 +6290,8 @@ fn the_address_button_says_whose_address_it_copied() {
 
    assert_eq!(
       announced(&nodes).as_deref(),
-      Some("Address copied."),
-      "the copy says it happened, since nothing on screen changes"
+      Some(copy_said(&master.address.to_string()).as_str()),
+      "the copy says it happened, and which address, since nothing on screen changes"
    );
 }
 
@@ -10343,8 +10371,8 @@ fn the_receive_window_says_when_an_address_is_copied() {
 
    assert_eq!(
       announced(&nodes).as_deref(),
-      Some("Address copied."),
-      "the copy must reach the announcement node the panel feeds"
+      Some(copy_said(&address).as_str()),
+      "the copy must reach the announcement node the panel feeds, naming the address"
    );
 
    let nodes = render_receive_window(&ctx, &mut gui, &zeus, Vec::new());
@@ -10430,7 +10458,7 @@ fn a_contact_qr_page_says_which_address_it_shows() {
 
    assert_eq!(
       gui.settings.take_notice().as_deref(),
-      Some("Address copied."),
+      Some(copy_said(address).as_str()),
       "the page hands the copy up to the window, which says it in the frame it was drawn"
    );
 
@@ -10751,6 +10779,198 @@ fn an_alt_digit_does_not_type_into_a_focused_field() {
    assert!(gui.send_crypto.is_open());
 }
 
+/// Whether a node is something a reader presses, types into or drags: the stops `Ctrl+Tab` is for.
+fn is_control(role: Role) -> bool {
+   matches!(
+      role,
+      Role::Button
+         | Role::CheckBox
+         | Role::ComboBox
+         | Role::Link
+         | Role::MenuItem
+         | Role::RadioButton
+         | Role::Slider
+         | Role::Switch
+         | Role::Tab
+         | Role::TextInput
+   )
+}
+
+/// Draw the shortcut layer, the panels it moves the focus in and the app's live region, in the
+/// The shortcut layer over the account card, with the app's live region after it.
+///
+/// The copy tests draw the card the shortcut copies from and not the pages behind it: those read a
+/// wallet cache and an RPC this test does not stand up.
+fn render_account_card(
+   ctx: &Context,
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   events: Vec<Event>,
+) -> (Vec<(NodeId, Node)>, Vec<egui::OutputCommand>) {
+   frame_nodes_and_output(ctx, events, |ui| {
+      zeus.write(|zeus| {
+         crate::gui::ui::shortcuts::handle(gui, zeus, ui.ctx());
+         crate::gui::ui::panels::left_panel::show(gui, zeus, ui);
+      });
+
+      gui.show_announcer(ui);
+   })
+}
+
+/// `Ctrl+Tab` asks for the next control. `Tab` alone stops on every line of text — that is what puts
+/// the page's words on the keyboard path — so the shortcut hops in a pass where a line is not a tab
+/// stop at all.
+#[test]
+fn ctrl_tab_lands_on_the_next_control() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+   wallet_in_cache(&zeus);
+
+   // The reader model: every `Label` is focusable, which is what gives this key work to do.
+   ctx.options_mut(|options| options.screen_reader = true);
+
+   // Alt+2 opens Send and leaves the focus on its heading, so the walk starts on prose.
+   press_shortcut(&ctx, &mut gui, &zeus, Key::Num2, Modifiers::ALT);
+
+   let nodes = press_shortcut(&ctx, &mut gui, &zeus, Key::Tab, Modifiers::NONE);
+
+   assert!(
+      !is_control(focused_node(&ctx, &nodes).role()),
+      "Tab alone must stop on the next line of text"
+   );
+
+   let nodes = press_shortcut(&ctx, &mut gui, &zeus, Key::Tab, Modifiers::CTRL);
+   let focused = focused_node(&ctx, &nodes);
+
+   assert!(
+      is_control(focused.role()),
+      "Ctrl+Tab must land on a control, not on another line: {:?}",
+      focused.role()
+   );
+
+   assert!(
+      ctx.options(|options| options.screen_reader),
+      "the pass after the hop must have the reader's model back, or prose would leave the keyboard"
+   );
+}
+
+/// `Ctrl+Shift+Tab` is the same hop backwards. From the first control it stops on the page's own
+/// heading — the landmark the walk started at, which the page makes a tab stop on purpose — and a
+/// hop forward is the control it came from.
+#[test]
+fn ctrl_shift_tab_is_the_same_hop_backwards() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+   wallet_in_cache(&zeus);
+   ctx.options_mut(|options| options.screen_reader = true);
+
+   press_shortcut(&ctx, &mut gui, &zeus, Key::Num2, Modifiers::ALT);
+
+   let nodes = press_shortcut(&ctx, &mut gui, &zeus, Key::Tab, Modifiers::CTRL);
+   let forward = focused_node(&ctx, &nodes).label().map(str::to_string);
+
+   let nodes = press_shortcut(
+      &ctx,
+      &mut gui,
+      &zeus,
+      Key::Tab,
+      Modifiers::CTRL | Modifiers::SHIFT,
+   );
+   let back = focused_node(&ctx, &nodes);
+
+   assert_eq!(
+      back.role(),
+      Role::Heading,
+      "the hop back must not stop on a line of text"
+   );
+   assert_eq!(
+      back.label(),
+      Some("Send"),
+      "it stops on the page's own heading, which is the landmark before the first control"
+   );
+
+   let nodes = press_shortcut(&ctx, &mut gui, &zeus, Key::Tab, Modifiers::CTRL);
+
+   assert_eq!(
+      focused_node(&ctx, &nodes).label().map(str::to_string),
+      forward,
+      "forward again is the control the walk came from"
+   );
+}
+
+/// `Ctrl+Shift+C` copies the address the account card shows, and says which one: the clipboard is
+/// invisible, so the words are the only way to check what landed there.
+#[test]
+fn ctrl_shift_c_copies_the_address_and_says_which_one() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+
+   let wallet = master_wallet("Main");
+   let address = wallet.address.to_string();
+
+   gui.account_panel.open();
+   gui.account_panel.set_current_wallet(wallet);
+
+   // Quiet passes first: the node a message is written to has to exist before the one that says it.
+   render_account_card(&ctx, &mut gui, &zeus, Vec::new());
+   render_account_card(&ctx, &mut gui, &zeus, Vec::new());
+
+   let (nodes, commands) = render_account_card(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![key_combo(Key::C, Modifiers::COMMAND | Modifiers::SHIFT)],
+   );
+
+   assert_eq!(
+      clipboard_text(&commands),
+      Some(address.clone()),
+      "the whole address the card shows must land on the clipboard"
+   );
+
+   assert_eq!(
+      announced(&nodes).as_deref(),
+      Some(copy_said(&address).as_str()),
+      "the copy must say which address it copied"
+   );
+}
+
+/// In privacy mode the card shows a zk address. A wallet without one has nothing to copy, and the
+/// shortcut must say so rather than hand over the public address the card is hiding.
+#[test]
+fn ctrl_shift_c_says_when_there_is_no_privacy_address() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| {
+      zeus.vault_unlocked = true;
+      zeus.privacy_mode = true;
+   });
+
+   gui.account_panel.open();
+   gui.account_panel.set_current_wallet(master_wallet("Main"));
+
+   render_account_card(&ctx, &mut gui, &zeus, Vec::new());
+   render_account_card(&ctx, &mut gui, &zeus, Vec::new());
+
+   let (nodes, commands) = render_account_card(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![key_combo(Key::C, Modifiers::COMMAND | Modifiers::SHIFT)],
+   );
+
+   assert_eq!(
+      clipboard_text(&commands),
+      None,
+      "the public address the card is hiding must not be handed over"
+   );
+
+   assert_eq!(
+      announced(&nodes).as_deref(),
+      Some("This wallet has no privacy address to copy."),
+      "the shortcut must say why nothing was copied"
+   );
+}
+
 /// Ctrl+Enter asks the Send page to press its own button; it never signs anything itself.
 #[test]
 fn ctrl_enter_asks_the_send_page_to_press_its_own_button() {
@@ -10847,6 +11067,8 @@ fn f1_opens_the_sheet_of_every_binding() {
       "Alt+0: Connected Dapps",
       "F1: show or hide this list",
       "Tab / Shift+Tab: the next or previous control",
+      "Ctrl+Tab / Ctrl+Shift+Tab: the next or previous control, skipping the text between them",
+      "Ctrl+Shift+C: copy your address (Command+Shift+C on macOS)",
    ] {
       assert!(
          labels.iter().any(|label| label == expected),

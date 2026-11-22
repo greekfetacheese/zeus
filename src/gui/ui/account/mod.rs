@@ -188,6 +188,19 @@ impl AccountPanel {
       self.wallet_info = wallet_info;
    }
 
+   /// The address the card hands over, for the shortcut that copies it from another page.
+   ///
+   /// It is the string the card's own button copies — the EVM address, or the zk one while privacy
+   /// mode is on — so a reader gets the same words whichever way they asked. `None` when privacy
+   /// mode is on and the wallet has no zk address: the card draws a note rather than an address
+   /// then, and there is nothing it could honestly hand over.
+   pub fn address_to_copy(&self, privacy_mode: bool) -> Option<String> {
+      match privacy_mode {
+         false => Some(self.wallet_info.address.to_string()),
+         true => self.wallet_info.has_zk_address().then(|| self.wallet_info.zk_address()),
+      }
+   }
+
    pub fn set_current_wallet(&mut self, wallet: WalletInfo) {
       self.wallet_select.wallet = wallet.clone();
       self.wallet_info = wallet;
@@ -395,8 +408,10 @@ impl AccountPanel {
             }
 
             if address_button.clicked() {
+               // The words name the address: a listener has no other way to check what landed on
+               // the clipboard.
+               self.notice = Some(copied_words(&full_address));
                ui.ctx().copy_text(full_address);
-               self.notice = Some("Address copied.".to_string());
             }
 
             // The QR / block-explorer actions, and the separators before them, are

@@ -63,6 +63,20 @@ pub fn address_for_speech(name: Option<&str>, address: &str) -> SpokenAddress {
    }
 }
 
+/// The sentence copying an address says: that it happened, and the form a listener can check.
+///
+/// An EVM address is read grouped, so the copy can be followed one group at a time; a 0zk address
+/// has no checksum to check, so its ending is the one thing worth comparing.
+pub fn copied_words(address: &str) -> String {
+   match grouped_evm(address) {
+      Some(grouped) => format!("Address copied: {grouped}"),
+      None => format!(
+         "Address copied, ending in {}",
+         last_characters(address, 6)
+      ),
+   }
+}
+
 /// The name to draw for an address, and the words a screen reader gets for it.
 ///
 /// One lookup answers both: a named address is drawn as its name, an unnamed one as the shortened
@@ -287,6 +301,26 @@ mod tests {
          line.description.as_deref(),
          Some("0xd8dA 6BF2 6964 aF9D 7eEd 9e03 E534 15D3 7aA9 6045 to 0xd8dA...A96045"),
          "a named side keeps its full address, an unnamed one its drawn form"
+      );
+   }
+
+   /// A copy says which address landed on the clipboard. The drawn form cannot be checked by ear,
+   /// so the sentence carries the grouped one — and a 0zk address, which has nothing to check,
+   /// carries its ending rather than a sentence about how long it is.
+   #[test]
+   fn a_copy_says_which_address_it_copied() {
+      assert_eq!(
+         copied_words(VITALIK),
+         "Address copied: 0xd8dA 6BF2 6964 aF9D 7eEd 9e03 E534 15D3 7aA9 6045"
+      );
+
+      let zk = format!("0zk{}", "a1B2c3D4e5".repeat(8));
+      let characters: Vec<char> = zk.chars().collect();
+      let ending: String = characters[characters.len() - 6..].iter().collect();
+
+      assert_eq!(
+         copied_words(&zk),
+         format!("Address copied, ending in {ending}")
       );
    }
 }

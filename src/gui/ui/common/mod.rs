@@ -18,7 +18,8 @@ pub mod wallet_switch;
 pub mod windows;
 
 pub use address::{
-   SpokenAddress, address_for_speech, drawn_and_spoken, name_address, transfer_for_speech,
+   SpokenAddress, address_for_speech, copied_words, drawn_and_spoken, name_address,
+   transfer_for_speech,
 };
 pub use amount_field::{AmountField, AmountFieldParams};
 pub use autolock_timing::{GRACE_NOTICE, LockNotices, effective_idle_secs};

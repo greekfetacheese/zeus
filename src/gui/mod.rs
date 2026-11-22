@@ -193,6 +193,12 @@ pub struct GUI {
    focus_region: FocusRegion,
    /// The pending announcement; the last `announce` of a frame wins.
    announcement: String,
+   /// The label-focus model a shortcut took away for the pass it moved the focus in.
+   ///
+   /// A label is focusable only while egui's reader model is on, so `Ctrl+Tab` turns it off for
+   /// the pass it hops in — which is what leaves the next tab stop a control — and the pass after
+   /// puts it back. `None` means nothing was taken away.
+   reader_model: Option<bool>,
    /// Keeps the live `Status` node in the tree between frames: a node created together
    /// with its message never speaks (`egui-elements/src/announce.rs`).
    announcer: Announcer,
@@ -291,6 +297,7 @@ impl GUI {
          pending_region: None,
          focus_region: FocusRegion::Main,
          announcement: String::new(),
+         reader_model: None,
          announcer: Announcer::new("zeus"),
          last_status_pill: None,
          #[cfg(feature = "dev")]
@@ -398,6 +405,29 @@ impl GUI {
       }
 
       self.set_reader_field_controls();
+   }
+
+   /// Take the prose out of this pass's tab order, so the next tab stop is a control.
+   ///
+   /// `Ctrl+Tab` asks for the next control, and egui makes a label focusable only while its reader
+   /// model is on: with the option off for the pass the layer moves the focus in, the widget that
+   /// takes the focus next is a control. Nothing else would put the model back — Zeus sets the
+   /// option once, when the AT first appears, and `track_assistive_tech` never touches it again —
+   /// so the pass after calls [`Self::restore_reader_model`].
+   pub fn skip_prose_this_pass(&mut self, egui_ctx: &Context) {
+      let reader_model = egui_ctx.options(|options| options.screen_reader);
+
+      if reader_model {
+         egui_ctx.options_mut(|options| options.screen_reader = false);
+         self.reader_model = Some(reader_model);
+      }
+   }
+
+   /// Put back the label-focus model the last [`Self::skip_prose_this_pass`] took away.
+   pub fn restore_reader_model(&mut self, egui_ctx: &Context) {
+      if let Some(reader_model) = self.reader_model.take() {
+         egui_ctx.options_mut(|options| options.screen_reader = reader_model);
+      }
    }
 
    /// Queue `text` for the screen reader.

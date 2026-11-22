@@ -12,9 +12,12 @@
 //! the handler does not read cannot end up in the list of keys it does.
 
 use crate::core::ZeusContext;
+use crate::gui::ui::common::address::copied_words;
 use crate::gui::ui::panels::left_panel;
 use crate::gui::{FocusRegion, GUI, Page};
-use egui::{Context, Event, Id, Key, Modifiers, RichText, Role, ScrollArea, Ui, WidgetInfo};
+use egui::{
+   Context, Event, FocusDirection, Id, Key, Modifiers, RichText, Role, ScrollArea, Ui, WidgetInfo,
+};
 use egui_elements::{Modal, Theme};
 
 /// The page each `Alt` digit opens, in the order the nav draws them.
@@ -48,11 +51,18 @@ pub fn handle(gui: &mut GUI, ctx: &mut ZeusContext, egui_ctx: &Context) {
    // the focus on a later frame, so the request is dropped at the top of every one.
    gui.clear_region_focus();
 
+   // The pass that hopped over prose took the label focus out of its own tab order; that pass is
+   // over, so the reader's model goes back on before anything draws.
+   gui.restore_reader_model(egui_ctx);
+
    let previous_region = take_key(egui_ctx, Key::F6, Chord::Shift);
    let next_region = take_key(egui_ctx, Key::F6, Chord::Plain);
    let review = take_key(egui_ctx, Key::Enter, Chord::Command);
    let notification = take_key(egui_ctx, Key::N, Chord::Alt);
    let sheet = take_key(egui_ctx, Key::F1, Chord::Plain);
+   let next_control = take_key(egui_ctx, Key::Tab, Chord::Ctrl);
+   let previous_control = take_key(egui_ctx, Key::Tab, Chord::CtrlShift);
+   let copy_address = take_key(egui_ctx, Key::C, Chord::CommandShift);
 
    let mut target = None;
 
@@ -103,6 +113,41 @@ pub fn handle(gui: &mut GUI, ctx: &mut ZeusContext, egui_ctx: &Context) {
    if notification {
       gui.notification.request_focus();
    }
+
+   // The clipboard is invisible, so the words are the only way to check what landed there.
+   if copy_address {
+      match gui.account_panel.address_to_copy(ctx.privacy_mode) {
+         Some(address) => {
+            gui.announce(copied_words(&address));
+            egui_ctx.copy_text(address);
+         }
+         None => gui.announce("This wallet has no privacy address to copy."),
+      }
+   }
+
+   if next_control || previous_control {
+      hop_to_control(
+         gui,
+         egui_ctx,
+         if previous_control { -1 } else { 1 },
+      );
+   }
+}
+
+/// Move the focus to the next or previous control, hopping over the lines of text between them.
+///
+/// `Tab` stops on every line of prose — that is what makes the page reachable by ear — so asking
+/// egui for a step keeps landing on words. This asks for the step in a pass where a label is not a
+/// tab stop at all: the focus the step lands on is a control.
+fn hop_to_control(gui: &mut GUI, egui_ctx: &Context, direction: i32) {
+   gui.skip_prose_this_pass(egui_ctx);
+
+   let direction = match direction.signum() {
+      -1 => FocusDirection::Previous,
+      _ => FocusDirection::Next,
+   };
+
+   egui_ctx.memory_mut(|memory| memory.move_focus(direction));
 }
 
 /// The next region that can take the focus, walking around the circle.
@@ -161,7 +206,11 @@ enum Chord {
    Plain,
    Shift,
    Alt,
+   /// The control key itself, on every platform: `Ctrl+Tab` is not `Command+Tab` on a Mac.
+   Ctrl,
+   CtrlShift,
    Command,
+   CommandShift,
 }
 
 impl Chord {
@@ -170,7 +219,10 @@ impl Chord {
          Self::Plain => !modifiers.alt && !modifiers.command && !modifiers.ctrl && !modifiers.shift,
          Self::Shift => modifiers.shift && !modifiers.alt && !modifiers.command && !modifiers.ctrl,
          Self::Alt => modifiers.alt && !modifiers.command && !modifiers.ctrl,
+         Self::Ctrl => modifiers.ctrl && !modifiers.alt && !modifiers.shift,
+         Self::CtrlShift => modifiers.ctrl && modifiers.shift && !modifiers.alt,
          Self::Command => modifiers.command && !modifiers.alt && !modifiers.shift,
+         Self::CommandShift => modifiers.command && modifiers.shift && !modifiers.alt,
       }
    }
 }
@@ -253,6 +305,10 @@ const MOVING: &[(&str, &str)] = &[
       "press the control the focus is on",
    ),
    (
+      "Ctrl+Tab / Ctrl+Shift+Tab",
+      "the next or previous control, skipping the text between them",
+   ),
+   (
       "F6 / Shift+F6",
       "the next or previous part of the window: the account, the navigation, the page, the \
        notification",
@@ -265,6 +321,10 @@ const ACTIONS: &[(&str, &str)] = &[
    (
       "Ctrl+Enter",
       "press Send on the Send page (Command+Enter on macOS)",
+   ),
+   (
+      "Ctrl+Shift+C",
+      "copy your address (Command+Shift+C on macOS)",
    ),
    ("Alt+N", "go to the open notification"),
    ("F1", "show or hide this list"),

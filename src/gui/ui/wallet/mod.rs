@@ -1,6 +1,8 @@
 use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, WalletValue, ZeusContext};
-use crate::gui::ui::common::{address_for_speech, chain_label, clickable_row, spoken_wallet_name};
+use crate::gui::ui::common::{
+   address_for_speech, chain_label, clickable_row, copied_words, spoken_wallet_name,
+};
 use crate::gui::{
    SHARED_GUI, dots_button,
    ui::{WalletListByValue, show_with_fade, switch_wallet},
@@ -539,8 +541,8 @@ impl WalletUi {
          });
 
          if copy.clicked() {
+            self.notice = Some(copied_words(&wallet.address.to_string()));
             ui.ctx().copy_text(wallet.address.to_string());
-            self.notice = Some("Address copied.".to_string());
          }
 
          ui.with_layout(Layout::right_to_left(Align::Center), |ui| {

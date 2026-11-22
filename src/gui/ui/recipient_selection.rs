@@ -7,7 +7,7 @@ use crate::core::{
 };
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::common;
-use crate::gui::ui::common::address::address_for_speech;
+use crate::gui::ui::common::address::{address_for_speech, copied_words};
 use crate::gui::ui::common::clickable_row;
 use crate::gui::ui::common::place_in_list;
 use crate::gui::ui::common::spoken_wallet_name;
@@ -928,8 +928,8 @@ impl RecipientSelectionWindow {
                });
 
                if response.clicked() {
+                  self.notice = Some(copied_words(&address_full));
                   ui.ctx().copy_text(address_full.clone());
-                  self.notice = Some("Address copied.".to_string());
                }
             });
 
@@ -1098,8 +1098,8 @@ impl RecipientSelectionWindow {
                });
 
                if response.clicked() {
+                  self.notice = Some(copied_words(&address_full));
                   ui.ctx().copy_text(address_full.clone());
-                  self.notice = Some("Address copied.".to_string());
                }
             });
 

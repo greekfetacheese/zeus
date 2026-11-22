@@ -5,7 +5,9 @@
 
 use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::common::{address_for_speech, name_address, name_text, spoken_wallet_name};
+use crate::gui::ui::common::{
+   address_for_speech, copied_words, name_address, name_text, spoken_wallet_name,
+};
 use egui::{Id, Order, Response, RichText, Ui, vec2};
 use egui_elements::{Button, Modal, QrImage, Spinner, Theme, components::QrEncoding};
 
@@ -182,8 +184,8 @@ impl QrWindow {
                         // Nothing on screen changes when the address is copied, so the window has
                         // to say that it happened.
                         if response.clicked() {
+                           notice = Some(copied_words(&address));
                            ui.ctx().copy_text(address);
-                           notice = Some("Address copied.".to_string());
                         }
 
                         first_control = Some(response);

@@ -2,7 +2,9 @@
 
 use crate::core::{ZeusContext, types::Contact};
 use crate::gui::ui::common;
-use crate::gui::ui::{address_for_speech, name_address, place_in_list, show_with_fade};
+use crate::gui::ui::{
+   address_for_speech, copied_words, name_address, place_in_list, show_with_fade,
+};
 use crate::gui::{SHARED_GUI, dots_button};
 use egui::{
    Align, FontId, Layout, Margin, OpenUrl, Response, RichText, Role, ScrollArea, Ui, WidgetInfo,
@@ -417,10 +419,10 @@ impl QrWindow {
                name_address(ui, &response, &spoken);
 
                // Nothing on screen changes when the address is copied, so the page has to say
-               // that it happened.
+               // that it happened — and which address, since the row itself is not spoken.
                if response.clicked() {
+                  notice = Some(copied_words(&address));
                   ui.ctx().copy_text(address);
-                  notice = Some("Address copied.".to_string());
                }
             }
          }
@@ -806,8 +808,8 @@ impl ContactsUi {
             copy.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &copy_name));
 
             if copy.clicked() {
+               self.notice = Some(copied_words(&address_full));
                ui.ctx().copy_text(address_full);
-               self.notice = Some("Address copied.".to_string());
             }
          });
       });
