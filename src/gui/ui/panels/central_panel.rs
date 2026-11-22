@@ -1,5 +1,5 @@
 use crate::core::ZeusContext;
-use crate::gui::{GUI, ui::common::heading};
+use crate::gui::{FocusRegion, GUI, ui::common::heading};
 use eframe::egui::{RichText, Stroke, Ui, vec2};
 use egui_elements::{Theme, widgets::Window};
 
@@ -56,6 +56,11 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    if page_changed {
       page_heading.request_focus();
       gui.last_page = Some(page);
+   }
+
+   // A region shortcut lands on the page heading, the same place a page change puts it.
+   if gui.take_region_focus(FocusRegion::Main) {
+      page_heading.request_focus();
    }
 
    // Settings is a window over this panel, drawn by the same pass, so the dialogs are drawn once

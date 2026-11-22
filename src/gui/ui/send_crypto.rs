@@ -85,6 +85,8 @@ pub struct SendCryptoUi {
    notice: Option<String>,
    /// The reason Send was blocked by last frame, so the same one is not said twice.
    blocked_reason: Option<String>,
+   /// Whether a shortcut asked this page to press its own Send button on its next draw.
+   send_requested: bool,
    last_price_update: HashMap<Address, Instant>,
 }
 
@@ -107,6 +109,7 @@ impl SendCryptoUi {
          sending_tx: false,
          notice: None,
          blocked_reason: None,
+         send_requested: false,
          last_price_update: HashMap::new(),
       }
    }
@@ -117,10 +120,31 @@ impl SendCryptoUi {
 
    pub fn open(&mut self) {
       self.open = true;
+      self.send_requested = false;
+   }
+
+   /// Ask this page to press its own Send button on its next draw.
+   ///
+   /// The button's own handler then decides everything: the disabled reasons, the NFT branch and
+   /// the confirmation window it opens. A shortcut never signs anything on its own.
+   pub fn request_send(&mut self) {
+      self.send_requested = true;
+   }
+
+   /// Take this frame's request, if a shortcut made one.
+   fn take_send_request(&mut self) -> bool {
+      std::mem::take(&mut self.send_requested)
+   }
+
+   /// Whether a shortcut's send request is still waiting for the page to draw.
+   #[cfg(test)]
+   pub fn send_requested(&self) -> bool {
+      self.send_requested
    }
 
    pub fn close(&mut self) {
       self.open = false;
+      self.send_requested = false;
       self.clear_recipient();
       self.amount_field.reset();
       self.clear_search_query();
@@ -695,7 +719,15 @@ impl SendCryptoUi {
       // The button keeps the name of what it does whatever is blocking it.
       send.widget_info(|| WidgetInfo::labeled(Role::Button, valid_inputs, "Send"));
 
-      if send.clicked()
+      let requested = self.take_send_request();
+
+      // A shortcut on an incomplete form says what is missing instead of doing nothing.
+      if requested && !valid_inputs {
+         self.notice = blocked.clone();
+      }
+
+      if (send.clicked() || requested)
+         && valid_inputs
          && let (Some(nft), Some(amount)) = (nft, amount)
       {
          self.sending_tx = true;
@@ -1040,7 +1072,14 @@ impl SendCryptoUi {
       // The button keeps the name of what it does whatever is blocking it.
       send.widget_info(|| WidgetInfo::labeled(Role::Button, valid_inputs, "Send"));
 
-      if send.clicked() {
+      let requested = self.take_send_request();
+
+      // A shortcut on an incomplete form says what is missing instead of doing nothing.
+      if requested && !valid_inputs {
+         self.notice = blocked.clone();
+      }
+
+      if (send.clicked() || requested) && valid_inputs {
          self.sending_tx = true;
 
          if privacy_mode {

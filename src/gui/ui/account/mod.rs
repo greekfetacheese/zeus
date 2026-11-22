@@ -120,6 +120,8 @@ pub struct AccountPanel {
    vitals: SystemVitals,
    /// The words the panel itself wants said, drained by the left panel after the panel draws.
    notice: Option<String>,
+   /// Whether the address row still has to take the focus a region shortcut asked for.
+   focus_address_pending: bool,
 }
 
 impl AccountPanel {
@@ -141,6 +143,7 @@ impl AccountPanel {
          body_heights: [0.0; 2],
          vitals: SystemVitals::default(),
          notice: None,
+         focus_address_pending: false,
       }
    }
 
@@ -163,6 +166,22 @@ impl AccountPanel {
 
    pub fn open(&mut self) {
       self.open = true;
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   /// Show the account overview and ask its address row to take the focus when the card draws.
+   ///
+   /// The row lives on the overview tab, so a region shortcut lands where the address is.
+   pub fn focus_address(&mut self) {
+      if !self.open {
+         return;
+      }
+
+      self.tab = 0;
+      self.focus_address_pending = true;
    }
 
    pub fn set_wallet_info(&mut self, wallet_info: WalletInfo) {
@@ -298,6 +317,8 @@ impl AccountPanel {
       chain: ChainId,
       ui: &mut Ui,
    ) {
+      let focus_address = std::mem::take(&mut self.focus_address_pending);
+
       ui.horizontal(|ui| {
          self.show_chain_select(ctx, theme, icons.clone(), ui);
       });
@@ -368,7 +389,12 @@ impl AccountPanel {
             let address_text = RichText::new(address).size(normal);
             let label = Button::selectable(false, address_text);
 
-            if ui.add(label).clicked() {
+            let address_button = ui.add(label);
+            if focus_address {
+               address_button.request_focus();
+            }
+
+            if address_button.clicked() {
                ui.ctx().copy_text(full_address);
                self.notice = Some("Address copied.".to_string());
             }

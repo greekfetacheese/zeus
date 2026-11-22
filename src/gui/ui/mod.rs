@@ -16,6 +16,7 @@ pub mod portfolio;
 pub mod recipient_selection;
 pub mod send_crypto;
 pub mod settings;
+pub mod shortcuts;
 pub mod sign_msg_window;
 pub mod token_selection;
 pub mod tx;

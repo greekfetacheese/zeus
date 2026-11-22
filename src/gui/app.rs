@@ -424,6 +424,11 @@ impl eframe::App for ZeusApp {
                record_input_activity(ui.ctx(), ctx);
             }
 
+            // Before a panel reacts to the same key, one layer owns the shortcuts: a page it
+            // opens is the page this frame draws, and a region it asks for takes the focus from
+            // the panel that owns it.
+            crate::gui::ui::shortcuts::handle(gui, ctx, ui.ctx());
+
             #[cfg(feature = "dev")]
             gui.theme.install(ui.ctx());
 

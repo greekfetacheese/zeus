@@ -298,6 +298,10 @@ pub struct UpdateWindow {
 }
 
 impl UpdateWindow {
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
    pub fn new() -> Self {
       Self {
          open: false,

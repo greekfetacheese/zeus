@@ -105,6 +105,14 @@ impl WalletUi {
       self.open
    }
 
+   /// Whether a dialog of this page is over it: page shortcuts keep out of their way.
+   pub fn dialog_open(&self) -> bool {
+      self.add_wallet_ui.is_open()
+         || self.export_key_ui.is_open()
+         || self.delete_wallet_ui.is_open()
+         || self.rename_wallet
+   }
+
    pub fn open_rename_wallet(&mut self, wallet: Option<WalletInfo>) {
       // The field opens on the name in use, so a reader can hear what is there and change it
       // instead of retyping it from memory.

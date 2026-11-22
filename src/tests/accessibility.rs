@@ -34,7 +34,7 @@ use crate::gui::ui::tx::{
    show_calldata_modal, show_tx_diffs_modal, show_tx_options_modal,
 };
 use crate::gui::ui::wallet::import::{ImportWallet, ImportWalletType};
-use crate::gui::{GUI, LockScreen};
+use crate::gui::{GUI, LockScreen, Page};
 use crate::utils::swap_quoter::SwapStep;
 use egui::accesskit::{Action, ActionRequest, Live, Node, NodeId, Role, Toggled, TreeId};
 use egui::{
@@ -10468,6 +10468,307 @@ fn focused_node<'a>(ctx: &Context, nodes: &'a [(NodeId, Node)]) -> &'a Node {
       .find(|(id, _)| *id == focused.accesskit_id())
       .map(|(_, node)| node)
       .expect("the focused node must be in the frame's tree")
+}
+
+/// A key press with modifiers, as the window delivers it.
+fn key_combo(key: Key, modifiers: Modifiers) -> Event {
+   Event::Key {
+      key,
+      physical_key: None,
+      pressed: true,
+      repeat: false,
+      modifiers,
+   }
+}
+
+/// Draw the shortcut layer and the panels it moves the focus in, in the app's order.
+fn render_shortcuts(
+   ctx: &Context,
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   events: Vec<Event>,
+) -> Vec<(NodeId, Node)> {
+   frame_nodes(ctx, events, |ui| {
+      zeus.write(|zeus| {
+         crate::gui::ui::shortcuts::handle(gui, zeus, ui.ctx());
+         crate::gui::ui::panels::left_panel::show(gui, zeus, ui);
+         crate::gui::ui::panels::central_panel::show(gui, zeus, ui);
+      });
+   })
+}
+
+/// Every `Alt` digit opens the page the nav puts in that position.
+#[test]
+fn alt_digits_open_the_page_on_their_number() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+
+   let pages = [
+      (Key::Num1, Page::Home),
+      (Key::Num2, Page::Send),
+      (Key::Num3, Page::Shield),
+      (Key::Num4, Page::Swap),
+      (Key::Num5, Page::Bridge),
+      (Key::Num6, Page::Wallets),
+      (Key::Num7, Page::Transactions),
+      (Key::Num8, Page::Approvals),
+   ];
+
+   for (key, page) in pages {
+      frame_nodes(&ctx, vec![key_combo(key, Modifiers::ALT)], |ui| {
+         zeus.write(|zeus| crate::gui::ui::shortcuts::handle(&mut gui, zeus, ui.ctx()));
+      });
+
+      assert_eq!(
+         gui.current_page(),
+         page,
+         "Alt+{key:?} must open {page:?}"
+      );
+   }
+
+   frame_nodes(
+      &ctx,
+      vec![key_combo(Key::Num0, Modifiers::ALT)],
+      |ui| {
+         zeus.write(|zeus| crate::gui::ui::shortcuts::handle(&mut gui, zeus, ui.ctx()));
+      },
+   );
+
+   assert!(
+      gui.connected_dapps.is_open(),
+      "Alt+0 must open Connected Dapps"
+   );
+
+   // A dialog keeps the keyboard until it closes, so the next check closes this one first.
+   gui.connected_dapps.close();
+
+   frame_nodes(
+      &ctx,
+      vec![key_combo(Key::Num9, Modifiers::ALT)],
+      |ui| {
+         zeus.write(|zeus| crate::gui::ui::shortcuts::handle(&mut gui, zeus, ui.ctx()));
+      },
+   );
+
+   assert!(gui.settings.is_open(), "Alt+9 must open Settings");
+}
+
+/// The page a shortcut opens takes the focus, exactly as a nav click does.
+#[test]
+fn a_shortcut_opened_page_puts_the_focus_on_its_heading() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+   wallet_in_cache(&zeus);
+
+   let nodes = render_shortcuts(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![key_combo(Key::Num2, Modifiers::ALT)],
+   );
+
+   assert_eq!(focused_node(&ctx, &nodes).label(), Some("Send"));
+}
+
+/// F6 walks the regions clockwise and skips the ones with nothing to focus.
+#[test]
+fn f6_cycles_from_the_page_to_the_nav() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+   wallet_in_cache(&zeus);
+   gui.send_crypto.open();
+
+   // The page change puts the focus on the heading and records the page.
+   render_shortcuts(&ctx, &mut gui, &zeus, Vec::new());
+   // Main -> Status (closed) -> Account (closed) -> Navigation.
+   let nodes = render_shortcuts(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![key_combo(Key::F6, Modifiers::NONE)],
+   );
+
+   let focused = focused_node(&ctx, &nodes);
+
+   assert_eq!(focused.role(), Role::Button);
+   assert_eq!(focused.label(), Some("Send"));
+
+   // Navigation -> Main: the same key comes back to the page heading.
+   let nodes = render_shortcuts(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![key_combo(Key::F6, Modifiers::NONE)],
+   );
+
+   assert_eq!(focused_node(&ctx, &nodes).label(), Some("Send"));
+}
+
+/// The account card is a region too, and F6 reaches its address row when a wallet is shown.
+#[test]
+fn f6_reaches_the_account_card_when_a_wallet_is_shown() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+   wallet_in_cache(&zeus);
+   gui.account_panel.open();
+
+   render_shortcuts(&ctx, &mut gui, &zeus, Vec::new());
+   // Main -> Status (closed) -> Account.
+   let nodes = render_shortcuts(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![key_combo(Key::F6, Modifiers::NONE)],
+   );
+
+   let focused = focused_node(&ctx, &nodes);
+
+   assert_eq!(focused.role(), Role::Button);
+   assert!(
+      focused.label().is_some_and(|label| label.starts_with("0x")),
+      "the account card's address row takes the focus"
+   );
+}
+
+/// The lock screen owns the keyboard: a shortcut must not open a page behind it.
+#[test]
+fn shortcuts_are_inert_behind_the_lock_screen() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| {
+      zeus.vault_unlocked = true;
+      zeus.locked = true;
+   });
+
+   frame_nodes(
+      &ctx,
+      vec![key_combo(Key::Num2, Modifiers::ALT)],
+      |ui| {
+         zeus.write(|zeus| crate::gui::ui::shortcuts::handle(&mut gui, zeus, ui.ctx()));
+      },
+   );
+
+   assert!(!gui.send_crypto.is_open());
+}
+
+/// A dialog keeps the keyboard until it closes: a shortcut must not move the page under it.
+#[test]
+fn shortcuts_do_not_reach_behind_a_dialog() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| {
+      zeus.vault_unlocked = true;
+      gui.settings.open(zeus, &mut gui.appearance_settings);
+   });
+
+   frame_nodes(
+      &ctx,
+      vec![key_combo(Key::Num2, Modifiers::ALT)],
+      |ui| {
+         zeus.write(|zeus| crate::gui::ui::shortcuts::handle(&mut gui, zeus, ui.ctx()));
+      },
+   );
+
+   assert!(gui.settings.is_open());
+   assert!(!gui.send_crypto.is_open());
+}
+
+/// Alt+N is the one way to reach a notification from any page.
+#[test]
+fn alt_n_moves_the_focus_to_the_notification() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+   gui.notification.open_with_spinner(
+      "Transfer".to_string(),
+      crate::gui::ui::NotificationType::Other(String::new()),
+   );
+
+   let mut nodes = Vec::new();
+
+   for pass in 0..2 {
+      let events = if pass == 1 {
+         vec![key_combo(Key::N, Modifiers::ALT)]
+      } else {
+         Vec::new()
+      };
+      let theme = gui.theme.clone();
+      let icons = gui.icons.clone();
+
+      nodes = frame_nodes(&ctx, events, |ui| {
+         zeus.write(|zeus| {
+            crate::gui::ui::shortcuts::handle(&mut gui, zeus, ui.ctx());
+            gui.notification.show(zeus, &theme, icons.clone(), ui);
+         });
+      });
+   }
+
+   assert_eq!(
+      focused_node(&ctx, &nodes).label(),
+      Some("Dismiss")
+   );
+}
+
+/// The character an Alt chord can produce on X11 goes with the key, not into the field.
+#[test]
+fn an_alt_digit_does_not_type_into_a_focused_field() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+
+   let id = Id::unique("shortcut_probe");
+   let mut text = String::new();
+
+   frame_nodes(&ctx, Vec::new(), |ui| {
+      ui.add(egui::TextEdit::singleline(&mut text).id(id));
+      ui.memory_mut(|memory| memory.request_focus(id));
+   });
+
+   frame_nodes(
+      &ctx,
+      vec![
+         key_combo(Key::Num2, Modifiers::ALT),
+         Event::Text("2".to_string()),
+      ],
+      |ui| {
+         zeus.write(|zeus| crate::gui::ui::shortcuts::handle(&mut gui, zeus, ui.ctx()));
+         ui.add(egui::TextEdit::singleline(&mut text).id(id));
+      },
+   );
+
+   assert_eq!(text, "");
+   assert!(gui.send_crypto.is_open());
+}
+
+/// Ctrl+Enter asks the Send page to press its own button; it never signs anything itself.
+#[test]
+fn ctrl_enter_asks_the_send_page_to_press_its_own_button() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+   gui.send_crypto.open();
+
+   frame_nodes(
+      &ctx,
+      vec![key_combo(Key::Enter, Modifiers::COMMAND)],
+      |ui| {
+         zeus.write(|zeus| crate::gui::ui::shortcuts::handle(&mut gui, zeus, ui.ctx()));
+      },
+   );
+
+   assert!(gui.send_crypto.send_requested());
+}
+
+/// On any other page the same key is not a Send.
+#[test]
+fn ctrl_enter_on_another_page_does_not_press_send() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+
+   frame_nodes(
+      &ctx,
+      vec![key_combo(Key::Enter, Modifiers::COMMAND)],
+      |ui| {
+         zeus.write(|zeus| crate::gui::ui::shortcuts::handle(&mut gui, zeus, ui.ctx()));
+      },
+   );
+
+   assert!(!gui.send_crypto.send_requested());
 }
 
 /// Draw the receive window with the button that opened it beside it, in the same frame, so the

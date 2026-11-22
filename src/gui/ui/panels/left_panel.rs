@@ -1,7 +1,7 @@
 use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::gui::{
-   GUI,
+   FocusRegion, GUI, Page,
    ui::{
       common::{address::name_address, wallet_identity},
       dapps::railgun::RailgunMode,
@@ -15,8 +15,14 @@ use std::sync::Arc;
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let privacy_mode = ctx.privacy_mode;
-   let chain_id = ctx.chain.id();
    let icons = gui.icons.clone();
+
+   // Taken before the theme borrow: the card the focus belongs to is drawn next, and the
+   // region request is gone by the time it draws.
+   if gui.take_region_focus(FocusRegion::Account) {
+      gui.account_panel.focus_address();
+   }
+
    let theme = &gui.theme;
    let nav_spacing = theme.spacing.xs;
 
@@ -41,22 +47,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       nav_plate(
          gui,
          ctx,
+         Page::Home,
          "Home",
          Some(Lucide::House),
          is_open,
-         |gui, ctx| {
-            gui.portofolio.open();
-            gui.uniswap.close();
-            gui.send_crypto.close();
-
-            gui.wallet_ui.close();
-            gui.tx_history.close(ctx);
-            gui.across_bridge.close();
-            #[cfg(feature = "dev")]
-            gui.dev.close();
-            gui.shield_ui.close();
-            gui.approvals.close();
-         },
          ui,
       );
 
@@ -64,25 +58,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       nav_plate(
          gui,
          ctx,
+         Page::Send,
          "Send",
          Some(Lucide::Send),
          is_open,
-         |gui, ctx| {
-            gui.send_crypto.open();
-            gui.send_crypto.default_currency(privacy_mode, chain_id);
-            gui.uniswap.close();
-            gui.portofolio.close();
-
-            gui.wallet_ui.close();
-            gui.tx_history.close(ctx);
-            gui.across_bridge.close();
-            #[cfg(feature = "dev")]
-            gui.dev.close();
-            // This is shared, so reset it to avoid any issues
-            gui.recipient_selection.reset();
-            gui.shield_ui.close();
-            gui.approvals.close();
-         },
          ui,
       );
 
@@ -90,11 +69,6 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       let title = match privacy_mode {
          false => "Shield",
          true => "Unshield",
-      };
-
-      let mode = match privacy_mode {
-         false => RailgunMode::Shield,
-         true => RailgunMode::Unshield,
       };
 
       let icon = match privacy_mode {
@@ -105,24 +79,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       let response = nav_plate(
          gui,
          ctx,
+         Page::Shield,
          title,
          Some(icon),
          is_open,
-         |gui, ctx| {
-            gui.shield_ui.open(mode);
-            gui.portofolio.close();
-            gui.uniswap.close();
-            gui.send_crypto.close();
-
-            gui.wallet_ui.close();
-            gui.tx_history.close(ctx);
-            gui.across_bridge.close();
-            #[cfg(feature = "dev")]
-            gui.dev.close();
-            // This is shared, so reset it to avoid any issues
-            gui.recipient_selection.reset();
-            gui.approvals.close();
-         },
          ui,
       );
 
@@ -140,22 +100,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       nav_plate(
          gui,
          ctx,
+         Page::Swap,
          "Swap",
          Some(Lucide::RefreshCcwDot),
          is_open,
-         |gui, ctx| {
-            gui.uniswap.open();
-            gui.portofolio.close();
-            gui.send_crypto.close();
-
-            gui.wallet_ui.close();
-            gui.tx_history.close(ctx);
-            gui.across_bridge.close();
-            #[cfg(feature = "dev")]
-            gui.dev.close();
-            gui.shield_ui.close();
-            gui.approvals.close();
-         },
          ui,
       );
 
@@ -163,24 +111,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       nav_plate(
          gui,
          ctx,
+         Page::Bridge,
          "Bridge",
          Some(Lucide::SendToBack),
          is_open,
-         |gui, ctx| {
-            gui.across_bridge.open();
-            gui.portofolio.close();
-            gui.uniswap.close();
-            gui.send_crypto.close();
-
-            gui.wallet_ui.close();
-            gui.tx_history.close(ctx);
-            // This is shared, so reset it to avoid any issues
-            gui.recipient_selection.reset();
-            #[cfg(feature = "dev")]
-            gui.dev.close();
-            gui.shield_ui.close();
-            gui.approvals.close();
-         },
          ui,
       );
 
@@ -188,22 +122,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       nav_plate(
          gui,
          ctx,
+         Page::Wallets,
          "Wallets",
          Some(Lucide::Wallet),
          is_open,
-         |gui, ctx| {
-            gui.wallet_ui.open();
-            gui.portofolio.close();
-            gui.uniswap.close();
-            gui.send_crypto.close();
-
-            gui.tx_history.close(ctx);
-            gui.across_bridge.close();
-            #[cfg(feature = "dev")]
-            gui.dev.close();
-            gui.shield_ui.close();
-            gui.approvals.close();
-         },
          ui,
       );
 
@@ -211,22 +133,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       nav_plate(
          gui,
          ctx,
+         Page::Transactions,
          "Transactions",
          Some(Lucide::Archive),
          is_open,
-         |gui, _ctx| {
-            gui.tx_history.open();
-            gui.portofolio.close();
-            gui.uniswap.close();
-            gui.send_crypto.close();
-
-            gui.wallet_ui.close();
-            gui.across_bridge.close();
-            #[cfg(feature = "dev")]
-            gui.dev.close();
-            gui.shield_ui.close();
-            gui.approvals.close();
-         },
          ui,
       );
 
@@ -234,22 +144,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       nav_plate(
          gui,
          ctx,
+         Page::Approvals,
          "Approvals",
          Some(Lucide::KeyRound),
          is_open,
-         |gui, ctx| {
-            gui.approvals.open();
-            gui.portofolio.close();
-            gui.uniswap.close();
-            gui.send_crypto.close();
-
-            gui.wallet_ui.close();
-            gui.tx_history.close(ctx);
-            gui.across_bridge.close();
-            #[cfg(feature = "dev")]
-            gui.dev.close();
-            gui.shield_ui.close();
-         },
          ui,
       );
 
@@ -260,12 +158,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       let plate = nav_plate(
          gui,
          ctx,
+         Page::Settings,
          "Settings",
          Some(Lucide::Settings),
          is_open,
-         |gui, ctx| {
-            gui.settings.open(ctx, &mut gui.appearance_settings);
-         },
          ui,
       );
 
@@ -278,37 +174,96 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       nav_plate(
          gui,
          ctx,
+         Page::ConnectedDapps,
          "Connected Dapps",
          Some(Lucide::Link),
          false,
-         |gui, _ctx| {
-            gui.connected_dapps.open();
-         },
          ui,
       );
 
       #[cfg(feature = "dev")]
-      nav_plate(
-         gui,
-         ctx,
-         "Dev UI",
-         None,
-         false,
-         |gui, ctx| {
-            gui.dev.open();
-            gui.portofolio.close();
-            gui.uniswap.close();
-            gui.send_crypto.close();
-            gui.wallet_ui.close();
-            gui.tx_history.close(ctx);
-            gui.across_bridge.close();
-
-            gui.shield_ui.close();
-            gui.approvals.close();
-         },
-         ui,
-      );
+      nav_plate(gui, ctx, Page::Dev, "Dev UI", None, false, ui);
    });
+}
+
+/// Open a page and close the page bodies the nav closes when it moves.
+///
+/// The nav plate and the `Alt` digit shortcuts both call this, so a page opened with a key is the
+/// page a pointer click would open: same state, same reset. Settings and Connected Dapps are the
+/// two that open over the page in front and close on their own, so they close nothing.
+pub fn open_page(gui: &mut GUI, ctx: &mut ZeusContext, page: Page) {
+   if !matches!(page, Page::Settings | Page::ConnectedDapps) {
+      close_other_pages(gui, ctx, page);
+   }
+
+   let privacy_mode = ctx.privacy_mode;
+
+   match page {
+      Page::Home => gui.portofolio.open(),
+      Page::Send => {
+         gui.send_crypto.open();
+         gui.send_crypto.default_currency(privacy_mode, ctx.chain.id());
+         // This is shared, so reset it to avoid any issues.
+         gui.recipient_selection.reset();
+      }
+      Page::Shield => {
+         let mode = match privacy_mode {
+            false => RailgunMode::Shield,
+            true => RailgunMode::Unshield,
+         };
+
+         gui.shield_ui.open(mode);
+         // This is shared, so reset it to avoid any issues.
+         gui.recipient_selection.reset();
+      }
+      Page::Swap => gui.uniswap.open(),
+      Page::Bridge => {
+         gui.across_bridge.open();
+         // This is shared, so reset it to avoid any issues.
+         gui.recipient_selection.reset();
+      }
+      Page::Wallets => gui.wallet_ui.open(),
+      Page::Transactions => gui.tx_history.open(),
+      Page::Approvals => gui.approvals.open(),
+      Page::Settings => gui.settings.open(ctx, &mut gui.appearance_settings),
+      Page::ConnectedDapps => gui.connected_dapps.open(),
+      Page::Dev => {
+         #[cfg(feature = "dev")]
+         gui.dev.open();
+      }
+   }
+}
+
+/// Close every page body except the one `keep` is about to open.
+fn close_other_pages(gui: &mut GUI, ctx: &mut ZeusContext, keep: Page) {
+   if keep != Page::Home {
+      gui.portofolio.close();
+   }
+   if keep != Page::Send {
+      gui.send_crypto.close();
+   }
+   if keep != Page::Shield {
+      gui.shield_ui.close();
+   }
+   if keep != Page::Swap {
+      gui.uniswap.close();
+   }
+   if keep != Page::Bridge {
+      gui.across_bridge.close();
+   }
+   if keep != Page::Wallets {
+      gui.wallet_ui.close();
+   }
+   if keep != Page::Transactions {
+      gui.tx_history.close(ctx);
+   }
+   if keep != Page::Approvals {
+      gui.approvals.close();
+   }
+   #[cfg(feature = "dev")]
+   if keep != Page::Dev {
+      gui.dev.close();
+   }
 }
 
 /// One nav entry: a plate that carries the entry's role, name and selected state itself.
@@ -321,10 +276,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 fn nav_plate(
    gui: &mut GUI,
    ctx: &mut ZeusContext,
+   page: Page,
    text: &str,
    icon: Option<Lucide>,
    selected: bool,
-   on_click: impl FnOnce(&mut GUI, &mut ZeusContext),
    ui: &mut Ui,
 ) -> Response {
    let theme = &gui.theme;
@@ -374,7 +329,12 @@ fn nav_plate(
    ui.ctx().accesskit_node_builder(content.id, |node| node.set_hidden());
 
    if response.clicked() {
-      on_click(gui, ctx);
+      open_page(gui, ctx, page);
+   }
+
+   // A region shortcut lands on the plate of the page in front, the way Tab reaches it.
+   if page == gui.current_page() && gui.take_region_focus(FocusRegion::Navigation) {
+      response.request_focus();
    }
 
    response

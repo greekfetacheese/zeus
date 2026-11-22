@@ -39,6 +39,10 @@ pub struct ExportKeyUi {
 }
 
 impl ExportKeyUi {
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
    pub fn new() -> Self {
       let form_size = vec2(550.0 * 0.6, 20.0);
       let credentials_form =

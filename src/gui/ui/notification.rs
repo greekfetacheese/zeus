@@ -61,6 +61,8 @@ pub struct Notification {
    notice: Option<String>,
    // whether it has already said that sentence, so a transition is never spoken twice
    announced: bool,
+   // whether a shortcut asked for the window's first control and it has not taken it yet
+   focus_pending: bool,
 }
 
 impl Notification {
@@ -76,6 +78,7 @@ impl Notification {
          size: (500.0, 100.0),
          notice: None,
          announced: false,
+         focus_pending: false,
       }
    }
 
@@ -121,6 +124,20 @@ impl Notification {
    /// The one sentence this window should say, drained by the panel that draws it.
    pub fn take_notice(&mut self) -> Option<String> {
       self.notice.take()
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   /// Ask the window's first control to take the focus when it next draws.
+   ///
+   /// A closed window has nothing to focus, so the request is dropped instead of firing when a
+   /// later notification happens to open.
+   pub fn request_focus(&mut self) {
+      if self.open {
+         self.focus_pending = true;
+      }
    }
 
    pub fn show(&mut self, ctx: &ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -220,6 +237,9 @@ impl Notification {
    ) {
       let bar_width = self.size.0 / 2.0;
       let bar_color = theme.colors.text;
+      // Details is the useful action when there is a transaction behind the window; Dismiss is
+      // the only one otherwise.
+      let focus = std::mem::take(&mut self.focus_pending);
 
       let now = TimeStamp::now_as_millis().unwrap_or_default().timestamp();
       let start = self.start_on;
@@ -249,6 +269,10 @@ impl Notification {
 
             let details = ui.add_enabled(self.tx.is_some(), button);
 
+            if focus && self.tx.is_some() {
+               details.request_focus();
+            }
+
             if details.clicked() {
                let tx = self.tx.take();
                // The dialog is drawn over this notification and hands the focus back here when
@@ -264,7 +288,7 @@ impl Notification {
             // The window sets its horizontal item spacing to zero, so the pair is spaced by hand.
             ui.add_space(theme.spacing.sm);
 
-            if dismiss_button(theme, ui) {
+            if dismiss_button(theme, ui, focus && self.tx.is_none()) {
                self.reset();
             }
          });
@@ -293,7 +317,7 @@ impl Notification {
          ui.add(Spinner::new().size(20.0));
 
          // Alone on screen this variant had no way out at all: the same Dismiss the mined window has.
-         if dismiss_button(theme, ui) {
+         if dismiss_button(theme, ui, std::mem::take(&mut self.focus_pending)) {
             self.reset();
          }
       });
@@ -927,11 +951,16 @@ fn transition(title: &str, with_progress_bar: bool) -> String {
 
 /// The close control both variants draw. Its node is named by the drawn word, so a reader hears a
 /// button called "Dismiss".
-fn dismiss_button(theme: &Theme, ui: &mut Ui) -> bool {
+fn dismiss_button(theme: &Theme, ui: &mut Ui, focus: bool) -> bool {
    let text = RichText::new("Dismiss").size(theme.typography.normal);
    let button = Button::new(text).visuals(theme.button_visuals());
 
-   ui.add(button).clicked()
+   let response = ui.add(button);
+   if focus {
+      response.request_focus();
+   }
+
+   response.clicked()
 }
 
 /// Cap displayed amounts at 10 characters (same as AmountField / portfolio).

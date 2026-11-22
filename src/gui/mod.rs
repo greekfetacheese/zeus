@@ -112,6 +112,22 @@ impl Page {
    }
 }
 
+/// A part of the main window a keyboard shortcut can move directly to.
+///
+/// F6 walks these in the order they are declared — the account card, the nav, the page and the
+/// notification — and a region with nothing to focus is skipped.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FocusRegion {
+   /// The account card: the wallet selector and the address a reader copies from.
+   Account,
+   /// The nav plates.
+   Navigation,
+   /// The page the central panel is showing.
+   Main,
+   /// The open notification.
+   Status,
+}
+
 pub struct GUI {
    pub egui_ctx: Context,
    /// Set by `bring_to_front` (a worker thread) and consumed once by `ZeusApp::logic`,
@@ -166,6 +182,13 @@ pub struct GUI {
    /// `None` means the next pass's heading takes focus, which is what unlocking asks for: the
    /// lock clears it, so the Home heading is focused when the page appears again.
    last_page: Option<Page>,
+   /// A region a shortcut asked for this frame; the panel that owns it takes it as it draws.
+   pending_region: Option<FocusRegion>,
+   /// The region the last region shortcut landed in, so the next press moves on from there.
+   ///
+   /// It starts at the page, where the focus is on the first frame: the heading takes it when
+   /// the window opens.
+   focus_region: FocusRegion,
    /// The pending announcement; the last `announce` of a frame wins.
    announcement: String,
    /// Keeps the live `Status` node in the tree between frames: a node created together
@@ -261,6 +284,8 @@ impl GUI {
          at_active: false,
          lockout_notice_held: false,
          last_page: None,
+         pending_region: None,
+         focus_region: FocusRegion::Main,
          announcement: String::new(),
          announcer: Announcer::new("zeus"),
          last_status_pill: None,
@@ -521,6 +546,32 @@ impl GUI {
          return Page::Dev;
       }
       Page::Home
+   }
+
+   /// Ask the panel that owns `region` to move the focus onto its first control this frame.
+   pub fn request_region_focus(&mut self, region: FocusRegion) {
+      self.pending_region = Some(region);
+      self.focus_region = region;
+   }
+
+   /// Take this frame's request for `region`, if that is the one a shortcut asked for.
+   pub fn take_region_focus(&mut self, region: FocusRegion) -> bool {
+      if self.pending_region != Some(region) {
+         return false;
+      }
+
+      self.pending_region = None;
+      true
+   }
+
+   /// Drop a request that no panel took this frame.
+   pub fn clear_region_focus(&mut self) {
+      self.pending_region = None;
+   }
+
+   /// The region the last region shortcut landed in.
+   pub fn last_focus_region(&self) -> FocusRegion {
+      self.focus_region
    }
 
    pub fn should_show_right_panel(&self) -> bool {
