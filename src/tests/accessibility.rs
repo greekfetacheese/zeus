@@ -11302,6 +11302,36 @@ fn ctrl_k_lists_every_command() {
    );
 }
 
+/// The chord that opened the palette is the chord that closes it, so a user who moves that key is
+/// not left with a dialog only the old key leaves.
+#[test]
+fn the_chord_that_opened_the_palette_closes_it() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+   wallet_in_cache(&zeus);
+
+   gui.keymap
+      .set(
+         ShortcutAction::OpenPalette,
+         Binding::new(Key::P, Chord::Alt),
+      )
+      .expect("Alt+P is a free chord");
+
+   press_shortcut(&ctx, &mut gui, &zeus, Key::P, Modifiers::ALT);
+
+   assert!(
+      gui.palette.is_open(),
+      "the chord the user chose must open it"
+   );
+
+   press_shortcut(&ctx, &mut gui, &zeus, Key::P, Modifiers::ALT);
+
+   assert!(
+      !gui.palette.is_open(),
+      "the same chord must close it"
+   );
+}
+
 /// Escape closes the palette the way it closes every other dialog.
 #[test]
 fn escape_puts_the_palette_away() {

@@ -133,8 +133,11 @@ pub fn handle(gui: &mut GUI, ctx: &mut ZeusContext, egui_ctx: &Context) {
 /// `Enter` is taken only while the filter field has the focus: a row reached with `Tab` keeps the
 /// `Enter` egui gives it, which is how a reader presses the row they are on.
 fn palette_keys(gui: &mut GUI, egui_ctx: &Context) {
-   // The key that opened the palette puts it away, whichever row has the focus.
-   if take_key(egui_ctx, Key::K, Chord::Command) {
+   // The chord that opens the palette is the chord that puts it away, whichever row has the focus:
+   // a user who moved the key has not been left with a way out that only the default answers.
+   let opener = gui.keymap.binding(Action::OpenPalette);
+
+   if take_key(egui_ctx, opener.key, opener.chord) {
       gui.palette.close();
       return;
    }
