@@ -336,6 +336,12 @@ pub fn name_text(ui: &Ui, response: &Response, text: impl Into<String>) {
 /// writing the three out leaves a moment to put the focus back before the final registration, which
 /// is the one that makes the row focusable again.
 ///
+/// That final registration happens *after* the contents, and egui walks the focus in the order the
+/// widgets ask for it: the row's own controls — the options button, the copy button — would take
+/// every Tab a step before the row itself, so a keyboard user reaches the settings of the thing
+/// before the thing. The row therefore asks for the focus here, between `begin` and the contents,
+/// and the buttons inside it follow it in the order they are drawn.
+///
 /// `covered` is the ids of the nodes the contents added for words the row's own name already says:
 /// they are hidden, so a reader hears the row once instead of once per label inside it.
 pub fn clickable_row(
@@ -348,11 +354,22 @@ pub fn clickable_row(
 ) -> Response {
    let focused_before = ui.ctx().memory(|memory| memory.focused());
 
+   // Read before `begin` takes the frame: a row that cannot take a click cannot take a Tab either,
+   // and pre-registering it would leave a focus stop that does nothing.
+   let focusable = frame.sense.is_focusable();
+
    let mut row = frame.begin(ui);
    let id = ui.next_auto_id();
 
    if focused_before == Some(id) {
       ui.ctx().memory_mut(|memory| memory.request_focus(id));
+   }
+
+   // Ahead of the contents, so Tab reaches the row before the buttons drawn inside it. The frame's
+   // own registration at `end` only fills in the rect by now.
+   if focusable {
+      let layer_id = ui.layer_id();
+      ui.ctx().memory_mut(|memory| memory.interested_in_focus(id, layer_id));
    }
 
    let covered = add_contents(&mut row.content_ui);

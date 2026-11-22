@@ -155,6 +155,22 @@ fn button_names(nodes: &[Node]) -> Vec<&str> {
       .collect()
 }
 
+/// The id of the widget the keyboard is on, the way a reader addresses it.
+fn focused_id(ctx: &Context) -> Option<NodeId> {
+   ctx.memory(|memory| memory.focused()).map(|id| id.accesskit_id())
+}
+
+/// The name a reader would hear for one node of the frame that drew it.
+fn named(nodes: &[(NodeId, Node)], id: Option<NodeId>) -> Option<String> {
+   let id = id?;
+
+   nodes
+      .iter()
+      .find(|(node_id, _)| *node_id == id)
+      .and_then(|(_, node)| node.label())
+      .map(str::to_string)
+}
+
 /// The main window with no wallet open behind it: the nav and the page heading draw, while the
 /// pages they navigate to stay closed. Nothing here needs a vault, an RPC or an icon.
 fn main_window() -> (Context, GUI, ZeusCtx) {
@@ -3675,6 +3691,104 @@ fn the_token_picker_says_each_rows_place_and_the_lists_size() {
    }
 }
 
+/// Tab from the search field lands on the first token's row, not on the options button inside it:
+/// the row is the control that picks a token, and its options come after it. Enter on the row takes
+/// that token.
+#[test]
+fn tab_reaches_a_token_row_before_its_options_and_enter_picks_it() {
+   let _turn = shared_gui_turn();
+   let ctx = Context::default();
+   let rows = picker_rows();
+
+   let nodes = open_picker(&ctx, &rows);
+
+   let field = nodes
+      .iter()
+      .find(|(_, node)| is_text_input(node.role()))
+      .map(|(id, _)| *id)
+      .expect("the picker must draw its search field");
+
+   render_picker(
+      &ctx,
+      &rows,
+      vec![accesskit_action(Action::Focus, field)],
+   );
+
+   assert_eq!(
+      focused_id(&ctx),
+      Some(field),
+      "the search field takes the focus the test gives it"
+   );
+
+   let nodes = render_picker(&ctx, &rows, vec![key_press(Key::Tab)]);
+   let focused = focused_id(&ctx);
+
+   let row = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some(USDC_ROW))
+      .map(|(id, _)| *id)
+      .expect("the USDC row must be in the tree");
+
+   assert_eq!(
+      focused,
+      Some(row),
+      "Tab from the search field must reach the row itself, not the options button inside it: \
+       {:?}",
+      named(&nodes, focused)
+   );
+
+   let nodes = render_picker(&ctx, &rows, vec![key_press(Key::Tab)]);
+   let focused = focused_id(&ctx);
+
+   let options = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some(USDC_OPTIONS))
+      .map(|(id, _)| *id)
+      .expect("the USDC options button must be in the tree");
+
+   assert_eq!(
+      focused,
+      Some(options),
+      "the row's options are the control after the row, not before it: {:?}",
+      named(&nodes, focused)
+   );
+
+   // The two are neighbours, so Shift+Tab walks back onto the row. A backwards move is handed to
+   // the next frame, so the press and the frame after it are both part of the same step.
+   render_picker(
+      &ctx,
+      &rows,
+      vec![key_combo(Key::Tab, Modifiers::SHIFT)],
+   );
+   let nodes = render_picker(&ctx, &rows, Vec::new());
+
+   assert_eq!(
+      focused_id(&ctx),
+      Some(row),
+      "Shift+Tab from the options must land back on the row: {:?}",
+      named(&nodes, focused_id(&ctx))
+   );
+
+   // The row takes the keyboard back, and Enter picks it.
+   render_picker(
+      &ctx,
+      &rows,
+      vec![accesskit_action(Action::Focus, row)],
+   );
+   render_picker(&ctx, &rows, vec![key_press(Key::Enter)]);
+
+   assert_eq!(
+      picked_symbol().as_deref(),
+      Some("USDC"),
+      "Enter on the focused row must pick that token"
+   );
+
+   assert!(
+      !crate::gui::SHARED_GUI.read(|gui| gui.token_selection.is_open()),
+      "picking a token closes the picker"
+   );
+}
+
 /// The contacts page wraps its rows in a `Frame`, so the rows' container is that frame's own
 /// `Ui` node. The place and the size still land on the nodes that carry the list.
 #[test]
@@ -4342,6 +4456,76 @@ fn a_contact_row_takes_focus_and_enter_picks_it() {
       picked_recipient_address(),
       PICKER_CONTACT_ADDRESS,
       "Enter on the focused row must pick that contact"
+   );
+}
+
+/// Tab walks the contact row before the copy button inside it: the row is the control that picks
+/// the recipient, and the button only hands its address over. Enter on the row picks it.
+#[test]
+fn tab_reaches_a_contact_row_before_its_copy_button_and_enter_picks_it() {
+   let _turn = shared_gui_turn();
+   let ctx = Context::default();
+
+   let nodes = open_recipient_picker(
+      &ctx,
+      false,
+      &[(PICKER_CONTACT, PICKER_CONTACT_ADDRESS)],
+   );
+
+   let field = nodes
+      .iter()
+      .find(|(_, node)| is_text_input(node.role()))
+      .map(|(id, _)| *id)
+      .expect("the picker must draw its search field");
+
+   render_recipient_picker(
+      &ctx,
+      false,
+      vec![accesskit_action(Action::Focus, field)],
+   );
+
+   assert_eq!(
+      focused_id(&ctx),
+      Some(field),
+      "the search field takes the focus the test gives it"
+   );
+
+   let row_name = contact_row_name(PICKER_CONTACT, PICKER_CONTACT_SPOKEN);
+   let copy_name = format!("Copy address of {PICKER_CONTACT}");
+
+   // The row and its copy button are both buttons in the list, so whichever Tab reaches first is
+   // the one a reader can use without a detour.
+   let mut first_list_control = None;
+
+   for _ in 0..8 {
+      let nodes = render_recipient_picker(&ctx, false, vec![key_press(Key::Tab)]);
+      let Some(focused) = focused_id(&ctx) else {
+         break;
+      };
+
+      let label = named(&nodes, Some(focused));
+
+      if label.as_deref() == Some(row_name.as_str()) || label.as_deref() == Some(copy_name.as_str())
+      {
+         first_list_control = Some((focused, label));
+         break;
+      }
+   }
+
+   let (_, label) = first_list_control.expect("Tab must reach the contact list");
+
+   assert_eq!(
+      label.as_deref(),
+      Some(row_name.as_str()),
+      "Tab must reach the row itself, before the copy button inside it"
+   );
+
+   render_recipient_picker(&ctx, false, vec![key_press(Key::Enter)]);
+
+   assert_eq!(
+      picked_recipient_address(),
+      PICKER_CONTACT_ADDRESS,
+      "Enter on the row must pick that contact"
    );
 }
 
