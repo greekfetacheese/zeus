@@ -7,6 +7,7 @@ use crate::core::{
 };
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::common;
+use crate::gui::ui::common::FocusHome;
 use crate::gui::ui::common::address::{address_for_speech, copied_words};
 use crate::gui::ui::common::clickable_row;
 use crate::gui::ui::common::place_in_list;
@@ -80,6 +81,8 @@ const SEARCH_ICON: f32 = 18.0;
 
 pub struct RecipientSelectionWindow {
    open: bool,
+   /// Where the keyboard goes when the picker closes: back to the control it was opened from.
+   focus_home: FocusHome,
    /// Set when the window opens, and spent on the first frame the search field is drawn: someone
    /// who opens the picker to paste an address is going there, not to whatever the layout draws
    /// first.
@@ -124,6 +127,7 @@ impl RecipientSelectionWindow {
    pub fn new() -> Self {
       Self {
          open: false,
+         focus_home: FocusHome::default(),
          focus_search: false,
          loading: false,
          tab: 0,
@@ -164,6 +168,8 @@ impl RecipientSelectionWindow {
 
    pub fn open(&mut self) {
       self.open = true;
+      // A new opening records its own opener: the control this one is being opened from.
+      self.focus_home = FocusHome::default();
       self.focus_search = true;
       self.calc_wallet_value();
    }
@@ -319,9 +325,20 @@ impl RecipientSelectionWindow {
    ) {
       let mut open = self.open;
 
+      // A closed picker hands the keyboard back to the control it was opened from, once the dialog
+      // layer it left behind has gone — a focus given to that control while the layer is still in
+      // force is withdrawn by the control's own registration.
+      if let Some(opener) = self.focus_home.take_closing(ui) {
+         ui.ctx().memory_mut(|memory| memory.request_focus(opener));
+
+         return;
+      }
+
       if !open {
          return;
       }
+
+      self.focus_home.note(ui);
 
       let mut close_window = false;
 
@@ -337,6 +354,7 @@ impl RecipientSelectionWindow {
          self.recipient = Recipient::from_contact(contact);
 
          contacts_ui.add_contact.reset();
+         self.focus_home.close();
          self.close();
       }
 
@@ -819,6 +837,7 @@ impl RecipientSelectionWindow {
          if self.adding_contact {
             contacts_ui.add_contact.reset();
          }
+         self.focus_home.close();
          self.close();
       }
    }

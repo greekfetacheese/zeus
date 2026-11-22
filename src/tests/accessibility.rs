@@ -3789,6 +3789,126 @@ fn tab_reaches_a_token_row_before_its_options_and_enter_picks_it() {
    );
 }
 
+/// Draw a stand-in for the token button these pickers are opened from, then the picker itself.
+///
+/// The button is drawn first, the way a form draws its own token row before the frame draws the
+/// picker, and `open` lets the click handler open the picker on the frame the button is used.
+/// Returns the button's id: the control the keyboard comes from and has to go back to.
+fn render_picker_from_button(
+   ctx: &Context,
+   rows: &[(Currency, NumericValue, NumericValue)],
+   events: Vec<Event>,
+   open: bool,
+) -> (Vec<(NodeId, Node)>, Id) {
+   let rows = rows.to_vec();
+   let mut opener = None;
+
+   let nodes = frame_nodes(ctx, events, |ui| {
+      let button = ui.add(egui::Button::new("Select token"));
+      opener = Some(button.id);
+
+      let clicked = button.clicked();
+
+      crate::gui::SHARED_GUI.write(|gui| {
+         if open && clicked {
+            gui.token_selection.open(false, 1, Address::from([0x00; 20]));
+         }
+
+         gui.token_selection.set_processed_currencies(rows.clone());
+
+         let theme = gui.theme.clone();
+         let icons = gui.icons.clone();
+         let zeus = gui.ctx.clone();
+         let picker = &mut gui.token_selection;
+
+         zeus.write(|zeus| {
+            picker.show(
+               zeus,
+               &theme,
+               icons,
+               1,
+               Address::from([0x00; 20]),
+               ui,
+            )
+         });
+      });
+   });
+
+   (
+      nodes,
+      opener.expect("the button must be in the frame"),
+   )
+}
+
+/// A pick closes the picker from inside its own body, and the keyboard goes back to the control it
+/// came from. Without that the focus is left on nothing, so the next Tab starts at the top of the
+/// window — the account panel's own tabs — instead of where the user was.
+#[test]
+fn picking_a_token_returns_the_focus_to_the_control_that_opened_the_picker() {
+   let _turn = shared_gui_turn();
+   let ctx = Context::default();
+   let rows = picker_rows();
+
+   // The shared picker holds whatever another test left it with; this one starts from closed.
+   crate::gui::SHARED_GUI.write(|gui| {
+      gui.token_selection.close();
+      gui.token_selection.search_query.clear();
+   });
+
+   let (_, opener) = render_picker_from_button(&ctx, &rows, Vec::new(), false);
+
+   ctx.memory_mut(|memory| memory.request_focus(opener));
+   render_picker_from_button(&ctx, &rows, Vec::new(), false);
+
+   assert_eq!(
+      focused_id(&ctx),
+      Some(opener.accesskit_id()),
+      "the stand-in button holds the keyboard the picker is opened from"
+   );
+
+   // Enter on the button opens the picker, the way the form's own handler does.
+   render_picker_from_button(&ctx, &rows, vec![key_press(Key::Enter)], true);
+
+   // The list lands a frame or two after the opening, because it is fetched.
+   let mut row = None;
+
+   for _ in 0..300 {
+      let (nodes, _) = render_picker_from_button(&ctx, &rows, Vec::new(), true);
+
+      row = nodes
+         .iter()
+         .find(|(_, node)| node.role() == Role::Button && node.label() == Some(USDC_ROW))
+         .map(|(id, _)| *id);
+
+      if row.is_some() {
+         break;
+      }
+
+      std::thread::sleep(std::time::Duration::from_millis(10));
+   }
+
+   let row = row.expect("the picker must draw its list");
+
+   render_picker_from_button(
+      &ctx,
+      &rows,
+      vec![accesskit_action(Action::Focus, row)],
+      true,
+   );
+   render_picker_from_button(&ctx, &rows, vec![key_press(Key::Enter)], true);
+
+   // A picker closed from inside hands the keyboard back on the first pass the dialog layer no
+   // longer covers, which is the second frame after the pick.
+   render_picker_from_button(&ctx, &rows, Vec::new(), true);
+   render_picker_from_button(&ctx, &rows, Vec::new(), true);
+
+   assert_eq!(
+      focused_id(&ctx),
+      Some(opener.accesskit_id()),
+      "a pick must hand the keyboard back to the control the picker was opened from"
+   );
+}
+
 /// The contacts page wraps its rows in a `Frame`, so the rows' container is that frame's own
 /// `Ui` node. The place and the size still land on the nodes that carry the list.
 #[test]
@@ -4526,6 +4646,174 @@ fn tab_reaches_a_contact_row_before_its_copy_button_and_enter_picks_it() {
       picked_recipient_address(),
       PICKER_CONTACT_ADDRESS,
       "Enter on the row must pick that contact"
+   );
+}
+
+/// Tab walks the list: row, its copy button, the next row, its copy button. A row that asked for
+/// the focus a second time when its own frame closed takes the hand-off meant for the row after it,
+/// and the list becomes a two-stop loop between one row and its own button.
+#[test]
+fn tab_walks_a_recipient_list_row_by_row() {
+   let _turn = shared_gui_turn();
+   let ctx = Context::default();
+
+   let nodes = open_recipient_picker(
+      &ctx,
+      false,
+      &[
+         (PICKER_CONTACT, PICKER_CONTACT_ADDRESS),
+         (OTHER_CONTACT, OTHER_CONTACT_ADDRESS),
+      ],
+   );
+
+   let first_name = contact_row_name(PICKER_CONTACT, PICKER_CONTACT_SPOKEN);
+   let second_name = contact_row_name(OTHER_CONTACT, OTHER_CONTACT_SPOKEN);
+   let first_copy = format!("Copy address of {PICKER_CONTACT}");
+   let second_copy = format!("Copy address of {OTHER_CONTACT}");
+
+   let first = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some(first_name.as_str()))
+      .map(|(id, _)| *id)
+      .expect("the first contact row must be in the tree");
+
+   render_recipient_picker(
+      &ctx,
+      false,
+      vec![accesskit_action(Action::Focus, first)],
+   );
+
+   assert_eq!(
+      focused_id(&ctx),
+      Some(first),
+      "the first row takes the keyboard the test gives it"
+   );
+
+   let mut walked = Vec::new();
+
+   for _ in 0..3 {
+      let nodes = render_recipient_picker(&ctx, false, vec![key_press(Key::Tab)]);
+      walked.push(named(&nodes, focused_id(&ctx)));
+   }
+
+   assert_eq!(
+      walked,
+      vec![Some(first_copy), Some(second_name), Some(second_copy)],
+      "Tab must walk row, copy button, next row, copy button"
+   );
+}
+
+/// Draw the recipient picker the way the form does — the picker first, its own button after — and
+/// return the button's id: the control a keyboard comes from and has to go back to.
+fn render_recipient_from_field(
+   ctx: &Context,
+   events: Vec<Event>,
+   open: bool,
+) -> (Vec<(NodeId, Node)>, Id) {
+   let mut opener = None;
+
+   let nodes = frame_nodes(ctx, events, |ui| {
+      crate::gui::SHARED_GUI.write(|gui| {
+         let mut theme = gui.theme.clone();
+         theme.install(ctx);
+
+         let icons = gui.icons.clone();
+         let zeus = gui.ctx.clone();
+         let picker = &mut gui.recipient_selection;
+         let contacts_ui = &mut gui.settings.contacts_ui;
+
+         zeus.write(|zeus| {
+            picker.show(
+               zeus,
+               &theme,
+               icons,
+               false,
+               ChainId::Ethereum.id(),
+               contacts_ui,
+               ui,
+            )
+         });
+      });
+
+      let button = ui.add(egui::Button::new("Whom to"));
+      opener = Some(button.id);
+
+      if open && button.clicked() {
+         crate::gui::SHARED_GUI.write(|gui| gui.recipient_selection.open());
+      }
+   });
+
+   (
+      nodes,
+      opener.expect("the button must be in the frame"),
+   )
+}
+
+/// The picker is drawn before the field's own button — the form reads the recipient the picker
+/// wrote before it draws the row — so the keyboard it hands back has to wait for the dialog layer
+/// to clear: on the frame after the pick the button's own registration would withdraw it again.
+#[test]
+fn picking_a_recipient_returns_the_focus_to_the_field_it_was_opened_from() {
+   let _turn = shared_gui_turn();
+   let ctx = Context::default();
+
+   seed_contacts(&[(PICKER_CONTACT, PICKER_CONTACT_ADDRESS)]);
+
+   crate::gui::SHARED_GUI.write(|gui| {
+      gui.recipient_selection.reset();
+      // The shared surface keeps the tab another test left open; this one opens on Contacts.
+      gui.recipient_selection.reset_tab_for_test();
+      gui.recipient_selection.close();
+   });
+
+   let (_, opener) = render_recipient_from_field(&ctx, Vec::new(), false);
+
+   ctx.memory_mut(|memory| memory.request_focus(opener));
+   render_recipient_from_field(&ctx, Vec::new(), false);
+
+   assert_eq!(
+      focused_id(&ctx),
+      Some(opener.accesskit_id()),
+      "the stand-in button holds the keyboard the picker is opened from"
+   );
+
+   render_recipient_from_field(&ctx, vec![key_press(Key::Enter)], true);
+
+   let name = contact_row_name(PICKER_CONTACT, PICKER_CONTACT_SPOKEN);
+   let mut row = None;
+
+   for _ in 0..300 {
+      let (nodes, _) = render_recipient_from_field(&ctx, Vec::new(), true);
+
+      row = nodes
+         .iter()
+         .find(|(_, node)| node.role() == Role::Button && node.label() == Some(name.as_str()))
+         .map(|(id, _)| *id);
+
+      if row.is_some() {
+         break;
+      }
+
+      std::thread::sleep(std::time::Duration::from_millis(10));
+   }
+
+   let row = row.expect("the picker must draw its contact list");
+
+   render_recipient_from_field(
+      &ctx,
+      vec![accesskit_action(Action::Focus, row)],
+      true,
+   );
+   render_recipient_from_field(&ctx, vec![key_press(Key::Enter)], true);
+
+   // The hand-back waits for the dialog layer to clear, so it lands two frames after the pick.
+   render_recipient_from_field(&ctx, Vec::new(), true);
+   render_recipient_from_field(&ctx, Vec::new(), true);
+
+   assert_eq!(
+      focused_id(&ctx),
+      Some(opener.accesskit_id()),
+      "a pick must hand the keyboard back to the field it was opened from"
    );
 }
 

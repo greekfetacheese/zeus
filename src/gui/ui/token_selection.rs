@@ -7,6 +7,7 @@ use eframe::egui::{
 use crate::assets::icons::Icons;
 use crate::core::{ClientKind, ZeusContext, ZeusCtx};
 use crate::gui::ui::common::ConfirmWindowClaim;
+use crate::gui::ui::common::FocusHome;
 use crate::gui::ui::common::clickable_row;
 use crate::gui::ui::common::place_in_list;
 use crate::gui::ui::common::windows::authorising_prompt_busy;
@@ -206,6 +207,8 @@ fn token_row_value(balance: &NumericValue, value: &NumericValue) -> Option<Strin
 /// If a valid address is passed to the search bar, we can fetch the token from the blockchain if it exists
 pub struct TokenSelectionWindow {
    open: bool,
+   /// Where the keyboard goes when the picker closes: back to the control it was opened from.
+   focus_home: FocusHome,
    loading: bool,
    syncing_balances: bool,
    title: String,
@@ -327,6 +330,7 @@ impl TokenSelectionWindow {
    pub fn new() -> Self {
       Self {
          open: false,
+         focus_home: FocusHome::default(),
          loading: false,
          syncing_balances: false,
          title: "Select Token".to_string(),
@@ -358,6 +362,8 @@ impl TokenSelectionWindow {
 
    pub fn open(&mut self, privacy_mode: bool, chain_id: u64, owner: Address) {
       self.open = true;
+      // A new opening records its own opener: the control this one is being opened from.
+      self.focus_home = FocusHome::default();
       // Always open on the ERC-20 list, so the existing flows see exactly what they saw before; a
       // caller that wants NFTs opts in with `set_mode`.
       self.mode = PickerMode::Fungible;
@@ -622,9 +628,20 @@ impl TokenSelectionWindow {
    ) {
       let mut open = self.open;
 
+      // A closed picker hands the keyboard back to the control it was opened from, once the dialog
+      // layer it left behind has gone — a focus given to that control while the layer is still in
+      // force is withdrawn by the control's own registration.
+      if let Some(opener) = self.focus_home.take_closing(ui) {
+         ui.ctx().memory_mut(|memory| memory.request_focus(opener));
+
+         return;
+      }
+
       if !open {
          return;
       }
+
+      self.focus_home.note(ui);
 
       // Entering NFT mode loads the list once per opening; the switch row itself only flips `mode`.
       if self.mode == PickerMode::Nft {
@@ -1027,6 +1044,7 @@ impl TokenSelectionWindow {
          });
 
       if close_window || !open {
+         self.focus_home.close();
          self.close();
          self.clear_processed_currencies();
          self.clear_processed_nfts();

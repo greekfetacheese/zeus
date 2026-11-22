@@ -37,7 +37,9 @@ pub use windows::{ConfirmWindow, ConfirmWindowClaim, LoadingWindow, MsgWindow, U
 use crate::core::ZeusContext;
 use crate::gui::{SHARED_GUI, ui::dapps::railgun::RailgunMode};
 use crate::utils::TimeStamp;
-use egui::{Align, Id, Layout, Response, RichText, Role, Ui, Vec2, WidgetInfo, pos2, vec2};
+use egui::{
+   Align, FocusDirection, Id, Layout, Response, RichText, Role, Ui, Vec2, WidgetInfo, pos2, vec2,
+};
 use egui_elements::{Button, Frame, Switch, Theme, ToggleVisuals};
 use egui_lucide::Lucide;
 use std::time::{Duration, Instant};
@@ -342,6 +344,11 @@ pub fn name_text(ui: &Ui, response: &Response, text: impl Into<String>) {
 /// before the thing. The row therefore asks for the focus here, between `begin` and the contents,
 /// and the buttons inside it follow it in the order they are drawn.
 ///
+/// Asking twice has a price the second ask has to be watched for: it arrives while egui is handing
+/// the focus to the next widget, and can take that hand-off, which leaves Tab from a row's copy
+/// button coming back to the row instead of moving on. A row that did not hold the focus before the
+/// ask and holds it after it is exactly that case, and the hand-off is passed on there.
+///
 /// `covered` is the ids of the nodes the contents added for words the row's own name already says:
 /// they are hidden, so a reader hears the row once instead of once per label inside it.
 pub fn clickable_row(
@@ -357,6 +364,7 @@ pub fn clickable_row(
    // Read before `begin` takes the frame: a row that cannot take a click cannot take a Tab either,
    // and pre-registering it would leave a focus stop that does nothing.
    let focusable = frame.sense.is_focusable();
+   let layer_id = ui.layer_id();
 
    let mut row = frame.begin(ui);
    let id = ui.next_auto_id();
@@ -365,16 +373,28 @@ pub fn clickable_row(
       ui.ctx().memory_mut(|memory| memory.request_focus(id));
    }
 
-   // Ahead of the contents, so Tab reaches the row before the buttons drawn inside it. The frame's
-   // own registration at `end` only fills in the rect by now.
+   // Ahead of the contents, so Tab reaches the row before the buttons drawn inside it.
    if focusable {
-      let layer_id = ui.layer_id();
       ui.ctx().memory_mut(|memory| memory.interested_in_focus(id, layer_id));
    }
 
    let covered = add_contents(&mut row.content_ui);
 
+   // The frame asks for the focus again when it ends — a focusable widget has to, or it loses the
+   // focus it already had — and that ask arrives while egui is handing the focus to the next widget.
+   // It can take that hand-off, and Tab from a row's own button would then come back to the row
+   // instead of moving on to the next one. Holding the focus is the tell: a row that did not hold it
+   // before the ask and holds it after took the hand-off, and passes it on.
+   let held_before = ui.ctx().memory(|memory| memory.focused()) == Some(id);
    let response = row.end(ui);
+
+   if focusable && !held_before && ui.ctx().memory(|memory| memory.focused()) == Some(id) {
+      ui.ctx().memory_mut(|memory| {
+         memory.surrender_focus(id);
+         memory.move_focus(FocusDirection::Next);
+      });
+   }
+
    let name = name.into();
 
    response.widget_info(|| WidgetInfo::selected(Role::Button, ui.is_enabled(), selected, &name));
@@ -404,6 +424,57 @@ pub fn place_in_list(ui: &Ui, row_id: Id, index: usize, len: usize) {
 
    egui_ctx.accesskit_node_builder(ui.unique_id(), |node| node.set_size_of_set(len));
    egui_ctx.accesskit_node_builder(row_id, |node| node.set_position_in_set(index));
+}
+
+/// Where the keyboard goes when a picker closes: back to the control it was opened from.
+///
+/// A dialog takes the keyboard while it is up, so the control that opened it loses it — and a pick
+/// closes the picker from inside its own body, which is a close no dialog hands the focus back from
+/// on its own. The opener is recorded once per opening, and given the focus back on the first frame
+/// the dialog layer no longer covers: the layer outlives the close by a frame, and every widget
+/// drawn behind it withdraws a focus it is handed.
+#[derive(Default, Clone, Copy)]
+pub enum FocusHome {
+   /// Nothing recorded for this opening yet.
+   #[default]
+   Unrecorded,
+   /// What had the keyboard when the picker opened, if anything did.
+   Opened(Option<Id>),
+   /// The picker has closed; this control takes the keyboard back on the next frame.
+   Closing(Id),
+}
+
+impl FocusHome {
+   /// Note the control a picker is opened from. Only the first note of an opening counts: the dialog
+   /// takes the keyboard later in that same frame, and that must not become the home.
+   pub fn note(&mut self, ui: &Ui) {
+      if matches!(*self, Self::Unrecorded) {
+         *self = Self::Opened(ui.memory(|memory| memory.focused()));
+      }
+   }
+
+   /// The picker is closing: its opener takes the keyboard back once the dialog layer has gone.
+   pub fn close(&mut self) {
+      *self = match *self {
+         Self::Opened(Some(id)) => Self::Closing(id),
+         _ => Self::Unrecorded,
+      };
+   }
+
+   /// The control that takes the keyboard back now, once the dialog layer has gone.
+   ///
+   /// The layer outlives the frame a picker closes on — it is still in force on the frame after —
+   /// and every widget drawn behind it withdraws a focus it is handed, so the hand-back waits for
+   /// it to clear instead of racing it.
+   pub fn take_closing(&mut self, ui: &Ui) -> Option<Id> {
+      match *self {
+         Self::Closing(id) if ui.memory(|memory| memory.allows_interaction(ui.layer_id())) => {
+            *self = Self::Unrecorded;
+            Some(id)
+         }
+         _ => None,
+      }
+   }
 }
 
 #[cfg(test)]
