@@ -18,7 +18,7 @@ use lazy_static::lazy_static;
 
 pub use crate::gui::ui::{
    AccountPanel, ApprovalsUi, ConfirmWindow, LoadingWindow, LockScreen, MsgWindow, Notification,
-   PortfolioUi, RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi,
+   PortfolioUi, RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, ShortcutSheet,
    TokenSelectionWindow, TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
    common::dots_button,
    dapps::{
@@ -166,6 +166,8 @@ pub struct GUI {
    pub connected_dapps: ConnectedDappsUi,
    pub notification: Notification,
    pub update_window: UpdateWindow,
+   /// The `F1` sheet that lists every key the app answers.
+   pub shortcut_sheet: ShortcutSheet,
    /// Whether an assistive technology is attached.
    ///
    /// Sticky: once one has been seen the flag stays set, so prose stays reachable even
@@ -237,6 +239,7 @@ impl GUI {
       let connected_dapps = ConnectedDappsUi::new();
       let notification = Notification::new();
       let update_window = UpdateWindow::new();
+      let shortcut_sheet = ShortcutSheet::new();
       let fps_metrics = FPSMetrics::new();
       let uniswap = UniswapUi::new();
       let shield_ui = ShieldUi::new();
@@ -281,6 +284,7 @@ impl GUI {
          connected_dapps,
          notification,
          update_window,
+         shortcut_sheet,
          at_active: false,
          lockout_notice_held: false,
          last_page: None,
@@ -334,6 +338,7 @@ impl GUI {
       self.confirm_window.show(theme, ui);
       self.connect_dapp_window.show(theme, ui);
       self.update_window.show(theme, ui);
+      self.shortcut_sheet.show(theme, ui);
 
       // The connect prompt cannot announce from inside its own draw — the frame holds the only
       // channel — so its sentence comes back here and is said once, after the prompt has drawn.

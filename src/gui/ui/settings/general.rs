@@ -47,6 +47,8 @@ pub struct GeneralSettings {
    batch_size_for_updating_pools_state: usize,
    /// The words the last reset or save should say, drained by the window and announced by the app.
    notice: Option<String>,
+   /// Whether the shortcut button was pressed since the last draw.
+   shortcuts_requested: bool,
 }
 
 impl GeneralSettings {
@@ -62,6 +64,7 @@ impl GeneralSettings {
          batch_size_for_syncing_balances: 1,
          batch_size_for_updating_pools_state: 1,
          notice: None,
+         shortcuts_requested: false,
       };
       this.sync_from_ctx(ctx);
       this
@@ -113,12 +116,40 @@ impl GeneralSettings {
       self.notice.take()
    }
 
+   /// Whether the shortcut button was pressed since the last call.
+   ///
+   /// The page cannot put the sheet up itself — the frame draws it, over the window this page is
+   /// inside — so the press is handed up instead.
+   pub fn take_shortcuts_request(&mut self) -> bool {
+      std::mem::take(&mut self.shortcuts_requested)
+   }
+
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.lg);
       ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
 
       let button_visuals = theme.button_visuals();
       let slider_size = vec2((ui.available_width() * 0.5).min(360.0), 20.0);
+      ui.add_space(10.0);
+
+      let text = "Keyboard";
+      let title = ui.label(RichText::new(text).size(theme.typography.very_large));
+      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
+
+      let sentence = RichText::new(
+         "Every page can be reached from the keyboard. F1 shows these keys from any page.",
+      )
+      .size(theme.typography.normal);
+      ui.label(sentence);
+
+      let text = RichText::new("Show Keyboard Shortcuts").size(theme.typography.normal);
+      let button = Button::new(text).visuals(theme.button_visuals());
+
+      if ui.add(button).clicked() {
+         self.shortcuts_requested = true;
+      }
+
+      ui.separator();
       ui.add_space(10.0);
 
       let text = "External Data";

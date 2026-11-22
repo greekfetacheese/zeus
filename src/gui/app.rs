@@ -501,6 +501,12 @@ impl eframe::App for ZeusApp {
                gui.announce(text);
             }
 
+            // The General page's button asks for the shortcut sheet, which the next pass draws over
+            // the window it was opened from.
+            if gui.settings.take_shortcuts_request() {
+               gui.shortcut_sheet.open();
+            }
+
             // The app's single announcement channel, after every panel has had its
             // chance to change state this frame.
             gui.show_announcer(ui);

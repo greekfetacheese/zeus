@@ -167,6 +167,14 @@ impl SettingsUi {
       self.notice.take()
    }
 
+   /// Whether the General page asked for the keyboard shortcut sheet since the last call.
+   ///
+   /// The window is drawn after the frame has drawn the sheet, so the app opens it here and the
+   /// next pass puts it up over the window it was opened from.
+   pub fn take_shortcuts_request(&mut self) -> bool {
+      self.general.take_shortcuts_request()
+   }
+
    /// Hand a notice the General page raised up to the window, where the app drains it.
    fn promote_general_notice(&mut self) {
       if let Some(text) = self.general.take_notice() {

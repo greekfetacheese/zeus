@@ -27,6 +27,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       // The delegate form lives in the account panel; lock it with the rest.
       gui.account_panel.lock();
 
+      // A help card over the lock screen would hold the keyboard in a dialog that explains keys
+      // the lock screen does not answer.
+      gui.shortcut_sheet.close();
+
       gui.lock_screen.show(ctx, &gui.theme, ui);
 
       // Informational modals (the unlock error, "saving vault…") must render on

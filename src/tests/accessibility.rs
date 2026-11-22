@@ -10497,6 +10497,36 @@ fn render_shortcuts(
    })
 }
 
+/// A key released, as the window delivers it.
+fn key_release(key: Key) -> Event {
+   Event::Key {
+      key,
+      physical_key: None,
+      pressed: false,
+      repeat: false,
+      modifiers: Modifiers::NONE,
+   }
+}
+
+/// Press one chord and let it go across two frames, the way a keyboard sends it.
+///
+/// A press the window never sees released is a key held down, and egui delivers the next press of
+/// that key as an auto-repeat — which the layer ignores on purpose. A test that pressed the same
+/// key twice without a release would therefore prove nothing about the second press.
+fn press_shortcut(
+   ctx: &Context,
+   gui: &mut GUI,
+   zeus: &ZeusCtx,
+   key: Key,
+   modifiers: Modifiers,
+) -> Vec<(NodeId, Node)> {
+   render_shortcuts(ctx, gui, zeus, vec![key_combo(key, modifiers)]);
+
+   // The release is a frame of its own, and it draws the same panels: a widget that is not drawn
+   // again has its focus given up, so the frame that shows where the press landed is this one.
+   render_shortcuts(ctx, gui, zeus, vec![key_release(key)])
+}
+
 /// Every `Alt` digit opens the page the nav puts in that position.
 #[test]
 fn alt_digits_open_the_page_on_their_number() {
@@ -10560,14 +10590,11 @@ fn a_shortcut_opened_page_puts_the_focus_on_its_heading() {
    zeus.write(|zeus| zeus.vault_unlocked = true);
    wallet_in_cache(&zeus);
 
-   let nodes = render_shortcuts(
-      &ctx,
-      &mut gui,
-      &zeus,
-      vec![key_combo(Key::Num2, Modifiers::ALT)],
-   );
+   let nodes = press_shortcut(&ctx, &mut gui, &zeus, Key::Num2, Modifiers::ALT);
+   let focused = focused_node(&ctx, &nodes);
 
-   assert_eq!(focused_node(&ctx, &nodes).label(), Some("Send"));
+   assert_eq!(focused.role(), Role::Heading);
+   assert_eq!(focused.label(), Some("Send"));
 }
 
 /// F6 walks the regions clockwise and skips the ones with nothing to focus.
@@ -10581,27 +10608,20 @@ fn f6_cycles_from_the_page_to_the_nav() {
    // The page change puts the focus on the heading and records the page.
    render_shortcuts(&ctx, &mut gui, &zeus, Vec::new());
    // Main -> Status (closed) -> Account (closed) -> Navigation.
-   let nodes = render_shortcuts(
-      &ctx,
-      &mut gui,
-      &zeus,
-      vec![key_combo(Key::F6, Modifiers::NONE)],
-   );
+   let nodes = press_shortcut(&ctx, &mut gui, &zeus, Key::F6, Modifiers::NONE);
 
    let focused = focused_node(&ctx, &nodes);
 
    assert_eq!(focused.role(), Role::Button);
    assert_eq!(focused.label(), Some("Send"));
 
-   // Navigation -> Main: the same key comes back to the page heading.
-   let nodes = render_shortcuts(
-      &ctx,
-      &mut gui,
-      &zeus,
-      vec![key_combo(Key::F6, Modifiers::NONE)],
-   );
+   // Navigation -> Main: the same key comes back to the page heading — the heading node, not the
+   // nav plate that carries the same word.
+   let nodes = press_shortcut(&ctx, &mut gui, &zeus, Key::F6, Modifiers::NONE);
+   let focused = focused_node(&ctx, &nodes);
 
-   assert_eq!(focused_node(&ctx, &nodes).label(), Some("Send"));
+   assert_eq!(focused.role(), Role::Heading);
+   assert_eq!(focused.label(), Some("Send"));
 }
 
 /// The account card is a region too, and F6 reaches its address row when a wallet is shown.
@@ -10614,12 +10634,7 @@ fn f6_reaches_the_account_card_when_a_wallet_is_shown() {
 
    render_shortcuts(&ctx, &mut gui, &zeus, Vec::new());
    // Main -> Status (closed) -> Account.
-   let nodes = render_shortcuts(
-      &ctx,
-      &mut gui,
-      &zeus,
-      vec![key_combo(Key::F6, Modifiers::NONE)],
-   );
+   let nodes = press_shortcut(&ctx, &mut gui, &zeus, Key::F6, Modifiers::NONE);
 
    let focused = focused_node(&ctx, &nodes);
 
@@ -10769,6 +10784,207 @@ fn ctrl_enter_on_another_page_does_not_press_send() {
    );
 
    assert!(!gui.send_crypto.send_requested());
+}
+
+/// Draw the app-wide overlays twice: the sheet is an `egui::Area` measured on the pass it opens,
+/// and egui exposes no node for a widget it considers invisible.
+fn draw_shortcuts_sheet(ctx: &Context, gui: &mut GUI) -> Vec<(NodeId, Node)> {
+   frame_nodes(ctx, Vec::new(), |ui| gui.show_overlay_modals(ui));
+
+   frame_nodes(ctx, Vec::new(), |ui| gui.show_overlay_modals(ui))
+}
+
+/// The words of every label in the tree, in the order they are drawn.
+fn label_words(nodes: &[(NodeId, Node)]) -> Vec<String> {
+   nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Label)
+      .filter_map(|(_, node)| node.value().map(str::to_owned))
+      .collect()
+}
+
+/// F1 puts the sheet up, and it lists the keys the app answers: the page rows come from the same
+/// table the `Alt` digits are read from, so the sheet cannot promise a key that does nothing.
+#[test]
+fn f1_opens_the_sheet_of_every_binding() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+   wallet_in_cache(&zeus);
+
+   press_shortcut(&ctx, &mut gui, &zeus, Key::F1, Modifiers::NONE);
+
+   assert!(
+      gui.shortcut_sheet.is_open(),
+      "F1 must put the sheet up"
+   );
+
+   let nodes = draw_shortcuts_sheet(&ctx, &mut gui);
+
+   let dialog = nodes
+      .iter()
+      .map(|(_, node)| node)
+      .find(|node| node.role() == Role::Dialog)
+      .expect("the sheet is a dialog");
+
+   assert_eq!(
+      dialog.label(),
+      Some("Keyboard shortcuts"),
+      "the sheet names itself the way its heading says"
+   );
+
+   let labels = label_words(&nodes);
+
+   for expected in [
+      "Alt+1: Home",
+      "Alt+2: Send",
+      "Alt+3: Shield",
+      "Alt+4: Swap",
+      "Alt+5: Bridge",
+      "Alt+6: Wallets",
+      "Alt+7: Transactions",
+      "Alt+8: Approvals",
+      "Alt+9: Settings",
+      "Alt+0: Connected Dapps",
+      "F1: show or hide this list",
+      "Tab / Shift+Tab: the next or previous control",
+   ] {
+      assert!(
+         labels.iter().any(|label| label == expected),
+         "the sheet must list {expected:?}: {labels:?}"
+      );
+   }
+}
+
+/// The sheet takes the keyboard when it opens: its own close button has the focus, so Tab walks
+/// the list from inside the dialog and Escape has something to act on.
+#[test]
+fn the_sheet_takes_the_focus_when_it_opens() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+   wallet_in_cache(&zeus);
+
+   press_shortcut(&ctx, &mut gui, &zeus, Key::F1, Modifiers::NONE);
+
+   let nodes = draw_shortcuts_sheet(&ctx, &mut gui);
+   let focused = focused_node(&ctx, &nodes);
+
+   assert_eq!(focused.role(), Role::Button);
+   assert_eq!(focused.label(), Some("Close"));
+}
+
+/// The sheet closes the way a dialog does — Escape — and the key that opened it puts it away too.
+#[test]
+fn escape_and_f1_put_the_sheet_away() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+   wallet_in_cache(&zeus);
+
+   press_shortcut(&ctx, &mut gui, &zeus, Key::F1, Modifiers::NONE);
+   assert!(
+      gui.shortcut_sheet.is_open(),
+      "F1 must put the sheet up"
+   );
+
+   draw_shortcuts_sheet(&ctx, &mut gui);
+
+   frame_nodes(
+      &ctx,
+      vec![key_combo(Key::Escape, Modifiers::NONE)],
+      |ui| gui.show_overlay_modals(ui),
+   );
+
+   assert!(
+      !gui.shortcut_sheet.is_open(),
+      "Escape must put the sheet away"
+   );
+
+   press_shortcut(&ctx, &mut gui, &zeus, Key::F1, Modifiers::NONE);
+   assert!(gui.shortcut_sheet.is_open(), "F1 opens it again");
+
+   press_shortcut(&ctx, &mut gui, &zeus, Key::F1, Modifiers::NONE);
+   assert!(
+      !gui.shortcut_sheet.is_open(),
+      "a second F1 puts it away"
+   );
+}
+
+/// The sheet holds the keyboard while it is up: a page key pressed behind it changes nothing.
+#[test]
+fn a_page_key_does_not_reach_behind_the_sheet() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+   wallet_in_cache(&zeus);
+
+   press_shortcut(&ctx, &mut gui, &zeus, Key::F1, Modifiers::NONE);
+   render_shortcuts(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![key_combo(Key::Num2, Modifiers::ALT)],
+   );
+
+   assert_eq!(
+      gui.current_page(),
+      Page::Home,
+      "the sheet keeps the page where it was"
+   );
+}
+
+/// The lock screen and a dialog both own the keyboard, so F1 reaches neither of them.
+#[test]
+fn f1_does_not_reach_past_the_lock_screen_or_a_dialog() {
+   let (ctx, mut gui, zeus) = main_window();
+
+   press_shortcut(&ctx, &mut gui, &zeus, Key::F1, Modifiers::NONE);
+
+   assert!(
+      !gui.shortcut_sheet.is_open(),
+      "the lock screen owns the keyboard"
+   );
+
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+   wallet_in_cache(&zeus);
+   gui.msg_window.open("A message over the page");
+
+   press_shortcut(&ctx, &mut gui, &zeus, Key::F1, Modifiers::NONE);
+
+   assert!(
+      !gui.shortcut_sheet.is_open(),
+      "a dialog keeps the keyboard until it closes"
+   );
+}
+
+/// The same list is behind a button on the Settings page, for a user who never tries F1: the press
+/// is handed up to the frame, which is the only thing that can draw a window over another one.
+#[test]
+fn the_general_page_opens_the_sheet_with_a_button() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+   let button = nodes
+      .iter()
+      .find(|(_, node)| {
+         node.role() == Role::Button && node.label() == Some("Show Keyboard Shortcuts")
+      })
+      .map(|(id, _)| *id)
+      .expect("the General page draws the button that puts the sheet up");
+
+   render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, button)],
+   );
+
+   // What the app does with the request, on the pass the page raised it.
+   if gui.settings.take_shortcuts_request() {
+      gui.shortcut_sheet.open();
+   }
+
+   assert!(
+      gui.shortcut_sheet.is_open(),
+      "the button must put the sheet up"
+   );
 }
 
 /// Draw the receive window with the button that opened it beside it, in the same frame, so the
