@@ -13,7 +13,7 @@ use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::windows::PromptGate;
 use crate::gui::ui::common::{
    address::name_address, address_for_speech, delayed_action_remaining, heading, name_alert,
-   name_text, wallet_identity,
+   name_text, token_for_speech, wallet_identity,
 };
 use crate::gui::ui::tx::{address, chain};
 
@@ -544,6 +544,11 @@ fn permit2_single_approval(
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let amount = details.amount();
             let text = format!("{:.10} {}", amount, details.token.symbol);
+            let spoken = format!(
+               "{:.10} {}",
+               amount,
+               token_for_speech(&details.token.name, &details.token.symbol).name
+            );
             let icon = icons
                .token_icon_x32(
                   details.token.address,
@@ -562,7 +567,8 @@ fn permit2_single_approval(
                .wrap()
                .visuals(theme.label_visuals())
                .interactive(false);
-            ui.add(label);
+            let response = ui.add(label);
+            name_text(ui, &response, spoken);
          });
       });
 
@@ -636,6 +642,11 @@ fn permit2612_approval(
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let text = format!("{} {}", details.amount(), details.token.symbol);
+         let spoken = format!(
+            "{} {}",
+            details.amount(),
+            token_for_speech(&details.token.name, &details.token.symbol).name
+         );
          let icon = icons
             .token_icon_x32(
                details.token.address,
@@ -655,7 +666,8 @@ fn permit2612_approval(
             .visuals(theme.label_visuals())
             .interactive(false);
 
-         ui.add(label);
+         let response = ui.add(label);
+         name_text(ui, &response, spoken);
       });
    });
 
@@ -757,6 +769,11 @@ fn clear_signed_ui(
                   };
 
                   let text = format!("{:.10} {}", amount_txt, token.symbol);
+                  let spoken = format!(
+                     "{:.10} {}",
+                     amount_txt,
+                     token_for_speech(&token.name, &token.symbol).name
+                  );
                   let icon = icons
                      .token_icon_x32(token.address, token.chain_id, tint)
                      .fit_to_exact_size(icon_size);
@@ -771,7 +788,8 @@ fn clear_signed_ui(
                      .wrap()
                      .visuals(theme.label_visuals())
                      .interactive(false);
-                  ui.add(label);
+                  let response = ui.add(label);
+                  name_text(ui, &response, spoken);
                });
             });
          }
@@ -835,6 +853,11 @@ fn _permit2_batch_approval_ui(
          };
 
          let text = format!("{:.10} {}", amount_text, token.symbol);
+         let spoken = format!(
+            "{:.10} {}",
+            amount_text,
+            token_for_speech(&token.name, &token.symbol).name
+         );
          let icon = icons.token_icon_x32(token.address, token.chain_id, tint);
          let mut text = RichText::new(text).size(theme.typography.normal);
 
@@ -843,7 +866,8 @@ fn _permit2_batch_approval_ui(
          }
 
          let label = Label::new(text, Some(icon)).wrap().interactive(false);
-         ui.add(label);
+         let response = ui.add(label);
+         name_text(ui, &response, spoken);
       });
    }
 

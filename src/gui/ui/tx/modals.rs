@@ -17,6 +17,7 @@ use crate::core::clear_signing::{ClearDisplay, FormattedValue};
 use crate::core::tx::{FeeTiers, PriorityTier};
 use crate::core::{ApprovalDiff, BalanceDiff, TransactionAnalysis, ZeusContext};
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::common::{name_text, token_for_speech};
 use crate::utils::truncate_hash;
 use zeus_eth::alloy_primitives::{Address, TxHash};
 use zeus_eth::types::ChainId;
@@ -557,6 +558,11 @@ pub fn clear_display_ui(
                      amount.abbreviated()
                   };
                   let text = format!("{:.10} {}", amount_txt, token.symbol);
+                  let spoken = format!(
+                     "{:.10} {}",
+                     amount_txt,
+                     token_for_speech(&token.name, &token.symbol).name
+                  );
                   let icon = icons
                      .token_icon_x32(token.address, token.chain_id, tint)
                      .fit_to_exact_size(vec2(24.0, 24.0));
@@ -565,7 +571,8 @@ pub fn clear_display_ui(
                      .wrap()
                      .visuals(theme.label_visuals())
                      .interactive(false);
-                  ui.add(label);
+                  let response = ui.add(label);
+                  name_text(ui, &response, spoken);
                });
             });
          }

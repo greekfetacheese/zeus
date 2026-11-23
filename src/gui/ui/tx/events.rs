@@ -7,7 +7,7 @@ use crate::assets::icons::Icons;
 use crate::core::{TransactionAnalysis, ZeusContext, tx::events::*};
 use crate::gui::ui::common::{
    address::{address_for_speech, name_address},
-   chain_label,
+   chain_label, currency_for_speech, name_text, token_for_speech,
 };
 use crate::gui::ui::token_selection::nft_collection_name;
 use crate::utils::truncate_address;
@@ -171,6 +171,7 @@ pub fn permit_event_ui(
    let icon_size = vec2(24.0, 24.0);
 
    let icon = icons.currency_icon_x32(&params.token, tint).fit_to_exact_size(icon_size);
+   let name = currency_for_speech(&params.token).name;
    let mut text = if let Some(amount_usd) = amount_usd {
       RichText::new(format!(
          "{:.10} {} ~ ${:.10}",
@@ -188,12 +189,24 @@ pub fn permit_event_ui(
       .size(theme.typography.large)
    };
 
+   let spoken = if let Some(amount_usd) = amount_usd {
+      format!(
+         "{:.10} {} ~ ${:.10}",
+         amount,
+         name,
+         amount_usd.abbreviated()
+      )
+   } else {
+      format!("{:.10} {name}", amount)
+   };
+
    if is_unlimited {
       text = text.color(theme.colors.warning);
    }
 
    let label = Label::new(text, Some(icon)).interactive(false);
-   ui.add(label);
+   let response = ui.add(label);
+   name_text(ui, &response, spoken);
 
    // Owner
    address(ctx, chain, "Owner", params.owner, theme, ui);
@@ -247,6 +260,8 @@ pub fn token_approval_event_ui(
    let icon = icons
       .currency_icon_x32(&Currency::from(params.token.clone()), tint)
       .fit_to_exact_size(icon_size);
+   let name = token_for_speech(&params.token.name, &params.token.symbol).name;
+
    let mut text = if show_usd_value {
       RichText::new(format!(
          "{:.10} {} ~ ${:.10}",
@@ -259,12 +274,24 @@ pub fn token_approval_event_ui(
       RichText::new(format!("{:.10} {}", amount, params.token.symbol)).size(theme.typography.large)
    };
 
+   let spoken = if show_usd_value {
+      format!(
+         "{:.10} {} ~ ${:.10}",
+         amount,
+         name,
+         amount_usd.abbreviated()
+      )
+   } else {
+      format!("{:.10} {name}", amount)
+   };
+
    if is_unlimited {
       text = text.color(theme.colors.warning);
    }
 
    let label = Label::new(text, Some(icon)).interactive(false);
-   ui.add(label);
+   let response = ui.add(label);
+   name_text(ui, &response, spoken);
 
    // Owner
    address(ctx, chain, "Owner", params.owner, theme, ui);
