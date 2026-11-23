@@ -5434,6 +5434,49 @@ fn the_confirmation_reads_approvals_before_balances_and_the_fee_last() {
    );
 }
 
+/// The caption and the figure said the same thing: a reader met "Cost" and then "Network fee, …"
+/// for one line, which is the fee twice in two spellings. The title is the eye's version of the
+/// name, so it stays on screen and out of the tree.
+#[test]
+fn the_fee_is_said_once() {
+   let (ctx, handle, theme, icons, appearance) = prompt_harness();
+   let mut window = TxConfirmationWindow::for_test(
+      &handle,
+      TransactionAnalysis::dummy_with_diffs(),
+      "",
+      false,
+      None,
+   );
+
+   let nodes = render_confirmation(
+      &ctx,
+      &handle,
+      &mut window,
+      &theme,
+      &icons,
+      &appearance,
+      Vec::new(),
+   );
+
+   assert!(
+      nodes.iter().any(|(_, node)| node.value() == Some("Cost")),
+      "the eye keeps the row's title: {:?}",
+      drawn_names(&nodes)
+   );
+
+   let spoken = spoken_text(&nodes);
+   assert!(
+      !spoken.iter().any(|text| text.trim() == "Cost"),
+      "the title must not be a stop of its own: {spoken:?}"
+   );
+
+   let fees = spoken.iter().filter(|text| text.starts_with("Network fee,")).count();
+   assert_eq!(
+      fees, 1,
+      "the fee must be said in one place: {spoken:?}"
+   );
+}
+
 /// A reader hears the action first: the window opens with focus on the action heading, not on
 /// the Close button the modal would otherwise leave it on.
 #[test]

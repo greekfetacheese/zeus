@@ -53,7 +53,11 @@ pub fn tx_cost(
 
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Cost").size(theme.typography.large));
+         let caption = ui.label(RichText::new("Cost").size(theme.typography.large));
+
+         // The figure below is named "Network fee", so this title was a stop of its own that said
+         // the fee in one word and nothing else: a reader heard the cost twice. The eye keeps it.
+         ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
