@@ -7058,6 +7058,89 @@ fn the_events_window_says_how_many_events_were_read() {
    );
 }
 
+/// Every amount in the events window is drawn in its ticker; the row's node says the token's
+/// name, so a reader hears "Wrapped Ether" where the screen shows "WETH" — and never both.
+#[test]
+fn the_events_window_says_what_each_amount_is() {
+   let (ctx, handle, theme, icons, _appearance) = prompt_harness();
+
+   // Each decoded action, and the token names its amount rows must be read in. A name with a
+   // leading space is a suffix, so no figure is pinned to one formatting.
+   let cases: Vec<(TransactionAnalysis, Vec<&str>)> = vec![
+      (
+         TransactionAnalysis::dummy_transfer(),
+         vec![" Ethereum"],
+      ),
+      (
+         TransactionAnalysis::dummy_erc20_transfer(),
+         vec![" Wrapped Ether"],
+      ),
+      (
+         TransactionAnalysis::dummy_swap(),
+         vec![" Wrapped Ether", " Dai Stablecoin"],
+      ),
+      // A bridge out of WETH is drawn as the native coin the EOA receives.
+      (
+         TransactionAnalysis::dummy_bridge(),
+         vec![" Ethereum"],
+      ),
+      (
+         TransactionAnalysis::dummy_wrap_eth(),
+         vec![" Wrapped Ether"],
+      ),
+      (
+         TransactionAnalysis::dummy_unwrap_weth(),
+         vec![" Ethereum"],
+      ),
+      (
+         TransactionAnalysis::dummy_uniswap_position_operation(),
+         vec![" Wrapped Ether", " Dai Stablecoin"],
+      ),
+   ];
+
+   for (analysis, names) in cases {
+      let mut events = DecodedEvents::new();
+      events.open();
+
+      let nodes = render_modal(&ctx, Vec::new(), |ui| {
+         handle.write(|zeus| {
+            events.show(
+               zeus,
+               ChainId::from(analysis.chain),
+               &theme,
+               icons.clone(),
+               &analysis,
+               vec2(400.0, 60.0),
+               theme.frame2,
+               (600.0, 900.0),
+               ui,
+            );
+         });
+      });
+
+      let spoken = spoken_text(&nodes);
+      let action = analysis.decoded_selector.as_str();
+
+      for name in names {
+         assert!(
+            spoken.iter().any(|text| text.ends_with(name)),
+            "a {action} row must say the token's name ({name:?}): {spoken:?}"
+         );
+      }
+
+      // The amount rows are the labels that start with a sign or a figure; none of them may keep
+      // spelling the ticker the screen draws now that the name is on the node.
+      for text in spoken.iter().filter(|text| {
+         text.starts_with(['+', '-']) || text.starts_with(|c: char| c.is_ascii_digit())
+      }) {
+         assert!(
+            ![" WETH", " ETH", " DAI", " USDC"].iter().any(|ticker| text.ends_with(ticker)),
+            "an amount row still spells its ticker instead of its name: {text:?}"
+         );
+      }
+   }
+}
+
 /// Approvals are the half of a state report that can cost money after the transaction, so the
 /// modal reads them before the balances — the order the confirmation window keeps — and each
 /// section says how many changes it holds.

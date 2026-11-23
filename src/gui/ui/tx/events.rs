@@ -310,6 +310,18 @@ fn picked_name_for(picked: Option<(Address, &str)>, row_addr: Address) -> Option
    (picked_addr == row_addr).then_some(name)
 }
 
+/// The words a reader hears for an amount cell that draws its token's ticker.
+///
+/// The cell keeps painting the ticker; only the node's name changes. The figure is the one on
+/// screen — the same sign, the same truncation — with the token's name in place of the symbol.
+fn amount_for_speech(prefix: &str, amount: &str, currency: &Currency) -> String {
+   format!(
+      "{prefix}{:.10} {}",
+      amount,
+      currency_for_speech(currency).name
+   )
+}
+
 fn transfer_event_ui(
    ctx: &mut ZeusContext,
    chain: ChainId,
@@ -337,7 +349,12 @@ fn transfer_event_ui(
             ))
             .size(theme.typography.large);
             let label = Label::new(text, Some(icon)).spacing(3.0).interactive(false);
-            ui.add(label);
+            let response = ui.add(label);
+            name_text(
+               ui,
+               &response,
+               amount_for_speech("", amount.abbreviated(), currency),
+            );
          });
 
          // Value
@@ -392,7 +409,12 @@ fn transfer_event_ui(
             ))
             .size(theme.typography.large);
             let label = Label::new(text, None).interactive(false);
-            ui.add(label);
+            let response = ui.add(label);
+            name_text(
+               ui,
+               &response,
+               amount_for_speech("", real_amount_sent.abbreviated(), currency),
+            );
          });
       });
    }
@@ -1188,7 +1210,12 @@ fn bridge_event_ui(
       .color(theme.colors.error);
       let label = Label::new(text, Some(icon)).interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.add(label);
+         let response = ui.add(label);
+         name_text(
+            ui,
+            &response,
+            amount_for_speech("- ", amount.abbreviated(), &currency_in),
+         );
       });
 
       // Value
@@ -1213,7 +1240,12 @@ fn bridge_event_ui(
          .size(theme.typography.large)
          .color(theme.colors.success);
          let label = Label::new(text, Some(icon)).interactive(false);
-         ui.add(label);
+         let response = ui.add(label);
+         name_text(
+            ui,
+            &response,
+            amount_for_speech("+ ", amount.abbreviated(), &currency_out),
+         );
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -1314,7 +1346,12 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
       .color(theme.colors.error);
       let label = Label::new(text, Some(icon)).interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.add(label);
+         let response = ui.add(label);
+         name_text(
+            ui,
+            &response,
+            amount_for_speech("- ", amount.abbreviated(), currency),
+         );
       });
 
       // Value
@@ -1340,7 +1377,12 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
          .size(theme.typography.large)
          .color(theme.colors.success);
          let label = Label::new(text, Some(icon)).interactive(false);
-         ui.add(label);
+         let response = ui.add(label);
+         name_text(
+            ui,
+            &response,
+            amount_for_speech("+ ", amount.abbreviated(), currency),
+         );
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -1412,7 +1454,12 @@ fn wrap_eth_event_ui(
       .color(theme.colors.success);
       let label = Label::new(text, Some(weth_icon)).interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.add(label);
+         let response = ui.add(label);
+         name_text(
+            ui,
+            &response,
+            amount_for_speech("+ ", params.eth_wrapped.abbreviated(), &weth),
+         );
       });
 
       // USD Value
@@ -1447,7 +1494,7 @@ fn unwrap_weth_event_ui(
    ui: &mut Ui,
 ) {
    let tint = theme.image_tint_recommended;
-   let eth = NativeCurrency::from(chain.id());
+   let eth = Currency::from(NativeCurrency::from(chain.id()));
    let eth_icon = icons.native_currency_icon(chain.id(), tint).fit_to_exact_size(vec2(24.0, 24.0));
 
    // Amount received + USD Value
@@ -1455,13 +1502,18 @@ fn unwrap_weth_event_ui(
       let text = RichText::new(format!(
          "+ {:.10} {}",
          params.weth_unwrapped.abbreviated(),
-         eth.symbol
+         eth.symbol()
       ))
       .size(theme.typography.large)
       .color(theme.colors.success);
       let label = Label::new(text, Some(eth_icon)).interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.add(label);
+         let response = ui.add(label);
+         name_text(
+            ui,
+            &response,
+            amount_for_speech("+ ", params.weth_unwrapped.abbreviated(), &eth),
+         );
       });
 
       // USD Value
@@ -1515,7 +1567,12 @@ fn uniswap_position_op_event_ui(
 
       let label = Label::new(text, Some(icon)).interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.add(label);
+         let response = ui.add(label);
+         name_text(
+            ui,
+            &response,
+            amount_for_speech("", amount0.abbreviated(), currency0),
+         );
       });
 
       // Value
@@ -1537,7 +1594,12 @@ fn uniswap_position_op_event_ui(
       let text = RichText::new(text).size(theme.typography.large);
       let label = Label::new(text, Some(icon)).interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.add(label);
+         let response = ui.add(label);
+         name_text(
+            ui,
+            &response,
+            amount_for_speech("", amount1.abbreviated(), currency1),
+         );
       });
 
       // Value
@@ -1570,7 +1632,12 @@ fn uniswap_position_op_event_ui(
 
          let label = Label::new(text, Some(icon)).interactive(false);
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.add(label);
+            let response = ui.add(label);
+            name_text(
+               ui,
+               &response,
+               amount_for_speech("", min_amount0.abbreviated(), currency0),
+            );
          });
 
          // Value
@@ -1594,7 +1661,12 @@ fn uniswap_position_op_event_ui(
          let text = RichText::new(text).size(theme.typography.large);
          let label = Label::new(text, Some(icon)).interactive(false);
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.add(label);
+            let response = ui.add(label);
+            name_text(
+               ui,
+               &response,
+               amount_for_speech("", min_amount1.abbreviated(), currency1),
+            );
          });
 
          // Value
