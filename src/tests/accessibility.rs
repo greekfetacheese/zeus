@@ -3821,6 +3821,70 @@ fn every_tab_stop_on_the_home_token_table_has_a_name() {
    );
 }
 
+/// A reader can take a token row as one sentence: the asset, its price, the amount held and what
+/// that amount is worth. The cells are labels, so without a control of its own the keyboard only
+/// ever stopped on the row's Remove — the figures a reader came to the page for were unreachable.
+///
+/// The button is drawn for the reader model only: it is a glyph with a voice, and a tab stop that a
+/// page drawn without a reader gains nothing from.
+#[test]
+fn a_reader_can_take_each_token_row_as_one_sentence() {
+   let _turn = shared_gui_turn();
+   let ctx = Context::default();
+   ctx.options_mut(|options| options.screen_reader = true);
+
+   // The rows land a frame or two after the page opens, because they are built off the GUI thread.
+   let mut nodes = Vec::new();
+
+   for _ in 0..200 {
+      nodes = render_home_tokens(&ctx, Vec::new());
+
+      if nodes.iter().any(|(_, node)| node.label() == Some("Ethereum")) {
+         break;
+      }
+
+      std::thread::sleep(std::time::Duration::from_millis(10));
+   }
+
+   let sentence = "Ethereum, price $0.00, balance 0.00 ETH, value $0.00";
+
+   let speak = nodes
+      .iter()
+      .find(|(_, node)| node.label() == Some(sentence))
+      .map(|(id, _)| *id)
+      .unwrap_or_else(|| {
+         panic!(
+            "a row must be reachable as one sentence: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   // The page's arrival sentence is its own; this test reads what the row's own press says.
+   crate::gui::SHARED_GUI.write(|gui| gui.portofolio.take_notice());
+
+   render_home_tokens(&ctx, vec![accesskit_action(Action::Click, speak)]);
+
+   assert_eq!(
+      crate::gui::SHARED_GUI.write(|gui| gui.portofolio.take_notice()).as_deref(),
+      Some(sentence),
+      "pressing the row's button must say the row again, so a reader can hear it twice"
+   );
+
+   // No reader model, no button: the tab stop belongs to the reader, not to the page.
+   ctx.options_mut(|options| options.screen_reader = false);
+   let nodes = render_home_tokens(&ctx, Vec::new());
+
+   assert!(
+      !nodes.iter().any(|(_, node)| node.label() == Some(sentence)),
+      "a page drawn without the reader model must not grow the button: {:?}",
+      drawn_names(&nodes)
+   );
+
+   // Leave the shared page the way a fresh opening finds it: `close()` re-arms the arrival
+   // sentence, and the next test draws this same page out of this same global.
+   crate::gui::SHARED_GUI.write(|gui| gui.portofolio.close());
+}
+
 /// The turn every test that draws out of the frame's one `SHARED_GUI` takes.
 ///
 /// That global holds the picker and the portfolio page together, and the page takes whatever the

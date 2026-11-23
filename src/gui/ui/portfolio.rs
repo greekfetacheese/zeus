@@ -85,6 +85,22 @@ struct TokenRow {
    token: Option<ERC20Token>,
 }
 
+impl TokenRow {
+   /// What a reader hears for this row, as one sentence, in the order the table draws it: the
+   /// asset, what it costs, how much of it is held, and what that holding is worth.
+   ///
+   /// The balance's own cell draws the number alone — the symbol is the asset cell's — so the
+   /// sentence says the symbol with it: `1.2534` on its own is an amount of nothing.
+   fn sentence(&self) -> String {
+      let (name, _) = asset_name(&self.name, &self.symbol);
+
+      format!(
+         "{name}, price {}, balance {} {}, value {}",
+         self.price, self.balance, self.symbol, self.value
+      )
+   }
+}
+
 /// One row of the NFT list, with its labels already resolved.
 struct NftRow {
    token: NftToken,
@@ -411,6 +427,10 @@ impl PortfolioUi {
                   let rows = &self.rows.tokens;
 
                   let mut remove_request: Option<ERC20Token> = None;
+                  // The row's own sentence is a control only a reader can use: it is drawn for
+                  // its voice, so the page grows it for the reader model and not for a look.
+                  let reader = ui.ctx().options(|options| options.screen_reader);
+                  let mut speak_request: Option<String> = None;
 
                   ui.spacing_mut().item_spacing.y = theme.spacing.sm;
                   ui.scope(|ui| {
@@ -504,6 +524,20 @@ impl PortfolioUi {
                               });
 
                               r.cell(|ui| {
+                                 // A row as one sentence. Every other cell is a label, so the
+                                 // figures a reader comes to the page for had no way onto the
+                                 // keyboard path: Tab only ever found Remove.
+                                 if reader {
+                                    let icon =
+                                       Lucide::Volume2.size(16.0).color(theme.colors.text).image();
+                                    let sentence = row.sentence();
+                                    let button = Button::image(icon).small().alt(sentence.clone());
+
+                                    if ui.add(button).on_hover_text(sentence.clone()).clicked() {
+                                       speak_request = Some(sentence);
+                                    }
+                                 }
+
                                  let Some(token) = &row.token else {
                                     return;
                                  };
@@ -528,6 +562,12 @@ impl PortfolioUi {
 
                   if let Some(token) = remove_request {
                      self.remove_token(ctx, owner, &token);
+                  }
+
+                  // A press is a second saying of what the focus already read out, so the same
+                  // row can be heard twice without walking away from it and back.
+                  if let Some(sentence) = speak_request {
+                     self.notice = Some(sentence);
                   }
                }
 
