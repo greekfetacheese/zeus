@@ -758,23 +758,29 @@ impl ContactsUi {
                });
                let id = format!("{}_more_options", contact.evm_address);
 
+               // A chosen item closes the menu: a reader activates it with Enter, which presses
+               // no pointer, so the popup would otherwise stay open over what it opened.
                Menu::new(id).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("Edit")).clicked() {
+                     ui.close();
                      self.view = ContactsPageView::Edit;
                      self.edit_contact.begin(contact.clone());
                   }
 
                   if ui.add(MenuItem::new("Delete")).clicked() {
+                     ui.close();
                      self.view = ContactsPageView::Delete;
                      self.delete_contact.contact_to_delete = contact.clone();
                   }
 
                   if ui.add(MenuItem::new("Show QR Code")).clicked() {
+                     ui.close();
                      self.view = ContactsPageView::Qr;
                      self.qr_window.open(contact.clone());
                   }
 
                   if ui.add(MenuItem::new("See on Block Explorer")).clicked() {
+                     ui.close();
                      let chain = ctx.chain;
                      let explorer = chain.block_explorer();
                      let link = format!("{}/address/{}", explorer, contact.evm_address);

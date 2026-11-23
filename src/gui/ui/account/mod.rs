@@ -655,8 +655,11 @@ impl AccountPanel {
                let more = dots_button(theme, size, ui);
                let options = "Railgun options";
                more.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), options));
+               // A chosen item closes the menu: a reader activates it with Enter, which presses
+               // no pointer, so the popup would otherwise stay open over what it opened.
                Menu::new(("svc_menu", "railgun_id")).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("View last error")).clicked() {
+                     ui.close();
                      let error_opt = ctx.railgun_status().sync_error(chain.id());
                      let error =
                         error_opt.unwrap_or("No errors for now everything looks good".to_string());
@@ -670,6 +673,7 @@ impl AccountPanel {
                   }
 
                   if ui.add(MenuItem::new("Settings")).clicked() {
+                     ui.close();
                      crate::runtime::rt().spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
                            gui.ctx.clone().write(|ctx| {
@@ -716,6 +720,7 @@ impl AccountPanel {
                more.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), options));
                Menu::new(("svc_menu", "wallet_connector_id")).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("Settings")).clicked() {
+                     ui.close();
                      crate::runtime::rt().spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
                            gui.msg_window.open("Not implemented yet");

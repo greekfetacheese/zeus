@@ -4165,6 +4165,55 @@ fn a_contact_row_is_placed_in_the_contacts_page_list() {
    }
 }
 
+/// The contacts rows' options menu closes when an item is chosen.
+///
+/// The explorer item leaves the page as it was, so nothing else takes the menu away: without the
+/// close it stays over the card it was chosen from.
+#[test]
+fn the_contacts_menu_closes_when_an_item_is_chosen() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   zeus.write_wallet_state(|ws| {
+      ws.contacts.push(Contact::new(
+         "Ada Lovelace".to_string(),
+         "0x1111111111111111111111111111111111111111".to_string(),
+         String::new(),
+      ));
+   });
+
+   let nodes = open_settings_page(&ctx, &mut gui, &zeus, "Contacts");
+   let options = button_named(&nodes, "Options for Ada Lovelace");
+
+   render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, options)],
+   );
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+   // The explorer item is the one that leaves the page as it was: the other three switch the view,
+   // which removes the button the menu hangs from and takes the menu with it.
+   let explorer = button_named(&nodes, "See on Block Explorer");
+
+   render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, explorer)],
+   );
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+
+   for label in ["Edit", "Delete", "Show QR Code"] {
+      assert!(
+         !nodes
+            .iter()
+            .any(|(_, node)| node.role() == Role::Button && node.label() == Some(label)),
+         "the menu must close once an item is chosen: {:?}",
+         drawn_names(&nodes)
+      );
+   }
+}
+
 /// The recipient picker's contacts are a `ScrollArea` list as well: each row says its zero-based
 /// place and the scroll's own `Ui` says how many rows the list holds.
 #[test]

@@ -275,8 +275,11 @@ fn heading(theme: &Theme, ui: &mut Ui, vitals: &SystemVitals) {
          let options = "Vitals options";
          more.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), options));
 
+         // A chosen item closes the menu: a reader activates it with Enter, which presses no
+         // pointer, so the popup would otherwise stay open over the card.
          Menu::new(("vitals_menu", "local_vitals")).show_below(&more, |ui| {
             if ui.add(MenuItem::new("Copy report")).clicked() {
+               ui.close();
                ui.ctx().copy_text(vitals.report());
             }
          });

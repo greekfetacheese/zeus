@@ -933,12 +933,16 @@ impl TokenSelectionWindow {
                                        dots_button(theme, size, ui).accessible_name(options);
 
                                     let id = format!("{}_more_options", token_address);
+                                    // A chosen item closes the menu: a reader activates it
+                                    // with Enter, which presses no pointer.
                                     Menu::new(id).show_below(&more, |ui| {
                                        if ui.add(MenuItem::new("Copy Address")).clicked() {
+                                          ui.close();
                                           ui.ctx().copy_text(token_address.to_string());
                                        }
 
                                        if ui.add(MenuItem::new("Import Icon…")).clicked() {
+                                          ui.close();
                                           let picked = rfd::FileDialog::new()
                                              .set_title("Choose a token icon")
                                              .add_filter(
@@ -959,6 +963,7 @@ impl TokenSelectionWindow {
                                        if icons.tokens.has_icon(token_address, chain_id)
                                           && ui.add(MenuItem::new("Reset Icon")).clicked()
                                        {
+                                          ui.close();
                                           spawn_reset_token_icon(
                                              chain_id,
                                              token_address,
@@ -969,6 +974,7 @@ impl TokenSelectionWindow {
                                        if !currency.is_base()
                                           && ui.add(MenuItem::new("Delete Token")).clicked()
                                        {
+                                          ui.close();
                                           if let Some(token) = currency.erc20_opt() {
                                              delete_token(
                                                 chain_id,
@@ -980,6 +986,7 @@ impl TokenSelectionWindow {
                                        }
 
                                        if ui.add(MenuItem::new("See on Block Explorer")).clicked() {
+                                          ui.close();
                                           let chain = ChainId::from(chain_id);
                                           let explorer = chain.block_explorer();
                                           let link =
@@ -1202,16 +1209,21 @@ impl TokenSelectionWindow {
                      }
 
                      let menu_id = format!("{collection}_{token_id}_nft_more_options");
+                     // A chosen item closes the menu: a reader activates it with Enter,
+                     // which presses no pointer.
                      Menu::new(menu_id).show_below(&more, |ui| {
                         if ui.add(MenuItem::new("Copy Collection")).clicked() {
+                           ui.close();
                            ui.ctx().copy_text(collection.to_string());
                         }
 
                         if ui.add(MenuItem::new("Copy Token ID")).clicked() {
+                           ui.close();
                            ui.ctx().copy_text(token_id.to_string());
                         }
 
                         if ui.add(MenuItem::new("See on Block Explorer")).clicked() {
+                           ui.close();
                            let url = chain.nft_url(collection, token_id);
                            ui.ctx().open_url(OpenUrl::new_tab(url));
                         }
@@ -1224,6 +1236,7 @@ impl TokenSelectionWindow {
                         };
 
                         if ui.add(MenuItem::new(portfolio_item)).clicked() {
+                           ui.close();
                            set_nft_in_portfolio(
                               chain_id,
                               owner,
@@ -1233,6 +1246,7 @@ impl TokenSelectionWindow {
                         }
 
                         if ui.add(MenuItem::new("Delete NFT")).clicked() {
+                           ui.close();
                            delete_nft(
                               chain_id,
                               owner,
