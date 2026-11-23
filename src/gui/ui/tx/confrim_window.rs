@@ -18,7 +18,7 @@ use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::windows::PromptGate;
 use crate::gui::ui::common::{
    address::name_address, address_for_speech, blocked_reason_line, delayed_action_remaining,
-   heading, name_alert, name_text, wallet_identity,
+   hand_focus_back, heading, name_alert, name_text, wallet_identity,
 };
 use crate::utils::estimate_tx_cost;
 use zeus_eth::{
@@ -85,6 +85,11 @@ pub struct TxConfirmationWindow {
    clear_display: Option<ClearDisplay>,
    /// When the prompt became visible. `None` skips the Sign/Confirm delay (in-app Zeus txs).
    opened_at: Option<Instant>,
+   /// The control the user was on when the prompt took the screen over: the keyboard goes back to
+   /// it once the prompt closes.
+   opener: Option<Id>,
+   /// True once the opening frame has read [`Self::opener`] off the focus.
+   opener_read: bool,
    /// True until the opening painted frame has put focus on the action heading.
    ///
    /// The modal spends two invisible sizing passes before it paints, and focus requested on
@@ -130,6 +135,8 @@ impl TxConfirmationWindow {
          show_tx_options: false,
          clear_display: None,
          opened_at: None,
+         opener: None,
+         opener_read: false,
          focus_pending: false,
          ready_announced: false,
          notice: None,
@@ -268,7 +275,10 @@ impl TxConfirmationWindow {
       // is still fetching a clear-signing descriptor).
       self.confirmed_or_rejected = None;
       // A prompt the user has not seen yet starts with the action focused, the countdown
-      // still to say, and nothing of the previous prompt's words left over.
+      // still to say, and nothing of the previous prompt's words left over. The control it is
+      // raised from is read again on its first frame; this one belongs to a stale prompt.
+      self.opener = None;
+      self.opener_read = false;
       self.focus_pending = true;
       self.ready_announced = false;
       self.notice = None;
@@ -384,6 +394,9 @@ impl TxConfirmationWindow {
    /// `confirm_tx` errors out instead of hanging. Used when auto-lock fires.
    pub fn reject(&mut self) {
       self.confirmed_or_rejected = Some(false);
+      // A prompt withdrawn rather than answered — auto-lock's cancel included — has no control to
+      // go back to: the page it was raised from is not the page the user comes back to.
+      self.opener = None;
       self.close();
    }
 
@@ -470,6 +483,14 @@ impl TxConfirmationWindow {
    ) {
       if !self.open {
          return;
+      }
+
+      // Read on the prompt's first frame, before the modal layer joins the stack: from the next
+      // frame on egui has already dropped the focus of the page under it, and the control the
+      // prompt was raised from could no longer be named.
+      if !self.opener_read {
+         self.opener = ui.ctx().memory(|memory| memory.focused());
+         self.opener_read = true;
       }
 
       let mut open = self.open;
@@ -949,6 +970,18 @@ impl TxConfirmationWindow {
             self.notice = Some("Transaction rejected.".to_string());
          }
       }
+   }
+
+   /// Give the keyboard back to the control the prompt was raised from.
+   ///
+   /// Called by `central_panel` once every surface of the pass has drawn — see
+   /// [`hand_focus_back`] for why the window cannot do it from its own draw.
+   pub fn give_focus_back(&mut self, ctx: &egui::Context) {
+      if self.open {
+         return;
+      }
+
+      hand_focus_back(ctx, &mut self.opener);
    }
 
    /// True when a resolved ERC-7730 display should lead the window instead of the decoded main

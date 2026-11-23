@@ -10,7 +10,7 @@ use crate::assets::icons::Icons;
 use crate::core::clear_signing;
 use crate::core::{TransactionRich, ZeusContext};
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::common::{heading, name_alert, usable_chain};
+use crate::gui::ui::common::{hand_focus_back, heading, name_alert, usable_chain};
 
 use std::sync::Arc;
 
@@ -473,17 +473,20 @@ impl TxWindow {
       // description — and the window takes its sub-modals with it.
       if !open || !self.open {
          self.close();
-         // The control that opened the window takes the focus back, whether the key, the
-         // backdrop or a Close button ended it.
-         self.restore_opener(ui.ctx());
       }
    }
 
-   /// Give the focus back to the control that opened the window, if it is still remembered.
-   fn restore_opener(&mut self, ctx: &egui::Context) {
-      if let Some(opener) = self.opener.take() {
-         ctx.memory_mut(|memory| memory.request_focus(opener));
+   /// Give the keyboard back to the control that opened the window.
+   ///
+   /// Called by `central_panel` once every surface of the pass has drawn: the page under the
+   /// window draws after it, and a request made here would be cleared by that page's own widgets
+   /// while the window's modal layer is still up (see [`hand_focus_back`]).
+   pub fn give_focus_back(&mut self, ctx: &egui::Context) {
+      if self.open {
+         return;
       }
+
+      hand_focus_back(ctx, &mut self.opener);
    }
 
    /// The window as a notification leaves it, for the accessibility tests that render it

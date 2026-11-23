@@ -95,6 +95,20 @@ pub fn delayed_action_label(opened_at: Option<Instant>, ready_label: &str) -> (b
    }
 }
 
+/// Put the keyboard back on the control a dialog was opened from.
+///
+/// A window cannot do this from its own `show`: on the frame a dialog closes, the page under it
+/// still draws behind the dialog's modal layer, and egui clears the focus of a widget drawn in that
+/// state — `Context::create_widget` calls `Memory::ignore_focus` for anything not allowed
+/// interaction yet. A request made from inside the window is therefore wiped by the page's own
+/// widgets, which draw after it. The frame hands the focus back at the end of the pass instead —
+/// see `central_panel::show` — where nothing follows but the announcer.
+pub fn hand_focus_back(ctx: &egui::Context, opener: &mut Option<Id>) {
+   if let Some(id) = opener.take() {
+      ctx.memory_mut(|memory| memory.request_focus(id));
+   }
+}
+
 /// Draw the sentence that says why an action is blocked, directly above its button.
 ///
 /// A disabled button takes no focus, so a reader could not reach the reason while it lived in

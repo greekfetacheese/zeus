@@ -294,6 +294,12 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    if let Some(text) = sign_notice {
       gui.announce(text);
    }
+
+   // The keyboard goes back to the control a dialog was opened from, now that every surface of the
+   // pass has drawn: a request made from inside the window is cleared by the page under it, whose
+   // widgets egui ignores while the window's modal layer is still up. See `hand_focus_back`.
+   gui.tx_window.give_focus_back(ui.ctx());
+   gui.tx_confirmation_window.give_focus_back(ui.ctx());
 }
 
 pub struct FPSMetrics {

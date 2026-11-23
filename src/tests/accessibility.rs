@@ -13417,6 +13417,7 @@ fn the_transaction_details_window_opens_on_its_heading() {
    let nodes = render_modal(&ctx, Vec::new(), |ui| {
       opener_button(ui, opener, "Open transaction details");
       handle.write(|zeus| window.show(zeus, &theme, icons.clone(), ui));
+      window.give_focus_back(ui.ctx());
    });
 
    let focused = focused_node(&ctx, &nodes);
@@ -13435,6 +13436,10 @@ fn the_transaction_details_window_opens_on_its_heading() {
 }
 
 /// Both exits hand the focus back to the control that opened the details window.
+///
+/// The request is made by the frame at the end of its pass, not by the window: the page under it
+/// draws after the window, and a request aimed at that page from inside the window is cleared by
+/// the page's own widgets while the modal layer is still up (`hand_focus_back`).
 #[test]
 fn closing_the_transaction_details_window_gives_the_focus_back() {
    let (ctx, handle, theme, icons, _appearance) = prompt_harness();
@@ -13449,6 +13454,7 @@ fn closing_the_transaction_details_window_gives_the_focus_back() {
    let nodes = render_modal(&ctx, vec![key_press(Key::Escape)], |ui| {
       opener_button(ui, opener, "Open transaction details");
       handle.write(|zeus| window.show(zeus, &theme, icons.clone(), ui));
+      window.give_focus_back(ui.ctx());
    });
 
    assert!(!window.is_open(), "Escape must close the window");
@@ -13467,6 +13473,7 @@ fn closing_the_transaction_details_window_gives_the_focus_back() {
    let nodes = render_modal(&ctx, Vec::new(), |ui| {
       opener_button(ui, opener, "Open transaction details");
       handle.write(|zeus| window.show(zeus, &theme, icons.clone(), ui));
+      window.give_focus_back(ui.ctx());
    });
 
    let close = nodes
@@ -13481,6 +13488,7 @@ fn closing_the_transaction_details_window_gives_the_focus_back() {
       |ui| {
          opener_button(ui, opener, "Open transaction details");
          handle.write(|zeus| window.show(zeus, &theme, icons.clone(), ui));
+         window.give_focus_back(ui.ctx());
       },
    );
 
@@ -13492,6 +13500,89 @@ fn closing_the_transaction_details_window_gives_the_focus_back() {
       focused_node(&ctx, &nodes).label(),
       Some("Open transaction details"),
       "the Close button must hand the focus back the same way"
+   );
+}
+
+/// The keyboard comes back to the page when the details window closes.
+///
+/// The app draws a dialog before the page it covers, so on the frame a dialog closes the page's
+/// widgets still draw last — and egui clears the focus of a widget drawn behind a modal layer,
+/// which is what that page is while the layer is still on the stack. A request made from inside
+/// the window is therefore wiped by the page that draws after it.
+#[test]
+fn closing_the_details_window_gives_the_page_under_it_its_focus_back() {
+   let (ctx, handle, theme, icons, _appearance) = prompt_harness();
+   let opener = Id::unique("transaction_details_opener");
+   let mut window = TxWindow::for_test_with_opener(
+      Some(TransactionRich::dummy_clear_signed()),
+      false,
+      opener,
+   );
+
+   // The app's order: the window first, then the page it was opened from, then the hand-back the
+   // frame ends its pass with (`central_panel`).
+   let draw = |events: Vec<Event>, window: &mut TxWindow| {
+      render_modal(&ctx, events, |ui| {
+         handle.write(|zeus| window.show(zeus, &theme, icons.clone(), ui));
+         opener_button(ui, opener, "Details for Supply");
+         window.give_focus_back(ui.ctx());
+      })
+   };
+
+   draw(Vec::new(), &mut window);
+   let nodes = draw(vec![key_press(Key::Escape)], &mut window);
+
+   assert!(!window.is_open(), "Escape must close the window");
+   assert_eq!(
+      focused_node(&ctx, &nodes).label(),
+      Some("Details for Supply"),
+      "the row's own control must take the keyboard back"
+   );
+}
+
+/// The prompt a revoke raises gives the keyboard back to the button that raised it.
+///
+/// Same frame shape as the details window: the prompt takes the screen over from a page that draws
+/// under it, so the control the reader was on has to be given the focus again once the page has
+/// drawn — otherwise the keyboard is dropped at the top of the page and the walk starts over.
+#[test]
+fn closing_the_confirmation_window_gives_the_button_its_focus_back() {
+   let (ctx, handle, theme, icons, appearance) = prompt_harness();
+   let mut window = TxConfirmationWindow::for_test(
+      &handle,
+      TransactionAnalysis::dummy_with_diffs(),
+      "",
+      false,
+      None,
+   );
+   let opener = Id::unique("revoke_opener");
+
+   // Where the reader was when the prompt took the screen over: the row's own Revoke button.
+   ctx.memory_mut(|memory| memory.request_focus(opener));
+
+   let mut nodes = Vec::new();
+
+   for pass in 0..3 {
+      let events = if pass == 2 {
+         vec![key_press(Key::Escape)]
+      } else {
+         Vec::new()
+      };
+
+      // The page the prompt was raised from draws under it, and the frame hands the keyboard back
+      // once everything has drawn — the order `central_panel` uses.
+      nodes = frame_nodes(&ctx, events, |ui| {
+         handle.write(|c| window.show(c, &theme, icons.clone(), &appearance, ui));
+         opener_button(ui, opener, "Revoke USDC approval");
+         window.give_focus_back(ui.ctx());
+      });
+   }
+
+   assert!(!window.is_open(), "Escape must close the prompt");
+   assert_eq!(
+      focused_node(&ctx, &nodes).label(),
+      Some("Revoke USDC approval"),
+      "the button that raised the prompt must take the keyboard back"
    );
 }
 
