@@ -7649,7 +7649,7 @@ fn the_rename_dialog_opens_on_the_name_in_use_and_escape_leaves_it_alone() {
    let master = master_wallet("Main");
 
    seed_wallet_page(&mut gui, &zeus, &master, &[], &[1]);
-   gui.wallet_ui.open_rename_wallet(Some(master.clone()));
+   gui.wallet_ui.open_rename_wallet(Some(master.clone()), None);
 
    // A shrink-wrapping dialog spends two invisible sizing passes before it paints, and egui
    // exposes no node for a widget it considers invisible.
@@ -7700,6 +7700,56 @@ fn the_rename_dialog_opens_on_the_name_in_use_and_escape_leaves_it_alone() {
       zeus.read(|zeus| zeus.current_wallet.name().to_string()),
       "Main",
       "closing the dialog must leave the wallet named as it was"
+   );
+}
+
+/// The rename dialog hands the keyboard back to the card it was opened from.
+///
+/// The menu item that opened it goes with the menu, and the dialog's own field and buttons go with
+/// the dialog: without a focus handed back, a reader is left on nothing in the middle of the page.
+#[test]
+fn the_rename_dialog_gives_the_keyboard_back_to_the_card() {
+   let (ctx, mut gui, zeus) = main_window();
+   let master = master_wallet("Main");
+
+   seed_wallet_page(&mut gui, &zeus, &master, &[], &[1]);
+
+   let nodes = draw_wallet_page(&ctx, &mut gui, &zeus);
+   let options = button_named(&nodes, "Options for Main, master wallet");
+
+   render_wallet_page(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, options)],
+   );
+   let nodes = render_wallet_page(&ctx, &mut gui, &zeus, Vec::new());
+   let rename = button_named(&nodes, "Rename");
+
+   render_wallet_page(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, rename)],
+   );
+   render_wallet_page(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert!(
+      gui.wallet_ui.rename_is_open_for_test(),
+      "the dialog must open"
+   );
+
+   // The save runs on a worker and closes the dialog from off the frame; the page hands the
+   // keyboard back on the next frame it draws.
+   gui.wallet_ui.close_rename_wallet();
+
+   let nodes = render_wallet_page(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert_eq!(
+      focused_id(&ctx),
+      Some(options),
+      "the keyboard must go back to the card's options button: {:?}",
+      focused_text(&ctx, &nodes)
    );
 }
 

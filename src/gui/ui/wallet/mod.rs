@@ -42,6 +42,12 @@ pub struct WalletUi {
    /// Whether the rename field still has to take the focus the dialog's Close button is given when
    /// it opens.
    rename_focus_field: bool,
+   /// The control the rename dialog was opened from: the card's options button, which takes the
+   /// keyboard back when the dialog closes.
+   rename_opener: Option<Id>,
+   /// The control the keyboard goes back to on the first frame the page draws after the rename
+   /// dialog closes, since the dialog's own controls are gone with it.
+   rename_return_focus: Option<Id>,
    pub add_wallet_ui: AddWalletUi,
    search_query: String,
    export_key_ui: ExportKeyUi,
@@ -75,6 +81,8 @@ impl WalletUi {
          new_wallet_name: String::new(),
          wallet_to_rename: None,
          rename_focus_field: false,
+         rename_opener: None,
+         rename_return_focus: None,
          add_wallet_ui: AddWalletUi::new(),
          search_query: String::new(),
          export_key_ui: ExportKeyUi::new(),
@@ -115,7 +123,9 @@ impl WalletUi {
          || self.rename_wallet
    }
 
-   pub fn open_rename_wallet(&mut self, wallet: Option<WalletInfo>) {
+   /// Open the rename dialog on `wallet`, remembering `opener` — the control whose focus the
+   /// dialog gives back when it closes.
+   pub fn open_rename_wallet(&mut self, wallet: Option<WalletInfo>, opener: Option<Id>) {
       // The field opens on the name in use, so a reader can hear what is there and change it
       // instead of retyping it from memory.
       self.new_wallet_name =
@@ -124,9 +134,17 @@ impl WalletUi {
       self.rename_wallet = true;
       self.wallet_to_rename = wallet;
       self.rename_focus_field = true;
+      self.rename_opener = opener;
    }
 
    pub fn close_rename_wallet(&mut self) {
+      // The dialog's own controls go with it and the menu item that opened it went with the menu,
+      // so the card's options button takes the keyboard back. The request waits for the frame: the
+      // rename is saved on a worker, which closes the dialog between frames.
+      if self.rename_wallet {
+         self.rename_return_focus = self.rename_opener.take();
+      }
+
       self.rename_wallet = false;
       self.wallet_to_rename = None;
       self.new_wallet_name.clear();
@@ -180,6 +198,8 @@ impl WalletUi {
    pub fn lock(&mut self, ctx: &Context) {
       self.close();
       self.close_rename_wallet();
+      // A focus handed back before the lock is not about the page the user comes back to.
+      self.rename_return_focus = None;
       // A sentence raised before the lock is not about the page the user comes back to.
       self.notice = None;
       self.export_key_ui.lock(ctx);
@@ -198,6 +218,10 @@ impl WalletUi {
 
       self.rename_wallet(theme, ui);
       self.add_wallet_ui.show(ctx, theme, icons.clone(), ui);
+
+      if let Some(opener) = self.rename_return_focus.take() {
+         ui.ctx().memory_mut(|memory| memory.request_focus(opener));
+      }
 
       // The add-wallet dialog draws after the page, so its sentence is the last one raised here.
       if let Some(notice) = self.add_wallet_ui.take_notice() {
@@ -498,7 +522,7 @@ impl WalletUi {
 
                if ui.add(MenuItem::new("Rename")).clicked() {
                   ui.close();
-                  self.open_rename_wallet(Some(wallet.clone()));
+                  self.open_rename_wallet(Some(wallet.clone()), Some(more.id));
                }
 
                let show_qr = ui.add(MenuItem::new("Show address QR code"));
