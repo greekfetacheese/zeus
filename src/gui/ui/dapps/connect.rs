@@ -332,8 +332,13 @@ impl ConnectDappWindow {
                                     )
                                  });
 
+                                 // The row's name says which account it is; the whole address
+                                 // is what the description carries, since the row itself draws
+                                 // only the shortening.
                                  let address =
-                                    address_for_speech(None, &wallet.address.to_string()).name;
+                                    address_for_speech(None, &wallet.address.to_string())
+                                       .description
+                                       .unwrap_or_default();
 
                                  ui.ctx().accesskit_node_builder(response.id, |node| {
                                     node.set_description(address);

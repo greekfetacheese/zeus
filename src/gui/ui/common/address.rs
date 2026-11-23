@@ -5,9 +5,11 @@
 //! capitalisation, which is the only self-checking part of an EVM address. A 0zk address is worse
 //! off: it carries no checksum at all, so a shortened one can neither be told apart nor verified.
 //!
-//! So everything drawn shortened hands its node a full form instead: the name Zeus has for the
-//! address when it has one, otherwise the address itself, grouped so it can be followed by ear. The
-//! shortened form stays reachable as the node's description.
+//! So a reader is given the same words the row draws: the name Zeus has for the address when it has
+//! one, otherwise the shortening. A name the row does not say is heard twice over the glyphs it
+//! draws, and the whole address spelled out is not something a listener can follow — forty hex
+//! characters, one at a time, is a wall. The whole address stays as the node's description, for
+//! whoever asks for it.
 
 use crate::utils::truncate_address;
 use egui::{Response, Ui};
@@ -16,9 +18,10 @@ use super::name_text;
 
 /// What a screen reader should say for one address, and what it may add on request.
 pub struct SpokenAddress {
-   /// The accessible name: the name Zeus has for this address, or the address when there is none.
+   /// The accessible name: the words Zeus draws for this address — the name it has for it, or the
+   /// shortening the row shows.
    pub name: String,
-   /// The form read on request: the full address, or the shortened one Zeus draws.
+   /// The form read on request: the whole address, grouped so it can be followed.
    pub description: Option<String>,
 }
 
@@ -27,7 +30,8 @@ pub struct SpokenAddress {
 /// A name that is empty or only whitespace counts as no name: a failed Sourcify or ERC-7730 insert
 /// stores one, and it would otherwise be read out in place of the address. A 0zk address with no
 /// name is never read shortened — it says what it is, how long it is and how it ends, which is all
-/// a listener can check by ear.
+/// a listener can check by ear. Everything else unnamed is read as the shortening it is drawn as,
+/// and its whole form waits in the description.
 pub fn address_for_speech(name: Option<&str>, address: &str) -> SpokenAddress {
    let name = name.map(str::trim).filter(|name| !name.is_empty());
 
@@ -53,13 +57,15 @@ pub fn address_for_speech(name: Option<&str>, address: &str) -> SpokenAddress {
             address.chars().count(),
             last_characters(address, 6),
          ),
-         description: Some(truncate_address(address.to_string())),
+         description: Some(address.to_string()),
       };
    }
 
+   // The words on screen, so the row says one thing: the name a reader hears is the shortening the
+   // label draws, and the address itself is what the description carries.
    SpokenAddress {
-      name: full_address(address),
-      description: Some(truncate_address(address.to_string())),
+      name: truncate_address(address.to_string()),
+      description: Some(full_address(address)),
    }
 }
 
@@ -80,7 +86,7 @@ pub fn copied_words(address: &str) -> String {
 /// The name to draw for an address, and the words a screen reader gets for it.
 ///
 /// One lookup answers both: a named address is drawn as its name, an unnamed one as the shortened
-/// address, and the spoken form never leaves a listener with only those two ends.
+/// address, and the spoken name is that same string — the whole address waits in the description.
 pub fn drawn_and_spoken(name: Option<&str>, address: &str) -> (String, SpokenAddress) {
    let drawn = match name {
       Some(name) => name.to_string(),
@@ -109,8 +115,7 @@ pub fn transfer_for_speech(from: &SpokenAddress, to: &SpokenAddress) -> SpokenAd
 ///
 /// The drawn text keeps its place on screen; the node is what a reader hears. The name goes
 /// through [`name_text`], which is the one place a drawn label is named. What is left to this
-/// function is the address's own second form: the full address, or the shortening Zeus draws, for
-/// whoever asks for it.
+/// function is the address's own second form: the whole address, for whoever asks for it.
 pub fn name_address(ui: &Ui, response: &Response, spoken: &SpokenAddress) {
    name_text(ui, response, spoken.name.clone());
 
@@ -121,8 +126,8 @@ pub fn name_address(ui: &Ui, response: &Response, spoken: &SpokenAddress) {
    }
 }
 
-/// The full form a reader hears: an EVM address in groups of four hex characters, so it can be
-/// followed one group at a time. Anything else comes back exactly as it is.
+/// The form a reader gets on request: an EVM address in groups of four hex characters, so it can
+/// be followed one group at a time. Anything else comes back exactly as it is.
 fn full_address(address: &str) -> String {
    grouped_evm(address).unwrap_or_else(|| address.to_string())
 }
@@ -166,25 +171,28 @@ mod tests {
 
    const VITALIK: &str = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
 
-   /// An unnamed address is read in full, four characters at a time, so a listener hears the
-   /// checksummed string rather than its two ends — and grouping costs the address nothing.
+   /// An unnamed address is named by the shortening the row draws: forty hex characters, one at a
+   /// time, is a spelling nobody can follow, and a name the glyphs below do not say is heard twice.
+   /// The whole address waits in the description, so nothing is lost by saying the ends.
    #[test]
-   fn an_unnamed_evm_address_is_read_in_full() {
+   fn an_unnamed_address_is_named_by_the_shortening_it_is_drawn_as() {
       let spoken = address_for_speech(None, VITALIK);
 
+      assert_eq!(spoken.name, "0xd8dA...A96045");
       assert_eq!(
          spoken.name,
-         "0xd8dA 6BF2 6964 aF9D 7eEd 9e03 E534 15D3 7aA9 6045"
-      );
-      assert_eq!(
-         spoken.name.replace(' ', ""),
-         VITALIK,
-         "grouping must not lose a character of the address"
+         truncate_address(VITALIK.to_string()),
+         "the name is the text the row draws, so the row is read once"
       );
       assert_eq!(
          spoken.description.as_deref(),
-         Some("0xd8dA...A96045"),
-         "the drawn form stays reachable"
+         Some("0xd8dA 6BF2 6964 aF9D 7eEd 9e03 E534 15D3 7aA9 6045"),
+         "the whole address is what a listener asks for"
+      );
+      assert_eq!(
+         spoken.description.unwrap_or_default().replace(' ', ""),
+         VITALIK,
+         "grouping must not lose a character of the address"
       );
    }
 
@@ -251,10 +259,11 @@ mod tests {
       }
    }
 
-   /// The bug the truncation caused: two addresses that agree on their first and last six hex
-   /// characters are the same drawn string and different addresses.
+   /// The price of a name a listener can follow: two addresses that agree on both ends are one
+   /// string by ear. The whole of each is the description, which is where the two still differ —
+   /// and the row is the one spelling instead of a wall of hex said twice.
    #[test]
-   fn addresses_that_share_their_ends_are_read_differently() {
+   fn addresses_that_share_their_ends_sound_alike_and_differ_in_full() {
       let first = format!("0x1234{}ABCDEF", "1".repeat(30));
       let second = format!("0x1234{}ABCDEF", "2".repeat(30));
 
@@ -263,19 +272,34 @@ mod tests {
          truncate_address(second.clone()),
          "the drawn form cannot tell them apart"
       );
+
+      let first = address_for_speech(None, &first);
+      let second = address_for_speech(None, &second);
+
+      assert_eq!(
+         first.name, second.name,
+         "the ends are all a listener hears of an unnamed address"
+      );
       assert_ne!(
-         address_for_speech(None, &first).name,
-         address_for_speech(None, &second).name
+         first.description, second.description,
+         "the whole addresses must stay reachable, or the ends would be the only record"
       );
    }
 
-   /// A string with too little hex in it to group, or nothing to do with an address at all, comes
-   /// back unchanged: the callers hand over whatever a store or a decoded event carried.
+   /// The callers hand over whatever a store or a decoded event carried, so a string with nothing
+   /// to do with an address comes back as the row draws it: short enough to draw whole it is the
+   /// string itself, and longer it is the shortening — never a form the row does not say.
    #[test]
-   fn a_string_that_is_not_an_address_comes_back_unchanged() {
-      for text in ["0x1234", "0x1234567", "0x", "No zkAddress", "Ada Lovelace"] {
+   fn a_string_that_is_not_an_address_comes_back_as_it_is_drawn() {
+      for text in ["0x1234", "0x1234567", "0x", "Ada Lovelace"] {
          assert_eq!(address_for_speech(None, text).name, text);
       }
+
+      assert_eq!(
+         address_for_speech(None, "No zkAddress").name,
+         truncate_address("No zkAddress".to_string()),
+         "a value long enough to be drawn shortened is named by that shortening"
+      );
 
       assert_eq!(
          address_for_speech(Some("Ada"), "0x1234").name,
@@ -288,8 +312,9 @@ mod tests {
       );
    }
 
-   /// A transfer line is one sentence, with each side keeping the form its own rule gives it: the
-   /// full address when it is named, the drawn shortening when it is not.
+   /// A transfer line is one sentence, each side said the way its own rule says it: the name when it
+   /// has one, the shortening when it does not. The whole of both sides is what the description
+   /// carries, since neither end of a transfer can be checked from a shortening.
    #[test]
    fn a_from_to_line_is_one_sentence() {
       let from = address_for_speech(Some("Zeus"), VITALIK);
@@ -297,10 +322,13 @@ mod tests {
       let line = transfer_for_speech(&from, &to);
 
       assert_eq!(line.name, format!("Zeus to {}", to.name));
+      assert_eq!(line.name, "Zeus to 0xd8dA...A96045");
       assert_eq!(
          line.description.as_deref(),
-         Some("0xd8dA 6BF2 6964 aF9D 7eEd 9e03 E534 15D3 7aA9 6045 to 0xd8dA...A96045"),
-         "a named side keeps its full address, an unnamed one its drawn form"
+         Some(
+            "0xd8dA 6BF2 6964 aF9D 7eEd 9e03 E534 15D3 7aA9 6045 to 0xd8dA 6BF2 6964 aF9D 7eEd 9e03 E534 15D3 7aA9 6045"
+         ),
+         "both whole addresses stay behind the sentence"
       );
    }
 

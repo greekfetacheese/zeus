@@ -651,7 +651,9 @@ impl DiscoverChildWallets {
                         WidgetInfo::labeled(Role::Button, ui.is_enabled(), &add_name)
                      });
                      ui.ctx().accesskit_node_builder(add.id, |node| {
-                        node.set_description(spoken.name.as_str());
+                        if let Some(whole) = &spoken.description {
+                           node.set_description(whole.as_str());
+                        }
                      });
 
                      if add.clicked() {

@@ -530,14 +530,16 @@ impl WalletUi {
          let label = Button::selectable(false, text);
          let copy = ui.add(label);
 
-         // The drawn address keeps both of its ends; what is copied, and what a reader hears, is
-         // the whole of it.
+         // The drawn address keeps both of its ends; what is copied is the whole of it, which is
+         // what the node keeps behind the button's own name.
          let copy_name = format!("Copy address of {spoken}");
          let address = address_for_speech(None, &wallet.address.to_string());
 
          copy.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &copy_name));
          ui.ctx().accesskit_node_builder(copy.id, |node| {
-            node.set_description(address.name.as_str());
+            if let Some(whole) = &address.description {
+               node.set_description(whole.as_str());
+            }
          });
 
          if copy.clicked() {

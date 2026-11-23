@@ -2713,11 +2713,12 @@ fn a_contact_row_copy_says_it_happened() {
    );
 }
 
-/// The money rows draw an address shortened, so two addresses that agree on their first and last
-/// six characters look the same on screen and are different addresses. The row's node has to
-/// carry the whole address instead, with the drawn form left as its description.
+/// The money rows draw an address shortened, and that shortening is what the row is called: a name
+/// the glyphs below it do not say is heard twice, and the whole address spelled out one character
+/// at a time is a wall nobody can follow. The whole address stays as the description, which is
+/// where two rows that agree on both ends still differ.
 #[test]
-fn the_recipient_row_names_the_full_address() {
+fn the_recipient_row_names_the_address_by_its_ends() {
    let ctx = Context::default();
    let zeus = ZeusCtx::new(crate::runtime::test_handle());
    let theme = Theme::new(ThemeKind::TokyoNight);
@@ -2753,18 +2754,17 @@ fn the_recipient_row_names_the_full_address() {
    let name = link.label().expect("the link must be named");
 
    assert_eq!(
-      name.replace(' ', ""),
-      account.to_string(),
-      "the link must carry the whole address, not its two ends"
-   );
-   assert_ne!(
       name, "0x1111...111111",
-      "the drawn truncation is not a name"
+      "the link is named by the shortening the row draws, so it is heard once"
+   );
+   assert!(
+      name.chars().count() < 20,
+      "the whole address, one character at a time, is not something a listener can follow"
    );
    assert_eq!(
       link.description(),
-      Some("0x1111...111111"),
-      "the drawn form stays reachable as the description"
+      Some("0x1111 1111 1111 1111 1111 1111 1111 1111 1111 1111"),
+      "the whole address stays on the node, for whoever asks for it"
    );
 }
 
@@ -5863,6 +5863,10 @@ fn an_unlimited_approval_is_spoken_not_only_coloured() {
       spoken.contains("Unlimited"),
       "the warning must say the allowance is unlimited: {spoken:?}"
    );
+   assert!(
+      longest_hex_run(spoken) < 20,
+      "the warning must name the spender by its ends, not spell its address out: {spoken:?}"
+   );
 }
 
 /// Draw the sign-message window into a reader's tree.
@@ -5983,16 +5987,46 @@ fn the_sign_window_opens_on_the_message_heading() {
 fn drawn_runs(nodes: &[(NodeId, Node)], spoken: &str) -> Vec<String> {
    // A label and the run it draws carry the same string, so the role is what picks the node the
    // runs hang from.
-   let Some((_, node)) = nodes.iter().find(|(_, node)| {
+   let Some((id, _)) = nodes.iter().find(|(_, node)| {
       node.role() == Role::Label && node.label().or_else(|| node.value()) == Some(spoken)
    }) else {
+      return Vec::new();
+   };
+
+   runs_below(nodes, *id)
+}
+
+/// The longest run of hex characters in `text`: a shortening stays under twenty, while an
+/// address spelled out is forty — a wall a listener cannot follow.
+fn longest_hex_run(text: &str) -> usize {
+   let mut longest = 0;
+   let mut current = 0;
+
+   for character in text.chars() {
+      if character.is_ascii_hexdigit() {
+         current += 1;
+         longest = longest.max(current);
+      } else {
+         current = 0;
+      }
+   }
+
+   longest
+}
+
+/// The visible runs drawn beneath the node `id`, whatever role that node has.
+///
+/// A link draws its text the way a label does, so the runs hang from it just the same — which is
+/// how an address link can say its shortening twice.
+fn runs_below(nodes: &[(NodeId, Node)], id: NodeId) -> Vec<String> {
+   let Some((_, node)) = nodes.iter().find(|(node_id, _)| *node_id == id) else {
       return Vec::new();
    };
 
    node
       .children()
       .iter()
-      .filter_map(|id| nodes.iter().find(|(node_id, _)| node_id == id))
+      .filter_map(|child| nodes.iter().find(|(node_id, _)| node_id == child))
       .filter(|(_, child)| !child.is_hidden())
       .filter_map(|(_, child)| child.value())
       .map(str::to_string)
@@ -6067,16 +6101,17 @@ fn the_sign_window_says_who_requested_it() {
 fn the_confirmation_draws_the_origin_and_the_titles_it_says() {
    let (ctx, handle, theme, icons, appearance) = prompt_harness();
    let analysis = TransactionAnalysis::dummy_with_diffs();
-   let approvals = format!("Approval Changes ({})", analysis.approval_diff.len());
-   let balances = format!("Balance Changes ({})", analysis.balance_diff.len());
-
-   let mut window = TxConfirmationWindow::for_test(
-      &handle,
-      analysis,
-      "app.uniswap.org",
-      false,
-      None,
+   let approvals = format!(
+      "Approval Changes ({})",
+      analysis.approval_diff.len()
    );
+   let balances = format!(
+      "Balance Changes ({})",
+      analysis.balance_diff.len()
+   );
+
+   let mut window =
+      TxConfirmationWindow::for_test(&handle, analysis, "app.uniswap.org", false, None);
    let nodes = render_confirmation(
       &ctx,
       &handle,
@@ -6087,7 +6122,11 @@ fn the_confirmation_draws_the_origin_and_the_titles_it_says() {
       Vec::new(),
    );
 
-   for spoken in ["Requested by app.uniswap.org", approvals.as_str(), balances.as_str()] {
+   for spoken in [
+      "Requested by app.uniswap.org",
+      approvals.as_str(),
+      balances.as_str(),
+   ] {
       assert_eq!(
          drawn_runs(&nodes, spoken),
          vec![spoken.to_string()],
@@ -6343,6 +6382,83 @@ fn an_unlimited_permit_is_spoken_not_only_coloured() {
    assert!(
       node_position(&nodes, "Unlimited allowance.") < node_position(&nodes, "Approve Token"),
       "the warning must be read before the permit rows it warns about"
+   );
+}
+
+/// An address the wallet has no name for is read by the ends Zeus draws, never spelled out in hex.
+///
+/// Forty characters, one at a time, is a spelling nobody can follow, and the row that draws a
+/// shortening would say it twice — once as the node's name and once as the glyphs under it. The
+/// name is the shortening and the drawn run is the same string, so the row is heard once; the whole
+/// address stays on the node as its description, for whoever asks for it.
+#[test]
+fn an_unnamed_spender_is_read_by_its_ends_and_not_spelled_out() {
+   let (ctx, handle, theme, icons, appearance) = prompt_harness();
+   let mut details = Permit2612Details::dummy();
+   details.amount = NumericValue::format_wei(U256::MAX, details.token.decimals);
+
+   let spender = details.spender.to_string();
+   let mut window = SignMsgWindow::for_test(
+      "app.example.org",
+      ChainId::default(),
+      Address::repeat_byte(0x11),
+      SignMsgType::Permit2612(details),
+      None,
+   );
+
+   let nodes = render_sign(
+      &ctx,
+      &handle,
+      &mut window,
+      &theme,
+      &icons,
+      &appearance,
+      Vec::new(),
+   );
+
+   // The fixture's spender is unnamed, so the ends are all a listener can be given.
+   let drawn = "0x2222...222222";
+   let whole = "0x2222 2222 2222 2222 2222 2222 2222 2222 2222 2222";
+
+   let alert = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Alert)
+      .map(|(_, node)| node)
+      .expect("an unlimited permit must warn with an Alert node");
+
+   let sentence = alert.label().or_else(|| alert.description()).unwrap_or_default();
+
+   assert!(
+      !sentence.replace(' ', "").contains(&spender),
+      "the warning must not spell the spender's hex, which is a wall of characters by ear: \
+{sentence:?}"
+   );
+   assert!(
+      sentence.contains(drawn),
+      "the warning must name the spender the way the row below it does: {sentence:?}"
+   );
+
+   let (id, row) =
+      nodes.iter().find(|(_, node)| node.label() == Some(drawn)).unwrap_or_else(|| {
+         panic!(
+            "the spender row must be named by its ends, not by the whole address: {:?}",
+            drawn_names(&nodes)
+         )
+      });
+
+   assert!(
+      !row.is_hidden(),
+      "the row a reader hears must be the one on screen"
+   );
+   assert_eq!(
+      row.description(),
+      Some(whole),
+      "the whole address stays on the node, for whoever asks for it"
+   );
+   assert_eq!(
+      runs_below(&nodes, *id),
+      vec![drawn.to_string()],
+      "the row draws the one string it is called, so it is not heard twice"
    );
 }
 
@@ -7126,7 +7242,9 @@ fn the_address_button_says_whose_address_it_copied() {
          )
       });
 
-   let full = crate::gui::ui::address_for_speech(None, &master.address.to_string()).name;
+   let full = crate::gui::ui::address_for_speech(None, &master.address.to_string())
+      .description
+      .unwrap_or_default();
 
    assert_eq!(
       node.description(),
@@ -8302,30 +8420,30 @@ fn every_discovered_row_names_the_wallet_it_adds() {
       drawn_names(&nodes)
    );
 
-   for (spoken, short) in [
+   for (whole, short) in [
       (FIRST_DISCOVERED_SPOKEN, FIRST_DISCOVERED_SHORT),
       (SECOND_DISCOVERED_SPOKEN, SECOND_DISCOVERED_SHORT),
    ] {
       let link = nodes
          .iter()
-         .find(|(_, node)| node.role() == Role::Link && node.label() == Some(spoken))
+         .find(|(_, node)| node.role() == Role::Link && node.label() == Some(short))
          .map(|(_, node)| node)
          .unwrap_or_else(|| {
             panic!(
-               "the address link must speak the whole address ({spoken}): {:?}",
+               "the address link must be named by the shortening it draws ({short}): {:?}",
                drawn_names(&nodes)
             )
          });
 
       assert!(
-         !link.label().unwrap_or_default().contains("..."),
-         "a shortened address must never stand in for the address in speech"
+         link.label().unwrap_or_default().chars().count() < 20,
+         "the whole address spelled one character at a time is a wall nobody can follow"
       );
 
       assert_eq!(
          link.description(),
-         Some(short),
-         "the drawn shortening stays reachable as the description"
+         Some(whole),
+         "the whole address stays on the node, for whoever asks for it"
       );
    }
 }
@@ -11184,7 +11302,7 @@ fn the_receive_window_says_which_address_it_shows() {
       .map(|(_, node)| node)
       .unwrap_or_else(|| {
          panic!(
-            "the address button must be named with the whole address: {:?}",
+            "the address button must be named by the shortening the row draws: {:?}",
             drawn_names(&nodes)
          )
       });
@@ -11192,7 +11310,7 @@ fn the_receive_window_says_which_address_it_shows() {
    assert_eq!(
       button.description(),
       spoken.description.as_deref(),
-      "the drawn shortening is the button's description"
+      "the whole address is the button's description"
    );
 }
 
@@ -11302,7 +11420,7 @@ fn a_contact_qr_page_says_which_address_it_shows() {
       .map(|(id, _)| *id)
       .unwrap_or_else(|| {
          panic!(
-            "the address button must be named with the whole address: {:?}",
+            "the address button must be named by the shortening the row draws: {:?}",
             drawn_names(&nodes)
          )
       });
@@ -12617,7 +12735,7 @@ fn the_receive_window_opens_on_its_address_button() {
    assert_eq!(
       focused.label(),
       Some(spoken.name.as_str()),
-      "the focused button must be named with the whole address"
+      "the focused button must be named by the shortening the row draws"
    );
 }
 
